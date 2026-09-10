@@ -10,9 +10,15 @@ dlssnr_on_amd_weights.bin
 # 官方 OptiScaler 稀疏克隆（只为补 library/*.lib）
 analysis/_optiscaler_upstream/
 
-# 本机构建日志与一次性编译脚本
+# 本机构建/分析日志（只留本地）
 analysis/build-amd.log
+analysis/_*.log
+analysis/*.log
 analysis/_build_amd.bat
+
+# 游戏 log 快照与 R1 本地部署包（体积大，只分析用）
+exports/onimusha-*/
+exports/review-r1/
 
 # 打包输出（含 FSR/XeSS/pass DLL，体积大）
 OptiScaler-AMD-PreSR-Multipass-v2.25/
