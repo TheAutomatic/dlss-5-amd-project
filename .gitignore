@@ -1,0 +1,27 @@
+# 第三方运行时 A 的二进制副本与派生镜像 —— 仅作本地分析/部署用，不随项目分发
+analysis/setup-*.bin
+version*.dll
+dlssnr_on_amd_setup.exe
+
+# 神经网络运行时与权重（体积大，且不属于本项目）
+nvngx_dlssnr.dll
+dlssnr_on_amd_weights.bin
+
+# 官方 OptiScaler 稀疏克隆（只为补 library/*.lib）
+analysis/_optiscaler_upstream/
+
+# 本机构建日志与一次性编译脚本
+analysis/build-amd.log
+analysis/_build_amd.bat
+
+# 打包输出（含 FSR/XeSS/pass DLL，体积大）
+OptiScaler-AMD-PreSR-Multipass-v2.25/
+OptiScaler-AMD-PreSR-Multipass-v2.25.zip
+
+# 编辑器/会话
+.claude/
+.vs/
+
+# Python 字节码缓存
+__pycache__/
+*.pyc

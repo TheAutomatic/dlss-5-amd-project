@@ -60,6 +60,10 @@ class Backend
     // Bind the actual render queue BEFORE submission; do not launch GPU work yet.
     int PendingListIndex(UINT, ID3D12CommandList* const*) const;
     void Submitting(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
+    // Detours trampoline to the real ExecuteCommandLists. 0.2.17 Notify calls
+    // through 0x8daf8; seed it so that slot is not OptiScaler's hook.
+    void SetNativeExecute(void*);
+    bool NeuralBatch(UINT, ID3D12CommandList* const*) const;
     // Must run immediately AFTER real queue submission, including non-upscale lists.
     void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
     bool Ready();

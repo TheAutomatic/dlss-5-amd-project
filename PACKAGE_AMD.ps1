@@ -24,7 +24,10 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'analysis/Setup.Install.ps1'),(J
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'analysis/Setup.bat'),(Join-Path $PSScriptRoot 'analysis/Setup.GUI.ps1') -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'analysis/README-v225.md') -Destination (Join-Path $stage 'README.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'analysis/README-v225.md') -Destination (Join-Path $stage 'LEIA-ME-AMD.md') -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'DLSS5_Look.fx') -Destination (Join-Path $stage 'Licenses/DLSS5_Look_reference.fx') -Force
+$lookFx=Join-Path $PSScriptRoot 'DLSS5_Look.fx'
+if (Test-Path -LiteralPath $lookFx) {
+    Copy-Item -LiteralPath $lookFx -Destination (Join-Path $stage 'Licenses/DLSS5_Look_reference.fx') -Force
+}
 $ini=Get-Content -LiteralPath (Join-Path $source 'OptiScaler.ini') -Raw
 $ini=$ini -replace '(?m)^Dx12Upscaler=.*$','Dx12Upscaler=ffx'
 $ini=$ini -replace '(?m)^LogToFile=.*$','LogToFile=true'
