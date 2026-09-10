@@ -310,6 +310,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\amd\AmdPreSr.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="dlssnr\amd\AmdBridge.cpp" />
     <ClInclude Include="dlssnr\amd\AmdPreSr.h" />
+    <ClInclude Include="dlssnr\amd\SubmissionState.h" />
+    <ClInclude Include="dlssnr\amd\RuntimeNotification.h" />
     <ClInclude Include="dlssnr\amd\AmdBridge.h" />
   </ItemGroup>
   <ItemGroup>

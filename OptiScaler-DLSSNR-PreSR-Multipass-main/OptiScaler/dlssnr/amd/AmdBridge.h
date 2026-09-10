@@ -9,5 +9,6 @@ bool Before(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*, ID3D12CommandQueue
 void Restore(NVSDK_NGX_Parameter*);
 bool HasReplacement(NVSDK_NGX_Parameter*);
 void InvalidateHistory();
+void TraceContextRelease(unsigned int handle, bool after);
 std::string Status();
 } // namespace DlssNr::AmdBridge

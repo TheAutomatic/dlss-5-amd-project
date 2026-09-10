@@ -819,6 +819,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
     if (!InHandle)
         return NVSDK_NGX_Result_Success;
 
+    // Capture the actual native/GPU state before any release-side cleanup.
+    // Diagnostic only: do not infer that game-owned work has retired here.
+    if (!shutdown)
+        DlssNr::AmdBridge::TraceContextRelease(InHandle->Id, false);
+
     // Before any feature's resources are freed, drop the exposure scan's references to whatever it
     // captured. The scan AddRef's candidates and never released them; a Streamline/DLSS-D resource it
     // pinned would otherwise be used after its heap is freed here -- the Cyberpunk device-removal.
@@ -884,6 +889,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
 
             // Erase from map (smart pointer reset is implicit on erase)
             Dx12Contexts.erase(it);
+            if (!shutdown)
+                DlssNr::AmdBridge::TraceContextRelease(handleId, true);
         }
     }
     else

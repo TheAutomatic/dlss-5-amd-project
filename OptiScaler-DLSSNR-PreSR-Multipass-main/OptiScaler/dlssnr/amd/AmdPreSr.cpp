@@ -1,5 +1,7 @@
 #include "AmdPreSr.h"
 #include "RuntimeHash.h"
+#include "RuntimeNotification.h"
+#include "SubmissionState.h"
 #include "ColorEncoding.h"
 #include "AmdLookShader.h"
 #include "RtgiNative.h"
@@ -228,14 +230,11 @@ struct Backend::Impl
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
     UINT64 retryAfter = 0, timeoutEvents = 0;
     bool resetAfterTimeout = false;
-    bool firstPublished = false;
-    bool asyncSingle = false;
-    UINT64 asyncStart = 0;
-    UINT64 pendingSince = 0;
+    SubmissionState submission;
+    bool deviceLostReported = false;
     UINT width = 0, height = 0, activePasses = 0, lastPasses = 0;
     HipSetFn hipSet = nullptr;
     int hipDevice = -1;
-    void* nativeExecute = nullptr;
     std::mutex lock;
     void Log(const std::string& s)
     {
@@ -243,48 +242,100 @@ struct Backend::Impl
         std::ofstream out(directory / L"amd_presr.log", std::ios::app);
         out << GetTickCount64() << " " << s << '\n';
     }
+    void TraceBoundary(const std::string& reason)
+    {
+        const auto gpu = fence ? fence->GetCompletedValue() : 0;
+        const auto removed = device->GetDeviceRemovedReason();
+        Log("AMD boundary: " + reason + " pending=" +
+            std::to_string(reinterpret_cast<uintptr_t>(pending.load())) +
+            " submitted=" + std::to_string(submission.submitted) +
+            " recordedAt=" + std::to_string(submission.recordedAt) +
+            " submittedAt=" + std::to_string(submission.submittedAt) +
+            " fence=" + std::to_string(gpu) + "/" + std::to_string(completion.load()) +
+            " deviceHR=" + std::to_string(static_cast<UINT>(removed)) +
+            " NR=" + std::to_string(width) + "x" + std::to_string(height));
+        for (UINT i = 0; i < runtime.size(); ++i)
+            if (auto h = runtime[i])
+                Log("AMD boundary pass " + std::to_string(i + 1) + " native=" +
+                    std::to_string(At<UINT>(h, 0x8d6f4)) + "/" + std::to_string(jobs[i]) +
+                    " nativePending=" + std::to_string(reinterpret_cast<uintptr_t>(At<void*>(h, 0x8d908))) +
+                    " timeouts=" + std::to_string(At<UINT>(h, 0x8d6f8)));
+        if (FAILED(removed) && !deviceLostReported)
+        {
+            deviceLostReported = true;
+            failed = true;
+            // Read whatever DRED the game/OS collected. Do not change device
+            // creation settings or globally enable a debug layer in the game.
+            ComPtr<ID3D12DeviceRemovedExtendedData1> dred;
+            if (SUCCEEDED(device.As(&dred)))
+            {
+                D3D12_DRED_PAGE_FAULT_OUTPUT1 fault {};
+                const auto hr = dred->GetPageFaultAllocationOutput1(&fault);
+                Log("AMD DRED page fault: hr=" + std::to_string(static_cast<UINT>(hr)) +
+                    " VA=" + std::to_string(fault.PageFaultVA));
+                D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs {};
+                const auto bh = dred->GetAutoBreadcrumbsOutput1(&breadcrumbs);
+                Log("AMD DRED breadcrumbs: hr=" + std::to_string(static_cast<UINT>(bh)));
+                UINT count = 0;
+                for (auto node = breadcrumbs.pHeadAutoBreadcrumbNode; node && count++ < 16; node = node->pNext)
+                    Log("AMD DRED list=" + std::to_string(reinterpret_cast<uintptr_t>(node->pCommandList)) +
+                        " progress=" + std::to_string(node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0) +
+                        "/" + std::to_string(node->BreadcrumbCount));
+            }
+        }
+    }
     // Called with lock held. Keep every borrowed resource alive until BOTH
     // native inference and the actual D3D12 submission have retired.
-    void RetireSingle()
+    void RetireSubmission(bool waitForGpu = false)
     {
-        auto pend = pending.load(std::memory_order_acquire);
-        if (!pend)
+        if (!pending.load(std::memory_order_acquire))
             return;
-        if (!runtime[0])
-            return;
-        auto done = static_cast<UINT>(InterlockedCompareExchange(
-            reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[0], 0x8d6f4)), 0, 0));
-        const bool nativeDone = jobs[0] != 0 && done >= jobs[0];
-        const bool fenceDone = !asyncSingle || fence->GetCompletedValue() >= completion.load();
-        const auto start = asyncStart ? asyncStart : pendingSince;
-        const auto age = start ? GetTickCount64() - start : 0;
-        if (nativeDone)
+        bool nativeDone = true;
+        bool timedOut = false;
+        for (UINT i = 0; i < activePasses; ++i)
         {
-            asyncSingle = false;
+            const auto done = static_cast<UINT>(InterlockedCompareExchange(
+                reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], 0x8d6f4)), 0, 0));
+            nativeDone &= jobs[i] != 0 && done >= jobs[i];
+            timedOut |= At<UINT>(runtime[i], 0x8d6f8) > observedTimeouts[i];
+        }
+        auto gpuDone = fence->GetCompletedValue();
+        if (gpuDone == UINT64_MAX && !deviceLostReported)
+            TraceBoundary("device removed while retiring");
+        const auto target = completion.load();
+        // Preserve the existing short recording-thread wait, but never block
+        // on a list that the game has not submitted yet, or from Status().
+        if (waitForGpu && submission.submitted && nativeDone && gpuDone < target)
+        {
+            const auto start = GetTickCount64();
+            while (gpuDone < target && GetTickCount64() - start < 16)
+            {
+                Sleep(1);
+                gpuDone = fence->GetCompletedValue();
+            }
+        }
+        if (submission.CanRetire(nativeDone, gpuDone, target))
+        {
             pending.store(nullptr, std::memory_order_release);
+            submission = {};
             lastSubmitted = GetTickCount64();
-            if (!fenceDone)
-                Log("AMD retired on native job count; D3D fence still outstanding. native=" +
-                    std::to_string(done) + "/" + std::to_string(jobs[0]));
-            if (!failed && At<UINT>(runtime[0], 0x8d6f8) == observedTimeouts[0])
+            if (!failed && activePasses && !timedOut)
             {
                 ++completedFrames;
                 lastCompleted = lastSubmitted;
-                status = "Completed AMD pre-SR passes=1 at " + std::to_string(width) + "x" +
-                         std::to_string(height);
+                status = "Completed AMD pre-SR passes=" + std::to_string(activePasses) + " at " +
+                         std::to_string(width) + "x" + std::to_string(height);
                 if (completedFrames <= 3 || completedFrames % 120 == 0)
                     Log(status);
             }
             return;
         }
-        if (age > 5000)
+        if (submission.ReportStall(GetTickCount64()))
         {
-            asyncSingle = false;
-            pending.store(nullptr, std::memory_order_release);
-            resetRequested = true;
-            Log("AMD dropped a stalled submission after 5s; will retry. native=" +
-                std::to_string(done) + "/" + std::to_string(jobs[0]) + " fence=" +
-                std::to_string(fence->GetCompletedValue()) + "/" + std::to_string(completion.load()));
+            Log("AMD submission stalled >5s; retaining list/resources until completion. submitted=" +
+                std::to_string(submission.submitted) + " nativeDone=" + std::to_string(nativeDone) +
+                " passes=" + std::to_string(activePasses) + " fence=" + std::to_string(gpuDone) +
+                "/" + std::to_string(target));
         }
     }
     void InitHip()
@@ -367,10 +418,8 @@ struct Backend::Impl
         if (!VirtualProtect(import, sizeof(void*), previousProtection, &unused))
             throw std::runtime_error("Could not restore private AMD import protection");
         Log("Private AMD shaders use System32 D3DCompiler; game compiler preserved");
-        // 0.2.17 Notify calls ExecuteCommandLists through 0x8daf8. Seed the real
-        // Detours trampoline so that slot is not OptiScaler's hook (recursion).
-        if (nativeExecute)
-            At<void*>(h, 0x8daf8) = nativeExecute;
+        // All passes notify after the bridge's single real submission.
+        At<NotifyFn>(h, 0x8daf8) = AlreadySubmitted;
 
         At<ID3D12Device*>(h, 0x8cee8) = device.Get();
         device->AddRef();
@@ -445,6 +494,7 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     p->device = d;
     p->queue = q;
     p->directory = dir;
+    p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement");
     try
     {
         Check(d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&p->fence)), "Completion fence");
@@ -459,7 +509,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
 {
     std::lock_guard guard(p->lock);
     Frame f=incoming;
-    p->RetireSingle();
+    p->RetireSubmission(true);
     if (p->failed || !cmd || !f.colour || !f.motion || !f.depth)
         return nullptr;
     const auto deviceStatus = p->device->GetDeviceRemovedReason();
@@ -467,6 +517,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     {
         p->failed = true;
         p->Log("AMD stopped: D3D12 device lost, HRESULT=" + std::to_string(static_cast<UINT>(deviceStatus)));
+        p->TraceBoundary("Record device removed");
         return nullptr;
     }
     if (p->pending.load())
@@ -893,10 +944,11 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         if (accepted)
         {
             ++p->frames;
-            p->firstPublished = false;
-            p->pendingSince = GetTickCount64();
-            p->pending.store(cmd, std::memory_order_release);
         }
+        // Even accepted == 0 has B's copy/conversion/barrier commands recorded.
+        // Track that list until its D3D fence completes before reusing resources.
+        p->submission.Record(GetTickCount64());
+        p->pending.store(cmd, std::memory_order_release);
         if (p->failed)
             return nullptr;
         if (applyLook)
@@ -1018,17 +1070,10 @@ int Backend::PendingListIndex(UINT count, ID3D12CommandList* const* lists) const
         if (lists[i] == pending) return static_cast<int>(i);
     return -1;
 }
-void Backend::SetNativeExecute(void* fn)
+void Backend::TraceBoundary(const std::string& reason)
 {
     std::lock_guard guard(p->lock);
-    p->nativeExecute = fn;
-    for (auto h : p->runtime)
-        if (h && fn)
-            At<void*>(h, 0x8daf8) = fn;
-}
-bool Backend::NeuralBatch(UINT n, ID3D12CommandList* const* lists) const
-{
-    return n == 1 && PendingListIndex(n, lists) == 0;
+    p->TraceBoundary(reason);
 }
 void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* const* lists)
 {
@@ -1041,7 +1086,7 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
     if (!found)
         return;
     std::lock_guard guard(p->lock);
-    if (p->pending.load() != pending || p->firstPublished)
+    if (p->pending.load() != pending || p->submission.submitted)
         return;
     if (p->frames <= 3)
         p->Log("Neural submission: lists=" + std::to_string(n) + " queueType=" +
@@ -1084,12 +1129,11 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     std::lock_guard guard(p->lock);
     if (p->pending.load() != pending)
         return;
-    if (p->asyncSingle) return;
+    if (p->submission.submitted) return;
     if (p->activePasses == 1)
     {
         auto h = p->runtime[0];
         reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + 0x9170)(queue, n, lists);
-        p->firstPublished = true;
         auto value = ++p->serial;
         if (FAILED(queue->Signal(p->fence.Get(), value)))
         {
@@ -1098,15 +1142,13 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
             return;
         }
         p->completion.store(value);
-        p->asyncStart = GetTickCount64();
-        p->asyncSingle = true;
+        p->submission.Submit(GetTickCount64());
         return;
     }
     for (UINT i = 0; i < p->activePasses; ++i)
     {
         auto h = p->runtime[i];
-        if (i != 0 || !p->firstPublished)
-            reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + 0x9170)(queue, n, lists);
+        reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + 0x9170)(queue, n, lists);
         // All runtimes use HIP stream 0. Publish the next pass only once the previous
         // worker finished; otherwise its capture-wait kernel could block the first pass.
         auto start = GetTickCount64();
@@ -1127,36 +1169,16 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     {
         p->failed = true;
         p->Log("D3D12 completion Signal failed");
+        return;
     }
     p->completion.store(value);
-    p->pending.store(nullptr, std::memory_order_release);
-    p->lastSubmitted = GetTickCount64();
-    if (!p->failed)
-    {
-        bool timedOut = false;
-        for (UINT i = 0; i < p->activePasses; ++i)
-            timedOut |= At<UINT>(p->runtime[i], 0x8d6f8) > p->observedTimeouts[i];
-        if (timedOut)
-        {
-            // Record consumes the native counters and schedules safe recovery.
-            // A completed HIP job is not proof that its GPU output was applied.
-            p->Log("AMD timeout: native fallback may reuse the previous residual; recovery pending");
-            return;
-        }
-        ++p->completedFrames;
-        p->lastCompleted = p->lastSubmitted;
-        auto completed = "Completed AMD pre-SR passes=" + std::to_string(p->activePasses) + " at " +
-                         std::to_string(p->width) + "x" + std::to_string(p->height);
-        if (p->frames <= 3 || p->frames % 120 == 0)
-            p->Log(completed);
-        else
-            p->status = completed;
-    }
+    p->submission.Submit(GetTickCount64());
+    p->RetireSubmission();
 }
 std::string Backend::Status() const
 {
     std::lock_guard guard(p->lock);
-    p->RetireSingle();
+    p->RetireSubmission();
     auto reportedTimeouts = p->timeoutEvents;
     for (UINT i = 0; i < p->runtime.size(); ++i)
         if (p->runtime[i])
@@ -1177,14 +1199,18 @@ void Backend::InvalidateHistory() { p->resetRequested.store(true); }
 bool Backend::Ready()
 {
     std::lock_guard guard(p->lock);
-    p->RetireSingle();
-    return !p->failed && !p->pending.load() && p->fence->GetCompletedValue() >= p->completion.load();
+    if (!p->fence) return false;
+    p->RetireSubmission();
+    const auto completed = p->fence->GetCompletedValue();
+    return !p->failed && !p->pending.load() && completed != UINT64_MAX && completed >= p->completion.load();
 }
 bool Backend::Shutdown()
 {
     std::lock_guard guard(p->lock);
-    p->RetireSingle();
-    if (p->pending.load() || p->fence->GetCompletedValue() < p->completion.load())
+    if (!p->fence) return false;
+    p->RetireSubmission();
+    const auto completed = p->fence->GetCompletedValue();
+    if (p->pending.load() || completed == UINT64_MAX || completed < p->completion.load())
         return false;
     for (auto h : p->runtime)
         if (h)

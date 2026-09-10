@@ -52,11 +52,9 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
     auto b = backend.load();
     if (b)
         b->Submitting(q, n, c);
-    // 0.2.17 Notify executes the neural list via 0x8daf8. Using executeOriginal
-    // as well double-submits; skipping Notify leaves HIP blind to the D3D store.
-    const bool neural = b && b->NeuralBatch(n, c);
-    if (!neural)
-        executeOriginal(q, n, c);
+    // Execute every game list exactly once. Private runtime Notify callbacks
+    // publish HIP jobs afterwards and have their internal ECL call neutralized.
+    executeOriginal(q, n, c);
     {
         std::lock_guard guard(observedMutex);
         if (observedLists.size() > 256)
@@ -196,7 +194,6 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
             return true;
         }
         b = new AmdPreSr::Backend(device, q, Directory());
-        b->SetNativeExecute(reinterpret_cast<void*>(executeOriginal));
         backend.store(b);
     }
     device->Release();
@@ -247,6 +244,10 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     const float requestedScale=sessionScale;
     const auto now=GetTickCount64();
     if(settlingWidth!=f.width || settlingHeight!=f.height || settlingScale!=requestedScale) {
+        b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
+            std::to_string(settlingHeight) + " -> " + std::to_string(f.width) + "x" +
+            std::to_string(f.height) + "; NR scale " + std::to_string(settlingScale) +
+            " -> " + std::to_string(requestedScale));
         settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;settlingSince=now;
         b->InvalidateHistory();
     }
@@ -360,6 +361,12 @@ void InvalidateHistory()
 {
     if (auto b = backend.load())
         b->InvalidateHistory();
+}
+void TraceContextRelease(unsigned int handle, bool after)
+{
+    if (auto b = backend.load())
+        b->TraceBoundary(std::string(after ? "after" : "before") +
+                         " SR context release handle=" + std::to_string(handle));
 }
 std::string Status()
 {
