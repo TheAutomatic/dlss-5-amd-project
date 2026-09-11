@@ -19,10 +19,28 @@ analysis/_build_amd.bat
 # 游戏 log 快照与 R1 本地部署包（体积大，只分析用）
 exports/onimusha-*/
 exports/review-r1/
+exports/presentmon-*/
 
 # 打包输出（含 FSR/XeSS/pass DLL，体积大）
 OptiScaler-AMD-PreSR-Multipass-v2.25/
 OptiScaler-AMD-PreSR-Multipass-v2.25.zip
+OptiScaler-AMD-PreSR-R1/
+OptiScaler-AMD-PreSR-R1.zip
+OptiScaler-AMD-PreSR*.zip
+
+# 本机构建产物
+**/x64/Release/
+**/x64/Debug/
+**/Release/
+*.pdb
+*.ilk
+*.exp
+
+# 分析用整包/Ghidra/烟雾测试输出（已跟踪的仍会进 git，需 git rm --cached）
+analysis/setup-*-test*/
+analysis/installer-gui-*/
+analysis/ghidra/
+analysis/v25-package-test-output/
 
 # 编辑器/会话
 .claude/
