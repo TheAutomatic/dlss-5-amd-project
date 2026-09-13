@@ -53,6 +53,15 @@ struct AmdLayout
     // the whole of a job - which is what a refusal actually means. +0x4c is the
     // waiter count. 0 means the layout does not record it.
     std::uint32_t recordLock;
+    // Diagnostic-only gates read by Record's normal path. Each is tested with
+    // jns right before the pendingList attach, and a non-negative value sends
+    // Record past the attach to a plain return. counter78 is bumped once per
+    // call that gets past the packet check, so it says how far a call got.
+    // 0.2.17's three are inferred from the same jns pair and the same +0x1C and
+    // +0x10 spacing as 0.3.0's, not read off a 0.2.17 window - treat as unverified.
+    std::uint32_t gate4c;
+    std::uint32_t gate68;
+    std::uint32_t counter78;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -66,7 +75,7 @@ inline constexpr AmdLayout kAmd0217 {
     0x8d6c0, 0x8d6f4, 0x8d6f8, 0x8d724, 0x8d82c, 0x8d908, 0x8d914,
     0x8d9b0, 0x8d9b4, 0x8d9bc, 0x8d9bd, 0x8d9be, 0x8d9bf, 0x8d9c0,
     0x8d9d0, 0x8d9d4, 0x8d9d8, 0x8d9e0, 0x8d9e4, 0x8dad0,
-    0x8daa8, 0x8da30
+    0x8daa8, 0x8da30, 0x8d8f4, 0x8d910, 0x8d920
 };
 
 // Alpha 0.3.0 version.dll. Fields from unique 0.2.17 instruction windows;
@@ -81,7 +90,7 @@ inline constexpr AmdLayout kAmd03 {
     0x977a0, 0x977d4, 0x977d8, 0x97804, 0x97984, 0x97a60, 0x97a6c,
     0x97b10, 0x97b14, 0x97b1c, 0x97b1d, 0x97b1e, 0x97b1f, 0x97b20,
     0x97b30, 0x97b34, 0x97b38, 0x97b40, 0x97b44, 0x97c30,
-    0x97c08, 0x97b90
+    0x97c08, 0x97b90, 0x97a4c, 0x97a68, 0x97a78
 };
 
 inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03 };

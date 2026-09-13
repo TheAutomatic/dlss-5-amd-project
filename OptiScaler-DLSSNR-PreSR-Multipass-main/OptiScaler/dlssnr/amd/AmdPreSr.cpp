@@ -723,9 +723,9 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s10-lockdiag slots=2 enter+jobid+lock]";
+    static constexpr const char* kBuildTag = " [s11-gatediag slots=2 enter+gates+count78]";
 #else
-    static constexpr const char* kBuildTag = " [s10-lockdiag slots=1 enter+jobid+lock]";
+    static constexpr const char* kBuildTag = " [s11-gatediag slots=1 enter+gates+count78]";
 #endif
     p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
@@ -1209,6 +1209,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             // The runtime guards Record with a try-lock; +0x4c is its waiter
             // count, so a non-zero read means the worker held it.
             const UINT lockBefore = L->recordLock ? At<UINT>(r, L->recordLock + 0x4c) : 0;
+            const int gate4c = L->gate4c ? At<int>(r, L->gate4c) : 0;
+            const int gate68 = L->gate68 ? At<int>(r, L->gate68) : 0;
+            const UINT count78 = L->counter78 ? At<UINT>(r, L->counter78) : 0;
             // Written BEFORE the call, so a process that dies inside Record
             // leaves this as the last line - which is itself the answer.
             if (++p->recordCalls <= 5 || p->recordCalls % 300 == 0)
@@ -1217,7 +1220,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                        " doneBefore=" + std::to_string(doneBefore) +
                        " listBefore=" + std::to_string(reinterpret_cast<uintptr_t>(pendingBefore)) +
                        " recreate=" + std::to_string(recreateBefore) +
-                       " lockCount=" + std::to_string(lockBefore));
+                       " lockCount=" + std::to_string(lockBefore) +
+                       " gate4c=" + std::to_string(gate4c) +
+                       " gate68=" + std::to_string(gate68) +
+                       " count78=" + std::to_string(count78));
             const auto callStart = std::chrono::steady_clock::now();
             reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(r) + L->record)(&packet);
             const auto callMicros = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1252,6 +1258,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                        " listAfter=" + std::to_string(reinterpret_cast<uintptr_t>(At<ID3D12CommandList*>(r, L->pendingList))) +
                        " recreate_before=" + std::to_string(recreateBefore) +
                        " lockCount=" + std::to_string(lockBefore) +
+                       " gate4c=" + std::to_string(gate4c) +
+                       " gate68=" + std::to_string(gate68) +
+                       " count78=" + std::to_string(count78) +
+                       " count78_after=" + std::to_string(L->counter78 ? At<UINT>(r, L->counter78) : 0) +
                        " call_us=" + std::to_string(callMicros) +
                        " slot=" + std::to_string(static_cast<UINT>(sl - &p->slots[0])) +
                        " busy=" + std::to_string(p->AnySlotBusy() ? 1 : 0));
