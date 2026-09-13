@@ -48,6 +48,11 @@ struct AmdLayout
     // tests it as its first act, so 0 means "this call will not rebuild".
     // See exports/a03-staging-state.md.
     std::uint32_t recreate;
+    // Address of the mutex guarding Record. Record tries to take it on entry
+    // and bails without attaching when it loses, while its worker holds it for
+    // the whole of a job - which is what a refusal actually means. +0x4c is the
+    // waiter count. 0 means the layout does not record it.
+    std::uint32_t recordLock;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -61,7 +66,7 @@ inline constexpr AmdLayout kAmd0217 {
     0x8d6c0, 0x8d6f4, 0x8d6f8, 0x8d724, 0x8d82c, 0x8d908, 0x8d914,
     0x8d9b0, 0x8d9b4, 0x8d9bc, 0x8d9bd, 0x8d9be, 0x8d9bf, 0x8d9c0,
     0x8d9d0, 0x8d9d4, 0x8d9d8, 0x8d9e0, 0x8d9e4, 0x8dad0,
-    0x8daa8
+    0x8daa8, 0x8da30
 };
 
 // Alpha 0.3.0 version.dll. Fields from unique 0.2.17 instruction windows;
@@ -76,7 +81,7 @@ inline constexpr AmdLayout kAmd03 {
     0x977a0, 0x977d4, 0x977d8, 0x97804, 0x97984, 0x97a60, 0x97a6c,
     0x97b10, 0x97b14, 0x97b1c, 0x97b1d, 0x97b1e, 0x97b1f, 0x97b20,
     0x97b30, 0x97b34, 0x97b38, 0x97b40, 0x97b44, 0x97c30,
-    0x97c08
+    0x97c08, 0x97b90
 };
 
 inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03 };

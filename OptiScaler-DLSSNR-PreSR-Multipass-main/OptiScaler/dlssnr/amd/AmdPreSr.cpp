@@ -13,6 +13,7 @@
 #include <bcrypt.h>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <algorithm>
 #include <fstream>
 #include <mutex>
@@ -256,6 +257,7 @@ struct Backend::Impl
     std::array<Slot, kSlots> slots;
     UINT activeSlot = 0;
     UINT skipWaits = 0;
+    UINT recordCalls = 0;
     // A joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
@@ -721,9 +723,9 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s9-refusaldiag slots=2 state-gated wait]";
+    static constexpr const char* kBuildTag = " [s10-lockdiag slots=2 enter+jobid+lock]";
 #else
-    static constexpr const char* kBuildTag = " [s9-refusaldiag slots=1]";
+    static constexpr const char* kBuildTag = " [s10-lockdiag slots=1 enter+jobid+lock]";
 #endif
     p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
@@ -1196,13 +1198,31 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             packet.exposureState = 4;
             packet.scaleX = f.motionScaleX * (resampleMotion ? float(w) / mvW : 1.0f);
             packet.scaleY = f.motionScaleY * (resampleMotion ? float(h) / mvH : 1.0f);
-            // Snapshot the two things that can make Record refuse, so the log
-            // can say which one it was. A non-null native pending list means A
-            // is still holding an earlier list; the recreate byte means A is
-            // rebuilding staging and will not attach anything this call.
+            // Snapshot everything that can explain a refusal, and time the call.
+            // jobId is the decisive one: A advances it when it accepts, so a
+            // moved counter with an empty pending list means A took the job and
+            // its worker picked the list up before we could read it back.
             const void* pendingBefore = At<ID3D12CommandList*>(r, L->pendingList);
             const unsigned recreateBefore = L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0;
+            const UINT jobBefore = At<UINT>(r, L->jobId);
+            const UINT doneBefore = At<UINT>(r, L->jobDone);
+            // The runtime guards Record with a try-lock; +0x4c is its waiter
+            // count, so a non-zero read means the worker held it.
+            const UINT lockBefore = L->recordLock ? At<UINT>(r, L->recordLock + 0x4c) : 0;
+            // Written BEFORE the call, so a process that dies inside Record
+            // leaves this as the last line - which is itself the answer.
+            if (++p->recordCalls <= 5 || p->recordCalls % 300 == 0)
+                p->Log("AMD Record enter: n=" + std::to_string(p->recordCalls) +
+                       " jobBefore=" + std::to_string(jobBefore) +
+                       " doneBefore=" + std::to_string(doneBefore) +
+                       " listBefore=" + std::to_string(reinterpret_cast<uintptr_t>(pendingBefore)) +
+                       " recreate=" + std::to_string(recreateBefore) +
+                       " lockCount=" + std::to_string(lockBefore));
+            const auto callStart = std::chrono::steady_clock::now();
             reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(r) + L->record)(&packet);
+            const auto callMicros = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now() - callStart)
+                                        .count();
             sl->jobs[i] = At<UINT>(r, L->jobId);
             // Staging recreation resets the native job counter. After a resize,
             // job 1 can follow job 1, so counter equality does not mean rejection.
@@ -1222,20 +1242,28 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             if (!recorded)
             {
-                // A refused the list. Two very different reasons, and the log
-                // has to say which: an earlier list still in nativePending
-                // means A is simply busy, while recreate == 1 means A is
-                // rebuilding staging. Everything downstream depends on which.
-                p->Log("AMD Record refused: job=" + std::to_string(sl->jobs[i]) +
-                       " nativePending_before=" + std::to_string(reinterpret_cast<uintptr_t>(pendingBefore)) +
-                       " nativePending_after=" + std::to_string(reinterpret_cast<uintptr_t>(At<ID3D12CommandList*>(r, L->pendingList))) +
+                // A did not leave our list in pendingList. jobBefore -> after
+                // says whether it took the job anyway (worker consumed the list
+                // instantly) or really declined (counter did not move).
+                p->Log("AMD Record refused: jobBefore=" + std::to_string(jobBefore) +
+                       " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
+                       " doneBefore=" + std::to_string(doneBefore) +
+                       " listBefore=" + std::to_string(reinterpret_cast<uintptr_t>(pendingBefore)) +
+                       " listAfter=" + std::to_string(reinterpret_cast<uintptr_t>(At<ID3D12CommandList*>(r, L->pendingList))) +
                        " recreate_before=" + std::to_string(recreateBefore) +
-                       " recreate_after=" + std::to_string(L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0) +
-                       " cmd=" + std::to_string(reinterpret_cast<uintptr_t>(cmd)) +
+                       " lockCount=" + std::to_string(lockBefore) +
+                       " call_us=" + std::to_string(callMicros) +
                        " slot=" + std::to_string(static_cast<UINT>(sl - &p->slots[0])) +
                        " busy=" + std::to_string(p->AnySlotBusy() ? 1 : 0));
                 break;
             }
+            // Healthy calls are logged sparsely so the log still shows whether
+            // A ever blocks, which is what decides if admission control is viable.
+            if (p->recordCalls <= 5 || p->recordCalls % 300 == 0)
+                p->Log("AMD Record ok: n=" + std::to_string(p->recordCalls) +
+                       " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
+                       " call_us=" + std::to_string(callMicros) +
+                       " slot=" + std::to_string(static_cast<UINT>(sl - &p->slots[0])));
         }
         Barrier(cmd, f.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.motionState);
         Barrier(cmd, f.depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.depthState);
