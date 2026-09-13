@@ -203,10 +203,9 @@ struct Backend::Impl
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12Fence> fence;
-    ComPtr<ID3D12Resource> colour, scaleBaseline, scaleOutput;
+    ComPtr<ID3D12Resource> scaleBaseline, scaleOutput;
     ComPtr<ID3D12PipelineState> resolvePipeline;
     ComPtr<ID3D12Resource> motionCrop, depthCrop;
-    ComPtr<ID3D12Resource> exposureCopy;
     std::unique_ptr<RtgiNative> rtgi;
     bool rtgiFailed = false;
     std::string rtgiStatus;
@@ -221,34 +220,56 @@ struct Backend::Impl
     UINT lastInputWidth=0,lastInputHeight=0;
     bool hadExposure = false;
     std::array<HMODULE, 3> runtime {};
-    std::array<UINT, 3> jobs {};
     std::array<UINT, 3> observedTimeouts {};
     std::filesystem::path directory;
     std::string status = "AMD pre-SR: not initialized";
-    std::atomic<ID3D12CommandList*> pending { nullptr };
     std::atomic<bool> failed { false };
     std::atomic<bool> resetRequested { true };
     Settings lastSettings {};
     bool haveSettings = false;
-    std::atomic<UINT64> completion { 0 };
     UINT64 frames = 0, serial = 0;
     UINT64 lastSubmitted = 0, lastCompleted = 0, completedFrames = 0;
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
     UINT64 retryAfter = 0, timeoutEvents = 0;
     bool resetAfterTimeout = false;
-    SubmissionState submission;
+    // Per-job state and the GPU resources that job borrows. A is a single worker
+    // on one HIP stream, so two slots never run concurrently: the extra slot only
+    // lets the CPU record the next frame while the previous job is still
+    // retiring, instead of blocking the render thread in Submitted.
+    // kSlots == 1 reproduces the original one-frame-outstanding behaviour exactly.
 #ifdef AMD_MULTISLOT
-    // --- P1 probe (see exports/design-multislot.md §4) -------------------------
-    // Multi-slot only helps if A's Record RETURNS while A is still busy. If A
-    // blocks there instead, moving the wait out of Submitted just moves it into
-    // Record and the frame time does not change. Probe it before designing.
-    // This deliberately makes A record a few extra jobs; it stops after
-    // kProbeLimit calls so the rest of the run stays clean.
-    static constexpr UINT kProbeLimit = 20;
-    Packet probePacket {};
-    bool haveProbePacket = false;
-    UINT probeCount = 0;
+    static constexpr UINT kSlots = 2;
+#else
+    static constexpr UINT kSlots = 1;
 #endif
+    struct Slot
+    {
+        std::atomic<ID3D12CommandList*> pending { nullptr };
+        std::atomic<UINT64> completion { 0 };
+        std::array<UINT, 3> jobs {};
+        SubmissionState submission;
+        // A reads this and writes its correction back into it (in place), so no
+        // two outstanding jobs may share one.
+        ComPtr<ID3D12Resource> colour;
+        ComPtr<ID3D12Resource> exposureCopy;
+    };
+    std::array<Slot, kSlots> slots;
+    UINT activeSlot = 0;
+    // True while any slot still owns the resources its job borrowed.
+    bool AnySlotBusy() const
+    {
+        for (size_t k = 0; k < slots.size(); ++k)
+            if (slots[k].pending.load(std::memory_order_acquire)) return true;
+        return false;
+    }
+    // Highest fence value any slot is still waiting on.
+    UINT64 LatestCompletion() const
+    {
+        UINT64 value = 0;
+        for (size_t k = 0; k < slots.size(); ++k)
+            value = (std::max)(value, slots[k].completion.load());
+        return value;
+    }
     bool deviceLostReported = false;
     UINT width = 0, height = 0, activePasses = 0, lastPasses = 0;
     HipSetFn hipSet = nullptr;
@@ -268,18 +289,23 @@ struct Backend::Impl
     {
         const auto gpu = fence ? fence->GetCompletedValue() : 0;
         const auto removed = device->GetDeviceRemovedReason();
+          // Report the first slot with work outstanding; with one slot that
+          // is the only one, so the line keeps the original format.
+          const Slot* traced = &slots[0];
+          for (size_t k = 0; k < slots.size(); ++k)
+              if (slots[k].pending.load(std::memory_order_acquire)) { traced = &slots[k]; break; }
         Log("AMD boundary: " + reason + " pending=" +
-            std::to_string(reinterpret_cast<uintptr_t>(pending.load())) +
-            " submitted=" + std::to_string(submission.submitted) +
-            " recordedAt=" + std::to_string(submission.recordedAt) +
-            " submittedAt=" + std::to_string(submission.submittedAt) +
-            " fence=" + std::to_string(gpu) + "/" + std::to_string(completion.load()) +
+            std::to_string(reinterpret_cast<uintptr_t>(traced->pending.load())) +
+            " submitted=" + std::to_string(traced->submission.submitted) +
+            " recordedAt=" + std::to_string(traced->submission.recordedAt) +
+            " submittedAt=" + std::to_string(traced->submission.submittedAt) +
+            " fence=" + std::to_string(gpu) + "/" + std::to_string(traced->completion.load()) +
             " deviceHR=" + std::to_string(static_cast<UINT>(removed)) +
             " NR=" + std::to_string(width) + "x" + std::to_string(height));
         for (UINT i = 0; i < runtime.size(); ++i)
             if (auto h = runtime[i])
                 Log("AMD boundary pass " + std::to_string(i + 1) + " native=" +
-                    std::to_string(At<UINT>(h, L->jobDone)) + "/" + std::to_string(jobs[i]) +
+                    std::to_string(At<UINT>(h, L->jobDone)) + "/" + std::to_string(traced->jobs[i]) +
                     " nativePending=" + std::to_string(reinterpret_cast<uintptr_t>(At<void*>(h, L->pendingList))) +
                     " timeouts=" + std::to_string(At<UINT>(h, L->timeoutCount)));
         if (FAILED(removed) && !deviceLostReported)
@@ -306,29 +332,17 @@ struct Backend::Impl
             }
         }
     }
-    // Called with lock held. Keep every borrowed resource alive until BOTH
-    // native inference and the actual D3D12 submission have retired.
-    void RetireSubmission(bool waitForGpu = false, const char* source = "Unknown"
+    // Retire one slot if its job has finished. Called with `lock` held. Keep
+    // every borrowed resource alive until BOTH native inference and the actual
+    // D3D12 submission have retired.
+    void RetireSlot(UINT k, bool waitForGpu, const char* source
 #ifdef AMD_RETIRE_DIAGNOSTICS
-                          , RetirementDiagnostics::Event* recordEvent = nullptr
+                    , RetirementDiagnostics::Event* sample
 #endif
-                          )
+                    )
     {
-#ifdef AMD_RETIRE_DIAGNOSTICS
-        RetirementDiagnostics::Scope timing(diagnostics, directory, L ? L->name : "uninitialized", source, recordEvent);
-        auto& sample = timing.event;
-        sample.pending = reinterpret_cast<uintptr_t>(pending.load(std::memory_order_acquire));
-        sample.submitted = submission.submitted;
-        sample.recordedAt = submission.recordedAt;
-        sample.submittedAt = submission.submittedAt;
-        sample.passes = activePasses;
-        sample.width = width;
-        sample.height = height;
-        sample.everyFrame = haveSettings && lastSettings.everyFrame;
-        sample.jobs = jobs;
-        sample.target = completion.load();
-#endif
-        if (!pending.load(std::memory_order_acquire))
+        Slot& sl = slots[k];
+        if (!sl.pending.load(std::memory_order_acquire))
             return;
         bool nativeDone = true;
         bool timedOut = false;
@@ -336,24 +350,24 @@ struct Backend::Impl
         {
             const auto done = static_cast<UINT>(InterlockedCompareExchange(
                 reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
-            nativeDone &= jobs[i] != 0 && done >= jobs[i];
+            nativeDone &= sl.jobs[i] != 0 && done >= sl.jobs[i];
 #ifdef AMD_RETIRE_DIAGNOSTICS
-            sample.done[i] = done;
+            sample->done[i] = done;
 #endif
             timedOut |= At<UINT>(runtime[i], L->timeoutCount) > observedTimeouts[i];
         }
         auto gpuDone = fence->GetCompletedValue();
         if (gpuDone == UINT64_MAX && !deviceLostReported)
             TraceBoundary("device removed while retiring");
-        const auto target = completion.load();
+        const auto target = sl.completion.load();
 #ifdef AMD_RETIRE_DIAGNOSTICS
-        sample.nativeDone = nativeDone; // Exactly the value passed to CanRetire.
-        sample.gpuBefore = gpuDone;
-        sample.target = target;
+        sample->nativeDone = nativeDone; // Exactly the value passed to CanRetire.
+        sample->gpuBefore = gpuDone;
+        sample->target = target;
 #endif
         // Preserve the existing short recording-thread wait, but never block
         // on a list that the game has not submitted yet, or from Status().
-        if (waitForGpu && submission.submitted && nativeDone && gpuDone < target)
+        if (waitForGpu && sl.submission.submitted && nativeDone && gpuDone < target)
         {
 #ifdef AMD_RETIRE_DIAGNOSTICS
             const auto waitStart = RetirementDiagnostics::Clock();
@@ -365,17 +379,17 @@ struct Backend::Impl
                 gpuDone = fence->GetCompletedValue();
             }
 #ifdef AMD_RETIRE_DIAGNOSTICS
-            sample.waitMs = diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitStart);
+            sample->waitMs = diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitStart);
 #endif
         }
 #ifdef AMD_RETIRE_DIAGNOSTICS
-        sample.gpuAfter = gpuDone;
-        sample.retired = submission.CanRetire(nativeDone, gpuDone, target);
+        sample->gpuAfter = gpuDone;
+        sample->retired = sl.submission.CanRetire(nativeDone, gpuDone, target);
 #endif
-        if (submission.CanRetire(nativeDone, gpuDone, target))
+        if (sl.submission.CanRetire(nativeDone, gpuDone, target))
         {
-            pending.store(nullptr, std::memory_order_release);
-            submission = {};
+            sl.pending.store(nullptr, std::memory_order_release);
+            sl.submission = {};
             lastSubmitted = GetTickCount64();
             if (!failed && activePasses && !timedOut)
             {
@@ -388,21 +402,65 @@ struct Backend::Impl
             }
             return;
         }
-        if (submission.ReportStall(GetTickCount64()))
+        if (sl.submission.ReportStall(GetTickCount64()))
         {
             Log("AMD submission stalled >5s; retaining list/resources until completion. submitted=" +
-                std::to_string(submission.submitted) + " nativeDone=" + std::to_string(nativeDone) +
+                std::to_string(sl.submission.submitted) + " nativeDone=" + std::to_string(nativeDone) +
                 " passes=" + std::to_string(activePasses) + " fence=" + std::to_string(gpuDone) +
                 "/" + std::to_string(target));
         }
+    }
+    void RetireSubmission(bool waitForGpu = false, const char* source = "Unknown"
+#ifdef AMD_RETIRE_DIAGNOSTICS
+                          , RetirementDiagnostics::Event* recordEvent = nullptr
+#endif
+                          )
+    {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        RetirementDiagnostics::Scope timing(diagnostics, directory, L ? L->name : "uninitialized", source, recordEvent);
+        auto& sample = timing.event;
+        sample.passes = activePasses;
+        sample.width = width;
+        sample.height = height;
+        sample.everyFrame = haveSettings && lastSettings.everyFrame;
+        // Sample the first slot with work outstanding. With kSlots == 1 that is
+        // the only slot, so the recorded diagnostic matches the original.
+        UINT sampled = kSlots;
+        for (UINT k = 0; k < kSlots; ++k)
+            if (slots[k].pending.load(std::memory_order_acquire))
+            {
+                sampled = k;
+                break;
+            }
+        if (sampled < kSlots)
+        {
+            sample.pending = reinterpret_cast<uintptr_t>(slots[sampled].pending.load(std::memory_order_acquire));
+            sample.submitted = slots[sampled].submission.submitted;
+            sample.recordedAt = slots[sampled].submission.recordedAt;
+            sample.submittedAt = slots[sampled].submission.submittedAt;
+            sample.jobs = slots[sampled].jobs;
+            sample.target = slots[sampled].completion.load();
+            for (UINT k = 0; k < kSlots; ++k)
+                RetireSlot(k, waitForGpu, source, k == sampled ? &sample : nullptr);
+        }
+#else
+        for (UINT k = 0; k < kSlots; ++k)
+            RetireSlot(k, waitForGpu, source);
+#endif
     }
     // Execute has already happened. Wait only for HIP job-done, not the D3D12
     // fence: that fence covers FSR and the rest of the batch and was stalling
     // ExecuteCommandLists down to ~30 FPS. A's GPU inline still serializes NR
     // before FSR on the list. Record may still skip if the fence is in flight.
-    void WaitAfterSubmitIfEveryFrame()
+    void WaitAfterSubmitIfEveryFrame(UINT k)
     {
         if (!haveSettings || !lastSettings.everyFrame)
+            return;
+        // The wait existed for one reason: with a single slot, the next Record
+        // would skip unless this frame's job had already retired. An extra slot
+        // is exactly what removes that need, so with two slots the render thread
+        // must not block here - blocking is the cost this whole change removes.
+        if (kSlots > 1)
             return;
 #ifdef AMD_RETIRE_DIAGNOSTICS
         // Observational only: no wait behaviour is changed here.
@@ -412,8 +470,8 @@ struct Backend::Impl
         sample.passes = activePasses;
         sample.width = width;
         sample.height = height;
-        sample.jobs = jobs;
-        sample.target = completion.load();
+        sample.jobs = slots[k].jobs;
+        sample.target = slots[k].completion.load();
         const auto waitEntry = RetirementDiagnostics::Clock();
 #endif
         unsigned iterations = 0;
@@ -426,14 +484,14 @@ struct Backend::Impl
             bool nativeDone = true;
             for (UINT i = 0; i < activePasses; ++i)
             {
-                if (!runtime[i] || jobs[i] == 0)
+                if (!runtime[i] || slots[k].jobs[i] == 0)
                 {
                     nativeDone = false;
                     break;
                 }
                 const auto done = static_cast<UINT>(InterlockedCompareExchange(
                     reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
-                if (done < jobs[i])
+                if (done < slots[k].jobs[i])
                 {
                     nativeDone = false;
                     break;
@@ -452,32 +510,6 @@ struct Backend::Impl
                 break;
             }
             ++iterations;
-#ifdef AMD_MULTISLOT
-            // P1 probe. Reaching here means the nativeDone check just failed, so A
-            // is still busy. Re-issue the recorded packet and time the call: a fast
-            // return means multi-slot is viable; a blocked return means it is not.
-            if (probeCount < kProbeLimit && haveProbePacket && iterations == 1 && L && runtime[0])
-            {
-                LARGE_INTEGER probeFreq {}, probeStart {}, probeEnd {};
-                QueryPerformanceFrequency(&probeFreq);
-                QueryPerformanceCounter(&probeStart);
-                reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(runtime[0]) + L->record)(&probePacket);
-                QueryPerformanceCounter(&probeEnd);
-                ++probeCount;
-                // Did A take the job, or refuse it? B's normal path uses exactly
-                // this test, so it is the same acceptance contract.
-                const bool probeAccepted =
-                    At<ID3D12CommandList*>(runtime[0], L->pendingList) == probePacket.list;
-                Log("AMD-MS probe " + std::to_string(probeCount) + "/" + std::to_string(kProbeLimit) +
-                    ": A.Record while BUSY returned in " +
-                    std::to_string(1000.0 * static_cast<double>(probeEnd.QuadPart - probeStart.QuadPart) /
-                                   static_cast<double>(probeFreq.QuadPart)) +
-                    " ms, accepted=" + (probeAccepted ? "1" : "0") +
-                    ", jobId now=" + std::to_string(At<UINT>(runtime[0], L->jobId)) +
-                    ", jobDone=" + std::to_string(At<UINT>(runtime[0], L->jobDone)) +
-                    " (A busy for " + std::to_string(GetTickCount64() - start) + " ms so far)");
-            }
-#endif
             Sleep(1);
         }
 #ifdef AMD_RETIRE_DIAGNOSTICS
@@ -688,7 +720,19 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         p->TraceBoundary("Record device removed");
         return nullptr;
     }
-    if (p->pending.load())
+    // Pick the slot for this frame. With one slot this is the original
+    // behaviour: that slot must have retired or the frame is skipped. With two,
+    // the second slot lets the CPU keep recording while the previous job is
+    // still retiring, instead of blocking the render thread in Submitted.
+    Impl::Slot* sl = nullptr;
+    for (size_t k = 0; k < p->slots.size(); ++k)
+        if (!p->slots[k].pending.load(std::memory_order_acquire))
+        {
+            sl = &p->slots[k];
+            p->activeSlot = static_cast<UINT>(k);
+            break;
+        }
+    if (!sl)
     {
 #ifdef AMD_RETIRE_DIAGNOSTICS
         timing.event.outcome = "pending_skip";
@@ -696,10 +740,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         // Do not wait here. Execute/Submitted needs this lock to Notify HIP.
         // Every-frame waits after Execute in Submitted instead.
         if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
-            p->Log("AMD skipped: previous neural submission still pending; count=" + std::to_string(p->pendingSkips));
+            p->Log("AMD skipped: no free neural slot; count=" + std::to_string(p->pendingSkips));
         return nullptr;
     }
-    const auto completion = p->completion.load();
+    const auto completion = sl->completion.load();
 #ifdef AMD_RETIRE_DIAGNOSTICS
     const auto extraGpuBefore = p->fence->GetCompletedValue();
     if (extraGpuBefore < completion)
@@ -847,7 +891,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         bool resize = p->width != w || p->height != h;
         if (resize)
         {
-            p->colour.Reset();
+            sl->colour.Reset();
             D3D12_HEAP_PROPERTIES hp {};
             hp.Type = D3D12_HEAP_TYPE_DEFAULT;
             D3D12_RESOURCE_DESC rd {};
@@ -861,7 +905,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
             Check(p->device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
                                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
-                                                     IID_PPV_ARGS(&p->colour)),
+                                                     IID_PPV_ARGS(&sl->colour)),
                   "Active FP16 texture");
             p->width = w;
             p->height = h;
@@ -924,7 +968,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             createScratch(p->motionCrop, w, h, DXGI_FORMAT_R16G16_FLOAT);
             motion = p->motionCrop.Get();
         }
-        if (exposureSource) createScratch(p->exposureCopy, 1, 1, DXGI_FORMAT_R32_FLOAT);
+        if (exposureSource) createScratch(sl->exposureCopy, 1, 1, DXGI_FORMAT_R32_FLOAT);
         if (applyLook)
         {
             createScratch(p->lookColour, w, h, DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -960,7 +1004,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav {};
         uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        p->device->CreateUnorderedAccessView(p->colour.Get(), nullptr, &uav, cpu);
+        p->device->CreateUnorderedAccessView(sl->colour.Get(), nullptr, &uav, cpu);
         auto guideDescriptors = [&](UINT slot, ID3D12Resource* source, ID3D12Resource* target, DXGI_FORMAT format)
         {
             auto handle = p->heap->GetCPUDescriptorHandleForHeapStart();
@@ -974,8 +1018,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             p->device->CreateUnorderedAccessView(target, nullptr, &guideUav, handle);
         };
         if (resampleMotion) guideDescriptors(4, f.motion, motion, DXGI_FORMAT_R16G16_FLOAT);
-        if (exposureSource) guideDescriptors(6, exposureSource, p->exposureCopy.Get(), DXGI_FORMAT_R32_FLOAT);
-        if (applyLook) guideDescriptors(8, p->colour.Get(), p->lookColour.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+        if (exposureSource) guideDescriptors(6, exposureSource, sl->exposureCopy.Get(), DXGI_FORMAT_R32_FLOAT);
+        if (applyLook) guideDescriptors(8, sl->colour.Get(), p->lookColour.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT);
         if (convertDepth)
         {
             // Distinct descriptor slots: overwriting the colour descriptors here
@@ -988,7 +1032,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             p->device->CreateUnorderedAccessView(depth, nullptr, &uav, cpu);
         }
         Barrier(cmd, f.colour, f.colourState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        Barrier(cmd, p->colour.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+        Barrier(cmd, sl->colour.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         cmd->SetComputeRootSignature(p->root.Get());
         cmd->SetPipelineState(p->pipeline.Get());
@@ -998,7 +1042,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         UINT dims[] { w, h, inputW, inputH };
         cmd->SetComputeRoot32BitConstants(1, 4, dims, 0);
         cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
-        Barrier(cmd, p->colour.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        Barrier(cmd, sl->colour.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Barrier(cmd, f.colour, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.colourState);
         Barrier(cmd, f.motion, f.motionState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1045,7 +1089,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             copyGuide(f.depth, depth);
         if (exposureSource)
         {
-            auto exposure = p->exposureCopy.Get();
+            auto exposure = sl->exposureCopy.Get();
             Barrier(cmd, exposure, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             cmd->SetPipelineState(p->exposurePipeline.Get());
             auto table = p->heap->GetGPUDescriptorHandleForHeapStart();
@@ -1059,7 +1103,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             Barrier(cmd, exposure, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         }
         UINT accepted = 0;
-        if (scaled) copyGuide(p->colour.Get(),p->scaleBaseline.Get());
+        if (scaled) copyGuide(sl->colour.Get(),p->scaleBaseline.Get());
         const bool settingsChanged = cfg.encoding != p->lastSettings.encoding || cfg.toneChannels != p->lastSettings.toneChannels || cfg.modelScale != p->lastSettings.modelScale || !p->haveSettings || cfg.tone != p->lastSettings.tone ||
                                      cfg.structure != p->lastSettings.structure || cfg.skin != p->lastSettings.skin ||
                                      cfg.everyFrame != p->lastSettings.everyFrame;
@@ -1101,27 +1145,18 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 262144 + (UINT64(w) * h + 1) / 2, 262144, 2097152));
             Packet packet {};
             packet.list = cmd;
-            packet.colour = p->colour.Get();
+            packet.colour = sl->colour.Get();
             packet.colourState = 4;
             packet.motion = motion;
             packet.motionState = 4;
             packet.depth = depth;
             packet.depthState = 4;
-            packet.exposure = exposureSource ? p->exposureCopy.Get() : nullptr;
+            packet.exposure = exposureSource ? sl->exposureCopy.Get() : nullptr;
             packet.exposureState = 4;
             packet.scaleX = f.motionScaleX * (resampleMotion ? float(w) / mvW : 1.0f);
             packet.scaleY = f.motionScaleY * (resampleMotion ? float(h) / mvH : 1.0f);
-#ifdef AMD_MULTISLOT
-            // Keep the first pass's packet so the P1 probe can re-issue it later,
-            // at a moment when A is known to still be busy.
-            if (i == 0)
-            {
-                p->probePacket = packet;
-                p->haveProbePacket = true;
-            }
-#endif
             reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(r) + L->record)(&packet);
-            p->jobs[i] = At<UINT>(r, L->jobId);
+            sl->jobs[i] = At<UINT>(r, L->jobId);
             // Staging recreation resets the native job counter. After a resize,
             // job 1 can follow job 1, so counter equality does not mean rejection.
             // The native pending-list pointer is the actual submission contract.
@@ -1135,7 +1170,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             if (At<uint8_t>(r, L->nativeFailure))
             {
                 p->failed = true;
-                p->Log("AMD pass native failure: " + std::to_string(i + 1) + " job=" + std::to_string(p->jobs[i]));
+                p->Log("AMD pass native failure: " + std::to_string(i + 1) + " job=" + std::to_string(sl->jobs[i]));
                 break;
             }
             if (!recorded)
@@ -1143,7 +1178,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 // 0.2.17 recreates staging after a resize and will not attach
                 // this list until the GPU is idle. Skip the frame; do not die.
                 p->Log("AMD staging not ready (resize/rebuild); retry next frame. job=" +
-                       std::to_string(p->jobs[i]));
+                       std::to_string(sl->jobs[i]));
                 break;
             }
         }
@@ -1160,8 +1195,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         }
         // Even accepted == 0 has B's copy/conversion/barrier commands recorded.
         // Track that list until its D3D fence completes before reusing resources.
-        p->submission.Record(GetTickCount64());
-        p->pending.store(cmd, std::memory_order_release);
+        sl->submission.Record(GetTickCount64());
+        sl->pending.store(cmd, std::memory_order_release);
         if (p->failed)
             return nullptr;
         if (applyLook)
@@ -1201,7 +1236,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
             Barrier(cmd, p->lookColour.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         }
-        auto finalColour = applyLook ? p->lookColour.Get() : p->colour.Get();
+        auto finalColour = applyLook ? p->lookColour.Get() : sl->colour.Get();
         if (cfg.rtgi.enabled && !p->rtgiFailed)
         {
             try
@@ -1280,10 +1315,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
 }
 int Backend::PendingListIndex(UINT count, ID3D12CommandList* const* lists) const
 {
-    auto pending = p->pending.load(std::memory_order_acquire);
-    if (!pending || !lists) return -1;
-    for (UINT i = 0; i < count; ++i)
-        if (lists[i] == pending) return static_cast<int>(i);
+    if (!lists) return -1;
+    for (size_t s = 0; s < p->slots.size(); ++s)
+    {
+        auto pending = p->slots[s].pending.load(std::memory_order_acquire);
+        if (!pending) continue;
+        for (UINT i = 0; i < count; ++i)
+            if (lists[i] == pending) return static_cast<int>(i);
+    }
     return -1;
 }
 void Backend::TraceBoundary(const std::string& reason)
@@ -1293,27 +1332,41 @@ void Backend::TraceBoundary(const std::string& reason)
 }
 void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* const* lists)
 {
-    auto pending = p->pending.load(std::memory_order_acquire);
-    if (!pending || !queue)
+    if (!queue)
         return;
-    bool found = false;
-    for (UINT i = 0; i < n; ++i)
-        found |= lists[i] == pending;
-    if (!found)
+    // Which slot is this batch submitting? Usually the one Record just filled.
+    UINT slot = static_cast<UINT>(p->slots.size());
+    ID3D12CommandList* pending = nullptr;
+    for (size_t k = 0; k < p->slots.size() && !pending; ++k)
+    {
+        auto candidate = p->slots[k].pending.load(std::memory_order_acquire);
+        if (!candidate)
+            continue;
+        bool found = false;
+        for (UINT i = 0; i < n; ++i)
+            found |= lists[i] == candidate;
+        if (found)
+        {
+            slot = static_cast<UINT>(k);
+            pending = candidate;
+        }
+    }
+    if (!pending)
         return;
     std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
-    if (p->pending.load() != pending || p->submission.submitted)
+    auto& sl = p->slots[slot];
+    if (sl.pending.load() != pending || sl.submission.submitted)
         return;
     if (p->frames <= 3)
         p->Log("Neural submission: lists=" + std::to_string(n) + " queueType=" +
                std::to_string(static_cast<UINT>(queue->GetDesc().Type)));
     // Match the recorded list, not the swapchain's presentation queue. FG can
     // replace the latter, and the renderer may also migrate between queues.
-    // Only one frame is outstanding, so the prior completion fence has retired
-    // before Record permits this frame to use the shared runtime resources.
+    // A slot is only reused once its own completion fence has retired, so the
+    // runtime resources it borrows are free by then.
     if (queue != p->queue.Get())
     {
         for (auto h : p->runtime)
@@ -1337,21 +1390,34 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
 {
     // Fallback for callers using the original post-submit API.
     Submitting(queue, n, lists);
-    auto pending = p->pending.load(std::memory_order_acquire);
-    if (!pending || !queue)
+    if (!queue)
         return;
-    bool found = false;
-    for (UINT i = 0; i < n; ++i)
-        found |= lists[i] == pending;
-    if (!found)
+    UINT slot = static_cast<UINT>(p->slots.size());
+    ID3D12CommandList* pending = nullptr;
+    for (size_t k = 0; k < p->slots.size() && !pending; ++k)
+    {
+        auto candidate = p->slots[k].pending.load(std::memory_order_acquire);
+        if (!candidate)
+            continue;
+        bool found = false;
+        for (UINT i = 0; i < n; ++i)
+            found |= lists[i] == candidate;
+        if (found)
+        {
+            slot = static_cast<UINT>(k);
+            pending = candidate;
+        }
+    }
+    if (!pending)
         return;
     std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
-    if (p->pending.load() != pending)
+    auto& sl = p->slots[slot];
+    if (sl.pending.load() != pending)
         return;
-    if (p->submission.submitted) return;
+    if (sl.submission.submitted) return;
     if (p->activePasses == 1)
     {
         auto h = p->runtime[0];
@@ -1363,9 +1429,9 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
             p->Log("D3D12 completion Signal failed; resources retained");
             return;
         }
-        p->completion.store(value);
-        p->submission.Submit(GetTickCount64());
-        p->WaitAfterSubmitIfEveryFrame();
+        sl.completion.store(value);
+        sl.submission.Submit(GetTickCount64());
+        p->WaitAfterSubmitIfEveryFrame(slot);
         return;
     }
     for (UINT i = 0; i < p->activePasses; ++i)
@@ -1376,7 +1442,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         // worker finished; otherwise its capture-wait kernel could block the first pass.
         auto start = GetTickCount64();
         while (static_cast<UINT>(InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(&At<UINT>(h, L->jobDone)), 0,
-                                                            0)) < p->jobs[i])
+                                                            0)) < sl.jobs[i])
         {
             if (GetTickCount64() - start > 5000)
             {
@@ -1394,9 +1460,9 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         p->Log("D3D12 completion Signal failed");
         return;
     }
-    p->completion.store(value);
-    p->submission.Submit(GetTickCount64());
-    p->WaitAfterSubmitIfEveryFrame();
+    sl.completion.store(value);
+    sl.submission.Submit(GetTickCount64());
+    p->WaitAfterSubmitIfEveryFrame(slot);
     p->RetireSubmission(false, "Submitted");
 }
 std::string Backend::Status() const
@@ -1427,7 +1493,7 @@ bool Backend::Ready()
     if (!p->fence) return false;
     p->RetireSubmission(false, "Ready");
     const auto completed = p->fence->GetCompletedValue();
-    return !p->failed && !p->pending.load() && completed != UINT64_MAX && completed >= p->completion.load();
+    return !p->failed && !p->AnySlotBusy() && completed != UINT64_MAX && completed >= p->LatestCompletion();
 }
 bool Backend::Shutdown()
 {
@@ -1439,7 +1505,7 @@ bool Backend::Shutdown()
     p->diagnostics.Flush(p->directory, L ? L->name : "uninitialized", "shutdown");
 #endif
     const auto completed = p->fence->GetCompletedValue();
-    if (p->pending.load() || completed == UINT64_MAX || completed < p->completion.load())
+    if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
         return false;
     for (auto h : p->runtime)
         if (h && L)
