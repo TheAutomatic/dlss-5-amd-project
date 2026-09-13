@@ -522,9 +522,25 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     }
     if (p->pending.load())
     {
-        if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
-            p->Log("AMD skipped: previous neural submission still pending; count=" + std::to_string(p->pendingSkips));
-        return nullptr;
+        // Waiting is only safe after the previous list was actually submitted.
+        // An unsubmitted list may depend on this recording thread returning.
+        if (cfg.everyFrame && p->submission.submitted)
+        {
+            const auto start = GetTickCount64();
+            while (p->pending.load() && GetTickCount64() - start < 80)
+            {
+                p->RetireSubmission(true);
+                if (!p->pending.load())
+                    break;
+                Sleep(1);
+            }
+        }
+        if (p->pending.load())
+        {
+            if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
+                p->Log("AMD skipped: previous neural submission still pending; count=" + std::to_string(p->pendingSkips));
+            return nullptr;
+        }
     }
     const auto completion = p->completion.load();
     if (p->fence->GetCompletedValue() < completion)
@@ -532,13 +548,15 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         // Only wait for already submitted GPU work. Never wait here for an
         // unsubmitted list: its submission may depend on the recording thread.
         // A short scheduling delay used to bypass the effect for a whole frame.
+        const UINT waitMs = cfg.everyFrame ? 80u : 16u;
         const auto start = GetTickCount64();
-        while (p->fence->GetCompletedValue() < completion && GetTickCount64() - start < 16)
+        while (p->fence->GetCompletedValue() < completion && GetTickCount64() - start < waitMs)
             Sleep(1);
         if (p->fence->GetCompletedValue() < completion)
         {
             if (++p->fenceSkips)
-                p->Log("AMD skipped: submitted GPU work still in flight after 16 ms; count=" + std::to_string(p->fenceSkips));
+                p->Log("AMD skipped: submitted GPU work still in flight after " + std::to_string(waitMs) +
+                       " ms; count=" + std::to_string(p->fenceSkips));
             return nullptr;
         }
         if (++p->fenceRecoveries <= 3 || p->fenceRecoveries % 120 == 0)
@@ -864,7 +882,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         UINT accepted = 0;
         if (scaled) copyGuide(p->colour.Get(),p->scaleBaseline.Get());
         const bool settingsChanged = cfg.encoding != p->lastSettings.encoding || cfg.toneChannels != p->lastSettings.toneChannels || cfg.modelScale != p->lastSettings.modelScale || !p->haveSettings || cfg.tone != p->lastSettings.tone ||
-                                     cfg.structure != p->lastSettings.structure || cfg.skin != p->lastSettings.skin;
+                                     cfg.structure != p->lastSettings.structure || cfg.skin != p->lastSettings.skin ||
+                                     cfg.everyFrame != p->lastSettings.everyFrame;
         const bool explicitReset = p->resetRequested.exchange(false);
         const bool gap = p->lastSubmitted && GetTickCount64() - p->lastSubmitted > 250;
         if (f.reset || resize || guideChange || passChange || p->resetAfterTimeout || settingsChanged || explicitReset || gap)
@@ -876,7 +895,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         for (UINT i = 0; i < p->activePasses; ++i)
         {
             auto r = p->runtime[i];
-            At<uint8_t>(r, 0x8d9bd) = 1;
+            // 0x8d9bd is A 0.2.17 Temporal. Default on (skip-frame path).
+            // Every-frame mode matches author 0.3: skip history inputs, do not
+            // clear history-valid (0x8d018) each frame.
+            At<uint8_t>(r, 0x8d9bd) = cfg.everyFrame ? 0 : 1;
             // Engine +0x120 is the history-valid flag, +0x118 is the current
             // borrowed history view. Clear only at a quiescent frame boundary.
             if (f.reset || resize || guideChange || passChange || p->resetAfterTimeout || settingsChanged || explicitReset || gap)

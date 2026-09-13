@@ -40,6 +40,7 @@ struct RtgiSettings {
 struct Settings
 {
     UINT encoding = 0; // Auto, Linear, sRGB, Gamma 2.2
+    bool everyFrame = false;
     bool toneChannels = false;
     float modelScale = 1;
     UINT passes = 1;

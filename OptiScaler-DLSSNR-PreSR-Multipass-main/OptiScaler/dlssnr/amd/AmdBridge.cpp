@@ -327,6 +327,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     s.look.highlightCompression = cfg.AmdLookHighlightCompression.value_or_default();
     s.modelScale = sessionScale;
     s.passes = cfg.DlssNrPasses.value_or_default();
+    s.everyFrame = cfg.AmdEveryFrame.value_or_default();
     // The pinned AMD binary explicitly disables the broad lighting/colour
     // channels. Its embedded UI warns that nonzero tone mostly darkens frames.
     s.encoding=std::clamp(cfg.AmdEncoding.value_or_default(),0,3);

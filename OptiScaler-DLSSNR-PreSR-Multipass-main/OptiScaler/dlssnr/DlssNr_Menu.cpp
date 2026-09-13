@@ -122,6 +122,18 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::Checkbox("Enable Neural Rendering", &enabled))
             config->DlssNrEnabled = enabled;
 
+        if (DlssNr::AmdBridge::HasFiles())
+        {
+            bool everyFrame = config->AmdEveryFrame.value_or_default();
+            if (ImGui::Checkbox("Every-frame NR", &everyFrame))
+                config->AmdEveryFrame = everyFrame;
+            HelpMarker("Off (default): Temporal history on, skip a frame if the previous network is"
+                       "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
+                       "\n\nOn: wait for each network like author 0.3 (Temporal off, no skip)."
+                       "\nNR updates every displayed frame and flickers less, but FPS follows the"
+                       "\nnetwork — about 45 at 720p, about 27 at 1080p full scale.");
+        }
+
         if (AmdPresentExperimental::IsTarget())
         {
             ImGui::TextWrapped("Experimental final-image neural: synthetic motion/depth, no temporal history. Includes game HUD.");

@@ -40,6 +40,7 @@ Enabled=false
 RunBeforeSR=true
 AmdModelScale=1
 AmdEncoding=0
+AmdEveryFrame=false
 AmdNeuralLighting=true
 AmdNeuralLightingStrength=0.5
 Passes=1
