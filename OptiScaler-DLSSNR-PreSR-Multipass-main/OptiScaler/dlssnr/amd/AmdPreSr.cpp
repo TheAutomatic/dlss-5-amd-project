@@ -383,7 +383,11 @@ struct Backend::Impl
                 reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
             nativeDone &= sl.jobs[i] != 0 && done >= sl.jobs[i];
 #ifdef AMD_RETIRE_DIAGNOSTICS
-            sample->done[i] = done;
+            // sample is null for every slot except the one RetireSubmission
+            // chose to instrument. Writing through it crashed kSlots=2 as soon
+            // as two slots were pending (s13/s14).
+            if (sample)
+                sample->done[i] = done;
 #endif
             timedOut |= At<UINT>(runtime[i], L->timeoutCount) > observedTimeouts[i];
         }
@@ -392,9 +396,12 @@ struct Backend::Impl
             TraceBoundary("device removed while retiring");
         const auto target = sl.completion.load();
 #ifdef AMD_RETIRE_DIAGNOSTICS
-        sample->nativeDone = nativeDone; // Exactly the value passed to CanRetire.
-        sample->gpuBefore = gpuDone;
-        sample->target = target;
+        if (sample)
+        {
+            sample->nativeDone = nativeDone; // Exactly the value passed to CanRetire.
+            sample->gpuBefore = gpuDone;
+            sample->target = target;
+        }
 #endif
         // Preserve the existing short recording-thread wait, but never block
         // on a list that the game has not submitted yet, or from Status().
@@ -410,12 +417,16 @@ struct Backend::Impl
                 gpuDone = fence->GetCompletedValue();
             }
 #ifdef AMD_RETIRE_DIAGNOSTICS
-            sample->waitMs = diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitStart);
+            if (sample)
+                sample->waitMs = diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitStart);
 #endif
         }
 #ifdef AMD_RETIRE_DIAGNOSTICS
-        sample->gpuAfter = gpuDone;
-        sample->retired = sl.submission.CanRetire(nativeDone, gpuDone, target);
+        if (sample)
+        {
+            sample->gpuAfter = gpuDone;
+            sample->retired = sl.submission.CanRetire(nativeDone, gpuDone, target);
+        }
 #endif
         if (sl.submission.CanRetire(nativeDone, gpuDone, target))
         {
@@ -730,9 +741,9 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s13-slotdescr slots=2 per-slot-descriptors]";
+    static constexpr const char* kBuildTag = " [s15-samplefix slots=2 retire-sample-null]";
 #else
-    static constexpr const char* kBuildTag = " [s13-slotdescr slots=1 per-slot-descriptors]";
+    static constexpr const char* kBuildTag = " [s15-samplefix slots=1 retire-sample-null]";
 #endif
     p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
