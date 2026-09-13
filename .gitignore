@@ -49,3 +49,11 @@ analysis/v25-package-test-output/
 # Python 字节码缓存
 __pycache__/
 *.pyc
+
+# Local analysis inputs and build outputs. The runtimes are large binaries;
+# the scripts in analysis/ regenerate the dumps from them on demand.
+analysis/a03-runtime.dll
+analysis/temporal-a03-*.txt
+exports/temporal-a*.log
+exports/review-s5/
+exports/review-s6/

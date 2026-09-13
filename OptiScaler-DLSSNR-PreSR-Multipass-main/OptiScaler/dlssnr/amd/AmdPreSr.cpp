@@ -1,5 +1,8 @@
 #include "AmdPreSr.h"
 #include "AmdLayout.h"
+#ifdef AMD_RETIRE_DIAGNOSTICS
+#include "RetirementDiagnostics.h"
+#endif
 #include "RuntimeNotification.h"
 #include "SubmissionState.h"
 #include "ColorEncoding.h"
@@ -234,12 +237,27 @@ struct Backend::Impl
     UINT64 retryAfter = 0, timeoutEvents = 0;
     bool resetAfterTimeout = false;
     SubmissionState submission;
+#ifdef AMD_MULTISLOT
+    // --- P1 probe (see exports/design-multislot.md §4) -------------------------
+    // Multi-slot only helps if A's Record RETURNS while A is still busy. If A
+    // blocks there instead, moving the wait out of Submitted just moves it into
+    // Record and the frame time does not change. Probe it before designing.
+    // This deliberately makes A record a few extra jobs; it stops after
+    // kProbeLimit calls so the rest of the run stays clean.
+    static constexpr UINT kProbeLimit = 20;
+    Packet probePacket {};
+    bool haveProbePacket = false;
+    UINT probeCount = 0;
+#endif
     bool deviceLostReported = false;
     UINT width = 0, height = 0, activePasses = 0, lastPasses = 0;
     HipSetFn hipSet = nullptr;
     int hipDevice = -1;
     const AmdLayout* L = nullptr;
     std::mutex lock;
+#ifdef AMD_RETIRE_DIAGNOSTICS
+    RetirementDiagnostics diagnostics;
+#endif
     void Log(const std::string& s)
     {
         status = s;
@@ -291,8 +309,25 @@ struct Backend::Impl
     // Called with lock held. Keep every borrowed resource alive until BOTH
     // native inference and the actual D3D12 submission have retired.
     void RetireSubmission(bool waitForGpu = false, const char* source = "Unknown"
+#ifdef AMD_RETIRE_DIAGNOSTICS
+                          , RetirementDiagnostics::Event* recordEvent = nullptr
+#endif
                           )
     {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        RetirementDiagnostics::Scope timing(diagnostics, directory, L ? L->name : "uninitialized", source, recordEvent);
+        auto& sample = timing.event;
+        sample.pending = reinterpret_cast<uintptr_t>(pending.load(std::memory_order_acquire));
+        sample.submitted = submission.submitted;
+        sample.recordedAt = submission.recordedAt;
+        sample.submittedAt = submission.submittedAt;
+        sample.passes = activePasses;
+        sample.width = width;
+        sample.height = height;
+        sample.everyFrame = haveSettings && lastSettings.everyFrame;
+        sample.jobs = jobs;
+        sample.target = completion.load();
+#endif
         if (!pending.load(std::memory_order_acquire))
             return;
         bool nativeDone = true;
@@ -302,23 +337,41 @@ struct Backend::Impl
             const auto done = static_cast<UINT>(InterlockedCompareExchange(
                 reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
             nativeDone &= jobs[i] != 0 && done >= jobs[i];
+#ifdef AMD_RETIRE_DIAGNOSTICS
+            sample.done[i] = done;
+#endif
             timedOut |= At<UINT>(runtime[i], L->timeoutCount) > observedTimeouts[i];
         }
         auto gpuDone = fence->GetCompletedValue();
         if (gpuDone == UINT64_MAX && !deviceLostReported)
             TraceBoundary("device removed while retiring");
         const auto target = completion.load();
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        sample.nativeDone = nativeDone; // Exactly the value passed to CanRetire.
+        sample.gpuBefore = gpuDone;
+        sample.target = target;
+#endif
         // Preserve the existing short recording-thread wait, but never block
         // on a list that the game has not submitted yet, or from Status().
         if (waitForGpu && submission.submitted && nativeDone && gpuDone < target)
         {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+            const auto waitStart = RetirementDiagnostics::Clock();
+#endif
             const auto start = GetTickCount64();
             while (gpuDone < target && GetTickCount64() - start < 16)
             {
                 Sleep(1);
                 gpuDone = fence->GetCompletedValue();
             }
+#ifdef AMD_RETIRE_DIAGNOSTICS
+            sample.waitMs = diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitStart);
+#endif
         }
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        sample.gpuAfter = gpuDone;
+        sample.retired = submission.CanRetire(nativeDone, gpuDone, target);
+#endif
         if (submission.CanRetire(nativeDone, gpuDone, target))
         {
             pending.store(nullptr, std::memory_order_release);
@@ -351,7 +404,22 @@ struct Backend::Impl
     {
         if (!haveSettings || !lastSettings.everyFrame)
             return;
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        // Observational only: no wait behaviour is changed here.
+        RetirementDiagnostics::Scope timing(diagnostics, directory, L ? L->name : "uninitialized", "EfWaitLoop");
+        auto& sample = timing.event;
+        sample.everyFrame = true;
+        sample.passes = activePasses;
+        sample.width = width;
+        sample.height = height;
+        sample.jobs = jobs;
+        sample.target = completion.load();
+        const auto waitEntry = RetirementDiagnostics::Clock();
+#endif
         unsigned iterations = 0;
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        bool nativeAtEntry = true;   // first poll result: did we wait at all?
+#endif
         const auto start = GetTickCount64();
         while (GetTickCount64() - start < 80)
         {
@@ -371,14 +439,55 @@ struct Backend::Impl
                     break;
                 }
             }
+#ifdef AMD_RETIRE_DIAGNOSTICS
+            if (iterations == 0)
+                nativeAtEntry = nativeDone;
+#endif
             if (nativeDone)
             {
                 RetireSubmission(false, "EveryFrameWait");
+#ifdef AMD_RETIRE_DIAGNOSTICS
+                sample.outcome = "done";
+#endif
                 break;
             }
             ++iterations;
+#ifdef AMD_MULTISLOT
+            // P1 probe. Reaching here means the nativeDone check just failed, so A
+            // is still busy. Re-issue the recorded packet and time the call: a fast
+            // return means multi-slot is viable; a blocked return means it is not.
+            if (probeCount < kProbeLimit && haveProbePacket && iterations == 1 && L && runtime[0])
+            {
+                LARGE_INTEGER probeFreq {}, probeStart {}, probeEnd {};
+                QueryPerformanceFrequency(&probeFreq);
+                QueryPerformanceCounter(&probeStart);
+                reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(runtime[0]) + L->record)(&probePacket);
+                QueryPerformanceCounter(&probeEnd);
+                ++probeCount;
+                // Did A take the job, or refuse it? B's normal path uses exactly
+                // this test, so it is the same acceptance contract.
+                const bool probeAccepted =
+                    At<ID3D12CommandList*>(runtime[0], L->pendingList) == probePacket.list;
+                Log("AMD-MS probe " + std::to_string(probeCount) + "/" + std::to_string(kProbeLimit) +
+                    ": A.Record while BUSY returned in " +
+                    std::to_string(1000.0 * static_cast<double>(probeEnd.QuadPart - probeStart.QuadPart) /
+                                   static_cast<double>(probeFreq.QuadPart)) +
+                    " ms, accepted=" + (probeAccepted ? "1" : "0") +
+                    ", jobId now=" + std::to_string(At<UINT>(runtime[0], L->jobId)) +
+                    ", jobDone=" + std::to_string(At<UINT>(runtime[0], L->jobDone)) +
+                    " (A busy for " + std::to_string(GetTickCount64() - start) + " ms so far)");
+            }
+#endif
             Sleep(1);
         }
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        if (sample.outcome == std::string_view("poll"))
+            sample.outcome = "budget";   // fell out of the 80 ms loop without finishing
+        sample.waitIterations = iterations;
+        sample.waitedBeforeDone = !nativeAtEntry;
+        sample.gpuAfter = fence ? fence->GetCompletedValue() : 0;
+        sample.waitMs = diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitEntry);
+#endif
     }
     void InitHip()
     {
@@ -561,7 +670,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
 {
     std::lock_guard guard(p->lock);
     Frame f=incoming;
+#ifdef AMD_RETIRE_DIAGNOSTICS
+    p->diagnostics.BeginRecord(p->frames != 0);
+    RetirementDiagnostics::Scope timing(p->diagnostics, p->directory, p->L ? p->L->name : "uninitialized", "Record");
+    timing.event.outcome = "other_skip";
+    p->RetireSubmission(true, "Record", &timing.event);
+#else
     p->RetireSubmission(true);
+#endif
     if (p->failed || !cmd || !f.colour || !f.motion || !f.depth)
         return nullptr;
     const auto deviceStatus = p->device->GetDeviceRemovedReason();
@@ -574,6 +690,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     }
     if (p->pending.load())
     {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        timing.event.outcome = "pending_skip";
+#endif
         // Do not wait here. Execute/Submitted needs this lock to Notify HIP.
         // Every-frame waits after Execute in Submitted instead.
         if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
@@ -581,16 +700,37 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         return nullptr;
     }
     const auto completion = p->completion.load();
+#ifdef AMD_RETIRE_DIAGNOSTICS
+    const auto extraGpuBefore = p->fence->GetCompletedValue();
+    if (extraGpuBefore < completion)
+#else
     if (p->fence->GetCompletedValue() < completion)
+#endif
     {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        timing.event.extraWaited = true;
+        timing.event.extraGpuBefore = extraGpuBefore;
+        timing.event.extraTarget = completion;
+        const auto waitStart = RetirementDiagnostics::Clock();
+#endif
         // Only wait for already submitted GPU work. Never wait here for an
         // unsubmitted list: its submission may depend on the recording thread.
         // A short scheduling delay used to bypass the effect for a whole frame.
         const auto start = GetTickCount64();
         while (p->fence->GetCompletedValue() < completion && GetTickCount64() - start < 16)
             Sleep(1);
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        timing.event.extraWaitMs = p->diagnostics.Milliseconds(RetirementDiagnostics::Clock() - waitStart);
+        const auto extraGpuAfter = p->fence->GetCompletedValue();
+        timing.event.extraGpuAfter = extraGpuAfter;
+        if (extraGpuAfter < completion)
+#else
         if (p->fence->GetCompletedValue() < completion)
+#endif
         {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+            timing.event.outcome = "fence_skip";
+#endif
             if (++p->fenceSkips)
                 p->Log("AMD skipped: submitted GPU work still in flight after 16 ms; count=" + std::to_string(p->fenceSkips));
             return nullptr;
@@ -971,6 +1111,15 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             packet.exposureState = 4;
             packet.scaleX = f.motionScaleX * (resampleMotion ? float(w) / mvW : 1.0f);
             packet.scaleY = f.motionScaleY * (resampleMotion ? float(h) / mvH : 1.0f);
+#ifdef AMD_MULTISLOT
+            // Keep the first pass's packet so the P1 probe can re-issue it later,
+            // at a moment when A is known to still be busy.
+            if (i == 0)
+            {
+                p->probePacket = packet;
+                p->haveProbePacket = true;
+            }
+#endif
             reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(r) + L->record)(&packet);
             p->jobs[i] = At<UINT>(r, L->jobId);
             // Staging recreation resets the native job counter. After a resize,
@@ -1002,6 +1151,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         Barrier(cmd, f.depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.depthState);
         Barrier(cmd, exposureSource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.exposureState);
         p->activePasses = accepted;
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        timing.event.accepted = accepted;
+#endif
         if (accepted)
         {
             ++p->frames;
@@ -1114,6 +1266,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             p->Log("Recorded pre-SR " + std::to_string(w) + "x" + std::to_string(h) +
                    " passes=" + std::to_string(p->activePasses));
         if(convertEncoding) finalColour=p->encode->Run(cmd,finalColour,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,inputW,inputH,cfg.encoding,true);
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        timing.event.outcome = "recorded";
+#endif
         return finalColour;
     }
     catch (const std::exception& e)
@@ -1280,6 +1435,9 @@ bool Backend::Shutdown()
     const AmdLayout* L = p->L;
     if (!p->fence) return false;
     p->RetireSubmission(false, "Shutdown");
+#ifdef AMD_RETIRE_DIAGNOSTICS
+    p->diagnostics.Flush(p->directory, L ? L->name : "uninitialized", "shutdown");
+#endif
     const auto completed = p->fence->GetCompletedValue();
     if (p->pending.load() || completed == UINT64_MAX || completed < p->completion.load())
         return false;
