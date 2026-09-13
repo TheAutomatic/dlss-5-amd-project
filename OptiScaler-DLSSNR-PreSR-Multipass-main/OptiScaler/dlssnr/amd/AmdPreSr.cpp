@@ -338,6 +338,41 @@ struct Backend::Impl
                 "/" + std::to_string(target));
         }
     }
+    // Execute has already happened. Wait only for HIP job-done, not the D3D12
+    // fence: that fence covers FSR and the rest of the batch and was stalling
+    // ExecuteCommandLists down to ~30 FPS. A's GPU inline still serializes NR
+    // before FSR on the list. Record may still skip if the fence is in flight.
+    void WaitAfterSubmitIfEveryFrame()
+    {
+        if (!haveSettings || !lastSettings.everyFrame)
+            return;
+        const auto start = GetTickCount64();
+        while (GetTickCount64() - start < 80)
+        {
+            bool nativeDone = true;
+            for (UINT i = 0; i < activePasses; ++i)
+            {
+                if (!runtime[i] || jobs[i] == 0)
+                {
+                    nativeDone = false;
+                    break;
+                }
+                const auto done = static_cast<UINT>(InterlockedCompareExchange(
+                    reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], 0x8d6f4)), 0, 0));
+                if (done < jobs[i])
+                {
+                    nativeDone = false;
+                    break;
+                }
+            }
+            if (nativeDone)
+            {
+                RetireSubmission(false);
+                return;
+            }
+            Sleep(1);
+        }
+    }
     void InitHip()
     {
         if (hipSet)
@@ -522,25 +557,11 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     }
     if (p->pending.load())
     {
-        // Waiting is only safe after the previous list was actually submitted.
-        // An unsubmitted list may depend on this recording thread returning.
-        if (cfg.everyFrame && p->submission.submitted)
-        {
-            const auto start = GetTickCount64();
-            while (p->pending.load() && GetTickCount64() - start < 80)
-            {
-                p->RetireSubmission(true);
-                if (!p->pending.load())
-                    break;
-                Sleep(1);
-            }
-        }
-        if (p->pending.load())
-        {
-            if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
-                p->Log("AMD skipped: previous neural submission still pending; count=" + std::to_string(p->pendingSkips));
-            return nullptr;
-        }
+        // Do not wait here. Execute/Submitted needs this lock to Notify HIP.
+        // Every-frame waits after Execute in Submitted instead.
+        if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
+            p->Log("AMD skipped: previous neural submission still pending; count=" + std::to_string(p->pendingSkips));
+        return nullptr;
     }
     const auto completion = p->completion.load();
     if (p->fence->GetCompletedValue() < completion)
@@ -548,15 +569,13 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         // Only wait for already submitted GPU work. Never wait here for an
         // unsubmitted list: its submission may depend on the recording thread.
         // A short scheduling delay used to bypass the effect for a whole frame.
-        const UINT waitMs = cfg.everyFrame ? 80u : 16u;
         const auto start = GetTickCount64();
-        while (p->fence->GetCompletedValue() < completion && GetTickCount64() - start < waitMs)
+        while (p->fence->GetCompletedValue() < completion && GetTickCount64() - start < 16)
             Sleep(1);
         if (p->fence->GetCompletedValue() < completion)
         {
             if (++p->fenceSkips)
-                p->Log("AMD skipped: submitted GPU work still in flight after " + std::to_string(waitMs) +
-                       " ms; count=" + std::to_string(p->fenceSkips));
+                p->Log("AMD skipped: submitted GPU work still in flight after 16 ms; count=" + std::to_string(p->fenceSkips));
             return nullptr;
         }
         if (++p->fenceRecoveries <= 3 || p->fenceRecoveries % 120 == 0)
@@ -1165,6 +1184,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         }
         p->completion.store(value);
         p->submission.Submit(GetTickCount64());
+        p->WaitAfterSubmitIfEveryFrame();
         return;
     }
     for (UINT i = 0; i < p->activePasses; ++i)
@@ -1195,6 +1215,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     }
     p->completion.store(value);
     p->submission.Submit(GetTickCount64());
+    p->WaitAfterSubmitIfEveryFrame();
     p->RetireSubmission();
 }
 std::string Backend::Status() const
