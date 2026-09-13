@@ -255,6 +255,27 @@ struct Backend::Impl
     };
     std::array<Slot, kSlots> slots;
     UINT activeSlot = 0;
+    // A joins its workers and clears the abort buffer while it rebuilds staging,
+    // which it does after a resize, a re-created upscaler context or an INI
+    // change. While that is in flight the extra slot must not be used to skip
+    // the Submitted wait - doing so hung the game (exports/design-multislot.md
+    // section 4b).
+    //
+    // A timer cannot guard this: the rebuild happens on whichever later Record
+    // A chooses, so any window simply expires first and the crash follows. A
+    // publishes its own decision as a sticky byte instead - set when it detects
+    // the change, cleared only after it has drained the queue and joined its
+    // workers - and a rebuild happens on exactly those calls that read 1 at
+    // entry. Reading it is therefore the real guard. See
+    // exports/a03-staging-state.md.
+    bool NativeRebuilding() const
+    {
+        if (!L || !L->recreate) return true; // unknown layout: assume the worst
+        for (UINT i = 0; i < runtime.size(); ++i)
+            if (auto h = runtime[i])
+                if (At<volatile uint8_t>(h, L->recreate) != 0) return true;
+        return false;
+    }
     // True while any slot still owns the resources its job borrowed.
     bool AnySlotBusy() const
     {
@@ -460,7 +481,8 @@ struct Backend::Impl
         // would skip unless this frame's job had already retired. An extra slot
         // is exactly what removes that need, so with two slots the render thread
         // must not block here - blocking is the cost this whole change removes.
-        if (kSlots > 1)
+        // Not while A is rebuilding, though: that is when the wait is load-bearing.
+        if (kSlots > 1 && !NativeRebuilding())
             return;
 #ifdef AMD_RETIRE_DIAGNOSTICS
         // Observational only: no wait behaviour is changed here.
@@ -1110,11 +1132,13 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         const bool explicitReset = p->resetRequested.exchange(false);
         const bool gap = p->lastSubmitted && GetTickCount64() - p->lastSubmitted > 250;
         if (f.reset || resize || guideChange || passChange || p->resetAfterTimeout || settingsChanged || explicitReset || gap)
+        {
             p->Log("AMD history reset: frame=" + std::to_string(p->frames) +
                    " game=" + std::to_string(f.reset) + " resize=" + std::to_string(resize) +
                    " guides=" + std::to_string(guideChange) + " passes=" + std::to_string(passChange) +
                    " timeout=" + std::to_string(p->resetAfterTimeout) + " settings=" + std::to_string(settingsChanged) +
                    " explicit=" + std::to_string(explicitReset) + " gap=" + std::to_string(gap));
+        }
         for (UINT i = 0; i < p->activePasses; ++i)
         {
             auto r = p->runtime[i];
@@ -1175,8 +1199,11 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             if (!recorded)
             {
-                // 0.2.17 recreates staging after a resize and will not attach
-                // this list until the GPU is idle. Skip the frame; do not die.
+                // The runtime recreates staging after a resize or a re-created
+                // upscaler context and will not attach this list until the GPU
+                // is idle. Skip the frame; do not die. This frame is the one
+                // that *set* the recreate byte - the rebuild itself happens on
+                // a later call, which NativeRebuilding() will report.
                 p->Log("AMD staging not ready (resize/rebuild); retry next frame. job=" +
                        std::to_string(sl->jobs[i]));
                 break;

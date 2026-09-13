@@ -42,6 +42,12 @@ struct AmdLayout
     std::uint32_t charMask;
     std::uint32_t toneChannels;
     std::uint32_t hipOrdinal;
+    // Sticky "staging must be re-created" byte. Set when the runtime detects a
+    // resize, a re-created upscaler context, or an INI change; cleared only
+    // after it has drained the game's queue and joined its workers. Record
+    // tests it as its first act, so 0 means "this call will not rebuild".
+    // See exports/a03-staging-state.md.
+    std::uint32_t recreate;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -54,7 +60,8 @@ inline constexpr AmdLayout kAmd0217 {
     0x8cee8, 0x8cef0, 0x8cef8, 0x8d010, 0x8d018, 0x8d218, 0x8d21a,
     0x8d6c0, 0x8d6f4, 0x8d6f8, 0x8d724, 0x8d82c, 0x8d908, 0x8d914,
     0x8d9b0, 0x8d9b4, 0x8d9bc, 0x8d9bd, 0x8d9be, 0x8d9bf, 0x8d9c0,
-    0x8d9d0, 0x8d9d4, 0x8d9d8, 0x8d9e0, 0x8d9e4, 0x8dad0
+    0x8d9d0, 0x8d9d4, 0x8d9d8, 0x8d9e0, 0x8d9e4, 0x8dad0,
+    0x8daa8
 };
 
 // Alpha 0.3.0 version.dll. Fields from unique 0.2.17 instruction windows;
@@ -68,7 +75,8 @@ inline constexpr AmdLayout kAmd03 {
     0x96f68, 0x96f70, 0x96f78, 0x97090, 0x97098, 0x97298, 0x9729a,
     0x977a0, 0x977d4, 0x977d8, 0x97804, 0x97984, 0x97a60, 0x97a6c,
     0x97b10, 0x97b14, 0x97b1c, 0x97b1d, 0x97b1e, 0x97b1f, 0x97b20,
-    0x97b30, 0x97b34, 0x97b38, 0x97b40, 0x97b44, 0x97c30
+    0x97b30, 0x97b34, 0x97b38, 0x97b40, 0x97b44, 0x97c30,
+    0x97c08
 };
 
 inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03 };
