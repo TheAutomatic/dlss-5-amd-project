@@ -59,3 +59,14 @@ exports/review-s5/
 exports/review-s6/
 exports/review-s7/
 exports/review-s7-ks1/
+
+# MSVC 中间产物 —— 可由 build-review-*.cmd 完全重建，不应进仓库。
+# 2026-09-14：此前 `git add -A exports` 把 review-s*/obj/ 一路扫进来，
+# 单个 OptiScaler.pch 达 183 MB，直接导致 GitHub push 被 GH001 拒绝。
+**/obj/
+*.pch
+*.iobj
+*.ipdb
+*.obj
+*.lib
+analysis/menu-test-objects-*/
