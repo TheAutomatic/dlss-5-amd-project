@@ -255,6 +255,7 @@ struct Backend::Impl
     };
     std::array<Slot, kSlots> slots;
     UINT activeSlot = 0;
+    UINT skipWaits = 0;
     // A joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
@@ -483,7 +484,15 @@ struct Backend::Impl
         // must not block here - blocking is the cost this whole change removes.
         // Not while A is rebuilding, though: that is when the wait is load-bearing.
         if (kSlots > 1 && !NativeRebuilding())
+        {
+            // Throttled trace of the fast path, so a run shows whether it was
+            // taken and how far the native counter had progressed.
+            if (++skipWaits <= 3 || skipWaits % 300 == 0)
+                Log("AMD wait skipped (not rebuilding); count=" + std::to_string(skipWaits) +
+                    " nativeDone=" + std::to_string(L && runtime[0] ? At<UINT>(runtime[0], L->jobDone) : 0) +
+                    " job=" + std::to_string(slots[k].jobs[0]));
             return;
+        }
 #ifdef AMD_RETIRE_DIAGNOSTICS
         // Observational only: no wait behaviour is changed here.
         RetirementDiagnostics::Scope timing(diagnostics, directory, L ? L->name : "uninitialized", "EfWaitLoop");
@@ -709,7 +718,15 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     p->device = d;
     p->queue = q;
     p->directory = dir;
-    p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement");
+    // The tail of this line identifies the build. Four earlier rounds were
+    // analysed without it and the logs could not be told apart.
+#ifdef AMD_MULTISLOT
+    static constexpr const char* kBuildTag = " [s9-refusaldiag slots=2 state-gated wait]";
+#else
+    static constexpr const char* kBuildTag = " [s9-refusaldiag slots=1]";
+#endif
+    p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
+           std::string(kBuildTag));
     try
     {
         Check(d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&p->fence)), "Completion fence");
@@ -1179,6 +1196,12 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             packet.exposureState = 4;
             packet.scaleX = f.motionScaleX * (resampleMotion ? float(w) / mvW : 1.0f);
             packet.scaleY = f.motionScaleY * (resampleMotion ? float(h) / mvH : 1.0f);
+            // Snapshot the two things that can make Record refuse, so the log
+            // can say which one it was. A non-null native pending list means A
+            // is still holding an earlier list; the recreate byte means A is
+            // rebuilding staging and will not attach anything this call.
+            const void* pendingBefore = At<ID3D12CommandList*>(r, L->pendingList);
+            const unsigned recreateBefore = L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0;
             reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(r) + L->record)(&packet);
             sl->jobs[i] = At<UINT>(r, L->jobId);
             // Staging recreation resets the native job counter. After a resize,
@@ -1199,13 +1222,18 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             if (!recorded)
             {
-                // The runtime recreates staging after a resize or a re-created
-                // upscaler context and will not attach this list until the GPU
-                // is idle. Skip the frame; do not die. This frame is the one
-                // that *set* the recreate byte - the rebuild itself happens on
-                // a later call, which NativeRebuilding() will report.
-                p->Log("AMD staging not ready (resize/rebuild); retry next frame. job=" +
-                       std::to_string(sl->jobs[i]));
+                // A refused the list. Two very different reasons, and the log
+                // has to say which: an earlier list still in nativePending
+                // means A is simply busy, while recreate == 1 means A is
+                // rebuilding staging. Everything downstream depends on which.
+                p->Log("AMD Record refused: job=" + std::to_string(sl->jobs[i]) +
+                       " nativePending_before=" + std::to_string(reinterpret_cast<uintptr_t>(pendingBefore)) +
+                       " nativePending_after=" + std::to_string(reinterpret_cast<uintptr_t>(At<ID3D12CommandList*>(r, L->pendingList))) +
+                       " recreate_before=" + std::to_string(recreateBefore) +
+                       " recreate_after=" + std::to_string(L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0) +
+                       " cmd=" + std::to_string(reinterpret_cast<uintptr_t>(cmd)) +
+                       " slot=" + std::to_string(static_cast<UINT>(sl - &p->slots[0])) +
+                       " busy=" + std::to_string(p->AnySlotBusy() ? 1 : 0));
                 break;
             }
         }
