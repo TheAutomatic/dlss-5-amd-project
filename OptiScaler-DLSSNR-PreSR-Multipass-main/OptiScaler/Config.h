@@ -283,9 +283,9 @@ class Config
     CustomOptional<float> AmdNeuralLightingStrength { .5f };
     CustomOptional<int> AmdEncoding { 0 };
     CustomOptional<float> AmdNrScale { 1 };
-    // Off: Temporal history on, skip when the previous job is busy (less flicker, more ghosting).
-    // On: wait each frame like author 0.3, Temporal off (steadier NR, lower FPS).
-    CustomOptional<bool> AmdEveryFrame { false };
+    // Every-frame is the only configuration under test, so it is the default:
+    // enabling neural rendering is then the single switch a test run needs.
+    CustomOptional<bool> AmdEveryFrame { true };
     CustomOptional<bool> AmdRtgiEnabled { false };
     CustomOptional<uint32_t> AmdRtgiQuality { 2 };
     CustomOptional<uint32_t> AmdRtgiDenoiser { 1 };
