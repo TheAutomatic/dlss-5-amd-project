@@ -723,9 +723,9 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s11-gatediag slots=2 enter+gates+count78]";
+    static constexpr const char* kBuildTag = " [s12-slotcolour slots=2 all-slot-colour-fix]";
 #else
-    static constexpr const char* kBuildTag = " [s11-gatediag slots=1 enter+gates+count78]";
+    static constexpr const char* kBuildTag = " [s12-slotcolour slots=1 all-slot-colour-fix]";
 #endif
     p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
@@ -932,7 +932,12 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         bool resize = p->width != w || p->height != h;
         if (resize)
         {
-            sl->colour.Reset();
+            // Every slot needs its own FP16 target, not just whichever one is
+            // active on the frame the size changes. A slot added later had a
+            // null colour, and A refuses a null input outright: the call
+            // returns in well under a microsecond, having logged nothing,
+            // advanced no counter and set no state - which is exactly the
+            // refusal that took three rounds to pin down.
             D3D12_HEAP_PROPERTIES hp {};
             hp.Type = D3D12_HEAP_TYPE_DEFAULT;
             D3D12_RESOURCE_DESC rd {};
@@ -944,10 +949,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             rd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
             rd.SampleDesc.Count = 1;
             rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-            Check(p->device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
-                                                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
-                                                     IID_PPV_ARGS(&sl->colour)),
-                  "Active FP16 texture");
+            for (auto& slot : p->slots)
+            {
+                slot.colour.Reset();
+                Check(p->device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                                         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+                                                         IID_PPV_ARGS(&slot.colour)),
+                      "Active FP16 texture");
+            }
             p->width = w;
             p->height = h;
         }
