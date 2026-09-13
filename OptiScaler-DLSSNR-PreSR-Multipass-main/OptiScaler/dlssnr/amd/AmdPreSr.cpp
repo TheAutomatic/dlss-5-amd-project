@@ -254,6 +254,13 @@ struct Backend::Impl
         ComPtr<ID3D12Resource> colour;
         ComPtr<ID3D12Resource> exposureCopy;
     };
+    // Every slot gets its own copy of the whole descriptor block. A single
+    // shared block aliases across slots: Record repoints descriptor 1 at the
+    // active slot's colour, so a list still executing for the other slot would
+    // read and write the wrong texture. Design section 3.3 forbids that, and
+    // section 3.2 already asked for 14 per slot - this is that.
+    static constexpr UINT kDescriptorsPerSlot = 14;
+    static constexpr UINT kDescriptors = kDescriptorsPerSlot * kSlots;
     std::array<Slot, kSlots> slots;
     UINT activeSlot = 0;
     UINT skipWaits = 0;
@@ -710,7 +717,7 @@ struct Backend::Impl
                          D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &error), "Resolve compile");
         ps.CS = { blob->GetBufferPointer(), blob->GetBufferSize() };
         Check(device->CreateComputePipelineState(&ps, IID_PPV_ARGS(&resolvePipeline)), "Resolve pipeline");
-        D3D12_DESCRIPTOR_HEAP_DESC hd { D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 14,
+        D3D12_DESCRIPTOR_HEAP_DESC hd { D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kDescriptors,
                                         D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
         Check(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap)), "Crop heap");
     }
@@ -723,9 +730,9 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s12-slotcolour slots=2 all-slot-colour-fix]";
+    static constexpr const char* kBuildTag = " [s13-slotdescr slots=2 per-slot-descriptors]";
 #else
-    static constexpr const char* kBuildTag = " [s12-slotcolour slots=1 all-slot-colour-fix]";
+    static constexpr const char* kBuildTag = " [s13-slotdescr slots=1 per-slot-descriptors]";
 #endif
     p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
@@ -1043,7 +1050,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                    " resampled=" + std::to_string(resampleMotion) + " exposure=" +
                    (exposureSource ? Layout(exposureSource) : "auto") +
                    " preExposure=" + std::to_string(f.preExposure) + " tone=" + std::to_string(cfg.tone));
+        const UINT slotBase = p->activeSlot * Impl::kDescriptorsPerSlot;
+        const UINT descriptorStride = p->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         auto cpu = p->heap->GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += static_cast<SIZE_T>(slotBase) * descriptorStride;
         D3D12_SHADER_RESOURCE_VIEW_DESC srv {};
         srv.Format = ReadFormat(f.colour->GetDesc().Format);
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1067,9 +1077,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             auto guideUav = uav; guideUav.Format = format;
             p->device->CreateUnorderedAccessView(target, nullptr, &guideUav, handle);
         };
-        if (resampleMotion) guideDescriptors(4, f.motion, motion, DXGI_FORMAT_R16G16_FLOAT);
-        if (exposureSource) guideDescriptors(6, exposureSource, sl->exposureCopy.Get(), DXGI_FORMAT_R32_FLOAT);
-        if (applyLook) guideDescriptors(8, sl->colour.Get(), p->lookColour.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT);
+        // Indices are absolute, so each caller adds the slot's block base.
+        if (resampleMotion) guideDescriptors(slotBase + 4, f.motion, motion, DXGI_FORMAT_R16G16_FLOAT);
+        if (exposureSource) guideDescriptors(slotBase + 6, exposureSource, sl->exposureCopy.Get(), DXGI_FORMAT_R32_FLOAT);
+        if (applyLook) guideDescriptors(slotBase + 8, sl->colour.Get(), p->lookColour.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT);
         if (convertDepth)
         {
             // Distinct descriptor slots: overwriting the colour descriptors here
@@ -1088,7 +1099,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         cmd->SetPipelineState(p->pipeline.Get());
         auto heap = p->heap.Get();
         cmd->SetDescriptorHeaps(1, &heap);
-        cmd->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
+        { auto t0 = p->heap->GetGPUDescriptorHandleForHeapStart();
+          t0.ptr += static_cast<SIZE_T>(slotBase) * descriptorStride;
+          cmd->SetComputeRootDescriptorTable(0, t0); }
         UINT dims[] { w, h, inputW, inputH };
         cmd->SetComputeRoot32BitConstants(1, 4, dims, 0);
         cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
@@ -1117,7 +1130,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             Barrier(cmd, motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             cmd->SetPipelineState(p->motionPipeline.Get());
             auto table = p->heap->GetGPUDescriptorHandleForHeapStart();
-            table.ptr += 4 * p->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            table.ptr += static_cast<SIZE_T>(slotBase + 4) * descriptorStride;
             cmd->SetComputeRootDescriptorTable(0, table);
             UINT motionDims[] { w, h, mvW, mvH };
             cmd->SetComputeRoot32BitConstants(1, 4, motionDims, 0);
@@ -1130,7 +1143,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             cmd->SetPipelineState(p->depthPipeline.Get());
             cmd->SetComputeRoot32BitConstants(1,4,dims,0);
             auto table = p->heap->GetGPUDescriptorHandleForHeapStart();
-            table.ptr += 2 * p->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            table.ptr += static_cast<SIZE_T>(slotBase + 2) * descriptorStride;
             cmd->SetComputeRootDescriptorTable(0, table);
             cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
             Barrier(cmd, depth, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1143,7 +1156,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             Barrier(cmd, exposure, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             cmd->SetPipelineState(p->exposurePipeline.Get());
             auto table = p->heap->GetGPUDescriptorHandleForHeapStart();
-            table.ptr += 6 * p->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            table.ptr += static_cast<SIZE_T>(slotBase + 6) * descriptorStride;
             cmd->SetComputeRootDescriptorTable(0, table);
             struct { UINT w, h; float preExposure, exposureScale; } constants {
                 1, 1, std::isfinite(f.preExposure) && f.preExposure > 0 ? f.preExposure : 1,
@@ -1223,7 +1236,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             const UINT count78 = L->counter78 ? At<UINT>(r, L->counter78) : 0;
             // Written BEFORE the call, so a process that dies inside Record
             // leaves this as the last line - which is itself the answer.
-            if (++p->recordCalls <= 5 || p->recordCalls % 300 == 0)
+            // Every call for the first 120 frames, then a sparse heartbeat. The
+            // earlier limit of 5 hid exactly the frames these runs die on, and
+            // cost a round to a wrong conclusion drawn from a missing line.
+            if (++p->recordCalls <= 120 || p->recordCalls % 300 == 0)
                 p->Log("AMD Record enter: n=" + std::to_string(p->recordCalls) +
                        " jobBefore=" + std::to_string(jobBefore) +
                        " doneBefore=" + std::to_string(doneBefore) +
@@ -1278,7 +1294,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             // Healthy calls are logged sparsely so the log still shows whether
             // A ever blocks, which is what decides if admission control is viable.
-            if (p->recordCalls <= 5 || p->recordCalls % 300 == 0)
+            if (p->recordCalls <= 120 || p->recordCalls % 300 == 0)
                 p->Log("AMD Record ok: n=" + std::to_string(p->recordCalls) +
                        " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
                        " call_us=" + std::to_string(callMicros) +
@@ -1332,7 +1348,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             cmd->SetPipelineState(p->lookPipeline.Get());
             cmd->SetDescriptorHeaps(1, &heap);
             auto table = p->heap->GetGPUDescriptorHandleForHeapStart();
-            table.ptr += 8 * p->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            table.ptr += static_cast<SIZE_T>(slotBase + 8) * descriptorStride;
             cmd->SetComputeRootDescriptorTable(0, table);
             cmd->SetComputeRoot32BitConstants(1, 24, &c, 0);
             cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
@@ -1373,10 +1389,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             p->rtgiStatus.clear();
         }
         if (scaled) {
-            guideDescriptors(10,f.colour,p->scaleOutput.Get(),DXGI_FORMAT_R16G16B16A16_FLOAT);
+            guideDescriptors(slotBase + 10,f.colour,p->scaleOutput.Get(),DXGI_FORMAT_R16G16B16A16_FLOAT);
             auto handle=p->heap->GetCPUDescriptorHandleForHeapStart();
             auto stride=p->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-            handle.ptr+=12*stride;
+            handle.ptr += static_cast<SIZE_T>(slotBase + 12) * stride;
             auto v=srv;v.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
             p->device->CreateShaderResourceView(p->scaleBaseline.Get(),&v,handle);
             handle.ptr+=stride;p->device->CreateShaderResourceView(finalColour,&v,handle);
@@ -1384,8 +1400,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             Barrier(cmd,p->scaleOutput.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             cmd->SetComputeRootSignature(p->root.Get());cmd->SetDescriptorHeaps(1,&heap);
             cmd->SetPipelineState(p->resolvePipeline.Get());
-            auto table=heap->GetGPUDescriptorHandleForHeapStart();table.ptr+=10*stride;cmd->SetComputeRootDescriptorTable(0,table);
-            table.ptr+=2*stride;cmd->SetComputeRootDescriptorTable(2,table);
+            auto table=heap->GetGPUDescriptorHandleForHeapStart();table.ptr+=static_cast<SIZE_T>(slotBase+10)*stride;cmd->SetComputeRootDescriptorTable(0,table);
+            table.ptr+=static_cast<SIZE_T>(slotBase+2)*stride;cmd->SetComputeRootDescriptorTable(2,table);
             UINT rc[]{inputW,inputH,w,h};cmd->SetComputeRoot32BitConstants(1,4,rc,0);
             cmd->Dispatch((inputW+7)/8,(inputH+7)/8,1);
             Barrier(cmd,p->scaleOutput.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1399,7 +1415,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         p->lastMotionWidth = f.motionWidth;
         p->lastMotionHeight = f.motionHeight;
         p->hadExposure = exposureSource != nullptr;
-        if (p->frames <= 3 || resize)
+        if (p->frames <= 120 || resize)
             p->Log("Recorded pre-SR " + std::to_string(w) + "x" + std::to_string(h) +
                    " passes=" + std::to_string(p->activePasses));
         if(convertEncoding) finalColour=p->encode->Run(cmd,finalColour,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,inputW,inputH,cfg.encoding,true);
@@ -1462,7 +1478,7 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
     auto& sl = p->slots[slot];
     if (sl.pending.load() != pending || sl.submission.submitted)
         return;
-    if (p->frames <= 3)
+    if (p->frames <= 120)
         p->Log("Neural submission: lists=" + std::to_string(n) + " queueType=" +
                std::to_string(static_cast<UINT>(queue->GetDesc().Type)));
     // Match the recorded list, not the swapchain's presentation queue. FG can
