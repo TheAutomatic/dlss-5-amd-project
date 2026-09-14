@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
@@ -19,6 +19,20 @@ param(
     [switch]$AllowMissingDeps
 )
 $ErrorActionPreference = 'Stop'
+
+# 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
+# 当环境里的 PSModulePath 指向 PowerShell 7 的模块目录时（CI 里在 shell: pwsh
+# 步骤里调 powershell -File 正是这种情况），5.1 子进程加载不到它，会直接报
+# CommandNotFoundException，整个打包步骤失败。用 .NET 自己算，不依赖任何模块。
+function Get-Sha256([string]$path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [IO.File]::OpenRead($path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '') }
+        finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }
 $source = Join-Path $root 'OptiScaler-DLSSNR-PreSR-Multipass-main'
@@ -163,7 +177,7 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
 ; Product $Version — every-frame multi-slot is the source default.
 ; Requires DLSS-NR-on-AMD 0.3.0 (https://github.com/danielblnc/DLSS-NR-on-AMD)
-; as dlssnr_amd_pass1-3.dll (Setup copies from vendor\version.dll).
+; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
 Enabled=false
 RunBeforeSR=true
 AmdModelScale=1
@@ -257,7 +271,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup.ps1" -GameDir "%
 exit /b %ERRORLEVEL%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
 Copy-Item $readmeSrc (Join-Path $stage 'README.md') -Force
-Copy-Item $readmeSrc (Join-Path $stage '使用说明.txt') -Force
+# 这个文件名必须是「使用说明.txt」，但不要写成字面量：
+# 本文件一旦被以 UTF-8 无 BOM 保存，Windows PowerShell 5.1 会按系统 ANSI 代码页
+# 读它，中文字面量会被解码成乱码 —— 曾经真的发出过名为 浣跨敤璇存槑.txt 的包，
+# 而且 BOM 已经被编辑工具抹掉过一次。用码点构造，BOM 在不在都正确。
+$zhUsageName = [string]::Join('', [char]0x4F7F, [char]0x7528, [char]0x8BF4, [char]0x660E) + '.txt'
+Copy-Item $readmeSrc (Join-Path $stage $zhUsageName) -Force
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
 # 作者 pass（dlssnr_amd_pass*.dll）必须在内 —— README 明写「包里没有作者 pass」。
@@ -272,7 +291,7 @@ $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
     Sort-Object FullName |
     ForEach-Object {
-        '{0} *{1}' -f (Get-FileHash -LiteralPath $_.FullName).Hash, $_.FullName.Substring($stage.Length + 1)
+        '{0} *{1}' -f (Get-Sha256 $_.FullName), $_.FullName.Substring($stage.Length + 1)
     }
 $hashes | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt')
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Copies the author's 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
@@ -47,6 +47,20 @@ if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
 function Fail([string]$msg) {
     Write-Host "ERROR: $msg" -ForegroundColor Red
     exit 1
+}
+
+# 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
+# 当环境里的 PSModulePath 指向 PowerShell 7 的模块目录时（从 pwsh 终端启动、
+# 或 CI 里在 shell: pwsh 步骤里调 powershell -File），5.1 子进程加载不到它，
+# 会直接报 CommandNotFoundException —— Setup.bat 经 cmd 走的正是这条路。
+# 用 .NET 自己算，不依赖任何模块。
+function Get-Sha256([string]$path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [IO.File]::OpenRead($path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '') }
+        finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
 }
 
 function Test-OptiProxy([string]$path) {
@@ -136,7 +150,7 @@ This tool does not bundle it. pass1-3.dll are copies of that same file.
 # a different build will not run correctly. Fail closed; do not offer "continue".
 $expectedA03 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
 $knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
-$hashA = (Get-FileHash -LiteralPath $srcA -Algorithm SHA256).Hash
+$hashA = Get-Sha256 $srcA
 Write-Host ("Author runtime SHA256: {0}" -f $hashA)
 if ($hashA -ne $expectedA03) {
     $what = 'unknown build'
@@ -191,7 +205,7 @@ if ($hasNv) {
 }
 
 $wsize = (Get-Item -LiteralPath $weights).Length
-$whash = (Get-FileHash -LiteralPath $weights -Algorithm SHA256).Hash
+$whash = Get-Sha256 $weights
 Write-Host ("weights.bin size={0}  SHA256={1}" -f $wsize, $whash)
 Write-Host '  (weights SHA256 is per-machine; not compared to a fixed value)'
 if ($wsize -lt 1MB) {
