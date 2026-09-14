@@ -253,9 +253,11 @@ if (Test-Path $rtgiSrc) {
     Get-ChildItem -LiteralPath $rtgiSrc -File | Copy-Item -Destination $rtgiDst -Force
 }
 
-# Installer + docs
-$readmeSrc = Join-Path $root 'tools/README-release.md'
-if (!(Test-Path $readmeSrc)) { throw "Missing $readmeSrc" }
+# Installer + docs (CN + EN). No duplicate 使用说明.txt.
+$readmeZh = Join-Path $root 'tools/README-release.md'
+$readmeEn = Join-Path $root 'README.en.md'
+if (!(Test-Path $readmeZh)) { throw "Missing $readmeZh" }
+if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }
 $installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
 if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
 Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
@@ -264,7 +266,7 @@ Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
 setlocal
 title OptiScaler AMD pre-SR Setup
 rem No args: Setup.ps1 opens a folder picker and proxy menu.
-rem Optional: Setup.bat "D:\Game\Content" [dxgi.dll]
+rem Optional: Setup.bat "D:\GameFolder" [dxgi.dll]
 if "%~2"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1"
 ) else (
@@ -274,13 +276,8 @@ set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" pause
 exit /b %EC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
-Copy-Item $readmeSrc (Join-Path $stage 'README.md') -Force
-# 这个文件名必须是「使用说明.txt」，但不要写成字面量：
-# 本文件一旦被以 UTF-8 无 BOM 保存，Windows PowerShell 5.1 会按系统 ANSI 代码页
-# 读它，中文字面量会被解码成乱码 —— 曾经真的发出过名为 浣跨敤璇存槑.txt 的包，
-# 而且 BOM 已经被编辑工具抹掉过一次。用码点构造，BOM 在不在都正确。
-$zhUsageName = [string]::Join('', [char]0x4F7F, [char]0x7528, [char]0x8BF4, [char]0x660E) + '.txt'
-Copy-Item $readmeSrc (Join-Path $stage $zhUsageName) -Force
+Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
+Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
 # 原作者 pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有原作者 pass」。

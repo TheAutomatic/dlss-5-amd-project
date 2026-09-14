@@ -89,20 +89,95 @@ function Ask-Choice([string]$title, [string[]]$options) {
     } while ($true)
 }
 
+function Ask-GameFolder {
+    # IFileDialog with FOS_PICKFOLDERS: has an address bar (unlike FolderBrowserDialog).
+    try {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class AmdFolderPick {
+    [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialogRCW { }
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IFileDialog {
+        [PreserveSig] int Show(IntPtr parent);
+        void SetFileTypes(uint count, IntPtr filters);
+        void SetFileTypeIndex(uint index);
+        void GetFileTypeIndex(out uint index);
+        void Advise(IntPtr sink, out uint cookie);
+        void Unadvise(uint cookie);
+        void SetOptions(uint options);
+        void GetOptions(out uint options);
+        void SetDefaultFolder(IntPtr folder);
+        void SetFolder(IntPtr folder);
+        void GetFolder(out IntPtr folder);
+        void GetCurrentSelection(out IntPtr item);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetFileName(out IntPtr name);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        void GetResult(out IntPtr item);
+        void AddPlace(IntPtr item, int order);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string ext);
+        void Close(int hr);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter(IntPtr filter);
+        void GetResults(out IntPtr items);
+        void GetSelectedItems(out IntPtr items);
+    }
+    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItem {
+        void BindToHandler(IntPtr bc, ref Guid bh, ref Guid riid, out IntPtr ppv);
+        void GetParent(out IntPtr ppsi);
+        void GetDisplayName(uint sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+        void Compare(IntPtr psi, uint hint, out int piOrder);
+    }
+    const uint FOS_PICKFOLDERS = 0x20;
+    const uint FOS_FORCEFILESYSTEM = 0x40000;
+    const uint SIGDN_FILESYSPATH = 0x80058000;
+    public static string PickFolder(string title) {
+        var dlg = (IFileDialog)new FileOpenDialogRCW();
+        uint opts;
+        dlg.GetOptions(out opts);
+        dlg.SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        if (!string.IsNullOrEmpty(title)) dlg.SetTitle(title);
+        if (dlg.Show(IntPtr.Zero) != 0) return null;
+        IntPtr item;
+        dlg.GetResult(out item);
+        var isi = (IShellItem)Marshal.GetObjectForIUnknown(item);
+        IntPtr pathPtr;
+        isi.GetDisplayName(SIGDN_FILESYSPATH, out pathPtr);
+        string path = Marshal.PtrToStringUni(pathPtr);
+        Marshal.FreeCoTaskMem(pathPtr);
+        Marshal.Release(item);
+        return path;
+    }
+}
+"@ -ErrorAction Stop
+        $picked = [AmdFolderPick]::PickFolder('Select the game folder that contains the game .exe')
+        if ($picked) { return $picked }
+        return $null
+    } catch {
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = 'Select the game folder that contains the game .exe'
+        $dlg.ShowNewFolderButton = $false
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
+        return $null
+    }
+}
+
 # Double-click Setup.bat: no path argument → open a folder picker.
 if ([string]::IsNullOrWhiteSpace($GameDir)) {
     if ($NonInteractive) { Fail 'GameDir is required in -NonInteractive mode.' }
-    Add-Type -AssemblyName System.Windows.Forms
-    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dlg.Description = "Select the game folder that contains the game .exe`n(Xbox: ...\Content, not WindowsApps)"
-    $dlg.ShowNewFolderButton = $false
-    $dlg.RootFolder = 'MyComputer'
     Write-Host 'Pick the game folder (the one with the game .exe)…' -ForegroundColor Yellow
-    if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+    $GameDir = Ask-GameFolder
+    if ([string]::IsNullOrWhiteSpace($GameDir)) {
         Write-Host 'Cancelled — no folder selected.'
         exit 0
     }
-    $GameDir = $dlg.SelectedPath
 }
 
 # Interactive proxy pick (like older 1.7.x installers). dinput8 is invalid for this build.
@@ -125,21 +200,15 @@ if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
 }
 $game = (Resolve-Path -LiteralPath $GameDir).Path
 
-# Xbox / MS Store: do not write into WindowsApps (store ACL / TrustedInstaller).
-# Use the writable tree, e.g. C:\XboxGames\<Game>\Content
+# Store packages: WindowsApps is not a writable install target (ACL / TrustedInstaller).
 if ($game -match '(?i)\\WindowsApps\\') {
     Fail @"
 Refusing to install into WindowsApps:
   $game
 
 That path is not a reliable write target.
-For Xbox/MS Store games use the writable folder, for example:
-  C:\XboxGames\<GameName>\Content
-Do not select the .exe under Program Files\WindowsApps.
+Pick the writable game folder (the one that contains the game .exe and accepts file copies).
 "@
-}
-if ($game -match '(?i)^[A-Za-z]:\\XboxGames\\' -and (Split-Path -Leaf $game) -ne 'Content') {
-    Write-Host 'NOTE: Xbox game root detected. If a write fails, use the Content subfolder.' -ForegroundColor Yellow
 }
 
 $probe = Join-Path $game ('.write-probe-' + [guid]::NewGuid().ToString('N') + '.tmp')
@@ -147,7 +216,7 @@ try {
     [IO.File]::WriteAllText($probe, 'ok')
     Remove-Item -LiteralPath $probe -Force
 } catch {
-    Fail "Cannot write to $game ($($_.Exception.Message)). For XGP use ...\Content, not the package/exe folder."
+    Fail "Cannot write to $game ($($_.Exception.Message)). Pick a writable folder next to the game .exe."
 }
 
 if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll'))) {

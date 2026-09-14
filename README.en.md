@@ -59,9 +59,8 @@ If `version.dll` or `weights.bin` is still missing when you run this package’s
 
 **Game folder** = where the game exe lives (the same path you use for a normal OptiScaler install):
 
-- Xbox PC example: `C:\XboxGames\Onimusha- Way of the Sword\Content`  
-- Many games: `...\Win64\` or `...\WinGDK\`  
-- **Do not** pick `C:\Program Files\WindowsApps\...`
+- Many games: `...\Win64\` or `...\Binaries\Win64\`  
+- Store builds: do not pick a read-only system install path — the installer will refuse it  
 
 | Source | Installed as |
 |---|---|
@@ -72,8 +71,10 @@ If `version.dll` or `weights.bin` is still missing when you run this package’s
 The scripted installer does **not** leave `version.dll` in the game folder. To inject as `version.dll` itself, use the manual steps below.
 
 ```bat
-Setup.bat "C:\XboxGames\Onimusha- Way of the Sword\Content"
+Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 ```
+
+If an old OptiScaler or other inject DLL is already in the game folder, the installer lists it and asks: cancel / **backup and move aside** / ignore (only when it is not the proxy name you are installing). It does not silently overwrite.
 
 ### Step 3 — Enable DLSSNR in-game (scripted or manual)
 

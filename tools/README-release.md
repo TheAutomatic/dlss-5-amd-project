@@ -55,8 +55,8 @@
 
 游戏目录 = 游戏 exe 所在那一层（安装 OptiScaler 用的同款路径）：
 
-- Xbox PC：`C:\XboxGames\Onimusha- Way of the Sword\Content`  
-- 不要选 `C:\Program Files\WindowsApps\...`
+- 很多游戏在 `...\Win64\` 或 `...\Binaries\Win64\`  
+- 商店版若选到只读系统目录，安装器会拒绝并提示换可写目录  
 
 安装器会：
 
@@ -68,8 +68,10 @@
 旧环境不能弹窗时，可在命令行传路径：
 
 ```bat
-Setup.bat "C:\XboxGames\Onimusha- Way of the Sword\Content"
+Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 ```
+
+若游戏目录已有旧 OptiScaler / 其它注入 DLL，会先列出并让你选择：取消 / **备份后移走再装** / 忽略（仅当不是目标代理名）。不会静默覆盖。
 
 ### 3. 游戏内启用（自动 / 手动安装都一样）
 

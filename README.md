@@ -61,9 +61,8 @@
 
 **游戏文件夹**是放着游戏主程序的那个目录（安装 OptiScaler 用的同款路径）：
 
-- Xbox PC 游戏示例：`C:\XboxGames\Onimusha- Way of the Sword\Content`  
-- 很多游戏在 `...\Win64\` 或 `...\WinGDK\`  
-- **不要**选 `C:\Program Files\WindowsApps\...`（商店目录，写不进去）
+- 很多游戏在 `...\Win64\` 或 `...\Binaries\Win64\`  
+- 商店版若选到只读的系统安装目录，安装器会拒绝并提示换可写目录  
 
 安装器会做这些事：
 
@@ -78,8 +77,10 @@
 旧电脑若不能弹窗，也可以在命令行里写路径：
 
 ```bat
-Setup.bat "C:\XboxGames\Onimusha- Way of the Sword\Content"
+Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 ```
+
+若游戏目录里已有旧的 OptiScaler / 其它注入 DLL，安装器会先列出并让你选择：取消 / **备份后移走再装** / 忽略（仅当不是你要覆盖的代理名）。默认不会静默覆盖。
 
 ### 第三步：游戏里打开 DLSSNR（自动 / 手动安装都一样）
 
