@@ -59,6 +59,8 @@ Setup.bat "游戏目录"
 安装器会：`OptiScaler.dll` → 你选的代理名（默认 `dxgi.dll`）；`version.dll` → `dlssnr_amd_pass1/2/3.dll`。  
 **不会**把 `version.dll` 装进游戏目录。
 
+安装前会核对 `version.dll` 的 SHA256 是否为 **0.3.0**（不一致会提示并询问是否继续）；`weights.bin` 会做体积 sanity 检查（哈希因机器而异，不写死）。
+
 ### 手动安装
 
 1. 把 **0.3.0 的 `version.dll`** 放进游戏目录，然后：  

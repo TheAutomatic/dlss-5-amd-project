@@ -132,6 +132,29 @@ This tool does not bundle it. pass1-3.dll are copies of that same file.
 "@
 }
 
+# Hash: only 0.3.0 is supported. Mismatch = ask before continuing.
+$expectedA03 = '8321CA728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
+$knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
+$hashA = (Get-FileHash -LiteralPath $srcA -Algorithm SHA256).Hash
+Write-Host ("Author runtime SHA256: {0}" -f $hashA)
+if ($hashA -ne $expectedA03) {
+    $what = 'unknown build'
+    if ($hashA -eq $knownA0217) { $what = 'looks like 0.2.17 (this package requires 0.3.0)' }
+    Write-Host ''
+    Write-Host ("WARNING: {0} may not be DLSS-NR-on-AMD 0.3.0 ({1})." -f (Split-Path -Leaf $srcA), $what) -ForegroundColor Yellow
+    Write-Host ("  expected 0.3.0 SHA256: {0}" -f $expectedA03)
+    Write-Host "  source: https://github.com/danielblnc/DLSS-NR-on-AMD/releases"
+    if ($NonInteractive) {
+        Fail 'Refusing to install a non-0.3.0 runtime in -NonInteractive. Re-run without -NonInteractive to force, or replace version.dll.'
+    }
+    $choice = Ask-Choice 'Continue anyway with this file?' @(
+        'Cancel and exit'
+        'Continue anyway (unsupported runtime)'
+    )
+    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
+    Write-Host 'Continuing with a non-matching runtime.' -ForegroundColor Yellow
+}
+
 # --- weights (same folder as Setup) ---
 $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
 if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
@@ -145,6 +168,21 @@ if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
     if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
         Fail 'Missing dlssnr_on_amd_weights.bin next to Setup.ps1. Generate it on this PC with the author setup from your own NV DLL.'
     }
+}
+# Weights are generated on the user's PC from their NV DLL — SHA256 is not fixed.
+# Only sanity-check size so an empty/truncated file is obvious.
+$wsize = (Get-Item -LiteralPath $weights).Length
+Write-Host ("weights.bin size: {0} bytes" -f $wsize)
+if ($wsize -lt 1MB) {
+    Write-Host ("WARNING: {0} is only {1} bytes — looks truncated or wrong." -f (Split-Path -Leaf $weights), $wsize) -ForegroundColor Yellow
+    if ($NonInteractive) {
+        Fail 'Refusing tiny weights.bin in -NonInteractive.'
+    }
+    $choice = Ask-Choice 'Continue anyway with this weights file?' @(
+        'Cancel and exit'
+        'Continue anyway'
+    )
+    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
 }
 
 # --- inspect common injection DLLs ---

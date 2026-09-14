@@ -59,6 +59,8 @@ Setup.bat "path-to-game-folder"
 The installer: `OptiScaler.dll` → your chosen proxy (default `dxgi.dll`); `version.dll` → `dlssnr_amd_pass1/2/3.dll`.  
 It does **not** leave `version.dll` in the game folder.
 
+It also checks `version.dll` SHA256 against **0.3.0** (mismatch warns and asks before continuing) and sanity-checks `weights.bin` size (its hash is machine-specific and is not pinned).
+
 ### Manual install
 
 1. Put **0.3.0 `version.dll`** in the game folder, then:  
