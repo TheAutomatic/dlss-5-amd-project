@@ -57,6 +57,10 @@ Use the writable **Content** folder, **not** `C:\Program Files\WindowsApps\...`.
 
 5. In-game: OptiScaler menu (Insert) → enable **DlssNr** / AMD neural.
 
+The menu also lets you change `Dx12Upscaler` — this package ships `ffx` (FSR) as the
+default. Games driven through a DLSS or XeSS input can switch it there; NR sits on the
+DLSS-input path either way.
+
 ### Other games
 
 Point `Setup.bat` at the folder that contains the game **exe** (where you would drop `dxgi.dll`). The installer lists existing injection DLLs and lets you cancel / backup / ignore.
@@ -79,4 +83,26 @@ Install the author's `version.dll` yourself and **do not** also drop this `dxgi.
 ## License
 
 OptiScaler and bundled FFX/XeSS/Agility: see `Licenses\`.  
+**OptiScaler is GPL-3.0**, so this package is distributed under the same terms and its
+corresponding source is published at <https://github.com/TheAutomatic/dlss-5-amd-project>
+(the release tag matches the version on this package).  
 Use of the NR runtime and NVIDIA files is under **their** terms.
+
+## Building this package (developers)
+
+The FFX / XeSS signed DLLs live in **git submodules** under `external\`, so a plain clone
+is not enough:
+
+```bat
+git clone --recursive <repo>
+:: or, in an existing clone
+git submodule update --init --recursive
+```
+
+Without them `tools\PACKAGE_RELEASE.ps1` fails with a missing-dependency list (it will not
+silently ship a package without FFX). Then:
+
+```powershell
+analysis\build-release-r18.cmd            # Release build, multi-slot is the source default
+tools\PACKAGE_RELEASE.ps1                 # -> dist\OptiScaler-AMD-PreSR-<version>.zip
+```

@@ -49,9 +49,18 @@ exports/review-s*/
 
 # 正式发布 DLL（本地部署用；哈希写在 HANDOFF）
 exports/release-r17/
+exports/release-r18/
+exports/release-r*/smoke/
 
 # Release packaging output (local / CI artifact)
 dist/
+
+# 二进制：默认全忽略，只放行必须进仓库的那几个。
+# 这条与上游 OptiScaler 一致（它的 .gitignore 也是 *.dll + 单条例外）。
+# 注意：gitignore 对「已跟踪」的文件无效，已跟踪的要用 git rm --cached 才生效。
+*.dll
+!.analysis-tools/capstone/lib/capstone.dll
+!OptiScaler-DLSSNR-PreSR-Multipass-main/external/directx_agility_sdk/lib/D3D12Core.dll
 
 # 编辑器/会话
 .claude/

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
@@ -115,8 +115,10 @@ foreach ($d in $agilityCands) {
 
 if ($missing.Count -gt 0) {
     $msg = "Missing upscaler dependency binaries:`n  " + ($missing -join "`n  ") + "`n" +
-           "These are NOT in git (OptiScaler .gitignore *.dll / [Bb]in/).`n" +
-           "Provide -DepsRoot with an OptiScaler\ folder, or set DEPS_ARCHIVE_URL in CI."
+           "These live in the git submodules (external/xess, external/FidelityFX-SDK*,`n" +
+           "and they are *.dll so they are not committed directly).`n" +
+           "Fix: git submodule update --init --recursive`n" +
+           "Or pass -DepsRoot pointing at a folder that has an OptiScaler\ subfolder."
     if ($AllowMissingDeps) {
         Write-Warning $msg
     } else {
@@ -169,7 +171,10 @@ SkinStructure=1
 ApplyAfterRR=false
 
 "@)
-$ini += @"
+# 这两段只在源 ini 里还没有的时候才追加。
+# 无条件追加的写法在源 ini 哪天自带 [AmdLook]/[AmdRtgi] 时会写出重复段 ——
+# 而追加的那份是 Enabled=false，可能把用户调好的值顶掉。
+$amdLookBlock = @"
 
 [AmdLook]
 Enabled=false
@@ -193,6 +198,9 @@ ExposureEV=1
 Contrast=1
 Saturation=1
 HighlightCompression=0
+"@
+
+$amdRtgiBlock = @"
 
 [AmdRtgi]
 Enabled=false
@@ -212,6 +220,9 @@ Contact=0
 Saturation=1
 Radius=1
 "@
+
+if ($ini -notmatch '(?m)^\[AmdLook\]') { $ini += $amdLookBlock }
+if ($ini -notmatch '(?m)^\[AmdRtgi\]') { $ini += $amdRtgiBlock }
 [IO.File]::WriteAllText((Join-Path $stage 'OptiScaler.ini'), $ini, [Text.UTF8Encoding]::new($false))
 
 $rtgiSrc = Join-Path $root 'package-amd-presr/experimental_lighting'
@@ -223,8 +234,10 @@ if (Test-Path $rtgiSrc) {
 
 # Installer + docs
 $readmeSrc = Join-Path $root 'tools/README-release.md'
-if (!(Test-Path $readmeSrc)) { $readmeSrc = Join-Path $root 'tools/README-r17.md' }
-Copy-Item (Join-Path $root 'tools/install-amd-presr-r17.ps1') (Join-Path $stage 'Setup.ps1') -Force
+if (!(Test-Path $readmeSrc)) { throw "Missing $readmeSrc" }
+$installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
+if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
+Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
 @'
 @echo off
 if "%~1"=="" (
@@ -239,10 +252,18 @@ exit /b %ERRORLEVEL%
 Copy-Item $readmeSrc (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeSrc (Join-Path $stage '使用说明.txt') -Force
 
+# 绊线：这些文件名一旦出现在 stage 里就拒绝打包。
+# 作者 pass（dlssnr_amd_pass*.dll）必须在内 —— README 明写「包里没有作者 pass」，
+# 而它正是安装器要用户自备的那个闭源运行时。
 foreach ($bad in @('nvngx_dlss.dll','dlssnr_on_amd_weights.bin','version.dll','dlssnr_on_amd_setup.exe')) {
     if (Test-Path (Join-Path $stage $bad)) {
         throw "Refusing to package proprietary file: $bad"
     }
+}
+$badDll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^(dlssnr_amd_pass.*\.dll|nvngx.*\.dll)$' }
+if ($badDll) {
+    throw "Refusing to package author/NVIDIA runtime: $(($badDll | ForEach-Object { $_.Name }) -join ', ')"
 }
 
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |

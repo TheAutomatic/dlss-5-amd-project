@@ -1,21 +1,24 @@
-# Build OptiScaler AMD pre-SR 1.8.0-0.3.0 and attach the user zip to a GitHub Release.
+# Build OptiScaler AMD pre-SR and attach the user zip to a GitHub Release.
 #
 # Source default is multi-slot (r18 / AMD_SINGLESLOT inverted). Ordinary Release
 # is the shipping configuration — do not add AMD_MULTISLOT or diagnostics.
 #
 # Does NOT package NVIDIA DLLs, NR weights, or the author's pass DLL.
 #
-# FFX / XeSS signed bins are NOT in git. On CI either:
-#   1) set repository variable DEPS_ARCHIVE_URL to a zip containing OptiScaler\, or
-#   2) place those DLLs under the workspace after checkout.
-# Package step fails with a clear missing-file list otherwise.
+# Dependencies (FFX / XeSS signed bins) come from the git submodules under
+# external/. `submodules: recursive` below is what puts them in the workspace —
+# they are *.dll, so they are deliberately not committed directly.
+#
+# Runner: windows-latest. The measured r18 binary was built with the v145
+# toolset (VS 2026), so we pin PLATFORM_TOOLSET to match rather than letting the
+# project's v143 fallback pick a different compiler than the one we benchmarked.
+# The preflight step fails loudly if the image no longer ships v145.
 
 name: release
 
 on:
   push:
     tags:
-      - 'v1.*'
       - 'v*'
   workflow_dispatch:
     inputs:
@@ -27,6 +30,10 @@ on:
 permissions:
   contents: write
 
+env:
+  PLATFORM_TOOLSET: v145
+  BUILD_OUT: exports/release-ci
+
 jobs:
   build:
     runs-on: windows-latest
@@ -37,65 +44,100 @@ jobs:
         with:
           submodules: recursive
 
-      - name: MSVC environment
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v = '1.8.0-0.3.0'
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $v = '${{ github.ref_name }}' -replace '^v', ''
+          } elseif ('${{ github.event.inputs.version }}') {
+            $v = '${{ github.event.inputs.version }}'
+          }
+          if ($v -notmatch '^[0-9A-Za-z._-]+$') { throw "Refusing odd version string: $v" }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "resolved version: $v"
+
+      - name: Toolchain preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          Write-Host "Visual Studio: $vs"
+          $sets = Get-ChildItem "$vs\MSBuild\Microsoft\VC\v*\Platforms\x64\PlatformToolsets" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Name
+          Write-Host "Available toolsets: $($sets -join ', ')"
+          if ($sets -notcontains $env:PLATFORM_TOOLSET) {
+            throw "Toolset $env:PLATFORM_TOOLSET not found on this image (have: $($sets -join ', ')). Pin runs-on to an image that ships it, or change PLATFORM_TOOLSET."
+          }
+          $deps = @(
+            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/bin/libxess.dll',
+            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll'
+          )
+          foreach ($d in $deps) {
+            if (!(Test-Path $d)) { throw "Submodule content missing: $d (did checkout fetch submodules?)" }
+          }
+          Write-Host 'Submodule dependencies present.'
+
+      - name: MSVC dev environment
+        # setup-msbuild only puts MSBuild on PATH — it deliberately does NOT add
+        # cl.exe. This action runs vcvarsall so `cl` below resolves.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
       - name: State-machine regression
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path exports\release-ci | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:BUILD_OUT | Out-Null
           cl /nologo /std:c++20 /EHsc /W4 tests\amd_submission_state.cpp `
-            /Feexports\release-ci\amd_submission_state.exe `
-            /Foexports\release-ci\amd_submission_state.obj
-          & exports\release-ci\amd_submission_state.exe
+            /Fe"$env:BUILD_OUT\amd_submission_state.exe" `
+            /Fo"$env:BUILD_OUT\amd_submission_state.obj"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:BUILD_OUT\amd_submission_state.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build OptiScaler Release (default = multi-slot)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # No AMD_MULTISLOT: r18+ source default is two slots.
-          # No AMD_RETIRE_DIAGNOSTICS: shipping build.
-          $msbuild = 'msbuild'
-          & $msbuild OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\OptiScaler.vcxproj `
+          # Note the forward slashes and the absence of a trailing separator:
+          # a trailing backslash inside /p:Value="...\" makes MSBuild swallow the
+          # closing quote and the next argument. This bit us once already.
+          $slnDir = "$PWD/OptiScaler-DLSSNR-PreSR-Multipass-main"
+          $outDir = "$PWD/$env:BUILD_OUT"
+          # PreBuildEvent runs: it generates resource_build_{date,commit}.h, which
+          # resource.h includes in Release and which are NOT in git. Disabling it
+          # makes a fresh checkout fail with C1083.
+          # PostBuildEvent stays off: it copies "$(SolutionDir)READ ME - DLSS
+          # Neural Rendering.txt", which this fork does not have.
+          msbuild "$slnDir/OptiScaler/OptiScaler.vcxproj" `
             /m:4 /t:Build /p:Configuration=Release /p:Platform=x64 `
-            /p:PreBuildEventUseInBuild=false /p:PostBuildEventUseInBuild=false `
-            /p:SolutionDir="$PWD\OptiScaler-DLSSNR-PreSR-Multipass-main\" `
-            /p:OutDir="$PWD\exports\release-ci\" `
-            /p:IntDir="$PWD\exports\release-ci\obj\"
+            /p:PlatformToolset=$env:PLATFORM_TOOLSET `
+            /p:PostBuildEventUseInBuild=false `
+            /p:SolutionDir="$slnDir" `
+            /p:OutDir="$outDir" `
+            /p:IntDir="$outDir/obj"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path 'exports\release-ci\OptiScaler.dll')) {
-            throw 'Build did not produce exports\release-ci\OptiScaler.dll'
+          if (!(Test-Path "$env:BUILD_OUT/OptiScaler.dll")) {
+            throw "Build did not produce $env:BUILD_OUT/OptiScaler.dll"
           }
 
       - name: Package user zip
         shell: pwsh
-        env:
-          DEPS_ARCHIVE_URL: ${{ vars.DEPS_ARCHIVE_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $ver = '1.8.0-0.3.0'
-          if ('${{ github.event.inputs.version }}') { $ver = '${{ github.event.inputs.version }}' }
-
-          $depsRoot = ''
-          if ($env:DEPS_ARCHIVE_URL) {
-            $cache = Join-Path $env:RUNNER_TEMP 'opti-deps'
-            New-Item -ItemType Directory -Force -Path $cache | Out-Null
-            $zipPath = Join-Path $cache 'deps.zip'
-            Invoke-WebRequest -Uri $env:DEPS_ARCHIVE_URL -OutFile $zipPath
-            Expand-Archive -Path $zipPath -DestinationPath $cache -Force
-            $depsRoot = $cache
-            Write-Host "Deps extracted to $cache"
-          }
-
-          $packArgs = @(
-            '-Version', $ver,
-            '-OptiDll', 'exports\release-ci\OptiScaler.dll',
-            '-OutDir', 'dist'
-          )
-          if ($depsRoot) { $packArgs += @('-DepsRoot', $depsRoot) }
-          powershell -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 @packArgs
+          $ver = '${{ steps.ver.outputs.version }}'
+          powershell -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 `
+            -Version $ver `
+            -OptiDll "$env:BUILD_OUT\OptiScaler.dll" `
+            -OutDir dist
           if (!(Test-Path "dist\OptiScaler-AMD-PreSR-$ver.zip")) {
             throw "Package zip missing for $ver"
           }
@@ -104,8 +146,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # Same tripwire as PACKAGE_RELEASE.ps1, applied to the zip contents too.
           $bad = Get-ChildItem dist\OptiScaler-AMD-PreSR-* -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^(nvngx.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$' }
+            Where-Object { $_.Name -match '^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$' }
           if ($bad) {
             $bad | ForEach-Object { Write-Host $_.FullName }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in dist\'
@@ -128,9 +171,10 @@ jobs:
             dist/*.zip
           generate_release_notes: true
           body: |
-            OptiScaler AMD pre-SR **1.8.0-0.3.0** (every-frame multi-slot).
+            OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}** (every-frame multi-slot).
 
-            - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** and **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**.
+            - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** (GPL-3.0) and **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**.
+            - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - Requires **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** + local weights (not bundled).
             - No NVIDIA DLLs / weights / author pass DLL in this zip.
             - Xbox/MS Store: run `Setup.bat` against `C:\XboxGames\<Game>\Content`.

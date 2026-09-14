@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-  Install this project's OptiScaler (r17) into a game folder.
+  Install this project's OptiScaler into a game folder.
   Takes the author's 0.3.0 version.dll, copies it as dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
@@ -8,32 +8,48 @@
   Only installs THIS project (B path). Does not drop author version.dll into the game.
   Native 0.3 (version.dll alone) is a different mode — install that yourself if wanted.
 
-  vendor\
+  包根（解压出来的目录就是这里）：
+    OptiScaler.dll                this fork
+    OptiScaler.ini                optional
+    OptiScaler\                   optional FFX/XeSS deps
+    Setup.ps1 / Setup.bat         this script
+
+  vendor\                         （用户自备，放在包根旁边）
     version.dll                   author AMD NR 0.3.0 (same binary used as pass)
     dlssnr_on_amd_setup.exe       optional, author's local setup
     nvngx_dlss.dll                optional, only from YOUR game (for weights)
     dlssnr_on_amd_weights.bin     optional if you already have it
 
-  release\
-    OptiScaler.dll                this fork (r17)
-    OptiScaler.ini                optional
-    OptiScaler\                   optional FFX/XeSS deps
-
 .EXAMPLE
-  .\install-amd-presr-r17.ps1 -GameDir 'D:\Games\Foo' -Proxy dxgi.dll
+  .\install-amd-presr.ps1 -GameDir 'D:\Games\Foo' -Proxy dxgi.dll
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$GameDir,
     [ValidateSet('dxgi.dll','winmm.dll','d3d12.dll','winhttp.dll','wininet.dll','dbghelp.dll','dinput8.dll')]
     [string]$Proxy = 'dxgi.dll',
-    [string]$Root = $PSScriptRoot,
+    [string]$Root,
     [string]$AuthorDll,
     [switch]$NonInteractive
 )
 $ErrorActionPreference = 'Stop'
-$vendor  = Join-Path $Root 'vendor'
-$release = Join-Path $Root 'release'
+
+# $Root 绝不能写成 param 默认值 $PSScriptRoot：用 powershell -File 调用时，
+# 参数绑定阶段 $PSScriptRoot 还是空的（脚本体内才被赋值），于是
+#   Join-Path $Root 'vendor'
+# 会抛 "Cannot bind argument to parameter 'Path' because it is an empty string."
+# Setup.bat 走的正是 -File，所以每个用户都会第一步就撞上。
+if (-not $Root) { $Root = $PSScriptRoot }
+
+$vendor = Join-Path $Root 'vendor'
+
+# 包布局：OptiScaler.dll / OptiScaler.ini / OptiScaler\ 就在包根（与上游 OptiScaler 的包一致）。
+# 早期包把这三样放在 release\ 子目录下，所以再兜底找一次那个老布局。
+$release = $Root
+if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
+    (Test-Path -LiteralPath (Join-Path $Root 'release\OptiScaler.dll'))) {
+    $release = Join-Path $Root 'release'
+}
 
 function Fail([string]$msg) {
     Write-Host "ERROR: $msg" -ForegroundColor Red
@@ -93,7 +109,15 @@ try {
 }
 
 if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll'))) {
-    Fail "Missing release\OptiScaler.dll (this project's r17)."
+    Fail @"
+Missing OptiScaler.dll.
+Looked in:
+  $release\OptiScaler.dll
+  $Root\release\OptiScaler.dll
+
+Run Setup.bat from the folder you unzipped the package into, so that
+OptiScaler.dll sits next to Setup.ps1.
+"@
 }
 
 # --- author 0.3.0 runtime: version.dll from their package ---
@@ -251,5 +275,5 @@ Write-Host "  Proxy:  $Proxy"
 Write-Host "  Backup: $backup"
 Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll (copies of author 0.3.0) + weights'
 Write-Host '  Not installed: author version.dll (native mode) — do that separately if you want it.'
-Write-Host '  Enable NR in menu/INI. Every-frame multi-slot is default in r17.'
+Write-Host '  Enable NR in menu/INI. Every-frame multi-slot is the default.'
 exit 0
