@@ -36,11 +36,16 @@ OptiScaler-AMD-PreSR*.zip
 *.ilk
 *.exp
 
-# 分析用整包/Ghidra/烟雾测试输出（已跟踪的仍会进 git，需 git rm --cached）
+# 分析用整包/Ghidra/烟雾测试输出 —— 2026-09-14 已 git rm --cached，只留本地
 analysis/setup-*-test*/
 analysis/installer-gui-*/
 analysis/ghidra/
 analysis/v25-package-test-output/
+analysis/smoke-objects-*/
+analysis/menu-test-objects-*/
+
+# 取证构建产物（DLL/日志/obj）—— 回滚用，只留本地，不进仓库
+exports/review-s*/
 
 # 编辑器/会话
 .claude/
@@ -69,4 +74,3 @@ exports/review-s7-ks1/
 *.ipdb
 *.obj
 *.lib
-analysis/menu-test-objects-*/
