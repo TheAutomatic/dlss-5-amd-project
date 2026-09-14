@@ -1,0 +1,9 @@
+[submodule "OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess"]
+	path = OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess
+	url = https://github.com/intel/xess.git
+[submodule "OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK"]
+	path = OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+[submodule "OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2"]
+	path = OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
