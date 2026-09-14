@@ -741,11 +741,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s16-resize-life slots=2 defer-resize-until-idle]";
+    static constexpr const char* kBuildTag = " [r17-multislot slots=2 a03 release]";
 #else
-    static constexpr const char* kBuildTag = " [s16-resize-life slots=1 defer-resize-until-idle]";
+    static constexpr const char* kBuildTag = " [r17-multislot slots=1 a03 release]";
 #endif
-    p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
+    p->Log("AMD submission revision 20260914-r17: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
     try
     {

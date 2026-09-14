@@ -47,6 +47,9 @@ analysis/menu-test-objects-*/
 # 取证构建产物（DLL/日志/obj）—— 回滚用，只留本地，不进仓库
 exports/review-s*/
 
+# 正式发布 DLL（本地部署用；哈希写在 HANDOFF）
+exports/release-r17/
+
 # 编辑器/会话
 .claude/
 .vs/
