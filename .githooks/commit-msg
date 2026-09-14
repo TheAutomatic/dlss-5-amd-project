@@ -1,0 +1,17 @@
+#!/bin/sh
+# Strip only Claude's attribution from commit messages.
+# Normal co-authors are left alone - we match Claude by NAME or by the
+# @anthropic.com address, never by the presence of a Co-Authored-By line.
+#
+# This is a git hook, so it runs on the real commit path no matter who or what
+# wrote the message. A settings-level opt-out only asks the tool not to add the
+# line; this removes it.
+f="$1"
+[ -n "$f" ] && [ -f "$f" ] || exit 0
+
+tmp="$f.claude-strip"
+grep -v -E '^Co-Authored-By:.*(Claude|@anthropic\.com)|^Claude-Session:' "$f" > "$tmp" 2>/dev/null || true
+[ -s "$tmp" ] || { rm -f "$tmp"; exit 0; }
+printf '%s\n' "$(cat "$tmp")" > "$f"
+rm -f "$tmp"
+exit 0
