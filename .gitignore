@@ -44,6 +44,14 @@ analysis/v25-package-test-output/
 analysis/smoke-objects-*/
 analysis/menu-test-objects-*/
 
+# iMMERSE（Marty's Mods / Pascal Gilcher）RTGI 的本地移植素材 —— 只留本地，不进仓库。
+# NOTICE.txt 是随附的第三方声明：「Proprietary and confidential」「Unauthorized copying
+# of this file, via any medium is strictly prohibited」；同目录 *.hlsl 是它的 native
+# adaptation，iMMERSE_*.rgba 是 iMMERSE 贴图的二进制转换。研究用，不随本项目分发。
+# 2026-09-15：git rm -r --cached，磁盘保留。发布的包走 package-amd-presr/experimental_lighting
+# （analysis/experimental-lighting/Lighting.hlsl 编译，自述「no translated effect code」），与此无关。
+analysis/rtgi-native/
+
 # 取证构建产物（DLL/日志/obj）—— 回滚用，只留本地，不进仓库
 exports/review-s*/
 
