@@ -281,8 +281,7 @@ struct Backend::Impl
     // A joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
-    // the Submitted wait - doing so hung the game (exports/design-multislot.md
-    // section 4b).
+    // the Submitted wait - doing so hung the game (exports/a03-staging-state.md).
     //
     // A timer cannot guard this: the rebuild happens on whichever later Record
     // A chooses, so any window simply expires first and the crash follows. A
