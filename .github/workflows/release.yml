@@ -36,6 +36,11 @@ permissions:
 
 env:
   PLATFORM_TOOLSET: v145
+  # The MSVC toolchain the measured binaries were built with. The preflight picks
+  # the newest installed 14.44.x and the build pins VCToolsVersion to it, so CI
+  # produces the same compiler as the local build instead of whatever the image
+  # happens to default to.
+  MSVC_PREFIX: '14.44'
   BUILD_OUT: exports/release-ci
 
 jobs:
@@ -64,24 +69,32 @@ jobs:
           Write-Host "resolved version: $v"
 
       - name: Toolchain preflight
+        id: toolchain
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products * -property installationPath
           Write-Host "Visual Studio: $vs"
-          # Enumerate toolset *subdirectories*. A bare -Directory on
-          # ...\PlatformToolsets yields the folder itself (Name=PlatformToolsets),
-          # which made this check fail even when v145 was installed.
-          $toolsetRoot = Get-ChildItem -Path "$vs\MSBuild\Microsoft\VC\v*\Platforms\x64\PlatformToolsets" -Directory -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-          if (-not $toolsetRoot) { throw "No PlatformToolsets directory under $vs" }
-          $sets = Get-ChildItem -LiteralPath $toolsetRoot.FullName -Directory |
-            Select-Object -ExpandProperty Name
-          Write-Host "Available toolsets: $($sets -join ', ')"
-          if ($sets -notcontains $env:PLATFORM_TOOLSET) {
-            throw "Toolset $env:PLATFORM_TOOLSET not found on this image (have: $($sets -join ', ')). Pin runs-on to an image that ships it, or change PLATFORM_TOOLSET."
+
+          # Do NOT probe ...\MSBuild\Microsoft\VC\v*\...\PlatformToolsets by name.
+          # That tree exists once per VS generation, each holds a different subset,
+          # and picking one shows a misleading list: on the VS2026 image the first
+          # match lists only v142 (pulled in for UWP), which reads as "v145 absent"
+          # when it is in fact installed. MSVC's own directory is unambiguous.
+          $msvcRoot = Join-Path $vs 'VC\Tools\MSVC'
+          if (!(Test-Path $msvcRoot)) { throw "No MSVC toolchain directory at $msvcRoot" }
+          $have = @(Get-ChildItem -LiteralPath $msvcRoot -Directory |
+            Select-Object -ExpandProperty Name | Sort-Object)
+          Write-Host "MSVC toolchains: $($have -join ', ')"
+          # 14.44 is the toolchain the measured r18/r19b binaries were built with.
+          $pick = $have | Where-Object { $_ -like "$env:MSVC_PREFIX.*" } | Select-Object -Last 1
+          if (-not $pick) {
+            throw "No MSVC $env:MSVC_PREFIX.x toolchain on this image (have: $($have -join ', '))."
           }
+          Write-Host "Using MSVC $pick (PlatformToolset=$env:PLATFORM_TOOLSET)"
+          "msvc=$pick" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
           $deps = @(
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/bin/libxess.dll',
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll'
@@ -149,6 +162,7 @@ jobs:
           msbuild "$slnDir/OptiScaler/OptiScaler.vcxproj" `
             /m:4 /t:Build /p:Configuration=Release /p:Platform=x64 `
             /p:PlatformToolset=$env:PLATFORM_TOOLSET `
+            /p:VCToolsVersion=${{ steps.toolchain.outputs.msvc }} `
             /p:PostBuildEventUseInBuild=false `
             /p:SolutionDir="$slnDir" `
             /p:OutDir="$outDir" `
