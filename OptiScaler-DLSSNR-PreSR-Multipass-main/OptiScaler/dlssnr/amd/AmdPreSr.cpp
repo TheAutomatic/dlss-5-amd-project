@@ -255,6 +255,10 @@ struct Backend::Impl
         std::atomic<ID3D12CommandList*> pending { nullptr };
         std::atomic<UINT64> completion { 0 };
         std::array<UINT, 3> jobs {};
+        // Passes recorded into THIS slot. Global activePasses is only the
+        // config for the next Record; a still-in-flight slot must retire and
+        // notify against the count it was recorded with (hot 1↔2 pass change).
+        UINT passCount = 0;
         SubmissionState submission;
         // A reads this and writes its correction back into it (in place), so no
         // two outstanding jobs may share one.
@@ -298,6 +302,39 @@ struct Backend::Impl
     {
         for (size_t k = 0; k < slots.size(); ++k)
             if (slots[k].pending.load(std::memory_order_acquire)) return true;
+        return false;
+    }
+    // Match a pending slot whose recorded list appears in `lists`.
+    // Prefer a slot that is not yet submitted: the same command-list pointer
+    // can be reused on the next frame while an older submitted slot is still
+    // retiring, and taking the first pointer match would then skip Notify for
+    // the newer job.
+    bool FindUnsubmittedMatch(UINT n, ID3D12CommandList* const* lists, UINT& outSlot,
+                              ID3D12CommandList*& outPending) const
+    {
+        for (size_t k = 0; k < slots.size(); ++k)
+        {
+            auto candidate = slots[k].pending.load(std::memory_order_acquire);
+            if (!candidate)
+                continue;
+            if (slots[k].submission.submitted)
+                continue;
+            bool found = false;
+            for (UINT i = 0; i < n; ++i)
+            {
+                if (lists[i] == candidate)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (found)
+            {
+                outSlot = static_cast<UINT>(k);
+                outPending = candidate;
+                return true;
+            }
+        }
         return false;
     }
     // Highest fence value any slot is still waiting on.
@@ -384,7 +421,9 @@ struct Backend::Impl
             return;
         bool nativeDone = true;
         bool timedOut = false;
-        for (UINT i = 0; i < activePasses; ++i)
+        // Use this slot's recorded pass count, not the global config.
+        const UINT passCount = sl.passCount ? sl.passCount : activePasses;
+        for (UINT i = 0; i < passCount; ++i)
         {
             const auto done = static_cast<UINT>(InterlockedCompareExchange(
                 reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
@@ -438,13 +477,14 @@ struct Backend::Impl
         if (sl.submission.CanRetire(nativeDone, gpuDone, target))
         {
             sl.pending.store(nullptr, std::memory_order_release);
+            sl.passCount = 0;
             sl.submission = {};
             lastSubmitted = GetTickCount64();
-            if (!failed && activePasses && !timedOut)
+            if (!failed && passCount && !timedOut)
             {
                 ++completedFrames;
                 lastCompleted = lastSubmitted;
-                status = "Completed AMD pre-SR passes=" + std::to_string(activePasses) + " at " +
+                status = "Completed AMD pre-SR passes=" + std::to_string(passCount) + " at " +
                          std::to_string(width) + "x" + std::to_string(height);
                 if (completedFrames <= 3 || completedFrames % 120 == 0)
                     Log(status);
@@ -748,11 +788,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [r18-default-multislot slots=1 control]";
+    static constexpr const char* kBuildTag = " [r19-slotstate slots=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [r18-default-multislot slots=2 release]";
+    static constexpr const char* kBuildTag = " [r19-slotstate slots=2 release]";
 #endif
-    p->Log("AMD submission revision 20260914-r18: one Execute, post-submit Notify, native+GPU retirement" +
+    p->Log("AMD submission revision 20260914-r19: per-slot passCount, unsubmitted match" +
            std::string(kBuildTag));
     try
     {
@@ -1331,6 +1371,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         Barrier(cmd, f.depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.depthState);
         Barrier(cmd, exposureSource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.exposureState);
         p->activePasses = accepted;
+        // Bind this slot's notify/retire pass count to what was actually recorded.
+        sl->passCount = accepted;
 #ifdef AMD_RETIRE_DIAGNOSTICS
         timing.event.accepted = accepted;
 #endif
@@ -1479,24 +1521,11 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
 {
     if (!queue)
         return;
-    // Which slot is this batch submitting? Usually the one Record just filled.
+    // Match only a slot that has not submitted yet. An older submitted slot
+    // can hold the same command-list pointer after the game reuses the object.
     UINT slot = static_cast<UINT>(p->slots.size());
     ID3D12CommandList* pending = nullptr;
-    for (size_t k = 0; k < p->slots.size() && !pending; ++k)
-    {
-        auto candidate = p->slots[k].pending.load(std::memory_order_acquire);
-        if (!candidate)
-            continue;
-        bool found = false;
-        for (UINT i = 0; i < n; ++i)
-            found |= lists[i] == candidate;
-        if (found)
-        {
-            slot = static_cast<UINT>(k);
-            pending = candidate;
-        }
-    }
-    if (!pending)
+    if (!p->FindUnsubmittedMatch(n, lists, slot, pending))
         return;
     std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
@@ -1539,21 +1568,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         return;
     UINT slot = static_cast<UINT>(p->slots.size());
     ID3D12CommandList* pending = nullptr;
-    for (size_t k = 0; k < p->slots.size() && !pending; ++k)
-    {
-        auto candidate = p->slots[k].pending.load(std::memory_order_acquire);
-        if (!candidate)
-            continue;
-        bool found = false;
-        for (UINT i = 0; i < n; ++i)
-            found |= lists[i] == candidate;
-        if (found)
-        {
-            slot = static_cast<UINT>(k);
-            pending = candidate;
-        }
-    }
-    if (!pending)
+    if (!p->FindUnsubmittedMatch(n, lists, slot, pending))
         return;
     std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
@@ -1563,7 +1578,9 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     if (sl.pending.load() != pending)
         return;
     if (sl.submission.submitted) return;
-    if (p->activePasses == 1)
+    // Notify / HIP publish uses this slot's recorded pass count.
+    const UINT passCount = sl.passCount ? sl.passCount : p->activePasses;
+    if (passCount == 1)
     {
         auto h = p->runtime[0];
         reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + L->notify)(queue, n, lists);
@@ -1579,7 +1596,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         p->WaitAfterSubmitIfEveryFrame(slot);
         return;
     }
-    for (UINT i = 0; i < p->activePasses; ++i)
+    for (UINT i = 0; i < passCount; ++i)
     {
         auto h = p->runtime[i];
         reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + L->notify)(queue, n, lists);
