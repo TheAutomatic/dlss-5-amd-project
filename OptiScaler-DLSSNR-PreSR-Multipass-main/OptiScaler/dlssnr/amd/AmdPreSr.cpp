@@ -238,10 +238,17 @@ struct Backend::Impl
     // lets the CPU record the next frame while the previous job is still
     // retiring, instead of blocking the render thread in Submitted.
     // kSlots == 1 reproduces the original one-frame-outstanding behaviour exactly.
-#ifdef AMD_MULTISLOT
-    static constexpr UINT kSlots = 2;
-#else
+    //
+    // Two slots is the shipping configuration, so it is what an ordinary build
+    // gets. The macro used to work the other way round, which meant every build
+    // that forgot to define it silently produced the single-slot build at 33.5
+    // fps - a trap that caught this project once already.
+    // Define AMD_SINGLESLOT for the control build used to isolate admission
+    // timing; it is not a configuration to ship or play on.
+#ifdef AMD_SINGLESLOT
     static constexpr UINT kSlots = 1;
+#else
+    static constexpr UINT kSlots = 2;
 #endif
     struct Slot
     {
@@ -740,12 +747,12 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     p->directory = dir;
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
-#ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [r17-multislot slots=2 a03 release]";
+#ifdef AMD_SINGLESLOT
+    static constexpr const char* kBuildTag = " [r18-default-multislot slots=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [r17-multislot slots=1 a03 release]";
+    static constexpr const char* kBuildTag = " [r18-default-multislot slots=2 release]";
 #endif
-    p->Log("AMD submission revision 20260914-r17: one Execute, post-submit Notify, native+GPU retirement" +
+    p->Log("AMD submission revision 20260914-r18: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
     try
     {
