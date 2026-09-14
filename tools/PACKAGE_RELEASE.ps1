@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
@@ -261,14 +261,16 @@ if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
 Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
 @'
 @echo off
-if "%~1"=="" (
-  echo Usage: %~nx0 "C:\Path\To\Game\Content" [dxgi.dll]
-  exit /b 1
-)
+setlocal
+title OptiScaler AMD pre-SR Setup
+rem No args: Setup.ps1 opens a folder picker.
+rem Optional: Setup.bat "D:\Game\Content" [dxgi.dll]
 set "PROXY=%~2"
 if "%PROXY%"=="" set "PROXY=dxgi.dll"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy %PROXY%
-exit /b %ERRORLEVEL%
+powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy %PROXY%
+set "EC=%ERRORLEVEL%"
+if not "%EC%"=="0" pause
+exit /b %EC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
 Copy-Item $readmeSrc (Join-Path $stage 'README.md') -Force
 # 这个文件名必须是「使用说明.txt」，但不要写成字面量：
@@ -279,7 +281,7 @@ $zhUsageName = [string]::Join('', [char]0x4F7F, [char]0x7528, [char]0x8BF4, [cha
 Copy-Item $readmeSrc (Join-Path $stage $zhUsageName) -Force
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
-# 作者 pass（dlssnr_amd_pass*.dll）必须在内 —— README 明写「包里没有作者 pass」。
+# 原作者 pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有原作者 pass」。
 $forbidden = '^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
 $badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match $forbidden }

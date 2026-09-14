@@ -1,27 +1,31 @@
-﻿<#
+<#
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
-  Copies the author's 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
+  Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
+  Copies the original author's 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
-  Only installs THIS project (B path). Does not leave author version.dll in the game.
+  Only installs THIS project (B path). Does not leave original-author version.dll in the game.
 
   Put these in the SAME folder as Setup.ps1 (the package root):
     OptiScaler.dll              this fork
     OptiScaler.ini              optional
     OptiScaler\                 FFX / XeSS / Agility deps
     version.dll                 author AMD NR 0.3.0 (copied to pass1-3)
-    nvngx_dlss.dll              optional, only from YOUR game (for weights)
-    dlssnr_on_amd_setup.exe     optional, author's local setup
+    nvngx_dlssnr.dll            optional, to generate weights with original-author setup
+    dlssnr_on_amd_setup.exe     optional, original author's 0.3.0 setup
     dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE
+  .\Setup.bat
+  .\Setup.bat "D:\Games\Foo\Content"
   .\install-amd-presr.ps1 -GameDir 'D:\Games\Foo' -Proxy dxgi.dll
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$GameDir,
+    # Empty = open a folder picker (double-click Setup.bat).
+    [string]$GameDir = '',
     # dinput8 is NOT a valid proxy for this OptiScaler build (no DirectInput8Create export).
     [ValidateSet('dxgi.dll','winmm.dll','d3d12.dll','winhttp.dll','wininet.dll','dbghelp.dll')]
     [string]$Proxy = 'dxgi.dll',
@@ -85,6 +89,37 @@ function Ask-Choice([string]$title, [string[]]$options) {
     } while ($true)
 }
 
+# Double-click Setup.bat: no path argument → open a folder picker.
+if ([string]::IsNullOrWhiteSpace($GameDir)) {
+    if ($NonInteractive) { Fail 'GameDir is required in -NonInteractive mode.' }
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dlg.Description = "Select the game folder that contains the game .exe`n(Xbox: ...\Content, not WindowsApps)"
+    $dlg.ShowNewFolderButton = $false
+    $dlg.RootFolder = 'MyComputer'
+    Write-Host 'Pick the game folder (the one with the game .exe)…' -ForegroundColor Yellow
+    if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+        Write-Host 'Cancelled — no folder selected.'
+        exit 0
+    }
+    $GameDir = $dlg.SelectedPath
+}
+
+# Interactive proxy pick (like older 1.7.x installers). dinput8 is invalid for this build.
+if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Proxy')) {
+    $proxyOptions = @(
+        'dxgi.dll      (recommended)',
+        'winmm.dll',
+        'd3d12.dll',
+        'winhttp.dll',
+        'wininet.dll',
+        'dbghelp.dll'
+    )
+    $pi = Ask-Choice 'Which proxy DLL should OptiScaler install as?' $proxyOptions
+    $Proxy = ($proxyOptions[$pi - 1] -split '\s+')[0]
+    Write-Host "Selected proxy: $Proxy"
+}
+
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
     Fail "Game folder not found: $GameDir"
 }
@@ -127,22 +162,80 @@ OptiScaler.dll sits next to Setup.ps1.
 "@
 }
 
-# --- author 0.3.0 runtime: version.dll next to Setup.ps1 ---
+function Confirm-Continue([string]$title) {
+    if ($NonInteractive) { Fail $title }
+    $choice = Ask-Choice $title @('Cancel and exit', 'Continue anyway')
+    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
+}
+
+function Find-FirstFile([string[]]$paths) {
+    foreach ($p in $paths) {
+        if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { return $p }
+    }
+    return $null
+}
+
+# Author setup (dlssnr_on_amd_setup.exe) is what produces version.dll and
+# dlssnr_on_amd_weights.bin. Look in the package folder AND the game folder.
+$setup   = Join-Path $Root 'dlssnr_on_amd_setup.exe'
+$nv      = Find-FirstFile @(
+    (Join-Path $Root 'nvngx_dlssnr.dll'),
+    (Join-Path $Root 'nvngx_dlss.dll'),
+    (Join-Path $game 'nvngx_dlssnr.dll'),
+    (Join-Path $game 'nvngx_dlss.dll')
+)
+$weights = Find-FirstFile @(
+    (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
+    (Join-Path $game 'dlssnr_on_amd_weights.bin')
+)
 $srcA = $AuthorDll
 if (-not $srcA) {
-    foreach ($cand in @(
+    $srcA = Find-FirstFile @(
         (Join-Path $Root 'version.dll'),
-        (Join-Path $Root 'dlssnr_amd_pass1.dll')
-    )) {
-        if (Test-Path -LiteralPath $cand -PathType Leaf) { $srcA = $cand; break }
+        (Join-Path $Root 'dlssnr_amd_pass1.dll'),
+        (Join-Path $game 'version.dll'),
+        (Join-Path $game 'dlssnr_amd_pass1.dll')
+    )
+}
+
+# Missing runtime and/or weights → run the original-author setup first (it writes both).
+if ((-not $srcA -or -not $weights) -and (Test-Path -LiteralPath $setup -PathType Leaf)) {
+    Write-Host ''
+    Write-Host 'version.dll and/or weights.bin not found yet.' -ForegroundColor Yellow
+    Write-Host 'Launching original-author setup (dlssnr_on_amd_setup.exe) to create them…' -ForegroundColor Yellow
+    if ($nv) { Write-Host "  nvngx found: $nv" } else {
+        Write-Host '  NOTE: no nvngx_dlssnr.dll next to Setup.bat or in the game folder.' -ForegroundColor Yellow
+        Write-Host '  The original-author setup will ask you to locate it if it needs one for weights.' -ForegroundColor Yellow
+    }
+    Write-Host '  In the author UI: pick the GAME folder if asked, finish install/close when done.'
+    Push-Location $Root
+    try {
+        $p = Start-Process -FilePath $setup -WorkingDirectory $Root -Wait -PassThru
+        Write-Host "  original-author setup exit code: {0}" -f $p.ExitCode
+    } finally { Pop-Location }
+
+    # Re-scan: setup may drop files in the package dir or install into the game.
+    $weights = Find-FirstFile @(
+        (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
+        (Join-Path $game 'dlssnr_on_amd_weights.bin')
+    )
+    if (-not $srcA) {
+        $srcA = Find-FirstFile @(
+            (Join-Path $Root 'version.dll'),
+            (Join-Path $Root 'dlssnr_amd_pass1.dll'),
+            (Join-Path $game 'version.dll'),
+            (Join-Path $game 'dlssnr_amd_pass1.dll')
+        )
     }
 }
+
+# --- author 0.3.0 runtime ---
 if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
     Fail @"
-Missing DLSS-NR-on-AMD 0.3.0 runtime.
-Put version.dll from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
-in the same folder as Setup.ps1 (or pass -AuthorDll 'D:\path\version.dll').
-This tool does not bundle it. pass1-3.dll are copies of that same file.
+Still missing DLSS-NR-on-AMD 0.3.0 runtime (version.dll) after original-author setup.
+1. Run dlssnr_on_amd_setup.exe yourself and finish its install
+2. Put the version.dll it produces next to Setup.bat (or leave it in the game folder)
+Download 0.3.0 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
 }
 
@@ -156,51 +249,41 @@ if ($hashA -ne $expectedA03) {
     $what = 'unknown build'
     if ($hashA -eq $knownA0217) { $what = 'this is 0.2.17, not 0.3.0' }
     Fail @"
-{0} is not DLSS-NR-on-AMD 0.3.0 ({1}).
+$srcA is not DLSS-NR-on-AMD 0.3.0 ($what).
   file:     $srcA
   got:      $hashA
   expected: $expectedA03
 Download 0.3.0 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
-and put version.dll next to Setup.ps1. Other versions are not supported.
 "@
 }
 
-# --- weights / nvngx (same folder as Setup) ---
-# Either weights.bin, or (setup + nvngx_dlss.dll) to generate it, is enough.
-# Hashes are machine/game specific — do not pin. Warn and allow continue.
-function Confirm-Continue([string]$title) {
-    if ($NonInteractive) { Fail $title }
-    $choice = Ask-Choice $title @('Cancel and exit', 'Continue anyway')
-    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
+# --- weights ---
+if (-not $weights) {
+    $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
 }
-
-$weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
-$setup   = Join-Path $Root 'dlssnr_on_amd_setup.exe'
-$nv      = Join-Path $Root 'nvngx_dlss.dll'
-$hasW = Test-Path -LiteralPath $weights -PathType Leaf
-$hasNv = Test-Path -LiteralPath $nv -PathType Leaf
-
-if (-not $hasW) {
-    if ((Test-Path $setup) -and $hasNv) {
-        Write-Host 'weights.bin missing — running author setup locally with your nvngx_dlss.dll...'
+if (-not (Test-Path -LiteralPath $weights -PathType Leaf)) {
+    if ((Test-Path $setup) -and $nv) {
+        Write-Host 'weights.bin still missing — running original-author setup again with nvngx…'
         Push-Location $Root
-        try { & $setup | Out-Host } finally { Pop-Location }
-        $hasW = Test-Path -LiteralPath $weights -PathType Leaf
-    }
-    if (-not $hasW) {
-        Fail @"
-Missing weights input. Put ONE of these next to Setup.ps1:
-  1) dlssnr_on_amd_weights.bin
-  2) dlssnr_on_amd_setup.exe + nvngx_dlss.dll  (from YOUR game)
-"@
+        try { Start-Process -FilePath $setup -WorkingDirectory $Root -Wait | Out-Null } finally { Pop-Location }
+        $weights = Find-FirstFile @(
+            (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
+            (Join-Path $game 'dlssnr_on_amd_weights.bin')
+        )
     }
 }
+if (-not $weights -or !(Test-Path -LiteralPath $weights -PathType Leaf)) {
+    Fail @"
+Missing dlssnr_on_amd_weights.bin.
+Run dlssnr_on_amd_setup.exe (with nvngx_dlssnr.dll available), then retry.
+"@
+}
 
-if ($hasNv) {
+if ($nv) {
     $nvSize = (Get-Item -LiteralPath $nv).Length
-    Write-Host ("nvngx_dlss.dll size: {0} bytes" -f $nvSize)
+    Write-Host ("nvngx size: {0} bytes  ({1})" -f $nvSize, $nv)
     if ($nvSize -lt 1MB) {
-        Confirm-Continue ("nvngx_dlss.dll is only {0} bytes — may be the wrong file. Continue?" -f $nvSize)
+        Confirm-Continue ("nvngx is only {0} bytes — may be the wrong file. Continue?" -f $nvSize)
     }
 }
 
@@ -234,8 +317,8 @@ foreach ($name in $proxies) {
 Write-Host ''
 Write-Host "Game folder: $game"
 Write-Host "Proxy:       $Proxy   (OptiScaler.dll installed under this name)"
-Write-Host "Author A:    $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
-Write-Host 'NOTE: author version.dll is NOT installed here (B path only).'
+Write-Host "Original author 0.3.0: $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
+Write-Host 'NOTE: original-author version.dll is NOT installed here (B path only).'
 if ($found.Count -eq 0) {
     Write-Host 'No common injection DLLs found in the game folder.' -ForegroundColor Green
 } else {
@@ -353,7 +436,10 @@ Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:   $game"
 Write-Host "  Proxy:  $Proxy"
 Write-Host "  Backup: $backup"
-Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll (copies of author 0.3.0) + weights'
-Write-Host '  Not installed: author version.dll (native mode) — do that separately if you want it.'
-Write-Host '  Enable NR in menu/INI. Every-frame multi-slot is the default.'
+Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll (copies of original-author 0.3.0) + weights'
+Write-Host ''
+Write-Host 'Next (in game):' -ForegroundColor Yellow
+Write-Host '  1. Launch the game'
+Write-Host '  2. Press Insert (Ins) to open the OptiScaler menu'
+Write-Host '  3. Enable DLSSNR'
 exit 0
