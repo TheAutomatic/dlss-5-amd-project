@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
@@ -257,6 +257,24 @@ Download 0.3.0 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
 }
 
+# Stage the install source OUTSIDE the game folder. Author setup may have written
+# version.dll into the game dir; backup/move must not steal the file we still need.
+$stagedA = $null
+try {
+    $srcAFull = [IO.Path]::GetFullPath($srcA)
+    $gameFull = [IO.Path]::GetFullPath($game)
+    # Require a directory boundary so C:\Games\MyGame does not match C:\Games\MyGame-pkg.
+    $gamePrefix = $gameFull.TrimEnd('\') + '\'
+    if ($srcAFull.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        $stagedA = Join-Path $Root ('._staged_' + [guid]::NewGuid().ToString('N') + '.dll')
+        Copy-Item -LiteralPath $srcAFull -Destination $stagedA -Force
+        Write-Host "Staged install source outside game folder: $stagedA"
+        $srcA = $stagedA
+    }
+} catch {
+    Fail "Could not stage author runtime from $srcA : $($_.Exception.Message)"
+}
+
 # --- weights ---
 if (-not $weights) {
     $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
@@ -338,6 +356,19 @@ $keep = @{}
 
 foreach ($f in $found) {
     $isTarget = ($f.Name -ieq $Proxy)
+    # Author-native version.dll (hash already known) must not stay next to B.
+    $isAuthorNative = $false
+    if ($f.Name -ieq 'version.dll' -and -not $f.IsOptiScaler) {
+        try {
+            $h = Get-Sha256 $f.Path
+            if ($h -eq $expectedA03 -or $h -eq $knownA0217) { $isAuthorNative = $true }
+        } catch { }
+    }
+    if ($isAuthorNative) {
+        Write-Host ("{0} is the original-author NR runtime — moving aside (cannot coexist with B)." -f $f.Name) -ForegroundColor Yellow
+        $toMove += $f
+        continue
+    }
     if ($f.IsOptiScaler) {
         if ($NonInteractive) { $toMove += $f; continue }
         $choice = Ask-Choice ("{0} is already an OptiScaler install. How to continue?" -f $f.Name) @(
@@ -398,6 +429,15 @@ function Install-One([string]$src, [string]$rel) {
         return
     }
     $dest = Join-Path $game $rel
+    # Reuse a verified file that is already at the destination (e.g. weights/pass in game dir).
+    try {
+        $srcFull = [IO.Path]::GetFullPath($src)
+        $destFull = [IO.Path]::GetFullPath($dest)
+        if ($srcFull -ieq $destFull) {
+            Write-Host ("Skip (already in place): {0}" -f $rel)
+            return
+        }
+    } catch { }
     if (Test-Path -LiteralPath $dest) {
         $save = Join-Path $backup $rel
         $sdir = Split-Path -Parent $save
@@ -416,6 +456,10 @@ Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 # Same runtime bytes as native version.dll — three filenames so multi-pass can load independent instances.
 foreach ($p in 1..3) {
     Install-One $srcA ("dlssnr_amd_pass$p.dll")
+}
+# Drop the temp staged copy (package root only).
+if ($stagedA -and (Test-Path -LiteralPath $stagedA)) {
+    try { Remove-Item -LiteralPath $stagedA -Force } catch { }
 }
 Install-One $weights 'dlssnr_on_amd_weights.bin'
 

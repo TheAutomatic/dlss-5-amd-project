@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
@@ -263,11 +263,13 @@ Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
 @echo off
 setlocal
 title OptiScaler AMD pre-SR Setup
-rem No args: Setup.ps1 opens a folder picker.
+rem No args: Setup.ps1 opens a folder picker and proxy menu.
 rem Optional: Setup.bat "D:\Game\Content" [dxgi.dll]
-set "PROXY=%~2"
-if "%PROXY%"=="" set "PROXY=dxgi.dll"
-powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy %PROXY%
+if "%~2"=="" (
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1"
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy "%~2"
+)
 set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" pause
 exit /b %EC%
@@ -295,7 +297,7 @@ $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     ForEach-Object {
         '{0} *{1}' -f (Get-Sha256 $_.FullName), $_.FullName.Substring($stage.Length + 1)
     }
-$hashes | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt')
+$hashes | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt') -Encoding UTF8
 
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path $zip) { Remove-Item $zip -Force }

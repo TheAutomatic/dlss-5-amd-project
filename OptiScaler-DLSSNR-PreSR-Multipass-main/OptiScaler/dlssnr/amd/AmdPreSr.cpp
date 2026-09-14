@@ -568,13 +568,16 @@ struct Backend::Impl
         RetirementDiagnostics::Scope timing(diagnostics, directory, L ? L->name : "uninitialized", "EfWaitLoop");
         auto& sample = timing.event;
         sample.everyFrame = true;
-        sample.passes = activePasses;
+        sample.passes = (slots[k].passCount == Slot::kPassUnset) ? 0u : slots[k].passCount;
         sample.width = width;
         sample.height = height;
         sample.jobs = slots[k].jobs;
         sample.target = slots[k].completion.load();
         const auto waitEntry = RetirementDiagnostics::Clock();
 #endif
+        // Use THIS slot's recorded pass count, not the global activePasses
+        // (the next Record may already have rewritten it).
+        const UINT slotPasses = (slots[k].passCount == Slot::kPassUnset) ? 0u : slots[k].passCount;
         unsigned iterations = 0;
 #ifdef AMD_RETIRE_DIAGNOSTICS
         bool nativeAtEntry = true;   // first poll result: did we wait at all?
@@ -583,7 +586,7 @@ struct Backend::Impl
         while (GetTickCount64() - start < 80)
         {
             bool nativeDone = true;
-            for (UINT i = 0; i < activePasses; ++i)
+            for (UINT i = 0; i < slotPasses; ++i)
             {
                 if (!runtime[i] || slots[k].jobs[i] == 0)
                 {
@@ -1524,13 +1527,14 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
 {
     if (!queue)
         return;
+    std::lock_guard guard(p->lock);
     // Match only a slot that has not submitted yet. An older submitted slot
     // can hold the same command-list pointer after the game reuses the object.
+    // Must run under p->lock: submission.submitted is a plain bool.
     UINT slot = static_cast<UINT>(p->slots.size());
     ID3D12CommandList* pending = nullptr;
     if (!p->FindUnsubmittedMatch(n, lists, slot, pending))
         return;
-    std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
@@ -1569,11 +1573,11 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     Submitting(queue, n, lists);
     if (!queue)
         return;
+    std::lock_guard guard(p->lock);
     UINT slot = static_cast<UINT>(p->slots.size());
     ID3D12CommandList* pending = nullptr;
     if (!p->FindUnsubmittedMatch(n, lists, slot, pending))
         return;
-    std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
