@@ -151,34 +151,51 @@ and put version.dll next to Setup.ps1. Other versions are not supported.
 "@
 }
 
-# --- weights (same folder as Setup) ---
+# --- weights / nvngx (same folder as Setup) ---
+# Either weights.bin, or (setup + nvngx_dlss.dll) to generate it, is enough.
+# Hashes are machine/game specific — do not pin. Warn and allow continue.
+function Confirm-Continue([string]$title) {
+    if ($NonInteractive) { Fail $title }
+    $choice = Ask-Choice $title @('Cancel and exit', 'Continue anyway')
+    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
+}
+
 $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
-if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
-    $setup = Join-Path $Root 'dlssnr_on_amd_setup.exe'
-    $nv    = Join-Path $Root 'nvngx_dlss.dll'
-    if ((Test-Path $setup) -and (Test-Path $nv)) {
+$setup   = Join-Path $Root 'dlssnr_on_amd_setup.exe'
+$nv      = Join-Path $Root 'nvngx_dlss.dll'
+$hasW = Test-Path -LiteralPath $weights -PathType Leaf
+$hasNv = Test-Path -LiteralPath $nv -PathType Leaf
+
+if (-not $hasW) {
+    if ((Test-Path $setup) -and $hasNv) {
         Write-Host 'weights.bin missing — running author setup locally with your nvngx_dlss.dll...'
         Push-Location $Root
         try { & $setup | Out-Host } finally { Pop-Location }
+        $hasW = Test-Path -LiteralPath $weights -PathType Leaf
     }
-    if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
-        Fail 'Missing dlssnr_on_amd_weights.bin next to Setup.ps1. Generate it on this PC with the author setup from your own NV DLL.'
+    if (-not $hasW) {
+        Fail @"
+Missing weights input. Put ONE of these next to Setup.ps1:
+  1) dlssnr_on_amd_weights.bin
+  2) dlssnr_on_amd_setup.exe + nvngx_dlss.dll  (from YOUR game)
+"@
     }
 }
-# Weights are generated on the user's PC from their NV DLL — SHA256 is not fixed.
-# Only sanity-check size so an empty/truncated file is obvious.
-$wsize = (Get-Item -LiteralPath $weights).Length
-Write-Host ("weights.bin size: {0} bytes" -f $wsize)
-if ($wsize -lt 1MB) {
-    Write-Host ("WARNING: {0} is only {1} bytes — looks truncated or wrong." -f (Split-Path -Leaf $weights), $wsize) -ForegroundColor Yellow
-    if ($NonInteractive) {
-        Fail 'Refusing tiny weights.bin in -NonInteractive.'
+
+if ($hasNv) {
+    $nvSize = (Get-Item -LiteralPath $nv).Length
+    Write-Host ("nvngx_dlss.dll size: {0} bytes" -f $nvSize)
+    if ($nvSize -lt 1MB) {
+        Confirm-Continue ("nvngx_dlss.dll is only {0} bytes — may be the wrong file. Continue?" -f $nvSize)
     }
-    $choice = Ask-Choice 'Continue anyway with this weights file?' @(
-        'Cancel and exit'
-        'Continue anyway'
-    )
-    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
+}
+
+$wsize = (Get-Item -LiteralPath $weights).Length
+$whash = (Get-FileHash -LiteralPath $weights -Algorithm SHA256).Hash
+Write-Host ("weights.bin size={0}  SHA256={1}" -f $wsize, $whash)
+Write-Host '  (weights SHA256 is per-machine; not compared to a fixed value)'
+if ($wsize -lt 1MB) {
+    Confirm-Continue ("weights.bin is only {0} bytes — looks truncated or wrong. Continue?" -f $wsize)
 }
 
 # --- inspect common injection DLLs ---
