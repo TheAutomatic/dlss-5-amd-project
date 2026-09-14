@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
