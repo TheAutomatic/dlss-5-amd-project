@@ -741,9 +741,9 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_MULTISLOT
-    static constexpr const char* kBuildTag = " [s15-samplefix slots=2 retire-sample-null]";
+    static constexpr const char* kBuildTag = " [s16-resize-life slots=2 defer-resize-until-idle]";
 #else
-    static constexpr const char* kBuildTag = " [s15-samplefix slots=1 retire-sample-null]";
+    static constexpr const char* kBuildTag = " [s16-resize-life slots=1 defer-resize-until-idle]";
 #endif
     p->Log("AMD submission revision 20260910-r1: one Execute, post-submit Notify, native+GPU retirement" +
            std::string(kBuildTag));
@@ -950,6 +950,15 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         bool resize = p->width != w || p->height != h;
         if (resize)
         {
+            // Slot selection above only guarantees that the slot we picked is
+            // idle, but this rebuild releases every slot's colour. Releasing a
+            // texture a still-in-flight list references is a use-after-free, so
+            // defer the resize to a frame where nothing is outstanding. Nothing
+            // has been recorded into cmd yet at this point, so returning here
+            // costs one frame of NR and nothing else.
+            for (const auto& other : p->slots)
+                if (other.pending.load(std::memory_order_acquire))
+                    return nullptr;
             // Every slot needs its own FP16 target, not just whichever one is
             // active on the frame the size changes. A slot added later had a
             // null colour, and A refuses a null input outright: the call
