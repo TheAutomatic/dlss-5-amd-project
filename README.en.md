@@ -36,41 +36,40 @@ The win is **not blocking record until the previous NR job retires**, so the GPU
 ### You must supply (not in this package)
 
 1. **Only** [DLSS-NR on AMD **0.3.0** Release](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)  
-   (other versions are not matched to this layout — do not mix.)  
-2. Local **weights** per upstream instructions (or an existing `dlssnr_on_amd_weights.bin`).  
-3. Any NVIDIA-related files **only from your own game**.
+2. Local **weights** (`dlssnr_on_amd_weights.bin`, or upstream setup + `nvngx_dlss.dll` from **your** game)  
+3. NVIDIA-related files **only from your own game**
 
 ### Scripted install
 
 1. Unzip this release.  
-2. Create `vendor\` beside the scripts: put the **0.3.0** `version.dll`, plus weights or the upstream setup + `nvngx_dlss.dll` from **your** game.  
-3. Close the game, then run (**argument is the directory that contains the game exe**, not the `.exe` file itself):
+2. Drop these into the **same folder as `Setup.bat`**:  
+   - `version.dll` (0.3.0)  
+   - `dlssnr_on_amd_weights.bin` (or setup + `nvngx_dlss.dll`)  
+3. Close the game, then run (**argument is the directory that contains the game exe**):
 
 ```bat
 Setup.bat "path-to-game-folder"
 ```
 
-**Game folder** = the directory with the main 64-bit exe — the same place you would drop `dxgi.dll` for a normal OptiScaler install.
+**Game folder** = the directory with the main 64-bit exe (where you would put `dxgi.dll` for a normal OptiScaler install).
 
-- Onimusha (Xbox PC) example: `C:\XboxGames\Onimusha- Way of the Sword\Content`  
-  (on this machine `OnimushaWotS.exe` lives under `Content\`.)  
-- Many games use `...\Win64\` or `...\WinGDK\` — **use wherever the exe actually is**, not a fixed folder name.
+- Onimusha (Xbox PC): `C:\XboxGames\Onimusha- Way of the Sword\Content`  
+- Many games use `...\Win64\` or `...\WinGDK\` — **use wherever the exe actually is**.
 
-The installer copies `OptiScaler.dll` to your chosen proxy name (default `dxgi.dll`) and copies `vendor\version.dll` to `dlssnr_amd_pass1.dll` (and pass2/3).
+The installer: `OptiScaler.dll` → your chosen proxy (default `dxgi.dll`); `version.dll` → `dlssnr_amd_pass1/2/3.dll`.  
+It does **not** leave `version.dll` in the game folder.
 
 ### Manual install
 
-1. Install [DLSS-NR on AMD 0.3.0](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) into the game folder per their instructions (that leaves upstream **`version.dll`** in the folder).  
-2. In that folder, **copy** that **`version.dll`** to:  
-   - `dlssnr_amd_pass1.dll` (**at least one**)  
-   - `dlssnr_amd_pass2.dll` / `pass3.dll` if you want multi-layer neural rendering (same bytes, separate filenames so each pass can load its own instance)  
-3. **Delete or move away** the game folder’s **`version.dll`** (native injection).  
-   This package loads the passes through `dxgi.dll` (or another proxy). **Do not keep both `version.dll` and this proxy** — that double-loads the pipeline.  
-4. Extract **all** of this release into the same game folder.  
-5. **Rename** `OptiScaler.dll` to the proxy you inject, e.g. `dxgi.dll` (`winmm.dll` etc. if that fits the game/other mods).  
-6. Enable **DlssNr** in the OptiScaler menu when you want NR.
+1. Put **0.3.0 `version.dll`** in the game folder, then:  
+   - **Rename** it to `dlssnr_amd_pass1.dll`  
+   - **Copy** that file twice as `dlssnr_amd_pass2.dll` and `dlssnr_amd_pass3.dll` (same bytes; pass2/3 only if you want multi-layer NR — **pass1 is the minimum**)  
+2. Confirm there is **no leftover `version.dll`** in the game folder (if you installed 0.3.0 under another proxy name, make sure you do not also inject the same name as step 4).  
+3. Extract **all** of this release into the same game folder.  
+4. **Rename** `OptiScaler.dll` to the proxy you inject, e.g. `dxgi.dll` (or `winmm.dll`, etc.).  
+5. Enable **DlssNr** in the menu when you want NR.
 
-For other OptiScaler usage (**frame generation**, menu shortcuts, compatibility notes, per-game tips, etc.), see the official docs:  
+For other OptiScaler usage (**frame generation**, menu shortcuts, compatibility, etc.):  
 [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki).
 
 ---

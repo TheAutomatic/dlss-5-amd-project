@@ -1,24 +1,20 @@
 <#
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
-  Takes the author's 0.3.0 version.dll, copies it as dlssnr_amd_pass1-3.dll,
+  Copies the author's 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
-  Only installs THIS project (B path). Does not drop author version.dll into the game.
-  Native 0.3 (version.dll alone) is a different mode — install that yourself if wanted.
+  Only installs THIS project (B path). Does not leave author version.dll in the game.
 
-  包根（解压出来的目录就是这里）：
-    OptiScaler.dll                this fork
-    OptiScaler.ini                optional
-    OptiScaler\                   optional FFX/XeSS deps
-    Setup.ps1 / Setup.bat         this script
-
-  vendor\                         （用户自备，放在包根旁边）
-    version.dll                   author AMD NR 0.3.0 (same binary used as pass)
-    dlssnr_on_amd_setup.exe       optional, author's local setup
-    nvngx_dlss.dll                optional, only from YOUR game (for weights)
-    dlssnr_on_amd_weights.bin     optional if you already have it
+  Put these in the SAME folder as Setup.ps1 (the package root):
+    OptiScaler.dll              this fork
+    OptiScaler.ini              optional
+    OptiScaler\                 FFX / XeSS / Agility deps
+    version.dll                 author AMD NR 0.3.0 (copied to pass1-3)
+    nvngx_dlss.dll              optional, only from YOUR game (for weights)
+    dlssnr_on_amd_setup.exe     optional, author's local setup
+    dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE
   .\install-amd-presr.ps1 -GameDir 'D:\Games\Foo' -Proxy dxgi.dll
@@ -36,16 +32,12 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # $Root 绝不能写成 param 默认值 $PSScriptRoot：用 powershell -File 调用时，
-# 参数绑定阶段 $PSScriptRoot 还是空的（脚本体内才被赋值），于是
-#   Join-Path $Root 'vendor'
-# 会抛 "Cannot bind argument to parameter 'Path' because it is an empty string."
-# Setup.bat 走的正是 -File，所以每个用户都会第一步就撞上。
+# 参数绑定阶段 $PSScriptRoot 还是空的（脚本体内才被赋值）。
+# Setup.bat 走的正是 -File。
 if (-not $Root) { $Root = $PSScriptRoot }
 
-$vendor = Join-Path $Root 'vendor'
-
-# 包布局：OptiScaler.dll / OptiScaler.ini / OptiScaler\ 就在包根（与上游 OptiScaler 的包一致）。
-# 早期包把这三样放在 release\ 子目录下，所以再兜底找一次那个老布局。
+# 包布局：一切都在包根（与上游 OptiScaler 包一致）。
+# 早期包把 DLL 放在 release\ 下，再兜底一次。
 $release = $Root
 if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
     (Test-Path -LiteralPath (Join-Path $Root 'release\OptiScaler.dll'))) {
@@ -121,38 +113,37 @@ OptiScaler.dll sits next to Setup.ps1.
 "@
 }
 
-# --- author 0.3.0 runtime: version.dll from their package ---
+# --- author 0.3.0 runtime: version.dll next to Setup.ps1 ---
 $srcA = $AuthorDll
 if (-not $srcA) {
     foreach ($cand in @(
-        (Join-Path $vendor 'version.dll'),
-        (Join-Path $vendor 'dlssnr_amd_pass1.dll'),
-        (Join-Path $vendor '0.3.0\version.dll'),
-        (Join-Path $vendor 'dlssnr-on-amd-0.3.0\version.dll')
+        (Join-Path $Root 'version.dll'),
+        (Join-Path $Root 'dlssnr_amd_pass1.dll')
     )) {
         if (Test-Path -LiteralPath $cand -PathType Leaf) { $srcA = $cand; break }
     }
 }
 if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
     Fail @"
-Missing author AMD NR 0.3.0 binary.
-Put the author's version.dll under vendor\ (or pass -AuthorDll 'D:\path\version.dll').
-This tool does not bundle or download it. pass1-3.dll are copies of that same file.
+Missing DLSS-NR-on-AMD 0.3.0 runtime.
+Put version.dll from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
+in the same folder as Setup.ps1 (or pass -AuthorDll 'D:\path\version.dll').
+This tool does not bundle it. pass1-3.dll are copies of that same file.
 "@
 }
 
-# --- weights ---
-$weights = Join-Path $vendor 'dlssnr_on_amd_weights.bin'
+# --- weights (same folder as Setup) ---
+$weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
 if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
-    $setup = Join-Path $vendor 'dlssnr_on_amd_setup.exe'
-    $nv    = Join-Path $vendor 'nvngx_dlss.dll'
+    $setup = Join-Path $Root 'dlssnr_on_amd_setup.exe'
+    $nv    = Join-Path $Root 'nvngx_dlss.dll'
     if ((Test-Path $setup) -and (Test-Path $nv)) {
         Write-Host 'weights.bin missing — running author setup locally with your nvngx_dlss.dll...'
-        Push-Location $vendor
+        Push-Location $Root
         try { & $setup | Out-Host } finally { Pop-Location }
     }
     if (!(Test-Path -LiteralPath $weights -PathType Leaf)) {
-        Fail 'Missing vendor\dlssnr_on_amd_weights.bin. Generate it on this PC with the author setup from your own NV DLL.'
+        Fail 'Missing dlssnr_on_amd_weights.bin next to Setup.ps1. Generate it on this PC with the author setup from your own NV DLL.'
     }
 }
 
