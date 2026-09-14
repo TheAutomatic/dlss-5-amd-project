@@ -258,7 +258,9 @@ struct Backend::Impl
         // Passes recorded into THIS slot. Global activePasses is only the
         // config for the next Record; a still-in-flight slot must retire and
         // notify against the count it was recorded with (hot 1↔2 pass change).
-        UINT passCount = 0;
+        // UINT_MAX = never recorded this slot. 0 is a real value (A refused).
+        static constexpr UINT kPassUnset = 0xffffffffu;
+        UINT passCount = kPassUnset;
         SubmissionState submission;
         // A reads this and writes its correction back into it (in place), so no
         // two outstanding jobs may share one.
@@ -422,7 +424,8 @@ struct Backend::Impl
         bool nativeDone = true;
         bool timedOut = false;
         // Use this slot's recorded pass count, not the global config.
-        const UINT passCount = sl.passCount ? sl.passCount : activePasses;
+        // 0 is valid (A refused); only kPassUnset means "never recorded".
+        const UINT passCount = (sl.passCount == Slot::kPassUnset) ? 0u : sl.passCount;
         for (UINT i = 0; i < passCount; ++i)
         {
             const auto done = static_cast<UINT>(InterlockedCompareExchange(
@@ -477,7 +480,7 @@ struct Backend::Impl
         if (sl.submission.CanRetire(nativeDone, gpuDone, target))
         {
             sl.pending.store(nullptr, std::memory_order_release);
-            sl.passCount = 0;
+            sl.passCount = Slot::kPassUnset;
             sl.submission = {};
             lastSubmitted = GetTickCount64();
             if (!failed && passCount && !timedOut)
@@ -788,11 +791,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [r19-slotstate slots=1 control]";
+    static constexpr const char* kBuildTag = " [r19b-slotstate slots=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [r19-slotstate slots=2 release]";
+    static constexpr const char* kBuildTag = " [r19b-slotstate slots=2 release]";
 #endif
-    p->Log("AMD submission revision 20260914-r19: per-slot passCount, unsubmitted match" +
+    p->Log("AMD submission revision 20260914-r19b: per-slot passCount sentinel, unsubmitted match" +
            std::string(kBuildTag));
     try
     {
@@ -1578,8 +1581,8 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     if (sl.pending.load() != pending)
         return;
     if (sl.submission.submitted) return;
-    // Notify / HIP publish uses this slot's recorded pass count.
-    const UINT passCount = sl.passCount ? sl.passCount : p->activePasses;
+    // Notify uses this slot's recorded pass count. 0 = A refused (no HIP job).
+    const UINT passCount = (sl.passCount == Impl::Slot::kPassUnset) ? 0u : sl.passCount;
     if (passCount == 1)
     {
         auto h = p->runtime[0];

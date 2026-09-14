@@ -10,10 +10,8 @@
 # they are *.dll, so they are deliberately not committed directly.
 #
 # Link inputs (freetype.lib, FSR2/FSR31 static libs, vulkan-1.lib, detours.lib)
-# live under OptiScaler/library and external/freetype. They are *.lib and are
-# gitignored — not in those submodules. CI fails the Link-library preflight
-# unless repository variable LIBS_ARCHIVE_URL points at a zip that provides
-# that tree (or the files already sit in the workspace).
+# live under OptiScaler/library and external/freetype. They are tracked in git
+# the same way upstream OptiScaler does (git add -f despite *.lib ignore).
 #
 # Runner: windows-latest. The measured r18 binary was built with the v145
 # toolset (VS 2026), so we pin PLATFORM_TOOLSET to match rather than letting the
@@ -95,13 +93,10 @@ jobs:
 
       - name: Link-library preflight
         shell: pwsh
-        env:
-          # Optional zip URL that contains OptiScaler\library\*.lib and
-          # external\freetype\freetype.lib (and similar). These are gitignored
-          # and not carried by the FFX/XeSS submodules.
-          LIBS_ARCHIVE_URL: ${{ vars.LIBS_ARCHIVE_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
+          # Same as upstream OptiScaler: these *.lib are tracked despite
+          # .gitignore (git add -f). They are not in the FFX/XeSS submodules.
           $libRoot = 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library'
           $required = @(
             "$libRoot/fsr2/ffx_fsr2_api_x64.lib",
@@ -109,35 +104,9 @@ jobs:
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/freetype/freetype.lib'
           )
           $missing = @($required | Where-Object { !(Test-Path $_) })
-          if ($missing.Count -gt 0 -and $env:LIBS_ARCHIVE_URL) {
-            Write-Host "Fetching link libraries from LIBS_ARCHIVE_URL..."
-            $cache = Join-Path $env:RUNNER_TEMP 'opti-libs'
-            New-Item -ItemType Directory -Force -Path $cache | Out-Null
-            $zip = Join-Path $cache 'libs.zip'
-            Invoke-WebRequest -Uri $env:LIBS_ARCHIVE_URL -OutFile $zip
-            Expand-Archive -Path $zip -DestinationPath $cache -Force
-            # Accept either a zip that already has the tree, or a flat dump.
-            foreach ($rel in @(
-              'OptiScaler-DLSSNR-PreSR-Multipass-main',
-              '.'
-            )) {
-              $src = Join-Path $cache $rel
-              if (Test-Path $src) {
-                Copy-Item -Path (Join-Path $src '*') -Destination . -Recurse -Force -ErrorAction SilentlyContinue
-              }
-            }
-            $missing = @($required | Where-Object { !(Test-Path $_) })
-          }
           if ($missing.Count -gt 0) {
             $missing | ForEach-Object { Write-Host "MISSING $_" }
-            throw @"
-Link libraries are not in git (*.lib ignored) and are not provided by the
-FFX/XeSS submodules. Set repository variable LIBS_ARCHIVE_URL to a zip that
-contains at least:
-  OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/**
-  OptiScaler-DLSSNR-PreSR-Multipass-main/external/freetype/freetype.lib
-Do not put NVIDIA/author-pass/weights into that archive.
-"@
+            throw 'Link libraries missing from checkout. They must be in git (git add -f).'
           }
           Write-Host 'Link libraries present.'
 

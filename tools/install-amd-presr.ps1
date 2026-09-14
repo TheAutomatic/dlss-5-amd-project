@@ -134,7 +134,7 @@ This tool does not bundle it. pass1-3.dll are copies of that same file.
 
 # Hash: only 0.3.0 is supported. The RVA layout is pinned to that binary —
 # a different build will not run correctly. Fail closed; do not offer "continue".
-$expectedA03 = '8321CA728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
+$expectedA03 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
 $knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
 $hashA = (Get-FileHash -LiteralPath $srcA -Algorithm SHA256).Hash
 Write-Host ("Author runtime SHA256: {0}" -f $hashA)

@@ -50,7 +50,7 @@ exports/review-s*/
 # 正式发布 DLL（本地部署用；哈希写在 HANDOFF）
 exports/release-r17/
 exports/release-r18/
-exports/release-r*/smoke/
+exports/release-r*/
 
 # Release packaging output (local / CI artifact)
 dist/
