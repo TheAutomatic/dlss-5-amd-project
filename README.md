@@ -56,17 +56,20 @@ Setup.bat "游戏目录"
   （本机上 `OnimushaWotS.exe` 在 `Content\` 下。）  
 - 许多游戏在 `...\Win64\` 或 `...\WinGDK\` 等子目录 —— **以 exe 实际所在目录为准**，不要猜固定文件夹名。
 
-安装器会把 `OptiScaler.dll` 写成你选的代理名（默认 `dxgi.dll`），并把 `vendor\version.dll` 复制为 `dlssnr_amd_pass1.dll`（及 pass2/3）。
+安装器会把 `OptiScaler.dll` 写成你选的代理名（默认 `dxgi.dll`），并把 `vendor\version.dll` **复制**为 `dlssnr_amd_pass1.dll`（及 pass2/3）。  
+**不会**把上游 `version.dll` 装进游戏目录。
 
 ### 手动安装
 
-1. 先按 [DLSS-NR on AMD 0.3.0](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 的说明装进游戏目录。  
-2. 在游戏目录把该 **`version.dll` 复制** 为：  
+1. 先按 [DLSS-NR on AMD 0.3.0](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 的说明，把该版本文件放进游戏目录（此时目录里会有上游的 **`version.dll`**）。  
+2. 在游戏目录把 **`version.dll` 复制**（copy，不是改名）为：  
    - `dlssnr_amd_pass1.dll`（**至少 1 份**）  
    - 需要多层神经渲染时再复制 `dlssnr_amd_pass2.dll` / `pass3.dll`（多份同内容，供多层独立加载）  
-3. 把本 Release **全部内容** 解压到同一游戏目录。  
-4. 把 `OptiScaler.dll` **改名** 为你要注入的代理，例如 `dxgi.dll`（也可用 `winmm.dll` 等，按该游戏/其它模组情况选择）。  
-5. 需要 NR 时，在游戏内 OptiScaler 菜单打开 **DlssNr**。
+3. **删掉或移走游戏目录里的 `version.dll`**（原生注入）。  
+   本包用 `dxgi.dll` 等代理调用 pass；**`version.dll` 与本包代理同时存在会双重加载**，不要同时保留。  
+4. 把本 Release **全部内容** 解压到同一游戏目录。  
+5. 把 `OptiScaler.dll` **改名** 为你要注入的代理，例如 `dxgi.dll`（也可用 `winmm.dll` 等，按该游戏/其它模组情况选择）。  
+6. 需要 NR 时，在游戏内 OptiScaler 菜单打开 **DlssNr**。
 
 其它 OptiScaler 用法（**帧生成**、菜单快捷键、兼容性与各游戏注意点等）请参照官方文档：  
 [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki)。

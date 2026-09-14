@@ -60,13 +60,15 @@ The installer copies `OptiScaler.dll` to your chosen proxy name (default `dxgi.d
 
 ### Manual install
 
-1. Install [DLSS-NR on AMD 0.3.0](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) into the game folder per their instructions.  
+1. Install [DLSS-NR on AMD 0.3.0](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) into the game folder per their instructions (that leaves upstream **`version.dll`** in the folder).  
 2. In that folder, **copy** that **`version.dll`** to:  
    - `dlssnr_amd_pass1.dll` (**at least one**)  
    - `dlssnr_amd_pass2.dll` / `pass3.dll` if you want multi-layer neural rendering (same bytes, separate filenames so each pass can load its own instance)  
-3. Extract **all** of this release into the same game folder.  
-4. **Rename** `OptiScaler.dll` to the proxy you inject, e.g. `dxgi.dll` (`winmm.dll` etc. if that fits the game/other mods).  
-5. Enable **DlssNr** in the OptiScaler menu when you want NR.
+3. **Delete or move away** the game folder’s **`version.dll`** (native injection).  
+   This package loads the passes through `dxgi.dll` (or another proxy). **Do not keep both `version.dll` and this proxy** — that double-loads the pipeline.  
+4. Extract **all** of this release into the same game folder.  
+5. **Rename** `OptiScaler.dll` to the proxy you inject, e.g. `dxgi.dll` (`winmm.dll` etc. if that fits the game/other mods).  
+6. Enable **DlssNr** in the OptiScaler menu when you want NR.
 
 For other OptiScaler usage (**frame generation**, menu shortcuts, compatibility notes, per-game tips, etc.), see the official docs:  
 [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki).

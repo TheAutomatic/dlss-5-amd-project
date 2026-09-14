@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
@@ -99,17 +99,24 @@ foreach ($d in $xessDirs) {
 if ($xessCopied -eq 0) { $missing.Add('libxess*.dll (optional but recommended)') }
 
 New-Item -ItemType Directory -Path (Join-Path $deps 'D3D12_OptiScaler') -Force | Out-Null
+# Only Agility D3D12Core (and optional Agility companions). Never sweep a
+# user-supplied DepsRoot for every *.dll — that could pick up version.dll.
+$agilityNames = @('D3D12Core.dll', 'd3d12SDKLayers.dll')
 $agilityCands = @(
     (Join-Path $source 'external/directx_agility_sdk/lib'),
     (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler/D3D12_OptiScaler')
 )
 if ($DepsRoot) {
-    $agilityCands = @((Join-Path $DepsRoot 'OptiScaler/D3D12_OptiScaler'), $DepsRoot) + $agilityCands
+    $agilityCands = @((Join-Path $DepsRoot 'OptiScaler/D3D12_OptiScaler')) + $agilityCands
 }
 foreach ($d in $agilityCands) {
     if (!(Test-Path $d)) { continue }
-    Get-ChildItem -LiteralPath $d -Filter '*.dll' -ErrorAction SilentlyContinue |
-        Copy-Item -Destination (Join-Path $deps 'D3D12_OptiScaler') -Force
+    foreach ($n in $agilityNames) {
+        $p = Join-Path $d $n
+        if (Test-Path -LiteralPath $p) {
+            Copy-Item -LiteralPath $p -Destination (Join-Path $deps 'D3D12_OptiScaler') -Force
+        }
+    }
     break
 }
 
@@ -252,18 +259,13 @@ exit /b %ERRORLEVEL%
 Copy-Item $readmeSrc (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeSrc (Join-Path $stage '使用说明.txt') -Force
 
-# 绊线：这些文件名一旦出现在 stage 里就拒绝打包。
-# 作者 pass（dlssnr_amd_pass*.dll）必须在内 —— README 明写「包里没有作者 pass」，
-# 而它正是安装器要用户自备的那个闭源运行时。
-foreach ($bad in @('nvngx_dlss.dll','dlssnr_on_amd_weights.bin','version.dll','dlssnr_on_amd_setup.exe')) {
-    if (Test-Path (Join-Path $stage $bad)) {
-        throw "Refusing to package proprietary file: $bad"
-    }
-}
-$badDll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -match '^(dlssnr_amd_pass.*\.dll|nvngx.*\.dll)$' }
-if ($badDll) {
-    throw "Refusing to package author/NVIDIA runtime: $(($badDll | ForEach-Object { $_.Name }) -join ', ')"
+# 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
+# 作者 pass（dlssnr_amd_pass*.dll）必须在内 —— README 明写「包里没有作者 pass」。
+$forbidden = '^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match $forbidden }
+if ($badAll) {
+    throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object { $_.FullName.Substring($stage.Length+1) }) -join ', ')"
 }
 
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |

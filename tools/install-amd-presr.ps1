@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Takes the author's 0.3.0 version.dll, copies it as dlssnr_amd_pass1-3.dll,
@@ -26,7 +26,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$GameDir,
-    [ValidateSet('dxgi.dll','winmm.dll','d3d12.dll','winhttp.dll','wininet.dll','dbghelp.dll','dinput8.dll')]
+    # dinput8 is NOT a valid proxy for this OptiScaler build (no DirectInput8Create export).
+    [ValidateSet('dxgi.dll','winmm.dll','d3d12.dll','winhttp.dll','wininet.dll','dbghelp.dll')]
     [string]$Proxy = 'dxgi.dll',
     [string]$Root,
     [string]$AuthorDll,
@@ -193,6 +194,8 @@ if ($found.Count -eq 0) {
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backup = Join-Path $game "backup-amd-presr-$stamp"
 $toMove = @()
+# Files the user chose to keep. The install step must not overwrite these.
+$keep = @{}
 
 foreach ($f in $found) {
     $isTarget = ($f.Name -ieq $Proxy)
@@ -206,11 +209,21 @@ foreach ($f in $found) {
         switch ($choice) {
             1 { Write-Host 'Cancelled.'; exit 0 }
             2 { $toMove += $f }
-            3 { if ($isTarget) { $toMove += $f } else { Write-Host ("Leaving {0}." -f $f.Name) } }
+            3 {
+                if ($isTarget) { $toMove += $f }
+                else {
+                    $keep[$f.Name] = $true
+                    Write-Host ("Leaving {0}." -f $f.Name)
+                }
+            }
         }
     } else {
         if ($NonInteractive) {
-            Write-Host ("WARNING: {0} exists (not OptiScaler)." -f $f.Name)
+            if ($isTarget) {
+                Fail ("{0} exists and is not OptiScaler. Refusing to overwrite in -NonInteractive. Backup/remove it or pick another -Proxy." -f $f.Name)
+            }
+            Write-Host ("WARNING: {0} exists (not OptiScaler); leaving it." -f $f.Name)
+            $keep[$f.Name] = $true
             continue
         }
         $choice = Ask-Choice ("{0} exists and is not OptiScaler. How to continue?" -f $f.Name) @(
@@ -221,7 +234,13 @@ foreach ($f in $found) {
         switch ($choice) {
             1 { Write-Host 'Cancelled.'; exit 0 }
             2 { $toMove += $f }
-            3 { Write-Host ("Keeping {0}." -f $f.Name) }
+            3 {
+                if ($isTarget) {
+                    Fail ("You chose to keep {0}, but that is also the proxy name we would install as. Pick a different -Proxy (e.g. winmm.dll) or choose Backup and move aside." -f $f.Name)
+                }
+                $keep[$f.Name] = $true
+                Write-Host ("Keeping {0}." -f $f.Name)
+            }
         }
     }
 }
@@ -234,6 +253,11 @@ foreach ($f in $toMove) {
 }
 
 function Install-One([string]$src, [string]$rel) {
+    $leaf = Split-Path -Leaf $rel
+    if ($keep.ContainsKey($leaf)) {
+        Write-Host ("Skip (user kept existing file): {0}" -f $rel)
+        return
+    }
     $dest = Join-Path $game $rel
     if (Test-Path -LiteralPath $dest) {
         $save = Join-Path $backup $rel
