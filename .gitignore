@@ -47,9 +47,10 @@ analysis/menu-test-objects-*/
 # 取证构建产物（DLL/日志/obj）—— 回滚用，只留本地，不进仓库
 exports/review-s*/
 
-# 正式发布 DLL（本地部署用；哈希写在 HANDOFF）
-exports/release-r17/
-exports/release-r18/
+# 本地构建输出（构建脚本 + 打包器用的目录），不进仓库
+exports/build/
+
+# 旧的按版本命名的发布目录（r17/r18 等），本地留档用
 exports/release-r*/
 
 # Release packaging output (local / CI artifact)

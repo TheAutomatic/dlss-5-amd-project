@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
@@ -42,7 +42,7 @@ $zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
 
 if (-not $OptiDll) {
     foreach ($c in @(
-        (Join-Path $root 'exports/release-r18/OptiScaler.dll'),
+        (Join-Path $root 'exports/build/OptiScaler.dll'),
         (Join-Path $source 'x64/Release/OptiScaler.dll'),
         (Join-Path $root 'exports/release-r17/OptiScaler.dll')
     )) {
