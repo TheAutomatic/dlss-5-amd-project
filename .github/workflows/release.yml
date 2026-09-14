@@ -1,0 +1,137 @@
+# Build OptiScaler AMD pre-SR 1.8.0-0.3.0 and attach the user zip to a GitHub Release.
+#
+# Source default is multi-slot (r18 / AMD_SINGLESLOT inverted). Ordinary Release
+# is the shipping configuration — do not add AMD_MULTISLOT or diagnostics.
+#
+# Does NOT package NVIDIA DLLs, NR weights, or the author's pass DLL.
+#
+# FFX / XeSS signed bins are NOT in git. On CI either:
+#   1) set repository variable DEPS_ARCHIVE_URL to a zip containing OptiScaler\, or
+#   2) place those DLLs under the workspace after checkout.
+# Package step fails with a clear missing-file list otherwise.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v1.*'
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Product version (fork-runtime), e.g. 1.8.0-0.3.0'
+        required: false
+        default: '1.8.0-0.3.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: MSVC environment
+        uses: microsoft/setup-msbuild@v2
+
+      - name: State-machine regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path exports\release-ci | Out-Null
+          cl /nologo /std:c++20 /EHsc /W4 tests\amd_submission_state.cpp `
+            /Feexports\release-ci\amd_submission_state.exe `
+            /Foexports\release-ci\amd_submission_state.obj
+          & exports\release-ci\amd_submission_state.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build OptiScaler Release (default = multi-slot)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # No AMD_MULTISLOT: r18+ source default is two slots.
+          # No AMD_RETIRE_DIAGNOSTICS: shipping build.
+          $msbuild = 'msbuild'
+          & $msbuild OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\OptiScaler.vcxproj `
+            /m:4 /t:Build /p:Configuration=Release /p:Platform=x64 `
+            /p:PreBuildEventUseInBuild=false /p:PostBuildEventUseInBuild=false `
+            /p:SolutionDir="$PWD\OptiScaler-DLSSNR-PreSR-Multipass-main\" `
+            /p:OutDir="$PWD\exports\release-ci\" `
+            /p:IntDir="$PWD\exports\release-ci\obj\"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path 'exports\release-ci\OptiScaler.dll')) {
+            throw 'Build did not produce exports\release-ci\OptiScaler.dll'
+          }
+
+      - name: Package user zip
+        shell: pwsh
+        env:
+          DEPS_ARCHIVE_URL: ${{ vars.DEPS_ARCHIVE_URL }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = '1.8.0-0.3.0'
+          if ('${{ github.event.inputs.version }}') { $ver = '${{ github.event.inputs.version }}' }
+
+          $depsRoot = ''
+          if ($env:DEPS_ARCHIVE_URL) {
+            $cache = Join-Path $env:RUNNER_TEMP 'opti-deps'
+            New-Item -ItemType Directory -Force -Path $cache | Out-Null
+            $zipPath = Join-Path $cache 'deps.zip'
+            Invoke-WebRequest -Uri $env:DEPS_ARCHIVE_URL -OutFile $zipPath
+            Expand-Archive -Path $zipPath -DestinationPath $cache -Force
+            $depsRoot = $cache
+            Write-Host "Deps extracted to $cache"
+          }
+
+          $packArgs = @(
+            '-Version', $ver,
+            '-OptiDll', 'exports\release-ci\OptiScaler.dll',
+            '-OutDir', 'dist'
+          )
+          if ($depsRoot) { $packArgs += @('-DepsRoot', $depsRoot) }
+          powershell -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 @packArgs
+          if (!(Test-Path "dist\OptiScaler-AMD-PreSR-$ver.zip")) {
+            throw "Package zip missing for $ver"
+          }
+
+      - name: Guard against proprietary files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = Get-ChildItem dist\OptiScaler-AMD-PreSR-* -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(nvngx.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$' }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Host $_.FullName }
+            throw 'Refusing to publish: proprietary/user-supplied binaries found in dist\'
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiScaler-AMD-PreSR
+          path: |
+            dist/*.zip
+            dist/**/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+          generate_release_notes: true
+          body: |
+            OptiScaler AMD pre-SR **1.8.0-0.3.0** (every-frame multi-slot).
+
+            - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** and **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**.
+            - Requires **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** + local weights (not bundled).
+            - No NVIDIA DLLs / weights / author pass DLL in this zip.
+            - Xbox/MS Store: run `Setup.bat` against `C:\XboxGames\<Game>\Content`.
+            - See README inside the zip.

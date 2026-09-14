@@ -50,6 +50,9 @@ exports/review-s*/
 # 正式发布 DLL（本地部署用；哈希写在 HANDOFF）
 exports/release-r17/
 
+# Release packaging output (local / CI artifact)
+dist/
+
 # 编辑器/会话
 .claude/
 .vs/

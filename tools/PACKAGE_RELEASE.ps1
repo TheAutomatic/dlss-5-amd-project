@@ -1,0 +1,262 @@
+<#
+.SYNOPSIS
+  Stage and zip a complete user package (no NVIDIA / author proprietary files).
+  Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
+    1.8.0  = this fork's product version
+    0.3.0  = required author AMD NR runtime version
+
+.EXAMPLE
+  .\PACKAGE_RELEASE.ps1
+  .\PACKAGE_RELEASE.ps1 -Version 1.8.0-0.3.0 -DepsRoot 'C:\path\with\OptiScaler'
+#>
+[CmdletBinding()]
+param(
+    [string]$Version = '1.8.0-0.3.0',
+    [string]$OutDir = 'dist',
+    [string]$Name = '',
+    [string]$OptiDll = '',
+    [string]$DepsRoot = '',
+    [switch]$AllowMissingDeps
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+if (-not $root) { $root = (Get-Location).Path }
+$source = Join-Path $root 'OptiScaler-DLSSNR-PreSR-Multipass-main'
+if (-not $Name) { $Name = "OptiScaler-AMD-PreSR-$Version" }
+$stage = Join-Path $root (Join-Path $OutDir $Name)
+$zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
+
+if (-not $OptiDll) {
+    foreach ($c in @(
+        (Join-Path $root 'exports/release-r18/OptiScaler.dll'),
+        (Join-Path $source 'x64/Release/OptiScaler.dll'),
+        (Join-Path $root 'exports/release-r17/OptiScaler.dll')
+    )) {
+        if (Test-Path -LiteralPath $c) { $OptiDll = $c; break }
+    }
+}
+if (!(Test-Path -LiteralPath $OptiDll)) {
+    throw 'OptiScaler.dll not found. Build Release first (r18: ordinary Release, multi-slot default).'
+}
+
+if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $stage, (Join-Path $stage 'OptiScaler'), (Join-Path $stage 'Licenses') | Out-Null
+Copy-Item -LiteralPath $OptiDll -Destination (Join-Path $stage 'OptiScaler.dll') -Force
+
+$deps = Join-Path $stage 'OptiScaler'
+$missing = [System.Collections.Generic.List[string]]::new()
+
+function Find-Dep([string[]]$candidates) {
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c -PathType Leaf)) { return $c }
+    }
+    return $null
+}
+
+$depSearch = @()
+if ($DepsRoot) {
+    $depSearch += (Join-Path $DepsRoot 'OptiScaler')
+    $depSearch += $DepsRoot
+}
+$depSearch += (Join-Path $source 'external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin')
+$depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler')
+$depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler')
+
+foreach ($name in @(
+    'amd_fidelityfx_loader_dx12.dll',
+    'amd_fidelityfx_upscaler_dx12.dll',
+    'amd_fidelityfx_framegeneration_dx12.dll'
+)) {
+    $cands = @()
+    foreach ($d in $depSearch) { $cands += (Join-Path $d $name) }
+    $hit = Find-Dep $cands
+    if ($hit) { Copy-Item -LiteralPath $hit -Destination $deps -Force }
+    else { $missing.Add($name) }
+}
+
+$vkCands = @(Join-Path $source 'external/FidelityFX-SDK/PrebuiltSignedDLL/amd_fidelityfx_vk.dll')
+if ($depSearch.Count) { $vkCands += (Join-Path $depSearch[0] 'amd_fidelityfx_vk.dll') }
+$vk = Find-Dep $vkCands
+if ($vk) { Copy-Item -LiteralPath $vk -Destination $deps -Force }
+
+$xessDirs = @(
+    (Join-Path $source 'external/xess/bin'),
+    (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler'),
+    (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler')
+)
+if ($DepsRoot) {
+    $xessDirs = @((Join-Path $DepsRoot 'OptiScaler'), $DepsRoot) + $xessDirs
+}
+$xessCopied = 0
+foreach ($d in $xessDirs) {
+    if (!(Test-Path $d)) { continue }
+    Get-ChildItem -LiteralPath $d -Filter 'libxess*.dll' -ErrorAction SilentlyContinue |
+        ForEach-Object { Copy-Item $_.FullName -Destination $deps -Force; $xessCopied++ }
+    Get-ChildItem -LiteralPath $d -Filter 'libxell*.dll' -ErrorAction SilentlyContinue |
+        ForEach-Object { Copy-Item $_.FullName -Destination $deps -Force; $xessCopied++ }
+    if ($xessCopied) { break }
+}
+if ($xessCopied -eq 0) { $missing.Add('libxess*.dll (optional but recommended)') }
+
+New-Item -ItemType Directory -Path (Join-Path $deps 'D3D12_OptiScaler') -Force | Out-Null
+$agilityCands = @(
+    (Join-Path $source 'external/directx_agility_sdk/lib'),
+    (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler/D3D12_OptiScaler')
+)
+if ($DepsRoot) {
+    $agilityCands = @((Join-Path $DepsRoot 'OptiScaler/D3D12_OptiScaler'), $DepsRoot) + $agilityCands
+}
+foreach ($d in $agilityCands) {
+    if (!(Test-Path $d)) { continue }
+    Get-ChildItem -LiteralPath $d -Filter '*.dll' -ErrorAction SilentlyContinue |
+        Copy-Item -Destination (Join-Path $deps 'D3D12_OptiScaler') -Force
+    break
+}
+
+if ($missing.Count -gt 0) {
+    $msg = "Missing upscaler dependency binaries:`n  " + ($missing -join "`n  ") + "`n" +
+           "These are NOT in git (OptiScaler .gitignore *.dll / [Bb]in/).`n" +
+           "Provide -DepsRoot with an OptiScaler\ folder, or set DEPS_ARCHIVE_URL in CI."
+    if ($AllowMissingDeps) {
+        Write-Warning $msg
+    } else {
+        throw $msg
+    }
+}
+
+# Licenses
+$optiLic = Join-Path $source 'LICENSE'
+if (Test-Path $optiLic) {
+    Copy-Item $optiLic (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
+}
+if (Test-Path (Join-Path $source 'Licenses')) {
+    Get-ChildItem (Join-Path $source 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
+}
+foreach ($pair in @(
+    @('external/xess/LICENSE.txt', 'XeSS_LICENSE.txt'),
+    @('external/FidelityFX-SDK/docs/license.md', 'FidelityFX_v1_LICENSE.md'),
+    @('external/FidelityFX-SDK-v2/docs/license.md', 'FidelityFX_v2_LICENSE.md'),
+    @('external/directx_agility_sdk/LICENSE.txt', 'DirectX_LICENSE.txt')
+)) {
+    $p = Join-Path $source $pair[0]
+    if (Test-Path $p) { Copy-Item $p (Join-Path $stage ('Licenses/' + $pair[1])) -Force }
+}
+
+# INI
+$iniSrc = Join-Path $source 'OptiScaler.ini'
+if (!(Test-Path $iniSrc)) { throw "Missing $iniSrc" }
+$ini = Get-Content -LiteralPath $iniSrc -Raw
+$ini = $ini -replace '(?m)^Dx12Upscaler=.*$', 'Dx12Upscaler=ffx'
+$ini = $ini -replace '(?m)^LogToFile=.*$', 'LogToFile=true'
+$ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
+$ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
+$ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
+[DlssNr]
+; Product $Version — every-frame multi-slot is the source default.
+; Requires DLSS-NR-on-AMD 0.3.0 (https://github.com/danielblnc/DLSS-NR-on-AMD)
+; as dlssnr_amd_pass1-3.dll (Setup copies from vendor\version.dll).
+Enabled=false
+RunBeforeSR=true
+AmdModelScale=1
+AmdEncoding=0
+AmdEveryFrame=true
+AmdNeuralLighting=true
+AmdNeuralLightingStrength=0.5
+Passes=1
+LocalTone=0
+LocalStructure=1
+SkinStructure=1
+ApplyAfterRR=false
+
+"@)
+$ini += @"
+
+[AmdLook]
+Enabled=false
+Appearance=2
+Mix=1
+MaterialDetail=1.15
+ShapeDefinition=1.2
+LocalLighting=1.15
+SkinDetail=1.1
+SkinSoftness=0.486
+DetectSkin=true
+SpecularControl=0.58
+HighlightRollOff=0.9
+ColourSeparation=0
+ShadowDepth=0.2
+AntiHalo=0.901
+FlatAreaProtection=0
+Inspect=0
+Tone=0
+ExposureEV=1
+Contrast=1
+Saturation=1
+HighlightCompression=0
+
+[AmdRtgi]
+Enabled=false
+Quality=2
+Denoiser=1
+Inspect=0
+Mix=1
+Lighting=5
+Occlusion=1
+Ambient=1
+Thickness=0.1
+Smoothness=0.5
+Fade=0.3
+Fov=60
+FarPlane=600
+Contact=0
+Saturation=1
+Radius=1
+"@
+[IO.File]::WriteAllText((Join-Path $stage 'OptiScaler.ini'), $ini, [Text.UTF8Encoding]::new($false))
+
+$rtgiSrc = Join-Path $root 'package-amd-presr/experimental_lighting'
+if (Test-Path $rtgiSrc) {
+    $rtgiDst = Join-Path $stage 'experimental_lighting'
+    New-Item -ItemType Directory -Path $rtgiDst -Force | Out-Null
+    Get-ChildItem -LiteralPath $rtgiSrc -File | Copy-Item -Destination $rtgiDst -Force
+}
+
+# Installer + docs
+$readmeSrc = Join-Path $root 'tools/README-release.md'
+if (!(Test-Path $readmeSrc)) { $readmeSrc = Join-Path $root 'tools/README-r17.md' }
+Copy-Item (Join-Path $root 'tools/install-amd-presr-r17.ps1') (Join-Path $stage 'Setup.ps1') -Force
+@'
+@echo off
+if "%~1"=="" (
+  echo Usage: %~nx0 "C:\Path\To\Game\Content" [dxgi.dll]
+  exit /b 1
+)
+set "PROXY=%~2"
+if "%PROXY%"=="" set "PROXY=dxgi.dll"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy %PROXY%
+exit /b %ERRORLEVEL%
+'@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
+Copy-Item $readmeSrc (Join-Path $stage 'README.md') -Force
+Copy-Item $readmeSrc (Join-Path $stage '使用说明.txt') -Force
+
+foreach ($bad in @('nvngx_dlss.dll','dlssnr_on_amd_weights.bin','version.dll','dlssnr_on_amd_setup.exe')) {
+    if (Test-Path (Join-Path $stage $bad)) {
+        throw "Refusing to package proprietary file: $bad"
+    }
+}
+
+$hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
+    Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+    Sort-Object FullName |
+    ForEach-Object {
+        '{0} *{1}' -f (Get-FileHash -LiteralPath $_.FullName).Hash, $_.FullName.Substring($stage.Length + 1)
+    }
+$hashes | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt')
+
+New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
+if (Test-Path $zip) { Remove-Item $zip -Force }
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
+Write-Host "Product: $Version"
+Write-Host "Staged:  $stage"
+Write-Host "Zip:     $zip"
+Write-Host "Opti:    $OptiDll"
