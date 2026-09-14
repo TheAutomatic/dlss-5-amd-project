@@ -1,0 +1,64 @@
+#!/bin/sh
+# Reject a staged PowerShell script that lost its UTF-8 BOM.
+#
+# Windows PowerShell 5.1 decodes a BOM-less .ps1 with the system ANSI code page
+# (GBK on a Chinese Windows), so non-ASCII literals arrive mangled and the file
+# frequently fails to parse outright. The mark has gone missing three times
+# already, each time by a tool that read the file as utf-8-sig and wrote it back
+# as plain utf-8: the write succeeds silently and the damage only shows when the
+# script is finally run. One release shipped with a 浣跨敤璇存槑.txt - that is this
+# bug, not a font problem.
+#
+# Only scripts that actually contain non-ASCII bytes are checked; an ASCII-only
+# .ps1 is safe without the mark and is left alone.
+#
+# Usage:
+#   .githooks/pre-commit              # check staged *.ps1 (normal, from git)
+#   .githooks/pre-commit FILE...      # check these files by hand
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+
+set -u
+
+list=$(mktemp) || exit 0
+trap 'rm -f "$list"' EXIT
+
+if [ "$#" -gt 0 ]; then
+    printf '%s\n' "$@" > "$list"
+else
+    git diff --cached --name-only --diff-filter=ACM -- '*.ps1' '*.psm1' > "$list" || exit 0
+fi
+
+bad=$(mktemp) || exit 0
+trap 'rm -f "$list" "$bad"' EXIT
+
+while IFS= read -r f; do
+    case "$f" in *.ps1|*.psm1) ;; *) continue ;; esac
+    [ -f "$f" ] || continue
+    # Already marked? Then nothing to do.
+    [ "$(head -c3 "$f" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ] && continue
+    # No non-ASCII content? Then the mark is not load-bearing here.
+    LC_ALL=C grep -q '[^ -~	]' "$f" 2>/dev/null || continue
+    printf '  %s\n' "$f" >> "$bad"
+done < "$list"
+
+[ -s "$bad" ] || exit 0
+
+cat >&2 <<'EOF'
+pre-commit: 这些 .ps1 没有 UTF-8 BOM，但含有非 ASCII 字符：
+
+EOF
+cat "$bad" >&2
+cat >&2 <<'EOF'
+
+Windows PowerShell 5.1 会把无 BOM 的 .ps1 按系统 ANSI 代码页（GBK）解码，
+中文字面量变乱码，脚本常常直接解析失败。补回来：
+
+  printf '\xef\xbb\xbf' | cat - <文件> > /tmp/x && mv /tmp/x <文件>
+
+（任何「按 utf-8-sig 读、按 utf-8 写」的工具都会静默删掉这个 BOM。
+ 若确实要让这个文件不带 BOM，请把它改成纯 ASCII 内容。）
+
+本次提交已中止，补完 BOM 后重试即可。
+EOF
+exit 1

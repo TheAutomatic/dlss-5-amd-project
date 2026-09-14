@@ -1,0 +1,5 @@
+# 钩子是 sh 脚本，必须保持 LF。
+# 本仓库 core.autocrlf=true，不加这条的话 checkout 会把它们转成 CRLF，
+# 于是 case 模式、heredoc、变量里都会混进多余的 \r —— 典型症状是
+# 「\r: command not found」和莫名其妙匹配不上的分支。
+.githooks/* text eol=lf
