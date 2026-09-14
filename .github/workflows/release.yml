@@ -9,6 +9,12 @@
 # external/. `submodules: recursive` below is what puts them in the workspace —
 # they are *.dll, so they are deliberately not committed directly.
 #
+# Link inputs (freetype.lib, FSR2/FSR31 static libs, vulkan-1.lib, detours.lib)
+# live under OptiScaler/library and external/freetype. They are *.lib and are
+# gitignored — not in those submodules. CI fails the Link-library preflight
+# unless repository variable LIBS_ARCHIVE_URL points at a zip that provides
+# that tree (or the files already sit in the workspace).
+#
 # Runner: windows-latest. The measured r18 binary was built with the v145
 # toolset (VS 2026), so we pin PLATFORM_TOOLSET to match rather than letting the
 # project's v143 fallback pick a different compiler than the one we benchmarked.
@@ -66,7 +72,13 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products * -property installationPath
           Write-Host "Visual Studio: $vs"
-          $sets = Get-ChildItem "$vs\MSBuild\Microsoft\VC\v*\Platforms\x64\PlatformToolsets" -Directory -ErrorAction SilentlyContinue |
+          # Enumerate toolset *subdirectories*. A bare -Directory on
+          # ...\PlatformToolsets yields the folder itself (Name=PlatformToolsets),
+          # which made this check fail even when v145 was installed.
+          $toolsetRoot = Get-ChildItem -Path "$vs\MSBuild\Microsoft\VC\v*\Platforms\x64\PlatformToolsets" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $toolsetRoot) { throw "No PlatformToolsets directory under $vs" }
+          $sets = Get-ChildItem -LiteralPath $toolsetRoot.FullName -Directory |
             Select-Object -ExpandProperty Name
           Write-Host "Available toolsets: $($sets -join ', ')"
           if ($sets -notcontains $env:PLATFORM_TOOLSET) {
@@ -80,6 +92,54 @@ jobs:
             if (!(Test-Path $d)) { throw "Submodule content missing: $d (did checkout fetch submodules?)" }
           }
           Write-Host 'Submodule dependencies present.'
+
+      - name: Link-library preflight
+        shell: pwsh
+        env:
+          # Optional zip URL that contains OptiScaler\library\*.lib and
+          # external\freetype\freetype.lib (and similar). These are gitignored
+          # and not carried by the FFX/XeSS submodules.
+          LIBS_ARCHIVE_URL: ${{ vars.LIBS_ARCHIVE_URL }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $libRoot = 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library'
+          $required = @(
+            "$libRoot/fsr2/ffx_fsr2_api_x64.lib",
+            "$libRoot/vulkan/vulkan-1.lib",
+            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/freetype/freetype.lib'
+          )
+          $missing = @($required | Where-Object { !(Test-Path $_) })
+          if ($missing.Count -gt 0 -and $env:LIBS_ARCHIVE_URL) {
+            Write-Host "Fetching link libraries from LIBS_ARCHIVE_URL..."
+            $cache = Join-Path $env:RUNNER_TEMP 'opti-libs'
+            New-Item -ItemType Directory -Force -Path $cache | Out-Null
+            $zip = Join-Path $cache 'libs.zip'
+            Invoke-WebRequest -Uri $env:LIBS_ARCHIVE_URL -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $cache -Force
+            # Accept either a zip that already has the tree, or a flat dump.
+            foreach ($rel in @(
+              'OptiScaler-DLSSNR-PreSR-Multipass-main',
+              '.'
+            )) {
+              $src = Join-Path $cache $rel
+              if (Test-Path $src) {
+                Copy-Item -Path (Join-Path $src '*') -Destination . -Recurse -Force -ErrorAction SilentlyContinue
+              }
+            }
+            $missing = @($required | Where-Object { !(Test-Path $_) })
+          }
+          if ($missing.Count -gt 0) {
+            $missing | ForEach-Object { Write-Host "MISSING $_" }
+            throw @"
+Link libraries are not in git (*.lib ignored) and are not provided by the
+FFX/XeSS submodules. Set repository variable LIBS_ARCHIVE_URL to a zip that
+contains at least:
+  OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/**
+  OptiScaler-DLSSNR-PreSR-Multipass-main/external/freetype/freetype.lib
+Do not put NVIDIA/author-pass/weights into that archive.
+"@
+          }
+          Write-Host 'Link libraries present.'
 
       - name: MSVC dev environment
         # setup-msbuild only puts MSBuild on PATH — it deliberately does NOT add
@@ -107,23 +167,23 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Note the forward slashes and the absence of a trailing separator:
-          # a trailing backslash inside /p:Value="...\" makes MSBuild swallow the
-          # closing quote and the next argument. This bit us once already.
-          $slnDir = "$PWD/OptiScaler-DLSSNR-PreSR-Multipass-main"
-          $outDir = "$PWD/$env:BUILD_OUT"
+          # Trailing *forward* slash on SolutionDir/OutDir/IntDir is required:
+          # the project concatenates $(SolutionDir)external\... with no extra
+          # separator, and a trailing backslash inside /p:Value="...\" makes
+          # MSBuild swallow the closing quote. OutDir without a slash also
+          # collapsed obj + filename (OptiScaler.pch).
+          $slnDir = "$PWD/OptiScaler-DLSSNR-PreSR-Multipass-main/"
+          $outDir = "$PWD/$env:BUILD_OUT/"
           # PreBuildEvent runs: it generates resource_build_{date,commit}.h, which
-          # resource.h includes in Release and which are NOT in git. Disabling it
-          # makes a fresh checkout fail with C1083.
-          # PostBuildEvent stays off: it copies "$(SolutionDir)READ ME - DLSS
-          # Neural Rendering.txt", which this fork does not have.
+          # resource.h includes in Release and which are NOT in git.
+          # PostBuildEvent stays off: it copies a README this fork does not have.
           msbuild "$slnDir/OptiScaler/OptiScaler.vcxproj" `
             /m:4 /t:Build /p:Configuration=Release /p:Platform=x64 `
             /p:PlatformToolset=$env:PLATFORM_TOOLSET `
             /p:PostBuildEventUseInBuild=false `
             /p:SolutionDir="$slnDir" `
             /p:OutDir="$outDir" `
-            /p:IntDir="$outDir/obj"
+            /p:IntDir="${outDir}obj/"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path "$env:BUILD_OUT/OptiScaler.dll")) {
             throw "Build did not produce $env:BUILD_OUT/OptiScaler.dll"
