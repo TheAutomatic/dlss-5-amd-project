@@ -103,3 +103,16 @@ exports/review-s7-ks1/
 *.ipdb
 *.obj
 *.lib
+
+# 2026-09-15 清理：下面这些类别曾被误提交，规则挡住以免再来。
+# 判据：能从发布物反推出来的，都不进 git。
+analysis/**/*.pyc
+analysis/__pycache__/
+analysis/ghidra/
+analysis/quality-lab/
+analysis/_*.py
+analysis/*-decompile.txt
+analysis/*-disassembly.txt
+analysis/diagnostics-test.txt
+analysis/version-strings.txt
+analysis/dxre-audit.txt
