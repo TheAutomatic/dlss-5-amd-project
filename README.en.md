@@ -28,7 +28,7 @@ NR is inline: the game waits for its own denoise before it can present. This mod
 **Three slots by default.** Adjustable in-game under `DLSS Neural Rendering` → `NR slots`
 (2-5, takes effect without a restart).
 
-| Measured (720p render, 60 lock; slots flipped **inside one session** so scene and GPU state are fixed) | 2 slots | 3 slots |
+| Measured (**4K FSR Ultra Performance**, equivalent to a 720p render, 60 lock; slots flipped **inside one session** so scene and GPU state are fixed) | 2 slots | 3 slots |
 |---|---:|---:|
 | Onimusha (light) | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
 | YYSLS (heavy) | 19.25 ms, **1200-1440 frames undenoised** | 21.85 ms, **0 skipped** |
@@ -41,8 +41,9 @@ NR is inline: the game waits for its own denoise before it can present. This mod
 - 2 slots do show lower display latency on that scene (47.9 vs 63.2 ms) — that is the denoising
   being skipped, not a free win
 - **4-5 slots** are headroom for a scene heavier than this. **Not measured**, and not known to be
-  faster. Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a
-  4K output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is
+  faster
+- Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a 4K
+  output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is
   allocated**
 - The ini's `AmdSlots` also accepts `1` (the old one-frame-outstanding path); the menu does not
   offer it
@@ -75,7 +76,7 @@ This package only contains the OptiScaler layer. Put these next to `Setup.bat` a
 | File name | What it is | Where to get it |
 |---|---|---|
 | `dlssnr_on_amd_setup.exe` | Original author’s **0.3.0** setup | [Original project 0.3.0 Release](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
-| `nvngx_dlssnr.dll` | DLSS 5 neural-rendering runtime | Shipped with some games (e.g. certain NBA 2K builds); or obtain online |
+| `nvngx_dlssnr.dll` | DLSS 5 neural-rendering runtime | Shipped with some recent games; or obtain online |
 | (optional) ready `version.dll` / `dlssnr_on_amd_weights.bin` | Skip a setup run | Produced by a previous original-author setup run |
 
 **Recommended: only drop `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`.**  
