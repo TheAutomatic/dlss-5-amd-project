@@ -1,5 +1,4 @@
 # 第三方运行时 A 的二进制副本与派生镜像 —— 仅作本地分析/部署用，不随项目分发
-analysis/setup-*.bin
 version*.dll
 dlssnr_on_amd_setup.exe
 
@@ -7,14 +6,7 @@ dlssnr_on_amd_setup.exe
 nvngx_dlssnr.dll
 dlssnr_on_amd_weights.bin
 
-# 官方 OptiScaler 稀疏克隆（只为补 library/*.lib）
-analysis/_optiscaler_upstream/
 
-# 本机构建/分析日志（只留本地）
-analysis/build-amd.log
-analysis/_*.log
-analysis/*.log
-analysis/_build_amd.bat
 
 # 游戏 log 快照与 R1 本地部署包（体积大，只分析用）
 exports/onimusha-*/
@@ -36,21 +28,13 @@ OptiScaler-AMD-PreSR*.zip
 *.ilk
 *.exp
 
-# 本地分析产物（整包 / 工程库 / 烟雾测试输出）—— 只留本地
-analysis/setup-*-test*/
-analysis/installer-gui-*/
-analysis/ghidra/
-analysis/v25-package-test-output/
-analysis/smoke-objects-*/
-analysis/menu-test-objects-*/
 
 # iMMERSE（Marty's Mods / Pascal Gilcher）RTGI 的本地移植素材 —— 只留本地，不进仓库。
 # NOTICE.txt 是随附的第三方声明：「Proprietary and confidential」「Unauthorized copying
 # of this file, via any medium is strictly prohibited」；同目录 *.hlsl 是它的 native
 # adaptation，iMMERSE_*.rgba 是 iMMERSE 贴图的二进制转换。研究用，不随本项目分发。
 # 2026-09-15：git rm -r --cached，磁盘保留。发布的包走 package-amd-presr/experimental_lighting
-# （analysis/experimental-lighting/Lighting.hlsl 编译，自述「no translated effect code」），与此无关。
-analysis/rtgi-native/
+# （shaders/Lighting.hlsl 编译，自述「no translated effect code」），与此无关。
 
 # 取证构建产物（DLL/日志/obj）—— 回滚用，只留本地，不进仓库
 exports/review-s*/
@@ -58,7 +42,7 @@ exports/review-s*/
 # 本地构建输出（构建脚本 + 打包器用的目录），不进仓库
 exports/build/
 
-# analysis/build-release-local.cmd 的输出（OptiScaler.dll、obj、测试 exe、build.log）。
+# tools/build-release-local.cmd 的输出（OptiScaler.dll、obj、测试 exe、build.log）。
 # *.dll/*.obj/*.lib 已被下面的全局规则盖住，但 build.log 和 amd_submission_state.exe
 # 没有，`git add -A` 会扫进来。
 exports/release-local/
@@ -83,10 +67,6 @@ dist/
 __pycache__/
 *.pyc
 
-# Local analysis inputs and build outputs. The runtimes are large binaries;
-# the scripts in analysis/ regenerate the dumps from them on demand.
-analysis/a03-runtime.dll
-analysis/temporal-a03-*.txt
 exports/temporal-a*.log
 exports/review-s5/
 exports/review-s6/
@@ -108,46 +88,15 @@ exports/_codex_*
 *.obj
 *.lib
 
-# 2026-09-15 清理：analysis/ 从 292 个跟踪文件降到 16 个。
-# 判据只有一条：能从发布物反推出来的，都不进 git。
-# analysis/ 本身不 ignore —— 里面留着现行构建脚本和 0.3.0 逆向工具，
-# 它们产出的东西才 ignore。
-#
-# 注意：gitignore 的 # 只在【行首】才是注释，行内 # 会被当成模式的一部分。
-# 下面这些注释必须独占一行，否则规则静默失效。
-analysis/__pycache__/
-analysis/**/*.pyc
-analysis/quality-lab/
-# 逆向工程工具的工程库，工具自己重建
-analysis/ghidra/
-# 下划线前缀的一次性脚本与其输出
-analysis/_*
-analysis/*.exe
-analysis/*.obj
-analysis/*.rgba16f
-# smoke 输出（*.log 已被 analysis/*.log 覆盖，*.txt 没有）
-analysis/smoke-*
-# 二进制分析转储：按需重生成
-analysis/*-decompile.txt
-analysis/*-disassembly.txt
-analysis/diagnostics-test.txt
-analysis/version-strings.txt
-# 作者 DLL 的 PE 头与导出表
-analysis/version-pe.json
-analysis/dxre-audit.txt
-# 分析输入（第三方运行时二进制），本机自备
-analysis/*-runtime.dll
 
-# 本机二进制分析工具与脚本 —— 不影响发布，2026-09-15 起不进仓库。
-# 只留能复现发布的三样：
-#   analysis/build-release-local.cmd          本地跑一遍 CI 等价的 Release
-#   analysis/compilecheck-nomacro.cmd         无诊断宏时的编译检查
-#   analysis/experimental-lighting/Lighting.hlsl
-#       ↑ package-amd-presr/experimental_lighting 里那两个 .cso 的源，是发布资产
-# 其余（分析脚本、测量脚本、vendored 工具）只留本地。
+
+# analysis/ 整个目录只留本地（2026-09-15 定）。
+# 原来这里有 30 条逐文件规则；一条整目录盖掉。目录里仍留着本地的
+# 二进制分析输入、分析工具链、测试包输出和一次性脚本。
+analysis/
+
+# vendored 的二进制分析工具（capstone / pefile / clang-format 副本），只留本地。
 .analysis-tools/
-analysis/*.py
-analysis/capture-slots-sweep.ps1
 
 # ---------------------------------------------------------------------------
 # 内部文档不进仓库（2026-09-15 定）：exports/ 与 .handoff/ 整个忽略，
