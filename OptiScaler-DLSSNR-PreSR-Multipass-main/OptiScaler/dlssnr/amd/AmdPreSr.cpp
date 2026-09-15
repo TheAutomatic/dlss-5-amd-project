@@ -306,35 +306,54 @@ struct Backend::Impl
             if (slots[k].pending.load(std::memory_order_acquire)) return true;
         return false;
     }
-    // Prefilter: match a pending slot whose recorded list appears in `lists`.
+    // Prefilter: collect every slot whose recorded list appears in `lists`.
     // Only the atomic pending pointer is read here. Callers (Submitting/Submitted)
     // must NOT hold p->lock yet — Record holds that lock across the runtime
     // Record call, and taking it first deadlocks on same-thread re-entry.
-    // Prefer a slot that is not yet submitted: the same command-list pointer
-    // can be reused on the next frame while an older submitted slot is still
-    // retiring. The plain `submitted` flag is checked only after the caller
-    // takes p->lock.
-    bool FindPendingByList(UINT n, ID3D12CommandList* const* lists, UINT& outSlot,
-                           ID3D12CommandList*& outPending) const
+    //
+    // This must not stop at the first match. The next frame can reuse the very
+    // same command-list pointer while an older slot holding that pointer is
+    // still retiring, so one batch can match two slots. Returning the older,
+    // already-submitted one made the caller's lock-held check fail and return,
+    // and the newer slot was then never submitted: it stayed occupied until the
+    // 5s abandon and every Record in between was skipped. `submitted` is a plain
+    // bool written under p->lock, so it cannot be read here; hand every
+    // candidate to the caller, which holds the lock and can choose.
+    UINT FindPendingCandidates(UINT n, ID3D12CommandList* const* lists,
+                               std::array<UINT, kSlots>& outSlots,
+                               std::array<ID3D12CommandList*, kSlots>& outPending) const
     {
+        UINT count = 0;
         for (size_t k = 0; k < slots.size(); ++k)
         {
             auto candidate = slots[k].pending.load(std::memory_order_acquire);
             if (!candidate)
                 continue;
-            bool found = false;
             for (UINT i = 0; i < n; ++i)
             {
-                if (lists[i] == candidate)
-                {
-                    found = true;
-                    break;
-                }
+                if (lists[i] != candidate)
+                    continue;
+                outSlots[count] = static_cast<UINT>(k);
+                outPending[count] = candidate;
+                ++count;
+                break;
             }
-            if (found)
+        }
+        return count;
+    }
+    // Requires p->lock. Picks the first candidate that is still that slot's
+    // pending list and has not been submitted yet.
+    bool PickUnsubmitted(const std::array<UINT, kSlots>& candSlots,
+                         const std::array<ID3D12CommandList*, kSlots>& candPending, UINT count,
+                         UINT& outSlot, ID3D12CommandList*& outPending) const
+    {
+        for (UINT c = 0; c < count; ++c)
+        {
+            const auto& sl = slots[candSlots[c]];
+            if (sl.pending.load() == candPending[c] && !sl.submission.submitted)
             {
-                outSlot = static_cast<UINT>(k);
-                outPending = candidate;
+                outSlot = candSlots[c];
+                outPending = candPending[c];
                 return true;
             }
         }
@@ -1590,18 +1609,22 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
     if (!queue)
         return;
     // Atomic-only prefilter. Do not take p->lock here: Record may already hold it.
-    UINT slot = static_cast<UINT>(p->slots.size());
-    ID3D12CommandList* pending = nullptr;
-    if (!p->FindPendingByList(n, lists, slot, pending))
+    std::array<UINT, Impl::kSlots> candSlots {};
+    std::array<ID3D12CommandList*, Impl::kSlots> candPending {};
+    const UINT cands = p->FindPendingCandidates(n, lists, candSlots, candPending);
+    if (!cands)
         return;
     std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
-    auto& sl = p->slots[slot];
-    // Full match under the lock: submitted is a plain bool.
-    if (sl.pending.load() != pending || sl.submission.submitted)
+    // Choose under the lock. submitted is a plain bool, and a newer slot can
+    // hold the same list pointer as an older one that is already submitted.
+    UINT slot = 0;
+    ID3D12CommandList* pending = nullptr;
+    if (!p->PickUnsubmitted(candSlots, candPending, cands, slot, pending))
         return;
+    auto& sl = p->slots[slot];
     if (p->frames <= 120)
         p->Log("Neural submission: lists=" + std::to_string(n) + " queueType=" +
                std::to_string(static_cast<UINT>(queue->GetDesc().Type)));
@@ -1636,17 +1659,22 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         return;
     // Same lock-after-match order as Submitting. Do not lock first: Record can
     // hold p->lock while this thread re-enters via the Execute hook.
-    UINT slot = static_cast<UINT>(p->slots.size());
-    ID3D12CommandList* pending = nullptr;
-    if (!p->FindPendingByList(n, lists, slot, pending))
+    std::array<UINT, Impl::kSlots> candSlots {};
+    std::array<ID3D12CommandList*, Impl::kSlots> candPending {};
+    const UINT cands = p->FindPendingCandidates(n, lists, candSlots, candPending);
+    if (!cands)
         return;
     std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
-    auto& sl = p->slots[slot];
-    if (sl.pending.load() != pending || sl.submission.submitted)
+    // Submitting above may have taken one of the candidates; this picks another
+    // slot that recorded the same list and is still unsubmitted, if any.
+    UINT slot = 0;
+    ID3D12CommandList* pending = nullptr;
+    if (!p->PickUnsubmitted(candSlots, candPending, cands, slot, pending))
         return;
+    auto& sl = p->slots[slot];
     // Notify uses this slot's recorded pass count. 0 = A refused (no HIP job).
     const UINT passCount = (sl.passCount == Impl::Slot::kPassUnset) ? 0u : sl.passCount;
     if (passCount == 1)
