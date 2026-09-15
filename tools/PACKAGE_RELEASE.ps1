@@ -42,6 +42,7 @@ $zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
 
 if (-not $OptiDll) {
     foreach ($c in @(
+        (Join-Path $root 'exports/release-local/OptiScaler.dll'),
         (Join-Path $root 'exports/build/OptiScaler.dll'),
         (Join-Path $source 'x64/Release/OptiScaler.dll'),
         (Join-Path $root 'exports/release-r17/OptiScaler.dll')

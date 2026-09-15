@@ -33,7 +33,8 @@
 | （可选）现成 `version.dll` / `dlssnr_on_amd_weights.bin` | 已生成过可直接放 | 跑过原作者 setup 后会有 |
 
 **推荐只放 setup.exe + nvngx_dlssnr.dll。**  
-双击本包 `Setup.bat` 时，若还没有 `version.dll` 或 `weights.bin`，会 **自动启动原作者 setup** 生成（在选完游戏目录之后），再继续装本项目。
+双击本包 `Setup.bat` 时，若还没有 `version.dll` 或 `weights.bin`，会 **自动启动原作者 setup** 生成（在选完游戏目录之后），再继续装本项目。  
+若 `nvngx_dlssnr.dll` 只在本包目录、游戏目录没有，选完游戏文件夹后会 **自动复制进去**。
 
 **只支持 0.3.0**，其它版本安装器会拒绝。
 

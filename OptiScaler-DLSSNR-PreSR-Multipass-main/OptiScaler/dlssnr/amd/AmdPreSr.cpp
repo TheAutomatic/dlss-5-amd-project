@@ -305,20 +305,21 @@ struct Backend::Impl
             if (slots[k].pending.load(std::memory_order_acquire)) return true;
         return false;
     }
-    // Match a pending slot whose recorded list appears in `lists`.
+    // Prefilter: match a pending slot whose recorded list appears in `lists`.
+    // Only the atomic pending pointer is read here. Callers (Submitting/Submitted)
+    // must NOT hold p->lock yet — Record holds that lock across the runtime
+    // Record call, and taking it first deadlocks on same-thread re-entry.
     // Prefer a slot that is not yet submitted: the same command-list pointer
     // can be reused on the next frame while an older submitted slot is still
-    // retiring, and taking the first pointer match would then skip Notify for
-    // the newer job.
-    bool FindUnsubmittedMatch(UINT n, ID3D12CommandList* const* lists, UINT& outSlot,
-                              ID3D12CommandList*& outPending) const
+    // retiring. The plain `submitted` flag is checked only after the caller
+    // takes p->lock.
+    bool FindPendingByList(UINT n, ID3D12CommandList* const* lists, UINT& outSlot,
+                           ID3D12CommandList*& outPending) const
     {
         for (size_t k = 0; k < slots.size(); ++k)
         {
             auto candidate = slots[k].pending.load(std::memory_order_acquire);
             if (!candidate)
-                continue;
-            if (slots[k].submission.submitted)
                 continue;
             bool found = false;
             for (UINT i = 0; i < n; ++i)
@@ -1526,18 +1527,17 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
 {
     if (!queue)
         return;
-    std::lock_guard guard(p->lock);
-    // Match only a slot that has not submitted yet. An older submitted slot
-    // can hold the same command-list pointer after the game reuses the object.
-    // Must run under p->lock: submission.submitted is a plain bool.
+    // Atomic-only prefilter. Do not take p->lock here: Record may already hold it.
     UINT slot = static_cast<UINT>(p->slots.size());
     ID3D12CommandList* pending = nullptr;
-    if (!p->FindUnsubmittedMatch(n, lists, slot, pending))
+    if (!p->FindPendingByList(n, lists, slot, pending))
         return;
+    std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
     auto& sl = p->slots[slot];
+    // Full match under the lock: submitted is a plain bool.
     if (sl.pending.load() != pending || sl.submission.submitted)
         return;
     if (p->frames <= 120)
@@ -1572,18 +1572,19 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     Submitting(queue, n, lists);
     if (!queue)
         return;
-    std::lock_guard guard(p->lock);
+    // Same lock-after-match order as Submitting. Do not lock first: Record can
+    // hold p->lock while this thread re-enters via the Execute hook.
     UINT slot = static_cast<UINT>(p->slots.size());
     ID3D12CommandList* pending = nullptr;
-    if (!p->FindUnsubmittedMatch(n, lists, slot, pending))
+    if (!p->FindPendingByList(n, lists, slot, pending))
         return;
+    std::lock_guard guard(p->lock);
     const AmdLayout* L = p->L;
     if (!L)
         return;
     auto& sl = p->slots[slot];
-    if (sl.pending.load() != pending)
+    if (sl.pending.load() != pending || sl.submission.submitted)
         return;
-    if (sl.submission.submitted) return;
     // Notify uses this slot's recorded pass count. 0 = A refused (no HIP job).
     const UINT passCount = (sl.passCount == Impl::Slot::kPassUnset) ? 0u : sl.passCount;
     if (passCount == 1)

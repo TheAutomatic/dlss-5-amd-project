@@ -90,11 +90,14 @@ function Ask-Choice([string]$title, [string[]]$options) {
 }
 
 function Ask-GameFolder {
-    # IFileDialog with FOS_PICKFOLDERS: has an address bar (unlike FolderBrowserDialog).
+    # IFileDialog + FOS_PICKFOLDERS: address bar works. A parentless console
+    # dialog often shows an empty nav pane unless it has an owner window.
     try {
-        Add-Type -TypeDefinition @"
+        Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @"
 using System;
+using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 public static class AmdFolderPick {
     [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialogRCW { }
     [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -136,22 +139,67 @@ public static class AmdFolderPick {
     }
     const uint FOS_PICKFOLDERS = 0x20;
     const uint FOS_FORCEFILESYSTEM = 0x40000;
+    const uint FOS_NOCHANGEDIR = 0x8;
     const uint SIGDN_FILESYSPATH = 0x80058000;
+    const uint SIGDN_NORMALDISPLAY = 0;
+    static readonly Guid IID_IShellItem = new Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+    // This PC / My Computer — populates the left navigation tree.
+    const string ThisPcParsingName = "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}";
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    static extern int SHCreateItemFromParsingName(
+        [MarshalAs(UnmanagedType.LPWStr)] string path,
+        IntPtr pbc, ref Guid riid, out IntPtr ppv);
+    static IntPtr ItemFromParsingName(string path) {
+        Guid iid = IID_IShellItem;
+        IntPtr item;
+        int hr = SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out item);
+        return hr == 0 ? item : IntPtr.Zero;
+    }
     public static string PickFolder(string title) {
         var dlg = (IFileDialog)new FileOpenDialogRCW();
         uint opts;
         dlg.GetOptions(out opts);
-        dlg.SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        // Do NOT set FOS_FORCEFILESYSTEM: it can leave the left nav tree empty
+        // for a parentless console host. FOS_PICKFOLDERS is enough.
+        dlg.SetOptions(opts | FOS_PICKFOLDERS | FOS_NOCHANGEDIR);
         if (!string.IsNullOrEmpty(title)) dlg.SetTitle(title);
-        if (dlg.Show(IntPtr.Zero) != 0) return null;
-        IntPtr item;
-        dlg.GetResult(out item);
-        var isi = (IShellItem)Marshal.GetObjectForIUnknown(item);
+        // Parentless IFileDialog often shows a blank nav pane. A tiny hidden
+        // owner window gives the shell a host to hang the tree on.
+        IntPtr owner = IntPtr.Zero;
+        try {
+            var form = new Form {
+                ShowInTaskbar = false,
+                WindowState = FormWindowState.Minimized,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-32000, -32000),
+                Size = new Size(1, 1)
+            };
+            form.Show();
+            form.Hide();
+            owner = form.Handle;
+        } catch { owner = IntPtr.Zero; }
+        IntPtr thisPc = ItemFromParsingName(ThisPcParsingName);
+        if (thisPc != IntPtr.Zero) {
+            try { dlg.SetDefaultFolder(thisPc); } catch { }
+            try { dlg.SetFolder(thisPc); } catch { }
+            Marshal.Release(thisPc);
+        }
+        int hr = dlg.Show(owner);
+        if (owner != IntPtr.Zero) {
+            try {
+                var form = Control.FromHandle(owner) as Form;
+                if (form != null) form.Dispose();
+            } catch { }
+        }
+        if (hr != 0) return null;
+        IntPtr result;
+        dlg.GetResult(out result);
+        var isi = (IShellItem)Marshal.GetObjectForIUnknown(result);
         IntPtr pathPtr;
         isi.GetDisplayName(SIGDN_FILESYSPATH, out pathPtr);
         string path = Marshal.PtrToStringUni(pathPtr);
         Marshal.FreeCoTaskMem(pathPtr);
-        Marshal.Release(item);
+        Marshal.Release(result);
         return path;
     }
 }
@@ -219,6 +267,48 @@ try {
     Fail "Cannot write to $game ($($_.Exception.Message)). Pick a writable folder next to the game .exe."
 }
 
+# The game must be closed: it holds dxgi/pass/weights while running.
+function Test-FileLocked([string]$path) {
+    if (!(Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    try {
+        $fs = [IO.File]::Open($path, 'Open', 'ReadWrite', 'None')
+        $fs.Close()
+        return $false
+    } catch [System.IO.IOException] { return $true }
+    catch { return $false }
+}
+
+$locked = @()
+foreach ($name in @($Proxy, 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin')) {
+    $p = Join-Path $game $name
+    if (Test-FileLocked $p) { $locked += $name }
+}
+if ($locked.Count -gt 0) {
+    Fail @"
+The game is still running (file lock detected):
+  $($locked -join ', ')
+
+Close the game completely, then run Setup.bat again.
+"@
+}
+# Also flag a live process whose image lives in the game folder.
+$gameExes = @(Get-ChildItem -LiteralPath $game -Filter '*.exe' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+if ($gameExes.Count -gt 0) {
+    $running = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $n = "$($_.ProcessName).exe"
+        ($gameExes -contains $n)
+    }
+    if ($running) {
+        $names = ($running | ForEach-Object { "$($_.ProcessName).exe (PID $($_.Id))" }) -join ', '
+        Fail @"
+A game process is still running:
+  $names
+
+Close the game completely, then run Setup.bat again.
+"@
+    }
+}
+
 if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll'))) {
     Fail @"
 Missing OptiScaler.dll.
@@ -244,27 +334,58 @@ function Find-FirstFile([string[]]$paths) {
     return $null
 }
 
-# Author setup (dlssnr_on_amd_setup.exe) is what produces version.dll and
-# dlssnr_on_amd_weights.bin. Look in the package folder AND the game folder.
-$setup   = Join-Path $Root 'dlssnr_on_amd_setup.exe'
-$nv      = Find-FirstFile @(
-    (Join-Path $Root 'nvngx_dlssnr.dll'),
-    (Join-Path $Root 'nvngx_dlss.dll'),
-    (Join-Path $game 'nvngx_dlssnr.dll'),
-    (Join-Path $game 'nvngx_dlss.dll')
-)
-$weights = Find-FirstFile @(
-    (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
-    (Join-Path $game 'dlssnr_on_amd_weights.bin')
-)
-$srcA = $AuthorDll
-if (-not $srcA) {
-    $srcA = Find-FirstFile @(
+# Hash: only 0.3.0 is supported. The RVA layout is pinned to that binary —
+# a different build will not run correctly. Fail closed; do not offer "continue".
+$expectedA03 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
+$knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
+
+# Walk every candidate and accept only a file whose SHA256 is 0.3.0.
+# A game may have B installed as version.dll (README allows that); the first
+# same-named file must not block a valid pass1.dll sitting next to it.
+function Find-AuthorRuntime {
+    $candidates = @()
+    if ($AuthorDll) { $candidates += $AuthorDll }
+    $candidates += @(
         (Join-Path $Root 'version.dll'),
         (Join-Path $Root 'dlssnr_amd_pass1.dll'),
         (Join-Path $game 'version.dll'),
         (Join-Path $game 'dlssnr_amd_pass1.dll')
     )
+    foreach ($c in $candidates) {
+        if (-not $c -or !(Test-Path -LiteralPath $c -PathType Leaf)) { continue }
+        try {
+            $h = Get-Sha256 $c
+        } catch { continue }
+        if ($h -eq $expectedA03) { return $c }
+    }
+    return $null
+}
+
+# Author setup (dlssnr_on_amd_setup.exe) is what produces version.dll and
+# dlssnr_on_amd_weights.bin. Look in the package folder AND the game folder.
+# NR only uses nvngx_dlssnr.dll — never nvngx_dlss.dll.
+$setup   = Join-Path $Root 'dlssnr_on_amd_setup.exe'
+$nv      = Find-FirstFile @(
+    (Join-Path $Root 'nvngx_dlssnr.dll'),
+    (Join-Path $game 'nvngx_dlssnr.dll')
+)
+$weights = Find-FirstFile @(
+    (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
+    (Join-Path $game 'dlssnr_on_amd_weights.bin')
+)
+$srcA = Find-AuthorRuntime
+
+# Copy nvngx_dlssnr.dll into the game only when the game has neither
+# nvngx_dlssnr.dll nor weights (author 0.3.0 looks for it there).
+$gameHasNv = Test-Path -LiteralPath (Join-Path $game 'nvngx_dlssnr.dll') -PathType Leaf
+$gameHasW  = Test-Path -LiteralPath (Join-Path $game 'dlssnr_on_amd_weights.bin') -PathType Leaf
+if (-not $gameHasNv -and -not $gameHasW) {
+    $srcNv = Join-Path $Root 'nvngx_dlssnr.dll'
+    if (Test-Path -LiteralPath $srcNv -PathType Leaf) {
+        Copy-Item -LiteralPath $srcNv -Destination (Join-Path $game 'nvngx_dlssnr.dll') -Force
+        Write-Host 'Copied nvngx_dlssnr.dll into the game folder (original-author 0.3.0 expects it there).' -ForegroundColor Green
+        $nv = Join-Path $game 'nvngx_dlssnr.dll'
+    }
 }
 
 # Missing runtime and/or weights → run the original-author setup first (it writes both).
@@ -272,7 +393,7 @@ if ((-not $srcA -or -not $weights) -and (Test-Path -LiteralPath $setup -PathType
     Write-Host ''
     Write-Host 'version.dll and/or weights.bin not found yet.' -ForegroundColor Yellow
     Write-Host 'Launching original-author setup (dlssnr_on_amd_setup.exe) to create them…' -ForegroundColor Yellow
-    if ($nv) { Write-Host "  nvngx found: $nv" } else {
+    if ($nv) { Write-Host "  nvngx_dlssnr found: $nv" } else {
         Write-Host '  NOTE: no nvngx_dlssnr.dll next to Setup.bat or in the game folder.' -ForegroundColor Yellow
         Write-Host '  The original-author setup will ask you to locate it if it needs one for weights.' -ForegroundColor Yellow
     }
@@ -289,12 +410,7 @@ if ((-not $srcA -or -not $weights) -and (Test-Path -LiteralPath $setup -PathType
         (Join-Path $game 'dlssnr_on_amd_weights.bin')
     )
     if (-not $srcA) {
-        $srcA = Find-FirstFile @(
-            (Join-Path $Root 'version.dll'),
-            (Join-Path $Root 'dlssnr_amd_pass1.dll'),
-            (Join-Path $game 'version.dll'),
-            (Join-Path $game 'dlssnr_amd_pass1.dll')
-        )
+        $srcA = Find-AuthorRuntime
     }
 }
 
@@ -308,10 +424,6 @@ Download 0.3.0 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
 }
 
-# Hash: only 0.3.0 is supported. The RVA layout is pinned to that binary —
-# a different build will not run correctly. Fail closed; do not offer "continue".
-$expectedA03 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
-$knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
 $hashA = Get-Sha256 $srcA
 Write-Host ("Author runtime SHA256: {0}" -f $hashA)
 if ($hashA -ne $expectedA03) {
@@ -326,18 +438,30 @@ Download 0.3.0 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
 }
 
-# Stage the install source OUTSIDE the game folder. Author setup may have written
-# version.dll into the game dir; backup/move must not steal the file we still need.
+# Stage the install source OUTSIDE the game folder.
+# Author setup may have written version.dll into the game dir; backup/move must
+# not steal the file we still need. Never stage into the game folder (Root==game
+# would copy a file onto itself or write a file the conflict pass will move).
 $stagedA = $null
 try {
     $srcAFull = [IO.Path]::GetFullPath($srcA)
     $gameFull = [IO.Path]::GetFullPath($game)
-    # Require a directory boundary so C:\Games\MyGame does not match C:\Games\MyGame-pkg.
+    $rootFull = [IO.Path]::GetFullPath($Root)
     $gamePrefix = $gameFull.TrimEnd('\') + '\'
-    if ($srcAFull.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        $stagedA = Join-Path $Root ('._staged_' + [guid]::NewGuid().ToString('N') + '.dll')
-        Copy-Item -LiteralPath $srcAFull -Destination $stagedA -Force
-        Write-Host "Staged install source outside game folder: $stagedA"
+    $inGame = $srcAFull.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)
+    $pkgIsGame = ($rootFull.TrimEnd('\') -ieq $gameFull.TrimEnd('\'))
+    if ($inGame) {
+        if ($pkgIsGame) {
+            $stagedA = Join-Path $env:TEMP ('amd-presr-version-' + [guid]::NewGuid().ToString('N') + '.dll')
+        } else {
+            $stagedA = Join-Path $Root 'version.dll'
+        }
+        if ($srcAFull -ieq [IO.Path]::GetFullPath($stagedA)) {
+            # Already the staged location.
+        } else {
+            Copy-Item -LiteralPath $srcAFull -Destination $stagedA -Force
+            Write-Host "Copied author 0.3.0 runtime outside game folder: $stagedA"
+        }
         $srcA = $stagedA
     }
 } catch {
@@ -507,15 +631,27 @@ function Install-One([string]$src, [string]$rel) {
             return
         }
     } catch { }
-    if (Test-Path -LiteralPath $dest) {
-        $save = Join-Path $backup $rel
-        $sdir = Split-Path -Parent $save
-        if ($sdir) { New-Item -ItemType Directory -Path $sdir -Force | Out-Null }
-        Copy-Item -LiteralPath $dest -Destination $save -Force
+    try {
+        if (Test-Path -LiteralPath $dest) {
+            $save = Join-Path $backup $rel
+            $sdir = Split-Path -Parent $save
+            if ($sdir) { New-Item -ItemType Directory -Path $sdir -Force | Out-Null }
+            Copy-Item -LiteralPath $dest -Destination $save -Force
+        }
+        $ddir = Split-Path -Parent $dest
+        if ($ddir) { New-Item -ItemType Directory -Path $ddir -Force | Out-Null }
+        Copy-Item -LiteralPath $src -Destination $dest -Force
+    } catch [System.IO.IOException] {
+        Fail @"
+Install failed on $rel :
+  $($_.Exception.Message)
+
+The file is probably locked by a running game.
+Close the game completely, then run Setup.bat again.
+Partial files (if any) are under:
+  $backup
+"@
     }
-    $ddir = Split-Path -Parent $dest
-    if ($ddir) { New-Item -ItemType Directory -Path $ddir -Force | Out-Null }
-    Copy-Item -LiteralPath $src -Destination $dest -Force
 }
 
 Write-Host ''
@@ -525,10 +661,6 @@ Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 # Same runtime bytes as native version.dll — three filenames so multi-pass can load independent instances.
 foreach ($p in 1..3) {
     Install-One $srcA ("dlssnr_amd_pass$p.dll")
-}
-# Drop the temp staged copy (package root only).
-if ($stagedA -and (Test-Path -LiteralPath $stagedA)) {
-    try { Remove-Item -LiteralPath $stagedA -Force } catch { }
 }
 Install-One $weights 'dlssnr_on_amd_weights.bin'
 
@@ -544,12 +676,44 @@ if (Test-Path $deps) {
     }
 }
 
+# Keep reusable author files in the package folder for the next game.
+# Never write them into the game folder — that would re-inject original A next to B.
+try {
+    $rootFull = [IO.Path]::GetFullPath($Root)
+    $gameFull = [IO.Path]::GetFullPath($game)
+    $pkgIsGame = ($rootFull.TrimEnd('\') -ieq $gameFull.TrimEnd('\'))
+    if (-not $pkgIsGame) {
+        $pkgVersion = Join-Path $Root 'version.dll'
+        if ((Test-Path -LiteralPath $srcA -PathType Leaf) -and -not (Test-Path -LiteralPath $pkgVersion -PathType Leaf)) {
+            Copy-Item -LiteralPath $srcA -Destination $pkgVersion -Force
+            Write-Host "Saved version.dll next to Setup.bat for the next install." -ForegroundColor Green
+        }
+        $pkgWeights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
+        if ((Test-Path -LiteralPath $weights -PathType Leaf) -and
+            -not (Test-Path -LiteralPath $pkgWeights -PathType Leaf)) {
+            Copy-Item -LiteralPath $weights -Destination $pkgWeights -Force
+            Write-Host "Saved dlssnr_on_amd_weights.bin next to Setup.bat for the next install." -ForegroundColor Green
+        }
+    }
+    if ($stagedA -and (Test-Path -LiteralPath $stagedA -PathType Leaf)) {
+        $stagedFull = [IO.Path]::GetFullPath($stagedA)
+        if ($stagedFull.StartsWith($env:TEMP, [StringComparison]::OrdinalIgnoreCase) -or
+            $stagedFull -match 'amd-presr-version-') {
+            try { Remove-Item -LiteralPath $stagedA -Force } catch { }
+        }
+    }
+} catch {
+    Write-Host "NOTE: could not copy author files into the package folder: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 Write-Host ''
 Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:   $game"
 Write-Host "  Proxy:  $Proxy"
 Write-Host "  Backup: $backup"
-Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll (copies of original-author 0.3.0) + weights'
+Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll + weights'
+Write-Host "  Package keeps: $srcA"
+if ($weights) { Write-Host "                 $weights" }
 Write-Host ''
 Write-Host 'Next (in game):' -ForegroundColor Yellow
 Write-Host '  1. Launch the game'

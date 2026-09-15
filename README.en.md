@@ -44,7 +44,8 @@ This package only contains the OptiScaler layer. Put these next to `Setup.bat` a
 | (optional) ready `version.dll` / `dlssnr_on_amd_weights.bin` | Skip a setup run | Produced by a previous original-author setup run |
 
 **Recommended: only drop `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`.**  
-If `version.dll` or `weights.bin` is still missing when you run this package’s `Setup.bat`, it **launches the original-author setup** (after you pick the game folder), then continues.
+If `version.dll` or `weights.bin` is still missing when you run this package’s `Setup.bat`, it **launches the original-author setup** (after you pick the game folder), then continues.  
+If `nvngx_dlssnr.dll` is only next to `Setup.bat` and not in the game folder, the installer **copies it into the game folder** after you pick that folder (original-author 0.3.0 looks for it there).
 
 **Only 0.3.0 is supported.**
 
