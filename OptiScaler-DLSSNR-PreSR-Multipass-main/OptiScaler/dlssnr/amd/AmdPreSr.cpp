@@ -278,6 +278,7 @@ struct Backend::Impl
     UINT activeSlot = 0;
     UINT skipWaits = 0;
     UINT recordCalls = 0;
+    UINT abandonedUnsubmitted = 0;
     // A joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
@@ -521,6 +522,10 @@ struct Backend::Impl
             sl.pending.store(nullptr, std::memory_order_release);
             sl.passCount = Slot::kPassUnset;
             sl.submission = {};
+            // Clear the fence target. A later Record must not inherit a stale
+            // completion from a previous generation (it made fenceOk look true
+            // for a list that was never submitted).
+            sl.completion.store(0, std::memory_order_release);
             lastSubmitted = GetTickCount64();
             if (!failed && passCount && !timedOut)
             {
@@ -531,6 +536,20 @@ struct Backend::Impl
                 if (completedFrames <= 3 || completedFrames % 120 == 0)
                     Log(status);
             }
+            return;
+        }
+        if (sl.submission.AbandonUnsubmitted(GetTickCount64()))
+        {
+            ++abandonedUnsubmitted;
+            Log("AMD abandon unsubmitted slot k=" + std::to_string(k) +
+                " recordedAt=" + std::to_string(sl.submission.recordedAt) +
+                " jobs=[" + std::to_string(sl.jobs[0]) + "] nativeDone=" + std::to_string(nativeDone) +
+                " count=" + std::to_string(abandonedUnsubmitted));
+            LogSlotSnapshot("abandon");
+            sl.pending.store(nullptr, std::memory_order_release);
+            sl.passCount = Slot::kPassUnset;
+            sl.submission = {};
+            sl.completion.store(0, std::memory_order_release);
             return;
         }
         if (sl.submission.ReportStall(GetTickCount64()))
@@ -834,11 +853,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [diag-yysls slots=1 control]";
+    static constexpr const char* kBuildTag = " [diag-yysls2 slots=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [diag-yysls slots=2 release]";
+    static constexpr const char* kBuildTag = " [diag-yysls2 slots=2 release]";
 #endif
-    p->Log("AMD submission revision 20260915-diag1: slot snapshot on skip/stall" +
+    p->Log("AMD submission revision 20260915-diag2: abandon unsubmitted after 5s, clear completion" +
            std::string(kBuildTag));
     try
     {

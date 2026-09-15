@@ -28,5 +28,13 @@ struct SubmissionState
         stallReported = true;
         return true;
     }
+    // Recorded but never submitted (game dropped the list, NR toggled off, …).
+    // After 5s this slot would otherwise stay occupied forever and block Record.
+    bool AbandonUnsubmitted(std::uint64_t now) const
+    {
+        if (submitted || recordedAt == 0 || now < recordedAt)
+            return false;
+        return now - recordedAt > 5000;
+    }
 };
 }
