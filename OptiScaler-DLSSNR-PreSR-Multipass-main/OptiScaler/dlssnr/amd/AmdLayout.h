@@ -46,7 +46,6 @@ struct AmdLayout
     // resize, a re-created upscaler context, or an INI change; cleared only
     // after it has drained the game's queue and joined its workers. Record
     // tests it as its first act, so 0 means "this call will not rebuild".
-    // See exports/a03-staging-state.md.
     std::uint32_t recreate;
     // Address of the mutex guarding Record. Record tries to take it on entry
     // and bails without attaching when it loses, while its worker holds it for

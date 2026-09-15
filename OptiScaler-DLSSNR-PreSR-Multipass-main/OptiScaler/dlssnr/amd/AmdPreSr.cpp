@@ -300,15 +300,14 @@ struct Backend::Impl
     // The original runtime joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
-    // the Submitted wait - doing so hung the game (exports/a03-staging-state.md).
+    // the Submitted wait - doing so hung the game.
     //
     // A timer cannot guard this: the rebuild happens on whichever later Record
     // The original runtime chooses, so any window simply expires first and the crash follows. It
     // publishes its own decision as a sticky byte instead - set when it detects
     // the change, cleared only after it has drained the queue and joined its
     // workers - and a rebuild happens on exactly those calls that read 1 at
-    // entry. Reading it is therefore the real guard. See
-    // exports/a03-staging-state.md.
+    // entry. Reading it is therefore the real guard.
     bool NativeRebuilding() const
     {
         if (!L || !L->recreate) return true; // unknown layout: assume the worst

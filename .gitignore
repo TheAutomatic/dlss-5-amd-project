@@ -140,36 +140,19 @@ analysis/dxre-audit.txt
 analysis/*-runtime.dll
 
 # ---------------------------------------------------------------------------
-# exports/ 默认【全部忽略】，需要的文件逐条放行（白名单）。
+# 内部文档不进仓库（2026-09-15 定）：exports/ 与 .handoff/ 整个忽略，
+# GIT-REWRITE-STATUS.md 单条忽略。磁盘上都保留，只是不跟踪、不会随分支推上去。
 #
-# 起因：`git add -A` / `git add exports/` 把这个目录里的本地文件扫进提交，
-# 2026-09-15 之前已经栽过三次（repo-recreate-checklist、_codex_*、review-s*/obj）。
-# 黑名单挡不住下一个没想到的文件名，所以反过来做：默认不进，要进就写一行。
+# 起因：`git add -A` / `git add exports/` 已经三次把只该留本地的文件扫进提交。
+# 为什么整类收掉：这条血缘链上（OptiScaler / Dagherbou / wilsjo2 / Matheus 四个仓库
+# 逐一查过）公开的都是「结论性文档」——版本说明、用户向说明、事后的评审记录、设计稿。
+# 没人公开：写给外部审阅者的提问稿、AI 协作痕迹、本机路径；也没有人公开
+# 「旧 SHA 仍可取回反编译产物」这类可及性说明。本目录里的东西属于前者。
 #
-# 注意：gitignore 对**已跟踪**的文件无效。下面 17 个放行条目对应的是当前
-# 已跟踪的那些文档和脚本 —— 保留它们是为了让「这个目录里什么该进仓库」
-# 一眼可见；即使某个文件被 git rm --cached 掉再想加回来，也仍然放行。
+# 文档以后公开多少，另行决定——先把「不会被误推」这件事锁住。
 #
-# 新增一个要进仓库的文件（例如新写的简报）：
-#   ① 在下面加一行 `!exports/<文件名>`  ← 推荐，rules 里留痕
-#   ② 或者单次 `git add -f exports/<文件名>`（pre-commit 会拦住忘记加规则的那种）
-#
-# 本目录下不打算进仓库的东西（本地清单、日志快照、构建产物）保持无放行条目即可。
-exports/*
-!exports/a03-staging-state.md
-!exports/gpt-brief-20260914.md
-!exports/gpt-brief-outstanding-5-20260915.md
-!exports/gpt-brief-release-20260914.md
-!exports/gpt-brief-slots-20260915.md
-!exports/gpt-outstanding-5-findings-20260915.md
-!exports/gpt-review-20260914.md
-!exports/gpt-review-tonight-20260915.md
-!exports/gpt_inspect.py
-!exports/mimo-brief-git-audit-20260915.md
-!exports/pm_a03_stats.py
-!exports/pm_stats.py
-!exports/response-to-gpt-review-20260914.md
-!exports/retirement_stats.py
-!exports/slots-evidence-plan-20260915.md
-!exports/slots-reexec-probe-design-20260915.md
-!exports/slots-retire-fix-design-20260915.md
+# 注意：gitignore 对**已跟踪**的文件无效。这三个路径已用 `git rm --cached`
+# 取消跟踪，规则才真正生效。`.githooks/pre-commit` 拦住 `git add -f` 的绕过。
+exports/
+.handoff/
+GIT-REWRITE-STATUS.md
