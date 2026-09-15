@@ -409,6 +409,45 @@ struct Backend::Impl
             }
         }
     }
+    // Diagnostic dump of every slot. Used when slots refuse to retire (yysls
+    // skip/stall) so the next field run can show which state is stuck.
+    void LogSlotSnapshot(const char* reason)
+    {
+        const auto gpuDone = fence ? fence->GetCompletedValue() : UINT64_MAX;
+        Log(std::string("AMD slot-snap: ") + reason + " fence=" + std::to_string(gpuDone) +
+            " lastSubmitted=" + std::to_string(lastSubmitted) + " completedFrames=" +
+            std::to_string(completedFrames) + " pendingSkips=" + std::to_string(pendingSkips) +
+            " nativeRebuild=" + std::to_string(NativeRebuilding() ? 1 : 0) +
+            " failed=" + std::to_string(failed ? 1 : 0));
+        for (size_t k = 0; k < slots.size(); ++k)
+        {
+            const auto& sl = slots[k];
+            const auto pending = sl.pending.load(std::memory_order_acquire);
+            const auto target = sl.completion.load();
+            const UINT passCount = (sl.passCount == Slot::kPassUnset) ? 0u : sl.passCount;
+            std::string jobs;
+            std::string dones;
+            for (UINT i = 0; i < static_cast<UINT>(sl.jobs.size()); ++i)
+            {
+                if (i) { jobs += ","; dones += ","; }
+                jobs += std::to_string(sl.jobs[i]);
+                UINT done = 0;
+                if (L && i < runtime.size() && runtime[i])
+                    done = static_cast<UINT>(InterlockedCompareExchange(
+                        reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
+                dones += std::to_string(done);
+            }
+            Log("AMD slot-snap k=" + std::to_string(k) +
+                " pending=" + std::to_string(reinterpret_cast<uintptr_t>(pending)) +
+                " submitted=" + std::to_string(sl.submission.submitted ? 1 : 0) +
+                " recordedAt=" + std::to_string(sl.submission.recordedAt) +
+                " submittedAt=" + std::to_string(sl.submission.submittedAt) +
+                " passCount=" + std::to_string(passCount) +
+                " jobs=[" + jobs + "] jobDone=[" + dones + "]" +
+                " completion=" + std::to_string(target) +
+                " fenceOk=" + std::to_string(gpuDone != UINT64_MAX && target != 0 && gpuDone >= target ? 1 : 0));
+        }
+    }
     // Retire one slot if its job has finished. Called with `lock` held. Keep
     // every borrowed resource alive until BOTH native inference and the actual
     // D3D12 submission have retired.
@@ -498,8 +537,9 @@ struct Backend::Impl
         {
             Log("AMD submission stalled >5s; retaining list/resources until completion. submitted=" +
                 std::to_string(sl.submission.submitted) + " nativeDone=" + std::to_string(nativeDone) +
-                " passes=" + std::to_string(activePasses) + " fence=" + std::to_string(gpuDone) +
+                " passes=" + std::to_string(passCount) + " fence=" + std::to_string(gpuDone) +
                 "/" + std::to_string(target));
+            LogSlotSnapshot("stall");
         }
     }
     void RetireSubmission(bool waitForGpu = false, const char* source = "Unknown"
@@ -794,11 +834,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [r19b-slotstate slots=1 control]";
+    static constexpr const char* kBuildTag = " [diag-yysls slots=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [r19b-slotstate slots=2 release]";
+    static constexpr const char* kBuildTag = " [diag-yysls slots=2 release]";
 #endif
-    p->Log("AMD submission revision 20260914-r19b: per-slot passCount sentinel, unsubmitted match" +
+    p->Log("AMD submission revision 20260915-diag1: slot snapshot on skip/stall" +
            std::string(kBuildTag));
     try
     {
@@ -852,7 +892,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         // Do not wait here. Execute/Submitted needs this lock to Notify HIP.
         // Every-frame waits after Execute in Submitted instead.
         if (++p->pendingSkips <= 3 || p->pendingSkips % 120 == 0)
+        {
             p->Log("AMD skipped: no free neural slot; count=" + std::to_string(p->pendingSkips));
+            p->LogSlotSnapshot("skip");
+        }
         return nullptr;
     }
     const auto completion = sl->completion.load();
