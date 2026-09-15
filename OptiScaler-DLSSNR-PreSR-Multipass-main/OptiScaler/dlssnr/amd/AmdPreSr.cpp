@@ -1141,7 +1141,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             // microsecond, having logged nothing, advanced no counter and set no
             // state - which is exactly the refusal that took three rounds to pin
             // down. Buffers above the count are released instead, so asking for
-            // three reserves memory for three: at 4K one of these is 66 MB.
+            // three reserves memory for three: one of these is w*h*8 bytes, where
+            // w,h is the RENDER extent (f.width is the DLSS render subrect, not
+            // the output). That is 16.6 MB at a 1080p render and 29.5 MB at 1440p,
+            // so a 4K output at DLSS Quality reserves ~29 MB per slot, not 66.
             D3D12_HEAP_PROPERTIES hp {};
             hp.Type = D3D12_HEAP_TYPE_DEFAULT;
             D3D12_RESOURCE_DESC rd {};
@@ -1615,7 +1618,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             cmd->SetComputeRootSignature(p->root.Get());cmd->SetDescriptorHeaps(1,&heap);
             cmd->SetPipelineState(p->resolvePipeline.Get());
             auto table=heap->GetGPUDescriptorHandleForHeapStart();table.ptr+=static_cast<SIZE_T>(slotBase+10)*stride;cmd->SetComputeRootDescriptorTable(0,table);
-            table.ptr+=static_cast<SIZE_T>(slotBase+2)*stride;cmd->SetComputeRootDescriptorTable(2,table);
+            // Root table 2 names the (baseline, finalColour) pair written just above at
+            // slotBase+12/+13, so it is two descriptors along from table 0. This used to
+            // add (slotBase+2) on top of the already-advanced handle, which resolves to
+            // 2*slotBase+12: correct for slot 0 and wrong for every other slot - slot 1
+            // read another slot's pair, and from slot 3 it pointed past the end of the
+            // kDescriptors heap outright. Only reachable on the `scaled` path, which is
+            // why it survived: every measurement so far ran at NR resolution 100%.
+            table.ptr+=static_cast<SIZE_T>(2)*stride;cmd->SetComputeRootDescriptorTable(2,table);
             UINT rc[]{inputW,inputH,w,h};cmd->SetComputeRoot32BitConstants(1,4,rc,0);
             cmd->Dispatch((inputW+7)/8,(inputH+7)/8,1);
             Barrier(cmd,p->scaleOutput.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
