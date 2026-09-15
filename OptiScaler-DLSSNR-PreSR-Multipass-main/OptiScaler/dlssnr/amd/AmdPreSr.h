@@ -42,9 +42,10 @@ struct Settings
     UINT encoding = 0; // Auto, Linear, sRGB, Gamma 2.2
     bool everyFrame = false;
     // How many frames may be in flight at the NR stage. Too few and a frame that
-    // finds every buffer busy carries no NR at all; measured at 31.8% of frames
-    // on YYSLS with two, 0% with three. Onimusha needs two and shows no
-    // difference at three. See AmdPreSr.cpp for what the bound costs in memory.
+    // finds every buffer busy carries no NR at all; measured as 1200-1440
+    // dropped frames per 60-odd-second segment with two, none with three.
+    // Onimusha needs two and shows no difference at three.
+    // See AmdPreSr.cpp for what the bound costs in memory.
     UINT slots = 3;
     bool toneChannels = false;
     float modelScale = 1;

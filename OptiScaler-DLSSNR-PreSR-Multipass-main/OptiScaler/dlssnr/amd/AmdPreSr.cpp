@@ -245,10 +245,10 @@ struct Backend::Impl
     // Measured with the count flipped mid-run on one machine state:
     //
     //   Onimusha  2 slots: 0 skips, 19.50 ms/frame    3 slots: 0 skips, 19.49 ms
-    //   YYSLS     2 slots: 31.8% skipped, 19.25 ms    3 slots: 0 skips, 21.85 ms
+    //   YYSLS     2 slots: 1200-1440 skips/segment      3 slots: 0 skips
     //
-    // The 30% YYSLS "win" is 31.8% of frames carrying no NR. Its NR throughput
-    // is 35.6 frames/s at two slots against 45.8 at three.
+    // The YYSLS "win" at two slots is frames that carried no NR at all. The
+    // count is the runtime's own skip counter, over a 60-odd-second segment.
     static constexpr UINT kMaxSlots = 5;
     // kDefaultSlots == 1 reproduces the original one-frame-outstanding behaviour
     // exactly, which is what the control build is for. The macro used to work the

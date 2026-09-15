@@ -31,14 +31,14 @@ NR is inline: the game waits for its own denoise before it can present. This mod
 | Measured (720p render, 60 lock; slots flipped **inside one session** so scene and GPU state are fixed) | 2 slots | 3 slots |
 |---|---:|---:|
 | Onimusha (light) | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
-| YYSLS (heavy) | 19.25 ms, **31.8% of frames undenoised** | 21.85 ms, **0 skipped** |
+| YYSLS (heavy) | 19.25 ms, **1200-1440 frames undenoised** | 21.85 ms, **0 skipped** |
 
 - On Onimusha 3 slots are **indistinguishable from 2** (0.05% frame rate, same display latency),
   so the default costs nothing there
-- On a heavy scene 2 slots drop nearly a third of the denoise; 3 slots give **29% more denoised
-  frames per second** (35.6 -> 45.8)
-- 2 slots do show lower display latency on that scene (47.9 vs 63.2 ms) — that is the third of the
-  denoising being skipped, not a free win
+- On a heavy scene 2 slots **drop 1200-1440 frames of denoise per segment** (the runtime's own
+  counter, over a 60-odd second stretch); 3 slots drop none
+- 2 slots do show lower display latency on that scene (47.9 vs 63.2 ms) — that is the denoising
+  being skipped, not a free win
 - **4-5 slots** are headroom for a scene heavier than this. **Not measured**, and not known to be
   faster. Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a
   4K output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is
