@@ -130,8 +130,9 @@ void RenderMenu(Config* config, float menuResScale)
             HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
                        "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
                        "\n\nOn: after Execute, wait for the HIP job only (Temporal off). Does not wait"
-                       "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at 720p; the next"
-                       "\nRecord may still skip if GPU work is in flight.");
+                       "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
+                       "\nUltra Performance render; the next Record may still skip if GPU work is"
+                       "\nin flight.");
 
             // Range 2-5. The ini also accepts NR slots = 1, which reproduces the
             // old one-frame-outstanding path; it is deliberately not selectable
