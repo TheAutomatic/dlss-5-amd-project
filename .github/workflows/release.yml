@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version (fork-runtime), e.g. 1.8.1-0.3.0'
+        description: 'Product version (fork-runtime), e.g. 1.8.2-0.3.0'
         required: false
-        default: '1.8.1-0.3.0'
+        default: '1.8.2-0.3.0'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.1-0.3.0'
+          $v = '1.8.2-0.3.0'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -219,6 +219,8 @@ jobs:
           body: |
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}** (every-frame multi-slot).
 
+            - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, takes effect without a restart. Too few slots and a frame that finds every buffer busy carries no denoise at all — on a heavy scene two slots drop **31.8%** of frames, three drop none (measured by flipping the count inside a single session; the switch is logged so a run proves it happened). On a light game three are indistinguishable from two: 0.05% frame rate, same display latency. Each slot is one FP16 target at the output resolution (66 MB at 4K) and only the selected number is allocated.
+            - Also fixes a real scheduling bug: when two slots held the same command-list pointer, the older (already submitted) one was returned and the newer one **never got submitted**, stalling it until the 5-second abandon.
             - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** (GPL-3.0), **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**, and **[RenoDX](https://github.com/clshortfuse/renodx)** (MIT; the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 addon).
             - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - Requires **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** + local weights (not bundled).

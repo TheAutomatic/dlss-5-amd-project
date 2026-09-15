@@ -1,6 +1,6 @@
 [中文](README.md) | **English**
 
-# OptiScaler AMD pre-SR — 1.8.1-0.3.0
+# OptiScaler AMD pre-SR — 1.8.2-0.3.0
 
 **OptiScaler** + **AMD neural rendering** so **pure-DLSS games** can run neural denoise on AMD GPUs. Super-resolution is **FFX/FSR**.
 
@@ -19,15 +19,34 @@
 | **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Dual-slot every-frame**; generic folder picker in the installer |
 | **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** (below: original project; danielblnc = original author) | AMD neural runtime | **Core untouched**; original author’s 0.3.0 |
 
-### Dual-slot every-frame
+### Every-frame NR and "slots"
 
-| Config (4K Ultra Performance ≈ native 720p render) | Median period | ~fps | GPU Wait |
-|---|---:|---:|---:|
-| Single-slot / skip-on-busy | ~29.7 ms | ~33.5 | ~8.7 ms |
-| **This project, dual-slot every-frame** | ~22.4 ms | **~44.6** | **~0** |
-| Native 0.3 (reference) | ~22.2 ms | ~45.0 | 0 |
+NR is inline: the game waits for its own denoise before it can present. This mod keeps one buffer
+(a **slot**) per denoise still in flight. When a frame finds every slot busy it is recorded with
+**no denoise at all** — faster, and visibly worse.
 
-The GPU stays busy instead of blocking on the previous NR job — not a faster neural core.
+**Three slots by default.** Adjustable in-game under `DLSS Neural Rendering` → `NR slots`
+(2-5, takes effect without a restart).
+
+| Measured (720p render, 60 lock; slots flipped **inside one session** so scene and GPU state are fixed) | 2 slots | 3 slots |
+|---|---:|---:|
+| Onimusha (light) | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
+| YYSLS (heavy) | 19.25 ms, **31.8% of frames undenoised** | 21.85 ms, **0 skipped** |
+
+- On a light game 3 slots are **indistinguishable from 2** (0.05% frame rate, same display latency),
+  so the default costs nothing there
+- On a heavy scene 2 slots drop nearly a third of the denoise; 3 slots give **29% more denoised
+  frames per second** (35.6 -> 45.8)
+- 2 slots do show lower display latency on that scene (47.9 vs 63.2 ms) — that is the third of the
+  denoising being skipped, not a free win
+- **4-5 slots** are headroom for a scene heavier than this, and are **not known to be faster**.
+  Each slot is one FP16 target at the output resolution (66 MB at 4K), and **only the selected
+  number is allocated**
+- The ini's `AmdSlots` also accepts `1` (the old one-frame-outstanding path, a large frame-rate
+  cost, **not recommended**); the menu does not offer it
+
+The earlier single-slot measurement (~33.5 fps vs ~44.6 fps dual-slot) came from **no longer
+blocking the recording thread on the previous NR job**, not from a faster neural core.
 
 ---
 

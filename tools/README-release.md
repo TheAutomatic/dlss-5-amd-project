@@ -1,4 +1,4 @@
-# OptiScaler AMD pre-SR — 1.8.1-0.3.0 使用说明
+# OptiScaler AMD pre-SR — 1.8.2-0.3.0 使用说明
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**：纯 DLSS 游戏在 AMD 显卡上做神经降噪，超分由 **FFX/FSR** 完成。
 

@@ -1,17 +1,17 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.1-0.3.0
-    1.8.1  = this fork's product version
+  Default product: OptiScaler-AMD-PreSR-1.8.2-0.3.0
+    1.8.2  = this fork's product version
     0.3.0  = required author AMD NR runtime version
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.1-0.3.0 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.8.2-0.3.0 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.1-0.3.0',
+    [string]$Version = '1.8.2-0.3.0',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
