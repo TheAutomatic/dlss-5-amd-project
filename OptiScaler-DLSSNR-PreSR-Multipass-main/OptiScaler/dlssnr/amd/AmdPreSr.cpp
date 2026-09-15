@@ -233,7 +233,7 @@ struct Backend::Impl
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
     UINT64 retryAfter = 0, timeoutEvents = 0;
     bool resetAfterTimeout = false;
-    // Per-job state and the GPU resources that job borrows. A is a single worker
+    // Per-job state and the GPU resources that job borrows. The original runtime is a single worker
     // on one HIP stream, so slots never run concurrently: an extra slot only
     // lets the CPU record the next frame while the previous job is still
     // retiring, instead of blocking the render thread in Submitted.
@@ -268,11 +268,11 @@ struct Backend::Impl
         // Passes recorded into THIS slot. Global activePasses is only the
         // config for the next Record; a still-in-flight slot must retire and
         // notify against the count it was recorded with (hot 1↔2 pass change).
-        // UINT_MAX = never recorded this slot. 0 is a real value (A refused).
+        // UINT_MAX = never recorded this slot. 0 is a real value (the runtime refused).
         static constexpr UINT kPassUnset = 0xffffffffu;
         UINT passCount = kPassUnset;
         SubmissionState submission;
-        // A reads this and writes its correction back into it (in place), so no
+        // The original runtime reads this and writes its correction back into it (in place), so no
         // two outstanding jobs may share one.
         ComPtr<ID3D12Resource> colour;
         ComPtr<ID3D12Resource> exposureCopy;
@@ -296,13 +296,13 @@ struct Backend::Impl
     UINT skipWaits = 0;
     UINT recordCalls = 0;
     UINT abandonedUnsubmitted = 0;
-    // A joins its workers and clears the abort buffer while it rebuilds staging,
+    // The original runtime joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
     // the Submitted wait - doing so hung the game (exports/a03-staging-state.md).
     //
     // A timer cannot guard this: the rebuild happens on whichever later Record
-    // A chooses, so any window simply expires first and the crash follows. A
+    // The original runtime chooses, so any window simply expires first and the crash follows. It
     // publishes its own decision as a sticky byte instead - set when it detects
     // the change, cleared only after it has drained the queue and joined its
     // workers - and a rebuild happens on exactly those calls that read 1 at
@@ -500,7 +500,7 @@ struct Backend::Impl
         bool nativeDone = true;
         bool timedOut = false;
         // Use this slot's recorded pass count, not the global config.
-        // 0 is valid (A refused); only kPassUnset means "never recorded".
+        // 0 is valid (the runtime refused); only kPassUnset means "never recorded".
         const UINT passCount = (sl.passCount == Slot::kPassUnset) ? 0u : sl.passCount;
         for (UINT i = 0; i < passCount; ++i)
         {
@@ -637,7 +637,7 @@ struct Backend::Impl
     }
     // Execute has already happened. Wait only for HIP job-done, not the D3D12
     // fence: that fence covers FSR and the rest of the batch and was stalling
-    // ExecuteCommandLists down to ~30 FPS. A's GPU inline still serializes NR
+    // ExecuteCommandLists down to ~30 FPS. The original runtime's GPU inline still serializes NR
     // before FSR on the list. Record may still skip if the fence is in flight.
     void WaitAfterSubmitIfEveryFrame(UINT k)
     {
@@ -647,7 +647,7 @@ struct Backend::Impl
         // would skip unless this frame's job had already retired. An extra slot
         // is exactly what removes that need, so with two slots the render thread
         // must not block here - blocking is the cost this whole change removes.
-        // Not while A is rebuilding, though: that is when the wait is load-bearing.
+        // Not while the original runtime is rebuilding, though: that is when the wait is load-bearing.
         if (wantSlots > 1 && !NativeRebuilding())
         {
             // Throttled trace of the fast path, so a run shows whether it was
@@ -1137,7 +1137,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             // Every live slot needs its own FP16 target, not just whichever one
             // is active on the frame the count changes. A slot with a null
-            // colour is refused by A outright: the call returns in well under a
+            // colour is refused by the runtime outright: the call returns in well under a
             // microsecond, having logged nothing, advanced no counter and set no
             // state - which is exactly the refusal that took three rounds to pin
             // down. Buffers above the count are released instead, so asking for
@@ -1398,7 +1398,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         for (UINT i = 0; i < p->activePasses; ++i)
         {
             auto r = p->runtime[i];
-            // 0x8d9bd is A 0.2.17 Temporal. Default on (skip-frame path).
+            // 0x8d9bd is Temporal in the original 0.2.17. Default on (skip-frame path).
             // Every-frame mode matches author 0.3: skip history inputs, do not
             // clear history-valid (0x8d018) each frame.
             At<uint8_t>(r, L->temporal) = cfg.everyFrame ? 0 : 1;
@@ -1436,8 +1436,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             packet.scaleX = f.motionScaleX * (resampleMotion ? float(w) / mvW : 1.0f);
             packet.scaleY = f.motionScaleY * (resampleMotion ? float(h) / mvH : 1.0f);
             // Snapshot everything that can explain a refusal, and time the call.
-            // jobId is the decisive one: A advances it when it accepts, so a
-            // moved counter with an empty pending list means A took the job and
+            // jobId is the decisive one: the runtime advances it when it accepts, so a
+            // moved counter with an empty pending list means the runtime took the job and
             // its worker picked the list up before we could read it back.
             const void* pendingBefore = At<ID3D12CommandList*>(r, L->pendingList);
             const unsigned recreateBefore = L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0;
@@ -1488,7 +1488,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             if (!recorded)
             {
-                // A did not leave our list in pendingList. jobBefore -> after
+                // The original runtime did not leave our list in pendingList. jobBefore -> after
                 // says whether it took the job anyway (worker consumed the list
                 // instantly) or really declined (counter did not move).
                 p->Log("AMD Record refused: jobBefore=" + std::to_string(jobBefore) +
@@ -1508,7 +1508,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 break;
             }
             // Healthy calls are logged sparsely so the log still shows whether
-            // A ever blocks, which is what decides if admission control is viable.
+            // the runtime ever blocks, which is what decides if admission control is viable.
             if (p->recordCalls <= 120 || p->recordCalls % 300 == 0)
                 p->Log("AMD Record ok: n=" + std::to_string(p->recordCalls) +
                        " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
@@ -1743,7 +1743,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     if (!p->PickUnsubmitted(candSlots, candPending, cands, slot, pending))
         return;
     auto& sl = p->slots[slot];
-    // Notify uses this slot's recorded pass count. 0 = A refused (no HIP job).
+    // Notify uses this slot's recorded pass count. 0 = the runtime refused (no HIP job).
     const UINT passCount = (sl.passCount == Impl::Slot::kPassUnset) ? 0u : sl.passCount;
     if (passCount == 1)
     {
