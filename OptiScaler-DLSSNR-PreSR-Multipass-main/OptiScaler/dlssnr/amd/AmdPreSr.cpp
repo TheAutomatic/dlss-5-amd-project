@@ -234,21 +234,31 @@ struct Backend::Impl
     UINT64 retryAfter = 0, timeoutEvents = 0;
     bool resetAfterTimeout = false;
     // Per-job state and the GPU resources that job borrows. A is a single worker
-    // on one HIP stream, so two slots never run concurrently: the extra slot only
+    // on one HIP stream, so slots never run concurrently: an extra slot only
     // lets the CPU record the next frame while the previous job is still
     // retiring, instead of blocking the render thread in Submitted.
-    // kSlots == 1 reproduces the original one-frame-outstanding behaviour exactly.
     //
-    // Two slots is the shipping configuration, so it is what an ordinary build
-    // gets. The macro used to work the other way round, which meant every build
-    // that forgot to define it silently produced the single-slot build at 33.5
-    // fps - a trap that caught this project once already.
-    // Define AMD_SINGLESLOT for the control build used to isolate admission
-    // timing; it is not a configuration to ship or play on.
+    // Too few slots and a frame that finds every buffer busy is recorded with no
+    // NR at all. That skip feeds itself - the skipped frame presents sooner, so
+    // the next one arrives sooner still and has less room for NR - so the count
+    // is not a performance knob, it is what decides whether the mode works.
+    // Measured with the count flipped mid-run on one machine state:
+    //
+    //   Onimusha  2 slots: 0 skips, 19.50 ms/frame    3 slots: 0 skips, 19.49 ms
+    //   YYSLS     2 slots: 31.8% skipped, 19.25 ms    3 slots: 0 skips, 21.85 ms
+    //
+    // The 30% YYSLS "win" is 31.8% of frames carrying no NR. Its NR throughput
+    // is 35.6 frames/s at two slots against 45.8 at three.
+    static constexpr UINT kMaxSlots = 5;
+    // kDefaultSlots == 1 reproduces the original one-frame-outstanding behaviour
+    // exactly, which is what the control build is for. The macro used to work the
+    // other way round, so every build that forgot to define it silently produced
+    // the single-slot build at 33.5 fps - a trap that caught this project once.
+    // AMD_SINGLESLOT now only moves the default; the option can still raise it.
 #ifdef AMD_SINGLESLOT
-    static constexpr UINT kSlots = 1;
+    static constexpr UINT kDefaultSlots = 1;
 #else
-    static constexpr UINT kSlots = 2;
+    static constexpr UINT kDefaultSlots = 3;
 #endif
     struct Slot
     {
@@ -273,8 +283,15 @@ struct Backend::Impl
     // read and write the wrong texture. Design section 3.3 forbids that, and
     // section 3.2 already asked for 14 per slot - this is that.
     static constexpr UINT kDescriptorsPerSlot = 14;
-    static constexpr UINT kDescriptors = kDescriptorsPerSlot * kSlots;
-    std::array<Slot, kSlots> slots;
+    static constexpr UINT kDescriptors = kDescriptorsPerSlot * kMaxSlots;
+    std::array<Slot, kMaxSlots> slots;
+    // What the option asks for this frame, and how many buffers actually exist.
+    // They differ for one frame at most: wantSlots is read straight from the
+    // settings so a change takes effect immediately, and liveSlots trails it
+    // until the buffers have been brought into line. Slot structs above
+    // liveSlots hold no texture, so asking for three reserves memory for three.
+    UINT wantSlots = kDefaultSlots;
+    UINT liveSlots = 0;
     UINT activeSlot = 0;
     UINT skipWaits = 0;
     UINT recordCalls = 0;
@@ -320,8 +337,8 @@ struct Backend::Impl
     // bool written under p->lock, so it cannot be read here; hand every
     // candidate to the caller, which holds the lock and can choose.
     UINT FindPendingCandidates(UINT n, ID3D12CommandList* const* lists,
-                               std::array<UINT, kSlots>& outSlots,
-                               std::array<ID3D12CommandList*, kSlots>& outPending) const
+                               std::array<UINT, kMaxSlots>& outSlots,
+                               std::array<ID3D12CommandList*, kMaxSlots>& outPending) const
     {
         UINT count = 0;
         for (size_t k = 0; k < slots.size(); ++k)
@@ -343,8 +360,8 @@ struct Backend::Impl
     }
     // Requires p->lock. Picks the first candidate that is still that slot's
     // pending list and has not been submitted yet.
-    bool PickUnsubmitted(const std::array<UINT, kSlots>& candSlots,
-                         const std::array<ID3D12CommandList*, kSlots>& candPending, UINT count,
+    bool PickUnsubmitted(const std::array<UINT, kMaxSlots>& candSlots,
+                         const std::array<ID3D12CommandList*, kMaxSlots>& candPending, UINT count,
                          UINT& outSlot, ID3D12CommandList*& outPending) const
     {
         for (UINT c = 0; c < count; ++c)
@@ -492,7 +509,7 @@ struct Backend::Impl
             nativeDone &= sl.jobs[i] != 0 && done >= sl.jobs[i];
 #ifdef AMD_RETIRE_DIAGNOSTICS
             // sample is null for every slot except the one RetireSubmission
-            // chose to instrument. Writing through it crashed kSlots=2 as soon
+            // chose to instrument. Writing through it crashed a two-slot build as soon
             // as two slots were pending (s13/s14).
             if (sample)
                 sample->done[i] = done;
@@ -593,16 +610,16 @@ struct Backend::Impl
         sample.width = width;
         sample.height = height;
         sample.everyFrame = haveSettings && lastSettings.everyFrame;
-        // Sample the first slot with work outstanding. With kSlots == 1 that is
+        // Sample the first slot with work outstanding. In single-slot mode that is
         // the only slot, so the recorded diagnostic matches the original.
-        UINT sampled = kSlots;
-        for (UINT k = 0; k < kSlots; ++k)
+        UINT sampled = kMaxSlots;
+        for (UINT k = 0; k < kMaxSlots; ++k)
             if (slots[k].pending.load(std::memory_order_acquire))
             {
                 sampled = k;
                 break;
             }
-        if (sampled < kSlots)
+        if (sampled < kMaxSlots)
         {
             sample.pending = reinterpret_cast<uintptr_t>(slots[sampled].pending.load(std::memory_order_acquire));
             sample.submitted = slots[sampled].submission.submitted;
@@ -610,11 +627,11 @@ struct Backend::Impl
             sample.submittedAt = slots[sampled].submission.submittedAt;
             sample.jobs = slots[sampled].jobs;
             sample.target = slots[sampled].completion.load();
-            for (UINT k = 0; k < kSlots; ++k)
+            for (UINT k = 0; k < kMaxSlots; ++k)
                 RetireSlot(k, waitForGpu, source, k == sampled ? &sample : nullptr);
         }
 #else
-        for (UINT k = 0; k < kSlots; ++k)
+        for (UINT k = 0; k < kMaxSlots; ++k)
             RetireSlot(k, waitForGpu, source);
 #endif
     }
@@ -631,7 +648,7 @@ struct Backend::Impl
         // is exactly what removes that need, so with two slots the render thread
         // must not block here - blocking is the cost this whole change removes.
         // Not while A is rebuilding, though: that is when the wait is load-bearing.
-        if (kSlots > 1 && !NativeRebuilding())
+        if (wantSlots > 1 && !NativeRebuilding())
         {
             // Throttled trace of the fast path, so a run shows whether it was
             // taken and how far the native counter had progressed.
@@ -872,11 +889,15 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [r20-abandon slots=1 control]";
+    static constexpr const char* kBuildTag = " [r25-slots default=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [r20-abandon slots=2 release]";
+    static constexpr const char* kBuildTag = " [r25-slots default=3 cap=5]";
 #endif
-    p->Log("AMD submission revision 20260915-r20: abandon unsubmitted after 5s, clear completion, slot-snap" +
+    // The build tag names the default, not the count in force: the option can
+    // change it while the game runs, and the change logs its own line when it
+    // lands. Three earlier rounds were analysed without a tag and the logs could
+    // not be told apart.
+    p->Log("AMD submission revision 20260915-r25: unsubmitted-slot match, NR slot count option" +
            std::string(kBuildTag));
     try
     {
@@ -891,6 +912,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
 ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& incoming, const Settings& cfg)
 {
     std::lock_guard guard(p->lock);
+    // wantSlots is plain state guarded by `lock`, like liveSlots and activeSlot.
+    // Widening the choice of buffer here only lets the pick below take a slot
+    // whose texture does not exist yet; the rebuild pass further down runs in
+    // this same call and creates it before anything is recorded into it.
+    p->wantSlots = (std::clamp)(cfg.slots, 1u, Impl::kMaxSlots);
     Frame f=incoming;
 #ifdef AMD_RETIRE_DIAGNOSTICS
     p->diagnostics.BeginRecord(p->frames != 0);
@@ -914,8 +940,12 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     // behaviour: that slot must have retired or the frame is skipped. With two,
     // the second slot lets the CPU keep recording while the previous job is
     // still retiring, instead of blocking the render thread in Submitted.
+    //
+    // Only slots below wantSlots are handed out, so lowering the option takes
+    // effect on this frame; the buffers above it are released a frame or two
+    // later, once whatever is still using them has retired.
     Impl::Slot* sl = nullptr;
-    for (size_t k = 0; k < p->slots.size(); ++k)
+    for (UINT k = 0; k < p->wantSlots; ++k)
         if (!p->slots[k].pending.load(std::memory_order_acquire))
         {
             sl = &p->slots[k];
@@ -1081,24 +1111,37 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         if (!L)
             return nullptr;
         p->InitShader();
-        bool resize = p->width != w || p->height != h;
-        if (resize)
+        const bool resize = p->width != w || p->height != h;
+        const bool countChange = p->wantSlots != p->liveSlots;
+        if (resize || countChange)
         {
             // Slot selection above only guarantees that the slot we picked is
-            // idle, but this rebuild releases every slot's colour. Releasing a
-            // texture a still-in-flight list references is a use-after-free, so
-            // defer the resize to a frame where nothing is outstanding. Nothing
-            // has been recorded into cmd yet at this point, so returning here
-            // costs one frame of NR and nothing else.
-            for (const auto& other : p->slots)
-                if (other.pending.load(std::memory_order_acquire))
-                    return nullptr;
-            // Every slot needs its own FP16 target, not just whichever one is
-            // active on the frame the size changes. A slot added later had a
-            // null colour, and A refuses a null input outright: the call
-            // returns in well under a microsecond, having logged nothing,
-            // advanced no counter and set no state - which is exactly the
-            // refusal that took three rounds to pin down.
+            // idle, but this rebuild releases slot colours. Releasing or
+            // rewriting a texture a still-in-flight list references is a
+            // use-after-free, so defer to a frame where the buffers being
+            // touched have retired. Nothing has been recorded into cmd yet at
+            // this point, so returning here costs one frame of NR and nothing
+            // else.
+            //
+            // A resize rewrites every buffer; a shrink releases the ones above
+            // the new count. A grow creates only new buffers and touches none of
+            // the live ones, so it needs no drain at all - which matters because
+            // on a game that keeps every slot busy, a frame with nothing
+            // outstanding can be a long wait, and the option would look stuck.
+            if (resize || p->wantSlots < p->liveSlots)
+            {
+                const UINT first = resize ? 0u : p->wantSlots;
+                for (UINT k = first; k < p->liveSlots; ++k)
+                    if (p->slots[k].pending.load(std::memory_order_acquire))
+                        return nullptr;
+            }
+            // Every live slot needs its own FP16 target, not just whichever one
+            // is active on the frame the count changes. A slot with a null
+            // colour is refused by A outright: the call returns in well under a
+            // microsecond, having logged nothing, advanced no counter and set no
+            // state - which is exactly the refusal that took three rounds to pin
+            // down. Buffers above the count are released instead, so asking for
+            // three reserves memory for three: at 4K one of these is 66 MB.
             D3D12_HEAP_PROPERTIES hp {};
             hp.Type = D3D12_HEAP_TYPE_DEFAULT;
             D3D12_RESOURCE_DESC rd {};
@@ -1110,14 +1153,29 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             rd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
             rd.SampleDesc.Count = 1;
             rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-            for (auto& slot : p->slots)
+            for (UINT k = 0; k < Impl::kMaxSlots; ++k)
             {
-                slot.colour.Reset();
-                Check(p->device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
-                                                         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
-                                                         IID_PPV_ARGS(&slot.colour)),
-                      "Active FP16 texture");
+                auto& slot = p->slots[k];
+                if (k >= p->wantSlots)
+                {
+                    if (slot.colour) slot.colour.Reset();
+                    if (slot.exposureCopy) slot.exposureCopy.Reset();
+                    continue;
+                }
+                const auto desc = slot.colour ? slot.colour->GetDesc() : D3D12_RESOURCE_DESC {};
+                if (!slot.colour || desc.Width != w || desc.Height != h)
+                {
+                    slot.colour.Reset();
+                    Check(p->device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+                                                             IID_PPV_ARGS(&slot.colour)),
+                          "Active FP16 texture");
+                }
             }
+            if (countChange)
+                p->Log("AMD slots: " + std::to_string(p->wantSlots) + " (buffers " +
+                       std::to_string(p->wantSlots) + ", cap " + std::to_string(Impl::kMaxSlots) + ")");
+            p->liveSlots = p->wantSlots;
             p->width = w;
             p->height = h;
         }
@@ -1609,8 +1667,8 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
     if (!queue)
         return;
     // Atomic-only prefilter. Do not take p->lock here: Record may already hold it.
-    std::array<UINT, Impl::kSlots> candSlots {};
-    std::array<ID3D12CommandList*, Impl::kSlots> candPending {};
+    std::array<UINT, Impl::kMaxSlots> candSlots {};
+    std::array<ID3D12CommandList*, Impl::kMaxSlots> candPending {};
     const UINT cands = p->FindPendingCandidates(n, lists, candSlots, candPending);
     if (!cands)
         return;
@@ -1659,8 +1717,8 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         return;
     // Same lock-after-match order as Submitting. Do not lock first: Record can
     // hold p->lock while this thread re-enters via the Execute hook.
-    std::array<UINT, Impl::kSlots> candSlots {};
-    std::array<ID3D12CommandList*, Impl::kSlots> candPending {};
+    std::array<UINT, Impl::kMaxSlots> candSlots {};
+    std::array<ID3D12CommandList*, Impl::kMaxSlots> candPending {};
     const UINT cands = p->FindPendingCandidates(n, lists, candSlots, candPending);
     if (!cands)
         return;

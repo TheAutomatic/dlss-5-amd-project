@@ -282,6 +282,10 @@ class Config
     CustomOptional<bool> AmdNeuralLighting { true };
     CustomOptional<float> AmdNeuralLightingStrength { .5f };
     CustomOptional<int> AmdEncoding { 0 };
+    // 1-5 in the ini; the menu offers 2-5. Too few and a frame that finds every
+    // buffer busy carries no NR at all, so this decides whether the mode works
+    // rather than how fast it runs. See AmdPreSr.cpp for the measurements.
+    CustomOptional<int> AmdSlots { 3 };
     CustomOptional<float> AmdNrScale { 1 };
     // Every-frame is the only configuration under test, so it is the default:
     // enabling neural rendering is then the single switch a test run needs.
