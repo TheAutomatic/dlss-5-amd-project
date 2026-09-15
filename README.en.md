@@ -53,6 +53,20 @@ blocking the recording thread on the previous NR job**, not from a faster neural
 
 ## Install
 
+### What is in this zip
+
+| File / folder | Purpose |
+|---|---|
+| `OptiScaler.dll` | This project (installed under the proxy name you pick) |
+| `OptiScaler.ini` | Config template; the `[DlssNr]` section (including `AmdSlots`) lives here |
+| `OptiScaler\` | FFX / XeSS / Agility dependencies |
+| `Setup.bat` / `Setup.ps1` | Installer (**double-click `Setup.bat`**) |
+| `Licenses\` | Third-party licences |
+| `SHA256SUMS.txt` | Checksums |
+| `README.md` / `README.en.md` | This document |
+
+**Not included**: NVIDIA binaries, NR weights, the author's closed-source pass - see the next section.
+
 ### Step 1 — Files you must supply (not in this zip)
 
 This package only contains the OptiScaler layer. Put these next to `Setup.bat` after you unzip — **without them DLSS5 cannot be enabled**:

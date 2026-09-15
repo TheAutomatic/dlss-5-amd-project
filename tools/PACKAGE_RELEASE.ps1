@@ -256,7 +256,7 @@ if (Test-Path $rtgiSrc) {
 }
 
 # Installer + docs (CN + EN). No duplicate 使用说明.txt.
-$readmeZh = Join-Path $root 'tools/README-release.md'
+$readmeZh = Join-Path $root 'README.md'
 $readmeEn = Join-Path $root 'README.en.md'
 if (!(Test-Path $readmeZh)) { throw "Missing $readmeZh" }
 if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }

@@ -46,6 +46,20 @@ NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模�
 
 ## 安装
 
+### 本压缩包里有什么
+
+| 文件/目录 | 作用 |
+|---|---|
+| `OptiScaler.dll` | 本项目主体（安装时会改成你选的代理名） |
+| `OptiScaler.ini` | 配置模板；`[DlssNr]` 段的选项（含 `AmdSlots`）都在这里 |
+| `OptiScaler\` | FFX / XeSS / Agility 等依赖 |
+| `Setup.bat` / `Setup.ps1` | 安装器（**双击 `Setup.bat`**） |
+| `Licenses\` | 第三方许可 |
+| `SHA256SUMS.txt` | 校验和 |
+| `README.md` / `README.en.md` | 本文件 |
+
+**不含**：NVIDIA 的二进制、NR 权重、原作者闭源 pass——见下一节。
+
 ### 第一步：你自己准备文件（本包不附带）
 
 本压缩包 **只含** OptiScaler 这一层（`OptiScaler.dll`、依赖、安装器）。  
