@@ -246,6 +246,7 @@ struct Backend::Impl
     //
     //   Onimusha  2 slots: 0 skips, 19.50 ms/frame    3 slots: 0 skips, 19.49 ms
     //   YYSLS     2 slots: 1200-1440 skips/segment      3 slots: 0 skips
+    //   YYSLS     a later 1-to-5 sweep: 1800 skips at 2 slots, 0 at 3, 4 and 5
     //
     // The YYSLS "win" at two slots is frames that carried no NR at all. The
     // count is the runtime's own skip counter, over a 60-odd-second segment.

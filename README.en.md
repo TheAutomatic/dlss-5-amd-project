@@ -36,7 +36,8 @@ NR is inline: the game waits for its own denoise before it can present. This mod
 - On Onimusha 3 slots are **indistinguishable from 2** (0.05% frame rate, same display latency),
   so the default costs nothing there
 - On a heavy scene 2 slots **drop 1200-1440 frames of denoise per segment** (the runtime's own
-  counter, over a 60-odd second stretch); 3 slots drop none
+  counter); 3 slots drop none. A separate 1-to-5 slot sweep measured **1800** in its two-slot
+  segment -- 60 seconds, same scene -- and 0 at three, four and five
 - 2 slots do show lower display latency on that scene (47.9 vs 63.2 ms) — that is the denoising
   being skipped, not a free win
 - **4-5 slots** are headroom for a scene heavier than this. **Not measured**, and not known to be
