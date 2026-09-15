@@ -58,6 +58,11 @@ exports/review-s*/
 # 本地构建输出（构建脚本 + 打包器用的目录），不进仓库
 exports/build/
 
+# analysis/build-release-local.cmd 的输出（OptiScaler.dll、obj、测试 exe、build.log）。
+# *.dll/*.obj/*.lib 已被下面的全局规则盖住，但 build.log 和 amd_submission_state.exe
+# 没有，`git add -A` 会扫进来。
+exports/release-local/
+
 # 旧的按版本命名的发布目录（r17/r18 等），本地留档用
 exports/release-r*/
 
