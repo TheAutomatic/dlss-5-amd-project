@@ -1,6 +1,6 @@
 [中文](README.md) | **English**
 
-# OptiScaler AMD pre-SR — 1.8.0-0.3.0
+# OptiScaler AMD pre-SR — 1.8.1-0.3.0
 
 **OptiScaler** + **AMD neural rendering** so **pure-DLSS games** can run neural denoise on AMD GPUs. Super-resolution is **FFX/FSR**.
 
@@ -16,7 +16,7 @@
 | Upstream | What they did | What this project adds |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | General upscaler proxy | Still the install/run vehicle |
-| **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Dual-slot every-frame**; Xbox PC path fix |
+| **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Dual-slot every-frame**; generic folder picker in the installer |
 | **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** (below: original project; danielblnc = original author) | AMD neural runtime | **Core untouched**; original author’s 0.3.0 |
 
 ### Dual-slot every-frame
@@ -110,6 +110,7 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) (GPL-3.0)  
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
 - [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0** (not redistributed)  
+- [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 neural rendering addon; full text in `Licenses/RenoDX_ATTRIBUTION.txt`  
 - This project: dual-slot every-frame, installer, packaging  
 
 No NVIDIA binaries, NR weights, or author pass DLL are included. Follow each upstream’s license.

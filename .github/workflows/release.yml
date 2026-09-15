@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version (fork-runtime), e.g. 1.8.0-0.3.0'
+        description: 'Product version (fork-runtime), e.g. 1.8.1-0.3.0'
         required: false
-        default: '1.8.0-0.3.0'
+        default: '1.8.1-0.3.0'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.0-0.3.0'
+          $v = '1.8.1-0.3.0'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -219,9 +219,8 @@ jobs:
           body: |
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}** (every-frame multi-slot).
 
-            - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** (GPL-3.0) and **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**.
+            - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** (GPL-3.0), **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**, and **[RenoDX](https://github.com/clshortfuse/renodx)** (MIT; the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 addon).
             - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - Requires **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** + local weights (not bundled).
             - No NVIDIA DLLs / weights / author pass DLL in this zip.
-            - Xbox/MS Store: run `Setup.bat` against `C:\XboxGames\<Game>\Content`.
             - See README inside the zip.

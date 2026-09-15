@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md)
 
-# OptiScaler AMD pre-SR — 1.8.0-0.3.0
+# OptiScaler AMD pre-SR — 1.8.1-0.3.0
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**，让 **纯 DLSS 游戏** 在 AMD 显卡上跑神经降噪；超分由 **FFX/FSR** 完成。
 
@@ -16,7 +16,7 @@
 | 上游 | 他们做了什么 | 本项目额外做了什么 |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分代理（DLSS / FFX / XeSS） | 仍作为安装与运行主体 |
-| **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **每帧双槽**：忙则跳 → GPU 不再空转；**修好 Xbox PC 安装路径** |
+| **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **每帧双槽**：忙则跳 → GPU 不再空转；安装器改为通用目录选择 |
 | **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)**（以下简称原项目，danielblnc 为原作者） | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.0 调用 |
 
 ### 每帧双槽（相对「忙就跳帧」）
@@ -117,6 +117,7 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler)（GPL-3.0）  
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
 - [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0**（不随本包分发）  
+- [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx)（MIT）—— `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon，全文见 `Licenses/RenoDX_ATTRIBUTION.txt`  
 - 本项目：每帧双槽、安装器、打包  
 
 本包不含 NVIDIA 二进制、NR weights、上游闭源 pass。请遵守各上游许可。

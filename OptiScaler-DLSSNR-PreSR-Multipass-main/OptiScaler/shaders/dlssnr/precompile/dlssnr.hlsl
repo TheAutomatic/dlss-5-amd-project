@@ -155,7 +155,7 @@ float3 ClampAp1(float3 color)
 // The composition below (UpgradeToneMap's two-branch ratio, the OkLab hue correction, and the blend
 // between a luminance-only result and the model's own colour) is taken from RenoDX's DLSS 5 addon by
 // clshortfuse -- https://github.com/clshortfuse/renodx. It is their design, not ours; see
-// Licenses/RenoDX_LICENSE.txt. The OkLab matrices are Bjorn Ottosson's published constants and the
+// Licenses/RenoDX_ATTRIBUTION.txt. The OkLab matrices are Bjorn Ottosson's published constants and the
 // AP1, sRGB and PQ transforms are standard colour science.
 // ---------------------------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-# OptiScaler AMD pre-SR — 1.8.0-0.3.0 使用说明
+# OptiScaler AMD pre-SR — 1.8.1-0.3.0 使用说明
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**：纯 DLSS 游戏在 AMD 显卡上做神经降噪，超分由 **FFX/FSR** 完成。
 
@@ -109,6 +109,7 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 - [OptiScaler](https://github.com/optiscaler/OptiScaler) — 超分代理主体（GPL-3.0，见 `Licenses\`）
 - [MatheusGViana/dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project) — AMD pre-SR 桥基底
 - [原项目 / 原作者 danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD) — AMD 神经运行时 **0.3.0**（不随本包分发）
+- [RenoDX / clshortfuse](https://github.com/clshortfuse/renodx) — `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon（MIT，全文见 `Licenses\RenoDX_ATTRIBUTION.txt`）
 - 每帧双槽宿主路径、安装器、打包：本项目
 
 ## 许可

@@ -1,17 +1,17 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.0-0.3.0
-    1.8.0  = this fork's product version
+  Default product: OptiScaler-AMD-PreSR-1.8.1-0.3.0
+    1.8.1  = this fork's product version
     0.3.0  = required author AMD NR runtime version
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.0-0.3.0 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.8.1-0.3.0 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.0-0.3.0',
+    [string]$Version = '1.8.1-0.3.0',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -293,9 +293,19 @@ $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
     Sort-Object FullName |
     ForEach-Object {
-        '{0} *{1}' -f (Get-Sha256 $_.FullName), $_.FullName.Substring($stage.Length + 1)
+        # 正斜杠：清单是 coreutils 格式（`sha256sum -c` 用），反斜杠分隔符在 git-bash /
+        # Linux 上认不出来。Windows 侧 PowerShell 用正斜杠访问文件同样正常。
+        '{0} *{1}' -f (Get-Sha256 $_.FullName), ($_.FullName.Substring($stage.Length + 1) -replace '\\', '/')
     }
-$hashes | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt') -Encoding UTF8
+# 不要用 Set-Content -Encoding UTF8：Windows PowerShell 5.1 的 -Encoding UTF8 会写 BOM，
+# BOM 直接粘在第一个哈希前面，用户跑 `sha256sum -c SHA256SUMS.txt` 会看到
+# "1 line is improperly formatted"，第一项永远验不过。走 .NET 的无 BOM UTF-8。
+# 行尾用 LF 而不是 CRLF：CRLF 会在文件名后留下 \r，`sha256sum -c` 把它当成文件名的一部分，
+# 23 项全部 "No such file or directory"。LF + 正斜杠才能让标准工具真的验得了。
+# 记事本（Win10 1809+）与 PowerShell 读 LF 都正常。
+[IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS.txt'),
+    (($hashes -join "`n") + "`n"),
+    [Text.UTF8Encoding]::new($false))
 
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path $zip) { Remove-Item $zip -Force }

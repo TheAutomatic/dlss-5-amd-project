@@ -678,6 +678,11 @@ if (Test-Path $deps) {
 
 # Keep reusable author files in the package folder for the next game.
 # Never write them into the game folder — that would re-inject original A next to B.
+# 摘要要报"包目录里真正留下的那份"，不能报 $srcA —— 当包目录就是游戏目录时
+# $srcA 指向 TEMP 暂存文件，而下面 698 行会把它删掉；当包目录不是游戏目录时，
+# 真正留下的是 $Root\version.dll。$keptA/$keptW 只记后者。
+$keptA = $null
+$keptW = $null
 try {
     $rootFull = [IO.Path]::GetFullPath($Root)
     $gameFull = [IO.Path]::GetFullPath($game)
@@ -688,12 +693,14 @@ try {
             Copy-Item -LiteralPath $srcA -Destination $pkgVersion -Force
             Write-Host "Saved version.dll next to Setup.bat for the next install." -ForegroundColor Green
         }
+        if (Test-Path -LiteralPath $pkgVersion -PathType Leaf) { $keptA = $pkgVersion }
         $pkgWeights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
         if ((Test-Path -LiteralPath $weights -PathType Leaf) -and
             -not (Test-Path -LiteralPath $pkgWeights -PathType Leaf)) {
             Copy-Item -LiteralPath $weights -Destination $pkgWeights -Force
             Write-Host "Saved dlssnr_on_amd_weights.bin next to Setup.bat for the next install." -ForegroundColor Green
         }
+        if (Test-Path -LiteralPath $pkgWeights -PathType Leaf) { $keptW = $pkgWeights }
     }
     if ($stagedA -and (Test-Path -LiteralPath $stagedA -PathType Leaf)) {
         $stagedFull = [IO.Path]::GetFullPath($stagedA)
@@ -712,8 +719,12 @@ Write-Host "  Game:   $game"
 Write-Host "  Proxy:  $Proxy"
 Write-Host "  Backup: $backup"
 Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll + weights'
-Write-Host "  Package keeps: $srcA"
-if ($weights) { Write-Host "                 $weights" }
+if ($keptA -or $keptW) {
+    Write-Host "  Package keeps: $keptA"
+    if ($keptW) { Write-Host "                 $keptW" }
+} else {
+    Write-Host '  Package keeps: (nothing — the package folder is the game folder)'
+}
 Write-Host ''
 Write-Host 'Next (in game):' -ForegroundColor Yellow
 Write-Host '  1. Launch the game'
