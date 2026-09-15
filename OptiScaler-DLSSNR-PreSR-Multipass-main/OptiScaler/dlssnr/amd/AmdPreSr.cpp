@@ -853,11 +853,11 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [diag-yysls2 slots=1 control]";
+    static constexpr const char* kBuildTag = " [r20-abandon slots=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [diag-yysls2 slots=2 release]";
+    static constexpr const char* kBuildTag = " [r20-abandon slots=2 release]";
 #endif
-    p->Log("AMD submission revision 20260915-diag2: abandon unsubmitted after 5s, clear completion" +
+    p->Log("AMD submission revision 20260915-r20: abandon unsubmitted after 5s, clear completion, slot-snap" +
            std::string(kBuildTag));
     try
     {
