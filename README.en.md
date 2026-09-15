@@ -128,6 +128,7 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 ## Credits & license
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) (GPL-3.0)  
+- [**Dagherbou/OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) (GPL-3.0) — the `OptiScaler-DLSSNR-PreSR-Multipass-main` tree in this package is based on it (`v0.2.0-dlssnr` / commit `97376162`)  
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
 - [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0** (not redistributed)  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 neural rendering addon; full text in `Licenses/RenoDX_ATTRIBUTION.txt`  

@@ -129,6 +129,7 @@ ini 里是 `[DlssNr]` 的 `AmdSlots`（接受 1–5，写 `1` 复现旧的「单
 ## 署名
 
 - [OptiScaler](https://github.com/optiscaler/OptiScaler) — 超分代理主体（GPL-3.0，见 `Licenses\`）
+- [Dagherbou/OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR) — 本包内 `OptiScaler-DLSSNR-PreSR-Multipass-main` 的来源（GPL-3.0）
 - [MatheusGViana/dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project) — AMD pre-SR 桥基底
 - [原项目 / 原作者 danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD) — AMD 神经运行时 **0.3.0**（不随本包分发）
 - [RenoDX / clshortfuse](https://github.com/clshortfuse/renodx) — `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon（MIT，全文见 `Licenses\RenoDX_ATTRIBUTION.txt`）
