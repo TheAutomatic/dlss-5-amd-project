@@ -176,7 +176,7 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version — every-frame multi-slot is the source default.
+; Product $Version — NR slots default 3 (2-5 in-game, 1-5 here).
 ; Requires DLSS-NR-on-AMD 0.3.0 (https://github.com/danielblnc/DLSS-NR-on-AMD)
 ; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
 Enabled=false
@@ -184,6 +184,7 @@ RunBeforeSR=true
 AmdModelScale=1
 AmdEncoding=0
 AmdEveryFrame=true
+AmdSlots=3
 AmdNeuralLighting=true
 AmdNeuralLightingStrength=0.5
 Passes=1

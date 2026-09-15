@@ -285,7 +285,16 @@ class Config
     // 1-5 in the ini; the menu offers 2-5. Too few and a frame that finds every
     // buffer busy carries no NR at all, so this decides whether the mode works
     // rather than how fast it runs. See AmdPreSr.cpp for the measurements.
+    //
+    // The default has to follow AMD_SINGLESLOT as well, or the control build
+    // contradicts its own banner: AmdBridge overwrites the backend's default
+    // from here on the first frame, so a control build with this left at 3
+    // would announce "default=1" and then run three.
+#ifdef AMD_SINGLESLOT
+    CustomOptional<int> AmdSlots { 1 };
+#else
     CustomOptional<int> AmdSlots { 3 };
+#endif
     CustomOptional<float> AmdNrScale { 1 };
     // Every-frame is the only configuration under test, so it is the default:
     // enabling neural rendering is then the single switch a test run needs.

@@ -4,7 +4,7 @@
 
 | 版本段 | 含义 |
 |---|---|
-| **1.8.0** | 本包（OptiScaler 宿主 / 安装器 / 每帧双槽） |
+| **1.8.2** | 本包（OptiScaler 宿主 / 安装器 / NR 槽位） |
 | **0.3.0** | 必需的上游运行时 |
 
 上游为 [DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)（以下简称原项目，danielblnc 为原作者）。
@@ -98,9 +98,31 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 
 ---
 
+## 每帧 NR 与「槽位」
+
+NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模组为在飞的降噪各留一块缓冲（**槽**）——
+槽不够时，那一帧会**整帧跳过降噪**，更快但画质掉。
+
+**默认 3 槽。** 游戏内 `DLSS Neural Rendering` → `NR slots` 可调（**2–5**，改完即生效，不用重启）；
+ini 里是 `[DlssNr]` 的 `AmdSlots`（接受 1–5，写 `1` 复现旧的「单帧在飞」行为，菜单不提供）。
+
+| 实测（720p 渲染、锁 60；**同一次会话里原地切槽**，场景与 GPU 状态都冻住） | 2 槽 | 3 槽 |
+|---|---:|---:|
+| 鬼武者（负载轻） | 19.50 ms，**0 跳过** | 19.49 ms，**0 跳过** |
+| 燕云十六声（负载重） | 19.25 ms，**31.8% 的帧无降噪** | 21.85 ms，**0 跳过** |
+
+- 在鬼武者上 3 槽**与 2 槽无法区分**（帧率差 0.05%，显示延迟相同），所以默认 3 在那里不吃亏
+- 燕云那个场景，2 槽会丢掉近 1/3 的降噪帧；3 槽的**降噪吞吐高 29%**（35.6 → 45.8 帧/秒）
+- 同一场景下 2 槽显示延迟更低（47.9 vs 63.2 ms）——那是少算三分之一的降噪换来的
+- **4–5 槽**是给比这更重的场景留的余量，**没有实测**，不保证更快
+- 每槽是**渲染分辨率**（DLSS 输入）的一张 FP16 纹理——4K 输出配 DLSS 质量档（1440p 渲染）
+  约 29 MB，原生 4K 渲染才 66 MB——且**只按所选数量分配**
+
+---
+
 ## 性能参考
 
-**4K 超级性能档**（相当于原生 **720p** 渲染）、每帧 NR、RX 9070 XT：中位约 **45–49 fps**，`MsGPUWait ≈ 0`，与同场景原生 0.3 同档。偶发 2 秒以上长卡可能来自神经运行时日志中的 `SPIKE` job。
+**4K 超级性能档**（相当于原生 **720p** 渲染）、每帧 NR、RX 9070 XT：`MsGPUWait ≈ 0`，与同场景原生 0.3 同档，帧率随场景在 **44–52 fps** 之间浮动。偶发 2 秒以上长卡可能来自神经运行时日志中的 `SPIKE` job。
 
 ---
 
@@ -110,7 +132,7 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 - [MatheusGViana/dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project) — AMD pre-SR 桥基底
 - [原项目 / 原作者 danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD) — AMD 神经运行时 **0.3.0**（不随本包分发）
 - [RenoDX / clshortfuse](https://github.com/clshortfuse/renodx) — `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon（MIT，全文见 `Licenses\RenoDX_ATTRIBUTION.txt`）
-- 每帧双槽宿主路径、安装器、打包：本项目
+- NR 槽位宿主路径、安装器、打包：本项目
 
 ## 许可
 

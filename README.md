@@ -4,7 +4,7 @@
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**，让 **纯 DLSS 游戏** 在 AMD 显卡上跑神经降噪；超分由 **FFX/FSR** 完成。
 
-`1.8.0` = 本仓库版本；`0.3.0` = 必需的上游运行时版本。
+`1.8.2` = 本仓库版本；`0.3.0` = 必需的上游运行时版本。
 
 > 不是神经核的重实现，也不是 ReShade 滤镜。  
 > 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.0）→ FFX/FSR 超分**。
@@ -16,7 +16,7 @@
 | 上游 | 他们做了什么 | 本项目额外做了什么 |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分代理（DLSS / FFX / XeSS） | 仍作为安装与运行主体 |
-| **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **每帧双槽**：忙则跳 → GPU 不再空转；安装器改为通用目录选择 |
+| **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **NR 槽位可调**：忙则跳 → 每帧都有降噪；安装器改为通用目录选择 |
 | **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)**（以下简称原项目，danielblnc 为原作者） | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.0 调用 |
 
 ### 每帧 NR 与「槽位」
@@ -31,12 +31,13 @@ NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模�
 | 鬼武者（负载轻） | 19.50 ms，**0 跳过** | 19.49 ms，**0 跳过** |
 | 燕云十六声（负载重） | 19.25 ms，**31.8% 的帧无降噪** | 21.85 ms，**0 跳过** |
 
-- 轻负载游戏上 3 槽**与 2 槽完全等价**（帧率差 0.05%，显示延迟相同），所以默认 3 不吃亏
-- 重负载场景 2 槽会丢掉近 1/3 的降噪帧；3 槽的**降噪吞吐高 29%**（35.6 → 45.8 帧/秒）
+- 在鬼武者上 3 槽**与 2 槽无法区分**（帧率差 0.05%，显示延迟相同），所以默认 3 在那里不吃亏
+- 燕云那个场景，2 槽会丢掉近 1/3 的降噪帧；3 槽的**降噪吞吐高 29%**（35.6 → 45.8 帧/秒）
 - 同一场景下 2 槽显示延迟更低（47.9 vs 63.2 ms）——那是少算三分之一的降噪换来的，不是白赚的
-- **4–5 槽**是给比这更重的场景留的余量，**不保证更快**。每槽是输出分辨率的一张 FP16 纹理
-  （4K 下 66 MB），且**只按所选数量分配**
-- ini 的 `AmdSlots` 也接受 `1`（复现旧的「单帧在飞」行为，帧率大幅下降，**不建议**），菜单不提供
+- **4–5 槽**是给比这更重的场景留的余量，**没有实测**，不保证更快
+- 每槽是**渲染分辨率**（DLSS 输入）的一张 FP16 纹理——4K 输出配 DLSS 质量档（1440p 渲染）
+  约 29 MB，原生 4K 渲染才 66 MB——且**只按所选数量分配**
+- ini 里 `AmdSlots` 也接受 `1`（复现旧的「单帧在飞」行为），菜单不提供
 
 早期版本的对照（单槽 ~33.5 fps → 双槽 ~44.6 fps）来自**不再为等上一帧 NR 退休而卡住录制线程**，
 不是把神经核算快。
@@ -130,6 +131,6 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
 - [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0**（不随本包分发）  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx)（MIT）—— `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon，全文见 `Licenses/RenoDX_ATTRIBUTION.txt`  
-- 本项目：每帧双槽、安装器、打包  
+- 本项目：NR 槽位、安装器、打包  
 
 本包不含 NVIDIA 二进制、NR weights、上游闭源 pass。请遵守各上游许可。

@@ -1,7 +1,7 @@
 # Build OptiScaler AMD pre-SR and attach the user zip to a GitHub Release.
 #
-# Source default is multi-slot (r18 / AMD_SINGLESLOT inverted). Ordinary Release
-# is the shipping configuration — do not add AMD_MULTISLOT or diagnostics.
+# Source default is 3 NR slots (AmdSlots); AMD_SINGLESLOT only moves it to 1.
+# Ordinary Release is the shipping configuration — do not add diagnostics.
 #
 # Does NOT package NVIDIA DLLs, NR weights, or the author's pass DLL.
 #
@@ -13,7 +13,7 @@
 # live under OptiScaler/library and external/freetype. They are tracked in git
 # the same way upstream OptiScaler does (git add -f despite *.lib ignore).
 #
-# Runner: windows-latest. The measured r18 binary was built with the v145
+# Runner: windows-latest. The benchmarked binaries were built with the v145
 # toolset (VS 2026), so we pin PLATFORM_TOOLSET to match rather than letting the
 # project's v143 fallback pick a different compiler than the one we benchmarked.
 # The preflight step fails loudly if the image no longer ships v145.
@@ -87,7 +87,7 @@ jobs:
           $have = @(Get-ChildItem -LiteralPath $msvcRoot -Directory |
             Select-Object -ExpandProperty Name | Sort-Object)
           Write-Host "MSVC toolchains: $($have -join ', ')"
-          # 14.44 is the toolchain the measured r18/r19b binaries were built with.
+          # 14.44 is the toolchain the benchmarked binaries were built with.
           $pick = $have | Where-Object { $_ -like "$env:MSVC_PREFIX.*" } | Select-Object -Last 1
           if (-not $pick) {
             throw "No MSVC $env:MSVC_PREFIX.x toolchain on this image (have: $($have -join ', '))."
@@ -219,7 +219,7 @@ jobs:
           body: |
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}** (every-frame multi-slot).
 
-            - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, takes effect without a restart. Too few slots and a frame that finds every buffer busy carries no denoise at all — on a heavy scene two slots drop **31.8%** of frames, three drop none (measured by flipping the count inside a single session; the switch is logged so a run proves it happened). On a light game three are indistinguishable from two: 0.05% frame rate, same display latency. Each slot is one FP16 target at the output resolution (66 MB at 4K) and only the selected number is allocated.
+            - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, takes effect without a restart. Too few slots and a frame that finds every buffer busy carries no denoise at all — on a heavy scene two slots leave **31.8%** of frames undenoised, three leave none (measured by flipping the count inside a single session; the switch is logged so a run proves it happened). On a light game three are indistinguishable from two: 0.05% frame rate, same display latency. Each slot is one FP16 target at the output resolution (66 MB at 4K) and only the selected number is allocated.
             - Also fixes a real scheduling bug: when two slots held the same command-list pointer, the older (already submitted) one was returned and the newer one **never got submitted**, stalling it until the 5-second abandon.
             - Built on **[OptiScaler](https://github.com/optiscaler/OptiScaler)** (GPL-3.0), **[dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)**, and **[RenoDX](https://github.com/clshortfuse/renodx)** (MIT; the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 addon).
             - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`

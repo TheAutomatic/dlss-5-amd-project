@@ -127,15 +127,16 @@ void RenderMenu(Config* config, float menuResScale)
             bool everyFrame = config->AmdEveryFrame.value_or_default();
             if (ImGui::Checkbox("Every-frame NR", &everyFrame))
                 config->AmdEveryFrame = everyFrame;
-            HelpMarker("Off (default): Temporal history on, skip a frame if the previous network is"
+            HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
                        "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
                        "\n\nOn: after Execute, wait for the HIP job only (Temporal off). Does not wait"
                        "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at 720p; the next"
                        "\nRecord may still skip if GPU work is in flight.");
 
             // Range 2-5. The ini also accepts NR slots = 1, which reproduces the
-            // old one-frame-outstanding path at a large frame-rate cost; it is
-            // deliberately not selectable here. When the ini says 1 the slider
+            // old one-frame-outstanding path; it is deliberately not selectable
+            // here, and it was not part of the 2-vs-3 measurement, so nothing in
+            // the tooltip claims a number for it. When the ini says 1 the slider
             // starts at 2 and the note below says so, rather than showing a
             // number the game is not using.
             const int stored = std::clamp(config->AmdSlots.value_or_default(), 1, 5);
@@ -145,18 +146,20 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::SliderInt("NR slots", &slots, 2, 5);
             editingSlots = ImGui::IsItemActive();
             if (ImGui::IsItemDeactivatedAfterEdit()) config->AmdSlots = slots;
-            HelpMarker("How many frames may be in flight at the NR stage. Every frame has to wait"
-                       "\nfor its own denoise, so when a frame finds all buffers busy it is recorded"
-                       "\nwith NO denoise at all - faster, and visibly worse.\n"
-                       "\n3 (default): measured identical to 2 where 2 is already enough (0.05% on"
-                       "\nOnimusha, same latency), and 2 drops denoise on 31.8% of frames on a heavy"
-                       "\nscene (YYSLS) where 3 drops none. NR throughput there is 35.6 -> 45.8/s.\n"
-                       "\n2: lower latency on a heavy scene (47.9 ms vs 63.2 ms to display on YYSLS),"
-                       "\nat the cost of that skipping.\n"
-                       "\n4-5: headroom for a scene heavier than 3 can hold. On a scene where 3 is"
-                       "\nalready enough they cost nothing, but they are not known to be faster.\n"
-                       "\nEach buffer is one FP16 target at the output resolution (66 MB at 4K), and"
-                       "\nonly the selected number is allocated. Takes effect without a restart.");
+            HelpMarker("How many frames may be in flight at the NR stage, 2-5. Every frame has to"
+                       "\nwait for its own denoise, so a frame that finds all buffers busy is"
+                       "\nrecorded with NO denoise at all - faster, and that frame stays noisy.\n"
+                       "\n3 (default): on Onimusha measured identical to 2 (0.05% frame rate, same"
+                       "\nto-display latency); on YYSLS, 2 left 31.8% of frames undenoised where 3"
+                       "\nleft none. Denoised frames per second there: 35.6 at 2, 45.8 at 3.\n"
+                       "\n2: on YYSLS, lower latency (47.9 ms vs 63.2 ms to display) at the cost of"
+                       "\nthat skipping.\n"
+                       "\n4-5: headroom for a scene heavier than 3 can hold. Not measured, and not"
+                       "\nknown to be faster.\n"
+                       "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
+                       "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
+                       "\nOnly the selected number is allocated. No restart needed.\n"
+                       "\nThe ini also accepts 1 (the old single-slot path); this slider does not.");
             if (stored < 2)
                 ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
         }

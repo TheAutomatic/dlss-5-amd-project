@@ -4,7 +4,7 @@
 
 **OptiScaler** + **AMD neural rendering** so **pure-DLSS games** can run neural denoise on AMD GPUs. Super-resolution is **FFX/FSR**.
 
-`1.8.0` = this repository; `0.3.0` = required upstream runtime.
+`1.8.2` = this repository; `0.3.0` = required upstream runtime.
 
 > Not a reimplementation of the neural core, and not a ReShade filter.  
 > Path: **game DLSS inputs → this repo → DLSSNR (0.3.0) → FFX/FSR**.
@@ -16,7 +16,7 @@
 | Upstream | What they did | What this project adds |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | General upscaler proxy | Still the install/run vehicle |
-| **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Dual-slot every-frame**; generic folder picker in the installer |
+| **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Adjustable NR slots**: no more skip-on-busy; generic folder picker in the installer |
 | **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** (below: original project; danielblnc = original author) | AMD neural runtime | **Core untouched**; original author’s 0.3.0 |
 
 ### Every-frame NR and "slots"
@@ -33,17 +33,18 @@ NR is inline: the game waits for its own denoise before it can present. This mod
 | Onimusha (light) | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
 | YYSLS (heavy) | 19.25 ms, **31.8% of frames undenoised** | 21.85 ms, **0 skipped** |
 
-- On a light game 3 slots are **indistinguishable from 2** (0.05% frame rate, same display latency),
+- On Onimusha 3 slots are **indistinguishable from 2** (0.05% frame rate, same display latency),
   so the default costs nothing there
 - On a heavy scene 2 slots drop nearly a third of the denoise; 3 slots give **29% more denoised
   frames per second** (35.6 -> 45.8)
 - 2 slots do show lower display latency on that scene (47.9 vs 63.2 ms) — that is the third of the
   denoising being skipped, not a free win
-- **4-5 slots** are headroom for a scene heavier than this, and are **not known to be faster**.
-  Each slot is one FP16 target at the output resolution (66 MB at 4K), and **only the selected
-  number is allocated**
-- The ini's `AmdSlots` also accepts `1` (the old one-frame-outstanding path, a large frame-rate
-  cost, **not recommended**); the menu does not offer it
+- **4-5 slots** are headroom for a scene heavier than this. **Not measured**, and not known to be
+  faster. Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a
+  4K output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is
+  allocated**
+- The ini's `AmdSlots` also accepts `1` (the old one-frame-outstanding path); the menu does not
+  offer it
 
 The earlier single-slot measurement (~33.5 fps vs ~44.6 fps dual-slot) came from **no longer
 blocking the recording thread on the previous NR job**, not from a faster neural core.
@@ -130,6 +131,6 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
 - [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0** (not redistributed)  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 neural rendering addon; full text in `Licenses/RenoDX_ATTRIBUTION.txt`  
-- This project: dual-slot every-frame, installer, packaging  
+- This project: NR slots, installer, packaging  
 
 No NVIDIA binaries, NR weights, or author pass DLL are included. Follow each upstream’s license.
