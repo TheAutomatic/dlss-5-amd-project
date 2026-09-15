@@ -94,6 +94,11 @@ exports/review-s6/
 exports/review-s7/
 exports/review-s7-ks1/
 
+# Codex 会话导出与答复汇总 —— 外部代理的中间产物，随时重生成。
+# 2026-09-15：`git add -A` 曾把其中两个（`_codex_134944_last/prev.txt`）
+# 扫进 777dfcd；靠显式 `git add <文件>` 躲开不是办法，规则挡掉。
+exports/_codex_*
+
 # MSVC 中间产物 —— 可由 build-review-*.cmd 完全重建，不应进仓库。
 # 2026-09-14：此前 `git add -A exports` 把 review-s*/obj/ 一路扫进来，
 # 单个 OptiScaler.pch 达 183 MB，直接导致 GitHub push 被 GH001 拒绝。
