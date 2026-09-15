@@ -138,3 +138,38 @@ analysis/version-pe.json
 analysis/dxre-audit.txt
 # 分析输入（原作者二进制），本机自备
 analysis/*-runtime.dll
+
+# ---------------------------------------------------------------------------
+# exports/ 默认【全部忽略】，需要的文件逐条放行（白名单）。
+#
+# 起因：`git add -A` / `git add exports/` 把这个目录里的本地文件扫进提交，
+# 2026-09-15 之前已经栽过三次（repo-recreate-checklist、_codex_*、review-s*/obj）。
+# 黑名单挡不住下一个没想到的文件名，所以反过来做：默认不进，要进就写一行。
+#
+# 注意：gitignore 对**已跟踪**的文件无效。下面 17 个放行条目对应的是当前
+# 已跟踪的那些文档和脚本 —— 保留它们是为了让「这个目录里什么该进仓库」
+# 一眼可见；即使某个文件被 git rm --cached 掉再想加回来，也仍然放行。
+#
+# 新增一个要进仓库的文件（例如新写的简报）：
+#   ① 在下面加一行 `!exports/<文件名>`  ← 推荐，rules 里留痕
+#   ② 或者单次 `git add -f exports/<文件名>`（pre-commit 会拦住忘记加规则的那种）
+#
+# 本目录下不打算进仓库的东西（本地清单、日志快照、构建产物）保持无放行条目即可。
+exports/*
+!exports/a03-staging-state.md
+!exports/gpt-brief-20260914.md
+!exports/gpt-brief-outstanding-5-20260915.md
+!exports/gpt-brief-release-20260914.md
+!exports/gpt-brief-slots-20260915.md
+!exports/gpt-outstanding-5-findings-20260915.md
+!exports/gpt-review-20260914.md
+!exports/gpt-review-tonight-20260915.md
+!exports/gpt_inspect.py
+!exports/mimo-brief-git-audit-20260915.md
+!exports/pm_a03_stats.py
+!exports/pm_stats.py
+!exports/response-to-gpt-review-20260914.md
+!exports/retirement_stats.py
+!exports/slots-evidence-plan-20260915.md
+!exports/slots-reexec-probe-design-20260915.md
+!exports/slots-retire-fix-design-20260915.md
