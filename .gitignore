@@ -104,15 +104,30 @@ exports/review-s7-ks1/
 *.obj
 *.lib
 
-# 2026-09-15 清理：下面这些类别曾被误提交，规则挡住以免再来。
-# 判据：能从发布物反推出来的，都不进 git。
-analysis/**/*.pyc
+# 2026-09-15 清理：analysis/ 从 292 个跟踪文件降到 16 个。
+# 判据只有一条：能从发布物反推出来的，都不进 git。
+# analysis/ 本身不 ignore —— 里面留着现行构建脚本和 0.3.0 逆向工具，
+# 它们产出的东西才 ignore。
+#
+# 注意：gitignore 的 # 只在【行首】才是注释，行内 # 会被当成模式的一部分。
+# 下面这些注释必须独占一行，否则规则静默失效。
 analysis/__pycache__/
-analysis/ghidra/
+analysis/**/*.pyc
 analysis/quality-lab/
-analysis/_*.py
+# Ghidra 工程库，工具自己重建
+analysis/ghidra/
+# 下划线前缀的一次性脚本与其输出
+analysis/_*
+analysis/*.exe
+analysis/*.obj
+analysis/*.rgba16f
+# smoke 输出（*.log 已被 analysis/*.log 覆盖，*.txt 没有）
+analysis/smoke-*
+# 反汇编/反编译转储：disassemble_*.py 按需重生成
 analysis/*-decompile.txt
 analysis/*-disassembly.txt
 analysis/diagnostics-test.txt
 analysis/version-strings.txt
 analysis/dxre-audit.txt
+# 分析输入（原作者二进制），本机自备
+analysis/*-runtime.dll
