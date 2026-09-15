@@ -36,7 +36,7 @@ OptiScaler-AMD-PreSR*.zip
 *.ilk
 *.exp
 
-# 分析用整包/Ghidra/烟雾测试输出 —— 2026-09-14 已 git rm --cached，只留本地
+# 本地分析产物（整包 / 工程库 / 烟雾测试输出）—— 只留本地
 analysis/setup-*-test*/
 analysis/installer-gui-*/
 analysis/ghidra/
@@ -73,7 +73,6 @@ dist/
 # 这条与上游 OptiScaler 一致（它的 .gitignore 也是 *.dll + 单条例外）。
 # 注意：gitignore 对「已跟踪」的文件无效，已跟踪的要用 git rm --cached 才生效。
 *.dll
-!.analysis-tools/capstone/lib/capstone.dll
 !OptiScaler-DLSSNR-PreSR-Multipass-main/external/directx_agility_sdk/lib/D3D12Core.dll
 
 # 编辑器/会话
@@ -119,7 +118,7 @@ exports/_codex_*
 analysis/__pycache__/
 analysis/**/*.pyc
 analysis/quality-lab/
-# Ghidra 工程库，工具自己重建
+# 逆向工程工具的工程库，工具自己重建
 analysis/ghidra/
 # 下划线前缀的一次性脚本与其输出
 analysis/_*
@@ -128,7 +127,7 @@ analysis/*.obj
 analysis/*.rgba16f
 # smoke 输出（*.log 已被 analysis/*.log 覆盖，*.txt 没有）
 analysis/smoke-*
-# 反汇编/反编译转储：disassemble_*.py 按需重生成
+# 二进制分析转储：按需重生成
 analysis/*-decompile.txt
 analysis/*-disassembly.txt
 analysis/diagnostics-test.txt
@@ -136,8 +135,19 @@ analysis/version-strings.txt
 # 作者 DLL 的 PE 头与导出表
 analysis/version-pe.json
 analysis/dxre-audit.txt
-# 分析输入（原作者二进制），本机自备
+# 分析输入（第三方运行时二进制），本机自备
 analysis/*-runtime.dll
+
+# 本机二进制分析工具与脚本 —— 不影响发布，2026-09-15 起不进仓库。
+# 只留能复现发布的三样：
+#   analysis/build-release-local.cmd          本地跑一遍 CI 等价的 Release
+#   analysis/compilecheck-nomacro.cmd         无诊断宏时的编译检查
+#   analysis/experimental-lighting/Lighting.hlsl
+#       ↑ package-amd-presr/experimental_lighting 里那两个 .cso 的源，是发布资产
+# 其余（分析脚本、测量脚本、vendored 工具）只留本地。
+.analysis-tools/
+analysis/*.py
+analysis/capture-slots-sweep.ps1
 
 # ---------------------------------------------------------------------------
 # 内部文档不进仓库（2026-09-15 定）：exports/ 与 .handoff/ 整个忽略，
