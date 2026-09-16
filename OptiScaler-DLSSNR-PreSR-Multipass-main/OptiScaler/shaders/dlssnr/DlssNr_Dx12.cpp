@@ -1,6 +1,7 @@
 #include "pch.h"
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/amd/GraphicsTracker.h>
+#include <dlssnr/amd/GraphicsRestoreDx12.h>
 
 #include <set>
 
@@ -1449,20 +1450,29 @@ struct ScopedNrStateEnvelope
 {
     ID3D12GraphicsCommandList* cmd;
     ScopedSkipHeapCapture skipHeap;
+    // AmdGraphicsWait only: freeze/restore the graphics snapshot around NR.
+    bool froze = false;
+    AmdPreSr::GraphicsSnap::GraphicsSnapshot frozen {};
+    AmdPreSr::GraphicsSnap::RestorePlan restorePlan {};
 
     explicit ScopedNrStateEnvelope(ID3D12GraphicsCommandList* c) : cmd(c)
     {
         D3D12Hooks::SetRootSignatureTracking(false);
-        // AMD graphics tracker: suppress observer updates during A.Record / B encoding.
-        // No-op when AmdGraphicsWait=0 (tracker disabled).
-        AmdPreSr::GraphicsSnap::GraphicsTracker().PushSuppress(reinterpret_cast<uint64_t>(c));
+        const auto listId = reinterpret_cast<uint64_t>(c);
+        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
+        froze = tracker.TryFreeze(listId, frozen);
+        if (froze)
+            AmdPreSr::GraphicsSnap::BuildRestorePlan(frozen, restorePlan);
+        // Suppress observer updates during A.Record / B encoding.
+        tracker.PushSuppress(listId);
     }
 
     ~ScopedNrStateEnvelope()
     {
-        // Pop suppress first so RestoreRoot's bridge reports (fromRestore=true) and any
-        // subsequent game Set* are observed. RestoreRoot itself bypasses observers.
-        AmdPreSr::GraphicsSnap::GraphicsTracker().PopSuppress(reinterpret_cast<uint64_t>(cmd));
+        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
+        tracker.PopSuppress(reinterpret_cast<uint64_t>(cmd));
+        if (froze && restorePlan.count)
+            AmdPreSr::GraphicsSnap::ApplyRestorePlan(cmd, frozen, restorePlan);
         D3D12Hooks::RestoreRoot(cmd);
         D3D12Hooks::SetRootSignatureTracking(true);
     }
