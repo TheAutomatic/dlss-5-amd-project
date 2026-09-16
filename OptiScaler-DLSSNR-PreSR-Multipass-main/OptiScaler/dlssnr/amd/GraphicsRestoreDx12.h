@@ -84,10 +84,14 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
                 cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
             else if (c.count == 1)
             {
-                // Caller must pass a handle that is still valid; OM CPU copies are
-                // filled in by the host when it snapshots OMSetRenderTargets.
                 D3D12_CPU_DESCRIPTOR_HANDLE rtv { snap.om.rtvHandles[0] };
-                cmd->OMSetRenderTargets(1, &rtv, FALSE, snap.om.hasDsv ? nullptr : nullptr);
+                if (snap.om.hasDsv)
+                {
+                    D3D12_CPU_DESCRIPTOR_HANDLE dsv { snap.om.dsvHandle };
+                    cmd->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+                }
+                else
+                    cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
             }
             break;
         case RestoreOp::SetPredicationDisabled:

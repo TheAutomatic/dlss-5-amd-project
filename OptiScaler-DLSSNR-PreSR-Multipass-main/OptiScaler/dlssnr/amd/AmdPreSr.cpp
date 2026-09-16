@@ -864,13 +864,14 @@ struct Backend::Impl
         if (hipSet(hipDevice) != 0 || !reinterpret_cast<InitFn>(reinterpret_cast<uintptr_t>(h) + L->init)(
                                           reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(h) + L->engine), &file))
             throw std::runtime_error("AMD engine initialization failed");
-        // Graphics spin changes state B cannot yet fully restore. Keep the
-        // host on compute; this does not claim equivalence to A 0.3.0 or solve
-        // every native timeout. SpinDraw is an INI field, not an environment variable.
+        // SpinDraw must be set before the first staging Record so A can create
+        // its graphics PSO. AmdGraphicsWait=1 requests graphics; otherwise compute.
         if (L->spinDraw)
         {
-            At<int>(h, L->spinDraw) = 0;
-            Log("AMD runtime: SpinDraw=0 (host supports compute spin only)");
+            const int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
+            At<int>(h, L->spinDraw) = want;
+            Log(want ? std::string("AMD runtime: SpinDraw=1 (graphics wait via AmdGraphicsWait)")
+                     : std::string("AMD runtime: SpinDraw=0 (compute spin)"));
         }
         At<uint8_t>(h, L->initDone) = 1;
         Log("Initialized independent AMD pass " + std::to_string(i + 1));
@@ -1001,10 +1002,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                    std::to_string(p->unsubmittedSkips));
         return nullptr;
     }
-    if (cfg.spinDraw != 0 && !p->graphicsFallbackReported)
+    if (Config::Instance()->AmdGraphicsWait.value_or_default() && cfg.spinDraw == 0 && !p->graphicsFallbackReported)
     {
         p->graphicsFallbackReported = true;
-        p->Log("AMD AmdSpinDraw setting ignored: graphics state restoration is incomplete; using compute spin");
+        p->Log("AMD AmdGraphicsWait requested but Settings.spinDraw is 0; check bridge wiring");
     }
     const auto deviceStatus = p->device->GetDeviceRemovedReason();
     if (FAILED(deviceStatus))
@@ -1479,7 +1480,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         {
             auto r = p->runtime[i];
             if (L->spinDraw)
-                At<int>(r, L->spinDraw) = 0;
+                At<int>(r, L->spinDraw) = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
             // 0x8d9bd is Temporal in the original 0.2.17. Default on (skip-frame path).
             // Every-frame mode matches author 0.3: skip history inputs, do not
             // clear history-valid (0x8d018) each frame.

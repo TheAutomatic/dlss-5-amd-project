@@ -830,6 +830,54 @@ static void hkIASetPrimitiveTopology(ID3D12GraphicsCommandList* commandList,
 }
 
 VALIDATE_HOOK(hkOMSetRenderTargets, PFN_OMSetRenderTargets)
+
+// Private RTV/DSV copies so restore does not re-read a CPU handle the game may have rewritten.
+namespace
+{
+std::mutex s_omCopyMutex;
+ComPtr<ID3D12DescriptorHeap> s_omRtvHeap;
+ComPtr<ID3D12DescriptorHeap> s_omDsvHeap;
+UINT s_omRtvCap = 0;
+UINT s_omDsvCap = 0;
+UINT s_omRtvCursor = 0;
+UINT s_omDsvCursor = 0;
+
+bool EnsureOmHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT need, ComPtr<ID3D12DescriptorHeap>& heap,
+                  UINT& cap, UINT& cursor)
+{
+    if (!device)
+        return false;
+    if (heap && cap >= need)
+        return true;
+    D3D12_DESCRIPTOR_HEAP_DESC d {};
+    d.Type = type;
+    d.NumDescriptors = need < 16 ? 16 : need;
+    d.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    ComPtr<ID3D12DescriptorHeap> fresh;
+    if (FAILED(device->CreateDescriptorHeap(&d, IID_PPV_ARGS(&fresh))))
+        return false;
+    heap = fresh;
+    cap = d.NumDescriptors;
+    cursor = 0;
+    return true;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE CopyCpuDescriptor(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type,
+                                              D3D12_CPU_DESCRIPTOR_HANDLE src, ComPtr<ID3D12DescriptorHeap>& heap,
+                                              UINT& cap, UINT& cursor)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE null {};
+    if (!device || !EnsureOmHeap(device, type, 8, heap, cap, cursor))
+        return null;
+    auto dst = heap->GetCPUDescriptorHandleForHeapStart();
+    const UINT inc = device->GetDescriptorHandleIncrementSize(type);
+    dst.ptr += static_cast<SIZE_T>(cursor) * inc;
+    cursor = (cursor + 1) % cap;
+    device->CopyDescriptorsSimple(1, dst, src, type);
+    return dst;
+}
+} // namespace
+
 static void hkOMSetRenderTargets(ID3D12GraphicsCommandList* commandList, UINT NumRenderTargetDescriptors,
                                  const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors,
                                  BOOL RTsSingleHandleToDescriptorRange,
@@ -841,18 +889,37 @@ static void hkOMSetRenderTargets(ID3D12GraphicsCommandList* commandList, UINT Nu
         UINT n = NumRenderTargetDescriptors;
         if (n > AmdPreSr::GraphicsSnap::kMaxRTVs)
             n = AmdPreSr::GraphicsSnap::kMaxRTVs;
+        ID3D12Device* device = nullptr;
+        commandList->GetDevice(IID_PPV_ARGS(&device));
+        std::lock_guard<std::mutex> omLock(s_omCopyMutex);
         if (pRenderTargetDescriptors)
         {
             if (RTsSingleHandleToDescriptorRange)
-                handles[0] = pRenderTargetDescriptors[0].ptr;
+            {
+                auto copy = CopyCpuDescriptor(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, pRenderTargetDescriptors[0],
+                                              s_omRtvHeap, s_omRtvCap, s_omRtvCursor);
+                handles[0] = copy.ptr;
+            }
             else
             {
                 for (UINT i = 0; i < n; ++i)
-                    handles[i] = pRenderTargetDescriptors[i].ptr;
+                {
+                    auto copy = CopyCpuDescriptor(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, pRenderTargetDescriptors[i],
+                                                  s_omRtvHeap, s_omRtvCap, s_omRtvCursor);
+                    handles[i] = copy.ptr;
+                }
             }
         }
         const bool hasDsv = pDepthStencilDescriptor != nullptr;
-        const uint64_t dsv = hasDsv ? pDepthStencilDescriptor->ptr : 0;
+        uint64_t dsv = 0;
+        if (hasDsv)
+        {
+            auto copy = CopyCpuDescriptor(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, *pDepthStencilDescriptor, s_omDsvHeap,
+                                          s_omDsvCap, s_omDsvCursor);
+            dsv = copy.ptr;
+        }
+        if (device)
+            device->Release();
         AmdPreSr::GraphicsSnap::GraphicsTracker().ReportRenderTargets(
             AmdListId(commandList), n, handles, RTsSingleHandleToDescriptorRange != FALSE, hasDsv, dsv);
     }
