@@ -260,6 +260,16 @@ struct ListTracker
     bool ineligible = false;
     GraphicsSnapshot snap;
 
+    // D3D12 Create/Reset leave predication disabled and OM empty; those are
+    // known API defaults, not "never observed".
+    void AdoptApiDefaults()
+    {
+        snap = GraphicsSnapshot {};
+        snap.predication.state = BindState::KnownUnset;
+        snap.predication.resource = 0;
+        snap.om.state = BindState::KnownUnset;
+    }
+
     void OnCreate(std::uint64_t id)
     {
         listId = id;
@@ -267,7 +277,7 @@ struct ListTracker
         generationKnown = true;
         live = true;
         ineligible = false;
-        snap = GraphicsSnapshot {};
+        AdoptApiDefaults();
     }
 
     // Only a successful Reset starts a new generation and adopts API defaults.
@@ -277,7 +287,7 @@ struct ListTracker
             return false;
         ++generation;
         ineligible = false;
-        snap = GraphicsSnapshot {};
+        AdoptApiDefaults();
         return true;
     }
 
