@@ -983,7 +983,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         ++p->gfxAdmitSamples;
         if (reason && reason[0] == 'o' && reason[1] == 'k')
             ++p->gfxAdmitOk;
-        else if (p->gfxAdmitSamples <= 3 || p->gfxAdmitSamples % 300 == 0)
+        // Always heartbeat (including success): silent success looks like "not running".
+        if (p->gfxAdmitSamples <= 3 || p->gfxAdmitSamples % 300 == 0)
             p->Log("AMD graphics admission n=" + std::to_string(p->gfxAdmitSamples) + " ok=" +
                    std::to_string(p->gfxAdmitOk) + " reason=" + (reason ? reason : "?") +
                    " listType=" + std::to_string(static_cast<UINT>(listType)));
