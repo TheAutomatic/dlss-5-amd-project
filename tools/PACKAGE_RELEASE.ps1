@@ -1,17 +1,17 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.2-0.3.0
-    1.8.2  = this fork's product version
-    0.3.0  = required author AMD NR runtime version
+  Default product: OptiScaler-AMD-PreSR-1.8.3-0.3.1
+    1.8.3  = this fork's product version
+    0.3.1  = primary upstream NR runtime (0.3.0 still accepted)
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.2-0.3.0 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.8.3-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.2-0.3.0',
+    [string]$Version = '1.8.3-0.3.1',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -177,7 +177,7 @@ $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1fals
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
 ; Product $Version — NR slots default 3 (2-5 in-game, 1-5 here).
-; Requires DLSS-NR-on-AMD 0.3.0 (https://github.com/danielblnc/DLSS-NR-on-AMD)
+; Requires DLSS-NR-on-AMD 0.3.0 or 0.3.1 (https://github.com/danielblnc/DLSS-NR-on-AMD)
 ; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
 Enabled=false
 RunBeforeSR=true

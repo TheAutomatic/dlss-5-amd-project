@@ -1,17 +1,17 @@
 [中文](README.md) | **English**
 
-# OptiScaler AMD pre-SR — 1.8.2-0.3.0
+# OptiScaler AMD pre-SR — 1.8.3-0.3.1
 
 **OptiScaler** + **AMD neural rendering** so **pure-DLSS games** can run neural denoise on AMD GPUs. Super-resolution is **FFX/FSR**.
 
-`1.8.2` = this repository; `0.3.0` = required upstream runtime.
+`1.8.3` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 (If you got this package from a mirror or cloud drive, use the repository above as the source of truth.)
 
 > Not a reimplementation of the neural core, and not a ReShade filter.  
-> Path: **game DLSS inputs → this repo → DLSSNR (0.3.0) → FFX/FSR**.
+> Path: **game DLSS inputs → this repo → DLSSNR (0.3.1 / 0.3.0) → FFX/FSR**.
 
 ---
 
@@ -21,7 +21,7 @@
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | General upscaler proxy | Still the install/run vehicle |
 | **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Adjustable NR slots**: more in-flight buffers reduce busy-frame skips; generic folder picker in the installer |
-| **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** (below: original project; danielblnc = original author) | AMD neural runtime | **Core untouched**; original author’s 0.3.0 |
+| **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** (below: original project; danielblnc = original author) | AMD neural runtime | **Core untouched**; original author’s 0.3.1 / 0.3.0 |
 
 ### Inline NR and "slots"
 
@@ -82,7 +82,7 @@ This package only contains the OptiScaler layer. There are two input routes: pro
 
 | File name | What it is | Where to get it |
 |---|---|---|
-| `dlssnr_on_amd_setup.exe` | Original author’s **0.3.0** setup | [Original project 0.3.0 Release](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
+| `dlssnr_on_amd_setup.exe` | Original author’s **0.3.1 / 0.3.0** setup | [Original project Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
 | `nvngx_dlssnr.dll` | DLSS 5 neural-rendering runtime | Shipped with some recent games; or obtain online |
 | (optional) ready `version.dll` / `dlssnr_on_amd_weights.bin` | Skip a setup run | Produced by a previous original-author setup run |
 
@@ -91,7 +91,7 @@ This package only contains the OptiScaler layer. There are two input routes: pro
 If `version.dll` or `weights.bin` is still missing when you run this package’s `Setup.bat`, it **launches the original-author setup** (after you pick the game folder), then continues.  
 If `nvngx_dlssnr.dll` is only next to `Setup.bat` and not in the game folder, the installer **copies it into the game folder** after you pick that folder (original-author 0.3.0 looks for it there).
 
-**Only 0.3.0 is supported.** Other versions will not run — the installer rejects them.
+**Only 0.3.0 or 0.3.1 is supported.** Other versions will not run — the installer rejects them.
 
 ### Step 2 — Run the installer (recommended)
 
@@ -115,7 +115,7 @@ The second prompt comes from **danielblnc’s original 0.3.0 setup**, which this
 | Source | Installed as |
 |---|---|
 | This zip `OptiScaler.dll` | your chosen proxy (default `dxgi.dll`) |
-| `version.dll` (0.3.0) from `dlssnr_on_amd_setup.exe` | `dlssnr_amd_pass1/2/3.dll` |
+| `version.dll` (0.3.1 or 0.3.0) from `dlssnr_on_amd_setup.exe` | `dlssnr_amd_pass1/2/3.dll` |
 | Your `dlssnr_on_amd_weights.bin` | copied as-is |
 
 The scripted installer does **not** leave `version.dll` in the game folder. To inject as `version.dll` itself, use the manual steps below.
@@ -161,7 +161,7 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) (GPL-3.0)  
 - [**Dagherbou/OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) (GPL-3.0) — this project's OptiScaler code is based on it (`v0.2.0-dlssnr` / commit `97376162`)
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
-- [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0** (not redistributed)  
+- [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.1 / 0.3.0** (not redistributed)  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 neural rendering addon; full text in `Licenses/RenoDX_ATTRIBUTION.txt`  
 - This project: NR slots, installer, packaging  
 

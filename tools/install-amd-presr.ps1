@@ -558,7 +558,7 @@ foreach ($f in $found) {
     if ($f.Name -ieq 'version.dll' -and -not $f.IsOptiScaler) {
         try {
             $h = Get-Sha256 $f.Path
-            if ($h -eq $expectedA03 -or $h -eq $knownA0217) { $isAuthorNative = $true }
+            if ($expectedAuthor -contains $h -or $h -eq $knownA0217) { $isAuthorNative = $true }
         } catch { }
     }
     if ($isAuthorNative) {

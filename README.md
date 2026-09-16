@@ -1,17 +1,17 @@
 **中文** | [English](README.en.md)
 
-# OptiScaler AMD pre-SR — 1.8.2-0.3.0
+# OptiScaler AMD pre-SR — 1.8.3-0.3.1
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**，让 **纯 DLSS 游戏** 在 AMD 显卡上跑神经降噪；超分由 **FFX/FSR** 完成。
 
-`1.8.2` = 本仓库版本；`0.3.0` = 必需的上游运行时版本。
+`1.8.3` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 （若你从网盘等渠道拿到本包，请以上述仓库为准。）
 
 > 不是神经核的重实现，也不是 ReShade 滤镜。  
-> 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.0）→ FFX/FSR 超分**。
+> 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.1 / 0.3.0）→ FFX/FSR 超分**。
 
 ---
 
@@ -21,7 +21,7 @@
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分代理（DLSS / FFX / XeSS） | 仍作为安装与运行主体 |
 | **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **NR 槽位可调**：增加在飞缓冲，减少忙时跳过；安装器改为通用目录选择 |
-| **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)**（以下简称原项目，danielblnc 为原作者） | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.0 调用 |
+| **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)**（以下简称原项目，danielblnc 为原作者） | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.1 / 0.3.0 调用 |
 
 ### 内联 NR 与「槽位」
 
@@ -72,7 +72,7 @@ NR 是内联的：获得槽的帧要等自己的降噪算完才出图。本模�
 
 | 文件名 | 是什么 | 从哪来 |
 |---|---|---|
-| `dlssnr_on_amd_setup.exe` | 原作者的 **0.3.0** 安装程序 | [原项目 0.3.0 Release](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
+| `dlssnr_on_amd_setup.exe` | 原作者的 **0.3.1 / 0.3.0** 安装程序 | [原项目 Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
 | `nvngx_dlssnr.dll` | DLSS 5 神经渲染运行库 | 部分最新游戏自带；也可自行从网上获取 |
 | （可选）现成的 `version.dll` / `dlssnr_on_amd_weights.bin` | 已经生成过就可直接放 | 跑过一次原作者 setup 后会得到 |
 
@@ -81,7 +81,7 @@ NR 是内联的：获得槽的帧要等自己的降噪算完才出图。本模�
 双击本包的 `Setup.bat` 时，若还没有 `version.dll` 或 `weights.bin`，会 **自动启动原作者 setup** 帮你生成（在选完游戏目录之后），然后再继续安装本项目。  
 若 `nvngx_dlssnr.dll` 只在本包目录、游戏目录没有，安装器会在你选完游戏文件夹后 **自动复制一份进去**（原作者 0.3.0 会在游戏目录找它）。
 
-**只认 0.3.0。** 其它版本装了也跑不了，安装器会直接拒绝。
+**只认 0.3.0 / 0.3.1。** 其它版本装了也跑不了，安装器会直接拒绝。
 
 ### 第二步：运行安装器（推荐）
 
@@ -95,7 +95,7 @@ NR 是内联的：获得槽的帧要等自己的降噪算完才出图。本模�
 
 **有时会让你选两次游戏目录，这是正常的，不是 Bug。**
 
-第二次是**原作者 danielblnc 的 0.3.0 安装工具**在问——本项目需要调用它生成 `version.dll` / 权重，所以会再要一次路径。两次都选同一个游戏文件夹即可。
+第二次是**原作者 danielblnc 的安装工具**在问——本项目需要调用它生成 `version.dll` / 权重，所以会再要一次路径。两次都选同一个游戏文件夹即可。
 
 **游戏文件夹**是放着游戏主程序的那个目录（安装 OptiScaler 用的同款路径）：
 
@@ -107,7 +107,7 @@ NR 是内联的：获得槽的帧要等自己的降噪算完才出图。本模�
 | 来源 | 装到游戏目录后变成 |
 |---|---|
 | 本包 `OptiScaler.dll` | 你选的代理名（默认 `dxgi.dll`） |
-| `dlssnr_on_amd_setup.exe` 生成的 `version.dll`（0.3.0） | `dlssnr_amd_pass1.dll`、`dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll` |
+| `dlssnr_on_amd_setup.exe` 生成的 `version.dll`（0.3.1 或 0.3.0） | `dlssnr_amd_pass1.dll`、`dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll` |
 | 你的 `dlssnr_on_amd_weights.bin` | 原样复制 |
 
 自动安装 **不会**把 `version.dll` 留在游戏目录里（那会和代理冲突）。若你想用 `version.dll` 这个名字注入，可走下面的手动安装。
@@ -154,7 +154,7 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler)（GPL-3.0）  
 - [**Dagherbou/OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR)（GPL-3.0）—— 本项目的 OptiScaler 代码基于它（`v0.2.0-dlssnr` / commit `97376162`）
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
-- [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0**（不随本包分发）  
+- [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.1 / 0.3.0**（不随本包分发）  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx)（MIT）—— `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon，全文见 `Licenses/RenoDX_ATTRIBUTION.txt`  
 - 本项目：NR 槽位、安装器、打包  
 

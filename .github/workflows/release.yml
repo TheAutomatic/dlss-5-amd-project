@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version (fork-runtime), e.g. 1.8.2-0.3.0'
+        description: 'Product version (fork-runtime), e.g. 1.8.3-0.3.1'
         required: false
-        default: '1.8.2-0.3.0'
+        default: '1.8.3-0.3.1'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.2-0.3.0'
+          $v = '1.8.3-0.3.1'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -232,6 +232,6 @@ jobs:
             - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, and takes effect without a restart. Too few slots and a frame that finds every buffer busy carries **no denoise at all**. In one heavy-scene A/B session, the runtime skip counter rose by about **1200-1440 per two-slot segment** and stayed flat with three slots. In a separate 60-second-per-step sweep it rose by **1800** at two slots and stayed flat at three, four and five. Each test changed the count inside its own session and logged the switch; the two sessions' counts are not compared. On a light scene no difference between two and three slots was detected. Each slot is one FP16 target sized to the **DLSS render resolution**, not the output — about **29 MB per slot** for a 4K output at DLSS Quality — and only the selected number is allocated.
             - Also fixes a real scheduling bug: when two slots held the same command-list pointer, the older (already submitted) one was returned and the newer one **never got submitted**, so that slot did no work.
             - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
-            - User-supplied files: **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** setup plus `nvngx_dlssnr.dll`; alternatively, provide an already-generated 0.3.0 `version.dll` and `dlssnr_on_amd_weights.bin`. See the README for the exact install flow.
+            - User-supplied files: **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.1 (or 0.3.0)** setup plus `nvngx_dlssnr.dll`; alternatively, provide an already-generated `version.dll` and `dlssnr_on_amd_weights.bin`. See the README for the exact install flow.
             - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs are included in this zip.
             - See README inside the zip.

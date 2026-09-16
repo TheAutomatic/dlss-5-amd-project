@@ -177,7 +177,7 @@ const AmdLayout* IdentifyRuntime(const std::filesystem::path& file)
     if (result < 0)
         return nullptr;
     for (auto layout : kAmdLayouts)
-        if (data.size() == layout->size && std::memcmp(digest, layout->sha256, 32) == 0)
+        if (data.size() == layout->size && std::memcmp(digest, layout->sha256.bytes, 32) == 0)
             return layout;
     return nullptr;
 }
@@ -1807,12 +1807,16 @@ std::string Backend::Status() const
             if (count > p->observedTimeouts[i])
                 reportedTimeouts += count - p->observedTimeouts[i];
         }
+    // Menu / Status must name the runtime that was actually identified —
+    // 0.3.0 and 0.3.1 are both valid, and the user cannot tell them apart
+    // from pass DLL filenames alone.
+    const std::string runtimeTag = L ? (std::string("AMD runtime ") + L->name + " | ") : std::string();
     if (!p->failed && p->lastSubmitted)
-        return p->status + (p->rtgiStatus.empty() ? "" : " | " + p->rtgiStatus) + " | completed frames=" + std::to_string(p->completedFrames) +
+        return runtimeTag + p->status + (p->rtgiStatus.empty() ? "" : " | " + p->rtgiStatus) + " | completed frames=" + std::to_string(p->completedFrames) +
                (p->lastCompleted ? " last completion " + std::to_string((GetTickCount64() - p->lastCompleted) / 1000) + "s ago" : " no successful completion") +
                " | timeout events=" + std::to_string(reportedTimeouts) +
                " | skipped pending/GPU=" + std::to_string(p->pendingSkips) + "/" + std::to_string(p->fenceSkips);
-    return p->status;
+    return runtimeTag + p->status;
 }
 UINT64 Backend::RecordedFrames() const { return p->frames; }
 void Backend::InvalidateHistory() { p->resetRequested.store(true); }
