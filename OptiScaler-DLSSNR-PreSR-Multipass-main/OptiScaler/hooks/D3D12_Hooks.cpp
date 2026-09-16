@@ -108,6 +108,10 @@ using PFN_IASetPrimitiveTopology =
     rewrite_signature<decltype(&ID3D12GraphicsCommandList::IASetPrimitiveTopology)>::type;
 using PFN_OMSetRenderTargets = rewrite_signature<decltype(&ID3D12GraphicsCommandList::OMSetRenderTargets)>::type;
 using PFN_SetPredication = rewrite_signature<decltype(&ID3D12GraphicsCommandList::SetPredication)>::type;
+using PFN_CommandListReset = rewrite_signature<decltype(&ID3D12GraphicsCommandList::Reset)>::type;
+using PFN_CreateCommandList =
+    HRESULT(WINAPI*)(ID3D12Device*, UINT, D3D12_COMMAND_LIST_TYPE, ID3D12CommandAllocator*,
+                     ID3D12PipelineState*, REFIID, void**);
 
 template <typename T> struct RootRestoreHook
 {
@@ -200,7 +204,9 @@ static RootRestoreHook<PFN_RSSetScissorRects> s_RSSetScissorRects {};
 static RootRestoreHook<PFN_IASetPrimitiveTopology> s_IASetPrimitiveTopology {};
 static RootRestoreHook<PFN_OMSetRenderTargets> s_OMSetRenderTargets {};
 static RootRestoreHook<PFN_SetPredication> s_SetPredication {};
+static RootRestoreHook<PFN_CommandListReset> s_CommandListReset {};
 static bool s_amdGraphicsTrackerHooks = false;
+static PFN_CreateCommandList o_CreateCommandList = nullptr;
 
 static thread_local bool lateInProgressSetDescriptorHeaps = false;
 static thread_local bool lateInProgressSetPipelineState = false;
@@ -867,6 +873,26 @@ static void WINAPI hkSetPredication(ID3D12GraphicsCommandList* commandList, ID3D
     s_SetPredication.o_earlyHook(commandList, pBuffer, AlignedBufferOffset, Operation);
 }
 
+static HRESULT WINAPI hkCreateCommandList(ID3D12Device* device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
+                                          ID3D12CommandAllocator* allocator, ID3D12PipelineState* initial,
+                                          REFIID riid, void** list)
+{
+    const HRESULT hr = o_CreateCommandList(device, nodeMask, type, allocator, initial, riid, list);
+    if (AmdGfxTrackerOn() && SUCCEEDED(hr) && list && *list)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(*list));
+    return hr;
+}
+
+VALIDATE_HOOK(hkCommandListReset, PFN_CommandListReset)
+static HRESULT WINAPI hkCommandListReset(ID3D12GraphicsCommandList* commandList, ID3D12CommandAllocator* allocator,
+                                         ID3D12PipelineState* initial)
+{
+    const HRESULT hr = s_CommandListReset.o_earlyHook(commandList, allocator, initial);
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().OnReset(AmdListId(commandList), SUCCEEDED(hr));
+    return hr;
+}
+
 // Late hooks, from upscaler eval
 VALIDATE_HOOK(hkSetPipelineStateLate, PFN_SetPipelineState)
 static void hkSetPipelineStateLate(ID3D12GraphicsCommandList* commandList, ID3D12PipelineState* pPipelineState)
@@ -1458,6 +1484,7 @@ static void HookToCommandList(ID3D12Device* InDevice)
             s_IASetPrimitiveTopology.o_earlyHook = (PFN_IASetPrimitiveTopology) pVTable[20];
             s_OMSetRenderTargets.o_earlyHook = (PFN_OMSetRenderTargets) pVTable[46];
             s_SetPredication.o_earlyHook = (PFN_SetPredication) pVTable[55];
+            s_CommandListReset.o_earlyHook = (PFN_CommandListReset) pVTable[10];
 
             if (s_SetPipelineState.o_earlyHook || s_SetDescriptorHeaps.o_earlyHook ||
                 s_SetComputeRootSignature.o_earlyHook || s_SetGraphicsRootSignature.o_earlyHook ||
@@ -1546,6 +1573,8 @@ static void HookToCommandList(ID3D12Device* InDevice)
                         DetourAttach(&(PVOID&) s_OMSetRenderTargets.o_earlyHook, hkOMSetRenderTargets);
                     if (s_SetPredication.o_earlyHook != nullptr)
                         DetourAttach(&(PVOID&) s_SetPredication.o_earlyHook, hkSetPredication);
+                    if (s_CommandListReset.o_earlyHook != nullptr)
+                        DetourAttach(&(PVOID&) s_CommandListReset.o_earlyHook, hkCommandListReset);
                 }
 
                 if (DetourTransactionCommit() == NO_ERROR)
@@ -2449,6 +2478,7 @@ static void HookToDevice(ID3D12Device* InDevice)
     o_GetResourceAllocationInfo = (PFN_GetResourceAllocationInfo) pVTable[25];
     o_CreateCommittedResource = (PFN_CreateCommittedResource) pVTable[27];
     o_CreatePlacedResource = (PFN_CreatePlacedResource) pVTable[29];
+    o_CreateCommandList = (PFN_CreateCommandList) pVTable[12];
 
     ID3D12Device1* device12_1 = nullptr;
     if (realDevice)
@@ -2515,6 +2545,9 @@ static void HookToDevice(ID3D12Device* InDevice)
             if (o_CreatePlacedResource != nullptr)
                 DetourAttach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
         }
+
+        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList != nullptr)
+            DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
 
         auto detourResult = DetourTransactionCommit();
         if (detourResult != NO_ERROR)
