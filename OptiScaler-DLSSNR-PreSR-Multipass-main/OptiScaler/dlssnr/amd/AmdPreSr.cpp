@@ -6,6 +6,8 @@
 #include "RuntimeNotification.h"
 #include "RuntimeHostLoad.h"
 #include "SubmissionState.h"
+#include "GraphicsTracker.h"
+#include <Config.h>
 #include "ColorEncoding.h"
 #include "AmdLookShader.h"
 #include "RtgiNative.h"
@@ -248,6 +250,7 @@ struct Backend::Impl
     bool completionOrderValid = true;
     bool graphicsFallbackReported = false;
     UINT64 frames = 0, serial = 0;
+    UINT64 gfxAdmitSamples = 0, gfxAdmitOk = 0;
     UINT64 lastSubmitted = 0, lastCompleted = 0, completedFrames = 0;
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
     UINT64 retryAfter = 0, timeoutEvents = 0;
@@ -972,6 +975,19 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     const auto listType = cmd->GetType();
     if (listType != D3D12_COMMAND_LIST_TYPE_DIRECT && listType != D3D12_COMMAND_LIST_TYPE_COMPUTE)
         return nullptr;
+    // Admission coverage only (AmdGraphicsWait=1). Does not enable A graphics wait.
+    if (Config::Instance()->AmdGraphicsWait.value_or_default())
+    {
+        const auto listId = reinterpret_cast<uint64_t>(cmd);
+        const auto* reason = GraphicsSnap::GraphicsTracker().AdmitReason(listId);
+        ++p->gfxAdmitSamples;
+        if (reason && reason[0] == 'o' && reason[1] == 'k')
+            ++p->gfxAdmitOk;
+        else if (p->gfxAdmitSamples <= 3 || p->gfxAdmitSamples % 300 == 0)
+            p->Log("AMD graphics admission n=" + std::to_string(p->gfxAdmitSamples) + " ok=" +
+                   std::to_string(p->gfxAdmitOk) + " reason=" + (reason ? reason : "?") +
+                   " listType=" + std::to_string(static_cast<UINT>(listType)));
+    }
     // A owns only one not-yet-notified list/job. Submitted slots remain free
     // to overlap; do not overwrite that singleton while waiting for Execute.
     if (p->HasUnsubmitted())

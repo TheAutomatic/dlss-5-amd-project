@@ -211,13 +211,20 @@ class Tracker
 
     bool CanAdmit(uint64_t listId) const
     {
+        auto* reason = AdmitReason(listId);
+        return reason && reason[0] == 'o' && reason[1] == 'k' && reason[2] == '\0';
+    }
+
+    // Stable reason token for logs; first string is from CanAdmitGraphics.
+    const char* AdmitReason(uint64_t listId) const
+    {
         std::shared_lock lock(mutex_);
         if (!enabled_)
-            return false;
+            return "tracker_off";
         auto it = trackers_.find(listId);
         if (it == trackers_.end())
-            return false;
-        return CanAdmitGraphics(it->second).ok;
+            return "no_record";
+        return CanAdmitGraphics(it->second).reason;
     }
 
     // True when this list has a live record (generation may still be unknown).

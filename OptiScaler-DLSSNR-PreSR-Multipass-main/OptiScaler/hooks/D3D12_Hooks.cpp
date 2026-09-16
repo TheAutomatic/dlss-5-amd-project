@@ -856,8 +856,8 @@ static void hkOMSetRenderTargets(ID3D12GraphicsCommandList* commandList, UINT Nu
 }
 
 VALIDATE_HOOK(hkSetPredication, PFN_SetPredication)
-static void hkSetPredication(ID3D12GraphicsCommandList* commandList, ID3D12Resource* pBuffer,
-                             UINT64 AlignedBufferOffset, D3D12_PREDICATION_OPERATION Operation)
+static void WINAPI hkSetPredication(ID3D12GraphicsCommandList* commandList, ID3D12Resource* pBuffer,
+                                    UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation)
 {
     if (AmdGfxTrackerOn() && commandList != nullptr)
         AmdPreSr::GraphicsSnap::GraphicsTracker().ReportPredication(

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include <dlssnr/amd/AmdBridge.h>
+#include <dlssnr/amd/GraphicsTracker.h>
 
 #include <set>
 
@@ -1461,7 +1462,7 @@ struct ScopedNrStateEnvelope
     {
         // Pop suppress first so RestoreRoot's bridge reports (fromRestore=true) and any
         // subsequent game Set* are observed. RestoreRoot itself bypasses observers.
-        AmdPreSr::GraphicsSnap::GraphicsTracker().PopSuppress(reinterpret_cast<uint64_t>(c));
+        AmdPreSr::GraphicsSnap::GraphicsTracker().PopSuppress(reinterpret_cast<uint64_t>(cmd));
         D3D12Hooks::RestoreRoot(cmd);
         D3D12Hooks::SetRootSignatureTracking(true);
     }
