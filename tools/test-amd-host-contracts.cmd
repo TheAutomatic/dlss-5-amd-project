@@ -15,6 +15,10 @@ cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\amd_graphics_snapshot.cpp /Fe"%AMD_
 if errorlevel 1 exit /b 1
 "%AMD_TEST_OUT%\amd_graphics_snapshot.exe"
 if errorlevel 1 exit /b 1
+cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\amd_graphics_tracker.cpp /Fe"%AMD_TEST_OUT%\amd_graphics_tracker.exe" /Fo"%AMD_TEST_OUT%\amd_graphics_tracker.obj"
+if errorlevel 1 exit /b 1
+"%AMD_TEST_OUT%\amd_graphics_tracker.exe"
+if errorlevel 1 exit /b 1
 cl /nologo /std:c++20 /EHsc /W4 /utf-8 /IOptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include tests\amd_runtime_host_load.cpp /Fe"%AMD_TEST_OUT%\amd_runtime_host_load.exe" /Fo"%AMD_TEST_OUT%\amd_runtime_host_load.obj" /link OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib
 if errorlevel 1 exit /b 1
 "%AMD_TEST_PYTHON%" -B tests\amd_runtime_host_fixture.py "%AMD_TEST_OUT%\amd_runtime_bootstrap_fixture.dll"

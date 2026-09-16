@@ -302,6 +302,9 @@ class Config
     // Retained for existing INIs. The host currently forces compute (0) because
     // graphics waiting changes state the host cannot completely restore.
     CustomOptional<int> AmdSpinDraw { 0 };
+    // Experimental: enable the AMD graphics snapshot tracker (admission capture).
+    // Default 0 keeps the r26/r27 compute path unchanged. Startup-only; no hot toggle.
+    CustomOptional<int> AmdGraphicsWait { 0 };
     CustomOptional<bool> AmdRtgiEnabled { false };
     CustomOptional<uint32_t> AmdRtgiQuality { 2 };
     CustomOptional<uint32_t> AmdRtgiDenoiser { 1 };

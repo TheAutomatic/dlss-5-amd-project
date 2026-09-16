@@ -1452,10 +1452,16 @@ struct ScopedNrStateEnvelope
     explicit ScopedNrStateEnvelope(ID3D12GraphicsCommandList* c) : cmd(c)
     {
         D3D12Hooks::SetRootSignatureTracking(false);
+        // AMD graphics tracker: suppress observer updates during A.Record / B encoding.
+        // No-op when AmdGraphicsWait=0 (tracker disabled).
+        AmdPreSr::GraphicsSnap::GraphicsTracker().PushSuppress(reinterpret_cast<uint64_t>(c));
     }
 
     ~ScopedNrStateEnvelope()
     {
+        // Pop suppress first so RestoreRoot's bridge reports (fromRestore=true) and any
+        // subsequent game Set* are observed. RestoreRoot itself bypasses observers.
+        AmdPreSr::GraphicsSnap::GraphicsTracker().PopSuppress(reinterpret_cast<uint64_t>(c));
         D3D12Hooks::RestoreRoot(cmd);
         D3D12Hooks::SetRootSignatureTracking(true);
     }
