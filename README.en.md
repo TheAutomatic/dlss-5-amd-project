@@ -6,7 +6,7 @@
 
 `1.8.3` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
-**Wait mode: compute only.** The 0.3.1 graphics wait (1-pixel draws) is **not wired up in this build**. The host forces `SpinDraw=0`; the menu shows *compute only*. Do not describe this release as “0.3.1 graphics supported”.
+**Wait mode: compute only.** The 0.3.1 graphics wait (1-pixel draws) is **not wired up in this build**. This package forces `SpinDraw=0`; the menu shows *compute only*. Do not describe this release as “0.3.1 graphics supported”.
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -137,7 +137,68 @@ If an old OptiScaler or other inject DLL is already in the game folder, the inst
 3. Enable **DLSSNR**. The original-project version (`0.3.1` or `0.3.0`) should appear to the right of the checkbox.  
 4. You now get **DLSS5-style neural denoise + FFX/FSR** super-resolution (**compute wait**).
 
-More OptiScaler options: [OptiScaler Wiki](https://github.com/optiscaler/OptiScaler/wiki).
+Other OptiScaler options (hotkeys, compatibility, more FG modes): [OptiScaler Wiki](https://github.com/optiscaler/OptiScaler/wiki).
+
+> **Optional (not part of DLSSNR):** the collapsed section below is two **external** ways to get **3x+ multi-frame generation**. None of those files ship in this zip.
+
+<details>
+<summary><strong>Optional: 3x+ multi-frame generation</strong> (Arturs / XeFG — expand)</summary>
+
+Both paths need files you download yourself. This project ships **neither**. After editing the ini, **save and restart**. Keep `[FrameGen] External=false` (`true` turns Opti's FG off for that process). Do **not** enable both paths at once.
+
+---
+
+#### 1. Arturs (DLSS Enabler)
+
+1. Get `dlss-enabler-headless.dll` from the original author (not a third-party mash-up):  
+   [artur-graniszewski/DLSS-Enabler](https://github.com/artur-graniszewski/DLSS-Enabler/releases) or [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)  
+2. That exact filename, in the **`OptiScaler\`** folder next to the proxy / `OptiScaler.ini`.  
+3. If the game already has DLSSG:
+
+```ini
+[FrameGen]
+External=false
+Enabled=true
+FGInput=nvngxfg
+FGOutput=auto
+FGNvngxReplacement=Arturs
+```
+
+   If it only has upscaling, use the Wiki's `FGInput=upscaler` + `FGOutput=dlssg`.  
+4. The log line `Artur's initialized` means it loaded.
+
+Details: [OptiScaler Wiki · Frame Generation](https://github.com/optiscaler/OptiScaler/wiki) and Enabler's own docs. This project does not redistribute that DLL.
+
+---
+
+#### 2. XeFG (XeMFG DP4A Unlocker)
+
+`XeFGUnlock.asi` and the matching `XeFGUnlock.ini` come from the **OptiScaler official group post "XeMFG DP4A Unlocker"**. This build loads them with the existing ASI loader — **no unlock patches in this repo, and none in the zip**. Output is **XeFG** (you still need this pack's `libxess_fg.dll` / `libxell.dll`); it is **not** NVIDIA DLSSG and **not** the Arturs path above.
+
+1. Put both files in the game's `OptiScaler\plugins\` folder (same tree as `libxess_fg.dll`). Do not add `-loadlate`.  
+2. Edit the game-root **`OptiScaler.ini`**, not the plugin ini. If the game has Streamline DLSS-FG:
+
+```ini
+[Plugins]
+LoadAsiPlugins=true
+
+[FrameGen]
+External=false
+Enabled=true
+FGInput=dlssg
+FGOutput=xefg
+
+[XeFG]
+InterpolationCount=1
+```
+
+   Leave `Path=auto` (that is `OptiScaler\plugins`). If there is no DLSS-FG, set `FGInput=upscaler`.  
+   `InterpolationCount`: `1` = 2x, `2` = 3x, `3` = 4x. This build only accepts 1–3.  
+3. The plugin ini (`XeFGUnlock.ini`) only holds unlock switches, e.g. `UnlockMFG=true`, `MaxInterpolatedFrames=3`. The plugin's `3` is only a cap; `InterpolationCount` in the game's `OptiScaler.ini` is the actual multiplier. For a first run set `DisableLogging=false` so `XeFGUnlock.log` appears next to the ASI.  
+4. Get XeFG working at 2x first, then set `InterpolationCount` to 2 or 3. Pass means: `OptiScaler.log` shows `Loaded: ...XeFGUnlock.asi`; the plugin log recognized the provider and reported a successful unlock. A menu multiplier alone is not enough.
+
+</details>
+
 
 ---
 
