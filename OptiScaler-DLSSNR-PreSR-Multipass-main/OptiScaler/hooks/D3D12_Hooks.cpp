@@ -111,6 +111,7 @@ using PFN_IASetPrimitiveTopology =
 using PFN_OMSetRenderTargets = rewrite_signature<decltype(&ID3D12GraphicsCommandList::OMSetRenderTargets)>::type;
 using PFN_SetPredication = rewrite_signature<decltype(&ID3D12GraphicsCommandList::SetPredication)>::type;
 using PFN_CommandListReset = rewrite_signature<decltype(&ID3D12GraphicsCommandList::Reset)>::type;
+using PFN_CommandListClearState = void(WINAPI*)(ID3D12GraphicsCommandList*);
 using PFN_CreateCommandList =
     HRESULT(WINAPI*)(ID3D12Device*, UINT, D3D12_COMMAND_LIST_TYPE, ID3D12CommandAllocator*,
                      ID3D12PipelineState*, REFIID, void**);
@@ -207,6 +208,7 @@ static RootRestoreHook<PFN_IASetPrimitiveTopology> s_IASetPrimitiveTopology {};
 static RootRestoreHook<PFN_OMSetRenderTargets> s_OMSetRenderTargets {};
 static RootRestoreHook<PFN_SetPredication> s_SetPredication {};
 static RootRestoreHook<PFN_CommandListReset> s_CommandListReset {};
+static PFN_CommandListClearState o_CommandListClearState = nullptr;
 static bool s_amdGraphicsTrackerHooks = false;
 static PFN_CreateCommandList o_CreateCommandList = nullptr;
 
@@ -970,6 +972,14 @@ static HRESULT WINAPI hkCommandListReset(ID3D12GraphicsCommandList* commandList,
     return hr;
 }
 
+// ClearState is not Reset: bindings go to API defaults; generation is not proven fresh.
+static void WINAPI hkCommandListClearState(ID3D12GraphicsCommandList* commandList)
+{
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().OnClearState(AmdListId(commandList));
+    o_CommandListClearState(commandList);
+}
+
 // Late hooks, from upscaler eval
 VALIDATE_HOOK(hkSetPipelineStateLate, PFN_SetPipelineState)
 static void hkSetPipelineStateLate(ID3D12GraphicsCommandList* commandList, ID3D12PipelineState* pPipelineState)
@@ -1562,6 +1572,7 @@ static void HookToCommandList(ID3D12Device* InDevice)
             s_OMSetRenderTargets.o_earlyHook = (PFN_OMSetRenderTargets) pVTable[46];
             s_SetPredication.o_earlyHook = (PFN_SetPredication) pVTable[55];
             s_CommandListReset.o_earlyHook = (PFN_CommandListReset) pVTable[10];
+            o_CommandListClearState = (PFN_CommandListClearState) pVTable[11];
 
             if (s_SetPipelineState.o_earlyHook || s_SetDescriptorHeaps.o_earlyHook ||
                 s_SetComputeRootSignature.o_earlyHook || s_SetGraphicsRootSignature.o_earlyHook ||
@@ -1652,6 +1663,8 @@ static void HookToCommandList(ID3D12Device* InDevice)
                         DetourAttach(&(PVOID&) s_SetPredication.o_earlyHook, hkSetPredication);
                     if (s_CommandListReset.o_earlyHook != nullptr)
                         DetourAttach(&(PVOID&) s_CommandListReset.o_earlyHook, hkCommandListReset);
+                    if (o_CommandListClearState != nullptr)
+                        DetourAttach(&(PVOID&) o_CommandListClearState, hkCommandListClearState);
                 }
 
                 if (DetourTransactionCommit() == NO_ERROR)
