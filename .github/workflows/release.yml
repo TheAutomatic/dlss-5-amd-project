@@ -192,12 +192,22 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Same tripwire as PACKAGE_RELEASE.ps1, applied to the zip contents too.
-          $bad = Get-ChildItem dist\OptiScaler-AMD-PreSR-* -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$' }
-          if ($bad) {
-            $bad | ForEach-Object { Write-Host $_.FullName }
-            throw 'Refusing to publish: proprietary/user-supplied binaries found in dist\'
+          # Independent CI tripwire: inspect the exact archive that Release uploads.
+          $ver = '${{ steps.ver.outputs.version }}'
+          $zipPath = "dist\OptiScaler-AMD-PreSR-$ver.zip"
+          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath))
+          try {
+            $bad = @($archive.Entries |
+              Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
+              ForEach-Object { $_.FullName })
+          } finally {
+            $archive.Dispose()
+          }
+          if ($bad.Count -gt 0) {
+            $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
+            throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
 
       - name: Upload artifact
@@ -205,8 +215,8 @@ jobs:
         with:
           name: OptiScaler-AMD-PreSR
           path: |
-            dist/*.zip
-            dist/**/SHA256SUMS.txt
+            dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
+            dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Create GitHub Release
@@ -214,15 +224,14 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            dist/*.zip
+            dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
           body: |
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}** (every-frame multi-slot).
 
-            - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, takes effect without a restart. Too few slots and a frame that finds every buffer busy carries **no denoise at all**. On a heavy scene, two slots dropped **1200-1440 frames** of denoise in a segment while three dropped none, and a
-            separate 60-second sweep measured **1800** at two slots against 0 at three (measured by flipping the count inside a single session; the switch is logged, so a run proves it happened). On a light scene three slots are indistinguishable from two. Each slot is one FP16 target sized to the **DLSS render resolution**, not the output — about **29 MB per slot** for a 4K output at DLSS Quality — and only the selected number is allocated.
+            - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, and takes effect without a restart. Too few slots and a frame that finds every buffer busy carries **no denoise at all**. In one heavy-scene A/B session, the runtime skip counter rose by about **1200-1440 per two-slot segment** and stayed flat with three slots. In a separate 60-second-per-step sweep it rose by **1800** at two slots and stayed flat at three, four and five. Each test changed the count inside its own session and logged the switch; the two sessions' counts are not compared. On a light scene no difference between two and three slots was detected. Each slot is one FP16 target sized to the **DLSS render resolution**, not the output — about **29 MB per slot** for a 4K output at DLSS Quality — and only the selected number is allocated.
             - Also fixes a real scheduling bug: when two slots held the same command-list pointer, the older (already submitted) one was returned and the newer one **never got submitted**, so that slot did no work.
             - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
-            - Requires **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** + local weights (not bundled).
-            - No NVIDIA DLLs / weights / author pass DLL in this zip.
+            - User-supplied files: **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.0** setup plus `nvngx_dlssnr.dll`; alternatively, provide an already-generated 0.3.0 `version.dll` and `dlssnr_on_amd_weights.bin`. See the README for the exact install flow.
+            - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs are included in this zip.
             - See README inside the zip.

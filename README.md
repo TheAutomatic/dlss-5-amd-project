@@ -6,6 +6,10 @@
 
 `1.8.2` = 本仓库版本；`0.3.0` = 必需的上游运行时版本。
 
+**项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+（若你从网盘等渠道拿到本包，请以上述仓库为准。）
+
 > 不是神经核的重实现，也不是 ReShade 滤镜。  
 > 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.0）→ FFX/FSR 超分**。
 
@@ -16,32 +20,32 @@
 | 上游 | 他们做了什么 | 本项目额外做了什么 |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分代理（DLSS / FFX / XeSS） | 仍作为安装与运行主体 |
-| **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **NR 槽位可调**：忙则跳 → 每帧都有降噪；安装器改为通用目录选择 |
+| **[dlss-5-amd（Matheus）](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR：DLSS 输入 → AMD NR → FFX | **NR 槽位可调**：增加在飞缓冲，减少忙时跳过；安装器改为通用目录选择 |
 | **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)**（以下简称原项目，danielblnc 为原作者） | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.0 调用 |
 
-### 每帧 NR 与「槽位」
+### 内联 NR 与「槽位」
 
-NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模组为在飞的降噪各留一块缓冲（**槽**）——
-槽不够时，那一帧会**整帧跳过降噪**，更快但画质掉。
+NR 是内联的：获得槽的帧要等自己的降噪算完才出图。本模组为在飞的降噪各留一块缓冲（**槽**）——
+槽不够时，那一帧会**整帧跳过降噪**，更快但可能降低画质。
 
 **默认 3 槽。** 游戏内 `DLSS Neural Rendering` → `NR slots` 可调（2–5，改完即生效，不用重启）。
 
-| 实测（**4K FSR 超级性能档**，相当于 720p 渲染、锁 60；**同一次会话里原地切槽**，场景与 GPU 状态都冻住） | 2 槽 | 3 槽 |
+| 实测（以下只是测试条件，项目不限于 720p：**4K FSR 超级性能档**，相当于 720p 渲染、锁 60；**同一次会话、同一站位原地切槽**） | 2 槽 | 3 槽 |
 |---|---:|---:|
 | 鬼武者（负载轻） | 19.50 ms，**0 跳过** | 19.49 ms，**0 跳过** |
-| 燕云十六声（负载重） | 19.25 ms，**丢 1200–1440 帧降噪** | 21.85 ms，**0 跳过** |
+| 燕云十六声（负载重） | 19.05–19.25 ms，**每段丢约 1200–1440 帧降噪** | 21.78–21.89 ms，**0 跳过** |
 
-- 在鬼武者上 3 槽**与 2 槽无法区分**（帧率差 0.05%，显示延迟相同），所以默认 3 在那里不吃亏
-- 燕云那个场景，2 槽**每段丢掉 1200–1440 帧的降噪**（原项目日志计数器）；3 槽一帧不丢
-  另一次 1→5 槽扫描里，2 槽那段（60 秒）丢 **1800** 帧，3/4/5 槽都是 0
-- 同一场景下 2 槽显示延迟更低（47.9 vs 63.2 ms）——那是**少算了大量降噪**换来的，不是白赚的
-- **4–5 槽**是给比这更重的场景留的余量，**没有实测**，不保证更快
+- 在鬼武者上，2/3 槽的帧周期与显示延迟落在重复测量波动内，**没有测出差异**
+- 燕云 A/B 会话里，2 槽阶段的日志计数器分别增加约 **1200 / 1440**，3 槽阶段为 0；段长与 PresentMon 的 45 秒窗口不同，不能据此计算跳过率
+  另一次独立的 1→5 槽会话里，2 槽的 60 秒阶段计数 **1800**，3/4/5 槽都是 0；两次会话的计数不作横向比较
+- 同一 A/B 会话里，2 槽显示延迟为 47.6–47.9 ms，3 槽为 62.9–63.2 ms——前者伴随大量降噪跳过，不是同等工作的免费收益
+- **4–5 槽已经在上述扫描中测过**，在该场景没有比 3 槽更快；尚未测到真正需要 4 或 5 槽的更重场景
 - 每槽是**渲染分辨率**（DLSS 输入）的一张 FP16 纹理——4K 输出配 DLSS 质量档（1440p 渲染）
   约 29 MB，原生 4K 渲染才 66 MB——且**只按所选数量分配**
 - ini 里 `AmdSlots` 也接受 `1`（复现旧的「单帧在飞」行为），菜单不提供
 
-早期版本的对照（单槽 ~33.5 fps → 双槽 ~44.6 fps）来自**不再为等上一帧 NR 退休而卡住录制线程**，
-不是把神经核算快。
+早期的单槽与双槽数字来自不同采集会话，只能说明解除上一帧 NR 退休阻塞后的改善方向，
+不能当作精确的同局性能增益；神经核本身没有因此变快。
 
 ---
 
@@ -59,12 +63,12 @@ NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模�
 | `SHA256SUMS.txt` | 校验和 |
 | `README.md` / `README.en.md` | 本文件 |
 
-**不含**：NVIDIA 的二进制、NR 权重、原作者闭源 pass——见下一节。
+**不含**：NVIDIA 的二进制、原作者 setup、NR 权重、原作者闭源 pass——见下一节。
 
 ### 第一步：你自己准备文件（本包不附带）
 
 本压缩包 **只含** OptiScaler 这一层（`OptiScaler.dll`、依赖、安装器）。  
-下面这些要 **你自己弄好**，放在 **解压后和 `Setup.bat` 同一目录** 里，**否则无法开启 DLSS5**：
+所需文件有两种准备方式：推荐放入 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`，或者放入已经生成好的 `version.dll` + `dlssnr_on_amd_weights.bin`；**不用四个都准备**。都放在解压后和 `Setup.bat` 同一目录：
 
 | 文件名 | 是什么 | 从哪来 |
 |---|---|---|
@@ -72,7 +76,8 @@ NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模�
 | `nvngx_dlssnr.dll` | DLSS 5 神经渲染运行库 | 部分最新游戏自带；也可自行从网上获取 |
 | （可选）现成的 `version.dll` / `dlssnr_on_amd_weights.bin` | 已经生成过就可直接放 | 跑过一次原作者 setup 后会得到 |
 
-**推荐做法：只放 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`。**  
+**推荐做法：放 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`。**
+
 双击本包的 `Setup.bat` 时，若还没有 `version.dll` 或 `weights.bin`，会 **自动启动原作者 setup** 帮你生成（在选完游戏目录之后），然后再继续安装本项目。  
 若 `nvngx_dlssnr.dll` 只在本包目录、游戏目录没有，安装器会在你选完游戏文件夹后 **自动复制一份进去**（原作者 0.3.0 会在游戏目录找它）。
 
@@ -87,6 +92,10 @@ NR 是内联的：游戏每帧都要等自己的降噪算完才出图。本模�
 4. **双击 `Setup.bat`** → 弹出 **文件夹选择框** → 选中 **游戏 exe 所在的文件夹** → 确定。  
 5. 按提示选择 **注入用的代理 DLL**（默认 `dxgi.dll`；也可选 `winmm.dll`、`d3d12.dll`、`winhttp.dll`、`wininet.dll`、`dbghelp.dll`。**不支持 `dinput8.dll`**）。  
 6. 若这时还缺 `version.dll` 或 `weights.bin`，安装器会 **自动启动原作者 setup** 生成；完成后继续装本项目。
+
+**有时会让你选两次游戏目录，这是正常的，不是 Bug。**
+
+第二次是**原作者 danielblnc 的 0.3.0 安装工具**在问——本项目需要调用它生成 `version.dll` / 权重，所以会再要一次路径。两次都选同一个游戏文件夹即可。
 
 **游戏文件夹**是放着游戏主程序的那个目录（安装 OptiScaler 用的同款路径）：
 
@@ -143,10 +152,10 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 ## 署名与许可
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler)（GPL-3.0）  
-- [**Dagherbou/OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR)（GPL-3.0）—— 本包内的 `OptiScaler-DLSSNR-PreSR-Multipass-main` 即基于它（`v0.2.0-dlssnr` / commit `97376162`）  
+- [**Dagherbou/OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR)（GPL-3.0）—— 本项目的 OptiScaler 代码基于它（`v0.2.0-dlssnr` / commit `97376162`）
 - [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
 - [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.0**（不随本包分发）  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx)（MIT）—— `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon，全文见 `Licenses/RenoDX_ATTRIBUTION.txt`  
 - 本项目：NR 槽位、安装器、打包  
 
-本包不含 NVIDIA 二进制、NR weights、上游闭源 pass。请遵守各上游许可。
+本包不含 NVIDIA 二进制、原作者 setup、NR weights、上游闭源 pass。请遵守各上游许可。

@@ -283,7 +283,9 @@ Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
 # 原作者 pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有原作者 pass」。
-$forbidden = '^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+# Keep this filename-only and case-insensitive: the same expression validates the
+# staged tree and every entry in the finished archive.
+$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
 $badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match $forbidden }
 if ($badAll) {
@@ -311,6 +313,27 @@ $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
+
+# Validate the actual artifact, not only the staging tree. This catches a changed
+# archive command, a stale/wrapped staging directory, or anything injected between
+# the preflight above and Compress-Archive. An unreadable archive also fails closed.
+try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+    try {
+        $badZip = @($archive.Entries |
+            Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
+            ForEach-Object { $_.FullName })
+    } finally {
+        $archive.Dispose()
+    }
+    if ($badZip.Count -gt 0) {
+        throw "Forbidden proprietary/user-supplied file in zip: $($badZip -join ', ')"
+    }
+} catch {
+    if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+    throw "Package archive validation failed; zip removed: $($_.Exception.Message)"
+}
 Write-Host "Product: $Version"
 Write-Host "Staged:  $stage"
 Write-Host "Zip:     $zip"

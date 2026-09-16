@@ -147,16 +147,16 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::SliderInt("NR slots", &slots, 2, 5);
             editingSlots = ImGui::IsItemActive();
             if (ImGui::IsItemDeactivatedAfterEdit()) config->AmdSlots = slots;
-            HelpMarker("How many frames may be in flight at the NR stage, 2-5. Every frame has to"
-                       "\nwait for its own denoise, so a frame that finds all buffers busy is"
-                       "\nrecorded with NO denoise at all - faster, and that frame stays noisy.\n"
-                       "\n3 (default): on Onimusha measured identical to 2 (0.05% frame rate, same"
-                       "\nto-display latency); on YYSLS, 2 dropped 1200-1440 frames of denoise per"
-                       "\nsegment where 3 dropped none.\n"
-                       "\n2: on YYSLS, lower latency (47.9 ms vs 63.2 ms to display) at the cost of"
-                       "\nthat skipping.\n"
-                       "\n4-5: headroom for a scene heavier than 3 can hold. Not measured, and not"
-                       "\nknown to be faster.\n"
+            HelpMarker("How many frames may be in flight at the NR stage, 2-5. A frame that gets"
+                       "\na buffer waits for its own denoise; one that finds all buffers busy is"
+                       "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
+                       "\n3 (default): on Onimusha no difference from 2 was detected. In one YYSLS"
+                       "\nA/B session, the skip counter rose by about 1200-1440 per two-slot segment"
+                       "\nand stayed flat with 3; that log window does not yield a skip percentage.\n"
+                       "\n2: in that YYSLS session, display latency was 47.6-47.9 ms versus"
+                       "\n62.9-63.2 ms with 3, but many frames skipped denoise.\n"
+                       "\n4-5: measured in a separate sweep and no faster than 3 in that scene. A"
+                       "\nscene that actually requires a fourth or fifth slot has not been tested.\n"
                        "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
                        "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
                        "\nOnly the selected number is allocated. No restart needed.\n"
@@ -1410,4 +1410,3 @@ void RenderMenu(Config* config, float menuResScale)
 }
 
 } // namespace DlssNr
-

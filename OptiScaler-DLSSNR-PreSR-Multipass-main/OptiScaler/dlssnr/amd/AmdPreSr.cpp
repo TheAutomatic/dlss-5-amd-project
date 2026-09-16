@@ -239,22 +239,24 @@ struct Backend::Impl
     // retiring, instead of blocking the render thread in Submitted.
     //
     // Too few slots and a frame that finds every buffer busy is recorded with no
-    // NR at all. That skip feeds itself - the skipped frame presents sooner, so
-    // the next one arrives sooner still and has less room for NR - so the count
-    // is not a performance knob, it is what decides whether the mode works.
-    // Measured with the count flipped mid-run on one machine state:
+    // NR at all. Slot count therefore changes denoise coverage as well as frame
+    // timing; the available aggregate logs do not establish a causal feedback
+    // direction between skips and later capture waits.
+    // Measured with the count flipped mid-run at one standing position:
     //
-    //   Onimusha  2 slots: 0 skips, 19.50 ms/frame    3 slots: 0 skips, 19.49 ms
-    //   YYSLS     2 slots: 1200-1440 skips/segment      3 slots: 0 skips
-    //   YYSLS     a later 1-to-5 sweep: 1800 skips at 2 slots, 0 at 3, 4 and 5
+    //   Onimusha  2/3 slots: 0 skips; no frame-time difference detected
+    //   YYSLS AB  2 slots: about 1200-1440 counter increments/segment; 3: 0
+    //   YYSLS     separate 60 s sweep: 1800 at 2 slots; 0 at 3, 4 and 5
     //
     // The YYSLS "win" at two slots is frames that carried no NR at all. The
-    // count is the runtime's own skip counter, over a 60-odd-second segment.
+    // count is the runtime's own skip counter. The AB log segments and the
+    // 45-second PresentMon windows do not share boundaries, so no skip rate is
+    // derived from them and the separate sweep is not compared numerically.
     static constexpr UINT kMaxSlots = 5;
     // kDefaultSlots == 1 reproduces the original one-frame-outstanding behaviour
     // exactly, which is what the control build is for. The macro used to work the
     // other way round, so every build that forgot to define it silently produced
-    // the single-slot build at 33.5 fps - a trap that caught this project once.
+    // a lower-throughput single-slot build - a trap that caught this project once.
     // AMD_SINGLESLOT now only moves the default; the option can still raise it.
 #ifdef AMD_SINGLESLOT
     static constexpr UINT kDefaultSlots = 1;
