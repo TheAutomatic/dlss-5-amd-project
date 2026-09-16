@@ -5,6 +5,8 @@
 
 namespace AmdPreSr
 {
+// Identify pass DLL by SHA+size. Returns kAmdLayouts[].name or nullptr.
+const char* IdentifyRuntimeName(const std::filesystem::path& passDll);
 struct Frame
 {
     ID3D12Resource *colour = nullptr, *motion = nullptr, *depth = nullptr, *exposure = nullptr;
@@ -51,6 +53,8 @@ struct Settings
     bool toneChannels = false;
     float modelScale = 1;
     UINT passes = 1;
+    // Legacy preference; the host currently supports compute (0) only.
+    int spinDraw = 0;
     float tone = 0, structure = 1, skin = 1;
     LookSettings look;
     RtgiSettings rtgi;
@@ -65,7 +69,8 @@ class Backend
     Backend(ID3D12Device*, ID3D12CommandQueue*, const std::filesystem::path& directory);
     // Records pre-SR work. Returns a FP16 input for the upscaler, or nullptr on skip/failure.
     ID3D12Resource* Record(ID3D12GraphicsCommandList*, const Frame&, const Settings&);
-    // Bind the actual render queue BEFORE submission; do not launch GPU work yet.
+    // Bind the render queue and enqueue a migration dependency BEFORE Execute.
+    // Required for every submission; does not publish HIP work yet.
     int PendingListIndex(UINT, ID3D12CommandList* const*) const;
     void Submitting(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
     // Diagnostic snapshot only; does not flush, cancel, or destroy GPU work.

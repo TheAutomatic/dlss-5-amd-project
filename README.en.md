@@ -156,6 +156,62 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 
 ---
 
+## Troubleshooting / reporting a problem
+
+If the menu will not open, DLSSNR is missing, or the image looks wrong after install, collect the following first. **Include these items when you report an issue** — otherwise it is hard to tell an install problem from a runtime problem.
+
+### 1. Where the logs are
+
+Logs live **next to the proxy DLL** (`dxgi.dll` / `winmm.dll`, etc.). Common files:
+
+| File name | Written by |
+|---|---|
+| `OptiScaler.log` | This project’s main log |
+| `amd_bridge.log` | AMD bridge layer |
+| `amd_presr.log` | AMD pre-SR / NR scheduling |
+| `dlssnr_on_amd.log` | Original-author runtime (0.3.1 / 0.3.0) |
+
+**Xbox PC / some store builds** may create a folder next to the game exe (often named **`_storage_`**) because of filesystem mapping.  
+If you cannot find the `.log` files in the folder you installed into, look in:
+
+```text
+<folder containing the game exe>\_storage_\
+```
+
+The install files (proxy, `dlssnr_amd_pass1/2/3.dll`, weights) may also appear there — treat **the directory that actually writes the logs** as the real install location.
+
+### 2. Files that should sit next to the proxy
+
+Using the proxy name you chose (`dxgi.dll`, `winmm.dll`, …), the same folder should contain:
+
+| File | Notes |
+|---|---|
+| Your proxy (`dxgi.dll` / `winmm.dll` / …) | This project’s OptiScaler |
+| `dlssnr_amd_pass1.dll` | **Required**; original-author 0.3.1 or 0.3.0 |
+| `dlssnr_amd_pass2.dll`, `dlssnr_amd_pass3.dll` | Multi-pass; same bytes as pass1 |
+| `dlssnr_on_amd_weights.bin` | **Required** |
+| `nvngx_dlssnr.dll` | Common; some games ship it |
+
+Do **not** leave the original-author `version.dll` next to the proxy (double injection). The scripted installer moves it aside.
+
+### 3. In-game check
+
+1. Launch the game and press **Ins** to open the OptiScaler menu.  
+2. Confirm DLSSNR status shows **`AMD NR runtime: 0.3.x`** (0.3.1 or 0.3.0).  
+3. If it says waiting / unknown runtime / that line is missing, pass or weights are usually wrong — recheck the files above.
+
+### 4. What to include in a report
+
+When opening an issue or asking for help, state:
+
+1. **Proxy name**: `dxgi.dll`, `winmm.dll`, or something else?  
+2. **Files next to the proxy**: pass1/2/3, weights, optional `nvngx_dlssnr.dll`; any leftover `version.dll`?  
+3. **Ins menu**: does DLSSNR show `AMD NR runtime: 0.3.x`?  
+4. **Logs**: `OptiScaler.log`, `amd_bridge.log`, `amd_presr.log`, `dlssnr_on_amd.log` (say the full path if they are under `_storage_`).  
+5. Game name, GPU, driver version, and the symptom (no menu / no denoise / stutter / crash).
+
+---
+
 ## Credits & license
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) (GPL-3.0)  

@@ -81,6 +81,21 @@ class RetirementStatsTests(unittest.TestCase):
         self.assertEqual(report["waits"]["all Record"]["over"][16], 0)
         self.assertEqual(report["retired_during_record"], 1)
 
+    def test_unsubmitted_admission_skip_is_counted_separately_from_full_slots(self):
+        selected, report = analyze([
+            row(attempt=1, outcome="unsubmitted_skip", submitted=0, submitted_at=0),
+            row(attempt=2, outcome="pending_skip"),
+            row(attempt=3, outcome="recorded", accepted=1),
+        ])
+        self.assertFalse(selected.warnings)
+        self.assertEqual(len(report["records"]), 3)
+        self.assertEqual(report["outcomes"]["unsubmitted_skip"], 1)
+        self.assertEqual(report["blockers"], {
+            ("submitted", "native_pending", "fence_pending"): 1,
+        })
+        self.assertEqual(report["waits"]["not recorded"]["n"], 2)
+        self.assertIn("unsubmitted_skip=1 (33.3%)", stats.render_report(selected, report))
+
     def test_status_observations_and_duplicates_do_not_inflate_record_counts(self):
         selected, report = analyze([
             row(attempt=1), row(attempt=1),

@@ -6,21 +6,34 @@
 int main()
 {
     AmdPreSr::SubmissionState state;
+    assert(!state.BlocksRecord());
+    assert(!state.ReportStall(6000));
+    // Timestamp zero is valid; admission must still protect its pending job.
+    state.Record(0);
+    assert(state.BlocksRecord());
+    assert(state.ReportStall(6000));
+    assert(state.BlocksRecord());
+    state.Submit(6001);
+    assert(!state.BlocksRecord()); // Other slots may now Record without waiting for HIP/GPU.
+    assert(!state.CanRetire(true, 0, 0)); // A missing fence signal is not completion.
     // Resume after an old frame / menu pause: the new unsubmitted list must
     // use its own timestamp, even if a previous submission was hours ago.
     state.Record(100);
     state.Submit(120);
     assert(state.CanRetire(true, 1, 1));
     state.Record(60000);
+    assert(state.BlocksRecord());
     assert(!state.ReportStall(60001));
     assert(!state.CanRetire(true, 1, 1));
 
     // A delayed submission remains owned and can still be published later.
     assert(state.ReportStall(65001));
+    assert(state.BlocksRecord());
     assert(!state.submitted);
     assert(!state.ReportStall(65002));
     assert(!state.CanRetire(true, 100, 1));
     state.Submit(66000);
+    assert(!state.BlocksRecord());
     assert(!state.ReportStall(66001));
     assert(!state.CanRetire(true, 1, 2)); // HIP done, D3D still uses the list.
     assert(!state.CanRetire(false, 2, 2)); // D3D fallback finished, HIP still running.

@@ -124,6 +124,12 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
+            // Product OPTI_VERSION stays upstream 10.0.0-dev. Name the author
+            // runtime here so the menu is not mistaken for "no NR version".
+            if (const auto* ver = DlssNr::AmdBridge::RuntimeName(); ver && *ver)
+                ImGui::TextUnformatted(("AMD NR runtime: " + std::string(ver)).c_str());
+            else
+                ImGui::TextDisabled("AMD NR runtime: pass1 not identified yet");
             bool everyFrame = config->AmdEveryFrame.value_or_default();
             if (ImGui::Checkbox("Every-frame NR", &everyFrame))
                 config->AmdEveryFrame = everyFrame;
@@ -133,6 +139,11 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
                        "\nUltra Performance render; the next Record may still skip if GPU work is"
                        "\nin flight.");
+
+            ImGui::TextDisabled("AMD NR wait: compute only");
+            HelpMarker("This host currently supports compute waiting only."
+                       "\nGraphics waiting is unavailable until restoration of the game's graphics"
+                       "\nstate is complete. AmdSpinDraw=1 in an existing INI falls back to compute.");
 
             // Range 2-5. The ini also accepts NR slots = 1, which reproduces the
             // old one-frame-outstanding path; it is deliberately not selectable

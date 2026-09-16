@@ -149,6 +149,62 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 
 ---
 
+## 排错 / 反馈问题
+
+装完进游戏若菜单打不开、没有 DLSSNR、或画面异常，先按下面收集信息。**反馈时请一并附上这些内容**，否则很难判断是安装问题还是运行问题。
+
+### 1. 先确认日志在哪
+
+日志和代理 DLL（`dxgi.dll` / `winmm.dll` 等）在**同一目录**。常见文件：
+
+| 文件名 | 谁写的 |
+|---|---|
+| `OptiScaler.log` | 本项目主日志 |
+| `amd_bridge.log` | AMD 桥接层 |
+| `amd_presr.log` | AMD pre-SR / NR 调度 |
+| `dlssnr_on_amd.log` | 原作者运行时（0.3.1 / 0.3.0） |
+
+**Xbox PC / 部分商店版游戏**可能因为文件系统映射，在游戏 exe 旁边另建一个名字类似 **`_storage_`** 的文件夹。  
+若你安装时选的目录里找不到上述 `.log`，请到：
+
+```text
+<游戏 exe 所在目录>\_storage_\
+```
+
+再找一遍。安装文件（代理、`dlssnr_amd_pass1/2/3.dll`、weights）有时也会出现在那里——以**实际能写出日志的那个目录**为准。
+
+### 2. 确认代理旁应有的文件
+
+以你安装时选的代理名为准（例如 `dxgi.dll` 或 `winmm.dll`），同一目录里应有：
+
+| 文件 | 说明 |
+|---|---|
+| 你选的代理（`dxgi.dll` / `winmm.dll` / …） | 本项目 OptiScaler |
+| `dlssnr_amd_pass1.dll` | **必须**；原作者 0.3.1 或 0.3.0 |
+| `dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll` | 多 pass 用；内容与 pass1 相同 |
+| `dlssnr_on_amd_weights.bin` | **必须** |
+| `nvngx_dlssnr.dll` | 常见；部分游戏自带 |
+
+**不要**再留一份原作者的 `version.dll` 与代理并存（会双注入）。自动安装会把它挪走。
+
+### 3. 游戏内自检
+
+1. 启动游戏，按 **Ins** 打开 OptiScaler 菜单。  
+2. 看 **DLSSNR** 状态是否显示：**`AMD NR runtime: 0.3.x`**（0.3.1 或 0.3.0）。  
+3. 若显示 waiting / 未识别 runtime / 没有该行，多半是 pass 或 weights 路径不对，回到上一节核对文件。
+
+### 4. 反馈时请写清
+
+请在 Issue / 反馈里写明：
+
+1. **代理名**：`dxgi.dll`、`winmm.dll`，还是其它？  
+2. **代理旁文件是否齐全**：pass1/2/3、weights、（可选）`nvngx_dlssnr.dll`；有没有多余的 `version.dll`？  
+3. **Ins 菜单**：DLSSNR 是否显示 `AMD NR runtime: 0.3.x`？  
+4. **日志**：`OptiScaler.log`、`amd_bridge.log`、`amd_presr.log`、`dlssnr_on_amd.log`（若在 `_storage_` 请说明完整路径）。  
+5. 游戏名、显卡、驱动版本，以及问题现象（打不开菜单 / 无降噪 / 卡顿 / 崩溃）。
+
+---
+
 ## 署名与许可
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler)（GPL-3.0）  

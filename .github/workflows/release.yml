@@ -136,16 +136,12 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
 
-      - name: State-machine regression
+      - name: AMD host-contract regression
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path $env:BUILD_OUT | Out-Null
-          cl /nologo /std:c++20 /EHsc /W4 tests\amd_submission_state.cpp `
-            /Fe"$env:BUILD_OUT\amd_submission_state.exe" `
-            /Fo"$env:BUILD_OUT\amd_submission_state.obj"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$env:BUILD_OUT\amd_submission_state.exe"
+          # Uses a generated test PE, never a proprietary author runtime or a GPU.
+          cmd /d /c tools\test-amd-host-contracts.cmd "$env:BUILD_OUT"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build OptiScaler Release (default = multi-slot)

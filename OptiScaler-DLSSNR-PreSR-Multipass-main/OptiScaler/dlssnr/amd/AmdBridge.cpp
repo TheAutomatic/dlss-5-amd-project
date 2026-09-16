@@ -7,6 +7,8 @@
 #include <misc/SkipSpoof.h>
 #include <detours/detours.h>
 #include <atomic>
+#include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <unordered_set>
@@ -128,6 +130,43 @@ bool HasFiles()
     // frame". Recheck until the package path becomes available.
     std::error_code ec;
     return std::filesystem::exists(Directory() / L"dlssnr_amd_pass1.dll", ec);
+}
+const char* RuntimeName()
+{
+    // The menu queries this every frame. Cache both known and unknown hashes,
+    // but recheck the path and metadata so an early proxy-path query or a DLL
+    // replacement does not leave a stale display for the rest of the process.
+    // Runtime loading still performs its own full SHA validation.
+    static std::mutex cacheMutex;
+    static std::filesystem::path cachedPath;
+    static std::uintmax_t cachedSize = 0;
+    static std::filesystem::file_time_type cachedWriteTime {};
+    static const char* cachedName = nullptr;
+    static bool cached = false;
+    std::lock_guard lock(cacheMutex);
+    std::error_code ec;
+    const auto path = Directory() / L"dlssnr_amd_pass1.dll";
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec)
+    {
+        cached = false;
+        return nullptr;
+    }
+    const auto writeTime = std::filesystem::last_write_time(path, ec);
+    if (ec)
+    {
+        cached = false;
+        return nullptr;
+    }
+    if (!cached || path != cachedPath || size != cachedSize || writeTime != cachedWriteTime)
+    {
+        cachedName = AmdPreSr::IdentifyRuntimeName(path);
+        cachedPath = path;
+        cachedSize = size;
+        cachedWriteTime = writeTime;
+        cached = true;
+    }
+    return cachedName;
 }
 bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12CommandQueue* q)
 {
@@ -329,6 +368,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     s.passes = cfg.DlssNrPasses.value_or_default();
     s.everyFrame = cfg.AmdEveryFrame.value_or_default();
     s.slots = std::clamp(cfg.AmdSlots.value_or_default(), 1, 5);
+    s.spinDraw = cfg.AmdSpinDraw.value_or_default();
     // The pinned AMD binary explicitly disables the broad lighting/colour
     // channels. Its embedded UI warns that nonzero tone mostly darkens frames.
     s.encoding=std::clamp(cfg.AmdEncoding.value_or_default(),0,3);

@@ -2974,9 +2974,18 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             if(forcePost) ReportSkipOnce("AMD neural: native Ray Reconstruction is not supported; select Super Resolution");
             return;
         }
-        // The AMD backend records compute, descriptor-heap and pipeline bindings on
-        // the game's command list too. Keep it inside the same state envelope used
-        // by the normal NR path so bindless Unreal renderers can resume safely.
+        // Match the normal NR path's compute-envelope prerequisite before the AMD
+        // runtime can record anything or replace the SR input. Returning here only
+        // skips NR; the caller still evaluates SR with its unchanged input.
+        const bool restoreRequired = cfg.RestoreComputeSignature.value_or_default() ||
+                                     cfg.RestoreGraphicSignature.value_or_default();
+        if (restoreRequired && !D3D12Hooks::CanRestoreRootSignature(cmdList))
+        {
+            ReportSkipOnce("AMD neural: the upscaler could not restore state this frame");
+            return;
+        }
+        // This envelope restores the configured compute/root state. It does not
+        // restore RS/IA/OM state; graphics waiting stays disabled in the backend.
         ScopedNrStateEnvelope amdStateEnvelope(cmdList);
         if (DlssNr::AmdBridge::Before(cmdList, params, timingQueue))
             return;

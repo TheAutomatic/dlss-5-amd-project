@@ -4,6 +4,7 @@
 #include "RetirementDiagnostics.h"
 #endif
 #include "RuntimeNotification.h"
+#include "RuntimeHostLoad.h"
 #include "SubmissionState.h"
 #include "ColorEncoding.h"
 #include "AmdLookShader.h"
@@ -54,9 +55,19 @@ struct Packet
     ID3D12Resource* exposure;
     UINT exposureState;
     float scaleX, scaleY;
-    UINT pad4c;
+    // Native FFX pre mode has different input/output semantics. B supplies its
+    // own FP16 staging and uses the existing non-pre packet path (zero).
+    uint8_t nativePre;
+    uint8_t pad4d[3];
+    UINT renderWidth, renderHeight;
+    // B does not request native pre-mode reprojection. Explicit zero avoids
+    // passing stack data as jitter; this is not a new NGX-to-FFX jitter mapping.
+    float jitterX, jitterY;
 };
-static_assert(sizeof(Packet) == 0x50 && offsetof(Packet, scaleX) == 0x44);
+static_assert(sizeof(Packet) == 0x60 && offsetof(Packet, scaleX) == 0x44);
+static_assert(offsetof(Packet, nativePre) == 0x4c && offsetof(Packet, renderWidth) == 0x50);
+static_assert(offsetof(Packet, renderHeight) == 0x54 && offsetof(Packet, jitterX) == 0x58);
+static_assert(offsetof(Packet, jitterY) == 0x5c);
 using InitFn = bool(__fastcall*)(void*, const std::string*);
 using RecordFn = void(__fastcall*)(Packet*);
 using NotifyFn = void(__fastcall*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
@@ -198,9 +209,13 @@ DXGI_FORMAT ReadFormat(DXGI_FORMAT f)
     }
 }
 } // namespace
+const char* IdentifyRuntimeName(const std::filesystem::path& passDll)
+{
+    auto* layout = IdentifyRuntime(passDll);
+    return layout ? layout->name : nullptr;
+}
 struct Backend::Impl
 {
-    std::unique_ptr<ColorEncoding> decode, encode;
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12Fence> fence;
@@ -228,6 +243,10 @@ struct Backend::Impl
     std::atomic<bool> resetRequested { true };
     Settings lastSettings {};
     bool haveSettings = false;
+    // Latch failures that invalidate the shared completion timeline. Such work
+    // remains pinned rather than being retired using an untrustworthy fence.
+    bool completionOrderValid = true;
+    bool graphicsFallbackReported = false;
     UINT64 frames = 0, serial = 0;
     UINT64 lastSubmitted = 0, lastCompleted = 0, completedFrames = 0;
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
@@ -275,6 +294,8 @@ struct Backend::Impl
         static constexpr UINT kPassUnset = 0xffffffffu;
         UINT passCount = kPassUnset;
         SubmissionState submission;
+        ComPtr<ID3D12CommandQueue> submissionQueue;
+        std::unique_ptr<ColorEncoding> decode, encode;
         // The original runtime reads this and writes its correction back into it (in place), so no
         // two outstanding jobs may share one.
         ComPtr<ID3D12Resource> colour;
@@ -298,7 +319,7 @@ struct Backend::Impl
     UINT activeSlot = 0;
     UINT skipWaits = 0;
     UINT recordCalls = 0;
-    UINT abandonedUnsubmitted = 0;
+    UINT unsubmittedSkips = 0;
     // The original runtime joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
     // change. While that is in flight the extra slot must not be used to skip
@@ -323,6 +344,13 @@ struct Backend::Impl
     {
         for (size_t k = 0; k < slots.size(); ++k)
             if (slots[k].pending.load(std::memory_order_acquire)) return true;
+        return false;
+    }
+    bool HasUnsubmitted() const
+    {
+        for (const auto& sl : slots)
+            if (sl.pending.load(std::memory_order_acquire) && sl.submission.BlocksRecord())
+                return true;
         return false;
     }
     // Prefilter: collect every slot whose recorded list appears in `lists`.
@@ -435,16 +463,30 @@ struct Backend::Impl
             {
                 D3D12_DRED_PAGE_FAULT_OUTPUT1 fault {};
                 const auto hr = dred->GetPageFaultAllocationOutput1(&fault);
-                Log("AMD DRED page fault: hr=" + std::to_string(static_cast<UINT>(hr)) +
-                    " VA=" + std::to_string(fault.PageFaultVA));
+                if (SUCCEEDED(hr))
+                    Log("AMD DRED page fault: VA=" + std::to_string(fault.PageFaultVA));
+                else
+                    // 0x887a0004: driver did not report a page fault. Do not
+                    // print "page fault" when the API said there was none.
+                    Log("AMD DRED page fault: not available hr=" +
+                        std::to_string(static_cast<UINT>(hr)));
                 D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs {};
                 const auto bh = dred->GetAutoBreadcrumbsOutput1(&breadcrumbs);
-                Log("AMD DRED breadcrumbs: hr=" + std::to_string(static_cast<UINT>(bh)));
-                UINT count = 0;
-                for (auto node = breadcrumbs.pHeadAutoBreadcrumbNode; node && count++ < 16; node = node->pNext)
-                    Log("AMD DRED list=" + std::to_string(reinterpret_cast<uintptr_t>(node->pCommandList)) +
-                        " progress=" + std::to_string(node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0) +
-                        "/" + std::to_string(node->BreadcrumbCount));
+                if (SUCCEEDED(bh))
+                {
+                    Log("AMD DRED breadcrumbs: available");
+                    UINT count = 0;
+                    for (auto node = breadcrumbs.pHeadAutoBreadcrumbNode; node && count++ < 16;
+                         node = node->pNext)
+                        Log("AMD DRED list=" +
+                            std::to_string(reinterpret_cast<uintptr_t>(node->pCommandList)) +
+                            " progress=" +
+                            std::to_string(node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0) +
+                            "/" + std::to_string(node->BreadcrumbCount));
+                }
+                else
+                    Log("AMD DRED breadcrumbs: not available hr=" +
+                        std::to_string(static_cast<UINT>(bh)));
             }
         }
     }
@@ -498,6 +540,8 @@ struct Backend::Impl
     {
         Slot& sl = slots[k];
         if (!sl.pending.load(std::memory_order_acquire))
+            return;
+        if (!completionOrderValid)
             return;
         bool nativeDone = true;
         bool timedOut = false;
@@ -560,6 +604,7 @@ struct Backend::Impl
             sl.pending.store(nullptr, std::memory_order_release);
             sl.passCount = Slot::kPassUnset;
             sl.submission = {};
+            sl.submissionQueue.Reset();
             // Clear the fence target. A later Record must not inherit a stale
             // completion from a previous generation (it made fenceOk look true
             // for a list that was never submitted).
@@ -574,20 +619,6 @@ struct Backend::Impl
                 if (completedFrames <= 3 || completedFrames % 120 == 0)
                     Log(status);
             }
-            return;
-        }
-        if (sl.submission.AbandonUnsubmitted(GetTickCount64()))
-        {
-            ++abandonedUnsubmitted;
-            Log("AMD abandon unsubmitted slot k=" + std::to_string(k) +
-                " recordedAt=" + std::to_string(sl.submission.recordedAt) +
-                " jobs=[" + std::to_string(sl.jobs[0]) + "] nativeDone=" + std::to_string(nativeDone) +
-                " count=" + std::to_string(abandonedUnsubmitted));
-            LogSlotSnapshot("abandon");
-            sl.pending.store(nullptr, std::memory_order_release);
-            sl.passCount = Slot::kPassUnset;
-            sl.submission = {};
-            sl.completion.store(0, std::memory_order_release);
             return;
         }
         if (sl.submission.ReportStall(GetTickCount64()))
@@ -777,15 +808,15 @@ struct Backend::Impl
         auto weights = directory / L"dlssnr_on_amd_weights.bin";
         if (!std::filesystem::exists(weights))
             throw std::runtime_error("dlssnr_on_amd_weights.bin is required");
-        HMODULE h =
-            LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        if (!h)
-            throw std::runtime_error("Private AMD runtime LoadLibrary failed: " + std::to_string(GetLastError()));
-        HMODULE pinned {};
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                           reinterpret_cast<LPCWSTR>(h), &pinned);
+        // A's standalone DllMain normally creates its own hook thread. Isolate
+        // the pinned bootstrap BEFORE it can run; a post-LoadLibrary patch races it.
+        HMODULE h = RuntimeHostLoad::Load(path.c_str(), L);
         // Retain module even on failure: CRT registered HIP kernels; no unsafe unloading.
         runtime[i] = h;
+        auto isolated = std::string("AMD runtime bootstrap isolated: host owns submission and configuration");
+        if (RuntimeHostLoad::LastPathFailures())
+            isolated += " (module path spelling differed from load path)";
+        Log(isolated);
         // The hash above fixes this private module's import layout. Older games
         // ship a 2013 D3DCompiler that rejects the FP16 typed UAV load shader.
         // Bind only this module's compiler import; leave the game's DLL intact.
@@ -830,6 +861,14 @@ struct Backend::Impl
         if (hipSet(hipDevice) != 0 || !reinterpret_cast<InitFn>(reinterpret_cast<uintptr_t>(h) + L->init)(
                                           reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(h) + L->engine), &file))
             throw std::runtime_error("AMD engine initialization failed");
+        // Graphics spin changes state B cannot yet fully restore. Keep the
+        // host on compute; this does not claim equivalence to A 0.3.0 or solve
+        // every native timeout. SpinDraw is an INI field, not an environment variable.
+        if (L->spinDraw)
+        {
+            At<int>(h, L->spinDraw) = 0;
+            Log("AMD runtime: SpinDraw=0 (host supports compute spin only)");
+        }
         At<uint8_t>(h, L->initDone) = 1;
         Log("Initialized independent AMD pass " + std::to_string(i + 1));
     }
@@ -891,15 +930,15 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // The tail of this line identifies the build. Four earlier rounds were
     // analysed without it and the logs could not be told apart.
 #ifdef AMD_SINGLESLOT
-    static constexpr const char* kBuildTag = " [r25-slots default=1 control]";
+    static constexpr const char* kBuildTag = " [r27-contract default=1 control]";
 #else
-    static constexpr const char* kBuildTag = " [r25-slots default=3 cap=5]";
+    static constexpr const char* kBuildTag = " [r27-contract default=3 cap=5]";
 #endif
     // The build tag names the default, not the count in force: the option can
     // change it while the game runs, and the change logs its own line when it
     // lands. Three earlier rounds were analysed without a tag and the logs could
     // not be told apart.
-    p->Log("AMD submission revision 20260915-r25: unsubmitted-slot match, NR slot count option" +
+    p->Log("AMD submission revision 20260916-r27: path-tolerant bootstrap isolation, pending admission, retained late lists, ordered queue migration" +
            std::string(kBuildTag));
     try
     {
@@ -930,6 +969,26 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
 #endif
     if (p->failed || !cmd || !f.colour || !f.motion || !f.depth)
         return nullptr;
+    const auto listType = cmd->GetType();
+    if (listType != D3D12_COMMAND_LIST_TYPE_DIRECT && listType != D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        return nullptr;
+    // A owns only one not-yet-notified list/job. Submitted slots remain free
+    // to overlap; do not overwrite that singleton while waiting for Execute.
+    if (p->HasUnsubmitted())
+    {
+#ifdef AMD_RETIRE_DIAGNOSTICS
+        timing.event.outcome = "unsubmitted_skip";
+#endif
+        if (++p->unsubmittedSkips <= 3 || p->unsubmittedSkips % 120 == 0)
+            p->Log("AMD skipped: previous Record still awaits submission; count=" +
+                   std::to_string(p->unsubmittedSkips));
+        return nullptr;
+    }
+    if (cfg.spinDraw != 0 && !p->graphicsFallbackReported)
+    {
+        p->graphicsFallbackReported = true;
+        p->Log("AMD AmdSpinDraw setting ignored: graphics state restoration is incomplete; using compute spin");
+    }
     const auto deviceStatus = p->device->GetDeviceRemovedReason();
     if (FAILED(deviceStatus))
     {
@@ -1165,6 +1224,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 {
                     if (slot.colour) slot.colour.Reset();
                     if (slot.exposureCopy) slot.exposureCopy.Reset();
+                    slot.decode.reset();
+                    slot.encode.reset();
                     continue;
                 }
                 const auto desc = slot.colour ? slot.colour->GetDesc() : D3D12_RESOURCE_DESC {};
@@ -1186,9 +1247,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         }
         const bool convertEncoding = cfg.encoding == 2 || cfg.encoding == 3;
         if (convertEncoding) {
-            if(!p->decode) p->decode=std::make_unique<ColorEncoding>(p->device.Get());
-            if(!p->encode) p->encode=std::make_unique<ColorEncoding>(p->device.Get());
-            f.colour=p->decode->Run(cmd,f.colour,f.colourState,inputW,inputH,cfg.encoding,false);
+            if(!sl->decode) sl->decode=std::make_unique<ColorEncoding>(p->device.Get());
+            if(!sl->encode) sl->encode=std::make_unique<ColorEncoding>(p->device.Get());
+            f.colour=sl->decode->Run(cmd,f.colour,f.colourState,inputW,inputH,cfg.encoding,false);
             f.colourState=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         }
         auto prepareGuide = [&](ID3D12Resource* source, ComPtr<ID3D12Resource>& crop)
@@ -1400,6 +1461,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         for (UINT i = 0; i < p->activePasses; ++i)
         {
             auto r = p->runtime[i];
+            if (L->spinDraw)
+                At<int>(r, L->spinDraw) = 0;
             // 0x8d9bd is Temporal in the original 0.2.17. Default on (skip-frame path).
             // Every-frame mode matches author 0.3: skip history inputs, do not
             // clear history-valid (0x8d018) each frame.
@@ -1437,16 +1500,17 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             packet.exposureState = 4;
             packet.scaleX = f.motionScaleX * (resampleMotion ? float(w) / mvW : 1.0f);
             packet.scaleY = f.motionScaleY * (resampleMotion ? float(h) / mvH : 1.0f);
+            packet.renderWidth = w;
+            packet.renderHeight = h;
             // Snapshot everything that can explain a refusal, and time the call.
-            // jobId is the decisive one: the runtime advances it when it accepts, so a
-            // moved counter with an empty pending list means the runtime took the job and
-            // its worker picked the list up before we could read it back.
+            // jobId is diagnostic; the pending list is the publication contract.
+            // Notify consumes it, not the worker.
             const void* pendingBefore = At<ID3D12CommandList*>(r, L->pendingList);
             const unsigned recreateBefore = L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0;
             const UINT jobBefore = At<UINT>(r, L->jobId);
             const UINT doneBefore = At<UINT>(r, L->jobDone);
-            // The runtime guards Record with a try-lock; +0x4c is its waiter
-            // count, so a non-zero read means the worker held it.
+            // 0.3.1 uses a blocking mutex. +0x4c is its ownership/recursion
+            // count, not a waiter count or a measure of worker saturation.
             const UINT lockBefore = L->recordLock ? At<UINT>(r, L->recordLock + 0x4c) : 0;
             const int gate4c = L->gate4c ? At<int>(r, L->gate4c) : 0;
             const int gate68 = L->gate68 ? At<int>(r, L->gate68) : 0;
@@ -1490,9 +1554,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             if (!recorded)
             {
-                // The original runtime did not leave our list in pendingList. jobBefore -> after
-                // says whether it took the job anyway (worker consumed the list
-                // instantly) or really declined (counter did not move).
+                // No matching pending list means we must not claim publication.
+                // Counters alone cannot establish why Record declined.
                 p->Log("AMD Record refused: jobBefore=" + std::to_string(jobBefore) +
                        " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
                        " doneBefore=" + std::to_string(doneBefore) +
@@ -1644,7 +1707,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         if (p->frames <= 120 || resize)
             p->Log("Recorded pre-SR " + std::to_string(w) + "x" + std::to_string(h) +
                    " passes=" + std::to_string(p->activePasses));
-        if(convertEncoding) finalColour=p->encode->Run(cmd,finalColour,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,inputW,inputH,cfg.encoding,true);
+        if(convertEncoding) finalColour=sl->encode->Run(cmd,finalColour,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,inputW,inputH,cfg.encoding,true);
 #ifdef AMD_RETIRE_DIAGNOSTICS
         timing.event.outcome = "recorded";
 #endif
@@ -1700,10 +1763,17 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
                std::to_string(static_cast<UINT>(queue->GetDesc().Type)));
     // Match the recorded list, not the swapchain's presentation queue. FG can
     // replace the latter, and the renderer may also migrate between queues.
-    // A slot is only reused once its own completion fence has retired, so the
-    // runtime resources it borrows are free by then.
+    // Preserve a single ordered fence timeline across queue migration. A high
+    // signal on a different queue is otherwise no proof that older work ended.
+    // This is a GPU dependency inserted BEFORE Execute, not a CPU/HIP wait.
     if (queue != p->queue.Get())
     {
+        if (p->serial && FAILED(queue->Wait(p->fence.Get(), p->serial)))
+        {
+            p->failed = true;
+            p->completionOrderValid = false;
+            p->Log("Render queue migration Wait failed; stopping NR and retaining outstanding resources");
+        }
         for (auto h : p->runtime)
             if (h)
             {
@@ -1714,8 +1784,9 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
                     old->Release();
             }
         p->queue = queue;
-        p->Log("Render submission queue changed; AMD pre-SR remains enabled");
+        p->Log("Render submission queue changed; dependency on completion=" + std::to_string(p->serial));
     }
+    sl.submissionQueue = queue;
     // Bind the real queue here, but only wake HIP after ExecuteCommandLists.
     // A capture-wait kernel launched before D3D12 submission can occupy the GPU
     // while the capture it depends on is still queued on the CPU.
@@ -1723,8 +1794,8 @@ void Backend::Submitting(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* c
 }
 void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* const* lists)
 {
-    // Fallback for callers using the original post-submit API.
-    Submitting(queue, n, lists);
+    // Every caller must pair Submitting -> real Execute -> Submitted. A queue
+    // dependency inserted here would be too late to protect this list's work.
     if (!queue)
         return;
     // Same lock-after-match order as Submitting. Do not lock first: Record can
@@ -1738,19 +1809,39 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     const AmdLayout* L = p->L;
     if (!L)
         return;
-    // Submitting above may have taken one of the candidates; this picks another
-    // slot that recorded the same list and is still unsubmitted, if any.
+    // A reused command-list pointer can also match an older submitted slot;
+    // only the current unsubmitted generation may be published here.
     UINT slot = 0;
     ID3D12CommandList* pending = nullptr;
     if (!p->PickUnsubmitted(candSlots, candPending, cands, slot, pending))
         return;
     auto& sl = p->slots[slot];
+    if (sl.submissionQueue.Get() != queue)
+    {
+        p->failed = true;
+        p->completionOrderValid = false;
+        p->Log("AMD submission was not prepared on this queue; retaining resources");
+    }
     // Notify uses this slot's recorded pass count. 0 = the runtime refused (no HIP job).
     const UINT passCount = (sl.passCount == Impl::Slot::kPassUnset) ? 0u : sl.passCount;
+    const auto notifyPass = [&](UINT i) {
+        auto h = p->runtime[i];
+        const bool matched = At<ID3D12CommandList*>(h, L->pendingList) == pending;
+        if (matched)
+            reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + L->notify)(queue, n, lists);
+        if (!matched || At<ID3D12CommandList*>(h, L->pendingList) != nullptr)
+        {
+            p->failed = true;
+            p->completionOrderValid = false;
+            p->Log("AMD Notify did not consume the expected pending list; retaining resources, pass=" +
+                   std::to_string(i + 1));
+            return false;
+        }
+        return true;
+    };
     if (passCount == 1)
     {
-        auto h = p->runtime[0];
-        reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + L->notify)(queue, n, lists);
+        notifyPass(0);
         auto value = ++p->serial;
         if (FAILED(queue->Signal(p->fence.Get(), value)))
         {
@@ -1766,7 +1857,8 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     for (UINT i = 0; i < passCount; ++i)
     {
         auto h = p->runtime[i];
-        reinterpret_cast<NotifyFn>(reinterpret_cast<uintptr_t>(h) + L->notify)(queue, n, lists);
+        if (!notifyPass(i))
+            break;
         // All runtimes use HIP stream 0. Publish the next pass only once the previous
         // worker finished; otherwise its capture-wait kernel could block the first pass.
         auto start = GetTickCount64();

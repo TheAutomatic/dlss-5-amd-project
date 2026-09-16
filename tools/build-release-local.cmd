@@ -7,10 +7,8 @@ if not exist "exports\release-local\smoke" mkdir "exports\release-local\smoke"
 call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44
 if errorlevel 1 exit /b 1
 
-echo === regression: submission state machine ===
-cl /nologo /std:c++20 /EHsc /W4 tests\amd_submission_state.cpp /Feexports\release-local\amd_submission_state.exe /Foexports\release-local\amd_submission_state.obj
-if errorlevel 1 exit /b 1
-exports\release-local\amd_submission_state.exe
+echo === regression: AMD host contracts ===
+call tools\test-amd-host-contracts.cmd exports\release-local
 if errorlevel 1 exit /b 1
 
 echo === Release build (CI-equivalent) ===
