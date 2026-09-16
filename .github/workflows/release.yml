@@ -223,11 +223,28 @@ jobs:
             dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
           body: |
-            OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}** (every-frame multi-slot).
+            OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
-            - The NR slot count is now an option: **`DLSS Neural Rendering` → `NR slots`**, 2-5, **default 3**, and takes effect without a restart. Too few slots and a frame that finds every buffer busy carries **no denoise at all**. In one heavy-scene A/B session, the runtime skip counter rose by about **1200-1440 per two-slot segment** and stayed flat with three slots. In a separate 60-second-per-step sweep it rose by **1800** at two slots and stayed flat at three, four and five. Each test changed the count inside its own session and logged the switch; the two sessions' counts are not compared. On a light scene no difference between two and three slots was detected. Each slot is one FP16 target sized to the **DLSS render resolution**, not the output — about **29 MB per slot** for a 4K output at DLSS Quality — and only the selected number is allocated.
-            - Also fixes a real scheduling bug: when two slots held the same command-list pointer, the older (already submitted) one was returned and the newer one **never got submitted**, so that slot did no work.
-            - Corresponding source for this binary: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
-            - User-supplied files: **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) 0.3.1 (or 0.3.0)** setup plus `nvngx_dlssnr.dll`; alternatively, provide an already-generated `version.dll` and `dlssnr_on_amd_weights.bin`. See the README for the exact install flow.
-            - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs are included in this zip.
+            ### English
+            - Support for original-author **0.3.1** (compute wait only — graphics wait is not wired up; host forces `SpinDraw=0`)
+            - Menu shows the detected runtime version next to the enable checkbox (e.g. `0.3.1`)
+            - Bug fixes
+
+            **Install**
+            - Close the game, unzip anywhere, run `Setup.bat`, pick the folder with the game exe
+            - You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights)
+            - In game, press **Ins** → enable **DLSSNR**
+
+            ### 中文
+            - 适配原作者 **0.3.1**（只接入 compute 等待；0.3.1 的 graphics 等待本版未做，宿主强制 `SpinDraw=0`）
+            - 菜单在开关旁显示已识别版本（如 `0.3.1`）
+            - 一些 bug 修复
+
+            **安装**
+            - 关掉游戏，解压到任意目录后运行 `Setup.bat`，选游戏 exe 所在目录
+            - 用户需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）
+            - 进游戏后按 **Ins** 打开 OptiScaler 菜单 → 勾选 **DLSSNR**
+
+            - Corresponding source: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
+            - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs in this zip.
             - See README inside the zip.

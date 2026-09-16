@@ -2,7 +2,7 @@
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
-  Copies the original author's 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
+  Copies the original author's 0.3.1 or 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
@@ -12,9 +12,9 @@
     OptiScaler.dll              this fork
     OptiScaler.ini              optional
     OptiScaler\                 FFX / XeSS / Agility deps
-    version.dll                 author AMD NR 0.3.0 (copied to pass1-3)
+    version.dll                 author AMD NR 0.3.1 or 0.3.0 (copied to pass1-3)
     nvngx_dlssnr.dll            optional, to generate weights with original-author setup
-    dlssnr_on_amd_setup.exe     optional, original author's 0.3.0 setup
+    dlssnr_on_amd_setup.exe     optional, original author's 0.3.1 / 0.3.0 setup
     dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE
@@ -386,7 +386,7 @@ if (-not $gameHasNv -and -not $gameHasW) {
     $srcNv = Join-Path $Root 'nvngx_dlssnr.dll'
     if (Test-Path -LiteralPath $srcNv -PathType Leaf) {
         Copy-Item -LiteralPath $srcNv -Destination (Join-Path $game 'nvngx_dlssnr.dll') -Force
-        Write-Host 'Copied nvngx_dlssnr.dll into the game folder (original-author 0.3.0 expects it there).' -ForegroundColor Green
+        Write-Host 'Copied nvngx_dlssnr.dll into the game folder (original-author runtime expects it there).' -ForegroundColor Green
         $nv = Join-Path $game 'nvngx_dlssnr.dll'
     }
 }
@@ -532,7 +532,7 @@ foreach ($name in $proxies) {
 Write-Host ''
 Write-Host "Game folder: $game"
 Write-Host "Proxy:       $Proxy   (OptiScaler.dll installed under this name)"
-Write-Host "Original author 0.3.0: $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
+Write-Host "Original author runtime: $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
 Write-Host 'NOTE: original-author version.dll is NOT installed here (B path only).'
 if ($found.Count -eq 0) {
     Write-Host 'No common injection DLLs found in the game folder.' -ForegroundColor Green
@@ -659,7 +659,7 @@ Partial files (if any) are under:
 }
 
 Write-Host ''
-Write-Host "Installing as $Proxy + pass copies from author 0.3.0 ..."
+Write-Host "Installing as $Proxy + pass copies from author runtime ..."
 Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 
 # Same runtime bytes as native version.dll — three filenames so multi-pass can load independent instances.
