@@ -1450,8 +1450,8 @@ struct ScopedNrStateEnvelope
 {
     ID3D12GraphicsCommandList* cmd;
     ScopedSkipHeapCapture skipHeap;
-    // AmdGraphicsWait only: freeze/restore the graphics snapshot around NR.
     bool froze = false;
+    bool suppressed = false;
     AmdPreSr::GraphicsSnap::GraphicsSnapshot frozen {};
     AmdPreSr::GraphicsSnap::RestorePlan restorePlan {};
 
@@ -1462,17 +1462,25 @@ struct ScopedNrStateEnvelope
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         froze = tracker.TryFreeze(listId, frozen);
         if (froze)
-            AmdPreSr::GraphicsSnap::BuildRestorePlan(frozen, restorePlan);
-        // Suppress observer updates during A.Record / B encoding.
-        tracker.PushSuppress(listId);
+            froze = AmdPreSr::GraphicsSnap::BuildRestorePlan(frozen, restorePlan);
+        AmdPreSr::GraphicsSnap::g_restoreArmed = froze;
+        // Only suppress when we will restore. A failed freeze must not mute
+        // observers while A still dirties the list.
+        if (froze)
+        {
+            tracker.PushSuppress(listId);
+            suppressed = true;
+        }
     }
 
     ~ScopedNrStateEnvelope()
     {
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
-        tracker.PopSuppress(reinterpret_cast<uint64_t>(cmd));
+        if (suppressed)
+            tracker.PopSuppress(reinterpret_cast<uint64_t>(cmd));
         if (froze && restorePlan.count)
             AmdPreSr::GraphicsSnap::ApplyRestorePlan(cmd, frozen, restorePlan);
+        AmdPreSr::GraphicsSnap::g_restoreArmed = false;
         D3D12Hooks::RestoreRoot(cmd);
         D3D12Hooks::SetRootSignatureTracking(true);
     }

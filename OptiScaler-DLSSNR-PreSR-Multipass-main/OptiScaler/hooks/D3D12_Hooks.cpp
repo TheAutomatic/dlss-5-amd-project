@@ -899,9 +899,16 @@ static void hkOMSetRenderTargets(ID3D12GraphicsCommandList* commandList, UINT Nu
         {
             if (RTsSingleHandleToDescriptorRange)
             {
-                auto copy = CopyCpuDescriptor(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, pRenderTargetDescriptors[0],
-                                              s_omRtvHeap, s_omRtvCap, s_omRtvCursor);
-                handles[0] = copy.ptr;
+                // Expand the contiguous range; a single copy is not enough for N RTs.
+                const UINT inc = device ? device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV) : 0;
+                for (UINT i = 0; i < n; ++i)
+                {
+                    D3D12_CPU_DESCRIPTOR_HANDLE src = pRenderTargetDescriptors[0];
+                    src.ptr += static_cast<SIZE_T>(i) * inc;
+                    auto copy = CopyCpuDescriptor(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, src, s_omRtvHeap, s_omRtvCap,
+                                                  s_omRtvCursor);
+                    handles[i] = copy.ptr;
+                }
             }
             else
             {

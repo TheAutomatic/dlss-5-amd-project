@@ -80,18 +80,18 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
             cmd->IASetPrimitiveTopology(static_cast<D3D12_PRIMITIVE_TOPOLOGY>(c.count));
             break;
         case RestoreOp::SetRenderTargets:
-            if (c.count == 0 && c.handle == 0)
+            if (snap.om.state != BindState::KnownValue)
+                break;
+            if (snap.om.numRTVs == 0 && !snap.om.hasDsv)
                 cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-            else if (c.count == 1)
+            else if (snap.om.numRTVs <= kMaxRTVs)
             {
-                D3D12_CPU_DESCRIPTOR_HANDLE rtv { snap.om.rtvHandles[0] };
-                if (snap.om.hasDsv)
-                {
-                    D3D12_CPU_DESCRIPTOR_HANDLE dsv { snap.om.dsvHandle };
-                    cmd->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-                }
-                else
-                    cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+                D3D12_CPU_DESCRIPTOR_HANDLE rtvs[kMaxRTVs] {};
+                for (UINT k = 0; k < snap.om.numRTVs; ++k)
+                    rtvs[k].ptr = snap.om.rtvHandles[k];
+                D3D12_CPU_DESCRIPTOR_HANDLE dsv { snap.om.dsvHandle };
+                cmd->OMSetRenderTargets(snap.om.numRTVs, snap.om.numRTVs ? rtvs : nullptr, FALSE,
+                                        snap.om.hasDsv ? &dsv : nullptr);
             }
             break;
         case RestoreOp::SetPredicationDisabled:

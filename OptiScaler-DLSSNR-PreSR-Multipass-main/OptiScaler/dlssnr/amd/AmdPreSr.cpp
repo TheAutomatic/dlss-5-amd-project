@@ -868,7 +868,11 @@ struct Backend::Impl
         // its graphics PSO. AmdGraphicsWait=1 requests graphics; otherwise compute.
         if (L->spinDraw)
         {
-            const int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
+            // Same gate as per-Record writes: graphics only when this invocation
+            // armed a restore plan. InitPass runs inside Record.
+            int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
+            if (want && !GraphicsSnap::RestoreArmed())
+                want = 0;
             At<int>(h, L->spinDraw) = want;
             Log(want ? std::string("AMD runtime: SpinDraw=1 (graphics wait via AmdGraphicsWait)")
                      : std::string("AMD runtime: SpinDraw=0 (compute spin)"));
@@ -1480,7 +1484,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         {
             auto r = p->runtime[i];
             if (L->spinDraw)
-                At<int>(r, L->spinDraw) = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
+            {
+                // Graphics wait only on DIRECT lists that successfully froze a
+                // restore plan this invocation (envelope sets RestoreArmed).
+                int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
+                if (want && (listType != D3D12_COMMAND_LIST_TYPE_DIRECT || !GraphicsSnap::RestoreArmed()))
+                    want = 0;
+                At<int>(r, L->spinDraw) = want;
+            }
             // 0x8d9bd is Temporal in the original 0.2.17. Default on (skip-frame path).
             // Every-frame mode matches author 0.3: skip history inputs, do not
             // clear history-valid (0x8d018) each frame.

@@ -11,6 +11,11 @@
 namespace AmdPreSr::GraphicsSnap
 {
 
+// True only for the NR invocation that successfully froze a snapshot and built
+// a restore plan. A.Record must not request graphics wait otherwise.
+inline thread_local bool g_restoreArmed = false;
+inline bool RestoreArmed() { return g_restoreArmed; }
+
 class Tracker
 {
   public:
