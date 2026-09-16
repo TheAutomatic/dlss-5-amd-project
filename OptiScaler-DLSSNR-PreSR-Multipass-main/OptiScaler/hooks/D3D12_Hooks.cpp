@@ -18,6 +18,8 @@
 #include <proxies/KernelBase_Proxy.h>
 
 #include <detours/detours.h>
+#include <mutex>
+#include <wrl/client.h>
 
 #include <dxgi1_6.h>
 #include <misc/IdentifyGpu.h>
@@ -834,6 +836,7 @@ VALIDATE_HOOK(hkOMSetRenderTargets, PFN_OMSetRenderTargets)
 // Private RTV/DSV copies so restore does not re-read a CPU handle the game may have rewritten.
 namespace
 {
+using Microsoft::WRL::ComPtr;
 std::mutex s_omCopyMutex;
 ComPtr<ID3D12DescriptorHeap> s_omRtvHeap;
 ComPtr<ID3D12DescriptorHeap> s_omDsvHeap;
