@@ -817,12 +817,24 @@ static void hkRSSetViewports(ID3D12GraphicsCommandList* commandList, UINT NumVie
 {
     if (AmdGfxTrackerOn() && commandList != nullptr)
     {
-        AmdPreSr::GraphicsSnap::Viewport vps[AmdPreSr::GraphicsSnap::kMaxViewports] {};
-        const UINT n = (pViewports && NumViewports <= AmdPreSr::GraphicsSnap::kMaxViewports) ? NumViewports : 0;
-        for (UINT i = 0; i < n; ++i)
+        static UINT s_seen = 0;
+        if (s_seen < 5)
         {
-            vps[i] = { pViewports[i].TopLeftX, pViewports[i].TopLeftY, pViewports[i].Width,
-                       pViewports[i].Height,       pViewports[i].MinDepth, pViewports[i].MaxDepth };
+            ++s_seen;
+            LOG_INFO("AMD tracker RSSetViewports #{} list={} n={} p={}", s_seen, (void*) commandList, NumViewports,
+                     (const void*) pViewports);
+        }
+        AmdPreSr::GraphicsSnap::Viewport vps[AmdPreSr::GraphicsSnap::kMaxViewports] {};
+        UINT n = 0;
+        if (pViewports && NumViewports)
+        {
+            n = NumViewports < AmdPreSr::GraphicsSnap::kMaxViewports ? NumViewports
+                                                                     : AmdPreSr::GraphicsSnap::kMaxViewports;
+            for (UINT i = 0; i < n; ++i)
+            {
+                vps[i] = { pViewports[i].TopLeftX, pViewports[i].TopLeftY, pViewports[i].Width,
+                           pViewports[i].Height,       pViewports[i].MinDepth, pViewports[i].MaxDepth };
+            }
         }
         AmdPreSr::GraphicsSnap::GraphicsTracker().ReportViewports(AmdListId(commandList), vps, n);
     }
@@ -1752,6 +1764,7 @@ static void HookToCommandList(ID3D12Device* InDevice)
                     {
                         s_amdGraphicsTrackerHooks = true;
                         AmdPreSr::GraphicsSnap::GraphicsTracker().SetEnabled(true);
+                        LOG_INFO("AMD graphics tracker hooks attached (RS/IA/OM/pred/Reset/Create)");
                         LOG_DEBUG("Hooked RootSignature functions + AMD graphics tracker");
                     }
                     else
