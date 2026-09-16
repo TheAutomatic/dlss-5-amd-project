@@ -6,6 +6,8 @@
 
 `1.8.3` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
+**Wait mode: compute only.** The 0.3.1 graphics wait (1-pixel draws) is **not wired up in this build**. The host forces `SpinDraw=0`; the menu shows *compute only*. Do not describe this release as “0.3.1 graphics supported”.
+
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 (If you got this package from a mirror or cloud drive, use the repository above as the source of truth.)
@@ -132,8 +134,8 @@ If an old OptiScaler or other inject DLL is already in the game folder, the inst
 
 1. Launch the game.  
 2. Press **Insert (Ins)** to open the OptiScaler menu.  
-3. Enable **DLSSNR**.  
-4. You now get **DLSS5-style neural denoise + FFX/FSR** super-resolution.
+3. Enable **DLSSNR**. The original-project version (`0.3.1` or `0.3.0`) should appear to the right of the checkbox.  
+4. You now get **DLSS5-style neural denoise + FFX/FSR** super-resolution (**compute wait**).
 
 More OptiScaler options: [OptiScaler Wiki](https://github.com/optiscaler/OptiScaler/wiki).
 
@@ -141,10 +143,10 @@ More OptiScaler options: [OptiScaler Wiki](https://github.com/optiscaler/OptiSca
 
 ### Manual install (no Setup.bat)
 
-`version.dll` comes from `dlssnr_on_amd_setup.exe` (original author 0.3.0).  
+`version.dll` comes from `dlssnr_on_amd_setup.exe` (original author **0.3.1 or 0.3.0**).  
 Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)
 
-1. Run `dlssnr_on_amd_setup.exe` to obtain 0.3.0 `version.dll` and `dlssnr_on_amd_weights.bin` (`nvngx_dlssnr.dll` is required to generate weights).  
+1. Run `dlssnr_on_amd_setup.exe` to obtain `version.dll` and `dlssnr_on_amd_weights.bin` (`nvngx_dlssnr.dll` is required to generate weights).  
 2. Rename `version.dll` → `dlssnr_amd_pass1.dll`; copy it as `dlssnr_amd_pass2.dll` and `dlssnr_amd_pass3.dll` (pass1 is the minimum).  
 3. Put `dlssnr_on_amd_weights.bin` in the same game folder.  
 4. Extract **all** of this release into that folder.  

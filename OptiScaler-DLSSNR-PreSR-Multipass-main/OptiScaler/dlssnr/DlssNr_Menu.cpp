@@ -125,11 +125,19 @@ void RenderMenu(Config* config, float menuResScale)
         if (DlssNr::AmdBridge::HasFiles())
         {
             // Product OPTI_VERSION stays upstream 10.0.0-dev. Name the author
-            // runtime here so the menu is not mistaken for "no NR version".
+            // runtime beside the checkbox so the menu is not mistaken for
+            // "no NR version" without spending a whole row.
+            ImGui::SameLine();
             if (const auto* ver = DlssNr::AmdBridge::RuntimeName(); ver && *ver)
-                ImGui::TextUnformatted(("AMD NR runtime: " + std::string(ver)).c_str());
+            {
+                ImGui::TextDisabled("%s", ver);
+                HelpMarker("AMD NR runtime (original project / original author).");
+            }
             else
-                ImGui::TextDisabled("AMD NR runtime: pass1 not identified yet");
+            {
+                ImGui::TextDisabled("pass1?");
+                HelpMarker("AMD NR runtime: pass1 not identified yet.");
+            }
             bool everyFrame = config->AmdEveryFrame.value_or_default();
             if (ImGui::Checkbox("Every-frame NR", &everyFrame))
                 config->AmdEveryFrame = everyFrame;

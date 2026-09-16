@@ -6,6 +6,8 @@
 
 `1.8.3` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。
 
+**等待模式：仅 compute。** 0.3.1 新增的 graphics 等待（1 像素 draw）**本版未接入**；宿主强制 `SpinDraw=0`，菜单显示 *compute only*。不要把本版写成「已支持 0.3.1 graphics」。
+
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 （若你从网盘等渠道拿到本包，请以上述仓库为准。）
@@ -124,8 +126,8 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 
 1. 启动游戏。  
 2. 按 **Insert（Ins）** 打开 OptiScaler 菜单。  
-3. 找到并勾选 **DLSSNR**（AMD 神经渲染）。  
-4. 之后画面上走的就是 **DLSS5 神经降噪 + FFX/FSR 超分**。
+3. 找到并勾选 **DLSSNR**（AMD 神经渲染）。开关右侧应显示原项目版本，如 `0.3.1` 或 `0.3.0`。  
+4. 之后画面上走的就是 **DLSS5 神经降噪 + FFX/FSR 超分**（**compute 等待**）。
 
 其它 OptiScaler 用法（帧生成、菜单快捷键、兼容性）见：  
 [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki)。
@@ -134,10 +136,10 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 
 ### 手动安装（不用 Setup.bat）
 
-适合已经熟悉「往游戏目录丢 DLL」的人。`version.dll` 来自 `dlssnr_on_amd_setup.exe`（原作者 0.3.0）。  
+适合已经熟悉「往游戏目录丢 DLL」的人。`version.dll` 来自 `dlssnr_on_amd_setup.exe`（原作者 **0.3.1 或 0.3.0**）。  
 原项目详细步骤：[danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)
 
-1. 跑 `dlssnr_on_amd_setup.exe`，拿到 0.3.0 的 `version.dll` 和 `dlssnr_on_amd_weights.bin`（需要 `nvngx_dlssnr.dll` 才能生成 weights）。  
+1. 跑 `dlssnr_on_amd_setup.exe`，拿到 `version.dll` 和 `dlssnr_on_amd_weights.bin`（需要 `nvngx_dlssnr.dll` 才能生成 weights）。  
 2. 把 `version.dll` **改名** 为 `dlssnr_amd_pass1.dll`，再复制两份为 `dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll`（内容相同；至少要有 pass1）。  
 3. 把 `dlssnr_on_amd_weights.bin` 放进同一游戏目录。  
 4. 把本 Release **全部** 解压进同一游戏目录。  
