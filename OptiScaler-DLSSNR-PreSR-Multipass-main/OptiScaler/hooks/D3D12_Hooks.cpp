@@ -112,6 +112,12 @@ using PFN_OMSetRenderTargets = rewrite_signature<decltype(&ID3D12GraphicsCommand
 using PFN_SetPredication = rewrite_signature<decltype(&ID3D12GraphicsCommandList::SetPredication)>::type;
 using PFN_CommandListReset = rewrite_signature<decltype(&ID3D12GraphicsCommandList::Reset)>::type;
 using PFN_CommandListClearState = void(WINAPI*)(ID3D12GraphicsCommandList*);
+using PFN_ExecuteBundle = void(WINAPI*)(ID3D12GraphicsCommandList*, ID3D12GraphicsCommandList*);
+using PFN_ExecuteIndirect = void(WINAPI*)(ID3D12GraphicsCommandList*, ID3D12CommandSignature*, UINT,
+                                           ID3D12Resource*, UINT64, ID3D12Resource*, UINT64);
+using PFN_BeginQuery = void(WINAPI*)(ID3D12GraphicsCommandList*, ID3D12QueryHeap*, D3D12_QUERY_TYPE, UINT);
+using PFN_EndQuery = void(WINAPI*)(ID3D12GraphicsCommandList*, ID3D12QueryHeap*, D3D12_QUERY_TYPE, UINT);
+using PFN_ListRelease = ULONG(WINAPI*)(ID3D12GraphicsCommandList*);
 using PFN_CreateCommandList =
     HRESULT(WINAPI*)(ID3D12Device*, UINT, D3D12_COMMAND_LIST_TYPE, ID3D12CommandAllocator*,
                      ID3D12PipelineState*, REFIID, void**);
@@ -209,6 +215,11 @@ static RootRestoreHook<PFN_OMSetRenderTargets> s_OMSetRenderTargets {};
 static RootRestoreHook<PFN_SetPredication> s_SetPredication {};
 static RootRestoreHook<PFN_CommandListReset> s_CommandListReset {};
 static PFN_CommandListClearState o_CommandListClearState = nullptr;
+static PFN_ExecuteBundle o_ExecuteBundle = nullptr;
+static PFN_ExecuteIndirect o_ExecuteIndirect = nullptr;
+static PFN_BeginQuery o_BeginQuery = nullptr;
+static PFN_EndQuery o_EndQuery = nullptr;
+static PFN_ListRelease o_ListRelease = nullptr;
 static bool s_amdGraphicsTrackerHooks = false;
 static PFN_CreateCommandList o_CreateCommandList = nullptr;
 
@@ -445,6 +456,18 @@ static void hkSetDescriptorHeaps(ID3D12GraphicsCommandList* commandList, UINT Nu
             temp.Heaps[i] = ppDescriptorHeaps[i];
         }
         descriptorHeaps.insert_or_assign(commandList, std::move(temp));
+    }
+
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+    {
+        std::uint64_t handles[2] {};
+        UINT n = NumDescriptorHeaps;
+        if (n > 2)
+            n = 2;
+        if (ppDescriptorHeaps)
+            for (UINT i = 0; i < n; ++i)
+                handles[i] = reinterpret_cast<uint64_t>(ppDescriptorHeaps[i]);
+        AmdPreSr::GraphicsSnap::GraphicsTracker().ReportHeaps(AmdListId(commandList), n, handles);
     }
 
     s_SetDescriptorHeaps.o_earlyHook(commandList, NumDescriptorHeaps, ppDescriptorHeaps);
@@ -978,6 +1001,46 @@ static void WINAPI hkCommandListClearState(ID3D12GraphicsCommandList* commandLis
     if (AmdGfxTrackerOn() && commandList != nullptr)
         AmdPreSr::GraphicsSnap::GraphicsTracker().OnClearState(AmdListId(commandList));
     o_CommandListClearState(commandList);
+}
+
+static void WINAPI hkExecuteBundle(ID3D12GraphicsCommandList* commandList, ID3D12GraphicsCommandList* bundle)
+{
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkIneligible(AmdListId(commandList));
+    o_ExecuteBundle(commandList, bundle);
+}
+
+static void WINAPI hkExecuteIndirect(ID3D12GraphicsCommandList* commandList, ID3D12CommandSignature* sig, UINT count,
+                                     ID3D12Resource* args, UINT64 argsOffset, ID3D12Resource* countBuf,
+                                     UINT64 countOffset)
+{
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkIneligible(AmdListId(commandList));
+    o_ExecuteIndirect(commandList, sig, count, args, argsOffset, countBuf, countOffset);
+}
+
+static void WINAPI hkBeginQuery(ID3D12GraphicsCommandList* commandList, ID3D12QueryHeap* heap, D3D12_QUERY_TYPE type,
+                                UINT index)
+{
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkQueryActive(AmdListId(commandList), true);
+    o_BeginQuery(commandList, heap, type, index);
+}
+
+static void WINAPI hkEndQuery(ID3D12GraphicsCommandList* commandList, ID3D12QueryHeap* heap, D3D12_QUERY_TYPE type,
+                              UINT index)
+{
+    if (AmdGfxTrackerOn() && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkQueryActive(AmdListId(commandList), false);
+    o_EndQuery(commandList, heap, type, index);
+}
+
+static ULONG WINAPI hkListRelease(ID3D12GraphicsCommandList* commandList)
+{
+    const ULONG refs = o_ListRelease(commandList);
+    if (refs == 0 && commandList != nullptr)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().OnRelease(AmdListId(commandList));
+    return refs;
 }
 
 // Late hooks, from upscaler eval
@@ -1573,6 +1636,11 @@ static void HookToCommandList(ID3D12Device* InDevice)
             s_SetPredication.o_earlyHook = (PFN_SetPredication) pVTable[55];
             s_CommandListReset.o_earlyHook = (PFN_CommandListReset) pVTable[10];
             o_CommandListClearState = (PFN_CommandListClearState) pVTable[11];
+            o_ExecuteBundle = (PFN_ExecuteBundle) pVTable[27];
+            o_BeginQuery = (PFN_BeginQuery) pVTable[52];
+            o_EndQuery = (PFN_EndQuery) pVTable[53];
+            o_ExecuteIndirect = (PFN_ExecuteIndirect) pVTable[59];
+            o_ListRelease = (PFN_ListRelease) pVTable[2];
 
             if (s_SetPipelineState.o_earlyHook || s_SetDescriptorHeaps.o_earlyHook ||
                 s_SetComputeRootSignature.o_earlyHook || s_SetGraphicsRootSignature.o_earlyHook ||
@@ -1586,7 +1654,8 @@ static void HookToCommandList(ID3D12Device* InDevice)
                 if (s_SetPipelineState.o_earlyHook != nullptr && (extendedRestoreSignature || amdGraphicsTrackerWanted))
                     DetourAttach(&(PVOID&) s_SetPipelineState.o_earlyHook, hkSetPipelineState);
 
-                if (s_SetDescriptorHeaps.o_earlyHook != nullptr && extendedRestoreSignature)
+                if (s_SetDescriptorHeaps.o_earlyHook != nullptr &&
+                    (extendedRestoreSignature || amdGraphicsTrackerWanted))
                     DetourAttach(&(PVOID&) s_SetDescriptorHeaps.o_earlyHook, hkSetDescriptorHeaps);
 
                 if (s_SetComputeRootSignature.o_earlyHook != nullptr)
@@ -1665,6 +1734,16 @@ static void HookToCommandList(ID3D12Device* InDevice)
                         DetourAttach(&(PVOID&) s_CommandListReset.o_earlyHook, hkCommandListReset);
                     if (o_CommandListClearState != nullptr)
                         DetourAttach(&(PVOID&) o_CommandListClearState, hkCommandListClearState);
+                    if (o_ExecuteBundle != nullptr)
+                        DetourAttach(&(PVOID&) o_ExecuteBundle, hkExecuteBundle);
+                    if (o_ExecuteIndirect != nullptr)
+                        DetourAttach(&(PVOID&) o_ExecuteIndirect, hkExecuteIndirect);
+                    if (o_BeginQuery != nullptr)
+                        DetourAttach(&(PVOID&) o_BeginQuery, hkBeginQuery);
+                    if (o_EndQuery != nullptr)
+                        DetourAttach(&(PVOID&) o_EndQuery, hkEndQuery);
+                    if (o_ListRelease != nullptr)
+                        DetourAttach(&(PVOID&) o_ListRelease, hkListRelease);
                 }
 
                 if (DetourTransactionCommit() == NO_ERROR)

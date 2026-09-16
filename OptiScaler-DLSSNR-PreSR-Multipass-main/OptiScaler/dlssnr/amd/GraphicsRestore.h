@@ -9,6 +9,7 @@ namespace AmdPreSr::GraphicsSnap
 enum class RestoreOp : std::uint8_t
 {
     Nop,
+    SetDescriptorHeaps,
     SetComputeRootSignature,
     SetGraphicsRootSignature,
     SetRootTable,
@@ -53,6 +54,15 @@ struct RestorePlan
 inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
 {
     out.count = 0;
+    // Heaps first so later root tables bind against the frozen heap set.
+    if (s.heapState == BindState::KnownValue && s.heapCount)
+    {
+        RestoreCmd c {};
+        c.op = RestoreOp::SetDescriptorHeaps;
+        c.count = s.heapCount;
+        if (!out.Push(c))
+            return false;
+    }
     if (s.compute.signatureState != BindState::Unknown)
     {
         RestoreCmd c {};

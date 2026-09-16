@@ -12,6 +12,7 @@ inline constexpr std::uint32_t kMaxRootConstants = 64;
 inline constexpr std::uint32_t kMaxViewports = 16;
 inline constexpr std::uint32_t kMaxScissors = 16;
 inline constexpr std::uint32_t kMaxRTVs = 8;
+inline constexpr std::uint32_t kMaxHeaps = 2;
 
 enum class BindState : std::uint8_t
 {
@@ -166,9 +167,32 @@ struct GraphicsSnapshot
     std::uint32_t topology = 0;
     OmBinding om;
     Predication predication;
+    // Shader-visible CBV/SRV/UAV + sampler heaps (D3D12 allows at most two).
+    BindState heapState = BindState::Unknown;
+    std::uint32_t heapCount = 0;
+    std::uint64_t heaps[kMaxHeaps] {};
     bool renderPassActive = false;
     bool queryActive = false;
     bool bundleOrIndirectSeen = false;
+
+    void SetHeaps(std::uint32_t count, const std::uint64_t* handles)
+    {
+        heapCount = 0;
+        if (!handles || count == 0)
+        {
+            heapState = BindState::KnownUnset;
+            return;
+        }
+        if (count > kMaxHeaps)
+        {
+            heapState = BindState::Unknown;
+            return;
+        }
+        for (std::uint32_t i = 0; i < count; ++i)
+            heaps[i] = handles[i];
+        heapCount = count;
+        heapState = BindState::KnownValue;
+    }
 
     void SetPso(std::uint64_t handle)
     {

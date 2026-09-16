@@ -143,6 +143,14 @@ class Tracker
         d->SetGpuVa(index, type, va);
     }
 
+    void ReportHeaps(uint64_t listId, std::uint32_t count, const std::uint64_t* handles, bool fromRestore = false)
+    {
+        auto* s = AcquireSnap(listId, fromRestore);
+        if (!s)
+            return;
+        s->SetHeaps(count, handles);
+    }
+
     void ReportPso(uint64_t listId, uint64_t pso, bool fromRestore = false)
     {
         auto* s = AcquireSnap(listId, fromRestore);
@@ -201,6 +209,15 @@ class Tracker
             return;
         if (auto it = trackers_.find(listId); it != trackers_.end())
             it->second.MarkIneligible();
+    }
+
+    void MarkQueryActive(uint64_t listId, bool active)
+    {
+        std::unique_lock lock(mutex_);
+        if (!enabled_)
+            return;
+        if (auto it = trackers_.find(listId); it != trackers_.end())
+            it->second.snap.queryActive = active;
     }
 
     bool TryFreeze(uint64_t listId, GraphicsSnapshot& out) const

@@ -19,6 +19,15 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
         const auto& c = plan.ops[i];
         switch (c.op)
         {
+        case RestoreOp::SetDescriptorHeaps:
+            if (snap.heapState == BindState::KnownValue && snap.heapCount && snap.heapCount <= 2)
+            {
+                ID3D12DescriptorHeap* hs[2] {};
+                for (UINT k = 0; k < snap.heapCount; ++k)
+                    hs[k] = reinterpret_cast<ID3D12DescriptorHeap*>(snap.heaps[k]);
+                cmd->SetDescriptorHeaps(snap.heapCount, hs);
+            }
+            break;
         case RestoreOp::SetComputeRootSignature:
             cmd->SetComputeRootSignature(reinterpret_cast<ID3D12RootSignature*>(c.handle));
             break;
