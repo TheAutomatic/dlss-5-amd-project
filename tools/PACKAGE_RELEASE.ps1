@@ -287,19 +287,22 @@ exit /b %EC%
 
 $uninstallSrc = Join-Path $root 'tools/uninstall-amd-presr.ps1'
 if (!(Test-Path $uninstallSrc)) { throw "Missing $uninstallSrc" }
-Copy-Item $uninstallSrc (Join-Path $stage 'Uninstall.ps1') -Force
+Copy-Item $uninstallSrc (Join-Path $stage 'Uninstall_OptiScaler_NR.ps1') -Force
 @'
 @echo off
 setlocal
 title OptiScaler AMD pre-SR Uninstall
-rem No args: Uninstall.ps1 opens a folder picker.
-rem Optional: Uninstall.bat "D:\GameFolder"
-powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall.ps1" -GameDir "%~1" -NoPause
+rem Double-click in the game folder. Optional: Uninstall_OptiScaler_NR.bat "D:\GameFolder"
+if "%~1"=="" (
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -NoPause
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -GameDir "%~1" -NoPause
+)
 set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" echo Uninstall failed ^(exit code %EC%^). See the error above.
 pause
 exit /b %EC%
-'@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall.bat') -Encoding ASCII
+'@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall_OptiScaler_NR.bat') -Encoding ASCII
 Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 

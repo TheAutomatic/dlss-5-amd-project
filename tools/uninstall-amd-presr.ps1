@@ -1,15 +1,15 @@
 ﻿<#
 .SYNOPSIS
-  Remove this project's install from a game folder.
-  Double-click Uninstall.bat, or pass -GameDir.
+  Remove this project from the folder this script sits in (the game folder after Setup).
+  Double-click Uninstall_OptiScaler_NR.bat there. Tests may pass -GameDir.
 
 .DESCRIPTION
-  Removes identified OptiScaler proxies, named passes/config/logs, and explicitly listed dependencies.
-  Does NOT delete: install backups, nvngx_dlssnr.dll, dlssnr_on_amd_weights.bin,
+  Removes identified OptiScaler proxies, named passes/config/logs, listed dependencies,
+  and this uninstaller. Does NOT delete backups, nvngx_dlssnr.dll, weights,
   original-author setup/log, other proxies, or user-added plugins and unknown files.
 
 .EXAMPLE
-  .\Uninstall.bat
+  .\Uninstall_OptiScaler_NR.bat
   .\uninstall-amd-presr.ps1 -GameDir 'D:\Games\Foo'
 #>
 [CmdletBinding()]
@@ -44,17 +44,6 @@ function Test-OptiProxy([string]$path) {
     } catch { return $false }
 }
 
-function Ask-GameFolder {
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = 'Select the game folder that contains the game .exe'
-        $dlg.ShowNewFolderButton = $false
-        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
-        return $null
-    } catch { return $null }
-}
-
 # The launcher owns the final pause when -NoPause is supplied. Direct script
 # invocation must also keep unexpected errors visible and return failure.
 trap {
@@ -64,13 +53,7 @@ trap {
 }
 
 if ([string]::IsNullOrWhiteSpace($GameDir)) {
-    if ($NonInteractive) { Fail 'GameDir is required in -NonInteractive mode.' }
-    Write-Host 'Pick the game folder (the one with the game .exe)…' -ForegroundColor Yellow
-    $GameDir = Ask-GameFolder
-    if ([string]::IsNullOrWhiteSpace($GameDir)) {
-        Write-Host 'Cancelled — no folder selected.'
-        Pause-Exit 0
-    }
+    $GameDir = $PSScriptRoot
 }
 
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
@@ -78,29 +61,16 @@ if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
 }
 $game = (Resolve-Path -LiteralPath $GameDir).Path
 
-Write-Host ''
-Write-Host 'Uninstall this project from:' -ForegroundColor Yellow
-Write-Host "  $game"
-Write-Host ''
-Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
-Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
-Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
-Write-Host 'It will NOT delete: backups, nvngx_dlssnr.dll, weights.bin, original-author setup.' -ForegroundColor Yellow
-
-if (-not $NonInteractive) {
-    $ans = Read-Host 'Type Y to continue, anything else to cancel'
-    if ($ans -notmatch '^(?i)y(es)?$') {
-        Write-Host 'Cancelled.'
-        Pause-Exit 0
-    }
-}
-
 # File names this project installs. Proxy names are deleted only when the file is OptiScaler.
 $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','wininet.dll','dbghelp.dll')
-$projectLeafNames = @('dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll','OptiScaler.ini','amd-presr-install.txt')
+$projectLeafNames = @(
+    'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
+    'OptiScaler.ini','amd-presr-install.txt',
+    'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
+    'Uninstall.bat','Uninstall.ps1'
+)
+$selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
 $projectLogPatterns = @('OptiScaler.log*','amd_bridge.log*','amd_presr.log*')
-# Explicit dependency names shipped by PACKAGE_RELEASE.ps1. Never sweep *.dll
-# or recurse: users may add plugins, configuration, or other mods here.
 $dependencyPaths = @(
     'amd_fidelityfx_loader_dx12.dll',
     'amd_fidelityfx_upscaler_dx12.dll',
@@ -110,24 +80,20 @@ $dependencyPaths = @(
     'D3D12_OptiScaler\D3D12Core.dll',
     'D3D12_OptiScaler\d3d12SDKLayers.dll'
 )
-
-# Never delete, even if the names overlap.
 $protectedNames = @(
     'nvngx_dlssnr.dll',
     'dlssnr_on_amd_weights.bin',
     'dlssnr_on_amd_setup.exe',
     'dlssnr_on_amd.log',
-    'version.dll'   # only removed later if it is identified as OptiScaler
+    'version.dll'
 )
 
-$deleted = New-Object System.Collections.Generic.List[string]
+$planned = New-Object System.Collections.Generic.List[string]
 $kept = New-Object System.Collections.Generic.List[string]
+$deleted = New-Object System.Collections.Generic.List[string]
 $errors = New-Object System.Collections.Generic.List[string]
 
 function Test-UninstallPath([string]$path) {
-    # Refuse linked files/directories, including an OptiScaler or _storage_
-    # junction. Checking each component prevents following a link to another
-    # installation while examining an otherwise allowlisted leaf name.
     $full = [IO.Path]::GetFullPath($path)
     $base = $game.TrimEnd('\')
     if ($full -ine $base -and -not $full.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -146,7 +112,22 @@ function Test-UninstallPath([string]$path) {
     }
 }
 
-# Prefer the proxy name the installer recorded, if present.
+function Add-PlannedFile([string]$path, [string]$why) {
+    if (!(Test-UninstallPath $path)) { return }
+    $leaf = Split-Path -Leaf $path
+    if ($leaf -match '^(?i)backup-amd-presr') {
+        $kept.Add("backup folder/file: $path")
+        return
+    }
+    if ($protectedNames -contains $leaf -and $why -ne 'opti-proxy') {
+        $kept.Add("protected: $path")
+        return
+    }
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        $planned.Add("$path  ($why)")
+    }
+}
+
 $recordedProxy = $null
 $installMark = Join-Path $game 'amd-presr-install.txt'
 if ((Test-UninstallPath $installMark) -and (Test-Path -LiteralPath $installMark -PathType Leaf)) {
@@ -161,21 +142,95 @@ if ($recordedProxy -and $proxyNames -notcontains $recordedProxy) {
     $recordedProxy = $null
 }
 if ($recordedProxy) {
-    Write-Host "Install record says proxy was: $recordedProxy"
     $proxyNames = @($recordedProxy) + @($proxyNames | Where-Object { $_ -ine $recordedProxy })
+}
+
+$roots = @($game)
+$storage = Join-Path $game '_storage_'
+if ((Test-UninstallPath $storage) -and (Test-Path -LiteralPath $storage -PathType Container)) {
+    $roots += $storage
+}
+
+foreach ($root in $roots) {
+    if (!(Test-UninstallPath $root)) { continue }
+    foreach ($name in $proxyNames) {
+        $p = Join-Path $root $name
+        if (!(Test-UninstallPath $p)) { continue }
+        if (!(Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+        if (Test-OptiProxy $p) {
+            Add-PlannedFile $p 'opti-proxy'
+        } elseif ($name -ieq 'version.dll') {
+            $kept.Add("left in place (not OptiScaler): $p")
+        }
+    }
+    foreach ($name in $projectLeafNames) {
+        Add-PlannedFile (Join-Path $root $name) 'project-file'
+    }
+    foreach ($pat in $projectLogPatterns) {
+        Get-ChildItem -LiteralPath $root -Filter $pat -File -ErrorAction SilentlyContinue | ForEach-Object {
+            Add-PlannedFile $_.FullName 'project-log'
+        }
+    }
+    $deps = Join-Path $root 'OptiScaler'
+    if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
+        foreach ($relative in $dependencyPaths) {
+            Add-PlannedFile (Join-Path $deps $relative) 'project-dependency'
+        }
+    }
+}
+
+foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe','dlssnr_on_amd.log')) {
+    foreach ($root in $roots) {
+        if (!(Test-UninstallPath $root)) { continue }
+        $p = Join-Path $root $name
+        if (Test-Path -LiteralPath $p -PathType Leaf) {
+            $kept.Add("kept on purpose: $p")
+        }
+    }
+}
+foreach ($root in $roots) {
+    if (!(Test-UninstallPath $root)) { continue }
+    Get-ChildItem -LiteralPath $root -Directory -Filter 'backup-amd-presr*' -ErrorAction SilentlyContinue |
+        ForEach-Object { $kept.Add("kept backup: $($_.FullName)") }
+}
+
+Write-Host ''
+Write-Host 'Uninstall this project from:' -ForegroundColor Yellow
+Write-Host "  $game"
+Write-Host ''
+Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
+Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
+Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
+Write-Host 'It will NOT delete: backups, nvngx_dlssnr.dll, weights.bin, original-author setup.' -ForegroundColor Yellow
+Write-Host ''
+if ($planned.Count -gt 0) {
+    Write-Host 'Planned deletions:' -ForegroundColor Yellow
+    foreach ($d in $planned) { Write-Host "  - $d" }
+    Write-Host 'Empty OptiScaler dependency folders will be removed if they become empty.'
 } else {
-    Write-Host 'No install record; scanning common proxy names.'
+    Write-Host 'Nothing matching this project is planned for deletion.' -ForegroundColor Yellow
+}
+if ($kept.Count -gt 0) {
+    Write-Host 'Will keep:' -ForegroundColor Cyan
+    foreach ($k in $kept) { Write-Host "  - $k" }
+}
+
+if (-not $NonInteractive) {
+    Write-Host ''
+    $ans = Read-Host 'Type Y to delete the planned files, anything else to cancel'
+    if ($ans -notmatch '^(?i)y(es)?$') {
+        Write-Host 'Cancelled.'
+        Pause-Exit 0
+    }
 }
 
 function Remove-SafeFile([string]$path, [string]$why) {
     if (!(Test-UninstallPath $path)) { return }
     $leaf = Split-Path -Leaf $path
     if ($leaf -match '^(?i)backup-amd-presr') {
-        $kept.Add("backup folder/file: $path")
         return
     }
     if ($protectedNames -contains $leaf -and $why -ne 'opti-proxy') {
-        $kept.Add("protected: $path")
         return
     }
     try {
@@ -193,7 +248,6 @@ function Remove-EmptyDirectory([string]$path) {
     if (!(Test-Path -LiteralPath $path -PathType Container)) { return }
     try {
         if (@(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop).Count -eq 0) {
-            # The nonrecursive API also refuses deletion if new content appears.
             [IO.Directory]::Delete($path, $false)
             $deleted.Add("$path  (empty dependency folder)")
         }
@@ -202,41 +256,23 @@ function Remove-EmptyDirectory([string]$path) {
     }
 }
 
-# XBOX / store builds may write under _storage_ next to the exe.
-$roots = @($game)
-$storage = Join-Path $game '_storage_'
-if ((Test-UninstallPath $storage) -and (Test-Path -LiteralPath $storage -PathType Container)) {
-    $roots += $storage
-    Write-Host "Also checking: $storage"
-}
-
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
-    # Proxies: only when VersionInfo says OptiScaler (never a random game/mod DLL).
     foreach ($name in $proxyNames) {
         $p = Join-Path $root $name
         if (!(Test-UninstallPath $p)) { continue }
         if (!(Test-Path -LiteralPath $p -PathType Leaf)) { continue }
-        if (Test-OptiProxy $p) {
-            Remove-SafeFile $p 'opti-proxy'
-        } else {
-            if ($name -ieq 'version.dll') {
-                $kept.Add("left in place (not OptiScaler): $p")
-            }
-        }
+        if (Test-OptiProxy $p) { Remove-SafeFile $p 'opti-proxy' }
     }
-
     foreach ($name in $projectLeafNames) {
+        if ($selfLeafNames -contains $name) { continue }
         Remove-SafeFile (Join-Path $root $name) 'project-file'
     }
-
     foreach ($pat in $projectLogPatterns) {
         Get-ChildItem -LiteralPath $root -Filter $pat -File -ErrorAction SilentlyContinue | ForEach-Object {
             Remove-SafeFile $_.FullName 'project-log'
         }
     }
-
-    # Remove only known dependency files, preserving plugins and unknown files.
     $deps = Join-Path $root 'OptiScaler'
     if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
         foreach ($relative in $dependencyPaths) {
@@ -246,21 +282,11 @@ foreach ($root in $roots) {
         Remove-EmptyDirectory $deps
     }
 }
-
-# Always note intentional keeps that may sit in the game folder.
-foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe','dlssnr_on_amd.log')) {
-    foreach ($root in $roots) {
-        if (!(Test-UninstallPath $root)) { continue }
-        $p = Join-Path $root $name
-        if (Test-Path -LiteralPath $p -PathType Leaf) {
-            $kept.Add("kept on purpose: $p")
-        }
-    }
-}
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
-    Get-ChildItem -LiteralPath $root -Directory -Filter 'backup-amd-presr*' -ErrorAction SilentlyContinue |
-        ForEach-Object { $kept.Add("kept backup: $($_.FullName)") }
+    foreach ($name in $selfLeafNames) {
+        Remove-SafeFile (Join-Path $root $name) 'project-file'
+    }
 }
 
 Write-Host ''

@@ -2,7 +2,7 @@
 param()
 $ErrorActionPreference = 'Stop'
 
-# Always exercise the same Windows PowerShell 5.1 runtime as Uninstall.bat.
+# Always exercise the same Windows PowerShell 5.1 runtime as Uninstall_OptiScaler_NR.bat.
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $repo = Split-Path -Parent $PSScriptRoot
 $uninstall = Join-Path $repo 'tools\uninstall-amd-presr.ps1'
@@ -62,7 +62,8 @@ public class UninstallProxyFixture { }
     )
     $removed = @('dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',
         'dlssnr_amd_pass3.dll', 'OptiScaler.ini', 'amd-presr-install.txt',
-        'OptiScaler.log.1', 'amd_presr.log', 'amd_bridge.log.2')
+        'OptiScaler.log.1', 'amd_presr.log', 'amd_bridge.log.2',
+        'Uninstall_OptiScaler_NR.bat', 'Uninstall_OptiScaler_NR.ps1')
     foreach ($root in $roots) {
         foreach ($relative in $preserved) { Put-File (Join-Path $root $relative) }
         foreach ($relative in $removed) { Put-File (Join-Path $root $relative) }
@@ -76,6 +77,12 @@ public class UninstallProxyFixture { }
         foreach ($relative in $removed) { Assert-Removed (Join-Path $root $relative) }
         foreach ($relative in $deps) { Assert-Removed (Join-Path $root ('OptiScaler\' + $relative)) }
     }
+    Copy-Item -LiteralPath $uninstall -Destination (Join-Path $game 'Uninstall_OptiScaler_NR.ps1')
+    $inPlace = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $game 'Uninstall_OptiScaler_NR.ps1') -NonInteractive -NoPause 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "In-place uninstall exit $LASTEXITCODE : $($inPlace -join [Environment]::NewLine)" }
+    if (($inPlace -join '') -notmatch 'Uninstall SUCCEEDED') { throw 'Missing in-place uninstall success result.' }
+    if (($inPlace -join '') -notmatch 'Planned deletions:') { throw 'In-place uninstall did not list planned deletions.' }
+    Assert-Removed (Join-Path $game 'Uninstall_OptiScaler_NR.ps1')
     Run-Uninstall $game # Repeated/manual uninstall remains supported.
     Write-Host 'PASS project files removed; plugins, author files, unknown files and backups preserved'
 

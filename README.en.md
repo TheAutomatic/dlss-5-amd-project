@@ -63,7 +63,7 @@ Early single-slot and multi-slot figures came from different capture sessions. T
 | `OptiScaler.ini` | Config template; the `[DlssNr]` section (including `AmdSlots`) lives here |
 | `OptiScaler\` | FFX / XeSS / Agility dependencies |
 | `Setup.bat` / `Setup.ps1` | Installer (**double-click `Setup.bat`**) |
-| `Uninstall.bat` / `Uninstall.ps1` | Removes this project from the game folder (**double-click `Uninstall.bat`**); keeps backups, weights, original-author setup, and `nvngx_dlssnr.dll` |
+| `Uninstall_OptiScaler_NR.bat` / `.ps1` | Uninstaller; Setup copies it into the **game folder**. Double-click it there: it lists planned deletions, then asks for confirmation |
 | `Licenses\` | Third-party licences |
 | `SHA256SUMS.txt` | Checksums |
 | `README.md` / `README.en.md` | This document |
@@ -210,7 +210,7 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 
 ### Uninstall
 
-Double-click **`Uninstall.bat`**, pick the same game folder, and confirm. It removes identified OptiScaler proxies, passes, configuration, logs, and explicitly listed FFX / XeSS / Agility dependencies; it also checks `_storage_`.
+In the **game folder**, double-click **`Uninstall_OptiScaler_NR.bat`** (Setup copies it there). Do not pick a folder from the zip directory. The script lists the files it will delete, then waits for Y; it also checks `_storage_`.
 
 **Kept**: `backup-amd-presr-*`, `nvngx_dlssnr.dll`, `dlssnr_on_amd_weights.bin`, the original-author setup/logs, non-OptiScaler files using a proxy name, and extra plugins or files you added under `OptiScaler`. Dependency directories are removed only when empty; the uninstaller never deletes the entire `OptiScaler` tree, so that folder may remain afterward.
 

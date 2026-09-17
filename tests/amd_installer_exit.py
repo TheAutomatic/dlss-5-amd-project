@@ -41,18 +41,26 @@ class InstallerExitTests(unittest.TestCase):
         self.env.pop("PSMODULEPATH", None)
         self.env["PATH"] = str(PS.parent) + os.pathsep + self.env.get("PATH", "")
         source = (REPO / "tools/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
-        for name, script in (("Setup", "install"), ("Uninstall", "uninstall")):
+        for title_name, script, file_name in (
+            ("Setup", "install", "Setup"),
+            ("Uninstall", "uninstall", "Uninstall_OptiScaler_NR"),
+        ):
             body = re.search(
                 r"@'\n(@echo off\nsetlocal\ntitle OptiScaler AMD pre-SR "
-                + name + r"\n.*?)\n'@ \| Set-Content", source, re.S
+                + title_name + r"\n.*?)\n'@ \| Set-Content", source, re.S
             )
-            self.assertIsNotNone(body, f"missing production {name}.bat template")
+            self.assertIsNotNone(body, f"missing production {file_name}.bat template")
             batch = body.group(1)
             self.assertEqual(len(re.findall(r"(?m)^pause$", batch)), 1)
             batch = batch.replace("\npause\n", f"\necho {PAUSE_MARKER}\npause\n")
-            (self.package / f"{name}.bat").write_bytes(batch.replace("\n", "\r\n").encode("ascii"))
+            (self.package / f"{file_name}.bat").write_bytes(batch.replace("\n", "\r\n").encode("ascii"))
             original = (REPO / f"tools/{script}-amd-presr.ps1").read_text(encoding="utf-8-sig")
-            write_ps(self.package / f"{name}.ps1", original)
+            write_ps(self.package / f"{file_name}.ps1", original)
+
+    def launcher_files(self, name):
+        if name == "Uninstall":
+            return "Uninstall_OptiScaler_NR.bat", "Uninstall_OptiScaler_NR.ps1"
+        return f"{name}.bat", f"{name}.ps1"
 
     def run_process(self, args, stdin=""):
         result = subprocess.run(
@@ -62,7 +70,8 @@ class InstallerExitTests(unittest.TestCase):
         return result.returncode, result.stdout.decode("mbcs", errors="replace")
 
     def run_batch(self, name="Setup", game=None, proxy="dxgi.dll", stdin=""):
-        args = [str(self.package / f"{name}.bat"), str(game or self.game)]
+        bat, _ = self.launcher_files(name)
+        args = [str(self.package / bat), str(game or self.game)]
         if name == "Setup":
             args.append(proxy)
         # cmd's /c outer quoting is separate from each pathname's quoting.
@@ -73,8 +82,9 @@ class InstallerExitTests(unittest.TestCase):
         return code, output
 
     def run_direct(self, name="Setup", game=None, flags=("-NonInteractive",)):
+        _, script = self.launcher_files(name)
         args = [str(PS), "-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-File",
-                str(self.package / f"{name}.ps1"), "-GameDir", str(game or self.game)]
+                str(self.package / script), "-GameDir", str(game or self.game)]
         if name == "Setup":
             args += ["-Proxy", "dxgi.dll"]
         code, output = self.run_process(args + list(flags))
@@ -103,6 +113,8 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn("Install SUCCEEDED.", output)
         self.assertNotIn("Setup failed", output)
         self.assertEqual((self.game / "dlssnr_amd_pass1.dll").read_bytes(), FAKE_RUNTIME)
+        self.assertTrue((self.game / "Uninstall_OptiScaler_NR.bat").is_file(), output)
+        self.assertTrue((self.game / "Uninstall_OptiScaler_NR.ps1").is_file(), output)
 
     def test_explicit_install_failure_pauses_once(self):
         code, output = self.run_batch(game=self.root / "missing")
@@ -155,6 +167,43 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self.assertIn("Unexpected install error:", output)
 
+    def test_uninstall_copied_into_game_folder_runs_in_place(self):
+        """Setup copies Uninstall_OptiScaler_NR into the game folder.
+
+        Double-click there has no folder picker: the script uses its own
+        directory. Cancel must keep files; Y deletes the planned list.
+        """
+        self.ready_install()
+        code, output = self.run_batch()
+        self.assertEqual(code, 0, output)
+        bat = self.game / "Uninstall_OptiScaler_NR.bat"
+        script = self.game / "Uninstall_OptiScaler_NR.ps1"
+        self.assertTrue(bat.is_file(), output)
+        self.assertTrue(script.is_file(), output)
+        pass1 = self.game / "dlssnr_amd_pass1.dll"
+        self.assertTrue(pass1.is_file(), output)
+
+        def run_in_place(stdin):
+            args = [str(PS), "-NoProfile", "-ExecutionPolicy", "Bypass", "-STA",
+                    "-File", str(script), "-NoPause"]
+            return self.run_process(args, stdin)
+
+        code, output = run_in_place("N\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Planned deletions:", output)
+        self.assertIn("Cancelled.", output)
+        self.assertNotIn("Uninstall SUCCEEDED.", output)
+        self.assertTrue(pass1.is_file(), output)
+        self.assertTrue(script.is_file(), output)
+
+        code, output = run_in_place("Y\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Planned deletions:", output)
+        self.assertIn("Uninstall SUCCEEDED.", output)
+        self.assertFalse(pass1.exists(), output)
+        self.assertFalse(script.exists(), output)
+        self.assertFalse(bat.exists(), output)
+
     def test_uninstall_success_and_cancel_pause_once(self):
         for answer, message in (("Y\n", "Uninstall SUCCEEDED."), ("N\n", "Cancelled.")):
             with self.subTest(answer=answer.strip()):
@@ -172,7 +221,8 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn("Uninstall failed (exit code 1)", output)
 
     def test_uninstall_unhandled_exception_uses_trap(self):
-        script = self.package / "Uninstall.ps1"
+        _, script_name = self.launcher_files("Uninstall")
+        script = self.package / script_name
         source = script.read_text(encoding="utf-8-sig")
         insertion = "$game = (Resolve-Path -LiteralPath $GameDir).Path"
         self.assertEqual(source.count(insertion), 1)
@@ -183,7 +233,8 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn("Uninstall FAILED.", output)
 
     def test_uninstall_parse_failure_has_batch_fallback(self):
-        write_ps(self.package / "Uninstall.ps1", "param(\n")
+        _, script_name = self.launcher_files("Uninstall")
+        write_ps(self.package / script_name, "param(\n")
         code, output = self.run_batch(name="Uninstall")
         self.assertNotEqual(code, 0, output)
         self.assertIn(f"Uninstall failed (exit code {code})", output)

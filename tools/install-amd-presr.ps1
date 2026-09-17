@@ -6,7 +6,7 @@
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
-  Only installs THIS project (B path). Does not leave original-author version.dll in the game.
+  Only installs this project. Does not leave original-author version.dll in the game.
 
   Put these in the SAME folder as Setup.ps1 (the package root):
     OptiScaler.dll              this fork
@@ -696,6 +696,57 @@ if (Test-Path $deps) {
         $rel = Join-Path 'OptiScaler' $_.FullName.Substring($deps.Length).TrimStart('\','/')
         Install-One $_.FullName $rel
     }
+}
+
+# Uninstaller is copied into the game folder. Double-click it there; it
+# targets that directory (no folder picker). Look next to Setup first —
+# $release may be a legacy release\ subfolder that does not contain it.
+$ps1Src = $null
+foreach ($candidate in @(
+        (Join-Path $Root 'Uninstall_OptiScaler_NR.ps1'),
+        (Join-Path $release 'Uninstall_OptiScaler_NR.ps1'),
+        (Join-Path $PSScriptRoot 'uninstall-amd-presr.ps1')
+    )) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        $ps1Src = $candidate
+        break
+    }
+}
+if (-not $ps1Src) {
+    Fail 'Missing Uninstall_OptiScaler_NR.ps1 next to Setup.ps1. Setup copies it into the game folder.'
+}
+Install-One $ps1Src 'Uninstall_OptiScaler_NR.ps1'
+
+$batSrc = $null
+foreach ($candidate in @(
+        (Join-Path $Root 'Uninstall_OptiScaler_NR.bat'),
+        (Join-Path $release 'Uninstall_OptiScaler_NR.bat')
+    )) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        $batSrc = $candidate
+        break
+    }
+}
+if ($batSrc) {
+    Install-One $batSrc 'Uninstall_OptiScaler_NR.bat'
+} else {
+    $batDest = Join-Path $game 'Uninstall_OptiScaler_NR.bat'
+    @'
+@echo off
+setlocal
+title OptiScaler AMD pre-SR Uninstall
+rem Double-click in the game folder. Optional: Uninstall_OptiScaler_NR.bat "D:\GameFolder"
+if "%~1"=="" (
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -NoPause
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -GameDir "%~1" -NoPause
+)
+set "EC=%ERRORLEVEL%"
+if not "%EC%"=="0" echo Uninstall failed ^(exit code %EC%^). See the error above.
+pause
+exit /b %EC%
+'@ | Set-Content -LiteralPath $batDest -Encoding ASCII
+    Write-Host "Wrote uninstaller: $batDest" -ForegroundColor Green
 }
 
 # Small install record so Uninstall knows which proxy name this install used.
