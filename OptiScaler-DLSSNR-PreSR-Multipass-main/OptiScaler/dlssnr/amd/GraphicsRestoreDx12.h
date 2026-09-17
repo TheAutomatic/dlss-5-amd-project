@@ -96,7 +96,9 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
             break;
         case RestoreOp::SetViewports:
             vpCount = c.count;
-            if (vpCount <= kMaxViewports && snap.viewportCount == vpCount)
+            if (vpCount == 0)
+                cmd->RSSetViewports(0, nullptr);
+            else if (vpCount <= kMaxViewports && snap.viewportCount == vpCount)
             {
                 for (UINT k = 0; k < vpCount; ++k)
                 {
@@ -108,7 +110,9 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
             break;
         case RestoreOp::SetScissors:
             scCount = c.count;
-            if (scCount <= kMaxScissors && snap.scissorCount == scCount)
+            if (scCount == 0)
+                cmd->RSSetScissorRects(0, nullptr);
+            else if (scCount <= kMaxScissors && snap.scissorCount == scCount)
             {
                 for (UINT k = 0; k < scCount; ++k)
                 {

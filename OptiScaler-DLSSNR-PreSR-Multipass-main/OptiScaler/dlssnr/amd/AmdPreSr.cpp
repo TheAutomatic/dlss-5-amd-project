@@ -884,10 +884,10 @@ struct Backend::Impl
         // its graphics PSO. AmdGraphicsWait=1 requests graphics; otherwise compute.
         if (L->spinDraw)
         {
-            // Same gate as per-Record writes: graphics only when this invocation
-            // armed a restore plan. InitPass runs inside Record.
+            // Graphics when this invocation armed a restore plan, or AmdGraphicsUnsafe
+            // (A-style dirty insert: no complete restore).
             int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
-            if (want && !GraphicsSnap::RestoreArmed())
+            if (want && !GraphicsSnap::RestoreArmed() && !Config::Instance()->AmdGraphicsUnsafe.value_or_default())
                 want = 0;
             At<int>(h, L->spinDraw) = want;
             Log(want ? std::string("AMD runtime: SpinDraw=1 (graphics wait via AmdGraphicsWait)")
@@ -1249,7 +1249,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             return nullptr;
         for (UINT i = 0; i < p->activePasses; ++i)
         {
-            if (L->spinDraw && p->gfxStartup[i].ShouldDefer(cfg.spinDraw != 0, gfx->armed, GetTickCount64()))
+            if (L->spinDraw && !Config::Instance()->AmdGraphicsUnsafe.value_or_default() &&
+                p->gfxStartup[i].ShouldDefer(cfg.spinDraw != 0, gfx->armed, GetTickCount64()))
             {
                 gfx->outcome = "graphics_startup_wait";
                 return nullptr;
@@ -1557,10 +1558,13 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             auto r = p->runtime[i];
             if (L->spinDraw)
             {
-                // Graphics wait only on DIRECT lists that successfully froze a
-                // restore plan this invocation (envelope sets RestoreArmed).
+                // Graphics wait only on DIRECT lists. Safe path requires armed restore;
+                // AmdGraphicsUnsafe skips that (A-style, no complete restore).
+                const bool unsafe = Config::Instance()->AmdGraphicsUnsafe.value_or_default();
                 int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
-                if (want && (listType != D3D12_COMMAND_LIST_TYPE_DIRECT || !gfx->armed))
+                if (want && listType != D3D12_COMMAND_LIST_TYPE_DIRECT)
+                    want = 0;
+                else if (want && !gfx->armed && !unsafe)
                     want = 0;
                 At<int>(r, L->spinDraw) = want;
             }

@@ -304,6 +304,9 @@ class Config
     // Graphics wait tracker + freeze/restore. Default 1 (graphics-first on this branch).
     // Startup-only; no hot toggle. Set 0 to force the old compute path.
     CustomOptional<int> AmdGraphicsWait { 1 };
+    // Experimental A-style dirty insert: request SpinDraw=1 even when freeze/admission fails.
+    // No complete graphics restore — risk matches the original author runtime. Default 0.
+    CustomOptional<int> AmdGraphicsUnsafe { 0 };
     CustomOptional<bool> AmdRtgiEnabled { false };
     CustomOptional<uint32_t> AmdRtgiQuality { 2 };
     CustomOptional<uint32_t> AmdRtgiDenoiser { 1 };

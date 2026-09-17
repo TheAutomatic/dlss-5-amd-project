@@ -144,10 +144,17 @@ inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
     }
     if (s.viewportState == BindState::KnownValue && s.viewportCount)
     {
-        // Caller maps snapshot viewports; plan carries count only.
         RestoreCmd c {};
         c.op = RestoreOp::SetViewports;
         c.count = s.viewportCount;
+        if (!out.Push(c))
+            return false;
+    }
+    else if (s.viewportState == BindState::KnownUnset)
+    {
+        RestoreCmd c {};
+        c.op = RestoreOp::SetViewports;
+        c.count = 0;
         if (!out.Push(c))
             return false;
     }
@@ -159,11 +166,27 @@ inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
         if (!out.Push(c))
             return false;
     }
+    else if (s.scissorState == BindState::KnownUnset)
+    {
+        RestoreCmd c {};
+        c.op = RestoreOp::SetScissors;
+        c.count = 0;
+        if (!out.Push(c))
+            return false;
+    }
     if (s.topologyState == BindState::KnownValue)
     {
         RestoreCmd c {};
         c.op = RestoreOp::SetTopology;
         c.count = s.topology;
+        if (!out.Push(c))
+            return false;
+    }
+    else if (s.topologyState == BindState::KnownUnset)
+    {
+        RestoreCmd c {};
+        c.op = RestoreOp::SetTopology;
+        c.count = 0; // D3D_PRIMITIVE_TOPOLOGY_UNDEFINED
         if (!out.Push(c))
             return false;
     }

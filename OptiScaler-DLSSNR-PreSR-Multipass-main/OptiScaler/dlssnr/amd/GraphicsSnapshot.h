@@ -463,16 +463,11 @@ inline AdmissionResult CanAdmitGraphics(const GraphicsSnapshot& s, bool generati
         return { false, "pso_unknown_or_unset" };
     if (s.viewportState == BindState::Unknown)
         return { false, "viewport_unknown" };
-    if (s.viewportState != BindState::KnownValue)
-        return { false, "viewport_unset" };
+    // Known-unset (API empty after Reset) is recoverable: restore RSSetViewports(0).
     if (s.scissorState == BindState::Unknown)
         return { false, "scissor_unknown" };
-    if (s.scissorState != BindState::KnownValue)
-        return { false, "scissor_unset" };
     if (s.topologyState == BindState::Unknown)
         return { false, "topology_unknown" };
-    if (s.topologyState != BindState::KnownValue)
-        return { false, "topology_unset" };
     if (s.om.state != BindState::KnownValue && s.om.state != BindState::KnownUnset)
         return { false, "om_unknown" };
     if (!s.predication.IsDisabled())
