@@ -1,6 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <set>
+#include <tuple>
 
 // Pure CPU bookkeeping for AMD graphics-wait admission and restore.
 // No D3D12 calls; production code maps real API types onto these PODs.
@@ -51,6 +54,8 @@ struct RootEntry
     std::uint32_t constants[kMaxRootConstants] {};
     std::uint32_t numConstants = 0;
     std::uint32_t destOffset = 0;
+    // Only observed DWORDs are replayed. Gaps in partial writes are not zeroes.
+    std::uint64_t knownConstants = 0;
 };
 
 struct Viewport
@@ -71,6 +76,9 @@ struct OmBinding
     std::uint64_t rtvHandles[kMaxRTVs] {};
     bool hasDsv = false;
     std::uint64_t dsvHandle = 0;
+    // Copied CPU descriptors must remain alive as long as any live/frozen
+    // snapshot references them, independently of other command lists.
+    std::shared_ptr<void> owner;
 };
 
 struct Predication
@@ -100,10 +108,19 @@ struct RootDomain
             e = RootEntry {};
     }
 
-    // Any signature write invalidates previously bound arguments (D3D12 rule).
-    // Null is a legal known-unset signature.
+    void ClearTables()
+    {
+        for (auto& e : entries)
+            if (e.type == RootEntryType::Table)
+                e = RootEntry {};
+    }
+
+    // Rebinding the same known signature preserves arguments (D3D12 rule).
+    // Switching signatures, including to null, invalidates them.
     void SetSignature(std::uint64_t sig)
     {
+        if (signatureState != BindState::Unknown && signature == sig)
+            return;
         signature = sig;
         signatureState = sig ? BindState::KnownValue : BindState::KnownUnset;
         ClearParams();
@@ -152,6 +169,8 @@ struct RootDomain
             e.state = BindState::KnownValue;
         }
         std::memcpy(e.constants + destOffset, src, count * sizeof(std::uint32_t));
+        for (std::uint32_t i = destOffset; i < destOffset + count; ++i)
+            e.knownConstants |= std::uint64_t { 1 } << i;
         const auto end = destOffset + count;
         if (end > e.numConstants)
             e.numConstants = end;
@@ -182,27 +201,40 @@ struct GraphicsSnapshot
     std::uint32_t heapCount = 0;
     std::uint64_t heaps[kMaxHeaps] {};
     bool renderPassActive = false;
+    bool renderPassSuspended = false;
     bool queryActive = false;
     bool bundleOrIndirectSeen = false;
     IneligibleWhy ineligibleWhy = IneligibleWhy::None;
 
     void SetHeaps(std::uint32_t count, const std::uint64_t* handles)
     {
-        heapCount = 0;
-        if (!handles || count == 0)
+        // Heap order is immaterial: at most one heap of each shader-visible
+        // type can be bound. Rebinding the same set preserves root tables.
+        bool valid = count <= kMaxHeaps && (count == 0 || handles);
+        for (std::uint32_t i = 0; valid && i < count; ++i)
+            valid = handles[i] != 0;
+        if (valid && count == 2 && handles[0] == handles[1])
+            valid = false;
+        const auto newState = !valid ? BindState::Unknown :
+            (count ? BindState::KnownValue : BindState::KnownUnset);
+        bool same = valid && heapState == newState && heapCount == count;
+        if (same && count == 1)
+            same = heaps[0] == handles[0];
+        else if (same && count == 2)
+            same = (heaps[0] == handles[0] && heaps[1] == handles[1]) ||
+                   (heaps[0] == handles[1] && heaps[1] == handles[0]);
+        if (!same)
         {
-            heapState = BindState::KnownUnset;
-            return;
+            compute.ClearTables();
+            graphics.ClearTables();
         }
-        if (count > kMaxHeaps)
-        {
-            heapState = BindState::Unknown;
-            return;
-        }
-        for (std::uint32_t i = 0; i < count; ++i)
-            heaps[i] = handles[i];
-        heapCount = count;
-        heapState = BindState::KnownValue;
+        heapState = newState;
+        heapCount = valid ? count : 0;
+        std::uint64_t nextHeaps[kMaxHeaps] {};
+        for (std::uint32_t i = 0; i < heapCount; ++i)
+            nextHeaps[i] = handles[i];
+        for (std::uint32_t i = 0; i < kMaxHeaps; ++i)
+            heaps[i] = nextHeaps[i];
     }
 
     void SetPso(std::uint64_t handle)
@@ -245,10 +277,10 @@ struct GraphicsSnapshot
         topologyState = BindState::KnownValue;
     }
 
-    // RTsSingleHandleToDescriptorRange expands a contiguous range at restore time
-    // using the device increment; here we only record the API arguments.
+    // The hook expands/copies every descriptor before reporting. A contiguous
+    // input cannot be reconstructed here without a device descriptor increment.
     void SetRenderTargets(std::uint32_t numRTVs, const std::uint64_t* rtvHandles, bool singleHandleRange,
-                          bool hasDsv, std::uint64_t dsvHandle)
+                          bool hasDsv, std::uint64_t dsvHandle, std::shared_ptr<void> owner = {})
     {
         om = OmBinding {};
         if (numRTVs == 0 && !hasDsv)
@@ -256,23 +288,29 @@ struct GraphicsSnapshot
             om.state = BindState::KnownUnset;
             return;
         }
-        if (numRTVs > kMaxRTVs)
+        if (numRTVs > kMaxRTVs || (numRTVs && !rtvHandles) ||
+            (singleHandleRange && numRTVs > 1) || (hasDsv && !dsvHandle))
         {
             om.state = BindState::Unknown;
             return;
         }
         om.numRTVs = numRTVs;
-        om.singleHandleRange = singleHandleRange;
+        om.singleHandleRange = false;
         om.hasDsv = hasDsv;
         om.dsvHandle = dsvHandle;
         if (rtvHandles && numRTVs)
         {
-            if (singleHandleRange)
-                om.rtvHandles[0] = rtvHandles[0];
-            else
-                for (std::uint32_t i = 0; i < numRTVs; ++i)
-                    om.rtvHandles[i] = rtvHandles[i];
+            for (std::uint32_t i = 0; i < numRTVs; ++i)
+            {
+                if (!rtvHandles[i])
+                {
+                    om = OmBinding {};
+                    return;
+                }
+                om.rtvHandles[i] = rtvHandles[i];
+            }
         }
+        om.owner = std::move(owner);
         om.state = BindState::KnownValue;
     }
 
@@ -294,51 +332,67 @@ struct ListTracker
     bool live = false;
     bool ineligible = false;
     GraphicsSnapshot snap;
+    using QueryKey = std::tuple<std::uint64_t, std::uint32_t, std::uint32_t>;
+    std::set<QueryKey> activeQueries;
+    bool renderPassWillSuspend = false;
 
-    // D3D12 Create/Reset leave predication disabled and OM empty; those are
-    // known API defaults, not "never observed".
-    void AdoptApiDefaults()
+    // Direct command-list Create/Reset/ClearState start with no root
+    // signatures, shader-visible heaps, OM bindings or predication.
+    // These are known API defaults, not "never observed".
+    void AdoptApiDefaults(std::uint64_t initialPso = 0)
     {
         snap = GraphicsSnapshot {};
+        snap.compute.SetSignature(0);
+        snap.graphics.SetSignature(0);
+        snap.SetHeaps(0, nullptr);
         snap.predication.state = BindState::KnownUnset;
         snap.predication.resource = 0;
         snap.om.state = BindState::KnownUnset;
+        snap.SetPso(initialPso);
     }
 
-    void OnCreate(std::uint64_t id)
+    void OnCreate(std::uint64_t id, std::uint64_t initialPso = 0)
     {
         listId = id;
         generation = 1;
         generationKnown = true;
         live = true;
         ineligible = false;
-        AdoptApiDefaults();
+        activeQueries.clear();
+        renderPassWillSuspend = false;
+        AdoptApiDefaults(initialPso);
     }
 
     // Only a successful Reset starts a new generation and adopts API defaults.
-    bool OnReset(bool succeeded)
+    bool OnReset(bool succeeded, std::uint64_t initialPso = 0)
     {
         if (!live || !succeeded)
             return false;
         ++generation;
+        generationKnown = true;
         ineligible = false;
-        AdoptApiDefaults();
+        activeQueries.clear();
+        renderPassWillSuspend = false;
+        AdoptApiDefaults(initialPso);
         return true;
     }
 
     // ClearState is not Reset: bindings become default, but active RP/query stay.
-    void OnClearState()
+    void OnClearState(std::uint64_t initialPso = 0)
     {
         if (!live)
             return;
         const bool rp = snap.renderPassActive;
+        const bool suspended = snap.renderPassSuspended;
         const bool q = snap.queryActive;
         const bool bad = snap.bundleOrIndirectSeen;
-        snap = GraphicsSnapshot {};
-        snap.predication.state = BindState::KnownUnset;
+        const auto why = snap.ineligibleWhy;
+        AdoptApiDefaults(initialPso);
         snap.renderPassActive = rp;
+        snap.renderPassSuspended = suspended;
         snap.queryActive = q;
         snap.bundleOrIndirectSeen = bad;
+        snap.ineligibleWhy = why;
     }
 
     void MarkIneligible(IneligibleWhy why = IneligibleWhy::Other)
@@ -361,6 +415,8 @@ struct ListTracker
         generationKnown = false;
         ineligible = false;
         snap = GraphicsSnapshot {};
+        activeQueries.clear();
+        renderPassWillSuspend = false;
     }
 };
 
@@ -375,7 +431,7 @@ inline AdmissionResult CanAdmitGraphics(const GraphicsSnapshot& s, bool generati
 {
     if (!generationKnown)
         return { false, "unknown_generation" };
-    if (ineligible || s.bundleOrIndirectSeen || s.renderPassActive || s.queryActive)
+    if (ineligible || s.bundleOrIndirectSeen || s.renderPassActive || s.renderPassSuspended || s.queryActive)
     {
         if (s.queryActive || s.ineligibleWhy == IneligibleWhy::Query)
             return { false, "query_active" };
@@ -383,12 +439,18 @@ inline AdmissionResult CanAdmitGraphics(const GraphicsSnapshot& s, bool generati
             return { false, "execute_bundle" };
         if (s.ineligibleWhy == IneligibleWhy::Indirect)
             return { false, "execute_indirect" };
+        if (s.renderPassSuspended)
+            return { false, "render_pass_suspended" };
         if (s.renderPassActive)
             return { false, "render_pass" };
         return { false, "ineligible_generation" };
     }
     if (s.graphics.signatureState == BindState::Unknown)
         return { false, "graphics_root_unknown" };
+    if (s.compute.signatureState == BindState::Unknown)
+        return { false, "compute_root_unknown" };
+    if (s.heapState == BindState::Unknown)
+        return { false, "descriptor_heaps_unknown" };
     if (s.psoState != BindState::KnownValue)
         return { false, "pso_unknown_or_unset" };
     if (s.viewportState == BindState::Unknown)

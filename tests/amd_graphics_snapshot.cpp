@@ -14,7 +14,7 @@ static void TestUnknownNeverAdmits()
     t.OnCreate(0x1000);
     a = CanAdmitGraphics(t);
     assert(!a.ok);
-    assert(std::string(a.reason) == "graphics_root_unknown");
+    assert(std::string(a.reason) == "pso_unknown_or_unset");
 
     GraphicsSnapshot frozen;
     assert(!TryFreeze(t, frozen));
@@ -25,6 +25,7 @@ static GraphicsSnapshot MakeAdmissible()
     GraphicsSnapshot s;
     s.graphics.SetSignature(0xA11);
     s.compute.SetSignature(0xC01);
+    s.SetHeaps(0, nullptr);
     s.SetPso(0x9001);
     Viewport vp {};
     vp.width = 1;
@@ -68,16 +69,10 @@ static void TestSignatureChangeClearsParams()
     assert(d.entries[0].state == BindState::KnownValue);
     assert(d.entries[1].state == BindState::KnownValue);
 
-    // Same signature again: params must survive.
-    d.signature = 0xA;
-    d.signatureState = BindState::KnownValue;
-    // SetSignature always clears — production may special-case same-sig.
-    // Model the D3D12 rule: switching signature clears; re-set of same also
-    // goes through SetSignature here, so call the low-level clear only on change.
-    d.ClearParams();
-    d.signature = 0xA;
-    d.signatureState = BindState::KnownValue;
-    assert(d.entries[0].state == BindState::Unknown);
+    // Same signature again must preserve the actual game API state.
+    d.SetSignature(0xA);
+    assert(d.entries[0].table == 0x1111);
+    assert(d.entries[1].gpuVa == 0x2222);
 
     // Different signature clears.
     d.SetSignature(0xA);
@@ -101,16 +96,20 @@ static void TestSignatureChangeClearsParams()
     assert(c.entries[0].state == BindState::Unknown);
 }
 
-// Documented contract: SetSignature always drops arguments. Same-signature
-// rebind that should keep params must be a no-op at the API layer; tests
-// lock the clear-on-write behaviour so restore cannot assume survivors.
-static void TestSetSignatureAlwaysInvalidates()
+static void TestSameSignaturePreservesPartialConstants()
 {
     RootDomain d;
     d.SetSignature(0x1);
     d.SetTable(0, 0x99);
-    d.SetSignature(0x1); // same value, still a SetGraphicsRootSignature call
-    assert(d.entries[0].state == BindState::Unknown);
+    const uint32_t values[] = { 10, 20, 30, 40 };
+    d.MergeConstants(1, values, 4, 0);
+    d.SetSignature(0x1);
+    d.SetConstant(1, 99, 2);
+    assert(d.entries[0].table == 0x99);
+    assert(d.entries[1].constants[0] == 10);
+    assert(d.entries[1].constants[1] == 20);
+    assert(d.entries[1].constants[2] == 99);
+    assert(d.entries[1].constants[3] == 40);
     assert(d.signature == 0x1);
 }
 
@@ -164,7 +163,7 @@ static void TestGenerationAndReset()
     assert(t.generation == 2);
     auto a = CanAdmitGraphics(t);
     assert(!a.ok);
-    assert(std::string(a.reason) == "graphics_root_unknown");
+    assert(std::string(a.reason) == "pso_unknown_or_unset");
 
     t.snap = MakeAdmissible();
     t.MarkIneligible(); // bundle/indirect
@@ -189,8 +188,10 @@ static void TestClearStateIsNotReset()
 
     t.OnClearState();
     // Bindings cleared...
-    assert(t.snap.graphics.signatureState == BindState::Unknown);
-    assert(t.snap.psoState == BindState::Unknown);
+    assert(t.snap.graphics.signatureState == BindState::KnownUnset);
+    assert(t.snap.compute.signatureState == BindState::KnownUnset);
+    assert(t.snap.heapState == BindState::KnownUnset);
+    assert(t.snap.psoState == BindState::KnownUnset);
     // ...but RP/query/ineligible markers are not Reset.
     assert(t.snap.renderPassActive);
     assert(t.snap.queryActive);
@@ -239,7 +240,7 @@ static void TestOmStates()
     assert(t.snap.om.state == BindState::KnownUnset);
     assert(CanAdmitGraphics(t).ok);
 
-    // Non-empty OM records handles; single-handle range keeps only the base.
+    // Internal OM is always explicit; all handles must be present and nonzero.
     const std::uint64_t handles[2] = { 0xAA, 0xBB };
     t.snap.SetRenderTargets(2, handles, false, true, 0xDD);
     assert(t.snap.om.numRTVs == 2);
@@ -250,9 +251,44 @@ static void TestOmStates()
     assert(CanAdmitGraphics(t).ok);
 
     t.snap.SetRenderTargets(2, handles, true, false, 0);
-    assert(t.snap.om.singleHandleRange);
-    assert(t.snap.om.rtvHandles[0] == 0xAA);
-    assert(t.snap.om.rtvHandles[1] == 0);
+    assert(t.snap.om.state == BindState::Unknown);
+    assert(!CanAdmitGraphics(t).ok);
+    const uint64_t incomplete[] = { 0xAA, 0 };
+    t.snap.SetRenderTargets(2, incomplete, false, false, 0);
+    assert(t.snap.om.state == BindState::Unknown);
+    t.snap.SetRenderTargets(1, nullptr, false, false, 0);
+    assert(t.snap.om.state == BindState::Unknown);
+    t.snap.SetRenderTargets(0, nullptr, false, true, 0);
+    assert(t.snap.om.state == BindState::Unknown);
+}
+
+static void TestInitialPsoAndOwnerLifetime()
+{
+    ListTracker t;
+    t.OnCreate(0x100, 0xABC);
+    assert(t.snap.pso == 0xABC);
+    assert(t.snap.psoState == BindState::KnownValue);
+    assert(!t.OnReset(false, 0xDEF));
+    assert(t.snap.pso == 0xABC);
+    assert(t.OnReset(true, 0xDEF));
+    assert(t.snap.pso == 0xDEF);
+    t.OnClearState(0x123);
+    assert(t.snap.pso == 0x123);
+    assert(t.snap.om.state == BindState::KnownUnset);
+
+    t.snap = MakeAdmissible();
+    auto descriptorBlock = std::make_shared<int>(7);
+    std::weak_ptr<int> weak = descriptorBlock;
+    const uint64_t rtvs[] = { 100, 200 };
+    t.snap.SetRenderTargets(2, rtvs, false, true, 300, descriptorBlock);
+    descriptorBlock.reset();
+    GraphicsSnapshot frozen;
+    assert(TryFreeze(t, frozen));
+    t.OnReset(true);
+    assert(!weak.expired()); // Frozen owner, not a global cursor, protects it.
+    assert(frozen.om.rtvHandles[1] == 200);
+    frozen = {};
+    assert(weak.expired());
 }
 
 static void TestPsoRequired()
@@ -269,6 +305,74 @@ static void TestPsoRequired()
     a = CanAdmitGraphics(t);
     assert(!a.ok);
     assert(std::string(a.reason) == "pso_unknown_or_unset");
+}
+
+static void TestApiDefaultsAndUnknownBindings()
+{
+    ListTracker t;
+    t.OnCreate(0x71, 0x9001);
+    assert(t.snap.graphics.signatureState == BindState::KnownUnset);
+    assert(t.snap.compute.signatureState == BindState::KnownUnset);
+    assert(t.snap.graphics.signature == 0 && t.snap.compute.signature == 0);
+    assert(t.snap.heapState == BindState::KnownUnset && t.snap.heapCount == 0);
+
+    t.snap = MakeAdmissible();
+    t.snap.compute.signatureState = BindState::Unknown;
+    assert(std::string(CanAdmitGraphics(t).reason) == "compute_root_unknown");
+    t.snap.compute.SetSignature(0);
+    assert(CanAdmitGraphics(t).ok);
+    t.snap.heapState = BindState::Unknown;
+    assert(std::string(CanAdmitGraphics(t).reason) == "descriptor_heaps_unknown");
+    t.snap.SetHeaps(0, nullptr);
+    assert(CanAdmitGraphics(t).ok);
+    t.snap.graphics.signatureState = BindState::Unknown;
+    assert(std::string(CanAdmitGraphics(t).reason) == "graphics_root_unknown");
+
+    assert(t.OnReset(true, 0x9002));
+    assert(t.snap.graphics.signatureState == BindState::KnownUnset);
+    assert(t.snap.compute.signatureState == BindState::KnownUnset);
+    assert(t.snap.heapState == BindState::KnownUnset);
+}
+
+static void TestHeapChangesInvalidateOnlyTables()
+{
+    GraphicsSnapshot s;
+    s.compute.SetSignature(0xC);
+    s.graphics.SetSignature(0xA);
+    const uint64_t heaps[] = { 0x100, 0x200 };
+    const uint64_t reordered[] = { 0x200, 0x100 };
+    const uint64_t changed[] = { 0x100, 0x300 };
+    s.SetHeaps(2, heaps);
+    for (auto* domain : { &s.compute, &s.graphics })
+    {
+        domain->SetTable(0, 0xABC);
+        domain->SetGpuVa(1, RootEntryType::CBV, 0x123);
+        domain->SetConstant(2, 42, 3);
+    }
+    s.SetHeaps(2, heaps);
+    assert(s.compute.entries[0].table == 0xABC);
+    s.SetHeaps(2, reordered);
+    assert(s.compute.entries[0].state == BindState::KnownValue);
+    assert(s.graphics.entries[0].state == BindState::KnownValue);
+    s.SetHeaps(2, changed);
+    for (auto* domain : { &s.compute, &s.graphics })
+    {
+        assert(domain->entries[0].state == BindState::Unknown);
+        assert(domain->entries[1].gpuVa == 0x123);
+        assert(domain->entries[1].state == BindState::KnownValue);
+        assert(domain->entries[2].constants[3] == 42);
+        assert(domain->entries[2].knownConstants == (uint64_t { 1 } << 3));
+        domain->SetTable(0, 0xDEF);
+    }
+    s.SetHeaps(0, nullptr);
+    assert(s.heapState == BindState::KnownUnset && s.heapCount == 0);
+    assert(s.compute.entries[0].state == BindState::Unknown);
+    assert(s.graphics.entries[0].state == BindState::Unknown);
+    s.SetHeaps(1, nullptr); // Invalid observation must not masquerade as empty.
+    assert(s.heapState == BindState::Unknown);
+    const uint64_t invalid[] = { 0 };
+    s.SetHeaps(1, invalid);
+    assert(s.heapState == BindState::Unknown);
 }
 
 static void TestReleaseDropsRecord()
@@ -305,15 +409,18 @@ int main()
     TestUnknownNeverAdmits();
     TestHappyPathFreeze();
     TestSignatureChangeClearsParams();
-    TestSetSignatureAlwaysInvalidates();
+    TestSameSignaturePreservesPartialConstants();
     TestConstantMerge();
     TestGenerationAndReset();
     TestClearStateIsNotReset();
     TestPredicationGate();
     TestOmStates();
     TestPsoRequired();
+    TestApiDefaultsAndUnknownBindings();
+    TestHeapChangesInvalidateOnlyTables();
     TestReleaseDropsRecord();
     TestFailedAdmissionFreeze();
+    TestInitialPsoAndOwnerLifetime();
     std::cout << "graphics-snapshot D1 scenarios passed\n";
     return 0;
 }

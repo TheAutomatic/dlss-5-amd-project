@@ -1,79 +1,27 @@
 #pragma once
 #include "GraphicsRestore.h"
 #include <d3d12.h>
-#include <mutex>
-#include <wrl/client.h>
 
 // Execute a RestorePlan on a live command list. Handles in the snapshot are the
 // real COM pointers recorded by the tracker.
 namespace AmdPreSr::GraphicsSnap
 {
 
-// Frozen OM CPU copies for one NR invocation. The capture ring may be reused
-// while restore is pending; these slots are only rewritten at the next pin.
-struct FrozenOm
+// Captured OM blocks are immutable while a snapshot owns them. Copying the
+// snapshot pins its block, so no global scratch heap or second copy is needed.
+inline bool PinOmForRestore(ID3D12Device* device, const GraphicsSnapshot& snap)
 {
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> dsv;
-    UINT rtvCap = 0;
-    UINT dsvCap = 0;
-};
-
-inline std::mutex g_frozenOmMutex;
-inline FrozenOm g_frozenOm;
-
-// Copy snap.om CPU descriptors into a private heap and retarget handles there.
-// Call after a successful freeze, before A dirties the list.
-inline bool PinOmForRestore(ID3D12Device* device, GraphicsSnapshot& snap)
-{
-    if (!device || snap.om.state != BindState::KnownValue)
+    if (!device)
+        return false;
+    if (snap.om.state == BindState::KnownUnset)
         return true;
-    std::lock_guard<std::mutex> lock(g_frozenOmMutex);
-    const UINT needRtv = snap.om.numRTVs ? snap.om.numRTVs : 1;
-    if (!g_frozenOm.rtv || g_frozenOm.rtvCap < needRtv)
-    {
-        D3D12_DESCRIPTOR_HEAP_DESC d {};
-        d.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        d.NumDescriptors = needRtv < 8 ? 8 : needRtv;
-        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
-        if (FAILED(device->CreateDescriptorHeap(&d, IID_PPV_ARGS(&heap))))
-            return false;
-        g_frozenOm.rtv = heap;
-        g_frozenOm.rtvCap = d.NumDescriptors;
-    }
-    if (snap.om.hasDsv)
-    {
-        if (!g_frozenOm.dsv || g_frozenOm.dsvCap < 1)
-        {
-            D3D12_DESCRIPTOR_HEAP_DESC d {};
-            d.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-            d.NumDescriptors = 1;
-            Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
-            if (FAILED(device->CreateDescriptorHeap(&d, IID_PPV_ARGS(&heap))))
-                return false;
-            g_frozenOm.dsv = heap;
-            g_frozenOm.dsvCap = 1;
-        }
-    }
-    const UINT incR = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-    auto rtvBase = g_frozenOm.rtv->GetCPUDescriptorHandleForHeapStart();
+    if (snap.om.state != BindState::KnownValue || !snap.om.owner || snap.om.singleHandleRange ||
+        snap.om.numRTVs > kMaxRTVs)
+        return false;
     for (UINT i = 0; i < snap.om.numRTVs; ++i)
-    {
-        D3D12_CPU_DESCRIPTOR_HANDLE src { snap.om.rtvHandles[i] };
-        D3D12_CPU_DESCRIPTOR_HANDLE dst = rtvBase;
-        dst.ptr += static_cast<SIZE_T>(i) * incR;
-        device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        snap.om.rtvHandles[i] = dst.ptr;
-    }
-    if (snap.om.hasDsv)
-    {
-        const UINT incD = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-        D3D12_CPU_DESCRIPTOR_HANDLE src { snap.om.dsvHandle };
-        auto dst = g_frozenOm.dsv->GetCPUDescriptorHandleForHeapStart();
-        device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-        snap.om.dsvHandle = dst.ptr;
-    }
-    return true;
+        if (!snap.om.rtvHandles[i])
+            return false;
+    return !snap.om.hasDsv || snap.om.dsvHandle != 0;
 }
 
 inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnapshot& snap, const RestorePlan& plan)
@@ -89,7 +37,9 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
         switch (c.op)
         {
         case RestoreOp::SetDescriptorHeaps:
-            if (snap.heapState == BindState::KnownValue && snap.heapCount && snap.heapCount <= 2)
+            if (snap.heapState == BindState::KnownUnset)
+                cmd->SetDescriptorHeaps(0, nullptr);
+            else if (snap.heapState == BindState::KnownValue && snap.heapCount && snap.heapCount <= kMaxHeaps)
             {
                 ID3D12DescriptorHeap* hs[2] {};
                 for (UINT k = 0; k < snap.heapCount; ++k)
@@ -172,11 +122,9 @@ inline void ApplyRestorePlan(ID3D12GraphicsCommandList* cmd, const GraphicsSnaps
             cmd->IASetPrimitiveTopology(static_cast<D3D12_PRIMITIVE_TOPOLOGY>(c.count));
             break;
         case RestoreOp::SetRenderTargets:
-            if (snap.om.state != BindState::KnownValue)
-                break;
-            if (snap.om.numRTVs == 0 && !snap.om.hasDsv)
+            if (snap.om.state == BindState::KnownUnset)
                 cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-            else if (snap.om.numRTVs <= kMaxRTVs)
+            else if (snap.om.state == BindState::KnownValue && snap.om.numRTVs <= kMaxRTVs)
             {
                 D3D12_CPU_DESCRIPTOR_HANDLE rtvs[kMaxRTVs] {};
                 for (UINT k = 0; k < snap.om.numRTVs; ++k)

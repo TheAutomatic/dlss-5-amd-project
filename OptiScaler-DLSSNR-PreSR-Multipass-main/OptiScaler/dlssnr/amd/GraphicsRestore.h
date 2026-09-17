@@ -56,11 +56,11 @@ inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
 {
     out.count = 0;
     // Heaps first so later root tables bind against the frozen heap set.
-    if (s.heapState == BindState::KnownValue && s.heapCount)
+    if (s.heapState != BindState::Unknown)
     {
         RestoreCmd c {};
         c.op = RestoreOp::SetDescriptorHeaps;
-        c.count = s.heapCount;
+        c.count = s.heapState == BindState::KnownUnset ? 0 : s.heapCount;
         if (!out.Push(c))
             return false;
     }
@@ -109,11 +109,24 @@ inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
             case RootEntryType::Constant:
             case RootEntryType::Constants:
                 c.op = RestoreOp::SetRootConstants;
-                c.count = e.numConstants;
-                c.destOffset = 0;
-                for (std::uint32_t k = 0; k < e.numConstants && k < kMaxRootConstants; ++k)
-                    c.constants[k] = e.constants[k];
-                break;
+                // Partial writes can leave unknown holes. Replay observed
+                // contiguous ranges only, preserving DWORD offsets.
+                for (std::uint32_t k = 0; k < e.numConstants && k < kMaxRootConstants;)
+                {
+                    if (!(e.knownConstants & (std::uint64_t { 1 } << k)))
+                    {
+                        ++k;
+                        continue;
+                    }
+                    c.destOffset = k;
+                    c.count = 0;
+                    while (k < e.numConstants && k < kMaxRootConstants &&
+                           (e.knownConstants & (std::uint64_t { 1 } << k)))
+                        c.constants[c.count++] = e.constants[k++];
+                    if (!out.Push(c))
+                        return false;
+                }
+                continue;
             default:
                 continue;
             }
@@ -154,7 +167,7 @@ inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
         if (!out.Push(c))
             return false;
     }
-    if (s.om.state == BindState::KnownValue)
+    if (s.om.state != BindState::Unknown)
     {
         RestoreCmd c {};
         c.op = RestoreOp::SetRenderTargets;

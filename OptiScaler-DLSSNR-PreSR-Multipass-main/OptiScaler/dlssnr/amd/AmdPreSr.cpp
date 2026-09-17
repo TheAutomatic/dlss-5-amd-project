@@ -7,6 +7,10 @@
 #include "RuntimeHostLoad.h"
 #include "SubmissionState.h"
 #include "GraphicsTracker.h"
+#include "GraphicsInvocation.h"
+#ifndef AMD_GRAPHICS_SOURCE_ID
+#define AMD_GRAPHICS_SOURCE_ID "unfingerprinted"
+#endif
 #include <Config.h>
 #include "ColorEncoding.h"
 #include "AmdLookShader.h"
@@ -21,6 +25,7 @@
 #include <fstream>
 #include <mutex>
 #include <vector>
+#include <map>
 #include <cstring>
 #include <stdexcept>
 #include <cmath>
@@ -251,6 +256,13 @@ struct Backend::Impl
     bool graphicsFallbackReported = false;
     UINT64 frames = 0, serial = 0;
     UINT64 gfxAdmitSamples = 0, gfxAdmitOk = 0;
+    UINT64 gfxArmedSamples = 0, gfxDrawCalls = 0, gfxSpin0Calls = 0, gfxSpin1Calls = 0;
+    std::map<std::string, UINT64> gfxReasons;
+    std::array<GraphicsSnap::GraphicsStartupGate, 3> gfxStartup;
+    std::array<int, 3> gfxLastSpin { -1, -1, -1 };
+    std::array<bool, 3> gfxLastPso {};
+    std::array<bool, 3> gfxStartupFallbackReported {};
+    UINT64 gfxModeChanges = 0;
     UINT64 lastSubmitted = 0, lastCompleted = 0, completedFrames = 0;
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
     UINT64 retryAfter = 0, timeoutEvents = 0;
@@ -426,11 +438,15 @@ struct Backend::Impl
 #ifdef AMD_RETIRE_DIAGNOSTICS
     RetirementDiagnostics diagnostics;
 #endif
+    void LogDiagnostic(const std::string& s) const
+    {
+        std::ofstream out(directory / L"amd_presr.log", std::ios::app);
+        out << GetTickCount64() << " " << s << '\n';
+    }
     void Log(const std::string& s)
     {
         status = s;
-        std::ofstream out(directory / L"amd_presr.log", std::ios::app);
-        out << GetTickCount64() << " " << s << '\n';
+        LogDiagnostic(s);
     }
     void TraceBoundary(const std::string& reason)
     {
@@ -946,7 +962,8 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // change it while the game runs, and the change logs its own line when it
     // lands. Three earlier rounds were analysed without a tag and the logs could
     // not be told apart.
-    p->Log("AMD submission revision 20260916-r27: path-tolerant bootstrap isolation, pending admission, retained late lists, ordered queue migration" +
+    p->LogDiagnostic("AMD graphics build source=" AMD_GRAPHICS_SOURCE_ID);
+    p->Log("AMD submission revision 20260917-gfix1: owned graphics snapshots, signature-aware indirect, native draw observation; r27 submission contract retained" +
            std::string(kBuildTag));
     try
     {
@@ -980,20 +997,56 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     const auto listType = cmd->GetType();
     if (listType != D3D12_COMMAND_LIST_TYPE_DIRECT && listType != D3D12_COMMAND_LIST_TYPE_COMPUTE)
         return nullptr;
-    // Sample admission / request SpinDraw only when AmdGraphicsWait=1. Actual
-    // graphics spin still requires RestoreArmed() from the NR envelope freeze.
-    if (Config::Instance()->AmdGraphicsWait.value_or_default())
-    {
-        const auto listId = reinterpret_cast<uint64_t>(cmd);
-        const auto* reason = GraphicsSnap::GraphicsTracker().AdmitReason(listId);
+    const auto listId = reinterpret_cast<uint64_t>(cmd);
+    GraphicsSnap::InvocationState noEnvelope {};
+    noEnvelope.listId = listId;
+    noEnvelope.listType = static_cast<UINT>(listType);
+    noEnvelope.requested = cfg.spinDraw != 0;
+    auto* gfx = GraphicsSnap::GraphicsInvocationFor(listId);
+    if (!gfx)
+        gfx = &noEnvelope;
+    const auto logGraphics = [&]() {
+        if (!gfx->requested)
+            return;
         ++p->gfxAdmitSamples;
-        if (reason && reason[0] == 'o' && reason[1] == 'k')
-            ++p->gfxAdmitOk;
-        // Always heartbeat (including success): silent success looks like "not running".
+        p->gfxAdmitOk += gfx->admitted;
+        p->gfxArmedSamples += gfx->armed;
+        ++p->gfxReasons[gfx->reason];
         if (p->gfxAdmitSamples <= 3 || p->gfxAdmitSamples % 300 == 0)
-            p->Log("AMD graphics admission n=" + std::to_string(p->gfxAdmitSamples) + " ok=" +
-                   std::to_string(p->gfxAdmitOk) + " reason=" + (reason ? reason : "?") +
-                   " listType=" + std::to_string(static_cast<UINT>(listType)));
+        {
+            std::string histogram;
+            for (const auto& [reason, count] : p->gfxReasons)
+                histogram += " " + reason + "=" + std::to_string(count);
+            p->LogDiagnostic("AMD graphics admission n=" + std::to_string(p->gfxAdmitSamples) +
+                   " ok=" + std::to_string(p->gfxAdmitOk) + " reason=" + gfx->reason +
+                   " requested=" + std::to_string(gfx->requested) +
+                   " list=" + std::to_string(listId) + " listType=" + std::to_string(gfx->listType) +
+                   " generation=" + std::to_string(gfx->generation) +
+                   " generationKnown=" + std::to_string(gfx->generationKnown) +
+                   " predDisabled=" + std::to_string(gfx->predDisabled) +
+                   " renderPassIdle=" + std::to_string(gfx->renderPassIdle) +
+                   " psoReady=" + std::to_string(gfx->psoReady) +
+                   " admitted=" + std::to_string(gfx->admitted) +
+                   " freeze=" + std::to_string(gfx->frozen) + " pin=" + std::to_string(gfx->pinned) +
+                   " plan=" + std::to_string(gfx->planned) + " armed=" + std::to_string(gfx->armed) +
+                   " outcome=" + gfx->outcome);
+            p->LogDiagnostic("AMD graphics totals armed=" + std::to_string(p->gfxArmedSamples) +
+                   " nativeSpin0=" + std::to_string(p->gfxSpin0Calls) +
+                   " nativeSpin1=" + std::to_string(p->gfxSpin1Calls) +
+                   " drawObserved=" + std::to_string(p->gfxDrawCalls) + " reasons:" + histogram);
+        }
+    };
+    struct LogGraphicsOnReturn
+    {
+        const decltype(logGraphics)& log;
+        ~LogGraphicsOnReturn() { log(); }
+    } graphicsLog { logGraphics };
+    // Dispatch/Copy are illegal inside (or between suspended/resuming) render
+    // passes too. This must skip all NR commands, not just switch to compute.
+    if (GraphicsSnap::GraphicsTracker().IsRenderPassUnsafe(listId))
+    {
+        gfx->outcome = "render_pass_skip";
+        return nullptr;
     }
     // A owns only one not-yet-notified list/job. Submitted slots remain free
     // to overlap; do not overwrite that singleton while waiting for Execute.
@@ -1194,6 +1247,22 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         const AmdLayout* L = p->L;
         if (!L)
             return nullptr;
+        for (UINT i = 0; i < p->activePasses; ++i)
+        {
+            if (L->spinDraw && p->gfxStartup[i].ShouldDefer(cfg.spinDraw != 0, gfx->armed, GetTickCount64()))
+            {
+                gfx->outcome = "graphics_startup_wait";
+                return nullptr;
+            }
+            if (L->spinDraw && cfg.spinDraw && !gfx->armed && !p->gfxStartup[i].HasRecorded() &&
+                !p->gfxStartupFallbackReported[i])
+            {
+                p->gfxStartupFallbackReported[i] = true;
+                p->LogDiagnostic("AMD graphics startup: 2000ms grace expired; pass=" + std::to_string(i + 1) +
+                       " starting compute, reason=" + gfx->reason +
+                       "; later admission alone cannot create A graphics PSO");
+            }
+        }
         p->InitShader();
         const bool resize = p->width != w || p->height != h;
         const bool countChange = p->wantSlots != p->liveSlots;
@@ -1393,6 +1462,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             uav.Format = DXGI_FORMAT_R32_FLOAT;
             p->device->CreateUnorderedAccessView(depth, nullptr, &uav, cpu);
         }
+        gfx->commandsRecorded = true;
+        gfx->outcome = "recorded";
         Barrier(cmd, f.colour, f.colourState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Barrier(cmd, sl->colour.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1489,7 +1560,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 // Graphics wait only on DIRECT lists that successfully froze a
                 // restore plan this invocation (envelope sets RestoreArmed).
                 int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
-                if (want && (listType != D3D12_COMMAND_LIST_TYPE_DIRECT || !GraphicsSnap::RestoreArmed()))
+                if (want && (listType != D3D12_COMMAND_LIST_TYPE_DIRECT || !gfx->armed))
                     want = 0;
                 At<int>(r, L->spinDraw) = want;
             }
@@ -1560,11 +1631,38 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                        " gate4c=" + std::to_string(gate4c) +
                        " gate68=" + std::to_string(gate68) +
                        " count78=" + std::to_string(count78));
+            const int actualSpin = L->spinDraw ? At<int>(r, L->spinDraw) : 0;
+            const bool aPsoBefore = L->graphicsPso && At<void*>(r, L->graphicsPso) != nullptr;
+            const bool predBefore = L->predicateReady && At<uint8_t>(r, L->predicateReady) == 1;
+            const auto nativeBase = reinterpret_cast<uintptr_t>(r);
+            GraphicsSnap::ScopedNativeDrawObservation draws(listId,
+                L->graphicsWaitBegin ? nativeBase + L->graphicsWaitBegin : 0,
+                L->graphicsWaitEnd ? nativeBase + L->graphicsWaitEnd : 0);
             const auto callStart = std::chrono::steady_clock::now();
-            reinterpret_cast<RecordFn>(reinterpret_cast<uintptr_t>(r) + L->record)(&packet);
+            reinterpret_cast<RecordFn>(nativeBase + L->record)(&packet);
             const auto callMicros = std::chrono::duration_cast<std::chrono::microseconds>(
                                         std::chrono::steady_clock::now() - callStart)
                                         .count();
+            p->gfxStartup[i].MarkRecorded();
+            const bool aPsoAfter = L->graphicsPso && At<void*>(r, L->graphicsPso) != nullptr;
+            const bool predAfter = L->predicateReady && At<uint8_t>(r, L->predicateReady) == 1;
+            p->gfxDrawCalls += draws.observation.count;
+            if (actualSpin) ++p->gfxSpin1Calls; else ++p->gfxSpin0Calls;
+            const bool modeChanged = p->gfxLastSpin[i] != actualSpin || p->gfxLastPso[i] != aPsoAfter;
+            if (modeChanged) ++p->gfxModeChanges;
+            if (gfx->requested && (p->recordCalls <= 3 || p->recordCalls % 300 == 0 ||
+                                   (modeChanged && p->gfxModeChanges <= 12)))
+                p->LogDiagnostic("AMD graphics native: pass=" + std::to_string(i + 1) +
+                       " record=" + std::to_string(p->recordCalls) + " SpinDraw=" + std::to_string(actualSpin) +
+                       " aGraphicsPsoBefore=" + std::to_string(aPsoBefore) +
+                       " aGraphicsPsoAfter=" + std::to_string(aPsoAfter) +
+                       " predReadyBefore=" + std::to_string(predBefore) +
+                       " predReadyAfter=" + std::to_string(predAfter) +
+                       " drawObserved=" + std::to_string(draws.observation.count) +
+                       " mode=" + (actualSpin && !aPsoAfter ? "compute_missing_graphics_pso" :
+                                    draws.observation.count ? "graphics_recorded" : "no_graphics_draw_observed"));
+            p->gfxLastSpin[i] = actualSpin;
+            p->gfxLastPso[i] = aPsoAfter;
             sl->jobs[i] = At<UINT>(r, L->jobId);
             // Staging recreation resets the native job counter. After a resize,
             // job 1 can follow job 1, so counter equality does not mean rejection.

@@ -106,6 +106,12 @@ struct AmdLayout
     // 0.3.1-specific slicing, so SpinDraw=0 is not identical to the 0.3.0 wait.
     // 0 means "runtime does not expose this flag".
     std::uint32_t spinDraw;
+    // Read-only 0.3.1 graphics-wait diagnostics; zero for earlier runtimes.
+    // Bound to the SHA above, never used to invoke a private factory.
+    std::uint32_t graphicsPso = 0;
+    std::uint32_t predicateReady = 0;
+    std::uint32_t graphicsWaitBegin = 0;
+    std::uint32_t graphicsWaitEnd = 0;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -151,7 +157,7 @@ inline constexpr AmdLayout kAmd031 {
     0x9ace8, 0x9acec, 0x9acf4, 0x9acf5, 0x9acf6, 0x9acf7, 0x9acf8,
     0x9ad08, 0x9ad0c, 0x9ad10, 0x9ad18, 0x9ad1c, 0x9ae08,
     0x9ade0, 0x9ad68, 0x9ac24, 0x9ac40, 0x9ac50,
-    0x9ab14
+    0x9ab14, 0x9ab20, 0x9aa88, 0x17980, 0x180a6
 };
 
 inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031 };

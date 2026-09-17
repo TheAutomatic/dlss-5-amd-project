@@ -2,6 +2,7 @@
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsRestoreDx12.h>
+#include <dlssnr/amd/GraphicsInvocation.h>
 
 #include <set>
 
@@ -1450,52 +1451,81 @@ struct ScopedNrStateEnvelope
 {
     ID3D12GraphicsCommandList* cmd;
     ScopedSkipHeapCapture skipHeap;
+    const bool previousTracking;
+    const bool previousArmed;
+    const bool conditionalReplay;
+    AmdPreSr::GraphicsSnap::ScopedGraphicsInvocation invocation;
     bool froze = false;
-    bool suppressed = false;
+    std::unique_ptr<AmdPreSr::GraphicsSnap::ScopedCaptureSuppression> suppression;
     AmdPreSr::GraphicsSnap::GraphicsSnapshot frozen {};
     AmdPreSr::GraphicsSnap::RestorePlan restorePlan {};
 
-    explicit ScopedNrStateEnvelope(ID3D12GraphicsCommandList* c) : cmd(c)
+    explicit ScopedNrStateEnvelope(ID3D12GraphicsCommandList* c, bool replayOnlyIfRecorded = false)
+        : cmd(c), previousTracking(D3D12Hooks::IsRootSignatureTrackingEnabled()),
+          previousArmed(AmdPreSr::GraphicsSnap::RestoreArmed()), conditionalReplay(replayOnlyIfRecorded),
+          invocation(reinterpret_cast<uint64_t>(c))
     {
         D3D12Hooks::SetRootSignatureTracking(false);
         const auto listId = reinterpret_cast<uint64_t>(c);
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
-        froze = tracker.TryFreeze(listId, frozen);
+        auto& d = invocation.state;
+        d.requested = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+        d.listType = static_cast<uint32_t>(c->GetType());
+        AmdPreSr::GraphicsSnap::GraphicsSnapshot candidate {};
+        tracker.CopyState(listId, candidate, d.generation, d.generationKnown);
+        d.predDisabled = candidate.predication.IsDisabled();
+        d.renderPassIdle = !tracker.IsRenderPassUnsafe(listId);
+        d.psoReady = candidate.psoState == AmdPreSr::GraphicsSnap::BindState::KnownValue;
+        d.reason = tracker.AdmitReason(listId);
+        d.admitted = d.requested && d.listType == D3D12_COMMAND_LIST_TYPE_DIRECT && tracker.CanAdmit(listId);
+        if (!d.requested)
+            d.reason = "disabled";
+        else if (c->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+            d.reason = "list_type";
+        else
+            froze = tracker.TryFreeze(listId, frozen);
+        d.frozen = froze;
         if (froze)
         {
             ID3D12Device* device = nullptr;
-            c->GetDevice(IID_PPV_ARGS(&device));
+            const HRESULT hr = c->GetDevice(IID_PPV_ARGS(&device));
+            if (FAILED(hr) || !device)
+                froze = false;
             if (device)
             {
-                if (!AmdPreSr::GraphicsSnap::PinOmForRestore(device, frozen))
-                    froze = false;
+                froze = AmdPreSr::GraphicsSnap::PinOmForRestore(device, frozen);
                 device->Release();
             }
+            d.pinned = froze;
+            if (!froze)
+                d.reason = "om_pin_failed";
         }
-        if (froze)
-            froze = AmdPreSr::GraphicsSnap::BuildRestorePlan(frozen, restorePlan);
-        AmdPreSr::GraphicsSnap::g_restoreArmed = froze;
         if (froze)
         {
-            tracker.PushSuppress(listId);
-            suppressed = true;
+            froze = AmdPreSr::GraphicsSnap::BuildRestorePlan(frozen, restorePlan);
+            d.planned = froze;
+            if (!froze)
+                d.reason = "restore_plan_failed";
         }
+        d.armed = froze;
+        AmdPreSr::GraphicsSnap::g_restoreArmed = froze;
+        // Only hide temporary bindings when a full replay will put them back.
+        // Compute fallback may leave its state bound (legacy restore is optional),
+        // so its hooks must keep the tracker aligned with the actual list.
+        suppression = std::make_unique<AmdPreSr::GraphicsSnap::ScopedCaptureSuppression>(listId, froze);
     }
 
     ~ScopedNrStateEnvelope()
     {
-        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
-        if (suppressed)
-            tracker.PopSuppress(reinterpret_cast<uint64_t>(cmd));
-        const bool restoredGraphics = froze && restorePlan.count;
+        const bool replay = !conditionalReplay || invocation.state.commandsRecorded;
+        const bool restoredGraphics = replay && froze && restorePlan.count;
         if (restoredGraphics)
             AmdPreSr::GraphicsSnap::ApplyRestorePlan(cmd, frozen, restorePlan);
-        AmdPreSr::GraphicsSnap::g_restoreArmed = false;
+        AmdPreSr::GraphicsSnap::g_restoreArmed = previousArmed;
         // Avoid stacking Opti's compute RestoreRoot on top of a full graphics replay.
-        if (!restoredGraphics)
+        if (replay && !restoredGraphics)
             D3D12Hooks::RestoreRoot(cmd);
-        D3D12Hooks::ReleaseAmdOmCapture();
-        D3D12Hooks::SetRootSignatureTracking(true);
+        D3D12Hooks::SetRootSignatureTracking(previousTracking);
     }
 };
 
@@ -3022,9 +3052,7 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             ReportSkipOnce("AMD neural: the upscaler could not restore state this frame");
             return;
         }
-        // This envelope restores the configured compute/root state. It does not
-        // restore RS/IA/OM state; graphics waiting stays disabled in the backend.
-        ScopedNrStateEnvelope amdStateEnvelope(cmdList);
+        ScopedNrStateEnvelope amdStateEnvelope(cmdList, true);
         if (DlssNr::AmdBridge::Before(cmdList, params, timingQueue))
             return;
     }

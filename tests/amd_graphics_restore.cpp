@@ -7,6 +7,7 @@ using namespace AmdPreSr::GraphicsSnap;
 static GraphicsSnapshot MakeGameLike()
 {
     GraphicsSnapshot s;
+    s.SetHeaps(0, nullptr);
     s.compute.SetSignature(0xC01);
     s.graphics.SetSignature(0xA11);
     s.graphics.SetTable(0, 0x1111);
@@ -151,12 +152,86 @@ static void TestCbvSrvNotForcedToUav()
     assert(sawCbv && sawSrv && sawUav);
 }
 
+static void TestSparseConstantsRestoreOnlyObservedRanges()
+{
+    GraphicsSnapshot s;
+    s.graphics.SetSignature(1);
+    s.graphics.SetConstant(0, 12, 1);
+    s.graphics.SetConstant(0, 34, 3);
+    s.graphics.SetSignature(1); // Rebinding must retain both nonadjacent DWORDs.
+    RestorePlan plan;
+    assert(BuildRestorePlan(s, plan));
+    unsigned ranges = 0;
+    for (size_t i = 0; i < plan.count; ++i)
+    {
+        const auto& c = plan.ops[i];
+        if (c.op != RestoreOp::SetRootConstants)
+            continue;
+        assert(c.count == 1);
+        assert(c.destOffset == (ranges == 0 ? 1u : 3u));
+        assert(c.constants[0] == (ranges == 0 ? 12u : 34u));
+        ++ranges;
+    }
+    assert(ranges == 2);
+}
+
+static void TestKnownEmptyBindingsAreRestored()
+{
+    ListTracker t;
+    t.OnCreate(1);
+    RestorePlan plan;
+    assert(BuildRestorePlan(t.snap, plan));
+    assert(plan.count >= 4);
+    assert(plan.ops[0].op == RestoreOp::SetDescriptorHeaps);
+    assert(plan.ops[0].count == 0);
+    bool computeNull = false, graphicsNull = false, emptyOm = false;
+    for (size_t i = 0; i < plan.count; ++i)
+    {
+        const auto& c = plan.ops[i];
+        if (c.op == RestoreOp::SetComputeRootSignature)
+            computeNull = c.handle == 0;
+        if (c.op == RestoreOp::SetGraphicsRootSignature)
+            graphicsNull = c.handle == 0;
+        if (c.op == RestoreOp::SetRenderTargets)
+            emptyOm = c.count == 0 && c.handle == 0;
+    }
+    assert(computeNull && graphicsNull && emptyOm);
+
+    GraphicsSnapshot unknown;
+    assert(BuildRestorePlan(unknown, plan));
+    assert(plan.count == 0); // Unobserved is different from deliberately empty.
+}
+
+static void TestHeapSwitchDoesNotReplayStaleTables()
+{
+    auto s = MakeGameLike();
+    const uint64_t heaps[] = { 0x123 };
+    s.SetHeaps(1, heaps);
+    s.compute.SetTable(0, 0x1000);
+    s.graphics.SetTable(0, 0x2000);
+    s.compute.SetGpuVa(1, RootEntryType::SRV, 0x3000);
+    s.SetHeaps(0, nullptr);
+    RestorePlan plan;
+    assert(BuildRestorePlan(s, plan));
+    bool sawVa = false, sawConstants = false;
+    for (size_t i = 0; i < plan.count; ++i)
+    {
+        assert(plan.ops[i].op != RestoreOp::SetRootTable);
+        sawVa |= plan.ops[i].op == RestoreOp::SetRootGpuVa;
+        sawConstants |= plan.ops[i].op == RestoreOp::SetRootConstants;
+    }
+    assert(sawVa && sawConstants);
+}
+
 int main()
 {
     TestPlanOrderAndContent();
     TestAlikeDirtThenPlan();
     TestIncompleteRootsSkipped();
     TestCbvSrvNotForcedToUav();
+    TestSparseConstantsRestoreOnlyObservedRanges();
+    TestKnownEmptyBindingsAreRestored();
+    TestHeapSwitchDoesNotReplayStaleTables();
     std::cout << "graphics-restore plan scenarios passed\n";
     return 0;
 }
