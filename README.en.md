@@ -1,12 +1,12 @@
 [中文](README.md) | **English**
 
-# OptiScaler AMD pre-SR — 1.8.4-0.3.1
+# OptiScaler AMD pre-SR — 1.8.5-0.3.1
 
 **OptiScaler** plus **AMD neural rendering** (DLSS5), so **pure DLSS / XeSS games** can run neural denoise on AMD GPUs. Super-resolution is still **FFX/FSR**.
 
-`1.8.4` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
+`1.8.5` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**). Versus 1.8.4: uninstall removes only known dependencies; depth SRV / borrowed DX11 resources, HIP search fallback, and XeFG high-ratio persistence. The neural core is unchanged; this is not a frame-rate claim.
 
-**Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). The host requests graphics only when this frame's D3D12 state snapshot and restore preparation succeed; failed admission falls back to compute. This does not provide automatic recovery from a hang, crash, or device removal after admission.
+**Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). This project requests graphics only when this frame's D3D12 state snapshot and restore preparation succeed; failed admission falls back to compute. This does not provide automatic recovery from a hang, crash, or device removal after admission.
 
 In-game, use **Ins → Graphics wait**: turning it off immediately requests classic compute. When enabling it again, the menu asks for a restart if hooks or a pass's graphics PSO are missing. If graphics mode causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` under `[DlssNr]` in `OptiScaler.ini`, then launch again.
 

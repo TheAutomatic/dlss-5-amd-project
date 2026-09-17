@@ -29,7 +29,7 @@ on:
       version:
         description: 'Product version (fork-runtime), e.g. 1.8.3-0.3.1'
         required: false
-        default: '1.8.4-0.3.1'
+        default: '1.8.5-0.3.1'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.4-0.3.1'
+          $v = '1.8.5-0.3.1'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
