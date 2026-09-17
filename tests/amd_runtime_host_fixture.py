@@ -2,7 +2,7 @@
 
 The fixture has a minimal DllMain and a no-op worker at the addresses expected
 by the 0.3.1 bootstrap filter. It deliberately is NOT an accepted runtime SHA:
-only the host-isolation unit test bypasses the production IdentifyRuntime gate.
+only the runtime-load isolation unit test bypasses the production IdentifyRuntime gate.
 """
 from pathlib import Path
 import struct
@@ -49,7 +49,7 @@ if len(sys.argv) > 2 and sys.argv[2] == "--no-bootstrap":
     at(0x1000, bytes.fromhex("b8 01 00 00 00 c3"))
 at(0x6D8F, bytes.fromhex("4c 8d 05 9a 18 00 00 31 c9 31 d2 45 31 c9 ff 15 e5 69 08 00"))
 at(0x6DA3, bytes.fromhex("48 83 c4 38 b8 01 00 00 00 c3"))
-# This no-op worker is harmless even if filtering regresses. The host must
+# This no-op worker is harmless even if filtering regresses. This test must
 # nevertheless reject that load because it did not observe one suppression.
 at(0x8630, bytes.fromhex("55 41 57 41 56 41 54 56 57 53 48 81 ec 50 02 00 00 "
                        "48 81 c4 50 02 00 00 5b 5f 5e 41 5c 41 5e 41 5f 5d 31 c0 c3"))

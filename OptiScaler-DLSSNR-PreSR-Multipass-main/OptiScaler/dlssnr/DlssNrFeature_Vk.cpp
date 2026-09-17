@@ -1027,7 +1027,7 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
                 vkCmdCopyImageToBuffer(cmdBuffer, g_vk.meter.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                        g_vk.meterReadback[slot], 1, &region);
 
-                // The copy has to be visible to a host read, and only the host will read it.
+                // The copy has to be visible to a CPU read, and only this project will read it.
                 VkBufferMemoryBarrier toHost {};
                 toHost.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
                 toHost.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;

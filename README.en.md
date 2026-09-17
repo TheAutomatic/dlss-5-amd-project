@@ -4,7 +4,7 @@
 
 **OptiScaler** plus **AMD neural rendering** (DLSS5), so **pure DLSS / XeSS games** can run neural denoise on AMD GPUs. Super-resolution is still **FFX/FSR**.
 
-`1.8.5` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**). Versus 1.8.4: uninstall removes only known dependencies; depth SRV / borrowed DX11 resources, HIP search fallback, and XeFG high-ratio persistence. The neural core is unchanged; this is not a frame-rate claim.
+`1.8.5` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**). Versus 1.8.4: uninstall removes only known dependencies; depth SRV / borrowed DX11 resources, HIP search fallback, and XeFG high-ratio values can be saved in the ini (the real cap is still XeFG plus the multi-frame plugin; see below). The neural core is unchanged; this is not a frame-rate claim.
 
 **Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). This project requests graphics only when this frame's D3D12 state snapshot and restore preparation succeed; failed admission falls back to compute. This does not provide automatic recovery from a hang, crash, or device removal after admission.
 
@@ -185,8 +185,8 @@ InterpolationCount=1
 ```
 
    Leave `Path=auto` (that is `OptiScaler\plugins`). If there is no DLSS-FG, set `FGInput=upscaler`.  
-   `InterpolationCount`: `1` = 2x, `2` = 3x, `3` = 4x. This build only accepts 1–3.  
-3. The plugin ini (`XeFGUnlock.ini`) only holds unlock switches, e.g. `UnlockMFG=true`, `MaxInterpolatedFrames=3`. The plugin's `3` is only a cap; `InterpolationCount` in the game's `OptiScaler.ini` is the actual multiplier. For a first run set `DisableLogging=false` so `XeFGUnlock.log` appears next to the ASI.  
+   `InterpolationCount`: `1` = 2x, `2` = 3x, and so on. This pack no longer hard-caps the value at 3 (4x). How high you can go still depends on Intel XeFG and the multi-frame plugin; see the next step.  
+3. The plugin ini (`XeFGUnlock.ini`) only holds unlock switches, e.g. `UnlockMFG=true`, `MaxInterpolatedFrames=3`. The plugin number is the unlock cap; `InterpolationCount` in the game's `OptiScaler.ini` is the actual multiplier. Both must be high enough, and XeFG has its own capability limit. For a first run set `DisableLogging=false` so `XeFGUnlock.log` appears next to the ASI.  
 4. Get XeFG working at 2x first, then raise the multiplier. You can press Page Up for the frame counter, then Page Down for detail, and confirm multi-frame generation is actually on.
 
 </details>

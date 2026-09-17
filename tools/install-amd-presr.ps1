@@ -551,7 +551,7 @@ Write-Host ''
 Write-Host "Game folder: $game"
 Write-Host "Proxy:       $Proxy   (OptiScaler.dll installed under this name)"
 Write-Host "Original author runtime: $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
-Write-Host 'NOTE: original-author version.dll is NOT installed here (B path only).'
+Write-Host 'NOTE: original-author version.dll is NOT left in the game folder (this package only installs OptiScaler as the proxy).'
 if ($found.Count -eq 0) {
     Write-Host 'No common injection DLLs found in the game folder.' -ForegroundColor Green
 } else {

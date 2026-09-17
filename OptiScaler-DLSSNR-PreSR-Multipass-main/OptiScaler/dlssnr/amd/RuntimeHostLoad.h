@@ -114,7 +114,7 @@ enum InvalidReason : unsigned int
 };
 
 // Constant-initialized POD TLS. The hook never allocates, logs, reads a file,
-// loads a library or takes a host lock while A's DllMain holds the loader lock.
+// loads a library or takes a lock in this process while A's DllMain holds the loader lock.
 inline thread_local Loading* loading = nullptr;
 inline std::atomic<std::uint64_t> totalHookCalls { 0 };
 static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
@@ -244,7 +244,7 @@ inline void Install()
     static std::once_flag installed;
     std::call_once(installed, [] {
         // The process-wide forwarding hook and its trampoline stay installed.
-        // Pin their owner so callbacks never target an unloaded host DLL.
+        // Pin their owner so callbacks never target an unloaded OptiScaler/proxy DLL.
         HMODULE host {};
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                                reinterpret_cast<LPCWSTR>(&CreateThreadFiltered), &host))

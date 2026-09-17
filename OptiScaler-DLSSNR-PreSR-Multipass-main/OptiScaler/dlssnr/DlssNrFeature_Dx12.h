@@ -11,7 +11,7 @@
 // depth and motion vectors and synthesises detail. NVIDIA ships no public integration for it, so it is
 // driven directly through nvngx_dlssnr.dll as feature 18.
 //
-// OptiScaler is the right host for it because of one thing it knows that an external hook cannot: which
+// OptiScaler is the right place to own it because of one thing it knows that an external hook cannot: which
 // NGX evaluate belongs to the upscaler and which to frame generation. Both are handed depth and motion
 // vectors, so anything guessing from the parameter block alone attaches to both and runs the model twice
 // per rendered frame. Here it is a lookup on the feature handle.

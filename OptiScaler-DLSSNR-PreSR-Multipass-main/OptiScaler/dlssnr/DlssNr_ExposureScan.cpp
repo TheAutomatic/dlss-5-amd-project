@@ -948,7 +948,7 @@ std::string SerializeAnchors()
 // at freed memory: the use-after-free that removed the device in Cyberpunk (a lock on a freed object in
 // nvwgf2umx). Calling this at feature release drops our references first, so nothing we hold outlives
 // the heap. Only the candidates (foreign resources) are released here -- NOT the readback ring, which
-// is ours and may have GPU copies in flight; freeing that here would be a new hazard. Capture is gated
+// is ours and may still have GPU copies running; freeing that here would be a new hazard. Capture is gated
 // on NR being ENABLED (not on the scan source), so this releases whatever was captured whenever NR is
 // on -- scan selected or not; it is a no-op only when NR is off (nothing captured), so FSR/XeSS users
 // with NR off pay nothing. The scan re-adopts candidates next frame.

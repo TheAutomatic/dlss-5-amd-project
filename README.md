@@ -4,7 +4,7 @@
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**（DLSS5），让 **纯 DLSS / XeSS 游戏**在 AMD 显卡上跑神经降噪；超分仍由 **FFX/FSR** 完成。
 
-`1.8.5` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。相对 1.8.4：卸载只清理明确依赖；公共 shader 深度 SRV / DX11 借用资源、HIP 搜索回退、XeFG 高倍率保存。不改神经核，不宣称帧率提升。
+`1.8.5` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。相对 1.8.4：卸载只清理明确依赖；公共 shader 深度 SRV / DX11 借用资源、HIP 搜索回退、XeFG 高倍率可写入 ini（实际上限仍受 XeFG 与多帧生成插件限制，见下文）。不改神经核，不宣称帧率提升。
 
 **等待模式：默认 `AmdGraphicsWait=1`。** 会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目在本帧 D3D12 状态快照与恢复准备就绪时才请求 graphics；准入不满足时回退 compute。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
 
@@ -188,8 +188,8 @@ InterpolationCount=1
 ```
 
    `Path` 可保持 `auto`（默认就是 `OptiScaler\plugins`）。没有 DLSS-FG 时把 `FGInput` 改成 `upscaler`。  
-   `InterpolationCount`：`1` = 2x，`2` = 3x，`3` = 4x。本版只接受 1–3。  
-3. 插件 ini（`XeFGUnlock.ini`）只写解锁开关，例如 `UnlockMFG=true`、`MaxInterpolatedFrames=3`。插件里的 3 只是上限；游戏目录 `OptiScaler.ini` 里的 `InterpolationCount` 才是实际倍率。首轮可把 `DisableLogging=false`，旁边会出 `XeFGUnlock.log`。  
+   `InterpolationCount`：`1` = 2x，`2` = 3x，以此类推。本包不再把上限写死成 3（4x）。实际能到几倍，还受 Intel XeFG 能力和多帧生成插件限制，见下一步。  
+3. 插件 ini（`XeFGUnlock.ini`）只写解锁开关，例如 `UnlockMFG=true`、`MaxInterpolatedFrames=3`。插件里的数字是解锁上限；游戏目录 `OptiScaler.ini` 里的 `InterpolationCount` 才是实际倍率。两边都要够，XeFG 自己也有能力上限。首轮可把 `DisableLogging=false`，旁边会出 `XeFGUnlock.log`。  
 4. 建议先 2x 跑通 XeFG，再把倍率调高。可通过 Page Up 打开帧数显示后，按 Page Down 切换显示详情，确认多帧生成已生效。
 
 </details>

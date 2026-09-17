@@ -2,7 +2,7 @@
 #include "GraphicsSnapshot.h"
 
 // Ordered restore replay for a frozen GraphicsSnapshot.
-// D3 and future host integration both walk this plan; no D3D12 types here.
+// D3 and future integration in this project both walk this plan; no D3D12 types here.
 namespace AmdPreSr::GraphicsSnap
 {
 

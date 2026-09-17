@@ -24,7 +24,7 @@ namespace {
 constexpr int VT_SET_ULL = 0;
 // Where the float setter actually lives. The public header declares it at slot 1, and this block --
 // the driver's own, not the header's implementation -- does not keep a float there: every float written
-// to slot 1 reads back as FAIL_UnsupportedParameter while every uint lands. The host discovers the real
+// to slot 1 reads back as FAIL_UnsupportedParameter while every uint lands. This project discovers the real
 // slot by round-tripping a value and sets it here before anything else is written.
 int g_floatSlot = 1;
 constexpr int VT_SET_UINT = 3;
@@ -100,14 +100,14 @@ bool loadSnippet(const wchar_t *path) {
 
 extern "C" {
 
-// Called once, after the host has worked out which slot this block keeps floats in.
+// Called once, after this project has worked out which slot this block keeps floats in.
 __declspec(dllexport) void dlssnr_call_set_float_slot(int slot) {
     if (slot >= 0 && slot < 8) {
         g_floatSlot = slot;
     }
 }
 
-// Writes a float through an arbitrary slot, so the host can find the right one by testing.
+// Writes a float through an arbitrary slot, so this project can find the right one by testing.
 __declspec(dllexport) void dlssnr_call_probe_float(void *params, const char *name, float value,
                                                    int slot) {
     if (!params || slot < 0 || slot >= 8) {
@@ -135,7 +135,7 @@ __declspec(dllexport) int dlssnr_call_last_create = 0;
 // only to name types it never dereferences.
 //
 // Resources are the caller's problem for the same reason: NGX wants a pointer to an
-// NVSDK_NGX_Resource_VK, the host builds it, and this passes the pointer through the same 64-bit
+// NVSDK_NGX_Resource_VK, this project builds it, and this passes the pointer through the same 64-bit
 // parameter setter the D3D12 path uses for ID3D12Resource*.
 // ---------------------------------------------------------------------------------------------
 
@@ -187,7 +187,7 @@ bool loadVkSnippet(const wchar_t *path) {
 // back. Read-only -- it creates no feature and changes no feature state, which is exactly why it is
 // worth doing before anything is built on the answer.
 //
-// It lives here rather than in the host because PopulateParameters_Impl is the snippet's own export
+// It lives here rather than in this project because PopulateParameters_Impl is the snippet's own export
 // and the snippet resolves its caller's module path.
 // ---------------------------------------------------------------------------------------------
 
@@ -587,7 +587,7 @@ __declspec(dllexport) int dlssnr_vk_last_create = 0;
 
 // Which of the four entry points resolved, as a bit field: init 1, create 2, evaluate 4, release 8.
 // 15 means the model's Vulkan surface is entirely reachable from here. Answered without creating
-// anything, so the host can decide whether the native path exists before committing to it.
+// anything, so this project can decide whether the native path exists before committing to it.
 __declspec(dllexport) int dlssnr_vk_probe(const wchar_t *snippetPath) {
     loadVkSnippet(snippetPath);
 
@@ -666,10 +666,10 @@ __declspec(dllexport) void *dlssnr_vk_create(void *cmdBuffer, void *capabilityPa
 
 // Evaluates on Vulkan. Same parameter block as the D3D12 path, filled the same way and in the same
 // order, because it is the same feature -- only the four resources differ, and only in that each is a
-// pointer to an NVSDK_NGX_Resource_VK the host built rather than an ID3D12Resource. Both go through
+// pointer to an NVSDK_NGX_Resource_VK this project built rather than an ID3D12Resource. Both go through
 // the block's 64-bit setter, so the snippet sees the same shape either way.
 //
-// Filling it here rather than in the host keeps the two APIs from drifting: a parameter added to one
+// Filling it here rather than in this project keeps the two APIs from drifting: a parameter added to one
 // evaluate and forgotten in the other would be a bug that only appears on one backend.
 __declspec(dllexport) int dlssnr_vk_evaluate(void *cmdBuffer, void *feature, void *capabilityParams,
                                              void *color, void *depth, void *motion, void *output,

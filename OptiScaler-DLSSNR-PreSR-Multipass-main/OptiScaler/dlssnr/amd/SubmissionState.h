@@ -15,7 +15,7 @@ struct SubmissionState
 
     void Record(std::uint64_t now) { *this = {}; recorded = true; recordedAt = now; }
     void Submit(std::uint64_t now) { submitted = true; submittedAt = now; stallReported = false; }
-    // A exposes one pending list/job per instance, even with multiple jobs in flight.
+    // The original runtime exposes one pending list/job per instance, even with several jobs still running.
     bool BlocksRecord() const { return recorded && !submitted; }
     bool CanRetire(bool nativeDone, std::uint64_t completed, std::uint64_t target) const
     {

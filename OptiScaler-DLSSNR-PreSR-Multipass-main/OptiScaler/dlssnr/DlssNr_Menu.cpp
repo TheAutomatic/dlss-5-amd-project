@@ -177,7 +177,7 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::SliderInt("NR slots", &slots, 2, 5);
             editingSlots = ImGui::IsItemActive();
             if (ImGui::IsItemDeactivatedAfterEdit()) config->AmdSlots = slots;
-            HelpMarker("How many frames may be in flight at the NR stage, 2-5. A frame that gets"
+            HelpMarker("How many frames may be running denoise at once, 2-5. A frame that gets"
                        "\na buffer waits for its own denoise; one that finds all buffers busy is"
                        "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
                        "\n3 (default): on Onimusha no difference from 2 was detected. In one YYSLS"

@@ -311,7 +311,7 @@ struct Backend::Impl
         std::atomic<UINT64> completion { 0 };
         std::array<UINT, 3> jobs {};
         // Passes recorded into THIS slot. Global activePasses is only the
-        // config for the next Record; a still-in-flight slot must retire and
+        // config for the next Record; a slot that has not finished must retire and
         // notify against the count it was recorded with (hot 1↔2 pass change).
         // UINT_MAX = never recorded this slot. 0 is a real value (the runtime refused).
         static constexpr UINT kPassUnset = 0xffffffffu;
@@ -345,7 +345,7 @@ struct Backend::Impl
     UINT unsubmittedSkips = 0;
     // The original runtime joins its workers and clears the abort buffer while it rebuilds staging,
     // which it does after a resize, a re-created upscaler context or an INI
-    // change. While that is in flight the extra slot must not be used to skip
+    // change. While that work is unfinished the extra slot must not be used to skip
     // the Submitted wait - doing so hung the game.
     //
     // A timer cannot guard this: the rebuild happens on whichever later Record
@@ -698,7 +698,7 @@ struct Backend::Impl
     // Execute has already happened. Wait only for HIP job-done, not the D3D12
     // fence: that fence covers FSR and the rest of the batch and was stalling
     // ExecuteCommandLists down to ~30 FPS. The original runtime's GPU inline still serializes NR
-    // before FSR on the list. Record may still skip if the fence is in flight.
+    // before FSR on the list. Record may still skip if the fence has not signaled yet.
     void WaitAfterSubmitIfEveryFrame(UINT k)
     {
         if (!haveSettings || !lastSettings.everyFrame)
@@ -1122,7 +1122,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             timing.event.outcome = "fence_skip";
 #endif
             if (++p->fenceSkips)
-                p->Log("AMD skipped: submitted GPU work still in flight after 16 ms; count=" + std::to_string(p->fenceSkips));
+                p->Log("AMD skipped: submitted GPU work not finished after 16 ms; count=" + std::to_string(p->fenceSkips));
             return nullptr;
         }
         if (++p->fenceRecoveries <= 3 || p->fenceRecoveries % 120 == 0)
@@ -1257,7 +1257,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         {
             // Slot selection above only guarantees that the slot we picked is
             // idle, but this rebuild releases slot colours. Releasing or
-            // rewriting a texture a still-in-flight list references is a
+            // rewriting a texture that an unfinished list still references is a
             // use-after-free, so defer to a frame where the buffers being
             // touched have retired. Nothing has been recorded into cmd yet at
             // this point, so returning here costs one frame of NR and nothing
@@ -1573,7 +1573,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             At<UINT>(r, L->toneChannels)=cfg.toneChannels?1u:0u;
             At<UINT>(r, L->charMask) = 1; // Enable native semantic character-mask channel.
             // The old shader ceiling expired at high render resolutions even
-            // when inference finished well inside the native host watchdog.
+            // when inference finished well inside the original runtime's watchdog.
             // Scale the spin allowance with pixels, but retain a hard ceiling
             // in the private shader if notification is lost. This is an
             // iteration allowance, not a portable millisecond conversion.

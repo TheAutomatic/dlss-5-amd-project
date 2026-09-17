@@ -43,7 +43,7 @@ struct Settings
 {
     UINT encoding = 0; // Auto, Linear, sRGB, Gamma 2.2
     bool everyFrame = false;
-    // How many frames may be in flight at the NR stage. Too few and a frame that
+    // How many frames may be running at the NR stage at once. Too few and a frame that
     // finds every buffer busy carries no NR at all. In one YYSLS AB session the
     // counter rose by about 1200-1440 per two-slot segment and stayed flat with
     // three; the log and PresentMon windows were not aligned, so this is not a
