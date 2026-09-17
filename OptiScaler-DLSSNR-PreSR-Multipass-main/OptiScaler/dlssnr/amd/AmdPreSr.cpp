@@ -11,7 +11,7 @@
 #include "NativeWaitHooks.h"
 #include <hooks/D3D12_Hooks.h>
 #ifndef AMD_GRAPHICS_SOURCE_ID
-#define AMD_GRAPHICS_SOURCE_ID "unfingerprinted-gfix2"
+#define AMD_GRAPHICS_SOURCE_ID "unfingerprinted"
 #endif
 #include <Config.h>
 #include "ColorEncoding.h"
@@ -261,10 +261,15 @@ struct Backend::Impl
     UINT64 gfxArmedSamples = 0, gfxDrawCalls = 0, gfxSpin0Calls = 0, gfxSpin1Calls = 0;
     std::map<std::string, UINT64> gfxReasons;
     std::array<GraphicsSnap::GraphicsStartupGate, 3> gfxStartup;
+    GraphicsSnap::GraphicsRestartState gfxRestart;
+    std::array<UINT64, 3> gfxNativeSamples {};
+    std::array<int, 3> gfxLastRequested { -1, -1, -1 };
     std::array<int, 3> gfxLastSpin { -1, -1, -1 };
     std::array<bool, 3> gfxLastPso {};
+    std::array<int, 3> gfxLastMode { -1, -1, -1 };
+    std::array<UINT64, 3> gfxModeLogAt {};
+    std::array<UINT, 3> gfxDetailSeen {};
     std::array<bool, 3> gfxStartupFallbackReported {};
-    UINT64 gfxModeChanges = 0;
     UINT64 lastSubmitted = 0, lastCompleted = 0, completedFrames = 0;
     UINT64 pendingSkips = 0, fenceSkips = 0, fenceRecoveries = 0;
     UINT64 retryAfter = 0, timeoutEvents = 0;
@@ -965,7 +970,7 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // lands. Three earlier rounds were analysed without a tag and the logs could
     // not be told apart.
     p->LogDiagnostic("AMD graphics build source=" AMD_GRAPHICS_SOURCE_ID);
-    p->Log("AMD submission revision 20260917-gfix2: actual-list draw/dispatch observation; r27 submission contract retained" +
+    p->Log("AMD submission revision 20260917-gfx-final: graphics/compute wait with guarded restore; r27 submission contract retained" +
            std::string(kBuildTag));
     try
     {
@@ -1630,10 +1635,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             const UINT count78 = L->counter78 ? At<UINT>(r, L->counter78) : 0;
             // Written BEFORE the call, so a process that dies inside Record
             // leaves this as the last line - which is itself the answer.
-            // Every call for the first 120 frames, then a sparse heartbeat. The
-            // earlier limit of 5 hid exactly the frames these runs die on, and
-            // cost a round to a wrong conclusion drawn from a missing line.
-            if (++p->recordCalls <= 120 || p->recordCalls % 300 == 0)
+            // Keep startup samples and a sparse heartbeat; refusals retain
+            // their complete diagnostic line below.
+            if (++p->recordCalls <= 3 || p->recordCalls % 300 == 0)
                 p->Log("AMD Record enter: n=" + std::to_string(p->recordCalls) +
                        " jobBefore=" + std::to_string(jobBefore) +
                        " doneBefore=" + std::to_string(doneBefore) +
@@ -1664,16 +1668,67 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             const bool predAfter = L->predicateReady && At<uint8_t>(r, L->predicateReady) == 1;
             p->gfxDrawCalls += draws.observation.count;
             if (actualSpin) ++p->gfxSpin1Calls; else ++p->gfxSpin0Calls;
-            const bool modeChanged = p->gfxLastSpin[i] != actualSpin || p->gfxLastPso[i] != aPsoAfter;
-            if (modeChanged) ++p->gfxModeChanges;
-            if (gfx->requested && (p->recordCalls <= 3 || p->recordCalls % 300 == 0 ||
-                                   (modeChanged && p->gfxModeChanges <= 12)))
+            const int nativeMode = draws.observation.count ? 0 :
+                draws.observation.dispatchSlices || draws.observation.dispatchFallback ? 1 :
+                gfx->requested && (!waitCoverage.drawCovered || !waitCoverage.dispatchCovered) ? 2 :
+                draws.observation.dispatchWait ? 3 : 4;
+            static constexpr const char* nativeModes[] = {
+                "graphics_recorded", "compute_wait_recorded", "observation_incomplete",
+                "wait_dispatch_only", "no_wait_calls_observed"
+            };
+            const UINT64 nativeSample = ++p->gfxNativeSamples[i];
+            const UINT64 logNow = GetTickCount64();
+            const bool requestedChanged = p->gfxLastRequested[i] != static_cast<int>(gfx->requested);
+            const bool modeChanged = p->gfxLastSpin[i] != actualSpin || p->gfxLastPso[i] != aPsoAfter ||
+                                     p->gfxLastMode[i] != nativeMode;
+            // User requests always produce one line per active pass. Automatic
+            // fallback chatter is limited per pass, without a lifetime quota.
+            if (nativeSample <= 3 || nativeSample % 300 == 0 || requestedChanged ||
+                (modeChanged && logNow - p->gfxModeLogAt[i] >= 1000))
+            {
                 p->LogDiagnostic("AMD graphics native: pass=" + std::to_string(i + 1) +
-                       " record=" + std::to_string(p->recordCalls) + " SpinDraw=" + std::to_string(actualSpin) +
+                       " record=" + std::to_string(p->recordCalls) +
+                       " requested=" + std::to_string(gfx->requested) + " SpinDraw=" + std::to_string(actualSpin) +
                        " aGraphicsPsoBefore=" + std::to_string(aPsoBefore) +
                        " aGraphicsPsoAfter=" + std::to_string(aPsoAfter) +
                        " predReadyBefore=" + std::to_string(predBefore) +
                        " predReadyAfter=" + std::to_string(predAfter) +
+                       " drawObserved=" + std::to_string(draws.observation.count) +
+                       " dispatchWait=" + std::to_string(draws.observation.dispatchWait) +
+                       " dispatchInit=" + std::to_string(draws.observation.dispatchInit) +
+                       " dispatchFallback=" + std::to_string(draws.observation.dispatchFallback) +
+                       " dispatchSlices=" + std::to_string(draws.observation.dispatchSlices) +
+                       " dispatchFinish=" + std::to_string(draws.observation.dispatchFinish) +
+                       " mode=" + nativeModes[nativeMode]);
+                p->gfxLastRequested[i] = static_cast<int>(gfx->requested);
+                p->gfxLastSpin[i] = actualSpin;
+                p->gfxLastPso[i] = aPsoAfter;
+                p->gfxLastMode[i] = nativeMode;
+                p->gfxModeLogAt[i] = logNow;
+            }
+            // Address/filter diagnostics are emitted once per category and
+            // pass, keeping failed observation actionable without log floods.
+            std::string detailKinds;
+            const auto addDetail = [&](bool present, UINT bit, const char* name) {
+                if (present && !(p->gfxDetailSeen[i] & bit))
+                {
+                    p->gfxDetailSeen[i] |= bit;
+                    if (!detailKinds.empty()) detailKinds += ',';
+                    detailKinds += name;
+                }
+            };
+            addDetail(nativeSample == 1, 1u, "first_sample");
+            addDetail(gfx->requested, 64u, "first_graphics_request");
+            addDetail(gfx->requested && !waitCoverage.drawCovered, 2u, "draw_uncovered");
+            addDetail(gfx->requested && !waitCoverage.dispatchCovered, 4u, "dispatch_uncovered");
+            addDetail(draws.observation.hookHits && !draws.observation.count, 8u, "draw_filtered");
+            addDetail(draws.observation.dispatchHook && !draws.observation.dispatchWait, 16u, "dispatch_filtered");
+            addDetail(actualSpin && aPsoBefore && predBefore && !draws.observation.count,
+                      32u, "graphics_not_observed");
+            if (!detailKinds.empty())
+                p->LogDiagnostic("AMD graphics native detail: pass=" + std::to_string(i + 1) +
+                       " record=" + std::to_string(p->recordCalls) + " categories=" + detailKinds +
+                       " requested=" + std::to_string(gfx->requested) + " SpinDraw=" + std::to_string(actualSpin) +
                        " drawHook=" + std::to_string(draws.observation.hookHits) +
                        " drawSameList=" + std::to_string(draws.observation.sameList) +
                        " drawCaller=" + std::to_string(draws.observation.callerMatched) +
@@ -1697,17 +1752,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                        " dispatchMismatch=" + std::to_string(draws.observation.dispatchMismatchReturn) +
                        " waitRange=" + std::to_string(nativeBase + (L->graphicsWaitBegin ? L->graphicsWaitBegin : 0)) +
                        "-" + std::to_string(nativeBase + (L->graphicsWaitEnd ? L->graphicsWaitEnd : 0)) +
-                       " mode=" + (draws.observation.count ? "graphics_recorded" :
-                                    draws.observation.dispatchSlices || draws.observation.dispatchFallback ? "compute_wait_recorded" :
-                                    !waitCoverage.drawCovered || !waitCoverage.dispatchCovered ? "observation_incomplete" :
-                                    draws.observation.dispatchWait ? "wait_dispatch_only" : "no_wait_calls_observed"));
-            p->gfxLastSpin[i] = actualSpin;
-            p->gfxLastPso[i] = aPsoAfter;
+                       " mode=" + nativeModes[nativeMode]);
             sl->jobs[i] = At<UINT>(r, L->jobId);
             // Staging recreation resets the native job counter. After a resize,
             // job 1 can follow job 1, so counter equality does not mean rejection.
             // The native pending-list pointer is the actual submission contract.
             const bool recorded = At<ID3D12CommandList*>(r, L->pendingList) == cmd;
+            if (recorded && L->graphicsPso)
+                p->gfxRestart.OnRecorded(i, aPsoAfter);
             if (recorded)
             {
                 // Runtime 0.2.17 owns the abort word in its HIP flags buffer.
@@ -1742,7 +1794,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             // Healthy calls are logged sparsely so the log still shows whether
             // the runtime ever blocks, which is what decides if admission control is viable.
-            if (p->recordCalls <= 120 || p->recordCalls % 300 == 0)
+            if (p->recordCalls <= 3 || p->recordCalls % 300 == 0)
                 p->Log("AMD Record ok: n=" + std::to_string(p->recordCalls) +
                        " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
                        " call_us=" + std::to_string(callMicros) +
@@ -2053,6 +2105,10 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
     sl.submission.Submit(GetTickCount64());
     p->WaitAfterSubmitIfEveryFrame(slot);
     p->RetireSubmission(false, "Submitted");
+}
+bool Backend::GraphicsRestartNeeded(UINT activePasses) const
+{
+    return p->gfxRestart.NeedsRestart(activePasses);
 }
 std::string Backend::Status() const
 {

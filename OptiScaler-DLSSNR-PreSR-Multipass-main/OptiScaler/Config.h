@@ -301,8 +301,8 @@ class Config
     CustomOptional<bool> AmdEveryFrame { true };
     // Legacy INI key. SpinDraw is driven only by AmdGraphicsWait (1 = request A graphics spin).
     CustomOptional<int> AmdSpinDraw { 0 };
-    // Graphics wait tracker + freeze/restore. Default 1 (graphics-first on this branch).
-    // Startup-only; no hot toggle. Set 0 to force the old compute path.
+    // Graphics wait tracker + freeze/restore. Default 1; set 0 to request compute wait.
+    // Live switching requires installed hooks and graphics PSOs; otherwise restart the game.
     CustomOptional<int> AmdGraphicsWait { 1 };
     // Experimental A-style dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete graphics restore — risk matches the original author runtime. Default 0.

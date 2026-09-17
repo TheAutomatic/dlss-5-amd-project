@@ -5,6 +5,36 @@
 
 using namespace AmdPreSr::GraphicsSnap;
 
+static void TestRestartTracksOnlyRecordedActivePasses()
+{
+    GraphicsRestartState state;
+    assert(!state.NeedsRestart(3)); // A new pass can still create graphics staging.
+    state.OnRecorded(0, true);
+    assert(!state.NeedsRestart(1)); // Turning compute off/on preserves an existing PSO.
+    state.OnRecorded(1, false); // Pass 2 was first used while graphics was disabled.
+    assert(!state.NeedsRestart(1));
+    assert(state.NeedsRestart(2));
+    assert(state.NeedsRestart(3));
+    // Stop using pass 2: it must no longer require a restart for pass 1.
+    assert(!state.NeedsRestart(1));
+    // A later legitimate staging rebuild can make the same pass ready.
+    state.OnRecorded(1, true);
+    assert(!state.NeedsRestart(3));
+
+    GraphicsRestartState computeStartup;
+    computeStartup.OnRecorded(0, false); // Includes expiration of startup grace.
+    assert(computeStartup.NeedsRestart(1));
+    assert(!computeStartup.NeedsRestart(0));
+    computeStartup.OnRecorded(0, true);
+    computeStartup.OnRecorded(2, false);
+    assert(!computeStartup.NeedsRestart(2));
+    assert(computeStartup.NeedsRestart(3));
+    assert(computeStartup.NeedsRestart(99));
+    computeStartup.OnRecorded(99, false); // Invalid pass must not corrupt the mask.
+    computeStartup.OnRecorded(2, true);
+    assert(!computeStartup.NeedsRestart(3));
+}
+
 static void TestStartupGraceIsBounded()
 {
     GraphicsStartupGate gate;
@@ -145,6 +175,7 @@ static void TestDispatchSitesDoNotMislabelGraphicsWait()
 
 int main()
 {
+    TestRestartTracksOnlyRecordedActivePasses();
     TestStartupGraceIsBounded();
     TestReadyOrRecordedDoesNotDelay();
     TestInvocationScopesMatchOnlyCurrentList();

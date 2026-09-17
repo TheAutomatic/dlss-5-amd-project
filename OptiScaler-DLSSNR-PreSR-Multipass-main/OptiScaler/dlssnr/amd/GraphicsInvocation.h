@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 
 // CPU recording diagnostics, scoped to one NR invocation/native Record.
@@ -129,6 +130,31 @@ inline void ObserveNativeDispatch(std::uint64_t listId, std::uintptr_t returnAdd
     else if (returnAddress == o->dispatchSites.slices) ++o->dispatchSlices;
     else if (returnAddress == o->dispatchSites.finish) ++o->dispatchFinish;
 }
+
+// A creates its graphics PSO during staging initialization. A pass first
+// recorded in compute can therefore need a restart before graphics is usable.
+// Publish only the missing-PSO bits: the menu must not take the recording lock
+// or read runtime memory. Unused/new passes must not request a restart early.
+class GraphicsRestartState
+{
+    std::atomic<std::uint32_t> missingPso_ { 0 };
+  public:
+    void OnRecorded(std::uint32_t pass, bool hasGraphicsPso)
+    {
+        if (pass >= 3) return;
+        const auto bit = std::uint32_t(1) << pass;
+        if (hasGraphicsPso)
+            missingPso_.fetch_and(~bit, std::memory_order_relaxed);
+        else
+            missingPso_.fetch_or(bit, std::memory_order_relaxed);
+    }
+    bool NeedsRestart(std::uint32_t activePasses) const
+    {
+        if (activePasses > 3) activePasses = 3;
+        const auto activeMask = (std::uint32_t(1) << activePasses) - 1;
+        return (missingPso_.load(std::memory_order_relaxed) & activeMask) != 0;
+    }
+};
 
 // Give graphics-first sessions a bounded opportunity before creating compute
 // staging. This skips NR, never blocks the game/render thread. Once Record has

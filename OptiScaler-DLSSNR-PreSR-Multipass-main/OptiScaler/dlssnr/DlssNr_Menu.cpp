@@ -151,20 +151,23 @@ void RenderMenu(Config* config, float menuResScale)
 
             bool graphicsWait = config->AmdGraphicsWait.value_or_default() != 0;
             const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
-            const bool restartNeeded = graphicsWait && !hooksArmed;
+            const bool restartToTryGraphics = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
+                std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
+            const bool restartNeeded = graphicsWait && restartToTryGraphics;
             if (ImGui::Checkbox(restartNeeded ? "Graphics wait (restart to enable)" : "Graphics wait", &graphicsWait))
             {
                 config->AmdGraphicsWait = graphicsWait ? 1 : 0;
-                if (graphicsWait && !hooksArmed)
+                if (graphicsWait && restartToTryGraphics)
                     ImGui::OpenPopup("Graphics wait restart");
             }
             HelpMarker("On: new 1-pixel graphics wait."
                        "\nOff: classic compute wait (switches immediately)."
-                       "\nIf you turn this on after a compute-only launch, restart the game.");
+                       "\nRestart if prompted: hooks or a pass's graphics pipeline may be missing."
+                       "\nFrames that cannot safely use graphics still fall back to compute.");
             if (ImGui::BeginPopupModal("Graphics wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
-                ImGui::TextUnformatted("Graphics wait will be on after you restart the game.");
-                ImGui::TextUnformatted("This session stays on compute wait.");
+                ImGui::TextUnformatted("Some NR processing still uses compute wait.");
+                ImGui::TextUnformatted("Restart the game to retry graphics initialization.");
                 if (ImGui::Button("OK"))
                     ImGui::CloseCurrentPopup();
                 ImGui::EndPopup();

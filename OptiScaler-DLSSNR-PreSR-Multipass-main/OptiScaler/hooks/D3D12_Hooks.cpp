@@ -105,7 +105,7 @@ using PFN_SetGraphicsRootShaderResourceView =
 using PFN_SetGraphicsRootUnorderedAccessView =
     rewrite_signature<decltype(&ID3D12GraphicsCommandList::SetGraphicsRootUnorderedAccessView)>::type;
 
-// AMD graphics-tracker hooks (AmdGraphicsWait only).
+// AMD graphics-tracker hooks, installed when graphics wait is enabled at startup.
 using PFN_RSSetViewports = rewrite_signature<decltype(&ID3D12GraphicsCommandList::RSSetViewports)>::type;
 using PFN_RSSetScissorRects = rewrite_signature<decltype(&ID3D12GraphicsCommandList::RSSetScissorRects)>::type;
 using PFN_IASetPrimitiveTopology =
@@ -213,7 +213,7 @@ static RootRestoreHook<PFN_SetGraphicsRootConstantBufferView> s_SetGraphicsRootC
 static RootRestoreHook<PFN_SetGraphicsRootShaderResourceView> s_SetGraphicsRootShaderResourceView {};
 static RootRestoreHook<PFN_SetGraphicsRootUnorderedAccessView> s_SetGraphicsRootUnorderedAccessView {};
 
-// Tracker-only; attached when AmdGraphicsWait != 0.
+// Tracker-only; startup AmdGraphicsWait controls attachment, not later UI toggles.
 static RootRestoreHook<PFN_RSSetViewports> s_RSSetViewports {};
 static RootRestoreHook<PFN_RSSetScissorRects> s_RSSetScissorRects {};
 static RootRestoreHook<PFN_IASetPrimitiveTopology> s_IASetPrimitiveTopology {};
@@ -824,20 +824,14 @@ static void hkSetGraphicsRootUnorderedAccessView(ID3D12GraphicsCommandList* comm
     s_SetGraphicsRootUnorderedAccessView.o_earlyHook(commandList, RootParameterIndex, BufferLocation);
 }
 
-// Tracker-only hooks. Attached only when AmdGraphicsWait != 0; no old rootStates writes.
+// Tracker-only hooks. Once attached at startup, keep tracking across UI mode changes;
+// these hooks do not write the old rootStates map.
 VALIDATE_HOOK(hkRSSetViewports, PFN_RSSetViewports)
 static void hkRSSetViewports(ID3D12GraphicsCommandList* commandList, UINT NumViewports,
                              const D3D12_VIEWPORT* pViewports)
 {
     if (AmdGfxTrackerOn() && commandList != nullptr)
     {
-        static UINT s_seen = 0;
-        if (s_seen < 5)
-        {
-            ++s_seen;
-            LOG_INFO("AMD tracker RSSetViewports #{} list={} n={} p={}", s_seen, (void*) commandList, NumViewports,
-                     (const void*) pViewports);
-        }
         AmdPreSr::GraphicsSnap::Viewport vps[AmdPreSr::GraphicsSnap::kMaxViewports] {};
         UINT n = 0;
         if (pViewports && NumViewports)
@@ -1918,8 +1912,8 @@ static void HookToCommandList(ID3D12Device* InDevice)
                                  hkSetComputeRootUnorderedAccessView);
                 }
 
-                // Graphics root params + tracker-only RS/IA/OM/pred: AmdGraphicsWait only so the
-                // default compute path keeps its previous attach set.
+                // Startup AmdGraphicsWait selects the graphics root and RS/IA/OM/pred hooks.
+                // Once installed, tracking stays active while the UI requests compute wait.
                 if (amdGraphicsTrackerWanted)
                 {
                     if (s_SetGraphicsRootDescriptorTable.o_earlyHook != nullptr)

@@ -412,6 +412,12 @@ void TraceContextRelease(unsigned int handle, bool after)
         b->TraceBoundary(std::string(after ? "after" : "before") +
                          " SR context release handle=" + std::to_string(handle));
 }
+bool GraphicsRestartNeeded(UINT activePasses)
+{
+    if (auto b = backend.load())
+        return b->GraphicsRestartNeeded(activePasses);
+    return false;
+}
 std::string Status()
 {
     if(AmdPresentExperimental::IsTarget()) return AmdPresentExperimental::Status();

@@ -53,7 +53,7 @@ struct Settings
     bool toneChannels = false;
     float modelScale = 1;
     UINT passes = 1;
-    // Legacy preference; the host currently supports compute (0) only.
+    // Graphics preference from the bridge; each Record still requires admission.
     int spinDraw = 0;
     float tone = 0, structure = 1, skin = 1;
     LookSettings look;
@@ -81,6 +81,8 @@ class Backend
     bool Shutdown(); // call before loader-lock teardown, after all submissions
     void InvalidateHistory(); // applied at the next safe recording boundary
     std::string Status() const;
+    // Lock-free menu snapshot, restricted to the currently configured passes.
+    bool GraphicsRestartNeeded(UINT activePasses) const;
     UINT64 RecordedFrames() const;
 };
 } // namespace AmdPreSr
