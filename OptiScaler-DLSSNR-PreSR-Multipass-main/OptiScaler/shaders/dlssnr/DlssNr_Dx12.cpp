@@ -1477,6 +1477,8 @@ struct ScopedNrStateEnvelope
         d.renderPassIdle = !tracker.IsRenderPassUnsafe(listId);
         d.psoReady = candidate.psoState == AmdPreSr::GraphicsSnap::BindState::KnownValue;
         d.reason = tracker.AdmitReason(listId);
+        AmdPreSr::GraphicsSnap::DescribeAdmissionGates(candidate, d.generationKnown, false, d.gates,
+                                                       sizeof(d.gates));
         d.admitted = d.requested && d.listType == D3D12_COMMAND_LIST_TYPE_DIRECT && tracker.CanAdmit(listId);
         if (!d.requested)
             d.reason = "disabled";

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <set>
@@ -349,6 +350,13 @@ struct ListTracker
         snap.predication.resource = 0;
         snap.om.state = BindState::KnownUnset;
         snap.SetPso(initialPso);
+        // Empty viewport/scissor/undefined topology are API defaults, not Unknown.
+        snap.viewportState = BindState::KnownUnset;
+        snap.viewportCount = 0;
+        snap.scissorState = BindState::KnownUnset;
+        snap.scissorCount = 0;
+        snap.topologyState = BindState::KnownUnset;
+        snap.topology = 0;
     }
 
     void OnCreate(std::uint64_t id, std::uint64_t initialPso = 0)
@@ -461,13 +469,33 @@ inline AdmissionResult CanAdmitGraphics(const GraphicsSnapshot& s, bool generati
         return { false, "scissor_unknown" };
     if (s.scissorState != BindState::KnownValue)
         return { false, "scissor_unset" };
-    if (s.topologyState != BindState::KnownValue)
+    if (s.topologyState == BindState::Unknown)
         return { false, "topology_unknown" };
+    if (s.topologyState != BindState::KnownValue)
+        return { false, "topology_unset" };
     if (s.om.state != BindState::KnownValue && s.om.state != BindState::KnownUnset)
         return { false, "om_unknown" };
     if (!s.predication.IsDisabled())
         return { false, "predication_active_or_unknown" };
     return { true, "ok" };
+}
+
+// All admission gates for logs (not just the first failure).
+inline void DescribeAdmissionGates(const GraphicsSnapshot& s, bool generationKnown, bool ineligible, char* buf,
+                                   std::size_t bufSize)
+{
+    if (!buf || !bufSize)
+        return;
+    auto st = [](BindState v) {
+        return v == BindState::KnownValue ? "V" : (v == BindState::KnownUnset ? "U" : "?");
+    };
+    std::snprintf(buf, bufSize,
+                  "gen=%d inelig=%d gRoot=%s cRoot=%s heap=%s pso=%s vp=%s sc=%s topo=%s om=%s pred=%s rp=%d susp=%d q=%d why=%d",
+                  generationKnown ? 1 : 0, ineligible ? 1 : 0, st(s.graphics.signatureState),
+                  st(s.compute.signatureState), st(s.heapState), st(s.psoState), st(s.viewportState),
+                  st(s.scissorState), st(s.topologyState), st(s.om.state),
+                  s.predication.IsDisabled() ? "off" : "on", s.renderPassActive ? 1 : 0,
+                  s.renderPassSuspended ? 1 : 0, s.queryActive ? 1 : 0, static_cast<int>(s.ineligibleWhy));
 }
 
 inline AdmissionResult CanAdmitGraphics(const ListTracker& t)

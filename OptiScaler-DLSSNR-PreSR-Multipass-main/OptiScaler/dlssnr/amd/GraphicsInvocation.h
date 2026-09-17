@@ -15,6 +15,7 @@ struct InvocationState
     bool commandsRecorded = false;
     const char* outcome = "not_recorded";
     const char* reason = "no_envelope";
+    char gates[192] {};
 };
 
 inline thread_local InvocationState* g_graphicsInvocation = nullptr;

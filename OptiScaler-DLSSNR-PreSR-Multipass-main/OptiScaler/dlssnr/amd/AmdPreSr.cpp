@@ -9,7 +9,7 @@
 #include "GraphicsTracker.h"
 #include "GraphicsInvocation.h"
 #ifndef AMD_GRAPHICS_SOURCE_ID
-#define AMD_GRAPHICS_SOURCE_ID "unfingerprinted"
+#define AMD_GRAPHICS_SOURCE_ID "local-6fc00ca+rs-empty+gates"
 #endif
 #include <Config.h>
 #include "ColorEncoding.h"
@@ -1029,7 +1029,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                    " admitted=" + std::to_string(gfx->admitted) +
                    " freeze=" + std::to_string(gfx->frozen) + " pin=" + std::to_string(gfx->pinned) +
                    " plan=" + std::to_string(gfx->planned) + " armed=" + std::to_string(gfx->armed) +
-                   " outcome=" + gfx->outcome);
+                   " outcome=" + gfx->outcome + " gates{" + gfx->gates + "}");
             p->LogDiagnostic("AMD graphics totals armed=" + std::to_string(p->gfxArmedSamples) +
                    " nativeSpin0=" + std::to_string(p->gfxSpin0Calls) +
                    " nativeSpin1=" + std::to_string(p->gfxSpin1Calls) +
