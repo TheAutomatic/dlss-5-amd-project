@@ -123,6 +123,26 @@ static void TestScopesDoNotLeakBetweenRecordingThreads()
     assert(parentDraw.observation.count == 0);
 }
 
+static void TestDispatchSitesDoNotMislabelGraphicsWait()
+{
+    ScopedNativeDrawObservation scope(0xA, 0x17000, 0x19000,
+                                     { 0x17b70, 0x17f10, 0x17f6a, 0x18057 });
+    ObserveNativeDispatch(0xB, 0x17f6a); // Wrong list is not a compute wait.
+    ObserveNativeDispatch(0xA, 0x20000); // A different shader dispatch.
+    ObserveNativeDispatch(0xA, 0x17b70);
+    ObserveNativeDraw(0xA, 0x17e2f);
+    ObserveNativeDispatch(0xA, 0x18057);
+    assert(scope.observation.dispatchHook == 4);
+    assert(scope.observation.dispatchSameList == 3);
+    assert(scope.observation.dispatchWait == 2);
+    assert(scope.observation.dispatchInit == 1 && scope.observation.dispatchFinish == 1);
+    assert(scope.observation.count == 1);
+    assert(scope.observation.dispatchSlices == 0 && scope.observation.dispatchFallback == 0);
+    ObserveNativeDispatch(0xA, 0x17f6a);
+    ObserveNativeDispatch(0xA, 0x17f10);
+    assert(scope.observation.dispatchSlices == 1 && scope.observation.dispatchFallback == 1);
+}
+
 int main()
 {
     TestStartupGraceIsBounded();
@@ -130,6 +150,7 @@ int main()
     TestInvocationScopesMatchOnlyCurrentList();
     TestNativeDrawRequiresListAndVerifiedCaller();
     TestScopesDoNotLeakBetweenRecordingThreads();
+    TestDispatchSitesDoNotMislabelGraphicsWait();
     std::cout << "graphics-invocation scenarios passed\n";
     return 0;
 }

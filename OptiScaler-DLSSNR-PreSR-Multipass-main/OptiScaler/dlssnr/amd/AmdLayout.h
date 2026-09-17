@@ -112,6 +112,9 @@ struct AmdLayout
     std::uint32_t predicateReady = 0;
     std::uint32_t graphicsWaitBegin = 0;
     std::uint32_t graphicsWaitEnd = 0;
+    // Return addresses after Dispatch calls in the pinned wait helper.
+    std::uint32_t waitDispatchInit = 0, waitDispatchFallback = 0;
+    std::uint32_t waitDispatchSlices = 0, waitDispatchFinish = 0;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -157,7 +160,8 @@ inline constexpr AmdLayout kAmd031 {
     0x9ace8, 0x9acec, 0x9acf4, 0x9acf5, 0x9acf6, 0x9acf7, 0x9acf8,
     0x9ad08, 0x9ad0c, 0x9ad10, 0x9ad18, 0x9ad1c, 0x9ae08,
     0x9ade0, 0x9ad68, 0x9ac24, 0x9ac40, 0x9ac50,
-    0x9ab14, 0x9ab20, 0x9aa88, 0x17980, 0x180a6
+    0x9ab14, 0x9ab20, 0x9aa88, 0x17980, 0x180a6,
+    0x17b70, 0x17f10, 0x17f6a, 0x18057
 };
 
 inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031 };

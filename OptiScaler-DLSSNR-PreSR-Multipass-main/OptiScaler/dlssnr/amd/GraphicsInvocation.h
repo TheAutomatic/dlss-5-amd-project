@@ -40,6 +40,11 @@ inline InvocationState* GraphicsInvocationFor(std::uint64_t listId)
     return g_graphicsInvocation && g_graphicsInvocation->listId == listId ? g_graphicsInvocation : nullptr;
 }
 
+struct NativeDispatchCallSites
+{
+    std::uintptr_t init = 0, fallback = 0, slices = 0, finish = 0;
+};
+
 struct NativeDrawObservation
 {
     std::uint64_t listId;
@@ -51,6 +56,10 @@ struct NativeDrawObservation
     std::uint64_t callerMatched = 0;
     std::uint64_t mismatchList = 0;
     std::uintptr_t mismatchReturn = 0;
+    NativeDispatchCallSites dispatchSites {};
+    std::uint64_t dispatchHook = 0, dispatchSameList = 0, dispatchWait = 0;
+    std::uint64_t dispatchInit = 0, dispatchFallback = 0, dispatchSlices = 0, dispatchFinish = 0;
+    std::uintptr_t dispatchMismatchReturn = 0;
 };
 inline thread_local NativeDrawObservation* g_nativeDrawObservation = nullptr;
 
@@ -59,9 +68,11 @@ class ScopedNativeDrawObservation
     NativeDrawObservation* previous_;
   public:
     NativeDrawObservation observation;
-    ScopedNativeDrawObservation(std::uint64_t listId, std::uintptr_t begin, std::uintptr_t end)
+    ScopedNativeDrawObservation(std::uint64_t listId, std::uintptr_t begin, std::uintptr_t end,
+                               NativeDispatchCallSites sites = {})
         : previous_(g_nativeDrawObservation), observation { listId, begin, end }
     {
+        observation.dispatchSites = sites;
         g_nativeDrawObservation = &observation;
     }
     ~ScopedNativeDrawObservation() { g_nativeDrawObservation = previous_; }
@@ -96,6 +107,27 @@ inline void ObserveNativeDraw(std::uint64_t listId, std::uintptr_t returnAddress
     }
     ++o->callerMatched;
     ++o->count;
+}
+
+inline void ObserveNativeDispatch(std::uint64_t listId, std::uintptr_t returnAddress)
+{
+    auto* o = g_nativeDrawObservation;
+    if (!o) return;
+    ++o->dispatchHook;
+    if (o->listId != listId) return;
+    ++o->dispatchSameList;
+    if (!o->callerBegin || returnAddress < o->callerBegin || returnAddress >= o->callerEnd)
+    {
+        if (!o->dispatchMismatchReturn) o->dispatchMismatchReturn = returnAddress;
+        return;
+    }
+    ++o->dispatchWait;
+    // Graphics wait has init/finish Dispatch calls too. Only the two spin
+    // call sites establish that the helper recorded a compute wait.
+    if (returnAddress == o->dispatchSites.init) ++o->dispatchInit;
+    else if (returnAddress == o->dispatchSites.fallback) ++o->dispatchFallback;
+    else if (returnAddress == o->dispatchSites.slices) ++o->dispatchSlices;
+    else if (returnAddress == o->dispatchSites.finish) ++o->dispatchFinish;
 }
 
 // Give graphics-first sessions a bounded opportunity before creating compute

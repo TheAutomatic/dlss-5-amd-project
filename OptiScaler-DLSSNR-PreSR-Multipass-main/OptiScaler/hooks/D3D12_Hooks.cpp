@@ -222,6 +222,7 @@ static RootRestoreHook<PFN_SetPredication> s_SetPredication {};
 static RootRestoreHook<PFN_CommandListReset> s_CommandListReset {};
 static PFN_CommandListClearState o_CommandListClearState = nullptr;
 static PFN_DrawInstanced o_DrawInstanced = nullptr;
+static std::atomic<uintptr_t> s_nativeDrawHookTarget { 0 };
 static PFN_BeginRenderPass o_BeginRenderPass = nullptr;
 static PFN_EndRenderPass o_EndRenderPass = nullptr;
 static PFN_CreateCommandSignature o_CreateCommandSignature = nullptr;
@@ -1819,6 +1820,8 @@ static void HookToCommandList(ID3D12Device* InDevice)
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
             const bool amdGraphicsTrackerWanted = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+            const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
+            LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 
             s_SetPipelineState.o_earlyHook = (PFN_SetPipelineState) pVTable[25];
             s_SetDescriptorHeaps.o_earlyHook = (PFN_SetDescriptorHeaps) pVTable[28];
@@ -1952,7 +1955,7 @@ static void HookToCommandList(ID3D12Device* InDevice)
                     if (o_CommandListClearState != nullptr)
                         DetourAttach(&(PVOID&) o_CommandListClearState, hkCommandListClearState);
                     if (o_DrawInstanced != nullptr)
-                        DetourAttach(&(PVOID&) o_DrawInstanced, hkDrawInstanced);
+                        nativeDrawAttach = DetourAttach(&(PVOID&) o_DrawInstanced, hkDrawInstanced);
                     if (o_BeginRenderPass != nullptr)
                         DetourAttach(&(PVOID&) o_BeginRenderPass, hkBeginRenderPass);
                     if (o_EndRenderPass != nullptr)
@@ -1973,6 +1976,10 @@ static void HookToCommandList(ID3D12Device* InDevice)
                 {
                     if (amdGraphicsTrackerWanted)
                     {
+                        if (nativeDrawAttach == NO_ERROR)
+                            s_nativeDrawHookTarget.store(nativeDrawTarget, std::memory_order_release);
+                        else
+                            LOG_WARN("AMD early DrawInstanced hook failed: {}", nativeDrawAttach);
                         s_amdGraphicsTrackerHooks = true;
                         AmdPreSr::GraphicsSnap::GraphicsTracker().SetEnabled(true);
                         LOG_INFO("AMD graphics tracker hooks attached (RS/IA/OM/pred/Reset/Create/query/indirect/draw, renderPass={})",
@@ -3121,6 +3128,10 @@ void D3D12Hooks::Unhook()
 
 void D3D12Hooks::SetRootSignatureTracking(bool enable) { isUpscalerActive = !enable; }
 bool D3D12Hooks::IsRootSignatureTrackingEnabled() { return !isUpscalerActive; }
+uintptr_t D3D12Hooks::NativeDrawHookTarget()
+{
+    return s_nativeDrawHookTarget.load(std::memory_order_acquire);
+}
 
 bool D3D12Hooks::CanRestoreRootSignature(ID3D12GraphicsCommandList* cmdList)
 {

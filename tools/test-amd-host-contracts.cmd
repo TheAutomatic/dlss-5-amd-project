@@ -24,9 +24,17 @@ if not %errorlevel%==0 exit /b 1
 "%AMD_TEST_OUT%\amd_graphics_restore.exe"
 if not %errorlevel%==0 exit /b 1
 rem D3 GPU scenario execution is intentionally omitted; validation continues in real games.
+cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\amd_graphics_restore_dx12.cpp /Fe"%AMD_TEST_OUT%\amd_graphics_restore_dx12.exe" /Fo"%AMD_TEST_OUT%\amd_graphics_restore_dx12.obj"
+if not %errorlevel%==0 exit /b 1
+"%AMD_TEST_OUT%\amd_graphics_restore_dx12.exe"
+if not %errorlevel%==0 exit /b 1
 cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\amd_graphics_invocation.cpp /Fe"%AMD_TEST_OUT%\amd_graphics_invocation.exe" /Fo"%AMD_TEST_OUT%\amd_graphics_invocation.obj"
 if not %errorlevel%==0 exit /b 1
 "%AMD_TEST_OUT%\amd_graphics_invocation.exe"
+if not %errorlevel%==0 exit /b 1
+cl /nologo /std:c++20 /EHsc /W4 /O2 /utf-8 /IOptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include tests\amd_graphics_native_hooks.cpp /Fe"%AMD_TEST_OUT%\amd_graphics_native_hooks.exe" /Fo"%AMD_TEST_OUT%\amd_graphics_native_hooks.obj" /link OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib
+if not %errorlevel%==0 exit /b 1
+"%AMD_TEST_OUT%\amd_graphics_native_hooks.exe"
 if not %errorlevel%==0 exit /b 1
 cl /nologo /std:c++20 /EHsc /W4 /utf-8 /IOptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include tests\amd_runtime_host_load.cpp /Fe"%AMD_TEST_OUT%\amd_runtime_host_load.exe" /Fo"%AMD_TEST_OUT%\amd_runtime_host_load.obj" /link OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib
 if not %errorlevel%==0 exit /b 1

@@ -8,8 +8,10 @@
 #include "SubmissionState.h"
 #include "GraphicsTracker.h"
 #include "GraphicsInvocation.h"
+#include "NativeWaitHooks.h"
+#include <hooks/D3D12_Hooks.h>
 #ifndef AMD_GRAPHICS_SOURCE_ID
-#define AMD_GRAPHICS_SOURCE_ID "local-6fc00ca+rs-empty+gates"
+#define AMD_GRAPHICS_SOURCE_ID "unfingerprinted-gfix2"
 #endif
 #include <Config.h>
 #include "ColorEncoding.h"
@@ -963,7 +965,7 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // lands. Three earlier rounds were analysed without a tag and the logs could
     // not be told apart.
     p->LogDiagnostic("AMD graphics build source=" AMD_GRAPHICS_SOURCE_ID);
-    p->Log("AMD submission revision 20260917-gfix1: owned graphics snapshots, signature-aware indirect, native draw observation; r27 submission contract retained" +
+    p->Log("AMD submission revision 20260917-gfix2: actual-list draw/dispatch observation; r27 submission contract retained" +
            std::string(kBuildTag));
     try
     {
@@ -977,6 +979,12 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
 }
 ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& incoming, const Settings& cfg)
 {
+    // Install missing observers on this list's actual implementation, before
+    // holding the backend lock or calling A. Observation never gates NR.
+    const auto earlyDrawTarget = D3D12Hooks::NativeDrawHookTarget();
+    GraphicsSnap::NativeWaitHooks::Coverage waitCoverage {};
+    if (cmd && cfg.spinDraw && Config::Instance()->AmdGraphicsWait.value_or_default())
+        waitCoverage = GraphicsSnap::NativeWaitHooks::Ensure(cmd, earlyDrawTarget);
     std::lock_guard guard(p->lock);
     // wantSlots is plain state guarded by `lock`, like liveSlots and activeSlot.
     // Widening the choice of buffer here only lets the pick below take a slot
@@ -1641,7 +1649,11 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             const auto nativeBase = reinterpret_cast<uintptr_t>(r);
             GraphicsSnap::ScopedNativeDrawObservation draws(listId,
                 L->graphicsWaitBegin ? nativeBase + L->graphicsWaitBegin : 0,
-                L->graphicsWaitEnd ? nativeBase + L->graphicsWaitEnd : 0);
+                L->graphicsWaitEnd ? nativeBase + L->graphicsWaitEnd : 0,
+                { L->waitDispatchInit ? nativeBase + L->waitDispatchInit : 0,
+                  L->waitDispatchFallback ? nativeBase + L->waitDispatchFallback : 0,
+                  L->waitDispatchSlices ? nativeBase + L->waitDispatchSlices : 0,
+                  L->waitDispatchFinish ? nativeBase + L->waitDispatchFinish : 0 });
             const auto callStart = std::chrono::steady_clock::now();
             reinterpret_cast<RecordFn>(nativeBase + L->record)(&packet);
             const auto callMicros = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1668,10 +1680,27 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                        " drawObserved=" + std::to_string(draws.observation.count) +
                        " drawMismatch=" + std::to_string(draws.observation.mismatchReturn) +
                        " drawMismatchList=" + std::to_string(draws.observation.mismatchList) +
+                       " drawTarget=" + std::to_string(waitCoverage.drawTarget) +
+                       " earlyDrawTarget=" + std::to_string(earlyDrawTarget) +
+                       " drawCovered=" + std::to_string(waitCoverage.drawCovered) +
+                       " drawAttachError=" + std::to_string(waitCoverage.drawError) +
+                       " dispatchTarget=" + std::to_string(waitCoverage.dispatchTarget) +
+                       " dispatchCovered=" + std::to_string(waitCoverage.dispatchCovered) +
+                       " dispatchAttachError=" + std::to_string(waitCoverage.dispatchError) +
+                       " dispatchHook=" + std::to_string(draws.observation.dispatchHook) +
+                       " dispatchSameList=" + std::to_string(draws.observation.dispatchSameList) +
+                       " dispatchWait=" + std::to_string(draws.observation.dispatchWait) +
+                       " dispatchInit=" + std::to_string(draws.observation.dispatchInit) +
+                       " dispatchFallback=" + std::to_string(draws.observation.dispatchFallback) +
+                       " dispatchSlices=" + std::to_string(draws.observation.dispatchSlices) +
+                       " dispatchFinish=" + std::to_string(draws.observation.dispatchFinish) +
+                       " dispatchMismatch=" + std::to_string(draws.observation.dispatchMismatchReturn) +
                        " waitRange=" + std::to_string(nativeBase + (L->graphicsWaitBegin ? L->graphicsWaitBegin : 0)) +
                        "-" + std::to_string(nativeBase + (L->graphicsWaitEnd ? L->graphicsWaitEnd : 0)) +
-                       " mode=" + (actualSpin && !aPsoAfter ? "compute_missing_graphics_pso" :
-                                    draws.observation.count ? "graphics_recorded" : "no_graphics_draw_observed"));
+                       " mode=" + (draws.observation.count ? "graphics_recorded" :
+                                    draws.observation.dispatchSlices || draws.observation.dispatchFallback ? "compute_wait_recorded" :
+                                    !waitCoverage.drawCovered || !waitCoverage.dispatchCovered ? "observation_incomplete" :
+                                    draws.observation.dispatchWait ? "wait_dispatch_only" : "no_wait_calls_observed"));
             p->gfxLastSpin[i] = actualSpin;
             p->gfxLastPso[i] = aPsoAfter;
             sl->jobs[i] = At<UINT>(r, L->jobId);

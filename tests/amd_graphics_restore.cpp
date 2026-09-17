@@ -185,6 +185,7 @@ static void TestKnownEmptyBindingsAreRestored()
     assert(plan.ops[0].op == RestoreOp::SetDescriptorHeaps);
     assert(plan.ops[0].count == 0);
     bool computeNull = false, graphicsNull = false, emptyOm = false;
+    unsigned emptyViewports = 0, emptyScissors = 0, undefinedTopology = 0;
     for (size_t i = 0; i < plan.count; ++i)
     {
         const auto& c = plan.ops[i];
@@ -194,8 +195,24 @@ static void TestKnownEmptyBindingsAreRestored()
             graphicsNull = c.handle == 0;
         if (c.op == RestoreOp::SetRenderTargets)
             emptyOm = c.count == 0 && c.handle == 0;
+        if (c.op == RestoreOp::SetViewports)
+        {
+            assert(c.count == 0);
+            ++emptyViewports;
+        }
+        if (c.op == RestoreOp::SetScissors)
+        {
+            assert(c.count == 0);
+            ++emptyScissors;
+        }
+        if (c.op == RestoreOp::SetTopology)
+        {
+            assert(c.count == 0); // D3D_PRIMITIVE_TOPOLOGY_UNDEFINED
+            ++undefinedTopology;
+        }
     }
     assert(computeNull && graphicsNull && emptyOm);
+    assert(emptyViewports == 1 && emptyScissors == 1 && undefinedTopology == 1);
 
     GraphicsSnapshot unknown;
     assert(BuildRestorePlan(unknown, plan));

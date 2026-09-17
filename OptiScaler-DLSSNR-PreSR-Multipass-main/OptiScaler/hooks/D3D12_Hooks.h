@@ -20,6 +20,7 @@ class D3D12Hooks
     static void Unhook();
     static void SetRootSignatureTracking(bool enable);
     static bool IsRootSignatureTrackingEnabled();
+    static uintptr_t NativeDrawHookTarget(); // Original entry, never the Detours trampoline.
     static bool CanRestoreRootSignature(ID3D12GraphicsCommandList* cmdList);
     static void HookToCommandListLate(ID3D12GraphicsCommandList* commandList);
     static void RestoreRoot(ID3D12GraphicsCommandList* cmdList);
