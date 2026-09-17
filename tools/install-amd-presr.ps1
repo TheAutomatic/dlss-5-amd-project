@@ -48,9 +48,20 @@ if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
     $release = Join-Path $Root 'release'
 }
 
+function Pause-Exit([int]$code) {
+    if (-not $NonInteractive) {
+        Write-Host ''
+        Write-Host 'Press any key to exit...'
+        [void][Console]::ReadKey($true)
+    }
+    exit $code
+}
+
 function Fail([string]$msg) {
     Write-Host "ERROR: $msg" -ForegroundColor Red
-    exit 1
+    Write-Host ''
+    Write-Host 'Install FAILED.' -ForegroundColor Red
+    Pause-Exit 1
 }
 
 # 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
@@ -224,15 +235,15 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
     $GameDir = Ask-GameFolder
     if ([string]::IsNullOrWhiteSpace($GameDir)) {
         Write-Host 'Cancelled — no folder selected.'
-        exit 0
+        Pause-Exit 0
     }
 }
 
 # Interactive proxy pick (like older 1.7.x installers). dinput8 is invalid for this build.
 if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Proxy')) {
     $proxyOptions = @(
-        'dxgi.dll      (recommended)',
-        'winmm.dll',
+        'dxgi.dll (default; if the game fails to start, try winmm.dll)',
+        'winmm.dll (recommended by some games)',
         'd3d12.dll',
         'winhttp.dll',
         'wininet.dll',
@@ -324,7 +335,7 @@ OptiScaler.dll sits next to Setup.ps1.
 function Confirm-Continue([string]$title) {
     if ($NonInteractive) { Fail $title }
     $choice = Ask-Choice $title @('Cancel and exit', 'Continue anyway')
-    if ($choice -eq 1) { Write-Host 'Cancelled.'; exit 0 }
+    if ($choice -eq 1) { Write-Host 'Cancelled.'; Pause-Exit 0 }
 }
 
 function Find-FirstFile([string[]]$paths) {
@@ -574,7 +585,7 @@ foreach ($f in $found) {
             'Ignore (overwrite only if it is the chosen proxy; leave others)'
         )
         switch ($choice) {
-            1 { Write-Host 'Cancelled.'; exit 0 }
+            1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
             2 { $toMove += $f }
             3 {
                 if ($isTarget) { $toMove += $f }
@@ -599,7 +610,7 @@ foreach ($f in $found) {
             'Ignore and continue (keep this file)'
         )
         switch ($choice) {
-            1 { Write-Host 'Cancelled.'; exit 0 }
+            1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
             2 { $toMove += $f }
             3 {
                 if ($isTarget) {
@@ -680,6 +691,21 @@ if (Test-Path $deps) {
     }
 }
 
+# Small install record so Uninstall knows which proxy name this install used.
+# Uninstall still verifies OptiScaler by VersionInfo; this is a hint, not a trust root.
+$installMark = Join-Path $game 'amd-presr-install.txt'
+try {
+    @(
+        'project=OptiScaler AMD pre-SR',
+        ('proxy=' + $Proxy),
+        ('installed=' + (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')),
+        ('game=' + $game)
+    ) -join "`r`n" | Set-Content -LiteralPath $installMark -Encoding ASCII
+    Write-Host "Wrote install record: $installMark" -ForegroundColor Green
+} catch {
+    Write-Host "NOTE: could not write install record: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # Keep reusable author files in the package folder for the next game.
 # Never write them into the game folder — that would re-inject original A next to B.
 # 摘要要报"包目录里真正留下的那份"，不能报 $srcA —— 当包目录就是游戏目录时
@@ -734,4 +760,6 @@ Write-Host 'Next (in game):' -ForegroundColor Yellow
 Write-Host '  1. Launch the game'
 Write-Host '  2. Press Insert (Ins) to open the OptiScaler menu'
 Write-Host '  3. Enable DLSSNR'
-exit 0
+Write-Host ''
+Write-Host 'Install SUCCEEDED.' -ForegroundColor Green
+Pause-Exit 0

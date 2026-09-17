@@ -1,17 +1,17 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.3-0.3.1
-    1.8.3  = this fork's product version
+  Default product: OptiScaler-AMD-PreSR-1.8.4-0.3.1
+    1.8.4  = this fork's product version
     0.3.1  = primary upstream NR runtime (0.3.0 still accepted)
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.3-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.8.4-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.3-0.3.1',
+    [string]$Version = '1.8.4-0.3.1',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -176,15 +176,19 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version — NR slots default 3 (2-5 in-game, 1-5 here).
+; Product $Version - NR slots default 3 (2-5 in-game, 1-5 here).
 ; Requires DLSS-NR-on-AMD 0.3.0 or 0.3.1 (https://github.com/danielblnc/DLSS-NR-on-AMD)
 ; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
+; AmdGraphicsWait=1 requests the original-author 0.3.1 graphics wait (experimental).
+; Set 0 for classic compute wait. Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).
 Enabled=false
 RunBeforeSR=true
 AmdModelScale=1
 AmdEncoding=0
 AmdEveryFrame=true
 AmdSlots=3
+AmdGraphicsWait=1
+AmdGraphicsUnsafe=0
 AmdNeuralLighting=true
 AmdNeuralLightingStrength=0.5
 Passes=1
@@ -274,10 +278,21 @@ if "%~2"=="" (
 ) else (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy "%~2"
 )
-set "EC=%ERRORLEVEL%"
-if not "%EC%"=="0" pause
-exit /b %EC%
+exit /b %ERRORLEVEL%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
+
+$uninstallSrc = Join-Path $root 'tools/uninstall-amd-presr.ps1'
+if (!(Test-Path $uninstallSrc)) { throw "Missing $uninstallSrc" }
+Copy-Item $uninstallSrc (Join-Path $stage 'Uninstall.ps1') -Force
+@'
+@echo off
+setlocal
+title OptiScaler AMD pre-SR Uninstall
+rem No args: Uninstall.ps1 opens a folder picker.
+rem Optional: Uninstall.bat "D:\GameFolder"
+powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall.ps1" -GameDir "%~1"
+exit /b %ERRORLEVEL%
+'@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall.bat') -Encoding ASCII
 Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 

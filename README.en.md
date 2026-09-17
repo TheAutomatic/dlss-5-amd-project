@@ -1,12 +1,12 @@
 [中文](README.md) | **English**
 
-# OptiScaler AMD pre-SR — 1.8.3-0.3.1
+# OptiScaler AMD pre-SR — 1.8.4-0.3.1
 
-**OptiScaler** + **AMD neural rendering** so **pure-DLSS games** can run neural denoise on AMD GPUs. Super-resolution is **FFX/FSR**.
+**OptiScaler** plus **AMD neural rendering** (DLSS5), so **pure DLSS / XeSS games** can run neural denoise on AMD GPUs. Super-resolution is still **FFX/FSR**.
 
-`1.8.3` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
+`1.8.4` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
-**Wait mode (feature branch): default `AmdGraphicsWait=1`.** This requests the author runtime's 0.3.1 graphics wait (1-pixel draws). The host only allows it when this frame's state snapshot succeeded; otherwise that frame stays on compute spin. The `main` release line still forces compute. Do not call graphics "stable" on untested games.
+**Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). This project only takes the graphics path when this frame's state snapshot succeeded; otherwise that frame stays on compute. If a few games are unstable on graphics, the log will show a fallback — you do not need to change settings by hand.
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -21,44 +21,32 @@
 
 | Upstream | What they did | What this project adds |
 |---|---|---|
-| **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | General upscaler proxy | Still the install/run vehicle |
-| **[dlss-5-amd (Matheus)](https://github.com/MatheusGViana/dlss-5-amd-project)** | AMD pre-SR bridge | **Adjustable NR slots**: more in-flight buffers reduce busy-frame skips; generic folder picker in the installer |
-| **[DLSS-NR on AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** (below: original project; danielblnc = original author) | AMD neural runtime | **Core untouched**; original author’s 0.3.1 / 0.3.0 |
+| **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | General upscaler proxy (DLSS / FFX / XeSS) | Still the install/run body |
+| **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** | Hooked DLSS neural rendering into OptiScaler | Inherits that OptiScaler base (`v0.2.0-dlssnr`) |
+| **[wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | Neural rendering before super-resolution, multi-pass | Inherits that pre-SR architecture |
+| **[Matheus / dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)** | Connected pre-SR to the AMD runtime: DLSS input → AMD NR → FFX | **Adjustable NR slots** (fewer skipped frames); wired to the original author's 0.3.1 / 0.3.0; installer better at XBOX PC games |
+| **[Original project / original author danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD)** | The AMD neural-rendering runtime itself | **Core untouched**; calls the original author's 0.3.1 / 0.3.0 |
 
 ### Inline NR and "slots"
 
-NR is inline: a frame that obtains a slot waits for its own denoise before it can present. This mod keeps one buffer
-(a **slot**) per denoise still in flight. When a frame finds every slot busy it is recorded with
-**no denoise at all** — faster, with a possible image-quality loss.
+Denoise (DLSS5) sits on the picture path: a frame that gets a slot must wait for its own denoise to finish before it can present. This mod keeps one buffer (a **slot**) for every denoise still running. When no slot is free, that frame is recorded with **no denoise at all** — the picture comes out faster, possibly blurrier.
 
-**Three slots by default.** Adjustable in-game under `DLSS Neural Rendering` → `NR slots`
-(2-5, takes effect without a restart).
+**Three slots by default.** Adjustable in-game under `DLSS Neural Rendering` → `NR slots` (2–5, takes effect without a restart).
 
-| Measured (test condition only; the project is not limited to 720p: **4K FSR Ultra Performance**, equivalent to a 720p render, 60 lock; slots flipped **inside one session at one standing position**) | 2 slots | 3 slots |
+| Measured (**4K FSR Ultra Performance**, equivalent to a 720p render) | 2 slots | 3 slots |
 |---|---:|---:|
-| Onimusha (light) | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
-| YYSLS (heavy) | 19.05-19.25 ms, **about 1200-1440 frames undenoised per segment** | 21.78-21.89 ms, **0 skipped** |
+| Onimusha | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
+| YYSLS | 19.05–19.25 ms, **many NR frames skipped** | 21.78–21.89 ms, **0 skipped** |
 
-- On Onimusha, the 2/3-slot frame periods and display latency stayed within repeat variation;
-  **no difference was detected**
-- In the YYSLS A/B session, the runtime counter increased by about **1200 / 1440** in the two-slot
-  segments and by 0 in the three-slot segments. Those log segments are not the same window as the
-  45-second PresentMon captures, so they do not yield a skip percentage
-- A separate 1-to-5-slot session measured **1800** in its 60-second two-slot segment and 0 at three,
-  four and five. Counts from the two sessions are not compared with each other
-- In the A/B session, 2 slots showed 47.6-47.9 ms display latency versus 62.9-63.2 ms at 3 slots;
-  the lower figure came with many denoise skips, not equal work for free
-- **4-5 slots were measured in that sweep** and were no faster than 3 in that scene. A scene heavy
-  enough to require a fourth or fifth slot has not been measured
-- Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a 4K
-  output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is
-  allocated**
-- The ini's `AmdSlots` also accepts `1` (the old one-frame-outstanding path); the menu does not
-  offer it
+- On Onimusha, the 2/3-slot frame periods and display latency stayed within repeat variation; **no difference was detected**
+- In the YYSLS A/B session, the runtime counter increased by about **1200 / 1440** in the two-slot segments and by 0 in the three-slot segments. Those log segments are not the same window as the 45-second PresentMon captures, so they do not yield a skip percentage  
+  A separate 1→5-slot session measured **1800** in its 60-second two-slot segment and 0 at three, four and five. Counts from the two sessions are not compared with each other
+- In the A/B session, 2 slots showed 47.6–47.9 ms display latency versus 62.9–63.2 ms at 3 slots; the lower figure came with many denoise skips, not equal work for free
+- **4–5 slots were measured in that sweep** and were no faster than 3 in that scene. A scene heavy enough to need a fourth or fifth slot has not been measured
+- Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is allocated**
+- The ini's `AmdSlots` also accepts `1` (only one denoise at a time, close to the old behaviour); the menu does not offer it
 
-The early single-slot and dual-slot figures came from separate capture sessions. They show the
-direction of improvement after removing the previous-job retirement block, not a precise in-session
-performance gain; the neural core itself did not become faster.
+Early single-slot and multi-slot figures came from different capture sessions. They only show the direction of improvement after not blocking on the previous frame; they are not a precise same-session performance gain. The neural render itself did not get faster.
 
 ---
 
@@ -72,11 +60,12 @@ performance gain; the neural core itself did not become faster.
 | `OptiScaler.ini` | Config template; the `[DlssNr]` section (including `AmdSlots`) lives here |
 | `OptiScaler\` | FFX / XeSS / Agility dependencies |
 | `Setup.bat` / `Setup.ps1` | Installer (**double-click `Setup.bat`**) |
+| `Uninstall.bat` / `Uninstall.ps1` | Removes this project from the game folder (**double-click `Uninstall.bat`**); keeps backups, weights, original-author setup, and `nvngx_dlssnr.dll` |
 | `Licenses\` | Third-party licences |
 | `SHA256SUMS.txt` | Checksums |
 | `README.md` / `README.en.md` | This document |
 
-**Not included**: NVIDIA binaries, the original-author setup, NR weights, or the author's closed-source pass - see the next section.
+**Not included**: NVIDIA binaries, NR weights, the original-author installer, or the author's closed-source pass — see the next section.
 
 ### Step 1 — Files you must supply (not in this zip)
 
@@ -84,13 +73,13 @@ This package only contains the OptiScaler layer. There are two input routes: pro
 
 | File name | What it is | Where to get it |
 |---|---|---|
-| `dlssnr_on_amd_setup.exe` | Original author’s **0.3.1 / 0.3.0** setup | [Original project Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
+| `dlssnr_on_amd_setup.exe` | Original author's **0.3.1 / 0.3.0** setup | [Original project Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) |
 | `nvngx_dlssnr.dll` | DLSS 5 neural-rendering runtime | Shipped with some recent games; or obtain online |
 | (optional) ready `version.dll` / `dlssnr_on_amd_weights.bin` | Skip a setup run | Produced by a previous original-author setup run |
 
 **Recommended: drop `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`.**
 
-If `version.dll` or `weights.bin` is still missing when you run this package’s `Setup.bat`, it **launches the original-author setup** (after you pick the game folder), then continues.  
+If `version.dll` or `weights.bin` is still missing when you run this package's `Setup.bat`, it **launches the original-author setup** (after you pick the game folder), then continues.  
 If `nvngx_dlssnr.dll` is only next to `Setup.bat` and not in the game folder, the installer **copies it into the game folder** after you pick that folder (original-author 0.3.0 looks for it there).
 
 **Only 0.3.0 or 0.3.1 is supported.** Other versions will not run — the installer rejects them.
@@ -107,12 +96,12 @@ If `nvngx_dlssnr.dll` is only next to `Setup.bat` and not in the game folder, th
 
 **Asking for the game folder twice is normal — not a bug.**
 
-The second prompt comes from **danielblnc’s original 0.3.0 setup**, which this package calls to generate `version.dll` / weights. Pick the same game folder both times.
+The second prompt comes from **danielblnc's original setup**, which this package calls to generate `version.dll` / weights. Pick the same game folder both times.
 
 **Game folder** = where the game exe lives (the same path you use for a normal OptiScaler install):
 
 - Many games: `...\Win64\` or `...\Binaries\Win64\`  
-- Store builds: do not pick a read-only system install path — the installer will refuse it  
+- XBOX PC / some store builds: do not pick a read-only system install path — the installer will refuse it  
 
 | Source | Installed as |
 |---|---|
@@ -135,7 +124,7 @@ If an old OptiScaler or other inject DLL is already in the game folder, the inst
 1. Launch the game.  
 2. Press **Insert (Ins)** to open the OptiScaler menu.  
 3. Enable **DLSSNR**. The original-project version (`0.3.1` or `0.3.0`) should appear to the right of the checkbox.  
-4. You now get **DLSS5-style neural denoise + FFX/FSR** super-resolution (**compute wait**).
+4. You now get **DLSS5 neural denoise + FFX/FSR** super-resolution.
 
 Other OptiScaler options (hotkeys, compatibility, more FG modes): [OptiScaler Wiki](https://github.com/optiscaler/OptiScaler/wiki).
 
@@ -195,10 +184,9 @@ InterpolationCount=1
    Leave `Path=auto` (that is `OptiScaler\plugins`). If there is no DLSS-FG, set `FGInput=upscaler`.  
    `InterpolationCount`: `1` = 2x, `2` = 3x, `3` = 4x. This build only accepts 1–3.  
 3. The plugin ini (`XeFGUnlock.ini`) only holds unlock switches, e.g. `UnlockMFG=true`, `MaxInterpolatedFrames=3`. The plugin's `3` is only a cap; `InterpolationCount` in the game's `OptiScaler.ini` is the actual multiplier. For a first run set `DisableLogging=false` so `XeFGUnlock.log` appears next to the ASI.  
-4. Get XeFG working at 2x first, then set `InterpolationCount` to 2 or 3. Pass means: `OptiScaler.log` shows `Loaded: ...XeFGUnlock.asi`; the plugin log recognized the provider and reported a successful unlock. A menu multiplier alone is not enough.
+4. Get XeFG working at 2x first, then raise the multiplier. You can press Page Up for the frame counter, then Page Down for detail, and confirm multi-frame generation is actually on.
 
 </details>
-
 
 ---
 
@@ -217,6 +205,12 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 6. **Second-to-last:** remove any leftover file that would clash with your inject name (if step 5 uses `version.dll`, do not keep the original-author `version.dll` there too).  
 7. In-game: **Ins** → enable **DLSSNR**.
 
+### Uninstall
+
+Double-click **`Uninstall.bat`**, pick the same game folder, confirm. It removes this project's installed files.  
+**It does not delete**: `backup-amd-presr-*`, `nvngx_dlssnr.dll`, `dlssnr_on_amd_weights.bin`, the original-author setup/logs, or any DLL that is not identified as OptiScaler.  
+The uninstall script is still being tested — it asks for confirmation before it deletes anything.
+
 ---
 
 ## Troubleshooting / reporting a problem
@@ -229,12 +223,12 @@ Logs live **next to the proxy DLL** (`dxgi.dll` / `winmm.dll`, etc.). Common fil
 
 | File name | Written by |
 |---|---|
-| `OptiScaler.log` | This project’s main log |
+| `OptiScaler.log` | This project's main log |
 | `amd_bridge.log` | AMD bridge layer |
 | `amd_presr.log` | AMD pre-SR / NR scheduling |
 | `dlssnr_on_amd.log` | Original-author runtime (0.3.1 / 0.3.0) |
 
-**Xbox PC / some store builds** may create a folder next to the game exe (often named **`_storage_`**) because of filesystem mapping.  
+**XBOX PC / some store builds** may create a folder next to the game exe (often named **`_storage_`**) because of filesystem mapping.  
 If you cannot find the `.log` files in the folder you installed into, look in:
 
 ```text
@@ -249,7 +243,7 @@ Using the proxy name you chose (`dxgi.dll`, `winmm.dll`, …), the same folder s
 
 | File | Notes |
 |---|---|
-| Your proxy (`dxgi.dll` / `winmm.dll` / …) | This project’s OptiScaler |
+| Your proxy (`dxgi.dll` / `winmm.dll` / …) | This project's OptiScaler |
 | `dlssnr_amd_pass1.dll` | **Required**; original-author 0.3.1 or 0.3.0 |
 | `dlssnr_amd_pass2.dll`, `dlssnr_amd_pass3.dll` | Multi-pass; same bytes as pass1 |
 | `dlssnr_on_amd_weights.bin` | **Required** |
@@ -277,11 +271,14 @@ When opening an issue or asking for help, state:
 
 ## Credits & license
 
+Code chain (top to bottom): [OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → **this repo**.
+
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) (GPL-3.0)  
-- [**Dagherbou/OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) (GPL-3.0) — this project's OptiScaler code is based on it (`v0.2.0-dlssnr` / commit `97376162`)
-- [**MatheusGViana/dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project)  
+- [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) (GPL-3.0) — this project's OptiScaler code is based on it (`v0.2.0-dlssnr` / commit `97376162`)  
+- [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) — architecture source for neural rendering before super-resolution and multi-pass  
+- [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — AMD pre-SR bridge  
 - [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.1 / 0.3.0** (not redistributed)  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 neural rendering addon; full text in `Licenses/RenoDX_ATTRIBUTION.txt`  
-- This project: NR slots, installer, packaging  
+- This project: NR slots, installer, packaging, wait mode, and the original-author wiring  
 
-No NVIDIA binaries, original-author setup, NR weights, or author pass DLLs are included. Follow each upstream’s license.
+No NVIDIA binaries, original-author setup, NR weights, or author pass DLLs are included. Follow each upstream's license.

@@ -29,7 +29,7 @@ on:
       version:
         description: 'Product version (fork-runtime), e.g. 1.8.3-0.3.1'
         required: false
-        default: '1.8.3-0.3.1'
+        default: '1.8.4-0.3.1'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.3-0.3.1'
+          $v = '1.8.4-0.3.1'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -226,24 +226,32 @@ jobs:
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - Support for original-author **0.3.1** (compute wait only — graphics wait is not wired up; host forces `SpinDraw=0`)
-            - Menu shows the detected runtime version next to the enable checkbox (e.g. `0.3.1`)
-            - Bug fixes
+            - **Graphics wait is now the default** (`AmdGraphicsWait=1`). Requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). The host only takes that path when this frame's D3D12 state snapshot and restore plan succeed; otherwise the frame stays on compute. Unstable games fall back automatically.
+            - Menu: **Graphics wait**. Off = classic compute, switches immediately. On after a compute-only launch (or when a pass still lacks a graphics PSO) asks you to restart.
+            - Safer graphics path: freeze/pin/restore gates; empty viewport/scissor/topology after Create/Reset/ClearState treated as known-unset; multi-RTV OM capture; CreateCommandList1 tracking; actual Draw/Dispatch observation.
+            - **Installer**: end-of-run **SUCCEEDED / FAILED** + press any key; proxy menu notes some games prefer `winmm.dll` and `dxgi.dll` is the default (try winmm if the game will not start); writes `amd-presr-install.txt`.
+            - **New `Uninstall.bat`**: removes this project's proxy/pass/deps/logs after confirmation. Keeps backups, `nvngx_dlssnr.dll`, weights, original-author setup/logs, and any non-OptiScaler DLL. Also scans Xbox `_storage_`.
 
             **Install**
             - Close the game, unzip anywhere, run `Setup.bat`, pick the folder with the game exe
             - You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights)
             - In game, press **Ins** → enable **DLSSNR**
 
+            The original author's **0.3.1 graphics wait** is supported in this project and is **experimental**. In-game: **Ins** → **Graphics wait**. Turn it **off** to fall back to classic compute wait immediately; if you turn it **on** after a compute-only launch, restart the game when prompted.
+
             ### 中文
-            - 适配原作者 **0.3.1**（只接入 compute 等待；0.3.1 的 graphics 等待本版未做，宿主强制 `SpinDraw=0`）
-            - 菜单在开关旁显示已识别版本（如 `0.3.1`）
-            - 一些 bug 修复
+            - **默认改为 graphics 等待**（`AmdGraphicsWait=1`）。会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目只在本帧 D3D12 状态快照与恢复计划都成功时才走这条路径；否则该帧仍用 compute。个别游戏 graphics 不稳时会自动回落。
+            - 菜单：**Graphics wait**。关 = 经典 compute，立即切换；在纯 compute 启动后打开、或某个 pass 仍缺 graphics PSO 时，会提示重启游戏。
+            - graphics 路径更安全：freeze/挂起/恢复门控；Create/Reset/ClearState 后的空 viewport/scissor/topology 按「已知未设置」处理；多 RTV 的 OM 捕获；跟踪 CreateCommandList1；观察真实 Draw/Dispatch 实现。
+            - **安装器**：结束时明确 **成功 / 失败**，按任意键退出；选代理时提示部分游戏更推荐 `winmm.dll`，`dxgi.dll` 为默认（游戏起不来可改试 winmm）；会写 `amd-presr-install.txt`。
+            - **新增 `Uninstall.bat`**：确认后删除本项目装进去的代理 / pass / 依赖 / 日志。不会删安装备份、`nvngx_dlssnr.dll`、weights、原作者 setup 与日志，以及任何识别不是 OptiScaler 的 DLL；XBOX 的 `_storage_` 也会扫。
 
             **安装**
-            - 关掉游戏，解压到任意目录后运行 `Setup.bat`，选游戏 exe 所在目录
-            - 用户需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）
-            - 进游戏后按 **Ins** 打开 OptiScaler 菜单 → 勾选 **DLSSNR**
+            - 关掉游戏，解压后运行 `Setup.bat`，选游戏 exe 所在目录
+            - 需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）
+            - 进游戏按 **Ins** → 勾选 **DLSSNR**
+
+            原作者 **0.3.1 的 graphics 画面等待**已在本项目中支持，**目前为实验性**。游戏内 **Ins** 菜单 → **Graphics wait**：**关闭**可立即切回经典 compute 等待；若在纯 compute 启动后再打开，按提示**重启游戏**即可。
 
             - Corresponding source: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs in this zip.
