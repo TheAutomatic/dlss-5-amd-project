@@ -222,6 +222,9 @@ static PFN_EndQuery o_EndQuery = nullptr;
 static PFN_ListRelease o_ListRelease = nullptr;
 static bool s_amdGraphicsTrackerHooks = false;
 static PFN_CreateCommandList o_CreateCommandList = nullptr;
+using PFN_CreateCommandList1 = HRESULT(WINAPI*)(ID3D12Device*, UINT, D3D12_COMMAND_LIST_TYPE,
+                                                 D3D12_COMMAND_LIST_FLAGS, REFIID, void**);
+static PFN_CreateCommandList1 o_CreateCommandList1 = nullptr;
 
 static thread_local bool lateInProgressSetDescriptorHeaps = false;
 static thread_local bool lateInProgressSetPipelineState = false;
@@ -992,6 +995,15 @@ static HRESULT WINAPI hkCreateCommandList(ID3D12Device* device, UINT nodeMask, D
                                           REFIID riid, void** list)
 {
     const HRESULT hr = o_CreateCommandList(device, nodeMask, type, allocator, initial, riid, list);
+    if (AmdGfxTrackerOn() && SUCCEEDED(hr) && list && *list)
+        AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(*list));
+    return hr;
+}
+
+static HRESULT WINAPI hkCreateCommandList1(ID3D12Device* device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
+                                           D3D12_COMMAND_LIST_FLAGS flags, REFIID riid, void** list)
+{
+    const HRESULT hr = o_CreateCommandList1(device, nodeMask, type, flags, riid, list);
     if (AmdGfxTrackerOn() && SUCCEEDED(hr) && list && *list)
         AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(*list));
     return hr;
@@ -2675,6 +2687,18 @@ static void HookToDevice(ID3D12Device* InDevice)
         device12_1->Release();
     }
 
+    ID3D12Device4* device12_4 = nullptr;
+    if (realDevice)
+        realDevice->QueryInterface(IID_PPV_ARGS(&device12_4));
+    else
+        InDevice->QueryInterface(IID_PPV_ARGS(&device12_4));
+    if (device12_4)
+    {
+        PVOID* pVTable4 = *(PVOID**) device12_4;
+        o_CreateCommandList1 = (PFN_CreateCommandList1) pVTable4[51];
+        device12_4->Release();
+    }
+
     // Apply the detour
     if (o_CreateSampler != nullptr)
     {
@@ -2730,6 +2754,8 @@ static void HookToDevice(ID3D12Device* InDevice)
 
         if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList != nullptr)
             DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
+        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList1 != nullptr)
+            DetourAttach(&(PVOID&) o_CreateCommandList1, hkCreateCommandList1);
 
         auto detourResult = DetourTransactionCommit();
         if (detourResult != NO_ERROR)

@@ -27,6 +27,7 @@ struct RestoreCmd
 {
     RestoreOp op = RestoreOp::Nop;
     bool graphics = false;
+    RootEntryType gpuVaType = RootEntryType::Invalid;
     std::uint32_t index = 0;
     std::uint64_t handle = 0;
     std::uint32_t count = 0;
@@ -102,6 +103,7 @@ inline bool BuildRestorePlan(const GraphicsSnapshot& s, RestorePlan& out)
             case RootEntryType::SRV:
             case RootEntryType::UAV:
                 c.op = RestoreOp::SetRootGpuVa;
+                c.gpuVaType = e.type;
                 c.handle = e.gpuVa;
                 break;
             case RootEntryType::Constant:

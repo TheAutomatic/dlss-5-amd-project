@@ -117,11 +117,46 @@ static void TestIncompleteRootsSkipped()
         assert(plan.ops[i].op != RestoreOp::SetPso && plan.ops[i].op != RestoreOp::SetViewports);
 }
 
+static void TestCbvSrvNotForcedToUav()
+{
+    GraphicsSnapshot s;
+    s.graphics.SetSignature(0xA);
+    s.graphics.SetGpuVa(0, RootEntryType::CBV, 0xC0);
+    s.graphics.SetGpuVa(1, RootEntryType::SRV, 0x51);
+    s.graphics.SetGpuVa(2, RootEntryType::UAV, 0x52);
+    RestorePlan plan;
+    assert(BuildRestorePlan(s, plan));
+    bool sawCbv = false, sawSrv = false, sawUav = false;
+    for (std::size_t i = 0; i < plan.count; ++i)
+    {
+        const auto& c = plan.ops[i];
+        if (c.op != RestoreOp::SetRootGpuVa)
+            continue;
+        if (c.index == 0)
+        {
+            assert(c.gpuVaType == RootEntryType::CBV);
+            sawCbv = true;
+        }
+        if (c.index == 1)
+        {
+            assert(c.gpuVaType == RootEntryType::SRV);
+            sawSrv = true;
+        }
+        if (c.index == 2)
+        {
+            assert(c.gpuVaType == RootEntryType::UAV);
+            sawUav = true;
+        }
+    }
+    assert(sawCbv && sawSrv && sawUav);
+}
+
 int main()
 {
     TestPlanOrderAndContent();
     TestAlikeDirtThenPlan();
     TestIncompleteRootsSkipped();
+    TestCbvSrvNotForcedToUav();
     std::cout << "graphics-restore plan scenarios passed\n";
     return 0;
 }

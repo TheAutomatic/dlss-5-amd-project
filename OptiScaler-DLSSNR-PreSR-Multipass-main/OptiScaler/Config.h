@@ -299,12 +299,11 @@ class Config
     // Every-frame is the only configuration under test, so it is the default:
     // enabling neural rendering is then the single switch a test run needs.
     CustomOptional<bool> AmdEveryFrame { true };
-    // Retained for existing INIs. The host currently forces compute (0) because
-    // graphics waiting changes state the host cannot completely restore.
+    // Legacy INI key. SpinDraw is driven only by AmdGraphicsWait (1 = request A graphics spin).
     CustomOptional<int> AmdSpinDraw { 0 };
-    // Experimental: enable the AMD graphics snapshot tracker (admission capture).
-    // Default 0 keeps the r26/r27 compute path unchanged. Startup-only; no hot toggle.
-    CustomOptional<int> AmdGraphicsWait { 0 };
+    // Graphics wait tracker + freeze/restore. Default 1 (graphics-first on this branch).
+    // Startup-only; no hot toggle. Set 0 to force the old compute path.
+    CustomOptional<int> AmdGraphicsWait { 1 };
     CustomOptional<bool> AmdRtgiEnabled { false };
     CustomOptional<uint32_t> AmdRtgiQuality { 2 };
     CustomOptional<uint32_t> AmdRtgiDenoiser { 1 };

@@ -1462,10 +1462,19 @@ struct ScopedNrStateEnvelope
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         froze = tracker.TryFreeze(listId, frozen);
         if (froze)
+        {
+            ID3D12Device* device = nullptr;
+            c->GetDevice(IID_PPV_ARGS(&device));
+            if (device)
+            {
+                if (!AmdPreSr::GraphicsSnap::PinOmForRestore(device, frozen))
+                    froze = false;
+                device->Release();
+            }
+        }
+        if (froze)
             froze = AmdPreSr::GraphicsSnap::BuildRestorePlan(frozen, restorePlan);
         AmdPreSr::GraphicsSnap::g_restoreArmed = froze;
-        // Only suppress when we will restore. A failed freeze must not mute
-        // observers while A still dirties the list.
         if (froze)
         {
             tracker.PushSuppress(listId);
@@ -1478,10 +1487,13 @@ struct ScopedNrStateEnvelope
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         if (suppressed)
             tracker.PopSuppress(reinterpret_cast<uint64_t>(cmd));
-        if (froze && restorePlan.count)
+        const bool restoredGraphics = froze && restorePlan.count;
+        if (restoredGraphics)
             AmdPreSr::GraphicsSnap::ApplyRestorePlan(cmd, frozen, restorePlan);
         AmdPreSr::GraphicsSnap::g_restoreArmed = false;
-        D3D12Hooks::RestoreRoot(cmd);
+        // Avoid stacking Opti's compute RestoreRoot on top of a full graphics replay.
+        if (!restoredGraphics)
+            D3D12Hooks::RestoreRoot(cmd);
         D3D12Hooks::SetRootSignatureTracking(true);
     }
 };
