@@ -45,6 +45,12 @@ struct NativeDrawObservation
     std::uint64_t listId;
     std::uintptr_t callerBegin, callerEnd;
     std::uint64_t count = 0;
+    // Layered diagnostics: which filter dropped a Draw.
+    std::uint64_t hookHits = 0;
+    std::uint64_t sameList = 0;
+    std::uint64_t callerMatched = 0;
+    std::uint64_t mismatchList = 0;
+    std::uintptr_t mismatchReturn = 0;
 };
 inline thread_local NativeDrawObservation* g_nativeDrawObservation = nullptr;
 
@@ -66,9 +72,30 @@ class ScopedNativeDrawObservation
 inline void ObserveNativeDraw(std::uint64_t listId, std::uintptr_t returnAddress)
 {
     auto* o = g_nativeDrawObservation;
-    if (o && o->listId == listId && o->callerBegin && returnAddress >= o->callerBegin &&
-        returnAddress < o->callerEnd)
-        ++o->count;
+    if (!o)
+        return;
+    ++o->hookHits;
+    if (o->listId != listId)
+    {
+        if (!o->mismatchReturn)
+        {
+            o->mismatchList = listId;
+            o->mismatchReturn = returnAddress;
+        }
+        return;
+    }
+    ++o->sameList;
+    if (!o->callerBegin || returnAddress < o->callerBegin || returnAddress >= o->callerEnd)
+    {
+        if (!o->mismatchReturn)
+        {
+            o->mismatchList = listId;
+            o->mismatchReturn = returnAddress;
+        }
+        return;
+    }
+    ++o->callerMatched;
+    ++o->count;
 }
 
 // Give graphics-first sessions a bounded opportunity before creating compute

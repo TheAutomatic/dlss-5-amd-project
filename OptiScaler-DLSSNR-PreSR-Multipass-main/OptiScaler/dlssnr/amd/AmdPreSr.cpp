@@ -1662,7 +1662,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                        " aGraphicsPsoAfter=" + std::to_string(aPsoAfter) +
                        " predReadyBefore=" + std::to_string(predBefore) +
                        " predReadyAfter=" + std::to_string(predAfter) +
+                       " drawHook=" + std::to_string(draws.observation.hookHits) +
+                       " drawSameList=" + std::to_string(draws.observation.sameList) +
+                       " drawCaller=" + std::to_string(draws.observation.callerMatched) +
                        " drawObserved=" + std::to_string(draws.observation.count) +
+                       " drawMismatch=" + std::to_string(draws.observation.mismatchReturn) +
+                       " drawMismatchList=" + std::to_string(draws.observation.mismatchList) +
+                       " waitRange=" + std::to_string(nativeBase + (L->graphicsWaitBegin ? L->graphicsWaitBegin : 0)) +
+                       "-" + std::to_string(nativeBase + (L->graphicsWaitEnd ? L->graphicsWaitEnd : 0)) +
                        " mode=" + (actualSpin && !aPsoAfter ? "compute_missing_graphics_pso" :
                                     draws.observation.count ? "graphics_recorded" : "no_graphics_draw_observed"));
             p->gfxLastSpin[i] = actualSpin;
