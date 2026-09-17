@@ -894,14 +894,15 @@ bool EnsureOmHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT ne
         return true;
     D3D12_DESCRIPTOR_HEAP_DESC d {};
     d.Type = type;
-    d.NumDescriptors = need < 16 ? 16 : need;
+    // Large bump arena so freeze-held pointers stay valid until AmdReleaseOmCapture.
+    d.NumDescriptors = need < 256 ? 256 : need;
     d.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     ComPtr<ID3D12DescriptorHeap> fresh;
     if (FAILED(device->CreateDescriptorHeap(&d, IID_PPV_ARGS(&fresh))))
         return false;
     heap = fresh;
     cap = d.NumDescriptors;
-    cursor = 0;
+    // Do not reset cursor here: callers own the bump; reset only on release.
     return true;
 }
 
@@ -910,16 +911,27 @@ D3D12_CPU_DESCRIPTOR_HANDLE CopyCpuDescriptor(ID3D12Device* device, D3D12_DESCRI
                                               UINT& cap, UINT& cursor)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE null {};
-    if (!device || !EnsureOmHeap(device, type, 8, heap, cap, cursor))
+    // Bump without wrap: a freeze may still hold pointers into these slots.
+    // Reset only after restore (AmdReleaseOmCapture).
+    if (!device || !EnsureOmHeap(device, type, cursor + 1, heap, cap, cursor))
         return null;
     auto dst = heap->GetCPUDescriptorHandleForHeapStart();
     const UINT inc = device->GetDescriptorHandleIncrementSize(type);
     dst.ptr += static_cast<SIZE_T>(cursor) * inc;
-    cursor = (cursor + 1) % cap;
+    ++cursor;
     device->CopyDescriptorsSimple(1, dst, src, type);
     return dst;
 }
+
+void AmdReleaseOmCapture()
+{
+    std::lock_guard<std::mutex> omLock(s_omCopyMutex);
+    s_omRtvCursor = 0;
+    s_omDsvCursor = 0;
+}
 } // namespace
+
+void D3D12Hooks::ReleaseAmdOmCapture() { AmdReleaseOmCapture(); }
 
 static void hkOMSetRenderTargets(ID3D12GraphicsCommandList* commandList, UINT NumRenderTargetDescriptors,
                                  const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors,

@@ -6,7 +6,7 @@
 
 `1.8.3` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。
 
-**等待模式：仅 compute。** 0.3.1 新增的 graphics 等待（1 像素 draw）**本版未接入**；宿主强制 `SpinDraw=0`，菜单显示 *compute only*。不要把本版写成「已支持 0.3.1 graphics」。
+**等待模式（feature 分支）：默认 `AmdGraphicsWait=1`。** 请求原作者 0.3.1 的 graphics 等待（1 像素 draw）；宿主只在本帧状态快照成功时放行，否则该帧仍用 compute。发版 `main` 仍是强制 compute。不要把未验证的 games 写成「graphics 已稳定」。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 

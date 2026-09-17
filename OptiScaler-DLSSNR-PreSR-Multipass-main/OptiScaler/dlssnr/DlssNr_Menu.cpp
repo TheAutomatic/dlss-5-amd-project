@@ -148,10 +148,12 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nUltra Performance render; the next Record may still skip if GPU work is"
                        "\nin flight.");
 
-            ImGui::TextDisabled("AMD NR wait: compute only");
-            HelpMarker("This host currently supports compute waiting only."
-                       "\nGraphics waiting is unavailable until restoration of the game's graphics"
-                       "\nstate is complete. AmdSpinDraw=1 in an existing INI falls back to compute.");
+            ImGui::TextDisabled("AMD NR wait: graphics when admitted, else compute");
+            HelpMarker("AmdGraphicsWait=1 (default on this build) requests the author runtime's"
+                       "\n1-pixel graphics wait. The host only allows it when this list's state"
+                       "\nwas frozen and a restore plan exists; otherwise the frame stays on"
+                       "\ncompute spin. AmdSpinDraw in the INI does not drive this — only"
+                       "\nAmdGraphicsWait does.");
 
             // Range 2-5. The ini also accepts NR slots = 1, which reproduces the
             // old one-frame-outstanding path; it is deliberately not selectable

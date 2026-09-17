@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 // Adapter that feeds GraphicsSnapshot from D3D12 Set* observations.
-// Off unless AmdGraphicsWait=1 so the r26/r27 compute path is unchanged.
+// Enabled when AmdGraphicsWait!=0 (default 1 on this feature branch).
 // Pure CPU: host-contract tests drive this without D3D12.
 namespace AmdPreSr::GraphicsSnap
 {

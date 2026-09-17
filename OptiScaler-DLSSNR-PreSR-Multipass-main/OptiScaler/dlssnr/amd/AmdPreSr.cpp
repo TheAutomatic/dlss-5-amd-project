@@ -980,7 +980,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     const auto listType = cmd->GetType();
     if (listType != D3D12_COMMAND_LIST_TYPE_DIRECT && listType != D3D12_COMMAND_LIST_TYPE_COMPUTE)
         return nullptr;
-    // Admission coverage only (AmdGraphicsWait=1). Does not enable A graphics wait.
+    // Sample admission / request SpinDraw only when AmdGraphicsWait=1. Actual
+    // graphics spin still requires RestoreArmed() from the NR envelope freeze.
     if (Config::Instance()->AmdGraphicsWait.value_or_default())
     {
         const auto listId = reinterpret_cast<uint64_t>(cmd);

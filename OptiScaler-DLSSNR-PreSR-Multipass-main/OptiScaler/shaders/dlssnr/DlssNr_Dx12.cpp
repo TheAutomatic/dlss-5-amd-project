@@ -1494,6 +1494,7 @@ struct ScopedNrStateEnvelope
         // Avoid stacking Opti's compute RestoreRoot on top of a full graphics replay.
         if (!restoredGraphics)
             D3D12Hooks::RestoreRoot(cmd);
+        D3D12Hooks::ReleaseAmdOmCapture();
         D3D12Hooks::SetRootSignatureTracking(true);
     }
 };

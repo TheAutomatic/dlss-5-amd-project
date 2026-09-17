@@ -368,7 +368,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     s.passes = cfg.DlssNrPasses.value_or_default();
     s.everyFrame = cfg.AmdEveryFrame.value_or_default();
     s.slots = std::clamp(cfg.AmdSlots.value_or_default(), 1, 5);
-    // D4: AmdGraphicsWait=1 requests A's 1-pixel graphics spin. Default 0 keeps compute.
+    // AmdGraphicsWait=1 requests A's 1-pixel graphics spin; default is 1 on this branch.
+    // InitPass/Record still force SpinDraw=0 unless a freeze+restore plan armed.
     s.spinDraw = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
     // The pinned AMD binary explicitly disables the broad lighting/colour
     // channels. Its embedded UI warns that nonzero tone mostly darkens frames.

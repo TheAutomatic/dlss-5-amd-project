@@ -6,7 +6,7 @@
 
 `1.8.3` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
-**Wait mode: compute only.** The 0.3.1 graphics wait (1-pixel draws) is **not wired up in this build**. The host forces `SpinDraw=0`; the menu shows *compute only*. Do not describe this release as “0.3.1 graphics supported”.
+**Wait mode (feature branch): default `AmdGraphicsWait=1`.** This requests the author runtime's 0.3.1 graphics wait (1-pixel draws). The host only allows it when this frame's state snapshot succeeded; otherwise that frame stays on compute spin. The `main` release line still forces compute. Do not call graphics "stable" on untested games.
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
