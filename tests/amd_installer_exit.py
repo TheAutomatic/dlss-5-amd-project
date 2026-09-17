@@ -188,24 +188,62 @@ class InstallerExitTests(unittest.TestCase):
                     "-File", str(script), "-NoPause"]
             return self.run_process(args, stdin)
 
-        code, output = run_in_place("N\n")
+        # Setup always creates backup-amd-presr-*, so keep-backups is asked first.
+        code, output = run_in_place("Y\nN\n")
         self.assertEqual(code, 0, output)
-        self.assertIn("Planned deletions:", output)
+        self.assertIn("Planned deletions", output)
         self.assertIn("Cancelled.", output)
         self.assertNotIn("Uninstall SUCCEEDED.", output)
         self.assertTrue(pass1.is_file(), output)
         self.assertTrue(script.is_file(), output)
 
-        code, output = run_in_place("Y\n")
+        code, output = run_in_place("Y\nY\n")
         self.assertEqual(code, 0, output)
-        self.assertIn("Planned deletions:", output)
+        self.assertIn("Planned deletions", output)
         self.assertIn("Uninstall SUCCEEDED.", output)
         self.assertFalse(pass1.exists(), output)
         self.assertFalse(script.exists(), output)
         self.assertFalse(bat.exists(), output)
 
+    def test_uninstall_asks_keep_backups_before_planned_list(self):
+        self.ready_install()
+        code, output = self.run_batch()
+        self.assertEqual(code, 0, output)
+        script = self.game / "Uninstall_OptiScaler_NR.ps1"
+        backup = self.game / "backup-amd-presr-fixture"
+        backup.mkdir()
+        (backup / "old.dll").write_bytes(b"old")
+        pass1 = self.game / "dlssnr_amd_pass1.dll"
+
+        def run_in_place(stdin):
+            args = [str(PS), "-NoProfile", "-ExecutionPolicy", "Bypass", "-STA",
+                    "-File", str(script), "-NoPause"]
+            return self.run_process(args, stdin)
+
+        code, output = run_in_place("Y\nN\n")
+        self.assertEqual(code, 0, output)
+        keep_at = output.lower().find("old backup folder")
+        planned_at = output.lower().find("planned deletions")
+        self.assertNotEqual(keep_at, -1, output)
+        self.assertNotEqual(planned_at, -1, output)
+        self.assertLess(keep_at, planned_at, output)
+        self.assertIn("Cancelled.", output)
+        self.assertTrue(backup.is_dir(), output)
+        self.assertTrue(pass1.is_file(), output)
+
+        code, output = run_in_place("n\ny\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Uninstall SUCCEEDED.", output)
+        self.assertFalse(backup.exists(), output)
+        self.assertFalse(pass1.exists(), output)
+
     def test_uninstall_success_and_cancel_pause_once(self):
-        for answer, message in (("Y\n", "Uninstall SUCCEEDED."), ("N\n", "Cancelled.")):
+        for answer, message in (
+            ("Y\n", "Uninstall SUCCEEDED."),
+            ("yes\n", "Uninstall SUCCEEDED."),
+            ("N\n", "Cancelled."),
+            ("NO\n", "Cancelled."),
+        ):
             with self.subTest(answer=answer.strip()):
                 code, output = self.run_batch(name="Uninstall", stdin=answer)
                 self.assertEqual(code, 0, output)

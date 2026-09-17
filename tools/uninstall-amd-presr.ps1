@@ -5,7 +5,8 @@
 
 .DESCRIPTION
   Removes identified OptiScaler proxies, named passes/config/logs, listed dependencies,
-  and this uninstaller. Does NOT delete backups, nvngx_dlssnr.dll, weights,
+  and this uninstaller. Asks whether to keep backup-amd-presr-* folders, then lists
+  planned deletions, then asks Y/N. Does NOT delete nvngx_dlssnr.dll, weights,
   original-author setup/log, other proxies, or user-added plugins and unknown files.
 
 .EXAMPLE
@@ -16,7 +17,8 @@
 param(
     [string]$GameDir = '',
     [switch]$NonInteractive,
-    [switch]$NoPause
+    [switch]$NoPause,
+    [switch]$RemoveBackups
 )
 $ErrorActionPreference = 'Stop'
 
@@ -34,6 +36,15 @@ function Fail([string]$msg) {
     Write-Host ''
     Write-Host 'Uninstall FAILED.' -ForegroundColor Red
     Pause-Exit 1
+}
+
+function Read-YesNo([string]$prompt) {
+    while ($true) {
+        $ans = Read-Host $prompt
+        if ($ans -match '^(?i)y(es)?$') { return $true }
+        if ($ans -match '^(?i)n(o)?$') { return $false }
+        Write-Host 'Please type Y or N (not case sensitive).'
+    }
 }
 
 function Test-OptiProxy([string]$path) {
@@ -112,11 +123,26 @@ function Test-UninstallPath([string]$path) {
     }
 }
 
+function Test-TreeReparse([string]$path) {
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($path)
+    while ($stack.Count -gt 0) {
+        $current = [string]$stack.Pop()
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { continue }
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $true }
+        if ($item.PSIsContainer) {
+            Get-ChildItem -LiteralPath $current -Force -ErrorAction SilentlyContinue |
+                ForEach-Object { $stack.Push($_.FullName) }
+        }
+    }
+    return $false
+}
+
 function Add-PlannedFile([string]$path, [string]$why) {
     if (!(Test-UninstallPath $path)) { return }
     $leaf = Split-Path -Leaf $path
     if ($leaf -match '^(?i)backup-amd-presr') {
-        $kept.Add("backup folder/file: $path")
         return
     }
     if ($protectedNames -contains $leaf -and $why -ne 'opti-proxy') {
@@ -188,12 +214,16 @@ foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_am
         }
     }
 }
+$backupDirs = New-Object System.Collections.Generic.List[string]
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
     Get-ChildItem -LiteralPath $root -Directory -Filter 'backup-amd-presr*' -ErrorAction SilentlyContinue |
-        ForEach-Object { $kept.Add("kept backup: $($_.FullName)") }
+        ForEach-Object {
+            if (Test-UninstallPath $_.FullName) { $backupDirs.Add($_.FullName) }
+        }
 }
 
+$keepBackups = $true
 Write-Host ''
 Write-Host 'Uninstall this project from:' -ForegroundColor Yellow
 Write-Host "  $game"
@@ -201,10 +231,26 @@ Write-Host ''
 Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
 Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
 Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
-Write-Host 'It will NOT delete: backups, nvngx_dlssnr.dll, weights.bin, original-author setup.' -ForegroundColor Yellow
+Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, original-author setup.' -ForegroundColor Yellow
 Write-Host ''
+
+if ($backupDirs.Count -gt 0) {
+    Write-Host 'Old backup folder(s) from previous installs:' -ForegroundColor Yellow
+    foreach ($b in $backupDirs) { Write-Host "  - $b" }
+    if ($NonInteractive) {
+        $keepBackups = -not $RemoveBackups
+    } else {
+        Write-Host ''
+        $keepBackups = Read-YesNo 'Keep these backup folders? Y = keep, N = delete them too'
+    }
+    foreach ($b in $backupDirs) {
+        if ($keepBackups) { $kept.Add("kept backup: $b") }
+        else { $planned.Add("$b  (backup folder)") }
+    }
+}
+
 if ($planned.Count -gt 0) {
-    Write-Host 'Planned deletions:' -ForegroundColor Yellow
+    Write-Host 'Planned deletions (files/folders):' -ForegroundColor Yellow
     foreach ($d in $planned) { Write-Host "  - $d" }
     Write-Host 'Empty OptiScaler dependency folders will be removed if they become empty.'
 } else {
@@ -217,8 +263,7 @@ if ($kept.Count -gt 0) {
 
 if (-not $NonInteractive) {
     Write-Host ''
-    $ans = Read-Host 'Type Y to delete the planned files, anything else to cancel'
-    if ($ans -notmatch '^(?i)y(es)?$') {
+    if (-not (Read-YesNo 'Type Y to delete the planned files/folders, N to cancel')) {
         Write-Host 'Cancelled.'
         Pause-Exit 0
     }
@@ -286,6 +331,26 @@ foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
     foreach ($name in $selfLeafNames) {
         Remove-SafeFile (Join-Path $root $name) 'project-file'
+    }
+}
+
+if (-not $keepBackups) {
+    foreach ($b in $backupDirs) {
+        if (!(Test-UninstallPath $b)) { continue }
+        $leaf = Split-Path -Leaf $b
+        if ($leaf -notmatch '^(?i)backup-amd-presr') { continue }
+        if (!(Test-Path -LiteralPath $b -PathType Container)) { continue }
+        if (Test-TreeReparse $b) {
+            $kept.Add("linked path: $b")
+            $errors.Add("$b : contains a linked path, not deleted")
+            continue
+        }
+        try {
+            Remove-Item -LiteralPath $b -Recurse -Force
+            $deleted.Add("$b  (backup folder)")
+        } catch {
+            $errors.Add("$b : $($_.Exception.Message)")
+        }
     }
 }
 

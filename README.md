@@ -63,7 +63,7 @@
 | `OptiScaler.ini` | 配置模板；`[DlssNr]` 段的选项（含 `AmdSlots`）都在这里 |
 | `OptiScaler\` | FFX / XeSS / Agility 等依赖 |
 | `Setup.bat` / `Setup.ps1` | 安装器（**双击 `Setup.bat`**） |
-| `Uninstall_OptiScaler_NR.bat` / `.ps1` | 卸载器；Setup 会拷进**游戏目录**。在游戏目录里双击，先列出将删除的文件再确认 |
+| `Uninstall_OptiScaler_NR.bat` / `.ps1` | 卸载器；Setup 会拷进**游戏目录**。在游戏目录里双击：先问是否保留老备份，再列出将删除的文件/文件夹，Y/N 确认 |
 | `Licenses\` | 第三方许可 |
 | `SHA256SUMS.txt` | 校验和 |
 | `README.md` / `README.en.md` | 本文件 |
@@ -213,9 +213,9 @@ InterpolationCount=1
 
 ### 卸载
 
-在**游戏目录**里双击 **`Uninstall_OptiScaler_NR.bat`**（Setup 会把它拷过去）。不要在安装包目录里选文件夹。脚本会先列出预计删除的文件，输入 Y 才动手；也检查 `_storage_`。
+在**游戏目录**里双击 **`Uninstall_OptiScaler_NR.bat`**（Setup 会把它拷过去）。不要在安装包目录里选文件夹。若有 `backup-amd-presr-*` 老备份，先问是否保留（Y 保留 / N 一并删除）；然后列出计划删除的文件和文件夹，再输入 **Y 或 N** 确认（不区分大小写）。也检查 `_storage_`。
 
-**保留**：`backup-amd-presr-*`、`nvngx_dlssnr.dll`、`dlssnr_on_amd_weights.bin`、原作者 setup 与日志、非 OptiScaler 的同名代理，以及 `OptiScaler` 中额外添加的插件和文件。只移除已经清空的依赖目录，不会整目录删除 `OptiScaler`；因此卸载后该目录可能仍然存在。
+**默认保留**：`nvngx_dlssnr.dll`、`dlssnr_on_amd_weights.bin`、原作者 setup 与日志、非 OptiScaler 的同名代理，以及 `OptiScaler` 中额外添加的插件和文件。`backup-amd-presr-*` 按上面的选择处理。只移除已经清空的依赖目录，不会整目录删除 `OptiScaler`；因此卸载后该目录可能仍然存在。
 
 ---
 

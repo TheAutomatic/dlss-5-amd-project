@@ -20,10 +20,17 @@ function Assert-Exists([string]$path) {
 function Assert-Removed([string]$path) {
     if (Test-Path -LiteralPath $path) { throw "Expected removed path: $path" }
 }
-function Run-Uninstall([string]$dir) {
-    $output = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $uninstall -GameDir $dir -NonInteractive -NoPause 2>&1
+function Run-Uninstall {
+    param(
+        [string]$Dir,
+        [switch]$RemoveBackups
+    )
+    $extra = @()
+    if ($RemoveBackups) { $extra += '-RemoveBackups' }
+    $output = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $uninstall -GameDir $Dir -NonInteractive -NoPause @extra 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Uninstall exit $LASTEXITCODE : $($output -join [Environment]::NewLine)" }
     if (($output -join '') -notmatch 'Uninstall SUCCEEDED') { throw 'Missing uninstall success result.' }
+    ,$output
 }
 function Make-Junction([string]$path, [string]$target) {
     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($path))
@@ -71,7 +78,7 @@ public class UninstallProxyFixture { }
         Copy-Item -LiteralPath $proxy -Destination (Join-Path $root 'dxgi.dll')
     }
     Put-File (Join-Path $game 'amd-presr-install.txt') 'proxy=dxgi.dll'
-    Run-Uninstall $game
+    $null = Run-Uninstall $game
     foreach ($root in $roots) {
         foreach ($relative in $preserved) { Assert-Exists (Join-Path $root $relative) }
         foreach ($relative in $removed) { Assert-Removed (Join-Path $root $relative) }
@@ -81,14 +88,23 @@ public class UninstallProxyFixture { }
     $inPlace = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $game 'Uninstall_OptiScaler_NR.ps1') -NonInteractive -NoPause 2>&1
     if ($LASTEXITCODE -ne 0) { throw "In-place uninstall exit $LASTEXITCODE : $($inPlace -join [Environment]::NewLine)" }
     if (($inPlace -join '') -notmatch 'Uninstall SUCCEEDED') { throw 'Missing in-place uninstall success result.' }
-    if (($inPlace -join '') -notmatch 'Planned deletions:') { throw 'In-place uninstall did not list planned deletions.' }
+    if (($inPlace -join '') -notmatch 'Planned deletions') { throw 'In-place uninstall did not list planned deletions.' }
     Assert-Removed (Join-Path $game 'Uninstall_OptiScaler_NR.ps1')
-    Run-Uninstall $game # Repeated/manual uninstall remains supported.
+    $null = Run-Uninstall $game # Repeated/manual uninstall remains supported.
     Write-Host 'PASS project files removed; plugins, author files, unknown files and backups preserved'
+
+    $backupGame = Join-Path $testRoot 'backup-remove-game'
+    Put-File (Join-Path $backupGame 'dlssnr_amd_pass1.dll')
+    Put-File (Join-Path $backupGame 'backup-amd-presr-fixture\OptiScaler.ini')
+    $removeOut = Run-Uninstall -Dir $backupGame -RemoveBackups
+    Assert-Removed (Join-Path $backupGame 'dlssnr_amd_pass1.dll')
+    Assert-Removed (Join-Path $backupGame 'backup-amd-presr-fixture')
+    if (($removeOut -join '') -notmatch 'backup folder') { throw 'RemoveBackups did not list the backup folder.' }
+    Write-Host 'PASS RemoveBackups deletes backup-amd-presr-* folders'
 
     $cleanGame = Join-Path $testRoot 'deps-only-game'
     foreach ($relative in $deps) { Put-File (Join-Path $cleanGame ('OptiScaler\' + $relative)) }
-    Run-Uninstall $cleanGame
+    $null = Run-Uninstall $cleanGame
     Assert-Removed (Join-Path $cleanGame 'OptiScaler')
     Write-Host 'PASS empty dependency directories removed without recursion'
 
@@ -98,7 +114,7 @@ public class UninstallProxyFixture { }
     Copy-Item -LiteralPath $proxy -Destination $outsideProxy -Force
     foreach ($record in @('proxy=..\outside\escape.dll', ('proxy=' + $outsideProxy))) {
         Put-File (Join-Path $escapeGame 'amd-presr-install.txt') $record
-        Run-Uninstall $escapeGame
+        $null = Run-Uninstall $escapeGame
         Assert-Exists $outsideProxy
     }
     Write-Host 'PASS relative and absolute proxy paths in install records are rejected'
@@ -113,7 +129,7 @@ public class UninstallProxyFixture { }
         }
         $link = Join-Path $linkGame $linkedRelative
         Make-Junction $link $target
-        Run-Uninstall $linkGame
+        $null = Run-Uninstall $linkGame
         Assert-Exists $link
         foreach ($relative in @('OptiScaler.ini', 'amd_presr.log', 'libxess.dll',
                 'D3D12Core.dll', 'OptiScaler\libxess.dll')) {
