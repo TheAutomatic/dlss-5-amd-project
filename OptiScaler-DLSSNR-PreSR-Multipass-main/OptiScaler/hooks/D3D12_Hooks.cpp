@@ -892,17 +892,21 @@ bool EnsureOmHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT ne
         return false;
     if (heap && cap >= need)
         return true;
+    if (heap)
+    {
+        // Never replace a live arena: freeze-held snap handles point into it.
+        // Grow would free the old heap and leave dangling CPU descriptors.
+        return false;
+    }
     D3D12_DESCRIPTOR_HEAP_DESC d {};
     d.Type = type;
-    // Large bump arena so freeze-held pointers stay valid until AmdReleaseOmCapture.
-    d.NumDescriptors = need < 256 ? 256 : need;
+    d.NumDescriptors = need < 512 ? 512 : need;
     d.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     ComPtr<ID3D12DescriptorHeap> fresh;
     if (FAILED(device->CreateDescriptorHeap(&d, IID_PPV_ARGS(&fresh))))
         return false;
     heap = fresh;
     cap = d.NumDescriptors;
-    // Do not reset cursor here: callers own the bump; reset only on release.
     return true;
 }
 
@@ -1042,7 +1046,8 @@ static void WINAPI hkCommandListClearState(ID3D12GraphicsCommandList* commandLis
 static void WINAPI hkExecuteBundle(ID3D12GraphicsCommandList* commandList, ID3D12GraphicsCommandList* bundle)
 {
     if (AmdGfxTrackerOn() && commandList != nullptr)
-        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkIneligible(AmdListId(commandList));
+        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkIneligible(AmdListId(commandList),
+                                                                 AmdPreSr::GraphicsSnap::IneligibleWhy::Bundle);
     o_ExecuteBundle(commandList, bundle);
 }
 
@@ -1051,7 +1056,8 @@ static void WINAPI hkExecuteIndirect(ID3D12GraphicsCommandList* commandList, ID3
                                      UINT64 countOffset)
 {
     if (AmdGfxTrackerOn() && commandList != nullptr)
-        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkIneligible(AmdListId(commandList));
+        AmdPreSr::GraphicsSnap::GraphicsTracker().MarkIneligible(AmdListId(commandList),
+                                                                 AmdPreSr::GraphicsSnap::IneligibleWhy::Indirect);
     o_ExecuteIndirect(commandList, sig, count, args, argsOffset, countBuf, countOffset);
 }
 

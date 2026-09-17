@@ -202,13 +202,13 @@ class Tracker
         s->SetPredication(resource, byteOffset, operation);
     }
 
-    void MarkIneligible(uint64_t listId)
+    void MarkIneligible(uint64_t listId, IneligibleWhy why = IneligibleWhy::Other)
     {
         std::unique_lock lock(mutex_);
         if (!enabled_)
             return;
         if (auto it = trackers_.find(listId); it != trackers_.end())
-            it->second.MarkIneligible();
+            it->second.MarkIneligible(why);
     }
 
     void MarkQueryActive(uint64_t listId, bool active)

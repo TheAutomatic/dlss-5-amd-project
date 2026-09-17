@@ -32,6 +32,16 @@ enum class RootEntryType : std::uint8_t
     UAV,
 };
 
+// Why this generation is not admissible for A graphics wait (for logs).
+enum class IneligibleWhy : std::uint8_t
+{
+    None,
+    Bundle,
+    Indirect,
+    Query,
+    Other,
+};
+
 struct RootEntry
 {
     RootEntryType type = RootEntryType::Invalid;
@@ -174,6 +184,7 @@ struct GraphicsSnapshot
     bool renderPassActive = false;
     bool queryActive = false;
     bool bundleOrIndirectSeen = false;
+    IneligibleWhy ineligibleWhy = IneligibleWhy::None;
 
     void SetHeaps(std::uint32_t count, const std::uint64_t* handles)
     {
@@ -330,10 +341,17 @@ struct ListTracker
         snap.bundleOrIndirectSeen = bad;
     }
 
-    void MarkIneligible()
+    void MarkIneligible(IneligibleWhy why = IneligibleWhy::Other)
     {
         if (live)
+        {
             ineligible = true;
+            snap.ineligibleWhy = why;
+            if (why == IneligibleWhy::Bundle || why == IneligibleWhy::Indirect)
+                snap.bundleOrIndirectSeen = true;
+            if (why == IneligibleWhy::Query)
+                snap.queryActive = true;
+        }
     }
 
     void OnRelease()
@@ -358,7 +376,17 @@ inline AdmissionResult CanAdmitGraphics(const GraphicsSnapshot& s, bool generati
     if (!generationKnown)
         return { false, "unknown_generation" };
     if (ineligible || s.bundleOrIndirectSeen || s.renderPassActive || s.queryActive)
+    {
+        if (s.queryActive || s.ineligibleWhy == IneligibleWhy::Query)
+            return { false, "query_active" };
+        if (s.ineligibleWhy == IneligibleWhy::Bundle)
+            return { false, "execute_bundle" };
+        if (s.ineligibleWhy == IneligibleWhy::Indirect)
+            return { false, "execute_indirect" };
+        if (s.renderPassActive)
+            return { false, "render_pass" };
         return { false, "ineligible_generation" };
+    }
     if (s.graphics.signatureState == BindState::Unknown)
         return { false, "graphics_root_unknown" };
     if (s.psoState != BindState::KnownValue)
