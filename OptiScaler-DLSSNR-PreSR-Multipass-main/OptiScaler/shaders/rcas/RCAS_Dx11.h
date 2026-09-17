@@ -15,6 +15,7 @@ class RCAS_Dx11 : public RCAS_Common, public Shader_Dx11
     ID3D11ShaderResourceView* _srvMotionVectors = nullptr;
     ID3D11ShaderResourceView* _srvDepth = nullptr;
 
+    // Borrowed identity caches. The corresponding SRVs own the references.
     ID3D11Texture2D* _currentMotionVectors = nullptr;
     ID3D11Texture2D* _currentDepth = nullptr;
 

@@ -10,6 +10,8 @@ set "SHADER_PROJECT=OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler"
 set "SHADER_EXTERNAL=OptiScaler-DLSSNR-PreSR-Multipass-main\external"
 call :BuildAndRun shader_dx12_srv
 if not "%errorlevel%"=="0" exit /b 1
+call :BuildAndRun shader_dx11_ownership
+if not "%errorlevel%"=="0" exit /b 1
 exit /b 0
 
 :BuildAndRun

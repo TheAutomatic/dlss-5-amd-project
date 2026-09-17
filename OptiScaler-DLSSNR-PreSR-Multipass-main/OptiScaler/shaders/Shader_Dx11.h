@@ -21,6 +21,7 @@ class Shader_Dx11
     ID3D11ShaderResourceView* _srvInput = nullptr;
     ID3D11UnorderedAccessView* _uavOutput = nullptr;
 
+    // Borrowed identity caches. The SRV/UAV own their resource references.
     ID3D11Texture2D* _currentInResource = nullptr;
     ID3D11Texture2D* _currentOutResource = nullptr;
 

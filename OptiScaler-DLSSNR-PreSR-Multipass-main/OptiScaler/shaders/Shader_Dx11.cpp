@@ -18,9 +18,6 @@ Shader_Dx11::~Shader_Dx11()
     SAFE_RELEASE(_buffer);
     SAFE_RELEASE(_srvInput);
     SAFE_RELEASE(_uavOutput);
-
-    SAFE_RELEASE(_currentInResource);
-    SAFE_RELEASE(_currentOutResource);
 }
 
 DXGI_FORMAT Shader_Dx11::TranslateTypelessFormats(DXGI_FORMAT format)
