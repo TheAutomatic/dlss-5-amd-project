@@ -129,8 +129,68 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 3. 找到并勾选 **DLSSNR**（AMD 神经渲染）。开关右侧应显示原项目版本，如 `0.3.1` 或 `0.3.0`。  
 4. 之后画面上走的就是 **DLSS5 神经降噪 + FFX/FSR 超分**（**compute 等待**）。
 
-其它 OptiScaler 用法（帧生成、菜单快捷键、兼容性）见：  
+其它 OptiScaler 用法（菜单快捷键、兼容性、更多 FG 选项）见：  
 [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki)。
+
+> **可选（与 DLSSNR 无关）：** 下面折叠里是 **3 倍及以上多帧生成** 的两条外置方案，文件都不随本包分发。
+
+<details>
+<summary><strong>可选：3倍及以上多帧生成</strong>（Arturs / XeFG，点开）</summary>
+
+两条方案都要自己下文件，本项目 **都不带**。改完 ini 必须 **存盘并重启**。保持 `[FrameGen] External=false`（`true` 会关掉 Opti 的 FG）。**不要**两条一起开。
+
+---
+
+#### 1. Arturs（DLSS Enabler）
+
+1. 从原作者获取 `dlss-enabler-headless.dll`（不要用第三方整合包）：  
+   [artur-graniszewski/DLSS-Enabler](https://github.com/artur-graniszewski/DLSS-Enabler/releases) 或 [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)  
+2. 文件必须叫这个名字，放到代理 / `OptiScaler.ini` 旁边的 **`OptiScaler\`** 子目录。  
+3. 游戏**已有 DLSSG** 时：
+
+```ini
+[FrameGen]
+External=false
+Enabled=true
+FGInput=nvngxfg
+FGOutput=auto
+FGNvngxReplacement=Arturs
+```
+
+   只有超分、没有 DLSSG 时，用 Wiki 的 `FGInput=upscaler` + `FGOutput=dlssg`。  
+4. 日志出现 `Artur's initialized` 才算加载成功。
+
+细节以 [OptiScaler Wiki · Frame Generation](https://github.com/optiscaler/OptiScaler/wiki) 和 Enabler 原作者说明为准。本项目不代发该 DLL。
+
+---
+
+#### 2. XeFG（XeMFG DP4A Unlocker）
+
+`XeFGUnlock.asi` 和同名 `XeFGUnlock.ini` 来自 **OptiScaler 官方群「XeMFG DP4A Unlocker」帖**。本版用已有的 ASI 加载器加载，**不把解锁补丁合进本仓库、也不随 zip 分发**。走 **XeFG** 输出（仍要本包的 `libxess_fg.dll` / `libxell.dll`）；**不是** NVIDIA DLSSG，也 **不是** 上面的 Arturs。
+
+1. 把这两个文件放到游戏目录 `OptiScaler\plugins\`（和 `libxess_fg.dll` 同一棵树）。不要加 `-loadlate`。  
+2. 改的是游戏根目录的 **`OptiScaler.ini`**，不是 plugins 里那份插件 ini。游戏**已有 Streamline DLSS-FG** 时：
+
+```ini
+[Plugins]
+LoadAsiPlugins=true
+
+[FrameGen]
+External=false
+Enabled=true
+FGInput=dlssg
+FGOutput=xefg
+
+[XeFG]
+InterpolationCount=1
+```
+
+   `Path` 可保持 `auto`（默认就是 `OptiScaler\plugins`）。没有 DLSS-FG 时把 `FGInput` 改成 `upscaler`。  
+   `InterpolationCount`：`1` = 2x，`2` = 3x，`3` = 4x。本版只接受 1–3。  
+3. 插件 ini（`XeFGUnlock.ini`）只写解锁开关，例如 `UnlockMFG=true`、`MaxInterpolatedFrames=3`。插件里的 3 只是上限；游戏目录 `OptiScaler.ini` 里的 `InterpolationCount` 才是实际倍率。首轮可把 `DisableLogging=false`，旁边会出 `XeFGUnlock.log`。  
+4. 建议先 2x 跑通 XeFG，再把 `InterpolationCount` 改成 2 或 3。要通过：`OptiScaler.log` 出现 `Loaded: ...XeFGUnlock.asi`；插件日志认到 provider 且解锁汇总成功。不能只看菜单倍率。
+
+</details>
 
 ---
 
