@@ -3133,6 +3133,11 @@ uintptr_t D3D12Hooks::NativeDrawHookTarget()
     return s_nativeDrawHookTarget.load(std::memory_order_acquire);
 }
 
+bool D3D12Hooks::IsAmdGraphicsTrackerArmed()
+{
+    return s_amdGraphicsTrackerHooks;
+}
+
 bool D3D12Hooks::CanRestoreRootSignature(ID3D12GraphicsCommandList* cmdList)
 {
     std::unique_lock<std::shared_mutex> lock(rootSignatureMutex);

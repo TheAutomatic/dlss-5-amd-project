@@ -8,6 +8,7 @@
 
 
 #include <Config.h>
+#include <hooks/D3D12_Hooks.h>
 #include <menu/menu_common.h>
 
 #include <imgui/imgui.h>
@@ -154,6 +155,31 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nwas frozen and a restore plan exists; otherwise the frame stays on"
                        "\ncompute spin. AmdSpinDraw in the INI does not drive this — only"
                        "\nAmdGraphicsWait does.");
+
+            // Hot-off is immediate. Hot-on only works if tracker hooks were installed
+            // at startup; otherwise save the ini value and ask for a restart (FG-style).
+            bool graphicsWait = config->AmdGraphicsWait.value_or_default() != 0;
+            const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
+            if (ImGui::Checkbox("Graphics wait (needs restart to enable)", &graphicsWait))
+            {
+                config->AmdGraphicsWait = graphicsWait ? 1 : 0;
+                if (graphicsWait && !hooksArmed)
+                    ImGui::OpenPopup("Graphics wait restart");
+            }
+            HelpMarker("On: request A's 1-pixel graphics wait when the frame snapshot is valid."
+                       "\nOff: compute spin only (takes effect immediately)."
+                       "\nTurning ON after a compute-only launch requires restarting the game"
+                       "\nso the tracker hooks can be installed.");
+            if (ImGui::BeginPopupModal("Graphics wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::TextUnformatted("Graphics wait will be enabled after you restart the game.");
+                ImGui::TextUnformatted("This session stays on compute spin.");
+                if (ImGui::Button("OK"))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+            if (graphicsWait && !hooksArmed)
+                ImGui::TextDisabled("(waiting for game restart to enable graphics wait)");
 
             // Range 2-5. The ini also accepts NR slots = 1, which reproduces the
             // old one-frame-outstanding path; it is deliberately not selectable
