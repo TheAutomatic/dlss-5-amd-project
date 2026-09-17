@@ -5,6 +5,7 @@
 #endif
 #include "RuntimeNotification.h"
 #include "RuntimeHostLoad.h"
+#include "HipRuntimeLoad.h"
 #include "SubmissionState.h"
 #include "GraphicsTracker.h"
 #include "GraphicsInvocation.h"
@@ -783,40 +784,12 @@ struct Backend::Impl
     {
         if (hipSet)
             return;
-        HMODULE hip = LoadLibraryExW(L"amdhip64_7.dll", nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        if (!hip)
-            throw std::runtime_error("Cannot load amdhip64_7.dll; Windows error=" + std::to_string(GetLastError()) +
-                                     ". Install the compatible AMD HIP 7 runtime; HIP 6 alone is insufficient.");
-        wchar_t hipPath[MAX_PATH] {};
-        GetModuleFileNameW(hip, hipPath, MAX_PATH);
-        Log("HIP runtime: " + std::filesystem::path(hipPath).string());
-        auto count = reinterpret_cast<int (*)(int*)>(GetProcAddress(hip, "hipGetDeviceCount"));
-        auto props = reinterpret_cast<int (*)(void*, int)>(GetProcAddress(hip, "hipGetDevicePropertiesR0600"));
-        hipSet = reinterpret_cast<HipSetFn>(GetProcAddress(hip, "hipSetDevice"));
-        if (!count || !props || !hipSet)
-            throw std::runtime_error("HIP R0600 API unavailable");
-        int n = 0;
-        int countResult = count(&n);
-        if (countResult != 0 || n == 0)
-            throw std::runtime_error("HIP device enumeration failed: code=" + std::to_string(countResult) +
-                                     " devices=" + std::to_string(n));
-        auto luid = device->GetAdapterLuid();
-        for (int i = 0; i < n; ++i)
-        {
-            // R0600 prefix: name[256], uuid[16], luid[8]. Oversized aligned storage.
-            alignas(16) std::array<unsigned char, 8192> p {};
-            int propResult = props(p.data(), i);
-            Log("HIP candidate " + std::to_string(i) + " code=" + std::to_string(propResult) +
-                " name=" + std::string(reinterpret_cast<char*>(p.data())));
-            if (propResult == 0 && std::memcmp(p.data() + 272, &luid, 8) == 0)
-            {
-                hipDevice = i;
-                Log("HIP adapter: " + std::string(reinterpret_cast<char*>(p.data())));
-                break;
-            }
-        }
-        if (hipDevice < 0 || hipSet(hipDevice) != 0)
-            throw std::runtime_error("No HIP adapter matches D3D12 LUID");
+        HipRuntimeLoad::WindowsApi api;
+        const auto selected = HipRuntimeLoad::Initialize(api, device->GetAdapterLuid(),
+                                                         [this](const std::string& message) { Log(message); });
+        // Failed API/LUID/device checks never publish a partially initialized backend.
+        hipDevice = selected.device;
+        hipSet = selected.setDevice;
     }
     void InitPass(UINT i)
     {
