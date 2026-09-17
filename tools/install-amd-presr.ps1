@@ -31,25 +31,14 @@ param(
     [string]$Proxy = 'dxgi.dll',
     [string]$Root,
     [string]$AuthorDll,
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    # Setup.bat owns the final pause; keep all folder/proxy/confirmation prompts.
+    [switch]$NoPause
 )
 $ErrorActionPreference = 'Stop'
 
-# $Root 绝不能写成 param 默认值 $PSScriptRoot：用 powershell -File 调用时，
-# 参数绑定阶段 $PSScriptRoot 还是空的（脚本体内才被赋值）。
-# Setup.bat 走的正是 -File。
-if (-not $Root) { $Root = $PSScriptRoot }
-
-# 包布局：一切都在包根（与上游 OptiScaler 包一致）。
-# 早期包把 DLL 放在 release\ 下，再兜底一次。
-$release = $Root
-if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
-    (Test-Path -LiteralPath (Join-Path $Root 'release\OptiScaler.dll'))) {
-    $release = Join-Path $Root 'release'
-}
-
 function Pause-Exit([int]$code) {
-    if (-not $NonInteractive) {
+    if (-not $NonInteractive -and -not $NoPause) {
         Write-Host ''
         Write-Host 'Press any key to exit...'
         [void][Console]::ReadKey($true)
@@ -62,6 +51,24 @@ function Fail([string]$msg) {
     Write-Host ''
     Write-Host 'Install FAILED.' -ForegroundColor Red
     Pause-Exit 1
+}
+
+# Catch errors outside the individual file-operation handlers (for example,
+# an invalid author setup executable). The batch also catches parser/parameter
+# binding failures, which happen before this script body can run.
+trap { Fail ("Unexpected install error: " + $_.Exception.Message) }
+
+# $Root 绝不能写成 param 默认值 $PSScriptRoot：用 powershell -File 调用时，
+# 参数绑定阶段 $PSScriptRoot 还是空的（脚本体内才被赋值）。
+# Setup.bat 走的正是 -File。
+if (-not $Root) { $Root = $PSScriptRoot }
+
+# 包布局：一切都在包根（与上游 OptiScaler 包一致）。
+# 早期包把 DLL 放在 release\ 下，再兜底一次。
+$release = $Root
+if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
+    (Test-Path -LiteralPath (Join-Path $Root 'release\OptiScaler.dll'))) {
+    $release = Join-Path $Root 'release'
 }
 
 # 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。

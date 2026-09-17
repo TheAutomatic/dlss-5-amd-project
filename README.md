@@ -6,7 +6,9 @@
 
 `1.8.4` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。
 
-**等待模式：默认 `AmdGraphicsWait=1`。** 会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目只在本帧状态快照成功时才真正走 graphics；否则该帧仍用 compute。少数游戏若 graphics 不稳，日志里会看到回落，不必手动改设置。
+**等待模式：默认 `AmdGraphicsWait=1`。** 会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目在本帧 D3D12 状态快照与恢复准备就绪时才请求 graphics；准入不满足时回退 compute。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
+
+游戏内 **Ins → Graphics wait**：关闭可立即改用经典 compute；重新打开时，若缺少 hooks 或某个 pass 的 graphics PSO，菜单会提示重启。若 graphics 模式出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`，再启动游戏。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -210,9 +212,9 @@ InterpolationCount=1
 
 ### 卸载
 
-双击包里的 **`Uninstall.bat`**，选同一个游戏目录，确认后删除本项目装进去的文件。  
-**不会删**：`backup-amd-presr-*`、`nvngx_dlssnr.dll`、`dlssnr_on_amd_weights.bin`、原作者 setup 与日志，以及任何识别不是 OptiScaler 的 DLL。  
-卸载脚本仍在测试：执行前会再确认一次，避免误删游戏文件或其它 mod。
+双击包里的 **`Uninstall.bat`**，选同一个游戏目录，确认后清理已识别的 OptiScaler 代理、pass、配置、日志，以及明确列出的 FFX / XeSS / Agility 依赖；也检查 `_storage_`。
+
+**保留**：`backup-amd-presr-*`、`nvngx_dlssnr.dll`、`dlssnr_on_amd_weights.bin`、原作者 setup 与日志、非 OptiScaler 的同名代理，以及 `OptiScaler` 中额外添加的插件和文件。只移除已经清空的依赖目录，不会整目录删除 `OptiScaler`；因此卸载后该目录可能仍然存在。
 
 ---
 

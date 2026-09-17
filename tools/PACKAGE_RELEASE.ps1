@@ -274,11 +274,14 @@ title OptiScaler AMD pre-SR Setup
 rem No args: Setup.ps1 opens a folder picker and proxy menu.
 rem Optional: Setup.bat "D:\GameFolder" [dxgi.dll]
 if "%~2"=="" (
-  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1"
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -NoPause
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy "%~2"
+  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy "%~2" -NoPause
 )
-exit /b %ERRORLEVEL%
+set "EC=%ERRORLEVEL%"
+if not "%EC%"=="0" echo Setup failed ^(exit code %EC%^). See the error above.
+pause
+exit /b %EC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
 
 $uninstallSrc = Join-Path $root 'tools/uninstall-amd-presr.ps1'
@@ -290,8 +293,11 @@ setlocal
 title OptiScaler AMD pre-SR Uninstall
 rem No args: Uninstall.ps1 opens a folder picker.
 rem Optional: Uninstall.bat "D:\GameFolder"
-powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall.ps1" -GameDir "%~1"
-exit /b %ERRORLEVEL%
+powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall.ps1" -GameDir "%~1" -NoPause
+set "EC=%ERRORLEVEL%"
+if not "%EC%"=="0" echo Uninstall failed ^(exit code %EC%^). See the error above.
+pause
+exit /b %EC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall.bat') -Encoding ASCII
 Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force

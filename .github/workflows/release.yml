@@ -136,6 +136,16 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
 
+      - name: Installer and uninstaller regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Isolated synthetic files only; exercise the Windows PowerShell 5.1 launchers.
+          python -B tests/amd_installer_exit.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/amd_uninstall.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: AMD host-contract regression
         shell: pwsh
         run: |
@@ -226,11 +236,11 @@ jobs:
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - **Graphics wait is now the default** (`AmdGraphicsWait=1`). Requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). The host only takes that path when this frame's D3D12 state snapshot and restore plan succeed; otherwise the frame stays on compute. Unstable games fall back automatically.
+            - **Graphics wait is now the default** (`AmdGraphicsWait=1`). Requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). The host requests that path only when this frame's D3D12 state snapshot and restore preparation succeed; failed admission falls back to compute. This does not recover automatically from a hang, crash, or device removal. If graphics causes problems, turn off **Graphics wait**; if the menu is inaccessible, close the game and set `[DlssNr] AmdGraphicsWait=0` before restarting.
             - Menu: **Graphics wait**. Off = classic compute, switches immediately. On after a compute-only launch (or when a pass still lacks a graphics PSO) asks you to restart.
             - Safer graphics path: freeze/pin/restore gates; empty viewport/scissor/topology after Create/Reset/ClearState treated as known-unset; multi-RTV OM capture; CreateCommandList1 tracking; actual Draw/Dispatch observation.
             - **Installer**: end-of-run **SUCCEEDED / FAILED** + press any key; proxy menu notes some games prefer `winmm.dll` and `dxgi.dll` is the default (try winmm if the game will not start); writes `amd-presr-install.txt`.
-            - **New `Uninstall.bat`**: removes this project's proxy/pass/deps/logs after confirmation. Keeps backups, `nvngx_dlssnr.dll`, weights, original-author setup/logs, and any non-OptiScaler DLL. Also scans Xbox `_storage_`.
+            - **`Uninstall.bat`**: removes identified OptiScaler proxies, passes, configuration, logs, and explicitly listed dependencies after confirmation. Keeps backups, `nvngx_dlssnr.dll`, weights, original-author setup/logs, other proxies, and user-added plugins/files. Removes only empty dependency directories and also checks Xbox `_storage_`.
 
             **Install**
             - Close the game, unzip anywhere, run `Setup.bat`, pick the folder with the game exe
@@ -240,11 +250,11 @@ jobs:
             The original author's **0.3.1 graphics wait** is supported in this project and is **experimental**. In-game: **Ins** → **Graphics wait**. Turn it **off** to fall back to classic compute wait immediately; if you turn it **on** after a compute-only launch, restart the game when prompted.
 
             ### 中文
-            - **默认改为 graphics 等待**（`AmdGraphicsWait=1`）。会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目只在本帧 D3D12 状态快照与恢复计划都成功时才走这条路径；否则该帧仍用 compute。个别游戏 graphics 不稳时会自动回落。
+            - **默认改为 graphics 等待**（`AmdGraphicsWait=1`）。会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目只在本帧 D3D12 状态快照与恢复准备就绪时才请求这条路径；准入不满足时回退 compute。这不代表卡死、崩溃或设备移除后能自动恢复。graphics 出现异常时请关闭 **Graphics wait**；进不了菜单时，先关游戏，将 `[DlssNr] AmdGraphicsWait=0` 后再启动。
             - 菜单：**Graphics wait**。关 = 经典 compute，立即切换；在纯 compute 启动后打开、或某个 pass 仍缺 graphics PSO 时，会提示重启游戏。
             - graphics 路径更安全：freeze/挂起/恢复门控；Create/Reset/ClearState 后的空 viewport/scissor/topology 按「已知未设置」处理；多 RTV 的 OM 捕获；跟踪 CreateCommandList1；观察真实 Draw/Dispatch 实现。
             - **安装器**：结束时明确 **成功 / 失败**，按任意键退出；选代理时提示部分游戏更推荐 `winmm.dll`，`dxgi.dll` 为默认（游戏起不来可改试 winmm）；会写 `amd-presr-install.txt`。
-            - **新增 `Uninstall.bat`**：确认后删除本项目装进去的代理 / pass / 依赖 / 日志。不会删安装备份、`nvngx_dlssnr.dll`、weights、原作者 setup 与日志，以及任何识别不是 OptiScaler 的 DLL；XBOX 的 `_storage_` 也会扫。
+            - **`Uninstall.bat`**：确认后清理已识别的 OptiScaler 代理、pass、配置、日志和明确列出的依赖。保留安装备份、`nvngx_dlssnr.dll`、weights、原作者 setup 与日志、其它代理，以及额外添加的插件和文件。只移除已经清空的依赖目录，也检查 XBOX 的 `_storage_`。
 
             **安装**
             - 关掉游戏，解压后运行 `Setup.bat`，选游戏 exe 所在目录

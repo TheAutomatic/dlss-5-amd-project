@@ -6,7 +6,9 @@
 
 `1.8.4` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
-**Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). This project only takes the graphics path when this frame's state snapshot succeeded; otherwise that frame stays on compute. If a few games are unstable on graphics, the log will show a fallback — you do not need to change settings by hand.
+**Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). The host requests graphics only when this frame's D3D12 state snapshot and restore preparation succeed; failed admission falls back to compute. This does not provide automatic recovery from a hang, crash, or device removal after admission.
+
+In-game, use **Ins → Graphics wait**: turning it off immediately requests classic compute. When enabling it again, the menu asks for a restart if hooks or a pass's graphics PSO are missing. If graphics mode causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` under `[DlssNr]` in `OptiScaler.ini`, then launch again.
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -207,9 +209,9 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
 
 ### Uninstall
 
-Double-click **`Uninstall.bat`**, pick the same game folder, confirm. It removes this project's installed files.  
-**It does not delete**: `backup-amd-presr-*`, `nvngx_dlssnr.dll`, `dlssnr_on_amd_weights.bin`, the original-author setup/logs, or any DLL that is not identified as OptiScaler.  
-The uninstall script is still being tested — it asks for confirmation before it deletes anything.
+Double-click **`Uninstall.bat`**, pick the same game folder, and confirm. It removes identified OptiScaler proxies, passes, configuration, logs, and explicitly listed FFX / XeSS / Agility dependencies; it also checks `_storage_`.
+
+**Kept**: `backup-amd-presr-*`, `nvngx_dlssnr.dll`, `dlssnr_on_amd_weights.bin`, the original-author setup/logs, non-OptiScaler files using a proxy name, and extra plugins or files you added under `OptiScaler`. Dependency directories are removed only when empty; the uninstaller never deletes the entire `OptiScaler` tree, so that folder may remain afterward.
 
 ---
 
