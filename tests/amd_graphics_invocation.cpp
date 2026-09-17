@@ -157,7 +157,7 @@ static void TestDispatchSitesDoNotMislabelGraphicsWait()
 {
     ScopedNativeDrawObservation scope(0xA, 0x17000, 0x19000,
                                      { 0x17b70, 0x17f10, 0x17f6a, 0x18057 });
-    ObserveNativeDispatch(0xB, 0x17f6a); // Wrong list is not a compute wait.
+    ObserveNativeDispatch(0xB, 0x17f6a); // Wrong list is not original wait.
     ObserveNativeDispatch(0xA, 0x20000); // A different shader dispatch.
     ObserveNativeDispatch(0xA, 0x17b70);
     ObserveNativeDraw(0xA, 0x17e2f);

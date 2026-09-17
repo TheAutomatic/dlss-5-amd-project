@@ -105,7 +105,7 @@ using PFN_SetGraphicsRootShaderResourceView =
 using PFN_SetGraphicsRootUnorderedAccessView =
     rewrite_signature<decltype(&ID3D12GraphicsCommandList::SetGraphicsRootUnorderedAccessView)>::type;
 
-// AMD graphics-tracker hooks, installed when graphics wait is enabled at startup.
+// AMD graphics-tracker hooks, installed when new wait is enabled at startup.
 using PFN_RSSetViewports = rewrite_signature<decltype(&ID3D12GraphicsCommandList::RSSetViewports)>::type;
 using PFN_RSSetScissorRects = rewrite_signature<decltype(&ID3D12GraphicsCommandList::RSSetScissorRects)>::type;
 using PFN_IASetPrimitiveTopology =
@@ -1913,7 +1913,7 @@ static void HookToCommandList(ID3D12Device* InDevice)
                 }
 
                 // Startup AmdGraphicsWait selects the graphics root and RS/IA/OM/pred hooks.
-                // Once installed, tracking stays active while the UI requests compute wait.
+                // Once installed, tracking stays active while the UI requests original wait.
                 if (amdGraphicsTrackerWanted)
                 {
                     if (s_SetGraphicsRootDescriptorTable.o_earlyHook != nullptr)

@@ -861,17 +861,17 @@ struct Backend::Impl
                                           reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(h) + L->engine), &file))
             throw std::runtime_error("AMD engine initialization failed");
         // SpinDraw must be set before the first staging Record so A can create
-        // its graphics PSO. AmdGraphicsWait=1 requests graphics; otherwise compute.
+        // its 1-pixel-draw PSO. AmdGraphicsWait=1 requests new wait; otherwise original wait.
         if (L->spinDraw)
         {
-            // Graphics when this invocation armed a restore plan, or AmdGraphicsUnsafe
-            // (A-style dirty insert: no complete restore).
+            // New wait when this invocation armed a restore plan, or AmdGraphicsUnsafe
+            // (dirty insert: no complete D3D12 graphics-state restore).
             int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
             if (want && !GraphicsSnap::RestoreArmed() && !Config::Instance()->AmdGraphicsUnsafe.value_or_default())
                 want = 0;
             At<int>(h, L->spinDraw) = want;
-            Log(want ? std::string("AMD runtime: SpinDraw=1 (graphics wait via AmdGraphicsWait)")
-                     : std::string("AMD runtime: SpinDraw=0 (compute spin)"));
+            Log(want ? std::string("AMD runtime: SpinDraw=1 (new wait via AmdGraphicsWait)")
+                     : std::string("AMD runtime: SpinDraw=0 (original wait)"));
         }
         At<uint8_t>(h, L->initDone) = 1;
         Log("Initialized independent AMD pass " + std::to_string(i + 1));
@@ -943,7 +943,7 @@ Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::
     // lands. Three earlier rounds were analysed without a tag and the logs could
     // not be told apart.
     p->LogDiagnostic("AMD graphics build source=" AMD_GRAPHICS_SOURCE_ID);
-    p->Log("AMD submission revision 20260917-gfx-final: graphics/compute wait with guarded restore; r27 submission contract retained" +
+    p->Log("AMD submission revision 20260917-gfx-final: new/original wait with guarded restore; r27 submission contract retained" +
            std::string(kBuildTag));
     try
     {
@@ -1544,8 +1544,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             auto r = p->runtime[i];
             if (L->spinDraw)
             {
-                // Graphics wait only on DIRECT lists. Safe path requires armed restore;
-                // AmdGraphicsUnsafe skips that (A-style, no complete restore).
+                // New wait only on DIRECT lists. Safe path requires armed restore;
+                // AmdGraphicsUnsafe skips that (dirty insert, no complete restore).
                 const bool unsafe = Config::Instance()->AmdGraphicsUnsafe.value_or_default();
                 int want = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
                 if (want && listType != D3D12_COMMAND_LIST_TYPE_DIRECT)

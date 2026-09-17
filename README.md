@@ -6,9 +6,9 @@
 
 `1.8.5` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。相对 1.8.4：卸载只清理明确依赖；公共 shader 深度 SRV / DX11 借用资源、HIP 搜索回退、XeFG 高倍率可写入 ini（实际上限仍受 XeFG 与多帧生成插件限制，见下文）。不改神经核，不宣称帧率提升。
 
-**等待模式：默认 `AmdGraphicsWait=1`。** 会请求原作者 0.3.1 的 graphics 等待（1 像素 draw）。本项目在本帧 D3D12 状态快照与恢复准备就绪时才请求 graphics；准入不满足时回退 compute。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
+**等待：默认新等待（`AmdGraphicsWait=1`）。** 新等待会请求 0.3.1 的 1 像素 draw 等待（仍在测试）。本项目仅在本帧 D3D12 状态快照与恢复准备就绪时才请求新等待，否则回退原等待。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
 
-游戏内 **Ins → Graphics wait**：关闭可立即改用经典 compute；重新打开时，若缺少 hooks 或某个 pass 的 graphics PSO，菜单会提示重启。若 graphics 模式出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`，再启动游戏。
+游戏内 **Ins → New wait**：关闭即原等待（立即切换）；重新打开时若 hooks 或某个 pass 尚未就绪，菜单会提示重启。若新等待出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`（原等待），再启动游戏。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 

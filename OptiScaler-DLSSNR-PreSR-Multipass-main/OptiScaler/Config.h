@@ -300,13 +300,13 @@ class Config
     // change [DlssNr] AmdEveryFrame in the INI. With more than one slot the
     // post-Execute wait is skipped except during native rebuild.
     CustomOptional<bool> AmdEveryFrame { true };
-    // Legacy INI key. SpinDraw is driven only by AmdGraphicsWait (1 = request A graphics spin).
+    // Legacy INI key. SpinDraw is driven only by AmdGraphicsWait.
     CustomOptional<int> AmdSpinDraw { 0 };
-    // Graphics wait tracker + freeze/restore. Default 1; set 0 to request compute wait.
-    // Live switching requires installed hooks and graphics PSOs; otherwise restart the game.
+    // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
+    // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
-    // Experimental A-style dirty insert: request SpinDraw=1 even when freeze/admission fails.
-    // No complete graphics restore — risk matches the original author runtime. Default 0.
+    // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
+    // No complete D3D12 graphics-state restore — risk matches the original author runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };
     CustomOptional<bool> AmdRtgiEnabled { false };
     CustomOptional<uint32_t> AmdRtgiQuality { 2 };

@@ -180,8 +180,9 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 ; Requires DLSS-NR-on-AMD 0.3.0 or 0.3.1 (https://github.com/danielblnc/DLSS-NR-on-AMD)
 ; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
 ; AmdEveryFrame=true is the product default (INI-only; not shown in the Ins menu).
-; AmdGraphicsWait=1 requests the original-author 0.3.1 graphics wait (experimental).
-; Set 0 for classic compute wait. Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).
+; AmdGraphicsWait=1 is New wait (0.3.1 1-pixel draw; still testing).
+; Set 0 for Original wait.
+; Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).
 Enabled=false
 RunBeforeSR=true
 AmdModelScale=1

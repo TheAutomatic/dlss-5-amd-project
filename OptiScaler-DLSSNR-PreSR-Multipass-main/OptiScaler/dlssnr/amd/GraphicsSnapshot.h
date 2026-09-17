@@ -36,7 +36,7 @@ enum class RootEntryType : std::uint8_t
     UAV,
 };
 
-// Why this generation is not admissible for A graphics wait (for logs).
+// Why this generation is not admissible for new wait (for logs).
 enum class IneligibleWhy : std::uint8_t
 {
     None,

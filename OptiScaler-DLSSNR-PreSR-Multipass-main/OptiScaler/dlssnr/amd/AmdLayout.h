@@ -101,12 +101,12 @@ struct AmdLayout
     std::uint32_t gate4c;
     std::uint32_t gate68;
     std::uint32_t counter78;
-    // 0.3.1 only: inline-wait spin implementation. 0 = compute dispatch spin;
-    // non-zero = predicated 1-pixel graphics draws. The compute path also has
-    // 0.3.1-specific slicing, so SpinDraw=0 is not identical to the 0.3.0 wait.
-    // 0 means "runtime does not expose this flag".
+    // 0.3.1 only: inline-wait spin. 0 = Dispatch spin (this project's original wait);
+    // non-zero = predicated 1-pixel Draw (this project's new wait). SpinDraw=0 is
+    // still 0.3.1-sliced, so it is not identical to the 0.3.0 wait.
+    // 0 on the layout field means "runtime does not expose this flag".
     std::uint32_t spinDraw;
-    // Read-only 0.3.1 graphics-wait diagnostics; zero for earlier runtimes.
+    // Read-only 0.3.1 new-wait diagnostics; zero for earlier runtimes.
     // Bound to the SHA above, never used to invoke a private factory.
     std::uint32_t graphicsPso = 0;
     std::uint32_t predicateReady = 0;

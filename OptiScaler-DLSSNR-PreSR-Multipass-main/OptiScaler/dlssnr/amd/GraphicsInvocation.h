@@ -123,8 +123,8 @@ inline void ObserveNativeDispatch(std::uint64_t listId, std::uintptr_t returnAdd
         return;
     }
     ++o->dispatchWait;
-    // Graphics wait has init/finish Dispatch calls too. Only the two spin
-    // call sites establish that the helper recorded a compute wait.
+    // New wait has init/finish Dispatch calls too. Only the two spin
+    // call sites establish that the helper recorded original wait.
     if (returnAddress == o->dispatchSites.init) ++o->dispatchInit;
     else if (returnAddress == o->dispatchSites.fallback) ++o->dispatchFallback;
     else if (returnAddress == o->dispatchSites.slices) ++o->dispatchSlices;

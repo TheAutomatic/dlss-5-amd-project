@@ -140,25 +140,25 @@ void RenderMenu(Config* config, float menuResScale)
                 HelpMarker("AMD NR runtime: pass1 not identified yet.");
             }
 
-            bool graphicsWait = config->AmdGraphicsWait.value_or_default() != 0;
+            bool newWait = config->AmdGraphicsWait.value_or_default() != 0;
             const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
-            const bool restartToTryGraphics = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
+            const bool restartToTryNewWait = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
                 std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
-            const bool restartNeeded = graphicsWait && restartToTryGraphics;
-            if (ImGui::Checkbox(restartNeeded ? "Graphics wait (restart to enable)" : "Graphics wait", &graphicsWait))
+            const bool restartNeeded = newWait && restartToTryNewWait;
+            if (ImGui::Checkbox(restartNeeded ? "New wait (restart to enable)" : "New wait", &newWait))
             {
-                config->AmdGraphicsWait = graphicsWait ? 1 : 0;
-                if (graphicsWait && restartToTryGraphics)
-                    ImGui::OpenPopup("Graphics wait restart");
+                config->AmdGraphicsWait = newWait ? 1 : 0;
+                if (newWait && restartToTryNewWait)
+                    ImGui::OpenPopup("New wait restart");
             }
-            HelpMarker("On: new 1-pixel graphics wait."
-                       "\nOff: classic compute wait (switches immediately)."
-                       "\nRestart if prompted: hooks or a pass's graphics pipeline may be missing."
-                       "\nFrames that cannot safely use graphics still fall back to compute.");
-            if (ImGui::BeginPopupModal("Graphics wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            HelpMarker("On: New wait (0.3.1 1-pixel draw). Still being tested."
+                       "\nOff: Original wait (switches immediately)."
+                       "\nRestart if prompted: hooks or a pass may not be ready for new wait."
+                       "\nFrames that cannot use new wait still fall back to original wait.");
+            if (ImGui::BeginPopupModal("New wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
-                ImGui::TextUnformatted("Some NR processing still uses compute wait.");
-                ImGui::TextUnformatted("Restart the game to retry graphics initialization.");
+                ImGui::TextUnformatted("Some NR processing still uses original wait.");
+                ImGui::TextUnformatted("Restart the game to retry new-wait initialization.");
                 if (ImGui::Button("OK"))
                     ImGui::CloseCurrentPopup();
                 ImGui::EndPopup();

@@ -6,9 +6,9 @@
 
 `1.8.5` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**). Versus 1.8.4: uninstall removes only known dependencies; depth SRV / borrowed DX11 resources, HIP search fallback, and XeFG high-ratio values can be saved in the ini (the real cap is still XeFG plus the multi-frame plugin; see below). The neural core is unchanged; this is not a frame-rate claim.
 
-**Wait mode: default `AmdGraphicsWait=1`.** This requests the original author runtime's 0.3.1 graphics wait (1-pixel draw). This project requests graphics only when this frame's D3D12 state snapshot and restore preparation succeed; failed admission falls back to compute. This does not provide automatic recovery from a hang, crash, or device removal after admission.
+**Wait: New wait is the default (`AmdGraphicsWait=1`).** New wait requests 0.3.1's 1-pixel draw wait (still being tested). This project requests it only when this frame's D3D12 state snapshot and restore preparation succeed; otherwise it falls back to original wait. This does not provide automatic recovery from a hang, crash, or device removal after admission.
 
-In-game, use **Ins → Graphics wait**: turning it off immediately requests classic compute. When enabling it again, the menu asks for a restart if hooks or a pass's graphics PSO are missing. If graphics mode causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` under `[DlssNr]` in `OptiScaler.ini`, then launch again.
+In-game, use **Ins → New wait**: turning it off immediately uses original wait. When enabling it again, the menu asks for a restart if hooks or a pass are not ready. If new wait causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` (original wait) under `[DlssNr]` in `OptiScaler.ini`, then launch again.
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
