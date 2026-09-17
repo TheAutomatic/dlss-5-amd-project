@@ -139,15 +139,6 @@ void RenderMenu(Config* config, float menuResScale)
                 ImGui::TextDisabled("pass1?");
                 HelpMarker("AMD NR runtime: pass1 not identified yet.");
             }
-            bool everyFrame = config->AmdEveryFrame.value_or_default();
-            if (ImGui::Checkbox("Every-frame NR", &everyFrame))
-                config->AmdEveryFrame = everyFrame;
-            HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
-                       "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
-                       "\n\nOn: after Execute, wait for the HIP job only (Temporal off). Does not wait"
-                       "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
-                       "\nUltra Performance render; the next Record may still skip if GPU work is"
-                       "\nin flight.");
 
             bool graphicsWait = config->AmdGraphicsWait.value_or_default() != 0;
             const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();

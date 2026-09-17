@@ -296,8 +296,9 @@ class Config
     CustomOptional<int> AmdSlots { 3 };
 #endif
     CustomOptional<float> AmdNrScale { 1 };
-    // Every-frame is the only configuration under test, so it is the default:
-    // enabling neural rendering is then the single switch a test run needs.
+    // Product default remains every-frame. The Ins menu no longer exposes this;
+    // change [DlssNr] AmdEveryFrame in the INI. With more than one slot the
+    // post-Execute wait is skipped except during native rebuild.
     CustomOptional<bool> AmdEveryFrame { true };
     // Legacy INI key. SpinDraw is driven only by AmdGraphicsWait (1 = request A graphics spin).
     CustomOptional<int> AmdSpinDraw { 0 };

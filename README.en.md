@@ -47,6 +47,7 @@ Denoise (DLSS5) sits on the picture path: a frame that gets a slot must wait for
 - **4–5 slots were measured in that sweep** and were no faster than 3 in that scene. A scene heavy enough to need a fourth or fifth slot has not been measured
 - Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is allocated**
 - The ini's `AmdSlots` also accepts `1` (only one denoise at a time, close to the old behaviour); the menu does not offer it
+- `AmdEveryFrame` defaults to `true` and is not shown in the Ins menu; change it only in the ini (with multiple slots it no longer blocks waiting in normal play)
 
 Early single-slot and multi-slot figures came from different capture sessions. They only show the direction of improvement after not blocking on the previous frame; they are not a precise same-session performance gain. The neural render itself did not get faster.
 
