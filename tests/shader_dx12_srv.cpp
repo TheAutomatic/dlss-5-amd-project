@@ -82,6 +82,12 @@ class ShaderProbe : public Shader_Dx12
 int main()
 {
     spdlog::set_level(spdlog::level::off);
+    {
+        GpuTime_Dx12 empty(nullptr);
+        empty.Start(nullptr);
+        empty.End(nullptr);
+        assert(!empty.ReadGpuTime(nullptr).has_value());
+    }
     std::array<void*, 44> deviceTable;
     deviceTable.fill(reinterpret_cast<void*>(&UnexpectedCall));
     deviceTable[18] = reinterpret_cast<void*>(&CreateSrv);
@@ -138,5 +144,5 @@ int main()
     try { shader.CreateShaderResourceView(device, texture, { 1234 }); }
     catch (const std::runtime_error&) { rejected = true; }
     assert(rejected && calls.srvCalls == before);
-    std::puts("shader_dx12_srv: 9 descriptor cases and DENY_SHADER_RESOURCE passed");
+    std::puts("shader_dx12_srv: 9 descriptor cases, DENY_SHADER_RESOURCE, and null-device GpuTime passed");
 }
