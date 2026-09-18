@@ -6,6 +6,9 @@ dlssnr_on_amd_setup.exe
 nvngx_dlssnr.dll
 dlssnr_on_amd_weights.bin
 
+# 本地 mod 试验目录（XeFG 等第三方文件，不随仓库）
+/mod/
+
 
 
 # 游戏 log 快照与 R1 本地部署包（体积大，只分析用）
