@@ -164,7 +164,15 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted("NR slots");
             HGap(0.15f);
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 2.0f);
+            // Width fits one digit plus the arrow, with padding — not a full-width
+            // bar, and not so tight that the arrow covers the number.
+            {
+                const float digitW = ImGui::CalcTextSize(slotPreview).x;
+                const float arrowW = ImGui::GetFrameHeight();
+                const float padX = ImGui::GetStyle().FramePadding.x;
+                const float comboW = digitW + arrowW + padX * 4.0f;
+                ImGui::SetNextItemWidth(std::max(comboW, ImGui::GetFontSize() * 3.2f));
+            }
             if (ImGui::BeginCombo("##AmdSlots", slotPreview))
             {
                 for (int s = 2; s <= 5; ++s)
