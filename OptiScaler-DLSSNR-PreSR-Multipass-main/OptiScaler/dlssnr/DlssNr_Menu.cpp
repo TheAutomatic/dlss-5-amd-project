@@ -38,6 +38,15 @@ static void HelpMarker(const char* tip)
     }
 }
 
+// Horizontal air between same-row controls. Checkbox labels already include
+// ItemSpacing; these gaps keep version / combo / checkbox from colliding.
+static void HGap(float em)
+{
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(ImGui::GetFontSize() * em, 0.0f));
+    ImGui::SameLine();
+}
+
 // A slider that only writes its value when the handle is released.
 //
 // Some controls -- intensity, the structure and tone strengths -- are read by the model once, when
@@ -125,23 +134,17 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
-            // Product OPTI_VERSION stays upstream 10.0.0-dev. Name the author
-            // runtime on the enable row so the menu is not mistaken for
-            // "no NR version" without spending a whole row.
-            if (const auto* ver = DlssNr::AmdBridge::RuntimeName(); ver && *ver)
-            {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", ver);
-                HelpMarker("AMD NR runtime (original project / original author).");
-            }
-            else
-            {
-                ImGui::SameLine();
-                ImGui::TextDisabled("pass1?");
-                HelpMarker("AMD NR runtime: pass1 not identified yet.");
-            }
+            // Product OPTI_VERSION stays upstream 10.0.0-dev. Runtime name sits
+            // on the enable row with air on both sides so it does not glue to
+            // the checkbox or to Every-frame.
+            const char* ver = DlssNr::AmdBridge::RuntimeName();
+            const bool haveVer = ver && *ver;
+            HGap(0.4f);
+            ImGui::TextDisabled("%s", haveVer ? ver : "pass1?");
+            HelpMarker(haveVer ? "AMD NR runtime (original project / original author)."
+                               : "AMD NR runtime: pass1 not identified yet.");
+            HGap(0.55f);
 
-            ImGui::SameLine();
             bool everyFrame = config->AmdEveryFrame.value_or_default();
             if (ImGui::Checkbox("Every-frame", &everyFrame))
                 config->AmdEveryFrame = everyFrame;
@@ -151,6 +154,54 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
                        "\nUltra Performance render; the next Record may still skip if GPU work is"
                        "\nin flight.");
+
+            // Slots first, then New wait — quantity next to the enable row, wait
+            // mode after it. Combo is a narrow digit control, not a full-width bar.
+            // Menu offers 2-5 only; the ini also accepts 1 (old single-slot path).
+            const int stored = std::clamp(config->AmdSlots.value_or_default(), 1, 5);
+            const int shown = std::clamp(stored, 2, 5);
+            char slotPreview[8] {};
+            std::snprintf(slotPreview, sizeof(slotPreview), "%d", shown);
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("NR slots");
+            HGap(0.15f);
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 2.0f);
+            if (ImGui::BeginCombo("##AmdSlots", slotPreview))
+            {
+                for (int s = 2; s <= 5; ++s)
+                {
+                    char item[8] {};
+                    std::snprintf(item, sizeof(item), "%d", s);
+                    if (ImGui::Selectable(item, shown == s))
+                        config->AmdSlots = s;
+                }
+                ImGui::EndCombo();
+            }
+            HelpMarker("How many frames may be running denoise at once, 2-5. A frame that gets"
+                       "\na buffer waits for its own denoise; one that finds all buffers busy is"
+                       "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
+                       "\n3 (default): on Onimusha no difference from 2 was detected. In one Where"
+                       "\nWinds Meet A/B session, the skip counter rose by about 1200-1440 per"
+                       "\ntwo-slot segment and stayed flat with 3; that log window does not yield"
+                       "\na skip percentage.\n"
+                       "\n2: in that Where Winds Meet session, display latency was 47.6-47.9 ms"
+                       "\nversus 62.9-63.2 ms with 3, but many frames skipped denoise.\n"
+                       "\n4-5: measured in a separate sweep and no faster than 3 in that scene. A"
+                       "\nscene that actually requires a fourth or fifth slot has not been tested.\n"
+                       "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
+                       "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
+                       "\nOnly the selected number is allocated. No restart needed.\n"
+                       "\nThe ini also accepts 1 (the old single-slot path); this menu does not.");
+            if (stored < 2)
+            {
+                // Own line under the slot control; New wait starts below it.
+                ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
+            }
+            else
+            {
+                HGap(0.65f);
+            }
 
             bool newWait = config->AmdGraphicsWait.value_or_default() != 0;
             const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
@@ -175,43 +226,6 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::CloseCurrentPopup();
                 ImGui::EndPopup();
             }
-
-            // Menu offers 2-5 only (same as the old slider). The ini also accepts
-            // 1 for the old one-frame-outstanding path; that is not selectable
-            // here. Combo matches the MFG ratio control: open a short list instead
-            // of a full-width drag handle.
-            const int stored = std::clamp(config->AmdSlots.value_or_default(), 1, 5);
-            const int shown = std::clamp(stored, 2, 5);
-            char slotPreview[8] {};
-            std::snprintf(slotPreview, sizeof(slotPreview), "%d", shown);
-            ImGui::SameLine();
-            if (ImGui::BeginCombo("NR slots", slotPreview))
-            {
-                for (int s = 2; s <= 5; ++s)
-                {
-                    char item[8] {};
-                    std::snprintf(item, sizeof(item), "%d", s);
-                    if (ImGui::Selectable(item, shown == s))
-                        config->AmdSlots = s;
-                }
-                ImGui::EndCombo();
-            }
-            HelpMarker("How many frames may be running denoise at once, 2-5. A frame that gets"
-                       "\na buffer waits for its own denoise; one that finds all buffers busy is"
-                       "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
-                       "\n3 (default): on Onimusha no difference from 2 was detected. In one YYSLS"
-                       "\nA/B session, the skip counter rose by about 1200-1440 per two-slot segment"
-                       "\nand stayed flat with 3; that log window does not yield a skip percentage.\n"
-                       "\n2: in that YYSLS session, display latency was 47.6-47.9 ms versus"
-                       "\n62.9-63.2 ms with 3, but many frames skipped denoise.\n"
-                       "\n4-5: measured in a separate sweep and no faster than 3 in that scene. A"
-                       "\nscene that actually requires a fourth or fifth slot has not been tested.\n"
-                       "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
-                       "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
-                       "\nOnly the selected number is allocated. No restart needed.\n"
-                       "\nThe ini also accepts 1 (the old single-slot path); this menu does not.");
-            if (stored < 2)
-                ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
         }
 
         if (AmdPresentExperimental::IsTarget())
