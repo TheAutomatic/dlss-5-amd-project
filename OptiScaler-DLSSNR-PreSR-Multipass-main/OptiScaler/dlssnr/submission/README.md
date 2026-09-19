@@ -31,8 +31,8 @@ on `CreateCommandList`. GPU test records through the proxy pointer across Split.
 
 ## Not yet
 
-- Wrap List1–10 (render pass, VRS, mesh, barriers 1.1, …)
-- Hook `CreateCommandList` / `ExecuteCommandLists` in the game
+- Wrap List1–10 (render pass, VRS, mesh, barriers 1.1, …) — **next, no user action**
+- Hook `CreateCommandList` / `ExecuteCommandLists` in the game (after List1–10)
 - Continuation initial state snapshot
 - Cross-Execute resource promotion/decay tracking
 - Inserting HIP between the two Executes

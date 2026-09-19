@@ -55,4 +55,5 @@ C ABI in `include/LmxxfNrApi.h`. MinGW `runtime/` compiles the HIP bridge and co
 ## Required follow-up
 
 1. Process-global geometry/env → instance config.
-2. Product `LmxxfWired()` after G1/G3.
+2. Host P1: List1–10 command-list proxy forward (then hooks). Not this vendor tree.
+3. Product `LmxxfWired()` after G1/G3.

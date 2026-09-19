@@ -1,21 +1,21 @@
 # NR backend selector (P0)
 
 Tracked ADR for the lmxxf graft. Implementation plan remains
-`exports/lmxxf-main-backend-integration-plan-20260919.md` (gitignored). This file is what the
-`work/lmxxf-backend` branch ships in-tree.
+`exports/lmxxf-main-backend-integration-plan-20260919.md` (gitignored). Progress:
+`exports/lmxxf-backend-progress-20260920.md`. This file is what `work/lmxxf-backend` ships in-tree.
 
-## Freeze
+## Status (2026-09-20; last code `4ce1f72`)
 
-| Item | First increment |
+| Item | Now |
 |---|---|
-| Branch | `work/lmxxf-backend` off `main @ 2792909` (1.8.6 Daniel) |
+| Branch | `work/lmxxf-backend` off `main @ 2792909` (1.8.6 Daniel). Not pushed. |
 | Default host | Daniel. Missing / empty / `auto` / unknown `[DlssNr] NrBackend` → daniel |
-| `NrBackend=lmxxf` | Logged once, **still Daniel**. Runtime DLL is not wired |
+| `NrBackend=lmxxf` | Logged once, **still Daniel**. `LmxxfWired()` false |
 | `NrBackend=off` | No AMD Record; original colour goes to SR |
-| HasFiles / ECL / New wait | Unchanged; still Daniel pass-DLL and graphics-wait hooks |
-| `third_party/lmxxf` | Vendored HIP+codec closure, pin `68dc099` (see `third_party/lmxxf/UPSTREAM.md`) |
-| `submission/` | Not in this increment |
-| Menu | No new control |
+| HasFiles / ECL / New wait / menu | Unchanged |
+| `third_party/lmxxf` | Vendored @ `68dc099`; MinGW runtime HIP enqueue wired |
+| `submission/` | `LogicalList` + base `CommandListProxy`. List1–10 and hooks **not** done |
+| `hip_ready` | 0 |
 
 ## Product behaviour (later, when lmxxf is actually selected)
 
@@ -49,4 +49,7 @@ Upstream source is a vendored closure at `third_party/lmxxf` pinned to `68dc099`
 EvaluateFeature / `AmdBridge::Before` records on a still-open game list; the game keeps that
 pointer. No natural submit boundary. `LogicalList` + base `CommandListProxy` prove split
 Execute-once passthrough (QI List1+ fail-closed). Not hooked, not default.
+
+**Next (no user action):** forward `ID3D12GraphicsCommandList1`–`10` on the proxy. Do not hook
+`CreateCommandList` until that is done.
 
