@@ -1,4 +1,5 @@
 #pragma once
+#include "SubmissionTls.h"
 #include <d3d12.h>
 #include <cstdint>
 
@@ -83,6 +84,8 @@ class LogicalList
         HRESULT hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&contAlloc));
         if (FAILED(hr))
             return hr;
+        // Continuation must be a real list, not another proxy (hook re-entrancy).
+        SuppressProxyWrap suppress;
         hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, contAlloc, nullptr,
                                        IID_PPV_ARGS(&continuation));
         if (FAILED(hr))
@@ -104,7 +107,9 @@ class LogicalList
         return S_OK;
     }
 
-    HRESULT Execute(ID3D12CommandQueue *queue)
+    // between is invoked after producer Execute and before continuation Execute when split.
+    // Used as the HIP insert slot. nullptr = no work between the two Executes.
+    HRESULT Execute(ID3D12CommandQueue *queue, void (*between)(void *) = nullptr, void *betweenCtx = nullptr)
     {
         if (!queue || !producer)
             return E_INVALIDARG;
@@ -120,6 +125,8 @@ class LogicalList
             return E_UNEXPECTED;
         ID3D12CommandList *first = producer;
         queue->ExecuteCommandLists(1, &first);
+        if (split && between)
+            between(betweenCtx);
         if (split && continuation)
         {
             ID3D12CommandList *second = continuation;

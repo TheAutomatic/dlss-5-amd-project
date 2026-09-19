@@ -1,4 +1,4 @@
-# P1 submission split (no NR)
+# P1 / G1 submission split
 
 ## Call-site verdict
 
@@ -7,32 +7,27 @@ open. EvaluateFeature then records FSR on the **same** object. The game keeps th
 pointer after preSR. There is no natural submit boundary: closing or executing the
 game list at Before would break later FSR recording.
 
-Selected scheme (after this bookkeeping proof): a COM proxy returned from
-`CreateCommandList`, splitting physical segments at preSR. Not graphics snapshot.
-Not hooked in this increment.
+Selected scheme: a COM proxy returned from `CreateCommandList`, splitting physical
+segments at preSR. Not graphics snapshot.
 
-## This increment
+## Done
 
-`LogicalList` owns the split Execute contract on lists **we** create:
-
-1. Close producer, create a continuation on a **new** allocator (never Reset the
-   in-flight producer allocator).
-2. `Execute` submits producer then continuation, each once.
-3. Generation increments on `Reset`.
-
-GPU test: unsplit copy vs split copy, readback equal. No HIP, no game hook,
-`LmxxfWired()` stays false.
-
-## This increment also
-
-`CommandListProxy` implements **base** `ID3D12GraphicsCommandList` only. QI for
-`ID3D12GraphicsCommandList1`..`10` is `E_NOINTERFACE` (fail-closed). Not installed
-on `CreateCommandList`. GPU test records through the proxy pointer across Split.
+- `LogicalList`: split Execute (producer then continuation); optional **between**
+  callback (HIP slot) after producer Execute.
+- `CommandListProxy`: **ID3D12GraphicsCommandList1–10** full forward; QI succeeds.
+  `BeginRenderPass` marks split **ineligible** (fail-closed); Split returns
+  `ERROR_NOT_SUPPORTED`.
+- `SubmissionHooks.h`: Detour `CreateCommandList` → wrap DIRECT lists as proxy;
+  Detour `ExecuteCommandLists` → expand `ILogicalCommandList` with between.
+  **Default disarmed.** Product must not `Arm` until G1/P3. Split’s continuation
+  create uses `SuppressProxyWrap` so it is not double-wrapped.
+- `CreateCommandList1`: pass-through (no allocator at create time) — not wrapped.
+- Tests: `tools/test-lmxxf-list-split.cmd`, `tools/test-lmxxf-create-execute.cmd`.
+  `LmxxfWired()` stays false.
 
 ## Not yet
 
-- Wrap List1–10 (render pass, VRS, mesh, barriers 1.1, …) — **next, no user action**
-- Hook `CreateCommandList` / `ExecuteCommandLists` in the game (after List1–10)
-- Continuation initial state snapshot
+- Continuation initial-state snapshot/restore (IA/SO/OM/VRS/RT…)
 - Cross-Execute resource promotion/decay tracking
-- Inserting HIP between the two Executes
+- Wire `Arm` into OptiScaler product path (still harness-only)
+- Real HIP enqueue in the between slot (callback is the slot)

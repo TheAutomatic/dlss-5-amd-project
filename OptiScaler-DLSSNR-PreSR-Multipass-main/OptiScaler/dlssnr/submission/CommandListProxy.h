@@ -4,7 +4,7 @@
 
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
 // QI accepts List1..List10 + base. Newer methods QI the live producer; if unsupported, fail-closed (no-op / E_UNEXPECTED).
-// Still no game CreateCommandList / ExecuteCommandLists hooks.
+// Create/Execute wrap helpers live in SubmissionHooks.h (armed only by harness / future P3).
 namespace DlssNr::Submission
 {
 MIDL_INTERFACE("b3c0e9a1-4d2f-4c77-9a18-6f2d8e1b4c01")
@@ -12,12 +12,26 @@ ILogicalCommandList : public IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE SplitSegments(void) = 0;
     virtual HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) = 0;
+    // HIP / NR slot between producer and continuation Executes. Pass nullptr for no-op.
+    virtual HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, void (*between)(void *),
+                                                           void *betweenCtx) = 0;
+    virtual bool STDMETHODCALLTYPE IsSplitIneligible(void) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
 {
     std::atomic<ULONG> refs { 1 };
     LogicalList logical;
+    bool splitIneligible = false;
+    const char *splitIneligibleReason = nullptr;
+
+    void MarkSplitIneligible(const char *reason)
+    {
+        splitIneligible = true;
+        if (!splitIneligibleReason)
+            splitIneligibleReason = reason;
+    }
+
 
     ID3D12GraphicsCommandList *Cur() const { return logical.Current(); }
 
@@ -111,8 +125,20 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     {
         return logical.Reset(alloc, initial);
     }
-    HRESULT STDMETHODCALLTYPE SplitSegments() override { return logical.Split(); }
+    HRESULT STDMETHODCALLTYPE SplitSegments() override
+    {
+        if (splitIneligible)
+            return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+        return logical.Split();
+    }
     HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
+    HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, void (*between)(void *),
+                                                   void *betweenCtx) override
+    {
+        return logical.Execute(queue, between, betweenCtx);
+    }
+    bool STDMETHODCALLTYPE IsSplitIneligible() override { return splitIneligible; }
+    const char *SplitIneligibleReason() const { return splitIneligibleReason; }
 
     void STDMETHODCALLTYPE ClearState(ID3D12PipelineState *p) override
     {
@@ -456,6 +482,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                                            const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *ds,
                                            D3D12_RENDER_PASS_FLAGS flags) override
     {
+        MarkSplitIneligible("render_pass");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->BeginRenderPass(numRTs, rts, ds, flags);
