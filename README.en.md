@@ -1,18 +1,32 @@
 [中文](README.md) | **English**
 
-# OptiScaler AMD pre-SR — 1.8.5-0.3.1
+# OptiScaler AMD pre-SR — 1.8.6-0.3.1
 
-**OptiScaler** plus **AMD neural rendering** (DLSS5), so **pure DLSS / XeSS games** can run neural denoise on AMD GPUs. Super-resolution is still **FFX/FSR**.
+**OptiScaler** plus **AMD neural rendering** (DLSS5 on AMD), so **pure DLSS / XeSS games** can run neural denoise on AMD GPUs. Super-resolution is still **FFX/FSR**.
 
-`1.8.5` = this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**). Versus 1.8.4: uninstall removes only known dependencies; depth SRV / borrowed DX11 resources, HIP search fallback, and XeFG high-ratio values can be saved in the ini (the real cap is still XeFG plus the multi-frame plugin; see below). The neural core is unchanged; this is not a frame-rate claim.
+This project is a fork of **Matheus** and their upstream. That line is finished; this repo continues from it and mainly does three things:
 
-**Wait: New wait is the default (`AmdGraphicsWait=1`).** New wait requests 0.3.1's 1-pixel draw wait (still being tested). This project requests it only when this frame's D3D12 state snapshot and restore preparation succeed; otherwise it falls back to original wait. This does not provide automatic recovery from a hang, crash, or device removal after admission.
+1. Adds **multi-slot** scheduling so nearly every frame runs NR; measured about **+33%** FPS  
+2. Updates the integration with **danielblnc** runtime **0.3.1**  
+3. Adds D3D12 state freeze/restore for 0.3.1 **new wait** (including empty→empty restore of known-empty graphics state), for better compatibility with games such as **Onimusha**  
 
-In-game, use **Ins → New wait**: turning it off immediately uses original wait. When enabling it again, the menu asks for a restart if hooks or a pass are not ready. If new wait causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` (original wait) under `[DlssNr]` in `OptiScaler.ini`, then launch again.
+(See “Compared to predecessors” and “Multi-slot” below.)
 
 **Project home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 (If you got this package from a mirror or cloud drive, use the repository above as the source of truth.)
+
+---
+
+This project is the **bridge** into the danielblnc runtime. Across several in-game diagnostic rounds, the bridge’s own cost measured about **0.01–0.03 ms** — effectively negligible as an extra load.
+
+`1.8.6` = current version of this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
+
+**Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves (鸣潮) and 异环**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). No actual performance change — only the switch returns to the menu, with an updated layout.
+
+**Picture wait mode: default 0.3.1 New wait (`AmdGraphicsWait=1`).** New wait requests 0.3.1’s 1-pixel draw wait (still being tested). It is requested only when this frame’s D3D12 state can be frozen and restore is ready; otherwise the path falls back to original wait. Known-empty graphics state is restored as empty, so the game’s command list is not left dirty. This is not automatic recovery from a hang, crash, or device removal.
+
+In-game, use **Ins → New wait**: turning it off immediately uses original-wait mode (no game restart needed). When enabling it again, the menu asks for a restart if hooks or a pass are not ready. If new wait causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` (original wait) under `[DlssNr]` in `OptiScaler.ini`, then launch again.
 
 > Not a reimplementation of the neural core, and not a ReShade filter.  
 > Path: **game DLSS inputs → this repo → DLSSNR (0.3.1 / 0.3.0) → FFX/FSR**.
@@ -24,32 +38,43 @@ In-game, use **Ins → New wait**: turning it off immediately uses original wait
 | Upstream | What they did | What this project adds |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | General upscaler proxy (DLSS / FFX / XeSS) | Still the install/run body |
-| **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** | Hooked DLSS neural rendering into OptiScaler | Inherits that OptiScaler base (`v0.2.0-dlssnr`) |
-| **[wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | Neural rendering before super-resolution, multi-pass | Inherits that pre-SR architecture |
-| **[Matheus / dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)** | Connected pre-SR to the AMD runtime: DLSS input → AMD NR → FFX | **Adjustable NR slots** (fewer skipped frames); wired to the original author's 0.3.1 / 0.3.0; installer better at XBOX PC games |
-| **[Original project / original author danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD)** | The AMD neural-rendering runtime itself | **Core untouched**; calls the original author's 0.3.1 / 0.3.0 |
+| **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | First hooked DLSS neural rendering into OptiScaler, then pre-SR multi-pass | Inherits that OptiScaler base and pre-SR architecture |
+| **[Matheus / dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)** | Connected pre-SR to the AMD runtime: DLSS input → AMD NR → FFX | On that base: default **3-slot** scheduling so nearly every frame has NR; about **+33%** vs the old single-slot baseline in original repo **1.7.3** (33.5→44.5) and ~**8.7 ms**/frame less GPU wait; wired to 0.3.1 / 0.3.0; state freeze/restore for new wait; XBOX PC install improvements. Bridge cost measured ~**0.01–0.03 ms** |
+| **[Original project / original author danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD)** | The AMD neural-rendering runtime itself | **Core untouched**; calls the original author's 0.3.1 / 0.3.0; adds D3D12 state freeze/restore for 0.3.1 **new wait** (including empty→empty restore of known-empty graphics state) so it can be enabled safely on DLSS/XeSS games |
 
-### Inline NR and "slots"
+### Multi-slot: every frame gets NR
 
-Denoise (DLSS5) sits on the picture path: a frame that gets a slot must wait for its own denoise to finish before it can present. This mod keeps one buffer (a **slot**) for every denoise still running. When no slot is free, that frame is recorded with **no denoise at all** — the picture comes out faster, possibly blurrier.
+Denoise (DLSS5) sits on the picture path: a frame that gets a slot must wait for its own denoise to finish before it can present. This mod keeps one buffer (a **slot**) for every denoise still running. **When no slot is free, that frame is recorded with no denoise at all** — the picture comes out faster, possibly blurrier or flickery.
 
-**Three slots by default.** Adjustable in-game under `DLSS Neural Rendering` → `NR slots` (2–5, takes effect without a restart).
+The Matheus line leans on fewer slots / skip-for-throughput: when NR cannot keep up, some frames present with no denoise. This project defaults to multi-slot: nearly **every frame carries NR**, and the single-slot post-submit stall is removed (~**MsGPUWait 8.7 ms**/frame in PresentMon).
 
-| Measured (**4K FSR Ultra Performance**, equivalent to a 720p render) | 2 slots | 3 slots |
+| Config (Onimusha-class, 4K FSR Ultra Performance (≈720p render; lock-60 period)) | Median frame period | Approx. FPS | MsGPUWait | NR every frame |
+|---|---:|---:|---:|---|
+| Single-slot · every-frame NR (old baseline) | 29.82 ms | **33.5** | **8.69 ms** | Stuck on the previous frame; low throughput |
+| **This project, multi-slot default** | 22.45 ms | **44.5** (about **+33%**) | **≈ 0** | **Nearly every frame has NR** |
+| Original author 0.3 native (reference) | 22.35 ms | 44.8 | 0 | Native path does not rely on skips |
+
+- With **nearly every frame on NR**, measured about **+33%** versus the old single-slot baseline (33.5→44.5), same ballpark as native 0.3 — not a skip-inflated number.
+- Faster because of scheduling: no idle wait on the previous frame, and no full-frame denoise drop when slots are full. The neural kernel itself did not get faster (`network` is still ~12–13 ms at 720p).
+- Later unlocked / other-scene multi-slot Onimusha observations sit roughly in the **44–51 fps** range; the table above is the same-era pair 33.5 vs 44.5.
+
+**How many slots in-game?** Default **3**. `DLSS Neural Rendering` → `NR slots` (2–5, takes effect without a restart). Across several test rounds the slot count itself does not add latency; picking 5 should not cost performance in theory.
+
+| Measured (4K FSR Ultra Performance) | 2 slots | 3 slots |
 |---|---:|---:|
 | Onimusha | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
-| YYSLS | 19.05–19.25 ms, **many NR frames skipped** | 21.78–21.89 ms, **0 skipped** |
+| Where Winds Meet (WWM) | 19.05–19.25 ms, **many NR frames skipped** (faster presents, frames with no denoise) | 21.78–21.89 ms, **0 skipped** |
 
-- On Onimusha, the 2/3-slot frame periods and display latency stayed within repeat variation; **no difference was detected**
-- In the YYSLS A/B session, the runtime counter increased by about **1200 / 1440** in the two-slot segments and by 0 in the three-slot segments. Those log segments are not the same window as the 45-second PresentMon captures, so they do not yield a skip percentage  
+- On Onimusha, the 2/3-slot frame periods and display latency stayed within repeat variation; **no difference was detected**. WWM at max graphics needs **≥3** slots to stay clean
+- In the WWM A/B session, the runtime counter increased by about **1200 / 1440** in the two-slot segments and by 0 in the three-slot segments. Those log segments are not the same window as the 45-second PresentMon captures, so they do not yield a skip percentage  
   A separate 1→5-slot session measured **1800** in its 60-second two-slot segment and 0 at three, four and five. Counts from the two sessions are not compared with each other
 - In the A/B session, 2 slots showed 47.6–47.9 ms display latency versus 62.9–63.2 ms at 3 slots; the lower figure came with many denoise skips, not equal work for free
 - **4–5 slots were measured in that sweep** and were no faster than 3 in that scene. A scene heavy enough to need a fourth or fifth slot has not been measured
 - Each slot is one FP16 target at the **render size** (the DLSS input) — about 29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render — and **only the selected number is allocated**
-- The ini's `AmdSlots` also accepts `1` (only one denoise at a time, close to the old behaviour); the menu does not offer it
-- `AmdEveryFrame` defaults to `true` and is not shown in the Ins menu; change it only in the ini (with multiple slots it no longer blocks waiting in normal play)
+- The ini's `AmdSlots` also accepts `1` (only one denoise at a time, close to the old single-slot behaviour); the menu does not offer it
+- `AmdEveryFrame` defaults to `true`; the Ins menu shows **Every-frame** (same row as Enable NR), and `[DlssNr] AmdEveryFrame` still works from the ini (with multiple slots it no longer blocks waiting in normal play)
 
-Early single-slot and multi-slot figures came from different capture sessions. They only show the direction of improvement after not blocking on the previous frame; they are not a precise same-session performance gain. The neural render itself did not get faster.
+> The ~**+33%** is the scheduling gain versus the **old single-slot hard-wait baseline in original repo 1.7.3**; the neural render itself did not get faster. The original author danielblnc’s runtime has **no frame-skip problem** and mainly targets **games that already support FSR**. Versus Matheus, this project changes **scheduling to multi-slot** (plus install/XBOX work, 0.3.1 integration, and new-wait state restore) so **DLSS / XeSS games** can keep nearly every frame on NR and drop the single-slot stall — not merely adapting daniel 0.3.1.
 
 ---
 
@@ -104,7 +129,9 @@ The second prompt comes from **danielblnc's original setup**, which this package
 **Game folder** = where the game exe lives (the same path you use for a normal OptiScaler install):
 
 - Many games: `...\Win64\` or `...\Binaries\Win64\`  
-- XBOX PC / some store builds: do not pick a read-only system install path — the installer will refuse it  
+- XBOX PC / some store builds: do not pick a read-only system install path — the installer will refuse it and ask for a writable folder  
+
+The installer then does the following:
 
 | Source | Installed as |
 |---|---|
@@ -126,7 +153,7 @@ If an old OptiScaler or other inject DLL is already in the game folder, the inst
 
 1. Launch the game.  
 2. Press **Insert (Ins)** to open the OptiScaler menu.  
-3. Enable **DLSSNR**. The original-project version (`0.3.1` or `0.3.0`) should appear to the right of the checkbox.  
+3. Find and enable **NR** under **DLSS Neural Rendering** (AMD neural rendering). The original-project version (`0.3.1` or `0.3.0`) should appear on that same row.  
 4. You now get **DLSS5 neural denoise + FFX/FSR** super-resolution.
 
 Other OptiScaler options (hotkeys, compatibility, more FG modes): [OptiScaler Wiki](https://github.com/optiscaler/OptiScaler/wiki).
@@ -195,7 +222,7 @@ InterpolationCount=1
 
 ### Manual install (no Setup.bat)
 
-`version.dll` comes from `dlssnr_on_amd_setup.exe` (original author **0.3.1 or 0.3.0**).  
+For people who already know how to drop DLLs into a game folder. `version.dll` comes from `dlssnr_on_amd_setup.exe` (original author **0.3.1 or 0.3.0**).  
 Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)
 
 1. Run `dlssnr_on_amd_setup.exe` to obtain `version.dll` and `dlssnr_on_amd_weights.bin` (`nvngx_dlssnr.dll` is required to generate weights).  
@@ -206,7 +233,7 @@ Original project docs: [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc
    - usually `dxgi.dll` (or `winmm.dll`, etc.; **not** `dinput8.dll`)  
    - or **`version.dll`** if you want the same proxy name as the original author  
 6. **Second-to-last:** remove any leftover file that would clash with your inject name (if step 5 uses `version.dll`, do not keep the original-author `version.dll` there too).  
-7. In-game: **Ins** → enable **DLSSNR**.
+7. In-game: **Ins** → enable **NR** under **DLSS Neural Rendering**.
 
 ### Uninstall
 
@@ -257,7 +284,7 @@ Do **not** leave the original-author `version.dll` next to the proxy (double inj
 ### 3. In-game check
 
 1. Launch the game and press **Ins** to open the OptiScaler menu.  
-2. Confirm DLSSNR status shows **`AMD NR runtime: 0.3.x`** (0.3.1 or 0.3.0).  
+2. Confirm the NR status shows **`AMD NR runtime: 0.3.x`** (0.3.1 or 0.3.0).  
 3. If it says waiting / unknown runtime / that line is missing, pass or weights are usually wrong — recheck the files above.
 
 ### 4. What to include in a report
@@ -266,7 +293,7 @@ When opening an issue or asking for help, state:
 
 1. **Proxy name**: `dxgi.dll`, `winmm.dll`, or something else?  
 2. **Files next to the proxy**: pass1/2/3, weights, optional `nvngx_dlssnr.dll`; any leftover `version.dll`?  
-3. **Ins menu**: does DLSSNR show `AMD NR runtime: 0.3.x`?  
+3. **Ins menu**: does NR show `AMD NR runtime: 0.3.x`?  
 4. **Logs**: `OptiScaler.log`, `amd_bridge.log`, `amd_presr.log`, `dlssnr_on_amd.log` (say the full path if they are under `_storage_`).  
 5. Game name, GPU, driver version, and the symptom (no menu / no denoise / stutter / crash).
 
@@ -282,6 +309,6 @@ Code chain (top to bottom): [OptiScaler](https://github.com/optiscaler/OptiScale
 - [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — AMD pre-SR bridge  
 - [**Original project / original author danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.1 / 0.3.0** (not redistributed)  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — the colour composition in `dlssnr.hlsl` is taken from their DLSS 5 neural rendering addon; full text in `Licenses/RenoDX_ATTRIBUTION.txt`  
-- This project: NR slots, installer, packaging, wait mode, and the original-author wiring  
+- This project: NR slots, 0.3.1 integration, new-wait state freeze/restore, installer and packaging  
 
 No NVIDIA binaries, original-author setup, NR weights, or author pass DLLs are included. Follow each upstream's license.

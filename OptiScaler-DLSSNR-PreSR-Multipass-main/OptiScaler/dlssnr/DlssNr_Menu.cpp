@@ -120,28 +120,30 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::Spacing();
 
         bool enabled = config->DlssNrEnabled.value_or_default();
-        if (ImGui::Checkbox("Enable Neural Rendering", &enabled))
+        if (ImGui::Checkbox("Enable NR", &enabled))
             config->DlssNrEnabled = enabled;
 
         if (DlssNr::AmdBridge::HasFiles())
         {
             // Product OPTI_VERSION stays upstream 10.0.0-dev. Name the author
-            // runtime beside the checkbox so the menu is not mistaken for
+            // runtime on the enable row so the menu is not mistaken for
             // "no NR version" without spending a whole row.
-            ImGui::SameLine();
             if (const auto* ver = DlssNr::AmdBridge::RuntimeName(); ver && *ver)
             {
+                ImGui::SameLine();
                 ImGui::TextDisabled("%s", ver);
                 HelpMarker("AMD NR runtime (original project / original author).");
             }
             else
             {
+                ImGui::SameLine();
                 ImGui::TextDisabled("pass1?");
                 HelpMarker("AMD NR runtime: pass1 not identified yet.");
             }
 
+            ImGui::SameLine();
             bool everyFrame = config->AmdEveryFrame.value_or_default();
-            if (ImGui::Checkbox("Every-frame NR", &everyFrame))
+            if (ImGui::Checkbox("Every-frame", &everyFrame))
                 config->AmdEveryFrame = everyFrame;
             HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
                        "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
@@ -155,7 +157,7 @@ void RenderMenu(Config* config, float menuResScale)
             const bool restartToTryNewWait = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
                 std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
             const bool restartNeeded = newWait && restartToTryNewWait;
-            if (ImGui::Checkbox(restartNeeded ? "New wait (restart to enable)" : "New wait", &newWait))
+            if (ImGui::Checkbox(restartNeeded ? "New wait (restart)" : "New wait", &newWait))
             {
                 config->AmdGraphicsWait = newWait ? 1 : 0;
                 if (newWait && restartToTryNewWait)
@@ -174,19 +176,26 @@ void RenderMenu(Config* config, float menuResScale)
                 ImGui::EndPopup();
             }
 
-            // Range 2-5. The ini also accepts NR slots = 1, which reproduces the
-            // old one-frame-outstanding path; it is deliberately not selectable
-            // here, and it was not part of the 2-vs-3 measurement, so nothing in
-            // the tooltip claims a number for it. When the ini says 1 the slider
-            // starts at 2 and the note below says so, rather than showing a
-            // number the game is not using.
+            // Menu offers 2-5 only (same as the old slider). The ini also accepts
+            // 1 for the old one-frame-outstanding path; that is not selectable
+            // here. Combo matches the MFG ratio control: open a short list instead
+            // of a full-width drag handle.
             const int stored = std::clamp(config->AmdSlots.value_or_default(), 1, 5);
-            static int slots = 3;
-            static bool editingSlots = false;
-            if (!editingSlots) slots = std::clamp(stored, 2, 5);
-            ImGui::SliderInt("NR slots", &slots, 2, 5);
-            editingSlots = ImGui::IsItemActive();
-            if (ImGui::IsItemDeactivatedAfterEdit()) config->AmdSlots = slots;
+            const int shown = std::clamp(stored, 2, 5);
+            char slotPreview[8] {};
+            std::snprintf(slotPreview, sizeof(slotPreview), "%d", shown);
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("NR slots", slotPreview))
+            {
+                for (int s = 2; s <= 5; ++s)
+                {
+                    char item[8] {};
+                    std::snprintf(item, sizeof(item), "%d", s);
+                    if (ImGui::Selectable(item, shown == s))
+                        config->AmdSlots = s;
+                }
+                ImGui::EndCombo();
+            }
             HelpMarker("How many frames may be running denoise at once, 2-5. A frame that gets"
                        "\na buffer waits for its own denoise; one that finds all buffers busy is"
                        "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
@@ -200,7 +209,7 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
                        "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
                        "\nOnly the selected number is allocated. No restart needed.\n"
-                       "\nThe ini also accepts 1 (the old single-slot path); this slider does not.");
+                       "\nThe ini also accepts 1 (the old single-slot path); this menu does not.");
             if (stored < 2)
                 ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
         }
@@ -460,7 +469,7 @@ void RenderMenu(Config* config, float menuResScale)
 
             // With "Apply the model" off the pass STILL RUNS (so Hold-frame A/B can toggle its edit on
             // a frozen frame) -- it only outputs the clean frame. So the cost is real, and saying so
-            // stops the reading looking like a bug. Enable Neural Rendering off is what zeroes it.
+            // stops the reading looking like a bug. Enable NR off is what zeroes it.
             const char* runSuffix =
                 !config->DlssNrApplyModel.value_or_default() ? "  (model running, edit hidden)" : "";
 

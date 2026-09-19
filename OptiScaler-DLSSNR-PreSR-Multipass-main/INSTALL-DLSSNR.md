@@ -48,7 +48,7 @@ Get-FileHash .\nvngx_dlssnr.dll -Algorithm SHA256
 6. Run `setup_windows.bat`. It renames `OptiScaler.dll` to a proxy filename the game will load and
    creates an uninstaller. `dxgi.dll` is the usual first choice. The validated Cyberpunk 2077 setup
    used `dbghelp.dll` to coexist with its existing loaders.
-7. Enable Neural Rendering in the `Insert` overlay, or edit `OptiScaler.ini`:
+7. Enable NR in the `Insert` overlay, or edit `OptiScaler.ini`:
 
 ```ini
 [DlssNr]
@@ -115,7 +115,7 @@ See [validation and reporting instructions](docs/PADDED-PRESR.md).
 
 In a game that already supports RR, enable RR in the game's settings and enable
 **Apply after Ray Reconstruction (DX12)** in OptiScaler's Neural Rendering menu. The master
-**Enable Neural Rendering** switch must also be on. Equivalent INI settings:
+**Enable NR** switch must also be on. Equivalent INI settings:
 
 ```ini
 [DlssNr]

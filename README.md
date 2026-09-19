@@ -1,18 +1,32 @@
 **中文** | [English](README.en.md)
 
-# OptiScaler AMD pre-SR — 1.8.5-0.3.1
+# OptiScaler AMD pre-SR — 1.8.6-0.3.1
 
-在 **OptiScaler** 上接入 **AMD 神经渲染**（DLSS5），让 **纯 DLSS / XeSS 游戏**在 AMD 显卡上跑神经降噪；超分仍由 **FFX/FSR** 完成。
+在 **OptiScaler** 上接入 **AMD 神经渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏**在 AMD 显卡上跑神经降噪；超分仍由 **FFX/FSR** 完成。
 
-`1.8.5` = 本仓库版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。相对 1.8.4：卸载只清理明确依赖；公共 shader 深度 SRV / DX11 借用资源、HIP 搜索回退、XeFG 高倍率可写入 ini（实际上限仍受 XeFG 与多帧生成插件限制，见下文）。不改神经核，不宣称帧率提升。
+本项目 fork 自 **Matheus** 及其上游。上游已定稿最终版，本项目在此基础上接手维护，主要做了三件事：
 
-**等待：默认新等待（`AmdGraphicsWait=1`）。** 新等待会请求 0.3.1 的 1 像素 draw 等待（仍在测试）。本项目仅在本帧 D3D12 状态快照与恢复准备就绪时才请求新等待，否则回退原等待。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
+1. 增加**多槽**，尽量每帧都做 NR；实测约 **+33%** 帧率  
+2. 更新对 **danielblnc** 项目 **0.3.1** 的适配  
+3. 为 0.3.1 **新等待**补上 D3D12 状态冻结/恢复（含空状态「空→空」还原），增强对**鬼武者**等游戏的兼容  
 
-游戏内 **Ins → New wait**：关闭即原等待（立即切换）；重新打开时若 hooks 或某个 pass 尚未就绪，菜单会提示重启。若新等待出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`（原等待），再启动游戏。
+（详见下文「相比前人」「多槽」等节。）
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 （若你从网盘等渠道拿到本包，请以上述仓库为准。）
+
+---
+
+本项目是 danielblnc 运行时的**桥接层**。多轮实机诊断下来，桥接部分自身的开销大约在 **0.01～0.03 ms** 量级，可以认为几乎无额外性能损耗。
+
+`1.8.6` = 本仓库当前版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。
+
+**相对 1.8.5：** 根据玩**鸣潮、异环**等网友的实机反馈，Ins 菜单**补回 Every-frame 勾选**（1.8.5 菜单无此按钮，仍可通过 ini 的 `AmdEveryFrame` 修改）。无实际性能提升，只是把开关交回菜单，并更新排版。
+
+**画面等待模式：默认 0.3.1 新等待（`AmdGraphicsWait=1`）。** 新等待会请求 0.3.1 的 1 像素 draw 等待（仍在测试）。仅在本帧 D3D12 状态可冻结、恢复准备就绪时才请求新等待，否则回退原等待；空图形状态会按空还原，不脏改游戏的 command list。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
+
+游戏内 **Ins → New wait**：关闭即原等待模式（无需重启游戏）；重新打开时若 hooks 或某个 pass 尚未就绪，菜单会提示重启。若新等待出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`（原等待），再启动游戏。
 
 > 不是神经核的重实现，也不是 ReShade 滤镜。  
 > 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.1 / 0.3.0）→ FFX/FSR 超分**。
@@ -24,32 +38,43 @@
 | 上游 | 他们做了什么 | 本项目额外做了什么 |
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分代理（DLSS / FFX / XeSS） | 仍作为安装与运行主体 |
-| **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** | 给 OptiScaler 接上 DLSS 神经渲染 | 继承其 OptiScaler 代码基底（`v0.2.0-dlssnr`） |
-| **[wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 在超分前跑神经渲染，支持多 pass | 继承其 pre-SR 架构 |
-| **[Matheus / dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)** | 把 pre-SR 接到 AMD 运行时：DLSS 输入 → AMD NR → FFX | **NR 槽位可调**（减少跳过帧）；对接原作者 0.3.1 / 0.3.0；安装器更兼容 XBOX PC |
-| **[原项目 / 原作者 danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.1 / 0.3.0 调用 |
+| **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 先把 DLSS 神经渲染接进 OptiScaler，再做成超分前多 pass | 继承其 OptiScaler 代码基底与 pre-SR 架构 |
+| **[Matheus / dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)** | 把 pre-SR 接到 AMD 运行时：DLSS 输入 → AMD NR → FFX | 在其基础上：默认 **3 槽**调度，尽量每帧 NR；相对原 repo **1.7.3** 版单槽旧基线约 **+33%**（33.5→44.5），去掉约 **8.7 ms**/帧 GPU 空转；对接 0.3.1 / 0.3.0；为新等待补状态冻结/恢复；安装器更兼容 XBOX PC。桥接开销实测约 **0.01～0.03 ms** 量级 |
+| **[原项目 / 原作者 danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.1 / 0.3.0 调用；并为 0.3.1 **新等待**补上 D3D12 状态冻结/恢复（含空状态「空→空」还原），以便在 DLSS/XeSS 游戏上安全启用 |
 
-### 内联 NR 与「槽位」
+### 多槽：每帧都要 NR
 
-降噪（DLSS5）是插在画面路径里的：拿到槽位的那一帧，要等自己的降噪算完才能出图。本模组给每个还没算完的降噪任务留一块独立缓冲（**槽**）——槽不够时，该帧会**整帧跳过降噪**，画面更快出来，但可能变糊。
+降噪（DLSS5）插在画面路径上：拿到槽的那一帧，要等自己的降噪算完才能出图。本模组给每个还没算完的降噪任务留一块独立缓冲（**槽**）。**槽不够时，那一帧会整帧跳过降噪**——画面更快出来，但可能糊、闪。
 
-**默认 3 槽。** 游戏内 `DLSS Neural Rendering` → `NR slots` 可调（2–5，改完即生效，不用重启）。
+Matheus 那条线更偏向少槽/跳帧换吞吐：NR 跟不上时，部分帧完全不做降噪。本项目改成默认多槽：尽量**每帧都挂上 NR**，并去掉单槽在提交后空等上一份 GPU 工作的开销（PresentMon 里约 **MsGPUWait 8.7 ms/帧**）。
 
-| 实测（**4K FSR 超级性能档**，相当于 720p 渲染） | 2 槽 | 3 槽 |
+| 配置（鬼武者类，4K FSR 超级性能（＝720p 渲染；锁 60 帧对照）） | 帧周期中位 | 大约 fps | MsGPUWait | 每帧 NR |
+|---|---:|---:|---:|---|
+| 单槽·每帧 NR（旧基线） | 29.82 ms | **33.5** | **8.69 ms** | 被上一帧卡住，吞吐上不去 |
+| **本项目默认多槽** | 22.45 ms | **44.5**（约 **+33%**） | **≈ 0** | **尽量每帧都有 NR** |
+| 原作者 0.3 原生（对照） | 22.35 ms | 44.8 | 0 | 原生路径本身不靠跳帧 |
+
+- 在尽量**每帧 NR** 的前提下，相对单槽旧基线实测约 **+33%**（33.5→44.5），与原作者原生 0.3 同档；不是靠跳帧把数字做高。
+- 变快靠的是调度：不再空等上一帧，也不再因满槽整帧丢掉降噪。神经核本身没有变快（`network` 仍约 12～13 ms @720p）。
+- 鬼武者后续不限帧/不同场景的多槽观测大约在 **44～51 fps**；上表对照用的是同一时期 33.5 vs 44.5。
+
+**游戏里槽位调几？** 默认 **3**。`DLSS Neural Rendering` → `NR slots` 可调（2–5，改完即生效，不用重启）。当前多轮测试，槽位本身不增加延迟，直接选 5 理论上不会有性能损耗。
+
+| 实测（4K FSR 超级性能） | 2 槽 | 3 槽 |
 |---|---:|---:|
 | 鬼武者 | 19.50 ms，**0 跳过** | 19.49 ms，**0 跳过** |
-| 燕云十六声 | 19.05–19.25 ms，**大量跳过 NR 帧** | 21.78–21.89 ms，**0 跳过** |
+| 燕云十六声（Where Winds Meet，下称 WWM） | 19.05–19.25 ms，**大量跳过 NR 帧**（呈现更快，但是无降噪帧） | 21.78–21.89 ms，**0 跳过** |
 
-- 在鬼武者上，2/3 槽的帧周期与显示延迟落在重复测量波动内，**没有测出差异**
-- 燕云 A/B 会话里，2 槽阶段的日志计数器分别增加约 **1200 / 1440**，3 槽阶段为 0；段长与 PresentMon 的 45 秒窗口不同，不能据此计算跳过率  
+- 在鬼武者上，2/3 槽的帧周期与显示延迟落在重复测量波动内，**没有测出差异**；WWM 极致画质下必须 **≥3** 才稳
+- WWM A/B 会话里，2 槽阶段的日志计数器分别增加约 **1200 / 1440**，3 槽阶段为 0；段长与 PresentMon 的 45 秒窗口不同，不能据此计算跳过率  
   另一次独立的 1→5 槽会话里，2 槽的 60 秒阶段计数 **1800**，3/4/5 槽都是 0；两次会话的计数不作横向比较
 - 同一 A/B 会话里，2 槽显示延迟为 47.6–47.9 ms，3 槽为 62.9–63.2 ms——前者伴随大量降噪跳过，不是同等工作的免费收益
 - **4–5 槽已经在上述扫描中测过**，在该场景没有比 3 槽更快；尚未测到真正需要 4 或 5 槽的更重场景
 - 每槽是**渲染分辨率**（DLSS 输入）的一张 FP16 纹理——4K 输出配超分质量档（1440p 渲染）约 29 MB，原生 4K 渲染才 66 MB——且**只按所选数量分配**
-- ini 里 `AmdSlots` 也接受 `1`（只允许一帧同时降噪，接近旧版行为），菜单不提供
-- `AmdEveryFrame` 默认 `true`，Ins 菜单不提供；要改只动 ini（多槽下平时不再靠它阻塞等待）
+- ini 里 `AmdSlots` 也接受 `1`（只允许一帧同时降噪，接近旧单槽行为），菜单不提供
+- `AmdEveryFrame` 默认 `true`，Ins 菜单为 **Every-frame**（与 Enable NR 同排），ini 的 `[DlssNr] AmdEveryFrame` 仍可改（多槽下平时不再靠它阻塞等待）
 
-早期单槽与多槽数字来自不同采集会话，只能说明「不用卡住上一帧」之后的改善方向，不能当作精确的同局性能增益；神经渲染本身没有因此变快。
+> **+33%** 指的是相对**原 repo 1.7.3 版**单槽硬等旧基线的调度收益；神经渲染本身没有因此变快。原作者 danielblnc 的运行时本身**没有跳帧问题**，主要面向**已支持 FSR 的游戏**。本项目相对 Matheus 的改动是**多槽调度**（以及安装/XBOX 兼容、0.3.1 适配与新等待状态恢复等），用来在 **DLSS / XeSS 游戏**上尽量做到每帧 NR，并消掉单槽空等——不只是适配 daniel 的 0.3.1。
 
 ---
 
@@ -129,7 +154,7 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 
 1. 启动游戏。  
 2. 按 **Insert（Ins）** 打开 OptiScaler 菜单。  
-3. 找到并勾选 **DLSSNR**（AMD 神经渲染）。开关右侧应显示原项目版本，如 `0.3.1` 或 `0.3.0`。  
+3. 找到 **DLSS Neural Rendering**，勾选 **Enable NR**（AMD 神经渲染）。同一行应显示原项目版本，如 `0.3.1` 或 `0.3.0`。  
 4. 之后画面上走的就是 **DLSS5 神经降噪 + FFX/FSR 超分**。
 
 其它 OptiScaler 用法（菜单快捷键、兼容性、更多 FG 选项）见： [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki)。
@@ -209,7 +234,7 @@ InterpolationCount=1
    - 常用：`dxgi.dll`（或 `winmm.dll` 等，**不要用 `dinput8.dll`**）  
    - 也可以直接改成 **`version.dll`**（和原作者同一代理名时尤其方便）  
 6. **倒数第二步**：确认游戏目录里没有多余的、和注入名冲突的旧 `version.dll` / 旧代理 DLL（若你在第 5 步已把 OptiScaler 改成 `version.dll`，则不要再留一份原作者的 `version.dll`）。  
-7. 进游戏，**Ins** 打开菜单，勾选 **DLSSNR**。
+7. 进游戏，**Ins** 打开菜单，在 **DLSS Neural Rendering** 下勾选 **Enable NR**。
 
 ### 卸载
 
@@ -260,7 +285,7 @@ InterpolationCount=1
 ### 3. 游戏内自检
 
 1. 启动游戏，按 **Ins** 打开 OptiScaler 菜单。  
-2. 看 **DLSSNR** 状态是否显示：**`AMD NR runtime: 0.3.x`**（0.3.1 或 0.3.0）。  
+2. 看 NR 状态是否显示：**`AMD NR runtime: 0.3.x`**（0.3.1 或 0.3.0）。  
 3. 若显示 waiting / 未识别 runtime / 没有该行，多半是 pass 或 weights 路径不对，回到上一节核对文件。
 
 ### 4. 反馈时请写清
@@ -269,7 +294,7 @@ InterpolationCount=1
 
 1. **代理名**：`dxgi.dll`、`winmm.dll`，还是其它？  
 2. **代理旁文件是否齐全**：pass1/2/3、weights、（可选）`nvngx_dlssnr.dll`；有没有多余的 `version.dll`？  
-3. **Ins 菜单**：DLSSNR 是否显示 `AMD NR runtime: 0.3.x`？  
+3. **Ins 菜单**：NR 是否显示 `AMD NR runtime: 0.3.x`？  
 4. **日志**：`OptiScaler.log`、`amd_bridge.log`、`amd_presr.log`、`dlssnr_on_amd.log`（若在 `_storage_` 请说明完整路径）。  
 5. 游戏名、显卡、驱动版本，以及问题现象（打不开菜单 / 无降噪 / 卡顿 / 崩溃）。
 
@@ -285,6 +310,6 @@ InterpolationCount=1
 - [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) —— AMD pre-SR 桥接  
 - [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.1 / 0.3.0**（不随本包分发）  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx)（MIT）—— `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon，全文见 `Licenses/RenoDX_ATTRIBUTION.txt`  
-- 本项目：NR 槽位、安装器、打包、等待模式与原作者对接  
+- 本项目：NR 槽位、0.3.1 适配、新等待状态冻结/恢复、安装器与打包  
 
 本包不含 NVIDIA 二进制、原作者 setup、NR 权重、上游闭源 pass。请遵守各上游许可。

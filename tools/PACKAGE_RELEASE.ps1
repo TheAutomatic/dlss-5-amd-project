@@ -1,17 +1,17 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / author proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.5-0.3.1
-    1.8.5  = this fork's product version
+  Default product: OptiScaler-AMD-PreSR-1.8.6-0.3.1
+    1.8.6  = this fork's product version
     0.3.1  = primary upstream NR runtime (0.3.0 still accepted)
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.5-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.8.6-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.5-0.3.1',
+    [string]$Version = '1.8.6-0.3.1',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -179,7 +179,7 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 ; Product $Version - NR slots default 3 (2-5 in-game, 1-5 here).
 ; Requires DLSS-NR-on-AMD 0.3.0 or 0.3.1 (https://github.com/danielblnc/DLSS-NR-on-AMD)
 ; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
-; AmdEveryFrame=true is the product default (INI-only; not shown in the Ins menu).
+; AmdEveryFrame=true is the product default (Ins menu: "Every-frame"; also INI).
 ; AmdGraphicsWait=1 is New wait (0.3.1 1-pixel draw; still testing).
 ; Set 0 for Original wait.
 ; Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).

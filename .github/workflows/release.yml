@@ -29,7 +29,7 @@ on:
       version:
         description: 'Product version (fork-runtime), e.g. 1.8.3-0.3.1'
         required: false
-        default: '1.8.5-0.3.1'
+        default: '1.8.6-0.3.1'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.5-0.3.1'
+          $v = '1.8.6-0.3.1'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -236,32 +236,20 @@ jobs:
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - **New wait is now the default** (`AmdGraphicsWait=1`). New wait requests 0.3.1's 1-pixel draw wait (still being tested). The host requests that path only when this frame's D3D12 state snapshot and restore preparation succeed; otherwise it falls back to original wait. This does not recover automatically from a hang, crash, or device removal. If new wait causes problems, turn off **New wait**; if the menu is inaccessible, close the game and set `[DlssNr] AmdGraphicsWait=0` before restarting.
-            - Menu: **New wait**. Off = original wait, switches immediately. On after an original-wait launch (or when a pass is not ready) asks you to restart.
-            - Safer new-wait path: freeze/pin/restore gates; empty viewport/scissor/topology after Create/Reset/ClearState treated as known-unset; multi-RTV OM capture; CreateCommandList1 tracking; actual Draw/Dispatch observation.
-            - **Installer**: end-of-run **SUCCEEDED / FAILED** + press any key; proxy menu notes some games prefer `winmm.dll` and `dxgi.dll` is the default (try winmm if the game will not start); writes `amd-presr-install.txt`.
-            - **`Uninstall_OptiScaler_NR.bat`**: Setup copies it into the **game folder**. Double-click there (no folder picker). It first asks whether to keep `backup-amd-presr-*` folders, then lists planned files/folders, then waits for Y/N (not case sensitive). Keeps `nvngx_dlssnr.dll`, weights, original-author setup/logs, other proxies, and user-added plugins/files. Removes only empty dependency directories and also checks Xbox `_storage_`.
-
-            **Install**
-            - Close the game, unzip anywhere, run `Setup.bat`, pick the folder with the game exe
-            - You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights)
-            - In game, press **Ins** → enable **DLSSNR**
-
-            Since 1.8.4, this project supports **0.3.1 new wait** (still being tested). In-game: **Ins** → **New wait**. Turn it **off** for original wait immediately; if you turn it **on** after an original-wait launch, restart the game when prompted.
+            - **Versus 1.8.5:** based on in-game feedback from players of **Where Winds Meet** and **异环**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). **No actual performance change** — only the switch returns to the menu, with an updated layout.
+            - Ins layout: **Enable NR** with **Every-frame** on the same row; **New wait** with **NR slots** (dropdown 2–5). Off New wait = original-wait mode, no game restart needed.
+            - Multi-slot (default 3) remains the main change versus the Matheus line: nearly every frame carries NR; measured about **+33%** FPS vs the old single-slot baseline in original repo 1.7.3. Bridge overhead measured ~**0.01–0.03 ms**.
+            - New wait still defaults on (`AmdGraphicsWait=1`); empty graphics state is restored as empty (empty→empty). Not automatic recovery from hang/crash/device removal.
+            - **Installer / Uninstall**: same as 1.8.5 (end-of-run result, game-folder uninstaller, keep-backups prompt, `_storage_` check).
+            - In game: **Ins** → **DLSS Neural Rendering** → enable **NR**. You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights).
 
             ### 中文
-            - **默认改为新等待**（`AmdGraphicsWait=1`）。新等待会请求 0.3.1 的 1 像素 draw 等待（仍在测试）。本项目只在本帧 D3D12 状态快照与恢复准备就绪时才请求这条路径，否则回退原等待。这不代表卡死、崩溃或设备移除后能自动恢复。新等待出现异常时请关闭 **New wait**；进不了菜单时，先关游戏，将 `[DlssNr] AmdGraphicsWait=0` 后再启动。
-            - 菜单：**New wait**。关 = 原等待，立即切换；在原等待启动后打开、或某个 pass 尚未就绪时，会提示重启游戏。
-            - 新等待路径更安全：freeze/挂起/恢复门控；Create/Reset/ClearState 后的空 viewport/scissor/topology 按「已知未设置」处理；多 RTV 的 OM 捕获；跟踪 CreateCommandList1；观察真实 Draw/Dispatch 实现。
-            - **安装器**：结束时明确 **成功 / 失败**，按任意键退出；选代理时提示部分游戏更推荐 `winmm.dll`，`dxgi.dll` 为默认（游戏起不来可改试 winmm）；会写 `amd-presr-install.txt`。
-            - **`Uninstall_OptiScaler_NR.bat`**：Setup 会拷进**游戏目录**，在那里双击（不选文件夹）。先问是否保留 `backup-amd-presr-*`，再列出计划删除的文件/文件夹，然后 Y/N 确认（不区分大小写）。保留 `nvngx_dlssnr.dll`、weights、原作者 setup 与日志、其它代理，以及额外添加的插件和文件。只移除已经清空的依赖目录，也检查 XBOX 的 `_storage_`。
-
-            **安装**
-            - 关掉游戏，解压后运行 `Setup.bat`，选游戏 exe 所在目录
-            - 需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）
-            - 进游戏按 **Ins** → 勾选 **DLSSNR**
-
-            自 1.8.4 起，本项目开始支持 **0.3.1 的新等待**，仍在测试中。游戏内 **Ins** 菜单 → **New wait**：**关闭**即原等待；若在原等待启动后再打开，按提示**重启游戏**即可。
+            - **相对 1.8.5：** 根据玩**燕云十六声（Where Winds Meet）**、**异环**等网友的实机反馈，Ins 菜单**补回 Every-frame 勾选**（1.8.5 菜单无此按钮，仍可通过 ini 的 `AmdEveryFrame` 修改）。**无实际性能提升**，只是把开关交回菜单，并更新排版。
+            - 菜单排版：**Enable NR** 与 **Every-frame** 同排；**New wait** 与 **NR slots** 同排（下拉 2–5）。关闭 New wait 即原等待模式，无需重启游戏。
+            - 相对 Matheus 线的主要改动仍是**多槽**（默认 3）：尽量每帧 NR；相对原 repo 1.7.3 版单槽旧基线实测约 **+33%** 帧率。桥接开销实测约 **0.01～0.03 ms**。
+            - 新等待仍默认开启（`AmdGraphicsWait=1`）；空图形状态按空还原。不代表卡死/崩溃/设备移除后能自动恢复。
+            - **安装 / 卸载**：与 1.8.5 相同（结束时成功/失败提示；卸载器在游戏目录运行；可选保留备份；检查 `_storage_`）。
+            - 进游戏：**Ins** → **DLSS Neural Rendering** → 勾选 **Enable NR**。需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）。
 
             - Corresponding source: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs in this zip.

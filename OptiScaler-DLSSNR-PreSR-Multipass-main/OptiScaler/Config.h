@@ -296,9 +296,10 @@ class Config
     CustomOptional<int> AmdSlots { 3 };
 #endif
     CustomOptional<float> AmdNrScale { 1 };
-    // Product default remains every-frame. The Ins menu no longer exposes this;
-    // change [DlssNr] AmdEveryFrame in the INI. With more than one slot the
-    // post-Execute wait is skipped except during native rebuild.
+    // Product default remains every-frame. Exposed as "Every-frame" on the
+    // Ins menu (same row as "Enable NR"); [DlssNr] AmdEveryFrame still works
+    // from the INI. With more than one slot the post-Execute wait is skipped
+    // except during native rebuild.
     CustomOptional<bool> AmdEveryFrame { true };
     // Legacy INI key. SpinDraw is driven only by AmdGraphicsWait.
     CustomOptional<int> AmdSpinDraw { 0 };
