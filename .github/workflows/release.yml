@@ -236,7 +236,7 @@ jobs:
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - **Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves (鸣潮)** and **异环**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). **No actual performance change** — only the switch returns to the menu, with an updated layout.
+            - **Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves** and **Neverness to Everness (NTE)**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). **No actual performance change** — only the switch returns to the menu, with an updated layout.
             - Ins layout: **Enable NR** with **Every-frame** on the same row; **New wait** with **NR slots** (dropdown 2–5). Off New wait = original-wait mode, no game restart needed.
             - Multi-slot (default 3) remains the main change versus the Matheus line: nearly every frame carries NR; measured about **+33%** FPS vs the old single-slot baseline in original repo 1.7.3. Also fully integrates **danielblnc 0.3.1**. Overall bridge cost measured ~**0.01–0.03 ms**, effectively negligible.
             - In game: **Ins** → **DLSS Neural Rendering** → enable **NR**. You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights).

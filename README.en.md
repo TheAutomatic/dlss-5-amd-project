@@ -22,7 +22,7 @@ This project is the **bridge** into the danielblnc runtime. Across several in-ga
 
 `1.8.6` = current version of this repository; `0.3.1` = primary upstream runtime (**0.3.0 still works**).
 
-**Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves (鸣潮)** and **异环**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). No actual performance change — only the switch returns to the menu, with an updated layout.
+**Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves** and **Neverness to Everness (NTE)**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). No actual performance change — only the switch returns to the menu, with an updated layout.
 
 **Picture wait mode: default 0.3.1 New wait (`AmdGraphicsWait=1`).** New wait requests 0.3.1’s 1-pixel draw wait (still being tested). It is requested only when this frame’s D3D12 state can be frozen and restore is ready; otherwise the path falls back to original wait. Known-empty graphics state is restored as empty, so the game’s command list is not left dirty. This is not automatic recovery from a hang, crash, or device removal.
 
