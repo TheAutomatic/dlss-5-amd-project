@@ -45,9 +45,15 @@ without the D3D12 network. The HIP headers (`native_hip_network.h` → bridge �
 
 1. `NativeLabRoot()` no longer falls back to `D:\\DLSSNR-Lab`. Missing assets throw.
 
+## Runtime ABI (this tree)
+
+C ABI lives in `include/LmxxfNrApi.h`. The MinGW stub in `runtime/` does not compile
+the HIP headers yet and does not install hooks.
+
 ## Required follow-up (P2)
 
 1. Process-global `getenv` / geometry statics → instance config (first version
    still freezes paper_white=1, strength=(1,1), CODEC_SRGB=0, graph=false).
-2. C ABI + no C++ exceptions across `LmxxfNrRuntime.dll`.
+2. Wire RecordInputs / EnqueueHip / RecordOutputs to the HIP bridge without
+   throwing across the DLL boundary.
 3. Extract encode/decode so `native_game_codec.h` does not need `native_split.h`.
