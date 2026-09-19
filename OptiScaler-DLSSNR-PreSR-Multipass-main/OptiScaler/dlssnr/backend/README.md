@@ -35,3 +35,9 @@ Upstream source is a vendored closure at `third_party/lmxxf` pinned to `68dc099`
 - `DanielBackend` — owns `AmdPreSr::Backend`, no protocol change
 - `LmxxfBackend.h` — declared, not constructed
 - `Selector` — requested vs active kind
+
+## Stopped at
+
+P2 (`LmxxfNrRuntime.dll`) needs MinGW (`x86_64-w64-mingw32-g++`). It is not on this machine.
+Do not compile the HIP closure with MSVC. Also remaining: C ABI header, encode extract
+(codec still includes `native_split.h`), matching hsaco from `68dc099`.
