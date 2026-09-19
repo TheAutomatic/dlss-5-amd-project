@@ -134,12 +134,10 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
-            // Product OPTI_VERSION stays upstream 10.0.0-dev. Runtime name sits
-            // on the enable row with air on both sides so it does not glue to
-            // the checkbox or to Every-frame.
+            // Runtime name belongs with Enable NR — tight pair, not a separate group.
             const char* ver = DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
-            HGap(0.4f);
+            HGap(0.12f);
             ImGui::TextDisabled("%s", haveVer ? ver : "pass1?");
             HelpMarker(haveVer ? "AMD NR runtime (original project / original author)."
                                : "AMD NR runtime: pass1 not identified yet.");
@@ -208,16 +206,16 @@ void RenderMenu(Config* config, float menuResScale)
             const bool restartToTryNewWait = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
                 std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
             const bool restartNeeded = newWait && restartToTryNewWait;
-            if (ImGui::Checkbox(restartNeeded ? "New wait (restart)" : "New wait", &newWait))
+            if (ImGui::Checkbox(restartNeeded ? "New wait mode (restart)" : "New wait mode", &newWait))
             {
                 config->AmdGraphicsWait = newWait ? 1 : 0;
                 if (newWait && restartToTryNewWait)
                     ImGui::OpenPopup("New wait restart");
             }
-            HelpMarker("On: New wait (0.3.1 1-pixel draw). Still being tested."
-                       "\nOff: Original wait (switches immediately)."
-                       "\nRestart if prompted: hooks or a pass may not be ready for new wait."
-                       "\nFrames that cannot use new wait still fall back to original wait.");
+            HelpMarker("On: New wait mode (0.3.1 1-pixel draw). Still being tested."
+                       "\nOff: Original wait mode (switches immediately)."
+                       "\nRestart if prompted: hooks or a pass may not be ready for new wait mode."
+                       "\nFrames that cannot use new wait mode still fall back to original wait.");
             if (ImGui::BeginPopupModal("New wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
                 ImGui::TextUnformatted("Some NR processing still uses original wait.");

@@ -237,13 +237,13 @@ jobs:
 
             ### English
             - **Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves** and **Neverness to Everness (NTE)**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). **No actual performance change** — only the switch returns to the menu, with an updated layout.
-            - Ins layout: **Enable NR** with **Every-frame** on the same row; **New wait** with **NR slots** (dropdown 2–5). Off New wait = original-wait mode, no game restart needed.
+            - Ins layout: **Enable NR** (with runtime version) and **Every-frame** on one row; **NR slots** (narrow dropdown 2–5) then **New wait mode** on the next. Off New wait mode = original-wait mode, no game restart needed.
             - Multi-slot (default 3) remains the main change versus the Matheus line: nearly every frame carries NR; measured about **+33%** FPS vs the old single-slot baseline in original repo 1.7.3. Also fully integrates **danielblnc 0.3.1**. Overall bridge cost measured ~**0.01–0.03 ms**, effectively negligible.
             - In game: **Ins** → **DLSS Neural Rendering** → enable **NR**. You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights).
 
             ### 中文
             - **相对 1.8.5：** 根据玩**鸣潮**、**异环**等网友的实机反馈，Ins 菜单**补回 Every-frame 勾选**（1.8.5 菜单无此按钮，仍可通过 ini 的 `AmdEveryFrame` 修改）。**无实际性能提升**，只是把开关交回菜单，并更新排版。
-            - 菜单排版：**Enable NR** 与 **Every-frame** 同排；**New wait** 与 **NR slots** 同排（下拉 2–5）。关闭 New wait 即原等待模式，无需重启游戏。
+            - 菜单排版：**Enable NR**（含运行时版本）与 **Every-frame** 同排；下一行 **NR slots**（窄下拉 2–5）再 **New wait mode**。关闭 New wait mode 即原等待模式，无需重启游戏。
             - 相对 Matheus 线的主要改动仍是**多槽**（默认 3）：尽量每帧 NR；相对原 repo 1.7.3 版单槽旧基线实测约 **+33%** 帧率。同时全面适配 **danielblnc 0.3.1** 版，整体桥接开销实测约 **0.01～0.03 ms**，几乎不影响性能。
             - 进游戏：**Ins** → **DLSS Neural Rendering** → 勾选 **Enable NR**。需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）。
 

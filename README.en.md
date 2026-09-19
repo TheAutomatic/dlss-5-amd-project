@@ -24,9 +24,9 @@ This project is the **bridge** into the danielblnc runtime. Across several in-ga
 
 **Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves** and **Neverness to Everness (NTE)**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). No actual performance change — only the switch returns to the menu, with an updated layout.
 
-**Picture wait mode: default 0.3.1 New wait (`AmdGraphicsWait=1`).** New wait requests 0.3.1’s 1-pixel draw wait (still being tested). It is requested only when this frame’s D3D12 state can be frozen and restore is ready; otherwise the path falls back to original wait. Known-empty graphics state is restored as empty, so the game’s command list is not left dirty. This is not automatic recovery from a hang, crash, or device removal.
+**Picture wait mode: default 0.3.1 New wait (`AmdGraphicsWait=1`).** New wait mode requests 0.3.1’s 1-pixel draw wait (still being tested). It is requested only when this frame’s D3D12 state can be frozen and restore is ready; otherwise the path falls back to original wait mode. Known-empty graphics state is restored as empty, so the game’s command list is not left dirty. This is not automatic recovery from a hang, crash, or device removal.
 
-In-game, use **Ins → New wait**: turning it off immediately uses original-wait mode (no game restart needed). When enabling it again, the menu asks for a restart if hooks or a pass are not ready. If new wait causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` (original wait) under `[DlssNr]` in `OptiScaler.ini`, then launch again.
+In-game, use **Ins → New wait mode**: turning it off immediately uses original-wait mode (no game restart needed). When enabling it again, the menu asks for a restart if hooks or a pass are not ready. If new wait mode causes problems, turn it off manually. If you cannot reach the menu, close the game, set `AmdGraphicsWait=0` (original wait) under `[DlssNr]` in `OptiScaler.ini`, then launch again.
 
 > Not a reimplementation of the neural core, and not a ReShade filter.  
 > Path: **game DLSS inputs → this repo → DLSSNR (0.3.1 / 0.3.0) → FFX/FSR**.
@@ -192,7 +192,7 @@ Details: [OptiScaler Wiki · Frame Generation](https://github.com/optiscaler/Opt
 
 #### 2. XeFG (XeMFG DP4A Unlocker)
 
-`XeFGUnlock.asi` and the matching `XeFGUnlock.ini` come from the **OptiScaler official group post "XeMFG DP4A Unlocker"**. This build loads them with the existing ASI loader — **no unlock patches in this repo, and none in the zip**. Output is **XeFG** (you still need this pack's `libxess_fg.dll` / `libxell.dll`); it is **not** NVIDIA DLSSG and **not** the Arturs path above.
+`XeFGUnlock.asi` and the matching `XeFGUnlock.ini` come from the **OptiScaler official group post "XeMFG DP4A Unlocker"**. This project does not bundle those files — obtain them yourself.
 
 1. Put both files in the game's `OptiScaler\plugins\` folder (same tree as `libxess_fg.dll`). Do not add `-loadlate`.  
 2. Edit the game-root **`OptiScaler.ini`**, not the plugin ini. If the game has Streamline DLSS-FG:

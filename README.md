@@ -26,7 +26,7 @@
 
 **画面等待模式：默认 0.3.1 新等待（`AmdGraphicsWait=1`）。** 新等待会请求 0.3.1 的 1 像素 draw 等待（仍在测试）。仅在本帧 D3D12 状态可冻结、恢复准备就绪时才请求新等待，否则回退原等待；空图形状态会按空还原，不脏改游戏的 command list。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
 
-游戏内 **Ins → New wait**：关闭即原等待模式（无需重启游戏）；重新打开时若 hooks 或某个 pass 尚未就绪，菜单会提示重启。若新等待出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`（原等待），再启动游戏。
+游戏内 **Ins → New wait mode**：关闭即原等待模式（无需重启游戏）；重新打开时若 hooks 或某个 pass 尚未就绪，菜单会提示重启。若新等待出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`（原等待），再启动游戏。
 
 > 不是神经核的重实现，也不是 ReShade 滤镜。  
 > 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.1 / 0.3.0）→ FFX/FSR 超分**。
@@ -193,7 +193,7 @@ FGNvngxReplacement=Arturs
 
 #### 2. XeFG（XeMFG DP4A Unlocker）
 
-`XeFGUnlock.asi` 和同名 `XeFGUnlock.ini` 来自 **OptiScaler 官方群「XeMFG DP4A Unlocker」帖**。本版用已有的 ASI 加载器加载，**不把解锁补丁合进本仓库、也不随 zip 分发**。走 **XeFG** 输出（仍要本包的 `libxess_fg.dll` / `libxell.dll`）；**不是** NVIDIA DLSSG，也 **不是** 上面的 Arturs。
+`XeFGUnlock.asi` 和同名 `XeFGUnlock.ini` 来自 **OptiScaler 官方群「XeMFG DP4A Unlocker」帖**。本项目未内置文件，请自行获取。
 
 1. 把这两个文件放到游戏目录 `OptiScaler\plugins\`（和 `libxess_fg.dll` 同一棵树）。不要加 `-loadlate`。  
 2. 改的是游戏根目录的 **`OptiScaler.ini`**，不是 plugins 里那份插件 ini。游戏**已有 Streamline DLSS-FG** 时：
