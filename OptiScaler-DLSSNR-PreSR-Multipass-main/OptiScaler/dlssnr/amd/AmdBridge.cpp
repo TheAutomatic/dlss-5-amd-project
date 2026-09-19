@@ -2,6 +2,8 @@
 #include "AmdBridge.h"
 #include "AmdPreSr.h"
 #include "PresentExperimental.h"
+#include "../backend/DanielBackend.h"
+#include "../backend/Selector.h"
 #include <State.h>
 #include <Util.h>
 #include <misc/SkipSpoof.h>
@@ -17,7 +19,7 @@ namespace DlssNr::AmdBridge
 {
 namespace
 {
-std::atomic<AmdPreSr::Backend*> backend { nullptr };
+std::atomic<DlssNr::Backend::Host*> backend { nullptr };
 using ExecuteFn = void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 using ExitFn = void(NTAPI*)(LONG);
 ExecuteFn executeOriginal = nullptr;
@@ -175,6 +177,19 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     std::lock_guard frameGuard(frameMutex);
     if (!HasFiles())
         return false;
+    const auto requested = DlssNr::Backend::RequestedKind();
+    const auto active = DlssNr::Backend::ActiveKind(requested);
+    if (active == DlssNr::Backend::Kind::Off)
+        return true;
+    if (requested == DlssNr::Backend::Kind::Lmxxf && !DlssNr::Backend::LmxxfWired())
+    {
+        static bool loggedLmxxfFallback = false;
+        if (!loggedLmxxfFallback)
+        {
+            loggedLmxxfFallback = true;
+            Message("AMD pre-SR: NrBackend=lmxxf is not wired; using daniel");
+        }
+    }
     ID3D12Device* device = nullptr;
     if (!cmd || !params || FAILED(cmd->GetDevice(IID_PPV_ARGS(&device))))
         return true;
@@ -232,7 +247,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
             Message("AMD pre-SR: could not install submission notification");
             return true;
         }
-        b = new AmdPreSr::Backend(device, q, Directory());
+        b = new DlssNr::Backend::DanielBackend(device, q, Directory());
         backend.store(b);
     }
     device->Release();

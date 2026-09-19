@@ -306,6 +306,9 @@ class Config
     // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
+    // NR host: daniel (default), lmxxf, off. Missing key = daniel. Restart to change.
+    // lmxxf is not wired on this increment and still runs daniel.
+    CustomOptional<std::string> NrBackend { "daniel" };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the original author runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

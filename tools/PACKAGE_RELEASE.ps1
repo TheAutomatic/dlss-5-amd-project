@@ -183,6 +183,7 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 ; AmdGraphicsWait=1 is New wait mode (0.3.1 1-pixel draw; still testing).
 ; Set 0 for Original wait.
 ; Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).
+; NrBackend=daniel is the default (missing key = daniel). lmxxf is not wired yet; off skips AMD NR.
 Enabled=false
 RunBeforeSR=true
 AmdModelScale=1

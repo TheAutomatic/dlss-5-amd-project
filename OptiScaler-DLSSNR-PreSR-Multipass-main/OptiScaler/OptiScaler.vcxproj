@@ -309,6 +309,13 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\amd\RtgiNative.h" />
     <ClCompile Include="dlssnr\amd\AmdPreSr.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><ForcedIncludeFiles>$(IntDir)amd_graphics_source_id.h;%(ForcedIncludeFiles)</ForcedIncludeFiles></ClCompile>
     <ClCompile Include="dlssnr\amd\AmdBridge.cpp" />
+    <ClCompile Include="dlssnr\backend\Selector.cpp" />
+    <ClCompile Include="dlssnr\backend\DanielBackend.cpp" />
+    <ClInclude Include="dlssnr\backend\Kind.h" />
+    <ClInclude Include="dlssnr\backend\Host.h" />
+    <ClInclude Include="dlssnr\backend\Selector.h" />
+    <ClInclude Include="dlssnr\backend\DanielBackend.h" />
+    <ClInclude Include="dlssnr\backend\LmxxfBackend.h" />
     <ClInclude Include="dlssnr\amd\AmdPreSr.h" />
     <ClInclude Include="dlssnr\amd\SubmissionState.h" />
     <ClInclude Include="dlssnr\amd\RuntimeNotification.h" />
