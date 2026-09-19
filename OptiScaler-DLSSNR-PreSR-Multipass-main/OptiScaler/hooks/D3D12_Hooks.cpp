@@ -3,6 +3,8 @@
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsInvocation.h>
+#include <dlssnr/backend/Selector.h>
+#include <dlssnr/submission/SubmissionHooks.h>
 
 #include <Util.h>
 #include <Config.h>
@@ -1626,7 +1628,10 @@ void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
     const bool restoreComputeSignature = Config::Instance()->RestoreComputeSignature.value_or_default();
     const bool restoreGraphicSignature = Config::Instance()->RestoreGraphicSignature.value_or_default();
     const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-    const bool amdGraphicsTrackerWanted = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+    // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
+    const bool amdGraphicsTrackerWanted =
+        Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
+        !DlssNr::Backend::SubmissionHooksWanted();
 
     s_SetPipelineState.o_lateHook = (PFN_SetPipelineState) pVTable[25];
     s_SetDescriptorHeaps.o_lateHook = (PFN_SetDescriptorHeaps) pVTable[28];
@@ -1813,7 +1818,10 @@ static void HookToCommandList(ID3D12Device* InDevice)
             PVOID* pVTable = *(PVOID**) commandList;
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-            const bool amdGraphicsTrackerWanted = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+            // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
+    const bool amdGraphicsTrackerWanted =
+        Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
+        !DlssNr::Backend::SubmissionHooksWanted();
             const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
             LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 
@@ -2954,12 +2962,21 @@ static void HookToDevice(ID3D12Device* InDevice)
                 DetourAttach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
         }
 
-        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList != nullptr)
-            DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
-        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList1 != nullptr)
-            DetourAttach(&(PVOID&) o_CreateCommandList1, hkCreateCommandList1);
-        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandSignature != nullptr)
-            DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
+        // Graphics Create hooks OR lmxxf submission Create wrap — never both.
+        if (DlssNr::Backend::SubmissionHooksWanted())
+        {
+            // ArmCreate attaches its own Detour on CreateCommandList; do it after this
+            // transaction commits (see below). Skip graphics Create* hooks here.
+        }
+        else if (Config::Instance()->AmdGraphicsWait.value_or_default())
+        {
+            if (o_CreateCommandList != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
+            if (o_CreateCommandList1 != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandList1, hkCreateCommandList1);
+            if (o_CreateCommandSignature != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
+        }
 
         auto detourResult = DetourTransactionCommit();
         if (detourResult != NO_ERROR)
@@ -2972,6 +2989,14 @@ static void HookToDevice(ID3D12Device* InDevice)
             o_CreatePlacedResource = nullptr;
             o_D3D12DeviceRelease = nullptr;
             o_GetResourceAllocationInfo = nullptr;
+        }
+        else if (DlssNr::Backend::SubmissionHooksWanted())
+        {
+            const HRESULT armHr = DlssNr::Submission::Hooks::ArmCreate(InDevice);
+            if (FAILED(armHr))
+                LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
+            else
+                LOG_INFO("lmxxf submission CreateCommandList wrap armed (graphics tracker skipped)");
         }
     }
 

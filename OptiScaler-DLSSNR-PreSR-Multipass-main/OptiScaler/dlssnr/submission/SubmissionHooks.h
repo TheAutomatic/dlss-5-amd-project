@@ -15,6 +15,7 @@ using BetweenFn = void (*)(void *);
 
 inline std::mutex g_mu;
 inline std::atomic<bool> g_armed { false };
+inline std::atomic<bool> g_expandEnabled { false };
 inline BetweenFn g_between = nullptr;
 inline void *g_betweenCtx = nullptr;
 
@@ -29,6 +30,7 @@ inline PFN_CreateCommandList1 o_CreateCommandList1 = nullptr;
 inline PFN_ExecuteCommandLists o_ExecuteCommandLists = nullptr;
 
 inline bool IsArmed() { return g_armed.load(std::memory_order_acquire); }
+inline bool ExpandEnabled() { return g_expandEnabled.load(std::memory_order_acquire); }
 
 inline void SetBetween(BetweenFn fn, void *ctx)
 {
@@ -199,6 +201,46 @@ inline HRESULT Arm(ID3D12Device *device, ID3D12CommandQueue *queue)
         return HRESULT_FROM_WIN32(err);
     }
     g_armed.store(true, std::memory_order_release);
+    g_expandEnabled.store(true, std::memory_order_release);
+    return S_OK;
+}
+
+// Product path: wrap CreateCommandList only. Execute expand rides AmdBridge's existing
+// queue ExecuteCommandLists hook (no second Detour). Mutual exclusion vs graphics tracker.
+inline HRESULT ArmCreate(ID3D12Device *device)
+{
+    if (!device)
+        return E_INVALIDARG;
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (g_armed.load(std::memory_order_relaxed))
+    {
+        g_expandEnabled.store(true, std::memory_order_release);
+        return S_FALSE;
+    }
+    void **devVt = *reinterpret_cast<void ***>(device);
+    o_CreateCommandList = reinterpret_cast<PFN_CreateCommandList>(devVt[12]);
+    ID3D12Device4 *dev4 = nullptr;
+    if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&dev4))))
+    {
+        void **vt4 = *reinterpret_cast<void ***>(dev4);
+        o_CreateCommandList1 = reinterpret_cast<PFN_CreateCommandList1>(vt4[51]);
+        dev4->Release();
+    }
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    if (o_CreateCommandList)
+        DetourAttach(reinterpret_cast<PVOID *>(&o_CreateCommandList), hkCreateCommandList);
+    if (o_CreateCommandList1)
+        DetourAttach(reinterpret_cast<PVOID *>(&o_CreateCommandList1), hkCreateCommandList1);
+    const LONG err = DetourTransactionCommit();
+    if (err != NO_ERROR)
+    {
+        o_CreateCommandList = nullptr;
+        o_CreateCommandList1 = nullptr;
+        return HRESULT_FROM_WIN32(err);
+    }
+    g_armed.store(true, std::memory_order_release);
+    g_expandEnabled.store(true, std::memory_order_release);
     return S_OK;
 }
 
@@ -222,5 +264,6 @@ inline void Disarm()
     g_between = nullptr;
     g_betweenCtx = nullptr;
     g_armed.store(false, std::memory_order_release);
+    g_expandEnabled.store(false, std::memory_order_release);
 }
 } // namespace DlssNr::Submission::Hooks

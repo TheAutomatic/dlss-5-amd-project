@@ -13,4 +13,9 @@ Kind RequestedKind()
 }
 
 Kind ActiveKindFromConfig() { return ActiveKind(RequestedKind()); }
+
+bool SubmissionHooksWanted()
+{
+    return LmxxfWired() && RequestedKind() == Kind::Lmxxf;
+}
 } // namespace DlssNr::Backend

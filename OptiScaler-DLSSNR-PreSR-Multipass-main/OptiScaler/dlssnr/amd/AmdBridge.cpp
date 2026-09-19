@@ -4,6 +4,7 @@
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
 #include "../backend/Selector.h"
+#include "../submission/SubmissionHooks.h"
 #include <State.h>
 #include <Util.h>
 #include <misc/SkipSpoof.h>
@@ -58,7 +59,12 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         b->Submitting(q, n, c);
     // Execute every game list exactly once. Private runtime Notify callbacks
     // publish HIP jobs afterwards and have their internal ECL call neutralized.
-    executeOriginal(q, n, c);
+    // When lmxxf submission expand is armed, unwrap CommandListProxy (between = HIP slot).
+    if (DlssNr::Submission::Hooks::ExpandEnabled())
+        DlssNr::Submission::Hooks::ExecuteExpanded(q, n, c, DlssNr::Submission::Hooks::g_between,
+                                                   DlssNr::Submission::Hooks::g_betweenCtx, executeOriginal);
+    else
+        executeOriginal(q, n, c);
     {
         std::lock_guard guard(observedMutex);
         if (observedLists.size() > 256)
