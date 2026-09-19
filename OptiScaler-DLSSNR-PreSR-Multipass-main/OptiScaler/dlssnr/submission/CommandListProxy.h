@@ -1,5 +1,7 @@
 #pragma once
 #include "LogicalList.h"
+#include "ContinuationState.h"
+#include "ResourceStateBook.h"
 #include <atomic>
 
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
@@ -16,12 +18,16 @@ ILogicalCommandList : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, void (*between)(void *),
                                                            void *betweenCtx) = 0;
     virtual bool STDMETHODCALLTYPE IsSplitIneligible(void) = 0;
+    // Harness: viewport count captured for continuation seed (0 if never set).
+    virtual UINT STDMETHODCALLTYPE CapturedViewportCount(void) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
 {
     std::atomic<ULONG> refs { 1 };
     LogicalList logical;
+    ContinuationState contState;
+    ResourceStateBook resBook;
     bool splitIneligible = false;
     const char *splitIneligibleReason = nullptr;
 
@@ -123,13 +129,33 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     HRESULT STDMETHODCALLTYPE Close() override { return logical.Close(); }
     HRESULT STDMETHODCALLTYPE Reset(ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial) override
     {
+        contState.Reset();
+        resBook.Reset();
+        splitIneligible = false;
+        splitIneligibleReason = nullptr;
+        if (initial)
+            contState.OnPso(initial);
         return logical.Reset(alloc, initial);
     }
     HRESULT STDMETHODCALLTYPE SplitSegments() override
     {
         if (splitIneligible)
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-        return logical.Split();
+        const char *why = nullptr;
+        if (!resBook.CanSplit(&why))
+        {
+            MarkSplitIneligible(why ? why : "resource_state");
+            return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+        }
+        const HRESULT hr = logical.Split();
+        if (FAILED(hr))
+            return hr;
+        // Seed continuation with captured producer bindings (minimal set).
+        contState.ApplyTo(logical.Current());
+        // Producer Execute will introduce a new promotion/decay boundary; book resets
+        // for continuation-side tracking.
+        resBook.Reset();
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
     HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, void (*between)(void *),
@@ -139,6 +165,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     bool STDMETHODCALLTYPE IsSplitIneligible() override { return splitIneligible; }
     const char *SplitIneligibleReason() const { return splitIneligibleReason; }
+    UINT STDMETHODCALLTYPE CapturedViewportCount() override
+    {
+        return contState.hasViewports ? contState.numViewports : 0;
+    }
 
     void STDMETHODCALLTYPE ClearState(ID3D12PipelineState *p) override
     {
@@ -191,36 +221,45 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE IASetPrimitiveTopology(D3D12_PRIMITIVE_TOPOLOGY t) override
     {
+        contState.OnTopology(t);
         if (auto *c = Cur())
             c->IASetPrimitiveTopology(t);
     }
     void STDMETHODCALLTYPE RSSetViewports(UINT n, const D3D12_VIEWPORT *v) override
     {
+        contState.OnViewports(n, v);
         if (auto *c = Cur())
             c->RSSetViewports(n, v);
     }
     void STDMETHODCALLTYPE RSSetScissorRects(UINT n, const D3D12_RECT *r) override
     {
+        contState.OnScissors(n, r);
         if (auto *c = Cur())
             c->RSSetScissorRects(n, r);
     }
     void STDMETHODCALLTYPE OMSetBlendFactor(const FLOAT f[4]) override
     {
+        contState.OnBlend(f);
         if (auto *c = Cur())
             c->OMSetBlendFactor(f);
     }
     void STDMETHODCALLTYPE OMSetStencilRef(UINT s) override
     {
+        contState.OnStencil(s);
         if (auto *c = Cur())
             c->OMSetStencilRef(s);
     }
     void STDMETHODCALLTYPE SetPipelineState(ID3D12PipelineState *p) override
     {
+        contState.OnPso(p);
         if (auto *c = Cur())
             c->SetPipelineState(p);
     }
     void STDMETHODCALLTYPE ResourceBarrier(UINT n, const D3D12_RESOURCE_BARRIER *b) override
     {
+        const char *why = nullptr;
+        if (!resBook.OnBarriers(n, b, &why))
+            MarkSplitIneligible(why ? why : "barrier");
         if (auto *c = Cur())
             c->ResourceBarrier(n, b);
     }
@@ -231,16 +270,19 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE SetDescriptorHeaps(UINT n, ID3D12DescriptorHeap *const *h) override
     {
+        contState.OnHeaps(n, h);
         if (auto *c = Cur())
             c->SetDescriptorHeaps(n, h);
     }
     void STDMETHODCALLTYPE SetComputeRootSignature(ID3D12RootSignature *s) override
     {
+        contState.OnComputeRoot(s);
         if (auto *c = Cur())
             c->SetComputeRootSignature(s);
     }
     void STDMETHODCALLTYPE SetGraphicsRootSignature(ID3D12RootSignature *s) override
     {
+        contState.OnGfxRoot(s);
         if (auto *c = Cur())
             c->SetGraphicsRootSignature(s);
     }

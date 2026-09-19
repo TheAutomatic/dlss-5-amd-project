@@ -134,9 +134,20 @@ static std::vector<uint8_t> RunHookedSplit(ID3D12Device *device, ID3D12CommandQu
         Require(FAILED(splitHr), "split must fail when ineligible");
     }
 
+    D3D12_VIEWPORT vp {};
+    vp.Width = 128.0f;
+    vp.Height = 72.0f;
+    vp.MaxDepth = 1.0f;
+    list->RSSetViewports(1, &vp);
+    Require(logical->CapturedViewportCount() == 1, "viewport captured");
+
     list->CopyBufferRegion(gpu, 0, upload, 0, kBytes / 2);
     if (doSplit && !markRenderPassIneligible)
+    {
         Check(logical->SplitSegments(), "split");
+        // Continuation seeded; capture still reports the producer viewport seed.
+        Require(logical->CapturedViewportCount() == 1, "viewport kept after split");
+    }
     list->CopyBufferRegion(gpu, kBytes / 2, upload, kBytes / 2, kBytes / 2);
 
     D3D12_RESOURCE_BARRIER b {};
@@ -169,6 +180,41 @@ static std::vector<uint8_t> RunHookedSplit(ID3D12Device *device, ID3D12CommandQu
     return got;
 }
 
+
+static void TestOpenSplitBarrierReject(ID3D12Device *device, ID3D12CommandQueue *queue)
+{
+    ID3D12CommandAllocator *alloc = nullptr;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "alloc");
+    ID3D12GraphicsCommandList *list = nullptr;
+    Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list)),
+          "list");
+    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+    Check(list->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                               reinterpret_cast<void **>(&logical)),
+          "logical");
+
+    ID3D12Resource *buf = MakeBuffer(device, 256, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON);
+    D3D12_RESOURCE_BARRIER begin {};
+    begin.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    begin.Flags = D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY;
+    begin.Transition.pResource = buf;
+    begin.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    begin.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    begin.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    list->ResourceBarrier(1, &begin);
+    const HRESULT splitHr = logical->SplitSegments();
+    Require(FAILED(splitHr), "open split barrier must refuse split");
+    Require(logical->IsSplitIneligible(), "marked ineligible");
+
+    // Close without completing the split barrier pair would be illegal on a real queue;
+    // discard by releasing without Execute.
+    list->Close();
+    logical->Release();
+    list->Release();
+    alloc->Release();
+    buf->Release();
+    (void)queue;
+}
 int main()
 {
     ID3D12Device *device = MakeDevice();
@@ -197,6 +243,8 @@ int main()
     const auto ineligible = RunHookedSplit(device, queue, true, true);
     Require(counter.hits == hitsBefore, "no between when split refused");
     Require(ineligible == unsplit, "ineligible passthrough matches");
+
+    TestOpenSplitBarrierReject(device, queue);
 
     DlssNr::Submission::Hooks::Disarm();
     Require(!DlssNr::Submission::Hooks::IsArmed(), "disarmed");
