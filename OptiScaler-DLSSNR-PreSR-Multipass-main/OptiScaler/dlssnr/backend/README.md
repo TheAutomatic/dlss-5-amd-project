@@ -13,7 +13,7 @@ Tracked ADR for the lmxxf graft. Implementation plan remains
 | `NrBackend=lmxxf` | Logged once, **still Daniel**. Runtime DLL is not wired |
 | `NrBackend=off` | No AMD Record; original colour goes to SR |
 | HasFiles / ECL / New wait | Unchanged; still Daniel pass-DLL and graphics-wait hooks |
-| `third_party/lmxxf` | Not in this increment |
+| `third_party/lmxxf` | Vendored HIP+codec closure, pin `68dc099` (see `third_party/lmxxf/UPSTREAM.md`) |
 | `submission/` | Not in this increment |
 | Menu | No new control |
 
