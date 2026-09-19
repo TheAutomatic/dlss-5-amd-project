@@ -62,5 +62,25 @@ public:
   submit.Submit([&](ID3D12GraphicsCommandList*c){Barrier(c,output.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);});readable=true;
   }catch(...){failed=true;throw;}
  }
+ /* Composable host API: Record* do not Execute. EnqueueHip after the producer list is submitted. graph must stay off. */
+ void RecordInputCopy(ID3D12GraphicsCommandList*c,ID3D12Resource*rgba,ID3D12Resource*temporal){
+  if(!c||!network||failed)throw std::runtime_error("bridge unavailable");InputContract(rgba);if(temporal)InputContract(temporal);
+  auto copy=[&](ID3D12Resource*src,Shared&dst){Barrier(c,src,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);Barrier(c,dst.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);c->CopyBufferRegion(dst.resource,0,src,0,pixels*16);Barrier(c,dst.resource,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);Barrier(c,src,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);};
+  copy(rgba,input);if(temporal)copy(temporal,history);if(readable)Barrier(c,output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
+ }
+ void EnqueueAfterProducer(U seed,bool temporal){
+  if(!network||failed)throw std::runtime_error("bridge unavailable");
+  if(network->GraphEnabled())throw std::runtime_error("EnqueueHip forbids HIP graph capture");
+  auto&api=network->Runtime();
+  pending=true;Check(queue->Signal(fence,++value),"D3D input signal");
+  hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
+  network->Enqueue(input.mapped,temporal?history.mapped:nullptr,output.mapped,seed);
+  hip_probe::SignalParams signal{};signal.params.fence.value=++value;api.Check(api.hipSignalExternalSemaphoresAsync(&semaphore,&signal,1,network->Stream()),"HIP output signal");
+  Check(queue->Wait(fence,value),"D3D output wait");
+ }
+ void RecordOutputReadable(ID3D12GraphicsCommandList*c){
+  if(!c||!network||failed)throw std::runtime_error("bridge unavailable");
+  Barrier(c,output.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);readable=true;
+ }
 };
 }

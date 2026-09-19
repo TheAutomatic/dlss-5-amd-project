@@ -1,8 +1,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include "../third_party/lmxxf/include/LmxxfNrApi.h"
-#include <cassert>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 
 static void Require(bool ok, const char *what)
@@ -14,15 +15,20 @@ static void Require(bool ok, const char *what)
     }
 }
 
+static std::wstring Widen(const char *s)
+{
+    return std::wstring(s, s + std::strlen(s));
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        std::fprintf(stderr, "usage: lmxxf_nr_abi.exe <LmxxfNrRuntime.dll>\n");
+        std::fprintf(stderr, "usage: lmxxf_nr_abi.exe <LmxxfNrRuntime.dll> [modules_dir]\n");
         return 2;
     }
 
-    const std::wstring path(argv[1], argv[1] + std::strlen(argv[1]));
+    const std::wstring path = Widen(argv[1]);
     HMODULE dll = LoadLibraryW(path.c_str());
     Require(dll != nullptr, "LoadLibraryW");
 
@@ -59,23 +65,42 @@ int main(int argc, char **argv)
 
     info.device = reinterpret_cast<void *>(0x100);
     info.queue = reinterpret_cast<void *>(0x200);
-    Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create stub session");
-    Require(ctx != nullptr, "session handle");
+    /* assets_directory is now required (P2 step 2). */
+    Require(api.Create(&info, &ctx) == LMXXF_NR_INVALID_ARGUMENT, "Create without assets_directory");
+    Require(ctx == nullptr, "Create without assets clears context");
 
-    char status[128] {};
-    Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus");
-    Require(std::string(status).find("not wired") != std::string::npos, "status text");
+    if (argc >= 3)
+    {
+        const std::wstring modules = Widen(argv[2]);
+        info.assets_directory = modules.c_str();
+        Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create with modules directory");
+        Require(ctx != nullptr, "session handle with modules");
 
-    Require(api.PrepareSession(ctx) == LMXXF_NR_NOT_IMPLEMENTED, "PrepareSession not wired");
-    Require(api.RecordInputs(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED, "RecordInputs");
-    Require(api.EnqueueHip(ctx, nullptr) == LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip");
-    Require(api.RecordOutputs(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED, "RecordOutputs");
+        char status[256] {};
+        Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus modules");
+        const std::string st(status);
+        Require(st.find("modules_ok=") != std::string::npos, "status reports modules_ok");
+        Require(st.find("hip=0") != std::string::npos, "status hip still 0");
 
-    char err[256] {};
-    Require(api.GetLastError(err, sizeof err) == LMXXF_NR_OK, "GetLastError");
-    Require(err[0] != 0, "last error populated");
+        Require(api.PrepareSession(ctx) == LMXXF_NR_INVALID_ARGUMENT,
+                "PrepareSession rejects non-D3D12 placeholder device");
+        Require(api.RecordInputs(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED,
+                "RecordInputs stays unwired without PrepareSession");
+        Require(api.EnqueueHip(ctx, nullptr) == LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip stays unwired");
+        Require(api.RecordOutputs(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED,
+                "RecordOutputs stays unwired");
 
-    Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy");
+        char err[256] {};
+        Require(api.GetLastError(err, sizeof err) == LMXXF_NR_OK, "GetLastError after not-wired");
+        Require(err[0] != 0, "last error populated");
+
+        Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy modules session");
+    }
+    else
+    {
+        std::printf("note: no modules_dir; skipping module-path Create checks\n");
+    }
+
     Require(FreeLibrary(dll), "FreeLibrary");
     std::printf("lmxxf_nr_abi: ok\n");
     return 0;

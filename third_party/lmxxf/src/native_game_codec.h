@@ -3,7 +3,6 @@
 #include "native_lab_paths.h"
 #include "native_pinned_resource.h"
 #include "native_device_identity.h"
-#include "native_game_rgb_input.h"
 #include <array>
 #include "native_input_geometry.h"
 #include "native_network_geometry.h"
@@ -18,7 +17,7 @@ class NativeGameCodec {
  void ClearBindings(){for(auto&b:bindings){b.heap->Release();for(auto*r:b.sources)if(r)r->Release();}bindings.clear();}
  UINT count{};bool recorded{};NativeInputGeometry geometry{};UINT out_width{},out_height{},row_pitch{};
  bool unorm_out{},unorm8_out{},r11_out{};DXGI_FORMAT out_format{};
- static void step(ID3D12Device*d,const char*what){if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=codec_step detail=%s removed=%08x\n",GetCurrentProcessId(),GetTickCount64(),what,unsigned(d->GetDeviceRemovedReason()));fclose(f);}}
+ static void step(ID3D12Device*,const char*){}
  static void check(HRESULT hr,const char*what="?"){if(FAILED(hr))throw std::runtime_error(std::string("codec ")+what+" HRESULT="+std::to_string(unsigned(hr)));}
  static void transition(ID3D12GraphicsCommandList*c,ID3D12Resource*r,D3D12_RESOURCE_STATES a,D3D12_RESOURCE_STATES b){
   if(a==b)return;D3D12_RESOURCE_BARRIER v{};v.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;v.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,a,b};c->ResourceBarrier(1,&v);

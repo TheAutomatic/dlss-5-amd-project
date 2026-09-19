@@ -36,24 +36,23 @@ says otherwise.
 - `OptiScaler-DLSS5-AMD-0.24.2/` package, weights, and `.hsaco` binaries
 - Magpie packaging
 
-`native_rgb_reflect.h` still `#include`s `native_split.h`, which is **not** in this
-tree. Compiling the stock codec header as-is will fail until P2 extracts encode
-without the D3D12 network. The HIP headers (`native_hip_network.h` → bridge →
-`hip_reference_network.h`) do not need split.
-
 ## Patches applied in this tree
 
 1. `NativeLabRoot()` no longer falls back to `D:\\DLSSNR-Lab`. Missing assets throw.
+2. `native_rgb_reflect.h` dropped unused `native_split.h`; codec compiles without the D3D12 network body.
+3. `D3D12Bridge` RecordInputCopy / EnqueueAfterProducer / RecordOutputReadable; EnqueueHip rejects graph.
+4. `SetNoise` skips the 201 MiB buffer when `fast_prefix` is on.
+5. `#include <algorithm>` for MinGW `std::sort`.
 
 ## Runtime ABI (this tree)
 
-C ABI lives in `include/LmxxfNrApi.h`. The MinGW stub in `runtime/` does not compile
-the HIP headers yet and does not install hooks.
+C ABI in `include/LmxxfNrApi.h`. MinGW `runtime/` compiles the HIP bridge and codec.
 
-## Required follow-up (P2)
+- Modules: `exports/lmxxf-modules-68dc099` (COMGR, **not** 0.24.2 hsaco).
+- Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).
+- `QueryCapabilities.hip_ready` stays **0**. `LmxxfWired()` stays false.
 
-1. Process-global `getenv` / geometry statics → instance config (first version
-   still freezes paper_white=1, strength=(1,1), CODEC_SRGB=0, graph=false).
-2. Wire RecordInputs / EnqueueHip / RecordOutputs to the HIP bridge without
-   throwing across the DLL boundary.
-3. Extract encode/decode so `native_game_codec.h` does not need `native_split.h`.
+## Required follow-up
+
+1. Process-global geometry/env → instance config.
+2. Product `LmxxfWired()` after G1/G3.

@@ -36,11 +36,11 @@ Upstream source is a vendored closure at `third_party/lmxxf` pinned to `68dc099`
 - `LmxxfBackend.h` — declared, not constructed
 - `Selector` — requested vs active kind
 
-## P2 stub (MinGW, HIP not wired)
+## P2 3b (HIP enqueue wired; product still Daniel)
 
-- ABI: `third_party/lmxxf/include/LmxxfNrApi.h` (C, version 1)
-- Runtime: `third_party/lmxxf/runtime/LmxxfNrRuntime.cpp` → `LmxxfNrRuntime.dll`
-- Build: `tools/build-lmxxf-runtime.cmd` (MSYS2 ucrt64 g++)
-- MSVC loader test: `tools/test-lmxxf-nr-abi.cmd`
-- `LmxxfWired()` stays false. Record/Enqueue/Complete return `NOT_IMPLEMENTED`.
-- Remaining: encode extract (`native_split.h`), instance config, matching hsaco, HIP enqueue.
+- Encode/decode no longer pull `native_split.h`.
+- `D3D12Bridge` RecordInputCopy / EnqueueAfterProducer / RecordOutputReadable; graph off.
+- RecordInputs = encode + RGB tiles + shared copy; EnqueueHip = fence/HIP/wait; RecordOutputs = RGB texture.
+- Modules: `exports/lmxxf-modules-68dc099` only. Weights: `LMXXF_WEIGHTS_DIR` (tiled assets, not 0.24.2 `HIP/`).
+- `QueryCapabilities.hip_ready` stays 0. `LmxxfWired()` stays false.
+

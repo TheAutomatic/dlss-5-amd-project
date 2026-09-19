@@ -64,6 +64,8 @@ typedef struct LmxxfNrFrameInfo
     void *command_list; /* ID3D12GraphicsCommandList*; Record* do not Execute */
     uint32_t color_width;
     uint32_t color_height;
+    void *color; /* ID3D12Resource*; required for RecordInputs */
+    uint32_t color_state; /* D3D12_RESOURCE_STATES at RecordInputs */
     uint32_t flags; /* must be 0 in ABI v1 */
 } LmxxfNrFrameInfo;
 
