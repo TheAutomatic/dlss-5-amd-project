@@ -1,0 +1,114 @@
+#pragma once
+
+/* Versioned C ABI for LmxxfNrRuntime.dll.
+ * MSVC host and MinGW runtime must not share a C++ ABI. No STL, exceptions, or
+ * CRT-allocated objects cross this boundary. x64 stdcall is the Windows default. */
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define LMXXF_NR_ABI_VERSION 1u
+
+enum LmxxfNrStatus
+{
+    LMXXF_NR_OK = 0,
+    LMXXF_NR_UNSUPPORTED_ABI = 1,
+    LMXXF_NR_INVALID_ARGUMENT = 2,
+    LMXXF_NR_NOT_IMPLEMENTED = 3,
+    LMXXF_NR_UNAVAILABLE = 4,
+    LMXXF_NR_FAILED = 5
+};
+
+enum LmxxfNrJobState
+{
+    LMXXF_NR_JOB_NONE = 0,
+    LMXXF_NR_JOB_PREPARED = 1,
+    LMXXF_NR_JOB_PRODUCER_SUBMITTED = 2,
+    LMXXF_NR_JOB_NR_ENQUEUED = 3,
+    LMXXF_NR_JOB_NR_COMPLETE = 4,
+    LMXXF_NR_JOB_CONSUMER_COMPLETE = 5,
+    LMXXF_NR_JOB_RETIRED = 6
+};
+
+typedef struct LmxxfNrCapabilities
+{
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t max_input_width;
+    uint32_t max_input_height;
+    uint32_t history_supported; /* first product version: 0 */
+    uint32_t overlap_supported; /* first product version: 0 */
+    uint32_t graph_supported;   /* first product version: 0; EnqueueHip must not graph-wait */
+    uint32_t hip_ready;         /* 1 once host+hsaco are loaded */
+    uint32_t gfx1201_target;    /* 1 = this binary is for gfx1201 */
+} LmxxfNrCapabilities;
+
+typedef struct LmxxfNrCreateInfo
+{
+    uint32_t struct_size;
+    void *device; /* ID3D12Device*; not dereferenced until HIP is wired */
+    void *queue;  /* ID3D12CommandQueue*; must match device when HIP is wired */
+    const wchar_t *assets_directory;
+    uint32_t flags; /* must be 0 in ABI v1 */
+} LmxxfNrCreateInfo;
+
+typedef struct LmxxfNrFrameInfo
+{
+    uint32_t struct_size;
+    uint64_t session_id;
+    uint64_t frame_id;
+    uint64_t list_generation;
+    void *command_list; /* ID3D12GraphicsCommandList*; Record* do not Execute */
+    uint32_t color_width;
+    uint32_t color_height;
+    uint32_t flags; /* must be 0 in ABI v1 */
+} LmxxfNrFrameInfo;
+
+typedef struct LmxxfNrJob
+{
+    uint32_t struct_size;
+    void *handle;
+    void *private_output; /* ID3D12Resource* for SR; null until PrepareFrame succeeds */
+} LmxxfNrJob;
+
+typedef struct LmxxfNrApi
+{
+    uint32_t struct_size;
+    uint32_t abi_version;
+    int32_t (*QueryCapabilities)(LmxxfNrCapabilities *out);
+    int32_t (*Create)(const LmxxfNrCreateInfo *info, void **context);
+    int32_t (*Destroy)(void *context);
+    int32_t (*PrepareSession)(void *context);
+    int32_t (*PrepareFrame)(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *job);
+    int32_t (*RecordInputs)(void *context, void *job, void *command_list);
+    int32_t (*EnqueueHip)(void *context, void *job);
+    int32_t (*RecordOutputs)(void *context, void *job, void *command_list);
+    int32_t (*ExecuteAfterProducer)(void *context, void *job);
+    int32_t (*CancelUnsubmitted)(void *context, void *job);
+    int32_t (*Poll)(void *context, void *job, uint32_t *state);
+    int32_t (*Retire)(void *context, void *job);
+    int32_t (*ResetHistory)(void *context);
+    int32_t (*Drain)(void *context);
+    int32_t (*GetStatus)(void *context, char *buf, uint32_t buf_chars);
+    int32_t (*GetLastError)(char *buf, uint32_t buf_chars);
+} LmxxfNrApi;
+
+#ifdef _WIN32
+#ifdef LMXXF_NR_RUNTIME_EXPORTS
+#define LMXXF_NR_EXPORT __declspec(dllexport)
+#else
+#define LMXXF_NR_EXPORT __declspec(dllimport)
+#endif
+#else
+#define LMXXF_NR_EXPORT
+#endif
+
+/* Sole export. Caller sets out->struct_size = sizeof(LmxxfNrApi) before the call. */
+LMXXF_NR_EXPORT int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out);
+
+#ifdef __cplusplus
+}
+#endif

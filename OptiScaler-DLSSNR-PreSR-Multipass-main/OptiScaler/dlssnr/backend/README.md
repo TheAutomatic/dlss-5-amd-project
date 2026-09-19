@@ -36,8 +36,11 @@ Upstream source is a vendored closure at `third_party/lmxxf` pinned to `68dc099`
 - `LmxxfBackend.h` — declared, not constructed
 - `Selector` — requested vs active kind
 
-## Stopped at
+## P2 stub (MinGW, HIP not wired)
 
-P2 (`LmxxfNrRuntime.dll`) needs MinGW (`x86_64-w64-mingw32-g++`). It is not on this machine.
-Do not compile the HIP closure with MSVC. Also remaining: C ABI header, encode extract
-(codec still includes `native_split.h`), matching hsaco from `68dc099`.
+- ABI: `third_party/lmxxf/include/LmxxfNrApi.h` (C, version 1)
+- Runtime: `third_party/lmxxf/runtime/LmxxfNrRuntime.cpp` → `LmxxfNrRuntime.dll`
+- Build: `tools/build-lmxxf-runtime.cmd` (MSYS2 ucrt64 g++)
+- MSVC loader test: `tools/test-lmxxf-nr-abi.cmd`
+- `LmxxfWired()` stays false. Record/Enqueue/Complete return `NOT_IMPLEMENTED`.
+- Remaining: encode extract (`native_split.h`), instance config, matching hsaco, HIP enqueue.
