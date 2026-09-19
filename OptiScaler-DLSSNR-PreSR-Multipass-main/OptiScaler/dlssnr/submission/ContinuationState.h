@@ -38,6 +38,13 @@ struct ContinuationState
     bool hasStencil = false;
     UINT stencilRef = 0;
 
+    bool hasOm = false;
+    UINT numRts = 0;
+    D3D12_CPU_DESCRIPTOR_HANDLE rts[8] {};
+    BOOL omSingle = FALSE;
+    bool hasDsv = false;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv {};
+
     ContinuationState() = default;
     ~ContinuationState() { ReleaseRefs(); }
     ContinuationState(const ContinuationState &) = delete;
@@ -75,7 +82,9 @@ struct ContinuationState
     void Reset()
     {
         ReleaseRefs();
-        hasViewports = hasScissors = hasTopology = hasBlend = hasStencil = false;
+        hasViewports = hasScissors = hasTopology = hasBlend = hasStencil = hasOm = false;
+        hasDsv = false;
+        numRts = 0;
         numViewports = numScissors = 0;
         topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
         stencilRef = 0;
@@ -176,6 +185,29 @@ struct ContinuationState
         hasStencil = true;
     }
 
+    void OnOm(UINT n, const D3D12_CPU_DESCRIPTOR_HANDLE *rt, BOOL single,
+              const D3D12_CPU_DESCRIPTOR_HANDLE *ds)
+    {
+        numRts = 0;
+        hasOm = false;
+        hasDsv = false;
+        if (rt && n > 0)
+        {
+            if (n > 8)
+                n = 8;
+            for (UINT i = 0; i < n; ++i)
+                rts[i] = rt[i];
+            numRts = n;
+            omSingle = single;
+            hasOm = true;
+        }
+        if (ds)
+        {
+            dsv = *ds;
+            hasDsv = true;
+        }
+    }
+
     // Apply captured bindings onto a fresh continuation list.
     void ApplyTo(ID3D12GraphicsCommandList *list) const
     {
@@ -199,6 +231,9 @@ struct ContinuationState
             list->OMSetBlendFactor(blendFactor);
         if (hasStencil)
             list->OMSetStencilRef(stencilRef);
+        if (hasOm || hasDsv)
+            list->OMSetRenderTargets(numRts, hasOm ? rts : nullptr, omSingle,
+                                    hasDsv ? &dsv : nullptr);
     }
 };
 } // namespace DlssNr::Submission

@@ -364,6 +364,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     void STDMETHODCALLTYPE OMSetRenderTargets(UINT n, const D3D12_CPU_DESCRIPTOR_HANDLE *rt, BOOL single,
                                               const D3D12_CPU_DESCRIPTOR_HANDLE *ds) override
     {
+        contState.OnOm(n, rt, single, ds);
         if (auto *c = Cur())
             c->OMSetRenderTargets(n, rt, single, ds);
     }
