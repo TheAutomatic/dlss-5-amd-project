@@ -44,3 +44,9 @@ Upstream source is a vendored closure at `third_party/lmxxf` pinned to `68dc099`
 - Modules: `exports/lmxxf-modules-68dc099` only. Weights: `LMXXF_WEIGHTS_DIR` (tiled assets, not 0.24.2 `HIP/`).
 - `QueryCapabilities.hip_ready` stays 0. `LmxxfWired()` stays false.
 
+## P1 (no-NR split bookkeeping)
+
+EvaluateFeature / `AmdBridge::Before` records on a still-open game list; the game keeps that
+pointer. No natural submit boundary. `LogicalList` + base `CommandListProxy` prove split
+Execute-once passthrough (QI List1+ fail-closed). Not hooked, not default.
+

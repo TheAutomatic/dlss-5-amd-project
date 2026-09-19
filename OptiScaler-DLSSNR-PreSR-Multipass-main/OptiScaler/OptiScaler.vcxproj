@@ -316,6 +316,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\backend\Selector.h" />
     <ClInclude Include="dlssnr\backend\DanielBackend.h" />
     <ClInclude Include="dlssnr\backend\LmxxfBackend.h" />
+    <ClInclude Include="dlssnr\submission\LogicalList.h" />
+    <ClInclude Include="dlssnr\submission\CommandListProxy.h" />
     <ClInclude Include="dlssnr\amd\AmdPreSr.h" />
     <ClInclude Include="dlssnr\amd\SubmissionState.h" />
     <ClInclude Include="dlssnr\amd\RuntimeNotification.h" />
