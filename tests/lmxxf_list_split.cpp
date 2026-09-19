@@ -112,8 +112,28 @@ static std::vector<uint8_t> RunCopy(ID3D12Device *device, ID3D12CommandQueue *qu
         Check(proxy->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
                                     reinterpret_cast<void **>(&logical)),
               "logical qi");
-        ID3D12GraphicsCommandList1 *newer = nullptr;
-        Require(proxy->QueryInterface(IID_PPV_ARGS(&newer)) == E_NOINTERFACE, "list1 fail-closed");
+        // List1..10 must QI on the proxy (full forward). Producer may or may not support each IID.
+        static const IID kListIids[] = {
+            __uuidof(ID3D12GraphicsCommandList1),  __uuidof(ID3D12GraphicsCommandList2),
+            __uuidof(ID3D12GraphicsCommandList3),  __uuidof(ID3D12GraphicsCommandList4),
+            __uuidof(ID3D12GraphicsCommandList5),  __uuidof(ID3D12GraphicsCommandList6),
+            __uuidof(ID3D12GraphicsCommandList7),  __uuidof(ID3D12GraphicsCommandList8),
+            __uuidof(ID3D12GraphicsCommandList9),  __uuidof(ID3D12GraphicsCommandList10),
+        };
+        for (const IID &iid : kListIids)
+        {
+            IUnknown *unk = nullptr;
+            Require(proxy->QueryInterface(iid, reinterpret_cast<void **>(&unk)) == S_OK, "listN qi");
+            Require(unk != nullptr, "listN ptr");
+            unk->Release();
+        }
+        // Optional producer capability: OMSetDepthBounds via List1 (no-op if GPU rejects; must not crash).
+        ID3D12GraphicsCommandList1 *l1 = nullptr;
+        if (SUCCEEDED(proxy->QueryInterface(IID_PPV_ARGS(&l1))))
+        {
+            l1->OMSetDepthBounds(0.0f, 1.0f);
+            l1->Release();
+        }
     }
     else
         Check(book.BindProducer(device, alloc, list), "bind");

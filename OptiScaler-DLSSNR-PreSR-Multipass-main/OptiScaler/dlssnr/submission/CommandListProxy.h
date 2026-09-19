@@ -2,8 +2,9 @@
 #include "LogicalList.h"
 #include <atomic>
 
-// Experimental COM proxy for ID3D12GraphicsCommandList (base only).
-// QueryInterface for ID3D12GraphicsCommandList1..10 returns E_NOINTERFACE (fail-closed).
+// COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
+// QI accepts List1..List10 + base. Newer methods QI the live producer; if unsupported, fail-closed (no-op / E_UNEXPECTED).
+// Still no game CreateCommandList / ExecuteCommandLists hooks.
 namespace DlssNr::Submission
 {
 MIDL_INTERFACE("b3c0e9a1-4d2f-4c77-9a18-6f2d8e1b4c01")
@@ -13,12 +14,24 @@ ILogicalCommandList : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) = 0;
 };
 
-class CommandListProxy final : public ID3D12GraphicsCommandList, public ILogicalCommandList
+class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
 {
     std::atomic<ULONG> refs { 1 };
     LogicalList logical;
 
     ID3D12GraphicsCommandList *Cur() const { return logical.Current(); }
+
+    template <typename TIface>
+    TIface *CurAs() const
+    {
+        ID3D12GraphicsCommandList *c = Cur();
+        if (!c)
+            return nullptr;
+        TIface *p = nullptr;
+        if (FAILED(c->QueryInterface(__uuidof(TIface), reinterpret_cast<void **>(&p))))
+            return nullptr;
+        return p; // caller must Release
+    }
 
   public:
     static HRESULT Create(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
@@ -43,9 +56,14 @@ class CommandListProxy final : public ID3D12GraphicsCommandList, public ILogical
             return E_POINTER;
         *ppv = nullptr;
         if (riid == IID_IUnknown || riid == __uuidof(ID3D12Object) || riid == __uuidof(ID3D12DeviceChild) ||
-            riid == __uuidof(ID3D12CommandList) || riid == __uuidof(ID3D12GraphicsCommandList))
+            riid == __uuidof(ID3D12CommandList) || riid == __uuidof(ID3D12GraphicsCommandList) ||
+            riid == __uuidof(ID3D12GraphicsCommandList1) || riid == __uuidof(ID3D12GraphicsCommandList2) ||
+            riid == __uuidof(ID3D12GraphicsCommandList3) || riid == __uuidof(ID3D12GraphicsCommandList4) ||
+            riid == __uuidof(ID3D12GraphicsCommandList5) || riid == __uuidof(ID3D12GraphicsCommandList6) ||
+            riid == __uuidof(ID3D12GraphicsCommandList7) || riid == __uuidof(ID3D12GraphicsCommandList8) ||
+            riid == __uuidof(ID3D12GraphicsCommandList9) || riid == __uuidof(ID3D12GraphicsCommandList10))
         {
-            *ppv = static_cast<ID3D12GraphicsCommandList *>(this);
+            *ppv = static_cast<ID3D12GraphicsCommandList10 *>(this);
             AddRef();
             return S_OK;
         }
@@ -353,6 +371,251 @@ class CommandListProxy final : public ID3D12GraphicsCommandList, public ILogical
     {
         if (auto *c = Cur())
             c->ExecuteIndirect(sig, n, arg, ao, cnt, co);
+    }
+
+    // --- ID3D12GraphicsCommandList1 ---
+    void STDMETHODCALLTYPE AtomicCopyBufferUINT(ID3D12Resource *dst, UINT64 dstOff, ID3D12Resource *src, UINT64 srcOff,
+                                                UINT deps, ID3D12Resource *const *depRes,
+                                                const D3D12_SUBRESOURCE_RANGE_UINT64 *depRanges) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
+        {
+            c->AtomicCopyBufferUINT(dst, dstOff, src, srcOff, deps, depRes, depRanges);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE AtomicCopyBufferUINT64(ID3D12Resource *dst, UINT64 dstOff, ID3D12Resource *src, UINT64 srcOff,
+                                                  UINT deps, ID3D12Resource *const *depRes,
+                                                  const D3D12_SUBRESOURCE_RANGE_UINT64 *depRanges) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
+        {
+            c->AtomicCopyBufferUINT64(dst, dstOff, src, srcOff, deps, depRes, depRanges);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE OMSetDepthBounds(FLOAT mn, FLOAT mx) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
+        {
+            c->OMSetDepthBounds(mn, mx);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE SetSamplePositions(UINT samplesPerPixel, UINT numPixels,
+                                              D3D12_SAMPLE_POSITION *positions) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
+        {
+            c->SetSamplePositions(samplesPerPixel, numPixels, positions);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE ResolveSubresourceRegion(ID3D12Resource *dst, UINT dstSub, UINT dstX, UINT dstY,
+                                                    ID3D12Resource *src, UINT srcSub, D3D12_RECT *srcRect,
+                                                    DXGI_FORMAT fmt, D3D12_RESOLVE_MODE mode) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
+        {
+            c->ResolveSubresourceRegion(dst, dstSub, dstX, dstY, src, srcSub, srcRect, fmt, mode);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE SetViewInstanceMask(UINT mask) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
+        {
+            c->SetViewInstanceMask(mask);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList2 ---
+    void STDMETHODCALLTYPE WriteBufferImmediate(UINT count, const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER *params,
+                                                const D3D12_WRITEBUFFERIMMEDIATE_MODE *modes) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList2>())
+        {
+            c->WriteBufferImmediate(count, params, modes);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList3 ---
+    void STDMETHODCALLTYPE SetProtectedResourceSession(ID3D12ProtectedResourceSession *session) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList3>())
+        {
+            c->SetProtectedResourceSession(session);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList4 ---
+    void STDMETHODCALLTYPE BeginRenderPass(UINT numRTs, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *rts,
+                                           const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *ds,
+                                           D3D12_RENDER_PASS_FLAGS flags) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->BeginRenderPass(numRTs, rts, ds, flags);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE EndRenderPass() override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->EndRenderPass();
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE InitializeMetaCommand(ID3D12MetaCommand *cmd, const void *initData, SIZE_T initSize) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->InitializeMetaCommand(cmd, initData, initSize);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE ExecuteMetaCommand(ID3D12MetaCommand *cmd, const void *execData, SIZE_T execSize) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->ExecuteMetaCommand(cmd, execData, execSize);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE BuildRaytracingAccelerationStructure(
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT numPost,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->BuildRaytracingAccelerationStructure(desc, numPost, post);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE EmitRaytracingAccelerationStructurePostbuildInfo(
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT numSrc,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->EmitRaytracingAccelerationStructurePostbuildInfo(desc, numSrc, src);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE CopyRaytracingAccelerationStructure(D3D12_GPU_VIRTUAL_ADDRESS dst,
+                                                               D3D12_GPU_VIRTUAL_ADDRESS src,
+                                                               D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->CopyRaytracingAccelerationStructure(dst, src, mode);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE SetPipelineState1(ID3D12StateObject *stateObject) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->SetPipelineState1(stateObject);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE DispatchRays(const D3D12_DISPATCH_RAYS_DESC *desc) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
+        {
+            c->DispatchRays(desc);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList5 ---
+    void STDMETHODCALLTYPE RSSetShadingRate(D3D12_SHADING_RATE base,
+                                            const D3D12_SHADING_RATE_COMBINER *combiners) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList5>())
+        {
+            c->RSSetShadingRate(base, combiners);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE RSSetShadingRateImage(ID3D12Resource *image) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList5>())
+        {
+            c->RSSetShadingRateImage(image);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList6 ---
+    void STDMETHODCALLTYPE DispatchMesh(UINT x, UINT y, UINT z) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList6>())
+        {
+            c->DispatchMesh(x, y, z);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList7 ---
+    void STDMETHODCALLTYPE Barrier(UINT32 numGroups, const D3D12_BARRIER_GROUP *groups) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList7>())
+        {
+            c->Barrier(numGroups, groups);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList8 ---
+    void STDMETHODCALLTYPE OMSetFrontAndBackStencilRef(UINT front, UINT back) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList8>())
+        {
+            c->OMSetFrontAndBackStencilRef(front, back);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList9 ---
+    void STDMETHODCALLTYPE RSSetDepthBias(FLOAT bias, FLOAT clamp, FLOAT slope) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList9>())
+        {
+            c->RSSetDepthBias(bias, clamp, slope);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE IASetIndexBufferStripCutValue(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE value) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList9>())
+        {
+            c->IASetIndexBufferStripCutValue(value);
+            c->Release();
+        }
+    }
+
+    // --- ID3D12GraphicsCommandList10 ---
+    void STDMETHODCALLTYPE SetProgram(const D3D12_SET_PROGRAM_DESC *desc) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList10>())
+        {
+            c->SetProgram(desc);
+            c->Release();
+        }
+    }
+    void STDMETHODCALLTYPE DispatchGraph(const D3D12_DISPATCH_GRAPH_DESC *desc) override
+    {
+        if (auto *c = CurAs<ID3D12GraphicsCommandList10>())
+        {
+            c->DispatchGraph(desc);
+            c->Release();
+        }
     }
 };
 } // namespace DlssNr::Submission
