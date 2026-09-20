@@ -417,22 +417,26 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE BeginQuery(ID3D12QueryHeap *h, D3D12_QUERY_TYPE t, UINT i) override
     {
+        MarkSplitIneligible("query");
         if (auto *c = Cur())
             c->BeginQuery(h, t, i);
     }
     void STDMETHODCALLTYPE EndQuery(ID3D12QueryHeap *h, D3D12_QUERY_TYPE t, UINT i) override
     {
+        MarkSplitIneligible("query");
         if (auto *c = Cur())
             c->EndQuery(h, t, i);
     }
     void STDMETHODCALLTYPE ResolveQueryData(ID3D12QueryHeap *h, D3D12_QUERY_TYPE t, UINT s, UINT n, ID3D12Resource *d,
                                             UINT64 o) override
     {
+        MarkSplitIneligible("query");
         if (auto *c = Cur())
             c->ResolveQueryData(h, t, s, n, d, o);
     }
     void STDMETHODCALLTYPE SetPredication(ID3D12Resource *b, UINT64 o, D3D12_PREDICATION_OP op) override
     {
+        MarkSplitIneligible("predication");
         if (auto *c = Cur())
             c->SetPredication(b, o, op);
     }
@@ -651,6 +655,8 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     // --- ID3D12GraphicsCommandList7 ---
     void STDMETHODCALLTYPE Barrier(UINT32 numGroups, const D3D12_BARRIER_GROUP *groups) override
     {
+        // Enhanced barriers: fail-closed admission until we can classify groups.
+        MarkSplitIneligible("enhanced_barrier");
         if (auto *c = CurAs<ID3D12GraphicsCommandList7>())
         {
             c->Barrier(numGroups, groups);

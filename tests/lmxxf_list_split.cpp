@@ -206,6 +206,30 @@ int main()
     const auto proxied = RunCopy(device, queue, true, true);
     Require(unsplit == split, "split passthrough matches unsplit");
     Require(unsplit == proxied, "COM proxy split matches unsplit");
+
+    // Admission: query on producer ? Split ineligible (ordinary SR path).
+    {
+        ID3D12CommandAllocator *a = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)), "adm_a");
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a, nullptr, IID_PPV_ARGS(&raw)), "adm_raw");
+        DlssNr::Submission::CommandListProxy *px = nullptr;
+        Check(DlssNr::Submission::CommandListProxy::Create(device, a, raw, &px), "adm_proxy");
+        ID3D12QueryHeap *qh = nullptr;
+        D3D12_QUERY_HEAP_DESC qhd {};
+        qhd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        qhd.Count = 2;
+        Check(device->CreateQueryHeap(&qhd, IID_PPV_ARGS(&qh)), "query heap");
+        px->EndQuery(qh, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+        Require(px->IsSplitIneligible(), "query makes split ineligible");
+        Require(FAILED(px->SplitSegments()), "split refused after query");
+        px->Close();
+        px->Release();
+        raw->Release();
+        qh->Release();
+        a->Release();
+    }
+
     Require(unsplit[0] == 0xA0 && unsplit[15] == 0xAF, "pattern");
 
     // Create -> Close -> Reset (never Execute) must succeed.

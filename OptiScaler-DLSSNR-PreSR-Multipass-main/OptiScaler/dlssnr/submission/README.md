@@ -8,9 +8,10 @@
 - `ContinuationState` seed: viewport/scissor/topology/PSO/roots/heaps/blend/stencil/OM.
 - `ResourceStateBook`: refuse open split barrier / aliasing at cut.
 - Product Execute path: when `ExpandEnabled()`, `AmdBridge::ExecuteBatch` always runs `ExecuteExpanded` (QI `ILogicalCommandList` → `ExecuteOnWithBetween`). `PendingListIndex` is Daniel-only batch isolation; lmxxf returns -1 on purpose.
+- Min G1 admission reject (`MarkSplitIneligible`): open split barrier / aliasing / `resource_state`; `BeginQuery`/`EndQuery`/`ResolveQueryData` → `query`; `SetPredication` → `predication`; List7 `Barrier` → `enhanced_barrier`; render pass → `render_pass`. Split then fails → ordinary SR (safe reject). Covered by `lmxxf_list_split` query case.
 - Tests: `test-lmxxf-list-split.cmd`, `test-lmxxf-create-execute.cmd`, `test-lmxxf-list1-wrap.cmd`, `test-lmxxf-evaluate-cut.cmd`.
 
 ## Not yet
 
 - Product Arm live (`LmxxfWired()`); full IA/VRS/SO/RT continuation; cross-Execute promotion/decay.
-- Admission reject for unknown state at cut (G1 min); richer CL1 stress beyond Reset→Split.
+- Richer CL1 stress beyond Reset→Split; full continuation / promotion-decay (plan D).
