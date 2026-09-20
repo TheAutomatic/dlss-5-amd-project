@@ -1,0 +1,84 @@
+#pragma once
+#include "../submission/CommandListProxy.h"
+#include "Selector.h"
+#include "../submission/SubmissionHooks.h"
+#include <atomic>
+#include <cstdint>
+
+// Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
+// Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
+// While LmxxfWired() is false this is dead code in AmdBridge — harnesses call the helpers directly.
+namespace DlssNr::Backend::LmxxfCut
+{
+using EnqueueHipFn = int32_t (*)(void *session, void *job);
+
+struct PendingHip
+{
+    void *session = nullptr;
+    void *job = nullptr;
+    EnqueueHipFn enqueueHip = nullptr;
+    std::atomic<int> betweenHits { 0 };
+    std::atomic<int32_t> lastEnqueueRc { 0 };
+};
+
+inline PendingHip &Pending()
+{
+    static PendingHip p;
+    return p;
+}
+
+inline void BetweenThunk(void * /*ctx*/)
+{
+    auto &p = Pending();
+    p.betweenHits.fetch_add(1, std::memory_order_relaxed);
+    if (p.enqueueHip && p.session && p.job)
+        p.lastEnqueueRc.store(p.enqueueHip(p.session, p.job), std::memory_order_relaxed);
+}
+
+// QI for ILogicalCommandList and SplitSegments. S_FALSE = not our proxy (cannot sandwich).
+inline HRESULT TrySplitAtEvaluate(ID3D12GraphicsCommandList *cmd)
+{
+    if (!cmd)
+        return E_INVALIDARG;
+    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+    if (FAILED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList), reinterpret_cast<void **>(&logical))) || !logical)
+        return S_FALSE;
+    const HRESULT hr = logical->SplitSegments();
+    logical->Release();
+    return hr;
+}
+
+inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip)
+{
+    auto &p = Pending();
+    p.session = session;
+    p.job = job;
+    p.enqueueHip = enqueueHip;
+}
+
+inline void ClearPendingEnqueue()
+{
+    auto &p = Pending();
+    p.session = nullptr;
+    p.job = nullptr;
+    p.enqueueHip = nullptr;
+}
+
+inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }
+
+inline void DisarmBetweenSlot()
+{
+    DlssNr::Submission::Hooks::SetBetween(nullptr, nullptr);
+    ClearPendingEnqueue();
+}
+
+// Product Evaluate/Before cut: split + arm between. No-op until SubmissionHooksWanted().
+inline void OnEvaluateBeforeRecord(ID3D12GraphicsCommandList *cmd)
+{
+    if (!DlssNr::Backend::SubmissionHooksWanted())
+        return;
+    (void)TrySplitAtEvaluate(cmd);
+    ArmBetweenSlot();
+    // SetPendingEnqueue is filled by the future lmxxf Host::Record after PrepareFrame.
+}
+} // namespace DlssNr::Backend::LmxxfCut

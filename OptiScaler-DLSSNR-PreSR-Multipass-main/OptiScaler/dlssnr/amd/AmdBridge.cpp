@@ -4,6 +4,7 @@
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
 #include "../backend/Selector.h"
+#include "../backend/LmxxfEvaluateCut.h"
 #include "../submission/SubmissionHooks.h"
 #include <State.h>
 #include <Util.h>
@@ -401,6 +402,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     s.skin = cfg.DlssNrSkinStructure.value_or_default();
     if (s.skin < 0)
         s.skin = s.structure;
+    // Dead until LmxxfWired(): Split proxy + SetBetween(EnqueueHip) for the HIP sandwich.
+    DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
     if (auto replacement = b->Record(cmd, f, s))
     {
         originalColour = f.colour;

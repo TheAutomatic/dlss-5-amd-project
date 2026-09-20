@@ -10,5 +10,5 @@
 
 ## Not yet
 
-- Product `Arm` inside OptiScaler; real `EnqueueHip` in between; full IA/VRS/SO/RT state;
+- Product Arm call site: `LmxxfEvaluateCut` (dead until `LmxxfWired()`); real session `SetPendingEnqueue` still open; full IA/VRS/SO/RT state;
   full cross-Execute promotion/decay; CreateCommandList1 wrap; `LmxxfWired()`.
