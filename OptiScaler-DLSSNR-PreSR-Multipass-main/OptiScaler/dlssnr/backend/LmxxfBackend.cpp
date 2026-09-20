@@ -184,6 +184,83 @@ bool LmxxfBackend::EnsureSession()
 }
 
 
+
+void LmxxfBackend::ReleaseColorRing()
+{
+    for (auto &r : colorRing)
+    {
+        if (r)
+        {
+            r->Release();
+            r = nullptr;
+        }
+    }
+    colorRingReady[0] = colorRingReady[1] = false;
+    colorRingWrite = 0;
+    colorRingW = colorRingH = 0;
+    colorRingFmt = DXGI_FORMAT_UNKNOWN;
+}
+
+bool LmxxfBackend::EnsureColorRing(ID3D12Resource *color)
+{
+    if (!device || !color)
+        return false;
+    const D3D12_RESOURCE_DESC d = color->GetDesc();
+    if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        return false;
+    const UINT w = static_cast<UINT>(d.Width);
+    const UINT h = d.Height;
+    if (colorRing[0] && colorRing[1] && colorRingW == w && colorRingH == h && colorRingFmt == d.Format)
+        return true;
+    ReleaseColorRing();
+    D3D12_HEAP_PROPERTIES hp {};
+    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC td = d;
+    td.Alignment = 0;
+    td.Flags = D3D12_RESOURCE_FLAG_NONE; // copy dest / SRV for encode
+    for (int i = 0; i < 2; ++i)
+    {
+        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
+                                                   D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                                   IID_PPV_ARGS(&colorRing[i]))) ||
+            !colorRing[i])
+        {
+            ReleaseColorRing();
+            return false;
+        }
+    }
+    colorRingW = w;
+    colorRingH = h;
+    colorRingFmt = d.Format;
+    return true;
+}
+
+void LmxxfBackend::ScheduleColorCapture(ID3D12GraphicsCommandList *gameCmd, ID3D12Resource *color,
+                                        D3D12_RESOURCE_STATES colorState, UINT slot)
+{
+    if (!gameCmd || !color || slot > 1 || !colorRing[slot])
+        return;
+    ID3D12Resource *dst = colorRing[slot];
+    D3D12_RESOURCE_BARRIER b[2] {};
+    b[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b[0].Transition = {color, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, colorState,
+                       D3D12_RESOURCE_STATE_COPY_SOURCE};
+    // Ring slot may be COMMON (first use) or NON_PIXEL_SHADER_RESOURCE (after prior capture).
+    const D3D12_RESOURCE_STATES dstBefore =
+        colorRingReady[slot] ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_COMMON;
+    b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b[1].Transition = {dst, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, dstBefore,
+                       D3D12_RESOURCE_STATE_COPY_DEST};
+    gameCmd->ResourceBarrier(2, b);
+    gameCmd->CopyResource(dst, color);
+    // Restore game Color to the state Evaluate advertised (caller's contract).
+    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    b[0].Transition.StateAfter = colorState;
+    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    gameCmd->ResourceBarrier(2, b);
+    colorRingReady[slot] = true;
+}
 bool LmxxfBackend::EnsurePrivateList()
 {
     if (!device || !queue)
@@ -383,13 +460,63 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     {
         // yysls/Streamline Evaluate uses CreateCommandList; CL1-only wrap never sees it.
         // Open Create wrap DEVICE_REMOVEs — private proxied list + ExecuteOnWithBetween now.
+        // Color may still be unsubmitted on `cmd`: capture THIS frame onto the game list,
+        // NR from the PREVIOUS capture (1-frame lag, upstream overlap style).
+        if (!EnsureColorRing(frame.colour))
+        {
+            api->table.CancelUnsubmitted(session, job.handle);
+            SetStatus("lmxxf: Color ring alloc failed");
+            return nullptr;
+        }
+        const UINT captureSlot = colorRingWrite;
+        const UINT nrSlot = colorRingWrite ^ 1u;
+        ScheduleColorCapture(cmd, frame.colour,
+                             static_cast<D3D12_RESOURCE_STATES>(frame.colourState), captureSlot);
+        colorRingWrite ^= 1u;
+        if (!colorRingReady[nrSlot])
+        {
+            // First frame(s): capture scheduled, nothing safe to NR yet — keep original Color.
+            api->table.CancelUnsubmitted(session, job.handle);
+            SetStatus("lmxxf: private CL priming Color capture");
+            return nullptr;
+        }
         if (!EnsurePrivateList())
         {
             api->table.CancelUnsubmitted(session, job.handle);
             SetStatus("lmxxf: private CL setup failed");
             return nullptr;
         }
-        return FinishRecord(privCmd, job.handle, job.private_output, true);
+        // Re-Prepare against the previous capture so encode/decode see a completed Color.
+        AmdPreSr::Frame nrFrame = frame;
+        nrFrame.colour = colorRing[nrSlot];
+        nrFrame.colourState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        nrFrame.width = colorRingW;
+        nrFrame.height = colorRingH;
+        D3D12_RESOURCE_DESC nrDesc = nrFrame.colour->GetDesc();
+        LmxxfNrFrameInfo fi2 {};
+        fi2.struct_size = sizeof(fi2);
+        fi2.frame_id = fi.frame_id;
+        fi2.command_list = privCmd;
+        fi2.color_width = nrFrame.width ? nrFrame.width : static_cast<uint32_t>(nrDesc.Width);
+        fi2.color_height = nrFrame.height ? nrFrame.height : static_cast<uint32_t>(nrDesc.Height);
+        fi2.color = nrFrame.colour;
+        fi2.color_state = static_cast<uint32_t>(nrFrame.colourState);
+        fi2.flags = 0;
+        LmxxfNrJob job2 {};
+        job2.struct_size = sizeof(job2);
+        const int32_t frameRc2 = api->table.PrepareFrame(session, &fi2, &job2);
+        if (frameRc2 != LMXXF_NR_OK || !job2.handle || !job2.private_output)
+        {
+            char err[256] {};
+            if (api->table.GetLastError)
+                api->table.GetLastError(err, sizeof err);
+            LOG_ERROR("lmxxf: PrepareFrame(staging) rc={} err={}", frameRc2, err);
+            api->table.CancelUnsubmitted(session, job.handle);
+            SetStatus("lmxxf: PrepareFrame staging failed");
+            return nullptr;
+        }
+        api->table.CancelUnsubmitted(session, job.handle); // drop the live-Color job; use staging job
+        return FinishRecord(privCmd, job2.handle, job2.private_output, true);
     }
 
     return FinishRecord(cmd, job.handle, job.private_output, false);

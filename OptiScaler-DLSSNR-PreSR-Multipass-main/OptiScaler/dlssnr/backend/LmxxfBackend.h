@@ -29,9 +29,22 @@ class LmxxfBackend final : public Host
     HANDLE privFenceEvent = nullptr;
     UINT64 privFenceValue = 0;
 
+    // 1-frame Color capture: copy THIS frame onto the game cmd; NR reads the PREVIOUS
+    // capture so Encode never races unsubmitted Color producers on the same list.
+    ID3D12Resource *colorRing[2] {};
+    bool colorRingReady[2] {};
+    UINT colorRingWrite = 0;
+    UINT colorRingW = 0;
+    UINT colorRingH = 0;
+    DXGI_FORMAT colorRingFmt = DXGI_FORMAT_UNKNOWN;
+
     bool EnsureRuntime();
     bool EnsurePrivateList();
     void ReleasePrivateList();
+    void ReleaseColorRing();
+    bool EnsureColorRing(ID3D12Resource *color);
+    void ScheduleColorCapture(ID3D12GraphicsCommandList *gameCmd, ID3D12Resource *color,
+                              D3D12_RESOURCE_STATES colorState, UINT slot);
     ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput,
                                  bool executeNow);
     bool EnsureSession();
