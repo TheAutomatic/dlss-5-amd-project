@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AmdBridge.h"
+#include "../submission/SubmissionTls.h"
 #include "AmdPreSr.h"
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
@@ -244,7 +245,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (err == NO_ERROR)
             err = DetourUpdateThread(GetCurrentThread());
         if (err == NO_ERROR)
-            err = DetourAttach(reinterpret_cast<PVOID*>(&executeOriginal), Execute);
+            DlssNr::Submission::NoteRawExecuteCommandLists(executeOriginal);
+    err = DetourAttach(reinterpret_cast<PVOID*>(&executeOriginal), Execute);
         if (err == NO_ERROR && exitOriginal)
             err = DetourAttach(reinterpret_cast<PVOID*>(&exitOriginal), Exit);
         if (err == NO_ERROR)

@@ -239,14 +239,23 @@ class LogicalList
         if (FAILED(hr))
             return hr;
 
+        // Bypass Detoured ECL (AmdBridge Submitted / expand). Internal producer submit
+        // must not ClearPendingEnqueue before the HIP between-slot runs.
+        LogicalExecuteScope logicalExecScope;
         ID3D12CommandList *first = producer;
-        queue->ExecuteCommandLists(1, &first);
+        if (g_rawExecuteCommandLists)
+            g_rawExecuteCommandLists(queue, 1, &first);
+        else
+            queue->ExecuteCommandLists(1, &first);
         if (split && between)
             between(betweenCtx);
         if (split && continuation)
         {
             ID3D12CommandList *second = continuation;
-            queue->ExecuteCommandLists(1, &second);
+            if (g_rawExecuteCommandLists)
+                g_rawExecuteCommandLists(queue, 1, &second);
+            else
+                queue->ExecuteCommandLists(1, &second);
         }
         // Completion credential for deferred continuation allocator recycle.
         const UINT64 v = ++retireFenceValue;

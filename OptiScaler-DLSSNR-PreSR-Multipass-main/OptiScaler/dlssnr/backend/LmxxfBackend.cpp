@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "LmxxfBackend.h"
+#include "../submission/SubmissionTls.h"
 #include "../../../../third_party/lmxxf/include/LmxxfNrApi.h"
 #include <cstdlib>
 #include <fstream>
@@ -306,8 +307,10 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         const int32_t hipRc = LmxxfCut::Pending().lastEnqueueRc.load(std::memory_order_relaxed);
         SetStatus(hipRc == 0 ? "lmxxf: Record ok (private CL EnqueueHip)"
                              : "lmxxf: Record ok (private CL; EnqueueHip rc!=0)");
-        LOG_INFO("lmxxf: private CL betweenHits={} EnqueueHip rc={}",
-                 LmxxfCut::Pending().betweenHits.load(std::memory_order_relaxed), hipRc);
+        LOG_INFO("lmxxf: private CL betweenHits={} enqueueCalls={} skipped={} EnqueueHip rc={}",
+                 LmxxfCut::Pending().betweenHits.load(std::memory_order_relaxed),
+                 LmxxfCut::Pending().enqueueCalls.load(std::memory_order_relaxed),
+                 LmxxfCut::Pending().skippedHits.load(std::memory_order_relaxed), hipRc);
         return reinterpret_cast<ID3D12Resource *>(privateOutput);
     }
     pendingJob = jobHandle;
@@ -409,7 +412,10 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *cons
         api->table.Retire(session, pendingJob);
         pendingJob = nullptr;
     }
-    LmxxfCut::ClearPendingEnqueue();
+    // LogicalList producer/continuation submit re-enters this hook; clearing here
+    // would drop HIP before BetweenThunk. BetweenThunk consumes Pending itself.
+    if (!DlssNr::Submission::InsideLogicalExecute())
+        LmxxfCut::ClearPendingEnqueue();
 }
 
 bool LmxxfBackend::Shutdown()

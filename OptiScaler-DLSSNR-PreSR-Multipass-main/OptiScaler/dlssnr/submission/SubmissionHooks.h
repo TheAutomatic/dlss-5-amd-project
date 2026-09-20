@@ -206,6 +206,7 @@ inline HRESULT Arm(ID3D12Device *device, ID3D12CommandQueue *queue)
     if (o_CreateCommandList1)
         DetourAttach(reinterpret_cast<PVOID *>(&o_CreateCommandList1), hkCreateCommandList1);
     if (o_ExecuteCommandLists)
+        NoteRawExecuteCommandLists(o_ExecuteCommandLists);
         DetourAttach(reinterpret_cast<PVOID *>(&o_ExecuteCommandLists), hkExecuteCommandLists);
     const LONG err = DetourTransactionCommit();
     if (err != NO_ERROR)

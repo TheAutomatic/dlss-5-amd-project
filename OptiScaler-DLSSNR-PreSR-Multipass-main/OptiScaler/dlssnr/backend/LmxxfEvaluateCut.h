@@ -12,12 +12,17 @@ namespace DlssNr::Backend::LmxxfCut
 {
 using EnqueueHipFn = int32_t (*)(void *session, void *job);
 
+// lastEnqueueRc when BetweenThunk ran but Pending was empty (HIP skipped).
+constexpr int32_t kEnqueueSkipped = static_cast<int32_t>(0x534B4950); // 'SKIP'
+
 struct PendingHip
 {
     void *session = nullptr;
     void *job = nullptr;
     EnqueueHipFn enqueueHip = nullptr;
     std::atomic<int> betweenHits { 0 };
+    std::atomic<int> enqueueCalls { 0 };
+    std::atomic<int> skippedHits { 0 };
     std::atomic<int32_t> lastEnqueueRc { 0 };
 };
 
@@ -29,12 +34,31 @@ inline PendingHip &Pending()
     return p;
 }
 
+inline void ClearPendingEnqueue()
+{
+    auto &p = Pending();
+    p.session = nullptr;
+    p.job = nullptr;
+    p.enqueueHip = nullptr;
+}
+
 inline void BetweenThunk(void * /*ctx*/)
 {
     auto &p = Pending();
+    if (!(p.enqueueHip && p.session && p.job))
+    {
+        p.skippedHits.fetch_add(1, std::memory_order_relaxed);
+        p.lastEnqueueRc.store(kEnqueueSkipped, std::memory_order_relaxed);
+        return;
+    }
+    auto *const session = p.session;
+    auto *const job = p.job;
+    const EnqueueHipFn fn = p.enqueueHip;
+    // Consume before call so a nested Submitted cannot double-fire the same job.
+    ClearPendingEnqueue();
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
-    if (p.enqueueHip && p.session && p.job)
-        p.lastEnqueueRc.store(p.enqueueHip(p.session, p.job), std::memory_order_relaxed);
+    p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
+    p.lastEnqueueRc.store(fn(session, job), std::memory_order_relaxed);
 }
 
 // QI for ILogicalCommandList and SplitSegments. S_FALSE = not our proxy (cannot sandwich).
@@ -56,14 +80,6 @@ inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip)
     p.session = session;
     p.job = job;
     p.enqueueHip = enqueueHip;
-}
-
-inline void ClearPendingEnqueue()
-{
-    auto &p = Pending();
-    p.session = nullptr;
-    p.job = nullptr;
-    p.enqueueHip = nullptr;
 }
 
 inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }
