@@ -23,6 +23,8 @@ ILogicalCommandList : public IUnknown
     // Harness: plan D continuation IA capture.
     virtual BOOL STDMETHODCALLTYPE CapturedIbBound(void) = 0;
     virtual UINT STDMETHODCALLTYPE CapturedVbSlotCount(void) = 0;
+    virtual UINT STDMETHODCALLTYPE CapturedGfxRootCount(void) = 0;
+    virtual BOOL STDMETHODCALLTYPE CapturedSamplePositions(void) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
@@ -191,6 +193,11 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     BOOL STDMETHODCALLTYPE CapturedIbBound() override { return contState.hasIb ? TRUE : FALSE; }
     UINT STDMETHODCALLTYPE CapturedVbSlotCount() override { return contState.CapturedVbSlotCount(); }
+    UINT STDMETHODCALLTYPE CapturedGfxRootCount() override { return contState.gfxRoots.BoundCount(); }
+    BOOL STDMETHODCALLTYPE CapturedSamplePositions() override
+    {
+        return contState.hasSamplePositions ? TRUE : FALSE;
+    }
 
     void STDMETHODCALLTYPE ClearState(ID3D12PipelineState *p) override
     {
@@ -313,61 +320,85 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE SetComputeRootDescriptorTable(UINT i, D3D12_GPU_DESCRIPTOR_HANDLE h) override
     {
+        if (!contState.computeRoots.OnTable(i, h))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetComputeRootDescriptorTable(i, h);
     }
     void STDMETHODCALLTYPE SetGraphicsRootDescriptorTable(UINT i, D3D12_GPU_DESCRIPTOR_HANDLE h) override
     {
+        if (!contState.gfxRoots.OnTable(i, h))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetGraphicsRootDescriptorTable(i, h);
     }
     void STDMETHODCALLTYPE SetComputeRoot32BitConstant(UINT i, UINT v, UINT o) override
     {
+        if (!contState.computeRoots.OnSingleConstant(i, v, o))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetComputeRoot32BitConstant(i, v, o);
     }
     void STDMETHODCALLTYPE SetGraphicsRoot32BitConstant(UINT i, UINT v, UINT o) override
     {
+        if (!contState.gfxRoots.OnSingleConstant(i, v, o))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetGraphicsRoot32BitConstant(i, v, o);
     }
     void STDMETHODCALLTYPE SetComputeRoot32BitConstants(UINT i, UINT n, const void *s, UINT o) override
     {
+        if (!contState.computeRoots.OnConstants(i, n, s, o))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetComputeRoot32BitConstants(i, n, s, o);
     }
     void STDMETHODCALLTYPE SetGraphicsRoot32BitConstants(UINT i, UINT n, const void *s, UINT o) override
     {
+        if (!contState.gfxRoots.OnConstants(i, n, s, o))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetGraphicsRoot32BitConstants(i, n, s, o);
     }
     void STDMETHODCALLTYPE SetComputeRootConstantBufferView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS a) override
     {
+        if (!contState.computeRoots.OnGpuVa(i, RootBindState::EntryType::CBV, a))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetComputeRootConstantBufferView(i, a);
     }
     void STDMETHODCALLTYPE SetGraphicsRootConstantBufferView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS a) override
     {
+        if (!contState.gfxRoots.OnGpuVa(i, RootBindState::EntryType::CBV, a))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetGraphicsRootConstantBufferView(i, a);
     }
     void STDMETHODCALLTYPE SetComputeRootShaderResourceView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS a) override
     {
+        if (!contState.computeRoots.OnGpuVa(i, RootBindState::EntryType::SRV, a))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetComputeRootShaderResourceView(i, a);
     }
     void STDMETHODCALLTYPE SetGraphicsRootShaderResourceView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS a) override
     {
+        if (!contState.gfxRoots.OnGpuVa(i, RootBindState::EntryType::SRV, a))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetGraphicsRootShaderResourceView(i, a);
     }
     void STDMETHODCALLTYPE SetComputeRootUnorderedAccessView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS a) override
     {
+        if (!contState.computeRoots.OnGpuVa(i, RootBindState::EntryType::UAV, a))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetComputeRootUnorderedAccessView(i, a);
     }
     void STDMETHODCALLTYPE SetGraphicsRootUnorderedAccessView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS a) override
     {
+        if (!contState.gfxRoots.OnGpuVa(i, RootBindState::EntryType::UAV, a))
+            MarkSplitIneligible("root_overflow");
         if (auto *c = Cur())
             c->SetGraphicsRootUnorderedAccessView(i, a);
     }
@@ -497,6 +528,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE OMSetDepthBounds(FLOAT mn, FLOAT mx) override
     {
+        contState.OnDepthBounds(mn, mx);
         if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
         {
             c->OMSetDepthBounds(mn, mx);
@@ -506,6 +538,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     void STDMETHODCALLTYPE SetSamplePositions(UINT samplesPerPixel, UINT numPixels,
                                               D3D12_SAMPLE_POSITION *positions) override
     {
+        if (ContinuationState::SamplePositionsOverflow(samplesPerPixel, numPixels))
+            MarkSplitIneligible("sample_positions");
+        else
+            contState.OnSamplePositions(samplesPerPixel, numPixels, positions);
         if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
         {
             c->SetSamplePositions(samplesPerPixel, numPixels, positions);

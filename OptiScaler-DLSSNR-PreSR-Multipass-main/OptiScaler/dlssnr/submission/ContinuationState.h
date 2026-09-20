@@ -1,5 +1,6 @@
 #pragma once
 #include <d3d12.h>
+#include "RootBindState.h"
 #include <cstdint>
 
 namespace DlssNr::Submission
@@ -73,6 +74,20 @@ struct ContinuationState
     bool hasViewInstanceMask = false;
     UINT viewInstanceMask = 0;
 
+    bool hasDepthBounds = false;
+    FLOAT depthBoundsMin = 0.f;
+    FLOAT depthBoundsMax = 1.f;
+
+    // D3D12 max programmed sample positions: 16 pixels * 16 spp.
+    static constexpr UINT kMaxSamplePositions = 256;
+    bool hasSamplePositions = false;
+    UINT samplesPerPixel = 0;
+    UINT numSamplePixels = 0;
+    D3D12_SAMPLE_POSITION samplePositions[kMaxSamplePositions] {};
+
+    RootBindState gfxRoots;
+    RootBindState computeRoots;
+
     ContinuationState() = default;
     ~ContinuationState() { ReleaseRefs(); }
     ContinuationState(const ContinuationState &) = delete;
@@ -130,6 +145,13 @@ struct ContinuationState
         vrsCombiners[0] = vrsCombiners[1] = D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
         hasViewInstanceMask = false;
         viewInstanceMask = 0;
+        hasDepthBounds = false;
+        depthBoundsMin = 0.f;
+        depthBoundsMax = 1.f;
+        hasSamplePositions = false;
+        samplesPerPixel = numSamplePixels = 0;
+        gfxRoots.Reset();
+        computeRoots.Reset();
         for (UINT i = 0; i < kMaxVb; ++i)
         {
             vbSet[i] = false;
@@ -188,6 +210,7 @@ struct ContinuationState
         if (gfxRoot)
             gfxRoot->AddRef();
         hasGfxRoot = gfxRoot != nullptr;
+        gfxRoots.OnSignatureChanged();
     }
 
     void OnComputeRoot(ID3D12RootSignature *s)
@@ -198,6 +221,7 @@ struct ContinuationState
         if (computeRoot)
             computeRoot->AddRef();
         hasComputeRoot = computeRoot != nullptr;
+        computeRoots.OnSignatureChanged();
     }
 
     void OnHeaps(UINT n, ID3D12DescriptorHeap *const *h)
@@ -380,6 +404,36 @@ struct ContinuationState
         return n;
     }
 
+    void OnDepthBounds(FLOAT mn, FLOAT mx)
+    {
+        depthBoundsMin = mn;
+        depthBoundsMax = mx;
+        hasDepthBounds = true;
+    }
+
+    void OnSamplePositions(UINT spp, UINT pixels, const D3D12_SAMPLE_POSITION *pos)
+    {
+        if (spp == 0 || pixels == 0 || !pos)
+        {
+            hasSamplePositions = true;
+            samplesPerPixel = 0;
+            numSamplePixels = 0;
+            return;
+        }
+        const UINT total = spp * pixels;
+        if (total > kMaxSamplePositions)
+            return;
+        samplesPerPixel = spp;
+        numSamplePixels = pixels;
+        for (UINT i = 0; i < total; ++i)
+            samplePositions[i] = pos[i];
+        hasSamplePositions = true;
+    }
+
+    static bool SamplePositionsOverflow(UINT spp, UINT pixels)
+    {
+        return spp != 0 && pixels != 0 && (spp * pixels) > kMaxSamplePositions;
+    }
     // Apply captured bindings onto a fresh continuation list.
     void ApplyTo(ID3D12GraphicsCommandList *list) const
     {
@@ -393,6 +447,8 @@ struct ContinuationState
             list->SetComputeRootSignature(computeRoot);
         if (hasHeaps)
             list->SetDescriptorHeaps(numHeaps, heaps);
+        computeRoots.ApplyCompute(list);
+        gfxRoots.ApplyGraphics(list);
         if (hasViewports)
             list->RSSetViewports(numViewports, viewports);
         if (hasScissors)
@@ -461,6 +517,16 @@ struct ContinuationState
         {
             if (hasViewInstanceMask)
                 l1->SetViewInstanceMask(viewInstanceMask);
+            if (hasDepthBounds)
+                l1->OMSetDepthBounds(depthBoundsMin, depthBoundsMax);
+            if (hasSamplePositions)
+            {
+                if (samplesPerPixel == 0 || numSamplePixels == 0)
+                    l1->SetSamplePositions(0, 0, nullptr);
+                else
+                    l1->SetSamplePositions(samplesPerPixel, numSamplePixels,
+                                           const_cast<D3D12_SAMPLE_POSITION *>(samplePositions));
+            }
             l1->Release();
         }
         ID3D12GraphicsCommandList9 *l9 = nullptr;

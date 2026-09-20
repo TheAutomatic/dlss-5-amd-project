@@ -5,6 +5,7 @@
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/LogicalList.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/CommandListProxy.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/ResourceStateBook.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/RootBindState.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -298,6 +299,63 @@ int main()
         D3D12_RESOURCE_STATES s = D3D12_RESOURCE_STATE_COMMON;
         Require(book.TryGet(psr, &s) && s == D3D12_RESOURCE_STATE_COMMON, "PSR decays to COMMON");
         Require(book.TryGet(rt, &s) && s == D3D12_RESOURCE_STATE_RENDER_TARGET, "RT survives Execute");
+    }
+
+
+    // Plan D residual: root CBV + sample positions capture.
+    {
+        ID3D12CommandAllocator *a = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)), "d_root_a");
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a, nullptr, IID_PPV_ARGS(&raw)), "d_root_raw");
+        DlssNr::Submission::CommandListProxy *px = nullptr;
+        Check(DlssNr::Submission::CommandListProxy::Create(device, a, raw, &px), "d_root_proxy");
+
+        // Minimal empty root signature (allow root CBV at param 0).
+        D3D12_ROOT_PARAMETER1 rp {};
+        rp.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rp.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rp.Descriptor.ShaderRegister = 0;
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC vs {};
+        vs.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        vs.Desc_1_1.NumParameters = 1;
+        vs.Desc_1_1.pParameters = &rp;
+        ID3DBlob *blob = nullptr;
+        ID3DBlob *err = nullptr;
+        Check(D3D12SerializeVersionedRootSignature(&vs, &blob, &err), "serialize rs");
+        ID3D12RootSignature *rs = nullptr;
+        Check(device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&rs)),
+              "create rs");
+        blob->Release();
+        if (err)
+            err->Release();
+        px->SetGraphicsRootSignature(rs);
+        px->SetGraphicsRootConstantBufferView(0, 0x1000);
+        Require(px->CapturedGfxRootCount() == 1, "gfx root CBV captured");
+
+        D3D12_SAMPLE_POSITION sp[4] {};
+        sp[0] = { -4, -4 };
+        sp[1] = { 4, -4 };
+        sp[2] = { -4, 4 };
+        sp[3] = { 4, 4 };
+        px->SetSamplePositions(4, 1, sp);
+        Require(px->CapturedSamplePositions() == TRUE, "sample positions captured");
+        Check(px->SplitSegments(), "split with root+sample seed");
+        Require(px->CapturedGfxRootCount() == 1, "gfx root still after split");
+        px->Close();
+        px->Release();
+        raw->Release();
+        rs->Release();
+        a->Release();
+    }
+
+    // RootBindState unit: overflow fails closed via MarkSplitIneligible path is index>=64.
+    {
+        DlssNr::Submission::RootBindState rb;
+        D3D12_GPU_DESCRIPTOR_HANDLE h {};
+        h.ptr = 1;
+        Require(rb.OnTable(0, h), "table 0 ok");
+        Require(!rb.OnTable(64, h), "table 64 overflow");
     }
 
     Require(unsplit[0] == 0xA0 && unsplit[15] == 0xAF, "pattern");
