@@ -201,8 +201,15 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
-    if (api->table.PrepareFrame(session, &fi, &job) != LMXXF_NR_OK || !job.handle || !job.private_output)
+    const int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+    if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
     {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} {}x{}", frameRc,
+                  job.handle != nullptr, job.private_output != nullptr, err, fi.color_width,
+                  fi.color_height);
         SetStatus("lmxxf: PrepareFrame failed");
         return nullptr;
     }

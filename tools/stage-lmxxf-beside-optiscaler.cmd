@@ -1,5 +1,5 @@
 @echo off
-rem Copy LmxxfNrRuntime.dll + lmxxf-modules-68dc099 beside OptiScaler (release-local or -Dest).
+rem Copy LmxxfNrRuntime.dll + lmxxf-modules + shaders beside OptiScaler (release-local or -Dest).
 setlocal
 cd /d "%~dp0.."
 set "DEST=%~1"
@@ -18,6 +18,12 @@ if not exist "exports\lmxxf-modules-68dc099\SHA256SUMS" (
 )
 robocopy "exports\lmxxf-modules-68dc099" "%DEST%\lmxxf-modules" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
 if errorlevel 8 exit /b 1
-echo staged LmxxfNrRuntime.dll + lmxxf-modules -^> %DEST%
+if not exist "third_party\lmxxf\shaders\native_codec_encode.hlsl" (
+  echo FAIL: missing third_party\lmxxf\shaders
+  exit /b 1
+)
+robocopy "third_party\lmxxf\shaders" "%DEST%\shaders" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
+if errorlevel 8 exit /b 1
+echo staged LmxxfNrRuntime.dll + lmxxf-modules + shaders -^> %DEST%
 echo NOTE: weights via LMXXF_WEIGHTS_DIR=native-game-tiled-assets ^(not HIP/^)
 exit /b 0
