@@ -16,6 +16,9 @@ using BetweenFn = void (*)(void *);
 inline std::mutex g_mu;
 inline std::atomic<bool> g_armed { false };
 inline std::atomic<bool> g_expandEnabled { false };
+// Product default OFF: wrapping every DIRECT list crashes yysls/Streamline at swapchain.
+// Harnesses can SetProxyWrap(true) after Arm.
+inline std::atomic<bool> g_proxyWrap { false };
 inline BetweenFn g_between = nullptr;
 inline void *g_betweenCtx = nullptr;
 
@@ -31,6 +34,8 @@ inline PFN_ExecuteCommandLists o_ExecuteCommandLists = nullptr;
 
 inline bool IsArmed() { return g_armed.load(std::memory_order_acquire); }
 inline bool ExpandEnabled() { return g_expandEnabled.load(std::memory_order_acquire); }
+inline bool ProxyWrapEnabled() { return g_proxyWrap.load(std::memory_order_acquire); }
+inline void SetProxyWrap(bool on) { g_proxyWrap.store(on, std::memory_order_release); }
 
 inline void SetBetween(BetweenFn fn, void *ctx)
 {
@@ -91,7 +96,7 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
                                           ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial, REFIID riid,
                                           void **out)
 {
-    if (!IsArmed() || g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+    if (!IsArmed() || !ProxyWrapEnabled() || g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT)
         return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
 
     ID3D12GraphicsCommandList *real = nullptr;
@@ -109,7 +114,7 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
 inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
                                            D3D12_COMMAND_LIST_FLAGS flags, REFIID riid, void **out)
 {
-    if (!IsArmed() || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
+    if (!IsArmed() || !ProxyWrapEnabled() || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
         return o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
                                     : E_NOINTERFACE;
 
@@ -284,5 +289,6 @@ inline void Disarm()
     g_betweenCtx = nullptr;
     g_armed.store(false, std::memory_order_release);
     g_expandEnabled.store(false, std::memory_order_release);
+    g_proxyWrap.store(false, std::memory_order_release);
 }
 } // namespace DlssNr::Submission::Hooks

@@ -2962,13 +2962,10 @@ static void HookToDevice(ID3D12Device* InDevice)
                 DetourAttach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
         }
 
-        // Graphics Create hooks OR lmxxf submission Create wrap — never both.
-        if (DlssNr::Backend::SubmissionHooksWanted())
-        {
-            // ArmCreate attaches its own Detour on CreateCommandList; do it after this
-            // transaction commits (see below). Skip graphics Create* hooks here.
-        }
-        else if (Config::Instance()->AmdGraphicsWait.value_or_default())
+        // TEMP E: keep AmdGraphicsWait Create hooks even when lmxxf is selected.
+        // Do not ArmCreate - wrapping every DIRECT list instant-crashes yysls/Streamline.
+        // LmxxfBackend Record stays fail-closed without proxy until wrap is fixed.
+        if (Config::Instance()->AmdGraphicsWait.value_or_default())
         {
             if (o_CreateCommandList != nullptr)
                 DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
@@ -2992,11 +2989,7 @@ static void HookToDevice(ID3D12Device* InDevice)
         }
         else if (DlssNr::Backend::SubmissionHooksWanted())
         {
-            const HRESULT armHr = DlssNr::Submission::Hooks::ArmCreate(InDevice);
-            if (FAILED(armHr))
-                LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
-            else
-                LOG_INFO("lmxxf submission CreateCommandList wrap armed (graphics tracker skipped)");
+            LOG_INFO("lmxxf selected: CreateCommandList proxy wrap deferred (ArmCreate skipped)");
         }
     }
 
