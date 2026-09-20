@@ -13,6 +13,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <exception>
 #include <string>
 #include <vector>
@@ -235,6 +236,7 @@ struct Session
     uint32_t hsacoCount = 0;
     bool modulesValidated = false;
     bool hipPrepared = false;
+    bool queueBound = false;
     hip_reference::D3D12Bridge *bridge = nullptr;
     NativeGameCodec *encode = nullptr;
     NativeGameRgbInput *rgbInput = nullptr;
@@ -437,20 +439,9 @@ int32_t PrepareSession(void *context)
         if (!session->device || !session->queue)
             return Fail(LMXXF_NR_INVALID_ARGUMENT,
                         "PrepareSession: device/queue are not live ID3D12 objects");
-        if (session->hipPrepared)
-        {
-            SetError("");
-            return static_cast<int32_t>(LMXXF_NR_OK);
-        }
-        NativeResolveNetworkGeometry(1920, 1080);
-        auto geo = NativeCurrentNetworkGeometry();
-        auto opt = LmxxfProductionOptions(geo.processing_width, geo.processing_height,
-                                          Utf8(session->modulesDir), Utf8(session->weightsDir));
-        if (opt.graph)
-            return Fail(LMXXF_NR_FAILED, "PrepareSession: graph must stay off");
-        session->bridge = new hip_reference::D3D12Bridge();
-        session->bridge->Create(session->queue, opt, {});
-        session->hipPrepared = true;
+        // Upstream 0.21+: network tier follows the first real input size (DLSS5_NETWORK_HEIGHT=auto).
+        // Defer HIP bridge Create until PrepareFrame so we do not bake 1920x1080 for a 720p Color.
+        session->queueBound = true;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -466,7 +457,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
         job->handle = nullptr;
         job->private_output = nullptr;
-        if (!session->hipPrepared || !session->bridge)
+        if (!session->queueBound && !session->hipPrepared)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "PrepareFrame: call PrepareSession with a live D3D12 queue first");
         if (!info->color || !info->color_width || !info->color_height)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: color resource and size required");
@@ -475,7 +466,30 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (session->shaderDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: native_codec_encode.hlsl not found");
 
+        // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
+        // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
+        if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
+            _putenv("DLSS5_NETWORK_HEIGHT=auto");
         NativeResolveNetworkGeometry(info->color_width, info->color_height);
+        if (!session->hipPrepared)
+        {
+            auto geo = NativeCurrentNetworkGeometry();
+            auto opt = LmxxfProductionOptions(geo.processing_width, geo.processing_height,
+                                              Utf8(session->modulesDir), Utf8(session->weightsDir));
+            if (opt.graph)
+                return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
+            session->bridge = new hip_reference::D3D12Bridge();
+            session->bridge->Create(session->queue, opt, {});
+            session->hipPrepared = true;
+            char geoMsg[192] {};
+            std::snprintf(geoMsg, sizeof geoMsg,
+                          "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
+                          info->color_width, info->color_height, geo.valid_width, geo.valid_height,
+                          geo.processing_width, geo.processing_height);
+            OutputDebugStringA(geoMsg);
+            OutputDebugStringA("\n");
+            SetError(geoMsg);
+        }
         auto *color = static_cast<ID3D12Resource *>(info->color);
         if (!session->encode)
         {
@@ -658,9 +672,22 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         else if (!session->modulesValidated)
             std::snprintf(text, sizeof text, "lmxxf runtime stub (no modules path)");
         else
-            std::snprintf(text, sizeof text, "lmxxf modules_ok=%u hip=0 prepared=%u weights=%u",
-                          static_cast<unsigned>(session->hsacoCount), session->hipPrepared ? 1u : 0u,
-                          session->weightsDir.empty() ? 0u : 1u);
+            if (session->hipPrepared && NativeNetworkGeometryResolved())
+            {
+                auto geo = NativeCurrentNetworkGeometry();
+                std::snprintf(text, sizeof text,
+                              "lmxxf modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u",
+                              static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
+                              session->job.width, session->job.height,
+                              session->weightsDir.empty() ? 0u : 1u);
+            }
+            else
+            {
+                std::snprintf(text, sizeof text, "lmxxf modules_ok=%u hip=0 prepared=%u queue=%u weights=%u",
+                              static_cast<unsigned>(session->hsacoCount), session->hipPrepared ? 1u : 0u,
+                              session->queueBound ? 1u : 0u,
+                              session->weightsDir.empty() ? 0u : 1u);
+            }
         std::strncpy(buf, text, buf_chars - 1);
         buf[buf_chars - 1] = 0;
         SetError("");

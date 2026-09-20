@@ -102,6 +102,13 @@ bool LmxxfBackend::EnsureSession()
     if (!EnsureRuntime() || !device || !queue)
         return false;
 
+    // Upstream 0.21+: auto picks 720/900/1080 from Color size. Unset defaults to 1080 and blacks 720p Color.
+    if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
+    {
+        _putenv("DLSS5_NETWORK_HEIGHT=auto");
+        SetEnvironmentVariableA("DLSS5_NETWORK_HEIGHT", "auto");
+        LOG_INFO("lmxxf: DLSS5_NETWORK_HEIGHT defaulted to auto");
+    }
     // Runtime FindWeightsDir reads LMXXF_WEIGHTS_DIR; some launchers omit User env.
     // Promote User/Machine value into this process, or accept a sibling hint file.
     {
@@ -349,6 +356,16 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         ++prepareFrameFailLogs;
         SetStatus("lmxxf: PrepareFrame failed");
         return nullptr;
+    }
+    {
+        static bool loggedGeo = false;
+        if (!loggedGeo && api->table.GetStatus)
+        {
+            char st[256] {};
+            api->table.GetStatus(session, st, sizeof st);
+            LOG_INFO("lmxxf: after PrepareFrame HIP/net geometry status={}", st);
+            loggedGeo = true;
+        }
     }
 
     DlssNr::Submission::ILogicalCommandList *logical = nullptr;
