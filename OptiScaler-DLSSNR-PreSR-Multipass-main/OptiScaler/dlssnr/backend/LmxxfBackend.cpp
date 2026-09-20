@@ -30,8 +30,13 @@ std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
 
 void LmxxfBackend::SetStatus(const char *s)
 {
-    if (s)
-        status = s;
+    if (!s)
+        return;
+    if (status == s)
+        return;
+    status = s;
+    // Surface to OptiScaler.log once per distinct status (Record path was silent before).
+    LOG_INFO("lmxxf status: {}", status);
 }
 
 LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::filesystem::path &dir)
