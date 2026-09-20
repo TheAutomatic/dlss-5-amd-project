@@ -20,6 +20,9 @@ ILogicalCommandList : public IUnknown
     virtual bool STDMETHODCALLTYPE IsSplitIneligible(void) = 0;
     // Harness: viewport count captured for continuation seed (0 if never set).
     virtual UINT STDMETHODCALLTYPE CapturedViewportCount(void) = 0;
+    // Harness: plan D continuation IA capture.
+    virtual BOOL STDMETHODCALLTYPE CapturedIbBound(void) = 0;
+    virtual UINT STDMETHODCALLTYPE CapturedVbSlotCount(void) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
@@ -166,11 +169,12 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         const HRESULT hr = logical.Split();
         if (FAILED(hr))
             return hr;
-        // Seed continuation with captured producer bindings (minimal set).
+        // Seed continuation with captured producer bindings (IA/SO/VRS included).
         contState.ApplyTo(logical.Current());
-        // Producer Execute will introduce a new promotion/decay boundary; book resets
-        // for continuation-side tracking.
-        resBook.Reset();
+        // Producer Execute introduces a promotion/decay boundary: keep tracked
+        // resources but apply Microsoft decay so continuation starts from the
+        // post-Execute expectation (plan D / M3), not a wipe.
+        resBook.ApplyExecuteDecay();
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
@@ -185,9 +189,14 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     {
         return contState.hasViewports ? contState.numViewports : 0;
     }
+    BOOL STDMETHODCALLTYPE CapturedIbBound() override { return contState.hasIb ? TRUE : FALSE; }
+    UINT STDMETHODCALLTYPE CapturedVbSlotCount() override { return contState.CapturedVbSlotCount(); }
 
     void STDMETHODCALLTYPE ClearState(ID3D12PipelineState *p) override
     {
+        contState.Reset();
+        if (p)
+            contState.OnPso(p);
         if (auto *c = Cur())
             c->ClearState(p);
     }
@@ -364,16 +373,19 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE IASetIndexBuffer(const D3D12_INDEX_BUFFER_VIEW *v) override
     {
+        contState.OnIndexBuffer(v);
         if (auto *c = Cur())
             c->IASetIndexBuffer(v);
     }
     void STDMETHODCALLTYPE IASetVertexBuffers(UINT s, UINT n, const D3D12_VERTEX_BUFFER_VIEW *v) override
     {
+        contState.OnVertexBuffers(s, n, v);
         if (auto *c = Cur())
             c->IASetVertexBuffers(s, n, v);
     }
     void STDMETHODCALLTYPE SOSetTargets(UINT s, UINT n, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *v) override
     {
+        contState.OnSoTargets(s, n, v);
         if (auto *c = Cur())
             c->SOSetTargets(s, n, v);
     }
@@ -512,6 +524,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE SetViewInstanceMask(UINT mask) override
     {
+        contState.OnViewInstanceMask(mask);
         if (auto *c = CurAs<ID3D12GraphicsCommandList1>())
         {
             c->SetViewInstanceMask(mask);
@@ -570,6 +583,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE ExecuteMetaCommand(ID3D12MetaCommand *cmd, const void *execData, SIZE_T execSize) override
     {
+        MarkSplitIneligible("meta_command");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->ExecuteMetaCommand(cmd, execData, execSize);
@@ -580,6 +594,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT numPost,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post) override
     {
+        MarkSplitIneligible("rtas");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->BuildRaytracingAccelerationStructure(desc, numPost, post);
@@ -590,6 +605,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT numSrc,
         const D3D12_GPU_VIRTUAL_ADDRESS *src) override
     {
+        MarkSplitIneligible("rtas");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->EmitRaytracingAccelerationStructurePostbuildInfo(desc, numSrc, src);
@@ -600,6 +616,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                                                                D3D12_GPU_VIRTUAL_ADDRESS src,
                                                                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) override
     {
+        MarkSplitIneligible("rtas");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->CopyRaytracingAccelerationStructure(dst, src, mode);
@@ -608,6 +625,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE SetPipelineState1(ID3D12StateObject *stateObject) override
     {
+        MarkSplitIneligible("state_object");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->SetPipelineState1(stateObject);
@@ -616,6 +634,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE DispatchRays(const D3D12_DISPATCH_RAYS_DESC *desc) override
     {
+        MarkSplitIneligible("dispatch_rays");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->DispatchRays(desc);
@@ -627,6 +646,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     void STDMETHODCALLTYPE RSSetShadingRate(D3D12_SHADING_RATE base,
                                             const D3D12_SHADING_RATE_COMBINER *combiners) override
     {
+        contState.OnShadingRate(base, combiners);
         if (auto *c = CurAs<ID3D12GraphicsCommandList5>())
         {
             c->RSSetShadingRate(base, combiners);
@@ -635,6 +655,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE RSSetShadingRateImage(ID3D12Resource *image) override
     {
+        contState.OnShadingRateImage(image);
         if (auto *c = CurAs<ID3D12GraphicsCommandList5>())
         {
             c->RSSetShadingRateImage(image);
@@ -685,6 +706,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE IASetIndexBufferStripCutValue(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE value) override
     {
+        contState.OnStripCut(value);
         if (auto *c = CurAs<ID3D12GraphicsCommandList9>())
         {
             c->IASetIndexBufferStripCutValue(value);

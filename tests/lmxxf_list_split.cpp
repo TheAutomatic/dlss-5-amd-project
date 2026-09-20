@@ -4,6 +4,7 @@
 #include <dxgi1_4.h>
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/LogicalList.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/CommandListProxy.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/ResourceStateBook.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -228,6 +229,75 @@ int main()
         raw->Release();
         qh->Release();
         a->Release();
+    }
+
+
+    // Plan D: IA capture survives into Split seed; Execute decay on book.
+    {
+        ID3D12CommandAllocator *a = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)), "d_ia_a");
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a, nullptr, IID_PPV_ARGS(&raw)), "d_ia_raw");
+        DlssNr::Submission::CommandListProxy *px = nullptr;
+        Check(DlssNr::Submission::CommandListProxy::Create(device, a, raw, &px), "d_ia_proxy");
+
+        D3D12_HEAP_PROPERTIES hp { D3D12_HEAP_TYPE_UPLOAD };
+        D3D12_RESOURCE_DESC rd {};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        rd.Width = 256;
+        rd.Height = 1;
+        rd.DepthOrArraySize = 1;
+        rd.MipLevels = 1;
+        rd.SampleDesc.Count = 1;
+        rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ID3D12Resource *vbRes = nullptr;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                              nullptr, IID_PPV_ARGS(&vbRes)),
+              "d_ia_vb");
+        D3D12_VERTEX_BUFFER_VIEW vbv {};
+        vbv.BufferLocation = vbRes->GetGPUVirtualAddress();
+        vbv.SizeInBytes = 64;
+        vbv.StrideInBytes = 16;
+        px->IASetVertexBuffers(0, 1, &vbv);
+        D3D12_INDEX_BUFFER_VIEW ibv {};
+        ibv.BufferLocation = vbRes->GetGPUVirtualAddress() + 64;
+        ibv.SizeInBytes = 32;
+        ibv.Format = DXGI_FORMAT_R16_UINT;
+        px->IASetIndexBuffer(&ibv);
+        Require(px->CapturedVbSlotCount() == 1, "vb slot captured before split");
+        Require(px->CapturedIbBound() == TRUE, "ib captured before split");
+        Check(px->SplitSegments(), "split with IA seed");
+        Require(px->CapturedVbSlotCount() == 1, "vb still captured after split");
+        Require(px->CapturedIbBound() == TRUE, "ib still captured after split");
+        px->Close();
+        px->Release();
+        raw->Release();
+        vbRes->Release();
+        a->Release();
+    }
+
+    {
+        DlssNr::Submission::ResourceStateBook book;
+        // Fake resource pointer keys (map identity only; never dereferenced).
+        ID3D12Resource *psr = reinterpret_cast<ID3D12Resource *>(static_cast<uintptr_t>(0x1000));
+        ID3D12Resource *rt = reinterpret_cast<ID3D12Resource *>(static_cast<uintptr_t>(0x2000));
+        D3D12_RESOURCE_BARRIER bars[2] {};
+        bars[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        bars[0].Transition.pResource = psr;
+        bars[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+        bars[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        bars[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        bars[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        bars[1].Transition.pResource = rt;
+        bars[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+        bars[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        bars[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        const char *why = nullptr;
+        Require(book.OnBarriers(2, bars, &why), "book accepts transitions");
+        book.ApplyExecuteDecay();
+        D3D12_RESOURCE_STATES s = D3D12_RESOURCE_STATE_COMMON;
+        Require(book.TryGet(psr, &s) && s == D3D12_RESOURCE_STATE_COMMON, "PSR decays to COMMON");
+        Require(book.TryGet(rt, &s) && s == D3D12_RESOURCE_STATE_RENDER_TARGET, "RT survives Execute");
     }
 
     Require(unsplit[0] == 0xA0 && unsplit[15] == 0xAF, "pattern");

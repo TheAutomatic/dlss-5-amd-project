@@ -4,10 +4,13 @@
 
 namespace DlssNr::Submission
 {
-// Minimal continuation seed after Split. Not a full graphics snapshot.
-// Fail-closed: unknown / unsupported bindings set ineligible via callback.
+// Continuation seed after Split. Not a full graphics snapshot.
+// Fail-closed: bindings we cannot restore must MarkSplitIneligible on the proxy.
 struct ContinuationState
 {
+    static constexpr UINT kMaxVb = D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT; // 32
+    static constexpr UINT kMaxSo = D3D12_SO_BUFFER_SLOT_COUNT;                 // 4
+
     bool hasViewports = false;
     UINT numViewports = 0;
     D3D12_VIEWPORT viewports[16] {};
@@ -45,6 +48,31 @@ struct ContinuationState
     bool hasDsv = false;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv {};
 
+    // IA / SO / VRS / view-instance (plan D)
+    bool hasIb = false;
+    bool ibNull = false; // IASetIndexBuffer(nullptr)
+    D3D12_INDEX_BUFFER_VIEW ib {};
+
+    bool vbSet[kMaxVb] {};
+    D3D12_VERTEX_BUFFER_VIEW vb[kMaxVb] {};
+    bool vbNull[kMaxVb] {}; // per-slot null clear
+
+    bool soSet[kMaxSo] {};
+    D3D12_STREAM_OUTPUT_BUFFER_VIEW so[kMaxSo] {};
+    bool soNull[kMaxSo] {};
+
+    bool hasStripCut = false;
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE stripCut = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+
+    bool hasVrs = false;
+    D3D12_SHADING_RATE vrsBase = D3D12_SHADING_RATE_1X1;
+    D3D12_SHADING_RATE_COMBINER vrsCombiners[2] {};
+    bool hasVrsImage = false;
+    ID3D12Resource *vrsImage = nullptr; // may be null = clear image
+
+    bool hasViewInstanceMask = false;
+    UINT viewInstanceMask = 0;
+
     ContinuationState() = default;
     ~ContinuationState() { ReleaseRefs(); }
     ContinuationState(const ContinuationState &) = delete;
@@ -77,6 +105,12 @@ struct ContinuationState
         }
         numHeaps = 0;
         hasPso = hasGfxRoot = hasComputeRoot = hasHeaps = false;
+        if (vrsImage)
+        {
+            vrsImage->Release();
+            vrsImage = nullptr;
+        }
+        hasVrsImage = false;
     }
 
     void Reset()
@@ -88,6 +122,26 @@ struct ContinuationState
         numViewports = numScissors = 0;
         topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
         stencilRef = 0;
+        hasIb = ibNull = false;
+        hasStripCut = false;
+        stripCut = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+        hasVrs = false;
+        vrsBase = D3D12_SHADING_RATE_1X1;
+        vrsCombiners[0] = vrsCombiners[1] = D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+        hasViewInstanceMask = false;
+        viewInstanceMask = 0;
+        for (UINT i = 0; i < kMaxVb; ++i)
+        {
+            vbSet[i] = false;
+            vbNull[i] = false;
+            vb[i] = {};
+        }
+        for (UINT i = 0; i < kMaxSo; ++i)
+        {
+            soSet[i] = false;
+            soNull[i] = false;
+            so[i] = {};
+        }
     }
 
     void OnViewports(UINT n, const D3D12_VIEWPORT *v)
@@ -217,6 +271,115 @@ struct ContinuationState
         }
     }
 
+    void OnIndexBuffer(const D3D12_INDEX_BUFFER_VIEW *v)
+    {
+        if (!v)
+        {
+            hasIb = true;
+            ibNull = true;
+            ib = {};
+            return;
+        }
+        hasIb = true;
+        ibNull = false;
+        ib = *v;
+    }
+
+    void OnVertexBuffers(UINT start, UINT n, const D3D12_VERTEX_BUFFER_VIEW *v)
+    {
+        if (n == 0 || start >= kMaxVb)
+            return;
+        if (start + n > kMaxVb)
+            n = kMaxVb - start;
+        for (UINT i = 0; i < n; ++i)
+        {
+            const UINT slot = start + i;
+            vbSet[slot] = true;
+            if (!v)
+            {
+                vbNull[slot] = true;
+                vb[slot] = {};
+            }
+            else
+            {
+                vbNull[slot] = false;
+                vb[slot] = v[i];
+            }
+        }
+    }
+
+    void OnSoTargets(UINT start, UINT n, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *v)
+    {
+        if (n == 0 || start >= kMaxSo)
+            return;
+        if (start + n > kMaxSo)
+            n = kMaxSo - start;
+        for (UINT i = 0; i < n; ++i)
+        {
+            const UINT slot = start + i;
+            soSet[slot] = true;
+            if (!v)
+            {
+                soNull[slot] = true;
+                so[slot] = {};
+            }
+            else
+            {
+                soNull[slot] = false;
+                so[slot] = v[i];
+            }
+        }
+    }
+
+    void OnStripCut(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE value)
+    {
+        stripCut = value;
+        hasStripCut = true;
+    }
+
+    void OnShadingRate(D3D12_SHADING_RATE base, const D3D12_SHADING_RATE_COMBINER *combiners)
+    {
+        vrsBase = base;
+        if (combiners)
+        {
+            vrsCombiners[0] = combiners[0];
+            vrsCombiners[1] = combiners[1];
+        }
+        else
+        {
+            vrsCombiners[0] = vrsCombiners[1] = D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+        }
+        hasVrs = true;
+    }
+
+    void OnShadingRateImage(ID3D12Resource *image)
+    {
+        if (vrsImage)
+        {
+            vrsImage->Release();
+            vrsImage = nullptr;
+        }
+        vrsImage = image;
+        if (vrsImage)
+            vrsImage->AddRef();
+        hasVrsImage = true; // includes explicit null clear
+    }
+
+    void OnViewInstanceMask(UINT mask)
+    {
+        viewInstanceMask = mask;
+        hasViewInstanceMask = true;
+    }
+
+    UINT CapturedVbSlotCount() const
+    {
+        UINT n = 0;
+        for (UINT i = 0; i < kMaxVb; ++i)
+            if (vbSet[i])
+                ++n;
+        return n;
+    }
+
     // Apply captured bindings onto a fresh continuation list.
     void ApplyTo(ID3D12GraphicsCommandList *list) const
     {
@@ -242,7 +405,80 @@ struct ContinuationState
             list->OMSetStencilRef(stencilRef);
         if (hasOm || hasDsv)
             list->OMSetRenderTargets(numRts, hasOm ? rts : nullptr, omSingle,
-                                    hasDsv ? &dsv : nullptr);
+                                     hasDsv ? &dsv : nullptr);
+        if (hasIb)
+            list->IASetIndexBuffer(ibNull ? nullptr : &ib);
+        // Rebind VB slots; coalesce contiguous runs where possible.
+        {
+            UINT i = 0;
+            while (i < kMaxVb)
+            {
+                if (!vbSet[i])
+                {
+                    ++i;
+                    continue;
+                }
+                const UINT start = i;
+                const bool nullRun = vbNull[i];
+                UINT n = 0;
+                while (i < kMaxVb && vbSet[i] && vbNull[i] == nullRun)
+                {
+                    ++n;
+                    ++i;
+                }
+                if (nullRun)
+                    list->IASetVertexBuffers(start, n, nullptr);
+                else
+                    list->IASetVertexBuffers(start, n, &vb[start]);
+            }
+        }
+        {
+            UINT i = 0;
+            while (i < kMaxSo)
+            {
+                if (!soSet[i])
+                {
+                    ++i;
+                    continue;
+                }
+                const UINT start = i;
+                const bool nullRun = soNull[i];
+                UINT n = 0;
+                while (i < kMaxSo && soSet[i] && soNull[i] == nullRun)
+                {
+                    ++n;
+                    ++i;
+                }
+                if (nullRun)
+                    list->SOSetTargets(start, n, nullptr);
+                else
+                    list->SOSetTargets(start, n, &so[start]);
+            }
+        }
+
+        ID3D12GraphicsCommandList1 *l1 = nullptr;
+        if (SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&l1))) && l1)
+        {
+            if (hasViewInstanceMask)
+                l1->SetViewInstanceMask(viewInstanceMask);
+            l1->Release();
+        }
+        ID3D12GraphicsCommandList9 *l9 = nullptr;
+        if (hasStripCut && SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&l9))) && l9)
+        {
+            l9->IASetIndexBufferStripCutValue(stripCut);
+            l9->Release();
+        }
+
+        ID3D12GraphicsCommandList5 *l5 = nullptr;
+        if (SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&l5))) && l5)
+        {
+            if (hasVrs)
+                l5->RSSetShadingRate(vrsBase, vrsCombiners);
+            if (hasVrsImage)
+                l5->RSSetShadingRateImage(vrsImage);
+            l5->Release();
+        }
     }
 };
 } // namespace DlssNr::Submission

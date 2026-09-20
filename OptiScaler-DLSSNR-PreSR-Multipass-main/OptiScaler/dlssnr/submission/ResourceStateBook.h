@@ -5,11 +5,12 @@
 
 namespace DlssNr::Submission
 {
-// Tracks barriers seen on the logical list for split admission.
+// Tracks barriers seen on the logical list for split admission and
+// post-Execute promotion/decay expectations (plan D / M3).
 // Not a full D3D12 state validator — fail-closed on known-dangerous patterns.
 class ResourceStateBook
 {
-    // Last known state after barriers on this logical recording (producer side).
+    // Last known state after barriers on this logical recording.
     std::unordered_map<ID3D12Resource *, D3D12_RESOURCE_STATES> states;
     bool openSplitBarrier = false;
     bool sawAliasing = false;
@@ -22,6 +23,43 @@ class ResourceStateBook
         openSplitBarrier = false;
         sawAliasing = false;
         sawUnorderedAccess = false;
+    }
+
+    // States that do NOT decay across ExecuteCommandLists (Microsoft M3).
+    static bool SurvivesExecute(D3D12_RESOURCE_STATES s)
+    {
+        const D3D12_RESOURCE_STATES keep =
+            D3D12_RESOURCE_STATE_DEPTH_WRITE | D3D12_RESOURCE_STATE_RENDER_TARGET |
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS | D3D12_RESOURCE_STATE_COPY_DEST |
+            D3D12_RESOURCE_STATE_RESOLVE_DEST | D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE |
+            D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE | D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE |
+            D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE | D3D12_RESOURCE_STATE_STREAM_OUT;
+        return (s & keep) != 0;
+    }
+
+    // After producer Execute, decay tracked states to the expected post-Execute
+    // values so continuation-side tracking starts from the boundary, not a wipe.
+    void ApplyExecuteDecay()
+    {
+        for (auto &kv : states)
+        {
+            if (!SurvivesExecute(kv.second))
+                kv.second = D3D12_RESOURCE_STATE_COMMON;
+        }
+        openSplitBarrier = false;
+        sawAliasing = false;
+        // UAV flag is informational; leave sawUnorderedAccess as-is for diagnostics.
+    }
+
+    bool TryGet(ID3D12Resource *r, D3D12_RESOURCE_STATES *out) const
+    {
+        if (!r || !out)
+            return false;
+        auto it = states.find(r);
+        if (it == states.end())
+            return false;
+        *out = it->second;
+        return true;
     }
 
     // Returns false + reason if this barrier batch makes a later Split unsafe.
