@@ -148,6 +148,199 @@ bool LmxxfBackend::EnsureSession()
         char err[256] {};
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
+        SetStatus("lmxxf: Create failed");
+        return false;
+    }
+    if (api->table.GetStatus)
+    {
+        char st[256] {};
+        api->table.GetStatus(ctx, st, sizeof st);
+        LOG_INFO("lmxxf: after Create status={}", st);
+    }
+    const int32_t prepRc = api->table.PrepareSession(ctx);
+    if (prepRc != LMXXF_NR_OK)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
+        api->table.Destroy(ctx);
+        SetStatus("lmxxf: PrepareSession failed");
+        return false;
+    }
+    session = ctx;
+    sessionReady = true;
+    SetStatus("lmxxf: session ready");
+    return true;
+}
+
+
+bool LmxxfBackend::EnsurePrivateList()
+{
+    if (!device || !queue)
+        return false;
+    if (!privFence)
+    {
+        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&privFence))))
+            return false;
+        privFenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!privFenceEvent)
+            return false;
+    }
+    if (privFenceValue != 0 && privFence->GetCompletedValue() < privFenceValue)
+    {
+        if (FAILED(privFence->SetEventOnCompletion(privFenceValue, privFenceEvent)))
+            return false;
+        if (WaitForSingleObject(privFenceEvent, 2000) != WAIT_OBJECT_0)
+            return false;
+    }
+    if (!privAlloc)
+    {
+        if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&privAlloc))))
+            return false;
+    }
+    else
+    {
+        if (FAILED(privAlloc->Reset()))
+            return false;
+    }
+    if (!privCmd)
+    {
+        if (FAILED(DlssNr::Submission::Hooks::CreateProxiedCommandList(
+                device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, privAlloc, nullptr, IID_PPV_ARGS(&privCmd))))
+            return false;
+    }
+    else
+    {
+        if (FAILED(privCmd->Reset(privAlloc, nullptr)))
+            return false;
+    }
+    return true;
+}
+
+void LmxxfBackend::ReleasePrivateList()
+{
+    if (privCmd)
+    {
+        privCmd->Release();
+        privCmd = nullptr;
+    }
+    if (privAlloc)
+    {
+        privAlloc->Release();
+        privAlloc = nullptr;
+    }
+    if (privFenceEvent)
+    {
+        CloseHandle(privFenceEvent);
+        privFenceEvent = nullptr;
+    }
+    if (privFence)
+    {
+        privFence->Release();
+        privFence = nullptr;
+    }
+    privFenceValue = 0;
+}
+
+ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle,
+                                           void *privateOutput, bool executeNow)
+{
+    if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus("lmxxf: RecordInputs failed");
+        return nullptr;
+    }
+    const HRESULT splitHr = LmxxfCut::TrySplitAtEvaluate(recordCmd);
+    if (FAILED(splitHr) || splitHr == S_FALSE)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus(FAILED(splitHr) ? "lmxxf: Split failed" : "lmxxf: Split returned S_FALSE");
+        return nullptr;
+    }
+    if (api->table.RecordOutputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus("lmxxf: RecordOutputs failed");
+        return nullptr;
+    }
+    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip);
+    LmxxfCut::ArmBetweenSlot();
+    if (executeNow)
+    {
+        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+        if (FAILED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                             reinterpret_cast<void **>(&logical))) ||
+            !logical)
+        {
+            api->table.CancelUnsubmitted(session, jobHandle);
+            LmxxfCut::ClearPendingEnqueue();
+            SetStatus("lmxxf: private list lost ILogicalCommandList");
+            return nullptr;
+        }
+        const HRESULT ex = logical->ExecuteOnWithBetween(queue, &LmxxfCut::BetweenThunk, nullptr);
+        logical->Release();
+        if (FAILED(ex))
+        {
+            api->table.CancelUnsubmitted(session, jobHandle);
+            LmxxfCut::ClearPendingEnqueue();
+            SetStatus("lmxxf: private ExecuteOnWithBetween failed");
+            return nullptr;
+        }
+        const UINT64 signal = ++privFenceValue;
+        if (FAILED(queue->Signal(privFence, signal)))
+            LOG_WARN("lmxxf: private Signal failed after Execute");
+        if (api->table.Retire)
+            api->table.Retire(session, jobHandle);
+        LmxxfCut::ClearPendingEnqueue();
+        pendingJob = nullptr;
+        const int32_t hipRc = LmxxfCut::Pending().lastEnqueueRc.load(std::memory_order_relaxed);
+        SetStatus(hipRc == 0 ? "lmxxf: Record ok (private CL EnqueueHip)"
+                             : "lmxxf: Record ok (private CL; EnqueueHip rc!=0)");
+        LOG_INFO("lmxxf: private CL betweenHits={} EnqueueHip rc={}",
+                 LmxxfCut::Pending().betweenHits.load(std::memory_order_relaxed), hipRc);
+        return reinterpret_cast<ID3D12Resource *>(privateOutput);
+    }
+    pendingJob = jobHandle;
+    SetStatus("lmxxf: Record ok (pending EnqueueHip)");
+    return reinterpret_cast<ID3D12Resource *>(privateOutput);
+}
+
+
+ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
+                                     const AmdPreSr::Settings & /* strength/menu unused: ABI v1 colour-only */)
+{
+    LmxxfCut::ClearPendingEnqueue();
+    pendingJob = nullptr;
+    if (!cmd || !frame.colour)
+    {
+        SetStatus("lmxxf: Record missing cmd/colour");
+        return nullptr;
+    }
+    if (!EnsureSession())
+        return nullptr;
+
+    D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
+    LmxxfNrFrameInfo fi {};
+    fi.struct_size = sizeof(fi);
+    fi.frame_id = ++frameId;
+    fi.command_list = cmd;
+    fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
+    fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+    fi.color = frame.colour;
+    fi.color_state = static_cast<uint32_t>(frame.colourState);
+    fi.flags = 0;
+
+    LmxxfNrJob job {};
+    job.struct_size = sizeof(job);
+    const int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+    if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
         static unsigned prepareFrameFailLogs = 0;
         if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 120) == 0)
             LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} {}x{} (fail#{})", frameRc,
@@ -158,54 +351,30 @@ bool LmxxfBackend::EnsureSession()
         return nullptr;
     }
 
-    // Fail-closed: no ILogicalCommandList proxy → cannot HIP-sandwich after producer submit.
-    // Do not RecordInputs / EnqueueHip / return private_output (would violate submit contract
-    // and hand NGX a not-ready replacement). Ordinary SR keeps the original colour.
+    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+    const bool isProxy =
+        SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                      reinterpret_cast<void **>(&logical))) &&
+        logical;
+    if (logical)
+        logical->Release();
+
+    if (!isProxy)
     {
-        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
-        const bool isProxy =
-            SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
-                                          reinterpret_cast<void **>(&logical))) &&
-            logical;
-        if (logical)
-            logical->Release();
-        if (!isProxy)
+        // yysls/Streamline Evaluate uses CreateCommandList; CL1-only wrap never sees it.
+        // Open Create wrap DEVICE_REMOVEs — private proxied list + ExecuteOnWithBetween now.
+        if (!EnsurePrivateList())
         {
             api->table.CancelUnsubmitted(session, job.handle);
-            SetStatus("lmxxf: no command-list proxy; skip NR (ordinary SR)");
+            SetStatus("lmxxf: private CL setup failed");
             return nullptr;
         }
+        return FinishRecord(privCmd, job.handle, job.private_output, true);
     }
 
-    // Producer side: RecordInputs while list is still unsplit.
-    if (api->table.RecordInputs(session, job.handle, cmd) != LMXXF_NR_OK)
-    {
-        api->table.CancelUnsubmitted(session, job.handle);
-        SetStatus("lmxxf: RecordInputs failed");
-        return nullptr;
-    }
-
-    // Cut: close producer / open continuation, then RecordOutputs on continuation.
-    const HRESULT splitHr = LmxxfCut::TrySplitAtEvaluate(cmd);
-    if (FAILED(splitHr) || splitHr == S_FALSE)
-    {
-        api->table.CancelUnsubmitted(session, job.handle);
-        SetStatus(FAILED(splitHr) ? "lmxxf: Split failed" : "lmxxf: Split returned S_FALSE");
-        return nullptr;
-    }
-    if (api->table.RecordOutputs(session, job.handle, cmd) != LMXXF_NR_OK)
-    {
-        api->table.CancelUnsubmitted(session, job.handle);
-        SetStatus("lmxxf: RecordOutputs failed");
-        return nullptr;
-    }
-
-    LmxxfCut::SetPendingEnqueue(session, job.handle, api->table.EnqueueHip);
-    LmxxfCut::ArmBetweenSlot();
-    pendingJob = job.handle;
-    SetStatus("lmxxf: Record ok (pending EnqueueHip)");
-    return reinterpret_cast<ID3D12Resource *>(job.private_output);
+    return FinishRecord(cmd, job.handle, job.private_output, false);
 }
+
 
 // Daniel uses PendingListIndex to isolate a private neural list from a multi-list batch.
 // lmxxf HIP sits in ExecuteExpanded's between-slot on the game proxy itself, so isolation
@@ -229,6 +398,7 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *cons
 bool LmxxfBackend::Shutdown()
 {
     LmxxfCut::DisarmBetweenSlot();
+    ReleasePrivateList();
     pendingJob = nullptr;
     if (session && api && api->table.Destroy)
     {

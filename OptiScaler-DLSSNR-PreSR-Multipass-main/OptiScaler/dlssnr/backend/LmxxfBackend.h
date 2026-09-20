@@ -22,7 +22,18 @@ class LmxxfBackend final : public Host
     Api *api = nullptr;
     void *pendingJob = nullptr;
 
+    // Private proxied list when Evaluate cmd is not ILogicalCommandList (yysls CreateCommandList).
+    ID3D12CommandAllocator *privAlloc = nullptr;
+    ID3D12GraphicsCommandList *privCmd = nullptr;
+    ID3D12Fence *privFence = nullptr;
+    HANDLE privFenceEvent = nullptr;
+    UINT64 privFenceValue = 0;
+
     bool EnsureRuntime();
+    bool EnsurePrivateList();
+    void ReleasePrivateList();
+    ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput,
+                                 bool executeNow);
     bool EnsureSession();
     void SetStatus(const char *s);
 
