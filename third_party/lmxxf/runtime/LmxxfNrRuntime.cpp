@@ -245,6 +245,28 @@ struct Session
     NativeGameCodec *decode = nullptr;
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
+    DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+
+    void TeardownCodecChain()
+    {
+        delete bridge;
+        bridge = nullptr;
+        hipPrepared = false;
+        if (decodeDisplay)
+        {
+            decodeDisplay->Release();
+            decodeDisplay = nullptr;
+        }
+        delete decode;
+        decode = nullptr;
+        delete rgbTex;
+        rgbTex = nullptr;
+        delete rgbInput;
+        rgbInput = nullptr;
+        delete encode;
+        encode = nullptr;
+        colorFormat = DXGI_FORMAT_UNKNOWN;
+    }
 
     // Wait until queue work that may touch encode/rgb/bridge shared resources is done.
     // Returns S_OK only when completion is confirmed; callers must retain resources on failure.
@@ -503,9 +525,49 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             SetError(geoMsg);
         }
         auto *color = static_cast<ID3D12Resource *>(info->color);
+        if (!color)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null color resource");
+        const D3D12_RESOURCE_DESC cdesc = color->GetDesc();
+        const DXGI_FORMAT cfmt = cdesc.Format;
+        const UINT cw = static_cast<UINT>(cdesc.Width);
+        const UINT ch = cdesc.Height;
+        const bool geoChanged =
+            session->encode &&
+            (session->job.width != info->color_width || session->job.height != info->color_height ||
+             session->colorFormat != cfmt || (session->job.width && cw != session->job.width) ||
+             (session->job.height && ch != session->job.height));
+        const bool pointerChanged = session->encode && color != session->job.color;
+
+        if (session->encode && geoChanged)
+        {
+            if (FAILED(session->DrainGpu()))
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            "PrepareFrame: color geometry change; GPU drain failed (retry or rebuild session)");
+            session->TeardownCodecChain();
+            session->job = {};
+        }
+
         if (!session->encode)
         {
-            // Build on temporaries; publish only after the full chain succeeds.
+            if (!session->bridge)
+            {
+                auto geo = NativeCurrentNetworkGeometry();
+                auto opt = LmxxfProductionOptions(geo.processing_width, geo.processing_height,
+                                                  Utf8(session->modulesDir), Utf8(session->weightsDir));
+                if (opt.graph)
+                    return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
+                session->bridge = new hip_reference::D3D12Bridge();
+                session->bridge->Create(session->queue, opt, {});
+                session->hipPrepared = true;
+                char geoMsg[192] {};
+                std::snprintf(geoMsg, sizeof geoMsg,
+                              "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
+                              info->color_width, info->color_height, geo.valid_width, geo.valid_height,
+                              geo.processing_width, geo.processing_height);
+                OutputDebugStringA(geoMsg);
+                OutputDebugStringA("\n");
+                SetError(geoMsg);
+            }
             NativeGameCodec *enc = nullptr;
             NativeGameRgbInput *rgbIn = nullptr;
             NativeRgbTexture *rgbOut = nullptr;
@@ -519,13 +581,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 rgbIn->Create(session->device, enc->Output(), session->shaderDir);
                 rgbOut = new NativeRgbTexture();
                 rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
-                // Upstream: decode(encode.Output, neural.Output, original) then deliver decode.Output.
                 dec = new NativeGameCodec();
                 dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir);
                 if (dec->BufferOutput())
                 {
-                    // FSR/OptiScaler need a texture SRV; mirror game Color desc for the copy target.
-                    D3D12_RESOURCE_DESC td = color->GetDesc();
+                    D3D12_RESOURCE_DESC td = cdesc;
                     td.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
                     D3D12_HEAP_PROPERTIES hp {};
                     hp.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -552,14 +612,29 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->decode = dec;
             session->decodeDisplay = disp;
         }
-        else if (color != session->job.color)
+        else if (pointerChanged)
         {
-            if (session->encode->RebindNeedsCompletion(0, color) ||
-                (session->decode && session->decode->RebindNeedsCompletion(2, color)))
-                return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: color rebind needs GPU completion");
-            session->encode->RebindInputAfterCompletion(0, color);
-            if (session->decode)
-                session->decode->RebindInputAfterCompletion(2, color);
+            const bool needDrain = session->encode->RebindNeedsCompletion(0, color) ||
+                                   (session->decode && session->decode->RebindNeedsCompletion(2, color));
+            if (needDrain && FAILED(session->DrainGpu()))
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            "PrepareFrame: color rebind needs GPU completion (drain failed; host rebuild)");
+            try
+            {
+                session->encode->RebindInputAfterCompletion(0, color);
+                if (session->decode)
+                    session->decode->RebindInputAfterCompletion(2, color);
+            }
+            catch (const std::exception &ex)
+            {
+                SetError(ex.what());
+                if (FAILED(session->DrainGpu()))
+                    return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: rebind threw; GPU drain failed");
+                session->TeardownCodecChain();
+                session->job = {};
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            "PrepareFrame: color rebind failed after drain; chain torn down (retry)");
+            }
         }
 
         session->job = {};
@@ -567,6 +642,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.colorState = static_cast<D3D12_RESOURCE_STATES>(info->color_state);
         session->job.width = info->color_width;
         session->job.height = info->color_height;
+        session->colorFormat = cfmt;
         session->job.seed = 1;
         session->job.state = LMXXF_NR_JOB_PREPARED;
         job->handle = &session->job;

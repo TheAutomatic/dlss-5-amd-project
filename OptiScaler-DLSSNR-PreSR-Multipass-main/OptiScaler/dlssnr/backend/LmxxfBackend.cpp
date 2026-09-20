@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "LmxxfBackend.h"
+#include <cstring>
 #include "../submission/SubmissionTls.h"
 #include "../../../../third_party/lmxxf/include/LmxxfNrApi.h"
 #include <cstdlib>
@@ -429,12 +430,29 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
         static unsigned prepareFrameFailLogs = 0;
-        if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 120) == 0)
+        static unsigned prepareFrameRebuilds = 0;
+        if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 30) == 0)
             LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} {}x{} (fail#{})", frameRc,
                       job.handle != nullptr, job.private_output != nullptr, err, fi.color_width,
                       fi.color_height, prepareFrameFailLogs + 1);
         ++prepareFrameFailLogs;
-        SetStatus("lmxxf: PrepareFrame failed");
+        // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
+        // drop host session so the next Record EnsureSession starts clean.
+        const bool rebindish = frameRc == LMXXF_NR_UNAVAILABLE || (err[0] && (std::strstr(err, "rebind") || std::strstr(err, "geometry")));
+        if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
+        {
+            LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
+            ReleaseColorRing();
+            if (session && api && api->table.Destroy)
+                api->table.Destroy(session);
+            session = nullptr;
+            sessionReady = false;
+            SetStatus("lmxxf: session rebuild after PrepareFrame fail");
+        }
+        else
+        {
+            SetStatus("lmxxf: PrepareFrame failed");
+        }
         return nullptr;
     }
     {
