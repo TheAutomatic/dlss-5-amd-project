@@ -2,6 +2,8 @@
 #include "LmxxfBackend.h"
 #include "../../../../third_party/lmxxf/include/LmxxfNrApi.h"
 #include <cstdlib>
+#include <fstream>
+#include <string>
 
 namespace DlssNr::Backend
 {
@@ -99,8 +101,40 @@ bool LmxxfBackend::EnsureSession()
         return true;
     if (!EnsureRuntime() || !device || !queue)
         return false;
+
+    // Runtime FindWeightsDir reads LMXXF_WEIGHTS_DIR; some launchers omit User env.
+    // Promote User/Machine value into this process, or accept a sibling hint file.
+    {
+        wchar_t have[MAX_PATH] {};
+        if (!GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", have, MAX_PATH) || !have[0])
+        {
+            wchar_t fromUser[MAX_PATH] {};
+            DWORD n = GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", fromUser, MAX_PATH);
+            (void)n;
+            const auto hint = directory / L"lmxxf-weights-dir.txt";
+            if (std::filesystem::exists(hint))
+            {
+                std::wifstream in(hint);
+                std::wstring line;
+                if (in && std::getline(in, line) && !line.empty())
+                {
+                    while (!line.empty() && (line.back() == L'\r' || line.back() == L' '))
+                        line.pop_back();
+                    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", line.c_str());
+                    LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from hint file: {}", std::filesystem::path(line).string());
+                }
+            }
+        }
+        wchar_t now[MAX_PATH] {};
+        if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", now, MAX_PATH) && now[0])
+            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR={}", std::filesystem::path(now).string());
+        else
+            LOG_WARN("lmxxf: LMXXF_WEIGHTS_DIR unset (PrepareSession may fail without tiled weights)");
+    }
+
     const auto modules = ResolveModulesDir(directory);
     const std::wstring modulesW = WidenPath(modules);
+    LOG_INFO("lmxxf: assets/modules dir={}", modules.string());
     LmxxfNrCreateInfo info {};
     info.struct_size = sizeof(info);
     info.device = device;
@@ -108,13 +142,29 @@ bool LmxxfBackend::EnsureSession()
     info.assets_directory = modulesW.c_str();
     info.flags = 0;
     void *ctx = nullptr;
-    if (api->table.Create(&info, &ctx) != LMXXF_NR_OK || !ctx)
+    const int32_t createRc = api->table.Create(&info, &ctx);
+    if (createRc != LMXXF_NR_OK || !ctx)
     {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
         SetStatus("lmxxf: Create failed");
         return false;
     }
-    if (api->table.PrepareSession(ctx) != LMXXF_NR_OK)
+    if (api->table.GetStatus)
     {
+        char st[256] {};
+        api->table.GetStatus(ctx, st, sizeof st);
+        LOG_INFO("lmxxf: after Create status={}", st);
+    }
+    const int32_t prepRc = api->table.PrepareSession(ctx);
+    if (prepRc != LMXXF_NR_OK)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
         api->table.Destroy(ctx);
         SetStatus("lmxxf: PrepareSession failed");
         return false;
