@@ -96,19 +96,10 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
                                           ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial, REFIID riid,
                                           void **out)
 {
-    if (!IsArmed() || !ProxyWrapEnabled() || g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT)
-        return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
-
-    ID3D12GraphicsCommandList *real = nullptr;
-    const HRESULT hr =
-        o_CreateCommandList(device, nodeMask, type, alloc, initial, IID_PPV_ARGS(&real));
-    if (FAILED(hr))
-        return hr;
-    const HRESULT wrap = WrapNewList(device, alloc, real, riid, out);
-    real->Release();
-    if (FAILED(wrap) && out)
-        *out = nullptr;
-    return wrap;
+    // Product: never wrap CreateCommandList (open lists). Wrapping DIRECT Create
+    // on yysls/Streamline causes DXGI_ERROR_INVALID_CALL / DEVICE_REMOVED right after
+    // ProxyWrap enable. NR proxy path uses CreateCommandList1 only.
+    return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
 }
 
 inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,

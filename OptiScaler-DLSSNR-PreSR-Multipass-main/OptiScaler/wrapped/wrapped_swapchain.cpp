@@ -457,7 +457,7 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
         !DlssNr::Submission::Hooks::ProxyWrapEnabled())
     {
         DlssNr::Submission::Hooks::SetProxyWrap(true);
-        LOG_INFO("lmxxf CreateCommandList ProxyWrap enabled after swapchain {}", _id);
+        LOG_INFO("lmxxf ProxyWrap enabled after swapchain {} (CreateCommandList1 only)", _id);
     }
 }
 
