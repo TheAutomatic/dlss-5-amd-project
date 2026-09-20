@@ -148,68 +148,12 @@ bool LmxxfBackend::EnsureSession()
         char err[256] {};
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
-        LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
-        SetStatus("lmxxf: Create failed");
-        return false;
-    }
-    if (api->table.GetStatus)
-    {
-        char st[256] {};
-        api->table.GetStatus(ctx, st, sizeof st);
-        LOG_INFO("lmxxf: after Create status={}", st);
-    }
-    const int32_t prepRc = api->table.PrepareSession(ctx);
-    if (prepRc != LMXXF_NR_OK)
-    {
-        char err[256] {};
-        if (api->table.GetLastError)
-            api->table.GetLastError(err, sizeof err);
-        LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
-        api->table.Destroy(ctx);
-        SetStatus("lmxxf: PrepareSession failed");
-        return false;
-    }
-    session = ctx;
-    sessionReady = true;
-    SetStatus("lmxxf: session ready");
-    return true;
-}
-
-ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
-                                     const AmdPreSr::Settings & /* strength/menu unused: ABI v1 colour-only */)
-{
-    LmxxfCut::ClearPendingEnqueue();
-    pendingJob = nullptr;
-    if (!cmd || !frame.colour)
-    {
-        SetStatus("lmxxf: Record missing cmd/colour");
-        return nullptr;
-    }
-    if (!EnsureSession())
-        return nullptr;
-
-    D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
-    LmxxfNrFrameInfo fi {};
-    fi.struct_size = sizeof(fi);
-    fi.frame_id = ++frameId;
-    fi.command_list = cmd;
-    fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
-    fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
-    fi.color = frame.colour;
-    fi.color_state = static_cast<uint32_t>(frame.colourState);
-    fi.flags = 0;
-
-    LmxxfNrJob job {};
-    job.struct_size = sizeof(job);
-    const int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
-    if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
-    {
-        char err[256] {};
-        if (api->table.GetLastError)
-            api->table.GetLastError(err, sizeof err);
-        LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} {}x{}", frameRc,
-                  job.handle != nullptr, job.private_output != nullptr, err, fi.color_width,
-                  fi.color_height);
+        static unsigned prepareFrameFailLogs = 0;
+        if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 120) == 0)
+            LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} {}x{} (fail#{})", frameRc,
+                      job.handle != nullptr, job.private_output != nullptr, err, fi.color_width,
+                      fi.color_height, prepareFrameFailLogs + 1);
+        ++prepareFrameFailLogs;
         SetStatus("lmxxf: PrepareFrame failed");
         return nullptr;
     }

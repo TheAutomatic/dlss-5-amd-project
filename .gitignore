@@ -118,4 +118,6 @@ analysis/
 exports/
 .handoff/
 GIT-REWRITE-STATUS.md
-third_party/lmxxf/shaders/shader-cache/
+# shipped precompiled dxbc (FIT/SRGB variants); keep
+# third_party/lmxxf/shaders/shader-cache/
+
