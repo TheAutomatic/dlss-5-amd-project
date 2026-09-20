@@ -495,7 +495,7 @@ if (-not $weights) {
     $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
 }
 if (-not (Test-Path -LiteralPath $weights -PathType Leaf)) {
-    if ((Test-Path $setup) -and $nv) {
+    if ((Test-Path -LiteralPath $setup) -and $nv) {
         Write-Host 'weights.bin still missing — running original-author setup again with nvngx…'
         Push-Location $Root
         try { Start-Process -FilePath $setup -WorkingDirectory $Root -Wait | Out-Null } finally { Pop-Location }
@@ -630,7 +630,9 @@ foreach ($f in $found) {
     }
 }
 
-New-Item -ItemType Directory -Path $backup | Out-Null
+# New-Item has no -LiteralPath on Windows PowerShell 5.1; paths may contain [].
+# [IO.Directory]::CreateDirectory treats the string as a literal path.
+[void][System.IO.Directory]::CreateDirectory($backup)
 foreach ($f in $toMove) {
     Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
     Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
@@ -657,11 +659,11 @@ function Install-One([string]$src, [string]$rel) {
         if (Test-Path -LiteralPath $dest) {
             $save = Join-Path $backup $rel
             $sdir = Split-Path -Parent $save
-            if ($sdir) { New-Item -ItemType Directory -Path $sdir -Force | Out-Null }
+            if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
             Copy-Item -LiteralPath $dest -Destination $save -Force
         }
         $ddir = Split-Path -Parent $dest
-        if ($ddir) { New-Item -ItemType Directory -Path $ddir -Force | Out-Null }
+        if ($ddir) { [void][System.IO.Directory]::CreateDirectory($ddir) }
         Copy-Item -LiteralPath $src -Destination $dest -Force
     } catch [System.IO.IOException] {
         Fail @"
@@ -687,11 +689,11 @@ foreach ($p in 1..3) {
 Install-One $weights 'dlssnr_on_amd_weights.bin'
 
 $ini = Join-Path $release 'OptiScaler.ini'
-if ((Test-Path $ini) -and !(Test-Path (Join-Path $game 'OptiScaler.ini'))) {
+if ((Test-Path -LiteralPath $ini) -and !(Test-Path -LiteralPath (Join-Path $game 'OptiScaler.ini'))) {
     Install-One $ini 'OptiScaler.ini'
 }
 $deps = Join-Path $release 'OptiScaler'
-if (Test-Path $deps) {
+if (Test-Path -LiteralPath $deps) {
     Get-ChildItem -LiteralPath $deps -Recurse -File | ForEach-Object {
         $rel = Join-Path 'OptiScaler' $_.FullName.Substring($deps.Length).TrimStart('\','/')
         Install-One $_.FullName $rel

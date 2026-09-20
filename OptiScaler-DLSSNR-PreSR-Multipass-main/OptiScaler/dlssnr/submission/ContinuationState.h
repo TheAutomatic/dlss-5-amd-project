@@ -191,14 +191,23 @@ struct ContinuationState
         numRts = 0;
         hasOm = false;
         hasDsv = false;
+        omSingle = single;
         if (rt && n > 0)
         {
-            if (n > 8)
-                n = 8;
-            for (UINT i = 0; i < n; ++i)
-                rts[i] = rt[i];
-            numRts = n;
-            omSingle = single;
+            // single=TRUE: only the first handle of a contiguous range is provided.
+            if (single)
+            {
+                rts[0] = rt[0];
+                numRts = n > 8 ? 8 : n;
+            }
+            else
+            {
+                if (n > 8)
+                    n = 8;
+                for (UINT i = 0; i < n; ++i)
+                    rts[i] = rt[i];
+                numRts = n;
+            }
             hasOm = true;
         }
         if (ds)

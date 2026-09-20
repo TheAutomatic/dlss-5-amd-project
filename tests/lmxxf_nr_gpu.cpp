@@ -71,6 +71,7 @@ int main(int argc, char **argv)
     ID3D12CommandQueue *queue = nullptr;
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)), "queue");
     ID3D12CommandAllocator *alloc = nullptr;
+    ID3D12CommandAllocator *outAlloc = nullptr;
     Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "allocator");
     ID3D12GraphicsCommandList *list = nullptr;
     Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list)), "list");
@@ -127,8 +128,21 @@ int main(int argc, char **argv)
     std::printf("EnqueueHip rc=%d last_error=%s\n", hip, err);
     Require(hip == LMXXF_NR_OK || hip == LMXXF_NR_UNAVAILABLE, "EnqueueHip wired (OK or missing weights)");
 
-    Check(alloc->Reset(), "reset allocator");
-    Check(list->Reset(alloc, nullptr), "reset list");
+    // EnqueueHip only schedules GPU work; wait before Reset of the same allocator.
+    {
+        ID3D12Fence *fence = nullptr;
+        Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "fence");
+        Check(queue->Signal(fence, 1), "signal");
+        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        Require(ev != nullptr, "event");
+        Check(fence->SetEventOnCompletion(1, ev), "set event");
+        WaitForSingleObject(ev, 30000);
+        CloseHandle(ev);
+        fence->Release();
+    }
+    // Prefer a fresh allocator for outputs so producer storage is never Reset early.
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&outAlloc)), "out alloc");
+    Check(list->Reset(outAlloc, nullptr), "reset list on out alloc");
     const int32_t outs = api.RecordOutputs(ctx, job.handle, list);
     Require(outs == LMXXF_NR_OK || outs == LMXXF_NR_FAILED, "RecordOutputs called");
     if (outs == LMXXF_NR_OK)
@@ -140,6 +154,8 @@ int main(int argc, char **argv)
     Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy");
     color->Release();
     list->Release();
+    if (outAlloc)
+        outAlloc->Release();
     alloc->Release();
     queue->Release();
     device->Release();

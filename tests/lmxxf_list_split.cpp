@@ -208,6 +208,24 @@ int main()
     Require(unsplit == proxied, "COM proxy split matches unsplit");
     Require(unsplit[0] == 0xA0 && unsplit[15] == 0xAF, "pattern");
 
+    // Create -> Close -> Reset (never Execute) must succeed.
+    {
+        ID3D12CommandAllocator *a1 = nullptr;
+        ID3D12CommandAllocator *a2 = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a1)), "a1");
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a2)), "a2");
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a1, nullptr, IID_PPV_ARGS(&raw)), "raw");
+        DlssNr::Submission::CommandListProxy *proxy = nullptr;
+        Check(DlssNr::Submission::CommandListProxy::Create(device, a1, raw, &proxy), "proxy2");
+        Check(proxy->Close(), "close never-exec");
+        Check(proxy->Reset(a2, nullptr), "reset after close never-exec");
+        proxy->Release();
+        raw->Release();
+        a1->Release();
+        a2->Release();
+    }
+
     queue->Release();
     device->Release();
     std::printf("lmxxf_list_split: ok\n");

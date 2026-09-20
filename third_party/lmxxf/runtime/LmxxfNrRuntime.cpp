@@ -241,16 +241,43 @@ struct Session
     NativeRgbTexture *rgbTex = nullptr;
     Job job {};
 
+    // Wait until queue work that may touch encode/rgb/bridge shared resources is done.
+    void DrainGpu()
+    {
+        if (!device || !queue)
+            return;
+        ID3D12Fence *fence = nullptr;
+        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence)
+            return;
+        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        const UINT64 v = 1;
+        if (SUCCEEDED(queue->Signal(fence, v)) && ev &&
+            SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
+            WaitForSingleObject(ev, 30000);
+        if (ev)
+            CloseHandle(ev);
+        fence->Release();
+    }
+
     ~Session()
     {
-        delete rgbTex;
-        delete rgbInput;
-        delete encode;
+        // GPU may still be reading codec/bridge resources; drain before teardown.
+        DrainGpu();
+        // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
         delete bridge;
+        bridge = nullptr;
+        delete rgbTex;
+        rgbTex = nullptr;
+        delete rgbInput;
+        rgbInput = nullptr;
+        delete encode;
+        encode = nullptr;
         if (queue)
             queue->Release();
+        queue = nullptr;
         if (device)
             device->Release();
+        device = nullptr;
     }
 };
 
@@ -414,12 +441,29 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         auto *color = static_cast<ID3D12Resource *>(info->color);
         if (!session->encode)
         {
-            session->encode = new NativeGameCodec();
-            session->encode->Create(session->device, {color}, session->shaderDir);
-            session->rgbInput = new NativeGameRgbInput();
-            session->rgbInput->Create(session->device, session->encode->Output(), session->shaderDir);
-            session->rgbTex = new NativeRgbTexture();
-            session->rgbTex->Create(session->device, session->bridge->Output(), session->shaderDir);
+            // Build on temporaries; publish only after the full chain succeeds.
+            NativeGameCodec *enc = nullptr;
+            NativeGameRgbInput *rgbIn = nullptr;
+            NativeRgbTexture *rgbOut = nullptr;
+            try
+            {
+                enc = new NativeGameCodec();
+                enc->Create(session->device, {color}, session->shaderDir);
+                rgbIn = new NativeGameRgbInput();
+                rgbIn->Create(session->device, enc->Output(), session->shaderDir);
+                rgbOut = new NativeRgbTexture();
+                rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
+            }
+            catch (...)
+            {
+                delete rgbOut;
+                delete rgbIn;
+                delete enc;
+                throw;
+            }
+            session->encode = enc;
+            session->rgbInput = rgbIn;
+            session->rgbTex = rgbOut;
         }
         else if (color != session->job.color)
         {
@@ -556,6 +600,7 @@ int32_t Drain(void *context)
         auto *session = static_cast<Session *>(context);
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
+        session->DrainGpu();
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
