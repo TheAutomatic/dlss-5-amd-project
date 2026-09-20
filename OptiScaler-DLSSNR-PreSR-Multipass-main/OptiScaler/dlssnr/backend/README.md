@@ -57,7 +57,10 @@ Execute-once passthrough (QI List1+ fail-closed). Not hooked, not default.
 - `LmxxfEvaluateCut.h`: `TrySplitAtEvaluate` + `ArmBetweenSlot` / `SetPendingEnqueue` (between → EnqueueHip thunk).
 - `AmdBridge::Before` calls `OnEvaluateBeforeRecord`; gated by `SubmissionHooksWanted()` so it is dead while `LmxxfWired()` is false.
 - Harness: `tools/test-lmxxf-evaluate-cut.cmd`.
-## LmxxfBackend Record (2026-09-20i)
+## LmxxfBackend Record (2026-09-20)
 
-`Record`: PrepareFrame → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
+`Record`: PrepareFrame → **require proxy** → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
+Non-proxy / Split fail → `CancelUnsubmitted`, return **nullptr** (ordinary SR). No Record-time EnqueueHip.
 Constructed only when `ActiveKind==Lmxxf` (needs `LmxxfWired()`). Modules via `LMXXF_MODULES_DIR` or `lmxxf-modules/` next to the DLL.
+`Settings` (strength etc.) ignored in ABI v1 colour path — menu knobs do not affect lmxxf until a later ABI.
+`Pending()` in `LmxxfEvaluateCut` is a process-wide singleton (one NR session for v1).

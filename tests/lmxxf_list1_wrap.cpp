@@ -78,6 +78,11 @@ int main()
             "List1 returns proxy");
     logical->Release();
 
+    ID3D12Device *devFromList = nullptr;
+    Check(list->GetDevice(IID_PPV_ARGS(&devFromList)), "GetDevice before Reset");
+    Require(devFromList == device, "GetDevice identity");
+    devFromList->Release();
+
     // Closed before Reset: Split must fail (not recording).
     Require(FAILED(DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(list)), "split before Reset fails");
 

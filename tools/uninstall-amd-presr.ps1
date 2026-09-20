@@ -77,6 +77,7 @@ $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
     'OptiScaler.ini','amd-presr-install.txt',
+    'LmxxfNrRuntime.dll',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'Uninstall.bat','Uninstall.ps1'
 )

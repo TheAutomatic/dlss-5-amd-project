@@ -62,6 +62,8 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
     // Execute every game list exactly once. Private runtime Notify callbacks
     // publish HIP jobs afterwards and have their internal ECL call neutralized.
     // When lmxxf submission expand is armed, unwrap CommandListProxy (between = HIP slot).
+    // Expand runs for every ExecuteBatch when ExpandEnabled ? independent of PendingListIndex
+    // (Daniel-only isolation of a private neural list).
     if (DlssNr::Submission::Hooks::ExpandEnabled())
         DlssNr::Submission::Hooks::ExecuteExpanded(q, n, c, DlssNr::Submission::Hooks::g_between,
                                                    DlssNr::Submission::Hooks::g_betweenCtx, executeOriginal);

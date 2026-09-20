@@ -121,7 +121,7 @@ bool LmxxfBackend::EnsureSession()
 }
 
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
-                                     const AmdPreSr::Settings &)
+                                     const AmdPreSr::Settings & /* strength/menu unused: ABI v1 colour-only */)
 {
     LmxxfCut::ClearPendingEnqueue();
     pendingJob = nullptr;
@@ -152,6 +152,25 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         return nullptr;
     }
 
+    // Fail-closed: no ILogicalCommandList proxy → cannot HIP-sandwich after producer submit.
+    // Do not RecordInputs / EnqueueHip / return private_output (would violate submit contract
+    // and hand NGX a not-ready replacement). Ordinary SR keeps the original colour.
+    {
+        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+        const bool isProxy =
+            SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                          reinterpret_cast<void **>(&logical))) &&
+            logical;
+        if (logical)
+            logical->Release();
+        if (!isProxy)
+        {
+            api->table.CancelUnsubmitted(session, job.handle);
+            SetStatus("lmxxf: no command-list proxy; skip NR (ordinary SR)");
+            return nullptr;
+        }
+    }
+
     // Producer side: RecordInputs while list is still unsplit.
     if (api->table.RecordInputs(session, job.handle, cmd) != LMXXF_NR_OK)
     {
@@ -162,15 +181,12 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 
     // Cut: close producer / open continuation, then RecordOutputs on continuation.
     const HRESULT splitHr = LmxxfCut::TrySplitAtEvaluate(cmd);
-    if (FAILED(splitHr))
+    if (FAILED(splitHr) || splitHr == S_FALSE)
     {
         api->table.CancelUnsubmitted(session, job.handle);
-        SetStatus("lmxxf: Split failed");
+        SetStatus(FAILED(splitHr) ? "lmxxf: Split failed" : "lmxxf: Split returned S_FALSE");
         return nullptr;
     }
-    // S_FALSE = not a proxy; cannot HIP-sandwich. Still attempt RecordOutputs on same list
-    // (dev/fallback) but do not arm between.
-    const bool sandwich = (splitHr == S_OK);
     if (api->table.RecordOutputs(session, job.handle, cmd) != LMXXF_NR_OK)
     {
         api->table.CancelUnsubmitted(session, job.handle);
@@ -178,29 +194,16 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         return nullptr;
     }
 
-    if (sandwich)
-    {
-        LmxxfCut::SetPendingEnqueue(session, job.handle, api->table.EnqueueHip);
-        LmxxfCut::ArmBetweenSlot();
-        pendingJob = job.handle;
-        SetStatus("lmxxf: Record ok (pending EnqueueHip)");
-    }
-    else
-    {
-        // No proxy: enqueue immediately so work is not lost (still no Wired product path).
-        const int32_t rc = api->table.EnqueueHip(session, job.handle);
-        if (rc != LMXXF_NR_OK && rc != LMXXF_NR_UNAVAILABLE)
-        {
-            SetStatus("lmxxf: EnqueueHip failed (no split)");
-            return nullptr;
-        }
-        pendingJob = job.handle;
-        SetStatus("lmxxf: Record ok (inline EnqueueHip, no proxy)");
-    }
-
+    LmxxfCut::SetPendingEnqueue(session, job.handle, api->table.EnqueueHip);
+    LmxxfCut::ArmBetweenSlot();
+    pendingJob = job.handle;
+    SetStatus("lmxxf: Record ok (pending EnqueueHip)");
     return reinterpret_cast<ID3D12Resource *>(job.private_output);
 }
 
+// Daniel uses PendingListIndex to isolate a private neural list from a multi-list batch.
+// lmxxf HIP sits in ExecuteExpanded's between-slot on the game proxy itself, so isolation
+// is unnecessary: AmdBridge::ExecuteBatch always calls ExecuteExpanded when ExpandEnabled().
 int LmxxfBackend::PendingListIndex(UINT, ID3D12CommandList *const *) const { return -1; }
 
 void LmxxfBackend::Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) {}

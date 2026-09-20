@@ -23,6 +23,8 @@ struct PendingHip
 
 inline PendingHip &Pending()
 {
+    // Boundary: process-wide singleton. First product version is one NR session;
+    // multi-feature / multi-context must not share this without a map keyed by session.
     static PendingHip p;
     return p;
 }

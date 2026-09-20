@@ -728,7 +728,7 @@ if ($lmxxfRuntime -and $lmxxfMods) {
         $rel = Join-Path 'lmxxf-modules' $_.FullName.Substring($lmxxfMods.Length).TrimStart('\','/')
         Install-One $_.FullName $rel
     }
-    Write-Host 'NOTE: set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/) when testing lmxxf.' -ForegroundColor DarkYellow
+    Write-Host 'NOTE: lmxxf needs LMXXF_WEIGHTS_DIR=native-game-tiled-assets (not HIP/). Without it Create may succeed but EnqueueHip returns UNAVAILABLE.' -ForegroundColor DarkYellow
 } elseif ($lmxxfRuntime -or $lmxxfMods) {
     Write-Host 'NOTE: lmxxf runtime/modules incomplete in package; skipped (Daniel unaffected).' -ForegroundColor DarkYellow
 }
