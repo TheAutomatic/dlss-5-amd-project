@@ -10,5 +10,6 @@
 
 ## Not yet
 
+- CreateCommandList1: wrap closed proxy; allocator binds on first Reset.
 - Product Arm call site: `LmxxfEvaluateCut` (dead until `LmxxfWired()`); real session `SetPendingEnqueue` still open; full IA/VRS/SO/RT state;
   full cross-Execute promotion/decay; CreateCommandList1 wrap; `LmxxfWired()`.

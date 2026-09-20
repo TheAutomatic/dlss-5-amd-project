@@ -144,7 +144,8 @@ class LogicalList
     {
         if (phase == Phase::RecordingContinuation)
             return continuation;
-        if (phase == Phase::RecordingProducer)
+        // Closed (incl. CreateCommandList1 before first Reset) still exposes producer for GetDevice/QI.
+        if (phase == Phase::RecordingProducer || phase == Phase::Closed)
             return producer;
         return nullptr;
     }
@@ -161,6 +162,24 @@ class LogicalList
         producer = list;
         producer->AddRef();
         phase = Phase::RecordingProducer;
+        split = false;
+        executed = false;
+        ++generation;
+        return S_OK;
+    }
+
+    // CreateCommandList1: closed list, allocator arrives on first Reset.
+    HRESULT BindClosedProducer(ID3D12Device *dev, ID3D12GraphicsCommandList *list)
+    {
+        if (!dev || !list)
+            return E_INVALIDARG;
+        Release();
+        device = dev;
+        device->AddRef();
+        producer = list;
+        producer->AddRef();
+        producerAlloc = nullptr;
+        phase = Phase::Closed;
         split = false;
         executed = false;
         ++generation;
@@ -246,6 +265,7 @@ class LogicalList
         // Still recording: cannot Reset (matches "must be closed" spirit).
         if (phase == Phase::RecordingProducer || phase == Phase::RecordingContinuation)
             return E_UNEXPECTED;
+        // CreateCommandList1 path: first Reset supplies the producer allocator.
         // Closed never-executed (Create→Close→Reset) and post-Execute are both OK.
         FlushRetired(false);
         if (continuation || contAlloc)

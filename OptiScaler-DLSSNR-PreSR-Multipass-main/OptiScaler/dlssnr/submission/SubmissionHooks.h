@@ -54,6 +54,19 @@ inline HRESULT WrapNewList(ID3D12Device *device, ID3D12CommandAllocator *alloc, 
     return qi;
 }
 
+inline HRESULT WrapClosedList(ID3D12Device *device, ID3D12GraphicsCommandList *real, REFIID riid, void **out)
+{
+    if (!device || !real || !out)
+        return E_INVALIDARG;
+    CommandListProxy *proxy = nullptr;
+    const HRESULT hr = CommandListProxy::CreateClosed(device, real, &proxy);
+    if (FAILED(hr))
+        return hr;
+    const HRESULT qi = proxy->QueryInterface(riid, out);
+    proxy->Release();
+    return qi;
+}
+
 inline HRESULT CreateProxiedCommandList(ID3D12Device *device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
                                         ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial, REFIID riid,
                                         void **out)
@@ -100,11 +113,17 @@ inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, 
         return o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
                                     : E_NOINTERFACE;
 
-    // CreateCommandList1 has no allocator arg — cannot BindProducer without allocator.
-    // Fail-closed: do not wrap List1-created lists until allocator is known (Reset path).
-    // Pass through real object so games using CreateCommandList1 keep working; split
-    // eligibility for those lists is "not a proxy" (ordinary SR).
-    return o_CreateCommandList1(device, nodeMask, type, flags, riid, out);
+    // Create closed real list, wrap as proxy; allocator binds on first Reset.
+    ID3D12GraphicsCommandList *real = nullptr;
+    const HRESULT hr =
+        o_CreateCommandList1(device, nodeMask, type, flags, IID_PPV_ARGS(&real));
+    if (FAILED(hr))
+        return hr;
+    const HRESULT wrap = WrapClosedList(device, real, riid, out);
+    real->Release();
+    if (FAILED(wrap) && out)
+        *out = nullptr;
+    return wrap;
 }
 
 // Expand proxies in a batch: for each ILogicalCommandList, ExecuteOnWithBetween;

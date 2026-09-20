@@ -700,6 +700,39 @@ if (Test-Path -LiteralPath $deps) {
     }
 }
 
+# Optional lmxxf runtime beside the proxy (Directory() = game folder). Unused until LmxxfWired().
+$lmxxfRuntime = $null
+foreach ($candidate in @(
+        (Join-Path $release 'LmxxfNrRuntime.dll'),
+        (Join-Path $Root 'LmxxfNrRuntime.dll'),
+        (Join-Path $Root 'exports\lmxxf-runtime\LmxxfNrRuntime.dll')
+    )) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $lmxxfRuntime = $candidate; break }
+}
+$lmxxfMods = $null
+foreach ($candidate in @(
+        (Join-Path $release 'lmxxf-modules'),
+        (Join-Path $Root 'lmxxf-modules'),
+        (Join-Path $Root 'exports\lmxxf-modules-68dc099')
+    )) {
+    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
+        (Test-Path -LiteralPath (Join-Path $candidate 'SHA256SUMS') -PathType Leaf)) {
+        $lmxxfMods = $candidate
+        break
+    }
+}
+if ($lmxxfRuntime -and $lmxxfMods) {
+    Write-Host 'Installing optional lmxxf runtime + modules (unused until NrBackend=lmxxf is wired)...' -ForegroundColor Cyan
+    Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
+    Get-ChildItem -LiteralPath $lmxxfMods -Recurse -File | ForEach-Object {
+        $rel = Join-Path 'lmxxf-modules' $_.FullName.Substring($lmxxfMods.Length).TrimStart('\','/')
+        Install-One $_.FullName $rel
+    }
+    Write-Host 'NOTE: set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/) when testing lmxxf.' -ForegroundColor DarkYellow
+} elseif ($lmxxfRuntime -or $lmxxfMods) {
+    Write-Host 'NOTE: lmxxf runtime/modules incomplete in package; skipped (Daniel unaffected).' -ForegroundColor DarkYellow
+}
+
 # Uninstaller is copied into the game folder. Double-click it there; it
 # targets that directory (no folder picker). Look next to Setup first —
 # $release may be a legacy release\ subfolder that does not contain it.

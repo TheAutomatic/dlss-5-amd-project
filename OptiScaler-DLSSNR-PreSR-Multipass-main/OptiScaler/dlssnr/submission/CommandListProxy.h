@@ -70,6 +70,22 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         return S_OK;
     }
 
+    // CreateCommandList1: real list is closed; allocator bound on first Reset.
+    static HRESULT CreateClosed(ID3D12Device *device, ID3D12GraphicsCommandList *real, CommandListProxy **out)
+    {
+        if (!device || !real || !out)
+            return E_INVALIDARG;
+        auto *p = new CommandListProxy();
+        const HRESULT hr = p->logical.BindClosedProducer(device, real);
+        if (FAILED(hr))
+        {
+            delete p;
+            return hr;
+        }
+        *out = p;
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
     {
         if (!ppv)
