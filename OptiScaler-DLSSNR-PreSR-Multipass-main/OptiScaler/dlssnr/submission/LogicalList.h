@@ -54,22 +54,28 @@ class LogicalList
         return device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&retireFence));
     }
 
+    // Free only entries whose fence value is actually complete.
+    // On wait failure/timeout, keep ownership of everything still in flight.
     void FlushRetired(bool waitAll)
     {
         if (!retireFence)
             return;
-        const UINT64 completed = retireFence->GetCompletedValue();
-        if (waitAll && retireFenceValue > completed)
+        UINT64 done = retireFence->GetCompletedValue();
+        if (waitAll && retireFenceValue > done)
         {
             HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
             if (ev)
             {
                 if (SUCCEEDED(retireFence->SetEventOnCompletion(retireFenceValue, ev)))
-                    WaitForSingleObject(ev, 30000);
+                {
+                    const DWORD wr = WaitForSingleObject(ev, 30000);
+                    (void)wr; // success or not: always re-read completed value below
+                }
                 CloseHandle(ev);
             }
+            // Never treat the target fence value as done unless GetCompletedValue says so.
+            done = retireFence->GetCompletedValue();
         }
-        const UINT64 done = waitAll ? retireFenceValue : retireFence->GetCompletedValue();
         size_t w = 0;
         for (size_t i = 0; i < retired.size(); ++i)
         {
@@ -90,6 +96,24 @@ class LogicalList
             }
         }
         retired.resize(w);
+    }
+
+    // Intentionally leak COM refs so GPU-live allocators are never freed on a failed wait.
+    void AbandonUnfinishedRetired()
+    {
+        for (size_t i = 0; i < retired.size(); ++i)
+        {
+            retired[i].alloc = nullptr;
+            retired[i].list = nullptr;
+        }
+        retired.clear();
+    }
+
+    bool ContinuationStillInFlight() const
+    {
+        if (!retireFence || retireFenceValue == 0)
+            return false;
+        return retireFence->GetCompletedValue() < retireFenceValue;
     }
 
     void RetireCurrentContinuation(UINT64 fenceValue)
@@ -191,6 +215,11 @@ class LogicalList
         }
         if (phase != Phase::Closed)
             return E_UNEXPECTED;
+        // Fence must exist before submit so Reset/Release can retain on failure.
+        HRESULT hr = EnsureRetireFence();
+        if (FAILED(hr))
+            return hr;
+
         ID3D12CommandList *first = producer;
         queue->ExecuteCommandLists(1, &first);
         if (split && between)
@@ -200,13 +229,13 @@ class LogicalList
             ID3D12CommandList *second = continuation;
             queue->ExecuteCommandLists(1, &second);
         }
-        // Track completion for deferred continuation allocator recycle.
-        if (SUCCEEDED(EnsureRetireFence()))
-        {
-            const UINT64 v = ++retireFenceValue;
-            queue->Signal(retireFence, v);
-        }
+        // Completion credential for deferred continuation allocator recycle.
+        const UINT64 v = ++retireFenceValue;
+        hr = queue->Signal(retireFence, v);
         executed = true;
+        // Signal failure: GPU work is already submitted; keep resources (fence never reaches v).
+        if (FAILED(hr))
+            return hr;
         return S_OK;
     }
 
@@ -222,9 +251,9 @@ class LogicalList
         if (continuation || contAlloc)
         {
             // Do not free GPU-live continuation storage; retire until fence completes.
-            const UINT64 hold = retireFence ? retireFenceValue : 0;
-            if (hold != 0 && retireFence && retireFence->GetCompletedValue() < hold)
-                RetireCurrentContinuation(hold);
+            // hold==0 means never submitted under a retire fence (e.g. Close without Execute) — safe to free.
+            if (ContinuationStillInFlight())
+                RetireCurrentContinuation(retireFenceValue);
             else
             {
                 IUnknown *c = continuation;
@@ -252,6 +281,26 @@ class LogicalList
     void Release()
     {
         FlushRetired(true);
+        // If wait failed or GPU still busy, park current continuation then abandon unfinished refs.
+        if ((continuation || contAlloc) && ContinuationStillInFlight())
+            RetireCurrentContinuation(retireFenceValue);
+        const bool abandon = !retired.empty() || ContinuationStillInFlight();
+        if (abandon)
+        {
+            AbandonUnfinishedRetired();
+            // Drop pointers without Release — fail-closed intentional COM leak.
+            continuation = nullptr;
+            contAlloc = nullptr;
+            producer = nullptr;
+            producerAlloc = nullptr;
+            device = nullptr;
+            retireFence = nullptr;
+            phase = Phase::Idle;
+            split = false;
+            executed = false;
+            retireFenceValue = 0;
+            return;
+        }
         IUnknown *cont = continuation;
         IUnknown *ca = contAlloc;
         IUnknown *prod = producer;

@@ -242,27 +242,65 @@ struct Session
     Job job {};
 
     // Wait until queue work that may touch encode/rgb/bridge shared resources is done.
-    void DrainGpu()
+    // Returns S_OK only when completion is confirmed; callers must retain resources on failure.
+    HRESULT DrainGpu()
     {
         if (!device || !queue)
-            return;
+            return S_OK;
         ID3D12Fence *fence = nullptr;
-        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence)
-            return;
+        HRESULT hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+        if (FAILED(hr) || !fence)
+            return FAILED(hr) ? hr : E_FAIL;
         HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!ev)
+        {
+            const DWORD err = GetLastError();
+            fence->Release();
+            return HRESULT_FROM_WIN32(err ? err : ERROR_OUTOFMEMORY);
+        }
         const UINT64 v = 1;
-        if (SUCCEEDED(queue->Signal(fence, v)) && ev &&
-            SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
-            WaitForSingleObject(ev, 30000);
-        if (ev)
+        hr = queue->Signal(fence, v);
+        if (FAILED(hr))
+        {
             CloseHandle(ev);
+            fence->Release();
+            return hr;
+        }
+        hr = fence->SetEventOnCompletion(v, ev);
+        if (FAILED(hr))
+        {
+            CloseHandle(ev);
+            fence->Release();
+            return hr;
+        }
+        const DWORD wr = WaitForSingleObject(ev, 30000);
+        CloseHandle(ev);
+        const UINT64 completed = fence->GetCompletedValue();
         fence->Release();
+        if (wr != WAIT_OBJECT_0 || completed < v)
+            return wr == WAIT_TIMEOUT ? HRESULT_FROM_WIN32(ERROR_TIMEOUT) : E_FAIL;
+        return S_OK;
+    }
+
+    void AbandonSessionResources()
+    {
+        // Fail-closed intentional leak: GPU may still reference the whole chain.
+        bridge = nullptr;
+        rgbTex = nullptr;
+        rgbInput = nullptr;
+        encode = nullptr;
+        queue = nullptr;
+        device = nullptr;
     }
 
     ~Session()
     {
         // GPU may still be reading codec/bridge resources; drain before teardown.
-        DrainGpu();
+        if (FAILED(DrainGpu()))
+        {
+            AbandonSessionResources();
+            return;
+        }
         // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
         delete bridge;
         bridge = nullptr;
@@ -600,7 +638,9 @@ int32_t Drain(void *context)
         auto *session = static_cast<Session *>(context);
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
-        session->DrainGpu();
+        const HRESULT hr = session->DrainGpu();
+        if (FAILED(hr))
+            return Fail(LMXXF_NR_FAILED, "Drain: GPU wait failed or timed out");
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
