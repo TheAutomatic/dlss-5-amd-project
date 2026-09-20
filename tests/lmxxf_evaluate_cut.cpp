@@ -3,6 +3,7 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfEvaluateCut.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SubmissionHooks.h"
 #include <cstdio>
 #include <cstdint>
 
@@ -85,12 +86,19 @@ int main()
     ID3D12CommandAllocator *alloc = nullptr;
     Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "alloc");
     ID3D12GraphicsCommandList *list = nullptr;
-    Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list)), "list");
+    // Must be a proxied logical list: product CreateCommandList is not wrapped (CL1-only).
+    Check(DlssNr::Submission::Hooks::CreateProxiedCommandList(
+              device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list)),
+          "CreateProxiedCommandList");
+    Require(list != nullptr, "proxy list");
 
     // Evaluate cut: Split + pending EnqueueHip + ArmBetween
-    Check(DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(list), "TrySplitAtEvaluate");
+    const HRESULT splitHr = DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(list);
+    Require(splitHr == S_OK, "TrySplitAtEvaluate must return S_OK on proxy (not S_FALSE)");
     auto &pending = DlssNr::Backend::LmxxfCut::Pending();
     pending.betweenHits.store(0);
+    pending.enqueueCalls.store(0);
+    pending.skippedHits.store(0);
     pending.lastEnqueueRc.store(-1);
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
                                                  &FakeEnqueue);
@@ -106,6 +114,8 @@ int main()
                                                });
 
     Require(pending.betweenHits.load() == 1, "betweenHits");
+    Require(pending.enqueueCalls.load() == 1, "enqueueCalls must be 1 (real Enqueue)");
+    Require(pending.skippedHits.load() == 0, "skippedHits must be 0");
     Require(pending.lastEnqueueRc.load() == 0, "EnqueueHip rc");
 
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();

@@ -338,12 +338,30 @@ foreach ($root in $roots) {
             $kept.Add("linked path: $lmxxfMods")
             $errors.Add("$lmxxfMods : contains a linked path, not deleted")
         } else {
-            try {
-                Remove-Item -LiteralPath $lmxxfMods -Recurse -Force
-                $deleted.Add("$lmxxfMods  (lmxxf modules)")
-            } catch {
-                $errors.Add("$lmxxfMods : $($_.Exception.Message)")
+            # Delete only files listed in SHA256SUMS (installer set). Keep user weights/extras.
+            $sums = Join-Path $lmxxfMods 'SHA256SUMS'
+            $manifestNames = @()
+            if (Test-Path -LiteralPath $sums -PathType Leaf) {
+                Get-Content -LiteralPath $sums -ErrorAction SilentlyContinue | ForEach-Object {
+                    $line = $_.Trim()
+                    if (-not $line) { return }
+                    $parts = $line -split '\s+', 2
+                    if ($parts.Count -ge 2) { $manifestNames += $parts[1].Trim() }
+                }
             }
+            $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json')
+            foreach ($name in ($manifestNames | Select-Object -Unique)) {
+                if (-not $name) { continue }
+                $fp = Join-Path $lmxxfMods $name
+                if ((Test-UninstallPath $fp) -and (Test-Path -LiteralPath $fp -PathType Leaf)) {
+                    Remove-SafeFile $fp 'lmxxf-module'
+                }
+            }
+            # Remove empty subdirs then the folder if empty (user files keep it alive).
+            Get-ChildItem -LiteralPath $lmxxfMods -Directory -Recurse -ErrorAction SilentlyContinue |
+                Sort-Object { $_.FullName.Length } -Descending |
+                ForEach-Object { Remove-EmptyDirectory $_.FullName }
+            Remove-EmptyDirectory $lmxxfMods
         }
     }
 }

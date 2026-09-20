@@ -204,24 +204,30 @@ struct ContinuationState
 
     void OnGfxRoot(ID3D12RootSignature *s)
     {
+        // D3D12: setting the SAME root signature keeps existing root bindings.
+        // Only clear the parameter snapshot when the signature identity changes.
+        const bool changed = (gfxRoot != s);
         if (gfxRoot)
             gfxRoot->Release();
         gfxRoot = s;
         if (gfxRoot)
             gfxRoot->AddRef();
         hasGfxRoot = gfxRoot != nullptr;
-        gfxRoots.OnSignatureChanged();
+        if (changed)
+            gfxRoots.OnSignatureChanged();
     }
 
     void OnComputeRoot(ID3D12RootSignature *s)
     {
+        const bool changed = (computeRoot != s);
         if (computeRoot)
             computeRoot->Release();
         computeRoot = s;
         if (computeRoot)
             computeRoot->AddRef();
         hasComputeRoot = computeRoot != nullptr;
-        computeRoots.OnSignatureChanged();
+        if (changed)
+            computeRoots.OnSignatureChanged();
     }
 
     void OnHeaps(UINT n, ID3D12DescriptorHeap *const *h)

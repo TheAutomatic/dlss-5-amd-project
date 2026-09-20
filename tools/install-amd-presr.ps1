@@ -721,12 +721,33 @@ foreach ($candidate in @(
         break
     }
 }
+$lmxxfShaders = $null
+foreach ($candidate in @(
+        (Join-Path $release 'shaders'),
+        (Join-Path $Root 'shaders'),
+        (Join-Path $Root 'third_party\lmxxf\shaders')
+    )) {
+    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
+        (Test-Path -LiteralPath (Join-Path $candidate 'native_codec_encode.hlsl') -PathType Leaf)) {
+        $lmxxfShaders = $candidate
+        break
+    }
+}
 if ($lmxxfRuntime -and $lmxxfMods) {
-    Write-Host 'Installing optional lmxxf runtime + modules (unused until NrBackend=lmxxf is wired)...' -ForegroundColor Cyan
+    Write-Host 'Installing optional lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
     Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
     Get-ChildItem -LiteralPath $lmxxfMods -Recurse -File | ForEach-Object {
         $rel = Join-Path 'lmxxf-modules' $_.FullName.Substring($lmxxfMods.Length).TrimStart('\','/')
         Install-One $_.FullName $rel
+    }
+    if ($lmxxfShaders) {
+        Get-ChildItem -LiteralPath $lmxxfShaders -Recurse -File | ForEach-Object {
+            $rel = Join-Path 'shaders' $_.FullName.Substring($lmxxfShaders.Length).TrimStart('\','/')
+            Install-One $_.FullName $rel
+        }
+        Write-Host "  shaders from $lmxxfShaders"
+    } else {
+        Write-Host 'NOTE: lmxxf shaders not found in package; PrepareFrame may fail until shaders/ is beside OptiScaler.' -ForegroundColor DarkYellow
     }
     Write-Host 'NOTE: lmxxf needs LMXXF_WEIGHTS_DIR=native-game-tiled-assets (not HIP/). Without it Create may succeed but EnqueueHip returns UNAVAILABLE.' -ForegroundColor DarkYellow
 } elseif ($lmxxfRuntime -or $lmxxfMods) {
