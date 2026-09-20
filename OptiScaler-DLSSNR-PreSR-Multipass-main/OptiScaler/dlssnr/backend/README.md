@@ -1,66 +1,53 @@
-# NR backend selector (P0)
+# NR backend selector
 
-Tracked ADR for the lmxxf graft. Implementation plan remains
-`exports/lmxxf-main-backend-integration-plan-20260919.md` (gitignored). Progress:
-`exports/lmxxf-backend-progress-20260920.md`. This file is what `work/lmxxf-backend` ships in-tree.
+Tracked ADR for the lmxxf graft. Plan: `exports/lmxxf-main-backend-integration-plan-20260919.md`
+(gitignored). Progress: `exports/lmxxf-backend-progress-20260920*.md`.
 
-## Status (2026-09-20; last code `4ce1f72`)
+## Status (2026-09-20o; tip `8751305`, not pushed)
 
 | Item | Now |
 |---|---|
-| Branch | `work/lmxxf-backend` off `main @ 2792909` (1.8.6 Daniel). Not pushed. |
-| Default host | Daniel. Missing / empty / `auto` / unknown `[DlssNr] NrBackend` → daniel |
-| `NrBackend=lmxxf` | Logged once, **still Daniel**. `LmxxfWired()` false |
-| `NrBackend=off` | No AMD Record; original colour goes to SR |
-| HasFiles / ECL / New wait / menu | Unchanged |
-| `third_party/lmxxf` | Vendored @ `68dc099`; MinGW runtime HIP enqueue wired |
-| `submission/` | `LogicalList` + base `CommandListProxy`. List1–10 and hooks **not** done |
-| `hip_ready` | 0 |
+| Branch | `work/lmxxf-backend` off `main @ 2792909` (1.8.6 Daniel). **Not pushed.** |
+| Default ini `NrBackend` | **daniel** (missing / empty / `auto` / unknown → daniel) |
+| `LmxxfWired()` | **`true` for local E only** (`Kind.h`). Revert before push/default. |
+| Active lmxxf | Only when **Wired ∧** `[DlssNr] NrBackend=lmxxf` → `ActiveKind==Lmxxf` → `LmxxfBackend` |
+| `NrBackend=lmxxf` while Wired false | Logged once, falls back to Daniel |
+| `NrBackend=off` | No AMD Record; original colour to SR |
+| HasFiles / ECL / New wait / menu | Unchanged (HasFiles still expects Daniel `dlssnr_amd_pass1.dll`) |
+| `hip_ready` | Still **0** in QueryCapabilities — trust OptiScaler.log, not the menu bit |
+| `third_party/lmxxf` | Vendored @ `68dc099` + local C ABI runtime |
+| `submission/` | List1–10 proxy, Create/CL1 hooks when `SubmissionHooksWanted()`, continuation seed + admission reject + Execute-decay book |
 
-## Product behaviour (later, when lmxxf is actually selected)
+Do not change `main`'s release default until **G3∧G4∧G5**.
 
-Same-frame serial NR, one HIP network, history off. Slots / Every-frame / New wait stay Daniel-only.
-Do not change `main`'s release default until G3∧G4∧G5.
+## Local E (燕云)
 
-## Toolchain (later P2)
+- GameDir: `...\yysls_medium\Engine\Binaries\Win64r - NR`, proxy `winmm.dll`
+- Deploy notes: `exports/lmxxf-yysls-E-deploy.md`, progress `20260920o`
+- Smoke: 燕云 only (no 鬼武者). Acceptance = playable + no device-removed + explainable logs — not “FSR proved NR output” (that is G3/F).
 
-`LmxxfNrRuntime.dll` is MinGW. OptiScaler (MSVC) talks to it through a versioned C ABI only.
-Upstream source is a vendored closure at `third_party/lmxxf` pinned to `68dc099`, not the
-`analysis/` clone and not a full-repo submodule.
+## Toolchain
 
-## This increment's code
+`LmxxfNrRuntime.dll` is MinGW. OptiScaler (MSVC) talks through `LmxxfNrApi.h` only.
+Modules: `lmxxf-modules` beside the DLL (or `LMXXF_MODULES_DIR`). Weights: `LMXXF_WEIGHTS_DIR` tiled assets (**not** 0.24.2 `HIP/`).
 
-- `Kind.h` — parse `daniel` / `lmxxf` / `off`
-- `Host.h` — vtable the live `AmdBridge` already calls
-- `DanielBackend` — owns `AmdPreSr::Backend`, no protocol change
-- `LmxxfBackend.h` — declared, not constructed
-- `Selector` — requested vs active kind
+## Record sandwich (fail-closed)
 
-## P2 3b (HIP enqueue wired; product still Daniel)
-
-- Encode/decode no longer pull `native_split.h`.
-- `D3D12Bridge` RecordInputCopy / EnqueueAfterProducer / RecordOutputReadable; graph off.
-- RecordInputs = encode + RGB tiles + shared copy; EnqueueHip = fence/HIP/wait; RecordOutputs = RGB texture.
-- Modules: `exports/lmxxf-modules-68dc099` only. Weights: `LMXXF_WEIGHTS_DIR` (tiled assets, not 0.24.2 `HIP/`).
-- `QueryCapabilities.hip_ready` stays 0. `LmxxfWired()` stays false.
-
-## P1 (no-NR split bookkeeping)
-
-EvaluateFeature / `AmdBridge::Before` records on a still-open game list; the game keeps that
-pointer. No natural submit boundary. `LogicalList` + base `CommandListProxy` prove split
-Execute-once passthrough (QI List1+ fail-closed). Not hooked, not default.
-
-**Next (no user action):** forward `ID3D12GraphicsCommandList1`–`10` on the proxy. Do not hook
-`CreateCommandList` until that is done.
-## Evaluate cut skeleton (2026-09-20)
-
-- `LmxxfEvaluateCut.h`: `TrySplitAtEvaluate` + `ArmBetweenSlot` / `SetPendingEnqueue` (between → EnqueueHip thunk).
-- `AmdBridge::Before` calls `OnEvaluateBeforeRecord`; gated by `SubmissionHooksWanted()` so it is dead while `LmxxfWired()` is false.
-- Harness: `tools/test-lmxxf-evaluate-cut.cmd`.
-## LmxxfBackend Record (2026-09-20)
-
-`Record`: PrepareFrame → **require proxy** → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
+`LmxxfBackend::Record`: PrepareFrame → **require** `ILogicalCommandList` proxy → RecordInputs → Split → RecordOutputs → `SetPendingEnqueue(EnqueueHip)`.
 Non-proxy / Split fail → `CancelUnsubmitted`, return **nullptr** (ordinary SR). No Record-time EnqueueHip.
-Constructed only when `ActiveKind==Lmxxf` (needs `LmxxfWired()`). Modules via `LMXXF_MODULES_DIR` or `lmxxf-modules/` next to the DLL.
-`Settings` (strength etc.) ignored in ABI v1 colour path — menu knobs do not affect lmxxf until a later ABI.
-`Pending()` in `LmxxfEvaluateCut` is a process-wide singleton (one NR session for v1).
+`Pending()` is a process-wide singleton (one NR session for v1).
+
+## Product Execute
+
+When `ExpandEnabled()`, `AmdBridge::ExecuteBatch` always `ExecuteExpanded` (QI proxy → `ExecuteOnWithBetween`).
+`PendingListIndex` stays **-1** (Daniel-only batch isolation); lmxxf intentionally does not use it.
+
+## Admission / continuation (plans C–D)
+
+- Min G1 reject: query / predication / enhanced barrier / open split barrier / aliasing / render pass / RTAS / meta / root·sample overflow → `MarkSplitIneligible` → Split fails → ordinary SR.
+- Continuation seed: viewport/scissor/topology/PSO/rootsig/heaps/blend/stencil/OM + IA/SO/VRS/strip-cut/view-mask + RootBindState + sample positions + depth bounds.
+- `ResourceStateBook::ApplyExecuteDecay` updates **our book** only (M3); does not rewrite game barriers. Live proof needs debug layer (plan E).
+
+## Review notes (post-`ebd6072` → `8751305`)
+
+See `exports/lmxxf-review-8751305.md`. Open E risks: query-whole-list reject, RootBindState 64 caps, decay bookkeeping-only, CL1 wrap whenever hooks armed, outdated menu `hip_ready`.

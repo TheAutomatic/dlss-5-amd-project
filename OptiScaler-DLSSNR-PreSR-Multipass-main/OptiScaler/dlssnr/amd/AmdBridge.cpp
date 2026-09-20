@@ -408,7 +408,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     s.skin = cfg.DlssNrSkinStructure.value_or_default();
     if (s.skin < 0)
         s.skin = s.structure;
-    // Dead until LmxxfWired(): Split proxy + SetBetween(EnqueueHip) for the HIP sandwich.
+    // Evaluate cut: Split proxy + SetBetween(EnqueueHip). Live only when SubmissionHooksWanted() (Wired && NrBackend=lmxxf).
     DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
     if (auto replacement = b->Record(cmd, f, s))
     {

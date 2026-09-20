@@ -7,7 +7,7 @@
 
 // Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
 // Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
-// While LmxxfWired() is false this is dead code in AmdBridge — harnesses call the helpers directly.
+// AmdBridge calls this every Evaluate; no-op unless SubmissionHooksWanted(). Harnesses can call helpers directly.
 namespace DlssNr::Backend::LmxxfCut
 {
 using EnqueueHipFn = int32_t (*)(void *session, void *job);
