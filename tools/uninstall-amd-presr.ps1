@@ -203,6 +203,10 @@ foreach ($root in $roots) {
             Add-PlannedFile (Join-Path $deps $relative) 'project-dependency'
         }
     }
+    $lmxxfMods = Join-Path $root 'lmxxf-modules'
+    if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
+        $planned.Add("$lmxxfMods  (lmxxf modules tree)")
+    }
 }
 
 foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe','dlssnr_on_amd.log')) {
@@ -325,6 +329,21 @@ foreach ($root in $roots) {
         }
         Remove-EmptyDirectory (Join-Path $deps 'D3D12_OptiScaler')
         Remove-EmptyDirectory $deps
+    }
+
+    $lmxxfMods = Join-Path $root 'lmxxf-modules'
+    if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
+        if (Test-TreeReparse $lmxxfMods) {
+            $kept.Add("linked path: $lmxxfMods")
+            $errors.Add("$lmxxfMods : contains a linked path, not deleted")
+        } else {
+            try {
+                Remove-Item -LiteralPath $lmxxfMods -Recurse -Force
+                $deleted.Add("$lmxxfMods  (lmxxf modules)")
+            } catch {
+                $errors.Add("$lmxxfMods : $($_.Exception.Message)")
+            }
+        }
     }
 }
 foreach ($root in $roots) {
