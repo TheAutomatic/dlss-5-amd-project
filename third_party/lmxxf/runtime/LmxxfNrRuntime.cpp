@@ -6,6 +6,7 @@
 
 #include "LmxxfProductionOptions.h"
 #include "native_game_codec.h"
+#include "native_lab_paths.h"
 #include "native_game_rgb_input.h"
 #include "native_network_geometry.h"
 #include "native_rgb_texture.h"
@@ -241,6 +242,8 @@ struct Session
     NativeGameCodec *encode = nullptr;
     NativeGameRgbInput *rgbInput = nullptr;
     NativeRgbTexture *rgbTex = nullptr;
+    NativeGameCodec *decode = nullptr;
+    ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
 
     // Wait until queue work that may touch encode/rgb/bridge shared resources is done.
@@ -288,6 +291,8 @@ struct Session
     {
         // Fail-closed intentional leak: GPU may still reference the whole chain.
         bridge = nullptr;
+        decodeDisplay = nullptr;
+        decode = nullptr;
         rgbTex = nullptr;
         rgbInput = nullptr;
         encode = nullptr;
@@ -306,6 +311,13 @@ struct Session
         // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
         delete bridge;
         bridge = nullptr;
+        if (decodeDisplay)
+        {
+            decodeDisplay->Release();
+            decodeDisplay = nullptr;
+        }
+        delete decode;
+        decode = nullptr;
         delete rgbTex;
         rgbTex = nullptr;
         delete rgbInput;
@@ -497,6 +509,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             NativeGameCodec *enc = nullptr;
             NativeGameRgbInput *rgbIn = nullptr;
             NativeRgbTexture *rgbOut = nullptr;
+            NativeGameCodec *dec = nullptr;
+            ID3D12Resource *disp = nullptr;
             try
             {
                 enc = new NativeGameCodec();
@@ -505,9 +519,28 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 rgbIn->Create(session->device, enc->Output(), session->shaderDir);
                 rgbOut = new NativeRgbTexture();
                 rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
+                // Upstream: decode(encode.Output, neural.Output, original) then deliver decode.Output.
+                dec = new NativeGameCodec();
+                dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir);
+                if (dec->BufferOutput())
+                {
+                    // FSR/OptiScaler need a texture SRV; mirror game Color desc for the copy target.
+                    D3D12_RESOURCE_DESC td = color->GetDesc();
+                    td.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                    D3D12_HEAP_PROPERTIES hp {};
+                    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+                    const HRESULT chr = session->device->CreateCommittedResource(
+                        &hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                        nullptr, IID_PPV_ARGS(&disp));
+                    if (FAILED(chr) || !disp)
+                        throw std::runtime_error("decode display texture create failed");
+                }
             }
             catch (...)
             {
+                if (disp)
+                    disp->Release();
+                delete dec;
                 delete rgbOut;
                 delete rgbIn;
                 delete enc;
@@ -516,12 +549,17 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->encode = enc;
             session->rgbInput = rgbIn;
             session->rgbTex = rgbOut;
+            session->decode = dec;
+            session->decodeDisplay = disp;
         }
         else if (color != session->job.color)
         {
-            if (session->encode->RebindNeedsCompletion(0, color))
+            if (session->encode->RebindNeedsCompletion(0, color) ||
+                (session->decode && session->decode->RebindNeedsCompletion(2, color)))
                 return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: color rebind needs GPU completion");
             session->encode->RebindInputAfterCompletion(0, color);
+            if (session->decode)
+                session->decode->RebindInputAfterCompletion(2, color);
         }
 
         session->job = {};
@@ -532,7 +570,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.seed = 1;
         session->job.state = LMXXF_NR_JOB_PREPARED;
         job->handle = &session->job;
-        job->private_output = session->rgbTex->Output();
+        if (!session->decode)
+            return Fail(LMXXF_NR_FAILED, "PrepareFrame: decode missing");
+        job->private_output = session->decode->BufferOutput()
+                                   ? static_cast<void *>(session->decodeDisplay)
+                                   : static_cast<void *>(session->decode->Output());
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -592,6 +634,47 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordOutputs: need job and command list");
         session->bridge->RecordOutputReadable(list);
         session->rgbTex->Record(list);
+        if (!session->decode)
+            return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode missing");
+        session->decode->Record(list,
+                                {D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, j->colorState},
+                                1.f);
+        if (session->decode->BufferOutput())
+        {
+            if (!session->decodeDisplay)
+                return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode display missing");
+            ID3D12Resource *src = session->decode->Output();
+            ID3D12Resource *dst = session->decodeDisplay;
+            D3D12_RESOURCE_BARRIER barriers[2] {};
+            barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[0].Transition = {src, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                      D3D12_RESOURCE_STATE_COPY_SOURCE};
+            barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[1].Transition = {dst, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                      D3D12_RESOURCE_STATE_COPY_DEST};
+            list->ResourceBarrier(2, barriers);
+            D3D12_TEXTURE_COPY_LOCATION dstLoc {};
+            dstLoc.pResource = dst;
+            dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION srcLoc {};
+            srcLoc.pResource = src;
+            srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            const auto &geo = session->decode->Geometry();
+            const DXGI_FORMAT fmt = NativeViewFormat(dst->GetDesc().Format);
+            const bool bytes4 = NativeIsRgba8Unorm(fmt) || NativeIsR11G11B10(fmt);
+            srcLoc.PlacedFootprint.Footprint.Format = fmt;
+            srcLoc.PlacedFootprint.Footprint.Width = geo.width;
+            srcLoc.PlacedFootprint.Footprint.Height = geo.height;
+            srcLoc.PlacedFootprint.Footprint.Depth = 1;
+            srcLoc.PlacedFootprint.Footprint.RowPitch = geo.RowPitch(bytes4 ? 4u : 8u);
+            list->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+            std::swap(barriers[0].Transition.StateBefore, barriers[0].Transition.StateAfter);
+            std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
+            list->ResourceBarrier(2, barriers);
+        }
         j->state = LMXXF_NR_JOB_CONSUMER_COMPLETE;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
