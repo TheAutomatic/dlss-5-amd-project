@@ -72,13 +72,11 @@ inline void DisarmBetweenSlot()
     ClearPendingEnqueue();
 }
 
-// Product Evaluate/Before cut: split + arm between. No-op until SubmissionHooksWanted().
-inline void OnEvaluateBeforeRecord(ID3D12GraphicsCommandList *cmd)
+// Product Evaluate/Before hook. Split + SetPendingEnqueue live in LmxxfBackend::Record
+// (after RecordInputs). Kept as a no-op gate so call sites stay stable.
+inline void OnEvaluateBeforeRecord(ID3D12GraphicsCommandList * /*cmd*/)
 {
     if (!DlssNr::Backend::SubmissionHooksWanted())
         return;
-    (void)TrySplitAtEvaluate(cmd);
-    ArmBetweenSlot();
-    // SetPendingEnqueue is filled by the future lmxxf Host::Record after PrepareFrame.
 }
 } // namespace DlssNr::Backend::LmxxfCut

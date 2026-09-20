@@ -3,6 +3,7 @@
 #include "AmdPreSr.h"
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
+#include "../backend/LmxxfBackend.h"
 #include "../backend/Selector.h"
 #include "../backend/LmxxfEvaluateCut.h"
 #include "../submission/SubmissionHooks.h"
@@ -254,7 +255,10 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
             Message("AMD pre-SR: could not install submission notification");
             return true;
         }
-        b = new DlssNr::Backend::DanielBackend(device, q, Directory());
+        if (active == DlssNr::Backend::Kind::Lmxxf)
+            b = new DlssNr::Backend::LmxxfBackend(device, q, Directory());
+        else
+            b = new DlssNr::Backend::DanielBackend(device, q, Directory());
         backend.store(b);
     }
     device->Release();

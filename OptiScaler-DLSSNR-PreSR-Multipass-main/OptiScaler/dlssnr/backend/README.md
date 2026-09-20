@@ -57,3 +57,7 @@ Execute-once passthrough (QI List1+ fail-closed). Not hooked, not default.
 - `LmxxfEvaluateCut.h`: `TrySplitAtEvaluate` + `ArmBetweenSlot` / `SetPendingEnqueue` (between → EnqueueHip thunk).
 - `AmdBridge::Before` calls `OnEvaluateBeforeRecord`; gated by `SubmissionHooksWanted()` so it is dead while `LmxxfWired()` is false.
 - Harness: `tools/test-lmxxf-evaluate-cut.cmd`.
+## LmxxfBackend Record (2026-09-20i)
+
+`Record`: PrepareFrame → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
+Constructed only when `ActiveKind==Lmxxf` (needs `LmxxfWired()`). Modules via `LMXXF_MODULES_DIR` or `lmxxf-modules/` next to the DLL.
