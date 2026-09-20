@@ -96,6 +96,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         if (!ppv)
             return E_POINTER;
         *ppv = nullptr;
+        // COM identity: IUnknown / list IIDs / our logical face stay on the proxy.
         if (riid == IID_IUnknown || riid == __uuidof(ID3D12Object) || riid == __uuidof(ID3D12DeviceChild) ||
             riid == __uuidof(ID3D12CommandList) || riid == __uuidof(ID3D12GraphicsCommandList) ||
             riid == __uuidof(ID3D12GraphicsCommandList1) || riid == __uuidof(ID3D12GraphicsCommandList2) ||
@@ -114,6 +115,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             AddRef();
             return S_OK;
         }
+        // Streamline / debug / vendor QIs: forward to the live producer/continuation list
+        // instead of E_NOINTERFACE (燕云 crash with ArmCreate + wrap).
+        if (auto *cur = logical.Current())
+            return cur->QueryInterface(riid, ppv);
         return E_NOINTERFACE;
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return refs.fetch_add(1, std::memory_order_relaxed) + 1; }
