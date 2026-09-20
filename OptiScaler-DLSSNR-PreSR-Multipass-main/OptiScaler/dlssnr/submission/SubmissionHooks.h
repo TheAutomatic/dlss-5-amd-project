@@ -16,7 +16,7 @@ using BetweenFn = void (*)(void *);
 inline std::mutex g_mu;
 inline std::atomic<bool> g_armed { false };
 inline std::atomic<bool> g_expandEnabled { false };
-// Product default OFF: wrapping every DIRECT list crashes yysls/Streamline at swapchain.
+// Product: ProxyWrap starts OFF; swapchain ctor enables it (Streamline-safe). Harness: SetProxyWrap(true) after Arm.
 // Harnesses can SetProxyWrap(true) after Arm.
 inline std::atomic<bool> g_proxyWrap { false };
 inline BetweenFn g_between = nullptr;

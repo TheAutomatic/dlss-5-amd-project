@@ -8,6 +8,8 @@
 #include <nvapi/fakenvapi.h>
 #include <hooks/Reflex_Hooks.h>
 #include <hooks/D3D12_Hooks.h>
+#include <dlssnr/backend/Selector.h>
+#include <dlssnr/submission/SubmissionHooks.h>
 
 #include <menu/menu_overlay_dx.h>
 
@@ -448,6 +450,15 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
     _device2 = _device;
 
     LOG_INFO("{} created, real: {:X}, refCount: {}", _id, (UINT64) real, refCount);
+
+    // Enable lmxxf CreateCommandList proxy wrap only after the first swapchain exists.
+    // ArmCreate at HookToDevice keeps ProxyWrap off so Streamline/device boot stays unwrapped.
+    if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed() &&
+        !DlssNr::Submission::Hooks::ProxyWrapEnabled())
+    {
+        DlssNr::Submission::Hooks::SetProxyWrap(true);
+        LOG_INFO("lmxxf CreateCommandList ProxyWrap enabled after swapchain {}", _id);
+    }
 }
 
 WrappedIDXGISwapChain4::~WrappedIDXGISwapChain4() {}
