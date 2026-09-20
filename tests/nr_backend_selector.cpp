@@ -20,10 +20,16 @@ int main()
     assert(ParseKind("Off") == Kind::Off);
     assert(ParseKind("none") == Kind::Off);
     assert(ParseKind("garbage") == Kind::Daniel);
-    assert(!LmxxfWired());
+
+    // Local E: LmxxfWired() may be true. ActiveKind still respects Off;
+    // lmxxf only activates when Wired.
     assert(ActiveKind(Kind::Daniel) == Kind::Daniel);
     assert(ActiveKind(Kind::Off) == Kind::Off);
-    assert(ActiveKind(Kind::Lmxxf) == Kind::Daniel);
-    std::cout << "nr_backend_selector: ok\n";
+    if (LmxxfWired())
+        assert(ActiveKind(Kind::Lmxxf) == Kind::Lmxxf);
+    else
+        assert(ActiveKind(Kind::Lmxxf) == Kind::Daniel);
+
+    std::cout << "nr_backend_selector: ok (Wired=" << (LmxxfWired() ? "true" : "false") << ")\n";
     return 0;
 }

@@ -38,7 +38,7 @@ inline Kind ParseKind(std::string_view raw)
 }
 
 // First increment: no LmxxfNrRuntime. Off stays Off; everything else is Daniel.
-inline bool LmxxfWired() { return false; }
+inline bool LmxxfWired() { return true; } // LOCAL E trial only — do not push/default
 
 inline Kind ActiveKind(Kind requested)
 {
