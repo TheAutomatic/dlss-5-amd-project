@@ -14,7 +14,7 @@ if not exist "%MODS%\SHA256SUMS" (
   echo FAIL: missing %MODS%\SHA256SUMS
   exit /b 1
 )
-cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\lmxxf_nr_gpu.cpp /I third_party\lmxxf\include /Fe"%OUT%\lmxxf_nr_gpu.exe" /Fo"%OUT%\lmxxf_nr_gpu.obj" /link d3d12.lib dxgi.lib
+cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\lmxxf_nr_gpu.cpp /I OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime /Fe"%OUT%\lmxxf_nr_gpu.exe" /Fo"%OUT%\lmxxf_nr_gpu.obj" /link d3d12.lib dxgi.lib
 if not %errorlevel%==0 exit /b 1
 "%OUT%\lmxxf_nr_gpu.exe" "%OUT%\LmxxfNrRuntime.dll" "%MODS%"
 if not %errorlevel%==0 exit /b 1

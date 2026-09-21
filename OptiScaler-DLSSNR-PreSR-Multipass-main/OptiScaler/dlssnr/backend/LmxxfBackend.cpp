@@ -2,7 +2,7 @@
 #include "LmxxfBackend.h"
 #include <cstring>
 #include "../submission/SubmissionTls.h"
-#include "../../../../third_party/lmxxf/include/LmxxfNrApi.h"
+#include "lmxxf_runtime/LmxxfNrApi.h"
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -120,20 +120,35 @@ bool LmxxfBackend::EnsureSession()
         wchar_t have[MAX_PATH] {};
         if (!GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", have, MAX_PATH) || !have[0])
         {
-            wchar_t fromUser[MAX_PATH] {};
-            DWORD n = GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", fromUser, MAX_PATH);
-            (void)n;
-            const auto hint = directory / L"lmxxf-weights-dir.txt";
-            if (std::filesystem::exists(hint))
+            const auto localWeights = directory / L"native-game-tiled-assets";
+            const auto altWeights = directory / L"lmxxf-weights";
+            if (std::filesystem::exists(localWeights) && std::filesystem::is_directory(localWeights))
             {
-                std::wifstream in(hint);
-                std::wstring line;
-                if (in && std::getline(in, line) && !line.empty())
+                SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", localWeights.c_str());
+                LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR auto-detected local dir: {}", localWeights.string());
+            }
+            else if (std::filesystem::exists(altWeights) && std::filesystem::is_directory(altWeights))
+            {
+                SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", altWeights.c_str());
+                LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR auto-detected local dir: {}", altWeights.string());
+            }
+            else
+            {
+                wchar_t fromUser[MAX_PATH] {};
+                DWORD n = GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", fromUser, MAX_PATH);
+                (void)n;
+                const auto hint = directory / L"lmxxf-weights-dir.txt";
+                if (std::filesystem::exists(hint))
                 {
-                    while (!line.empty() && (line.back() == L'\r' || line.back() == L' '))
-                        line.pop_back();
-                    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", line.c_str());
-                    LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from hint file: {}", std::filesystem::path(line).string());
+                    std::wifstream in(hint);
+                    std::wstring line;
+                    if (in && std::getline(in, line) && !line.empty())
+                    {
+                        while (!line.empty() && (line.back() == L'\r' || line.back() == L' '))
+                            line.pop_back();
+                        SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", line.c_str());
+                        LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from hint file: {}", std::filesystem::path(line).string());
+                    }
                 }
             }
         }

@@ -10,7 +10,7 @@ set "MODS=%~2"
 if not defined MODS set "MODS=exports\lmxxf-modules-68dc099"
 call "%~dp0build-lmxxf-runtime.cmd" "%OUT%"
 if not %errorlevel%==0 exit /b 1
-cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\lmxxf_nr_abi.cpp /I third_party\lmxxf\include /Fe"%OUT%\lmxxf_nr_abi.exe" /Fo"%OUT%\lmxxf_nr_abi.obj"
+cl /nologo /std:c++20 /EHsc /W4 /utf-8 tests\lmxxf_nr_abi.cpp /I OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime /Fe"%OUT%\lmxxf_nr_abi.exe" /Fo"%OUT%\lmxxf_nr_abi.obj"
 if not %errorlevel%==0 exit /b 1
 "%OUT%\lmxxf_nr_abi.exe" "%OUT%\LmxxfNrRuntime.dll" "%MODS%"
 if not %errorlevel%==0 exit /b 1

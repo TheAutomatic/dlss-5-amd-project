@@ -1,6 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include "../third_party/lmxxf/include/LmxxfNrApi.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

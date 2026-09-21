@@ -14,7 +14,7 @@ set "OUT=%~1"
 if not defined OUT set "OUT=exports\lmxxf-runtime"
 if not exist "%OUT%" mkdir "%OUT%"
 rem -static pulls in winpthread.a so LoadLibrary works without MSYS2 on PATH.
-"%LMXXF_GXX%" -std=c++17 -O2 -shared -static -static-libgcc -static-libstdc++ -D_WIN32_WINNT=0x0A00 -DLMXXF_NR_RUNTIME_EXPORTS -I "third_party\lmxxf\include" -I "third_party\lmxxf\src" -I "third_party\lmxxf\runtime" -I "third_party\lmxxf\Development\HIP" "third_party\lmxxf\runtime\LmxxfNrRuntime.cpp" -o "%OUT%\LmxxfNrRuntime.dll" -Wl,--out-implib,"%OUT%\LmxxfNrRuntime.dll.a" -ld3d12 -ldxgi -ld3dcompiler -ldxguid
+"%LMXXF_GXX%" -std=c++17 -O2 -shared -static -static-libgcc -static-libstdc++ -D_WIN32_WINNT=0x0A00 -DLMXXF_NR_RUNTIME_EXPORTS -I "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime" -I "third_party\lmxxf\src" -I "third_party\lmxxf\Development\HIP" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime\LmxxfNrRuntime.cpp" -o "%OUT%\LmxxfNrRuntime.dll" -Wl,--out-implib,"%OUT%\LmxxfNrRuntime.dll.a" -ld3d12 -ldxgi -ld3dcompiler -ldxguid
 if not %errorlevel%==0 exit /b 1
 if not exist "%OUT%\LmxxfNrRuntime.dll" (
   echo FAIL: LmxxfNrRuntime.dll not produced
