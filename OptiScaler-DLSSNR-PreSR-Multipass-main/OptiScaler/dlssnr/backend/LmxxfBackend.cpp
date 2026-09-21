@@ -306,7 +306,23 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         }
     }
 
-    return FinishRecord(cmd, job.handle, job.private_output);
+    ID3D12Resource *result = FinishRecord(cmd, job.handle, job.private_output);
+    static uint64_t recordEvalCount = 0;
+    const auto rEval = ++recordEvalCount;
+    if (rEval <= 5 || (rEval % 120 == 0))
+    {
+        auto &p = LmxxfCut::Pending();
+        LOG_INFO("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+                 rEval, static_cast<void *>(result),
+                 p.betweenHits.load(std::memory_order_relaxed),
+                 p.enqueueCalls.load(std::memory_order_relaxed),
+                 p.skippedHits.load(std::memory_order_relaxed),
+                 static_cast<unsigned>(p.lastEnqueueRc.load(std::memory_order_relaxed)),
+                 DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                 DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                 DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+    }
+    return result;
 }
 
 
@@ -326,7 +342,123 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
     ev.sampled = sampled;
     ev.mode = diagnostic;
 
-    if (LmxxfProbe::NeedsOpenListProxy(diagnostic))
+    if (diagnostic == LmxxfProbe::Mode::CodecPassthrough)
+    {
+        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+        const bool isProxy = SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                         reinterpret_cast<void **>(&logical))) && logical;
+        if (!isProxy)
+        {
+            reason = "boundary_not_proxy";
+            ++boundaryRejects;
+            SetStatus("lmxxf diagnostic: codec-passthrough REJECTED (not proxy; original Color)");
+        }
+        else
+        {
+            ++boundaryProxyHits;
+            if (logical->IsSplitIneligible())
+            {
+                reason = logical->SplitRejectionReason();
+                ++boundaryRejects;
+                char state[256] {};
+                snprintf(state, sizeof state, "lmxxf diagnostic: codec-passthrough REJECTED (%s; original Color)", reason);
+                SetStatus(state);
+            }
+            else if (!EnsureSession())
+            {
+                reason = "ensure_session_failed";
+                ++boundaryRejects;
+                SetStatus("lmxxf diagnostic: codec-passthrough REJECTED (session failed; original Color)");
+            }
+            else
+            {
+                D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
+                LmxxfNrFrameInfo fi {};
+                fi.struct_size = sizeof(fi);
+                fi.frame_id = ++frameId;
+                fi.command_list = cmd;
+                fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
+                fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+                fi.color = frame.colour;
+                fi.color_state = static_cast<uint32_t>(frame.colourState);
+                fi.flags = 0;
+
+                LmxxfNrJob job {};
+                job.struct_size = sizeof(job);
+                const int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+                if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
+                {
+                    char err[256] {};
+                    if (api->table.GetLastError)
+                        api->table.GetLastError(err, sizeof err);
+                    static uint64_t diagPrepareFails = 0;
+                    if (++diagPrepareFails <= 5 || (diagPrepareFails % 300 == 0))
+                    {
+                        LOG_ERROR("lmxxf diagnostic: codec-passthrough PrepareFrame rc={} handle={} out={} err='{}' {}x{} (fail#{})",
+                                  frameRc, job.handle != nullptr, job.private_output != nullptr, err,
+                                  fi.color_width, fi.color_height, diagPrepareFails);
+                    }
+                    reason = "prepare_frame_failed";
+                    ++boundaryRejects;
+                    SetStatus((std::string("lmxxf diagnostic: codec-passthrough PrepareFrame failed: ") + err).c_str());
+                }
+                else if (api->table.RecordInputs(session, job.handle, cmd) != LMXXF_NR_OK)
+                {
+                    char err[256] {};
+                    if (api->table.GetLastError)
+                        api->table.GetLastError(err, sizeof err);
+                    LOG_ERROR("lmxxf diagnostic: codec-passthrough RecordInputs failed: {}", err);
+                    reason = "record_inputs_failed";
+                    ++boundaryRejects;
+                    SetStatus("lmxxf diagnostic: codec-passthrough RecordInputs failed");
+                }
+                else
+                {
+                    const HRESULT cutHr = logical->SplitSegments();
+                    if (cutHr != S_OK)
+                    {
+                        char err[256] {};
+                        if (api->table.GetLastError)
+                            api->table.GetLastError(err, sizeof err);
+                        LOG_ERROR("lmxxf diagnostic: codec-passthrough Split failed: hr={:X} err='{}'", static_cast<unsigned>(cutHr), err);
+                        reason = "boundary_split_failed";
+                        ++boundaryRejects;
+                        SetStatus("lmxxf diagnostic: codec-passthrough Split failed");
+                    }
+                    else
+                    {
+                        ++boundaryCuts;
+                        if (api->table.RecordOutputs(session, job.handle, cmd) != LMXXF_NR_OK)
+                        {
+                            char err[256] {};
+                            if (api->table.GetLastError)
+                                api->table.GetLastError(err, sizeof err);
+                            LOG_ERROR("lmxxf diagnostic: codec-passthrough RecordOutputs failed: {}", err);
+                            reason = "record_outputs_failed";
+                            ++boundaryRejects;
+                            SetStatus("lmxxf diagnostic: codec-passthrough RecordOutputs failed");
+                        }
+                        else
+                        {
+                            output = reinterpret_cast<ID3D12Resource *>(job.private_output);
+                            reason = "codec_passthrough_recorded";
+                            SetStatus("lmxxf diagnostic: codec-passthrough (NO HIP; encode->decode passthrough)");
+                        }
+                    }
+                }
+            }
+        }
+        if (logical)
+            logical->Release();
+        if (sampled)
+            LOG_INFO("lmxxf boundary: eval={} proxy={} reason={} proxyHits={} cutsRecorded={} rejected={} output={} unsplitSubmitted={} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+                     id, isProxy, reason, boundaryProxyHits, boundaryCuts, boundaryRejects, static_cast<void *>(output),
+                     DlssNr::Submission::g_unsplitProxySubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+    }
+    else if (LmxxfProbe::NeedsOpenListProxy(diagnostic))
     {
         DlssNr::Submission::ILogicalCommandList *logical = nullptr;
         HRESULT cutHr = S_FALSE;

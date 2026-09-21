@@ -15,7 +15,7 @@ ILogicalCommandList : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE SplitSegments(void) = 0;
     virtual HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) = 0;
     // HIP / NR slot between producer and continuation Executes. Pass nullptr for no-op.
-    virtual HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, void (*between)(void *),
+    virtual HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, BetweenCallback between,
                                                            void *betweenCtx) = 0;
     virtual bool STDMETHODCALLTYPE IsSplitIneligible(void) = 0;
     // Harness: viewport count captured for continuation seed (0 if never set).
@@ -208,7 +208,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
-    HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, void (*between)(void *),
+    HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, BetweenCallback between,
                                                    void *betweenCtx) override
     {
         return logical.Execute(queue, between, betweenCtx);

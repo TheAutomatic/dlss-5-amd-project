@@ -42,7 +42,7 @@ inline void ClearPendingEnqueue()
     p.enqueueHip = nullptr;
 }
 
-inline void BetweenThunk(void * /*ctx*/)
+inline void BetweenThunk(ID3D12CommandQueue *queue, void * /*ctx*/)
 {
     auto &p = Pending();
     if (!(p.enqueueHip && p.session && p.job))

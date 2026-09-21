@@ -11,7 +11,7 @@
 // ExecuteCommandLists so the Detours path matches the game.
 namespace DlssNr::Submission::Hooks
 {
-using BetweenFn = void (*)(void *);
+using BetweenFn = BetweenCallback;
 
 inline std::mutex g_mu;
 inline std::atomic<bool> g_armed { false };

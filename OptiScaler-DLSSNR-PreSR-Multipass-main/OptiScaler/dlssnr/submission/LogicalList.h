@@ -14,6 +14,10 @@ enum class Phase : uint32_t
     Closed = 3,
 };
 
+// Optional between-slot callback executed after the producer command list has been submitted
+// to the queue, but before the continuation command list is submitted.
+using BetweenCallback = void (*)(ID3D12CommandQueue *queue, void *ctx);
+
 // Bookkeeping for one logical list mapped to producer + optional continuation.
 // Not a COM proxy: callers record on Current(). Game wrapping is a later increment.
 class LogicalList
@@ -231,10 +235,12 @@ class LogicalList
         return S_OK;
     }
 
-    // between is invoked after producer Execute and before continuation Execute when split.
-    // Used as the HIP insert slot. nullptr = no work between the two Executes.
+    // Optional between-slot callback executed after the producer command list has been submitted
+    // to the queue, but before the continuation command list is submitted.
+    using BetweenCallback = void (*)(ID3D12CommandQueue *queue, void *ctx);
+
     // Closed lists may be re-submitted after prior GPU work (D3D12 allows multiple Execute).
-    HRESULT Execute(ID3D12CommandQueue *queue, void (*between)(void *) = nullptr, void *betweenCtx = nullptr)
+    HRESULT Execute(ID3D12CommandQueue *queue, BetweenCallback between = nullptr, void *betweenCtx = nullptr)
     {
         if (!queue || !producer)
             return E_INVALIDARG;
@@ -262,7 +268,7 @@ class LogicalList
         if (split)
             g_splitSubmissions.fetch_add(1, std::memory_order_relaxed);
         if (split && between)
-            between(betweenCtx);
+            between(queue, betweenCtx);
         if (split && continuation)
         {
             ID3D12CommandList *second = continuation;

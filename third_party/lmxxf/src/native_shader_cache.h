@@ -68,13 +68,24 @@ inline HRESULT CompileNativeShader(const std::wstring&path,const D3D_SHADER_MACR
   CreateDirectoryW(cache_dir.c_str(),nullptr);wchar_t name[32];swprintf(name,32,L"\\%016llx.dxbc",h);disk_path=cache_dir+name;
   std::ifstream cached(disk_path.c_str(),std::ios::binary|std::ios::ate);
   if(cached){auto n=cached.tellg();if(n>0){std::vector<unsigned char>bytes;bytes.resize((size_t)n);cached.seekg(0);if(cached.read(reinterpret_cast<char*>(bytes.data()),n)){
-   HRESULT hr=D3DCreateBlob(bytes.size(),code);if(FAILED(hr))return hr;std::memcpy((*code)->GetBufferPointer(),bytes.data(),bytes.size());
+   HRESULT hr=D3DCreateBlob(bytes.size(),code);
+   if(FAILED(hr)){
+       char dbg[256];std::snprintf(dbg,sizeof dbg,"[NativeShaderCache] D3DCreateBlob failed disk_path=%ls size=%zu hr=0x%08X\n",disk_path.c_str(),bytes.size(),unsigned(hr));OutputDebugStringA(dbg);
+       return hr;
+   }
+   std::memcpy((*code)->GetBufferPointer(),bytes.data(),bytes.size());
    state.entries.emplace(key,std::move(bytes));state.hits++;return S_OK;}}}
  }
  const bool progress=_wgetenv(L"DLSS5_SHADER_PROGRESS")!=nullptr;
  auto started=std::chrono::steady_clock::now();
  if(progress){std::fprintf(stderr,"shader_compile_begin index=%zu entry=%s path=%ls\n",state.compiles+1,entry,path.c_str());std::fflush(stderr);}
  HRESULT hr=D3DCompile(source.data(),source.size(),snapshot?source_name.c_str():"native-standalone",macros,snapshot?&dependency:nullptr,entry,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);state.compiles++;
+ if(FAILED(hr)){
+     char dbg[512];
+     const char* errMsg = (errors && *errors) ? static_cast<const char*>((*errors)->GetBufferPointer()) : "(no compiler error blob)";
+     std::snprintf(dbg, sizeof dbg, "[NativeShaderCache] D3DCompile failed path=%ls hr=0x%08X: %s\n", path.c_str(), unsigned(hr), errMsg);
+     OutputDebugStringA(dbg);
+ }
  if(dependency.unknown){
   if(*code){(*code)->Release();*code=nullptr;}if(errors&&*errors){(*errors)->Release();*errors=nullptr;}
   return D3DCompileFromFile(path.c_str(),macros,D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);

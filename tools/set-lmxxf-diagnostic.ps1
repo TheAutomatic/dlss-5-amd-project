@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('original', 'copy-current', 'staging-current', 'staging-previous', 'proxy-original', 'split-original', 'off')]
+    [ValidateSet('original', 'copy-current', 'staging-current', 'staging-previous', 'proxy-original', 'split-original', 'codec-passthrough', 'off')]
     [string]$Mode,
     [string]$GameDir = 'C:\Program Files\yysls\yysls_medium\Engine\Binaries\Win64r - NR',
     [string]$ArchiveRoot
