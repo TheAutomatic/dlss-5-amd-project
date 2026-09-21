@@ -137,11 +137,11 @@ void RenderMenu(Config* config, float menuResScale)
         {
             const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
-            const char* ver = isLmxxf ? "lmxxf-nr (ViT)" : DlssNr::AmdBridge::RuntimeName();
+            const char* ver = isLmxxf ? "lmxxf-nr" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
             ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf-nr" : "pass1?"));
-            HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf Vision Transformer (same-frame direct execution)."
+            HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
                                : (haveVer ? "AMD NR runtime (original project / original author)."
                                           : "AMD NR runtime: pass1 not identified yet."));
 
@@ -254,7 +254,7 @@ void RenderMenu(Config* config, float menuResScale)
         {
             ImGui::Spacing();
             const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
-            ImGui::TextUnformatted(isLmxxf ? "AMD processing: lmxxf ViT (before Super Resolution)"
+            ImGui::TextUnformatted(isLmxxf ? "AMD processing: lmxxf (before Super Resolution)"
                                            : "AMD processing: before Super Resolution");
 
             if (!isLmxxf)
@@ -430,7 +430,7 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
             if (isLmxxf)
             {
-                ImGui::TextWrapped("lmxxf HIP backend (Vision Transformer). Same-frame direct execution before Super Resolution.");
+                ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
             }
             else
             {

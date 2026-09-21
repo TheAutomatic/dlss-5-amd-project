@@ -328,19 +328,44 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     ID3D12Resource *result = FinishRecord(cmd, job.handle, job.private_output);
     static uint64_t recordEvalCount = 0;
     const auto rEval = ++recordEvalCount;
-    if (rEval <= 5 || (rEval % 120 == 0))
+    auto &p = LmxxfCut::Pending();
+    const auto lastRc = static_cast<unsigned>(p.lastEnqueueRc.load(std::memory_order_relaxed));
+    const auto submitFails = DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed);
+
+    if (rEval <= 5)
     {
-        auto &p = LmxxfCut::Pending();
         LOG_INFO("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} transfer={:.2f} color={:.2f} debugView={} scale={:.2f} producerSubmitted={} continuationSubmitted={} submitFailures={}",
                  rEval, static_cast<void *>(result),
                  p.betweenHits.load(std::memory_order_relaxed),
                  p.enqueueCalls.load(std::memory_order_relaxed),
                  p.skippedHits.load(std::memory_order_relaxed),
-                 static_cast<unsigned>(p.lastEnqueueRc.load(std::memory_order_relaxed)),
+                 lastRc,
                  fi.transfer_strength, fi.color_strength, fi.debug_view, fi.model_scale,
                  DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
                  DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
-                 DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+                 submitFails);
+    }
+    else if ((lastRc != 0 && lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueSkipped)) || submitFails > 0)
+    {
+        static uint64_t warnCount = 0;
+        if (++warnCount <= 5 || (warnCount % 120 == 0))
+        {
+            LOG_WARN("lmxxf nr anomaly: eval={} lastEnqueueRc={:X} submitFailures={} skippedHits={}",
+                     rEval, lastRc, submitFails, p.skippedHits.load(std::memory_order_relaxed));
+        }
+    }
+    else if (rEval % 120 == 0)
+    {
+        LOG_DEBUG("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} transfer={:.2f} color={:.2f} debugView={} scale={:.2f} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+                  rEval, static_cast<void *>(result),
+                  p.betweenHits.load(std::memory_order_relaxed),
+                  p.enqueueCalls.load(std::memory_order_relaxed),
+                  p.skippedHits.load(std::memory_order_relaxed),
+                  lastRc,
+                  fi.transfer_strength, fi.color_strength, fi.debug_view, fi.model_scale,
+                  DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                  DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                  submitFails);
     }
     return result;
 }

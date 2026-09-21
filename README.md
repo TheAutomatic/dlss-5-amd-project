@@ -1,39 +1,54 @@
 **中文** | [English](README.en.md)
 
-# OptiScaler AMD pre-SR — 1.8.6-0.3.1
+# OptiScaler AMD pre-SR — 1.9.0
 
 在 **OptiScaler** 上接入 **AMD 神经渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏**在 AMD 显卡上跑神经降噪；超分仍由 **FFX/FSR** 完成。
 
-本项目 fork 自 **Matheus** 及其上游。上游已定稿最终版，本项目在此基础上接手维护，主要做了三件事：
-
-1. 增加**多槽**，尽量每帧都做 NR；实测约 **+33%** 帧率  
-2. 更新对 **danielblnc** 项目 **0.3.1** 的适配  
-3. 为 0.3.1 **新等待**补上 D3D12 状态冻结/恢复（含空状态「空→空」还原），增强对**鬼武者**等游戏的兼容  
-
-（详见下文「相比前人」「多槽」等节。）
+本项目 fork 自 **Matheus** 及其上游，并在其基础上接手维护演进。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-（若你从网盘等渠道拿到本包，请以上述仓库为准。）
+---
+
+## 📢 1.9.0 更新日志 (Changelog)（当前仅更新源码，Release 版将在细节填充及用户安装器升级后尽快发布）
+
+本次 1.9.0 是一次**重大的架构级里程碑升级**。我们正式引入了开源的 [**`lmxxf` HIP 神经渲染后端**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)。
+
+### 🚀 核心更新点
+
+1. **全新引入 `lmxxf` 神经渲染后端**
+   - **拥抱开源算力核心**：在兼容 danielblnc 版基础上，全新接入开源 HIP 神经渲染后端。
+   - **同帧执行（Same-Frame Execution Contract）**：将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。相较 lmxxf 原版，理论上支持在现代虚幻引擎及《燕云十六声》等 FSR 后依然有复杂 GPU 活动进行帧渲染的游戏中实现真正的同帧神经渲染（DLSS5）。
+   - **支持 DLSS / XeSS 游戏输入**：充分发挥 OptiScaler 的通用代理接入优势，无需游戏原生支持 FSR，直接拦截游戏原本发给 DLSS / XeSS 的输入缓冲（Color / Motion Vectors / Depth）送入 lmxxf 神经降噪，再转接 FFX/FSR 完成超分辨率重建，让仅支持 DLSS 的游戏也能在 AMD 显卡上享受 DLSS5 体验。
+   - **双后端无缝兼容**：保持完整向后兼容，如需使用 Daniel 后端，仍可在 `OptiScaler.ini` 中通过 `NrBackend=daniel` 自由切换，后续将支持 Ins 菜单内切换。
+   - **内存与稳定性优化**：优化 `fast_prefix` 加速模式，跳过无用的 201MB 噪声 Buffer 分配，显著降低主机内存占用与初始化耗时；强化伪装 NVIDIA（Fake NVAPI）时的 GPU LUID 智能匹配，避免多显卡或驱动欺骗时跨卡崩溃。
+   - **⚠️ 分辨率支持限制与推荐档位**：注意当前 `lmxxf` **仅支持超分前渲染分辨率 ≤ 1080p** 的画面进行神经渲染。对应典型档位参考：
+     - **4K 显示输出**：推荐使用 **FSR 性能档**（渲染分辨率 1080p）或超级性能档（720p）；若设为 4K 质量档（1440p 渲染）会超出当前模型切片架构上限。
+     - **2K (1440p) 显示输出**：可使用 **FSR 质量档 / 平衡档 / 性能档**（渲染分辨率均在 1080p 及以下）。
+     - **1080p 显示输出**：可使用 **1080p 原生** 或各类超分档位。
+
+2. **安装器升级（即将更新）**
+   - 兼容以 lmxxf 为后端的安装流程。若手动安装，只需将 `LmxxfNrRuntime.dll` 与 `native-game-tiled-assets` 权重文件夹直接放入游戏主程序目录即可，程序已内置自动识别。
+
+3. **菜单（Ins Menu）全面净化与画质原生动态调参**
+   - **智能菜单过滤**：在 `lmxxf` 模式下自动隐藏 Daniel 专属的无效选项（如 passes、slots、new wait、实验性 RTGI 等），避免设置混淆。
+   - **排版与间距修复**：修复了 `Enable NR` 与 `AMD processing` 挤在同一行的布局 Bug，恢复清晰合理的垂直层级与间距。
+   - **原生动态调参滑条**：在 Ins 菜单新增 `Detail strength`（细节/亮度强度）、`Colour strength`（色彩饱和校正）无级滑条，并支持 `Debug view` 实时可视化调试图，改动即时生效。
 
 ---
 
-本项目是 danielblnc 运行时的**桥接层**。多轮实机诊断下来，桥接部分自身的开销大约在 **0.01～0.03 ms** 量级，可以认为几乎无额外性能损耗。
+## 历史背景与架构说明
 
-`1.8.6` = 本仓库当前版本；`0.3.1` = 主推的上游运行时（**0.3.0 仍可用**）。
+本项目是 AMD 神经渲染的**桥接层**。多轮实机诊断下来，桥接部分自身的开销大约在 **0.01～0.03 ms** 量级，可以认为几乎无额外性能损耗。
 
-**相对 1.8.5：** 根据玩**鸣潮、异环**等网友的实机反馈，Ins 菜单**补回 Every-frame 勾选**（1.8.5 菜单无此按钮，仍可通过 ini 的 `AmdEveryFrame` 修改）。无实际性能提升，只是把开关交回菜单，并更新排版。
-
-**画面等待模式：默认 0.3.1 新等待（`AmdGraphicsWait=1`）。** 新等待会请求 0.3.1 的 1 像素 draw 等待（仍在测试）。仅在本帧 D3D12 状态可冻结、恢复准备就绪时才请求新等待，否则回退原等待；空图形状态会按空还原，不脏改游戏的 command list。这不代表运行中发生卡死、崩溃或设备移除后能自动恢复。
-
-游戏内 **Ins → New wait mode**：关闭即原等待模式（无需重启游戏）；重新打开时若 hooks 或某个 pass 尚未就绪，菜单会提示重启。若新等待出现异常，请手动关闭；无法进入菜单时，先关闭游戏，将 `OptiScaler.ini` 的 `[DlssNr]` 中 `AmdGraphicsWait=0`（原等待），再启动游戏。
+`1.9.0` = 本仓库当前版本；全新支持 `lmxxf` 开源后端（Daniel `0.3.1` / `0.3.0` 仍可通过配置兼容）。
 
 > 不是神经核的重实现，也不是 ReShade 滤镜。  
-> 路径：**游戏 DLSS 输入 → 本仓库 → DLSSNR（0.3.1 / 0.3.0）→ FFX/FSR 超分**。
+> 路径：**游戏 DLSS/XeSS 输入 → 本仓库（Pre-SR 调度）→ DLSSNR（lmxxf / Daniel 0.3.1）→ FFX/FSR 超分**。
 
 ---
 
-## 相比前人
+## 巨人的肩膀
 
 | 上游 | 他们做了什么 | 本项目额外做了什么 |
 |---|---|---|
@@ -41,6 +56,7 @@
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 先把 DLSS 神经渲染接进 OptiScaler，再做成超分前多 pass | 继承其 OptiScaler 代码基底与 pre-SR 架构 |
 | **[Matheus / dlss-5-amd](https://github.com/MatheusGViana/dlss-5-amd-project)** | 把 pre-SR 接到 AMD 运行时：DLSS 输入 → AMD NR → FFX | 在其基础上：默认 **3 槽**调度，尽量每帧 NR；相对原 repo **1.7.3** 版单槽旧基线约 **+33%**（33.5→44.5），去掉约 **8.7 ms**/帧 GPU 空转；对接 0.3.1 / 0.3.0；为新等待补状态冻结/恢复；安装器更兼容 XBOX PC。桥接开销实测约 **0.01～0.03 ms** 量级 |
 | **[原项目 / 原作者 danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体 | **不改核**，按原作者 0.3.1 / 0.3.0 调用；并为 0.3.1 **新等待**补上 D3D12 状态冻结/恢复（含空状态「空→空」还原），以便在 DLSS/XeSS 游戏上安全启用 |
+| **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 开源 HIP 神经渲染运行时本体 | 将其深度集成至 OptiScaler 的 Pre-SR 同帧管线；将 D3D12 桥接拆解为细粒度三阶段微调度，支持在严苛渲染管线中同帧执行；跳过 201MB 冗余噪声分配；补齐 Fake NVAPI 下的 LUID 匹配；实现本地权重自发现与 Ins 菜单实时画质动态调参（Detail / Colour / Debug View） |
 
 ### 多槽：每帧都要 NR
 
@@ -89,11 +105,13 @@ Matheus 那条线更偏向少槽/跳帧换吞吐：NR 跟不上时，部分帧�
 | `OptiScaler\` | FFX / XeSS / Agility 等依赖 |
 | `Setup.bat` / `Setup.ps1` | 安装器（**双击 `Setup.bat`**） |
 | `Uninstall_OptiScaler_NR.bat` / `.ps1` | 卸载器；Setup 会拷进**游戏目录**。在游戏目录里双击：先问是否保留老备份，再列出将删除的文件/文件夹，Y/N 确认 |
+| `LmxxfNrRuntime.dll` | lmxxf HIP 神经渲染运行时核心库（使用 lmxxf 后端需放入游戏目录） |
+| `native-game-tiled-assets\` | lmxxf 模型权重资源目录（完整包包含，或手动放入游戏目录） |
 | `Licenses\` | 第三方许可 |
 | `SHA256SUMS.txt` | 校验和 |
 | `README.md` / `README.en.md` | 本文件 |
 
-**不含**：NVIDIA 的二进制、NR 权重、原作者安装程序与闭源 pass——见下一节。
+**不含**：NVIDIA 二进制、Daniel 闭源权重及原作者安装程序（若使用 Daniel 后端请见下节说明）。
 
 ### 第一步：你自己准备文件（本包不附带）
 
@@ -154,7 +172,7 @@ Setup.bat "D:\Games\SomeGame\Binaries\Win64"
 
 1. 启动游戏。  
 2. 按 **Insert（Ins）** 打开 OptiScaler 菜单。  
-3. 找到 **DLSS Neural Rendering**，勾选 **Enable NR**（AMD 神经渲染）。同一行应显示原项目版本，如 `0.3.1` 或 `0.3.0`。  
+3. 找到 **DLSS Neural Rendering**，勾选 **Enable NR**（AMD 神经渲染）。同一行应显示运行时版本，如 `0.3.1`、`0.3.0` 或 `lmxxf`。  
 4. 之后画面上走的就是 **DLSS5 神经降噪 + FFX/FSR 超分**。
 
 其它 OptiScaler 用法（菜单快捷键、兼容性、更多 FG 选项）见： [**OptiScaler Wiki**](https://github.com/optiscaler/OptiScaler/wiki)。
@@ -285,16 +303,16 @@ InterpolationCount=1
 ### 3. 游戏内自检
 
 1. 启动游戏，按 **Ins** 打开 OptiScaler 菜单。  
-2. 看 NR 状态是否显示：**`AMD NR runtime: 0.3.x`**（0.3.1 或 0.3.0）。  
-3. 若显示 waiting / 未识别 runtime / 没有该行，多半是 pass 或 weights 路径不对，回到上一节核对文件。
+2. 看 NR 状态是否显示：**`AMD NR runtime: 0.3.x`**（0.3.1 或 0.3.0）或 **`lmxxf`**。  
+3. 若显示 waiting / 未识别 runtime / 没有该行，多半是 pass/runtime 或 weights 路径不对，回到上一节核对文件。
 
 ### 4. 反馈时请写清
 
 请在 Issue / 反馈里写明：
 
 1. **代理名**：`dxgi.dll`、`winmm.dll`，还是其它？  
-2. **代理旁文件是否齐全**：pass1/2/3、weights、（可选）`nvngx_dlssnr.dll`；有没有多余的 `version.dll`？  
-3. **Ins 菜单**：NR 是否显示 `AMD NR runtime: 0.3.x`？  
+2. **代理旁文件是否齐全**：pass1/2/3（或 `LmxxfNrRuntime.dll`）、weights（或 `native-game-tiled-assets` 文件夹）、（可选）`nvngx_dlssnr.dll`；有没有多余的 `version.dll`？  
+3. **Ins 菜单**：NR 是否显示 `AMD NR runtime: 0.3.x` 或 `lmxxf`？  
 4. **日志**：`OptiScaler.log`、`amd_bridge.log`、`amd_presr.log`、`dlssnr_on_amd.log`（若在 `_storage_` 请说明完整路径）。  
 5. 游戏名、显卡、驱动版本，以及问题现象（打不开菜单 / 无降噪 / 卡顿 / 崩溃）。
 
@@ -309,7 +327,8 @@ InterpolationCount=1
 - [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) —— 在超分前跑神经渲染、多 pass 的架构来源  
 - [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) —— AMD pre-SR 桥接  
 - [**原项目 / 原作者 danielblnc**](https://github.com/danielblnc/DLSS-NR-on-AMD) **0.3.1 / 0.3.0**（不随本包分发）  
+- [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) —— 开源 HIP 神经渲染运行时与算力核心  
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx)（MIT）—— `dlssnr.hlsl` 的色彩合成取自其 DLSS 5 神经渲染 addon，全文见 `Licenses/RenoDX_ATTRIBUTION.txt`  
-- 本项目：NR 槽位、0.3.1 适配、新等待状态冻结/恢复、安装器与打包  
+- 本项目：NR 槽位、0.3.1 适配、新等待状态冻结/恢复、lmxxf HIP 运行时深度集成与 Pre-SR 同帧管线重构、安装器与打包  
 
 本包不含 NVIDIA 二进制、原作者 setup、NR 权重、上游闭源 pass。请遵守各上游许可。
