@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
+#include "backend/Selector.h"
 #include "DlssNrFeature_Vk.h"
 
 #include "DlssNr.h"
@@ -134,103 +135,108 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
+            const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
-            const char* ver = DlssNr::AmdBridge::RuntimeName();
+            const char* ver = isLmxxf ? "lmxxf-nr (ViT)" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
-            ImGui::TextDisabled("%s", haveVer ? ver : "pass1?");
-            HelpMarker(haveVer ? "AMD NR runtime (original project / original author)."
-                               : "AMD NR runtime: pass1 not identified yet.");
-            HGap(0.55f);
+            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf-nr" : "pass1?"));
+            HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf Vision Transformer (same-frame direct execution)."
+                               : (haveVer ? "AMD NR runtime (original project / original author)."
+                                          : "AMD NR runtime: pass1 not identified yet."));
 
-            bool everyFrame = config->AmdEveryFrame.value_or_default();
-            if (ImGui::Checkbox("Every-frame", &everyFrame))
-                config->AmdEveryFrame = everyFrame;
-            HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
-                       "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
-                       "\n\nOn: after Execute, wait for the HIP job only (Temporal off). Does not wait"
-                       "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
-                       "\nUltra Performance render; the next Record may still skip if GPU work is"
-                       "\nin flight.");
-
-            // Slots first, then New wait — quantity next to the enable row, wait
-            // mode after it. Combo is a narrow digit control, not a full-width bar.
-            // Menu offers 2-5 only; the ini also accepts 1 (old single-slot path).
-            const int stored = std::clamp(config->AmdSlots.value_or_default(), 1, 5);
-            const int shown = std::clamp(stored, 2, 5);
-            char slotPreview[8] {};
-            std::snprintf(slotPreview, sizeof(slotPreview), "%d", shown);
-
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted("NR slots");
-            HGap(0.15f);
-            // Width fits one digit plus the arrow, with padding — not a full-width
-            // bar, and not so tight that the arrow covers the number.
+            if (!isLmxxf)
             {
-                const float digitW = ImGui::CalcTextSize(slotPreview).x;
-                const float arrowW = ImGui::GetFrameHeight();
-                const float padX = ImGui::GetStyle().FramePadding.x;
-                const float comboW = digitW + arrowW + padX * 4.0f;
-                ImGui::SetNextItemWidth(std::max(comboW, ImGui::GetFontSize() * 3.2f));
-            }
-            if (ImGui::BeginCombo("##AmdSlots", slotPreview))
-            {
-                for (int s = 2; s <= 5; ++s)
+                HGap(0.55f);
+                bool everyFrame = config->AmdEveryFrame.value_or_default();
+                if (ImGui::Checkbox("Every-frame", &everyFrame))
+                    config->AmdEveryFrame = everyFrame;
+                HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
+                           "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
+                           "\n\nOn: after Execute, wait for the HIP job only (Temporal off). Does not wait"
+                           "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
+                           "\nUltra Performance render; the next Record may still skip if GPU work is"
+                           "\nin flight.");
+
+                // Slots first, then New wait — quantity next to the enable row, wait
+                // mode after it. Combo is a narrow digit control, not a full-width bar.
+                // Menu offers 2-5 only; the ini also accepts 1 (old single-slot path).
+                const int stored = std::clamp(config->AmdSlots.value_or_default(), 1, 5);
+                const int shown = std::clamp(stored, 2, 5);
+                char slotPreview[8] {};
+                std::snprintf(slotPreview, sizeof(slotPreview), "%d", shown);
+
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("NR slots");
+                HGap(0.15f);
+                // Width fits one digit plus the arrow, with padding — not a full-width
+                // bar, and not so tight that the arrow covers the number.
                 {
-                    char item[8] {};
-                    std::snprintf(item, sizeof(item), "%d", s);
-                    if (ImGui::Selectable(item, shown == s))
-                        config->AmdSlots = s;
+                    const float digitW = ImGui::CalcTextSize(slotPreview).x;
+                    const float arrowW = ImGui::GetFrameHeight();
+                    const float padX = ImGui::GetStyle().FramePadding.x;
+                    const float comboW = digitW + arrowW + padX * 4.0f;
+                    ImGui::SetNextItemWidth(std::max(comboW, ImGui::GetFontSize() * 3.2f));
                 }
-                ImGui::EndCombo();
-            }
-            HelpMarker("How many frames may be running denoise at once, 2-5. A frame that gets"
-                       "\na buffer waits for its own denoise; one that finds all buffers busy is"
-                       "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
-                       "\n3 (default): on Onimusha no difference from 2 was detected. In one Where"
-                       "\nWinds Meet A/B session, the skip counter rose by about 1200-1440 per"
-                       "\ntwo-slot segment and stayed flat with 3; that log window does not yield"
-                       "\na skip percentage.\n"
-                       "\n2: in that Where Winds Meet session, display latency was 47.6-47.9 ms"
-                       "\nversus 62.9-63.2 ms with 3, but many frames skipped denoise.\n"
-                       "\n4-5: measured in a separate sweep and no faster than 3 in that scene. A"
-                       "\nscene that actually requires a fourth or fifth slot has not been tested.\n"
-                       "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
-                       "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
-                       "\nOnly the selected number is allocated. No restart needed.\n"
-                       "\nThe ini also accepts 1 (the old single-slot path); this menu does not.");
-            if (stored < 2)
-            {
-                // Own line under the slot control; New wait starts below it.
-                ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
-            }
-            else
-            {
-                HGap(0.65f);
-            }
+                if (ImGui::BeginCombo("##AmdSlots", slotPreview))
+                {
+                    for (int s = 2; s <= 5; ++s)
+                    {
+                        char item[8] {};
+                        std::snprintf(item, sizeof(item), "%d", s);
+                        if (ImGui::Selectable(item, shown == s))
+                            config->AmdSlots = s;
+                    }
+                    ImGui::EndCombo();
+                }
+                HelpMarker("How many frames may be running denoise at once, 2-5. A frame that gets"
+                           "\na buffer waits for its own denoise; one that finds all buffers busy is"
+                           "\nrecorded with NO denoise at all - faster, with possible quality loss.\n"
+                           "\n3 (default): on Onimusha no difference from 2 was detected. In one Where"
+                           "\nWinds Meet A/B session, the skip counter rose by about 1200-1440 per"
+                           "\ntwo-slot segment and stayed flat with 3; that log window does not yield"
+                           "\na skip percentage.\n"
+                           "\n2: in that Where Winds Meet session, display latency was 47.6-47.9 ms"
+                           "\nversus 62.9-63.2 ms with 3, but many frames skipped denoise.\n"
+                           "\n4-5: measured in a separate sweep and no faster than 3 in that scene. A"
+                           "\nscene that actually requires a fourth or fifth slot has not been tested.\n"
+                           "\nEach buffer is one FP16 target at the RENDER size (the DLSS input): about"
+                           "\n29 MB when a 4K output renders at 1440p, 66 MB only at a native 4K render."
+                           "\nOnly the selected number is allocated. No restart needed.\n"
+                           "\nThe ini also accepts 1 (the old single-slot path); this menu does not.");
+                if (stored < 2)
+                {
+                    // Own line under the slot control; New wait starts below it.
+                    ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
+                }
+                else
+                {
+                    HGap(0.65f);
+                }
 
-            bool newWait = config->AmdGraphicsWait.value_or_default() != 0;
-            const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
-            const bool restartToTryNewWait = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
-                std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
-            const bool restartNeeded = newWait && restartToTryNewWait;
-            if (ImGui::Checkbox(restartNeeded ? "New wait mode (restart)" : "New wait mode", &newWait))
-            {
-                config->AmdGraphicsWait = newWait ? 1 : 0;
-                if (newWait && restartToTryNewWait)
-                    ImGui::OpenPopup("New wait restart");
-            }
-            HelpMarker("On: New wait mode (0.3.1 1-pixel draw). Still being tested."
-                       "\nOff: Original wait mode (switches immediately)."
-                       "\nRestart if prompted: hooks or a pass may not be ready for new wait mode."
-                       "\nFrames that cannot use new wait mode still fall back to original wait.");
-            if (ImGui::BeginPopupModal("New wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-            {
-                ImGui::TextUnformatted("Some NR processing still uses original wait.");
-                ImGui::TextUnformatted("Restart the game to retry new-wait initialization.");
-                if (ImGui::Button("OK"))
-                    ImGui::CloseCurrentPopup();
-                ImGui::EndPopup();
+                bool newWait = config->AmdGraphicsWait.value_or_default() != 0;
+                const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
+                const bool restartToTryNewWait = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
+                    std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
+                const bool restartNeeded = newWait && restartToTryNewWait;
+                if (ImGui::Checkbox(restartNeeded ? "New wait mode (restart)" : "New wait mode", &newWait))
+                {
+                    config->AmdGraphicsWait = newWait ? 1 : 0;
+                    if (newWait && restartToTryNewWait)
+                        ImGui::OpenPopup("New wait restart");
+                }
+                HelpMarker("On: New wait mode (0.3.1 1-pixel draw). Still being tested."
+                           "\nOff: Original wait mode (switches immediately)."
+                           "\nRestart if prompted: hooks or a pass may not be ready for new wait mode."
+                           "\nFrames that cannot use new wait mode still fall back to original wait.");
+                if (ImGui::BeginPopupModal("New wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextUnformatted("Some NR processing still uses original wait.");
+                    ImGui::TextUnformatted("Restart the game to retry new-wait initialization.");
+                    if (ImGui::Button("OK"))
+                        ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
             }
         }
 
@@ -246,38 +252,45 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
-            ImGui::TextUnformatted("AMD processing: before Super Resolution");
-            int encoding=std::clamp(config->AmdEncoding.value_or_default(),0,3);
-            if(ImGui::Combo("Encoding",&encoding,"Auto (existing)\0Linear\0sRGB\0Gamma 2.2\0")) config->AmdEncoding=encoding;
-            static float scale = 100.f;
-            static bool editingScale = false;
-            if (!editingScale) scale = config->AmdNrScale.value_or_default()*100.f;
-            ImGui::SliderFloat("NR resolution (%)",&scale,25,100,"%.0f%%");
-            editingScale = ImGui::IsItemActive();
-            // Commit once after dragging or text entry, not one model rebuild per mouse move.
-            if(ImGui::IsItemDeactivatedAfterEdit()) config->AmdNrScale=scale/100.f;
-            // Stage costly neural parameter edits in ImGui state. Keep rendering
-            // with the committed parameters until release/text-edit completion.
-            auto neuralSlider = [](const char* label, auto& option, float lo, float hi) {
-                auto storage=ImGui::GetStateStorage();
-                const ImGuiID id=ImGui::GetID(label);
-                const ImGuiID activeId=id ^ 0x6e72534cu;
-                float value=storage->GetBool(activeId,false)?storage->GetFloat(id):option.value_or_default();
-                ImGui::SliderFloat(label,&value,lo,hi);
-                const bool active=ImGui::IsItemActive();
-                const bool commit=ImGui::IsItemDeactivatedAfterEdit();
-                storage->SetFloat(id,value);storage->SetBool(activeId,active);
-                if(commit)option=value;
-            };
-            static int passes = 1;
-            static bool editingPasses = false;
-            if(!editingPasses)passes=int(config->DlssNrPasses.value_or_default());
-            ImGui::SliderInt("AMD neural passes", &passes, 1, 3);
-            editingPasses=ImGui::IsItemActive();
-            if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
-            neuralSlider("Lightning Strength",config->AmdNeuralLightingStrength,0,1);
-            neuralSlider("AMD structure",config->DlssNrLocalStructure,0,2);
-            neuralSlider("AMD character structure",config->DlssNrSkinStructure,0,2);
+            ImGui::Spacing();
+            const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
+            ImGui::TextUnformatted(isLmxxf ? "AMD processing: lmxxf ViT (before Super Resolution)"
+                                           : "AMD processing: before Super Resolution");
+
+            if (!isLmxxf)
+            {
+                int encoding=std::clamp(config->AmdEncoding.value_or_default(),0,3);
+                if(ImGui::Combo("Encoding",&encoding,"Auto (existing)\0Linear\0sRGB\0Gamma 2.2\0")) config->AmdEncoding=encoding;
+                static float scale = 100.f;
+                static bool editingScale = false;
+                if (!editingScale) scale = config->AmdNrScale.value_or_default()*100.f;
+                ImGui::SliderFloat("NR resolution (%)",&scale,25,100,"%.0f%%");
+                editingScale = ImGui::IsItemActive();
+                // Commit once after dragging or text entry, not one model rebuild per mouse move.
+                if(ImGui::IsItemDeactivatedAfterEdit()) config->AmdNrScale=scale/100.f;
+                // Stage costly neural parameter edits in ImGui state. Keep rendering
+                // with the committed parameters until release/text-edit completion.
+                auto neuralSlider = [](const char* label, auto& option, float lo, float hi) {
+                    auto storage=ImGui::GetStateStorage();
+                    const ImGuiID id=ImGui::GetID(label);
+                    const ImGuiID activeId=id ^ 0x6e72534cu;
+                    float value=storage->GetBool(activeId,false)?storage->GetFloat(id):option.value_or_default();
+                    ImGui::SliderFloat(label,&value,lo,hi);
+                    const bool active=ImGui::IsItemActive();
+                    const bool commit=ImGui::IsItemDeactivatedAfterEdit();
+                    storage->SetFloat(id,value);storage->SetBool(activeId,active);
+                    if(commit)option=value;
+                };
+                static int passes = 1;
+                static bool editingPasses = false;
+                if(!editingPasses)passes=int(config->DlssNrPasses.value_or_default());
+                ImGui::SliderInt("AMD neural passes", &passes, 1, 3);
+                editingPasses=ImGui::IsItemActive();
+                if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
+                neuralSlider("Lightning Strength",config->AmdNeuralLightingStrength,0,1);
+                neuralSlider("AMD structure",config->DlssNrLocalStructure,0,2);
+                neuralSlider("AMD character structure",config->DlssNrSkinStructure,0,2);
+            }
 
             float transfer = config->DlssNrTransferStrength.value_or_default();
             if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 2.0f, "%.2f"))
@@ -293,126 +306,136 @@ void RenderMenu(Config* config, float menuResScale)
             if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
                 config->DlssNrDebugView = (uint32_t) debugView;
 
-            if (ImGui::TreeNode("Experimental"))
+            if (!isLmxxf)
             {
-                ImGui::PushID("RTGI");
-                bool enabled = config->AmdRtgiEnabled.value_or_default();
-                if (ImGui::Checkbox("Enable effect", &enabled)) config->AmdRtgiEnabled = enabled;
-                auto slider = [](const char* label, auto& option, float lo, float hi) {
-                    float value = option.value_or_default();
-                    if (ImGui::SliderFloat(label, &value, lo, hi)) option = value;
-                };
-                int quality = config->AmdRtgiQuality.value_or_default();
-                if (ImGui::Combo("Quality", &quality, "Very low\0Low\0Medium\0High\0Ultra\0")) config->AmdRtgiQuality = uint32_t(quality);
-                int denoiser = config->AmdRtgiDenoiser.value_or_default();
-                if (ImGui::Combo("Denoiser", &denoiser, "Low\0Medium\0High\0")) config->AmdRtgiDenoiser = uint32_t(denoiser);
-                slider("Effect mix", config->AmdRtgiMix, 0, 1);
-                slider("Contact shading", config->AmdRtgiContact, 0, 2);
-                slider("Bounce saturation", config->AmdRtgiSaturation, 0, 2);
-                slider("Sample radius", config->AmdRtgiRadius, .25f, 3);
-                slider("Bounce lighting", config->AmdRtgiLighting, 0, 10);
-                slider("Ambient occlusion", config->AmdRtgiOcclusion, 0, 10);
-                slider("Ambient level", config->AmdRtgiAmbient, .25f, 1);
-                slider("Object thickness", config->AmdRtgiThickness, 0, 1);
-                slider("Smoothness", config->AmdRtgiSmoothness, 0, 1);
-                slider("Fade range", config->AmdRtgiFade, .001f, 1);
-                slider("Camera FOV", config->AmdRtgiFov, 20, 140);
-                slider("Depth range", config->AmdRtgiFarPlane, 10, 10000);
-                int inspect = config->AmdRtgiInspect.value_or_default();
-                if (ImGui::Combo("Inspect", &inspect, "Final image\0Lighting\0")) config->AmdRtgiInspect = uint32_t(inspect);
-                if (ImGui::Button("Reset to defaults"))
+                if (ImGui::TreeNode("Experimental"))
                 {
-                    config->AmdRtgiEnabled = false;
-                    config->AmdRtgiQuality = 2u;
-                    config->AmdRtgiDenoiser = 1u;
-                    config->AmdRtgiInspect = 0u;
-                    config->AmdRtgiContact = 0.0f;
-                    config->AmdRtgiSaturation = 1.0f;
-                    config->AmdRtgiRadius = 1.0f;
-                    config->AmdRtgiMix = 1.0f;
-                    config->AmdRtgiLighting = 5.0f;
-                    config->AmdRtgiOcclusion = 1.0f;
-                    config->AmdRtgiAmbient = 1.0f;
-                    config->AmdRtgiThickness = .1f;
-                    config->AmdRtgiSmoothness = .5f;
-                    config->AmdRtgiFade = .3f;
-                    config->AmdRtgiFov = 60.0f;
-                    config->AmdRtgiFarPlane = 600.0f;
+                    ImGui::PushID("RTGI");
+                    bool enabled = config->AmdRtgiEnabled.value_or_default();
+                    if (ImGui::Checkbox("Enable effect", &enabled)) config->AmdRtgiEnabled = enabled;
+                    auto slider = [](const char* label, auto& option, float lo, float hi) {
+                        float value = option.value_or_default();
+                        if (ImGui::SliderFloat(label, &value, lo, hi)) option = value;
+                    };
+                    int quality = config->AmdRtgiQuality.value_or_default();
+                    if (ImGui::Combo("Quality", &quality, "Very low\0Low\0Medium\0High\0Ultra\0")) config->AmdRtgiQuality = uint32_t(quality);
+                    int denoiser = config->AmdRtgiDenoiser.value_or_default();
+                    if (ImGui::Combo("Denoiser", &denoiser, "Low\0Medium\0High\0")) config->AmdRtgiDenoiser = uint32_t(denoiser);
+                    slider("Effect mix", config->AmdRtgiMix, 0, 1);
+                    slider("Contact shading", config->AmdRtgiContact, 0, 2);
+                    slider("Bounce saturation", config->AmdRtgiSaturation, 0, 2);
+                    slider("Sample radius", config->AmdRtgiRadius, .25f, 3);
+                    slider("Bounce lighting", config->AmdRtgiLighting, 0, 10);
+                    slider("Ambient occlusion", config->AmdRtgiOcclusion, 0, 10);
+                    slider("Ambient level", config->AmdRtgiAmbient, .25f, 1);
+                    slider("Object thickness", config->AmdRtgiThickness, 0, 1);
+                    slider("Smoothness", config->AmdRtgiSmoothness, 0, 1);
+                    slider("Fade range", config->AmdRtgiFade, .001f, 1);
+                    slider("Camera FOV", config->AmdRtgiFov, 20, 140);
+                    slider("Depth range", config->AmdRtgiFarPlane, 10, 10000);
+                    int inspect = config->AmdRtgiInspect.value_or_default();
+                    if (ImGui::Combo("Inspect", &inspect, "Final image\0Lighting\0")) config->AmdRtgiInspect = uint32_t(inspect);
+                    if (ImGui::Button("Reset to defaults"))
+                    {
+                        config->AmdRtgiEnabled = false;
+                        config->AmdRtgiQuality = 2u;
+                        config->AmdRtgiDenoiser = 1u;
+                        config->AmdRtgiInspect = 0u;
+                        config->AmdRtgiContact = 0.0f;
+                        config->AmdRtgiSaturation = 1.0f;
+                        config->AmdRtgiRadius = 1.0f;
+                        config->AmdRtgiMix = 1.0f;
+                        config->AmdRtgiLighting = 5.0f;
+                        config->AmdRtgiOcclusion = 1.0f;
+                        config->AmdRtgiAmbient = 1.0f;
+                        config->AmdRtgiThickness = .1f;
+                        config->AmdRtgiSmoothness = .5f;
+                        config->AmdRtgiFade = .3f;
+                        config->AmdRtgiFov = 60.0f;
+                        config->AmdRtgiFarPlane = 600.0f;
+                    }
+                    ImGui::PopID();
+                    ImGui::TreePop();
                 }
-                ImGui::PopID();
-                ImGui::TreePop();
-            }
-            if (ImGui::TreeNode("Appearance and tonemap"))
-            {
-                bool lookEnabled = config->AmdLookEnabled.value_or_default();
-                if (ImGui::Checkbox("Enable appearance filter", &lookEnabled)) config->AmdLookEnabled = lookEnabled;
-                ImGui::BeginDisabled(!lookEnabled);
-                auto slider = [](const char* label, auto& option, float lo, float hi) {
-                    float value = option.value_or_default();
-                    if (ImGui::SliderFloat(label, &value, lo, hi)) option = value;
-                };
-                slider("Effect mix", config->AmdLookMix, 0, 1);
-                slider("Material detail", config->AmdLookMaterialDetail, 0, 2);
-                slider("Shape definition", config->AmdLookShapeDefinition, 0, 2);
-                slider("Local lighting", config->AmdLookLocalLighting, 0, 2);
-                slider("Skin microstructure", config->AmdLookSkinDetail, 0, 2);
-                slider("Skin highlight softness", config->AmdLookSkinSoftness, 0, 1);
-                slider("Plastic/specular reduction", config->AmdLookSpecularControl, 0, 1);
-                slider("Highlight roll-off", config->AmdLookHighlightRollOff, 0, 1);
-                slider("Material colour separation", config->AmdLookColourSeparation, 0, 1);
-                slider("Contact-shadow impression", config->AmdLookShadowDepth, 0, 1);
-                slider("Edge/halo protection", config->AmdLookAntiHalo, 0, 1);
-                slider("Flat/noisy area protection", config->AmdLookFlatAreaProtection, 0, 1);
-                bool detectSkin = config->AmdLookDetectSkin.value_or_default();
-                if (ImGui::Checkbox("Automatic skin mask", &detectSkin)) config->AmdLookDetectSkin = detectSkin;
-                ImGui::Separator();
-                ImGui::TextUnformatted("Tonemap");
-                slider("Tone strength", config->AmdLookTone, 0, 1);
-                slider("Exposure (EV)", config->AmdLookExposureEV, -3, 3);
-                slider("Contrast", config->AmdLookContrast, 0.5, 1.5);
-                slider("Saturation", config->AmdLookSaturation, 0, 2);
-                slider("Highlight compression", config->AmdLookHighlightCompression, 0, 1);
-                int inspect = static_cast<int>(config->AmdLookInspect.value_or_default());
-                if (ImGui::Combo("Inspect", &inspect, "Final image\0Skin mask\0Material residual\0Local lighting\0"))
-                    config->AmdLookInspect = static_cast<uint32_t>(inspect);
-                ImGui::EndDisabled();
-                if (ImGui::Button("Reset to defaults"))
+                if (ImGui::TreeNode("Appearance and tonemap"))
                 {
-                    config->AmdLookEnabled = false;
-                    config->AmdLookAppearance = 2u;
-                    config->AmdLookMix = 1.0f;
-                    config->AmdLookMaterialDetail = 1.15f;
-                    config->AmdLookShapeDefinition = 1.2f;
-                    config->AmdLookLocalLighting = 1.15f;
-                    config->AmdLookSkinDetail = 1.1f;
-                    config->AmdLookSkinSoftness = .486f;
-                    config->AmdLookDetectSkin = true;
-                    config->AmdLookSpecularControl = .58f;
-                    config->AmdLookHighlightRollOff = .9f;
-                    config->AmdLookColourSeparation = 0.0f;
-                    config->AmdLookShadowDepth = .2f;
-                    config->AmdLookAntiHalo = .901f;
-                    config->AmdLookFlatAreaProtection = 0.0f;
-                    config->AmdLookInspect = 0u;
-                    config->AmdLookTone = 0.0f;
-                    config->AmdLookExposureEV = 1.0f;
-                    config->AmdLookContrast = 1.0f;
-                    config->AmdLookSaturation = 1.0f;
-                    config->AmdLookHighlightCompression = 0.0f;
-                    config->DlssNrPasses = 1u;
-                    config->DlssNrLocalStructure = 1.0f;
-                    config->DlssNrSkinStructure = 1.0f;
-                    config->DlssNrRunBeforeSr = true;
-                    config->AmdNrScale = 1.0f;
-                    config->AmdNeuralLighting=true;
-                    config->AmdEncoding=0;
-                    config->AmdNeuralLightingStrength=.5f;
-                    DlssNr::AmdBridge::InvalidateHistory();
+                    bool lookEnabled = config->AmdLookEnabled.value_or_default();
+                    if (ImGui::Checkbox("Enable appearance filter", &lookEnabled)) config->AmdLookEnabled = lookEnabled;
+                    ImGui::BeginDisabled(!lookEnabled);
+                    auto slider = [](const char* label, auto& option, float lo, float hi) {
+                        float value = option.value_or_default();
+                        if (ImGui::SliderFloat(label, &value, lo, hi)) option = value;
+                    };
+                    slider("Effect mix", config->AmdLookMix, 0, 1);
+                    slider("Material detail", config->AmdLookMaterialDetail, 0, 2);
+                    slider("Shape definition", config->AmdLookShapeDefinition, 0, 2);
+                    slider("Local lighting", config->AmdLookLocalLighting, 0, 2);
+                    slider("Skin microstructure", config->AmdLookSkinDetail, 0, 2);
+                    slider("Skin highlight softness", config->AmdLookSkinSoftness, 0, 1);
+                    slider("Plastic/specular reduction", config->AmdLookSpecularControl, 0, 1);
+                    slider("Highlight roll-off", config->AmdLookHighlightRollOff, 0, 1);
+                    slider("Material colour separation", config->AmdLookColourSeparation, 0, 1);
+                    slider("Contact-shadow impression", config->AmdLookShadowDepth, 0, 1);
+                    slider("Edge/halo protection", config->AmdLookAntiHalo, 0, 1);
+                    slider("Flat/noisy area protection", config->AmdLookFlatAreaProtection, 0, 1);
+                    bool detectSkin = config->AmdLookDetectSkin.value_or_default();
+                    if (ImGui::Checkbox("Automatic skin mask", &detectSkin)) config->AmdLookDetectSkin = detectSkin;
+                    ImGui::Separator();
+                    ImGui::TextUnformatted("Tonemap");
+                    slider("Tone strength", config->AmdLookTone, 0, 1);
+                    slider("Exposure (EV)", config->AmdLookExposureEV, -3, 3);
+                    slider("Contrast", config->AmdLookContrast, 0.5, 1.5);
+                    slider("Saturation", config->AmdLookSaturation, 0, 2);
+                    slider("Highlight compression", config->AmdLookHighlightCompression, 0, 1);
+                    int inspect = static_cast<int>(config->AmdLookInspect.value_or_default());
+                    if (ImGui::Combo("Inspect", &inspect, "Final image\0Skin mask\0Material residual\0Local lighting\0"))
+                        config->AmdLookInspect = static_cast<uint32_t>(inspect);
+                    ImGui::EndDisabled();
+                    if (ImGui::Button("Reset to defaults"))
+                    {
+                        config->AmdLookEnabled = false;
+                        config->AmdLookAppearance = 2u;
+                        config->AmdLookMix = 1.0f;
+                        config->AmdLookMaterialDetail = 1.15f;
+                        config->AmdLookShapeDefinition = 1.2f;
+                        config->AmdLookLocalLighting = 1.15f;
+                        config->AmdLookSkinDetail = 1.1f;
+                        config->AmdLookSkinSoftness = .486f;
+                        config->AmdLookDetectSkin = true;
+                        config->AmdLookSpecularControl = .58f;
+                        config->AmdLookHighlightRollOff = .9f;
+                        config->AmdLookColourSeparation = 0.0f;
+                        config->AmdLookShadowDepth = .2f;
+                        config->AmdLookAntiHalo = .901f;
+                        config->AmdLookFlatAreaProtection = 0.0f;
+                        config->AmdLookInspect = 0u;
+                        config->AmdLookTone = 0.0f;
+                        config->AmdLookExposureEV = 1.0f;
+                        config->AmdLookContrast = 1.0f;
+                        config->AmdLookSaturation = 1.0f;
+                        config->AmdLookHighlightCompression = 0.0f;
+                        config->DlssNrPasses = 1u;
+                        config->DlssNrLocalStructure = 1.0f;
+                        config->DlssNrSkinStructure = 1.0f;
+                        config->DlssNrRunBeforeSr = true;
+                        config->AmdNrScale = 1.0f;
+                        config->AmdNeuralLighting=true;
+                        config->AmdEncoding=0;
+                        config->AmdNeuralLightingStrength=.5f;
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    ImGui::TreePop();
                 }
-                ImGui::TreePop();
             }
             ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
-            ImGui::TextWrapped("AMD HIP backend. Each pass owns independent temporal history. More passes increase GPU time and memory. Restart the game after a backend failure.");
+            if (isLmxxf)
+            {
+                ImGui::TextWrapped("lmxxf HIP backend (Vision Transformer). Same-frame direct execution before Super Resolution.");
+            }
+            else
+            {
+                ImGui::TextWrapped("AMD HIP backend. Each pass owns independent temporal history. More passes increase GPU time and memory. Restart the game after a backend failure.");
+            }
             return;
         }
 
