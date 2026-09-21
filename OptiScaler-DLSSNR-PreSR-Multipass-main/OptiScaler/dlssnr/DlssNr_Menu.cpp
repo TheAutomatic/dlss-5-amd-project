@@ -278,6 +278,21 @@ void RenderMenu(Config* config, float menuResScale)
             neuralSlider("Lightning Strength",config->AmdNeuralLightingStrength,0,1);
             neuralSlider("AMD structure",config->DlssNrLocalStructure,0,2);
             neuralSlider("AMD character structure",config->DlssNrSkinStructure,0,2);
+
+            float transfer = config->DlssNrTransferStrength.value_or_default();
+            if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 2.0f, "%.2f"))
+                config->DlssNrTransferStrength = transfer;
+
+            float colour = config->DlssNrColourStrength.value_or_default();
+            if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 4.0f, "%.2f"))
+                config->DlssNrColourStrength = colour;
+
+            static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
+                                                "Difference (amplified)" };
+            int debugView = (int) config->DlssNrDebugView.value_or_default();
+            if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
+                config->DlssNrDebugView = (uint32_t) debugView;
+
             if (ImGui::TreeNode("Experimental"))
             {
                 ImGui::PushID("RTGI");
