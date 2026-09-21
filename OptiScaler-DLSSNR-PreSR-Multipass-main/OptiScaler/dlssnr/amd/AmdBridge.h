@@ -5,6 +5,8 @@
 namespace DlssNr::AmdBridge
 {
 bool HasFiles();
+// Install submission expansion before the first wrapped list is exposed. No runtime/HIP initialization.
+bool EnsureSubmissionHook(ID3D12CommandQueue*);
 bool Before(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*, ID3D12CommandQueue*);
 void Restore(NVSDK_NGX_Parameter*);
 bool HasReplacement(NVSDK_NGX_Parameter*);

@@ -381,6 +381,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             AmdSpinDraw.set_from_config(readInt("DlssNr", "AmdSpinDraw"));
             AmdGraphicsWait.set_from_config(readInt("DlssNr", "AmdGraphicsWait"));
             NrBackend.set_from_config(readString("DlssNr", "NrBackend", true));
+            LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));
@@ -1353,6 +1354,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "AmdGraphicsWait", GetIntValue(Instance()->AmdGraphicsWait.value_for_config()).c_str());
     if (auto nrBackend = Instance()->NrBackend.value_for_config(); nrBackend.has_value())
         ini.SetValue("DlssNr", "NrBackend", nrBackend->c_str());
+    if (auto diagnostic = Instance()->LmxxfDiagnostic.value_for_config(); diagnostic.has_value())
+        ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
     ini.SetValue("DlssNr", "AmdGraphicsUnsafe", GetIntValue(Instance()->AmdGraphicsUnsafe.value_for_config()).c_str());
     ini.SetValue("AmdRtgi", "Enabled", GetBoolValue(Instance()->AmdRtgiEnabled.value_for_config()).c_str());
     ini.SetValue("AmdRtgi", "Quality", GetIntValue(Instance()->AmdRtgiQuality.value_for_config()).c_str());

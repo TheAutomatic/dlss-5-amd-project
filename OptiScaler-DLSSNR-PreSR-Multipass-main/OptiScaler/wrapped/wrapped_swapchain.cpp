@@ -9,6 +9,7 @@
 #include <hooks/Reflex_Hooks.h>
 #include <hooks/D3D12_Hooks.h>
 #include <dlssnr/backend/Selector.h>
+#include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/submission/SubmissionHooks.h>
 
 #include <menu/menu_overlay_dx.h>
@@ -451,13 +452,18 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
 
     LOG_INFO("{} created, real: {:X}, refCount: {}", _id, (UINT64) real, refCount);
 
-    // Enable lmxxf CreateCommandList proxy wrap only after the first swapchain exists.
+    // Enable proxies only when ECL can unwrap them, including submissions BEFORE the first Evaluate.
     // ArmCreate at HookToDevice keeps ProxyWrap off so Streamline/device boot stays unwrapped.
     if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed() &&
         !DlssNr::Submission::Hooks::ProxyWrapEnabled())
     {
-        DlssNr::Submission::Hooks::SetProxyWrap(true);
-        LOG_INFO("lmxxf ProxyWrap enabled after swapchain {} (CreateCommandList1 only)", _id);
+        ID3D12CommandQueue* queue = nullptr;
+        const bool ready = SUCCEEDED(pDevice->QueryInterface(IID_PPV_ARGS(&queue))) &&
+                           DlssNr::AmdBridge::EnsureSubmissionHook(queue);
+        if (queue)
+            queue->Release();
+        DlssNr::Submission::Hooks::SetProxyWrap(ready);
+        LOG_INFO("lmxxf ProxyWrap after swapchain {}: {} (submission hook must be ready)", _id, ready);
     }
 }
 

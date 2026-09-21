@@ -307,8 +307,10 @@ class Config
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
     // NR host: daniel (default), lmxxf, off. Missing key = daniel. Restart to change.
-    // lmxxf is not wired on this increment and still runs daniel.
     CustomOptional<std::string> NrBackend { "daniel" };
+    // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
+    // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
+    CustomOptional<std::string> LmxxfDiagnostic { "off" };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the original author runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

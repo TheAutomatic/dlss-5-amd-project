@@ -190,18 +190,30 @@ class LogicalList
     {
         if (phase != Phase::RecordingProducer || !device || !producer)
             return E_UNEXPECTED;
-        const HRESULT close = producer->Close();
-        if (FAILED(close))
-            return close;
-        HRESULT hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&contAlloc));
+        // Allocate before closing the producer: allocation failure must leave recording usable.
+        ID3D12CommandAllocator *nextAlloc = nullptr;
+        ID3D12GraphicsCommandList *nextList = nullptr;
+        HRESULT hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&nextAlloc));
         if (FAILED(hr))
             return hr;
         // Continuation must be a real list, not another proxy (hook re-entrancy).
         SuppressProxyWrap suppress;
-        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, contAlloc, nullptr,
-                                       IID_PPV_ARGS(&continuation));
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, nextAlloc, nullptr,
+                                       IID_PPV_ARGS(&nextList));
         if (FAILED(hr))
+        {
+            nextAlloc->Release();
             return hr;
+        }
+        hr = producer->Close();
+        if (FAILED(hr))
+        {
+            nextList->Release();
+            nextAlloc->Release();
+            return hr;
+        }
+        contAlloc = nextAlloc;
+        continuation = nextList;
         phase = Phase::RecordingContinuation;
         split = true;
         return S_OK;
@@ -247,6 +259,8 @@ class LogicalList
             g_rawExecuteCommandLists(queue, 1, &first);
         else
             queue->ExecuteCommandLists(1, &first);
+        if (split)
+            g_splitSubmissions.fetch_add(1, std::memory_order_relaxed);
         if (split && between)
             between(betweenCtx);
         if (split && continuation)
@@ -256,6 +270,7 @@ class LogicalList
                 g_rawExecuteCommandLists(queue, 1, &second);
             else
                 queue->ExecuteCommandLists(1, &second);
+            g_continuationSubmissions.fetch_add(1, std::memory_order_relaxed);
         }
         // Completion credential for deferred continuation allocator recycle.
         const UINT64 v = ++retireFenceValue;
@@ -274,6 +289,10 @@ class LogicalList
         // Still recording: cannot Reset (matches "must be closed" spirit).
         if (phase == Phase::RecordingProducer || phase == Phase::RecordingContinuation)
             return E_UNEXPECTED;
+        // A rejected Reset must preserve the closed generation (including its continuation).
+        const HRESULT hr = producer->Reset(alloc, initial);
+        if (FAILED(hr))
+            return hr;
         // CreateCommandList1 path: first Reset supplies the producer allocator.
         // Closed never-executed (Create→Close→Reset) and post-Execute are both OK.
         FlushRetired(false);
@@ -293,13 +312,10 @@ class LogicalList
                 ReleaseIf(a);
             }
         }
+        alloc->AddRef();
         if (producerAlloc)
             producerAlloc->Release();
         producerAlloc = alloc;
-        producerAlloc->AddRef();
-        const HRESULT hr = producer->Reset(alloc, initial);
-        if (FAILED(hr))
-            return hr;
         phase = Phase::RecordingProducer;
         split = false;
         executed = false;

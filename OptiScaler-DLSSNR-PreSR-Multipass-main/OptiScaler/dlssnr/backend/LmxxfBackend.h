@@ -1,6 +1,8 @@
 #pragma once
 #include "Host.h"
 #include "LmxxfEvaluateCut.h"
+#include "LmxxfColorProbe.h"
+#include "LmxxfStagingProbe.h"
 #include <filesystem>
 
 namespace DlssNr::Backend
@@ -21,32 +23,18 @@ class LmxxfBackend final : public Host
     struct Api;
     Api *api = nullptr;
     void *pendingJob = nullptr;
-
-    // Private proxied list when Evaluate cmd is not ILogicalCommandList (yysls CreateCommandList).
-    ID3D12CommandAllocator *privAlloc = nullptr;
-    ID3D12GraphicsCommandList *privCmd = nullptr;
-    ID3D12Fence *privFence = nullptr;
-    HANDLE privFenceEvent = nullptr;
-    UINT64 privFenceValue = 0;
-
-    // 1-frame Color capture: copy THIS frame onto the game cmd; NR reads the PREVIOUS
-    // capture so Encode never races unsubmitted Color producers on the same list.
-    ID3D12Resource *colorRing[2] {};
-    bool colorRingReady[2] {};
-    UINT colorRingWrite = 0;
-    UINT colorRingW = 0;
-    UINT colorRingH = 0;
-    DXGI_FORMAT colorRingFmt = DXGI_FORMAT_UNKNOWN;
+    LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;
+    LmxxfProbe::ColorCopy colorProbe;
+    LmxxfProbe::StagingProbe stagingProbe;
+    uint64_t probeEvaluateId = 0; // Host ordinal, NOT an engine frame ID or GPU completion.
+    uint64_t evaluateSequence_ = 0; // Monotonic sequence across all Evaluate calls including bypassed.
+    uint64_t boundaryProxyHits = 0;
+    uint64_t boundaryCuts = 0;
+    uint64_t boundaryRejects = 0;
+    ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &);
 
     bool EnsureRuntime();
-    bool EnsurePrivateList();
-    void ReleasePrivateList();
-    void ReleaseColorRing();
-    bool EnsureColorRing(ID3D12Resource *color);
-    void ScheduleColorCapture(ID3D12GraphicsCommandList *gameCmd, ID3D12Resource *color,
-                              D3D12_RESOURCE_STATES colorState, UINT slot);
-    ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput,
-                                 bool executeNow);
+    ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput);
     bool EnsureSession();
     void SetStatus(const char *s);
 

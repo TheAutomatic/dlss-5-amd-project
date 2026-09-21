@@ -60,6 +60,7 @@ int main()
     ID3D12Device4 *device4 = nullptr;
     Check(device->QueryInterface(IID_PPV_ARGS(&device4)), "Device4");
     Check(DlssNr::Submission::Hooks::ArmCreate(device), "ArmCreate");
+    DlssNr::Submission::Hooks::SetProxyWrap(true);
 
     D3D12_COMMAND_QUEUE_DESC qd {};
     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;

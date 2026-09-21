@@ -226,6 +226,8 @@ int main()
 
     Check(DlssNr::Submission::Hooks::Arm(device, queue), "arm hooks");
     Require(DlssNr::Submission::Hooks::IsArmed(), "armed");
+    DlssNr::Submission::Hooks::SetProxyWrap(true);
+    DlssNr::Submission::Hooks::SetWrapOpenLists(true);
 
     BetweenCounter counter;
     DlssNr::Submission::Hooks::SetBetween(BetweenHit, &counter);

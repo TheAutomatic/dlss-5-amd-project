@@ -4,6 +4,8 @@
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsInvocation.h>
 #include <dlssnr/backend/Selector.h>
+#include <dlssnr/backend/LmxxfGenerationObserver.h>
+#include <dlssnr/backend/LmxxfColorProbe.h>
 #include <dlssnr/submission/SubmissionHooks.h>
 
 #include <Util.h>
@@ -2993,6 +2995,10 @@ static void HookToDevice(ID3D12Device* InDevice)
         }
         else if (DlssNr::Backend::SubmissionHooksWanted())
         {
+            const bool wrapOpen = DlssNr::Backend::LmxxfProbe::NeedsOpenListProxy(
+                DlssNr::Backend::LmxxfProbe::ParseMode(Config::Instance()->LmxxfDiagnostic.value_or_default()));
+            DlssNr::Submission::Hooks::SetWrapOpenLists(wrapOpen);
+            LOG_INFO("lmxxf same-frame: open-list proxy diagnostic={}", wrapOpen);
             const HRESULT armHr = DlssNr::Submission::Hooks::ArmCreate(InDevice);
             if (FAILED(armHr))
                 LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));

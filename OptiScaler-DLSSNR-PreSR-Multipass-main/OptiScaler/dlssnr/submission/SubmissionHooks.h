@@ -19,6 +19,8 @@ inline std::atomic<bool> g_expandEnabled { false };
 // Product: ProxyWrap starts OFF; swapchain ctor enables it (Streamline-safe). Harness: SetProxyWrap(true) after Arm.
 // Harnesses can SetProxyWrap(true) after Arm.
 inline std::atomic<bool> g_proxyWrap { false };
+inline std::atomic<bool> g_wrapOpenLists { false };
+inline std::mutex g_executeMu;
 inline BetweenFn g_between = nullptr;
 inline void *g_betweenCtx = nullptr;
 
@@ -36,6 +38,7 @@ inline bool IsArmed() { return g_armed.load(std::memory_order_acquire); }
 inline bool ExpandEnabled() { return g_expandEnabled.load(std::memory_order_acquire); }
 inline bool ProxyWrapEnabled() { return g_proxyWrap.load(std::memory_order_acquire); }
 inline void SetProxyWrap(bool on) { g_proxyWrap.store(on, std::memory_order_release); }
+inline void SetWrapOpenLists(bool on) { g_wrapOpenLists.store(on, std::memory_order_release); }
 
 inline void SetBetween(BetweenFn fn, void *ctx)
 {
@@ -46,12 +49,12 @@ inline void SetBetween(BetweenFn fn, void *ctx)
 
 // Wrap a newly created DIRECT list as CommandListProxy. Non-DIRECT: pass through.
 inline HRESULT WrapNewList(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
-                           REFIID riid, void **out)
+                           REFIID riid, void **out, ID3D12PipelineState *initial = nullptr)
 {
     if (!device || !alloc || !real || !out)
         return E_INVALIDARG;
     CommandListProxy *proxy = nullptr;
-    const HRESULT hr = CommandListProxy::Create(device, alloc, real, &proxy);
+    const HRESULT hr = CommandListProxy::Create(device, alloc, real, &proxy, initial);
     if (FAILED(hr))
         return hr;
     const HRESULT qi = proxy->QueryInterface(riid, out);
@@ -82,12 +85,13 @@ inline HRESULT CreateProxiedCommandList(ID3D12Device *device, UINT nodeMask, D3D
     if (type != D3D12_COMMAND_LIST_TYPE_DIRECT)
         return device->CreateCommandList(nodeMask, type, alloc, initial, riid, out);
 
+    SuppressProxyWrap suppress;
     ID3D12GraphicsCommandList *real = nullptr;
     const HRESULT hr =
         device->CreateCommandList(nodeMask, type, alloc, initial, IID_PPV_ARGS(&real));
     if (FAILED(hr))
         return hr;
-    const HRESULT wrap = WrapNewList(device, alloc, real, riid, out);
+    const HRESULT wrap = WrapNewList(device, alloc, real, riid, out, initial);
     real->Release();
     return wrap;
 }
@@ -96,16 +100,25 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
                                           ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial, REFIID riid,
                                           void **out)
 {
-    // Product: never wrap CreateCommandList (open lists). Wrapping DIRECT Create
-    // on yysls/Streamline causes DXGI_ERROR_INVALID_CALL / DEVICE_REMOVED right after
-    // ProxyWrap enable. NR proxy path uses CreateCommandList1 only.
-    return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
+    // Opt-in only for proxy-original/split-original until real-game boundary validation.
+    if (!IsArmed() || !ProxyWrapEnabled() || !g_wrapOpenLists.load(std::memory_order_acquire) ||
+        g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !out)
+        return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
+    ID3D12GraphicsCommandList *real = nullptr;
+    const HRESULT hr = o_CreateCommandList(device, nodeMask, type, alloc, initial, IID_PPV_ARGS(&real));
+    if (FAILED(hr))
+        return hr;
+    const HRESULT wrap = WrapNewList(device, alloc, real, riid, out, initial);
+    real->Release();
+    if (FAILED(wrap))
+        *out = nullptr;
+    return wrap;
 }
 
 inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
                                            D3D12_COMMAND_LIST_FLAGS flags, REFIID riid, void **out)
 {
-    if (!IsArmed() || !ProxyWrapEnabled() || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
+    if (!IsArmed() || !ProxyWrapEnabled() || g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
         return o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
                                     : E_NOINTERFACE;
 
@@ -129,33 +142,41 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
 {
     if (!queue || !lists || !rawExec)
         return;
-    UINT i = 0;
-    while (i < num)
+    // Keep all ordinary/unsplit lists in their original contiguous batch. Splitting
+    // every unsplit proxy into separate Executes would itself change resource decay.
+    std::lock_guard<std::mutex> submitLock(g_executeMu);
+    std::vector<ID3D12CommandList *> run;
+    run.reserve(num);
+    const auto flush = [&]() {
+        if (!run.empty())
+        {
+            rawExec(queue, static_cast<UINT>(run.size()), run.data());
+            run.clear();
+        }
+    };
+    for (UINT i = 0; i < num; ++i)
     {
         ILogicalCommandList *logical = nullptr;
-        if (SUCCEEDED(lists[i]->QueryInterface(__uuidof(ILogicalCommandList),
-                                               reinterpret_cast<void **>(&logical))))
+        if (FAILED(lists[i]->QueryInterface(__uuidof(ILogicalCommandList),
+                                           reinterpret_cast<void **>(&logical))) || !logical)
         {
-            logical->ExecuteOnWithBetween(queue, between, betweenCtx);
-            logical->Release();
-            ++i;
+            run.push_back(lists[i]);
             continue;
         }
-        UINT run = 1;
-        while (i + run < num)
+        if (auto *native = logical->UnsplitNativeList())
         {
-            ILogicalCommandList *probe = nullptr;
-            if (SUCCEEDED(lists[i + run]->QueryInterface(__uuidof(ILogicalCommandList),
-                                                         reinterpret_cast<void **>(&probe))))
-            {
-                probe->Release();
-                break;
-            }
-            ++run;
+            run.push_back(native);
+            g_unsplitProxySubmissions.fetch_add(1, std::memory_order_relaxed);
         }
-        rawExec(queue, run, lists + i);
-        i += run;
+        else
+        {
+            flush();
+            if (FAILED(logical->ExecuteOnWithBetween(queue, between, betweenCtx)))
+                g_submissionFailures.fetch_add(1, std::memory_order_relaxed);
+        }
+        logical->Release();
     }
+    flush();
 }
 
 inline void WINAPI hkExecuteCommandLists(ID3D12CommandQueue *queue, UINT num, ID3D12CommandList *const *lists)
@@ -206,7 +227,6 @@ inline HRESULT Arm(ID3D12Device *device, ID3D12CommandQueue *queue)
     if (o_CreateCommandList1)
         DetourAttach(reinterpret_cast<PVOID *>(&o_CreateCommandList1), hkCreateCommandList1);
     if (o_ExecuteCommandLists)
-        NoteRawExecuteCommandLists(o_ExecuteCommandLists);
         DetourAttach(reinterpret_cast<PVOID *>(&o_ExecuteCommandLists), hkExecuteCommandLists);
     const LONG err = DetourTransactionCommit();
     if (err != NO_ERROR)
@@ -216,6 +236,7 @@ inline HRESULT Arm(ID3D12Device *device, ID3D12CommandQueue *queue)
         o_ExecuteCommandLists = nullptr;
         return HRESULT_FROM_WIN32(err);
     }
+    NoteRawExecuteCommandLists(o_ExecuteCommandLists);
     g_armed.store(true, std::memory_order_release);
     g_expandEnabled.store(true, std::memory_order_release);
     return S_OK;
@@ -273,7 +294,10 @@ inline void Disarm()
         DetourDetach(reinterpret_cast<PVOID *>(&o_CreateCommandList1), hkCreateCommandList1);
     if (o_ExecuteCommandLists)
         DetourDetach(reinterpret_cast<PVOID *>(&o_ExecuteCommandLists), hkExecuteCommandLists);
-    DetourTransactionCommit();
+    if (DetourTransactionCommit() != NO_ERROR)
+        return;
+    if (o_ExecuteCommandLists)
+        NoteRawExecuteCommandLists(nullptr);
     o_CreateCommandList = nullptr;
     o_CreateCommandList1 = nullptr;
     o_ExecuteCommandLists = nullptr;
@@ -282,5 +306,6 @@ inline void Disarm()
     g_armed.store(false, std::memory_order_release);
     g_expandEnabled.store(false, std::memory_order_release);
     g_proxyWrap.store(false, std::memory_order_release);
+    g_wrapOpenLists.store(false, std::memory_order_release);
 }
 } // namespace DlssNr::Submission::Hooks

@@ -51,6 +51,9 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
     if (queue)
         queue->AddRef();
     api = new Api();
+    diagnostic = LmxxfProbe::ParseMode(Config::Instance()->LmxxfDiagnostic.value_or_default());
+    LOG_INFO("lmxxf diagnostic: mode={} (restart to change; off/original/copy-current/staging-current/staging-previous/proxy-original/split-original)",
+             Config::Instance()->LmxxfDiagnostic.value_or_default());
     SetStatus("lmxxf: constructed (session not ready)");
 }
 
@@ -186,152 +189,8 @@ bool LmxxfBackend::EnsureSession()
 
 
 
-void LmxxfBackend::ReleaseColorRing()
-{
-    for (auto &r : colorRing)
-    {
-        if (r)
-        {
-            r->Release();
-            r = nullptr;
-        }
-    }
-    colorRingReady[0] = colorRingReady[1] = false;
-    colorRingWrite = 0;
-    colorRingW = colorRingH = 0;
-    colorRingFmt = DXGI_FORMAT_UNKNOWN;
-}
-
-bool LmxxfBackend::EnsureColorRing(ID3D12Resource *color)
-{
-    if (!device || !color)
-        return false;
-    const D3D12_RESOURCE_DESC d = color->GetDesc();
-    if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
-        return false;
-    const UINT w = static_cast<UINT>(d.Width);
-    const UINT h = d.Height;
-    if (colorRing[0] && colorRing[1] && colorRingW == w && colorRingH == h && colorRingFmt == d.Format)
-        return true;
-    ReleaseColorRing();
-    D3D12_HEAP_PROPERTIES hp {};
-    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
-    D3D12_RESOURCE_DESC td = d;
-    td.Alignment = 0;
-    td.Flags = D3D12_RESOURCE_FLAG_NONE; // copy dest / SRV for encode
-    for (int i = 0; i < 2; ++i)
-    {
-        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
-                                                   D3D12_RESOURCE_STATE_COMMON, nullptr,
-                                                   IID_PPV_ARGS(&colorRing[i]))) ||
-            !colorRing[i])
-        {
-            ReleaseColorRing();
-            return false;
-        }
-    }
-    colorRingW = w;
-    colorRingH = h;
-    colorRingFmt = d.Format;
-    return true;
-}
-
-void LmxxfBackend::ScheduleColorCapture(ID3D12GraphicsCommandList *gameCmd, ID3D12Resource *color,
-                                        D3D12_RESOURCE_STATES colorState, UINT slot)
-{
-    if (!gameCmd || !color || slot > 1 || !colorRing[slot])
-        return;
-    ID3D12Resource *dst = colorRing[slot];
-    D3D12_RESOURCE_BARRIER b[2] {};
-    b[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b[0].Transition = {color, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, colorState,
-                       D3D12_RESOURCE_STATE_COPY_SOURCE};
-    // Ring slot may be COMMON (first use) or NON_PIXEL_SHADER_RESOURCE (after prior capture).
-    const D3D12_RESOURCE_STATES dstBefore =
-        colorRingReady[slot] ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_COMMON;
-    b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b[1].Transition = {dst, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, dstBefore,
-                       D3D12_RESOURCE_STATE_COPY_DEST};
-    gameCmd->ResourceBarrier(2, b);
-    gameCmd->CopyResource(dst, color);
-    // Restore game Color to the state Evaluate advertised (caller's contract).
-    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-    b[0].Transition.StateAfter = colorState;
-    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    gameCmd->ResourceBarrier(2, b);
-    colorRingReady[slot] = true;
-}
-bool LmxxfBackend::EnsurePrivateList()
-{
-    if (!device || !queue)
-        return false;
-    if (!privFence)
-    {
-        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&privFence))))
-            return false;
-        privFenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!privFenceEvent)
-            return false;
-    }
-    if (privFenceValue != 0 && privFence->GetCompletedValue() < privFenceValue)
-    {
-        if (FAILED(privFence->SetEventOnCompletion(privFenceValue, privFenceEvent)))
-            return false;
-        if (WaitForSingleObject(privFenceEvent, 2000) != WAIT_OBJECT_0)
-            return false;
-    }
-    if (!privAlloc)
-    {
-        if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&privAlloc))))
-            return false;
-    }
-    else
-    {
-        if (FAILED(privAlloc->Reset()))
-            return false;
-    }
-    if (!privCmd)
-    {
-        if (FAILED(DlssNr::Submission::Hooks::CreateProxiedCommandList(
-                device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, privAlloc, nullptr, IID_PPV_ARGS(&privCmd))))
-            return false;
-    }
-    else
-    {
-        if (FAILED(privCmd->Reset(privAlloc, nullptr)))
-            return false;
-    }
-    return true;
-}
-
-void LmxxfBackend::ReleasePrivateList()
-{
-    if (privCmd)
-    {
-        privCmd->Release();
-        privCmd = nullptr;
-    }
-    if (privAlloc)
-    {
-        privAlloc->Release();
-        privAlloc = nullptr;
-    }
-    if (privFenceEvent)
-    {
-        CloseHandle(privFenceEvent);
-        privFenceEvent = nullptr;
-    }
-    if (privFence)
-    {
-        privFence->Release();
-        privFence = nullptr;
-    }
-    privFenceValue = 0;
-}
-
 ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle,
-                                           void *privateOutput, bool executeNow)
+                                           void *privateOutput)
 {
     if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
@@ -354,43 +213,6 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     }
     LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip);
     LmxxfCut::ArmBetweenSlot();
-    if (executeNow)
-    {
-        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
-        if (FAILED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
-                                             reinterpret_cast<void **>(&logical))) ||
-            !logical)
-        {
-            api->table.CancelUnsubmitted(session, jobHandle);
-            LmxxfCut::ClearPendingEnqueue();
-            SetStatus("lmxxf: private list lost ILogicalCommandList");
-            return nullptr;
-        }
-        const HRESULT ex = logical->ExecuteOnWithBetween(queue, &LmxxfCut::BetweenThunk, nullptr);
-        logical->Release();
-        if (FAILED(ex))
-        {
-            api->table.CancelUnsubmitted(session, jobHandle);
-            LmxxfCut::ClearPendingEnqueue();
-            SetStatus("lmxxf: private ExecuteOnWithBetween failed");
-            return nullptr;
-        }
-        const UINT64 signal = ++privFenceValue;
-        if (FAILED(queue->Signal(privFence, signal)))
-            LOG_WARN("lmxxf: private Signal failed after Execute");
-        if (api->table.Retire)
-            api->table.Retire(session, jobHandle);
-        LmxxfCut::ClearPendingEnqueue();
-        pendingJob = nullptr;
-        const int32_t hipRc = LmxxfCut::Pending().lastEnqueueRc.load(std::memory_order_relaxed);
-        SetStatus(hipRc == 0 ? "lmxxf: Record ok (private CL EnqueueHip)"
-                             : "lmxxf: Record ok (private CL; EnqueueHip rc!=0)");
-        LOG_INFO("lmxxf: private CL betweenHits={} enqueueCalls={} skipped={} EnqueueHip rc={}",
-                 LmxxfCut::Pending().betweenHits.load(std::memory_order_relaxed),
-                 LmxxfCut::Pending().enqueueCalls.load(std::memory_order_relaxed),
-                 LmxxfCut::Pending().skippedHits.load(std::memory_order_relaxed), hipRc);
-        return reinterpret_cast<ID3D12Resource *>(privateOutput);
-    }
     pendingJob = jobHandle;
     SetStatus("lmxxf: Record ok (pending EnqueueHip)");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
@@ -405,6 +227,25 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     if (!cmd || !frame.colour)
     {
         SetStatus("lmxxf: Record missing cmd/colour");
+        return nullptr;
+    }
+    // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,
+    // or submit HIP. split-original only cuts the game list for boundary validation.
+    if (diagnostic != LmxxfProbe::Mode::Off)
+        return RecordDiagnostic(cmd, frame);
+    // Never substitute Color from an earlier Evaluate to work around an unsubmitted producer.
+    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+    if (FAILED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                  reinterpret_cast<void **>(&logical))) || !logical)
+    {
+        SetStatus("lmxxf: same-frame boundary unavailable (original Color; NO NR)");
+        return nullptr;
+    }
+    const bool ineligible = logical->IsSplitIneligible();
+    logical->Release();
+    if (ineligible)
+    {
+        SetStatus("lmxxf: same-frame split ineligible (original Color; NO NR)");
         return nullptr;
     }
     if (!EnsureSession())
@@ -442,7 +283,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
         {
             LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
-            ReleaseColorRing();
             if (session && api && api->table.Destroy)
                 api->table.Destroy(session);
             session = nullptr;
@@ -466,80 +306,132 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         }
     }
 
-    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
-    const bool isProxy =
-        SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
-                                      reinterpret_cast<void **>(&logical))) &&
-        logical;
-    if (logical)
-        logical->Release();
-
-    if (!isProxy)
-    {
-        // yysls/Streamline Evaluate uses CreateCommandList; CL1-only wrap never sees it.
-        // Open Create wrap DEVICE_REMOVEs — private proxied list + ExecuteOnWithBetween now.
-        // Color may still be unsubmitted on `cmd`: capture THIS frame onto the game list,
-        // NR from the PREVIOUS capture (1-frame lag, upstream overlap style).
-        if (!EnsureColorRing(frame.colour))
-        {
-            api->table.CancelUnsubmitted(session, job.handle);
-            SetStatus("lmxxf: Color ring alloc failed");
-            return nullptr;
-        }
-        const UINT captureSlot = colorRingWrite;
-        const UINT nrSlot = colorRingWrite ^ 1u;
-        ScheduleColorCapture(cmd, frame.colour,
-                             static_cast<D3D12_RESOURCE_STATES>(frame.colourState), captureSlot);
-        colorRingWrite ^= 1u;
-        if (!colorRingReady[nrSlot])
-        {
-            // First frame(s): capture scheduled, nothing safe to NR yet — keep original Color.
-            api->table.CancelUnsubmitted(session, job.handle);
-            SetStatus("lmxxf: private CL priming Color capture");
-            return nullptr;
-        }
-        if (!EnsurePrivateList())
-        {
-            api->table.CancelUnsubmitted(session, job.handle);
-            SetStatus("lmxxf: private CL setup failed");
-            return nullptr;
-        }
-        // Re-Prepare against the previous capture so encode/decode see a completed Color.
-        AmdPreSr::Frame nrFrame = frame;
-        nrFrame.colour = colorRing[nrSlot];
-        nrFrame.colourState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-        nrFrame.width = colorRingW;
-        nrFrame.height = colorRingH;
-        D3D12_RESOURCE_DESC nrDesc = nrFrame.colour->GetDesc();
-        LmxxfNrFrameInfo fi2 {};
-        fi2.struct_size = sizeof(fi2);
-        fi2.frame_id = fi.frame_id;
-        fi2.command_list = privCmd;
-        fi2.color_width = nrFrame.width ? nrFrame.width : static_cast<uint32_t>(nrDesc.Width);
-        fi2.color_height = nrFrame.height ? nrFrame.height : static_cast<uint32_t>(nrDesc.Height);
-        fi2.color = nrFrame.colour;
-        fi2.color_state = static_cast<uint32_t>(nrFrame.colourState);
-        fi2.flags = 0;
-        LmxxfNrJob job2 {};
-        job2.struct_size = sizeof(job2);
-        const int32_t frameRc2 = api->table.PrepareFrame(session, &fi2, &job2);
-        if (frameRc2 != LMXXF_NR_OK || !job2.handle || !job2.private_output)
-        {
-            char err[256] {};
-            if (api->table.GetLastError)
-                api->table.GetLastError(err, sizeof err);
-            LOG_ERROR("lmxxf: PrepareFrame(staging) rc={} err={}", frameRc2, err);
-            api->table.CancelUnsubmitted(session, job.handle);
-            SetStatus("lmxxf: PrepareFrame staging failed");
-            return nullptr;
-        }
-        api->table.CancelUnsubmitted(session, job.handle); // drop the live-Color job; use staging job
-        return FinishRecord(privCmd, job2.handle, job2.private_output, true);
-    }
-
-    return FinishRecord(cmd, job.handle, job.private_output, false);
+    return FinishRecord(cmd, job.handle, job.private_output);
 }
 
+
+ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame)
+{
+    const auto seq = ++evaluateSequence_;
+    const auto id = ++probeEvaluateId;
+    const bool sampled = id <= 3 || id % 120 == 0;
+    const auto d = frame.colour->GetDesc();
+    const UINT w = frame.width ? frame.width : static_cast<UINT>(d.Width);
+    const UINT h = frame.height ? frame.height : d.Height;
+    ID3D12Resource *output = nullptr;
+    const char *reason = "original_no_nr";
+    LmxxfProbe::Evidence ev {};
+    ev.evaluateId = id;
+    ev.list = cmd;
+    ev.sampled = sampled;
+    ev.mode = diagnostic;
+
+    if (LmxxfProbe::NeedsOpenListProxy(diagnostic))
+    {
+        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+        HRESULT cutHr = S_FALSE;
+        const bool isProxy = SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                         reinterpret_cast<void **>(&logical))) && logical;
+        if (!isProxy)
+            reason = "boundary_not_proxy";
+        else
+        {
+            ++boundaryProxyHits;
+            if (diagnostic == LmxxfProbe::Mode::ProxyOriginal)
+                reason = "proxy_original_no_nr";
+            else if (logical->IsSplitIneligible())
+                reason = logical->SplitRejectionReason();
+            else
+            {
+                cutHr = logical->SplitSegments();
+                if (cutHr == S_OK)
+                {
+                    ++boundaryCuts;
+                    reason = "split_original_recorded_no_nr";
+                }
+                else
+                    reason = "boundary_split_failed";
+            }
+        }
+        if (logical)
+            logical->Release();
+        if (!isProxy || (diagnostic == LmxxfProbe::Mode::SplitOriginal && cutHr != S_OK))
+            ++boundaryRejects;
+        char state[256] {};
+        snprintf(state, sizeof state, "lmxxf diagnostic: %s (original Color; NO NR)", reason);
+        SetStatus(state);
+        if (sampled)
+            LOG_INFO("lmxxf boundary: eval={} proxy={} cutHr={:X} proxyHits={} cutsRecorded={} rejected={} unsplitSubmitted={} producerSubmitted={} continuationSubmitted={} submitFailures={} (counts are NOT GPU completion)",
+                     id, isProxy, static_cast<unsigned>(cutHr), boundaryProxyHits, boundaryCuts, boundaryRejects,
+                     DlssNr::Submission::g_unsplitProxySubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+    }
+    else if (diagnostic == LmxxfProbe::Mode::CopyCurrent)
+    {
+        output = colorProbe.Record(device, cmd, frame.colour, frame.colourState, w, h);
+        reason = colorProbe.Reason();
+        SetStatus(output ? "lmxxf diagnostic: copy-current (NO NR; recorded, not GPU-complete)"
+                         : "lmxxf diagnostic: copy-current REJECTED (original Color; see log)");
+    }
+    else if (diagnostic == LmxxfProbe::Mode::StagingCurrent || diagnostic == LmxxfProbe::Mode::StagingPrevious)
+    {
+        auto r = stagingProbe.Record(diagnostic, device, cmd, frame.colour, frame.colourState, w, h, seq);
+        output = r.output;
+        reason = r.reason;
+        ev.epoch = r.epoch;
+        ev.sourceSequence = r.sourceSequence;
+        ev.age = r.age;
+        ev.priming = r.priming;
+        const char *modeName = (diagnostic == LmxxfProbe::Mode::StagingCurrent) ? "staging-current" : "staging-previous";
+        if (r.priming)
+        {
+            char buf[256];
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s PRIMING (no previous; original Color)", modeName);
+            SetStatus(buf);
+        }
+        else if (output)
+        {
+            char buf[256];
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s (NO NR; age=%u src=%llu)",
+                     modeName, r.age, static_cast<unsigned long long>(r.sourceSequence));
+            SetStatus(buf);
+        }
+        else
+        {
+            char buf[256];
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s REJECTED (%s)", modeName, reason);
+            SetStatus(buf);
+        }
+    }
+    else if (diagnostic == LmxxfProbe::Mode::Original)
+        SetStatus("lmxxf diagnostic: original (NO NR, no replacement)");
+    else
+    {
+        reason = "invalid_diagnostic_option";
+        SetStatus("lmxxf diagnostic: INVALID option (original Color; no HIP)");
+    }
+
+    ev.expectedColor = output ? output : frame.colour;
+    ev.copied = output != nullptr;
+    LmxxfProbe::CurrentEvidence() = ev;
+
+    if (sampled)
+    {
+        const auto st = stagingProbe.GetStats();
+        LOG_INFO("lmxxf probe: eval={} seq={} list={} color={} output={} mv={} depth={} valid={}x{} allocation={}x{} format={} colorState={} preExposure={} exposureScale={} reset={} reason={} mode={} epoch={} age={} srcSeq={} priming={} window={} best={} pins={} bytes={} (CPU record only)",
+                 id, seq, static_cast<void *>(cmd), static_cast<void *>(frame.colour), static_cast<void *>(output),
+                 static_cast<void *>(frame.motion), static_cast<void *>(frame.depth), w, h, d.Width, d.Height,
+                 static_cast<unsigned>(d.Format), static_cast<unsigned>(frame.colourState), frame.preExposure,
+                 frame.exposureScale, frame.reset, reason, static_cast<int>(diagnostic),
+                 ev.epoch, ev.age, ev.sourceSequence, ev.priming,
+                 st.currentWindowLength, st.bestWindowLength,
+                 stagingProbe.CaptureCount() + stagingProbe.OutputCount() + colorProbe.EntryCount(),
+                 stagingProbe.AllocatedBytes() + colorProbe.AllocatedBytes());
+    }
+    return output;
+}
 
 // Daniel uses PendingListIndex to isolate a private neural list from a multi-list batch.
 // lmxxf HIP sits in ExecuteExpanded's between-slot on the game proxy itself, so isolation
@@ -566,7 +458,6 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *cons
 bool LmxxfBackend::Shutdown()
 {
     LmxxfCut::DisarmBetweenSlot();
-    ReleasePrivateList();
     pendingJob = nullptr;
     if (session && api && api->table.Destroy)
     {
@@ -589,6 +480,7 @@ void LmxxfBackend::InvalidateHistory()
 {
     if (session && api && api->table.ResetHistory)
         api->table.ResetHistory(session);
+    stagingProbe.InvalidateEpoch();
 }
 
 std::string LmxxfBackend::Status() const { return status; }

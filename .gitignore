@@ -50,6 +50,9 @@ exports/build/
 # 没有，`git add -A` 会扫进来。
 exports/release-local/
 
+/tools/minhook-master
+/tools/reshade-main
+
 # 旧的按版本命名的发布目录（r17/r18 等），本地留档用
 exports/release-r*/
 

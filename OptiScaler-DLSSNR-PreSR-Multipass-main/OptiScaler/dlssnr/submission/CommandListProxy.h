@@ -25,6 +25,9 @@ ILogicalCommandList : public IUnknown
     virtual UINT STDMETHODCALLTYPE CapturedVbSlotCount(void) = 0;
     virtual UINT STDMETHODCALLTYPE CapturedGfxRootCount(void) = 0;
     virtual BOOL STDMETHODCALLTYPE CapturedSamplePositions(void) = 0;
+    // Borrowed pointer, only for unsplit lists: preserve the caller's Execute batch.
+    virtual ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList(void) = 0;
+    virtual const char *STDMETHODCALLTYPE SplitRejectionReason(void) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
@@ -34,6 +37,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     ContinuationState contState;
     ResourceStateBook resBook;
     bool splitIneligible = false;
+    std::atomic<bool> rawInterfaceEscaped { false }; // Lifetime-wide; an alias can outlive Reset.
     const char *splitIneligibleReason = nullptr;
 
     void MarkSplitIneligible(const char *reason)
@@ -60,7 +64,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
 
   public:
     static HRESULT Create(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
-                          CommandListProxy **out)
+                          CommandListProxy **out, ID3D12PipelineState *initial = nullptr)
     {
         if (!device || !alloc || !real || !out)
             return E_INVALIDARG;
@@ -71,6 +75,8 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             delete p;
             return hr;
         }
+        if (initial)
+            p->contState.OnPso(initial);
         *out = p;
         return S_OK;
     }
@@ -105,6 +111,11 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             riid == __uuidof(ID3D12GraphicsCommandList7) || riid == __uuidof(ID3D12GraphicsCommandList8) ||
             riid == __uuidof(ID3D12GraphicsCommandList9) || riid == __uuidof(ID3D12GraphicsCommandList10))
         {
+            // Do not advertise interface versions unsupported by the native list.
+            IUnknown *supported = nullptr;
+            if (!Cur() || FAILED(Cur()->QueryInterface(riid, reinterpret_cast<void **>(&supported))))
+                return E_NOINTERFACE;
+            supported->Release();
             *ppv = static_cast<ID3D12GraphicsCommandList10 *>(this);
             AddRef();
             return S_OK;
@@ -118,7 +129,16 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         // Streamline / debug / vendor QIs: forward to the live producer/continuation list
         // instead of E_NOINTERFACE (燕云 crash with ArmCreate + wrap).
         if (auto *cur = logical.Current())
-            return cur->QueryInterface(riid, ppv);
+        {
+            // Unknown interfaces cannot be redirected to a continuation. Before a cut,
+            // keep compatibility but permanently refuse splitting this object.
+            if (logical.WasSplit())
+                return E_NOINTERFACE;
+            const HRESULT hr = cur->QueryInterface(riid, ppv);
+            if (SUCCEEDED(hr))
+                rawInterfaceEscaped = true;
+            return hr;
+        }
         return E_NOINTERFACE;
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return refs.fetch_add(1, std::memory_order_relaxed) + 1; }
@@ -155,17 +175,20 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     HRESULT STDMETHODCALLTYPE Close() override { return logical.Close(); }
     HRESULT STDMETHODCALLTYPE Reset(ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial) override
     {
+        const HRESULT hr = logical.Reset(alloc, initial);
+        if (FAILED(hr))
+            return hr;
         contState.Reset();
         resBook.Reset();
         splitIneligible = false;
         splitIneligibleReason = nullptr;
         if (initial)
             contState.OnPso(initial);
-        return logical.Reset(alloc, initial);
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE SplitSegments() override
     {
-        if (splitIneligible)
+        if (IsSplitIneligible())
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         const char *why = nullptr;
         if (!resBook.CanSplit(&why))
@@ -190,7 +213,23 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     {
         return logical.Execute(queue, between, betweenCtx);
     }
-    bool STDMETHODCALLTYPE IsSplitIneligible() override { return splitIneligible; }
+    bool STDMETHODCALLTYPE IsSplitIneligible() override
+    {
+        return rawInterfaceEscaped || splitIneligible || logical.WasSplit() || !resBook.CanSplit(nullptr);
+    }
+    ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList() override
+    {
+        return logical.WasSplit() ? nullptr : logical.Current();
+    }
+    const char *STDMETHODCALLTYPE SplitRejectionReason() override
+    {
+        if (rawInterfaceEscaped) return "native_interface_escaped";
+        if (logical.WasSplit()) return "already_split";
+        if (splitIneligibleReason) return splitIneligibleReason;
+        const char *reason = nullptr;
+        resBook.CanSplit(&reason);
+        return reason ? reason : "eligible";
+    }
     const char *SplitIneligibleReason() const { return splitIneligibleReason; }
     UINT STDMETHODCALLTYPE CapturedViewportCount() override
     {
@@ -302,6 +341,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE ExecuteBundle(ID3D12GraphicsCommandList *l) override
     {
+        MarkSplitIneligible("bundle_state_not_captured");
         if (auto *c = Cur())
             c->ExecuteBundle(l);
     }

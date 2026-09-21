@@ -1,5 +1,7 @@
 #pragma once
 #include <d3d12.h>
+#include <atomic>
+#include <cstdint>
 
 namespace DlssNr::Submission
 {
@@ -14,7 +16,7 @@ struct SuppressProxyWrap
     SuppressProxyWrap &operator=(const SuppressProxyWrap &) = delete;
 };
 
-// True ID3D12CommandQueue::ExecuteCommandLists before any of our Detours.
+// Detours trampoline captured AFTER a successful attachment transaction.
 // LogicalList must use this for producer/continuation submits so AmdBridge::Submitted
 // does not re-enter and ClearPendingEnqueue before the HIP between-slot runs.
 using PFN_RawExecuteCommandLists = void(WINAPI *)(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *);
@@ -22,9 +24,14 @@ inline PFN_RawExecuteCommandLists g_rawExecuteCommandLists = nullptr;
 
 inline void NoteRawExecuteCommandLists(PFN_RawExecuteCommandLists fn)
 {
-    if (fn && !g_rawExecuteCommandLists)
-        g_rawExecuteCommandLists = fn;
+    g_rawExecuteCommandLists = fn;
 }
+
+// Submission counts, not GPU completion or engine frame IDs. No per-frame logging here.
+inline std::atomic<uint64_t> g_splitSubmissions { 0 };
+inline std::atomic<uint64_t> g_continuationSubmissions { 0 };
+inline std::atomic<uint64_t> g_submissionFailures { 0 };
+inline std::atomic<uint64_t> g_unsplitProxySubmissions { 0 };
 
 inline thread_local int g_logicalExecuteDepth = 0;
 

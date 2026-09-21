@@ -7,6 +7,7 @@
 #include "../backend/LmxxfBackend.h"
 #include "../backend/Selector.h"
 #include "../backend/LmxxfEvaluateCut.h"
+#include "../backend/LmxxfGenerationObserver.h"
 #include "../submission/SubmissionHooks.h"
 #include <State.h>
 #include <Util.h>
@@ -28,6 +29,7 @@ using ExecuteFn = void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12Comm
 using ExitFn = void(NTAPI*)(LONG);
 ExecuteFn executeOriginal = nullptr;
 ExitFn exitOriginal = nullptr;
+bool submissionHookReady = false; // guarded by initMutex
 std::string message = "AMD pre-SR: waiting for a DirectX 12 SR frame";
 std::mutex messageMutex;
 std::mutex initMutex;
@@ -55,6 +57,7 @@ struct FrameIdentity
 std::mutex frameMutex;
 FrameIdentity lastFrame {};
 UINT stableFrames = 0;
+thread_local uint64_t submitOrdinal = 0; // Monotonic per-thread submission counter.
 void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
     auto b = backend.load();
@@ -103,6 +106,42 @@ void NTAPI Exit(LONG code)
         b->Shutdown();
     exitOriginal(code);
 }
+// Caller holds initMutex. Install once, before any proxy can escape into game submission.
+bool InstallSubmissionHook(ID3D12Device *device, ID3D12CommandQueue *q)
+{
+    if (submissionHookReady)
+        return true;
+    executeOriginal = reinterpret_cast<ExecuteFn>((*reinterpret_cast<void***>(q))[10]);
+    // FG can expose a proxy present queue. Hook the device's execution
+    // implementation so actual render submissions are still observed.
+    ID3D12CommandQueue* probe = nullptr;
+    D3D12_COMMAND_QUEUE_DESC queueDesc {};
+    if (SUCCEEDED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&probe))))
+    {
+        executeOriginal = reinterpret_cast<ExecuteFn>((*reinterpret_cast<void***>(probe))[10]);
+        probe->Release();
+    }
+    exitOriginal = reinterpret_cast<ExitFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlExitUserProcess"));
+    LONG err = DetourTransactionBegin();
+    if (err == NO_ERROR)
+        err = DetourUpdateThread(GetCurrentThread());
+    if (err == NO_ERROR)
+        err = DetourAttach(reinterpret_cast<PVOID*>(&executeOriginal), Execute);
+    if (err == NO_ERROR && exitOriginal)
+        err = DetourAttach(reinterpret_cast<PVOID*>(&exitOriginal), Exit);
+    if (err == NO_ERROR)
+        err = DetourTransactionCommit();
+    else
+        DetourTransactionAbort();
+    if (err != NO_ERROR)
+    {
+        Message("AMD pre-SR: could not install submission notification");
+        return false;
+    }
+    DlssNr::Submission::NoteRawExecuteCommandLists(executeOriginal);
+    submissionHookReady = true;
+    return true;
+}
 std::filesystem::path Directory() { return Util::DllPath().parent_path(); }
 ID3D12Resource* Resource(NVSDK_NGX_Parameter* p, const char* name)
 {
@@ -135,6 +174,20 @@ bool IsAmd(ID3D12Device* d)
     return amd;
 }
 } // namespace
+bool EnsureSubmissionHook(ID3D12CommandQueue *q)
+{
+    if (!q)
+        return false;
+    std::lock_guard lock(initMutex);
+    if (submissionHookReady)
+        return true;
+    ID3D12Device *device = nullptr;
+    if (FAILED(q->GetDevice(IID_PPV_ARGS(&device))))
+        return false;
+    const bool ready = InstallSubmissionHook(device, q);
+    device->Release();
+    return ready;
+}
 bool HasFiles()
 {
     // Proxy names such as winmm.dll can load before Util::DllPath is finalized.
@@ -186,6 +239,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // A single backend consumes one SR stream even if the engine rotates worker threads.
     // Serialize shared settling/identity state; thread-local replacement ownership stays unchanged.
     std::lock_guard frameGuard(frameMutex);
+    DlssNr::Backend::LmxxfProbe::CurrentEvidence() = {};
     if (!HasFiles())
         return false;
     const auto requested = DlssNr::Backend::RequestedKind();
@@ -230,35 +284,13 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     auto b = backend.load();
     if (!b)
     {
-        executeOriginal = reinterpret_cast<ExecuteFn>((*reinterpret_cast<void***>(q))[10]);
-        // FG can expose a proxy present queue. Hook the device's execution
-        // implementation so actual render submissions are still observed.
-        ID3D12CommandQueue* probe = nullptr;
-        D3D12_COMMAND_QUEUE_DESC queueDesc {};
-        if (SUCCEEDED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&probe))))
-        {
-            executeOriginal = reinterpret_cast<ExecuteFn>((*reinterpret_cast<void***>(probe))[10]);
-            probe->Release();
-        }
-        exitOriginal = reinterpret_cast<ExitFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlExitUserProcess"));
-        LONG err = DetourTransactionBegin();
-        if (err == NO_ERROR)
-            err = DetourUpdateThread(GetCurrentThread());
-        if (err == NO_ERROR)
-            DlssNr::Submission::NoteRawExecuteCommandLists(executeOriginal);
-    err = DetourAttach(reinterpret_cast<PVOID*>(&executeOriginal), Execute);
-        if (err == NO_ERROR && exitOriginal)
-            err = DetourAttach(reinterpret_cast<PVOID*>(&exitOriginal), Exit);
-        if (err == NO_ERROR)
-            err = DetourTransactionCommit();
-        else
-            DetourTransactionAbort();
-        if (err != NO_ERROR)
+        if (!InstallSubmissionHook(device, q))
         {
             device->Release();
-            Message("AMD pre-SR: could not install submission notification");
             return true;
         }
+        if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed())
+            DlssNr::Submission::Hooks::SetProxyWrap(true);
         if (active == DlssNr::Backend::Kind::Lmxxf)
             b = new DlssNr::Backend::LmxxfBackend(device, q, Directory());
         else
