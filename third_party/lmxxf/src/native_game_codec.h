@@ -111,16 +111,12 @@ public:
   replacement->AddRef();d->CreateShaderResourceView(replacement,&sv,cpu);d->Release();source[index]->Release();source[index]=replacement;
   Binding fresh{heap,{source[0],source[1],source[2]}};fresh.heap->AddRef();for(auto*r:fresh.sources)if(r)r->AddRef();bindings.push_back(fresh);
  }
- void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f){
+ void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f,float transfer_strength=1.f,float color_strength=1.f,uint32_t debug_view=0){
   if(!c||!pso||before.size()!=count||(paper_white!=1.f&&paper_white!=.5f&&paper_white!=2.f))throw std::runtime_error("codec unverified record contract");
   if(recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   for(UINT i=0;i<count;i++)transition(c,source[i],before[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-  /* DLSS5_STRENGTH=<transfer>,<color> (0..1 each, default 1,1): the two blend factors of the captured output composition -- the network
-     result is lerped against the original frame (TransferStrength: luminance/detail) and its OkLab colour correction (ColorStrength).
-     This is the "intensity" of the NVIDIA app; a lower value keeps more of the original picture. Unset = the captured 1,1. */
-  static const std::array<float,2>strength=[]{std::array<float,2>v{1.f,1.f};if(const wchar_t*e=_wgetenv(L"DLSS5_STRENGTH")){float a=1.f,b=1.f;if(swscanf(e,L"%f,%f",&a,&b)==2&&a>=0.f&&a<=1.f&&b>=0.f&&b<=1.f){v[0]=a;v[1]=b;}}return v;}();
   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
-  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&strength[0],4);std::memcpy(words+10,&strength[1],4);
+  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&transfer_strength,4);std::memcpy(words+10,&color_strength,4);words[17]=debug_view;
   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);recorded=true;

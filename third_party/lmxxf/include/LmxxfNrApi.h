@@ -55,6 +55,9 @@ typedef struct LmxxfNrCreateInfo
     uint32_t flags; /* must be 0 in ABI v1 */
 } LmxxfNrCreateInfo;
 
+#define LMXXF_NR_FRAME_FLAG_STRENGTH   (1u << 0)
+#define LMXXF_NR_FRAME_FLAG_DEBUG_VIEW (1u << 1)
+
 typedef struct LmxxfNrFrameInfo
 {
     uint32_t struct_size;
@@ -66,7 +69,11 @@ typedef struct LmxxfNrFrameInfo
     uint32_t color_height;
     void *color; /* ID3D12Resource*; required for RecordInputs */
     uint32_t color_state; /* D3D12_RESOURCE_STATES at RecordInputs */
-    uint32_t flags; /* must be 0 in ABI v1 */
+    uint32_t flags; /* LMXXF_NR_FRAME_FLAG_* (0 in legacy ABI v1) */
+    float transfer_strength; /* Detail strength: 0..2, default 1.0 */
+    float color_strength;    /* Colour strength: 0..4, default 1.0 */
+    uint32_t debug_view;     /* 0=normal, 1=proxy, 2=neural solo, 3=diff 20x, 4=tint */
+    float model_scale;       /* 0.25..1.0, default 1.0 */
 } LmxxfNrFrameInfo;
 
 typedef struct LmxxfNrJob

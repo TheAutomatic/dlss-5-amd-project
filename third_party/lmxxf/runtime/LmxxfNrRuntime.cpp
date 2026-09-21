@@ -224,6 +224,9 @@ struct Job
     D3D12_RESOURCE_STATES colorState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     UINT width = 0, height = 0;
     uint32_t seed = 1;
+    float transfer_strength = 1.0f;
+    float color_strength = 1.0f;
+    uint32_t debug_view = 0;
 };
 
 struct Session
@@ -487,7 +490,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         auto *session = static_cast<Session *>(context);
         if (!session || !info || !job)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
-        if (info->struct_size != sizeof(LmxxfNrFrameInfo) || job->struct_size != sizeof(LmxxfNrJob))
+        const uint32_t legacySize = 64;
+        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != legacySize) ||
+            job->struct_size != sizeof(LmxxfNrJob))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
         job->handle = nullptr;
         job->private_output = nullptr;
@@ -495,10 +500,48 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "PrepareFrame: call PrepareSession with a live D3D12 queue first");
         if (!info->color || !info->color_width || !info->color_height)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: color resource and size required");
-        if (info->flags != 0)
-            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: flags must be 0");
+        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
+        if ((info->flags & ~allowedFlags) != 0)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: unknown flags");
         if (session->shaderDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: native_codec_encode.hlsl not found");
+
+        float transfer_strength = 1.0f;
+        float color_strength = 1.0f;
+        uint32_t debug_view = 0;
+        float model_scale = 1.0f;
+        if (info->struct_size >= sizeof(LmxxfNrFrameInfo))
+        {
+            if (info->flags & LMXXF_NR_FRAME_FLAG_STRENGTH)
+            {
+                transfer_strength = info->transfer_strength;
+                color_strength = info->color_strength;
+            }
+            if (info->flags & LMXXF_NR_FRAME_FLAG_DEBUG_VIEW)
+            {
+                debug_view = info->debug_view;
+            }
+            if (info->model_scale > 0.1f && info->model_scale <= 2.0f)
+            {
+                model_scale = info->model_scale;
+            }
+        }
+        if (!(info->flags & LMXXF_NR_FRAME_FLAG_STRENGTH))
+        {
+            if (const wchar_t *e = _wgetenv(L"DLSS5_STRENGTH"))
+            {
+                float a = 1.f, b = 1.f;
+                if (swscanf(e, L"%f,%f", &a, &b) == 2 && a >= 0.f && b >= 0.f)
+                {
+                    transfer_strength = a;
+                    color_strength = b;
+                }
+            }
+        }
+        if (debug_view == 0 && _wgetenv(L"DLSS5_DEBUG_TINT") && !wcscmp(_wgetenv(L"DLSS5_DEBUG_TINT"), L"1"))
+        {
+            debug_view = 4; // Tint
+        }
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
         // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
@@ -642,6 +685,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.colorState = static_cast<D3D12_RESOURCE_STATES>(info->color_state);
         session->job.width = info->color_width;
         session->job.height = info->color_height;
+        session->job.transfer_strength = transfer_strength;
+        session->job.color_strength = color_strength;
+        session->job.debug_view = debug_view;
         session->colorFormat = cfmt;
         session->job.seed = 1;
         session->job.state = LMXXF_NR_JOB_PREPARED;
@@ -715,7 +761,7 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         session->decode->Record(list,
                                 {D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, j->colorState},
-                                1.f);
+                                1.f, j->transfer_strength, j->color_strength, j->debug_view);
         if (session->decode->BufferOutput())
         {
             if (!session->decodeDisplay)

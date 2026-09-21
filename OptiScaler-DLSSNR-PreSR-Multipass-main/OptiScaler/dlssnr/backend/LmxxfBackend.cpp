@@ -220,7 +220,7 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 
 
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
-                                     const AmdPreSr::Settings & /* strength/menu unused: ABI v1 colour-only */)
+                                     const AmdPreSr::Settings &settings)
 {
     LmxxfCut::ClearPendingEnqueue();
     pendingJob = nullptr;
@@ -260,7 +260,11 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
-    fi.flags = 0;
+    fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
+    fi.transfer_strength = Config::Instance()->DlssNrTransferStrength.value_or_default();
+    fi.color_strength = Config::Instance()->DlssNrColourStrength.value_or_default();
+    fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
+    fi.model_scale = settings.modelScale;
 
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
@@ -312,12 +316,13 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     if (rEval <= 5 || (rEval % 120 == 0))
     {
         auto &p = LmxxfCut::Pending();
-        LOG_INFO("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+        LOG_INFO("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} transfer={:.2f} color={:.2f} debugView={} scale={:.2f} producerSubmitted={} continuationSubmitted={} submitFailures={}",
                  rEval, static_cast<void *>(result),
                  p.betweenHits.load(std::memory_order_relaxed),
                  p.enqueueCalls.load(std::memory_order_relaxed),
                  p.skippedHits.load(std::memory_order_relaxed),
                  static_cast<unsigned>(p.lastEnqueueRc.load(std::memory_order_relaxed)),
+                 fi.transfer_strength, fi.color_strength, fi.debug_view, fi.model_scale,
                  DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
                  DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
                  DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
@@ -381,7 +386,11 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
                 fi.color = frame.colour;
                 fi.color_state = static_cast<uint32_t>(frame.colourState);
-                fi.flags = 0;
+                fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
+                fi.transfer_strength = Config::Instance()->DlssNrTransferStrength.value_or_default();
+                fi.color_strength = Config::Instance()->DlssNrColourStrength.value_or_default();
+                fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
+                fi.model_scale = 1.0f;
 
                 LmxxfNrJob job {};
                 job.struct_size = sizeof(job);
