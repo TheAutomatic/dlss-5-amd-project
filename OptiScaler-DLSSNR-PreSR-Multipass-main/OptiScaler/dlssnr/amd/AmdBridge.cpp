@@ -195,7 +195,14 @@ bool HasFiles()
     // rest of the process and left the menu at "waiting for a DirectX 12 SR
     // frame". Recheck until the package path becomes available.
     std::error_code ec;
-    return std::filesystem::exists(Directory() / L"dlssnr_amd_pass1.dll", ec);
+    const auto dir = Directory();
+    const auto active = DlssNr::Backend::ActiveKindFromConfig();
+    if (active == DlssNr::Backend::Kind::Lmxxf)
+        return std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
+    if (active == DlssNr::Backend::Kind::Daniel)
+        return std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
+    return std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec) ||
+           std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
 }
 const char* RuntimeName()
 {
@@ -243,7 +250,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     if (!HasFiles())
         return false;
     const auto requested = DlssNr::Backend::RequestedKind();
-    const auto active = DlssNr::Backend::ActiveKind(requested);
+    const auto active = DlssNr::Backend::ActiveKindFromConfig();
     if (active == DlssNr::Backend::Kind::Off)
         return true;
     if (requested == DlssNr::Backend::Kind::Lmxxf && !DlssNr::Backend::LmxxfWired())
