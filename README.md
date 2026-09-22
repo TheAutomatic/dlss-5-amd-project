@@ -92,15 +92,15 @@
 
 你可以根据需要准备以下任意一种（或两种都准备）：
 
-#### 选项 A：准备 `lmxxf` 后端文件
-- 准备 `LmxxfNrRuntime.dll`（可从本项目 Release 或上游构建获取）；
+#### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)
+- 准备 `LmxxfNrRuntime.dll`（可从本项目 Release 或 [lmxxf 仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 获取）；
 - 算子模块目录 `lmxxf-modules\`（包含 71 个 `.hsaco` 与 `SHA256SUMS`）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
 - 模型权重目录 `native-game-tiled-assets\`；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
 
-#### 选项 B：准备 `danielblnc` 后端文件
-- 准备 `dlssnr_on_amd_setup.exe` 与 `nvngx_dlssnr.dll`（推荐，安装器会自动调用生成 weights）；
+#### 选项 B：[准备 `danielblnc` 后端文件](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
+- 准备 `dlssnr_on_amd_setup.exe` 与 `nvngx_dlssnr.dll`（推荐，可从 [danielblnc Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取，安装器会自动调用生成 weights）；
 - 或者放入已经生成好的 `version.dll` 与 `dlssnr_on_amd_weights.bin`；
 - 同样放在与 `Setup.bat` 相同的解压目录下。
 

@@ -92,15 +92,15 @@ This project is built upon the collective achievements of pioneering developers 
 
 Prepare either backend (or both for side-by-side coexistence):
 
-#### Option A: Prepare `lmxxf` Backend
-- `LmxxfNrRuntime.dll` (from project release or upstream build);
+#### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)
+- `LmxxfNrRuntime.dll` (from project release or [upstream lmxxf repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
 - Module folder `lmxxf-modules\` (with 71 `.hsaco` files and `SHA256SUMS`);
 - Shader folder `shaders\` (with `native_codec_encode.hlsl`);
 - Weights folder `native-game-tiled-assets\`;
 - Place these in the same extracted folder as `Setup.bat`.
 
-#### Option B: Prepare `danielblnc` Backend
-- `dlssnr_on_amd_setup.exe` and `nvngx_dlssnr.dll` (installer generates weights automatically);
+#### Option B: [Prepare `danielblnc` Backend Files](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
+- `dlssnr_on_amd_setup.exe` and `nvngx_dlssnr.dll` (from [danielblnc Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases); installer generates weights automatically);
 - Or pre-generated `version.dll` and `dlssnr_on_amd_weights.bin`;
 - Place in the same extracted folder as `Setup.bat`.
 
