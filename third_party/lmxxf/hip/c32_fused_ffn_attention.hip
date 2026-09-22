@@ -58,6 +58,9 @@
 #ifndef HIP_C32_LOCAL_QKV_SYNC
 #define HIP_C32_LOCAL_QKV_SYNC 1
 #endif
+#ifndef HIP_C32_FOLDED_FFN
+#define HIP_C32_FOLDED_FFN 1 /* 2026-09-22: expand->contract without the LDS round trip (transposed WMMA operands); bit-exact, -0.10/-0.06ms whole network */
+#endif
 #ifndef HIP_C32_REGISTER_FFN
 #define HIP_C32_REGISTER_FFN 1
 #endif
@@ -307,6 +310,41 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
 #else
  sync_window();
 #endif
+#if HIP_C32_FOLDED_FFN
+ /* 2026-09-22 folded FFN: WMMA A and B operand registers share one layout, so swapping the expand operands yields the
+    transposed product: each lane then holds one row with 8 consecutive hidden columns = exactly the A fragment the contract
+    needs. The activated hidden block is packed to FP8 in registers and fed straight into the contract; scratch.hidden and the
+    sync between expand and contract go away. Residual initialisation of acc stays before the contract, as before.
+    Bit-exact; whole network about -0.10ms (1080) / -0.06ms (900), see Development/results/c32-transposed-ffn-20260922. */
+ f8 acc[2];acc[0]=f8{};acc[1]=f8{};
+ if(residual_mode==0){for(uint ci=0;ci<2;ci++)for(uint e=0;e<8;e++){uint row=first+gr()*8+e,c=ci*16+rc();float x;
+#if HIP_C32_LANE_STAGE
+   if constexpr(Prefix)x=pre_acc[ci][e];else if constexpr(NeedIn16)x=float(in16[row*34+c]);else x=Mapped?mapped_c32_input<RawMapped,Merge>(raw_input,window,row,c,sourcew,sourceh,sx,sy,prevw,prevsx,prevsy,skip,scales):raw_input[(base+row)*32+c];
+#else
+   x=Mapped?mapped_c32_input<RawMapped,Merge>(raw_input,window,row,c,sourcew,sourceh,sx,sy,prevw,prevsx,prevsy,skip,scales):raw_input[(base+row)*32+c];
+#endif
+   acc[ci][e]=clampf(x,-448.f,448.f)*fw[8704+c];}}
+#if HIP_C32_DIAG_WEIGHTS
+ else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++)for(uint kt=0;kt<2;kt++){i2 a=load8(packed+(first+rc())*36+kt*16+gr()*8),b=matrix8(fw,34944+((part*2+ci)*2+kt)*512+(gr()*16+rc())*8);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}}
+#else
+ else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++){uint c=ci*16+rc();float remaining=fw[8704+c],piece=0;for(uint j=0;j<=part;j++){piece=scale_piece(remaining);remaining-=piece;}
+   for(uint kt=0;kt<2;kt++){i2 a{},b{};
+#if HIP_C32_LOCAL_FFN_SYNC
+    a=load8(packed+(first+rc())*36+kt*16+gr()*8);for(uint e=0;e<8;e++){uint k=kt*16+gr()*8+e;put_bits(b,e,k==c?fp8(piece):0u);}
+#else
+    for(uint e=0;e<8;e++){uint k=kt*16+gr()*8+e;put_bits(a,e,packed[(first+rc())*36+k]);put_bits(b,e,k==c?fp8(piece):0u);}
+#endif
+    acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}
+  }}
+#endif
+#if HIP_C32_ABLATE!=1
+ C32_LOOP for(uint t=0;t<8;t++){f8 sum{};uint col=t*16;
+  for(uint kt=0;kt<2;kt++){i2 a{},b{};uint k=kt*16+gr()*8;a=load8(packed+(first+rc())*36+k);b=matrix8(fw+512,(col+rc())*32+k);sum=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,sum);}
+  i2 h{};for(uint e=0;e<8;e++){float v=sum[e],g=clampf(v,-4.f,4.f),q=absf(g)*(-.055908203125f)+.447265625f,p=g*q+.89453125f;put_bits(h,e,fp8(v*p));}
+  {uint k=col+gr()*8;for(uint ci=0;ci<2;ci++){i2 b=matrix8(fw+4608,(ci*16+rc())*128+k);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(h,b,acc[ci]);}}
+ }
+#endif
+#else
 #if HIP_C32_ABLATE!=1
  C32_LOOP for(uint col=0;col<128;col+=16){f8 sum{};
   for(uint kt=0;kt<2;kt++){i2 a{},b{};uint k=kt*16+gr()*8;a=load8(packed+(first+rc())*36+k);b=matrix8(fw+512,(col+rc())*32+k);sum=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,sum);}
@@ -344,6 +382,7 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
  C32_LOOP for(uint chunk=0;chunk<4;chunk++)for(uint ci=0;ci<2;ci++){
   for(uint kt=0;kt<2;kt++){i2 a{},b{};uint k=chunk*32+kt*16+gr()*8;a=load8(scratch.hidden+(first+rc())*132+k);b=matrix8(fw+4608,(ci*16+rc())*128+k);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}
  }
+#endif
 #endif
 
 #if HIP_C32_ALIAS_FFN_V && HIP_C32_REGISTER_FFN

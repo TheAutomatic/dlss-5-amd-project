@@ -138,7 +138,7 @@ $upstreamMd = Join-Path $vendorRoot 'UPSTREAM.md'
 if (Test-Path $upstreamMd) {
     $md = Get-Content -LiteralPath $upstreamMd -Raw
     $today = (Get-Date).ToString('yyyy-MM-dd')
-    $md = $md -replace '(?m)^- Commit: `[a-f0-9]+`', "- Commit: `$commitHash` (synced $today)"
+    $md = $md -replace '(?m)^- Commit: .*', "- Commit: ``$commitHash`` (synced $today)"
     [IO.File]::WriteAllText($upstreamMd, $md, [Text.UTF8Encoding]::new($false))
     Write-Host "  Updated UPSTREAM.md" -ForegroundColor Green
 }
