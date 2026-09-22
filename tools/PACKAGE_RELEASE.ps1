@@ -1,17 +1,18 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.6-0.3.1
-    1.8.6  = this fork's product version
-    0.3.1  = primary upstream NR runtime (0.3.0 still accepted)
+  Default product: OptiScaler-AMD-PreSR-1.9.0
+    1.9.0  = this fork's product version
+    0.3.1  = supported danielblnc runtime (0.3.0 also accepted)
+    lmxxf  = supported lmxxf HIP neural rendering runtime
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.6-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.9.0 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.6-0.3.1',
+    [string]$Version = '1.9.0',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -176,16 +177,19 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version - NR slots default 3 (2-5 in-game, 1-5 here).
-; Requires DLSS-NR-on-AMD 0.3.0 or 0.3.1 (https://github.com/danielblnc/DLSS-NR-on-AMD)
-; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
+; Product $Version - Dual-backend AMD Neural Rendering (DLSS5 on AMD) Pre-SR pipeline.
+; Backends:
+;   NrBackend=lmxxf  : Open-source HIP neural rendering (default)
+;   NrBackend=daniel : danielblnc 0.3.0 / 0.3.1 runtime (dlssnr_amd_pass1-3.dll)
+;
 ; AmdEveryFrame=true is the product default (Ins menu: "Every-frame"; also INI).
-; AmdGraphicsWait=1 is New wait mode (0.3.1 1-pixel draw; still testing).
-; Set 0 for Original wait.
-; Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).
-; NrBackend=daniel is the default (missing key = daniel). lmxxf is not wired yet; off skips AMD NR.
+; AmdSlots=3 is the multi-slot default (2-5 in-game, 1-5 here).
+; AmdGraphicsWait=1 is New wait mode (0.3.1 1-pixel draw). Set 0 for Original wait.
+; Detail strength and Colour strength for lmxxf: 0.0 - 1.0 (default 1.0).
+; Debug view for lmxxf: 0=off, 1=input, 2=output, 3=diff, 4=noise.
 Enabled=false
 RunBeforeSR=true
+NrBackend=lmxxf
 AmdModelScale=1
 AmdEncoding=0
 AmdEveryFrame=true
@@ -260,6 +264,26 @@ if (Test-Path $rtgiSrc) {
     $rtgiDst = Join-Path $stage 'experimental_lighting'
     New-Item -ItemType Directory -Path $rtgiDst -Force | Out-Null
     Get-ChildItem -LiteralPath $rtgiSrc -File | Copy-Item -Destination $rtgiDst -Force
+}
+
+# Bundled open-source lmxxf runtime binaries, modules, and shaders
+$lmxxfDllSrc = Join-Path $root 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
+if (Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf) {
+    Copy-Item -LiteralPath $lmxxfDllSrc -Destination (Join-Path $stage 'LmxxfNrRuntime.dll') -Force
+}
+
+$lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
+if (Test-Path -LiteralPath $lmxxfModSrc -PathType Container) {
+    $lmxxfModDst = Join-Path $stage 'lmxxf-modules'
+    New-Item -ItemType Directory -Path $lmxxfModDst -Force | Out-Null
+    Copy-Item -Path (Join-Path $lmxxfModSrc '*') -Destination $lmxxfModDst -Recurse -Force
+}
+
+$lmxxfShaderSrc = Join-Path $root 'third_party/lmxxf/shaders'
+if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
+    $lmxxfShaderDst = Join-Path $stage 'shaders'
+    New-Item -ItemType Directory -Path $lmxxfShaderDst -Force | Out-Null
+    Copy-Item -Path (Join-Path $lmxxfShaderSrc '*') -Destination $lmxxfShaderDst -Recurse -Force
 }
 
 # Installer + docs (CN + EN). No duplicate 使用说明.txt.
