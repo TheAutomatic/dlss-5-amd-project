@@ -58,24 +58,24 @@ function Fail([string]$msg) {
 # binding failures, which happen before this script body can run.
 trap { Fail ("Unexpected install error: " + $_.Exception.Message) }
 
-# $Root 绝不能写成 param 默认值 $PSScriptRoot：用 powershell -File 调用时，
-# 参数绑定阶段 $PSScriptRoot 还是空的（脚本体内才被赋值）。
-# Setup.bat 走的正是 -File。
+# $Root must not be a param default of $PSScriptRoot: when invoked via powershell -File,
+# $PSScriptRoot is not yet assigned during parameter binding (assigned inside script body).
+# Setup.bat uses -File.
 if (-not $Root) { $Root = $PSScriptRoot }
 
-# 包布局：一切都在包根（与上游 OptiScaler 包一致）。
-# 早期包把 DLL 放在 release\ 下，再兜底一次。
+# Package layout: everything is in the package root (matching upstream OptiScaler packages).
+# Early packages placed DLLs under release\, check there as a fallback.
 $release = $Root
 if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
     (Test-Path -LiteralPath (Join-Path $Root 'release\OptiScaler.dll'))) {
     $release = Join-Path $Root 'release'
 }
 
-# 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
-# 当环境里的 PSModulePath 指向 PowerShell 7 的模块目录时（从 pwsh 终端启动、
-# 或 CI 里在 shell: pwsh 步骤里调 powershell -File），5.1 子进程加载不到它，
-# 会直接报 CommandNotFoundException —— Setup.bat 经 cmd 走的正是这条路。
-# 用 .NET 自己算，不依赖任何模块。
+# Do not use Get-FileHash: it belongs to Microsoft.PowerShell.Utility and relies on module autoloading.
+# When PSModulePath points to PowerShell 7 module directories (e.g. launched from pwsh
+# or in CI within shell: pwsh invoking powershell -File), the 5.1 child process cannot load it
+# and throws CommandNotFoundException. Setup.bat via cmd takes this exact path.
+# Compute SHA256 using .NET directly without module dependencies.
 function Get-Sha256([string]$path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
@@ -456,10 +456,10 @@ if ($canLmxxf -and $canDaniel) {
         $installDaniel = $true
         $activeBackend = 'lmxxf'
     } else {
-        $choice = Ask-Choice "检测到两种神经渲染后端均有可用文件，请选择安装模式 (Select Installation Mode):" @(
-            "安装 lmxxf 后端 (Install lmxxf backend - using native-game-tiled-assets)",
-            "安装 danielblnc 后端 (Install danielblnc backend - using dlssnr_amd_pass / weights.bin)",
-            "同时安装两个后端 (Install both - coexist in game folder, switch via OptiScaler.ini)"
+        $choice = Ask-Choice "Detected files for both neural rendering backends. Select installation mode:" @(
+            "Install lmxxf backend (using native-game-tiled-assets)",
+            "Install danielblnc backend (using dlssnr_amd_pass / weights.bin)",
+            "Install both backends (coexist in game folder, switch via OptiScaler.ini)"
         )
         switch ($choice) {
             1 { $installLmxxf = $true; $installDaniel = $false; $activeBackend = 'lmxxf' }
@@ -467,9 +467,9 @@ if ($canLmxxf -and $canDaniel) {
             3 {
                 $installLmxxf  = $true
                 $installDaniel = $true
-                $defChoice = Ask-Choice "请选择默认启用的后端 (Select default active backend in OptiScaler.ini):" @(
-                    "默认启用 lmxxf 后端 (Default: lmxxf)",
-                    "默认启用 danielblnc 后端 (Default: daniel)"
+                $defChoice = Ask-Choice "Select default active backend in OptiScaler.ini:" @(
+                    "Default: lmxxf backend",
+                    "Default: danielblnc backend"
                 )
                 $activeBackend = if ($defChoice -eq 1) { 'lmxxf' } else { 'daniel' }
             }
@@ -480,20 +480,20 @@ if ($canLmxxf -and $canDaniel) {
     $installDaniel = $false
     $activeBackend = 'lmxxf'
     Write-Host ''
-    Write-Host "检测到 lmxxf 后端组件齐备，将安装 lmxxf 后端。" -ForegroundColor Cyan
-    Write-Host "提示：未检测到 danielblnc 后端文件 (缺少 dlssnr_on_amd_setup.exe 或 version.dll)。" -ForegroundColor DarkYellow
+    Write-Host "Detected lmxxf backend components. Preparing to install lmxxf backend." -ForegroundColor Cyan
+    Write-Host "NOTE: danielblnc backend files not detected (missing dlssnr_on_amd_setup.exe or version.dll)." -ForegroundColor DarkYellow
 } elseif ($canDaniel) {
     $installLmxxf  = $false
     $installDaniel = $true
     $activeBackend = 'daniel'
     Write-Host ''
-    Write-Host "检测到 danielblnc 后端组件齐备，将安装 danielblnc 后端。" -ForegroundColor Cyan
-    Write-Host "提示：未检测到 lmxxf 后端组件 (缺少 LmxxfNrRuntime.dll 或 lmxxf-modules)。" -ForegroundColor DarkYellow
+    Write-Host "Detected danielblnc backend components. Preparing to install danielblnc backend." -ForegroundColor Cyan
+    Write-Host "NOTE: lmxxf backend components not detected (missing LmxxfNrRuntime.dll or lmxxf-modules)." -ForegroundColor DarkYellow
 } else {
     Fail @"
-未检测到任何可用的神经渲染后端文件！
-- 若使用 lmxxf 后端：请确保安装包内有 LmxxfNrRuntime.dll 与 lmxxf-modules（以及 native-game-tiled-assets 权重文件夹）。
-- 若使用 danielblnc 后端：请将 dlssnr_on_amd_setup.exe + nvngx_dlssnr.dll（或现成的 version.dll + weights.bin）放在 Setup.bat 同目录下。
+No valid neural rendering backend files detected.
+- If using lmxxf backend: ensure LmxxfNrRuntime.dll and lmxxf-modules (and native-game-tiled-assets weights folder) are present.
+- If using danielblnc backend: place dlssnr_on_amd_setup.exe + nvngx_dlssnr.dll (or existing version.dll + weights.bin) next to Setup.bat.
 "@
 }
 
@@ -954,9 +954,9 @@ try {
 
 # Keep reusable danielblnc files in the package folder for the next game.
 # Never write them into the game folder — that would re-inject danielblnc version.dll next to OptiScaler.
-# 摘要要报"包目录里真正留下的那份"，不能报 $srcA —— 当包目录就是游戏目录时
-# $srcA 指向 TEMP 暂存文件，而下面会把它删掉；当包目录不是游戏目录时，
-# 真正留下的是 $Root\version.dll。$keptA/$keptW 只记后者。
+# Summary must report what is truly kept in the package directory, not $srcA.
+# When package directory is the game directory, $srcA points to a TEMP file deleted below.
+# When package directory is not the game directory, the kept file is $Root\version.dll.
 $keptA = $null
 $keptW = $null
 try {
