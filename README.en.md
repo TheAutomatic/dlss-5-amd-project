@@ -10,7 +10,19 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ---
 
-## 1. 1.9.0 Changelog
+## Table of Contents
+- [📢 1.9.0 Changelog](#-190-changelog)
+- [1. Standing on the Shoulders of Giants](#1-standing-on-the-shoulders-of-giants)
+- [2. Installation Guide](#2-installation-guide)
+  - └─► [Optional: 3x+ Frame Generation](#optional-3x-frame-generation)
+- [3. Dual-Backend Architecture & Benchmarks](#3-dual-backend-architecture--benchmarks)
+- [4. In-Game Settings & Controls](#4-in-game-settings--controls)
+- [5. Troubleshooting, Logs & Uninstallation](#5-troubleshooting-logs--uninstallation)
+- [6. Attributions & Licenses](#6-attributions--licenses)
+
+---
+
+## 📢 1.9.0 Changelog
 
 Version 1.9.0 is a **major architectural milestone upgrade**. We officially introduce the open-source [**`lmxxf` HIP Neural Rendering backend**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting).
 
@@ -39,7 +51,7 @@ Version 1.9.0 is a **major architectural milestone upgrade**. We officially intr
 
 ---
 
-## 2. Standing on the Shoulders of Giants
+## 1. Standing on the Shoulders of Giants
 
 This project is built upon the collective achievements of pioneering developers in the open-source graphics community:
 
@@ -54,7 +66,7 @@ This project is built upon the collective achievements of pioneering developers 
 
 ---
 
-## 3. Installation Guide
+## 2. Installation Guide
 
 ### Package Contents
 | File / Directory | Purpose |
@@ -115,7 +127,58 @@ If you prefer manual file placement:
 
 ---
 
-## 4. Dual-Backend Architecture & Benchmarks
+### Optional: 3x+ Frame Generation
+
+<details>
+<summary><strong>👉 Click to expand: 3x+ Frame Generation (Arturs DLSS Enabler / Intel XeFG)</strong></summary>
+
+These options are independent of DLSSNR. Required files are not bundled; obtain them separately.
+**Note**: Game restarts are required when changing INI settings. Keep `[FrameGen] External=false`. **Do not enable both simultaneously**.
+
+---
+
+#### Option 1: Arturs (DLSS Enabler)
+1. Obtain `dlss-enabler-headless.dll` from the official author:
+   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) or [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
+2. Place `dlss-enabler-headless.dll` into the **`OptiScaler\`** subfolder in the game directory;
+3. If the game has **native DLSSG**, configure in `OptiScaler.ini`:
+   ```ini
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=nvngxfg
+   FGOutput=auto
+   FGNvngxReplacement=Arturs
+   ```
+   If the game only has upscaling without DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
+4. Check `OptiScaler.log` for `Artur's initialized`.
+
+---
+
+#### Option 2: Intel XeFG (XeMFG DP4A Unlocker Multi-Frame Generation)
+1. Place `XeFGUnlock.asi` and `XeFGUnlock.ini` into `OptiScaler\plugins\` (alongside `libxess_fg.dll`);
+2. Configure `OptiScaler.ini` in the game root:
+   ```ini
+   [Plugins]
+   LoadAsiPlugins=true
+
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=dlssg
+   FGOutput=xefg
+
+   [XeFG]
+   InterpolationCount=1
+   ```
+   - `InterpolationCount`: `1` for 2x, `2` for 3x, etc.;
+3. Test with 2x first before increasing multipliers. Press **Page Up** for FPS overlay and **Page Down** for detailed stats.
+
+</details>
+
+---
+
+## 3. Dual-Backend Architecture & Benchmarks
 
 This project supports two distinct AMD Neural Rendering backend technologies:
 
@@ -164,58 +227,7 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
 
 ---
 
-## 5. Optional: 3x+ Frame Generation
-
-<details>
-<summary><strong>👉 Click to expand: 3x+ Frame Generation (Arturs DLSS Enabler / Intel XeFG)</strong></summary>
-
-These options are independent of DLSSNR. Required files are not bundled; obtain them separately.
-**Note**: Game restarts are required when changing INI settings. Keep `[FrameGen] External=false`. **Do not enable both simultaneously**.
-
----
-
-### Option 1: Arturs (DLSS Enabler)
-1. Obtain `dlss-enabler-headless.dll` from the official author:
-   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) or [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
-2. Place `dlss-enabler-headless.dll` into the **`OptiScaler\`** subfolder in the game directory;
-3. If the game has **native DLSSG**, configure in `OptiScaler.ini`:
-   ```ini
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=nvngxfg
-   FGOutput=auto
-   FGNvngxReplacement=Arturs
-   ```
-   If the game only has upscaling without DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
-4. Check `OptiScaler.log` for `Artur's initialized`.
-
----
-
-### Option 2: Intel XeFG (XeMFG DP4A Unlocker Multi-Frame Generation)
-1. Place `XeFGUnlock.asi` and `XeFGUnlock.ini` into `OptiScaler\plugins\` (alongside `libxess_fg.dll`);
-2. Configure `OptiScaler.ini` in the game root:
-   ```ini
-   [Plugins]
-   LoadAsiPlugins=true
-
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=dlssg
-   FGOutput=xefg
-
-   [XeFG]
-   InterpolationCount=1
-   ```
-   - `InterpolationCount`: `1` for 2x, `2` for 3x, etc.;
-3. Test with 2x first before increasing multipliers. Press **Page Up** for FPS overlay and **Page Down** for detailed stats.
-
-</details>
-
----
-
-## 6. In-Game Settings & Controls
+## 4. In-Game Settings & Controls
 
 1. Launch the game and enter 3D rendering.
 2. Press **Insert (Ins)** to open the OptiScaler overlay menu.
@@ -237,7 +249,7 @@ These options are independent of DLSSNR. Required files are not bundled; obtain 
 
 ---
 
-## 7. Troubleshooting, Logs & Uninstallation
+## 5. Troubleshooting, Logs & Uninstallation
 
 ### 1. Uninstallation
 1. Open the **game directory**;
@@ -252,6 +264,9 @@ Inspect the following logs in the game directory (or `_storage_` for Microsoft S
 - `amd_bridge.log`: AMD bridge layer log;
 - `amd_presr.log`: Pre-SR dispatch log;
 - `dlssnr_on_amd.log`: Daniel runtime log.
+
+> **Where are lmxxf logs?**  
+> Unlike `danielblnc` which writes to a separate `dlssnr_on_amd.log`, the `lmxxf` backend and its C-ABI runtime pipe all initialization, telemetry, and error messages directly into **`OptiScaler.log`** (and `amd_bridge.log`). There is no need to search for separate log files.
 
 #### `lmxxf` Backend Diagnostics
 - **Status displays `waiting` or NR does not activate**:
@@ -283,10 +298,10 @@ When reporting issues, please include:
 
 ---
 
-## 8. Attributions & Licenses
+## 6. Attributions & Licenses
 
 Codebase heritage (top to bottom):  
-[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → **This Repository (TheAutomatic)**.
+[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → [**This Repository (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project).
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**: Universal upscaling proxy framework;
 - [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) — **GPL-3.0 License**: Initial DLSS-NR integration;
@@ -295,6 +310,6 @@ Codebase heritage (top to bottom):
 - [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**: Author retains all rights; redistribution prohibited; integrated via external detection;
 - [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**: Open-source HIP neural rendering core and 71-block network recovery;
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**: Color compositing algorithms in `dlssnr.hlsl`;
-- **This Project (TheAutomatic / dlss-5-amd-project)** — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
+- [**This Project (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
 
 This distribution contains no NVIDIA proprietary binaries, closed-source installer tools, or unauthorized model weights. Please respect all upstream licenses.

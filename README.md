@@ -10,7 +10,19 @@
 
 ---
 
-## 1. 1.9.0 更新日志 (Changelog)
+## 目录
+- [📢 1.9.0 更新日志 (Changelog)](#-190-更新日志-changelog)
+- [1. 巨人的肩膀](#1-巨人的肩膀)
+- [2. 安装指南 (Installation Guide)](#2-安装指南-installation-guide)
+  - └─► [可选：3倍及以上多帧生成 (Frame Generation)](#可选功能3倍及以上多帧生成frame-generation)
+- [3. 双后端架构解析与性能实测](#3-双后端架构解析与性能实测)
+- [4. 游戏内设置与控制](#4-游戏内设置与控制)
+- [5. 排错、日志定位与卸载](#5-排错日志定位与卸载)
+- [6. 署名与许可 (Attributions & Licenses)](#6-署名与许可-attributions--licenses)
+
+---
+
+## 📢 1.9.0 更新日志 (Changelog)
 
 本次 1.9.0 是一次**重大的架构级里程碑升级**。我们正式引入了开源的 [**`lmxxf` HIP 神经渲染后端**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)。
 
@@ -39,7 +51,7 @@
 
 ---
 
-## 2. 站在巨人的肩膀上：技术传承与相比前人
+## 1. 巨人的肩膀
 
 本项目并非凭空产生，而是建立在开源图形社区众多先驱者的卓越成果之上：
 
@@ -54,7 +66,7 @@
 
 ---
 
-## 3. 安装指南 (Installation Guide)
+## 2. 安装指南 (Installation Guide)
 
 ### 压缩包内文件清单
 | 文件/目录 | 作用 |
@@ -115,7 +127,60 @@
 
 ---
 
-## 4. 双后端架构解析与性能实测
+### 可选功能：3倍及以上多帧生成（Frame Generation）
+
+<details>
+<summary><strong>👉 点击展开：3倍及以上多帧生成方案（Arturs DLSS Enabler / Intel XeFG）</strong></summary>
+
+以下方案为外置可选增强（与 DLSSNR 相互独立），所需文件均不随本包分发，请自行获取。
+**注意**：在游戏运行中修改 ini 必须保存并重启游戏生效；保持 `[FrameGen] External=false`；**请勿同时开启两条方案**。
+
+---
+
+#### 方案 1：Arturs（DLSS Enabler）
+1. 从原作者处获取 `dlss-enabler-headless.dll`（请勿使用第三方整合修改版）：
+   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) 或 [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
+2. 将该 DLL 重命名为 `dlss-enabler-headless.dll`，放入游戏目录中与 `OptiScaler.ini` 并列的 **`OptiScaler\`** 子目录内；
+3. 游戏**已有 DLSSG** 时，在 `OptiScaler.ini` 中配置：
+   ```ini
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=nvngxfg
+   FGOutput=auto
+   FGNvngxReplacement=Arturs
+   ```
+   若游戏只有超分没有 DLSSG，使用 `FGInput=upscaler` + `FGOutput=dlssg`；
+4. 查看 `OptiScaler.log`，出现 `Artur's initialized` 即代表加载成功。
+
+---
+
+#### 方案 2：Intel XeFG（XeMFG DP4A Unlocker 多倍插帧）
+`XeFGUnlock.asi` 与 `XeFGUnlock.ini` 来源于 OptiScaler 社区。
+1. 将这两个文件放入游戏目录的 `OptiScaler\plugins\` 子目录中（与 `libxess_fg.dll` 同级），不要加 `-loadlate` 参数；
+2. 修改游戏根目录下的 **`OptiScaler.ini`**（非 plugins 内部的 ini）：
+   ```ini
+   [Plugins]
+   LoadAsiPlugins=true
+
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=dlssg
+   FGOutput=xefg
+
+   [XeFG]
+   InterpolationCount=1
+   ```
+   - `InterpolationCount`：`1` 代表 2x 插帧，`2` 代表 3x 插帧，以此类推；
+   - 实际倍率受硬件能力及插件解锁上限约束；
+3. 建议先以 2x 模式跑通，确认无异常后再调高倍率；游戏中可通过 **Page Up** 呼出帧率面板，按 **Page Down** 切换详情观察插帧状态。
+
+</details>
+
+---
+
+## 3. 双后端架构解析与性能实测
 
 本项目目前同时支持两大技术路线的 AMD 神经渲染后端，用户可根据自身硬件与喜好自由选择：
 
@@ -164,60 +229,7 @@
 
 ---
 
-## 5. 可选功能：3倍及以上多帧生成（Frame Generation）
-
-<details>
-<summary><strong>👉 点击展开：3倍及以上多帧生成方案（Arturs DLSS Enabler / Intel XeFG）</strong></summary>
-
-以下方案为外置可选增强（与 DLSSNR 相互独立），所需文件均不随本包分发，请自行获取。
-**注意**：在游戏运行中修改 ini 必须保存并重启游戏生效；保持 `[FrameGen] External=false`；**请勿同时开启两条方案**。
-
----
-
-### 方案 1：Arturs（DLSS Enabler）
-1. 从原作者处获取 `dlss-enabler-headless.dll`（请勿使用第三方整合修改版）：
-   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) 或 [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
-2. 将该 DLL 重命名为 `dlss-enabler-headless.dll`，放入游戏目录中与 `OptiScaler.ini` 并列的 **`OptiScaler\`** 子目录内；
-3. 游戏**已有 DLSSG** 时，在 `OptiScaler.ini` 中配置：
-   ```ini
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=nvngxfg
-   FGOutput=auto
-   FGNvngxReplacement=Arturs
-   ```
-   若游戏只有超分没有 DLSSG，使用 `FGInput=upscaler` + `FGOutput=dlssg`；
-4. 查看 `OptiScaler.log`，出现 `Artur's initialized` 即代表加载成功。
-
----
-
-### 方案 2：Intel XeFG（XeMFG DP4A Unlocker 多倍插帧）
-`XeFGUnlock.asi` 与 `XeFGUnlock.ini` 来源于 OptiScaler 社区。
-1. 将这两个文件放入游戏目录的 `OptiScaler\plugins\` 子目录中（与 `libxess_fg.dll` 同级），不要加 `-loadlate` 参数；
-2. 修改游戏根目录下的 **`OptiScaler.ini`**（非 plugins 内部的 ini）：
-   ```ini
-   [Plugins]
-   LoadAsiPlugins=true
-
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=dlssg
-   FGOutput=xefg
-
-   [XeFG]
-   InterpolationCount=1
-   ```
-   - `InterpolationCount`：`1` 代表 2x 插帧，`2` 代表 3x 插帧，以此类推；
-   - 实际倍率受硬件能力及插件解锁上限约束；
-3. 建议先以 2x 模式跑通，确认无异常后再调高倍率；游戏中可通过 **Page Up** 呼出帧率面板，按 **Page Down** 切换详情观察插帧状态。
-
-</details>
-
----
-
-## 6. 游戏内设置与控制
+## 4. 游戏内设置与控制
 
 1. 启动游戏，进入游戏 3D 渲染画面。
 2. 按键盘上的 **Insert (Ins)** 键呼出 OptiScaler 控制菜单。
@@ -239,7 +251,7 @@
 
 ---
 
-## 7. 排错、日志定位与卸载
+## 5. 排错、日志定位与卸载
 
 ### 一、卸载说明
 1. 进入**游戏主程序目录**；
@@ -254,6 +266,9 @@
 - `amd_bridge.log`：AMD 神经渲染桥接层日志；
 - `amd_presr.log`：Pre-SR 调度管线日志；
 - `dlssnr_on_amd.log`：Daniel 后端专用运行日志。
+
+> **注意：lmxxf 后端的日志在哪？**  
+> 与 `danielblnc` 后端写入独立的 `dlssnr_on_amd.log` 不同，`lmxxf` 后端与 C-ABI 运行时的日志已直接接入统一日志系统，其所有初始化、状态检测与运行报错均**集中记录在 `OptiScaler.log`（以及 `amd_bridge.log`）中**，无需查找额外日志文件。
 
 #### 1. `lmxxf` 后端专属排错
 - **状态栏显示 `waiting` 或无法启用**：
@@ -285,10 +300,10 @@
 
 ---
 
-## 8. 署名与许可 (Attributions & Licenses)
+## 6. 署名与许可 (Attributions & Licenses)
 
 代码链与开源传承（自上而下）：  
-[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → **本仓库 (TheAutomatic)**。
+[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → [**本仓库 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project)。
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**：通用超分辨率与神经渲染代理框架；
 - [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) — **GPL-3.0 License**：初始接入 DLSS-NR；
@@ -297,6 +312,6 @@
 - [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**：原作者保留所有权利，禁止未经授权重新分发，本项目不随包分发其二进制，采用外部检测安装方式对接；
 - [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**：开源 HIP 神经渲染算力核心与 71 块网络还原；
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**：`dlssnr.hlsl` 色彩通道合成算法；
-- **本项目 (TheAutomatic / dlss-5-amd-project)** — **GPL-3.0 License**：多槽调度架构、主队列同帧同步执行、C-ABI 标准化运行时与 PR 反哺、0.3.1 状态冻结/恢复、双后端共存与智能安装器。
+- [**本项目 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**：多槽调度架构、主队列同帧同步执行、C-ABI 标准化运行时与 PR 反哺、0.3.1 状态冻结/恢复、双后端共存与智能安装器。
 
 本项目不含 NVIDIA 专有二进制文件、原作者闭源安装工具或未授权分发资产。使用时请遵循各上游开源协议。
