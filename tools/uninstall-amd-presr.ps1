@@ -97,7 +97,15 @@ $protectedNames = @(
     'dlssnr_on_amd_weights.bin',
     'dlssnr_on_amd_setup.exe',
     'dlssnr_on_amd.log',
-    'version.dll'
+    'version.dll',
+    'native-game-tiled-assets'
+)
+$lmxxfShaderFiles = @(
+    'native_codec_decode.hlsl',
+    'native_codec_encode.hlsl',
+    'native_game_rgb_input.hlsl',
+    'native_rgb_reflect.hlsl',
+    'native_rgb_texture.hlsl'
 )
 
 $planned = New-Object System.Collections.Generic.List[string]
@@ -208,6 +216,18 @@ foreach ($root in $roots) {
     if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
         $planned.Add("$lmxxfMods  (lmxxf modules tree)")
     }
+    $shadersDir = Join-Path $root 'shaders'
+    if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
+        foreach ($sf in $lmxxfShaderFiles) {
+            Add-PlannedFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
+        }
+        $cacheDir = Join-Path $shadersDir 'shader-cache'
+        if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
+            Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+                Add-PlannedFile $_.FullName 'lmxxf-shader-cache'
+            }
+        }
+    }
 }
 
 foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe','dlssnr_on_amd.log')) {
@@ -217,6 +237,13 @@ foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_am
         if (Test-Path -LiteralPath $p -PathType Leaf) {
             $kept.Add("kept on purpose: $p")
         }
+    }
+}
+foreach ($root in $roots) {
+    if (!(Test-UninstallPath $root)) { continue }
+    $weightsDir = Join-Path $root 'native-game-tiled-assets'
+    if (Test-Path -LiteralPath $weightsDir -PathType Container) {
+        $kept.Add("kept on purpose (weights directory): $weightsDir")
     }
 }
 $backupDirs = New-Object System.Collections.Generic.List[string]
@@ -236,7 +263,7 @@ Write-Host ''
 Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
 Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
 Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
-Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, original-author setup.' -ForegroundColor Yellow
+Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, native-game-tiled-assets, original-author setup.' -ForegroundColor Yellow
 Write-Host ''
 
 if ($backupDirs.Count -gt 0) {
@@ -363,6 +390,20 @@ foreach ($root in $roots) {
                 ForEach-Object { Remove-EmptyDirectory $_.FullName }
             Remove-EmptyDirectory $lmxxfMods
         }
+    }
+    $shadersDir = Join-Path $root 'shaders'
+    if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
+        foreach ($sf in $lmxxfShaderFiles) {
+            Remove-SafeFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
+        }
+        $cacheDir = Join-Path $shadersDir 'shader-cache'
+        if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
+            Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+                Remove-SafeFile $_.FullName 'lmxxf-shader-cache'
+            }
+            Remove-EmptyDirectory $cacheDir
+        }
+        Remove-EmptyDirectory $shadersDir
     }
 }
 foreach ($root in $roots) {

@@ -382,9 +382,56 @@ function Find-AuthorRuntime {
     return $null
 }
 
-# Author setup (dlssnr_on_amd_setup.exe) is what produces version.dll and
-# dlssnr_on_amd_weights.bin. Look in the package folder AND the game folder.
-# NR only uses nvngx_dlssnr.dll — never nvngx_dlss.dll.
+# --- detect lmxxf components ---
+$lmxxfRuntime = $null
+foreach ($candidate in @(
+        (Join-Path $release 'LmxxfNrRuntime.dll'),
+        (Join-Path $Root 'LmxxfNrRuntime.dll'),
+        (Join-Path $Root 'exports\lmxxf-runtime\LmxxfNrRuntime.dll'),
+        (Join-Path $game 'LmxxfNrRuntime.dll')
+    )) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $lmxxfRuntime = $candidate; break }
+}
+$lmxxfMods = $null
+foreach ($candidate in @(
+        (Join-Path $release 'lmxxf-modules'),
+        (Join-Path $Root 'lmxxf-modules'),
+        (Join-Path $Root 'third_party\lmxxf\modules'),
+        (Join-Path $game 'lmxxf-modules')
+    )) {
+    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
+        (Test-Path -LiteralPath (Join-Path $candidate 'SHA256SUMS') -PathType Leaf)) {
+        $lmxxfMods = $candidate
+        break
+    }
+}
+$lmxxfShaders = $null
+foreach ($candidate in @(
+        (Join-Path $release 'shaders'),
+        (Join-Path $Root 'shaders'),
+        (Join-Path $Root 'third_party\lmxxf\shaders'),
+        (Join-Path $game 'shaders')
+    )) {
+    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
+        (Test-Path -LiteralPath (Join-Path $candidate 'native_codec_encode.hlsl') -PathType Leaf)) {
+        $lmxxfShaders = $candidate
+        break
+    }
+}
+$lmxxfWeights = $null
+foreach ($candidate in @(
+        (Join-Path $release 'native-game-tiled-assets'),
+        (Join-Path $Root 'native-game-tiled-assets'),
+        (Join-Path $Root 'DLSS5-AMD\native-game-tiled-assets'),
+        (Join-Path $game 'native-game-tiled-assets')
+    )) {
+    if (Test-Path -LiteralPath $candidate -PathType Container) {
+        $lmxxfWeights = $candidate
+        break
+    }
+}
+
+# --- detect danielblnc components ---
 $setup   = Join-Path $Root 'dlssnr_on_amd_setup.exe'
 $nv      = Find-FirstFile @(
     (Join-Path $Root 'nvngx_dlssnr.dll'),
@@ -396,136 +443,183 @@ $weights = Find-FirstFile @(
 )
 $srcA = Find-AuthorRuntime
 
-# Copy nvngx_dlssnr.dll into the game only when the game has neither
-# nvngx_dlssnr.dll nor weights (author 0.3.0 looks for it there).
-$gameHasNv = Test-Path -LiteralPath (Join-Path $game 'nvngx_dlssnr.dll') -PathType Leaf
-$gameHasW  = Test-Path -LiteralPath (Join-Path $game 'dlssnr_on_amd_weights.bin') -PathType Leaf
-if (-not $gameHasNv -and -not $gameHasW) {
-    $srcNv = Join-Path $Root 'nvngx_dlssnr.dll'
-    if (Test-Path -LiteralPath $srcNv -PathType Leaf) {
-        Copy-Item -LiteralPath $srcNv -Destination (Join-Path $game 'nvngx_dlssnr.dll') -Force
-        Write-Host 'Copied nvngx_dlssnr.dll into the game folder (original-author runtime expects it there).' -ForegroundColor Green
-        $nv = Join-Path $game 'nvngx_dlssnr.dll'
-    }
-}
+$canLmxxf  = [bool]($lmxxfRuntime -and $lmxxfMods)
+$canDaniel = [bool]($srcA -or (Test-Path -LiteralPath $setup -PathType Leaf) -or $weights)
 
-# Missing runtime and/or weights → run the original-author setup first (it writes both).
-if ((-not $srcA -or -not $weights) -and (Test-Path -LiteralPath $setup -PathType Leaf)) {
+$installLmxxf  = $false
+$installDaniel = $false
+$activeBackend = 'lmxxf'
+
+if ($canLmxxf -and $canDaniel) {
+    if ($NonInteractive) {
+        $installLmxxf  = $true
+        $installDaniel = $true
+        $activeBackend = 'lmxxf'
+    } else {
+        $choice = Ask-Choice "检测到两种神经渲染后端均有可用文件，请选择安装模式 (Select Installation Mode):" @(
+            "安装 lmxxf 后端 (Install lmxxf backend - using native-game-tiled-assets)",
+            "安装 danielblnc 后端 (Install danielblnc backend - using dlssnr_amd_pass / weights.bin)",
+            "同时安装两个后端 (Install both - coexist in game folder, switch via OptiScaler.ini)"
+        )
+        switch ($choice) {
+            1 { $installLmxxf = $true; $installDaniel = $false; $activeBackend = 'lmxxf' }
+            2 { $installLmxxf = $false; $installDaniel = $true; $activeBackend = 'daniel' }
+            3 {
+                $installLmxxf  = $true
+                $installDaniel = $true
+                $defChoice = Ask-Choice "请选择默认启用的后端 (Select default active backend in OptiScaler.ini):" @(
+                    "默认启用 lmxxf 后端 (Default: lmxxf)",
+                    "默认启用 danielblnc 后端 (Default: daniel)"
+                )
+                $activeBackend = if ($defChoice -eq 1) { 'lmxxf' } else { 'daniel' }
+            }
+        }
+    }
+} elseif ($canLmxxf) {
+    $installLmxxf  = $true
+    $installDaniel = $false
+    $activeBackend = 'lmxxf'
     Write-Host ''
-    Write-Host 'version.dll and/or weights.bin not found yet.' -ForegroundColor Yellow
-    Write-Host 'Launching original-author setup (dlssnr_on_amd_setup.exe) to create them…' -ForegroundColor Yellow
-    if ($nv) { Write-Host "  nvngx_dlssnr found: $nv" } else {
-        Write-Host '  NOTE: no nvngx_dlssnr.dll next to Setup.bat or in the game folder.' -ForegroundColor Yellow
-        Write-Host '  The original-author setup will ask you to locate it if it needs one for weights.' -ForegroundColor Yellow
-    }
-    Write-Host '  In the author UI: pick the GAME folder if asked, finish install/close when done.'
-    Push-Location $Root
-    try {
-        $p = Start-Process -FilePath $setup -WorkingDirectory $Root -Wait -PassThru
-        Write-Host "  original-author setup exit code: {0}" -f $p.ExitCode
-    } finally { Pop-Location }
-
-    # Re-scan: setup may drop files in the package dir or install into the game.
-    $weights = Find-FirstFile @(
-        (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
-        (Join-Path $game 'dlssnr_on_amd_weights.bin')
-    )
-    if (-not $srcA) {
-        $srcA = Find-AuthorRuntime
-    }
+    Write-Host "检测到 lmxxf 后端组件齐备，将安装 lmxxf 后端。" -ForegroundColor Cyan
+    Write-Host "提示：未检测到 danielblnc 后端文件 (缺少 dlssnr_on_amd_setup.exe 或 version.dll)。" -ForegroundColor DarkYellow
+} elseif ($canDaniel) {
+    $installLmxxf  = $false
+    $installDaniel = $true
+    $activeBackend = 'daniel'
+    Write-Host ''
+    Write-Host "检测到 danielblnc 后端组件齐备，将安装 danielblnc 后端。" -ForegroundColor Cyan
+    Write-Host "提示：未检测到 lmxxf 后端组件 (缺少 LmxxfNrRuntime.dll 或 lmxxf-modules)。" -ForegroundColor DarkYellow
+} else {
+    Fail @"
+未检测到任何可用的神经渲染后端文件！
+- 若使用 lmxxf 后端：请确保安装包内有 LmxxfNrRuntime.dll 与 lmxxf-modules（以及 native-game-tiled-assets 权重文件夹）。
+- 若使用 danielblnc 后端：请将 dlssnr_on_amd_setup.exe + nvngx_dlssnr.dll（或现成的 version.dll + weights.bin）放在 Setup.bat 同目录下。
+"@
 }
 
-# --- author runtime (0.3.0 or 0.3.1) ---
-if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
-    Fail @"
+# --- process danielblnc runtime if selected ---
+$stagedA = $null
+if ($installDaniel) {
+    $gameHasNv = Test-Path -LiteralPath (Join-Path $game 'nvngx_dlssnr.dll') -PathType Leaf
+    $gameHasW  = Test-Path -LiteralPath (Join-Path $game 'dlssnr_on_amd_weights.bin') -PathType Leaf
+    if (-not $gameHasNv -and -not $gameHasW) {
+        $srcNv = Join-Path $Root 'nvngx_dlssnr.dll'
+        if (Test-Path -LiteralPath $srcNv -PathType Leaf) {
+            Copy-Item -LiteralPath $srcNv -Destination (Join-Path $game 'nvngx_dlssnr.dll') -Force
+            Write-Host 'Copied nvngx_dlssnr.dll into the game folder (original-author runtime expects it there).' -ForegroundColor Green
+            $nv = Join-Path $game 'nvngx_dlssnr.dll'
+        }
+    }
+
+    if ((-not $srcA -or -not $weights) -and (Test-Path -LiteralPath $setup -PathType Leaf)) {
+        Write-Host ''
+        Write-Host 'version.dll and/or weights.bin not found yet.' -ForegroundColor Yellow
+        Write-Host 'Launching original-author setup (dlssnr_on_amd_setup.exe) to create them…' -ForegroundColor Yellow
+        if ($nv) { Write-Host "  nvngx_dlssnr found: $nv" } else {
+            Write-Host '  NOTE: no nvngx_dlssnr.dll next to Setup.bat or in the game folder.' -ForegroundColor Yellow
+            Write-Host '  The original-author setup will ask you to locate it if it needs one for weights.' -ForegroundColor Yellow
+        }
+        Write-Host '  In the author UI: pick the GAME folder if asked, finish install/close when done.'
+        Push-Location $Root
+        try {
+            $p = Start-Process -FilePath $setup -WorkingDirectory $Root -Wait -PassThru
+            Write-Host "  original-author setup exit code: {0}" -f $p.ExitCode
+        } finally { Pop-Location }
+
+        $weights = Find-FirstFile @(
+            (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
+            (Join-Path $game 'dlssnr_on_amd_weights.bin')
+        )
+        if (-not $srcA) {
+            $srcA = Find-AuthorRuntime
+        }
+    }
+
+    if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
+        Fail @"
 Still missing a known DLSS-NR-on-AMD runtime (version.dll) after original-author setup.
 Supported: 0.3.0 or 0.3.1.
 1. Run dlssnr_on_amd_setup.exe yourself and finish its install
 2. Put the version.dll it produces next to Setup.bat (or leave it in the game folder)
 Download from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
-}
+    }
 
-$hashA = Get-Sha256 $srcA
-Write-Host ("Author runtime SHA256: {0}" -f $hashA)
-if ($expectedAuthor -notcontains $hashA) {
-    $what = 'unknown build'
-    if ($hashA -eq $knownA0217) { $what = 'this is 0.2.17, not 0.3.0/0.3.1' }
-    Fail @"
+    $hashA = Get-Sha256 $srcA
+    Write-Host ("Author runtime SHA256: {0}" -f $hashA)
+    if ($expectedAuthor -notcontains $hashA) {
+        $what = 'unknown build'
+        if ($hashA -eq $knownA0217) { $what = 'this is 0.2.17, not 0.3.0/0.3.1' }
+        Fail @"
 $srcA is not a supported DLSS-NR-on-AMD runtime ($what).
   file:     $srcA
   got:      $hashA
   expected: $expectedA030 (0.3.0) or $expectedA031 (0.3.1)
 Download 0.3.0 or 0.3.1 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
-}
-
-# Stage the install source OUTSIDE the game folder.
-# Author setup may have written version.dll into the game dir; backup/move must
-# not steal the file we still need. Never stage into the game folder (Root==game
-# would copy a file onto itself or write a file the conflict pass will move).
-$stagedA = $null
-try {
-    $srcAFull = [IO.Path]::GetFullPath($srcA)
-    $gameFull = [IO.Path]::GetFullPath($game)
-    $rootFull = [IO.Path]::GetFullPath($Root)
-    $gamePrefix = $gameFull.TrimEnd('\') + '\'
-    $inGame = $srcAFull.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)
-    $pkgIsGame = ($rootFull.TrimEnd('\') -ieq $gameFull.TrimEnd('\'))
-    if ($inGame) {
-        if ($pkgIsGame) {
-            $stagedA = Join-Path $env:TEMP ('amd-presr-version-' + [guid]::NewGuid().ToString('N') + '.dll')
-        } else {
-            $stagedA = Join-Path $Root 'version.dll'
-        }
-        if ($srcAFull -ieq [IO.Path]::GetFullPath($stagedA)) {
-            # Already the staged location.
-        } else {
-            Copy-Item -LiteralPath $srcAFull -Destination $stagedA -Force
-            Write-Host "Copied author 0.3.0 runtime outside game folder: $stagedA"
-        }
-        $srcA = $stagedA
     }
-} catch {
-    Fail "Could not stage author runtime from $srcA : $($_.Exception.Message)"
-}
 
-# --- weights ---
-if (-not $weights) {
-    $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
-}
-if (-not (Test-Path -LiteralPath $weights -PathType Leaf)) {
-    if ((Test-Path -LiteralPath $setup) -and $nv) {
-        Write-Host 'weights.bin still missing — running original-author setup again with nvngx…'
-        Push-Location $Root
-        try { Start-Process -FilePath $setup -WorkingDirectory $Root -Wait | Out-Null } finally { Pop-Location }
-        $weights = Find-FirstFile @(
-            (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
-            (Join-Path $game 'dlssnr_on_amd_weights.bin')
-        )
+    try {
+        $srcAFull = [IO.Path]::GetFullPath($srcA)
+        $gameFull = [IO.Path]::GetFullPath($game)
+        $rootFull = [IO.Path]::GetFullPath($Root)
+        $gamePrefix = $gameFull.TrimEnd('\') + '\'
+        $inGame = $srcAFull.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)
+        $pkgIsGame = ($rootFull.TrimEnd('\') -ieq $gameFull.TrimEnd('\'))
+        if ($inGame) {
+            if ($pkgIsGame) {
+                $stagedA = Join-Path $env:TEMP ('amd-presr-version-' + [guid]::NewGuid().ToString('N') + '.dll')
+            } else {
+                $stagedA = Join-Path $Root 'version.dll'
+            }
+            if ($srcAFull -ieq [IO.Path]::GetFullPath($stagedA)) {
+                # Already the staged location.
+            } else {
+                Copy-Item -LiteralPath $srcAFull -Destination $stagedA -Force
+                Write-Host "Copied author 0.3.0 runtime outside game folder: $stagedA"
+            }
+            $srcA = $stagedA
+        }
+    } catch {
+        Fail "Could not stage author runtime from $srcA : $($_.Exception.Message)"
     }
-}
-if (-not $weights -or !(Test-Path -LiteralPath $weights -PathType Leaf)) {
-    Fail @"
+
+    if (-not $weights) {
+        $weights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
+    }
+    if (-not (Test-Path -LiteralPath $weights -PathType Leaf)) {
+        if ((Test-Path -LiteralPath $setup) -and $nv) {
+            Write-Host 'weights.bin still missing — running original-author setup again with nvngx…'
+            Push-Location $Root
+            try { Start-Process -FilePath $setup -WorkingDirectory $Root -Wait | Out-Null } finally { Pop-Location }
+            $weights = Find-FirstFile @(
+                (Join-Path $Root 'dlssnr_on_amd_weights.bin'),
+                (Join-Path $game 'dlssnr_on_amd_weights.bin')
+            )
+        }
+    }
+    if (-not $weights -or !(Test-Path -LiteralPath $weights -PathType Leaf)) {
+        Fail @"
 Missing dlssnr_on_amd_weights.bin.
 Run dlssnr_on_amd_setup.exe (with nvngx_dlssnr.dll available), then retry.
 "@
-}
-
-if ($nv) {
-    $nvSize = (Get-Item -LiteralPath $nv).Length
-    Write-Host ("nvngx size: {0} bytes  ({1})" -f $nvSize, $nv)
-    if ($nvSize -lt 1MB) {
-        Confirm-Continue ("nvngx is only {0} bytes — may be the wrong file. Continue?" -f $nvSize)
     }
-}
 
-$wsize = (Get-Item -LiteralPath $weights).Length
-$whash = Get-Sha256 $weights
-Write-Host ("weights.bin size={0}  SHA256={1}" -f $wsize, $whash)
-Write-Host '  (weights SHA256 is per-machine; not compared to a fixed value)'
-if ($wsize -lt 1MB) {
-    Confirm-Continue ("weights.bin is only {0} bytes — looks truncated or wrong. Continue?" -f $wsize)
+    if ($nv) {
+        $nvSize = (Get-Item -LiteralPath $nv).Length
+        Write-Host ("nvngx size: {0} bytes  ({1})" -f $nvSize, $nv)
+        if ($nvSize -lt 1MB) {
+            Confirm-Continue ("nvngx is only {0} bytes — may be the wrong file. Continue?" -f $nvSize)
+        }
+    }
+
+    $wsize = (Get-Item -LiteralPath $weights).Length
+    $whash = Get-Sha256 $weights
+    Write-Host ("weights.bin size={0}  SHA256={1}" -f $wsize, $whash)
+    Write-Host '  (weights SHA256 is per-machine; not compared to a fixed value)'
+    if ($wsize -lt 1MB) {
+        Confirm-Continue ("weights.bin is only {0} bytes — looks truncated or wrong. Continue?" -f $wsize)
+    }
 }
 
 # --- inspect common injection DLLs ---
@@ -678,19 +772,54 @@ Partial files (if any) are under:
     }
 }
 
+function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collections.IDictionary]$settings) {
+    if (-not (Test-Path -LiteralPath $iniPath -PathType Leaf)) { return }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.AddRange([System.IO.File]::ReadAllLines($iniPath))
+    $sectionIdx = -1
+    for ($i = 0; $i -lt $lines.Count; ++$i) {
+        if ($lines[$i] -match ('^\s*\[' + [regex]::Escape($sectionName) + '\]\s*$')) {
+            $sectionIdx = $i
+            break
+        }
+    }
+    if ($sectionIdx -lt 0) {
+        $lines.Add("")
+        $lines.Add("[$sectionName]")
+        foreach ($k in $settings.Keys) {
+            $lines.Add("$k = $($settings[$k])")
+        }
+    } else {
+        $endIdx = $sectionIdx + 1
+        while ($endIdx -lt $lines.Count -and $lines[$endIdx] -notmatch '^\s*\[') { ++$endIdx }
+        foreach ($k in $settings.Keys) {
+            $found = $false
+            for ($i = $sectionIdx + 1; $i -lt $endIdx; ++$i) {
+                if ($lines[$i] -match ('^\s*' + [regex]::Escape($k) + '\s*=')) {
+                    $lines[$i] = "$k = $($settings[$k])"
+                    $found = $true
+                    break
+                }
+            }
+            if (-not $found) {
+                $lines.Insert($endIdx, "$k = $($settings[$k])")
+                ++$endIdx
+            }
+        }
+    }
+    [System.IO.File]::WriteAllLines($iniPath, $lines, [System.Text.UTF8Encoding]::new($true))
+}
+
 Write-Host ''
-Write-Host "Installing as $Proxy + pass copies from author runtime ..."
+Write-Host "Installing OptiScaler as $Proxy ..." -ForegroundColor Cyan
 Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 
-# Same runtime bytes as native version.dll — three filenames so multi-pass can load independent instances.
-foreach ($p in 1..3) {
-    Install-One $srcA ("dlssnr_amd_pass$p.dll")
-}
-Install-One $weights 'dlssnr_on_amd_weights.bin'
-
 $ini = Join-Path $release 'OptiScaler.ini'
-if ((Test-Path -LiteralPath $ini) -and !(Test-Path -LiteralPath (Join-Path $game 'OptiScaler.ini'))) {
-    Install-One $ini 'OptiScaler.ini'
+$gameIni = Join-Path $game 'OptiScaler.ini'
+if (Test-Path -LiteralPath $ini -PathType Leaf) {
+    if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+        Install-One $ini 'OptiScaler.ini'
+    }
 }
 $deps = Join-Path $release 'OptiScaler'
 if (Test-Path -LiteralPath $deps) {
@@ -700,42 +829,17 @@ if (Test-Path -LiteralPath $deps) {
     }
 }
 
-# Optional lmxxf runtime beside the proxy (Directory() = game folder). Unused until LmxxfWired().
-$lmxxfRuntime = $null
-foreach ($candidate in @(
-        (Join-Path $release 'LmxxfNrRuntime.dll'),
-        (Join-Path $Root 'LmxxfNrRuntime.dll'),
-        (Join-Path $Root 'exports\lmxxf-runtime\LmxxfNrRuntime.dll')
-    )) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $lmxxfRuntime = $candidate; break }
-}
-$lmxxfMods = $null
-foreach ($candidate in @(
-        (Join-Path $release 'lmxxf-modules'),
-        (Join-Path $Root 'lmxxf-modules'),
-        (Join-Path $Root 'third_party\lmxxf\modules'),
-        (Join-Path $Root 'exports\lmxxf-modules-68dc099')
-    )) {
-    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
-        (Test-Path -LiteralPath (Join-Path $candidate 'SHA256SUMS') -PathType Leaf)) {
-        $lmxxfMods = $candidate
-        break
+# --- Install selected backends ---
+if ($installDaniel) {
+    Write-Host 'Installing danielblnc runtime (dlssnr_amd_pass1-3.dll) + weights.bin...' -ForegroundColor Cyan
+    foreach ($p in 1..3) {
+        Install-One $srcA ("dlssnr_amd_pass$p.dll")
     }
+    Install-One $weights 'dlssnr_on_amd_weights.bin'
 }
-$lmxxfShaders = $null
-foreach ($candidate in @(
-        (Join-Path $release 'shaders'),
-        (Join-Path $Root 'shaders'),
-        (Join-Path $Root 'third_party\lmxxf\shaders')
-    )) {
-    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
-        (Test-Path -LiteralPath (Join-Path $candidate 'native_codec_encode.hlsl') -PathType Leaf)) {
-        $lmxxfShaders = $candidate
-        break
-    }
-}
-if ($lmxxfRuntime -and $lmxxfMods) {
-    Write-Host 'Installing optional lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
+
+if ($installLmxxf) {
+    Write-Host 'Installing lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
     Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
     Get-ChildItem -LiteralPath $lmxxfMods -Recurse -File | ForEach-Object {
         $rel = Join-Path 'lmxxf-modules' $_.FullName.Substring($lmxxfMods.Length).TrimStart('\','/')
@@ -746,13 +850,34 @@ if ($lmxxfRuntime -and $lmxxfMods) {
             $rel = Join-Path 'shaders' $_.FullName.Substring($lmxxfShaders.Length).TrimStart('\','/')
             Install-One $_.FullName $rel
         }
-        Write-Host "  shaders from $lmxxfShaders"
+        Write-Host "  shaders installed from $lmxxfShaders"
     } else {
         Write-Host 'NOTE: lmxxf shaders not found in package; PrepareFrame may fail until shaders/ is beside OptiScaler.' -ForegroundColor DarkYellow
     }
-    Write-Host 'NOTE: lmxxf needs LMXXF_WEIGHTS_DIR=native-game-tiled-assets (not HIP/). Without it Create may succeed but EnqueueHip returns UNAVAILABLE.' -ForegroundColor DarkYellow
-} elseif ($lmxxfRuntime -or $lmxxfMods) {
-    Write-Host 'NOTE: lmxxf runtime/modules incomplete in package; skipped (Daniel unaffected).' -ForegroundColor DarkYellow
+    if ($lmxxfWeights) {
+        $gameWeights = Join-Path $game 'native-game-tiled-assets'
+        if ([IO.Path]::GetFullPath($lmxxfWeights) -ine [IO.Path]::GetFullPath($gameWeights)) {
+            Write-Host "Installing native-game-tiled-assets from $lmxxfWeights..." -ForegroundColor Cyan
+            Get-ChildItem -LiteralPath $lmxxfWeights -Recurse -File | ForEach-Object {
+                $rel = Join-Path 'native-game-tiled-assets' $_.FullName.Substring($lmxxfWeights.Length).TrimStart('\','/')
+                Install-One $_.FullName $rel
+            }
+        } else {
+            Write-Host 'native-game-tiled-assets already present in game folder.' -ForegroundColor Green
+        }
+    } else {
+        Write-Host 'NOTE: native-game-tiled-assets not found in package. If using lmxxf, place native-game-tiled-assets in the game folder.' -ForegroundColor DarkYellow
+    }
+}
+
+# --- Configure OptiScaler.ini with chosen backend ---
+if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+    Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
+        'Enabled' = 'true'
+        'RunBeforeSR' = 'true'
+        'NrBackend' = $activeBackend
+    })
+    Write-Host "Configured OptiScaler.ini: [DlssNr] Enabled=true, NrBackend=$activeBackend" -ForegroundColor Green
 }
 
 # Uninstaller is copied into the game folder. Double-click it there; it
@@ -813,6 +938,7 @@ try {
     @(
         'project=OptiScaler AMD pre-SR',
         ('proxy=' + $Proxy),
+        ('backend=' + $activeBackend),
         ('installed=' + (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')),
         ('game=' + $game)
     ) -join "`r`n" | Set-Content -LiteralPath $installMark -Encoding ASCII
@@ -824,7 +950,7 @@ try {
 # Keep reusable author files in the package folder for the next game.
 # Never write them into the game folder — that would re-inject original A next to B.
 # 摘要要报"包目录里真正留下的那份"，不能报 $srcA —— 当包目录就是游戏目录时
-# $srcA 指向 TEMP 暂存文件，而下面 698 行会把它删掉；当包目录不是游戏目录时，
+# $srcA 指向 TEMP 暂存文件，而下面会把它删掉；当包目录不是游戏目录时，
 # 真正留下的是 $Root\version.dll。$keptA/$keptW 只记后者。
 $keptA = $null
 $keptW = $null
@@ -834,13 +960,13 @@ try {
     $pkgIsGame = ($rootFull.TrimEnd('\') -ieq $gameFull.TrimEnd('\'))
     if (-not $pkgIsGame) {
         $pkgVersion = Join-Path $Root 'version.dll'
-        if ((Test-Path -LiteralPath $srcA -PathType Leaf) -and -not (Test-Path -LiteralPath $pkgVersion -PathType Leaf)) {
+        if ($srcA -and (Test-Path -LiteralPath $srcA -PathType Leaf) -and -not (Test-Path -LiteralPath $pkgVersion -PathType Leaf)) {
             Copy-Item -LiteralPath $srcA -Destination $pkgVersion -Force
             Write-Host "Saved version.dll next to Setup.bat for the next install." -ForegroundColor Green
         }
         if (Test-Path -LiteralPath $pkgVersion -PathType Leaf) { $keptA = $pkgVersion }
         $pkgWeights = Join-Path $Root 'dlssnr_on_amd_weights.bin'
-        if ((Test-Path -LiteralPath $weights -PathType Leaf) -and
+        if ($weights -and (Test-Path -LiteralPath $weights -PathType Leaf) -and
             -not (Test-Path -LiteralPath $pkgWeights -PathType Leaf)) {
             Copy-Item -LiteralPath $weights -Destination $pkgWeights -Force
             Write-Host "Saved dlssnr_on_amd_weights.bin next to Setup.bat for the next install." -ForegroundColor Green
@@ -860,21 +986,32 @@ try {
 
 Write-Host ''
 Write-Host 'Done.' -ForegroundColor Green
-Write-Host "  Game:   $game"
-Write-Host "  Proxy:  $Proxy"
-Write-Host "  Backup: $backup"
-Write-Host '  Installed: OptiScaler (this project) + dlssnr_amd_pass1-3.dll + weights'
-if ($keptA -or $keptW) {
-    Write-Host "  Package keeps: $keptA"
-    if ($keptW) { Write-Host "                 $keptW" }
+Write-Host "  Game:           $game"
+Write-Host "  Proxy:          $Proxy"
+Write-Host "  Backup:         $backup"
+Write-Host "  Active Backend: $activeBackend" -ForegroundColor Cyan
+if ($installDaniel -and $installLmxxf) {
+    Write-Host "  Installed:      Both backends (lmxxf + danielblnc) coexisting" -ForegroundColor Green
+    Write-Host "  Tip:            To switch backend, edit OptiScaler.ini ([DlssNr] NrBackend=lmxxf or daniel) or re-run Setup.bat." -ForegroundColor Yellow
+} elseif ($installLmxxf) {
+    Write-Host "  Installed:      OptiScaler + lmxxf runtime (LmxxfNrRuntime.dll, modules, shaders)" -ForegroundColor Green
 } else {
-    Write-Host '  Package keeps: (nothing — the package folder is the game folder)'
+    Write-Host "  Installed:      OptiScaler + danielblnc runtime (dlssnr_amd_pass1-3.dll + weights)" -ForegroundColor Green
+}
+if ($keptA -or $keptW) {
+    Write-Host "  Package keeps:  $keptA"
+    if ($keptW) { Write-Host "                  $keptW" }
+} else {
+    Write-Host '  Package keeps:  (nothing — the package folder is the game folder)'
 }
 Write-Host ''
 Write-Host 'Next (in game):' -ForegroundColor Yellow
 Write-Host '  1. Launch the game'
 Write-Host '  2. Press Insert (Ins) to open the OptiScaler menu'
-Write-Host '  3. Enable DLSSNR'
+Write-Host '  3. Ensure DLSSNR is enabled'
+if ($installDaniel -and $installLmxxf) {
+    Write-Host "  4. Switch backends anytime in OptiScaler.ini ([DlssNr] NrBackend=$activeBackend) or by re-running Setup.bat"
+}
 Write-Host ''
 Write-Host 'Install SUCCEEDED.' -ForegroundColor Green
 Pause-Exit 0
