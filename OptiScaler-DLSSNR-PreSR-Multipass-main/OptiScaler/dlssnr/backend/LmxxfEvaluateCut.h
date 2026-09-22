@@ -10,7 +10,7 @@
 // AmdBridge calls this every Evaluate; no-op unless SubmissionHooksWanted(). Harnesses can call helpers directly.
 namespace DlssNr::Backend::LmxxfCut
 {
-using EnqueueHipFn = int32_t (*)(void *session, void *job);
+using EnqueueHipFn = int32_t (*)(void *session, void *job, void *command_queue);
 
 // lastEnqueueRc when BetweenThunk ran but Pending was empty (HIP skipped).
 constexpr int32_t kEnqueueSkipped = static_cast<int32_t>(0x534B4950); // 'SKIP'
@@ -58,7 +58,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, void * /*ctx*/)
     ClearPendingEnqueue();
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
     p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
-    p.lastEnqueueRc.store(fn(session, job), std::memory_order_relaxed);
+    p.lastEnqueueRc.store(fn(session, job, queue), std::memory_order_relaxed);
 }
 
 // QI for ILogicalCommandList and SplitSegments. S_FALSE = not our proxy (cannot sandwich).

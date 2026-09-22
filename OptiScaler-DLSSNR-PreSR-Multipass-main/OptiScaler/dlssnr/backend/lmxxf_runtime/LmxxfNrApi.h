@@ -25,12 +25,12 @@ enum LmxxfNrStatus
 enum LmxxfNrJobState
 {
     LMXXF_NR_JOB_NONE = 0,
-    LMXXF_NR_JOB_PREPARED = 1,
-    LMXXF_NR_JOB_PRODUCER_SUBMITTED = 2,
-    LMXXF_NR_JOB_NR_ENQUEUED = 3,
-    LMXXF_NR_JOB_NR_COMPLETE = 4,
-    LMXXF_NR_JOB_CONSUMER_COMPLETE = 5,
-    LMXXF_NR_JOB_RETIRED = 6
+    LMXXF_NR_JOB_PREPARED = 1,           /* Set by PrepareFrame; ready for RecordInputs */
+    LMXXF_NR_JOB_PRODUCER_SUBMITTED = 2, /* Set by RecordInputs; producer recorded/submitted */
+    LMXXF_NR_JOB_NR_ENQUEUED = 3,        /* EnqueueHip scheduled on queue */
+    LMXXF_NR_JOB_NR_COMPLETE = 4,        /* EnqueueHip executed or completed */
+    LMXXF_NR_JOB_CONSUMER_COMPLETE = 5,  /* Set by RecordOutputs; consumer recorded */
+    LMXXF_NR_JOB_RETIRED = 6             /* Set by Retire or CancelUnsubmitted */
 };
 
 typedef struct LmxxfNrCapabilities
@@ -55,8 +55,9 @@ typedef struct LmxxfNrCreateInfo
     uint32_t flags; /* must be 0 in ABI v1 */
 } LmxxfNrCreateInfo;
 
-#define LMXXF_NR_FRAME_FLAG_STRENGTH   (1u << 0)
-#define LMXXF_NR_FRAME_FLAG_DEBUG_VIEW (1u << 1)
+#define LMXXF_NR_FRAME_FLAG_STRENGTH          (1u << 0)
+#define LMXXF_NR_FRAME_FLAG_DEBUG_VIEW        (1u << 1)
+#define LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH (1u << 2)
 
 typedef struct LmxxfNrFrameInfo
 {
@@ -70,8 +71,8 @@ typedef struct LmxxfNrFrameInfo
     void *color; /* ID3D12Resource*; required for RecordInputs */
     uint32_t color_state; /* D3D12_RESOURCE_STATES at RecordInputs */
     uint32_t flags; /* LMXXF_NR_FRAME_FLAG_* (0 in legacy ABI v1) */
-    float transfer_strength; /* Detail strength: 0..2, default 1.0 */
-    float color_strength;    /* Colour strength: 0..4, default 1.0 */
+    float transfer_strength; /* Detail strength: 0..1, default 1.0 */
+    float color_strength;    /* Colour strength: 0..1, default 1.0 */
     uint32_t debug_view;     /* 0=normal, 1=proxy, 2=neural solo, 3=diff 20x, 4=tint */
     float model_scale;       /* 0.25..1.0, default 1.0 */
 } LmxxfNrFrameInfo;
@@ -93,9 +94,9 @@ typedef struct LmxxfNrApi
     int32_t (*PrepareSession)(void *context);
     int32_t (*PrepareFrame)(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *job);
     int32_t (*RecordInputs)(void *context, void *job, void *command_list);
-    int32_t (*EnqueueHip)(void *context, void *job);
+    int32_t (*EnqueueHip)(void *context, void *job, void *command_queue);
     int32_t (*RecordOutputs)(void *context, void *job, void *command_list);
-    int32_t (*ExecuteAfterProducer)(void *context, void *job);
+    int32_t (*ExecuteAfterProducer)(void *context, void *job, void *command_queue);
     int32_t (*CancelUnsubmitted)(void *context, void *job);
     int32_t (*Poll)(void *context, void *job, uint32_t *state);
     int32_t (*Retire)(void *context, void *job);

@@ -116,13 +116,20 @@ int main(int argc, char **argv)
     frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
-    Require(api.PrepareFrame(ctx, &frame, &job) == LMXXF_NR_OK, "PrepareFrame");
+    const int32_t pfr = api.PrepareFrame(ctx, &frame, &job);
+    if (pfr != LMXXF_NR_OK)
+    {
+        char err[256] {};
+        api.GetLastError(err, sizeof err);
+        std::fprintf(stderr, "PrepareFrame rc=%d err=%s\n", pfr, err);
+        Require(false, "PrepareFrame");
+    }
     Require(job.private_output != nullptr, "private_output");
     Require(api.RecordInputs(ctx, job.handle, list) == LMXXF_NR_OK, "RecordInputs");
     Check(list->Close(), "close producer");
     ID3D12CommandList *lists[] = {list};
     queue->ExecuteCommandLists(1, lists);
-    const int32_t hip = api.EnqueueHip(ctx, job.handle);
+    const int32_t hip = api.EnqueueHip(ctx, job.handle, queue);
     char err[256] {};
     api.GetLastError(err, sizeof err);
     std::printf("EnqueueHip rc=%d last_error=%s\n", hip, err);
@@ -149,6 +156,7 @@ int main(int argc, char **argv)
     {
         Check(list->Close(), "close outputs");
         queue->ExecuteCommandLists(1, lists);
+        Check(api.Retire(ctx, job.handle) == LMXXF_NR_OK, "Retire");
     }
 
     Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy");

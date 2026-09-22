@@ -4,6 +4,22 @@ cbuffer CodecConstants : register(b0) {
  float4 Padding;
  uint OutputRowPitch; uint3 Reserved;
 };
+#ifndef NATIVE_CODEC_EXPOSURE
+#define NATIVE_CODEC_EXPOSURE 0
+#endif
+#if NATIVE_CODEC_EXPOSURE
+Texture2D<float> GameExposure : register(t4);
+#endif
+float EffectivePaperWhite() {
+#if NATIVE_CODEC_EXPOSURE
+ float e=GameExposure.Load(int3(0,0,0));
+ float pre=asfloat(Reserved.y),scale=asfloat(Reserved.z);
+ float exposure=e*scale/pre;
+ return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+#else
+ return PaperWhiteScale;
+#endif
+}
 #ifndef NATIVE_CODEC_FIT
 #define NATIVE_CODEC_FIT 0
 #endif
@@ -65,12 +81,7 @@ RWByteAddressBuffer OutputBits : register(u0);
 void Store(uint2 p,float4 v){uint4 q=uint4(round(saturate(v)*65535.0));OutputBits.Store2(ByteOffset(p,8),uint2(q.x|(q.y<<16),q.z|(q.w<<16)));}
 #else
 RWTexture2D<float4> Output : register(u0);
-void Store(uint2 p,float4 v){
-#if NATIVE_CODEC_DEBUG_TINT
- v.g*=0.25;
-#endif
- Output[p]=v;
-}
+void Store(uint2 p,float4 v){Output[p]=v;}
 #endif
 float Luminance(float3 c) { return dot(c,float3(0.212639,0.715169,0.072192)); }
 float3 Decode(float3 c) {
@@ -131,7 +142,7 @@ void main(uint3 id:SV_DispatchThreadID) {
  /* DLSS5_CODEC_SRGB (Magpie): the source is display-referred sRGB; linearize it for the blend and re-encode the result */
  float3 original=Decode(saturate(source.rgb));
 #else
- float3 original=max(source.rgb,0)/PaperWhiteScale;
+ float3 original=max(source.rgb,0)/EffectivePaperWhite();
 #endif
  #if NATIVE_CODEC_FIT
  float2 network_p=Padding.xy+(float2(id.xy)+.5)*Padding.zw/float2(Size)-.5;
@@ -142,31 +153,20 @@ void main(uint3 id:SV_DispatchThreadID) {
  float oy=Luminance(original),uy=Luminance(upgraded);
  float ratio=oy==0?1:clamp(uy/oy,0,4);
  float3 result=lerp(original*ratio,upgraded,ColorStrength);
- if(Reserved.x==1){
-  // 1 = Proxy (what the model sees)
+ // Optional per-dispatch views; view 0 preserves the captured composition exactly.
+ if(Reserved.x==1||Reserved.x==2){
 #if NATIVE_CODEC_FIT
-  result=Decode(ReadFitted(Proxy,network_p));
+  result=Reserved.x==1?Decode(ReadFitted(Proxy,network_p)):Decode(ReadFitted(Neural,network_p));
 #else
-  result=Decode(Proxy.Load(int3(p,0)).rgb);
+  result=Reserved.x==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(Neural.Load(int3(id.xy,0)).rgb);
 #endif
- }else if(Reserved.x==2){
-  // 2 = Model output (raw)
-#if NATIVE_CODEC_FIT
-  result=Decode(ReadFitted(Neural,network_p));
-#else
-  result=Decode(Neural.Load(int3(id.xy,0)).rgb);
-#endif
- }else if(Reserved.x==3){
-  // 3 = Difference (amplified 20x centred on grey 0.5)
-  result=saturate(0.5+(upgraded-original)*20.0);
- }else if(Reserved.x==4){
-  // 4 = Magenta tint
-  result=result*float3(1.2,0.3,1.2);
- }
+ }else if(Reserved.x==3)result=saturate(0.5+(upgraded-original)*20.0);
+ else if(Reserved.x==4)result*=float3(1.2,0.3,1.2);
+
 #if NATIVE_CODEC_SRGB_IO
  result=saturate(result);result=result<=0.0031308?result*12.92:1.055*pow(result,1.0/2.4)-0.055;
  Store(id.xy,float4(result,source.a));
 #else
- Store(id.xy,float4(result*PaperWhiteScale,source.a));
+ Store(id.xy,float4(result*EffectivePaperWhite(),source.a));
 #endif
 }

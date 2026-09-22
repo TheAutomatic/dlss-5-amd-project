@@ -13,6 +13,10 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <windows.h>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+#include "hip_device_properties.h"
 #include <cstddef>
 #include <cstdio>
 #include <stdexcept>
@@ -31,6 +35,7 @@ static_assert(sizeof(MemoryDesc)==104&&sizeof(BufferDesc)==88&&sizeof(SemaphoreD
 struct Api {
  HMODULE dll{};
  #define HIP_FN(name,args) using name##Fn=int(*)args;name##Fn name{}
+ HIP_FN(hipGetDevicePropertiesR0600,(DevicePropertiesR0600*,int));HIP_FN(hipModuleLoadData,(Handle*,const void*));
  HIP_FN(hipInit,(unsigned));HIP_FN(hipRuntimeGetVersion,(int*));HIP_FN(hipGetDeviceCount,(int*));HIP_FN(hipDeviceGetName,(char*,int,int));HIP_FN(hipSetDevice,(int));
  HIP_FN(hipMemGetInfo,(size_t*,size_t*));HIP_FN(hipMalloc,(void**,size_t));HIP_FN(hipHostMalloc,(void**,size_t,unsigned));HIP_FN(hipFree,(void*));HIP_FN(hipMemcpy,(void*,const void*,size_t,int));HIP_FN(hipMemcpyAsync,(void*,const void*,size_t,int,Handle));HIP_FN(hipMemsetAsync,(void*,int,size_t,Handle));
  HIP_FN(hipEventCreate,(Handle*));HIP_FN(hipEventRecord,(Handle,Handle));HIP_FN(hipEventElapsedTime,(float*,Handle,Handle));HIP_FN(hipEventDestroy,(Handle));HIP_FN(hipEventSynchronize,(Handle));
@@ -49,8 +54,15 @@ struct Api {
  template<class T>void Load(T&f,const char*n){f=reinterpret_cast<T>(GetProcAddress(dll,n));if(!f)throw std::runtime_error(std::string("missing HIP export ")+n);}
  explicit Api(unsigned version=7){const wchar_t*name=version==6?L"amdhip64_6.dll":L"amdhip64_7.dll";dll=LoadLibraryExW(name,nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);if(!dll)throw std::runtime_error("HIP runtime not found in System32");
  #define LOAD(name) Load(name,#name)
- LOAD(hipEventCreate);LOAD(hipEventRecord);LOAD(hipEventElapsedTime);LOAD(hipEventDestroy);LOAD(hipEventSynchronize);LOAD(hipHostMalloc);LOAD(hipInit);LOAD(hipRuntimeGetVersion);LOAD(hipGetDeviceCount);LOAD(hipDeviceGetName);LOAD(hipSetDevice);LOAD(hipMemGetInfo);LOAD(hipMalloc);LOAD(hipFree);LOAD(hipMemcpy);LOAD(hipMemcpyAsync);LOAD(hipMemsetAsync);LOAD(hipDeviceSynchronize);LOAD(hipStreamCreate);LOAD(hipStreamSynchronize);LOAD(hipStreamDestroy);LOAD(hipImportExternalMemory);LOAD(hipExternalMemoryGetMappedBuffer);LOAD(hipDestroyExternalMemory);LOAD(hipImportExternalSemaphore);LOAD(hipSignalExternalSemaphoresAsync);LOAD(hipWaitExternalSemaphoresAsync);LOAD(hipDestroyExternalSemaphore);LOAD(hipModuleLoad);LOAD(hipModuleGetFunction);LOAD(hipModuleLaunchKernel);LOAD(hipModuleUnload);LOAD(hipGetErrorName);
+ LOAD(hipGetDevicePropertiesR0600);LOAD(hipModuleLoadData);LOAD(hipEventCreate);LOAD(hipEventRecord);LOAD(hipEventElapsedTime);LOAD(hipEventDestroy);LOAD(hipEventSynchronize);LOAD(hipHostMalloc);LOAD(hipInit);LOAD(hipRuntimeGetVersion);LOAD(hipGetDeviceCount);LOAD(hipDeviceGetName);LOAD(hipSetDevice);LOAD(hipMemGetInfo);LOAD(hipMalloc);LOAD(hipFree);LOAD(hipMemcpy);LOAD(hipMemcpyAsync);LOAD(hipMemsetAsync);LOAD(hipDeviceSynchronize);LOAD(hipStreamCreate);LOAD(hipStreamSynchronize);LOAD(hipStreamDestroy);LOAD(hipImportExternalMemory);LOAD(hipExternalMemoryGetMappedBuffer);LOAD(hipDestroyExternalMemory);LOAD(hipImportExternalSemaphore);LOAD(hipSignalExternalSemaphoresAsync);LOAD(hipWaitExternalSemaphoresAsync);LOAD(hipDestroyExternalSemaphore);LOAD(hipModuleLoad);LOAD(hipModuleGetFunction);LOAD(hipModuleLaunchKernel);LOAD(hipModuleUnload);LOAD(hipGetErrorName);
  #undef LOAD
+ }
+ DevicePropertiesR0600 Properties(int device){DevicePropertiesR0600 p{};Check(hipGetDevicePropertiesR0600(&p,device),"device properties");return p;}
+ int LoadModule(Handle*module,const char*path){
+  std::ifstream f(std::filesystem::u8path(path),std::ios::binary|std::ios::ate);
+  if(!f)throw std::runtime_error(std::string("module file missing: ")+path);
+  auto n=f.tellg();if(n<=0)throw std::runtime_error("empty module");std::vector<char>bytes(static_cast<size_t>(n));f.seekg(0);if(!f.read(bytes.data(),n))throw std::runtime_error("module read failed");
+  return hipModuleLoadData(module,bytes.data());
  }
  void EnableVmm(){Load(hipMemAddressReserve,"hipMemAddressReserve");Load(hipMemAddressFree,"hipMemAddressFree");Load(hipMemCreate,"hipMemCreate");Load(hipMemRelease,"hipMemRelease");Load(hipMemMap,"hipMemMap");Load(hipMemUnmap,"hipMemUnmap");Load(hipMemSetAccess,"hipMemSetAccess");Load(hipMemGetAllocationGranularity,"hipMemGetAllocationGranularity");}
  void EnableGraphs(){Load(hipStreamBeginCapture,"hipStreamBeginCapture");Load(hipStreamEndCapture,"hipStreamEndCapture");Load(hipGraphInstantiate,"hipGraphInstantiate");Load(hipGraphLaunch,"hipGraphLaunch");Load(hipGraphDestroy,"hipGraphDestroy");Load(hipGraphExecDestroy,"hipGraphExecDestroy");}

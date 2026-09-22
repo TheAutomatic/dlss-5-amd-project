@@ -43,8 +43,12 @@ inline const std::wstring&NativeLabRoot(){
  /* RE Engine's mod-loading chain may relocate DLLs to _storage_. Packaged assets stay beside re9.exe. */
  if(GetModuleFileNameW(nullptr,path,MAX_PATH)){
   std::wstring dir(path);size_t slash=dir.find_last_of(L"\\/");if(slash!=std::wstring::npos){dir.resize(slash);std::wstring local=dir+L"\\DLSS5-AMD";if(GetFileAttributesW((local+L"\\native-game-flags.txt").c_str())!=INVALID_FILE_ATTRIBUTES){root=local;return root;}}
+  if(h&&GetModuleFileNameW(h,path,MAX_PATH)){
+   std::wstring dir(path);size_t slash=dir.find_last_of(L"\\/");if(slash!=std::wstring::npos){dir.resize(slash);root=dir;return root;}
+  }
+  root=L".";return root;
  }
- throw std::runtime_error("DLSS5-AMD assets not found next to the DLL or the game EXE");
+ root=L".";return root;
 }
 inline std::wstring NativeLabPath(const wchar_t*relative){std::wstring p=NativeLabRoot();p+=L"\\";p+=relative;return p;}
 inline float NativeHalfToFloat(uint16_t h){uint32_t s=(h&0x8000u)<<16,e=(h>>10)&31u,m=h&1023u;uint32_t b;if(e==0){if(m==0)b=s;else{int sh=0;while(!(m&0x400u)){m<<=1;sh++;}m&=0x3ffu;b=s|((113u-sh)<<23)|(m<<13);}}else if(e==31)b=s|0x7f800000u|(m<<13);else b=s|((e+112u)<<23)|(m<<13);float f;std::memcpy(&f,&b,4);return f;}

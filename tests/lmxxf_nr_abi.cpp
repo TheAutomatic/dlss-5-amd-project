@@ -86,7 +86,7 @@ int main(int argc, char **argv)
                 "PrepareSession rejects non-D3D12 placeholder device");
         Require(api.RecordInputs(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED,
                 "RecordInputs stays unwired without PrepareSession");
-        Require(api.EnqueueHip(ctx, nullptr) == LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip stays unwired");
+        Require(api.EnqueueHip(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip stays unwired");
         Require(api.RecordOutputs(ctx, nullptr, nullptr) == LMXXF_NR_NOT_IMPLEMENTED,
                 "RecordOutputs stays unwired");
 

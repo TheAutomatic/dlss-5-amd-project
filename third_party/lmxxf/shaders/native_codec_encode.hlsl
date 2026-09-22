@@ -12,10 +12,27 @@ cbuffer CodecConstants : register(b0) {
     float ColorStrength;
     uint HdrMode;
     float4 Padding;
+    uint OutputRowPitch; uint3 Reserved;
 };
 #ifndef NATIVE_CODEC_SRGB_IO
 #define NATIVE_CODEC_SRGB_IO 0
 #endif
+#ifndef NATIVE_CODEC_EXPOSURE
+#define NATIVE_CODEC_EXPOSURE 0
+#endif
+#if NATIVE_CODEC_EXPOSURE
+Texture2D<float> GameExposure : register(t4);
+#endif
+float EffectivePaperWhite() {
+#if NATIVE_CODEC_EXPOSURE
+ float e=GameExposure.Load(int3(0,0,0));
+ float pre=asfloat(Reserved.y),scale=asfloat(Reserved.z);
+ float exposure=e*scale/pre;
+ return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+#else
+ return PaperWhiteScale;
+#endif
+}
 #ifndef NATIVE_CODEC_FIT
 #define NATIVE_CODEC_FIT 0
 #endif
@@ -58,9 +75,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     uint2 extent = max(SourceSize, uint2(1,1));
     uint2 p = SourceBase + min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(Size)), extent-1);
     #if NATIVE_CODEC_FIT
-    float3 value = max(fitted,0) / PaperWhiteScale;
+    float3 value = max(fitted,0) / EffectivePaperWhite();
 #else
-    float3 value = max(Original.Load(int3(p,0)).rgb,0) / PaperWhiteScale;
+    float3 value = max(Original.Load(int3(p,0)).rgb,0) / EffectivePaperWhite();
 #endif
     float3 shoulder = 0.75 + 0.25 * (1.0 - exp(-5.770780 * (value-0.75)));
     value = saturate(value <= 0.75 ? value : shoulder);

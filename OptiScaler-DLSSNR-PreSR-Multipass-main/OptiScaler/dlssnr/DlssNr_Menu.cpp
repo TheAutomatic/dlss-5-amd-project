@@ -293,11 +293,11 @@ void RenderMenu(Config* config, float menuResScale)
             }
 
             float transfer = config->DlssNrTransferStrength.value_or_default();
-            if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 2.0f, "%.2f"))
+            if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 1.0f, "%.2f"))
                 config->DlssNrTransferStrength = transfer;
 
             float colour = config->DlssNrColourStrength.value_or_default();
-            if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 4.0f, "%.2f"))
+            if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 1.0f, "%.2f"))
                 config->DlssNrColourStrength = colour;
 
             static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
@@ -673,7 +673,7 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::SeparatorText("How much of it lands");
 
         float transfer = config->DlssNrTransferStrength.value_or_default();
-        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 2.0f, "%.2f"))
+        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 1.0f, "%.2f"))
             config->DlssNrTransferStrength = transfer;
 
         ImGui::SameLine();
@@ -686,13 +686,11 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nblends between the two, so both ends are real pictures and everything between"
                        "\nthem is one too."
                        "\n\n0 gives back exactly what the upscaler produced. 1 is the model's picture."
-                       "\n\nAbove 1 carries on past it in the same direction, which is not something the"
-                       "\nmodel asked for -- use it to see what it is doing, then come back down. This"
-                       "\nis the control to push if you want more effect: Intensity belongs to the model"
+                       "\n\nThis is the control to push if you want more effect: Intensity belongs to the model"
                        "\nand it decides what to do with it.");
 
         float colour = config->DlssNrColourStrength.value_or_default();
-        if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 4.0f, "%.2f"))
+        if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 1.0f, "%.2f"))
             config->DlssNrColourStrength = colour;
 
         ImGui::SameLine();

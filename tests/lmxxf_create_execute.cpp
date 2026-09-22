@@ -85,8 +85,9 @@ struct BetweenCounter
     int hits = 0;
 };
 
-static void BetweenHit(void *ctx)
+static void BetweenHit(ID3D12CommandQueue *queue, void *ctx)
 {
+    Require(queue != nullptr, "BetweenHit queue not null");
     reinterpret_cast<BetweenCounter *>(ctx)->hits += 1;
 }
 

@@ -237,6 +237,11 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
+    if (session && pendingJob && api && api->table.CancelUnsubmitted)
+    {
+        api->table.CancelUnsubmitted(session, pendingJob);
+        pendingJob = nullptr;
+    }
     LmxxfCut::ClearPendingEnqueue();
     pendingJob = nullptr;
     if (!cmd || !frame.colour)
@@ -276,8 +281,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
-    fi.transfer_strength = Config::Instance()->DlssNrTransferStrength.value_or_default();
-    fi.color_strength = Config::Instance()->DlssNrColourStrength.value_or_default();
+    fi.transfer_strength = std::clamp(Config::Instance()->DlssNrTransferStrength.value_or_default(), 0.0f, 1.0f);
+    fi.color_strength = std::clamp(Config::Instance()->DlssNrColourStrength.value_or_default(), 0.0f, 1.0f);
     fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
     fi.model_scale = settings.modelScale;
 
@@ -298,7 +303,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         ++prepareFrameFailLogs;
         // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
         // drop host session so the next Record EnsureSession starts clean.
-        const bool rebindish = frameRc == LMXXF_NR_UNAVAILABLE || (err[0] && (std::strstr(err, "rebind") || std::strstr(err, "geometry")));
+        const bool rebindish = (err[0] && (std::strstr(err, "rebind") || std::strstr(err, "geometry")));
         if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
         {
             LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
@@ -426,9 +431,9 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
                 fi.color = frame.colour;
                 fi.color_state = static_cast<uint32_t>(frame.colourState);
-                fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
-                fi.transfer_strength = Config::Instance()->DlssNrTransferStrength.value_or_default();
-                fi.color_strength = Config::Instance()->DlssNrColourStrength.value_or_default();
+                fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
+                fi.transfer_strength = std::clamp(Config::Instance()->DlssNrTransferStrength.value_or_default(), 0.0f, 1.0f);
+                fi.color_strength = std::clamp(Config::Instance()->DlssNrColourStrength.value_or_default(), 0.0f, 1.0f);
                 fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
                 fi.model_scale = 1.0f;
 

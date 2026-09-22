@@ -5,6 +5,7 @@
 #include <d3d12.h>
 
 #include "LmxxfProductionOptions.h"
+#include "native_device_identity.h"
 #include "native_game_codec.h"
 #include "native_lab_paths.h"
 #include "native_game_rgb_input.h"
@@ -84,16 +85,19 @@ std::wstring DllDirectory()
     return dir;
 }
 
-std::wstring FindShaderDir()
+std::wstring FindShaderDir(const std::wstring &assets = {})
 {
     const std::wstring dll = DllDirectory();
     const std::wstring candidates[] = {
+        JoinPath(assets, L"shaders"),
         JoinPath(dll, L"shaders"),
-        JoinPath(dll, L"..\\..\\third_party\\lmxxf\\shaders"),
-        L"third_party\\lmxxf\\shaders",
+        L"shaders",
+        L"third_party\\lmxxf\\shaders", // dev fallback
     };
     for (const auto &c : candidates)
     {
+        if (c.empty())
+            continue;
         wchar_t full[MAX_PATH] {};
         GetFullPathNameW(c.c_str(), MAX_PATH, full, nullptr);
         if (FileExists(JoinPath(full, L"native_codec_encode.hlsl")))
@@ -106,11 +110,9 @@ std::wstring FindWeightsDir(const std::wstring &assets)
 {
     if (FileExists(JoinPath(assets, L"block0-ffn.f16")) || FileExists(JoinPath(assets, L"block0-ffn.f32")))
         return assets;
-    const std::wstring parent = JoinPath(assets, L"..");
-    wchar_t full[MAX_PATH] {};
-    GetFullPathNameW(parent.c_str(), MAX_PATH, full, nullptr);
-    if (FileExists(JoinPath(full, L"block0-ffn.f16")) || FileExists(JoinPath(full, L"block0-ffn.f32")))
-        return full;
+    const std::wstring sub = JoinPath(assets, L"weights");
+    if (FileExists(JoinPath(sub, L"block0-ffn.f16")) || FileExists(JoinPath(sub, L"block0-ffn.f32")))
+        return sub;
     wchar_t env[MAX_PATH] {};
     if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", env, MAX_PATH) && env[0])
     {
@@ -133,6 +135,12 @@ bool ResolveModulesDir(const std::wstring &assets, std::wstring *modulesDir)
     if (FileExists(JoinPath(hip, L"SHA256SUMS")))
     {
         *modulesDir = hip;
+        return true;
+    }
+    const std::wstring modules = JoinPath(assets, L"modules");
+    if (FileExists(JoinPath(modules, L"SHA256SUMS")))
+    {
+        *modulesDir = modules;
         return true;
     }
     const std::wstring nested = JoinPath(JoinPath(assets, L"native-game-tiled-assets"), L"HIP");
@@ -227,6 +235,7 @@ struct Job
     float transfer_strength = 1.0f;
     float color_strength = 1.0f;
     uint32_t debug_view = 0;
+    bool codec_passthrough = false;
 };
 
 struct Session
@@ -241,6 +250,7 @@ struct Session
     bool modulesValidated = false;
     bool hipPrepared = false;
     bool queueBound = false;
+    bool failed = false; /* Fail-closed poisoning */
     hip_reference::D3D12Bridge *bridge = nullptr;
     NativeGameCodec *encode = nullptr;
     NativeGameRgbInput *rgbInput = nullptr;
@@ -252,6 +262,11 @@ struct Session
 
     void TeardownCodecChain()
     {
+        if (bridge)
+        {
+            bridge->CancelUnsubmitted();
+            bridge->NotifyOutputSubmittedIfRecorded(queue);
+        }
         delete bridge;
         bridge = nullptr;
         hipPrepared = false;
@@ -277,6 +292,8 @@ struct Session
     {
         if (!device || !queue)
             return S_OK;
+        if (FAILED(device->GetDeviceRemovedReason()))
+            return DXGI_ERROR_DEVICE_REMOVED;
         ID3D12Fence *fence = nullptr;
         HRESULT hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
         if (FAILED(hr) || !fence)
@@ -327,11 +344,18 @@ struct Session
 
     ~Session()
     {
-        // GPU may still be reading codec/bridge resources; drain before teardown.
-        if (FAILED(DrainGpu()))
+        // Fail-closed safe teardown:
+        // If already poisoned or GPU drain fails or device lost, intentionally leak rather
+        // than freeing memory still touched by GPU (prevents hard crash/BSOD).
+        if (failed || FAILED(DrainGpu()))
         {
             AbandonSessionResources();
             return;
+        }
+        if (bridge)
+        {
+            bridge->CancelUnsubmitted();
+            bridge->NotifyOutputSubmittedIfRecorded(queue);
         }
         // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
         delete bridge;
@@ -358,6 +382,49 @@ struct Session
     }
 };
 
+void RequireSession(Session *s)
+{
+    if (!s)
+        throw std::runtime_error("session is null");
+    if (s->failed)
+        throw std::runtime_error("session is poisoned due to previous fatal error");
+}
+
+void ListContract(Session *s, ID3D12GraphicsCommandList *c)
+{
+    if (!c)
+        throw std::runtime_error("command list is null");
+    if (s->queue && c->GetType() != s->queue->GetDesc().Type)
+        throw std::runtime_error("command list type mismatch with session queue");
+    ID3D12Device *owner = nullptr;
+    HRESULT hr = c->GetDevice(IID_PPV_ARGS(&owner));
+    if (FAILED(hr) || !owner)
+        throw std::runtime_error("failed to query command list device");
+    bool same = NativeSameDevice(owner, s->device);
+    owner->Release();
+    if (!same)
+        throw std::runtime_error("command list device mismatch with session device");
+}
+
+void QueueContract(Session *s, ID3D12CommandQueue *q)
+{
+    if (!q)
+        throw std::runtime_error("command queue is null");
+    if (s->device)
+    {
+        ID3D12Device *owner = nullptr;
+        HRESULT hr = q->GetDevice(IID_PPV_ARGS(&owner));
+        if (FAILED(hr) || !owner)
+            throw std::runtime_error("failed to query command queue device");
+        bool same = NativeSameDevice(owner, s->device);
+        owner->Release();
+        if (!same)
+            throw std::runtime_error("command queue device mismatch with session device");
+    }
+    if (s->queue && !NativeSameDevice(q, s->queue))
+        throw std::runtime_error("command queue does not match session queue");
+}
+
 template <class Fn>
 int32_t Guard(Fn &&fn)
 {
@@ -372,6 +439,29 @@ int32_t Guard(Fn &&fn)
     catch (...)
     {
         return Fail(LMXXF_NR_FAILED, "unhandled exception");
+    }
+}
+
+template <class Fn>
+int32_t GuardSession(Session *s, Fn &&fn)
+{
+    if (s && s->failed)
+        return Fail(LMXXF_NR_UNAVAILABLE, "session is poisoned due to previous fatal error");
+    try
+    {
+        return fn();
+    }
+    catch (const std::exception &ex)
+    {
+        if (s)
+            s->failed = true;
+        return Fail(LMXXF_NR_FAILED, ex.what());
+    }
+    catch (...)
+    {
+        if (s)
+            s->failed = true;
+        return Fail(LMXXF_NR_FAILED, "unhandled exception; session poisoned");
     }
 }
 
@@ -427,7 +517,7 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
         session->assetsDir = assets;
         session->modulesDir = modulesDir;
         session->weightsDir = FindWeightsDir(assets);
-        session->shaderDir = FindShaderDir();
+        session->shaderDir = FindShaderDir(assets);
         session->hsacoCount = count;
         session->modulesValidated = true;
         if (LooksLikeObject(info->device) && LooksLikeObject(info->queue))
@@ -467,10 +557,11 @@ int32_t Destroy(void *context)
 
 int32_t PrepareSession(void *context)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareSession: null context");
+        RequireSession(session);
         if (!session->modulesValidated)
             return Fail(LMXXF_NR_UNAVAILABLE, "PrepareSession: modules not validated");
         if (!session->device || !session->queue)
@@ -486,10 +577,11 @@ int32_t PrepareSession(void *context)
 
 int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *job)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session || !info || !job)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
+        RequireSession(session);
         const uint32_t legacySize = 64;
         if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != legacySize) ||
             job->struct_size != sizeof(LmxxfNrJob))
@@ -500,9 +592,22 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "PrepareFrame: call PrepareSession with a live D3D12 queue first");
         if (!info->color || !info->color_width || !info->color_height)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: color resource and size required");
-        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
+        if (session->bridge && session->bridge->CurrentPhase() != hip_reference::D3D12Bridge::Phase::Ready)
+        {
+            session->bridge->CancelUnsubmitted();
+            if (session->bridge->CurrentPhase() == hip_reference::D3D12Bridge::Phase::OutputRecorded)
+            {
+                session->bridge->NotifyOutputSubmitted(session->queue);
+                session->DrainGpu();
+            }
+            if (session->bridge->CurrentPhase() != hip_reference::D3D12Bridge::Phase::Ready)
+                return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: previous frame consumer not yet submitted (bridge not Ready)");
+        }
+        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
         if ((info->flags & ~allowedFlags) != 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: unknown flags");
+        if (session->shaderDir.empty())
+            session->shaderDir = FindShaderDir(session->assetsDir);
         if (session->shaderDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: native_codec_encode.hlsl not found");
 
@@ -542,6 +647,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         {
             debug_view = 4; // Tint
         }
+        if (transfer_strength < 0.0f || transfer_strength > 1.0f || color_strength < 0.0f || color_strength > 1.0f)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: transfer_strength and color_strength must be in [0, 1]");
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
         // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
@@ -688,6 +795,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.transfer_strength = transfer_strength;
         session->job.color_strength = color_strength;
         session->job.debug_view = debug_view;
+        session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
         session->job.seed = 1;
         session->job.state = LMXXF_NR_JOB_PREPARED;
@@ -704,39 +812,82 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
 
 int32_t RecordInputs(void *context, void *job, void *command_list)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: null context");
         if (!session->hipPrepared)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "RecordInputs is not wired (HIP/codec next)");
+        RequireSession(session);
         auto *list = static_cast<ID3D12GraphicsCommandList *>(command_list);
         auto *j = static_cast<Job *>(job ? job : &session->job);
-        if (!list || !j || j->state < LMXXF_NR_JOB_PREPARED)
-            return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: need prepared job and command list");
+        if (!list || !j)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: need job and command list");
+        if (j->state != LMXXF_NR_JOB_PREPARED)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: job not in PREPARED state");
+        ListContract(session, list);
+
         session->encode->Record(list, {j->colorState}, 1.f);
+        if (j->codec_passthrough)
+        {
+            // Bypass HIP: Copy encoder output directly to rgbTex output so decoder receives it as neural input.
+            ID3D12Resource *src = session->encode->Output();
+            ID3D12Resource *dst = session->rgbTex->Output();
+            D3D12_RESOURCE_BARRIER barriers[2] {};
+            barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[0].Transition = {src, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                      D3D12_RESOURCE_STATE_COPY_SOURCE};
+            barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[1].Transition = {dst, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                      D3D12_RESOURCE_STATE_COPY_DEST};
+            list->ResourceBarrier(2, barriers);
+            list->CopyResource(dst, src);
+            std::swap(barriers[0].Transition.StateBefore, barriers[0].Transition.StateAfter);
+            std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
+            list->ResourceBarrier(2, barriers);
+            j->state = LMXXF_NR_JOB_PRODUCER_SUBMITTED;
+            SetError("");
+            return static_cast<int32_t>(LMXXF_NR_OK);
+        }
         session->rgbInput->Record(list, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         session->bridge->RecordInputCopy(list, session->rgbInput->PostBase(), nullptr);
-        j->state = LMXXF_NR_JOB_PREPARED;
+        j->state = LMXXF_NR_JOB_PRODUCER_SUBMITTED;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
 }
 
-int32_t EnqueueHip(void *context, void *job)
+int32_t EnqueueHip(void *context, void *job, void *command_queue)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: null context");
         if (!session->hipPrepared)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip is not wired (HIP/codec next)");
+        RequireSession(session);
         if (session->weightsDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE,
                         "EnqueueHip: weights not found (set LMXXF_WEIGHTS_DIR to tiled assets, not 0.24.2 HIP/)");
         auto *j = static_cast<Job *>(job ? job : &session->job);
-        session->bridge->EnqueueAfterProducer(j->seed, false);
-        j->state = LMXXF_NR_JOB_NR_COMPLETE;
+        if (!j)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: null job");
+        if (j->state != LMXXF_NR_JOB_PRODUCER_SUBMITTED && j->state != LMXXF_NR_JOB_CONSUMER_COMPLETE)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: job not in PRODUCER_SUBMITTED or CONSUMER_COMPLETE state");
+        if (j->codec_passthrough)
+        {
+            if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+                j->state = LMXXF_NR_JOB_NR_COMPLETE;
+            SetError("");
+            return static_cast<int32_t>(LMXXF_NR_OK);
+        }
+        auto *targetQueue = static_cast<ID3D12CommandQueue *>(command_queue ? command_queue : session->queue);
+        QueueContract(session, targetQueue);
+        session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
+        if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+            j->state = LMXXF_NR_JOB_NR_COMPLETE;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -744,24 +895,36 @@ int32_t EnqueueHip(void *context, void *job)
 
 int32_t RecordOutputs(void *context, void *job, void *command_list)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordOutputs: null context");
         if (!session->hipPrepared)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "RecordOutputs is not wired (HIP/codec next)");
+        RequireSession(session);
         auto *list = static_cast<ID3D12GraphicsCommandList *>(command_list);
         auto *j = static_cast<Job *>(job ? job : &session->job);
         if (!list || !j)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordOutputs: need job and command list");
-        session->bridge->RecordOutputReadable(list);
-        session->rgbTex->Record(list);
+        if (j->state != LMXXF_NR_JOB_NR_COMPLETE && j->state != LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordOutputs: job not in NR_COMPLETE or PRODUCER_SUBMITTED state");
+        ListContract(session, list);
+
+        if (!j->codec_passthrough)
+        {
+            session->bridge->RecordOutputReadable(list);
+            session->rgbTex->Record(list);
+        }
         if (!session->decode)
             return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode missing");
+        NativeCodecParameters codecParams;
+        codecParams.transfer_strength = j->transfer_strength;
+        codecParams.color_strength = j->color_strength;
+        codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view);
         session->decode->Record(list,
                                 {D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, j->colorState},
-                                1.f, j->transfer_strength, j->color_strength, j->debug_view);
+                                1.f, codecParams);
         if (session->decode->BufferOutput())
         {
             if (!session->decodeDisplay)
@@ -803,17 +966,24 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
     });
 }
 
-int32_t ExecuteAfterProducer(void *context, void *job)
+int32_t ExecuteAfterProducer(void *context, void *job, void *command_queue)
 {
-    return EnqueueHip(context, job);
+    return EnqueueHip(context, job, command_queue);
 }
 
-int32_t CancelUnsubmitted(void *context, void *)
+int32_t CancelUnsubmitted(void *context, void *job)
 {
-    return Guard([&] {
-        if (!context)
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
+        if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
-        return Fail(LMXXF_NR_NOT_IMPLEMENTED, "CancelUnsubmitted is not wired");
+        auto *j = static_cast<Job *>(job ? job : &session->job);
+        if (j)
+            j->state = LMXXF_NR_JOB_RETIRED;
+        if (session->bridge)
+            session->bridge->CancelUnsubmitted();
+        SetError("");
+        return static_cast<int32_t>(LMXXF_NR_OK);
     });
 }
 int32_t Poll(void *context, void *job, uint32_t *state)
@@ -831,21 +1001,24 @@ int32_t Poll(void *context, void *job, uint32_t *state)
 }
 int32_t Retire(void *context, void *job)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
         auto *j = static_cast<Job *>(job ? job : &session->job);
         if (j)
             j->state = LMXXF_NR_JOB_RETIRED;
+        if (session->bridge)
+            session->bridge->NotifyOutputSubmittedIfRecorded(session->queue);
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
 }
 int32_t ResetHistory(void *context)
 {
-    return Guard([&] {
-        if (!context)
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
+        if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
@@ -853,8 +1026,8 @@ int32_t ResetHistory(void *context)
 }
 int32_t Drain(void *context)
 {
-    return Guard([&] {
-        auto *session = static_cast<Session *>(context);
+    auto *session = static_cast<Session *>(context);
+    return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
         const HRESULT hr = session->DrainGpu();
@@ -874,6 +1047,8 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         char text[256] {};
         if (!session)
             std::snprintf(text, sizeof text, "no session");
+        else if (session->failed)
+            std::snprintf(text, sizeof text, "lmxxf poisoned (fatal error)");
         else if (!session->modulesValidated)
             std::snprintf(text, sizeof text, "lmxxf runtime stub (no modules path)");
         else
