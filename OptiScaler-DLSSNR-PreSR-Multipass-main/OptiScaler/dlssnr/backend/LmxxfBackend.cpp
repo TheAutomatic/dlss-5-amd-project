@@ -283,10 +283,20 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         return nullptr;
     }
     const bool ineligible = logical->IsSplitIneligible();
+    const char *reason = logical->SplitRejectionReason();
     logical->Release();
     if (ineligible)
     {
-        SetStatus("lmxxf: same-frame split ineligible (original Color; NO NR)");
+        char status[128] {};
+        std::snprintf(status, sizeof(status), "lmxxf: split ineligible: %s (NO NR)",
+                      reason ? reason : "unknown");
+        SetStatus(status);
+        static unsigned ineligibleCount = 0;
+        if (ineligibleCount < 5 || (ineligibleCount % 60) == 0)
+        {
+            LOG_WARN("{}", status);
+            ineligibleCount++;
+        }
         return nullptr;
     }
     if (!EnsureSession())

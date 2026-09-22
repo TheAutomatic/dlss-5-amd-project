@@ -243,6 +243,7 @@ jobs:
             - **Live Parameter Controls:** Real-time sliders for `Detail strength` and `Colour strength`, plus live `Debug view` channel inspection in the Ins menu.
             - **User-Supplied Weights:** You must prepare model weights (`native-game-tiled-assets/` for lmxxf, or `dlssnr_on_amd_weights.bin` for danielblnc).
             - **Installer Update:** Updated the installer to support simultaneous dual-backend installation (users must provide their own weights and place them in the same directory as the installer).
+            - **Known Issue:** *Palworld* (UE5) currently falls back to original Color on the `lmxxf` backend due to command list split ineligibility; a targeted fix for UE5 command lists will be released in an upcoming update.
 
             ### 中文
             - **重大架构里程碑：** 正式引入开源 **`lmxxf` HIP 神经渲染后端**（dlss5-on-amd-9070xt-porting）。
@@ -252,6 +253,7 @@ jobs:
             - **动态调参滑块：** Ins 菜单提供 `Detail strength` 与 `Colour strength` 连续调节滑块，以及实时的 `Debug view` 通道检查。
             - **自备权重：** 需自备模型权重（lmxxf 需 `native-game-tiled-assets/`，danielblnc 需 `dlssnr_on_amd_weights.bin`）。
             - **安装器更新：** 同步更新安装器，支持双后端同步安装（需要自备权重，并拷贝至与安装器同目录）。
+            - **已知问题：** 《幻兽帕鲁》（Palworld / UE5）当前在 `lmxxf` 后端下因虚幻引擎命令列表切分准入（split ineligible）暂不可用，待后续版本修复。
 
             - Corresponding source: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.

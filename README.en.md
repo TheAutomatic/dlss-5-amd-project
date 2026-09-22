@@ -300,6 +300,9 @@ When reporting issues, please include:
 4. Game title, output resolution, and FSR mode;
 5. Relevant `.log` files listed above.
 
+### 4. Known Issues
+- **Palworld (UE5 / Unreal Engine 5)**: When running with the `lmxxf` backend, Palworld currently falls back to original color output without neural reconstruction due to Unreal Engine's command list split barriers (`same-frame split ineligible`). This is a known issue under active investigation and will be addressed in an upcoming update specifically targeting UE5 command list recording patterns.
+
 ---
 
 ## 6. Attributions & Licenses

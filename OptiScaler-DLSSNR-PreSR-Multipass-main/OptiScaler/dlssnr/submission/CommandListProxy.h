@@ -44,7 +44,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     {
         splitIneligible = true;
         if (!splitIneligibleReason)
+        {
             splitIneligibleReason = reason;
+            LOG_WARN("CommandListProxy {:p} MarkSplitIneligible: {}", (void*)this, reason ? reason : "unknown");
+        }
     }
 
 
@@ -136,7 +139,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                 return E_NOINTERFACE;
             const HRESULT hr = cur->QueryInterface(riid, ppv);
             if (SUCCEEDED(hr))
+            {
                 rawInterfaceEscaped = true;
+                LOG_WARN("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X}", (void*)this, riid.Data1);
+            }
             return hr;
         }
         return E_NOINTERFACE;
