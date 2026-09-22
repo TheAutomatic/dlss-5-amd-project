@@ -10,7 +10,7 @@
 
 ---
 
-## 📢 1.9.0 更新日志 (Changelog)
+## 1. 1.9.0 更新日志 (Changelog)
 
 本次 1.9.0 是一次**重大的架构级里程碑升级**。我们正式引入了开源的 [**`lmxxf` HIP 神经渲染后端**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)。
 
@@ -18,7 +18,7 @@
 
 1. **全新引入 `lmxxf` 神经渲染后端**
    - **拥抱开源算力核心**：在完整保留并兼容原有 `danielblnc` 后端的基础上，全新接入开源 HIP 神经渲染后端。
-   - **同帧执行契约（Same-Frame Execution Contract）**：将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。相较 lmxxf 原版，理论上支持在现代虚幻引擎及《燕云十六声》等 FSR 后依然有复杂 GPU 活动进行帧渲染的游戏中实现真正的同帧神经渲染（DLSS5）。
+   - **主队列同帧同步执行（Same-Frame Queue Execution）**：将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。相较 lmxxf 原版，理论上支持在现代虚幻引擎及《燕云十六声》等 FSR 后依然有复杂 GPU 活动进行帧渲染的游戏中实现真正的同帧神经渲染（DLSS5）。
    - **支持 DLSS / XeSS 游戏输入**：充分发挥 OptiScaler 的通用代理接入优势，无需游戏原生支持 FSR，直接拦截游戏原本发给 DLSS / XeSS 的输入缓冲（Color / Motion Vectors / Depth）送入 lmxxf 神经降噪，再转接 FFX/FSR 完成超分辨率重建，让仅支持 DLSS 的游戏也能在 AMD 显卡上享受 DLSS5 体验。
    - **双后端无缝兼容与共存**：保持完整向后兼容。用户可在安装时自由选择安装哪一个后端，或两者共存；在 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 自由切换，后续将支持在 Ins 菜单内动态热切换。
    - **内存与稳定性优化**：优化 `fast_prefix` 加速模式，跳过无用的 201MB 噪声 Buffer 分配，显著降低主机内存占用与初始化耗时；强化伪装 NVIDIA（Fake NVAPI）时的 GPU LUID 智能匹配，避免多显卡或驱动欺骗时跨卡崩溃。
@@ -30,7 +30,7 @@
 2. **安装器与卸载器全面重构升级**
    - **双后端智能检测与引导**：安装器（`Setup.bat` / `tools/install-amd-presr.ps1`）能够自动检测当前环境中是否具备 `danielblnc` 或 `lmxxf` 的依赖文件；若两者皆备，会交互式询问用户选择安装哪一个后端，或同时部署两者并配置默认后端。
    - **覆盖与共存逻辑**：选择同一后端时自动执行安全覆盖更新；选择不同后端时支持平滑共存部署，若想更换后端只需重新运行脚本或修改 `OptiScaler.ini`。
-   - **卸载保护机制**：卸载脚本（`Uninstall_OptiScaler_NR.bat`）增加路径防穿越保护，并严格保留用户的模型权重文件（`native-game-tiled-assets/` 与 `dlssnr_on_amd_weights.bin`），避免误删数 G 的权重资产。
+   - **卸载保护机制**：卸载脚本（`Uninstall_OptiScaler_NR.bat`）增加路径防穿越保护，并默认保留用户的模型权重文件（`native-game-tiled-assets/` 与 `dlssnr_on_amd_weights.bin`），避免重复下载大体积资产。
 
 3. **菜单（Ins Menu）全面净化与画质原生动态调参**
    - **智能菜单过滤**：在 `lmxxf` 模式下自动隐藏 Daniel 专属的无效选项（如 passes、slots、new wait、实验性 RTGI 等），避免设置混淆。
@@ -39,7 +39,7 @@
 
 ---
 
-## 站在巨人的肩膀上：技术传承与相比前人
+## 2. 站在巨人的肩膀上：技术传承与相比前人
 
 本项目并非凭空产生，而是建立在开源图形社区众多先驱者的卓越成果之上：
 
@@ -49,17 +49,78 @@
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 首次把 DLSS 神经渲染接进 OptiScaler，并提出在超分前运行多 pass 的 Pre-SR 架构 | 继承其 OptiScaler 代码基底与 Pre-SR 调度管线 |
 | **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体（0.3.0 / 0.3.1） | **不改动其核心**，按规范接口调用；并针对 0.3.1 的 1 像素 Draw 等待补齐状态保护，确保在 DLSS/XeSS 游戏上安全运行 |
-| **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 逆向恢复 71 块网络并移植到 AMD HIP 的开源神经渲染算力核心（首发 RX 9070 XT） | 建立**同帧执行契约（Same-frame Contract）**；开发标准版本化 C-ABI 独立运行时（`LmxxfNrRuntime` 并反哺合并至上游）；打通 OptiScaler 动态接入；增加动态色彩/细节无级滑条 |
-| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | 开源 HDR / 色彩渲染 Addon（MIT） | `dlssnr.hlsl` 色彩合成算法来源（全文见 `Licenses/RenoDX_ATTRIBUTION.txt`） |
+| **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 逆向恢复 71 块网络并移植到 AMD HIP 的开源神经渲染算力核心 | **接入 OptiScaler 通用代理框架以兼容更多纯 DLSS / XeSS 游戏**；实现主队列同帧同步执行；开发标准版本化 C-ABI 独立运行时（`LmxxfNrRuntime` 并反哺合并至上游）；增加动态色彩/细节无级滑条等 |
+| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | 开源 HDR / 色彩渲染 Addon | `dlssnr.hlsl` 色彩合成算法来源（全文见 `Licenses/RenoDX_ATTRIBUTION.txt`） |
 
 ---
 
-## 双后端架构解析与性能实测
+## 3. 安装指南 (Installation Guide)
+
+### 压缩包内文件清单
+| 文件/目录 | 作用 |
+|---|---|
+| `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
+| `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 双后端切换与参数选项） |
+| `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
+| `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
+| `Uninstall_OptiScaler_NR.bat` / `.ps1` | 智能卸载器（安装时自动同步至游戏目录，安全防误删） |
+| `tools\` | 内部构建、验证与切换辅助脚本 |
+| `Licenses\` | 第三方开源许可证文本 |
+| `README.md` / `README.en.md` | 本使用文档（中英双语） |
+
+> **提示**：为遵守各开源协议与版权约束，本压缩包**不随包分发** NVIDIA 专有二进制文件、原作者安装器或未授权模型权重。
+
+---
+
+### 第一步：准备对应后端的文件
+
+你可以根据需要准备以下任意一种（或两种都准备）：
+
+#### 选项 A：准备 `lmxxf` 后端文件
+- 准备 `LmxxfNrRuntime.dll`（可从本项目 Release 或上游构建获取）；
+- 算子模块目录 `lmxxf-modules\`（包含 71 个 `.hsaco` 与 `SHA256SUMS`）；
+- 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
+- 模型权重目录 `native-game-tiled-assets\`；
+- 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
+
+#### 选项 B：准备 `danielblnc` 后端文件
+- 准备 `dlssnr_on_amd_setup.exe` 与 `nvngx_dlssnr.dll`（推荐，安装器会自动调用生成 weights）；
+- 或者放入已经生成好的 `version.dll` 与 `dlssnr_on_amd_weights.bin`；
+- 同样放在与 `Setup.bat` 相同的解压目录下。
+
+---
+
+### 第二步：运行安装器（推荐，一键全自动）
+
+1. 解压本 Release 包到任意临时目录；
+2. 将准备好的后端文件与 `Setup.bat` 放在同一目录下；
+3. **确认已完全退出游戏**；
+4. **双击运行 `Setup.bat`**：
+   - 弹出文件夹选择框，选中 **游戏主程序 exe 所在的目录**（例如 `...\Binaries\Win64\`）；
+   - 安装器自动扫描检测你的文件，若同时检测到两个后端，会弹出菜单让你选择安装哪一个，或两者皆装；
+   - 按照提示选择你要注入的 **代理 DLL 名称**（默认为 `dxgi.dll`，推荐；也支持 `winmm.dll`、`d3d12.dll` 等，**不要选 `dinput8.dll`**）；
+   - 安装器自动处理重命名、防双重注入清理、依赖部署，并配置 `OptiScaler.ini`。
+
+---
+
+### 第三步：手动安装（高级玩家）
+
+若你熟悉游戏模组手动放置，可直接将文件拷贝至游戏主程序目录：
+1. 将 `OptiScaler.dll` 重命名为你选择的代理名称（如 `dxgi.dll`）放入游戏目录；
+2. 将 `OptiScaler.ini` 和 `OptiScaler\` 依赖文件夹复制到游戏目录；
+3. **部署后端**：
+   - **若使用 `lmxxf`**：将 `LmxxfNrRuntime.dll`、`lmxxf-modules\`、`shaders\`、`native-game-tiled-assets\` 放入游戏目录；
+   - **若使用 `danielblnc`**：将原作者 `version.dll` 复制三份，分别命名为 `dlssnr_amd_pass1.dll`、`dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll`；将 `dlssnr_on_amd_weights.bin` 放入游戏目录（**切勿保留名为 `version.dll` 的原作者文件**，以免冲突）；
+4. 打开 `OptiScaler.ini`，在 `[DlssNr]` 中设置 `Enabled = true`，并通过 `NrBackend = lmxxf` 或 `NrBackend = daniel` 指定当前生效的后端。
+
+---
+
+## 4. 双后端架构解析与性能实测
 
 本项目目前同时支持两大技术路线的 AMD 神经渲染后端，用户可根据自身硬件与喜好自由选择：
 
 ```
-                           ┌──► [lmxxf 后端]   ──► 开源 HIP 算子 / 同帧执行 / RX 9070 XT 优化
+                           ┌──► [lmxxf 后端]   ──► 开源 HIP 算子 / 主队列同帧同步 / 深度调优
 游戏 DLSS/XeSS 输入 ──► OptiScaler ──┤
                            └──► [daniel 后端] ──► 多槽调度 / 0.3.1 兼容 / 跨系列通用
                                        │
@@ -95,76 +156,15 @@
   - 《燕云十六声》等高负载游戏极致画质下建议设置为 **≥ 3 槽**；
   - 显存开销极小：每槽仅为渲染分辨率（DLSS 输入）的一张 FP16 纹理（4K 输出配质量档 1440p 渲染仅约 29 MB，原生 4K 仅约 66 MB），按所选数量按需分配。
 
-### 二、`lmxxf` 后端：开源 HIP 算力核心与同帧执行契约
+### 二、`lmxxf` 后端：开源 HIP 算力核心与同帧同步调度
 
-- **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对 RDNA4（如 RX 9070 XT）进行汇编级优化，最新版已引入 LDS 局部作用域栅栏与 C32 CU 模式；
-- **同帧执行契约**：OptiScaler 在当前帧的命令列表提交前完成输入录制与外部 Fence 编排，使网络推理与主渲染管线在同一队列周期内紧密衔接，彻底消除外部多进程等待延迟；
+- **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对现代 RDNA 架构进行汇编级优化，最新版已引入 LDS 局部作用域栅栏与 C32 CU 模式；
+- **主队列同帧同步执行**：OptiScaler 在当前帧的命令列表提交前完成输入录制与外部 Fence 编排，使网络推理与主渲染管线在同一队列周期内紧密衔接，彻底消除外部多进程等待延迟；
 - **原生参数支持**：无需重启游戏，可在 Ins 菜单内直接调整细节锐度与色彩校正滑条。
 
 ---
 
-## 3. 安装指南
-
-### 压缩包内文件清单
-| 文件/目录 | 作用 |
-|---|---|
-| `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
-| `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 双后端切换与参数选项） |
-| `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
-| `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
-| `Uninstall_OptiScaler_NR.bat` / `.ps1` | 智能卸载器（安装时自动同步至游戏目录，安全防误删） |
-| `tools\` | 内部构建、验证与切换辅助脚本 |
-| `Licenses\` | 第三方开源许可证文本 |
-| `README.md` / `README.en.md` | 本使用文档（中英双语） |
-
-> **提示**：为遵守各开源协议与版权约束，本压缩包**不随包分发** NVIDIA 专有二进制文件、原作者安装器或未授权模型权重。
-
----
-
-### 第一步：准备对应后端的文件
-
-你可以根据需要准备以下任意一种（或两种都准备）：
-
-#### 选项 A：准备 `lmxxf` 后端文件
-- 从 lmxxf 仓库下载编译好的 `LmxxfNrRuntime.dll`（或本项目的 release 预编译包）；
-- 算子模块目录 `lmxxf-modules\`（包含 71 个 `.hsaco` 与 `SHA256SUMS`）；
-- 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
-- 模型权重目录 `native-game-tiled-assets\`。
-- 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
-
-#### 选项 B：准备 `danielblnc` 后端文件
-- 准备 `dlssnr_on_amd_setup.exe` 与 `nvngx_dlssnr.dll`（推荐，安装器会自动调用生成 weights）；
-- 或者放入已经生成好的 `version.dll` 与 `dlssnr_on_amd_weights.bin`。
-- 同样放在与 `Setup.bat` 相同的解压目录下。
-
----
-
-### 第二步：运行安装器（推荐，一键全自动）
-
-1. 解压本 Release 包到任意临时目录。
-2. 将准备好的后端文件与 `Setup.bat` 放在同一目录下。
-3. **确认已完全退出游戏**。
-4. **双击运行 `Setup.bat`**：
-   - 弹出文件夹选择框，选中 **游戏主程序 exe 所在的目录**（例如 `...\Binaries\Win64\`）；
-   - 安装器自动扫描检测你的文件，若同时检测到两个后端，会弹出菜单让你选择安装哪一个，或两者皆装；
-   - 按照提示选择你要注入的 **代理 DLL 名称**（默认为 `dxgi.dll`，推荐；也支持 `winmm.dll`、`d3d12.dll` 等，**不要选 `dinput8.dll`**）；
-   - 安装器自动处理重命名、防双重注入清理、依赖部署，并配置 `OptiScaler.ini`。
-
----
-
-### 第三步：手动安装（高级玩家）
-
-若你熟悉游戏模组手动放置，可直接将文件拷贝至游戏主程序目录：
-1. 将 `OptiScaler.dll` 重命名为你选择的代理名称（如 `dxgi.dll`）放入游戏目录；
-2. 将 `OptiScaler.ini` 和 `OptiScaler\` 依赖文件夹复制到游戏目录；
-3. **部署后端**：
-   - **若使用 `lmxxf`**：将 `LmxxfNrRuntime.dll`、`lmxxf-modules\`、`shaders\`、`native-game-tiled-assets\` 放入游戏目录；
-   - **若使用 `danielblnc`**：将原作者 `version.dll` 复制三份，分别命名为 `dlssnr_amd_pass1.dll`、`dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll`；将 `dlssnr_on_amd_weights.bin` 放入游戏目录（**切勿保留名为 `version.dll` 的原作者文件**，以免冲突）；
-4. 打开 `OptiScaler.ini`，在 `[DlssNr]` 中设置 `Enabled = true`，并通过 `NrBackend = lmxxf` 或 `NrBackend = daniel` 指定当前生效的后端。
-
----
-
-## 4. 可选功能：3倍及以上多帧生成（Frame Generation）
+## 5. 可选功能：3倍及以上多帧生成（Frame Generation）
 
 <details>
 <summary><strong>👉 点击展开：3倍及以上多帧生成方案（Arturs DLSS Enabler / Intel XeFG）</strong></summary>
@@ -217,7 +217,7 @@
 
 ---
 
-## 5. 游戏内设置与控制
+## 6. 游戏内设置与控制
 
 1. 启动游戏，进入游戏 3D 渲染画面。
 2. 按键盘上的 **Insert (Ins)** 键呼出 OptiScaler 控制菜单。
@@ -239,22 +239,41 @@
 
 ---
 
-## 6. 排错、日志定位与卸载
+## 7. 排错、日志定位与卸载
 
 ### 一、卸载说明
 1. 进入**游戏主程序目录**；
 2. 双击运行 **`Uninstall_OptiScaler_NR.bat`**；
 3. 卸载器会自动列出计划移除的文件与目录，并交互式询问是否保留备份文件夹；输入 `Y` 确认后执行安全清理；
-4. **资产安全保护**：卸载脚本经过严格安全审计，**绝对不会删除**用户的权重文件（`native-game-tiled-assets/` 与 `dlssnr_on_amd_weights.bin`）以及 `nvngx_dlssnr.dll`。
+4. **权重保留**：卸载脚本默认设计为保留权重文件夹（`native-game-tiled-assets/` 与 `dlssnr_on_amd_weights.bin`）以及 `nvngx_dlssnr.dll`，避免用户后续重装时需要重复下载大体积资产。
 
-### 二、日志定位
+### 二、日志定位与排错
+
 排查问题时，请查看游戏主程序目录（或 XBOX PC 的 `_storage_` 目录）生成的日志：
-- `OptiScaler.log`：OptiScaler 核心主日志（检查注入与初始化）；
+- `OptiScaler.log`：OptiScaler 核心主日志（检查注入、初始化与各后端创建状态）；
 - `amd_bridge.log`：AMD 神经渲染桥接层日志；
 - `amd_presr.log`：Pre-SR 调度管线日志；
 - `dlssnr_on_amd.log`：Daniel 后端专用运行日志。
 
-**微软商店版 / XBOX PC 特殊提示**：由于系统文件虚拟化映射，部分游戏会在游戏 exe 同级生成名为 **`_storage_`** 的文件夹，日志与生成文件可能会写入此处，请在此目录同步排查。
+#### 1. `lmxxf` 后端专属排错
+- **状态栏显示 `waiting` 或无法启用**：
+  - 打开 `OptiScaler.log`，搜索 `Lmxxf` 关键字；
+  - 检查游戏目录是否缺失 `LmxxfNrRuntime.dll`；
+  - 检查 `lmxxf-modules\` 目录是否完整存在，且内部包含 `SHA256SUMS` 和对应的 `.hsaco` 算子文件；
+  - 检查 `shaders\` 目录是否存在且包含 `native_codec_encode.hlsl` 等着色器。
+- **提示缺少权重或初始化失败**：
+  - 确认游戏目录中是否存在 `native-game-tiled-assets\` 权重文件夹。
+- **画面异常或未执行降噪**：
+  - 检查当前渲染分辨率：lmxxf 当前仅支持超分前输入分辨率 **≤ 1080p**。若在 4K 下开启“质量档”（渲染分辨率为 1440p）会超出模型切片上限，请切换为“性能档”（1080p 渲染）或“超级性能档”（720p 渲染）。
+
+#### 2. `danielblnc` 后端专属排错
+- **状态栏未显示 `AMD NR runtime: 0.3.x`**：
+  - 检查游戏目录是否存在 `dlssnr_amd_pass1.dll`（及 pass2/pass3）以及 `dlssnr_on_amd_weights.bin`；
+  - 确认游戏目录中**没有多余的原作者 `version.dll`** 与代理文件冲突；
+  - 查看 `dlssnr_on_amd.log` 排查底层报错。
+
+#### 3. 微软商店版 / XBOX PC 特殊提示
+由于系统文件虚拟化映射，部分微软商店或 XBOX PC 游戏会在游戏 exe 同级生成名为 **`_storage_`** 的文件夹，日志与生成文件可能会写入此处，请在此目录同步排查。
 
 ### 三、问题反馈格式
 若遇到无法解决的崩溃或异常，提交 Issue 时请提供：
@@ -266,18 +285,18 @@
 
 ---
 
-## 7. 署名与许可 (Attributions & Licenses)
+## 8. 署名与许可 (Attributions & Licenses)
 
 代码链与开源传承（自上而下）：  
 [OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → **本仓库 (TheAutomatic)**。
 
-- [**OptiScaler**](https://github.com/optiscaler/OptiScaler) (GPL-3.0) — 通用超分辨率与神经渲染代理框架；
-- [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) (GPL-3.0) — 初始接入 DLSS-NR；
-- [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) — Pre-SR 超分前执行与 Multi-Pass 架构；
-- [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — AMD Pre-SR 桥接方案；
-- [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — AMD 神经渲染 0.3.1 / 0.3.0 运行时核心；
-- [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — 开源 HIP 神经渲染算力核心与 71 块网络还原；
-- [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) (MIT) — `dlssnr.hlsl` 色彩通道合成算法；
-- **本项目**：多槽调度架构、同帧执行契约（Same-frame Contract）、C-ABI 标准化运行时与 PR 反哺、0.3.1 状态冻结/恢复、双后端共存与智能安装器。
+- [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**：通用超分辨率与神经渲染代理框架；
+- [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) — **GPL-3.0 License**：初始接入 DLSS-NR；
+- [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) — **GPL-3.0 License**：Pre-SR 超分前执行与 Multi-Pass 架构；
+- [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**：AMD Pre-SR 桥接方案；
+- [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**：原作者保留所有权利，禁止未经授权重新分发，本项目不随包分发其二进制，采用外部检测安装方式对接；
+- [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**：开源 HIP 神经渲染算力核心与 71 块网络还原；
+- [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**：`dlssnr.hlsl` 色彩通道合成算法；
+- **本项目 (TheAutomatic / dlss-5-amd-project)** — **GPL-3.0 License**：多槽调度架构、主队列同帧同步执行、C-ABI 标准化运行时与 PR 反哺、0.3.1 状态冻结/恢复、双后端共存与智能安装器。
 
 本项目不含 NVIDIA 专有二进制文件、原作者闭源安装工具或未授权分发资产。使用时请遵循各上游开源协议。
