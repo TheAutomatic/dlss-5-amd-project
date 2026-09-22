@@ -2,19 +2,19 @@
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
-  Copies the original author's 0.3.1 or 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
+  Copies danielblnc's 0.3.1 or 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
-  Only installs this project. Does not leave original-author version.dll in the game.
+  Only installs this project. Does not leave danielblnc's version.dll in the game.
 
   Put these in the SAME folder as Setup.ps1 (the package root):
     OptiScaler.dll              this fork
     OptiScaler.ini              optional
     OptiScaler\                 FFX / XeSS / Agility deps
-    version.dll                 author AMD NR 0.3.1 or 0.3.0 (copied to pass1-3)
-    nvngx_dlssnr.dll            optional, to generate weights with original-author setup
-    dlssnr_on_amd_setup.exe     optional, original author's 0.3.1 / 0.3.0 setup
+    version.dll                 danielblnc AMD NR 0.3.1 or 0.3.0 (copied to pass1-3)
+    nvngx_dlssnr.dll            optional, to generate weights with danielblnc setup
+    dlssnr_on_amd_setup.exe     optional, danielblnc 0.3.1 / 0.3.0 setup
     dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE
@@ -54,7 +54,7 @@ function Fail([string]$msg) {
 }
 
 # Catch errors outside the individual file-operation handlers (for example,
-# an invalid author setup executable). The batch also catches parser/parameter
+# an invalid danielblnc setup executable). The batch also catches parser/parameter
 # binding failures, which happen before this script body can run.
 trap { Fail ("Unexpected install error: " + $_.Exception.Message) }
 
@@ -352,7 +352,7 @@ function Find-FirstFile([string[]]$paths) {
     return $null
 }
 
-# Hash: only known author runtimes are supported. The RVA layout is pinned to
+# Hash: only known danielblnc runtimes are supported. The RVA layout is pinned to
 # each binary — a different build will not run correctly. Fail closed.
 # 0.3.0 = AmdLayout.h kAmd03; 0.3.1 = kAmd031 (mapped 2026-09-16).
 $expectedA030 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
@@ -506,7 +506,7 @@ if ($installDaniel) {
         $srcNv = Join-Path $Root 'nvngx_dlssnr.dll'
         if (Test-Path -LiteralPath $srcNv -PathType Leaf) {
             Copy-Item -LiteralPath $srcNv -Destination (Join-Path $game 'nvngx_dlssnr.dll') -Force
-            Write-Host 'Copied nvngx_dlssnr.dll into the game folder (original-author runtime expects it there).' -ForegroundColor Green
+            Write-Host 'Copied nvngx_dlssnr.dll into the game folder (danielblnc runtime expects it there).' -ForegroundColor Green
             $nv = Join-Path $game 'nvngx_dlssnr.dll'
         }
     }
@@ -514,16 +514,16 @@ if ($installDaniel) {
     if ((-not $srcA -or -not $weights) -and (Test-Path -LiteralPath $setup -PathType Leaf)) {
         Write-Host ''
         Write-Host 'version.dll and/or weights.bin not found yet.' -ForegroundColor Yellow
-        Write-Host 'Launching original-author setup (dlssnr_on_amd_setup.exe) to create them…' -ForegroundColor Yellow
+        Write-Host 'Launching danielblnc setup (dlssnr_on_amd_setup.exe) to create them…' -ForegroundColor Yellow
         if ($nv) { Write-Host "  nvngx_dlssnr found: $nv" } else {
             Write-Host '  NOTE: no nvngx_dlssnr.dll next to Setup.bat or in the game folder.' -ForegroundColor Yellow
-            Write-Host '  The original-author setup will ask you to locate it if it needs one for weights.' -ForegroundColor Yellow
+            Write-Host '  The danielblnc setup will ask you to locate it if it needs one for weights.' -ForegroundColor Yellow
         }
-        Write-Host '  In the author UI: pick the GAME folder if asked, finish install/close when done.'
+        Write-Host '  In the danielblnc UI: pick the GAME folder if asked, finish install/close when done.'
         Push-Location $Root
         try {
             $p = Start-Process -FilePath $setup -WorkingDirectory $Root -Wait -PassThru
-            Write-Host "  original-author setup exit code: {0}" -f $p.ExitCode
+            Write-Host "  danielblnc setup exit code: {0}" -f $p.ExitCode
         } finally { Pop-Location }
 
         $weights = Find-FirstFile @(
@@ -537,7 +537,7 @@ if ($installDaniel) {
 
     if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
         Fail @"
-Still missing a known DLSS-NR-on-AMD runtime (version.dll) after original-author setup.
+Still missing a known DLSS-NR-on-AMD runtime (version.dll) after danielblnc setup.
 Supported: 0.3.0 or 0.3.1.
 1. Run dlssnr_on_amd_setup.exe yourself and finish its install
 2. Put the version.dll it produces next to Setup.bat (or leave it in the game folder)
@@ -546,7 +546,7 @@ Download from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
     }
 
     $hashA = Get-Sha256 $srcA
-    Write-Host ("Author runtime SHA256: {0}" -f $hashA)
+    Write-Host ("danielblnc runtime SHA256: {0}" -f $hashA)
     if ($expectedAuthor -notcontains $hashA) {
         $what = 'unknown build'
         if ($hashA -eq $knownA0217) { $what = 'this is 0.2.17, not 0.3.0/0.3.1' }
@@ -576,12 +576,12 @@ Download 0.3.0 or 0.3.1 from https://github.com/danielblnc/DLSS-NR-on-AMD/releas
                 # Already the staged location.
             } else {
                 Copy-Item -LiteralPath $srcAFull -Destination $stagedA -Force
-                Write-Host "Copied author 0.3.0 runtime outside game folder: $stagedA"
+                Write-Host "Copied danielblnc runtime outside game folder: $stagedA"
             }
             $srcA = $stagedA
         }
     } catch {
-        Fail "Could not stage author runtime from $srcA : $($_.Exception.Message)"
+        Fail "Could not stage danielblnc runtime from $srcA : $($_.Exception.Message)"
     }
 
     if (-not $weights) {
@@ -589,7 +589,7 @@ Download 0.3.0 or 0.3.1 from https://github.com/danielblnc/DLSS-NR-on-AMD/releas
     }
     if (-not (Test-Path -LiteralPath $weights -PathType Leaf)) {
         if ((Test-Path -LiteralPath $setup) -and $nv) {
-            Write-Host 'weights.bin still missing — running original-author setup again with nvngx…'
+            Write-Host 'weights.bin still missing — running danielblnc setup again with nvngx…'
             Push-Location $Root
             try { Start-Process -FilePath $setup -WorkingDirectory $Root -Wait | Out-Null } finally { Pop-Location }
             $weights = Find-FirstFile @(
@@ -645,8 +645,8 @@ Write-Host ''
 Write-Host "Game folder: $game"
 Write-Host "Proxy:       $Proxy   (OptiScaler.dll installed under this name)"
 if ($installDaniel) {
-    Write-Host "Original author runtime: $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
-    Write-Host 'NOTE: original-author version.dll is NOT left in the game folder (this package only installs OptiScaler as the proxy).'
+    Write-Host "danielblnc runtime:      $srcA  -> will be copied as dlssnr_amd_pass1/2/3.dll"
+    Write-Host 'NOTE: danielblnc version.dll is NOT left in the game folder (this package only installs OptiScaler as the proxy).'
 }
 if ($installLmxxf) {
     Write-Host "lmxxf runtime:           $lmxxfRuntime  -> will be copied to game folder"
@@ -670,7 +670,7 @@ $keep = @{}
 
 foreach ($f in $found) {
     $isTarget = ($f.Name -ieq $Proxy)
-    # Author-native version.dll (hash already known) must not stay next to B.
+    # danielblnc native version.dll (hash already known) must not stay next to OptiScaler.
     $isAuthorNative = $false
     if ($f.Name -ieq 'version.dll' -and -not $f.IsOptiScaler) {
         try {
@@ -679,7 +679,7 @@ foreach ($f in $found) {
         } catch { }
     }
     if ($isAuthorNative) {
-        Write-Host ("{0} is the original-author NR runtime — moving aside (cannot coexist with B)." -f $f.Name) -ForegroundColor Yellow
+        Write-Host ("{0} is the danielblnc NR runtime — moving aside (cannot coexist with OptiScaler)." -f $f.Name) -ForegroundColor Yellow
         $toMove += $f
         continue
     }
@@ -952,8 +952,8 @@ try {
     Write-Host "NOTE: could not write install record: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# Keep reusable author files in the package folder for the next game.
-# Never write them into the game folder — that would re-inject original A next to B.
+# Keep reusable danielblnc files in the package folder for the next game.
+# Never write them into the game folder — that would re-inject danielblnc version.dll next to OptiScaler.
 # 摘要要报"包目录里真正留下的那份"，不能报 $srcA —— 当包目录就是游戏目录时
 # $srcA 指向 TEMP 暂存文件，而下面会把它删掉；当包目录不是游戏目录时，
 # 真正留下的是 $Root\version.dll。$keptA/$keptW 只记后者。
@@ -986,7 +986,7 @@ try {
         }
     }
 } catch {
-    Write-Host "NOTE: could not copy author files into the package folder: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "NOTE: could not copy danielblnc files into the package folder: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 Write-Host ''

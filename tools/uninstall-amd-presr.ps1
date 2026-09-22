@@ -7,7 +7,7 @@
   Removes identified OptiScaler proxies, named passes/config/logs, listed dependencies,
   and this uninstaller. Asks whether to keep backup-amd-presr-* folders, then lists
   planned deletions, then asks Y/N. Does NOT delete nvngx_dlssnr.dll, weights,
-  original-author setup/log, other proxies, or user-added plugins and unknown files.
+  danielblnc setup/log, other proxies, or user-added plugins and unknown files.
 
 .EXAMPLE
   .\Uninstall_OptiScaler_NR.bat
@@ -263,7 +263,7 @@ Write-Host ''
 Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
 Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
 Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
-Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, native-game-tiled-assets, original-author setup.' -ForegroundColor Yellow
+Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, native-game-tiled-assets, danielblnc setup.' -ForegroundColor Yellow
 Write-Host ''
 
 if ($backupDirs.Count -gt 0) {

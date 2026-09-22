@@ -82,7 +82,7 @@ This project is built upon the collective achievements of pioneering developers 
 | `Licenses\` | Third-party open-source licenses |
 | `README.md` / `README.en.md` | Documentation (Chinese / English) |
 
-> **Note**: To comply with upstream licenses and distribution policies, this package **does not bundle** NVIDIA proprietary binaries, closed-source installer tools, or unauthorized model weights.
+> **Note**: To comply with upstream licenses and distribution policies, this package **does not bundle** NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights.
 
 </details>
 
@@ -267,7 +267,7 @@ Inspect the following logs in the game directory (or `_storage_` for Microsoft S
 - `OptiScaler.log`: Main initialization, hooking, and backend creation log;
 - `amd_bridge.log`: AMD bridge layer log;
 - `amd_presr.log`: Pre-SR dispatch log;
-- `dlssnr_on_amd.log`: Daniel runtime log.
+- `dlssnr_on_amd.log`: danielblnc runtime log.
 
 > **Where are lmxxf logs?**  
 > Unlike `danielblnc` which writes to a separate `dlssnr_on_amd.log`, the `lmxxf` backend and its C-ABI runtime pipe all initialization, telemetry, and error messages directly into **`OptiScaler.log`** (and `amd_bridge.log`). There is no need to search for separate log files.
@@ -316,4 +316,4 @@ Codebase heritage (top to bottom):
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**: Color compositing algorithms in `dlssnr.hlsl`;
 - [**This Project (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
 
-This distribution contains no NVIDIA proprietary binaries, closed-source installer tools, or unauthorized model weights. Please respect all upstream licenses.
+This distribution contains no NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights. Please respect all upstream licenses.

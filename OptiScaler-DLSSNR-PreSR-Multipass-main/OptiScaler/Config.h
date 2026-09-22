@@ -312,7 +312,7 @@ class Config
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
-    // No complete D3D12 graphics-state restore — risk matches the original author runtime. Default 0.
+    // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };
     CustomOptional<bool> AmdRtgiEnabled { false };
     CustomOptional<uint32_t> AmdRtgiQuality { 2 };

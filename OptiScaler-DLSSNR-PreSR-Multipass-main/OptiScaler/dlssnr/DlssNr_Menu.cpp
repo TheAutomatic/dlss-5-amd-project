@@ -142,7 +142,7 @@ void RenderMenu(Config* config, float menuResScale)
             HGap(0.12f);
             ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf-nr" : "pass1?"));
             HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
-                               : (haveVer ? "AMD NR runtime (original project / original author)."
+                               : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
 
             if (!isLmxxf)
@@ -154,7 +154,7 @@ void RenderMenu(Config* config, float menuResScale)
                 HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
                            "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
                            "\n\nOn: after Execute, wait for the HIP job only (Temporal off). Does not wait"
-                           "\nfor the D3D12 fence / FSR batch. Closer to author 0.3's 40+ at a 4K FSR"
+                           "\nfor the D3D12 fence / FSR batch. Closer to danielblnc 0.3's 40+ at a 4K FSR"
                            "\nUltra Performance render; the next Record may still skip if GPU work is"
                            "\nin flight.");
 

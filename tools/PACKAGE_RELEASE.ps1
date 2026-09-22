@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Stage and zip a complete user package (no NVIDIA / author proprietary files).
+  Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.8.6-0.3.1
     1.8.6  = this fork's product version
     0.3.1  = primary upstream NR runtime (0.3.0 still accepted)
@@ -309,7 +309,7 @@ Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
-# 原作者 pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有原作者 pass」。
+# danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
 # Keep this filename-only and case-insensitive: the same expression validates the
 # staged tree and every entry in the finished archive.
 $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
