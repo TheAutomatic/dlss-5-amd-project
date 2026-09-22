@@ -216,7 +216,7 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
 | Test Scene (4K FSR Ultra Performance, 720p render) | 2 Slots | 3 Slots |
 |---|---:|---:|
 | **Onimusha** | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
-| **Where Winds Meet (WWM)** | 19.05–19.25 ms, **Frequent skips** | 21.78–21.89 ms, **0 skipped** |
+| **Where Winds Meet** | 19.05–19.25 ms, **Frequent skips** | 21.78–21.89 ms, **0 skipped** |
 
 - **Recommendations**:
   - **3 slots** is the ideal sweet spot for most titles;
