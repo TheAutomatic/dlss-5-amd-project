@@ -62,13 +62,15 @@
 | **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体（0.3.0 / 0.3.1） | **不改动其核心**，按规范接口调用；并针对 0.3.1 的 1 像素 Draw 等待补齐状态保护，确保在 DLSS/XeSS 游戏上安全运行 |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 逆向恢复 71 块网络并移植到 AMD HIP 的开源神经渲染算力核心 | **接入 OptiScaler 通用代理框架以兼容更多纯 DLSS / XeSS 游戏**；实现主队列同帧同步执行；开发标准版本化 C-ABI 独立运行时（`LmxxfNrRuntime` 并反哺合并至上游）；增加动态色彩/细节无级滑条等 |
-| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | 开源 HDR / 色彩渲染 Addon | `dlssnr.hlsl` 色彩合成算法来源（全文见 `Licenses/RenoDX_ATTRIBUTION.txt`） |
+| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | 开源 HDR / 色彩渲染 Addon | `dlssnr.hlsl` 色彩合成算法来源 |
 
 ---
 
 ## 2. 安装指南 (Installation Guide)
 
-### 压缩包内文件清单
+<details>
+<summary><strong>📦 点击展开：压缩包内文件清单</strong></summary>
+
 | 文件/目录 | 作用 |
 |---|---|
 | `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
@@ -81,6 +83,8 @@
 | `README.md` / `README.en.md` | 本使用文档（中英双语） |
 
 > **提示**：为遵守各开源协议与版权约束，本压缩包**不随包分发** NVIDIA 专有二进制文件、原作者安装器或未授权模型权重。
+
+</details>
 
 ---
 

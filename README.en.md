@@ -62,13 +62,15 @@ This project is built upon the collective achievements of pioneering developers 
 | **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Bridged Pre-SR to AMD runtime: DLSS Input → AMD NR → FFX | Pioneered **Multi-slot scheduling**, eliminating **8.7 ms/frame** of idle GPU stalls; adapted 0.3.1; restored D3D12 state freeze/restore; enhanced XBOX PC compatibility. **Bridge overhead measured at just 0.01–0.03 ms** |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Core AMD Neural Rendering runtime (0.3.0 / 0.3.1) | Calls standard runtime without core modifications; adds D3D12 state protection for 0.3.1 1-pixel draw wait |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | Reversed 71-block network ported to open-source AMD HIP kernels | **Integrated into OptiScaler universal proxy framework to support more DLSS / XeSS games**; implemented same-frame queue execution; developed standardized C-ABI standalone runtime (`LmxxfNrRuntime`); added real-time detail/color tuning sliders |
-| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | Open-source HDR / Color grading addon | Source of color composition algorithms in `dlssnr.hlsl` (`Licenses/RenoDX_ATTRIBUTION.txt`) |
+| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | Open-source HDR / Color grading addon | Source of color composition algorithms in `dlssnr.hlsl` |
 
 ---
 
 ## 2. Installation Guide
 
-### Package Contents
+<details>
+<summary><strong>📦 Click to expand: Package Contents</strong></summary>
+
 | File / Directory | Purpose |
 |---|---|
 | `OptiScaler.dll` | Main binary (renamed during installation to your chosen proxy name) |
@@ -81,6 +83,8 @@ This project is built upon the collective achievements of pioneering developers 
 | `README.md` / `README.en.md` | Documentation (Chinese / English) |
 
 > **Note**: To comply with upstream licenses and distribution policies, this package **does not bundle** NVIDIA proprietary binaries, closed-source installer tools, or unauthorized model weights.
+
+</details>
 
 ---
 
