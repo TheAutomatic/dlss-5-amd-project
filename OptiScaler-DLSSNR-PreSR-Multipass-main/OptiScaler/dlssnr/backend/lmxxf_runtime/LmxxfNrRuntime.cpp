@@ -113,6 +113,20 @@ std::wstring FindWeightsDir(const std::wstring &assets)
     const std::wstring sub = JoinPath(assets, L"weights");
     if (FileExists(JoinPath(sub, L"block0-ffn.f16")) || FileExists(JoinPath(sub, L"block0-ffn.f32")))
         return sub;
+
+    // Prioritize local folders next to DLL / game executable
+    const std::wstring dll = DllDirectory();
+    if (!dll.empty())
+    {
+        const std::wstring localTiled = JoinPath(dll, L"native-game-tiled-assets");
+        if (FileExists(JoinPath(localTiled, L"block0-ffn.f16")) || FileExists(JoinPath(localTiled, L"block0-ffn.f32")))
+            return localTiled;
+        const std::wstring localWeights = JoinPath(dll, L"lmxxf-weights");
+        if (FileExists(JoinPath(localWeights, L"block0-ffn.f16")) || FileExists(JoinPath(localWeights, L"block0-ffn.f32")))
+            return localWeights;
+    }
+
+    // Secondary fallback: check LMXXF_WEIGHTS_DIR environment variable (e.g. for development)
     wchar_t env[MAX_PATH] {};
     if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", env, MAX_PATH) && env[0])
     {

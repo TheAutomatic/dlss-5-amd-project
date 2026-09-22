@@ -177,37 +177,99 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version - Dual-backend AMD Neural Rendering (DLSS5 on AMD) Pre-SR pipeline.
-; Backends:
-;   NrBackend=lmxxf  : Open-source HIP neural rendering (default)
-;   NrBackend=daniel : danielblnc 0.3.0 / 0.3.1 runtime (dlssnr_amd_pass1-3.dll)
-;
-; AmdEveryFrame=true is the product default (Ins menu: "Every-frame"; also INI).
-; AmdSlots=3 is the multi-slot default (2-5 in-game, 1-5 here).
-; AmdGraphicsWait=1 is New wait mode (0.3.1 1-pixel draw). Set 0 for Original wait.
-; Detail strength and Colour strength for lmxxf: 0.0 - 1.0 (default 1.0).
-; Debug view for lmxxf: 0=off, 1=input, 2=output, 3=diff, 4=noise.
+; Product $Version - Dual-backend AMD Neural Rendering (DLSS 5 on AMD) Pre-SR pipeline.
+; Synthesizes detail and denoises ray-traced inputs before upscaling (FSR/XeSS).
+
+; Enables DLSS-NR Pre-SR pipeline
+; true or false - Default is false
 Enabled=false
+
+; Controls whether neural rendering executes before the upscaler
+; When true, runs on the pre-upscale colour texture before FSR/XeSS
+; true or false - Default is true
 RunBeforeSR=true
+
+; Selects the neural rendering backend
+; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
+; daniel - danielblnc 0.3.0 / 0.3.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
+; off    - Disable neural rendering pass, passthrough colour to upscaler
+; lmxxf, daniel, off - Default is lmxxf
 NrBackend=lmxxf
+
+; Diagnostic mode for lmxxf backend (NO NR)
+; off              - Normal neural rendering operation
+; original         - Passthrough original colour
+; copy-current     - Diagnostic copy of current frame colour
+; staging-current  - Staging isolation test with current frame
+; staging-previous - Staging isolation test with previous frame
+; off, original, copy-current, staging-current, staging-previous - Default is off
+LmxxfDiagnostic=off
+
+; Resolution scale factor for neural rendering model input
+; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
+; float value - Default is 1
 AmdModelScale=1
+
+; Encoding format mode for model inputs/outputs
+; 0 = FP16 (standard), 1 = FP8 / compressed
+; Integer value - Default is 0
 AmdEncoding=0
+
+; Schedule neural rendering execution on every frame
+; When enabled, avoids skipping frames; multi-slot pipeline skips post-execute wait
+; true or false - Default is true
 AmdEveryFrame=true
+
+; Number of pipeline slots for asynchronous GPU execution (danielblnc backend)
+; Higher values reduce wait time at the cost of VRAM (each slot holds intermediate buffers)
+; Recommended: 3 slots (tested 0 wait on yysls)
+; 1 to 5 - Default is 3
 AmdSlots=3
+
+; GPU synchronization / wait mode between NR and game command queue (danielblnc backend)
+; 0 = Original wait (compute dispatch spin)
+; 1 = New wait mode (1-pixel graphics draw spin; prevents GPU watchdog resets)
+; 0 or 1 - Default is 1
 AmdGraphicsWait=1
+
+; Allow unsafe dirty command insertion when graphics state admission fails
+; 0 = Safe mode (fallback to original color on state conflict)
+; 1 = Unsafe mode (force injection; higher risk of visual glitch)
+; 0 or 1 - Default is 0
 AmdGraphicsUnsafe=0
+
+; Experimental neural lighting pass (Gather/Resolve shaders)
+; true or false - Default is true
 AmdNeuralLighting=true
+
+; Intensity of the neural lighting effect
+; float value (0.0 to 1.0) - Default is 0.5
 AmdNeuralLightingStrength=0.5
+
+; Number of neural rendering passes
+; 1 to 3 - Default is 1
 Passes=1
+
+; Weight for preserving local tone mapping
+; float value - Default is 0
 LocalTone=0
+
+; Weight for preserving fine local structure and edges
+; float value - Default is 1
 LocalStructure=1
+
+; Weight for preserving skin structure and texture
+; float value - Default is 1
 SkinStructure=1
+
+; Apply neural rendering adjustments after Ray Reconstruction
+; true or false - Default is false
 ApplyAfterRR=false
 
 "@)
-# 这两段只在源 ini 里还没有的时候才追加。
-# 无条件追加的写法在源 ini 哪天自带 [AmdLook]/[AmdRtgi] 时会写出重复段 ——
-# 而追加的那份是 Enabled=false，可能把用户调好的值顶掉。
+# These sections are only appended if they do not already exist in the source ini.
+# Unconditional appending would duplicate sections if source ini ever includes [AmdLook]/[AmdRtgi].
+# The appended block has Enabled=false to avoid overriding user values.
 $amdLookBlock = @"
 
 [AmdLook]
