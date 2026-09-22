@@ -754,8 +754,18 @@ function Install-One([string]$src, [string]$rel) {
             return
         }
     } catch { }
+    # Weights are immutable neural network parameters (~700MB total).
+    # They are not original game files and must never bloat backup directories.
+    $isWeight = ($rel -ieq 'dlssnr_on_amd_weights.bin') -or
+                ($rel -ilike 'native-game-tiled-assets\*') -or
+                ($rel -ilike 'native-game-tiled-assets/*')
+
     try {
         if (Test-Path -LiteralPath $dest) {
+            # If a weight file already exists at the destination, keep it in place (no backup, no re-copy)
+            if ($isWeight) {
+                return
+            }
             $save = Join-Path $backup $rel
             $sdir = Split-Path -Parent $save
             if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
@@ -840,7 +850,12 @@ if ($installDaniel) {
     foreach ($p in 1..3) {
         Install-One $srcA ("dlssnr_amd_pass$p.dll")
     }
-    Install-One $weights 'dlssnr_on_amd_weights.bin'
+    $gameWeightsBin = Join-Path $game 'dlssnr_on_amd_weights.bin'
+    if (Test-Path -LiteralPath $gameWeightsBin -PathType Leaf) {
+        Write-Host 'dlssnr_on_amd_weights.bin already present in game folder.' -ForegroundColor Green
+    } else {
+        Install-One $weights 'dlssnr_on_amd_weights.bin'
+    }
 }
 
 if ($installLmxxf) {
@@ -859,8 +874,10 @@ if ($installLmxxf) {
     } else {
         Write-Host 'NOTE: lmxxf shaders not found in package; PrepareFrame may fail until shaders/ is beside OptiScaler.' -ForegroundColor DarkYellow
     }
-    if ($lmxxfWeights) {
-        $gameWeights = Join-Path $game 'native-game-tiled-assets'
+    $gameWeights = Join-Path $game 'native-game-tiled-assets'
+    if (Test-Path -LiteralPath (Join-Path $gameWeights 'block0-ffn.f16') -PathType Leaf) {
+        Write-Host 'native-game-tiled-assets already present in game folder.' -ForegroundColor Green
+    } elseif ($lmxxfWeights) {
         if ([IO.Path]::GetFullPath($lmxxfWeights) -ine [IO.Path]::GetFullPath($gameWeights)) {
             Write-Host "Installing native-game-tiled-assets from $lmxxfWeights..." -ForegroundColor Cyan
             Get-ChildItem -LiteralPath $lmxxfWeights -Recurse -File | ForEach-Object {
