@@ -338,8 +338,16 @@ struct Session
         rgbTex = nullptr;
         rgbInput = nullptr;
         encode = nullptr;
-        queue = nullptr;
-        device = nullptr;
+        if (queue)
+        {
+            queue->Release();
+            queue = nullptr;
+        }
+        if (device)
+        {
+            device->Release();
+            device = nullptr;
+        }
     }
 
     ~Session()

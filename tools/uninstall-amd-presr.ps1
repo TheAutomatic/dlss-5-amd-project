@@ -373,14 +373,23 @@ foreach ($root in $roots) {
                     $line = $_.Trim()
                     if (-not $line) { return }
                     $parts = $line -split '\s+', 2
-                    if ($parts.Count -ge 2) { $manifestNames += $parts[1].Trim() }
+                    if ($parts.Count -ge 2) {
+                        $raw = $parts[1].Trim()
+                        # Strictly reject path separators or directory traversal
+                        if ($raw -notmatch '[/\\\\]|\.\.') {
+                            $manifestNames += $raw
+                        }
+                    }
                 }
             }
             $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json')
+            $lmxxfModsFull = [IO.Path]::GetFullPath($lmxxfMods).TrimEnd('\') + '\'
             foreach ($name in ($manifestNames | Select-Object -Unique)) {
                 if (-not $name) { continue }
                 $fp = Join-Path $lmxxfMods $name
-                if ((Test-UninstallPath $fp) -and (Test-Path -LiteralPath $fp -PathType Leaf)) {
+                $fpFull = [IO.Path]::GetFullPath($fp)
+                if ($fpFull.StartsWith($lmxxfModsFull, [StringComparison]::OrdinalIgnoreCase) -and
+                    (Test-UninstallPath $fp) -and (Test-Path -LiteralPath $fp -PathType Leaf)) {
                     Remove-SafeFile $fp 'lmxxf-module'
                 }
             }

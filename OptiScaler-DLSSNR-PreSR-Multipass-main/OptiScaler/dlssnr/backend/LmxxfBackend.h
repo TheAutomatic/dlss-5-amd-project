@@ -4,6 +4,7 @@
 #include "LmxxfColorProbe.h"
 #include "LmxxfStagingProbe.h"
 #include <filesystem>
+#include <mutex>
 
 namespace DlssNr::Backend
 {
@@ -22,7 +23,13 @@ class LmxxfBackend final : public Host
     // Function table copied from LmxxfNrGetApi (opaque here to keep header free of C ABI).
     struct Api;
     Api *api = nullptr;
-    void *pendingJob = nullptr;
+    struct PendingJobInfo
+    {
+        void *job = nullptr;
+        ID3D12CommandList *cmd = nullptr;
+    };
+    mutable std::mutex jobMutex;
+    PendingJobInfo pendingJobInfo;
     LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;
     LmxxfProbe::ColorCopy colorProbe;
     LmxxfProbe::StagingProbe stagingProbe;

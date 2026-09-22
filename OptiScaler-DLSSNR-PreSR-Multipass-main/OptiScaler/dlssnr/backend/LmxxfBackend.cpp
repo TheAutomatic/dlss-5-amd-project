@@ -228,7 +228,11 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     }
     LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip);
     LmxxfCut::ArmBetweenSlot();
-    pendingJob = jobHandle;
+    {
+        std::lock_guard lock(jobMutex);
+        pendingJobInfo.job = jobHandle;
+        pendingJobInfo.cmd = recordCmd;
+    }
     SetStatus("lmxxf: Record ok (pending EnqueueHip)");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
 }
@@ -237,13 +241,15 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
-    if (session && pendingJob && api && api->table.CancelUnsubmitted)
     {
-        api->table.CancelUnsubmitted(session, pendingJob);
-        pendingJob = nullptr;
+        std::lock_guard lock(jobMutex);
+        if (session && pendingJobInfo.job && api && api->table.CancelUnsubmitted)
+        {
+            api->table.CancelUnsubmitted(session, pendingJobInfo.job);
+        }
+        pendingJobInfo = {};
     }
     LmxxfCut::ClearPendingEnqueue();
-    pendingJob = nullptr;
     if (!cmd || !frame.colour)
     {
         SetStatus("lmxxf: Record missing cmd/colour");
@@ -628,12 +634,35 @@ void LmxxfBackend::Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *con
 
 void LmxxfBackend::TraceBoundary(const std::string &) {}
 
-void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *)
+void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT count, ID3D12CommandList *const * lists)
 {
-    if (session && pendingJob && api && api->table.Retire)
+    void *jobToRetire = nullptr;
     {
-        api->table.Retire(session, pendingJob);
-        pendingJob = nullptr;
+        std::lock_guard lock(jobMutex);
+        if (session && pendingJobInfo.job && api && api->table.Retire)
+        {
+            bool containsCmd = false;
+            if (lists)
+            {
+                for (UINT i = 0; i < count; ++i)
+                {
+                    if (lists[i] == pendingJobInfo.cmd)
+                    {
+                        containsCmd = true;
+                        break;
+                    }
+                }
+            }
+            if (containsCmd)
+            {
+                jobToRetire = pendingJobInfo.job;
+                pendingJobInfo = {};
+            }
+        }
+    }
+    if (jobToRetire)
+    {
+        api->table.Retire(session, jobToRetire);
     }
     // LogicalList producer/continuation submit re-enters this hook; clearing here
     // would drop HIP before BetweenThunk. BetweenThunk consumes Pending itself.
@@ -644,7 +673,10 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *cons
 bool LmxxfBackend::Shutdown()
 {
     LmxxfCut::DisarmBetweenSlot();
-    pendingJob = nullptr;
+    {
+        std::lock_guard lock(jobMutex);
+        pendingJobInfo = {};
+    }
     if (session && api && api->table.Destroy)
     {
         api->table.Destroy(session);
