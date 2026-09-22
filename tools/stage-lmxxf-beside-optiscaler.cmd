@@ -12,11 +12,11 @@ if not exist "exports\lmxxf-runtime\LmxxfNrRuntime.dll" (
 )
 copy /Y "exports\lmxxf-runtime\LmxxfNrRuntime.dll" "%DEST%\LmxxfNrRuntime.dll" >nul
 if errorlevel 1 exit /b 1
-if not exist "exports\lmxxf-modules-68dc099\SHA256SUMS" (
-  echo FAIL: missing exports\lmxxf-modules-68dc099
+if not exist "third_party\lmxxf\modules\SHA256SUMS" (
+  echo FAIL: missing third_party\lmxxf\modules
   exit /b 1
 )
-robocopy "exports\lmxxf-modules-68dc099" "%DEST%\lmxxf-modules" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
+robocopy "third_party\lmxxf\modules" "%DEST%\lmxxf-modules" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
 if errorlevel 8 exit /b 1
 if not exist "third_party\lmxxf\shaders\native_codec_encode.hlsl" (
   echo FAIL: missing third_party\lmxxf\shaders

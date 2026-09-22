@@ -48,7 +48,7 @@ says otherwise.
 
 C ABI in `include/LmxxfNrApi.h`. MinGW `runtime/` compiles the HIP bridge and codec.
 
-- Modules: `exports/lmxxf-modules-68dc099` (COMGR, **not** 0.24.2 hsaco).
+- Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from `68dc099`).
 - Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).
 - `QueryCapabilities.hip_ready` stays **0**. `LmxxfWired()` stays false.
 

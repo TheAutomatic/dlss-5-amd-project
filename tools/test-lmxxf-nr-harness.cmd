@@ -1,5 +1,5 @@
 @echo off
-rem P2 no-game harness: MSVC loader + MinGW runtime + 68dc099 module path.
+rem P2 no-game harness: MSVC loader + MinGW runtime + third_party\lmxxf\modules path.
 rem Still expects Record/Enqueue/Complete = NOT_IMPLEMENTED until HIP is wired.
 rem Does not start a game. Does not change NrBackend default (daniel).
 setlocal
@@ -7,7 +7,7 @@ cd /d "%~dp0.."
 set "OUT=%~1"
 if not defined OUT set "OUT=exports\lmxxf-runtime"
 set "MODS=%~2"
-if not defined MODS set "MODS=exports\lmxxf-modules-68dc099"
+if not defined MODS set "MODS=third_party\lmxxf\modules"
 call "%~dp0test-lmxxf-nr-abi.cmd" "%OUT%" "%MODS%"
 if not %errorlevel%==0 exit /b 1
 if not exist "%MODS%\SHA256SUMS" (

@@ -713,6 +713,7 @@ $lmxxfMods = $null
 foreach ($candidate in @(
         (Join-Path $release 'lmxxf-modules'),
         (Join-Path $Root 'lmxxf-modules'),
+        (Join-Path $Root 'third_party\lmxxf\modules'),
         (Join-Path $Root 'exports\lmxxf-modules-68dc099')
     )) {
     if ((Test-Path -LiteralPath $candidate -PathType Container) -and
