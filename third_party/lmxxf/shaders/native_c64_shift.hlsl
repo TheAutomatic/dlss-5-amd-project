@@ -1,0 +1,41 @@
+#ifndef CHANNELS
+#define CHANNELS 64
+#endif
+#ifndef PLAIN_SHORT_Y
+#define PLAIN_SHORT_Y 0
+#endif
+StructuredBuffer<float> input:register(t0);
+RWStructuredBuffer<float> output:register(u0);
+cbuffer Geometry:register(b0){uint width;uint height;uint work_width;uint work_height;uint pad_x;uint pad_y;}
+[numthreads(64,1,1)]void pack_coalesced(uint3 gid:SV_GroupID,uint t:SV_GroupIndex){
+ uint n=(gid.y*65535+gid.x)*64+t,p=n/CHANNELS,c=n%CHANNELS;
+ if(p>=work_width*work_height)return;
+ int x=int(p%work_width)-int(pad_x),y=int(p/work_width)-int(pad_y);
+#if PLAIN_SHORT_Y && CHANNELS == 256
+ if(height==4)y=(y%4+4)%4;
+#endif
+ [branch]if(x<0||y<0||x>=int(width)||y>=int(height)){output[n]=0;return;}
+ output[n]=input[(uint(y)*width+uint(x))*CHANNELS+c];
+}
+[numthreads(64,1,1)]void crop_coalesced(uint3 gid:SV_GroupID,uint t:SV_GroupIndex){
+ uint n=(gid.y*65535+gid.x)*64+t,p=n/CHANNELS,c=n%CHANNELS;
+ if(p>=width*height)return;
+ output[n]=input[((p/width+pad_y)*work_width+p%width+pad_x)*CHANNELS+c];
+}
+[numthreads(64,1,1)]void pack(uint3 id:SV_DispatchThreadID){
+ uint p=id.x;if(p>=work_width*work_height)return;int x=int(p%work_width)-int(pad_x),y=int(p/work_width)-int(pad_y);
+#if PLAIN_SHORT_Y && CHANNELS == 256
+ if(height==4)y=(y%4+4)%4;
+#endif
+ // Root SRVs do not carry a buffer length. Do not express this as a
+ // select: an eagerly evaluated negative-coordinate load can fault.
+ [branch]if(x<0||y<0||x>=int(width)||y>=int(height)){
+  [loop]for(uint c=0;c<CHANNELS;c++)output[p*CHANNELS+c]=0;
+  return;
+ }
+ [loop]for(uint c=0;c<CHANNELS;c++)output[p*CHANNELS+c]=input[(uint(y)*width+uint(x))*CHANNELS+c];
+}
+[numthreads(64,1,1)]void crop(uint3 id:SV_DispatchThreadID){
+ uint p=id.x;if(p>=width*height)return;uint source=((p/width+pad_y)*work_width+p%width+pad_x)*CHANNELS;
+ [loop]for(uint c=0;c<CHANNELS;c++)output[p*CHANNELS+c]=input[source+c];
+}

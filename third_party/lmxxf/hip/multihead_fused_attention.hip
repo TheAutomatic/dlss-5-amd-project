@@ -8,6 +8,14 @@
 typedef unsigned uint;
 #define DEV __attribute__((device)) __attribute__((always_inline))
 #define KERNEL extern "C" __attribute__((global))
+#ifndef HIP_LDS_FENCE
+#define HIP_LDS_FENCE 1 /* 2026-09-22 fence scope: workgroup fences here only publish LDS; the default "workgroup" scope made gfx12 emit global_inv (vector L0 invalidate) and wait for all outstanding global loads at every barrier. Restricting the fence to the LDS address space removes both; bit-exact, see Development/results/fence-scope-all-20260922 */
+#endif
+#if HIP_LDS_FENCE
+#define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup","local")
+#else
+#define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup")
+#endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
 DEV float absf(float x){return value(bits(x)&0x7fffffffu);}
@@ -88,7 +96,7 @@ DEV uint fp8(float f){return uint(__builtin_amdgcn_cvt_pk_fp8_f32(clampf(f,-448.
 #endif
 DEV void put(i2&v,uint e,float x){v[e/4]=int(uint(v[e/4])|(fp8(x)<<(8*(e%4))));}
 
-DEV void sync_window(){__builtin_amdgcn_fence(3,"workgroup");__builtin_amdgcn_s_barrier();__builtin_amdgcn_fence(2,"workgroup");}
+DEV void sync_window(){WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);}
 
 // Packed attention: shared raw/exp scratch 8448 bytes + normalized/prob/AV bytes 6912.
 using ushort=unsigned short;
@@ -453,3 +461,12 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
 void c256_attention_project_fb_diag(const unsigned char*normalized,const float*w,const unsigned char*feature,float*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy){c256_attention_project_body<true,false,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
 void c256_attention_project_fb_bout(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy){c256_attention_project_body<true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);}
+
+KERNEL __attribute__((amdgpu_flat_work_group_size(256,256)))
+void c64_attention_project_fb_bout_diag(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy){c64_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);}
+
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
+void c128_attention_project_fb_bout_diag(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy){c128_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);}
+
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
+void c256_attention_project_fb_bout_diag(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy){c256_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);}

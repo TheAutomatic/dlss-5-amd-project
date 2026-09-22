@@ -2,9 +2,10 @@ param(
     [string]$OutputDir = (Join-Path $PSScriptRoot 'modules'),
     [string]$Compiler = (Join-Path $PSScriptRoot 'rtc_compile.exe'),
     [string]$SourceDir = $PSScriptRoot,
-    [string]$Only = ''
+    [string]$Only = '',
+    [ValidateSet('gfx1200','gfx1201')][string[]]$Targets = @('gfx1200','gfx1201')
 )
-# Builds the 24 production HIP modules (gfx1201 code objects) that the add-on loads from DLSS5-AMD\native-game-tiled-assets\HIP\.
+# Builds 24 modules per target; by default gfx1200 and gfx1201 go into architecture subdirectories.
 # One row per module: output name, extra #defines, source files (concatenated in order). Every row prepends HIP_ISA_HALF 1;
 # names ending in -packed also prepend HIP_PREPACKED_WEIGHTS 1. The extra defines below are the production selections of
 # 2026-09-17 (0.20); they coincide with the sources' defaults and are spelled out so the recipe does not depend on them.
@@ -39,6 +40,10 @@ $modules = @(
     @{ name = 'multihead-fast-packed';              defines = @();                        sources = @('multihead_fast.hip') },
     @{ name = 'multihead-fast-padded-wave-packed';  defines = @('HIP_FFN_HOIST_RES 2');   sources = @('multihead_fast_padded.hip') }
 )
+$outputRoot=$OutputDir
+foreach($target in $Targets){
+$OutputDir=if($Targets.Count -gt 1){Join-Path $outputRoot $target}else{$outputRoot}
+New-Item -ItemType Directory -Force $OutputDir|Out-Null
 $manifest = @()
 foreach ($m in $modules) {
     if ($Only -and $m.name -ne $Only) { continue }
@@ -49,11 +54,18 @@ foreach ($m in $modules) {
     $generated = Join-Path $OutputDir ($m.name + '.generated.hip')
     $hsaco = Join-Path $OutputDir ($m.name + '.hsaco')
     [IO.File]::WriteAllText($generated, $text, $utf8)
-    & $Compiler $hsaco $generated comgr | Out-Null
+    & $Compiler $hsaco $generated comgr $target | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "COMGR failed: $($m.name)" }
-    $manifest += [pscustomobject]@{ module = $m.name; defines = (@('HIP_ISA_HALF 1') + $(if ($m.name -like '*-packed') { @('HIP_PREPACKED_WEIGHTS 1') } else { @() }) + $m.defines) -join '; '; sources = $m.sources -join '+'; sha256 = (Get-FileHash $hsaco).Hash }
-    Write-Output ("{0,-40} {1}" -f $m.name, $manifest[-1].sha256)
+    $manifest += [pscustomobject]@{ target = $target; module = $m.name; defines = (@('HIP_ISA_HALF 1') + $(if ($m.name -like '*-packed') { @('HIP_PREPACKED_WEIGHTS 1') } else { @() }) + $m.defines) -join '; '; sources = $m.sources -join '+'; sha256 = (Get-FileHash $hsaco).Hash }
+    Write-Output ("{0} {1,-40} {2}" -f $target,$m.name, $manifest[-1].sha256)
 }
 [IO.File]::WriteAllText((Join-Path $OutputDir 'modules.json'), ($manifest | ConvertTo-Json -Depth 3), $utf8)
 $sums = $manifest | ForEach-Object { $_.sha256.ToLower() + '  ' + $_.module + '.hsaco' }
 [IO.File]::WriteAllText((Join-Path $OutputDir 'SHA256SUMS'), (($sums -join "`n") + "`n"), $utf8)
+
+}
+
+if($Targets.Count -gt 1){
+ $all=@(foreach($target in $Targets){foreach($line in [IO.File]::ReadAllLines((Join-Path (Join-Path $outputRoot $target) 'SHA256SUMS'))){$line.Substring(0,66)+$target+'/'+$line.Substring(66)}})
+ [IO.File]::WriteAllLines((Join-Path $outputRoot 'SHA256SUMS'),$all,$utf8)
+}

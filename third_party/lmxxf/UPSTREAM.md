@@ -1,7 +1,7 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `68dc099180b6b309a79751bef17046fe8d17e0e2`
+- Commit: $commitHash (synced 2026-09-22)
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
@@ -14,7 +14,7 @@ says otherwise.
 | Path | Why |
 |---|---|
 | `hip/` | gfx1201 module recipes (`.hip`, `build-modules.ps1`, `SHA256SUMS`) |
-| `Development/HIP/hip_d3d12_bridge.h` | D3D12 ↔ HIP external-fence bridge |
+| `Development/HIP/hip_d3d12_bridge.h` | D3D12 鈫?HIP external-fence bridge |
 | `Development/HIP/hip_reference_network.h` | HIP network |
 | `Development/HIP/hip_api.h` | Loaded HIP ABI |
 | `Development/HIP/packed_weights.h` | Weight packing |
@@ -30,7 +30,7 @@ says otherwise.
 - `src/native_pre_upscale.h` (FFX replay; not a general splitter)
 - `src/native_text_overlay.h`, `src/native_game_oneshot.h`, F6 overlay
 - `src/native_game_frame.h` (`ProcessSubmittedFrame` convenience host)
-- D3D12 network body (`native_actual_network70.h`, vit/c32/preblock/split, …)
+- D3D12 network body (`native_actual_network70.h`, vit/c32/preblock/split, 鈥?
 - `src/native_temporal_*.h` (first product version is history off)
 - `Development/` notes, benchmarks, and `.ps1` experiments
 - `OptiScaler-DLSS5-AMD-0.24.2/` package, weights, and `.hsaco` binaries
@@ -54,6 +54,6 @@ C ABI in `include/LmxxfNrApi.h`. MinGW `runtime/` compiles the HIP bridge and co
 
 ## Required follow-up
 
-1. Process-global geometry/env → instance config.
-2. Host P1: List1–10 command-list proxy forward (then hooks). Not this vendor tree.
+1. Process-global geometry/env 鈫?instance config.
+2. Host P1: List1鈥?0 command-list proxy forward (then hooks). Not this vendor tree.
 3. Product `LmxxfWired()` after G1/G3.

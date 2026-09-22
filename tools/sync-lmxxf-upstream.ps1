@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Synchronize vendored lmxxf source closure from an upstream clone without git cherry-pick.
 
@@ -119,6 +119,17 @@ if (Test-Path $bridgeH) {
         $content = $content.Replace($marker, $replacement)
         [IO.File]::WriteAllText($bridgeH, $content, [Text.UTF8Encoding]::new($false))
         Write-Host "  Applied patch: CancelUnsubmitted() in hip_d3d12_bridge.h" -ForegroundColor Yellow
+    }
+}
+
+# Patch C: remove unused native_split.h from native_rgb_reflect.h
+$reflectH = Join-Path $vendorRoot 'src\native_rgb_reflect.h'
+if (Test-Path $reflectH) {
+    $content = Get-Content -LiteralPath $reflectH -Raw
+    if ($content -match '#include\s*"native_split\.h"') {
+        $content = $content -replace '#include\s*"native_split\.h"\r?\n?', ''
+        [IO.File]::WriteAllText($reflectH, $content, [Text.UTF8Encoding]::new($false))
+        Write-Host "  Applied patch: removed native_split.h in native_rgb_reflect.h" -ForegroundColor Yellow
     }
 }
 

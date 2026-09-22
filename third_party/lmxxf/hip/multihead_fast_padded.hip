@@ -22,6 +22,14 @@
 typedef unsigned uint;
 #define DEV __attribute__((device)) __attribute__((always_inline))
 #define KERNEL extern "C" __attribute__((global))
+#ifndef HIP_LDS_FENCE
+#define HIP_LDS_FENCE 1 /* 2026-09-22 fence scope: workgroup fences here only publish LDS; the default "workgroup" scope made gfx12 emit global_inv (vector L0 invalidate) and wait for all outstanding global loads at every barrier. Restricting the fence to the LDS address space removes both; bit-exact, see Development/results/fence-scope-all-20260922 */
+#endif
+#if HIP_LDS_FENCE
+#define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup","local")
+#else
+#define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup")
+#endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
 DEV uint lane(){return __builtin_amdgcn_workgroup_id_x()*256u+__builtin_amdgcn_workitem_id_x();}
@@ -315,7 +323,7 @@ DEV void mh_pool_project_group_body(const float*raw,const float*wf,float*output,
  uint first=tile*16,t=__builtin_amdgcn_workitem_id_x(),wave=t/32,l=t%32,rc=l&15,g=l>>4,colg=wave*64;
  __attribute__((shared)) _Float16 pooled[16*S];
  for(uint k=0;k<16;k++){uint p=first+k,c=t;float v=0.f;if(p<M&&!(valid_width&&(p%width>=valid_width||p/width>=valid_height))){uint base=((p/width)*2*source_width+(p%width)*2)*C;float top=H(raw[base+c]+raw[base+C+c]),bottom=H(raw[base+source_width*C+c]+raw[base+(source_width+1)*C+c]);v=F(H(H(top+bottom)*.25f));}pooled[k*S+c]=(_Float16)v;}
- __builtin_amdgcn_fence(3,"workgroup");__builtin_amdgcn_s_barrier();__builtin_amdgcn_fence(2,"workgroup");
+ WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
  const _Float16*w16=reinterpret_cast<const _Float16*>(wf);
  f8 acc[4]{};
  for(uint chunk=0;chunk<C/32;chunk++){f8 sum[4]{};
@@ -373,10 +381,10 @@ FASTWAVE void mh_qkv_normalize_frag_c512(const unsigned char*in8,const float*w,u
    for(uint n=0;n<4;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[n]);}}}
  __attribute__((shared)) float raw[17*65];
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++)raw[(g*8+e)*65+n*16+rc]=acc[n][e];
- __builtin_amdgcn_fence(3,"workgroup");__builtin_amdgcn_s_barrier();__builtin_amdgcn_fence(2,"workgroup");
+ WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
  uint part=col/C,head0=(col%C)/32,scale=4*C*C+(C/32)*4096;
  {uint row=l%16,h=l/16;float inv=1.f;if(first+row<tokens&&part<2){float ss=0.f;for(uint j=0;j<32;j++){float v=raw[row*65+h*32+j];ss+=v*v;}inv=__builtin_amdgcn_rsqf(maxf(ss,6.198883056640625e-5f))*(part==0?w[scale+head0+h]:1.f);}raw[16*65+l]=inv;}
- __builtin_amdgcn_fence(3,"workgroup");__builtin_amdgcn_s_barrier();__builtin_amdgcn_fence(2,"workgroup");
+ WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint row=g*8+e,p=first+row,c=col+n*16+rc;if(p<tokens)out[p*N+c]=static_cast<unsigned char>(q8(F(acc[n][e]*raw[16*65+(n/2)*16+row])));}
 }
 
@@ -579,6 +587,19 @@ DEV uint q8_fused_round(float x){uint b=bits(x),a=b&0x7fffffffu;if(!a)return 0;i
 // attention-project stored; every input value the f32 path would read is exactly cvt_f32_fp8(byte), so decoding here and
 // feeding the unchanged f32 code is bit for bit the same computation. Padding outside the mapped window stays +0.
 template<uint C,bool Mapped> DEV float ffn_input8(const unsigned char*in,uint p,uint c,uint width,uint height,uint workw,uint sx,uint sy){if constexpr(Mapped){int x=int(p%workw)-int(sx),y=int(p/workw)-int(sy);return x>=0&&y>=0&&x<int(width)&&y<int(height)?__builtin_amdgcn_cvt_f32_fp8(int(in[(uint(y)*width+uint(x))*C+c]),0):0.f;}return __builtin_amdgcn_cvt_f32_fp8(int(in[p*C+c]),0);}
+// Preserve encoded E4M3 input (including signed zero) when staging four channels.
+// Producers emit finite FP8 values; invalid mapped positions must still become positive zero.
+template<uint C,bool Mapped> DEV uint ffn_input8_word(const unsigned char*in,uint p,uint c,uint width,uint height,uint workw,uint sx,uint sy){
+ uint index=p*C+c;bool ok=true;
+ if constexpr(Mapped){int x=int(p%workw)-int(sx),y=int(p/workw)-int(sy);ok=x>=0&&y>=0&&x<int(width)&&y<int(height);uint xi=ok?uint(x):0u,yi=ok?uint(y):0u;index=(yi*width+xi)*C+c;}
+ uint word;__builtin_memcpy(&word,in+index,4);return ok?word:0u;
+}
+// Byte inputs can feed WMMA fragments directly; mapped padding remains positive zero.
+template<uint C,bool Mapped> DEV i2 ffn_input8_fragment(const unsigned char*in,uint p,uint c,uint width,uint height,uint workw,uint sx,uint sy){
+ uint index=p*C+c;bool ok=true;
+ if constexpr(Mapped){int x=int(p%workw)-int(sx),y=int(p/workw)-int(sy);ok=x>=0&&y>=0&&x<int(width)&&y<int(height);uint xi=ok?uint(x):0u,yi=ok?uint(y):0u;index=(yi*width+xi)*C+c;}
+ i2 v;__builtin_memcpy(&v,in+index,8);return ok?v:i2{};
+}
 // BatchNorm: the three QKV projections are computed first, both normalized parts' raw tiles go to LDS in one round and
 // their row sums run on 2*16*(C/32) threads behind a single barrier (same sequential 32-term order per row, so the
 // same bytes); two barriers and one LDS round per block fewer than the part-by-part loop. C64/C128 only (LDS budget).
@@ -593,6 +614,16 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
  uint tid=__builtin_amdgcn_workitem_id_x(),wave=tid/32,l=tid%32,rc=l&15,group=l>>4;
  uint first=__builtin_amdgcn_workgroup_id_x()*16;
  if(first>=tokens)return;
+ // A complete16-row tile in top/bottom mapped padding has exactly zero
+ // bias-free FFN and normalized QKV outputs. The test is workgroup-uniform.
+ if constexpr((C==128||C==256)&&Mapped){
+  if(first+15<sy*workw||first>=(sy+height)*workw){
+   for(uint i=tid;i<16*C;i+=2*C){if constexpr(ByteFeature)out[first*C+i]=0;else reinterpret_cast<float*>(out)[first*C+i]=0.f;}
+   for(uint i=tid;i<16*3*C;i+=2*C)norm[first*3*C+i]=0;
+   return;
+  }
+ }
+
  static_assert(Project&&Grouped,"FFN/QKV requires grouped project");
  union Storage {unsigned char bytes[16*(4*C+4)];float raw[(BatchNorm?2:1)*16*(C/32)*33];};
  __attribute__((shared)) Storage storage;unsigned char*hidden=storage.bytes;
@@ -600,30 +631,32 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
  __attribute__((shared)) float inverse[(BatchNorm?2:1)*16*(C/32)];
  const uint*pw=reinterpret_cast<const uint*>(w);
 #if HIP_FFN_COOP_INPUT
+ if constexpr(!ByteIn){
 #if HIP_FFN_INPUT_PACK4
 #if HIP_FFN_HOIST_RES>=2
  // Level 2: the cooperative input staging also loads branch-free (4 window tests per word, loads overlap). Same bytes.
- for(uint i=tid;i<16*(C/4+1);i+=2*C){uint row=i/(C/4+1),k=(i%(C/4+1))*4,word=0;if(k<C)word=pack4(load_in_nb(first+row,k),load_in_nb(first+row,k+1),load_in_nb(first+row,k+2),load_in_nb(first+row,k+3));__builtin_memcpy(hidden+i*4,&word,4);}
+ for(uint i=tid;i<16*(C/4+1);i+=2*C){uint row=i/(C/4+1),k=(i%(C/4+1))*4,word=0;if(k<C){if constexpr(ByteIn)word=ffn_input8_word<C,Mapped>(in8,first+row,k,width,height,workw,sx,sy);else word=pack4(load_in_nb(first+row,k),load_in_nb(first+row,k+1),load_in_nb(first+row,k+2),load_in_nb(first+row,k+3));}__builtin_memcpy(hidden+i*4,&word,4);}
 #else
- for(uint i=tid;i<16*(C/4+1);i+=2*C){uint row=i/(C/4+1),k=(i%(C/4+1))*4,word=0;if(k<C)word=pack4(load_in(first+row,k),load_in(first+row,k+1),load_in(first+row,k+2),load_in(first+row,k+3));__builtin_memcpy(hidden+i*4,&word,4);}
+ for(uint i=tid;i<16*(C/4+1);i+=2*C){uint row=i/(C/4+1),k=(i%(C/4+1))*4,word=0;if(k<C){if constexpr(ByteIn)word=ffn_input8_word<C,Mapped>(in8,first+row,k,width,height,workw,sx,sy);else word=pack4(load_in(first+row,k),load_in(first+row,k+1),load_in(first+row,k+2),load_in(first+row,k+3));}__builtin_memcpy(hidden+i*4,&word,4);}
 #endif
 #else
  for(uint i=tid;i<16*(C+4);i+=2*C){uint row=i/(C+4),k=i%(C+4);hidden[i]=k<C?static_cast<unsigned char>(q8(load_in(first+row,k))):0;}
 #endif
  __builtin_amdgcn_s_barrier();
+ }
 #endif
  f8 expand[4]{};
  for(uint k=0;k<C;k+=16){i2 a{};
 #if HIP_FFN_COOP_INPUT
-  __builtin_memcpy(&a,hidden+rc*(C+4)+k+group*8,8);
+  if constexpr(ByteIn)a=ffn_input8_fragment<C,Mapped>(in8,first+rc,k+group*8,width,height,workw,sx,sy);else __builtin_memcpy(&a,hidden+rc*(C+4)+k+group*8,8);
 #else
   for(uint e=0;e<8;e++)pack(a,e,load_in(first+rc,k+group*8+e));
 #endif
   for(uint tile=0;tile<4;tile++){uint row=wave*64+tile*16+rc,offset=(row*C+k+group*8)/4;i2 b{};if constexpr(Frag)b=frag_b(reinterpret_cast<const unsigned char*>(w),row,C,k,group);else if constexpr(Tiled){const unsigned char*wb=reinterpret_cast<const unsigned char*>(w);uint off=((row/16)*(C/32)+k/32)*512+(k%32+group*8)*16+row%16;for(uint e=0;e<8;e++)b[e/4]=int(uint(b[e/4])|(uint(wb[off+e*16])<<(8*(e%4))));}else b={int(pw[offset]),int(pw[offset+1])};expand[tile]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,expand[tile]);}
  }
 #if HIP_FFN_COOP_INPUT
- // Every wave must finish reading input before its storage becomes hidden.
- __builtin_amdgcn_s_barrier();
+ // ByteIn reads global memory; only the f32 staging aliases the hidden buffer.
+ if constexpr(!ByteIn)__builtin_amdgcn_s_barrier();
 #endif
 #if HIP_FFN_ABLATE_ACT
  for(uint tile=0;tile<4;tile++)for(uint e=0;e<8;e++)hidden[(group*8+e)*(4*C+4)+wave*64+tile*16+rc]=static_cast<unsigned char>(q8(expand[tile][e])); // timing only
@@ -717,3 +750,11 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void mh_ffn_fused_c
 KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void mh_ffn_fused_c128_project_mapped_g128_qkv_bytein_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<128,false,true,true,true,true,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_tiled_project_g128_qkv_bytein_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,true,true,false,true,true,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_tiled_project_mapped_g128_qkv_bytein_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,true,true,true,true,true,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
+
+// C256 contiguous weight fragments; paired with PackedFusedMhWeightFrag and PackedMhWeightQkvFragOnly.
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_frag_project_g128_qkv(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,false,true,false,true,false,false,false,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_frag_project_mapped_g128_qkv(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,false,true,true,true,false,false,false,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_frag_project_g128_qkv_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,false,true,false,true,false,true,false,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_frag_project_mapped_g128_qkv_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,false,true,true,true,false,true,false,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_frag_project_g128_qkv_bytein_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,false,true,false,true,true,true,false,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_frag_project_mapped_g128_qkv_bytein_fb(const float*in,const float*w,const float*aw,unsigned char*out,unsigned char*norm,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_qkv_body<256,false,true,true,true,true,true,false,true>(in,w,out,tokens,width,height,workw,sx,sy,aw,norm);}

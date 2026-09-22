@@ -65,7 +65,22 @@
 #pragma clang fp reassociate(off)
 typedef unsigned uint;
 #define DEV __attribute__((device)) __attribute__((always_inline))
+#ifndef HIP_LDS_FENCE
+#define HIP_LDS_FENCE 1 /* 2026-09-22 fence scope: workgroup fences here only publish LDS; the default "workgroup" scope made gfx12 emit global_inv (vector L0 invalidate) and wait for all outstanding global loads at every barrier. Restricting the fence to the LDS address space removes both; bit-exact, see Development/results/fence-scope-all-20260922 */
+#endif
+#if HIP_LDS_FENCE
+#define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup","local")
+#else
+#define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup")
+#endif
+#ifndef HIP_C32_CU_MODE
+#define HIP_C32_CU_MODE 1 /* 2026-09-22: 128-thread C32 workgroups run faster with all four waves on one CU (-0.13/-0.17ms whole network on top of the fence change, bit-exact); larger MH/deep workgroups get slower in CU mode, so this is C32-only */
+#endif
+#if HIP_C32_CU_MODE
+#define KERNEL extern "C" __attribute__((global)) __attribute__((target("cumode")))
+#else
 #define KERNEL extern "C" __attribute__((global))
+#endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
 DEV float absf(float x){return value(bits(x)&0x7fffffffu);}
@@ -151,12 +166,12 @@ DEV float norm_inverse(float x){float r=__builtin_amdgcn_rcpf(x);
 }
 DEV void put(i2&v,uint e,float x){v[e/4]=int(uint(v[e/4])|(fp8(x)<<(8*(e%4))));}
 
-DEV void sync_window(){__builtin_amdgcn_fence(3,"workgroup");__builtin_amdgcn_s_barrier();__builtin_amdgcn_fence(2,"workgroup");}
+DEV void sync_window(){WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);}
 
 // Only for wave-private LDS rows: order memory without waiting for other waves.
 DEV void sync_owned_rows(){
 #if HIP_C32_LOCAL_QKV_SYNC
- __builtin_amdgcn_fence(3,"workgroup");__builtin_amdgcn_fence(2,"workgroup");
+ WG_FENCE(3);WG_FENCE(2);
 #else
  sync_window();
 #endif
@@ -465,10 +480,14 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
  }
  if constexpr(RgbHead){
   // hip_post_head_fast_half in the epilogue (HLSL DLSS5_C32_EPILOGUE shape): no raw write/read-back, no head dispatch.
-  // 16 tokens x 3 rows = 48 tasks over the wave's 32 lanes; the 32-term dot runs in the same sequential f32 order.
+  // One lane per token shares feature loads across RGB; each 32-term dot retains its sequential f32 order.
   sync_owned_rows();uint l=tid%32,ww=sourcew+2*sx;
-  for(uint task=l;task<48;task+=32){uint tok=first+task/3,row=task%3;int x=int((window%(ww/8))*8+tok%8)-int(sx),y=int((window/(ww/8))*8+tok/8)-int(sy);if(x<0||y<0||x>=int(sourcew)||y>=int(sourceh))continue;uint p=uint(y)*sourcew+uint(x);
-   float acc=0.f;for(uint j=0;j<32;j++)acc+=float(scratch.ex[tok*34+j])*headw[row*32+j];acc=Hrtz(acc);float centered=color[p*4+row]*.125f-.0625f,v=(acc*rgb_scale+centered)*8.f+.5f;rgb[p*3+row]=clampf(v,0.f,1.f);}
+  if(l<16){uint tok=first+l;int x=int((window%(ww/8))*8+tok%8)-int(sx),y=int((window/(ww/8))*8+tok/8)-int(sy);
+   if(x>=0&&y>=0&&x<int(sourcew)&&y<int(sourceh)){uint p=uint(y)*sourcew+uint(x);float a0=0.f,a1=0.f,a2=0.f;
+    for(uint j=0;j<32;j++){float f=float(scratch.ex[tok*34+j]);a0+=f*headw[j];a1+=f*headw[32+j];a2+=f*headw[64+j];}
+    float sums[3]={a0,a1,a2};for(uint row=0;row<3;row++){float acc=Hrtz(sums[row]),centered=color[p*4+row]*.125f-.0625f,v=(acc*rgb_scale+centered)*8.f+.5f;rgb[p*3+row]=clampf(v,0.f,1.f);}
+   }
+  }
  }
 }
 

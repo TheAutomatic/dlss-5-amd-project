@@ -7,7 +7,6 @@
 #include <cstdlib>
 #include <cwchar>
 #include <string>
-#include "native_shader_cache.h"
 struct NativePsoStats{static ULONGLONG&Ms(){static ULONGLONG v=0;return v;}static unsigned&Count(){static unsigned c=0;return c;}};
 inline HRESULT NativeCreateComputePipelineState(ID3D12Device*d,const D3D12_COMPUTE_PIPELINE_STATE_DESC*pd,REFIID iid,void**pso){
  const ULONGLONG t=GetTickCount64();HRESULT h=d->CreateComputePipelineState(pd,iid,pso);NativePsoStats::Ms()+=GetTickCount64()-t;NativePsoStats::Count()++;return h;}

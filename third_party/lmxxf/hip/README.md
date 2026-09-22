@@ -1,4 +1,4 @@
-# hip/ — production HIP kernels (RDNA4, gfx1201)
+# hip/ — production HIP kernels (RDNA4, gfx1200 / gfx1201)
 
 This directory is the HIP counterpart of `shaders/`: the kernel sources the shipped add-on actually loads, the compiler
 that turns them into code objects, and one script that rebuilds all of them. Experiments, probes, ablations, validators
@@ -10,8 +10,8 @@ and the per-experiment compile scripts stay in `Development/HIP/`.
 |---|---|
 | `*.hip` (21 files) | kernel sources; 24 modules are built from them (some modules concatenate two files, some build one file twice with different defines) |
 | `rtc_compile.cpp` | host tool: source → `.hsaco` through the driver's `amd_comgr_3.dll` (no HIP SDK); also writes `<out>.hsaco.s` |
-| `build-modules.ps1` | the recipe: one row per module (name, extra defines, sources); writes `modules/*.hsaco`, `modules.json`, `SHA256SUMS` |
-| `SHA256SUMS` | hashes of the production module set (0.20 baseline; the two C32 FFN/attention modules and fused multihead attention updated on 2026-09-19) |
+| `build-modules.ps1` | the recipe: one row per module (name, extra defines, sources); writes 24 modules and manifests per target, plus aggregate `SHA256SUMS` |
+| `SHA256SUMS` | hashes of both architecture sets (48 modules, paths prefixed by gfx1200/gfx1201) |
 
 ## Build
 
@@ -25,10 +25,10 @@ x86_64-w64-mingw32-g++ -std=c++17 -O2 -static hip/rtc_compile.cpp -o hip/rtc_com
 powershell -ExecutionPolicy Bypass -File hip\build-modules.ps1 -OutputDir D:\somewhere\modules
 ```
 
-`-Only <module>` rebuilds one module. `RTC_EXTRA_OPTS` (space-separated clang/backend options) is honoured by
+`build-modules.ps1` defaults to both targets, producing `gfx1200/` and `gfx1201/` subdirectories from the same sources. `-Only <module>` rebuilds that module for both targets. For a single-device diagnostic, explicitly pass `-Targets gfx1201` (or gfx1200); single-target output remains flat. Low-level `rtc_compile.exe out.hsaco source.hip comgr gfx1200` selects a target; its omitted-target default remains gfx1201 for old probe scripts. `RTC_EXTRA_OPTS` (space-separated clang/backend options) is honoured by
 `rtc_compile.exe`; production is built with it unset.
 
-The add-on loads the modules from `DLSS5-AMD\native-game-tiled-assets\HIP\` (or the directory in `DLSS5_HIP_MODULES`).
+The add-on reads the selected HIP device’s `gcnArchName` and loads `DLSS5-AMD\native-game-tiled-assets\HIP\gfx1200` or `gfx1201`. Flat directories remain supported for old single-target installs. The standalone reference CLI takes the architecture leaf directory explicitly. Modules and weights are opened with Unicode paths; modules use `hipModuleLoadData`. Device selection prefers Windows LUID, with name matching only when HIP supplies no LUID.
 
 ## Recipe rules
 
@@ -68,3 +68,15 @@ The C64/C128/C256 fused attention-project bodies also retain their exact half ex
 The 900 tier has 50×30=1500 input tokens at decoder48. Launching ceil(tokens×channels/256) groups omitted four channel tiles; the correct grid is ceil(tokens/16)×(channels/16). The host now computes that grid and the fast/WMMA decoder kernels mask tail reads and writes. Decoder kernels support partial token tiles; the other WMMA kernels retain their alignment requirements.
 
 The missing tiles left 3072 latent floats unwritten. The old 960-row goldens therefore depended on buffer contents and are replaced in `Development/HIP/validate-modules-960.ps1`; 900w, 720 and 1080 recorded results are unchanged. Install the matching host DLL and decoder modules together.
+
+## Corrected full MH byte stream (2026-09-19, unreleased)
+
+The new `*_fb_bout_diag` entry points retain the fast residual projection for byte outputs. With the decoder tail fix, the full MH stream passes the recorded cross-tier/input checks and both golden suites. Relative to local byte features, measured savings are ~0.05/0.07/0.16 ms at 720/900/1080. It remains opt-in: use `Development/HIP/full-byte-flags.txt` with the matching new host and module set; the ViT byte stream remains disabled.
+
+The halfweight decoder now selects a full-tile path once per workgroup; only the final partial tile performs per-token input/output bounds checks. Output-dimension cropping remains active in both paths. This preserves the tail fix while saving ~0.14 ms at 900 and ~0.34 ms at 1080 in the recorded ABBA tests.
+
+`DLSS5_HIP_DECODER_BYTE=1` additionally lets upsamplers 48/56/62 store their already-quantized FP8 values as bytes and passes byte input to each following FFN. Decoder39 and the final 32-channel upsampler retain float output. Matched host/module updates are required. The recorded tests save ~0.08 ms at 900 and ~0.05 ms at 1080 relative to the full MH byte stream with float upsampler outputs.
+
+## 0.25 validation status
+
+Both targets compile from the same source. RX 9070 XT/gfx1201 passed the automatic-selection and golden-output checks, including a Chinese-path package check. gfx1200 is built and packaged for RX 9060/9060 XT user testing; no gfx1200 hardware was available locally. Later optimization sections above describe changes now included in 0.25.
