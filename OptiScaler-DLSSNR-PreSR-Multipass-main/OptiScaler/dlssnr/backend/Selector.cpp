@@ -17,9 +17,10 @@ Kind RequestedKind()
 Kind ActiveKindFromConfig()
 {
     const auto requested = RequestedKind();
-    if (!Config::Instance()->NrBackend.has_value() ||
-        Config::Instance()->NrBackend.value() == "auto" ||
-        Config::Instance()->NrBackend.value().empty())
+    const auto& raw = Config::Instance()->NrBackend;
+    const bool isAuto = !raw.has_value() || raw.value().empty() ||
+                        (_stricmp(raw.value().c_str(), "auto") == 0);
+    if (isAuto)
     {
         std::error_code ec;
         const auto dir = Util::DllPath().parent_path();
