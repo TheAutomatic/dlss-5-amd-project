@@ -19,6 +19,10 @@ echo === regression: HIP runtime load ===
 call tools\test-hip-runtime-load.cmd exports\release-local\hip-tests
 if errorlevel 1 exit /b 1
 
+echo === regression: lmxxf evaluate cut ===
+call tools\test-lmxxf-evaluate-cut.cmd exports\release-local\eval-tests
+if errorlevel 1 exit /b 1
+
 echo === Release build: LmxxfNrRuntime.dll ===
 call tools\build-lmxxf-runtime.cmd exports\release-local
 if errorlevel 1 exit /b 1
