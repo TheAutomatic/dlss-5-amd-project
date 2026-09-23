@@ -349,9 +349,10 @@ if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
     Copy-Item -Path (Join-Path $lmxxfShaderSrc '*') -Destination $lmxxfShaderDst -Recurse -Force
 }
 
-# Installer + docs (CN + EN). No duplicate 使用说明.txt.
+# Installer + docs (CN + EN + ES). No duplicate 使用说明.txt.
 $readmeZh = Join-Path $root 'README.md'
 $readmeEn = Join-Path $root 'README.en.md'
+$readmeEs = Join-Path $root 'README.es.md'
 if (!(Test-Path $readmeZh)) { throw "Missing $readmeZh" }
 if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }
 $installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
@@ -394,6 +395,9 @@ exit /b %EC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall_OptiScaler_NR.bat') -Encoding ASCII
 Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
+if (Test-Path $readmeEs) {
+    Copy-Item $readmeEs (Join-Path $stage 'README.es.md') -Force
+}
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
 # danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。

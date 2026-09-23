@@ -101,11 +101,65 @@ $protectedNames = @(
     'native-game-tiled-assets'
 )
 $lmxxfShaderFiles = @(
+    'native_black_probe.hlsl',
+    'native_c32_ds.hlsl',
+    'native_c32_reframe.hlsl',
+    'native_c64.hlsl',
+    'native_c64_ds.hlsl',
+    'native_c64_shift.hlsl',
     'native_codec_decode.hlsl',
     'native_codec_encode.hlsl',
     'native_game_rgb_input.hlsl',
+    'native_head_pool.hlsl',
+    'native_history_guard.hlsl',
+    'native_matrix_expand.hlsl',
+    'native_matrix_pack.hlsl',
+    'native_matrix_qkv.hlsl',
+    'native_output_smooth.hlsl',
+    'native_post70.hlsl',
     'native_rgb_reflect.hlsl',
-    'native_rgb_texture.hlsl'
+    'native_rgb_texture.hlsl',
+    'native_split.hlsl',
+    'native_split_window.hlsl',
+    'native_temporal_coordinates.hlsl',
+    'native_temporal_feed.hlsl',
+    'native_temporal_sample.hlsl',
+    'native_text_overlay.hlsl',
+    'native_vit_attention.hlsl',
+    'native_vit_gather.hlsl',
+    'native_vit_linear.hlsl',
+    'native_vit_pack.hlsl',
+    'native_vit_qkv.hlsl',
+    'native_wave_attention_direct.hlsl',
+    'native_wave_attention_fused_qkv.hlsl',
+    'native_wave_c32_ds.hlsl',
+    'native_wave_c32_ffn_blocked.hlsl',
+    'native_wave_c32_ffn_local.hlsl',
+    'native_wave_c32_split_attention.hlsl',
+    'native_wave_contract.hlsl',
+    'native_wave_decoder_entry.hlsl',
+    'native_wave_expand.hlsl',
+    'native_wave_ffn_blocked.hlsl',
+    'native_wave_ffn_fused.hlsl',
+    'native_wave_ffn_proj0_fused.hlsl',
+    'native_wave_head_project.hlsl',
+    'native_wave_prefix.hlsl',
+    'native_wave_project.hlsl',
+    'native_wave_qkv.hlsl',
+    'native_wave_qkv_normalize.hlsl',
+    'native_wave_split_ffwd_parallel.hlsl',
+    'native_wave_vit_attention.hlsl',
+    'native_wave_vit_attention_fp8.hlsl',
+    'native_wave_vit_attention_half.hlsl',
+    'native_wave_vit_blocked.hlsl',
+    'native_wave_vit_expand.hlsl',
+    'native_wave_vit_ffn_fused.hlsl',
+    'native_wave_vit_qkv.hlsl',
+    'native_wave_vit_reduce.hlsl',
+    'preblock_attention_core.hlsl',
+    'preblock_attention_four_wave.hlsl',
+    'preblock_finish.hlsl',
+    'preblock_input_mix.hlsl'
 )
 
 $planned = New-Object System.Collections.Generic.List[string]
@@ -365,7 +419,7 @@ foreach ($root in $roots) {
             $kept.Add("linked path: $lmxxfMods")
             $errors.Add("$lmxxfMods : contains a linked path, not deleted")
         } else {
-            # Delete only files listed in SHA256SUMS (installer set). Keep user weights/extras.
+            # Delete only files listed in SHA256SUMS (installer set) or standard module files. Keep user weights/extras.
             $sums = Join-Path $lmxxfMods 'SHA256SUMS'
             $manifestNames = @()
             if (Test-Path -LiteralPath $sums -PathType Leaf) {
@@ -382,7 +436,10 @@ foreach ($root in $roots) {
                     }
                 }
             }
-            $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json')
+            # Also safely sweep any .hsaco code modules in lmxxf-modules root
+            Get-ChildItem -LiteralPath $lmxxfMods -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
+                ForEach-Object { $manifestNames += $_.Name }
+            $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')
             $lmxxfModsFull = [IO.Path]::GetFullPath($lmxxfMods).TrimEnd('\') + '\'
             foreach ($name in ($manifestNames | Select-Object -Unique)) {
                 if (-not $name) { continue }
