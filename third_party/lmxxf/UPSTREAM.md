@@ -94,10 +94,10 @@ Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not**
 
 `tools/sync-lmxxf-upstream.ps1` therefore:
 
-- syncs hip *sources* + `SHA256SUMS` from upstream git;
+- syncs hip *sources* and upstream's non-gfx1201 `SHA256SUMS` rows from upstream git. The `gfx1201/` rows stay local: after the module refresh they are rehashed from `third_party/lmxxf/modules`, because upstream's rows come from a different COMGR and never match local builds;
 - by default runs `hip/build-modules.ps1 -Targets gfx1201` into a local build dir, then copies into `third_party/lmxxf/modules`;
 - or accepts an explicit `-ModulesPath` to already-built flat gfx1201 `.hsaco`;
-- **fails closed** if hip recipes change but modules do not, or modules disagree with `hip/SHA256SUMS` `gfx1201/` entries.
+- **fails closed** if hip recipes (`*.hip`, `build-modules.ps1`, `rtc_compile.cpp`) change but modules were neither rebuilt in the same run nor changed, if a module upstream lists is missing, or if robocopy fails.
 
 Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Use `-NoBuildModules` with `-ModulesPath` when modules were built offline.
 

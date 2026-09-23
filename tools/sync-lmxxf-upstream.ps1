@@ -49,8 +49,7 @@
   all local patches (zero fallback, drain check, clear resource management).
 
 .PARAMETER UpdateReflect
-  If set, overwrites src
-ative_rgb_reflect.h from upstream and re-applies the local
+  If set, overwrites src\native_rgb_reflect.h from upstream and re-applies the local
   patch that drops the unused native_split.h include (keeps D3D12 network body out).
 
 .PARAMETER SkipBuild
@@ -259,6 +258,38 @@ function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [swit
     throw ($msg + "`nRebuild with hip/build-modules.ps1, pass a matching -ModulesPath, or use -AllowStaleModules.")
 }
 
+# hip/SHA256SUMS: non-gfx1201 rows follow upstream. gfx1201 rows are OURS: they hash the
+# shipping modules built here with local COMGR; upstream's rows never match those bytes.
+# With -modulesDir, gfx1201 rows are recomputed from that dir; otherwise the current local
+# rows are kept. A module upstream lists but we lack keeps upstream's row, so the
+# modules-vs-recipe check still reports it as missing.
+function Merge-HipSums([string]$upstreamSums, [string]$dstSums, [string]$modulesDir) {
+    $rowPattern = '^(?<h>[0-9a-fA-F]{64})(?<sep>\s+)gfx1201/(?<n>.+\.hsaco)$'
+    $local = @{}
+    if (Test-Path -LiteralPath $dstSums -PathType Leaf) {
+        foreach ($line in Get-Content -LiteralPath $dstSums) {
+            if ($line -match $rowPattern) { $local[$Matches['n']] = $Matches['h'].ToLowerInvariant() }
+        }
+    }
+    $out = @()
+    foreach ($line in Get-Content -LiteralPath $upstreamSums) {
+        if ($line -match $rowPattern) {
+            $name = $Matches['n']
+            $sep = $Matches['sep']
+            $hash = $null
+            if ($modulesDir) {
+                $fp = Join-Path $modulesDir $name
+                if (Test-Path -LiteralPath $fp -PathType Leaf) { $hash = Get-FileSha256Hex $fp }
+            } elseif ($local.ContainsKey($name)) {
+                $hash = $local[$name]
+            }
+            if ($hash) { $line = $hash + $sep + 'gfx1201/' + $name }
+        }
+        $out += $line
+    }
+    [IO.File]::WriteAllText($dstSums, (($out -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+}
+
 function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash) {
     if (-not (Test-Path -LiteralPath $dstDir)) {
         New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
@@ -329,14 +360,25 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
             [IO.File]::WriteAllText($readme, $md2, [Text.UTF8Encoding]::new($false))
         }
     }
+    $manifest = Join-Path $dstDir 'runtime-manifest.json'
+    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+        $js = Get-Content -LiteralPath $manifest -Raw
+        $js2 = [regex]::Replace($js, '("upstream_commit"\s*:\s*")[0-9a-fA-F]*(")', '${1}' + $commitHash + '${2}')
+        if ($js2 -ne $js) {
+            [IO.File]::WriteAllText($manifest, $js2, [Text.UTF8Encoding]::new($false))
+        }
+    }
     Write-Host ('  Synchronized modules (' + $hsacos.Count + ' .hsaco) from ' + $srcDir) -ForegroundColor Green
 }
 
 
 $dstHip = Join-Path $vendorRoot 'hip'
 $dstModules = Join-Path $vendorRoot 'modules'
-$hipFpBefore = Get-TreeFingerprint $dstHip @('*.hip', 'SHA256SUMS')
+# Recipe sources only: SHA256SUMS gfx1201 rows are derived from the modules themselves.
+$hipRecipeFilters = @('*.hip', 'build-modules.ps1', 'rtc_compile.cpp')
+$hipFpBefore = Get-TreeFingerprint $dstHip $hipRecipeFilters
 $modulesFpBefore = Get-TreeFingerprint $dstModules @('*.hsaco', 'SHA256SUMS')
+$script:ModulesBuiltHere = $false
 
 try {
 # 1. Resolve UpstreamRef (fail-closed) and extract via git archive (never checks out the clone)
@@ -508,10 +550,17 @@ Write-Host ("  Synchronized {0} live shaders (removed {1} retired *.hlsl; dx12-n
 
 # 4. Synchronize hip recipes (from archived UpstreamRef tree)
 $hipDir = Join-Path $script:UpstreamTree 'hip'
+$upstreamHipSums = Join-Path $hipDir 'SHA256SUMS'
 if (Test-Path $hipDir) {
     $dstHip = Join-Path $vendorRoot 'hip'
-    robocopy $hipDir $dstHip *.hip build-modules.ps1 rtc_compile.cpp SHA256SUMS README.md /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-    Write-Host "  Synchronized hip recipes"
+    robocopy $hipDir $dstHip *.hip build-modules.ps1 rtc_compile.cpp README.md /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        throw ("robocopy of hip recipes failed (exit " + $LASTEXITCODE + ")")
+    }
+    if (Test-Path -LiteralPath $upstreamHipSums -PathType Leaf) {
+        Merge-HipSums -upstreamSums $upstreamHipSums -dstSums (Join-Path $dstHip 'SHA256SUMS') -modulesDir $null
+    }
+    Write-Host "  Synchronized hip recipes (gfx1201 SHA256SUMS rows stay local)"
 }
 
 # 4b. Refresh shipping gfx1201 modules (build locally or -ModulesPath; never from upstream git release/)
@@ -522,8 +571,12 @@ if ($SkipModules) {
     if (-not $modulesSrc) {
         $buildOut = Join-Path $dstHip '_build_gfx1201'
         $modulesSrc = Invoke-BuildGfx1201Modules -hipDir $dstHip -outDir $buildOut
+        $script:ModulesBuiltHere = $true
     }
     Sync-LmxxfModules -srcDir $modulesSrc -dstDir $dstModules -commitHash $commitHash
+    if (Test-Path -LiteralPath $upstreamHipSums -PathType Leaf) {
+        Merge-HipSums -upstreamSums $upstreamHipSums -dstSums (Join-Path $dstHip 'SHA256SUMS') -modulesDir $dstModules
+    }
     Assert-ModulesMatchHipSums -modulesDir $dstModules -hipSums (Join-Path $dstHip 'SHA256SUMS') -allowStale:$AllowStaleModules
 }
 
@@ -594,15 +647,17 @@ if (Test-Path $bridgeH) {
 
         # B.4: Destructor cleanup of clear resources
         if ($content -notmatch 'clear_cmd->Release') {
+            $dtorNl = "`r`n"
             $dtorAnchor = "~D3D12Bridge(){`r`n  if(!WaitForSubmittedWork())return;"
             if (-not $content.Contains($dtorAnchor)) {
-                $dtorAnchorLf = "~D3D12Bridge(){\n  if(!WaitForSubmittedWork())return;"
+                $dtorAnchorLf = "~D3D12Bridge(){`n  if(!WaitForSubmittedWork())return;"
                 if (-not $content.Contains($dtorAnchorLf)) {
                     throw "Patch B failed: cannot find destructor anchor in hip_d3d12_bridge.h"
                 }
                 $dtorAnchor = $dtorAnchorLf
+                $dtorNl = "`n"
             }
-            $dtorReplacement = "$dtorAnchor`r`n  if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();"
+            $dtorReplacement = "$dtorAnchor$dtorNl  if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();"
             $content = $content.Replace($dtorAnchor, $dtorReplacement)
         }
 
@@ -844,12 +899,14 @@ if (-not $SkipBuild) {
     Write-Host "Skipping runtime build verification (-SkipBuild specified)." -ForegroundColor Yellow
 }
 
-# 8. Fail closed if hip recipes moved but shipping modules did not
-$hipFpAfter = Get-TreeFingerprint $dstHip @('*.hip', 'SHA256SUMS')
+# 8. Fail closed if hip recipes moved but shipping modules did not. Modules built in this
+# run come from the synced recipes, so identical bytes (comment-only or flag-off changes)
+# are current, not stale.
+$hipFpAfter = Get-TreeFingerprint $dstHip $hipRecipeFilters
 $modulesFpAfter = Get-TreeFingerprint $dstModules @('*.hsaco', 'SHA256SUMS')
 $hipChanged = ($hipFpBefore -ne $hipFpAfter)
 $modulesChanged = ($modulesFpBefore -ne $modulesFpAfter)
-if ($hipChanged -and -not $modulesChanged) {
+if ($hipChanged -and -not $modulesChanged -and -not $script:ModulesBuiltHere) {
     if ($AllowStaleModules) {
         Write-Warning 'hip recipes changed but modules fingerprint is unchanged (-AllowStaleModules).'
     } else {
