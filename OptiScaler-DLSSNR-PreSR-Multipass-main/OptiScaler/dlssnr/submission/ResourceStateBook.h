@@ -13,7 +13,6 @@ class ResourceStateBook
     // Last known state after barriers on this logical recording.
     std::unordered_map<ID3D12Resource *, D3D12_RESOURCE_STATES> states;
     bool openSplitBarrier = false;
-    bool sawAliasing = false;
     bool sawUnorderedAccess = false;
 
   public:
@@ -21,7 +20,6 @@ class ResourceStateBook
     {
         states.clear();
         openSplitBarrier = false;
-        sawAliasing = false;
         sawUnorderedAccess = false;
     }
 
@@ -47,7 +45,6 @@ class ResourceStateBook
                 kv.second = D3D12_RESOURCE_STATE_COMMON;
         }
         openSplitBarrier = false;
-        sawAliasing = false;
         // UAV flag is informational; leave sawUnorderedAccess as-is for diagnostics.
     }
 
@@ -74,10 +71,17 @@ class ResourceStateBook
             const D3D12_RESOURCE_BARRIER &bar = b[i];
             if (bar.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING)
             {
-                sawAliasing = true;
-                if (reasonOut)
-                    *reasonOut = "aliasing_barrier";
-                return false;
+                // The barrier is already recorded in the producer before a cut. The
+                // continuation executes later on the same queue, preserving its order.
+                // Aliased resources no longer have reliable entries in this state book.
+                if (!bar.Aliasing.pResourceBefore || !bar.Aliasing.pResourceAfter)
+                    states.clear();
+                else
+                {
+                    states.erase(bar.Aliasing.pResourceBefore);
+                    states.erase(bar.Aliasing.pResourceAfter);
+                }
+                continue;
             }
             if (bar.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV)
             {
@@ -115,12 +119,6 @@ class ResourceStateBook
         {
             if (reasonOut)
                 *reasonOut = "open_split_barrier";
-            return false;
-        }
-        if (sawAliasing)
-        {
-            if (reasonOut)
-                *reasonOut = "aliasing_barrier";
             return false;
         }
         return true;

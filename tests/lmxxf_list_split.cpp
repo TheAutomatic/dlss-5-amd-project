@@ -210,6 +210,79 @@ int main()
     Require(unsplit == split, "split passthrough matches unsplit");
     Require(unsplit == proxied, "COM proxy split matches unsplit");
 
+    // UE uses placed resources with aliasing barriers. The barrier and both
+    // resource uses must keep their order when the list is cut afterward.
+    {
+        constexpr UINT64 kBytes = 256;
+        D3D12_HEAP_DESC hd {};
+        hd.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        hd.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        hd.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        ID3D12Heap *heap = nullptr;
+        Check(device->CreateHeap(&hd, IID_PPV_ARGS(&heap)), "alias heap");
+        D3D12_RESOURCE_DESC rd {};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        rd.Width = kBytes;
+        rd.Height = 1;
+        rd.DepthOrArraySize = rd.MipLevels = 1;
+        rd.SampleDesc.Count = 1;
+        rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ID3D12Resource *before = nullptr;
+        ID3D12Resource *after = nullptr;
+        Check(device->CreatePlacedResource(heap, 0, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                           IID_PPV_ARGS(&before)), "alias before");
+        Check(device->CreatePlacedResource(heap, 0, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                           IID_PPV_ARGS(&after)), "alias after");
+        ID3D12Resource *upload = MakeBuffer(device, kBytes, D3D12_HEAP_TYPE_UPLOAD,
+                                             D3D12_RESOURCE_STATE_GENERIC_READ);
+        ID3D12Resource *readback = MakeBuffer(device, kBytes, D3D12_HEAP_TYPE_READBACK,
+                                               D3D12_RESOURCE_STATE_COPY_DEST);
+        void *mapped = nullptr;
+        Check(upload->Map(0, nullptr, &mapped), "alias upload map");
+        std::memset(mapped, 0x5A, kBytes);
+        upload->Unmap(0, nullptr);
+        ID3D12CommandAllocator *alloc = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "alias alloc");
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr,
+                                        IID_PPV_ARGS(&raw)), "alias raw");
+        DlssNr::Submission::CommandListProxy *px = nullptr;
+        Check(DlssNr::Submission::CommandListProxy::Create(device, alloc, raw, &px), "alias proxy");
+        px->CopyBufferRegion(before, 0, upload, 0, kBytes);
+        D3D12_RESOURCE_BARRIER alias {};
+        alias.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        alias.Aliasing.pResourceBefore = before;
+        alias.Aliasing.pResourceAfter = after;
+        px->ResourceBarrier(1, &alias);
+        px->CopyBufferRegion(after, 0, upload, 0, kBytes);
+        Require(!px->IsSplitIneligible(), "completed aliasing barrier permits split");
+        Check(px->SplitSegments(), "split after aliasing barrier");
+        D3D12_RESOURCE_BARRIER transition {};
+        transition.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        transition.Transition.pResource = after;
+        transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        transition.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        px->ResourceBarrier(1, &transition);
+        px->CopyBufferRegion(readback, 0, after, 0, kBytes);
+        Check(px->ExecuteOn(queue), "execute alias split");
+        WaitIdle(device, queue);
+        D3D12_RANGE range {0, kBytes};
+        Check(readback->Map(0, &range, &mapped), "alias readback map");
+        const auto *bytes = static_cast<const uint8_t *>(mapped);
+        for (UINT i = 0; i < kBytes; ++i)
+            Require(bytes[i] == 0x5A, "alias split contents");
+        readback->Unmap(0, nullptr);
+        px->Release();
+        raw->Release();
+        alloc->Release();
+        readback->Release();
+        upload->Release();
+        after->Release();
+        before->Release();
+        heap->Release();
+    }
+
     // A completed timestamp can be resolved after the cut on the same queue.
     {
         ID3D12CommandAllocator *a = nullptr;
@@ -339,6 +412,13 @@ int main()
         D3D12_RESOURCE_STATES s = D3D12_RESOURCE_STATE_COMMON;
         Require(book.TryGet(psr, &s) && s == D3D12_RESOURCE_STATE_COMMON, "PSR decays to COMMON");
         Require(book.TryGet(rt, &s) && s == D3D12_RESOURCE_STATE_RENDER_TARGET, "RT survives Execute");
+        D3D12_RESOURCE_BARRIER alias {};
+        alias.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        alias.Aliasing.pResourceBefore = psr;
+        alias.Aliasing.pResourceAfter = rt;
+        Require(book.OnBarriers(1, &alias, &why), "aliasing barrier is ordered");
+        Require(book.CanSplit(&why), "aliasing alone does not block split");
+        Require(!book.TryGet(psr, &s) && !book.TryGet(rt, &s), "alias invalidates tracked states");
     }
 
 
