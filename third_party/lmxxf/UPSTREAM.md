@@ -77,7 +77,7 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 2. **Zero-Residual Fallback Path**:
    - `ClearOutputAsync()`: clears `output.mapped` via `hipMemsetAsync` and synchronizes the HIP stream.
    - `ClearOutputD3D12(targetQueue)`: synchronizes HIP stream first, then stages a zero-clear to `output.resource` on the target queue via a dedicated upload staging buffer (`zero_upload`), fences completion, and waits safely.
-   - `ClearOutput(targetQueue)`: unified entry point for a submitted producer and an unsubmitted consumer. It validates the target queue, clears output, and advances the bridge to the phase appropriate for whether the consumer was already recorded. The caller must drain other queues that previously used the output.
+   - `ClearOutput(targetQueue)`: unified entry point for a submitted producer and an unsubmitted consumer. It validates the target queue, clears output, marks a later bridge-queue consumer pending for `WaitForSubmittedWork()`, and advances to the phase appropriate for whether the consumer was already recorded. The caller must drain other queues that previously used the output and a consumer submitted on a different queue.
 3. **Clear Resource Lifecycle Management**:
    - Creates dedicated `zero_upload`, `clear_alloc`, and `clear_cmd` only on the first D3D12 fallback; normal `Create()` has no clear-only allocations.
    - Releases resources in destructor only after ensuring all in-flight GPU work has completed (`clear_submission_unconfirmed` check and `WaitForSubmittedWork()`).

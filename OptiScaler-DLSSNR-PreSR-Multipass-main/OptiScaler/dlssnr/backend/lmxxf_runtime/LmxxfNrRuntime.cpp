@@ -1081,7 +1081,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
                 session->failed = true;
                 return Fail(LMXXF_NR_FAILED, "EnqueueHip: producer or old session queue did not drain before fallback clear");
             }
-            // A zero neural output makes the decode shader use original Color.
+            // A zero neural output makes the normal decoder view use original Color.
             const bool cleared = session->bridge && session->bridge->ClearOutput(targetQueue);
             if (cleared)
             {
@@ -1089,7 +1089,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
                 session->fallbackConsumerQueue = targetQueue;
                 if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                     j->state = LMXXF_NR_JOB_NR_COMPLETE;
-                SetError("EnqueueHip: queue mismatch; output zeroed for original Color passthrough");
+                SetError("EnqueueHip: queue mismatch; output zeroed; normal decoder view uses original Color");
                 return static_cast<int32_t>(LMXXF_NR_OK);
             }
             else
@@ -1119,7 +1119,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
                     j->state = LMXXF_NR_JOB_NR_COMPLETE;
                 std::string msg = "EnqueueHip: enqueue failed (";
                 msg += ex.what();
-                msg += "); output zeroed for original Color passthrough";
+                msg += "); output zeroed; normal decoder view uses original Color";
                 SetError(msg.c_str());
                 return static_cast<int32_t>(LMXXF_NR_OK);
             }

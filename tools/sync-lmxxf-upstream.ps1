@@ -117,9 +117,16 @@ function Assert-BridgeLocalMarkers([string]$bridgePath, [string]$context) {
         @{ Needle = 'ClearOutputAsync'; What = 'ClearOutputAsync()' },
         @{ Needle = 'bool ClearOutput('; What = 'ClearOutput(queue)' },
         @{ Needle = 'CancelUnsubmitted'; What = 'CancelUnsubmitted()' },
-        @{ Needle = 'CurrentPhase'; What = 'CurrentPhase()' }
+        @{ Needle = 'CurrentPhase'; What = 'CurrentPhase()' },
+        @{ Pattern = 'pending=true;\s*phase=consumer_recorded\?Phase::OutputRecorded:Phase::HipQueued;'; What = 'ClearOutput marks the bridge-queue consumer pending' }
     )
     foreach ($r in $required) {
+        if ($r.Pattern) {
+            if ($c -notmatch $r.Pattern) {
+                throw ("Bridge local markers incomplete ($context): missing '" + $r.What + "'. Pass -UpdateBridge to re-apply patches from a matching upstream ref, or restore the pinned header.")
+            }
+            continue
+        }
         if ($c -notmatch [regex]::Escape($r.Needle) -and -not $c.Contains($r.Needle)) {
             throw ("Bridge local markers incomplete ($context): missing '" + $r.What + "'. Pass -UpdateBridge to re-apply patches from a matching upstream ref, or restore the pinned header.")
         }
@@ -709,7 +716,7 @@ private:
  }
  public:
  // After producer submission and before consumer submission, clear the private
- // neural output so the caller can decode original Color. The caller must drain
+ // neural output so a normal decoder view can use original Color. The caller must drain
  // any other queue that used Output() before calling this method, and drain a
  // different consumer queue before reusing or destroying the bridge. On false,
  // do not submit the consumer or reuse the bridge.
@@ -727,11 +734,25 @@ private:
   // The stream and clear queue are confirmed complete. A pre-recorded consumer
   // can now submit; otherwise RecordOutputReadable may still be called.
   failed=false;
+  // WaitForSubmittedWork must fence a later consumer on the bridge queue,
+  // even when no regular HIP enqueue happened on this frame.
+  pending=true;
   phase=consumer_recorded?Phase::OutputRecorded:Phase::HipQueued;
   return true;
  }
 '@
             $content = $content.Replace($targetAnchor, "$clearMethods`r`n $targetAnchor")
+        }
+
+        # B.6a: Older ClearOutput implementations did not mark the consumer pending.
+        if ($content -match 'bool ClearOutput\(' -and
+            $content -notmatch 'pending=true;\s*phase=consumer_recorded\?Phase::OutputRecorded:Phase::HipQueued;') {
+            $clearPhasePattern = '(?m)^  failed=false;\r?\n  phase=consumer_recorded\?Phase::OutputRecorded:Phase::HipQueued;(?=\r?$)'
+            if ([regex]::Matches($content, $clearPhasePattern).Count -ne 1) {
+                throw 'Patch B failed: cannot find unique ClearOutput phase anchor in hip_d3d12_bridge.h'
+            }
+            $clearPending = "  failed=false;`r`n  // WaitForSubmittedWork must fence a later consumer on the bridge queue,`r`n  // even when no regular HIP enqueue happened on this frame.`r`n  pending=true;`r`n  phase=consumer_recorded?Phase::OutputRecorded:Phase::HipQueued;"
+            $content = [regex]::Replace($content, $clearPhasePattern, $clearPending)
         }
 
         # B.7: NotifyOutputSubmittedIfRecorded failure-safe reset
