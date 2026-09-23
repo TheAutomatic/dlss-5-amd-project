@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version, e.g. 1.9.0.1'
+        description: 'Product version, e.g. 1.9.0.3'
         required: false
-        default: '1.9.0.1'
+        default: '1.9.0.3'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.9.0.1'
+          $v = '1.9.0.3'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -263,7 +263,11 @@ jobs:
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - **[HOTFIX v1.9.0.1]** Emergency fix: Restored `LmxxfNrRuntime.dll` in the release package, which was omitted by the automated CI packaging script in v1.9.0.
+            - **Deep Unreal Engine 5 (UE5) Compatibility:** Fully resolved neural rendering session crashes and split fallbacks in complex UE5 titles (tested on *Neverness to Everness*, *Palworld*, etc.).
+              - **Multi-Direct-Queue Authoritative Binding:** Implemented "Confirm-Before-Bind & Drain-Before-Destroy" queue architecture. Binds to the actual scene rendering queue executing DLSS-NR commands, eliminating `QueueContract: targetQueue != sessionQueue` errors.
+              - **Queue Contract Safety Guard:** Added COM identity checks to skip HIP evaluation cleanly if an unexpected queue executes the command list cut, preventing session poisoning.
+              - **VRAM Leak Prevention:** Ensures `DrainGpu()` completes before session recreation during queue migration, avoiding shared VRAM leaks from `AbandonSessionResources()`.
+              - **Command List Split & Startup Fixes:** Optimized command list split eligibility checks, removed startup SHA1 hash freeze (~34s), and introduced progressive log rate-limiting.
             - **Major Architectural Milestone:** Introducing the open-source **`lmxxf` HIP Neural Rendering backend** (dlss5-on-amd-9070xt-porting).
             - **Same-Frame Queue Execution:** Embeds input capture, HIP asynchronous inference, and barrier synchronization within the game's primary command queue before upscaling (Pre-SR).
             - **Universal DLSS/XeSS Proxy:** Intercepts DLSS / XeSS inputs to feed the neural denoiser before passing to FFX/FSR, bringing DLSS5 to games without native FSR.
@@ -271,10 +275,13 @@ jobs:
             - **Live Parameter Controls:** Real-time sliders for `Detail strength` and `Colour strength`, plus live `Debug view` channel inspection in the Ins menu.
             - **User-Supplied Weights:** You must prepare model weights (`native-game-tiled-assets/` for lmxxf, or `dlssnr_on_amd_weights.bin` for danielblnc).
             - **Installer Update:** Updated the installer to support simultaneous dual-backend installation (users must provide their own weights and place them in the same directory as the installer).
-            - **Known Issue:** *Palworld* (UE5) currently falls back to original Color on the `lmxxf` backend due to command list split ineligibility; a targeted fix for UE5 command lists will be released in an upcoming update.
 
             ### 中文
-            - **【紧急修复 / Hotfix v1.9.0.1】** 紧急补回构建流程遗漏打包 `LmxxfNrRuntime.dll` 的问题。此前 v1.9.0 版由于 CI 打包脚本缺少编译步骤导致缺少该核心运行时，现已完整补齐。
+            - **深度兼容虚幻引擎 5（UE5）：** 彻底解决在复杂 UE5 游戏（已在《异环》、《幻兽帕鲁》等实机验证）中的会话失效与切分回退问题。
+              - **多 Direct 队列权威绑定：** 重构队列生命周期（“确定后绑定 + 排干后销毁”），在首帧通过真实执行命令列表批次锁定渲染 Direct 队列，彻底解决因呈现队列与渲染队列分离导致的 `QueueContract: targetQueue != sessionQueue` 会话失效与崩溃问题。
+              - **队列契约安全护栏：** 在命令切分执行回调中加入 COM 同一性检查，如遇到意外队列分发则主动跳过 HIP 调用并安全保留状态，杜绝会话中毒。
+              - **显存排干与无泄漏安全迁移：** 动态队列迁移前强制调用 `DrainGpu()`，彻底杜绝底层 `AbandonSessionResources` 导致的共享 VRAM 显存泄漏。
+              - **命令列表切分与启动卡顿修复：** 修复命令列表切分准入逻辑；默认日志等级优化为 2 (Information)，移除导致启动卡顿几十秒的静态全量哈希，并引入渐进式指数退避限流，杜绝磁盘暴增。
             - **重大架构里程碑：** 正式引入开源 **`lmxxf` HIP 神经渲染后端**（dlss5-on-amd-9070xt-porting）。
             - **主队列同帧同步执行：** 将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。
             - **通用 DLSS/XeSS 代理：** 拦截 DLSS / XeSS 输入并在送交 FFX/FSR 前完成神经降噪，让无原生 FSR 的游戏也能运行 DLSS5。
@@ -282,7 +289,6 @@ jobs:
             - **动态调参滑块：** Ins 菜单提供 `Detail strength` 与 `Colour strength` 连续调节滑块，以及实时的 `Debug view` 通道检查。
             - **自备权重：** 需自备模型权重（lmxxf 需 `native-game-tiled-assets/`，danielblnc 需 `dlssnr_on_amd_weights.bin`）。
             - **安装器更新：** 同步更新安装器，支持双后端同步安装（需要自备权重，并拷贝至与安装器同目录）。
-            - **已知问题：** 《幻兽帕鲁》（Palworld / UE5）当前在 `lmxxf` 后端下因虚幻引擎命令列表切分准入（split ineligible）暂不可用，待后续版本修复。
 
             - Corresponding source: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
             - No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
