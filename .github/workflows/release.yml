@@ -278,6 +278,9 @@ jobs:
             - **User-Supplied Weights:** Model weights must be provided manually (`native-game-tiled-assets/` for lmxxf, or `dlssnr_on_amd_weights.bin` for danielblnc).
             - **Installer Update:** Fixed installer interaction logic.
 
+            ### Known issues
+            - **`lmxxf` Pre-SR above ~1080p internal resolution is not fully integrated yet.** Same-frame neural rendering with FitLarge / larger Color can hitch badly. Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native** (keep Pre-SR Color near 1080p). `LmxxfFitLarge` defaults to **false**; only enable explicitly if you accept the cost.
+
             ### 中文
             - **修复 lmxxf 后端对虚幻引擎 5（UE5）兼容：** 解决在复杂 UE5 游戏（已在《异环》、《幻兽帕鲁》等实机验证）中的会话失效与切分回退问题。
               - 正确绑定游戏实际的渲染队列，避免因多队列冲突导致报错或降噪失效。
@@ -290,6 +293,9 @@ jobs:
             - **动态调参滑块：** Ins 菜单提供 `Detail strength` 与 `Colour strength` 调节滑块，以及实时的 `Debug view` 通道检查。
             - **自备权重：** 需自备模型权重（lmxxf 需 `native-game-tiled-assets/`，danielblnc 需 `dlssnr_on_amd_weights.bin`）。
             - **安装器更新：** 修复安装器交互逻辑。
+
+            ### 已知问题
+            - **`lmxxf` 超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 开启 FitLarge / 更大 Color 的同帧路径可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K 平衡档**、或 **1080p 原生**（尽量让 Pre-SR Color 接近 1080p）。`LmxxfFitLarge` 默认 **false**，仅在接受开销时显式开启。
 
             - No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
             - See README inside the zip.

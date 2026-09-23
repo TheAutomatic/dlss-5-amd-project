@@ -324,3 +324,7 @@ Codebase heritage (top to bottom):
 - [**This Project (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
 
 This distribution contains no NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights. Please respect all upstream licenses.
+
+## Known issues (1.9.1-alpha)
+
+- **`lmxxf` backend: Pre-SR neural rendering above ~1080p internal resolution is not fully integrated yet.** The same-frame path can hitch badly on larger Color (e.g. 4K Quality ~2258×1271). Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native**. `LmxxfFitLarge` defaults to off; set `true` only if you accept the cost.

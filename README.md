@@ -326,3 +326,7 @@
 - [**本项目 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**：多槽调度架构、主队列同帧同步执行、C-ABI 标准化运行时与 PR 反哺、0.3.1 状态冻结/恢复、双后端共存与智能安装器。
 
 本项目不含 NVIDIA 专有二进制文件、danielblnc 安装工具或未授权分发资产。使用时请遵循各上游开源协议。
+
+## 已知问题（1.9.1-alpha）
+
+- **`lmxxf` 后端：超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 当前同帧路径在更大 Color（例如 4K 画质档 ~2258×1271）上可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K（1440p）平衡档**、或 **1080p 原生**。`LmxxfFitLarge` 默认关闭；仅在明确需要时设为 `true`。
