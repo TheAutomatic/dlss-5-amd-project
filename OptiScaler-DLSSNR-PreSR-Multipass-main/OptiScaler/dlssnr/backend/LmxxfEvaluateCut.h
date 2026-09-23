@@ -9,6 +9,9 @@
 
 // Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
 // Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
+
+// Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
+// Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
 // AmdBridge calls this every Evaluate; no-op unless SubmissionHooksWanted(). Harnesses can call helpers directly.
 namespace DlssNr::Backend::LmxxfCut
 {
@@ -17,6 +20,7 @@ using GetLastErrorFn = int32_t (*)(char *buffer, uint32_t buffer_chars);
 
 // lastEnqueueRc when BetweenThunk ran but Pending was empty (HIP skipped).
 constexpr int32_t kEnqueueSkipped = static_cast<int32_t>(0x534B4950); // 'SKIP'
+constexpr int32_t kEnqueueQueueMismatch = static_cast<int32_t>(0x514D4953); // 'QMIS'
 
 struct PendingHip
 {
@@ -26,7 +30,9 @@ struct PendingHip
     EnqueueHipFn enqueueHip = nullptr;
     GetLastErrorFn getLastError = nullptr;
     ID3D12CommandList *targetList = nullptr; // Identity only; the backend owns the pending job.
+    ID3D12CommandQueue *expectedQueue = nullptr;
     std::array<char, 256> lastEnqueueError {};
+    ID3D12CommandQueue *lastEnqueueQueue = nullptr;
     std::atomic<int> betweenHits { 0 };
     std::atomic<int> enqueueCalls { 0 };
     std::atomic<int> skippedHits { 0 };
@@ -50,6 +56,7 @@ inline void ClearPendingEnqueue()
     p.enqueueHip = nullptr;
     p.getLastError = nullptr;
     p.targetList = nullptr;
+    p.expectedQueue = nullptr;
 }
 
 inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const *lists)
@@ -67,6 +74,7 @@ inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const 
             p.enqueueHip = nullptr;
             p.getLastError = nullptr;
             p.targetList = nullptr;
+            p.expectedQueue = nullptr;
             return;
         }
     }
@@ -87,9 +95,44 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         {
             p.skippedHits.fetch_add(1, std::memory_order_relaxed);
             p.lastEnqueueError = {};
+            p.lastEnqueueQueue = nullptr;
             p.lastEnqueueRc.store(kEnqueueSkipped, std::memory_order_relaxed);
             p.targetList = nullptr;
+            p.expectedQueue = nullptr;
             return;
+        }
+        if (p.expectedQueue && queue)
+        {
+            bool match = (queue == p.expectedQueue);
+            if (!match)
+            {
+                IUnknown *id1 = nullptr;
+                IUnknown *id2 = nullptr;
+                queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&id1));
+                p.expectedQueue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&id2));
+                match = (id1 && id2 && id1 == id2);
+                if (id1) id1->Release();
+                if (id2) id2->Release();
+            }
+            if (!match)
+            {
+                // Execution queue mismatch! Do NOT call fn to prevent session poisoning in LmxxfNrRuntime!
+                p.skippedHits.fetch_add(1, std::memory_order_relaxed);
+                std::array<char, 256> errBuf {};
+                std::snprintf(errBuf.data(), errBuf.size(),
+                              "command queue %p does not match session queue %p (HIP skipped to preserve session)",
+                              reinterpret_cast<void *>(queue), reinterpret_cast<void *>(p.expectedQueue));
+                p.lastEnqueueError = errBuf;
+                p.lastEnqueueQueue = queue;
+                p.lastEnqueueRc.store(kEnqueueQueueMismatch, std::memory_order_relaxed);
+                p.session = nullptr;
+                p.job = nullptr;
+                p.enqueueHip = nullptr;
+                p.getLastError = nullptr;
+                p.targetList = nullptr;
+                p.expectedQueue = nullptr;
+                return;
+            }
         }
         // Consume before call so a nested submission cannot enqueue twice.
         session = p.session;
@@ -101,6 +144,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         p.enqueueHip = nullptr;
         p.getLastError = nullptr;
         p.targetList = nullptr;
+        p.expectedQueue = nullptr;
     }
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
     p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
@@ -112,6 +156,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
     {
         std::lock_guard lock(p.mutex);
         p.lastEnqueueError = error;
+        p.lastEnqueueQueue = queue;
         p.lastEnqueueRc.store(rc, std::memory_order_relaxed);
     }
 }
@@ -130,7 +175,7 @@ inline HRESULT TrySplitAtEvaluate(ID3D12GraphicsCommandList *cmd)
 }
 
 inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip, GetLastErrorFn getLastError,
-                             ID3D12CommandList *targetList)
+                             ID3D12CommandList *targetList, ID3D12CommandQueue *expectedQueue = nullptr)
 {
     auto &p = Pending();
     std::lock_guard lock(p.mutex);
@@ -139,19 +184,21 @@ inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip,
     p.enqueueHip = enqueueHip;
     p.getLastError = getLastError;
     p.targetList = targetList;
+    p.expectedQueue = expectedQueue;
 }
 
 struct EnqueueDiagnostic
 {
     int32_t rc = 0;
     std::array<char, 256> error {};
+    ID3D12CommandQueue *queue = nullptr;
 };
 
 inline EnqueueDiagnostic LastEnqueueDiagnostic()
 {
     auto &p = Pending();
     std::lock_guard lock(p.mutex);
-    return { p.lastEnqueueRc.load(std::memory_order_relaxed), p.lastEnqueueError };
+    return { p.lastEnqueueRc.load(std::memory_order_relaxed), p.lastEnqueueError, p.lastEnqueueQueue };
 }
 
 inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }

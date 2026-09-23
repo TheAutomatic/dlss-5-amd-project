@@ -58,8 +58,99 @@ std::mutex frameMutex;
 FrameIdentity lastFrame {};
 UINT stableFrames = 0;
 thread_local uint64_t submitOrdinal = 0; // Monotonic per-thread submission counter.
+
+class ConfirmedQueueHolder
+{
+    mutable std::mutex mu_;
+    ID3D12CommandQueue* queue_ = nullptr;
+public:
+    ~ConfirmedQueueHolder()
+    {
+        Clear();
+    }
+    void Clear()
+    {
+        std::lock_guard lock(mu_);
+        if (queue_)
+        {
+            queue_->Release();
+            queue_ = nullptr;
+        }
+    }
+    void Set(ID3D12CommandQueue* q)
+    {
+        std::lock_guard lock(mu_);
+        if (queue_ == q)
+            return;
+        if (q)
+            q->AddRef();
+        if (queue_)
+            queue_->Release();
+        queue_ = q;
+    }
+    ID3D12CommandQueue* Get() const
+    {
+        std::lock_guard lock(mu_);
+        if (queue_)
+            queue_->AddRef();
+        return queue_; // Caller must Release()
+    }
+    bool Matches(ID3D12CommandQueue* q) const
+    {
+        std::lock_guard lock(mu_);
+        if (!queue_ || !q)
+            return queue_ == q;
+        if (queue_ == q)
+            return true;
+        IUnknown* id1 = nullptr;
+        IUnknown* id2 = nullptr;
+        queue_->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id1));
+        q->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id2));
+        const bool same = (id1 && id2 && id1 == id2);
+        if (id1) id1->Release();
+        if (id2) id2->Release();
+        return same;
+    }
+};
+
+static ConfirmedQueueHolder s_confirmedRenderQueue;
+static std::atomic<ID3D12GraphicsCommandList*> s_awaitingCmdList { nullptr };
+
+static bool ContainsTargetList(UINT n, ID3D12CommandList* const* c, ID3D12GraphicsCommandList* target)
+{
+    if (!c || !target)
+        return false;
+    for (UINT i = 0; i < n; ++i)
+    {
+        if (c[i] == reinterpret_cast<ID3D12CommandList*>(target))
+            return true;
+        DlssNr::Submission::ILogicalCommandList* logical = nullptr;
+        if (SUCCEEDED(c[i]->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                          reinterpret_cast<void**>(&logical))) && logical)
+        {
+            ID3D12CommandList* native = logical->UnsplitNativeList();
+            const bool match = (native == reinterpret_cast<ID3D12CommandList*>(target));
+            logical->Release();
+            if (match)
+                return true;
+        }
+    }
+    return false;
+}
+
 void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
+    auto *awaiting = s_awaitingCmdList.load(std::memory_order_acquire);
+    if (awaiting && q && q->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+    {
+        if (ContainsTargetList(n, c, awaiting))
+        {
+            s_confirmedRenderQueue.Set(q);
+            s_awaitingCmdList.store(nullptr, std::memory_order_release);
+            LOG_INFO("AMD pre-SR: confirmed execution queue {:p} for target list {:p}",
+                     reinterpret_cast<void*>(q), reinterpret_cast<void*>(awaiting));
+        }
+    }
     auto b = backend.load();
     if (b)
         b->Submitting(q, n, c);
@@ -104,6 +195,7 @@ void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList*
 }
 void NTAPI Exit(LONG code)
 {
+    s_confirmedRenderQueue.Clear();
     if (auto b = backend.load())
         b->Shutdown();
     exitOriginal(code);
@@ -281,12 +373,53 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         device->Release();
         return false;
     }
-    if (!q)
-        q = reinterpret_cast<ID3D12CommandQueue*>(State::Instance().currentCommandQueue);
+    ID3D12CommandQueue* confirmedQ = nullptr;
     if (!q)
     {
+        confirmedQ = s_confirmedRenderQueue.Get();
+        if (confirmedQ)
+        {
+            ID3D12Device* qDev = nullptr;
+            if (SUCCEEDED(confirmedQ->GetDevice(IID_PPV_ARGS(&qDev))))
+            {
+                IUnknown* devId1 = nullptr;
+                IUnknown* devId2 = nullptr;
+                device->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&devId1));
+                qDev->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&devId2));
+                if (devId1 && devId2 && devId1 == devId2)
+                {
+                    q = confirmedQ;
+                }
+                if (devId1) devId1->Release();
+                if (devId2) devId2->Release();
+                qDev->Release();
+            }
+            if (!q)
+            {
+                confirmedQ->Release();
+                confirmedQ = nullptr;
+            }
+        }
+    }
+    if (!q)
+    {
+        // Target list not yet observed on any execution queue.
+        // Register cmd as awaiting observation, and bypass NR this frame (original Color to SR).
+        s_awaitingCmdList.store(cmd, std::memory_order_release);
+        if (!submissionHookReady)
+        {
+            auto *fallback = reinterpret_cast<ID3D12CommandQueue*>(State::Instance().currentCommandQueue);
+            if (fallback)
+                InstallSubmissionHook(device, fallback);
+        }
         device->Release();
-        Message("AMD pre-SR: waiting for the game command queue");
+        static bool s_loggedWait = false;
+        if (!s_loggedWait)
+        {
+            s_loggedWait = true;
+            LOG_INFO("AMD pre-SR: awaiting execution queue observation for target command list {:p}; bypassing NR this frame",
+                     reinterpret_cast<void*>(cmd));
+        }
         return true;
     }
     std::lock_guard initGuard(initMutex);
@@ -296,6 +429,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (!InstallSubmissionHook(device, q))
         {
             device->Release();
+            if (confirmedQ) confirmedQ->Release();
             return true;
         }
         if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed())
@@ -307,6 +441,11 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         backend.store(b);
     }
     device->Release();
+    if (confirmedQ)
+    {
+        confirmedQ->Release();
+        confirmedQ = nullptr;
+    }
     // The hook observes this list when the current frame is submitted and then
     // binds the actual queue before waking HIP. Engines that rotate command-list
     // objects may never submit the same object twice, so do not require a prior

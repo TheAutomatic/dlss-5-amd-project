@@ -185,6 +185,22 @@ bool LmxxfBackend::EnsureSession()
     const auto modules = ResolveModulesDir(directory);
     const std::wstring modulesW = WidenPath(modules);
     LOG_INFO("lmxxf: assets/modules dir={}", modules.string());
+
+    static constexpr GUID kStreamlineRiid = { 0xADEC44E2, 0x61F0, 0x45C3, { 0xAD, 0x9F, 0x1B, 0x37, 0x37, 0x92, 0x84, 0xFF } };
+    IUnknown *qId = nullptr;
+    if (queue)
+        queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&qId));
+    IUnknown *slQueue = nullptr;
+    if (queue)
+        queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&slQueue));
+    LOG_INFO("lmxxf: session queue={:p} (type {}) id={:p} sl={:p}",
+             reinterpret_cast<void *>(queue),
+             queue ? static_cast<int>(queue->GetDesc().Type) : -1,
+             reinterpret_cast<void *>(qId),
+             reinterpret_cast<void *>(slQueue));
+    if (qId) qId->Release();
+    if (slQueue) slQueue->Release();
+
     LmxxfNrCreateInfo info {};
     info.struct_size = sizeof(info);
     info.device = device;
@@ -250,7 +266,7 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         return nullptr;
     }
     LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip,
-                               api->table.GetLastError, recordCmd);
+                               api->table.GetLastError, recordCmd, queue);
     LmxxfCut::ArmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
@@ -344,11 +360,36 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         const auto enqueue = LmxxfCut::LastEnqueueDiagnostic();
         static unsigned prepareFrameFailLogs = 0;
         static unsigned prepareFrameRebuilds = 0;
+        static constexpr GUID kStreamlineRiid = { 0xADEC44E2, 0x61F0, 0x45C3, { 0xAD, 0x9F, 0x1B, 0x37, 0x37, 0x92, 0x84, 0xFF } };
+        IUnknown *sessId = nullptr;
+        if (queue)
+            queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&sessId));
+        IUnknown *sessSl = nullptr;
+        if (queue)
+            queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&sessSl));
+
+        IUnknown *execId = nullptr;
+        if (enqueue.queue)
+            enqueue.queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&execId));
+        IUnknown *execSl = nullptr;
+        if (enqueue.queue)
+            enqueue.queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&execSl));
+
         if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 30) == 0)
-            LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} lastEnqueueRc={:X} lastEnqueueErr={} {}x{} (fail#{})", frameRc,
-                      job.handle != nullptr, job.private_output != nullptr, err,
-                      enqueue.rc, enqueue.error.data(), fi.color_width, fi.color_height,
+            LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} lastEnqueueRc={:X} lastEnqueueErr={} sessQ={:p}(t={},id={:p},sl={:p}) execQ={:p}(t={},id={:p},sl={:p}) {}x{} (fail#{})",
+                      frameRc, job.handle != nullptr, job.private_output != nullptr, err,
+                      enqueue.rc, enqueue.error.data(),
+                      reinterpret_cast<void *>(queue), queue ? static_cast<int>(queue->GetDesc().Type) : -1,
+                      reinterpret_cast<void *>(sessId), reinterpret_cast<void *>(sessSl),
+                      reinterpret_cast<void *>(enqueue.queue), enqueue.queue ? static_cast<int>(enqueue.queue->GetDesc().Type) : -1,
+                      reinterpret_cast<void *>(execId), reinterpret_cast<void *>(execSl),
+                      fi.color_width, fi.color_height,
                       prepareFrameFailLogs + 1);
+
+        if (sessId) sessId->Release();
+        if (sessSl) sessSl->Release();
+        if (execId) execId->Release();
+        if (execSl) execSl->Release();
         ++prepareFrameFailLogs;
         // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
         // drop host session so the next Record EnsureSession starts clean.
@@ -399,7 +440,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                  DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
                  submitFails);
     }
-    else if ((lastRc != 0 && lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueSkipped)) || submitFails > 0)
+    else if ((lastRc != 0 && lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueSkipped) &&
+              lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueQueueMismatch)) || submitFails > 0)
     {
         static uint64_t warnCount = 0;
         if (++warnCount <= 5 || (warnCount % 120 == 0))
@@ -677,29 +719,77 @@ void LmxxfBackend::Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *con
 
 void LmxxfBackend::TraceBoundary(const std::string &) {}
 
-void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT count, ID3D12CommandList *const * lists)
+void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandList *const * lists)
 {
     void *jobToRetire = nullptr;
+    bool containsCmd = false;
     {
         std::lock_guard lock(jobMutex);
-        if (session && pendingJobInfo.job && api && api->table.Retire)
+        if (lists)
         {
-            bool containsCmd = false;
-            if (lists)
+            for (UINT i = 0; i < count; ++i)
             {
-                for (UINT i = 0; i < count; ++i)
+                if (pendingJobInfo.cmd && lists[i] == pendingJobInfo.cmd)
                 {
-                    if (lists[i] == pendingJobInfo.cmd)
-                    {
-                        containsCmd = true;
-                        break;
-                    }
+                    containsCmd = true;
+                    break;
                 }
             }
-            if (containsCmd)
+        }
+        if (containsCmd)
+        {
+            if (session && pendingJobInfo.job && api && api->table.Retire)
             {
                 jobToRetire = pendingJobInfo.job;
-                pendingJobInfo = {};
+            }
+            pendingJobInfo = {};
+        }
+    }
+    if (containsCmd && q && q != queue)
+    {
+        bool sameQueue = (this->queue == q);
+        if (!sameQueue && this->queue && q)
+        {
+            IUnknown* id1 = nullptr;
+            IUnknown* id2 = nullptr;
+            this->queue->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id1));
+            q->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id2));
+            sameQueue = (id1 && id2 && id1 == id2);
+            if (id1) id1->Release();
+            if (id2) id2->Release();
+        }
+        if (!sameQueue)
+        {
+            LOG_WARN("lmxxf: queue transition detected (current={:p}, actual={:p}); draining old session before migration",
+                     reinterpret_cast<void*>(this->queue), reinterpret_cast<void*>(q));
+            bool drained = false;
+            if (session && api && api->table.Drain)
+            {
+                drained = (api->table.Drain(session) == LMXXF_NR_OK);
+            }
+            if (drained)
+            {
+                if (session && api && api->table.Destroy)
+                    api->table.Destroy(session);
+                session = nullptr;
+                sessionReady = false;
+                q->AddRef();
+                if (this->queue) this->queue->Release();
+                this->queue = q;
+                jobToRetire = nullptr;
+                SetStatus("lmxxf: session migrated to new render queue");
+                LOG_INFO("lmxxf: session cleanly destroyed after drain and queue updated to {:p}",
+                         reinterpret_cast<void*>(q));
+            }
+            else
+            {
+                LOG_ERROR("lmxxf: GPU drain failed during queue transition; cannot safely migrate session");
+                if (session && api && api->table.Destroy)
+                    api->table.Destroy(session);
+                session = nullptr;
+                sessionReady = false;
+                jobToRetire = nullptr;
+                SetStatus("lmxxf: queue migration failed (drain error)");
             }
         }
     }
@@ -711,7 +801,8 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT count, ID3D12CommandList
             char err[256] {};
             if (api->table.GetLastError)
                 api->table.GetLastError(err, sizeof err);
-            LOG_ERROR("lmxxf: Retire rc={} err={}", retireRc, err);
+            LOG_ERROR("lmxxf: Retire rc={} err={} submitQ={:p} sessQ={:p}",
+                      retireRc, err, reinterpret_cast<void *>(q), reinterpret_cast<void *>(queue));
         }
     }
     // Other UE/FG lists may submit before the list containing this Evaluate.

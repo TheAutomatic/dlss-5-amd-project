@@ -216,7 +216,7 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
                 ID3D12CommandList *list;
                 void *ctx;
             } invocation { between, lists[i], betweenCtx };
-            const auto invoke = [](ID3D12CommandQueue *q, void *ctx) {
+            const BetweenCallback invoke = [](ID3D12CommandQueue *q, void *ctx) {
                 auto *call = static_cast<Invocation *>(ctx);
                 call->fn(q, call->list, call->ctx);
             };

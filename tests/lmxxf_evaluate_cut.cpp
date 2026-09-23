@@ -166,14 +166,38 @@ int main()
     Require(std::strcmp(diagnostic.error.data(), "bridge submission queue mismatch") == 0,
             "submission-thread runtime error retained");
 
+    // Expected queue match vs mismatch test:
+    ID3D12CommandQueue *queue2 = nullptr;
+    Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue2)), "queue2");
+
+    // Case A: Queue mismatch - should skip Enqueue and record kEnqueueQueueMismatch without calling FakeEnqueue
+    pending.skippedHits.store(0);
+    const int callsBefore = pending.enqueueCalls.load();
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueue, nullptr, list, queue2);
+    DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue != queue2
+    const auto diagMismatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagMismatch.rc == DlssNr::Backend::LmxxfCut::kEnqueueQueueMismatch, "queue mismatch rc");
+    Require(pending.enqueueCalls.load() == callsBefore, "queue mismatch must not call enqueue");
+    Require(pending.skippedHits.load() == 1, "queue mismatch must record skipped hit");
+
+    // Case B: Queue match - should execute Enqueue normally
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueue, nullptr, list, queue);
+    DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue == queue
+    const auto diagMatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagMatch.rc == 0, "queue match rc must be 0");
+    Require(pending.enqueueCalls.load() == callsBefore + 1, "queue match must call enqueue");
+
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();
     DlssNr::Submission::Hooks::Disarm();
+    queue2->Release();
     list->Release();
     alloc->Release();
     otherList->Release();
     otherAlloc->Release();
     queue->Release();
     device->Release();
-    std::printf("lmxxf_evaluate_cut: ok (between→FakeEnqueue rc=0)\n");
+    std::printf("lmxxf_evaluate_cut: ok (between→FakeEnqueue rc=0, queue guard ok)\n");
     return 0;
 }
