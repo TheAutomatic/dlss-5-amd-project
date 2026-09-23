@@ -39,8 +39,16 @@ void LmxxfBackend::SetStatus(const char *s)
     if (status == s)
         return;
     status = s;
-    // Surface to OptiScaler.log once per distinct status (Record path was silent before).
-    LOG_INFO("lmxxf status: {}", status);
+    // Surface to OptiScaler.log with progressive rate-limiting on status changes.
+    static std::atomic<uint32_t> s_statusLogCount{0};
+    const uint32_t c = s_statusLogCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (c <= 10 ||
+        (c <= 100 && (c % 20 == 0)) ||
+        (c <= 1000 && (c % 100 == 0)) ||
+        (c % 1000 == 0))
+    {
+        LOG_INFO("lmxxf status: {} (status change #{})", status, c);
+    }
 }
 
 LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::filesystem::path &dir)
@@ -291,11 +299,14 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         std::snprintf(status, sizeof(status), "lmxxf: split ineligible: %s (NO NR)",
                       reason ? reason : "unknown");
         SetStatus(status);
-        static unsigned ineligibleCount = 0;
-        if (ineligibleCount < 5 || (ineligibleCount % 60) == 0)
+        static std::atomic<uint32_t> s_ineligibleCount{0};
+        const uint32_t c = s_ineligibleCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (c <= 10 ||
+            (c <= 100 && (c % 20 == 0)) ||
+            (c <= 1000 && (c % 100 == 0)) ||
+            (c % 1000 == 0))
         {
-            LOG_WARN("{}", status);
-            ineligibleCount++;
+            LOG_WARN("{} (frame #{})", status, c);
         }
         return nullptr;
     }
