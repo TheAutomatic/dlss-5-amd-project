@@ -908,9 +908,32 @@ if ($installLmxxf) {
         Install-One $_.FullName $rel
     }
     if ($lmxxfShaders) {
+        $shaderKeep = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         Get-ChildItem -LiteralPath $lmxxfShaders -Recurse -File | ForEach-Object {
-            $rel = Join-Path 'shaders' $_.FullName.Substring($lmxxfShaders.Length).TrimStart('\','/')
+            $relLeaf = $_.FullName.Substring($lmxxfShaders.Length).TrimStart('\','/')
+            $rel = Join-Path 'shaders' $relLeaf
+            # Keep set is package top-level *.hlsl only (relLeaf has no subdir).
+            if ($_.Extension -ieq '.hlsl' -and ($relLeaf -notmatch '[\\/]')) {
+                [void]$shaderKeep.Add($_.Name)
+            }
             Install-One $_.FullName $rel
+        }
+        # Install is upsert-only for named files; purge retired top-level *.hlsl left by older packages.
+        $gameShadersDir = Join-Path $game 'shaders'
+        if ((Test-Path -LiteralPath $gameShadersDir -PathType Container) -and $shaderKeep.Count -gt 0) {
+            $stale = @(Get-ChildItem -LiteralPath $gameShadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+                Where-Object { -not $shaderKeep.Contains($_.Name) })
+            foreach ($sf in $stale) {
+                try {
+                    Remove-Item -LiteralPath $sf.FullName -Force
+                    Write-Host ("  removed stale shader: {0}" -f $sf.Name) -ForegroundColor DarkYellow
+                } catch {
+                    Write-Host ("  WARN: could not remove stale shader {0}: {1}" -f $sf.Name, $_.Exception.Message) -ForegroundColor Yellow
+                }
+            }
+            if ($stale.Count -gt 0) {
+                Write-Host ("  purged {0} stale shader(s); live set={1}" -f $stale.Count, $shaderKeep.Count) -ForegroundColor Cyan
+            }
         }
         Write-Host "  shaders installed from $lmxxfShaders"
     } else {

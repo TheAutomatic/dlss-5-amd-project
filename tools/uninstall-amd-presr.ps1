@@ -100,8 +100,7 @@ $protectedNames = @(
     'version.dll',
     'native-game-tiled-assets'
 )
-# Whitelist includes retired D3D12-network hlsl so older installs still clean up.
-# Live glue set synced by tools/sync-lmxxf-upstream.ps1 is the 12 top-level *.hlsl only.
+# Live glue set (12 top-level *.hlsl). Install/uninstall also purge retired native_/preblock_ leftovers.
 $lmxxfShaderFiles = @(
     'native_black_probe.hlsl',
     'native_codec_decode.hlsl',
@@ -230,6 +229,10 @@ foreach ($root in $roots) {
         foreach ($sf in $lmxxfShaderFiles) {
             Add-PlannedFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
         }
+        # Also plan retired wave/vit/preblock hlsl left by older installs (install used to upsert-only).
+        Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(native_|preblock_)' -and ($lmxxfShaderFiles -notcontains $_.Name) } |
+            ForEach-Object { Add-PlannedFile $_.FullName 'lmxxf-shader-stale' }
         $cacheDir = Join-Path $shadersDir 'shader-cache'
         if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
             Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
@@ -422,6 +425,9 @@ foreach ($root in $roots) {
         foreach ($sf in $lmxxfShaderFiles) {
             Remove-SafeFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
         }
+        Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(native_|preblock_)' } |
+            ForEach-Object { Remove-SafeFile $_.FullName 'lmxxf-shader-stale' }
         $cacheDir = Join-Path $shadersDir 'shader-cache'
         if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
             Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
