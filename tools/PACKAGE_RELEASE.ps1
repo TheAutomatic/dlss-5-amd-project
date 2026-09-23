@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.9.0',
+    [string]$Version = '1.9.0.1',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -330,9 +330,10 @@ if (Test-Path $rtgiSrc) {
 
 # Bundled open-source lmxxf runtime binaries, modules, and shaders
 $lmxxfDllSrc = Join-Path $root 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
-if (Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf) {
-    Copy-Item -LiteralPath $lmxxfDllSrc -Destination (Join-Path $stage 'LmxxfNrRuntime.dll') -Force
+if (!(Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf)) {
+    throw "Required LmxxfNrRuntime.dll not found at $lmxxfDllSrc! Build it first with tools\build-lmxxf-runtime.cmd."
 }
+Copy-Item -LiteralPath $lmxxfDllSrc -Destination (Join-Path $stage 'LmxxfNrRuntime.dll') -Force
 
 $lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
 if (Test-Path -LiteralPath $lmxxfModSrc -PathType Container) {
@@ -437,11 +438,18 @@ try {
         $badZip = @($archive.Entries |
             Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
             ForEach-Object { $_.FullName })
+        $entryNames = @($archive.Entries | ForEach-Object { $_.Name })
     } finally {
         $archive.Dispose()
     }
     if ($badZip.Count -gt 0) {
         throw "Forbidden proprietary/user-supplied file in zip: $($badZip -join ', ')"
+    }
+    $requiredNames = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
+    foreach ($req in $requiredNames) {
+        if ($entryNames -notcontains $req) {
+            throw "Package archive missing required component: $req"
+        }
     }
 } catch {
     if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }

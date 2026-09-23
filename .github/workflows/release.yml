@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version, e.g. 1.9.0'
+        description: 'Product version, e.g. 1.9.0.1'
         required: false
-        default: '1.9.0'
+        default: '1.9.0.1'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.9.0'
+          $v = '1.9.0.1'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -154,6 +154,26 @@ jobs:
           cmd /d /c tools\test-amd-host-contracts.cmd "$env:BUILD_OUT"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Build LmxxfNrRuntime DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmd /d /c tools\build-lmxxf-runtime.cmd exports/lmxxf-runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "exports/lmxxf-runtime/LmxxfNrRuntime.dll")) {
+            throw "Build did not produce exports/lmxxf-runtime/LmxxfNrRuntime.dll"
+          }
+
+      - name: ABI regression test for LmxxfNrRuntime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cl /nologo /std:c++17 /O2 /EHsc /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
+            tests/lmxxf_nr_abi.cpp /Fe:exports/lmxxf-runtime/lmxxf_nr_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & exports/lmxxf-runtime/lmxxf_nr_abi.exe exports/lmxxf-runtime/LmxxfNrRuntime.dll third_party/lmxxf/modules
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build OptiScaler Release (default = multi-slot)
         shell: pwsh
         run: |
@@ -208,12 +228,19 @@ jobs:
             $bad = @($archive.Entries |
               Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
               ForEach-Object { $_.FullName })
+            $entryNames = @($archive.Entries | ForEach-Object { $_.Name })
           } finally {
             $archive.Dispose()
           }
           if ($bad.Count -gt 0) {
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
+          }
+          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
+          foreach ($r in $required) {
+            if ($entryNames -notcontains $r) {
+              throw "REQUIRED COMPONENT MISSING IN ZIP: $r"
+            }
           }
 
       - name: Upload artifact
@@ -236,6 +263,7 @@ jobs:
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
+            - **[HOTFIX v1.9.0.1]** Emergency fix: Restored `LmxxfNrRuntime.dll` in the release package, which was omitted by the automated CI packaging script in v1.9.0.
             - **Major Architectural Milestone:** Introducing the open-source **`lmxxf` HIP Neural Rendering backend** (dlss5-on-amd-9070xt-porting).
             - **Same-Frame Queue Execution:** Embeds input capture, HIP asynchronous inference, and barrier synchronization within the game's primary command queue before upscaling (Pre-SR).
             - **Universal DLSS/XeSS Proxy:** Intercepts DLSS / XeSS inputs to feed the neural denoiser before passing to FFX/FSR, bringing DLSS5 to games without native FSR.
@@ -246,6 +274,7 @@ jobs:
             - **Known Issue:** *Palworld* (UE5) currently falls back to original Color on the `lmxxf` backend due to command list split ineligibility; a targeted fix for UE5 command lists will be released in an upcoming update.
 
             ### 中文
+            - **【紧急修复 / Hotfix v1.9.0.1】** 紧急补回构建流程遗漏打包 `LmxxfNrRuntime.dll` 的问题。此前 v1.9.0 版由于 CI 打包脚本缺少编译步骤导致缺少该核心运行时，现已完整补齐。
             - **重大架构里程碑：** 正式引入开源 **`lmxxf` HIP 神经渲染后端**（dlss5-on-amd-9070xt-porting）。
             - **主队列同帧同步执行：** 将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。
             - **通用 DLSS/XeSS 代理：** 拦截 DLSS / XeSS 输入并在送交 FFX/FSR 前完成神经降噪，让无原生 FSR 的游戏也能运行 DLSS5。
