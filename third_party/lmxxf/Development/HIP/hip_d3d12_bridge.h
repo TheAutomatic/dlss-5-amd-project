@@ -130,14 +130,18 @@ public:
   ListContract(c);
   try{Barrier(c,output.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);readable=true;phase=before_enqueue?Phase::OutputRecordedPendingHip:Phase::OutputRecorded;}catch(...){failed=true;throw;}
  }
- void ClearOutputAsync(){
-  if(!network||failed||!output.mapped)return;
+ bool ClearOutputAsync() noexcept {
+  if(!network||failed||!output.mapped)return false;
   auto&api=network->Runtime();
   try{
    api.Check(api.hipMemsetAsync(output.mapped,0,pixels*12,network->Stream()),"clear output");
    network->Synchronize();
    phase=Phase::OutputRecorded;
-  }catch(...){failed=true;}
+   return true;
+  }catch(...){
+   failed=true;
+   return false;
+  }
  }
  // Acknowledges submission, not GPU completion. Queue order protects the next frame;
  // the destructor fences submitted work. Omitting this acknowledgement prevents reuse/free.

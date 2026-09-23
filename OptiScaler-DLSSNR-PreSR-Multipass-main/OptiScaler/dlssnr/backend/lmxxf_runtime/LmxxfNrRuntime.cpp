@@ -912,12 +912,19 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             // Queue mismatch: cannot synchronize HIP with targetQueue on this session.
             // Clear the neural output buffer to 0 so the decode shader will produce
             // original Color without neural residual, ensuring a 100% safe visual fallback.
-            if (session->bridge)
-                session->bridge->ClearOutputAsync();
-            if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
-                j->state = LMXXF_NR_JOB_NR_COMPLETE;
-            SetError("EnqueueHip: queue mismatch; output zeroed for original Color passthrough");
-            return static_cast<int32_t>(LMXXF_NR_OK);
+            const bool cleared = session->bridge && session->bridge->ClearOutputAsync();
+            if (cleared)
+            {
+                if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+                    j->state = LMXXF_NR_JOB_NR_COMPLETE;
+                SetError("EnqueueHip: queue mismatch; output zeroed for original Color passthrough");
+                return static_cast<int32_t>(LMXXF_NR_OK);
+            }
+            else
+            {
+                SetError("EnqueueHip: queue mismatch and output clear failed; cannot guarantee clean visual fallback");
+                return static_cast<int32_t>(LMXXF_NR_FAILED);
+            }
         }
         QueueContract(session, targetQueue);
         session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);

@@ -152,16 +152,18 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         ID3D12GraphicsCommandList *matched = nullptr;
         {
             std::lock_guard lock(s_awaitingMutex);
-            for (auto *awaiting : s_awaitingCmdLists)
+            for (auto it = s_awaitingCmdLists.begin(); it != s_awaitingCmdLists.end(); )
             {
-                if (ContainsTargetList(n, c, awaiting))
+                if (ContainsTargetList(n, c, *it))
                 {
-                    matched = awaiting;
-                    break;
+                    matched = *it;
+                    it = s_awaitingCmdLists.erase(it);
+                }
+                else
+                {
+                    ++it;
                 }
             }
-            if (matched)
-                s_awaitingCmdLists.clear();
         }
         if (matched)
         {

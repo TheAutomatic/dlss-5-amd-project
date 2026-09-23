@@ -32,27 +32,33 @@ std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
     return directory;
 }
 
-void DrainQueue(ID3D12Device *dev, ID3D12CommandQueue *q)
+bool DrainQueue(ID3D12Device *dev, ID3D12CommandQueue *q, DWORD timeoutMs = 5000)
 {
     if (!dev || !q)
-        return;
+        return false;
     ID3D12Fence *fence = nullptr;
     if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence)
-        return;
+        return false;
     HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!ev)
     {
         fence->Release();
-        return;
+        return false;
     }
+    bool drained = false;
     const UINT64 v = 1;
     if (SUCCEEDED(q->Signal(fence, v)))
     {
         if (SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
-            WaitForSingleObject(ev, 5000);
+        {
+            const DWORD waitRes = WaitForSingleObject(ev, timeoutMs);
+            if (waitRes == WAIT_OBJECT_0)
+                drained = true;
+        }
     }
     CloseHandle(ev);
     fence->Release();
+    return drained;
 }
 } // namespace
 
@@ -787,15 +793,14 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
             LOG_WARN("lmxxf: queue transition detected (current={:p}, actual={:p}); draining actual queue and old session before migration",
                      reinterpret_cast<void*>(this->queue), reinterpret_cast<void*>(q));
             // 1. Drain the actual queue q that just executed producer and continuation:
-            DrainQueue(this->device, q);
+            const bool actualDrained = DrainQueue(this->device, q);
 
             // 2. Drain the old session queue:
-            bool drained = false;
-            if (session && api && api->table.Drain)
-            {
-                drained = (api->table.Drain(session) == LMXXF_NR_OK);
-            }
-            if (drained)
+            const bool sessionDrained = (session && api && api->table.Drain)
+                                            ? (api->table.Drain(session) == LMXXF_NR_OK)
+                                            : true;
+
+            if (actualDrained && sessionDrained)
             {
                 if (session && api && api->table.Destroy)
                     api->table.Destroy(session);
@@ -807,18 +812,23 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
                 jobToRetire = nullptr;
                 DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
                 SetStatus("lmxxf: session migrated to new render queue");
-                LOG_INFO("lmxxf: session cleanly destroyed after dual queue drain and queue updated to {:p}",
+                LOG_INFO("lmxxf: session cleanly destroyed after verified dual queue drain; queue updated to {:p}",
                          reinterpret_cast<void*>(q));
             }
             else
             {
-                LOG_ERROR("lmxxf: GPU drain failed during queue transition; cannot safely migrate session");
-                if (session && api && api->table.Destroy)
-                    api->table.Destroy(session);
+                LOG_ERROR("lmxxf: GPU drain failed during queue transition (actualDrained={}, sessionDrained={}); abandoning old session without Destroy to prevent GPU UAF",
+                          actualDrained, sessionDrained);
+                // CRITICAL SAFETY: If either queue failed to drain, GPU may still be referencing
+                // old session resources. We MUST NOT call Destroy(session) to avoid GPU Use-After-Free.
                 session = nullptr;
                 sessionReady = false;
                 jobToRetire = nullptr;
-                SetStatus("lmxxf: queue migration failed (drain error)");
+                q->AddRef();
+                if (this->queue) this->queue->Release();
+                this->queue = q;
+                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
+                SetStatus("lmxxf: queue migration completed with abandoned undrained session (GPU safety fallback)");
             }
         }
     }

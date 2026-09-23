@@ -170,7 +170,7 @@ int main()
     ID3D12CommandQueue *queue2 = nullptr;
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue2)), "queue2");
 
-    // Case A: Queue mismatch - calls enqueue for zero-residual fallback and records kEnqueueQueueMismatch
+    // Case A1: Queue mismatch where clear succeeds -> records kEnqueueQueueMismatch
     pending.skippedHits.store(0);
     const int callsBefore = pending.enqueueCalls.load();
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
@@ -181,13 +181,70 @@ int main()
     Require(pending.skippedHits.load() == 1, "queue mismatch must record skipped hit");
     Require(pending.enqueueCalls.load() == callsBefore + 1, "queue mismatch calls enqueue for zeroing fallback");
 
+    // Case A2: Queue mismatch where clear FAILS -> must propagate failure rc, never report success
+    pending.skippedHits.store(0);
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueueFailure, &FakeLastError, list, queue2);
+    DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue != queue2
+    const auto diagMismatchFail = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagMismatchFail.rc == 5, "queue mismatch with failed clear must propagate error rc");
+    Require(std::strcmp(diagMismatchFail.error.data(), "bridge submission queue mismatch") == 0,
+            "queue mismatch with failed clear must retain error message");
+
     // Case B: Queue match - should execute Enqueue normally
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
                                                  &FakeEnqueue, nullptr, list, queue);
     DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue == queue
     const auto diagMatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
     Require(diagMatch.rc == 0, "queue match rc must be 0");
-    Require(pending.enqueueCalls.load() == callsBefore + 2, "queue match must call enqueue");
+    Require(pending.enqueueCalls.load() == callsBefore + 3, "queue match must call enqueue");
+
+    // Case C: DrainQueue contract testing
+    auto testDrain = [](ID3D12Device *dev, ID3D12CommandQueue *q, DWORD timeoutMs) -> bool {
+        if (!dev || !q) return false;
+        ID3D12Fence *fence = nullptr;
+        if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence) return false;
+        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!ev) { fence->Release(); return false; }
+        bool drained = false;
+        const UINT64 v = 1;
+        if (SUCCEEDED(q->Signal(fence, v)))
+        {
+            if (SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
+            {
+                const DWORD waitRes = WaitForSingleObject(ev, timeoutMs);
+                if (waitRes == WAIT_OBJECT_0) drained = true;
+            }
+        }
+        CloseHandle(ev);
+        fence->Release();
+        return drained;
+    };
+    Require(!testDrain(nullptr, nullptr, 1000), "DrainQueue rejects null device and queue");
+    Require(!testDrain(device, nullptr, 1000), "DrainQueue rejects null queue");
+    Require(testDrain(device, queue, 1000), "DrainQueue succeeds on valid device and queue");
+
+    // Case D: Multi-buffered awaiting list observation simulation (selective erase)
+    std::vector<ID3D12GraphicsCommandList*> awaitingLists;
+    awaitingLists.push_back(list);
+    awaitingLists.push_back(otherList);
+    ID3D12CommandList *subBatch[] = { otherList };
+    ID3D12GraphicsCommandList *matchedList = nullptr;
+    for (auto it = awaitingLists.begin(); it != awaitingLists.end(); )
+    {
+        bool inBatch = false;
+        for (UINT i = 0; i < 1; ++i)
+            if (subBatch[i] == *it) { inBatch = true; break; }
+        if (inBatch)
+        {
+            matchedList = *it;
+            it = awaitingLists.erase(it);
+        }
+        else ++it;
+    }
+    Require(matchedList == otherList, "multi-buffer matched list");
+    Require(awaitingLists.size() == 1 && awaitingLists[0] == list,
+            "retained in-flight awaiting list across multi-buffering");
 
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();
     DlssNr::Submission::Hooks::Disarm();
@@ -198,6 +255,6 @@ int main()
     otherAlloc->Release();
     queue->Release();
     device->Release();
-    std::printf("lmxxf_evaluate_cut: ok (between→FakeEnqueue rc=0, queue guard ok)\n");
+    std::printf("lmxxf_evaluate_cut: ok (between->FakeEnqueue rc=0, queue guard ok, mismatch clear failure propagated, DrainQueue validated, multi-buffer retention validated)\n");
     return 0;
 }

@@ -143,16 +143,24 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         std::lock_guard lock(p.mutex);
         if (!match)
         {
-            p.lastEnqueueRc.store(kEnqueueQueueMismatch, std::memory_order_relaxed);
-            if (error[0] != 0)
-                p.lastEnqueueError = error;
+            if (rc == 0)
+            {
+                p.lastEnqueueRc.store(kEnqueueQueueMismatch, std::memory_order_relaxed);
+                if (error[0] != 0)
+                    p.lastEnqueueError = error;
+                else
+                {
+                    std::array<char, 256> errBuf {};
+                    std::snprintf(errBuf.data(), errBuf.size(),
+                                  "command queue %p does not match session queue (output zeroed for original Color passthrough)",
+                                  reinterpret_cast<void *>(queue));
+                    p.lastEnqueueError = errBuf;
+                }
+            }
             else
             {
-                std::array<char, 256> errBuf {};
-                std::snprintf(errBuf.data(), errBuf.size(),
-                              "command queue %p does not match session queue (output zeroed for original Color passthrough)",
-                              reinterpret_cast<void *>(queue));
-                p.lastEnqueueError = errBuf;
+                p.lastEnqueueRc.store(rc, std::memory_order_relaxed);
+                p.lastEnqueueError = error;
             }
         }
         else
