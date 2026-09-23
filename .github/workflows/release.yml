@@ -173,6 +173,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & exports/lmxxf-runtime/lmxxf_nr_abi.exe exports/lmxxf-runtime/LmxxfNrRuntime.dll third_party/lmxxf/modules
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # C host smoke test: export table, capabilities, create-flag accept/reject (no GPU).
+          cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
+            tests/lmxxf_zero_fallback_abi.c /Fo:exports/lmxxf-runtime/ /Fe:exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build OptiScaler Release (default = multi-slot)
         shell: pwsh
@@ -256,9 +262,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          # Pre-release when tag name looks like alpha/beta/rc (e.g. v1.9.1-alpha).
-          # Formal tags like v1.9.1 stay latest/stable.
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          # Pre-release when tag name has an -alpha/-beta/-rc suffix (e.g. v1.9.1-alpha).
+          # Formal tags like v1.9.1 stay latest/stable; plain substrings such as "source" do not count.
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           files: |
             dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
