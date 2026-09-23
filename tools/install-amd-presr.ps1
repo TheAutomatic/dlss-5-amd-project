@@ -874,6 +874,7 @@ $ini = Join-Path $release 'OptiScaler.ini'
 $gameIni = Join-Path $game 'OptiScaler.ini'
 if (Test-Path -LiteralPath $ini -PathType Leaf) {
     if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+        # First install: copy package ini. Upgrades keep the game ini and upsert [DlssNr] keys below.
         Install-One $ini 'OptiScaler.ini'
     }
 }
@@ -956,15 +957,20 @@ if ($installLmxxf) {
     }
 }
 
-# --- Configure OptiScaler.ini with chosen backend ---
+# --- Configure OptiScaler.ini: upsert package [DlssNr] defaults (no full-file overwrite) ---
+# Existing game ini is kept; these keys are inserted or updated so release defaults reach upgrades.
 if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
         'Enabled' = 'true'
         'RunBeforeSR' = 'true'
         'NrBackend' = $activeBackend
+        'LmxxfDiagnostic' = 'off'
         'LmxxfFitLarge' = 'true'
+        'AmdModelScale' = '1'
+        'AmdEncoding' = '0'
+        'AmdEveryFrame' = 'true'
     })
-    Write-Host "Configured OptiScaler.ini: [DlssNr] Enabled=true, NrBackend=$activeBackend" -ForegroundColor Green
+    Write-Host "Upserted OptiScaler.ini [DlssNr] defaults (Enabled=true, NrBackend=$activeBackend, LmxxfFitLarge=true, ...)" -ForegroundColor Green
 }
 
 # Uninstaller is copied into the game folder. Double-click it there; it
