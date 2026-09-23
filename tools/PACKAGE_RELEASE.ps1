@@ -350,7 +350,10 @@ $lmxxfShaderSrc = Join-Path $root 'third_party/lmxxf/shaders'
 if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
     $lmxxfShaderDst = Join-Path $stage 'shaders'
     New-Item -ItemType Directory -Path $lmxxfShaderDst -Force | Out-Null
-    Copy-Item -Path (Join-Path $lmxxfShaderSrc '*') -Destination $lmxxfShaderDst -Recurse -Force
+    # Live glue only: top-level *.hlsl. Do not ship local shader-cache/*.dxbc.
+    Get-ChildItem -LiteralPath $lmxxfShaderSrc -Filter '*.hlsl' -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfShaderDst $_.Name) -Force
+    }
 }
 
 # Installer + docs (CN + EN + ES). No duplicate 使用说明.txt.

@@ -60,7 +60,7 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 ## Patches applied in this tree
 
 ### General Headers
-1. `NativeLabRoot()` no longer falls back to `D:\\DLSSNR-Lab`. Missing assets throw.
+1. `NativeLabRoot()` still matches upstream (may fall back to `D:\\DLSSNR-Lab` when no `DLSS5-AMD\\native-game-flags.txt` is found). Product installs write that flags file beside the game.
 2. `native_rgb_reflect.h` (**pinned**): dropped unused `native_split.h`; codec compiles without the D3D12 network body. Sync preserves it unless `-UpdateReflect`.
 3. `SetNoise` skips the 201 MiB buffer when `fast_prefix` is on.
 4. `#include <algorithm>` for MinGW/MSVC `std::sort` / `std::min` in `hip_reference_network.h` and `hip_d3d12_bridge.h`.
@@ -86,16 +86,6 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 5. **Runtime Opt-In and Consumer Queue Lifetime**:
    - `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK` enables recovery in the C ABI; the default keeps strict enqueue errors.
    - Queue mismatch recovery drains both the original session queue and the target producer queue before HIP zeroing. The Runtime retains the consumer queue and drains it before frame reuse or destruction.
-
-## Shipping modules (`.hsaco`)
-
-Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not** rebuild HIP kernels.
-`tools/sync-lmxxf-upstream.ps1` therefore refreshes modules by default (`release/**/HIP/gfx1201`, `modules/`, or `hip/gfx1201`) and **fails closed** when:
-
-- hip recipes change but module fingerprints do not, or
-- copied modules do not match `hip/SHA256SUMS` `gfx1201/` entries.
-
-Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Prefer rebuilding with `hip/build-modules.ps1` when upstream recipes advance past the last published release package.
 
 ## Shipping modules (`.hsaco`)
 
@@ -127,4 +117,4 @@ C ABI in `include/LmxxfNrApi.h`. MSVC (primary) or MinGW (fallback) `tools/build
 
 - Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from current `hip/` + local COMGR (see modules/README.md Commit Base)).
 - Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).
-- `QueryCapabilities.hip_ready` stays **0**. `LmxxfWired()` stays false.
+- `QueryCapabilities.hip_ready` stays **0**. Product wiring lives in OptiScaler `lmxxf_runtime` / `LmxxfWired()` (not this vendor doc alone).
