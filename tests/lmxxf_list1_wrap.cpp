@@ -96,7 +96,8 @@ int main()
     Check(DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(list), "split after Reset");
     auto &pending = DlssNr::Backend::LmxxfCut::Pending();
     pending.betweenHits.store(0);
-    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), &FakeEnqueue);
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2),
+                                                 &FakeEnqueue, list);
     DlssNr::Backend::LmxxfCut::ArmBetweenSlot();
     Check(list->Close(), "close continuation");
 

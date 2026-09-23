@@ -94,6 +94,15 @@ int main()
           "CreateProxiedCommandList");
     Require(list != nullptr, "proxy list");
 
+    ID3D12CommandAllocator *otherAlloc = nullptr;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&otherAlloc)), "other alloc");
+    ID3D12GraphicsCommandList *otherList = nullptr;
+    Check(DlssNr::Submission::Hooks::CreateProxiedCommandList(
+              device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, otherAlloc, nullptr, IID_PPV_ARGS(&otherList)),
+          "other proxy list");
+    Require(DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(otherList) == S_OK, "other split");
+    Check(otherList->Close(), "other close");
+
     // Evaluate cut: Split + pending EnqueueHip + ArmBetween
     const HRESULT splitHr = DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(list);
     Require(splitHr == S_OK, "TrySplitAtEvaluate must return S_OK on proxy (not S_FALSE)");
@@ -103,8 +112,19 @@ int main()
     pending.skippedHits.store(0);
     pending.lastEnqueueRc.store(-1);
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
-                                                 &FakeEnqueue);
+                                                 &FakeEnqueue, list);
     DlssNr::Backend::LmxxfCut::ArmBetweenSlot();
+
+    // A split unrelated list can execute and be reported Submitted first.
+    ID3D12CommandList *otherBatch[] = {otherList};
+    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, otherBatch, DlssNr::Submission::Hooks::g_between,
+                                               DlssNr::Submission::Hooks::g_betweenCtx,
+                                               [](ID3D12CommandQueue *q, UINT n, ID3D12CommandList *const *c) {
+                                                   q->ExecuteCommandLists(n, c);
+                                               });
+    DlssNr::Backend::LmxxfCut::ClearPendingEnqueueIfSubmitted(1, otherBatch);
+    Require(pending.enqueueCalls.load() == 0 && pending.skippedHits.load() == 0,
+            "unrelated split/submit must not consume HIP");
 
     // Record a trivial clear on continuation side after split
     list->Close();
@@ -119,11 +139,14 @@ int main()
     Require(pending.enqueueCalls.load() == 1, "enqueueCalls must be 1 (real Enqueue)");
     Require(pending.skippedHits.load() == 0, "skippedHits must be 0");
     Require(pending.lastEnqueueRc.load() == 0, "EnqueueHip rc");
+    DlssNr::Backend::LmxxfCut::ClearPendingEnqueueIfSubmitted(1, batch);
 
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();
     DlssNr::Submission::Hooks::Disarm();
     list->Release();
     alloc->Release();
+    otherList->Release();
+    otherAlloc->Release();
     queue->Release();
     device->Release();
     std::printf("lmxxf_evaluate_cut: ok (between→FakeEnqueue rc=0)\n");

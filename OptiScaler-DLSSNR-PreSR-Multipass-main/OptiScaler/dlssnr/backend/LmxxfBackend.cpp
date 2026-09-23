@@ -249,7 +249,7 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         SetStatus("lmxxf: RecordOutputs failed");
         return nullptr;
     }
-    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip);
+    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip, recordCmd);
     LmxxfCut::ArmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
@@ -700,10 +700,9 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT count, ID3D12CommandList
     {
         api->table.Retire(session, jobToRetire);
     }
-    // LogicalList producer/continuation submit re-enters this hook; clearing here
-    // would drop HIP before BetweenThunk. BetweenThunk consumes Pending itself.
-    if (!DlssNr::Submission::InsideLogicalExecute())
-        LmxxfCut::ClearPendingEnqueue();
+    // Other UE/FG lists may submit before the list containing this Evaluate.
+    // Only that list can retire the pending HIP slot.
+    LmxxfCut::ClearPendingEnqueueIfSubmitted(count, lists);
 }
 
 bool LmxxfBackend::Shutdown()

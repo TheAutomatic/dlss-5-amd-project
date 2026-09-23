@@ -20,6 +20,7 @@ struct PendingHip
     void *session = nullptr;
     void *job = nullptr;
     EnqueueHipFn enqueueHip = nullptr;
+    std::atomic<ID3D12CommandList *> targetList { nullptr };
     std::atomic<int> betweenHits { 0 };
     std::atomic<int> enqueueCalls { 0 };
     std::atomic<int> skippedHits { 0 };
@@ -42,9 +43,27 @@ inline void ClearPendingEnqueue()
     p.enqueueHip = nullptr;
 }
 
+inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const *lists)
+{
+    auto *target = Pending().targetList.load(std::memory_order_acquire);
+    if (!target || !lists)
+        return;
+    for (UINT i = 0; i < count; ++i)
+    {
+        if (lists[i] == target)
+        {
+            ClearPendingEnqueue();
+            return;
+        }
+    }
+}
+
 inline void BetweenThunk(ID3D12CommandQueue *queue, void * /*ctx*/)
 {
     auto &p = Pending();
+    if (p.targetList.load(std::memory_order_acquire) !=
+        DlssNr::Submission::Hooks::g_executingLogicalList)
+        return;
     if (!(p.enqueueHip && p.session && p.job))
     {
         p.skippedHits.fetch_add(1, std::memory_order_relaxed);
@@ -74,12 +93,14 @@ inline HRESULT TrySplitAtEvaluate(ID3D12GraphicsCommandList *cmd)
     return hr;
 }
 
-inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip)
+inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip,
+                             ID3D12CommandList *targetList)
 {
     auto &p = Pending();
     p.session = session;
     p.job = job;
     p.enqueueHip = enqueueHip;
+    p.targetList.store(targetList, std::memory_order_release);
 }
 
 inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }
@@ -88,6 +109,7 @@ inline void DisarmBetweenSlot()
 {
     DlssNr::Submission::Hooks::SetBetween(nullptr, nullptr);
     ClearPendingEnqueue();
+    Pending().targetList.store(nullptr, std::memory_order_release);
 }
 
 // Product Evaluate/Before hook. Split + SetPendingEnqueue live in LmxxfBackend::Record

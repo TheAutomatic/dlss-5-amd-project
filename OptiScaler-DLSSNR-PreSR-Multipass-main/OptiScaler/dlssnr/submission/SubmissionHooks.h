@@ -28,6 +28,8 @@ inline std::atomic<bool> g_wrapOpenLists { false };
 inline std::mutex g_executeMu;
 inline BetweenFn g_between = nullptr;
 inline void *g_betweenCtx = nullptr;
+// The between callback runs inside ExecuteExpanded for one logical game list.
+inline thread_local ID3D12CommandList *g_executingLogicalList = nullptr;
 
 using PFN_CreateCommandList = HRESULT(WINAPI *)(ID3D12Device *, UINT, D3D12_COMMAND_LIST_TYPE,
                                                 ID3D12CommandAllocator *, ID3D12PipelineState *, REFIID, void **);
@@ -197,7 +199,11 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
         else
         {
             flush();
-            if (FAILED(logical->ExecuteOnWithBetween(queue, between, betweenCtx)))
+            auto *previousList = g_executingLogicalList;
+            g_executingLogicalList = lists[i];
+            const HRESULT hr = logical->ExecuteOnWithBetween(queue, between, betweenCtx);
+            g_executingLogicalList = previousList;
+            if (FAILED(hr))
                 g_submissionFailures.fetch_add(1, std::memory_order_relaxed);
         }
         logical->Release();
