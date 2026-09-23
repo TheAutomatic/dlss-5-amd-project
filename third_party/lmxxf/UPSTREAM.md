@@ -62,6 +62,16 @@ says otherwise.
    - `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK` enables recovery in the C ABI; the default keeps strict enqueue errors.
    - Queue mismatch recovery drains both the original session queue and the target producer queue before HIP zeroing. The Runtime retains the consumer queue and drains it before frame reuse or destruction.
 
+## Shipping modules (`.hsaco`)
+
+Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not** rebuild HIP kernels.
+`tools/sync-lmxxf-upstream.ps1` therefore refreshes modules by default (`release/**/HIP/gfx1201`, `modules/`, or `hip/gfx1201`) and **fails closed** when:
+
+- hip recipes change but module fingerprints do not, or
+- copied modules do not match `hip/SHA256SUMS` `gfx1201/` entries.
+
+Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Prefer rebuilding with `hip/build-modules.ps1` when upstream recipes advance past the last published release package.
+
 ## Upstream Contribution & Decoupling Roadmap
 
 1. **Keep Recovery Policy in Runtime**:

@@ -1,20 +1,32 @@
-﻿<#
+<#
 .SYNOPSIS
   Synchronize vendored lmxxf source closure from an upstream clone without git cherry-pick.
 
 .DESCRIPTION
-  Copies the pinned subset of headers, shaders, and hip sources from the upstream
-  repository (by default: ..\dlss5-on-amd-9070xt-porting) into third_party\lmxxf\,
-  verifies/applies local compatibility patches, and updates UPSTREAM.md with the commit hash.
+  Copies the pinned subset of headers, shaders, hip sources, and (by default) prebuilt
+  gfx1201 .hsaco modules from the upstream repository (by default:
+  ..\dlss5-on-amd-9070xt-porting) into third_party\lmxxf\, verifies/applies local
+  compatibility patches, and updates UPSTREAM.md with the commit hash.
   By default, Development\HIP\hip_d3d12_bridge.h is preserved (pinned & patched) to protect
   local queue drain checks and zero-residual fallback implementations.
   Pass -UpdateBridge to explicitly overwrite and re-patch hip_d3d12_bridge.h.
+  If hip recipes change but shipping modules do not, or copied modules disagree with
+  hip/SHA256SUMS gfx1201 entries, the script fails closed unless -AllowStaleModules is set.
 
 .PARAMETER UpstreamPath
   Path to the cloned upstream repository. Default: '..\dlss5-on-amd-9070xt-porting'.
 
 .PARAMETER SkipModules
-  If set, do not update third_party\lmxxf\modules\ from upstream build output.
+  If set, do not update third_party\lmxxf\modules\ from upstream prebuilt output.
+  Refused when hip recipes changed unless -AllowStaleModules is also set.
+
+.PARAMETER ModulesPath
+  Optional explicit directory of flat gfx1201 .hsaco files (plus optional SHA256SUMS).
+  When omitted, searches upstream modules/, release/**/HIP/gfx1201, then hip/gfx1201.
+
+.PARAMETER AllowStaleModules
+  Permit finishing when hip recipes changed but modules were skipped/unchanged, or when
+  modules do not match hip/SHA256SUMS gfx1201 entries. Default is fail-closed.
 
 .PARAMETER UpdateBridge
   If set, overwrites Development\HIP\hip_d3d12_bridge.h from upstream and re-applies
@@ -26,12 +38,15 @@
 .EXAMPLE
   .\tools\sync-lmxxf-upstream.ps1
   .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge
+  .\tools\sync-lmxxf-upstream.ps1 -SkipModules -AllowStaleModules
   .\tools\sync-lmxxf-upstream.ps1 -UpstreamPath 'D:\repos\dlss5-on-amd-9070xt-porting'
 #>
 [CmdletBinding()]
 param(
     [string]$UpstreamPath = '..\dlss5-on-amd-9070xt-porting',
     [switch]$SkipModules,
+    [string]$ModulesPath = '',
+    [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
     [switch]$SkipBuild
 )
@@ -48,6 +63,179 @@ if (-not $upstream -or -not (Test-Path $upstream)) {
 
 Write-Host "Syncing from upstream: $upstream" -ForegroundColor Cyan
 
+function Get-FileSha256Hex([string]$path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [IO.File]::OpenRead($path)
+        try {
+            return (-join ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }))
+        } finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
+function Get-TreeFingerprint([string]$dir, [string[]]$filters) {
+    if (-not (Test-Path -LiteralPath $dir)) { return 'missing' }
+    $files = @()
+    foreach ($f in $filters) {
+        $files += @(Get-ChildItem -LiteralPath $dir -File -Filter $f -ErrorAction SilentlyContinue)
+    }
+    $files = @($files | Sort-Object { $_.Name.ToLowerInvariant() } -Unique)
+    if ($files.Count -lt 1) { return 'empty' }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $ms = New-Object IO.MemoryStream
+    try {
+        foreach ($file in $files) {
+            $nameBytes = [Text.Encoding]::UTF8.GetBytes($file.Name + ':' + $file.Length + ':')
+            $ms.Write($nameBytes, 0, $nameBytes.Length)
+            $payload = [IO.File]::ReadAllBytes($file.FullName)
+            $ms.Write($payload, 0, $payload.Length)
+        }
+        return (-join ($sha.ComputeHash($ms.ToArray()) | ForEach-Object { $_.ToString('x2') }))
+    } finally {
+        $ms.Dispose()
+        $sha.Dispose()
+    }
+}
+
+function Resolve-UpstreamModulesDir([string]$upstreamRoot, [string]$override) {
+    if ($override) {
+        if (-not (Test-Path -LiteralPath $override -PathType Container)) {
+            throw ("ModulesPath not found: " + $override)
+        }
+        return (Resolve-Path -LiteralPath $override).Path
+    }
+    $direct = Join-Path $upstreamRoot 'modules'
+    if ((Test-Path -LiteralPath $direct -PathType Container) -and
+        @(Get-ChildItem -LiteralPath $direct -Filter '*.hsaco' -File -ErrorAction SilentlyContinue).Count -gt 0) {
+        return $direct
+    }
+    $releaseRoot = Join-Path $upstreamRoot 'release'
+    if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
+        $candidates = @(Get-ChildItem -LiteralPath $releaseRoot -Recurse -Directory -Filter 'gfx1201' -ErrorAction SilentlyContinue |
+            Where-Object { @(Get-ChildItem -LiteralPath $_.FullName -Filter '*.hsaco' -File -ErrorAction SilentlyContinue).Count -gt 0 })
+        if ($candidates.Count -gt 0) {
+            return ($candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+        }
+    }
+    $hipGfx = Join-Path $upstreamRoot 'hip\gfx1201'
+    if ((Test-Path -LiteralPath $hipGfx -PathType Container) -and
+        @(Get-ChildItem -LiteralPath $hipGfx -Filter '*.hsaco' -File -ErrorAction SilentlyContinue).Count -gt 0) {
+        return $hipGfx
+    }
+    return $null
+}
+
+function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [switch]$allowStale) {
+    if (-not (Test-Path -LiteralPath $hipSums -PathType Leaf)) {
+        Write-Warning '  hip SHA256SUMS missing; skipped modules-vs-recipe check.'
+        return
+    }
+    $bad = @()
+    foreach ($line in Get-Content -LiteralPath $hipSums) {
+        if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+gfx1201/(?<n>.+\.hsaco)$') { continue }
+        $name = $Matches['n']
+        $want = $Matches['h'].ToLowerInvariant()
+        $fp = Join-Path $modulesDir $name
+        if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) {
+            $bad += ('missing ' + $name)
+            continue
+        }
+        $got = Get-FileSha256Hex $fp
+        if ($got -ne $want) {
+            $bad += ($name + ' (want ' + $want + ' got ' + $got + ')')
+        }
+    }
+    if ($bad.Count -eq 0) {
+        Write-Host '  modules match hip/SHA256SUMS gfx1201 entries' -ForegroundColor Green
+        return
+    }
+    $msg = "Shipping modules do not match hip/SHA256SUMS gfx1201 recipes:`n  - " + ($bad -join "`n  - ")
+    if ($allowStale) {
+        Write-Warning $msg
+        return
+    }
+    throw ($msg + "`nRebuild with hip/build-modules.ps1, pass a matching -ModulesPath, or use -AllowStaleModules.")
+}
+
+function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash) {
+    if (-not (Test-Path -LiteralPath $dstDir)) {
+        New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+    }
+    $hsacos = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+    if ($hsacos.Count -lt 1) {
+        throw ('No .hsaco files found in modules source: ' + $srcDir)
+    }
+    foreach ($f in $hsacos) {
+        Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dstDir $f.Name) -Force
+    }
+    foreach ($extra in @('modules.json', 'runtime-manifest.json')) {
+        $srcExtra = Join-Path $srcDir $extra
+        if (Test-Path -LiteralPath $srcExtra -PathType Leaf) {
+            Copy-Item -LiteralPath $srcExtra -Destination (Join-Path $dstDir $extra) -Force
+        }
+    }
+    $sumsDst = Join-Path $dstDir 'SHA256SUMS'
+    $srcSums = Join-Path $srcDir 'SHA256SUMS'
+    $wroteSums = $false
+    if (Test-Path -LiteralPath $srcSums -PathType Leaf) {
+        $lines = @(Get-Content -LiteralPath $srcSums | Where-Object {
+            ($_ -match '^[0-9a-fA-F]{64}\s+\*?([^\\/]+)$') -and ($_ -match '\.hsaco\s*$')
+        })
+        if ($lines.Count -gt 0) {
+            [IO.File]::WriteAllText($sumsDst, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+            $wroteSums = $true
+        }
+    }
+    if (-not $wroteSums) {
+        $parentSums = Join-Path (Split-Path -Parent $srcDir) 'SHA256SUMS'
+        if (Test-Path -LiteralPath $parentSums -PathType Leaf) {
+            $leaf = Split-Path -Leaf $srcDir
+            $mapped = @()
+            foreach ($line in Get-Content -LiteralPath $parentSums) {
+                if ($line -match '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<p>.+)$') {
+                    $p = ($Matches['p'] -replace '\\', '/')
+                    $prefix = $leaf + '/'
+                    if ($p.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and $p.EndsWith('.hsaco', [StringComparison]::OrdinalIgnoreCase)) {
+                        $name = $p.Substring($prefix.Length)
+                        if ($name -notmatch '[/\\]') {
+                            $mapped += ($Matches['h'].ToLowerInvariant() + '  ' + $name)
+                        }
+                    }
+                }
+            }
+            if ($mapped.Count -gt 0) {
+                [IO.File]::WriteAllText($sumsDst, (($mapped -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+                $wroteSums = $true
+            }
+        }
+    }
+    if (-not $wroteSums) {
+        $mapped = @()
+        foreach ($f in ($hsacos | Sort-Object Name)) {
+            $mapped += ((Get-FileSha256Hex $f.FullName) + '  ' + $f.Name)
+        }
+        [IO.File]::WriteAllText($sumsDst, (($mapped -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+    }
+    $readme = Join-Path $dstDir 'README.md'
+    if (Test-Path -LiteralPath $readme -PathType Leaf) {
+        $md = Get-Content -LiteralPath $readme -Raw
+        $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: `)[^`]+(`)', '${1}' + $commitHash + '${2}')
+        if ($md2 -eq $md) {
+            $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: ).*$', '${1}`' + $commitHash + '`')
+        }
+        if ($md2 -ne $md) {
+            [IO.File]::WriteAllText($readme, $md2, [Text.UTF8Encoding]::new($false))
+        }
+    }
+    Write-Host ('  Synchronized modules (' + $hsacos.Count + ' .hsaco) from ' + $srcDir) -ForegroundColor Green
+}
+
+
+$dstHip = Join-Path $vendorRoot 'hip'
+$dstModules = Join-Path $vendorRoot 'modules'
+$hipFpBefore = Get-TreeFingerprint $dstHip @('*.hip', 'SHA256SUMS')
+$modulesFpBefore = Get-TreeFingerprint $dstModules @('*.hsaco', 'SHA256SUMS')
+
 # 1. Query git commit of upstream
 $upstreamGitPath = $upstream.Path.Replace('\', '/')
 $commitResult = & git -c "safe.directory=$upstreamGitPath" -C $upstream.Path rev-parse HEAD 2>$null
@@ -56,6 +244,25 @@ if ($LASTEXITCODE -ne 0 -or -not $commitResult) {
 }
 $commitHash = $commitResult.Trim()
 Write-Host "Upstream HEAD commit: $commitHash" -ForegroundColor Green
+
+# 1b. Resolve modules source early (fail before mutating the vendor tree)
+$script:ResolvedModulesSrc = $null
+if (-not $SkipModules) {
+    $script:ResolvedModulesSrc = Resolve-UpstreamModulesDir -upstreamRoot $upstream.Path -override $ModulesPath
+    if (-not $script:ResolvedModulesSrc) {
+        throw @"
+Could not locate upstream gfx1201 .hsaco modules.
+Pass -ModulesPath to a flat hsaco directory, place modules under upstream\modules,
+ship release/**/HIP/gfx1201, or build into upstream\hip\gfx1201.
+Use -SkipModules -AllowStaleModules only for header-only syncs.
+"@
+    }
+    $probe = @(Get-ChildItem -LiteralPath $script:ResolvedModulesSrc -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+    if ($probe.Count -lt 1) {
+        throw ('No .hsaco files found in modules source: ' + $script:ResolvedModulesSrc)
+    }
+    Write-Host ('  Modules source: ' + $script:ResolvedModulesSrc + ' (' + $probe.Count + ' .hsaco)') -ForegroundColor Cyan
+}
 
 # 2. Synchronize selected headers
 $headerFiles = @(
@@ -109,6 +316,14 @@ if (Test-Path $hipDir) {
     $dstHip = Join-Path $vendorRoot 'hip'
     robocopy $hipDir $dstHip *.hip build-modules.ps1 rtc_compile.cpp SHA256SUMS README.md /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
     Write-Host "  Synchronized hip recipes"
+}
+
+# 4b. Synchronize prebuilt gfx1201 modules (shipping .hsaco)
+if ($SkipModules) {
+    Write-Host "  Skipped modules sync (-SkipModules)" -ForegroundColor Yellow
+} else {
+    Sync-LmxxfModules -srcDir $script:ResolvedModulesSrc -dstDir $dstModules -commitHash $commitHash
+    Assert-ModulesMatchHipSums -modulesDir $dstModules -hipSums (Join-Path $dstHip 'SHA256SUMS') -allowStale:$AllowStaleModules
 }
 
 # 5. Check and apply local patches
@@ -374,6 +589,29 @@ if (-not $SkipBuild) {
     }
 } else {
     Write-Host "Skipping runtime build verification (-SkipBuild specified)." -ForegroundColor Yellow
+}
+
+# 8. Fail closed if hip recipes moved but shipping modules did not
+$hipFpAfter = Get-TreeFingerprint $dstHip @('*.hip', 'SHA256SUMS')
+$modulesFpAfter = Get-TreeFingerprint $dstModules @('*.hsaco', 'SHA256SUMS')
+$hipChanged = ($hipFpBefore -ne $hipFpAfter)
+$modulesChanged = ($modulesFpBefore -ne $modulesFpAfter)
+if ($hipChanged -and -not $modulesChanged) {
+    if ($AllowStaleModules) {
+        Write-Warning 'hip recipes changed but modules fingerprint is unchanged (-AllowStaleModules).'
+    } else {
+        throw @"
+hip recipes changed but third_party\lmxxf\modules did not.
+Refusing to finish sync so release packaging cannot ship stale .hsaco with new .hip sources.
+Refresh modules (default path), pass -ModulesPath to a rebuilt gfx1201 dir, or use -AllowStaleModules.
+"@
+    }
+}
+if ($hipChanged -and $SkipModules -and -not $AllowStaleModules) {
+    throw 'hip recipes changed; -SkipModules requires -AllowStaleModules.'
+}
+if ((-not $hipChanged) -and $SkipModules) {
+    Write-Host '  hip unchanged; -SkipModules accepted.' -ForegroundColor DarkYellow
 }
 
 Write-Host "Sync complete! Upstream commit: $commitHash" -ForegroundColor Green
