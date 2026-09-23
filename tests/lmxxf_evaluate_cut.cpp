@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#define LOG_WARN(...) ((void)0)
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfEvaluateCut.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SubmissionHooks.h"
 #include <cstdio>
@@ -48,10 +49,11 @@ static ID3D12Device *MakeDevice()
     return device;
 }
 
-static int32_t FakeEnqueue(void *session, void *job)
+static int32_t FakeEnqueue(void *session, void *job, void *queue)
 {
     Require(session == reinterpret_cast<void *>(0x1111), "session");
     Require(job == reinterpret_cast<void *>(0x2222), "job");
+    Require(queue != nullptr, "queue");
     return 0;
 }
 

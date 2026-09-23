@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#define LOG_WARN(...) ((void)0)
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/LogicalList.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/CommandListProxy.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/ResourceStateBook.h"
@@ -209,7 +210,7 @@ int main()
     Require(unsplit == split, "split passthrough matches unsplit");
     Require(unsplit == proxied, "COM proxy split matches unsplit");
 
-    // Admission: query on producer ? Split ineligible (ordinary SR path).
+    // A completed timestamp can be resolved after the cut on the same queue.
     {
         ID3D12CommandAllocator *a = nullptr;
         Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)), "adm_a");
@@ -220,12 +221,51 @@ int main()
         ID3D12QueryHeap *qh = nullptr;
         D3D12_QUERY_HEAP_DESC qhd {};
         qhd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-        qhd.Count = 2;
+        qhd.Count = 1;
         Check(device->CreateQueryHeap(&qhd, IID_PPV_ARGS(&qh)), "query heap");
+        ID3D12Resource *result = MakeBuffer(device, 8, D3D12_HEAP_TYPE_READBACK,
+                                             D3D12_RESOURCE_STATE_COPY_DEST);
         px->EndQuery(qh, D3D12_QUERY_TYPE_TIMESTAMP, 0);
-        Require(px->IsSplitIneligible(), "query makes split ineligible");
-        Require(FAILED(px->SplitSegments()), "split refused after query");
-        px->Close();
+        Require(!px->IsSplitIneligible(), "timestamp permits split");
+        Check(px->SplitSegments(), "split after timestamp");
+        px->ResolveQueryData(qh, D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, result, 0);
+        Check(px->ExecuteOn(queue), "execute timestamp split");
+        WaitIdle(device, queue);
+        void *mapped = nullptr;
+        D3D12_RANGE range {0, 8};
+        Check(result->Map(0, &range, &mapped), "map timestamp result");
+        Require(*static_cast<const UINT64 *>(mapped) != 0, "timestamp resolved across split");
+        result->Unmap(0, nullptr);
+        px->Release();
+        raw->Release();
+        qh->Release();
+        result->Release();
+        a->Release();
+    }
+
+    // An active Begin/End query cannot cross the cut; closing it restores admission.
+    {
+        ID3D12CommandAllocator *a = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)), "open_q_a");
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a, nullptr, IID_PPV_ARGS(&raw)),
+              "open_q_raw");
+        DlssNr::Submission::CommandListProxy *px = nullptr;
+        Check(DlssNr::Submission::CommandListProxy::Create(device, a, raw, &px), "open_q_proxy");
+        ID3D12QueryHeap *qh = nullptr;
+        D3D12_QUERY_HEAP_DESC qhd {};
+        qhd.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+        qhd.Count = 1;
+        Check(device->CreateQueryHeap(&qhd, IID_PPV_ARGS(&qh)), "occlusion query heap");
+        px->BeginQuery(qh, D3D12_QUERY_TYPE_OCCLUSION, 0);
+        Require(px->IsSplitIneligible(), "open query blocks split");
+        Require(std::strcmp(px->SplitRejectionReason(), "open_query") == 0, "open query reason");
+        Require(FAILED(px->SplitSegments()), "split refused during query");
+        px->EndQuery(qh, D3D12_QUERY_TYPE_OCCLUSION, 0);
+        Require(!px->IsSplitIneligible(), "completed query permits split");
+        Check(px->SplitSegments(), "split after completed query");
+        Check(px->ExecuteOn(queue), "execute completed query split");
+        WaitIdle(device, queue);
         px->Release();
         raw->Release();
         qh->Release();

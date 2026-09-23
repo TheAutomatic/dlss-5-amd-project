@@ -44,7 +44,7 @@ When `ExpandEnabled()`, `AmdBridge::ExecuteBatch` always `ExecuteExpanded` (QI p
 
 ## Admission / continuation (plans C–D)
 
-- Min G1 reject: query / predication / enhanced barrier / open split barrier / aliasing / render pass / RTAS / meta / root·sample overflow → `MarkSplitIneligible` → Split fails → ordinary SR.
+- Min G1 reject: open query at the cut / invalid query scope / predication / enhanced barrier / open split barrier / aliasing / render pass / RTAS / meta / root·sample overflow → Split fails → ordinary SR. Completed queries and timestamp EndQuery remain eligible.
 - Continuation seed: viewport/scissor/topology/PSO/rootsig/heaps/blend/stencil/OM + IA/SO/VRS/strip-cut/view-mask + RootBindState + sample positions + depth bounds.
 - `ResourceStateBook::ApplyExecuteDecay` updates **our book** only (M3); does not rewrite game barriers. Live proof needs debug layer (plan E).
 

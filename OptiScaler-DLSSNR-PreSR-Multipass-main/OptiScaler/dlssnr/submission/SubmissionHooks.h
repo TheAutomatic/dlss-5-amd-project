@@ -3,6 +3,7 @@
 #include "SubmissionTls.h"
 #include <detours/detours.h>
 #include <atomic>
+#include <intrin.h>
 #include <mutex>
 
 // G1 Create/Execute wrap for lmxxf submission.
@@ -19,6 +20,10 @@ inline std::atomic<bool> g_expandEnabled { false };
 // Product: ProxyWrap starts OFF; swapchain ctor enables it (Streamline-safe). Harness: SetProxyWrap(true) after Arm.
 // Harnesses can SetProxyWrap(true) after Arm.
 inline std::atomic<bool> g_proxyWrap { false };
+// UE can retain lists created before the first swapchain. Wrap only calls from
+// the host executable during boot; Streamline and vendor modules stay native.
+inline std::atomic<bool> g_earlyExeWrap { false };
+inline std::atomic<uint32_t> g_earlyWrappedLists { 0 };
 inline std::atomic<bool> g_wrapOpenLists { false };
 inline std::mutex g_executeMu;
 inline BetweenFn g_between = nullptr;
@@ -38,7 +43,23 @@ inline bool IsArmed() { return g_armed.load(std::memory_order_acquire); }
 inline bool ExpandEnabled() { return g_expandEnabled.load(std::memory_order_acquire); }
 inline bool ProxyWrapEnabled() { return g_proxyWrap.load(std::memory_order_acquire); }
 inline void SetProxyWrap(bool on) { g_proxyWrap.store(on, std::memory_order_release); }
+inline void SetEarlyExeWrap(bool on) { g_earlyExeWrap.store(on, std::memory_order_release); }
 inline void SetWrapOpenLists(bool on) { g_wrapOpenLists.store(on, std::memory_order_release); }
+
+inline bool IsHostExecutableCaller(void *address)
+{
+    HMODULE caller = nullptr;
+    return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                  GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              reinterpret_cast<LPCWSTR>(address), &caller) &&
+           caller == GetModuleHandleW(nullptr);
+}
+
+inline bool ShouldWrapCreate(void *caller)
+{
+    return ProxyWrapEnabled() ||
+           (g_earlyExeWrap.load(std::memory_order_acquire) && IsHostExecutableCaller(caller));
+}
 
 inline void SetBetween(BetweenFn fn, void *ctx)
 {
@@ -101,7 +122,7 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
                                           void **out)
 {
     // Opt-in only for proxy-original/split-original until real-game boundary validation.
-    if (!IsArmed() || !ProxyWrapEnabled() || !g_wrapOpenLists.load(std::memory_order_acquire) ||
+    if (!IsArmed() || !ShouldWrapCreate(_ReturnAddress()) || !g_wrapOpenLists.load(std::memory_order_acquire) ||
         g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !out)
         return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
     ID3D12GraphicsCommandList *real = nullptr;
@@ -112,13 +133,16 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
     real->Release();
     if (FAILED(wrap))
         *out = nullptr;
+    else if (!ProxyWrapEnabled())
+        g_earlyWrappedLists.fetch_add(1, std::memory_order_relaxed);
     return wrap;
 }
 
 inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
                                            D3D12_COMMAND_LIST_FLAGS flags, REFIID riid, void **out)
 {
-    if (!IsArmed() || !ProxyWrapEnabled() || g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
+    if (!IsArmed() || !ShouldWrapCreate(_ReturnAddress()) || g_suppressProxyWrap ||
+        type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
         return o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
                                     : E_NOINTERFACE;
 
@@ -132,6 +156,8 @@ inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, 
     real->Release();
     if (FAILED(wrap) && out)
         *out = nullptr;
+    else if (SUCCEEDED(wrap) && !ProxyWrapEnabled())
+        g_earlyWrappedLists.fetch_add(1, std::memory_order_relaxed);
     return wrap;
 }
 
@@ -286,6 +312,7 @@ inline void Disarm()
     std::lock_guard<std::mutex> lock(g_mu);
     if (!g_armed.load(std::memory_order_relaxed))
         return;
+    g_earlyExeWrap.store(false, std::memory_order_release);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     if (o_CreateCommandList)
