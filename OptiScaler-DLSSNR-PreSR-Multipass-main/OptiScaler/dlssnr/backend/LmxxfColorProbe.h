@@ -22,7 +22,7 @@ inline Mode ParseMode(std::string_view value)
 
 inline bool NeedsOpenListProxy(Mode mode)
 {
-    return mode == Mode::Off || mode == Mode::ProxyOriginal || mode == Mode::SplitOriginal || mode == Mode::CodecPassthrough;
+    return mode == Mode::ProxyOriginal || mode == Mode::SplitOriginal || mode == Mode::CodecPassthrough;
 }
 
 struct Evidence

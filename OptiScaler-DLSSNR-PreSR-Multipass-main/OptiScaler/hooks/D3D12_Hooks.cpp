@@ -2996,8 +2996,10 @@ static void HookToDevice(ID3D12Device* InDevice)
         }
         else if (DlssNr::Backend::SubmissionHooksWanted())
         {
-            const bool wrapOpen = DlssNr::Backend::LmxxfProbe::NeedsOpenListProxy(
-                DlssNr::Backend::LmxxfProbe::ParseMode(Config::Instance()->LmxxfDiagnostic.value_or_default()));
+            const auto diagMode = DlssNr::Backend::LmxxfProbe::ParseMode(
+                Config::Instance()->LmxxfDiagnostic.value_or_default());
+            const bool wrapOpen = (diagMode == DlssNr::Backend::LmxxfProbe::Mode::Off) ||
+                                  DlssNr::Backend::LmxxfProbe::NeedsOpenListProxy(diagMode);
             DlssNr::Submission::Hooks::SetWrapOpenLists(wrapOpen);
             LOG_INFO("lmxxf same-frame: open-list proxy diagnostic={}", wrapOpen);
             const HRESULT armHr = DlssNr::Submission::Hooks::ArmCreate(InDevice);

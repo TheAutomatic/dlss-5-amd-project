@@ -170,7 +170,7 @@ int main()
     ID3D12CommandQueue *queue2 = nullptr;
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue2)), "queue2");
 
-    // Case A: Queue mismatch - should skip Enqueue and record kEnqueueQueueMismatch without calling FakeEnqueue
+    // Case A: Queue mismatch - calls enqueue for zero-residual fallback and records kEnqueueQueueMismatch
     pending.skippedHits.store(0);
     const int callsBefore = pending.enqueueCalls.load();
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
@@ -178,8 +178,8 @@ int main()
     DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue != queue2
     const auto diagMismatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
     Require(diagMismatch.rc == DlssNr::Backend::LmxxfCut::kEnqueueQueueMismatch, "queue mismatch rc");
-    Require(pending.enqueueCalls.load() == callsBefore, "queue mismatch must not call enqueue");
     Require(pending.skippedHits.load() == 1, "queue mismatch must record skipped hit");
+    Require(pending.enqueueCalls.load() == callsBefore + 1, "queue mismatch calls enqueue for zeroing fallback");
 
     // Case B: Queue match - should execute Enqueue normally
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
@@ -187,7 +187,7 @@ int main()
     DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue == queue
     const auto diagMatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
     Require(diagMatch.rc == 0, "queue match rc must be 0");
-    Require(pending.enqueueCalls.load() == callsBefore + 1, "queue match must call enqueue");
+    Require(pending.enqueueCalls.load() == callsBefore + 2, "queue match must call enqueue");
 
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();
     DlssNr::Submission::Hooks::Disarm();

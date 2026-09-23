@@ -3,6 +3,7 @@
 #include <cstring>
 #include "../submission/SubmissionTls.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
+#include "../amd/AmdBridge.h"
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -29,6 +30,29 @@ std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
     // Dev layout: repo exports/lmxxf-modules-68dc099 relative to OptiScaler.dll parent is uncommon;
     // prefer env. Fall back to directory itself so Create can still run and fail loudly.
     return directory;
+}
+
+void DrainQueue(ID3D12Device *dev, ID3D12CommandQueue *q)
+{
+    if (!dev || !q)
+        return;
+    ID3D12Fence *fence = nullptr;
+    if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence)
+        return;
+    HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!ev)
+    {
+        fence->Release();
+        return;
+    }
+    const UINT64 v = 1;
+    if (SUCCEEDED(q->Signal(fence, v)))
+    {
+        if (SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
+            WaitForSingleObject(ev, 5000);
+    }
+    CloseHandle(ev);
+    fence->Release();
 }
 } // namespace
 
@@ -760,8 +784,12 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
         }
         if (!sameQueue)
         {
-            LOG_WARN("lmxxf: queue transition detected (current={:p}, actual={:p}); draining old session before migration",
+            LOG_WARN("lmxxf: queue transition detected (current={:p}, actual={:p}); draining actual queue and old session before migration",
                      reinterpret_cast<void*>(this->queue), reinterpret_cast<void*>(q));
+            // 1. Drain the actual queue q that just executed producer and continuation:
+            DrainQueue(this->device, q);
+
+            // 2. Drain the old session queue:
             bool drained = false;
             if (session && api && api->table.Drain)
             {
@@ -777,8 +805,9 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
                 if (this->queue) this->queue->Release();
                 this->queue = q;
                 jobToRetire = nullptr;
+                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
                 SetStatus("lmxxf: session migrated to new render queue");
-                LOG_INFO("lmxxf: session cleanly destroyed after drain and queue updated to {:p}",
+                LOG_INFO("lmxxf: session cleanly destroyed after dual queue drain and queue updated to {:p}",
                          reinterpret_cast<void*>(q));
             }
             else

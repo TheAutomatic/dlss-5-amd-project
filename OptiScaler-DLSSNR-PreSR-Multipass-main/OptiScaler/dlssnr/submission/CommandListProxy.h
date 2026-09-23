@@ -5,6 +5,10 @@
 #include "QueryStateBook.h"
 #include <atomic>
 
+#ifndef LOG_WARN
+#define LOG_WARN(...) ((void)0)
+#endif
+
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
 // QI accepts List1..List10 + base. Newer methods QI the live producer; if unsupported, fail-closed (no-op / E_UNEXPECTED).
 // Create/Execute wrap helpers live in SubmissionHooks.h (armed only by harness / future P3).

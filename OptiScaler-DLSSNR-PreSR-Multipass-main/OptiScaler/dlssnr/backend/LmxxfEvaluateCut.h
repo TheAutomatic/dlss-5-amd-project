@@ -86,7 +86,8 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
     void *session;
     void *job;
     EnqueueHipFn fn;
-    GetLastErrorFn getLastError;
+    GetLastErrorFn getLastError = nullptr;
+    bool match = true;
     {
         std::lock_guard lock(p.mutex);
         if (!p.targetList || p.targetList != list)
@@ -103,7 +104,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         }
         if (p.expectedQueue && queue)
         {
-            bool match = (queue == p.expectedQueue);
+            match = (queue == p.expectedQueue);
             if (!match)
             {
                 IUnknown *id1 = nullptr;
@@ -116,22 +117,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
             }
             if (!match)
             {
-                // Execution queue mismatch! Do NOT call fn to prevent session poisoning in LmxxfNrRuntime!
                 p.skippedHits.fetch_add(1, std::memory_order_relaxed);
-                std::array<char, 256> errBuf {};
-                std::snprintf(errBuf.data(), errBuf.size(),
-                              "command queue %p does not match session queue %p (HIP skipped to preserve session)",
-                              reinterpret_cast<void *>(queue), reinterpret_cast<void *>(p.expectedQueue));
-                p.lastEnqueueError = errBuf;
-                p.lastEnqueueQueue = queue;
-                p.lastEnqueueRc.store(kEnqueueQueueMismatch, std::memory_order_relaxed);
-                p.session = nullptr;
-                p.job = nullptr;
-                p.enqueueHip = nullptr;
-                p.getLastError = nullptr;
-                p.targetList = nullptr;
-                p.expectedQueue = nullptr;
-                return;
             }
         }
         // Consume before call so a nested submission cannot enqueue twice.
@@ -148,16 +134,33 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
     }
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
     p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
-    const int32_t rc = fn(session, job, queue);
+    const int32_t rc = fn ? fn(session, job, queue) : -1;
     std::array<char, 256> error {};
-    if (rc != 0 && getLastError)
+    if (getLastError)
         getLastError(error.data(), static_cast<uint32_t>(error.size()));
     error.back() = 0;
     {
         std::lock_guard lock(p.mutex);
-        p.lastEnqueueError = error;
+        if (!match)
+        {
+            p.lastEnqueueRc.store(kEnqueueQueueMismatch, std::memory_order_relaxed);
+            if (error[0] != 0)
+                p.lastEnqueueError = error;
+            else
+            {
+                std::array<char, 256> errBuf {};
+                std::snprintf(errBuf.data(), errBuf.size(),
+                              "command queue %p does not match session queue (output zeroed for original Color passthrough)",
+                              reinterpret_cast<void *>(queue));
+                p.lastEnqueueError = errBuf;
+            }
+        }
+        else
+        {
+            p.lastEnqueueError = error;
+            p.lastEnqueueRc.store(rc, std::memory_order_relaxed);
+        }
         p.lastEnqueueQueue = queue;
-        p.lastEnqueueRc.store(rc, std::memory_order_relaxed);
     }
 }
 

@@ -906,6 +906,19 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             return static_cast<int32_t>(LMXXF_NR_OK);
         }
         auto *targetQueue = static_cast<ID3D12CommandQueue *>(command_queue ? command_queue : session->queue);
+        const bool queueMatch = !session->queue || NativeSameDevice(targetQueue, session->queue);
+        if (!queueMatch)
+        {
+            // Queue mismatch: cannot synchronize HIP with targetQueue on this session.
+            // Clear the neural output buffer to 0 so the decode shader will produce
+            // original Color without neural residual, ensuring a 100% safe visual fallback.
+            if (session->bridge)
+                session->bridge->ClearOutputAsync();
+            if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+                j->state = LMXXF_NR_JOB_NR_COMPLETE;
+            SetError("EnqueueHip: queue mismatch; output zeroed for original Color passthrough");
+            return static_cast<int32_t>(LMXXF_NR_OK);
+        }
         QueueContract(session, targetQueue);
         session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
         if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
