@@ -14,44 +14,64 @@ says otherwise.
 Pass `-SkipUpstreamFetch` / `-AllowOfflineUpstream` when fetch is unavailable. Live
 `shaders/*.hlsl` are mirror-cleaned to the top-level glue set only (`dx12-network/` is not vendored).
 
-## Included
+## OURS (do not follow upstream on sync)
+
+Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves** the vendor files below by default; pass the named switch only when intentionally refreshing from upstream and re-applying local patches (fail-closed).
+
+| Path | Owner note | Sync default |
+|---|---|---|
+| `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual safeguards for `LmxxfNrRuntime` | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
+| `src/native_rgb_reflect.h` | Drop unused `#include "native_split.h"` so codec builds without the D3D12 network body | **Preserve**; `-UpdateReflect` to overwrite + re-drop include |
+| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** — never copied from upstream |
+| `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` gfx1201 rows | Shipping COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
+
+## FOLLOW (track upstream performance / recipe)
+
+Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: author kernel / geometry / codec / glue improvements.
 
 | Path | Why |
 |---|---|
-| `hip/` | gfx1201 module recipes (`.hip`, `build-modules.ps1`, `SHA256SUMS`) |
-| `Development/HIP/hip_d3d12_bridge.h` | D3D12 -> HIP external-fence bridge (**pinned & patched**) |
-| `Development/HIP/hip_reference_network.h` | HIP network |
+| `hip/*.hip`, `hip/build-modules.ps1`, `hip/rtc_compile.cpp`, upstream `hip/SHA256SUMS` recipe rows | gfx1201 HIP kernels (then local rebuild of modules) |
 | `Development/HIP/hip_api.h` | Loaded HIP ABI |
+| `Development/HIP/hip_device_properties.h` | Device props |
+| `Development/HIP/hip_reference_network.h` | HIP network (plus tiny local `#include <algorithm>` patch) |
 | `Development/HIP/packed_weights.h` | Weight packing |
-| `src/native_hip_network.h` | HIP entry used by the game host |
-| `src/native_network_geometry.h` | 720 / 900 / 1080 tiers |
+| `src/native_hip_network.h` | HIP entry |
+| `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers |
+| `src/native_input_geometry.h` | Input viewport / fit |
 | `src/native_lab_paths.h` | Paths, typed views, weight IO |
-| `src/native_game_codec.h` and encode/decode HLSL | Scene encode / decode |
-| supporting `src/*.h` pulled by the above | device identity, PSO, RGB input/reflect/texture, shader cache |
+| `src/native_game_codec.h` | Scene encode / decode host |
+| `src/native_game_rgb_input.h`, `src/native_rgb_texture.h` | RGB IO |
+| `src/native_device_identity.h`, `src/native_pinned_resource.h`, `src/native_pso.h`, `src/native_shader_cache.h` | Supporting glue |
+| `shaders/*.hlsl` (top-level live glue only) | D3D12 glue; mirror-cleaned; `dx12-network/` not vendored |
 
-## Excluded on purpose
+## Excluded on purpose (not vendored)
 
 - `src/native_submission_order_probe.cpp`, ReShade / MinHook addon
 - `src/native_pre_upscale.h` (FFX replay; not a general splitter)
 - `src/native_text_overlay.h`, `src/native_game_oneshot.h`, F6 overlay
 - `src/native_game_frame.h` (`ProcessSubmittedFrame` convenience host)
-- D3D12 network body (`native_actual_network70.h`, vit/c32/preblock/split, etc.)
+- D3D12 network body (`native_split.h`, `native_actual_network70.h`, vit/c32/preblock, `shaders/dx12-network/`, etc.)
 - `src/native_temporal_*.h` (first product version is history off)
 - `Development/` notes, benchmarks, and `.ps1` experiments
-- `OptiScaler-DLSS5-AMD-0.24.2/` package, weights, and `.hsaco` binaries
+- Upstream `OptiScaler-DLSS5-AMD-*` packages, weights, and gitignored `.hsaco`
 - Magpie packaging
 
 ## Patches applied in this tree
 
 ### General Headers
 1. `NativeLabRoot()` no longer falls back to `D:\\DLSSNR-Lab`. Missing assets throw.
-2. `native_rgb_reflect.h` dropped unused `native_split.h`; codec compiles without the D3D12 network body.
+2. `native_rgb_reflect.h` (**pinned**): dropped unused `native_split.h`; codec compiles without the D3D12 network body. Sync preserves it unless `-UpdateReflect`.
 3. `SetNoise` skips the 201 MiB buffer when `fast_prefix` is on.
 4. `#include <algorithm>` for MinGW/MSVC `std::sort` / `std::min` in `hip_reference_network.h` and `hip_d3d12_bridge.h`.
 
 ### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
-> `Development/HIP/hip_d3d12_bridge.h` contains critical stability safeguards for D3D12 queue ordering and zero-residual fallbacks required by `LmxxfNrRuntime.dll`. To avoid breaking local fixes when pulling upstream, `tools/sync-lmxxf-upstream.ps1` preserves this header by default. Only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches.
+> See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (fail-closed anchors + marker check).
+
+### `src/native_rgb_reflect.h` (Vendor-Pinned & Patched)
+> [!IMPORTANT]
+> See **OURS** above. Upstream still `#include "native_split.h"` even though `NativeRgbReflect` does not use it; that would pull the excluded D3D12 network body. Sync preserves our header (include already removed) unless `-UpdateReflect`, which re-copies upstream then drops the include again.
 
 1. **Queue Drain Completion Verification**: In `WaitForSubmittedWork()`, additionally checks `fence->GetCompletedValue() >= target` after `WaitForSingleObject` returns `WAIT_OBJECT_0`, preventing queue drain race conditions.
 2. **Zero-Residual Fallback Path**:
@@ -105,6 +125,6 @@ Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Us
 
 C ABI in `include/LmxxfNrApi.h`. MSVC (primary) or MinGW (fallback) `tools/build-lmxxf-runtime.cmd` compiles the HIP bridge and codec into `LmxxfNrRuntime.dll`.
 
-- Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from `68dc099`).
+- Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from current `hip/` + local COMGR (see modules/README.md Commit Base)).
 - Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).
 - `QueryCapabilities.hip_ready` stays **0**. `LmxxfWired()` stays false.

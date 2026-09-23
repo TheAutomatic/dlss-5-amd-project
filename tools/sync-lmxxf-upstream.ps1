@@ -10,8 +10,9 @@
   Live shaders/ are mirror-cleaned to top-level *.hlsl only (retired dx12-network is not vendored).
   Upstream does not publish .hsaco on git (release/ is ignored); shipping modules are built
   locally with hip/build-modules.ps1 (default) or supplied via -ModulesPath.
-  By default, Development\HIP\hip_d3d12_bridge.h is preserved (pinned & patched).
-  Pass -UpdateBridge to overwrite and re-patch it (every patch anchor fail-closed; pinned bridge is marker-checked each sync). Fails closed when hip recipes change but
+  By default, Development\HIP\hip_d3d12_bridge.h and src\native_rgb_reflect.h are preserved (pinned & patched).
+  Pass -UpdateBridge / -UpdateReflect to overwrite each from upstream and re-apply local patches (fail-closed).
+  Pinned files are marker-checked each sync. Fails closed when hip recipes change but
   modules do not, or modules disagree with hip/SHA256SUMS gfx1201, unless -AllowStaleModules.
 
 .PARAMETER UpstreamPath
@@ -47,6 +48,11 @@
   If set, overwrites Development\HIP\hip_d3d12_bridge.h from upstream and re-applies
   all local patches (zero fallback, drain check, clear resource management).
 
+.PARAMETER UpdateReflect
+  If set, overwrites src
+ative_rgb_reflect.h from upstream and re-applies the local
+  patch that drops the unused native_split.h include (keeps D3D12 network body out).
+
 .PARAMETER SkipBuild
   If set, skips the post-sync compilation verification of LmxxfNrRuntime.dll.
 
@@ -57,6 +63,7 @@
   .\tools\sync-lmxxf-upstream.ps1 -ModulesPath 'D:\built\gfx1201'
   .\tools\sync-lmxxf-upstream.ps1 -SkipModules -AllowStaleModules
   .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge
+  .\tools\sync-lmxxf-upstream.ps1 -UpdateReflect
   .\tools\sync-lmxxf-upstream.ps1 -AllowOfflineUpstream
 #>
 [CmdletBinding()]
@@ -70,6 +77,7 @@ param(
     [switch]$NoBuildModules,
     [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
+    [switch]$UpdateReflect,
     [switch]$SkipBuild
 )
 
@@ -121,6 +129,20 @@ function Assert-BridgeLocalMarkers([string]$bridgePath, [string]$context) {
     }
 }
 
+
+
+function Assert-ReflectLocalMarkers([string]$reflectPath, [string]$context) {
+    if (-not (Test-Path -LiteralPath $reflectPath -PathType Leaf)) {
+        throw ("Reflect header missing ($context): " + $reflectPath)
+    }
+    $c = Get-Content -LiteralPath $reflectPath -Raw
+    if ($c -match '#include\s*"native_split\.h"') {
+        throw ("Reflect local marker failed ($context): still includes native_split.h. Pass -UpdateReflect to refresh from upstream and re-drop the include, or restore the pinned header.")
+    }
+    if ($c -notmatch 'class\s+NativeRgbReflect') {
+        throw ("Reflect local marker failed ($context): NativeRgbReflect class missing")
+    }
+}
 
 function Get-FileSha256Hex([string]$path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -430,6 +452,10 @@ $headerFiles = @(
 foreach ($rel in $headerFiles) {
     if ($rel -eq 'Development\HIP\hip_d3d12_bridge.h' -and -not $UpdateBridge) {
         Write-Host "  Preserved (pinned & patched): $rel (pass -UpdateBridge to overwrite and re-patch)" -ForegroundColor DarkYellow
+        continue
+    }
+    if ($rel -eq 'src\native_rgb_reflect.h' -and -not $UpdateReflect) {
+        Write-Host "  Preserved (pinned & patched): $rel (pass -UpdateReflect to overwrite and re-patch)" -ForegroundColor DarkYellow
         continue
     }
     $src = Join-Path $script:UpstreamTree $rel
@@ -750,14 +776,24 @@ $reflectH = Join-Path $vendorRoot 'src\native_rgb_reflect.h'
 if (-not (Test-Path -LiteralPath $reflectH -PathType Leaf)) {
     throw "Patch C failed: missing native_rgb_reflect.h"
 }
-$content = Get-Content -LiteralPath $reflectH -Raw
-if ($content -match '#include\s*"native_split\.h"') {
-    $content = $content -replace '#include\s*"native_split\.h"\r?\n?', ''
+if (-not $UpdateReflect) {
+    Write-Host "  Preserved Patch C: native_rgb_reflect.h is pinned (pass -UpdateReflect to re-patch)" -ForegroundColor DarkYellow
+    Assert-ReflectLocalMarkers -reflectPath $reflectH -context 'pinned reflect (no -UpdateReflect)'
+} else {
+    $content = Get-Content -LiteralPath $reflectH -Raw
     if ($content -match '#include\s*"native_split\.h"') {
-        throw "Patch C failed: native_split.h include still present after replace"
+        $content = $content -replace '#include\s*"native_split\.h"\r?\n?', ''
+        if ($content -match '#include\s*"native_split\.h"') {
+            throw "Patch C failed: native_split.h include still present after replace"
+        }
+        [IO.File]::WriteAllText($reflectH, $content, [Text.UTF8Encoding]::new($false))
+        Write-Host "  Applied patch: removed native_split.h in native_rgb_reflect.h" -ForegroundColor Yellow
+    } elseif ($content -notmatch 'class\s+NativeRgbReflect') {
+        throw "Patch C failed: NativeRgbReflect missing after -UpdateReflect copy"
+    } else {
+        Write-Host "  Patch C: native_split.h already absent in refreshed reflect header" -ForegroundColor DarkYellow
     }
-    [IO.File]::WriteAllText($reflectH, $content, [Text.UTF8Encoding]::new($false))
-    Write-Host "  Applied patch: removed native_split.h in native_rgb_reflect.h" -ForegroundColor Yellow
+    Assert-ReflectLocalMarkers -reflectPath $reflectH -context '-UpdateReflect post-patch'
 }
 
 # 6. Update UPSTREAM.md with new commit and timestamp
