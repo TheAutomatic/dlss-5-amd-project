@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AmdBridge.h"
+#include "AwaitingListTracker.h"
 #include "../submission/SubmissionTls.h"
 #include "AmdPreSr.h"
 #include "PresentExperimental.h"
@@ -114,57 +115,18 @@ public:
 };
 
 static ConfirmedQueueHolder s_confirmedRenderQueue;
-static constexpr size_t kMaxAwaitingLists = 16;
-static std::mutex s_awaitingMutex;
-static std::vector<ID3D12GraphicsCommandList*> s_awaitingCmdLists;
+static AwaitingListTracker s_awaitingTracker;
 
 void SetConfirmedRenderQueueInternal(ID3D12CommandQueue *q)
 {
     s_confirmedRenderQueue.Set(q);
 }
 
-static bool ContainsTargetList(UINT n, ID3D12CommandList* const* c, ID3D12GraphicsCommandList* target)
-{
-    if (!c || !target)
-        return false;
-    for (UINT i = 0; i < n; ++i)
-    {
-        if (c[i] == reinterpret_cast<ID3D12CommandList*>(target))
-            return true;
-        DlssNr::Submission::ILogicalCommandList* logical = nullptr;
-        if (SUCCEEDED(c[i]->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
-                                          reinterpret_cast<void**>(&logical))) && logical)
-        {
-            ID3D12CommandList* native = logical->UnsplitNativeList();
-            const bool match = (native == reinterpret_cast<ID3D12CommandList*>(target));
-            logical->Release();
-            if (match)
-                return true;
-        }
-    }
-    return false;
-}
-
 void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
     if (q && q->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
     {
-        ID3D12GraphicsCommandList *matched = nullptr;
-        {
-            std::lock_guard lock(s_awaitingMutex);
-            for (auto it = s_awaitingCmdLists.begin(); it != s_awaitingCmdLists.end(); )
-            {
-                if (ContainsTargetList(n, c, *it))
-                {
-                    matched = *it;
-                    it = s_awaitingCmdLists.erase(it);
-                }
-                else
-                {
-                    ++it;
-                }
-            }
-        }
+        ID3D12GraphicsCommandList *matched = s_awaitingTracker.MatchAndRemove(n, c);
         if (matched)
         {
             s_confirmedRenderQueue.Set(q);
@@ -217,10 +179,7 @@ void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList*
 void NTAPI Exit(LONG code)
 {
     s_confirmedRenderQueue.Clear();
-    {
-        std::lock_guard lock(s_awaitingMutex);
-        s_awaitingCmdLists.clear();
-    }
+    s_awaitingTracker.Clear();
     if (auto b = backend.load())
         b->Shutdown();
     exitOriginal(code);
@@ -434,24 +393,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     {
         // Target list not yet observed on any execution queue.
         // Register cmd as awaiting observation, and bypass NR this frame (original Color to SR).
-        {
-            std::lock_guard lock(s_awaitingMutex);
-            bool exists = false;
-            for (auto *awaiting : s_awaitingCmdLists)
-            {
-                if (awaiting == cmd)
-                {
-                    exists = true;
-                    break;
-                }
-            }
-            if (!exists)
-            {
-                if (s_awaitingCmdLists.size() >= kMaxAwaitingLists)
-                    s_awaitingCmdLists.erase(s_awaitingCmdLists.begin());
-                s_awaitingCmdLists.push_back(cmd);
-            }
-        }
+        s_awaitingTracker.Add(cmd);
         if (!submissionHookReady)
         {
             auto *fallback = reinterpret_cast<ID3D12CommandQueue*>(State::Instance().currentCommandQueue);

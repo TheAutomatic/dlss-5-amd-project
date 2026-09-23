@@ -278,8 +278,21 @@ struct Session
     {
         if (bridge)
         {
-            bridge->CancelUnsubmitted();
-            bridge->NotifyOutputSubmittedIfRecorded(queue);
+            try
+            {
+                bridge->CancelUnsubmitted();
+                bridge->NotifyOutputSubmittedIfRecorded(queue);
+            }
+            catch (...)
+            {
+                AbandonSessionResources();
+                throw std::runtime_error("TeardownCodecChain: bridge acknowledgement failed");
+            }
+            if (!bridge->WaitForSubmittedWork())
+            {
+                AbandonSessionResources();
+                throw std::runtime_error("TeardownCodecChain: bridge work did not complete");
+            }
         }
         delete bridge;
         bridge = nullptr;
@@ -335,9 +348,14 @@ struct Session
             return hr;
         }
         const DWORD wr = WaitForSingleObject(ev, 30000);
-        CloseHandle(ev);
         const UINT64 completed = fence->GetCompletedValue();
-        fence->Release();
+        // A timeout can leave SetEventOnCompletion armed. Retain the event and
+        // fence until process exit instead of closing a future signal target.
+        if (wr == WAIT_OBJECT_0 && completed >= v)
+        {
+            CloseHandle(ev);
+            fence->Release();
+        }
         if (wr != WAIT_OBJECT_0 || completed < v)
             return wr == WAIT_TIMEOUT ? HRESULT_FROM_WIN32(ERROR_TIMEOUT) : E_FAIL;
         return S_OK;
@@ -376,8 +394,21 @@ struct Session
         }
         if (bridge)
         {
-            bridge->CancelUnsubmitted();
-            bridge->NotifyOutputSubmittedIfRecorded(queue);
+            try
+            {
+                bridge->CancelUnsubmitted();
+                bridge->NotifyOutputSubmittedIfRecorded(queue);
+            }
+            catch (...)
+            {
+                AbandonSessionResources();
+                return;
+            }
+            if (!bridge->WaitForSubmittedWork())
+            {
+                AbandonSessionResources();
+                return;
+            }
         }
         // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
         delete bridge;
@@ -910,9 +941,15 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         if (!queueMatch)
         {
             // Queue mismatch: cannot synchronize HIP with targetQueue on this session.
-            // Clear the neural output buffer to 0 so the decode shader will produce
-            // original Color without neural residual, ensuring a 100% safe visual fallback.
-            const bool cleared = session->bridge && session->bridge->ClearOutputAsync();
+            // Complete the old queue's readers before either HIP or D3D12 writes
+            // the shared output on the new execution queue.
+            if (FAILED(session->DrainGpu()))
+            {
+                session->failed = true;
+                return Fail(LMXXF_NR_FAILED, "EnqueueHip: old session queue did not drain before fallback clear");
+            }
+            // A zero neural output makes the decode shader use original Color.
+            const bool cleared = session->bridge && session->bridge->ClearOutput(targetQueue);
             if (cleared)
             {
                 if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
@@ -922,16 +959,43 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             }
             else
             {
+                session->failed = true;
                 SetError("EnqueueHip: queue mismatch and output clear failed; cannot guarantee clean visual fallback");
                 return static_cast<int32_t>(LMXXF_NR_FAILED);
             }
         }
         QueueContract(session, targetQueue);
-        session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
-        if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
-            j->state = LMXXF_NR_JOB_NR_COMPLETE;
-        SetError("");
-        return static_cast<int32_t>(LMXXF_NR_OK);
+        try
+        {
+            session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
+            if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+                j->state = LMXXF_NR_JOB_NR_COMPLETE;
+            SetError("");
+            return static_cast<int32_t>(LMXXF_NR_OK);
+        }
+        catch (const std::exception &ex)
+        {
+            const bool cleared = session->bridge && session->bridge->ClearOutput(targetQueue);
+            if (cleared)
+            {
+                if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
+                    j->state = LMXXF_NR_JOB_NR_COMPLETE;
+                std::string msg = "EnqueueHip: enqueue failed (";
+                msg += ex.what();
+                msg += "); output zeroed for original Color passthrough";
+                SetError(msg.c_str());
+                return static_cast<int32_t>(LMXXF_NR_OK);
+            }
+            else
+            {
+                session->failed = true;
+                std::string msg = "EnqueueHip: enqueue failed (";
+                msg += ex.what();
+                msg += ") and clear failed; cannot guarantee clean visual fallback";
+                SetError(msg.c_str());
+                return static_cast<int32_t>(LMXXF_NR_FAILED);
+            }
+        }
     });
 }
 

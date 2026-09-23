@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <cstdio>
@@ -14,6 +15,8 @@ class D3D12Bridge {
  struct Shared {ID3D12Resource*resource{};HANDLE handle{};Handle imported{};void*mapped{};};
  Network*network{};ID3D12Device*device{};ID3D12CommandQueue*queue{};ID3D12Fence*fence{};
  HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
+ ID3D12Resource* zero_upload{};ID3D12CommandAllocator* clear_alloc{};ID3D12GraphicsCommandList* clear_cmd{};
+ size_t zero_upload_bytes{};bool clear_submission_unconfirmed{};
 public:
  enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
  Phase CurrentPhase()const{return phase;}
@@ -39,12 +42,13 @@ public:
  bool WaitForSubmittedWork()noexcept{
   if(phase!=Phase::Ready)return false;
   if(network&&network->Runtime().hipStreamSynchronize(network->Stream()))return false;
-  if(pending&&queue&&fence){auto target=++value;if(FAILED(queue->Signal(fence,target))||FAILED(fence->SetEventOnCompletion(target,event))||WaitForSingleObject(event,30000)!=WAIT_OBJECT_0)return false;}
+  if(pending&&queue&&fence){auto target=++value;if(FAILED(queue->Signal(fence,target))||FAILED(fence->SetEventOnCompletion(target,event))||WaitForSingleObject(event,30000)!=WAIT_OBJECT_0||fence->GetCompletedValue()<target)return false;}
   if(device&&FAILED(device->GetDeviceRemovedReason()))return false;
   pending=false;return true;
  }
  ~D3D12Bridge(){
   if(!WaitForSubmittedWork())return;
+  if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
   if(network){Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
@@ -68,6 +72,17 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   module_directory=options.modules;
   network=new Network(std::move(options));auto&api=network->Runtime();
   Share(input,pixels*16);Share(history,pixels*16);Share(output,pixels*12,true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}network->SetNoise(noise);
+  // A small, verified zero source is enough for the rare D3D12 fallback. Avoid a
+  // frame-sized upload allocation on the normal HIP path.
+  zero_upload_bytes=std::min<size_t>(pixels*12,65536);
+  D3D12_HEAP_PROPERTIES up{};up.Type=D3D12_HEAP_TYPE_UPLOAD;
+  D3D12_RESOURCE_DESC ud{};ud.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;ud.Width=zero_upload_bytes;ud.Height=1;ud.DepthOrArraySize=ud.MipLevels=1;ud.SampleDesc.Count=1;ud.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;ud.Flags=D3D12_RESOURCE_FLAG_NONE;
+  Check(device->CreateCommittedResource(&up,D3D12_HEAP_FLAG_NONE,&ud,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&zero_upload)),"zero upload buffer");
+  void*mappedZero=nullptr;D3D12_RANGE r{0,0};Check(zero_upload->Map(0,&r,&mappedZero),"map zero upload buffer");
+  if(!mappedZero)throw std::runtime_error("map zero upload buffer returned null");
+  std::memset(mappedZero,0,zero_upload_bytes);zero_upload->Unmap(0,nullptr);
+  Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&clear_alloc)),"clear allocator");
+  Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,clear_alloc,nullptr,IID_PPV_ARGS(&clear_cmd)),"clear command list");Check(clear_cmd->Close(),"close clear command list");
  }
  ID3D12Resource*Output()const{return output.resource;}
  size_t free_at_create{};int hip_device=-1;/* HIP device index chosen for the D3D12 adapter */
@@ -143,10 +158,63 @@ public:
    return false;
   }
  }
+ bool ClearOutputD3D12(ID3D12CommandQueue* targetQueue) noexcept {
+  if(!network||!device||!targetQueue||!output.resource||!zero_upload||!zero_upload_bytes||clear_submission_unconfirmed)return false;
+  // A failed HIP call can leave earlier work queued. Do not race that work with
+  // a D3D12 write to the same shared buffer.
+  if(network->Runtime().hipStreamSynchronize(network->Stream())!=0)return false;
+  ID3D12Device* owner=nullptr;
+  if(FAILED(targetQueue->GetDevice(IID_PPV_ARGS(&owner)))||!owner)return false;
+  const bool sameDevice=NativeSameDevice(owner,device);owner->Release();
+  if(!sameDevice)return false;
+  ID3D12CommandAllocator* alloc=clear_alloc;
+  ID3D12GraphicsCommandList* cmd=clear_cmd;
+  ID3D12Fence* completion=nullptr;
+  HANDLE completedEvent=nullptr;
+  bool temp=false;
+  bool submitted=false;
+  const auto qType=targetQueue->GetDesc().Type;
+  if(qType!=D3D12_COMMAND_LIST_TYPE_DIRECT||!alloc||!cmd){
+   if(qType!=D3D12_COMMAND_LIST_TYPE_DIRECT&&qType!=D3D12_COMMAND_LIST_TYPE_COMPUTE)return false;
+   if(FAILED(device->CreateCommandAllocator(qType,IID_PPV_ARGS(&alloc))))return false;
+   if(FAILED(device->CreateCommandList(0,qType,alloc,nullptr,IID_PPV_ARGS(&cmd)))){alloc->Release();return false;}
+   temp=true;
+  }else if(FAILED(alloc->Reset())||FAILED(cmd->Reset(alloc,nullptr))){return false;}
+  bool ok=false;
+  try{
+   if(FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&completion))))throw std::runtime_error("clear fence");
+   completedEvent=CreateEventW(nullptr,FALSE,FALSE,nullptr);
+   if(!completedEvent)throw std::runtime_error("clear event");
+   Barrier(cmd,output.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
+   const UINT64 total=UINT64(pixels)*12;
+   for(UINT64 offset=0;offset<total;offset+=zero_upload_bytes)
+    cmd->CopyBufferRegion(output.resource,offset,zero_upload,0,std::min<UINT64>(zero_upload_bytes,total-offset));
+   Barrier(cmd,output.resource,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);
+   Check(cmd->Close(),"close clear command list");
+   ID3D12CommandList* lists[]={cmd};
+   targetQueue->ExecuteCommandLists(1,lists);
+   submitted=true;clear_submission_unconfirmed=true;
+   Check(targetQueue->Signal(completion,1),"signal clear completion");
+   Check(completion->SetEventOnCompletion(1,completedEvent),"wait for clear completion");
+   ok=WaitForSingleObject(completedEvent,30000)==WAIT_OBJECT_0&&completion->GetCompletedValue()>=1&&SUCCEEDED(device->GetDeviceRemovedReason());
+   if(ok){clear_submission_unconfirmed=false;phase=Phase::OutputRecorded;}
+  }catch(...){ok=false;}
+  // SetEventOnCompletion can still signal after a timeout. Keep its fence and
+  // event alive whenever the submitted work has not been confirmed complete.
+  if(!submitted||ok){if(completedEvent)CloseHandle(completedEvent);if(completion)completion->Release();}
+  // If submission completion is unknown, retain command storage until the
+  // session's fail-closed teardown instead of freeing a GPU-live allocator.
+  if(temp&&(!submitted||ok)){cmd->Release();alloc->Release();}
+  return ok;
+ }
+ bool ClearOutput(ID3D12CommandQueue* targetQueue) noexcept {
+  if(ClearOutputAsync())return true;
+  return ClearOutputD3D12(targetQueue);
+ }
  // Acknowledges submission, not GPU completion. Queue order protects the next frame;
  // the destructor fences submitted work. Omitting this acknowledgement prevents reuse/free.
  void NotifyOutputSubmitted(ID3D12CommandQueue*consumer){Require(Phase::OutputRecorded);QueueContract(consumer);phase=Phase::Ready;}
- void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer)NotifyOutputSubmitted(consumer);}
+ void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer){if(failed){phase=Phase::Ready;return;}NotifyOutputSubmitted(consumer);}}
  void CancelUnsubmitted(){if(phase==Phase::InputRecorded||phase==Phase::OutputRecordedPendingHip){phase=Phase::Ready;readable=false;}}
  template<class Submission>void Run(Submission&submit,ID3D12Resource*rgba,ID3D12Resource*temporal,U seed){
   Require(Phase::Ready);QueueContract(submit.Queue());

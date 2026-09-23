@@ -4,6 +4,8 @@
 #include <dxgi1_4.h>
 #define LOG_WARN(...) ((void)0)
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfEvaluateCut.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfQueueDrain.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/amd/AwaitingListTracker.h"
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SubmissionHooks.h"
 #include <cstdio>
 #include <cstdint>
@@ -199,51 +201,18 @@ int main()
     Require(diagMatch.rc == 0, "queue match rc must be 0");
     Require(pending.enqueueCalls.load() == callsBefore + 3, "queue match must call enqueue");
 
-    // Case C: DrainQueue contract testing
-    auto testDrain = [](ID3D12Device *dev, ID3D12CommandQueue *q, DWORD timeoutMs) -> bool {
-        if (!dev || !q) return false;
-        ID3D12Fence *fence = nullptr;
-        if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence) return false;
-        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!ev) { fence->Release(); return false; }
-        bool drained = false;
-        const UINT64 v = 1;
-        if (SUCCEEDED(q->Signal(fence, v)))
-        {
-            if (SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
-            {
-                const DWORD waitRes = WaitForSingleObject(ev, timeoutMs);
-                if (waitRes == WAIT_OBJECT_0) drained = true;
-            }
-        }
-        CloseHandle(ev);
-        fence->Release();
-        return drained;
-    };
-    Require(!testDrain(nullptr, nullptr, 1000), "DrainQueue rejects null device and queue");
-    Require(!testDrain(device, nullptr, 1000), "DrainQueue rejects null queue");
-    Require(testDrain(device, queue, 1000), "DrainQueue succeeds on valid device and queue");
+    // Exercise the same queue drain and awaiting-list implementations used by the host.
+    Require(!DlssNr::Backend::DrainQueue(nullptr, nullptr, 1000), "DrainQueue rejects null device and queue");
+    Require(!DlssNr::Backend::DrainQueue(device, nullptr, 1000), "DrainQueue rejects null queue");
+    Require(DlssNr::Backend::DrainQueue(device, queue, 1000), "DrainQueue succeeds on valid device and queue");
 
-    // Case D: Multi-buffered awaiting list observation simulation (selective erase)
-    std::vector<ID3D12GraphicsCommandList*> awaitingLists;
-    awaitingLists.push_back(list);
-    awaitingLists.push_back(otherList);
+    DlssNr::AmdBridge::AwaitingListTracker awaitingLists;
+    awaitingLists.Add(list);
+    awaitingLists.Add(otherList);
     ID3D12CommandList *subBatch[] = { otherList };
-    ID3D12GraphicsCommandList *matchedList = nullptr;
-    for (auto it = awaitingLists.begin(); it != awaitingLists.end(); )
-    {
-        bool inBatch = false;
-        for (UINT i = 0; i < 1; ++i)
-            if (subBatch[i] == *it) { inBatch = true; break; }
-        if (inBatch)
-        {
-            matchedList = *it;
-            it = awaitingLists.erase(it);
-        }
-        else ++it;
-    }
+    ID3D12GraphicsCommandList *matchedList = awaitingLists.MatchAndRemove(1, subBatch);
     Require(matchedList == otherList, "multi-buffer matched list");
-    Require(awaitingLists.size() == 1 && awaitingLists[0] == list,
+    Require(awaitingLists.Count() == 1 && awaitingLists.Contains(list),
             "retained in-flight awaiting list across multi-buffering");
 
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();

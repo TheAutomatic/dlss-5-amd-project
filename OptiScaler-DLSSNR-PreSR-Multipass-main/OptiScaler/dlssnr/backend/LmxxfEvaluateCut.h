@@ -9,9 +9,6 @@
 
 // Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
 // Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
-
-// Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
-// Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
 // AmdBridge calls this every Evaluate; no-op unless SubmissionHooksWanted(). Harnesses can call helpers directly.
 namespace DlssNr::Backend::LmxxfCut
 {

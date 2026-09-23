@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "LmxxfBackend.h"
+#include "LmxxfQueueDrain.h"
 #include <cstring>
 #include "../submission/SubmissionTls.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
@@ -32,34 +33,6 @@ std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
     return directory;
 }
 
-bool DrainQueue(ID3D12Device *dev, ID3D12CommandQueue *q, DWORD timeoutMs = 5000)
-{
-    if (!dev || !q)
-        return false;
-    ID3D12Fence *fence = nullptr;
-    if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) || !fence)
-        return false;
-    HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!ev)
-    {
-        fence->Release();
-        return false;
-    }
-    bool drained = false;
-    const UINT64 v = 1;
-    if (SUCCEEDED(q->Signal(fence, v)))
-    {
-        if (SUCCEEDED(fence->SetEventOnCompletion(v, ev)))
-        {
-            const DWORD waitRes = WaitForSingleObject(ev, timeoutMs);
-            if (waitRes == WAIT_OBJECT_0)
-                drained = true;
-        }
-    }
-    CloseHandle(ev);
-    fence->Release();
-    return drained;
-}
 } // namespace
 
 void LmxxfBackend::SetStatus(const char *s)
@@ -796,9 +769,9 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
             const bool actualDrained = DrainQueue(this->device, q);
 
             // 2. Drain the old session queue:
-            const bool sessionDrained = (session && api && api->table.Drain)
+            const bool sessionDrained = !session || ((api && api->table.Drain)
                                             ? (api->table.Drain(session) == LMXXF_NR_OK)
-                                            : true;
+                                            : false);
 
             if (actualDrained && sessionDrained)
             {
