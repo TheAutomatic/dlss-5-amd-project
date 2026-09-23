@@ -49,11 +49,12 @@ if (-not $upstream -or -not (Test-Path $upstream)) {
 Write-Host "Syncing from upstream: $upstream" -ForegroundColor Cyan
 
 # 1. Query git commit of upstream
-$commitHash = ''
-try {
-    $commitHash = (git -C $upstream rev-parse HEAD 2>$null).Trim()
-} catch {}
-if (-not $commitHash) { $commitHash = 'unknown' }
+$upstreamGitPath = $upstream.Path.Replace('\', '/')
+$commitResult = & git -c "safe.directory=$upstreamGitPath" -C $upstream.Path rev-parse HEAD 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $commitResult) {
+    throw "Could not read the upstream git commit; refusing to record an unpinned vendor snapshot."
+}
+$commitHash = $commitResult.Trim()
 Write-Host "Upstream HEAD commit: $commitHash" -ForegroundColor Green
 
 # 2. Synchronize selected headers
@@ -157,7 +158,13 @@ if (Test-Path $bridgeH) {
             $content = $content.Replace($waitAnchor, $waitReplacement)
         }
 
-        # B.3: Destructor cleanup of clear resources
+        # B.3: Retain GPU-live resources after an unconfirmed clear submission
+        $phaseAnchor = 'if(phase!=Phase::Ready)return false;'
+        if ($content.Contains($phaseAnchor)) {
+            $content = $content.Replace($phaseAnchor, 'if(phase!=Phase::Ready||clear_submission_unconfirmed)return false;')
+        }
+
+        # B.4: Destructor cleanup of clear resources
         if ($content -notmatch 'clear_cmd->Release') {
             $dtorAnchor = "~D3D12Bridge(){`r`n  if(!WaitForSubmittedWork())return;"
             if (-not $content.Contains($dtorAnchor)) {
@@ -171,29 +178,40 @@ if (Test-Path $bridgeH) {
             $content = $content.Replace($dtorAnchor, $dtorReplacement)
         }
 
-        # B.4: Create() zero upload and clear cmd/alloc initialization
-        if ($content -notmatch 'zero_upload_bytes=std::min') {
-            $noiseAnchor = 'network->SetNoise(noise);'
-            if (-not $content.Contains($noiseAnchor)) {
-                throw "Patch B failed: cannot find 'network->SetNoise(noise);' anchor in hip_d3d12_bridge.h"
+        # B.5: Lazy zero upload and clear cmd/alloc initialization
+        if ($content -notmatch 'bool EnsureZeroClearResources\(\) noexcept') {
+            $inputAnchor = 'void InputContract(ID3D12Resource*r)'
+            if (-not $content.Contains($inputAnchor)) {
+                throw "Patch B failed: cannot find InputContract anchor in hip_d3d12_bridge.h"
             }
             $initCode = @'
-  // A small, verified zero source is enough for the rare D3D12 fallback. Avoid a
-  // frame-sized upload allocation on the normal HIP path.
-  zero_upload_bytes=std::min<size_t>(pixels*12,65536);
-  D3D12_HEAP_PROPERTIES up{};up.Type=D3D12_HEAP_TYPE_UPLOAD;
-  D3D12_RESOURCE_DESC ud{};ud.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;ud.Width=zero_upload_bytes;ud.Height=1;ud.DepthOrArraySize=ud.MipLevels=1;ud.SampleDesc.Count=1;ud.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;ud.Flags=D3D12_RESOURCE_FLAG_NONE;
-  Check(device->CreateCommittedResource(&up,D3D12_HEAP_FLAG_NONE,&ud,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&zero_upload)),"zero upload buffer");
-  void*mappedZero=nullptr;D3D12_RANGE r{0,0};Check(zero_upload->Map(0,&r,&mappedZero),"map zero upload buffer");
-  if(!mappedZero)throw std::runtime_error("map zero upload buffer returned null");
-  std::memset(mappedZero,0,zero_upload_bytes);zero_upload->Unmap(0,nullptr);
-  Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&clear_alloc)),"clear allocator");
-  Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,clear_alloc,nullptr,IID_PPV_ARGS(&clear_cmd)),"clear command list");Check(clear_cmd->Close(),"close clear command list");
+bool EnsureZeroClearResources() noexcept {
+  if(zero_upload&&clear_alloc&&clear_cmd)return true;
+  if(!device||!pixels)return false;
+  try{
+   zero_upload_bytes=std::min<size_t>(pixels*12,65536);
+   D3D12_HEAP_PROPERTIES up{};up.Type=D3D12_HEAP_TYPE_UPLOAD;
+   D3D12_RESOURCE_DESC ud{};ud.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;ud.Width=zero_upload_bytes;ud.Height=1;ud.DepthOrArraySize=ud.MipLevels=1;ud.SampleDesc.Count=1;ud.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;ud.Flags=D3D12_RESOURCE_FLAG_NONE;
+   Check(device->CreateCommittedResource(&up,D3D12_HEAP_FLAG_NONE,&ud,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&zero_upload)),"zero upload buffer");
+   void*mappedZero=nullptr;D3D12_RANGE r{0,0};Check(zero_upload->Map(0,&r,&mappedZero),"map zero upload buffer");
+   if(!mappedZero){zero_upload->Unmap(0,nullptr);throw std::runtime_error("map zero upload buffer returned null");}
+   std::memset(mappedZero,0,zero_upload_bytes);zero_upload->Unmap(0,nullptr);
+   Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&clear_alloc)),"clear allocator");
+   Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,clear_alloc,nullptr,IID_PPV_ARGS(&clear_cmd)),"clear command list");Check(clear_cmd->Close(),"close clear command list");
+   return true;
+  }catch(...){
+   if(clear_cmd){clear_cmd->Release();clear_cmd=nullptr;}
+   if(clear_alloc){clear_alloc->Release();clear_alloc=nullptr;}
+   if(zero_upload){zero_upload->Release();zero_upload=nullptr;}
+   zero_upload_bytes=0;
+   return false;
+  }
+ }
 '@
-            $content = $content.Replace($noiseAnchor, "$noiseAnchor`r`n$initCode")
+            $content = $content.Replace($inputAnchor, "$initCode`r`n $inputAnchor")
         }
 
-        # B.5: ClearOutputAsync / ClearOutputD3D12 / ClearOutput methods
+        # B.6: ClearOutputAsync / ClearOutputD3D12 / ClearOutput methods
         if ($content -notmatch 'ClearOutputAsync') {
             $notifyCommentAnchor = '// Acknowledges submission, not GPU completion.'
             $notifyAnchor = 'void NotifyOutputSubmitted(ID3D12CommandQueue*consumer)'
@@ -205,13 +223,13 @@ if (Test-Path $bridgeH) {
                 throw "Patch B failed: cannot find 'void NotifyOutputSubmitted' anchor in hip_d3d12_bridge.h"
             }
             $clearMethods = @'
+private:
  bool ClearOutputAsync() noexcept {
   if(!network||failed||!output.mapped)return false;
   auto&api=network->Runtime();
   try{
    api.Check(api.hipMemsetAsync(output.mapped,0,pixels*12,network->Stream()),"clear output");
    network->Synchronize();
-   phase=Phase::OutputRecorded;
    return true;
   }catch(...){
    failed=true;
@@ -219,7 +237,7 @@ if (Test-Path $bridgeH) {
   }
  }
  bool ClearOutputD3D12(ID3D12CommandQueue* targetQueue) noexcept {
-  if(!network||!device||!targetQueue||!output.resource||!zero_upload||!zero_upload_bytes||clear_submission_unconfirmed)return false;
+  if(!network||!device||!targetQueue||!output.resource||clear_submission_unconfirmed)return false;
   // A failed HIP call can leave earlier work queued. Do not race that work with
   // a D3D12 write to the same shared buffer.
   if(network->Runtime().hipStreamSynchronize(network->Stream())!=0)return false;
@@ -227,6 +245,7 @@ if (Test-Path $bridgeH) {
   if(FAILED(targetQueue->GetDevice(IID_PPV_ARGS(&owner)))||!owner)return false;
   const bool sameDevice=NativeSameDevice(owner,device);owner->Release();
   if(!sameDevice)return false;
+  if(!EnsureZeroClearResources())return false;
   ID3D12CommandAllocator* alloc=clear_alloc;
   ID3D12GraphicsCommandList* cmd=clear_cmd;
   ID3D12Fence* completion=nullptr;
@@ -257,7 +276,7 @@ if (Test-Path $bridgeH) {
    Check(targetQueue->Signal(completion,1),"signal clear completion");
    Check(completion->SetEventOnCompletion(1,completedEvent),"wait for clear completion");
    ok=WaitForSingleObject(completedEvent,30000)==WAIT_OBJECT_0&&completion->GetCompletedValue()>=1&&SUCCEEDED(device->GetDeviceRemovedReason());
-   if(ok){clear_submission_unconfirmed=false;phase=Phase::OutputRecorded;}
+   if(ok)clear_submission_unconfirmed=false;
   }catch(...){ok=false;}
   // SetEventOnCompletion can still signal after a timeout. Keep its fence and
   // event alive whenever the submitted work has not been confirmed complete.
@@ -267,22 +286,41 @@ if (Test-Path $bridgeH) {
   if(temp&&(!submitted||ok)){cmd->Release();alloc->Release();}
   return ok;
  }
+ public:
+ // After producer submission and before consumer submission, clear the private
+ // neural output so the caller can decode original Color. The caller must drain
+ // any other queue that used Output() before calling this method, and drain a
+ // different consumer queue before reusing or destroying the bridge. On false,
+ // do not submit the consumer or reuse the bridge.
  bool ClearOutput(ID3D12CommandQueue* targetQueue) noexcept {
-  if(ClearOutputAsync())return true;
-  return ClearOutputD3D12(targetQueue);
+  if(phase!=Phase::InputRecorded&&phase!=Phase::OutputRecordedPendingHip)return false;
+  if(!targetQueue||!device)return false;
+  const auto qType=targetQueue->GetDesc().Type;
+  if(qType!=D3D12_COMMAND_LIST_TYPE_DIRECT&&qType!=D3D12_COMMAND_LIST_TYPE_COMPUTE)return false;
+  ID3D12Device* owner=nullptr;
+  if(FAILED(targetQueue->GetDevice(IID_PPV_ARGS(&owner)))||!owner)return false;
+  const bool sameDevice=NativeSameDevice(owner,device);owner->Release();
+  if(!sameDevice)return false;
+  const bool consumer_recorded=phase==Phase::OutputRecordedPendingHip;
+  if(!ClearOutputAsync()&&!ClearOutputD3D12(targetQueue))return false;
+  // The stream and clear queue are confirmed complete. A pre-recorded consumer
+  // can now submit; otherwise RecordOutputReadable may still be called.
+  failed=false;
+  phase=consumer_recorded?Phase::OutputRecorded:Phase::HipQueued;
+  return true;
  }
 '@
             $content = $content.Replace($targetAnchor, "$clearMethods`r`n $targetAnchor")
         }
 
-        # B.6: NotifyOutputSubmittedIfRecorded failure-safe reset
+        # B.7: NotifyOutputSubmittedIfRecorded failure-safe reset
         $notifyIfAnchor = 'void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer)NotifyOutputSubmitted(consumer);}'
         if ($content.Contains($notifyIfAnchor)) {
             $notifyIfReplacement = 'void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer){if(failed){phase=Phase::Ready;return;}NotifyOutputSubmitted(consumer);}}'
             $content = $content.Replace($notifyIfAnchor, $notifyIfReplacement)
         }
 
-        # B.7: CancelUnsubmitted and CurrentPhase (for older upstream commits if missing)
+        # B.8: CancelUnsubmitted and CurrentPhase (for older upstream commits if missing)
         if ($content -notmatch 'CancelUnsubmitted') {
             if ($content -match 'enum class Phase \{ Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded \};') {
                 $content = $content -replace 'enum class Phase \{ Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded \};',

@@ -5,12 +5,21 @@
  * CRT-allocated objects cross this boundary. x64 stdcall is the Windows default. */
 
 #include <stdint.h>
+#include <stddef.h> /* wchar_t in C hosts */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define LMXXF_NR_ABI_VERSION 1u
+
+/* Optional recovery when HIP enqueue or the session queue contract fails.
+ * On recovery, EnqueueHip returns OK only after the private neural output was fully zeroed;
+ * GetLastError then contains a recovery diagnostic. The caller must submit its
+ * consumer before Retire, Drain, or Destroy. The runtime drains a changed
+ * consumer queue before output reuse or destruction. A failed/uncertain clear
+ * returns FAILED and the session must be rebuilt. */
+#define LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK (1u << 0)
 
 enum LmxxfNrStatus
 {
@@ -52,7 +61,7 @@ typedef struct LmxxfNrCreateInfo
     void *device; /* ID3D12Device*; not dereferenced until HIP is wired */
     void *queue;  /* ID3D12CommandQueue*; must match device when HIP is wired */
     const wchar_t *assets_directory;
-    uint32_t flags; /* must be 0 in ABI v1 */
+    uint32_t flags; /* LMXXF_NR_CREATE_FLAG_*; unknown bits are rejected */
 } LmxxfNrCreateInfo;
 
 #define LMXXF_NR_FRAME_FLAG_STRENGTH          (1u << 0)

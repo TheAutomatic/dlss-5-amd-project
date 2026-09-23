@@ -209,7 +209,7 @@ bool LmxxfBackend::EnsureSession()
     info.device = device;
     info.queue = queue;
     info.assets_directory = modulesW.c_str();
-    info.flags = 0;
+    info.flags = LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK;
     void *ctx = nullptr;
     const int32_t createRc = api->table.Create(&info, &ctx);
     if (createRc != LMXXF_NR_OK || !ctx)

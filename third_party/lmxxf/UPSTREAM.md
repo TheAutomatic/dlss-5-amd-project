@@ -50,20 +50,23 @@ says otherwise.
 
 1. **Queue Drain Completion Verification**: In `WaitForSubmittedWork()`, additionally checks `fence->GetCompletedValue() >= target` after `WaitForSingleObject` returns `WAIT_OBJECT_0`, preventing queue drain race conditions.
 2. **Zero-Residual Fallback Path**:
-   - `ClearOutputAsync()`: clears `output.mapped` via `hipMemsetAsync` and synchronizes the HIP stream, advancing phase to `Phase::OutputRecorded`.
+   - `ClearOutputAsync()`: clears `output.mapped` via `hipMemsetAsync` and synchronizes the HIP stream.
    - `ClearOutputD3D12(targetQueue)`: synchronizes HIP stream first, then stages a zero-clear to `output.resource` on the target queue via a dedicated upload staging buffer (`zero_upload`), fences completion, and waits safely.
-   - `ClearOutput(targetQueue)`: unified entry point trying async HIP clear first, then D3D12 queue clear fallback. Called by `LmxxfNrRuntime.cpp` on error paths to prevent uninitialized GPU buffers from poisoning the game swapchain or FSR pipeline.
+   - `ClearOutput(targetQueue)`: unified entry point for a submitted producer and an unsubmitted consumer. It validates the target queue, clears output, and advances the bridge to the phase appropriate for whether the consumer was already recorded. The caller must drain other queues that previously used the output.
 3. **Clear Resource Lifecycle Management**:
-   - Manages dedicated `zero_upload`, `clear_alloc`, and `clear_cmd` instances inside `D3D12Bridge`.
+   - Creates dedicated `zero_upload`, `clear_alloc`, and `clear_cmd` only on the first D3D12 fallback; normal `Create()` has no clear-only allocations.
    - Releases resources in destructor only after ensuring all in-flight GPU work has completed (`clear_submission_unconfirmed` check and `WaitForSubmittedWork()`).
 4. **Failure State Recovery in Submit Notification**:
    - In `NotifyOutputSubmittedIfRecorded()`, if `failed` is true, safely resets `phase = Phase::Ready` without asserting `QueueContract`, allowing safe teardown or re-initialization.
+5. **Runtime Opt-In and Consumer Queue Lifetime**:
+   - `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK` enables recovery in the C ABI; the default keeps strict enqueue errors.
+   - Queue mismatch recovery drains both the original session queue and the target producer queue before HIP zeroing. The Runtime retains the consumer queue and drains it before frame reuse or destruction.
 
 ## Upstream Contribution & Decoupling Roadmap
 
-1. **Decouple Policy to Runtime Layer**:
-   - Currently, `network`, `output.mapped`, and `network->Stream()` are private within `D3D12Bridge`, necessitating clear fallback methods inside the bridge class itself.
-   - Target upstream PR: propose exposing a minimal bridge query/hook or moving zero-fill / fallback responsibilities cleanly into the outer runtime wrapper (`LmxxfNrRuntime`), keeping `D3D12Bridge` focused purely on D3D12 <-> HIP transport.
+1. **Keep Recovery Policy in Runtime**:
+   - `network`, `output.mapped`, and `network->Stream()` are private within `D3D12Bridge`; its public `ClearOutput` is the minimal safe transport primitive.
+   - The C ABI Runtime decides when to invoke that primitive and owns the cross-queue drain contract. The upstream contribution should include both layers.
 2. **Instance Config Refactor**:
    - Process-global geometry/env -> instance config.
 3. **Proxy Forwarding**:
