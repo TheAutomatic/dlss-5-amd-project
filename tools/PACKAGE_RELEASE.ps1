@@ -350,9 +350,20 @@ $lmxxfShaderSrc = Join-Path $root 'third_party/lmxxf/shaders'
 if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
     $lmxxfShaderDst = Join-Path $stage 'shaders'
     New-Item -ItemType Directory -Path $lmxxfShaderDst -Force | Out-Null
-    # Live glue only: top-level *.hlsl. Do not ship local shader-cache/*.dxbc.
+    # Live glue: top-level *.hlsl plus the precompiled shader-cache/*.dxbc (CI packs only the tracked
+    # blobs). Cache names hash the full source + entry + macros, so a blob for an older shader is
+    # never loaded; current ones spare the first PrepareFrame a compile, and every launch when the
+    # game folder is not writable.
     Get-ChildItem -LiteralPath $lmxxfShaderSrc -Filter '*.hlsl' -File | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfShaderDst $_.Name) -Force
+    }
+    $lmxxfCacheSrc = Join-Path $lmxxfShaderSrc 'shader-cache'
+    if (Test-Path -LiteralPath $lmxxfCacheSrc -PathType Container) {
+        $lmxxfCacheDst = Join-Path $lmxxfShaderDst 'shader-cache'
+        New-Item -ItemType Directory -Path $lmxxfCacheDst -Force | Out-Null
+        Get-ChildItem -LiteralPath $lmxxfCacheSrc -Filter '*.dxbc' -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfCacheDst $_.Name) -Force
+        }
     }
 }
 
