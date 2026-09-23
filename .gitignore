@@ -127,3 +127,7 @@ GIT-REWRITE-STATUS.md
 
 # lmxxf local module build output from sync-lmxxf-upstream.ps1
 third_party/lmxxf/hip/_build_gfx1201/
+
+# local HIP module compiler built from rtc_compile.cpp
+third_party/lmxxf/hip/rtc_compile.exe
+third_party/lmxxf/hip/*.hsaco.s

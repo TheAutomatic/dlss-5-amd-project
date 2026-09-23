@@ -1,146 +1,170 @@
 [
     {
+        "target":  "gfx1201",
         "module":  "c32_prefix_reference",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_reference.hip+prefix_reference.hip",
         "sha256":  "7677F6C8FBE30DC8B65221731CFC80B2C3C1746AC469984E50532F9A8B2BC596"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-reference",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "multihead_reference.hip",
         "sha256":  "5D07D107CA0B9CA747480F712DE7C5B3BF0BF7CBD41C278862D2B745925745D9"
     },
     {
+        "target":  "gfx1201",
         "module":  "deep_reference",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "deep_reference.hip",
         "sha256":  "068E95A68A165486AD90C429BBEBA0035FE27BCA2ADC859DBABC9E14D4A54BB9"
     },
     {
+        "target":  "gfx1201",
         "module":  "boundary_reference",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "boundary_reference.hip",
         "sha256":  "6158F119BF9DB7CDF0ACF37F8B4FB73E5ECEBA9F1FD6B24A84367F7682AECD8B"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_wmma",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_wmma.hip",
         "sha256":  "E9EF0C1D31C1B2F12CDD2C86B5ED87251DF5D2A4F93380F6434B3C9B80039DE3"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-wmma",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "multihead_wmma.hip",
         "sha256":  "F5DE6B6119BABFDFB716613C415E4B900136A48645405C04ADF55456FB210353"
     },
     {
+        "target":  "gfx1201",
         "module":  "deep_wmma",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "deep_wmma.hip",
         "sha256":  "D05DDDEE0672F9D8FF6677AFFFC8A75EFF9C8F2F9CAEEAF7143E61EA52F2CA3F"
     },
     {
+        "target":  "gfx1201",
         "module":  "wave-pointwise",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_reference.hip+wave_pointwise.hip",
         "sha256":  "EAF51807C04267796DC470556EB042391C6A76305374C6CC05F941E27B4F3BC2"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_tiled",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_tiled.hip",
         "sha256":  "78E023640FF2AE96B42C7C1B1221BDA67C5A02550BB5EB4E4ED761B71238B09B"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-tiled",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "multihead_tiled.hip",
         "sha256":  "1B10513F44737DDC047B4D150167D71D9D522E99C94B48D6BA899FB8ED4661A7"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_fast",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_fast.hip",
         "sha256":  "EAF1F57520F847CADEC237F716F1637013FAFBA5EDAD93EBE4011F6BDADE6098"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_fast_attention",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_fast_attention.hip",
         "sha256":  "A8AE4D4BA24E1DA282789EDDA469EE8B46A822CAC68E6E70CC2C1B7A3ED9A70D"
     },
     {
+        "target":  "gfx1201",
         "module":  "boundary-fast",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_fast_attention.hip+boundary_fast.hip",
         "sha256":  "4E3D9D46E5B206A6DB1EAC92D1DD7AD18CEBBCB42819A356FAE9D0ED0A2189EA"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_fused_attention",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_fused_attention_packed.hip",
         "sha256":  "C31D964F641693945E453863C740F6C9016E7EF6F503C7CB5D13D438D879C694"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_fused_ffn_attention",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "c32_fused_ffn_attention.hip",
-        "sha256":  "C6F13C6D20855342BE3951441CC2BA04342FED68DE8CD999C6030D1B574F380C"
+        "sha256":  "E87F581D3E8B4FCF06ACBA4FA368818D1E34DD56E93882AA548BA9866051DF99"
     },
     {
+        "target":  "gfx1201",
         "module":  "c32_fused_ffn_attention-packed",
         "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_C32_DIAG_WEIGHTS 1",
         "sources":  "c32_fused_ffn_attention.hip",
-        "sha256":  "5DF2E13B9C21A29BD3329A51BD8803A88F9BFDE4B8D6D331F650E1D1264E7A21"
+        "sha256":  "4A7C9A4411C6CAE9741352777D50EB41DDB381F40BF2969CFB08C64464FB8D88"
     },
     {
+        "target":  "gfx1201",
         "module":  "prefix_fast",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "prefix_fast.hip",
         "sha256":  "B0486956C61352345E15CD2B0C5685DC650739812318B75AC6FC2FCE42C39267"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-fast",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "multihead_fast.hip",
         "sha256":  "4FB36828167FDC1608D23E9836F921BE68B2B5B7A218722F540CB49C285B7403"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-fast-padded-wave",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "multihead_fast_padded.hip",
-        "sha256":  "BE23A16DD318A66720A39ADB16D898CFE24EC352D2B601FF5411F86476709271"
+        "sha256":  "D02FAC831EE1ABB428037A0D85676042527FD3C65A26AAA2AE731784775B39BA"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead_fused_attention",
         "defines":  "HIP_ISA_HALF 1; HIP_MH_RTZ_ISA 1",
         "sources":  "multihead_fused_attention.hip",
-        "sha256":  "1629E1B17A74F527DEEFEC9911BE2F18EAC401463D9E616153832AC86F452D46"
+        "sha256":  "80F4208B412896AF7A2B5728B9088C7DADF49735739DEB04F8117A4F3850FC1A"
     },
     {
+        "target":  "gfx1201",
         "module":  "deep_fast",
         "defines":  "HIP_ISA_HALF 1",
         "sources":  "deep_fast.hip",
-        "sha256":  "FB630CB90C7E1BAD02EEBCA1E73EAD8C9E7844A0C18E66A1B83BD0DADA640689"
+        "sha256":  "EA2F78987A7F7F4FF6362ADE5592EEF40F8DDF12AA52E8050FD187119BBD32A8"
     },
     {
+        "target":  "gfx1201",
         "module":  "deep_fast-packed",
         "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1",
         "sources":  "deep_fast.hip",
-        "sha256":  "077D99C0C3336727DCD935E89A397474C015B5F521E1901774A214070ADD409B"
+        "sha256":  "CA700A1B9BED80ABB428F778AB4FBA26C777A5088F4F6749AEB85719C8B4F341"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-fast-packed",
         "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1",
         "sources":  "multihead_fast.hip",
         "sha256":  "026C838C6227304640CC6348AC58E400C051A070FF37D6D2EA2CE4FB6231673D"
     },
     {
+        "target":  "gfx1201",
         "module":  "multihead-fast-padded-wave-packed",
         "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2",
         "sources":  "multihead_fast_padded.hip",
-        "sha256":  "9D42EE52977A22D821FE1E43464E8BAC6066A7D19738BB61A3EAF38DA43FAB28"
+        "sha256":  "83ED33A58F623D6B262FD9E68CC187FAEFACDDA61EDA8143BF57FD04D267BFAF"
     }
 ]
