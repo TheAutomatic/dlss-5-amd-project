@@ -382,7 +382,14 @@ bool Config::Reload(std::filesystem::path iniPath)
             AmdGraphicsWait.set_from_config(readInt("DlssNr", "AmdGraphicsWait"));
             NrBackend.set_from_config(readString("DlssNr", "NrBackend", true));
             LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
-            LmxxfFitLarge.set_from_config(readBool("DlssNr", "LmxxfFitLarge"));
+            // true/false only; missing or "auto" => false (do not enable FitLarge by accident).
+            {
+                const auto fitRaw = readString("DlssNr", "LmxxfFitLarge", true);
+                if (!fitRaw.has_value() || fitRaw->empty() || _stricmp(fitRaw->c_str(), "auto") == 0)
+                    LmxxfFitLarge.set_from_config(false);
+                else
+                    LmxxfFitLarge.set_from_config(readBool("DlssNr", "LmxxfFitLarge"));
+            }
             // Runtime reads DLSS5_FIT_LARGE / flags; keep env aligned with ini so QueryCapabilities matches.
             {
                 const bool fit = LmxxfFitLarge.value_or_default();

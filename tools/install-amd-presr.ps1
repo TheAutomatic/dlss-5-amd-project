@@ -944,12 +944,12 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         'RunBeforeSR' = 'true'
         'NrBackend' = $activeBackend
         'LmxxfDiagnostic' = 'off'
-        'LmxxfFitLarge' = 'true'
+        'LmxxfFitLarge' = 'false'
         'AmdModelScale' = '1'
         'AmdEncoding' = '0'
         'AmdEveryFrame' = 'true'
     })
-    Write-Host "Upserted OptiScaler.ini [DlssNr] defaults (Enabled=true, NrBackend=$activeBackend, LmxxfFitLarge=true, ...)" -ForegroundColor Green
+    Write-Host "Upserted OptiScaler.ini [DlssNr] defaults (Enabled=true, NrBackend=$activeBackend, LmxxfFitLarge=false, ...)" -ForegroundColor Green
 }
 
 # Align DLSS5-AMD\native-game-flags.txt with final ini (runtime reads flags/env, not OptiScaler.ini).
