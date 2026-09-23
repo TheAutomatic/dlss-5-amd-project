@@ -664,6 +664,8 @@ if ($found.Count -eq 0) {
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backup = Join-Path $game "backup-amd-presr-$stamp"
+$skipBackup = $false
+$backupCreated = $false
 $toMove = @()
 # Files the user chose to keep. The install step must not overwrite these.
 $keep = @{}
@@ -684,20 +686,37 @@ foreach ($f in $found) {
         continue
     }
     if ($f.IsOptiScaler) {
-        if ($NonInteractive) { $toMove += $f; continue }
+        if ($NonInteractive) {
+            if ($isTarget) {
+                $toMove += $f
+            } else {
+                $keep[$f.Name] = $true
+            }
+            continue
+        }
         $choice = Ask-Choice ("{0} is already an OptiScaler install. How to continue?" -f $f.Name) @(
             'Cancel install'
-            'Backup and move aside, then install'
-            'Ignore (overwrite only if it is the chosen proxy; leave others)'
+            'Backup existing files, then install (keep other proxies untouched)'
+            'Direct overwrite (no backup folder, clean install)'
         )
         switch ($choice) {
             1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
-            2 { $toMove += $f }
-            3 {
-                if ($isTarget) { $toMove += $f }
-                else {
+            2 {
+                $skipBackup = $false
+                if ($isTarget) {
+                    $toMove += $f
+                } else {
                     $keep[$f.Name] = $true
-                    Write-Host ("Leaving {0}." -f $f.Name)
+                    Write-Host ("Leaving other proxy {0} in place." -f $f.Name)
+                }
+            }
+            3 {
+                $skipBackup = $true
+                if ($isTarget) {
+                    # Direct overwrite: do not move or backup; Install-One overwrites directly
+                } else {
+                    $keep[$f.Name] = $true
+                    Write-Host ("Leaving other proxy {0} in place." -f $f.Name)
                 }
             }
         }
@@ -729,13 +748,26 @@ foreach ($f in $found) {
     }
 }
 
-# New-Item has no -LiteralPath on Windows PowerShell 5.1; paths may contain [].
-# [IO.Directory]::CreateDirectory treats the string as a literal path.
-[void][System.IO.Directory]::CreateDirectory($backup)
+# Only create the backup folder if backup is not skipped
+if (-not $skipBackup) {
+    [void][System.IO.Directory]::CreateDirectory($backup)
+    $backupCreated = $true
+}
+
 foreach ($f in $toMove) {
-    Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
-    Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
-    Write-Host ("Moved {0} -> backup" -f $f.Name)
+    if (-not $skipBackup) {
+        if (-not (Test-Path -LiteralPath $backup)) {
+            [void][System.IO.Directory]::CreateDirectory($backup)
+            $backupCreated = $true
+        }
+        Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
+        Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
+        Write-Host ("Moved {0} -> backup" -f $f.Name)
+    } else {
+        # Direct overwrite mode: if an author native version.dll cannot coexist, delete it safely
+        Remove-Item -LiteralPath $f.Path -Force
+        Write-Host ("Removed conflicting {0} (direct overwrite mode)" -f $f.Name)
+    }
 }
 
 function Install-One([string]$src, [string]$rel) {
@@ -766,10 +798,13 @@ function Install-One([string]$src, [string]$rel) {
             if ($isWeight) {
                 return
             }
-            $save = Join-Path $backup $rel
-            $sdir = Split-Path -Parent $save
-            if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
-            Copy-Item -LiteralPath $dest -Destination $save -Force
+            if (-not $skipBackup) {
+                $save = Join-Path $backup $rel
+                $sdir = Split-Path -Parent $save
+                if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
+                Copy-Item -LiteralPath $dest -Destination $save -Force
+                $backupCreated = $true
+            }
         }
         $ddir = Split-Path -Parent $dest
         if ($ddir) { [void][System.IO.Directory]::CreateDirectory($ddir) }
@@ -1010,7 +1045,11 @@ Write-Host ''
 Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:           $game"
 Write-Host "  Proxy:          $Proxy"
-Write-Host "  Backup:         $backup"
+if (-not $skipBackup -and (Test-Path -LiteralPath $backup)) {
+    Write-Host "  Backup:         $backup"
+} else {
+    Write-Host '  Backup:         (none - direct overwrite)'
+}
 Write-Host "  Active Backend: $activeBackend" -ForegroundColor Cyan
 if ($installDaniel -and $installLmxxf) {
     Write-Host "  Installed:      Both backends (lmxxf + danielblnc) coexisting" -ForegroundColor Green
