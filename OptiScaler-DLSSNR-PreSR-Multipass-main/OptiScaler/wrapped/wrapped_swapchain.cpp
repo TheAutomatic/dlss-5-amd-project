@@ -463,7 +463,8 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
         if (queue)
             queue->Release();
         DlssNr::Submission::Hooks::SetProxyWrap(ready);
-        LOG_INFO("lmxxf ProxyWrap after swapchain {}: {} (submission hook must be ready)", _id, ready);
+        LOG_INFO("lmxxf ProxyWrap after swapchain {}: {} (early game lists wrapped: {})", _id, ready,
+                 DlssNr::Submission::Hooks::g_earlyWrappedLists.load(std::memory_order_relaxed));
     }
 }
 

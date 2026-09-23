@@ -305,7 +305,7 @@ When reporting issues, please include:
 5. Relevant `.log` files listed above.
 
 ### 4. Known Issues
-- **Palworld (UE5 / Unreal Engine 5)**: When running with the `lmxxf` backend, Palworld currently falls back to original color output without neural reconstruction due to Unreal Engine's command list split barriers (`same-frame split ineligible`). This is a known issue under active investigation and will be addressed in an upcoming update specifically targeting UE5 command list recording patterns.
+- **UE5 (Palworld, Neverness to Everness, and others)**: Older builds rejected every query and left game command lists created before the first swapchain unwrapped, causing the `lmxxf` backend to return original color. The current source permits completed queries and wraps lists created by the game executable earlier. D3D12 tests pass; neural rendering and image stability still need validation in the games.
 
 ---
 

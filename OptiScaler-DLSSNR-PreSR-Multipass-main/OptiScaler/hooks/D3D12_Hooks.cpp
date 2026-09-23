@@ -6,6 +6,7 @@
 #include <dlssnr/backend/Selector.h>
 #include <dlssnr/backend/LmxxfGenerationObserver.h>
 #include <dlssnr/backend/LmxxfColorProbe.h>
+#include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/submission/SubmissionHooks.h>
 
 #include <Util.h>
@@ -3003,7 +3004,22 @@ static void HookToDevice(ID3D12Device* InDevice)
             if (FAILED(armHr))
                 LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
             else
+            {
                 LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
+                if (State::Instance().gameEngine == GameEngineType::Unreal)
+                {
+                    D3D12_COMMAND_QUEUE_DESC queueDesc {};
+                    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+                    ID3D12CommandQueue *earlyQueue = nullptr;
+                    const bool created = SUCCEEDED(InDevice->CreateCommandQueue(
+                        &queueDesc, IID_PPV_ARGS(&earlyQueue)));
+                    const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
+                    if (earlyQueue)
+                        earlyQueue->Release();
+                    DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
+                    LOG_INFO("lmxxf Unreal early executable proxy: {} (submission hook ready={})", ready, ready);
+                }
+            }
         }
     }
 

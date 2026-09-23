@@ -2,6 +2,7 @@
 #include "LogicalList.h"
 #include "ContinuationState.h"
 #include "ResourceStateBook.h"
+#include "QueryStateBook.h"
 #include <atomic>
 
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
@@ -36,6 +37,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     LogicalList logical;
     ContinuationState contState;
     ResourceStateBook resBook;
+    QueryStateBook queryBook;
     bool splitIneligible = false;
     std::atomic<bool> rawInterfaceEscaped { false }; // Lifetime-wide; an alias can outlive Reset.
     const char *splitIneligibleReason = nullptr;
@@ -204,6 +206,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             return hr;
         contState.Reset();
         resBook.Reset();
+        queryBook.Reset();
         splitIneligible = false;
         splitIneligibleReason = nullptr;
         if (initial)
@@ -239,7 +242,8 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     bool STDMETHODCALLTYPE IsSplitIneligible() override
     {
-        return rawInterfaceEscaped || splitIneligible || logical.WasSplit() || !resBook.CanSplit(nullptr);
+        return rawInterfaceEscaped || splitIneligible || logical.WasSplit() || !queryBook.CanSplit() ||
+               !resBook.CanSplit(nullptr);
     }
     ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList() override
     {
@@ -250,6 +254,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         if (rawInterfaceEscaped) return "native_interface_escaped";
         if (logical.WasSplit()) return "already_split";
         if (splitIneligibleReason) return splitIneligibleReason;
+        if (!queryBook.CanSplit()) return "open_query";
         const char *reason = nullptr;
         resBook.CanSplit(&reason);
         return reason ? reason : "eligible";
@@ -529,20 +534,21 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE BeginQuery(ID3D12QueryHeap *h, D3D12_QUERY_TYPE t, UINT i) override
     {
-        MarkSplitIneligible("query");
+        if (!queryBook.Begin(h, t, i))
+            MarkSplitIneligible("query_invalid_scope");
         if (auto *c = Cur())
             c->BeginQuery(h, t, i);
     }
     void STDMETHODCALLTYPE EndQuery(ID3D12QueryHeap *h, D3D12_QUERY_TYPE t, UINT i) override
     {
-        MarkSplitIneligible("query");
+        if (!queryBook.End(h, t, i))
+            MarkSplitIneligible("query_invalid_scope");
         if (auto *c = Cur())
             c->EndQuery(h, t, i);
     }
     void STDMETHODCALLTYPE ResolveQueryData(ID3D12QueryHeap *h, D3D12_QUERY_TYPE t, UINT s, UINT n, ID3D12Resource *d,
                                             UINT64 o) override
     {
-        MarkSplitIneligible("query");
         if (auto *c = Cur())
             c->ResolveQueryData(h, t, s, n, d, o);
     }

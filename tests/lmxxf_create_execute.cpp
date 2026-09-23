@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#define LOG_WARN(...) ((void)0)
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SubmissionHooks.h"
 #include <cstdio>
 #include <cstdint>
@@ -227,13 +228,25 @@ int main()
 
     Check(DlssNr::Submission::Hooks::Arm(device, queue), "arm hooks");
     Require(DlssNr::Submission::Hooks::IsArmed(), "armed");
-    DlssNr::Submission::Hooks::SetProxyWrap(true);
     DlssNr::Submission::Hooks::SetWrapOpenLists(true);
 
     BetweenCounter counter;
     DlssNr::Submission::Hooks::SetBetween(BetweenHit, &counter);
 
+    Require(DlssNr::Submission::Hooks::IsHostExecutableCaller(reinterpret_cast<void *>(&main)),
+            "host executable recognized");
+    Require(!DlssNr::Submission::Hooks::IsHostExecutableCaller(
+                reinterpret_cast<void *>(GetProcAddress(GetModuleHandleW(L"d3d12.dll"), "D3D12CreateDevice"))),
+            "system module excluded from early wrap");
+    DlssNr::Submission::Hooks::SetEarlyExeWrap(true);
+    const auto early = RunHookedSplit(device, queue, false, false);
+    Require(counter.hits == 0, "early unsplit list has no between call");
+    Require(DlssNr::Submission::Hooks::g_earlyWrappedLists.load() > 0, "early list wrap counted");
+    DlssNr::Submission::Hooks::SetEarlyExeWrap(false);
+    DlssNr::Submission::Hooks::SetProxyWrap(true);
+
     const auto unsplit = RunHookedSplit(device, queue, false, false);
+    Require(early == unsplit, "early wrapped list matches late wrapped list");
     Require(counter.hits == 0, "no between without split");
 
     const auto split = RunHookedSplit(device, queue, true, false);
