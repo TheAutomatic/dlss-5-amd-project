@@ -102,8 +102,9 @@ int main()
     Check(list->Close(), "close continuation");
 
     ID3D12CommandList *batch[] = {list};
+    const auto between = DlssNr::Submission::Hooks::GetBetween();
     DlssNr::Submission::Hooks::ExecuteExpanded(
-        queue, 1, batch, DlssNr::Submission::Hooks::g_between, DlssNr::Submission::Hooks::g_betweenCtx,
+        queue, 1, batch, between.fn, between.ctx,
         [](ID3D12CommandQueue *q, UINT n, ID3D12CommandList *const *c) { q->ExecuteCommandLists(n, c); });
     Require(pending.betweenHits.load() == 1, "between after List1 wrap");
 

@@ -117,8 +117,8 @@ int main()
 
     // A split unrelated list can execute and be reported Submitted first.
     ID3D12CommandList *otherBatch[] = {otherList};
-    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, otherBatch, DlssNr::Submission::Hooks::g_between,
-                                               DlssNr::Submission::Hooks::g_betweenCtx,
+    const auto between = DlssNr::Submission::Hooks::GetBetween();
+    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, otherBatch, between.fn, between.ctx,
                                                [](ID3D12CommandQueue *q, UINT n, ID3D12CommandList *const *c) {
                                                    q->ExecuteCommandLists(n, c);
                                                });
@@ -129,8 +129,7 @@ int main()
     // Record a trivial clear on continuation side after split
     list->Close();
     ID3D12CommandList *batch[] = {list};
-    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, batch, DlssNr::Submission::Hooks::g_between,
-                                               DlssNr::Submission::Hooks::g_betweenCtx,
+    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, batch, between.fn, between.ctx,
                                                [](ID3D12CommandQueue *q, UINT n, ID3D12CommandList *const *c) {
                                                    q->ExecuteCommandLists(n, c);
                                                });

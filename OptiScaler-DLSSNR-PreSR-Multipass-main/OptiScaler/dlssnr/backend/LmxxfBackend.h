@@ -28,6 +28,7 @@ class LmxxfBackend final : public Host
         void *job = nullptr;
         ID3D12CommandList *cmd = nullptr;
     };
+    mutable std::mutex recordMutex; // The runtime session has one active job.
     mutable std::mutex jobMutex;
     PendingJobInfo pendingJobInfo;
     LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;

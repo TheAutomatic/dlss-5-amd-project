@@ -35,11 +35,19 @@ Modules: `lmxxf-modules` beside the DLL (or `LMXXF_MODULES_DIR`). Weights: `LMXX
 
 `LmxxfBackend::Record`: PrepareFrame → **require** `ILogicalCommandList` proxy → RecordInputs → Split → RecordOutputs → `SetPendingEnqueue(EnqueueHip)`.
 Non-proxy / Split fail → `CancelUnsubmitted`, return **nullptr** (ordinary SR). No Record-time EnqueueHip.
-`Pending()` is a process-wide singleton (one NR session for v1).
+The runtime owns one job per session. If another Evaluate arrives before the previous
+game list is submitted, Record returns the original Color for that Evaluate and
+keeps the earlier job intact. Cancelling the earlier job after its output has
+already been handed to SR would invalidate the recorded continuation.
+`Pending()` is a process-wide singleton because the product has one active NR
+backend. Its slot is keyed by the logical list supplied to the between callback;
+submitting other game or FG lists does not consume it. Multiple simultaneous NR
+backends would require a per-backend or per-session registry.
 
 ## Product Execute
 
 When `ExpandEnabled()`, `AmdBridge::ExecuteBatch` always `ExecuteExpanded` (QI proxy → `ExecuteOnWithBetween`).
+`ExecuteExpanded` forwards the current logical list as an explicit callback argument.
 `PendingListIndex` stays **-1** (Daniel-only batch isolation); lmxxf intentionally does not use it.
 
 ## Admission / continuation (plans C–D)

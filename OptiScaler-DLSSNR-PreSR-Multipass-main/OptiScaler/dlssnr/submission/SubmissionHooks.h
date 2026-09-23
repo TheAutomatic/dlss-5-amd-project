@@ -12,7 +12,14 @@
 // ExecuteCommandLists so the Detours path matches the game.
 namespace DlssNr::Submission::Hooks
 {
-using BetweenFn = BetweenCallback;
+// The public submission callback receives the logical game list explicitly.
+// LogicalList's lower-level callback remains queue/context only.
+using BetweenFn = void (*)(ID3D12CommandQueue *, ID3D12CommandList *, void *);
+struct BetweenState
+{
+    BetweenFn fn = nullptr;
+    void *ctx = nullptr;
+};
 
 inline std::mutex g_mu;
 inline std::atomic<bool> g_armed { false };
@@ -28,8 +35,6 @@ inline std::atomic<bool> g_wrapOpenLists { false };
 inline std::mutex g_executeMu;
 inline BetweenFn g_between = nullptr;
 inline void *g_betweenCtx = nullptr;
-// The between callback runs inside ExecuteExpanded for one logical game list.
-inline thread_local ID3D12CommandList *g_executingLogicalList = nullptr;
 
 using PFN_CreateCommandList = HRESULT(WINAPI *)(ID3D12Device *, UINT, D3D12_COMMAND_LIST_TYPE,
                                                 ID3D12CommandAllocator *, ID3D12PipelineState *, REFIID, void **);
@@ -68,6 +73,12 @@ inline void SetBetween(BetweenFn fn, void *ctx)
     std::lock_guard<std::mutex> lock(g_mu);
     g_between = fn;
     g_betweenCtx = ctx;
+}
+
+inline BetweenState GetBetween()
+{
+    std::lock_guard<std::mutex> lock(g_mu);
+    return { g_between, g_betweenCtx };
 }
 
 // Wrap a newly created DIRECT list as CommandListProxy. Non-DIRECT: pass through.
@@ -199,10 +210,18 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
         else
         {
             flush();
-            auto *previousList = g_executingLogicalList;
-            g_executingLogicalList = lists[i];
-            const HRESULT hr = logical->ExecuteOnWithBetween(queue, between, betweenCtx);
-            g_executingLogicalList = previousList;
+            struct Invocation
+            {
+                BetweenFn fn;
+                ID3D12CommandList *list;
+                void *ctx;
+            } invocation { between, lists[i], betweenCtx };
+            const auto invoke = [](ID3D12CommandQueue *q, void *ctx) {
+                auto *call = static_cast<Invocation *>(ctx);
+                call->fn(q, call->list, call->ctx);
+            };
+            const HRESULT hr = logical->ExecuteOnWithBetween(queue, between ? invoke : nullptr,
+                                                               between ? &invocation : nullptr);
             if (FAILED(hr))
                 g_submissionFailures.fetch_add(1, std::memory_order_relaxed);
         }
@@ -218,14 +237,8 @@ inline void WINAPI hkExecuteCommandLists(ID3D12CommandQueue *queue, UINT num, ID
         o_ExecuteCommandLists(queue, num, lists);
         return;
     }
-    BetweenFn between = nullptr;
-    void *ctx = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_mu);
-        between = g_between;
-        ctx = g_betweenCtx;
-    }
-    ExecuteExpanded(queue, num, lists, between, ctx, o_ExecuteCommandLists);
+    const auto between = GetBetween();
+    ExecuteExpanded(queue, num, lists, between.fn, between.ctx, o_ExecuteCommandLists);
 }
 
 inline HRESULT Arm(ID3D12Device *device, ID3D12CommandQueue *queue)

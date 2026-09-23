@@ -264,18 +264,22 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
-    {
-        std::lock_guard lock(jobMutex);
-        if (session && pendingJobInfo.job && api && api->table.CancelUnsubmitted)
-        {
-            api->table.CancelUnsubmitted(session, pendingJobInfo.job);
-        }
-        pendingJobInfo = {};
-    }
-    LmxxfCut::ClearPendingEnqueue();
+    std::lock_guard recordLock(recordMutex);
     if (!cmd || !frame.colour)
     {
         SetStatus("lmxxf: Record missing cmd/colour");
+        return nullptr;
+    }
+    bool previousPending = false;
+    {
+        std::lock_guard lock(jobMutex);
+        previousPending = pendingJobInfo.job != nullptr;
+    }
+    if (previousPending)
+    {
+        // The previous Evaluate already returned its output to SR. Cancelling its
+        // job here would leave that recorded continuation consuming invalid data.
+        SetStatus("lmxxf: previous frame not submitted (original Color; NO NR)");
         return nullptr;
     }
     // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,

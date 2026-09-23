@@ -4,6 +4,7 @@
 #include "../submission/SubmissionHooks.h"
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 
 // Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
 // Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
@@ -17,10 +18,11 @@ constexpr int32_t kEnqueueSkipped = static_cast<int32_t>(0x534B4950); // 'SKIP'
 
 struct PendingHip
 {
+    std::mutex mutex;
     void *session = nullptr;
     void *job = nullptr;
     EnqueueHipFn enqueueHip = nullptr;
-    std::atomic<ID3D12CommandList *> targetList { nullptr };
+    ID3D12CommandList *targetList = nullptr; // Identity only; the backend owns the pending job.
     std::atomic<int> betweenHits { 0 };
     std::atomic<int> enqueueCalls { 0 };
     std::atomic<int> skippedHits { 0 };
@@ -38,43 +40,58 @@ inline PendingHip &Pending()
 inline void ClearPendingEnqueue()
 {
     auto &p = Pending();
+    std::lock_guard lock(p.mutex);
     p.session = nullptr;
     p.job = nullptr;
     p.enqueueHip = nullptr;
+    p.targetList = nullptr;
 }
 
 inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const *lists)
 {
-    auto *target = Pending().targetList.load(std::memory_order_acquire);
-    if (!target || !lists)
+    if (!lists)
         return;
+    auto &p = Pending();
+    std::lock_guard lock(p.mutex);
     for (UINT i = 0; i < count; ++i)
     {
-        if (lists[i] == target)
+        if (p.targetList && lists[i] == p.targetList)
         {
-            ClearPendingEnqueue();
+            p.session = nullptr;
+            p.job = nullptr;
+            p.enqueueHip = nullptr;
+            p.targetList = nullptr;
             return;
         }
     }
 }
 
-inline void BetweenThunk(ID3D12CommandQueue *queue, void * /*ctx*/)
+inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, void * /*ctx*/)
 {
     auto &p = Pending();
-    if (p.targetList.load(std::memory_order_acquire) !=
-        DlssNr::Submission::Hooks::g_executingLogicalList)
-        return;
-    if (!(p.enqueueHip && p.session && p.job))
+    void *session;
+    void *job;
+    EnqueueHipFn fn;
     {
-        p.skippedHits.fetch_add(1, std::memory_order_relaxed);
-        p.lastEnqueueRc.store(kEnqueueSkipped, std::memory_order_relaxed);
-        return;
+        std::lock_guard lock(p.mutex);
+        if (!p.targetList || p.targetList != list)
+            return;
+        if (!(p.enqueueHip && p.session && p.job))
+        {
+            p.skippedHits.fetch_add(1, std::memory_order_relaxed);
+            p.lastEnqueueRc.store(kEnqueueSkipped, std::memory_order_relaxed);
+            p.targetList = nullptr;
+            return;
+        }
+        // Consume before call so a nested submission cannot enqueue twice.
+        session = p.session;
+        job = p.job;
+        fn = p.enqueueHip;
+        p.session = nullptr;
+        p.job = nullptr;
+        p.enqueueHip = nullptr;
+        p.targetList = nullptr;
     }
-    auto *const session = p.session;
-    auto *const job = p.job;
-    const EnqueueHipFn fn = p.enqueueHip;
-    // Consume before call so a nested Submitted cannot double-fire the same job.
-    ClearPendingEnqueue();
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
     p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
     p.lastEnqueueRc.store(fn(session, job, queue), std::memory_order_relaxed);
@@ -97,10 +114,11 @@ inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip,
                              ID3D12CommandList *targetList)
 {
     auto &p = Pending();
+    std::lock_guard lock(p.mutex);
     p.session = session;
     p.job = job;
     p.enqueueHip = enqueueHip;
-    p.targetList.store(targetList, std::memory_order_release);
+    p.targetList = targetList;
 }
 
 inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }
@@ -109,7 +127,6 @@ inline void DisarmBetweenSlot()
 {
     DlssNr::Submission::Hooks::SetBetween(nullptr, nullptr);
     ClearPendingEnqueue();
-    Pending().targetList.store(nullptr, std::memory_order_release);
 }
 
 // Product Evaluate/Before hook. Split + SetPendingEnqueue live in LmxxfBackend::Record
