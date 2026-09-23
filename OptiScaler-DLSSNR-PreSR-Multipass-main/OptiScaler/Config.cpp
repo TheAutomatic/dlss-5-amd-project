@@ -382,6 +382,12 @@ bool Config::Reload(std::filesystem::path iniPath)
             AmdGraphicsWait.set_from_config(readInt("DlssNr", "AmdGraphicsWait"));
             NrBackend.set_from_config(readString("DlssNr", "NrBackend", true));
             LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
+            LmxxfFitLarge.set_from_config(readBool("DlssNr", "LmxxfFitLarge"));
+            // Runtime reads DLSS5_FIT_LARGE / flags; keep env aligned with ini so QueryCapabilities matches.
+            {
+                const bool fit = LmxxfFitLarge.value_or_default();
+                _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+            }
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));
@@ -1356,6 +1362,7 @@ bool Config::SaveIni()
         ini.SetValue("DlssNr", "NrBackend", nrBackend->c_str());
     if (auto diagnostic = Instance()->LmxxfDiagnostic.value_for_config(); diagnostic.has_value())
         ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
+    ini.SetValue("DlssNr", "LmxxfFitLarge", GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdGraphicsUnsafe", GetIntValue(Instance()->AmdGraphicsUnsafe.value_for_config()).c_str());
     ini.SetValue("AmdRtgi", "Enabled", GetBoolValue(Instance()->AmdRtgiEnabled.value_for_config()).c_str());
     ini.SetValue("AmdRtgi", "Quality", GetIntValue(Instance()->AmdRtgiQuality.value_for_config()).c_str());

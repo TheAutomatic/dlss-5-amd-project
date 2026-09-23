@@ -51,7 +51,14 @@ int main(int argc, char **argv)
     LmxxfNrCapabilities caps {};
     caps.struct_size = sizeof(caps);
     Require(api.QueryCapabilities(&caps) == LMXXF_NR_OK, "QueryCapabilities");
-    Require(caps.max_input_width == 1920 && caps.max_input_height == 1080, "max input");
+    {
+        const char *fit = std::getenv("DLSS5_FIT_LARGE");
+        const bool fitLarge = fit && fit[0] == '1' && !fit[1];
+        if (fitLarge)
+            Require(caps.max_input_width == 16384 && caps.max_input_height == 16384, "max input fit-large");
+        else
+            Require(caps.max_input_width == 1920 && caps.max_input_height == 1080, "max input");
+    }
     Require(caps.history_supported == 0 && caps.overlap_supported == 0, "history/overlap off");
     Require(caps.graph_supported == 0, "graph off");
     Require(caps.hip_ready == 0, "HIP not wired");

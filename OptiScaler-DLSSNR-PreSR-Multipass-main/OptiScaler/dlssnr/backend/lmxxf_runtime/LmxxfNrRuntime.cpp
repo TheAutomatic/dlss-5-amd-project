@@ -113,15 +113,19 @@ bool TryReadFitLargeFromFlagsFile(const std::wstring &path, bool *outValue)
 // Codec Supported() uses NativeFitLargeInput(); QueryCapabilities must match.
 void EnsureFitLargeApplied()
 {
-    static bool once = false;
-    if (once)
+    // Latch only after env or flags resolve. If neither is present yet, retry on later
+    // Create/PrepareFrame so a late-written native-game-flags.txt still applies.
+    static bool resolved = false;
+    if (resolved)
         return;
-    once = true;
 
     if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
     {
         if (e[0] == '1' && !e[1])
             NativeFitLargeInputOverride() = true;
+        else
+            NativeFitLargeInputOverride() = false;
+        resolved = true;
         return;
     }
 
@@ -156,12 +160,16 @@ void EnsureFitLargeApplied()
                 NativeFitLargeInputOverride() = true;
                 _putenv("DLSS5_FIT_LARGE=1");
             }
+            else
+            {
+                NativeFitLargeInputOverride() = false;
+                _putenv("DLSS5_FIT_LARGE=0");
+            }
+            resolved = true;
             return;
         }
     }
 }
-
-
 
 std::wstring FindShaderDir(const std::wstring &assets = {})
 {
