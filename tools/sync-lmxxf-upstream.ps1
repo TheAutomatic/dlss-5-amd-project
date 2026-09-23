@@ -3,26 +3,28 @@
   Synchronize vendored lmxxf source closure from an upstream clone without git cherry-pick.
 
 .DESCRIPTION
-  Copies the pinned subset of headers, shaders, hip sources, and (by default) prebuilt
-  gfx1201 .hsaco modules from the upstream repository (by default:
-  ..\dlss5-on-amd-9070xt-porting) into third_party\lmxxf\, verifies/applies local
-  compatibility patches, and updates UPSTREAM.md with the commit hash.
-  By default, Development\HIP\hip_d3d12_bridge.h is preserved (pinned & patched) to protect
-  local queue drain checks and zero-residual fallback implementations.
-  Pass -UpdateBridge to explicitly overwrite and re-patch hip_d3d12_bridge.h.
-  If hip recipes change but shipping modules do not, or copied modules disagree with
-  hip/SHA256SUMS gfx1201 entries, the script fails closed unless -AllowStaleModules is set.
+  Copies the pinned subset of headers, shaders, and hip *sources* from the upstream
+  git tree (by default: ..\dlss5-on-amd-9070xt-porting) into third_party\lmxxf\,
+  verifies/applies local compatibility patches, and updates UPSTREAM.md with the commit hash.
+  Upstream does not publish .hsaco on git (release/ is ignored); shipping modules are built
+  locally with hip/build-modules.ps1 (default) or supplied via -ModulesPath.
+  By default, Development\HIP\hip_d3d12_bridge.h is preserved (pinned & patched).
+  Pass -UpdateBridge to overwrite and re-patch it. Fails closed when hip recipes change but
+  modules do not, or modules disagree with hip/SHA256SUMS gfx1201, unless -AllowStaleModules.
 
 .PARAMETER UpstreamPath
   Path to the cloned upstream repository. Default: '..\dlss5-on-amd-9070xt-porting'.
 
 .PARAMETER SkipModules
-  If set, do not update third_party\lmxxf\modules\ from upstream prebuilt output.
+  If set, do not refresh third_party\lmxxf\modules\.
   Refused when hip recipes changed unless -AllowStaleModules is also set.
 
 .PARAMETER ModulesPath
-  Optional explicit directory of flat gfx1201 .hsaco files (plus optional SHA256SUMS).
-  When omitted, searches upstream modules/, release/**/HIP/gfx1201, then hip/gfx1201.
+  Optional directory of flat gfx1201 .hsaco (already built). Upstream git never ships these;
+  use this when you built elsewhere or unpacked a non-git author package.
+
+.PARAMETER NoBuildModules
+  Do not run hip/build-modules.ps1. Requires -ModulesPath (or -SkipModules).
 
 .PARAMETER AllowStaleModules
   Permit finishing when hip recipes changed but modules were skipped/unchanged, or when
@@ -37,15 +39,16 @@
 
 .EXAMPLE
   .\tools\sync-lmxxf-upstream.ps1
-  .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge
+  .\tools\sync-lmxxf-upstream.ps1 -ModulesPath 'D:\built\gfx1201'
   .\tools\sync-lmxxf-upstream.ps1 -SkipModules -AllowStaleModules
-  .\tools\sync-lmxxf-upstream.ps1 -UpstreamPath 'D:\repos\dlss5-on-amd-9070xt-porting'
+  .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge
 #>
 [CmdletBinding()]
 param(
     [string]$UpstreamPath = '..\dlss5-on-amd-9070xt-porting',
     [switch]$SkipModules,
     [string]$ModulesPath = '',
+    [switch]$NoBuildModules,
     [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
     [switch]$SkipBuild
@@ -97,32 +100,46 @@ function Get-TreeFingerprint([string]$dir, [string[]]$filters) {
     }
 }
 
-function Resolve-UpstreamModulesDir([string]$upstreamRoot, [string]$override) {
-    if ($override) {
-        if (-not (Test-Path -LiteralPath $override -PathType Container)) {
-            throw ("ModulesPath not found: " + $override)
+function Resolve-ModulesPath([string]$override) {
+    # Upstream git never publishes .hsaco (release/ is gitignored). Only an explicit path counts.
+    if (-not $override) { return $null }
+    if (-not (Test-Path -LiteralPath $override -PathType Container)) {
+        throw ("ModulesPath not found: " + $override)
+    }
+    return (Resolve-Path -LiteralPath $override).Path
+}
+
+function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
+    $buildPs1 = Join-Path $hipDir 'build-modules.ps1'
+    if (-not (Test-Path -LiteralPath $buildPs1 -PathType Leaf)) {
+        throw ("Missing " + $buildPs1 + "; cannot build shipping .hsaco")
+    }
+    $compiler = Join-Path $hipDir 'rtc_compile.exe'
+    if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+        $rtcCpp = Join-Path $hipDir 'rtc_compile.cpp'
+        if (-not (Test-Path -LiteralPath $rtcCpp -PathType Leaf)) {
+            throw ("Missing rtc_compile.exe / rtc_compile.cpp under " + $hipDir)
         }
-        return (Resolve-Path -LiteralPath $override).Path
-    }
-    $direct = Join-Path $upstreamRoot 'modules'
-    if ((Test-Path -LiteralPath $direct -PathType Container) -and
-        @(Get-ChildItem -LiteralPath $direct -Filter '*.hsaco' -File -ErrorAction SilentlyContinue).Count -gt 0) {
-        return $direct
-    }
-    $releaseRoot = Join-Path $upstreamRoot 'release'
-    if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
-        $candidates = @(Get-ChildItem -LiteralPath $releaseRoot -Recurse -Directory -Filter 'gfx1201' -ErrorAction SilentlyContinue |
-            Where-Object { @(Get-ChildItem -LiteralPath $_.FullName -Filter '*.hsaco' -File -ErrorAction SilentlyContinue).Count -gt 0 })
-        if ($candidates.Count -gt 0) {
-            return ($candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+        Write-Host "  Building rtc_compile.exe from rtc_compile.cpp..." -ForegroundColor Cyan
+        & cl.exe /nologo /O2 /EHsc /Fe:$compiler $rtcCpp
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw "Failed to build rtc_compile.exe (need MSVC cl in PATH)"
         }
     }
-    $hipGfx = Join-Path $upstreamRoot 'hip\gfx1201'
-    if ((Test-Path -LiteralPath $hipGfx -PathType Container) -and
-        @(Get-ChildItem -LiteralPath $hipGfx -Filter '*.hsaco' -File -ErrorAction SilentlyContinue).Count -gt 0) {
-        return $hipGfx
+    if (Test-Path -LiteralPath $outDir) {
+        Remove-Item -LiteralPath $outDir -Recurse -Force
     }
-    return $null
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    Write-Host ("  Building gfx1201 modules via build-modules.ps1 -> " + $outDir) -ForegroundColor Cyan
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildPs1 -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets gfx1201
+    if ($LASTEXITCODE -ne 0) {
+        throw ("build-modules.ps1 failed with ExitCode " + $LASTEXITCODE)
+    }
+    $built = @(Get-ChildItem -LiteralPath $outDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+    if ($built.Count -lt 1) {
+        throw ("build-modules.ps1 produced no .hsaco under " + $outDir)
+    }
+    return $outDir
 }
 
 function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [switch]$allowStale) {
@@ -245,23 +262,21 @@ if ($LASTEXITCODE -ne 0 -or -not $commitResult) {
 $commitHash = $commitResult.Trim()
 Write-Host "Upstream HEAD commit: $commitHash" -ForegroundColor Green
 
-# 1b. Resolve modules source early (fail before mutating the vendor tree)
+# 1b. Decide how shipping modules will be refreshed (upstream git has no .hsaco)
 $script:ResolvedModulesSrc = $null
 if (-not $SkipModules) {
-    $script:ResolvedModulesSrc = Resolve-UpstreamModulesDir -upstreamRoot $upstream.Path -override $ModulesPath
-    if (-not $script:ResolvedModulesSrc) {
-        throw @"
-Could not locate upstream gfx1201 .hsaco modules.
-Pass -ModulesPath to a flat hsaco directory, place modules under upstream\modules,
-ship release/**/HIP/gfx1201, or build into upstream\hip\gfx1201.
-Use -SkipModules -AllowStaleModules only for header-only syncs.
-"@
+    $script:ResolvedModulesSrc = Resolve-ModulesPath -override $ModulesPath
+    if ($script:ResolvedModulesSrc) {
+        $probe = @(Get-ChildItem -LiteralPath $script:ResolvedModulesSrc -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+        if ($probe.Count -lt 1) {
+            throw ('No .hsaco files found in ModulesPath: ' + $script:ResolvedModulesSrc)
+        }
+        Write-Host ('  ModulesPath: ' + $script:ResolvedModulesSrc + ' (' + $probe.Count + ' .hsaco)') -ForegroundColor Cyan
+    } elseif ($NoBuildModules) {
+        throw 'No ModulesPath and -NoBuildModules set. Pass -ModulesPath, omit -NoBuildModules to build, or use -SkipModules -AllowStaleModules.'
+    } else {
+        Write-Host '  Modules: will build gfx1201 locally after hip recipes sync (upstream git has no release hsaco).' -ForegroundColor Cyan
     }
-    $probe = @(Get-ChildItem -LiteralPath $script:ResolvedModulesSrc -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
-    if ($probe.Count -lt 1) {
-        throw ('No .hsaco files found in modules source: ' + $script:ResolvedModulesSrc)
-    }
-    Write-Host ('  Modules source: ' + $script:ResolvedModulesSrc + ' (' + $probe.Count + ' .hsaco)') -ForegroundColor Cyan
 }
 
 # 2. Synchronize selected headers
@@ -318,11 +333,16 @@ if (Test-Path $hipDir) {
     Write-Host "  Synchronized hip recipes"
 }
 
-# 4b. Synchronize prebuilt gfx1201 modules (shipping .hsaco)
+# 4b. Refresh shipping gfx1201 modules (build locally or -ModulesPath; never from upstream git release/)
 if ($SkipModules) {
     Write-Host "  Skipped modules sync (-SkipModules)" -ForegroundColor Yellow
 } else {
-    Sync-LmxxfModules -srcDir $script:ResolvedModulesSrc -dstDir $dstModules -commitHash $commitHash
+    $modulesSrc = $script:ResolvedModulesSrc
+    if (-not $modulesSrc) {
+        $buildOut = Join-Path $dstHip '_build_gfx1201'
+        $modulesSrc = Invoke-BuildGfx1201Modules -hipDir $dstHip -outDir $buildOut
+    }
+    Sync-LmxxfModules -srcDir $modulesSrc -dstDir $dstModules -commitHash $commitHash
     Assert-ModulesMatchHipSums -modulesDir $dstModules -hipSums (Join-Path $dstHip 'SHA256SUMS') -allowStale:$AllowStaleModules
 }
 

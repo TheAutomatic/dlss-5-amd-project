@@ -72,6 +72,20 @@ Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not**
 
 Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Prefer rebuilding with `hip/build-modules.ps1` when upstream recipes advance past the last published release package.
 
+## Shipping modules (`.hsaco`)
+
+Upstream **does not** publish `.hsaco` on git (`/release/` is gitignored; no GitHub release assets for modules).
+Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not** rebuild HIP kernels.
+
+`tools/sync-lmxxf-upstream.ps1` therefore:
+
+- syncs hip *sources* + `SHA256SUMS` from upstream git;
+- by default runs `hip/build-modules.ps1 -Targets gfx1201` into a local build dir, then copies into `third_party/lmxxf/modules`;
+- or accepts an explicit `-ModulesPath` to already-built flat gfx1201 `.hsaco`;
+- **fails closed** if hip recipes change but modules do not, or modules disagree with `hip/SHA256SUMS` `gfx1201/` entries.
+
+Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Use `-NoBuildModules` with `-ModulesPath` when modules were built offline.
+
 ## Upstream Contribution & Decoupling Roadmap
 
 1. **Keep Recovery Policy in Runtime**:
