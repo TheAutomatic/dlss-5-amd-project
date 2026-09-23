@@ -33,6 +33,10 @@ std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
     return directory;
 }
 
+// Each zero-output recovery blocks the game's submission thread on a GPU drain or clear.
+// Past this many in a row, HIP is not coming back for this session.
+constexpr uint32_t kMaxConsecutiveRecoveries = 10;
+
 } // namespace
 
 void LmxxfBackend::SetStatus(const char *s)
@@ -62,6 +66,9 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
     if (queue)
         queue->AddRef();
     api = new Api();
+    // Pending() is process-wide; count only recoveries that happen under this backend.
+    seenRecoveries = LmxxfCut::Pending().recoveredEnqueues.load(std::memory_order_relaxed);
+    seenEnqueueCalls = static_cast<uint64_t>(LmxxfCut::Pending().enqueueCalls.load(std::memory_order_relaxed));
     diagnostic = LmxxfProbe::ParseMode(Config::Instance()->LmxxfDiagnostic.value_or_default());
     LOG_INFO("lmxxf diagnostic: mode={} (restart to change; off/original/copy-current/staging-current/staging-previous/proxy-original/split-original)",
              Config::Instance()->LmxxfDiagnostic.value_or_default());
@@ -120,6 +127,14 @@ bool LmxxfBackend::EnsureSession()
 {
     if (sessionReady && session)
         return true;
+    if (recoveryDisabled)
+        return false;
+    // A failed Create/PrepareSession retries with backoff, not (with its logs) on every frame.
+    if (sessionRetryIn > 0)
+    {
+        --sessionRetryIn;
+        return false;
+    }
     if (!EnsureRuntime() || !device || !queue)
         return false;
 
@@ -216,7 +231,21 @@ bool LmxxfBackend::EnsureSession()
     info.assets_directory = modulesW.c_str();
     info.flags = LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK;
     void *ctx = nullptr;
-    const int32_t createRc = api->table.Create(&info, &ctx);
+    int32_t createRc = api->table.Create(&info, &ctx);
+    if (createRc == LMXXF_NR_INVALID_ARGUMENT && !ctx)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        // Runtimes that predate the recovery flag accept only flags == 0.
+        if (std::strstr(err, "flags"))
+        {
+            LOG_WARN("lmxxf: runtime rejected Create flags ({}); older LmxxfNrRuntime.dll? continuing without zero-output recovery",
+                     err);
+            info.flags = 0;
+            createRc = api->table.Create(&info, &ctx);
+        }
+    }
     if (createRc != LMXXF_NR_OK || !ctx)
     {
         char err[256] {};
@@ -224,6 +253,7 @@ bool LmxxfBackend::EnsureSession()
             api->table.GetLastError(err, sizeof err);
         LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
         SetStatus("lmxxf: Create failed");
+        NoteSessionFailure();
         return false;
     }
     if (api->table.GetStatus)
@@ -241,12 +271,57 @@ bool LmxxfBackend::EnsureSession()
         LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
         api->table.Destroy(ctx);
         SetStatus("lmxxf: PrepareSession failed");
+        NoteSessionFailure();
         return false;
     }
     session = ctx;
     sessionReady = true;
+    sessionFailures = 0;
     SetStatus("lmxxf: session ready");
     return true;
+}
+
+void LmxxfBackend::NoteSessionFailure()
+{
+    // 2, 4, 8 ... Record calls, capped near 10 s at 60 fps.
+    ++sessionFailures;
+    sessionRetryIn = std::min<uint32_t>(600u, 1u << std::min<uint32_t>(sessionFailures, 10u));
+}
+
+// EnqueueHip returns OK after a zero-output recovery, so the frame showed original Color
+// without an error code. Log it, and turn NR off for this session when recoveries repeat.
+bool LmxxfBackend::NoteEnqueueRecoveries()
+{
+    if (recoveryDisabled)
+        return false;
+    auto &p = LmxxfCut::Pending();
+    const uint64_t calls = static_cast<uint64_t>(p.enqueueCalls.load(std::memory_order_relaxed));
+    const uint64_t recovered = p.recoveredEnqueues.load(std::memory_order_relaxed);
+    if (recovered != seenRecoveries)
+    {
+        consecutiveRecoveries += static_cast<uint32_t>(recovered - seenRecoveries);
+        if (recovered <= 5 || recovered % 100 == 0)
+            LOG_WARN("lmxxf nr recovered: {} (consecutive {}, total {})",
+                     LmxxfCut::LastEnqueueDiagnostic().error.data(), consecutiveRecoveries, recovered);
+    }
+    else if (calls != seenEnqueueCalls)
+    {
+        consecutiveRecoveries = 0;
+    }
+    seenRecoveries = recovered;
+    seenEnqueueCalls = calls;
+    if (consecutiveRecoveries < kMaxConsecutiveRecoveries)
+        return true;
+    LOG_ERROR("lmxxf: {} zero-output recoveries in a row; NR off for this session (original Color). Last: {}",
+              consecutiveRecoveries, LmxxfCut::LastEnqueueDiagnostic().error.data());
+    recoveryDisabled = true;
+    // Each recovery completed its clear, so the session is not poisoned; free its VRAM.
+    if (session && api && api->table.Destroy)
+        api->table.Destroy(session);
+    session = nullptr;
+    sessionReady = false;
+    SetStatus("lmxxf: HIP enqueue keeps failing; NR off (original Color)");
+    return false;
 }
 
 
@@ -339,6 +414,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         }
         return nullptr;
     }
+    if (!NoteEnqueueRecoveries())
+        return nullptr;
     if (!EnsureSession())
         return nullptr;
 

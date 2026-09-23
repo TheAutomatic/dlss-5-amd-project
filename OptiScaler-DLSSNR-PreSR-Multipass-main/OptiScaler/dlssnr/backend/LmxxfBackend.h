@@ -39,11 +39,21 @@ class LmxxfBackend final : public Host
     uint64_t boundaryProxyHits = 0;
     uint64_t boundaryCuts = 0;
     uint64_t boundaryRejects = 0;
+    // Zero-output recoveries reported through the between slot (EnqueueHip OK + diagnostic).
+    uint64_t seenRecoveries = 0;
+    uint64_t seenEnqueueCalls = 0;
+    uint32_t consecutiveRecoveries = 0;
+    bool recoveryDisabled = false;
+    // Record calls to skip before retrying a failed Create/PrepareSession.
+    uint32_t sessionFailures = 0;
+    uint32_t sessionRetryIn = 0;
     ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &);
 
     bool EnsureRuntime();
     ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput);
     bool EnsureSession();
+    void NoteSessionFailure();
+    bool NoteEnqueueRecoveries();
     void SetStatus(const char *s);
 
   public:

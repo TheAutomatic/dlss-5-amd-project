@@ -34,6 +34,8 @@ struct PendingHip
     std::atomic<int> enqueueCalls { 0 };
     std::atomic<int> skippedHits { 0 };
     std::atomic<int32_t> lastEnqueueRc { 0 };
+    // EnqueueHip returned OK with a diagnostic: the runtime zeroed its output (original Color).
+    std::atomic<uint64_t> recoveredEnqueues { 0 };
 };
 
 inline PendingHip &Pending()
@@ -136,6 +138,9 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
     if (getLastError)
         getLastError(error.data(), static_cast<uint32_t>(error.size()));
     error.back() = 0;
+    // A normal enqueue clears the runtime error; OK plus a message is a zero-output recovery.
+    if (rc == 0 && error[0] != 0)
+        p.recoveredEnqueues.fetch_add(1, std::memory_order_relaxed);
     {
         std::lock_guard lock(p.mutex);
         if (!match)
