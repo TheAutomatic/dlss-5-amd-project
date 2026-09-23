@@ -30,11 +30,15 @@ static void Check(HRESULT hr, const char *what)
 
 int main(int argc, char **argv)
 {
-    if (argc < 3)
+    if (argc < 3 || argc > 4 ||
+        (argc == 4 && std::strcmp(argv[3], "--queue-mismatch") != 0 &&
+         std::strcmp(argv[3], "--resize") != 0))
     {
-        std::fprintf(stderr, "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <modules_dir>\n");
+        std::fprintf(stderr, "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> [--queue-mismatch|--resize]\n");
         return 2;
     }
+    const bool queueMismatch = argc == 4 && std::strcmp(argv[3], "--queue-mismatch") == 0;
+    const bool resize = argc == 4 && std::strcmp(argv[3], "--resize") == 0;
 
     HMODULE dll = LoadLibraryW(Widen(argv[1]).c_str());
     Require(dll != nullptr, "LoadLibraryW");
@@ -70,6 +74,10 @@ int main(int argc, char **argv)
     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     ID3D12CommandQueue *queue = nullptr;
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)), "queue");
+    ID3D12CommandQueue *queue2 = nullptr;
+    if (queueMismatch)
+        Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue2)), "second queue");
+    ID3D12CommandQueue *submitQueue = queueMismatch ? queue2 : queue;
     ID3D12CommandAllocator *alloc = nullptr;
     ID3D12CommandAllocator *outAlloc = nullptr;
     Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "allocator");
@@ -97,6 +105,7 @@ int main(int argc, char **argv)
     info.device = device;
     info.queue = queue;
     info.assets_directory = modules.c_str();
+    info.flags = queueMismatch ? LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK : 0;
     void *ctx = nullptr;
     Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create");
     const int32_t prep = api.PrepareSession(ctx);
@@ -128,18 +137,20 @@ int main(int argc, char **argv)
     Require(api.RecordInputs(ctx, job.handle, list) == LMXXF_NR_OK, "RecordInputs");
     Check(list->Close(), "close producer");
     ID3D12CommandList *lists[] = {list};
-    queue->ExecuteCommandLists(1, lists);
-    const int32_t hip = api.EnqueueHip(ctx, job.handle, queue);
+    submitQueue->ExecuteCommandLists(1, lists);
+    const int32_t hip = api.EnqueueHip(ctx, job.handle, submitQueue);
     char err[256] {};
     api.GetLastError(err, sizeof err);
     std::printf("EnqueueHip rc=%d last_error=%s\n", hip, err);
-    Require(hip == LMXXF_NR_OK || hip == LMXXF_NR_UNAVAILABLE, "EnqueueHip wired (OK or missing weights)");
+    Require(queueMismatch ? (hip == LMXXF_NR_OK && std::strstr(err, "output zeroed"))
+                          : (hip == LMXXF_NR_OK || hip == LMXXF_NR_UNAVAILABLE),
+            "EnqueueHip result");
 
     // EnqueueHip only schedules GPU work; wait before Reset of the same allocator.
     {
         ID3D12Fence *fence = nullptr;
         Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "fence");
-        Check(queue->Signal(fence, 1), "signal");
+        Check(submitQueue->Signal(fence, 1), "signal");
         HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         Require(ev != nullptr, "event");
         Check(fence->SetEventOnCompletion(1, ev), "set event");
@@ -155,21 +166,55 @@ int main(int argc, char **argv)
     if (outs == LMXXF_NR_OK)
     {
         Check(list->Close(), "close outputs");
-        queue->ExecuteCommandLists(1, lists);
+        submitQueue->ExecuteCommandLists(1, lists);
         Check(api.Retire(ctx, job.handle) == LMXXF_NR_OK, "Retire");
     }
 
+    if (queueMismatch)
+        Require(outs == LMXXF_NR_OK, "RecordOutputs after zero fallback");
+
+    ID3D12Resource *resizedColor = nullptr;
+    if (resize)
+    {
+        td.Width = 1600;
+        td.Height = 900;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
+                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr, IID_PPV_ARGS(&resizedColor)), "resized color");
+        frame.color_width = 1600;
+        frame.color_height = 900;
+        frame.color = resizedColor;
+        LmxxfNrJob resizedJob {};
+        resizedJob.struct_size = sizeof(resizedJob);
+        const int32_t resizeRc = api.PrepareFrame(ctx, &frame, &resizedJob);
+        if (resizeRc != LMXXF_NR_OK)
+        {
+            char resizeErr[256] {};
+            api.GetLastError(resizeErr, sizeof resizeErr);
+            std::fprintf(stderr, "resized PrepareFrame rc=%d err=%s\n", resizeRc, resizeErr);
+        }
+        Require(resizeRc == LMXXF_NR_OK && resizedJob.private_output != nullptr,
+                "resized PrepareFrame after default-path teardown");
+        Require(api.CancelUnsubmitted(ctx, resizedJob.handle) == LMXXF_NR_OK,
+                "cancel unsubmitted resized frame");
+    }
+
     Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy");
+    if (resizedColor)
+        resizedColor->Release();
     color->Release();
     list->Release();
     if (outAlloc)
         outAlloc->Release();
     alloc->Release();
+    if (queue2)
+        queue2->Release();
     queue->Release();
     device->Release();
     if (adapter)
         adapter->Release();
     FreeLibrary(dll);
-    std::printf("lmxxf_nr_gpu: ok\n");
+    std::printf("lmxxf_nr_gpu: ok%s\n", queueMismatch ? " (queue mismatch fallback)" :
+                                         resize ? " (default-path resize teardown)" : "");
     return 0;
 }
