@@ -8,6 +8,10 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
+> [!WARNING]
+> **Release Status Notice:**  
+> In real-world testing of Unreal Engine 5 titles (such as *Palworld* and *Neverness to Everness*), an urgent split admission issue was identified (command list Query barriers triggering split ineligibility, fallback to original color, and excessive log flooding). The **v1.9.0.x Release package has been temporarily retracted** while an emergency fix and split admission optimization are underway. An updated release will be published as soon as verification is complete. Thank you for your patience!
+
 ---
 
 ## Table of Contents

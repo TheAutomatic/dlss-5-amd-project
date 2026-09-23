@@ -8,6 +8,10 @@
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
+> [!WARNING]
+> **发版状态说明（Release Status Notice）：**  
+> 团队在对虚幻引擎 5（UE5，如《幻兽帕鲁》、《异环》等）的实机测试中发现了紧急准入问题（命令列表 Query 切分准入导致画面回退并伴随高频日志刷写）。目前已**临时撤回 1.9.0.x Release 安装包**，正在进行紧急修复与准入优化，待完成全面验证后将重新发版，敬请留意！
+
 ---
 
 ## 目录
