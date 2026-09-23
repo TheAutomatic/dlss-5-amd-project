@@ -11,7 +11,7 @@
   Upstream does not publish .hsaco on git (release/ is ignored); shipping modules are built
   locally with hip/build-modules.ps1 (default) or supplied via -ModulesPath.
   By default, Development\HIP\hip_d3d12_bridge.h is preserved (pinned & patched).
-  Pass -UpdateBridge to overwrite and re-patch it. Fails closed when hip recipes change but
+  Pass -UpdateBridge to overwrite and re-patch it (every patch anchor fail-closed; pinned bridge is marker-checked each sync). Fails closed when hip recipes change but
   modules do not, or modules disagree with hip/SHA256SUMS gfx1201, unless -AllowStaleModules.
 
 .PARAMETER UpstreamPath
@@ -88,6 +88,39 @@ Write-Host "Syncing from upstream: $upstream (ref: $UpstreamRef)" -ForegroundCol
 # Temp extract of UpstreamRef (git archive). Cleared in finally; never checks out the clone.
 $script:UpstreamArchiveRoot = $null
 $script:UpstreamTree = $null
+
+
+function Assert-TextContains([string]$haystack, [string]$needle, [string]$what) {
+    if ([string]::IsNullOrEmpty($needle) -or -not $haystack.Contains($needle)) {
+        throw ("Patch failed: missing required marker/anchor: " + $what)
+    }
+}
+
+function Assert-BridgeLocalMarkers([string]$bridgePath, [string]$context) {
+    if (-not (Test-Path -LiteralPath $bridgePath -PathType Leaf)) {
+        throw ("Bridge header missing ($context): " + $bridgePath)
+    }
+    $c = Get-Content -LiteralPath $bridgePath -Raw
+    $required = @(
+        @{ Needle = 'zero_upload'; What = 'zero_upload member (ClearOutput resources)' },
+        @{ Needle = 'clear_submission_unconfirmed'; What = 'clear_submission_unconfirmed fail-closed flag' },
+        @{ Needle = 'GetCompletedValue()<target'; What = 'WaitForSubmittedWork completed-value check' },
+        @{ Needle = 'EnsureZeroClearResources'; What = 'EnsureZeroClearResources()' },
+        @{ Needle = 'ClearOutputAsync'; What = 'ClearOutputAsync()' },
+        @{ Needle = 'bool ClearOutput('; What = 'ClearOutput(queue)' },
+        @{ Needle = 'CancelUnsubmitted'; What = 'CancelUnsubmitted()' },
+        @{ Needle = 'CurrentPhase'; What = 'CurrentPhase()' }
+    )
+    foreach ($r in $required) {
+        if ($c -notmatch [regex]::Escape($r.Needle) -and -not $c.Contains($r.Needle)) {
+            throw ("Bridge local markers incomplete ($context): missing '" + $r.What + "'. Pass -UpdateBridge to re-apply patches from a matching upstream ref, or restore the pinned header.")
+        }
+        if (-not $c.Contains($r.Needle)) {
+            throw ("Bridge local markers incomplete ($context): missing '" + $r.What + "'. Pass -UpdateBridge to re-apply patches from a matching upstream ref, or restore the pinned header.")
+        }
+    }
+}
+
 
 function Get-FileSha256Hex([string]$path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -464,13 +497,20 @@ if ($SkipModules) {
 # 5. Check and apply local patches
 # Patch A: #include <algorithm> in hip_reference_network.h
 $refNet = Join-Path $vendorRoot 'Development\HIP\hip_reference_network.h'
-if (Test-Path $refNet) {
-    $content = Get-Content -LiteralPath $refNet -Raw
-    if ($content -notmatch '#include\s*<algorithm>') {
-        $content = $content -replace '(#include\s*<vector>)', "`$1`r`n#include <algorithm>"
-        [IO.File]::WriteAllText($refNet, $content, [Text.UTF8Encoding]::new($false))
-        Write-Host "  Applied patch: #include <algorithm> in hip_reference_network.h" -ForegroundColor Yellow
+if (-not (Test-Path -LiteralPath $refNet -PathType Leaf)) {
+    throw "Patch A failed: missing hip_reference_network.h"
+}
+$content = Get-Content -LiteralPath $refNet -Raw
+if ($content -notmatch '#include\s*<algorithm>') {
+    if ($content -notmatch '#include\s*<vector>') {
+        throw "Patch A failed: cannot find #include <vector> anchor in hip_reference_network.h"
     }
+    $content = $content -replace '(#include\s*<vector>)', "`$1`r`n#include <algorithm>"
+    if ($content -notmatch '#include\s*<algorithm>') {
+        throw "Patch A failed: #include <algorithm> still missing after replace"
+    }
+    [IO.File]::WriteAllText($refNet, $content, [Text.UTF8Encoding]::new($false))
+    Write-Host "  Applied patch: #include <algorithm> in hip_reference_network.h" -ForegroundColor Yellow
 }
 
 # Patch B: hip_d3d12_bridge.h (ClearOutput, WaitForSubmittedWork completion check, zero upload, and CancelUnsubmitted)
@@ -478,6 +518,7 @@ $bridgeH = Join-Path $vendorRoot 'Development\HIP\hip_d3d12_bridge.h'
 if (Test-Path $bridgeH) {
     if (-not $UpdateBridge) {
         Write-Host "  Preserved Patch B: hip_d3d12_bridge.h is pinned (pass -UpdateBridge to re-patch)" -ForegroundColor DarkYellow
+        Assert-BridgeLocalMarkers -bridgePath $bridgeH -context 'pinned bridge (no -UpdateBridge)'
     } else {
         $content = Get-Content -LiteralPath $bridgeH -Raw
 
@@ -509,9 +550,13 @@ if (Test-Path $bridgeH) {
         }
 
         # B.3: Retain GPU-live resources after an unconfirmed clear submission
-        $phaseAnchor = 'if(phase!=Phase::Ready)return false;'
-        if ($content.Contains($phaseAnchor)) {
+        if ($content -notlike '*phase!=Phase::Ready||clear_submission_unconfirmed*') {
+            $phaseAnchor = 'if(phase!=Phase::Ready)return false;'
+            if (-not $content.Contains($phaseAnchor)) {
+                throw "Patch B failed: cannot find Ready-phase gate anchor in hip_d3d12_bridge.h (B.3)"
+            }
             $content = $content.Replace($phaseAnchor, 'if(phase!=Phase::Ready||clear_submission_unconfirmed)return false;')
+            Assert-TextContains $content 'phase!=Phase::Ready||clear_submission_unconfirmed' 'B.3 phase gate after replace'
         }
 
         # B.4: Destructor cleanup of clear resources
@@ -664,10 +709,15 @@ private:
         }
 
         # B.7: NotifyOutputSubmittedIfRecorded failure-safe reset
+        $notifyIfPatched = 'void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer){if(failed){phase=Phase::Ready;return;}NotifyOutputSubmitted(consumer);}}'
         $notifyIfAnchor = 'void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer)NotifyOutputSubmitted(consumer);}'
-        if ($content.Contains($notifyIfAnchor)) {
-            $notifyIfReplacement = 'void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer){if(failed){phase=Phase::Ready;return;}NotifyOutputSubmitted(consumer);}}'
-            $content = $content.Replace($notifyIfAnchor, $notifyIfReplacement)
+        if ($content.Contains($notifyIfPatched)) {
+            # already fail-closed
+        } elseif ($content.Contains($notifyIfAnchor)) {
+            $content = $content.Replace($notifyIfAnchor, $notifyIfPatched)
+            Assert-TextContains $content 'if(failed){phase=Phase::Ready;return;}' 'B.7 NotifyOutputSubmittedIfRecorded after replace'
+        } else {
+            throw "Patch B failed: cannot find NotifyOutputSubmittedIfRecorded anchor in hip_d3d12_bridge.h (B.7)"
         }
 
         # B.8: CancelUnsubmitted and CurrentPhase (for older upstream commits if missing)
@@ -678,25 +728,36 @@ private:
             }
             if ($content -notmatch 'void CancelUnsubmitted') {
                 $marker = 'void NotifyOutputSubmitted(ID3D12CommandQueue*consumer){Require(Phase::OutputRecorded);QueueContract(consumer);phase=Phase::Ready;}'
+                if (-not $content.Contains($marker)) {
+                    throw "Patch B failed: cannot find NotifyOutputSubmitted one-liner anchor for CancelUnsubmitted (B.8)"
+                }
                 $replacement = "$marker`r`n void NotifyOutputSubmittedIfRecorded(ID3D12CommandQueue*consumer){if(phase==Phase::OutputRecorded&&consumer){if(failed){phase=Phase::Ready;return;}NotifyOutputSubmitted(consumer);}}`r`n void CancelUnsubmitted(){if(phase==Phase::InputRecorded||phase==Phase::OutputRecordedPendingHip){phase=Phase::Ready;readable=false;}}"
                 $content = $content.Replace($marker, $replacement)
+            }
+            if ($content -notmatch 'CancelUnsubmitted') {
+                throw "Patch B failed: CancelUnsubmitted still missing after B.8 (upstream shape changed; regenerate bridge patches)"
             }
         }
 
         [IO.File]::WriteAllText($bridgeH, $content, [Text.UTF8Encoding]::new($false))
-        Write-Host "  Applied patch: local extensions to hip_d3d12_bridge.h" -ForegroundColor Yellow
+        Assert-BridgeLocalMarkers -bridgePath $bridgeH -context '-UpdateBridge post-patch'
+        Write-Host "  Applied patch: local extensions to hip_d3d12_bridge.h (markers verified)" -ForegroundColor Yellow
     }
 }
 
 # Patch C: remove unused native_split.h from native_rgb_reflect.h
 $reflectH = Join-Path $vendorRoot 'src\native_rgb_reflect.h'
-if (Test-Path $reflectH) {
-    $content = Get-Content -LiteralPath $reflectH -Raw
+if (-not (Test-Path -LiteralPath $reflectH -PathType Leaf)) {
+    throw "Patch C failed: missing native_rgb_reflect.h"
+}
+$content = Get-Content -LiteralPath $reflectH -Raw
+if ($content -match '#include\s*"native_split\.h"') {
+    $content = $content -replace '#include\s*"native_split\.h"\r?\n?', ''
     if ($content -match '#include\s*"native_split\.h"') {
-        $content = $content -replace '#include\s*"native_split\.h"\r?\n?', ''
-        [IO.File]::WriteAllText($reflectH, $content, [Text.UTF8Encoding]::new($false))
-        Write-Host "  Applied patch: removed native_split.h in native_rgb_reflect.h" -ForegroundColor Yellow
+        throw "Patch C failed: native_split.h include still present after replace"
     }
+    [IO.File]::WriteAllText($reflectH, $content, [Text.UTF8Encoding]::new($false))
+    Write-Host "  Applied patch: removed native_split.h in native_rgb_reflect.h" -ForegroundColor Yellow
 }
 
 # 6. Update UPSTREAM.md with new commit and timestamp
