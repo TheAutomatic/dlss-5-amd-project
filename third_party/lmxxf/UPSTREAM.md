@@ -9,6 +9,11 @@ This is a **vendored source closure**, not a git submodule and not the `analysis
 Files are copied byte-for-byte from that commit unless a later commit in this tree
 says otherwise.
 
+`tools/sync-lmxxf-upstream.ps1` pins sync to `-UpstreamRef` (default `origin/main`) via
+`git archive` into a temp tree — the upstream working-tree branch cannot poison the copy.
+Pass `-SkipUpstreamFetch` / `-AllowOfflineUpstream` when fetch is unavailable. Live
+`shaders/*.hlsl` are mirror-cleaned to the top-level glue set only (`dx12-network/` is not vendored).
+
 ## Included
 
 | Path | Why |

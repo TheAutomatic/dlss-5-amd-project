@@ -1,11 +1,13 @@
-<#
+﻿<#
 .SYNOPSIS
   Synchronize vendored lmxxf source closure from an upstream clone without git cherry-pick.
 
 .DESCRIPTION
   Copies the pinned subset of headers, shaders, and hip *sources* from the upstream
-  git tree (by default: ..\dlss5-on-amd-9070xt-porting) into third_party\lmxxf\,
+  git ref (default -UpstreamRef origin/main; extracted via git archive so the working
+  tree branch cannot poison the copy) into third_party\lmxxf\,
   verifies/applies local compatibility patches, and updates UPSTREAM.md with the commit hash.
+  Live shaders/ are mirror-cleaned to top-level *.hlsl only (retired dx12-network is not vendored).
   Upstream does not publish .hsaco on git (release/ is ignored); shipping modules are built
   locally with hip/build-modules.ps1 (default) or supplied via -ModulesPath.
   By default, Development\HIP\hip_d3d12_bridge.h is preserved (pinned & patched).
@@ -14,6 +16,17 @@
 
 .PARAMETER UpstreamPath
   Path to the cloned upstream repository. Default: '..\dlss5-on-amd-9070xt-porting'.
+
+.PARAMETER UpstreamRef
+  Git ref inside the upstream clone to sync from (default: origin/main).
+  File contents are taken via `git archive` of this ref into a temp tree, so a dirty or
+  wrong-branch working tree cannot poison the vendor copy.
+
+.PARAMETER SkipUpstreamFetch
+  Skip `git fetch` before resolving UpstreamRef (use when already fetched / offline SHA).
+
+.PARAMETER AllowOfflineUpstream
+  If fetch fails (proxy/network), warn and continue with the local UpstreamRef instead of failing.
 
 .PARAMETER SkipModules
   If set, do not refresh third_party\lmxxf\modules\.
@@ -39,13 +52,19 @@
 
 .EXAMPLE
   .\tools\sync-lmxxf-upstream.ps1
+  .\tools\sync-lmxxf-upstream.ps1 -UpstreamRef origin/main
+  .\tools\sync-lmxxf-upstream.ps1 -UpstreamRef 7ef24e7c1498bce59738277e174249866608c4ed -SkipUpstreamFetch
   .\tools\sync-lmxxf-upstream.ps1 -ModulesPath 'D:\built\gfx1201'
   .\tools\sync-lmxxf-upstream.ps1 -SkipModules -AllowStaleModules
   .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge
+  .\tools\sync-lmxxf-upstream.ps1 -AllowOfflineUpstream
 #>
 [CmdletBinding()]
 param(
     [string]$UpstreamPath = '..\dlss5-on-amd-9070xt-porting',
+    [string]$UpstreamRef = 'origin/main',
+    [switch]$SkipUpstreamFetch,
+    [switch]$AllowOfflineUpstream,
     [switch]$SkipModules,
     [string]$ModulesPath = '',
     [switch]$NoBuildModules,
@@ -64,7 +83,11 @@ if (-not $upstream -or -not (Test-Path $upstream)) {
     throw "Upstream repository not found at '$UpstreamPath'. Please clone or specify -UpstreamPath."
 }
 
-Write-Host "Syncing from upstream: $upstream" -ForegroundColor Cyan
+Write-Host "Syncing from upstream: $upstream (ref: $UpstreamRef)" -ForegroundColor Cyan
+
+# Temp extract of UpstreamRef (git archive). Cleared in finally; never checks out the clone.
+$script:UpstreamArchiveRoot = $null
+$script:UpstreamTree = $null
 
 function Get-FileSha256Hex([string]$path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -253,14 +276,85 @@ $dstModules = Join-Path $vendorRoot 'modules'
 $hipFpBefore = Get-TreeFingerprint $dstHip @('*.hip', 'SHA256SUMS')
 $modulesFpBefore = Get-TreeFingerprint $dstModules @('*.hsaco', 'SHA256SUMS')
 
-# 1. Query git commit of upstream
+try {
+# 1. Resolve UpstreamRef (fail-closed) and extract via git archive (never checks out the clone)
 $upstreamGitPath = $upstream.Path.Replace('\', '/')
-$commitResult = & git -c "safe.directory=$upstreamGitPath" -C $upstream.Path rev-parse HEAD 2>$null
+$gitSafe = @('-c', "safe.directory=$upstreamGitPath")
+
+if (-not $SkipUpstreamFetch) {
+    $fetchRemote = 'origin'
+    if ($UpstreamRef -match '^([^/]+)/.+') {
+        $fetchRemote = $Matches[1]
+    }
+    Write-Host ("Fetching {0} (for {1})..." -f $fetchRemote, $UpstreamRef) -ForegroundColor Cyan
+    & git @gitSafe -C $upstream.Path fetch $fetchRemote 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        $fetchMsg = "git fetch $fetchRemote failed (proxy/network?). Pass -AllowOfflineUpstream to use local ref '$UpstreamRef', or -SkipUpstreamFetch if you already fetched."
+        if ($AllowOfflineUpstream) {
+            Write-Warning $fetchMsg
+        } else {
+            throw $fetchMsg
+        }
+    }
+} else {
+    Write-Host '  Skipped upstream fetch (-SkipUpstreamFetch)' -ForegroundColor DarkYellow
+}
+
+$commitResult = & git @gitSafe -C $upstream.Path rev-parse "$UpstreamRef^{commit}" 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $commitResult) {
-    throw "Could not read the upstream git commit; refusing to record an unpinned vendor snapshot."
+    throw "Could not resolve upstream ref '$UpstreamRef'; refusing to record an unpinned vendor snapshot."
 }
 $commitHash = $commitResult.Trim()
-Write-Host "Upstream HEAD commit: $commitHash" -ForegroundColor Green
+
+$headResult = & git @gitSafe -C $upstream.Path rev-parse HEAD 2>$null
+$headHash = if ($LASTEXITCODE -eq 0 -and $headResult) { $headResult.Trim() } else { '(unknown)' }
+$headBranch = (& git @gitSafe -C $upstream.Path branch --show-current 2>$null)
+if (-not $headBranch) { $headBranch = '(detached)' }
+if ($headHash -ne $commitHash) {
+    Write-Host ("  Upstream worktree HEAD is {0} ({1}); syncing pinned ref {2} ({3}) via git archive (worktree not checked out)." -f $headBranch, $headHash, $UpstreamRef, $commitHash) -ForegroundColor DarkYellow
+} else {
+    Write-Host ("Upstream ref {0} => {1}" -f $UpstreamRef, $commitHash) -ForegroundColor Green
+}
+
+$script:UpstreamArchiveRoot = Join-Path ([IO.Path]::GetTempPath()) ('lmxxf-sync-' + [guid]::NewGuid().ToString('N'))
+$script:UpstreamTree = Join-Path $script:UpstreamArchiveRoot 'tree'
+New-Item -ItemType Directory -Force -Path $script:UpstreamTree | Out-Null
+$archiveTar = Join-Path $script:UpstreamArchiveRoot 'upstream.tar'
+$archivePaths = @(
+    'Development/HIP/hip_api.h',
+    'Development/HIP/hip_d3d12_bridge.h',
+    'Development/HIP/hip_device_properties.h',
+    'Development/HIP/hip_reference_network.h',
+    'Development/HIP/packed_weights.h',
+    'src/native_device_identity.h',
+    'src/native_game_codec.h',
+    'src/native_game_rgb_input.h',
+    'src/native_hip_network.h',
+    'src/native_input_geometry.h',
+    'src/native_lab_paths.h',
+    'src/native_network_geometry.h',
+    'src/native_pinned_resource.h',
+    'src/native_pso.h',
+    'src/native_rgb_reflect.h',
+    'src/native_rgb_texture.h',
+    'src/native_shader_cache.h',
+    'shaders',
+    'hip'
+)
+& git @gitSafe -C $upstream.Path archive --format=tar -o $archiveTar $commitHash -- @archivePaths
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archiveTar)) {
+    throw "git archive of '$UpstreamRef' ($commitHash) failed; cannot sync."
+}
+Push-Location $script:UpstreamTree
+try {
+    & tar -xf $archiveTar
+    if ($LASTEXITCODE -ne 0) {
+        throw "tar extract of upstream archive failed (exit $LASTEXITCODE)."
+    }
+} finally {
+    Pop-Location
+}
+Write-Host ("  Extracted pinned tree to temp ({0})" -f $script:UpstreamTree) -ForegroundColor Cyan
 
 # 1b. Decide how shipping modules will be refreshed (upstream git has no .hsaco)
 $script:ResolvedModulesSrc = $null
@@ -279,7 +373,7 @@ if (-not $SkipModules) {
     }
 }
 
-# 2. Synchronize selected headers
+# 2. Synchronize selected headers (from archived UpstreamRef tree)
 $headerFiles = @(
     'Development\HIP\hip_api.h',
     'Development\HIP\hip_d3d12_bridge.h',
@@ -305,7 +399,7 @@ foreach ($rel in $headerFiles) {
         Write-Host "  Preserved (pinned & patched): $rel (pass -UpdateBridge to overwrite and re-patch)" -ForegroundColor DarkYellow
         continue
     }
-    $src = Join-Path $upstream $rel
+    $src = Join-Path $script:UpstreamTree $rel
     $dst = Join-Path $vendorRoot $rel
     if (Test-Path -LiteralPath $src) {
         $parent = Split-Path -Parent $dst
@@ -317,16 +411,37 @@ foreach ($rel in $headerFiles) {
     }
 }
 
-# 3. Synchronize shaders (only live D3D12 glue shaders; exclude retired dx12-network)
-$shaderDir = Join-Path $upstream 'shaders'
-if (Test-Path $shaderDir) {
-    $dstShaders = Join-Path $vendorRoot 'shaders'
-    robocopy $shaderDir $dstShaders *.hlsl /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-    Write-Host "  Synchronized shaders"
+# 3. Synchronize shaders — live D3D12 glue only (top-level *.hlsl).
+# Upstream keeps retired network-body hlsl under shaders/dx12-network/; do NOT vendor that tree.
+# Safer than robocopy /PURGE: copy the live set, then delete any dst *.hlsl not in that set
+# (preserves non-hlsl such as shader-cache/*.dxbc). No local-only hlsl is expected.
+$shaderDir = Join-Path $script:UpstreamTree 'shaders'
+$dstShaders = Join-Path $vendorRoot 'shaders'
+if (-not (Test-Path -LiteralPath $dstShaders)) {
+    New-Item -ItemType Directory -Force -Path $dstShaders | Out-Null
 }
+$liveShaderFiles = @()
+if (Test-Path -LiteralPath $shaderDir) {
+    $liveShaderFiles = @(Get-ChildItem -LiteralPath $shaderDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue)
+}
+$liveNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($sf in $liveShaderFiles) {
+    [void]$liveNames.Add($sf.Name)
+    Copy-Item -LiteralPath $sf.FullName -Destination (Join-Path $dstShaders $sf.Name) -Force
+}
+$removedShaders = 0
+if (Test-Path -LiteralPath $dstShaders) {
+    Get-ChildItem -LiteralPath $dstShaders -Filter '*.hlsl' -File -ErrorAction SilentlyContinue | ForEach-Object {
+        if (-not $liveNames.Contains($_.Name)) {
+            Remove-Item -LiteralPath $_.FullName -Force
+            $removedShaders++
+        }
+    }
+}
+Write-Host ("  Synchronized {0} live shaders (removed {1} retired *.hlsl; dx12-network not copied)" -f $liveNames.Count, $removedShaders)
 
-# 4. Synchronize hip recipes
-$hipDir = Join-Path $upstream 'hip'
+# 4. Synchronize hip recipes (from archived UpstreamRef tree)
+$hipDir = Join-Path $script:UpstreamTree 'hip'
 if (Test-Path $hipDir) {
     $dstHip = Join-Path $vendorRoot 'hip'
     robocopy $hipDir $dstHip *.hip build-modules.ps1 rtc_compile.cpp SHA256SUMS README.md /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
@@ -635,3 +750,9 @@ if ((-not $hipChanged) -and $SkipModules) {
 }
 
 Write-Host "Sync complete! Upstream commit: $commitHash" -ForegroundColor Green
+}
+finally {
+    if ($script:UpstreamArchiveRoot -and (Test-Path -LiteralPath $script:UpstreamArchiveRoot)) {
+        Remove-Item -LiteralPath $script:UpstreamArchiveRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}

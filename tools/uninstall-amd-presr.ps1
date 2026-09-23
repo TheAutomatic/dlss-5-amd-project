@@ -100,6 +100,8 @@ $protectedNames = @(
     'version.dll',
     'native-game-tiled-assets'
 )
+# Whitelist includes retired D3D12-network hlsl so older installs still clean up.
+# Live glue set synced by tools/sync-lmxxf-upstream.ps1 is the 12 top-level *.hlsl only.
 $lmxxfShaderFiles = @(
     'native_black_probe.hlsl',
     'native_c32_ds.hlsl',
