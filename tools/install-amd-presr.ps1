@@ -918,11 +918,11 @@ if ($installLmxxf) {
             }
             Install-One $_.FullName $rel
         }
-        # Install is upsert-only for named files; purge retired top-level *.hlsl left by older packages.
+        # Install is upsert-only for named files; purge retired native_/preblock_ *.hlsl left by older packages.
         $gameShadersDir = Join-Path $game 'shaders'
         if ((Test-Path -LiteralPath $gameShadersDir -PathType Container) -and $shaderKeep.Count -gt 0) {
             $stale = @(Get-ChildItem -LiteralPath $gameShadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
-                Where-Object { -not $shaderKeep.Contains($_.Name) })
+                Where-Object { ($_.Name -match '^(native_|preblock_)') -and (-not $shaderKeep.Contains($_.Name)) })
             foreach ($sf in $stale) {
                 try {
                     Remove-Item -LiteralPath $sf.FullName -Force
