@@ -694,7 +694,7 @@ foreach ($f in $found) {
             $choice = Ask-Choice ("{0} is already an OptiScaler install. How to continue?" -f $f.Name) @(
                 'Cancel install'
                 'Backup existing files, then install'
-                'Direct overwrite (no backup folder, clean install)'
+                'Direct overwrite (clean in-place overwrite)'
             )
             switch ($choice) {
                 1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
@@ -1051,8 +1051,12 @@ Write-Host ''
 Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:           $game"
 Write-Host "  Proxy:          $Proxy"
-if (-not $skipBackup -and (Test-Path -LiteralPath $backup)) {
-    Write-Host "  Backup:         $backup"
+if (Test-Path -LiteralPath $backup) {
+    if ($skipBackup -and $toMove.Count -gt 0) {
+        Write-Host "  Backup:         $backup  (retained moved proxy)"
+    } else {
+        Write-Host "  Backup:         $backup"
+    }
 } else {
     Write-Host '  Backup:         (none - direct overwrite)'
 }
