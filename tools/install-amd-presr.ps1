@@ -828,7 +828,7 @@ Partial files (if any) are under:
     }
 }
 
-function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collections.IDictionary]$settings) {
+function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collections.IDictionary]$settings, [switch]$OnlyMissing) {
     if (-not (Test-Path -LiteralPath $iniPath -PathType Leaf)) { return }
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.AddRange([System.IO.File]::ReadAllLines($iniPath))
@@ -852,7 +852,7 @@ function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collect
             $found = $false
             for ($i = $sectionIdx + 1; $i -lt $endIdx; ++$i) {
                 if ($lines[$i] -match ('^\s*' + [regex]::Escape($k) + '\s*=')) {
-                    $lines[$i] = "$k = $($settings[$k])"
+                    if (-not $OnlyMissing) { $lines[$i] = "$k = $($settings[$k])" }
                     $found = $true
                     break
                 }
@@ -959,29 +959,33 @@ if ($installLmxxf) {
 
 }
 
-# --- Configure OptiScaler.ini: upsert package [DlssNr] defaults (no full-file overwrite) ---
-# Existing game ini is kept; these keys are inserted or updated so release defaults reach upgrades.
+# --- Configure OptiScaler.ini [DlssNr] (no full-file overwrite) ---
+# Installer-owned keys are always written. Preference keys are only added when missing, so a
+# user's model scale, every-frame, encoding or FitLarge opt-in survives reinstalls and upgrades.
 if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
         'Enabled' = 'true'
         'RunBeforeSR' = 'true'
         'NrBackend' = $activeBackend
         'LmxxfDiagnostic' = 'off'
+    })
+    Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
         'LmxxfFitLarge' = 'false'
         'AmdModelScale' = '1'
         'AmdEncoding' = '0'
         'AmdEveryFrame' = 'true'
-    })
-    Write-Host "Upserted OptiScaler.ini [DlssNr] defaults (Enabled=true, NrBackend=$activeBackend, LmxxfFitLarge=false, ...)" -ForegroundColor Green
+    }) -OnlyMissing
+    Write-Host "Updated OptiScaler.ini [DlssNr] (Enabled=true, NrBackend=$activeBackend; preference defaults only where missing)" -ForegroundColor Green
 }
 
 # Align DLSS5-AMD\native-game-flags.txt with final ini (runtime reads flags/env, not OptiScaler.ini).
 # Rewrite FIT_LARGE every install when lmxxf is installed so upsert cannot disagree with a stale flags file.
+# Same rule as Config: only true/1 enables FitLarge; missing, auto or anything else is off.
 if ($installLmxxf) {
-    $fitLarge = $true
+    $fitLarge = $false
     if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
-        $fitLine = Select-String -Path $gameIni -Pattern '^\s*LmxxfFitLarge\s*=' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($fitLine -and $fitLine.Line -match '=\s*(false|0)\s*$') { $fitLarge = $false }
+        $fitLine = Select-String -LiteralPath $gameIni -Pattern '^\s*LmxxfFitLarge\s*=' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($fitLine -and $fitLine.Line -match '=\s*(true|1)\s*$') { $fitLarge = $true }
     }
     $flagsDir = Join-Path $game 'DLSS5-AMD'
     New-Item -ItemType Directory -Force -Path $flagsDir | Out-Null

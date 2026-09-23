@@ -171,6 +171,13 @@ function Add-PlannedFile([string]$path, [string]$why) {
     }
 }
 
+# Setup only upserts one DLSS5_FIT_LARGE line; the file may also hold the user's own
+# upstream lmxxf flags. Return the text left after removing our line.
+function Get-FlagsRemainder([string]$path) {
+    $text = [IO.File]::ReadAllText($path)
+    return [regex]::Replace($text, '(?m)^DLSS5_FIT_LARGE=.*(\r?\n|$)', '')
+}
+
 $recordedProxy = $null
 $installMark = Join-Path $game 'amd-presr-install.txt'
 if ((Test-UninstallPath $installMark) -and (Test-Path -LiteralPath $installMark -PathType Leaf)) {
@@ -243,7 +250,11 @@ foreach ($root in $roots) {
 
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
     if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
-        Add-PlannedFile $flagsFile 'lmxxf-flags'
+        if ((Get-FlagsRemainder $flagsFile).Trim().Length -eq 0) {
+            Add-PlannedFile $flagsFile 'lmxxf-flags'
+        } else {
+            $planned.Add("$flagsFile  (lmxxf-flags: remove the DLSS5_FIT_LARGE line; other flags kept)")
+        }
     }
 }
 
@@ -440,8 +451,18 @@ foreach ($root in $roots) {
 
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
     if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
-        Remove-SafeFile $flagsFile 'lmxxf-flags'
-        Remove-EmptyDirectory (Join-Path $root 'DLSS5-AMD')
+        $flagsRest = Get-FlagsRemainder $flagsFile
+        if ($flagsRest.Trim().Length -eq 0) {
+            Remove-SafeFile $flagsFile 'lmxxf-flags'
+            Remove-EmptyDirectory (Join-Path $root 'DLSS5-AMD')
+        } else {
+            try {
+                [IO.File]::WriteAllText($flagsFile, $flagsRest)
+                $deleted.Add("$flagsFile  (lmxxf-flags: removed the DLSS5_FIT_LARGE line)")
+            } catch {
+                $errors.Add("$flagsFile : $($_.Exception.Message)")
+            }
+        }
     }
 }
 foreach ($root in $roots) {
