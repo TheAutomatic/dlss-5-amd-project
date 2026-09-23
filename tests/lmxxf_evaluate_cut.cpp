@@ -7,6 +7,10 @@
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SubmissionHooks.h"
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
+#include <thread>
+
+static thread_local const char *g_fakeRuntimeError = "";
 
 static void Check(HRESULT hr, const char *what)
 {
@@ -54,6 +58,18 @@ static int32_t FakeEnqueue(void *session, void *job, void *queue)
     Require(session == reinterpret_cast<void *>(0x1111), "session");
     Require(job == reinterpret_cast<void *>(0x2222), "job");
     Require(queue != nullptr, "queue");
+    return 0;
+}
+
+static int32_t FakeEnqueueFailure(void *, void *, void *)
+{
+    g_fakeRuntimeError = "bridge submission queue mismatch";
+    return 5;
+}
+
+static int32_t FakeLastError(char *buffer, uint32_t size)
+{
+    std::snprintf(buffer, size, "%s", g_fakeRuntimeError);
     return 0;
 }
 
@@ -112,7 +128,7 @@ int main()
     pending.skippedHits.store(0);
     pending.lastEnqueueRc.store(-1);
     DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
-                                                 &FakeEnqueue, list);
+                                                 &FakeEnqueue, nullptr, list);
     DlssNr::Backend::LmxxfCut::ArmBetweenSlot();
 
     // A split unrelated list can execute and be reported Submitted first.
@@ -139,6 +155,16 @@ int main()
     Require(pending.skippedHits.load() == 0, "skippedHits must be 0");
     Require(pending.lastEnqueueRc.load() == 0, "EnqueueHip rc");
     DlssNr::Backend::LmxxfCut::ClearPendingEnqueueIfSubmitted(1, batch);
+
+    // The runtime error is thread-local; capture it on the submission thread.
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueueFailure, &FakeLastError, list);
+    std::thread submission([&] { DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); });
+    submission.join();
+    const auto diagnostic = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagnostic.rc == 5, "failed EnqueueHip rc retained");
+    Require(std::strcmp(diagnostic.error.data(), "bridge submission queue mismatch") == 0,
+            "submission-thread runtime error retained");
 
     DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();
     DlssNr::Submission::Hooks::Disarm();

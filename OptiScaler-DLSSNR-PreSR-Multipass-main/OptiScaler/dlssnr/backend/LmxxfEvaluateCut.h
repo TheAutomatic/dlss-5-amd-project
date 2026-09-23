@@ -2,6 +2,7 @@
 #include "../submission/CommandListProxy.h"
 #include "Selector.h"
 #include "../submission/SubmissionHooks.h"
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -12,6 +13,7 @@
 namespace DlssNr::Backend::LmxxfCut
 {
 using EnqueueHipFn = int32_t (*)(void *session, void *job, void *command_queue);
+using GetLastErrorFn = int32_t (*)(char *buffer, uint32_t buffer_chars);
 
 // lastEnqueueRc when BetweenThunk ran but Pending was empty (HIP skipped).
 constexpr int32_t kEnqueueSkipped = static_cast<int32_t>(0x534B4950); // 'SKIP'
@@ -22,7 +24,9 @@ struct PendingHip
     void *session = nullptr;
     void *job = nullptr;
     EnqueueHipFn enqueueHip = nullptr;
+    GetLastErrorFn getLastError = nullptr;
     ID3D12CommandList *targetList = nullptr; // Identity only; the backend owns the pending job.
+    std::array<char, 256> lastEnqueueError {};
     std::atomic<int> betweenHits { 0 };
     std::atomic<int> enqueueCalls { 0 };
     std::atomic<int> skippedHits { 0 };
@@ -44,6 +48,7 @@ inline void ClearPendingEnqueue()
     p.session = nullptr;
     p.job = nullptr;
     p.enqueueHip = nullptr;
+    p.getLastError = nullptr;
     p.targetList = nullptr;
 }
 
@@ -60,6 +65,7 @@ inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const 
             p.session = nullptr;
             p.job = nullptr;
             p.enqueueHip = nullptr;
+            p.getLastError = nullptr;
             p.targetList = nullptr;
             return;
         }
@@ -72,6 +78,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
     void *session;
     void *job;
     EnqueueHipFn fn;
+    GetLastErrorFn getLastError;
     {
         std::lock_guard lock(p.mutex);
         if (!p.targetList || p.targetList != list)
@@ -79,6 +86,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         if (!(p.enqueueHip && p.session && p.job))
         {
             p.skippedHits.fetch_add(1, std::memory_order_relaxed);
+            p.lastEnqueueError = {};
             p.lastEnqueueRc.store(kEnqueueSkipped, std::memory_order_relaxed);
             p.targetList = nullptr;
             return;
@@ -87,14 +95,25 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         session = p.session;
         job = p.job;
         fn = p.enqueueHip;
+        getLastError = p.getLastError;
         p.session = nullptr;
         p.job = nullptr;
         p.enqueueHip = nullptr;
+        p.getLastError = nullptr;
         p.targetList = nullptr;
     }
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
     p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
-    p.lastEnqueueRc.store(fn(session, job, queue), std::memory_order_relaxed);
+    const int32_t rc = fn(session, job, queue);
+    std::array<char, 256> error {};
+    if (rc != 0 && getLastError)
+        getLastError(error.data(), static_cast<uint32_t>(error.size()));
+    error.back() = 0;
+    {
+        std::lock_guard lock(p.mutex);
+        p.lastEnqueueError = error;
+        p.lastEnqueueRc.store(rc, std::memory_order_relaxed);
+    }
 }
 
 // QI for ILogicalCommandList and SplitSegments. S_FALSE = not our proxy (cannot sandwich).
@@ -110,7 +129,7 @@ inline HRESULT TrySplitAtEvaluate(ID3D12GraphicsCommandList *cmd)
     return hr;
 }
 
-inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip,
+inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip, GetLastErrorFn getLastError,
                              ID3D12CommandList *targetList)
 {
     auto &p = Pending();
@@ -118,7 +137,21 @@ inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip,
     p.session = session;
     p.job = job;
     p.enqueueHip = enqueueHip;
+    p.getLastError = getLastError;
     p.targetList = targetList;
+}
+
+struct EnqueueDiagnostic
+{
+    int32_t rc = 0;
+    std::array<char, 256> error {};
+};
+
+inline EnqueueDiagnostic LastEnqueueDiagnostic()
+{
+    auto &p = Pending();
+    std::lock_guard lock(p.mutex);
+    return { p.lastEnqueueRc.load(std::memory_order_relaxed), p.lastEnqueueError };
 }
 
 inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }

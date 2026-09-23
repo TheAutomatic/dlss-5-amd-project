@@ -48,6 +48,10 @@ backends would require a per-backend or per-session registry.
 
 When `ExpandEnabled()`, `AmdBridge::ExecuteBatch` always `ExecuteExpanded` (QI proxy → `ExecuteOnWithBetween`).
 `ExecuteExpanded` forwards the current logical list as an explicit callback argument.
+If `EnqueueHip` fails, the callback reads the runtime's thread-local error on the
+submission thread and retains it for the next `PrepareFrame` failure log. `Retire`
+and `ResetHistory` failures are also logged at their call sites. This preserves
+the original error when the runtime subsequently reports only a poisoned session.
 `PendingListIndex` stays **-1** (Daniel-only batch isolation); lmxxf intentionally does not use it.
 
 ## Admission / continuation (plans C–D)

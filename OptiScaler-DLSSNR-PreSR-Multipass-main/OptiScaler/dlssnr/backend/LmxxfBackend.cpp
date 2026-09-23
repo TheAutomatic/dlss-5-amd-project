@@ -249,7 +249,8 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         SetStatus("lmxxf: RecordOutputs failed");
         return nullptr;
     }
-    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip, recordCmd);
+    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip,
+                               api->table.GetLastError, recordCmd);
     LmxxfCut::ArmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
@@ -340,12 +341,14 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         char err[256] {};
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
+        const auto enqueue = LmxxfCut::LastEnqueueDiagnostic();
         static unsigned prepareFrameFailLogs = 0;
         static unsigned prepareFrameRebuilds = 0;
         if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 30) == 0)
-            LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} {}x{} (fail#{})", frameRc,
-                      job.handle != nullptr, job.private_output != nullptr, err, fi.color_width,
-                      fi.color_height, prepareFrameFailLogs + 1);
+            LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} lastEnqueueRc={:X} lastEnqueueErr={} {}x{} (fail#{})", frameRc,
+                      job.handle != nullptr, job.private_output != nullptr, err,
+                      enqueue.rc, enqueue.error.data(), fi.color_width, fi.color_height,
+                      prepareFrameFailLogs + 1);
         ++prepareFrameFailLogs;
         // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
         // drop host session so the next Record EnsureSession starts clean.
@@ -702,7 +705,14 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT count, ID3D12CommandList
     }
     if (jobToRetire)
     {
-        api->table.Retire(session, jobToRetire);
+        const int32_t retireRc = api->table.Retire(session, jobToRetire);
+        if (retireRc != LMXXF_NR_OK)
+        {
+            char err[256] {};
+            if (api->table.GetLastError)
+                api->table.GetLastError(err, sizeof err);
+            LOG_ERROR("lmxxf: Retire rc={} err={}", retireRc, err);
+        }
     }
     // Other UE/FG lists may submit before the list containing this Evaluate.
     // Only that list can retire the pending HIP slot.
@@ -736,7 +746,21 @@ bool LmxxfBackend::Shutdown()
 void LmxxfBackend::InvalidateHistory()
 {
     if (session && api && api->table.ResetHistory)
-        api->table.ResetHistory(session);
+    {
+        const int32_t resetRc = api->table.ResetHistory(session);
+        if (resetRc != LMXXF_NR_OK)
+        {
+            static std::atomic<uint32_t> resetFailures { 0 };
+            const uint32_t n = resetFailures.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n <= 3 || n % 120 == 0)
+            {
+                char err[256] {};
+                if (api->table.GetLastError)
+                    api->table.GetLastError(err, sizeof err);
+                LOG_ERROR("lmxxf: ResetHistory rc={} err={} (fail#{})", resetRc, err, n);
+            }
+        }
+    }
     stagingProbe.InvalidateEpoch();
 }
 
