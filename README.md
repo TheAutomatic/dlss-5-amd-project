@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md)
 
-# OptiScaler AMD pre-SR — 1.9.0
+# OptiScaler AMD pre-SR — 1.9.0.3
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -8,14 +8,10 @@
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-> [!WARNING]
-> **发版状态说明（Release Status Notice）：**  
-> 团队在对虚幻引擎 5（UE5，如《幻兽帕鲁》、《异环》等）的实机测试中发现了紧急准入问题（命令列表 Query 切分准入导致画面回退并伴随高频日志刷写）。目前已**临时撤回 1.9.0.x Release 安装包**，正在进行紧急修复与准入优化，待完成全面验证后将重新发版，敬请留意！
-
 ---
 
 ## 目录
-- [📢 1.9.0 更新日志 (Changelog)](#-190-更新日志-changelog)
+- [📢 1.9.0.3 更新日志 (Changelog)](#-1903-更新日志-changelog)
 - [1. 巨人的肩膀](#1-巨人的肩膀)
 - [2. 安装指南 (Installation Guide)](#2-安装指南-installation-guide)
   - └─► [可选：3倍及以上多帧生成 (Frame Generation)](#可选功能3倍及以上多帧生成frame-generation)
@@ -26,29 +22,35 @@
 
 ---
 
-## 📢 1.9.0 更新日志 (Changelog)
+## 📢 1.9.0.3 更新日志 (Changelog)
 
-本次 1.9.0 是一次**重大的架构级里程碑升级**。我们正式引入了开源的 [**`lmxxf` HIP 神经渲染后端**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)。
+本次 1.9.0.3 是一次**重大的架构级里程碑升级**。我们正式引入了开源的 [**`lmxxf` HIP 神经渲染后端**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)，并重点攻克了虚幻引擎 5（UE5）等复杂现代游戏中的多队列与切分兼容性难题。
 
 ### 🚀 核心更新点
 
-1. **全新引入 `lmxxf` 神经渲染后端**
+1. **全面修复 `lmxxf` 后端对现代虚幻引擎 5（UE5，如《异环》、《幻兽帕鲁》等）游戏的深度兼容**
+   - **多 Direct 队列权威绑定（解决《异环》Neverness to Everness 等崩溃问题）**：重构了后端队列生命周期（Confirm-Before-Bind & Drain-Before-Destroy），在首帧权威锁定执行 DLSS-NR 命令列表的真实渲染 Direct 队列，彻底解决因视口渲染队列与 Swapchain 呈现队列分离导致的 `QueueContract: targetQueue != sessionQueue` 会话失效与崩溃。
+   - **队列契约安全护栏**：在命令切分执行回调中加入 COM 同一性检查，遇意外队列分发时主动跳过 HIP 调用并保留健康状态，杜绝会话中毒。
+   - **显存排干与无泄漏安全迁移**：动态队列迁移前强制调用 `DrainGpu()`，彻底杜绝底层会话废弃（`AbandonSessionResources`）导致的 VRAM 泄漏。
+   - **命令列表切分准入与日志洪泛修复（解决《幻兽帕鲁》Palworld 等卡顿问题）**：优化了命令列表切分准入判定；默认日志等级优化为 2 (Information)，移除导致启动卡顿几十秒的静态全量哈希，并引入渐进式指数退避限流，杜绝磁盘 I/O 暴增。
+
+2. **全新引入 `lmxxf` 神经渲染后端**
    - **拥抱开源算力核心**：在完整保留并兼容原有 `danielblnc` 后端的基础上，全新接入开源 HIP 神经渲染后端。
-   - **主队列同帧同步执行（Same-Frame Queue Execution）**：将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。相较 lmxxf 原版，理论上支持在现代虚幻引擎及《燕云十六声》等 FSR 后依然有复杂 GPU 活动进行帧渲染的游戏中实现真正的同帧神经渲染（DLSS5）。
+   - **主队列同帧同步执行（Same-Frame Queue Execution）**：将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。相较 lmxxf 原版，在现代虚幻引擎及《燕云十六声》等复杂 GPU 活动游戏中实现真正的同帧神经渲染（DLSS5）。
    - **支持 DLSS / XeSS 游戏输入**：充分发挥 OptiScaler 的通用代理接入优势，无需游戏原生支持 FSR，直接拦截游戏原本发给 DLSS / XeSS 的输入缓冲（Color / Motion Vectors / Depth）送入 lmxxf 神经降噪，再转接 FFX/FSR 完成超分辨率重建，让仅支持 DLSS 的游戏也能在 AMD 显卡上享受 DLSS5 体验。
-   - **双后端无缝兼容与共存**：保持完整向后兼容。用户可在安装时自由选择安装哪一个后端，或两者共存；在 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 自由切换，后续将支持在 Ins 菜单内动态热切换。
+   - **双后端无缝兼容与共存**：保持完整向后兼容。用户可在安装时自由选择安装哪一个后端，或两者共存；在 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 自由切换。
    - **内存与稳定性优化**：优化 `fast_prefix` 加速模式，跳过无用的 201MB 噪声 Buffer 分配，显著降低主机内存占用与初始化耗时；强化伪装 NVIDIA（Fake NVAPI）时的 GPU LUID 智能匹配，避免多显卡或驱动欺骗时跨卡崩溃。
    - **⚠️ 分辨率支持限制与推荐档位**：注意当前 `lmxxf` **仅支持超分前渲染分辨率 ≤ 1080p** 的画面进行神经渲染。对应典型档位参考：
      - **4K 显示输出**：推荐使用 **FSR 性能档**（渲染分辨率 1080p）或超级性能档（720p）；若设为 4K 质量档（1440p 渲染）会超出当前模型切片架构上限。
      - **2K (1440p) 显示输出**：可使用 **FSR 质量档 / 平衡档 / 性能档**（渲染分辨率均在 1080p 及以下）。
      - **1080p 显示输出**：可使用 **1080p 原生** 或各类超分档位。
 
-2. **安装器与卸载器全面重构升级**
+3. **安装器与卸载器全面重构升级**
    - **双后端智能检测与引导**：安装器（`Setup.bat` / `tools/install-amd-presr.ps1`）能够自动检测当前环境中是否具备 `danielblnc` 或 `lmxxf` 的依赖文件；若两者皆备，会交互式询问用户选择安装哪一个后端，或同时部署两者并配置默认后端。
    - **覆盖与共存逻辑**：选择同一后端时自动执行安全覆盖更新；选择不同后端时支持平滑共存部署，若想更换后端只需重新运行脚本或修改 `OptiScaler.ini`。
    - **卸载保护机制**：卸载脚本（`Uninstall_OptiScaler_NR.bat`）增加路径防穿越保护，并默认保留用户的模型权重文件（`native-game-tiled-assets/` 与 `dlssnr_on_amd_weights.bin`），避免重复下载大体积资产。
 
-3. **菜单（Ins Menu）全面净化与画质原生动态调参**
+4. **菜单（Ins Menu）全面净化与画质原生动态调参**
    - **智能菜单过滤**：在 `lmxxf` 模式下自动隐藏 Daniel 专属的无效选项（如 passes、slots、new wait、实验性 RTGI 等），避免设置混淆。
    - **排版与间距修复**：修复了 `Enable NR` 与 `AMD processing` 挤在同一行的布局 Bug，恢复清晰合理的垂直层级与间距。
    - **原生动态调参滑条**：在 Ins 菜单新增 `Detail strength`（细节/亮度强度）、`Colour strength`（色彩饱和校正）无级滑条，并支持 `Debug view` 实时可视化调试图，改动即时生效。

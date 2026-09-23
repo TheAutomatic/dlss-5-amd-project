@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.9.0.1',
+    [string]$Version = '1.9.0.3',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
