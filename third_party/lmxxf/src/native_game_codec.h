@@ -55,14 +55,14 @@ public:
   const auto network=NativeCurrentNetworkGeometry();
   for(size_t i=0;i<inputs.size();i++){
    auto*r=inputs[i];if(!r)throw std::runtime_error("codec null input");auto desc=r->GetDesc();
-   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||!NativeInputGeometry::Supported(desc.Width,desc.Height)||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||!(NativeIsGameColor(desc.Format)||(private_float_output&&desc.Format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP))||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error("codec unverified input format/geometry");
+   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||!NativeInputGeometry::Supported(desc.Width,desc.Height,NativeFitLargeInput())||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||!(NativeIsGameColor(desc.Format)||(private_float_output&&desc.Format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP))||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error("codec unverified input format/geometry");
    if(inputs.size()==3&&i<2&&(desc.Width!=network.valid_width||desc.Height!=network.valid_height))throw std::runtime_error("codec network surface geometry");
    for(size_t j=0;j<i;j++)if(inputs[j]==r)throw std::runtime_error("codec aliased inputs");
    ID3D12Device*owner=nullptr;check(r->GetDevice(IID_PPV_ARGS(&owner)),"input-getdevice");bool same=NativeSameDevice(owner,d);owner->Release();if(!same)throw std::runtime_error("codec device mismatch");
   }
   step(d,"inputs-checked");
   count=UINT(inputs.size());for(UINT i=0;i<count;i++){source[i]=inputs[i];source[i]->AddRef();}
-  auto external=source[count==3?2:0]->GetDesc();geometry=NativeInputGeometry::Make(unsigned(external.Width),external.Height,network.valid_width,network.valid_height);
+  auto external=source[count==3?2:0]->GetDesc();geometry=NativeInputGeometry::Make(unsigned(external.Width),external.Height,network.valid_width,network.valid_height,NativeFitLargeInput());
   out_width=count==3?geometry.width:network.valid_width;out_height=count==3?geometry.height:network.valid_height;
   auto desc=source[0]->GetDesc();desc.Width=out_width;desc.Height=out_height;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   /* Typeless game textures: the encoder's output (our intermediate) is FP16; the decoder's output is copied raw into the game texture, so it takes the game's interpretation (UNORM for Ronin). */

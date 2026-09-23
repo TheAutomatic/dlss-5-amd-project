@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Synchronize vendored lmxxf source closure from an upstream clone without git cherry-pick.
 
@@ -94,11 +94,11 @@ foreach ($rel in $headerFiles) {
     }
 }
 
-# 3. Synchronize shaders
+# 3. Synchronize shaders (only live D3D12 glue shaders; exclude retired dx12-network)
 $shaderDir = Join-Path $upstream 'shaders'
 if (Test-Path $shaderDir) {
     $dstShaders = Join-Path $vendorRoot 'shaders'
-    robocopy $shaderDir $dstShaders *.hlsl /E /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+    robocopy $shaderDir $dstShaders *.hlsl /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
     Write-Host "  Synchronized shaders"
 }
 

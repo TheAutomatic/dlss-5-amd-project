@@ -23,6 +23,11 @@ struct NativeNetworkGeometry {
 };
 /* The geometry selected for the current frame set-up: written by NativeResolveNetworkGeometry (frame Create, once the input size is
    known) and read by every stage through NativeCurrentNetworkGeometry. Fixed tiers resolve to themselves; "auto" needs the input. */
+/* DLSS5_FIT_LARGE=1: fit (downsample) inputs larger than 1920x1080 instead of rejecting them (issue #6). The environment is only
+   populated by the background initializer, but the pre-upscale hook decides "supported" before initialization (phase 0) and that
+   decision arms the initializer -- so callers that run early set the override from native-game-flags.txt. Not cached. */
+inline bool&NativeFitLargeInputOverride(){static bool v=false;return v;}
+inline bool NativeFitLargeInput(){if(const char*e=std::getenv("DLSS5_FIT_LARGE"))return e[0]=='1'&&!e[1];return NativeFitLargeInputOverride();}
 inline NativeNetworkGeometry*NativeNetworkGeometrySlot(){static NativeNetworkGeometry g{};return &g;}
 inline bool&NativeNetworkGeometryResolved(){static bool resolved=false;return resolved;}
 inline int NativeNetworkHeightFlag(){ /* 720/900/1080 (1024 = "900w", the 0.21 layout of the 900 tier; "900s" is an alias of 900), 0 = auto, -1 = unset. Narrow getenv on every platform: the bench's flag loader
