@@ -686,37 +686,46 @@ foreach ($f in $found) {
         continue
     }
     if ($f.IsOptiScaler) {
-        if ($NonInteractive) {
-            if ($isTarget) {
+        if ($isTarget) {
+            if ($NonInteractive) {
                 $toMove += $f
-            } else {
-                $keep[$f.Name] = $true
+                continue
             }
-            continue
-        }
-        $choice = Ask-Choice ("{0} is already an OptiScaler install. How to continue?" -f $f.Name) @(
-            'Cancel install'
-            'Backup existing files, then install (keep other proxies untouched)'
-            'Direct overwrite (no backup folder, clean install)'
-        )
-        switch ($choice) {
-            1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
-            2 {
-                $skipBackup = $false
-                if ($isTarget) {
+            $choice = Ask-Choice ("{0} is already an OptiScaler install. How to continue?" -f $f.Name) @(
+                'Cancel install'
+                'Backup existing files, then install'
+                'Direct overwrite (no backup folder, clean install)'
+            )
+            switch ($choice) {
+                1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
+                2 {
+                    $skipBackup = $false
                     $toMove += $f
-                } else {
-                    $keep[$f.Name] = $true
-                    Write-Host ("Leaving other proxy {0} in place." -f $f.Name)
+                }
+                3 {
+                    $skipBackup = $true
+                    # Direct overwrite: do not move or backup; Install-One overwrites directly
                 }
             }
-            3 {
-                $skipBackup = $true
-                if ($isTarget) {
-                    # Direct overwrite: do not move or backup; Install-One overwrites directly
-                } else {
+        } else {
+            # An existing OptiScaler proxy with a DIFFERENT name (e.g. winmm.dll while installing dxgi.dll).
+            # Two OptiScaler proxies will hook the process twice, causing crashes / double injection.
+            if ($NonInteractive) {
+                Write-Host ("{0} is a previous OptiScaler proxy — moving to backup to prevent duplicate injection with {1}." -f $f.Name, $Proxy) -ForegroundColor Yellow
+                $toMove += $f
+                continue
+            }
+            $choice = Ask-Choice ("{0} is a previous OptiScaler proxy (cannot coexist with {1}; causes double injection). How to continue?" -f $f.Name, $Proxy) @(
+                'Cancel install'
+                'Move previous OptiScaler proxy to backup (Recommended)'
+                'Ignore and leave in place (Not recommended; may crash)'
+            )
+            switch ($choice) {
+                1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
+                2 { $toMove += $f }
+                3 {
                     $keep[$f.Name] = $true
-                    Write-Host ("Leaving other proxy {0} in place." -f $f.Name)
+                    Write-Host ("WARNING: Leaving {0} in place alongside {1}." -f $f.Name, $Proxy) -ForegroundColor Red
                 }
             }
         }
@@ -748,26 +757,23 @@ foreach ($f in $found) {
     }
 }
 
-# Only create the backup folder if backup is not skipped
-if (-not $skipBackup) {
-    [void][System.IO.Directory]::CreateDirectory($backup)
+# Create the backup folder if backup is enabled or if there are files to safely move aside
+if ((-not $skipBackup) -or ($toMove.Count -gt 0)) {
+    if (-not (Test-Path -LiteralPath $backup)) {
+        [void][System.IO.Directory]::CreateDirectory($backup)
+    }
     $backupCreated = $true
 }
 
+# Any file scheduled for movement is ALWAYS safely backed up to .moved; NEVER silently deleted
 foreach ($f in $toMove) {
-    if (-not $skipBackup) {
-        if (-not (Test-Path -LiteralPath $backup)) {
-            [void][System.IO.Directory]::CreateDirectory($backup)
-            $backupCreated = $true
-        }
-        Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
-        Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
-        Write-Host ("Moved {0} -> backup" -f $f.Name)
-    } else {
-        # Direct overwrite mode: if an author native version.dll cannot coexist, delete it safely
-        Remove-Item -LiteralPath $f.Path -Force
-        Write-Host ("Removed conflicting {0} (direct overwrite mode)" -f $f.Name)
+    if (-not (Test-Path -LiteralPath $backup)) {
+        [void][System.IO.Directory]::CreateDirectory($backup)
+        $backupCreated = $true
     }
+    Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
+    Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
+    Write-Host ("Moved {0} -> backup" -f $f.Name)
 }
 
 function Install-One([string]$src, [string]$rel) {
