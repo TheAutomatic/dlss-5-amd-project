@@ -85,6 +85,84 @@ std::wstring DllDirectory()
     return dir;
 }
 
+bool TryReadFitLargeFromFlagsFile(const std::wstring &path, bool *outValue)
+{
+    FILE *f = _wfopen(path.c_str(), L"rb");
+    if (!f)
+        return false;
+    char line[256];
+    unsigned v = 0;
+    bool found = false;
+    while (fgets(line, sizeof line, f))
+    {
+        unsigned x = 0;
+        if (sscanf(line, "DLSS5_FIT_LARGE=%u", &x) == 1)
+        {
+            v = x;
+            found = true;
+        }
+    }
+    fclose(f);
+    if (!found)
+        return false;
+    *outValue = (v == 1);
+    return true;
+}
+
+// Upstream enables 1080p+ via DLSS5_FIT_LARGE=1 (env or native-game-flags.txt).
+// Codec Supported() uses NativeFitLargeInput(); QueryCapabilities must match.
+void EnsureFitLargeApplied()
+{
+    static bool once = false;
+    if (once)
+        return;
+    once = true;
+
+    if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
+    {
+        if (e[0] == '1' && !e[1])
+            NativeFitLargeInputOverride() = true;
+        return;
+    }
+
+    std::wstring candidates[8];
+    size_t n = 0;
+    auto push = [&](const std::wstring &dir) {
+        if (dir.empty() || n + 2 > 8)
+            return;
+        candidates[n++] = JoinPath(dir, L"native-game-flags.txt");
+        candidates[n++] = JoinPath(JoinPath(dir, L"DLSS5-AMD"), L"native-game-flags.txt");
+    };
+    push(DllDirectory());
+    wchar_t exePath[MAX_PATH] {};
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH))
+    {
+        std::wstring dir(exePath);
+        const size_t slash = dir.find_last_of(L"\\/");
+        if (slash != std::wstring::npos)
+        {
+            dir.resize(slash);
+            push(dir);
+        }
+    }
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        bool on = false;
+        if (TryReadFitLargeFromFlagsFile(candidates[i], &on))
+        {
+            if (on)
+            {
+                NativeFitLargeInputOverride() = true;
+                _putenv("DLSS5_FIT_LARGE=1");
+            }
+            return;
+        }
+    }
+}
+
+
+
 std::wstring FindShaderDir(const std::wstring &assets = {})
 {
     const std::wstring dll = DllDirectory();
@@ -546,8 +624,18 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
         if (out->struct_size != sizeof(LmxxfNrCapabilities))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "QueryCapabilities: struct_size mismatch");
         out->abi_version = LMXXF_NR_ABI_VERSION;
-        out->max_input_width = 1920;
-        out->max_input_height = 1080;
+        EnsureFitLargeApplied();
+        // Without FIT_LARGE: native 1080p admit only. With it: NativeInputGeometry::Supported(..., large) ceiling.
+        if (NativeFitLargeInput())
+        {
+            out->max_input_width = 16384;
+            out->max_input_height = 16384;
+        }
+        else
+        {
+            out->max_input_width = 1920;
+            out->max_input_height = 1080;
+        }
         out->history_supported = 0;
         out->overlap_supported = 0;
         out->graph_supported = 0;
@@ -574,6 +662,7 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
             return Fail(LMXXF_NR_INVALID_ARGUMENT,
                         "Create: assets_directory required (modules dir from 68dc099 build)");
 
+        EnsureFitLargeApplied();
         std::wstring assets = info->assets_directory;
         if (!IsDirectory(assets))
             return Fail(LMXXF_NR_UNAVAILABLE, "Create: assets_directory is not a directory");
@@ -731,6 +820,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
         // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
+        EnsureFitLargeApplied();
         if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
             _putenv("DLSS5_NETWORK_HEIGHT=auto");
         NativeResolveNetworkGeometry(info->color_width, info->color_height);

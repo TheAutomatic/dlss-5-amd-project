@@ -472,6 +472,11 @@ foreach ($root in $roots) {
             Remove-EmptyDirectory $cacheDir
         }
         Remove-EmptyDirectory $shadersDir
+$flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
+if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
+    Remove-SafeFile $flagsFile 'lmxxf-flags'
+    Remove-EmptyDirectory (Join-Path $root 'DLSS5-AMD')
+}
     }
 }
 foreach ($root in $roots) {

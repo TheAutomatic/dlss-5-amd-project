@@ -931,6 +931,29 @@ if ($installLmxxf) {
     } else {
         Write-Host 'NOTE: native-game-tiled-assets not found in package. If using lmxxf, place native-game-tiled-assets in the game folder.' -ForegroundColor DarkYellow
     }
+
+    # Upstream 0.29 1080p+ fit: NativeLabRoot looks for DLSS5-AMD\native-game-flags.txt beside the runtime DLL.
+    $fitLarge = $true
+    if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+        $fitLine = Select-String -Path $gameIni -Pattern '^\s*LmxxfFitLarge\s*=' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($fitLine -and $fitLine.Line -match '=\s*(false|0)\s*$') { $fitLarge = $false }
+    }
+    $flagsDir = Join-Path $game 'DLSS5-AMD'
+    New-Item -ItemType Directory -Force -Path $flagsDir | Out-Null
+    $flagsPath = Join-Path $flagsDir 'native-game-flags.txt'
+    $flagBody = if ($fitLarge) { "DLSS5_FIT_LARGE=1`r`n" } else { "DLSS5_FIT_LARGE=0`r`n" }
+    if (Test-Path -LiteralPath $flagsPath -PathType Leaf) {
+        $existing = [IO.File]::ReadAllText($flagsPath)
+        if ($existing -notmatch '(?m)^DLSS5_FIT_LARGE=') {
+            [IO.File]::AppendAllText($flagsPath, $flagBody)
+            Write-Host "  appended DLSS5_FIT_LARGE to $flagsPath" -ForegroundColor Green
+        } else {
+            Write-Host "  left existing $flagsPath (already has DLSS5_FIT_LARGE)" -ForegroundColor DarkYellow
+        }
+    } else {
+        [IO.File]::WriteAllText($flagsPath, $flagBody)
+        Write-Host "  wrote $flagsPath (DLSS5_FIT_LARGE=$([int]$fitLarge))" -ForegroundColor Green
+    }
 }
 
 # --- Configure OptiScaler.ini with chosen backend ---
@@ -939,6 +962,7 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         'Enabled' = 'true'
         'RunBeforeSR' = 'true'
         'NrBackend' = $activeBackend
+        'LmxxfFitLarge' = 'true'
     })
     Write-Host "Configured OptiScaler.ini: [DlssNr] Enabled=true, NrBackend=$activeBackend" -ForegroundColor Green
 }

@@ -205,6 +205,10 @@ NrBackend=lmxxf
 ; off, original, copy-current, staging-current, staging-previous - Default is off
 LmxxfDiagnostic=off
 
+; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
+; Installer also writes DLSS5-AMD\native-game-flags.txt beside the game. true/false - Default is true
+LmxxfFitLarge=true
+
 ; Resolution scale factor for neural rendering model input
 ; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
 ; float value - Default is 1
