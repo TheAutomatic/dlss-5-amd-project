@@ -133,63 +133,18 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::Checkbox("Enable NR", &enabled))
             config->DlssNrEnabled = enabled;
 
-        // NR host selector. Options below follow the selection immediately; a host that
-        // already started is process-lifetime (Daniel HIP threads), so the switch itself
-        // needs a game restart — same contract as New wait mode.
+        if (DlssNr::AmdBridge::HasFiles())
         {
             using DlssNr::Backend::Kind;
             const Kind active = DlssNr::Backend::ActiveKindFromConfig();
-            int selected = active == Kind::Lmxxf ? 1 : active == Kind::Off ? 2 : 0;
-            static const char* items[] = { "daniel", "lmxxf", "off" };
-            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
-            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
-
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted("Backend");
-            HGap(0.15f);
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
-            if (ImGui::Combo("##NrBackend", &selected, items, IM_ARRAYSIZE(items)))
+            const bool isLmxxf = (active == Kind::Lmxxf);
+            const bool isOff = (active == Kind::Off);
+            if (isOff)
             {
-                config->NrBackend = std::string(items[selected]);
-                if (DlssNr::AmdBridge::BackendRestartNeeded())
-                    ImGui::OpenPopup("Backend restart");
+                ImGui::TextDisabled("AMD NR host is off (original colour to Super Resolution).");
             }
+            else
             {
-                char installed[64] {};
-                if (hasDaniel && hasLmxxf)
-                    std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
-                else if (hasDaniel)
-                    std::snprintf(installed, sizeof(installed), "daniel");
-                else if (hasLmxxf)
-                    std::snprintf(installed, sizeof(installed), "lmxxf");
-                else
-                    std::snprintf(installed, sizeof(installed), "none");
-                char tip[512] {};
-                std::snprintf(tip, sizeof(tip),
-                              "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime;"
-                              "\noff = no AMD NR (original colour to Super Resolution)."
-                              "\n\nOptions below follow this choice immediately."
-                              "\nA host that already started keeps running until the game restarts."
-                              "\n\nInstalled here: %s",
-                              installed);
-                HelpMarker(tip);
-            }
-            if (ImGui::BeginPopupModal("Backend restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-            {
-                ImGui::TextUnformatted("The NR host for this process cannot change mid-session.");
-                ImGui::TextUnformatted("Your choice is saved. Restart the game to switch backends.");
-                ImGui::TextUnformatted("The option list already shows the selected backend.");
-                if (ImGui::Button("OK"))
-                    ImGui::CloseCurrentPopup();
-                ImGui::EndPopup();
-            }
-            if (DlssNr::AmdBridge::BackendRestartNeeded())
-                ImGui::TextDisabled("Restart the game to switch the NR host (options preview the selection).");
-        }
-
-        if (DlssNr::AmdBridge::HasFiles())
-        {
-            const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
             const char* ver = isLmxxf ? "lmxxf-nr" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
@@ -292,6 +247,62 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::EndPopup();
                 }
             }
+            }
+        }
+
+        // NR host selector. Options below follow the selection immediately; a host that
+        // already started is process-lifetime (Daniel HIP threads), so the switch itself
+        // needs a game restart — same contract as New wait mode. Placed after the
+        // Enable NR row so that row keeps its original layout.
+        {
+            using DlssNr::Backend::Kind;
+            const Kind active = DlssNr::Backend::ActiveKindFromConfig();
+            int selected = active == Kind::Lmxxf ? 1 : active == Kind::Off ? 2 : 0;
+            static const char* items[] = { "daniel", "lmxxf", "off" };
+            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
+            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Backend");
+            HGap(0.15f);
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+            if (ImGui::Combo("##NrBackend", &selected, items, IM_ARRAYSIZE(items)))
+            {
+                config->NrBackend = items[selected];
+                if (DlssNr::AmdBridge::BackendRestartNeeded())
+                    ImGui::OpenPopup("Backend restart");
+            }
+            {
+                char installed[64] {};
+                if (hasDaniel && hasLmxxf)
+                    std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
+                else if (hasDaniel)
+                    std::snprintf(installed, sizeof(installed), "daniel");
+                else if (hasLmxxf)
+                    std::snprintf(installed, sizeof(installed), "lmxxf");
+                else
+                    std::snprintf(installed, sizeof(installed), "none");
+                char tip[512] {};
+                std::snprintf(tip, sizeof(tip),
+                              "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime;"
+                              "\noff = no AMD NR (original colour to Super Resolution)."
+                              "\n\nOptions below follow this choice immediately."
+                              "\nA host that already started keeps running until the game restarts."
+                              "\n\nInstalled here: %s",
+                              installed);
+                HelpMarker(tip);
+            }
+            if (ImGui::BeginPopupModal("Backend restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::TextUnformatted("The NR host for this process cannot change mid-session.");
+                ImGui::TextUnformatted("Kept in settings. Restart the game to switch backends.");
+                ImGui::TextUnformatted("The option list already shows the selected backend.");
+                if (ImGui::Button("OK"))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+            if (DlssNr::AmdBridge::BackendRestartNeeded())
+                ImGui::TextDisabled("Restart the game to switch the NR host (options preview the selection).");
         }
 
         if (AmdPresentExperimental::IsTarget())
@@ -307,7 +318,16 @@ void RenderMenu(Config* config, float menuResScale)
         if (DlssNr::AmdBridge::HasFiles())
         {
             ImGui::Spacing();
-            const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
+            using DlssNr::Backend::Kind;
+            const Kind active = DlssNr::Backend::ActiveKindFromConfig();
+            const bool isLmxxf = (active == Kind::Lmxxf);
+            const bool isOff = (active == Kind::Off);
+            if (isOff)
+            {
+                ImGui::TextUnformatted("AMD processing: off");
+                ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
+                return;
+            }
             ImGui::TextUnformatted(isLmxxf ? "AMD processing: lmxxf (before Super Resolution)"
                                            : "AMD processing: before Super Resolution");
 
@@ -366,7 +386,11 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::Checkbox("Fit large color (restart)", &fitLarge))
                 {
                     config->LmxxfFitLarge = fitLarge;
-                    ImGui::OpenPopup("FitLarge restart");
+                    // Only nag when lmxxf is already this process's host. A pending
+                    // backend switch already has its own restart prompt.
+                    if (DlssNr::AmdBridge::LiveBackendKind() == DlssNr::Backend::Kind::Lmxxf &&
+                        !DlssNr::AmdBridge::BackendRestartNeeded())
+                        ImGui::OpenPopup("FitLarge restart");
                 }
                 HelpMarker("Off (default): Color above ~1080p is admitted only when the"
                            "\nnetwork can take it as-is. On: fit larger Color onto the 1080"
