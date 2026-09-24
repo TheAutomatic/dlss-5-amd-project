@@ -75,7 +75,7 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
     {
         const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
         _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
-        LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; restart if changed mid-session)", fit);
+        LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; NativeFitLargeInput re-reads env each call)", fit);
     }
     SetStatus("lmxxf: constructed (session not ready)");
 }

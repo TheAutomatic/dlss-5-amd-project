@@ -5,6 +5,7 @@
 
 #include <optional>
 #include <filesystem>
+#include <mutex>
 
 enum HasDefaultValue
 {
@@ -45,6 +46,14 @@ template <class T, HasDefaultValue defaultState = WithDefault> class CustomOptio
         }
         _volatile = true;
         std::optional<T>::operator=(value);
+    }
+
+    // Persist a choice for the next launch while the current session keeps its
+    // existing value. Used when a backend requires hooks installed at startup.
+    constexpr void set_for_next_launch(const T& value)
+    {
+        _configIni = value;
+        _volatile = true;
     }
 
     // Use this when first setting a CustomOptional
@@ -306,14 +315,20 @@ class Config
     // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
-    // NR host: daniel (default), lmxxf, off. Missing key = daniel. Restart to change.
+    // NR host: daniel or lmxxf. Missing / auto pick an installed host.
+    // Config load migrates legacy off/none to Enabled=false.
+    // Explicit choice missing its files falls back to the other. Enable NR is the on/off.
+    // Ins menu switches live when the required hooks are armed; a first switch
+    // from a daniel-started session to lmxxf is saved for the next launch.
+    mutable std::mutex NrBackendMutex;
     CustomOptional<std::string> NrBackend { "daniel" };
     // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
     // Fit Color inputs above 1920x1080 onto the 1080 network (DLSS5_FIT_LARGE).
     // Default false: missing/auto => false (Palworld: FitLarge+~2K Color same-frame can hitch ~2s/frame).
-    // Opt-in with explicit true; applied to env on Config load / lmxxf backend start; installer writes flags.
+    // Opt-in with explicit true. Written to env on Config load and on menu change (runtime
+    // reads the env every call). Installer also writes native-game-flags.txt.
     CustomOptional<bool> LmxxfFitLarge { false };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.

@@ -2,6 +2,7 @@
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
+#include "submission/SubmissionHooks.h"
 #include "DlssNrFeature_Vk.h"
 
 #include "DlssNr.h"
@@ -135,7 +136,9 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
-            const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
+            using DlssNr::Backend::Kind;
+            const Kind active = DlssNr::Backend::ActiveKindFromConfig();
+            const bool isLmxxf = (active == Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
             const char* ver = isLmxxf ? "lmxxf-nr" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
@@ -240,6 +243,121 @@ void RenderMenu(Config* config, float menuResScale)
             }
         }
 
+        // NR host: daniel or lmxxf. A first switch to lmxxf needs restart when
+        // the game started without its command-list proxy hooks.
+        // Enable NR is the on/off switch — there is no separate "off" host.
+        {
+            using DlssNr::Backend::Kind;
+            using DlssNr::Backend::Request;
+            const Kind active = DlssNr::Backend::ActiveKindFromConfig();
+            Request request;
+            Request runningRequest;
+            {
+                std::lock_guard nrBackendLock(config->NrBackendMutex);
+                const auto rawBackend = config->NrBackend.value_for_config();
+                request = rawBackend.has_value() ? DlssNr::Backend::ParseRequest(*rawBackend)
+                                                 : Request::Auto;
+                runningRequest = config->NrBackend.has_value()
+                    ? DlssNr::Backend::ParseRequest(config->NrBackend.value())
+                    : Request::Auto;
+            }
+            // Show the explicit request when there is one, so a fallback (request
+            // lmxxf, running daniel) still lets the user re-assert "daniel".
+            int selected = 0;
+            if (request == Request::Lmxxf)
+                selected = 1;
+            else if (request == Request::Daniel)
+                selected = 0;
+            else
+                selected = (active == Kind::Lmxxf) ? 1 : 0;
+            static const char* items[] = { "daniel", "lmxxf" };
+            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
+            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Backend");
+            HGap(0.15f);
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+            if (!hasDaniel && !hasLmxxf)
+                ImGui::BeginDisabled();
+            if (ImGui::BeginCombo("##NrBackend", items[selected]))
+            {
+                for (int i = 0; i < IM_ARRAYSIZE(items); ++i)
+                {
+                    const bool installed = i == 0 ? hasDaniel : hasLmxxf;
+                    const auto flags = installed ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
+                    if (ImGui::Selectable(items[i], selected == i, flags))
+                    {
+                        selected = i;
+                        if (i == 1 && active != Kind::Lmxxf &&
+                            !DlssNr::Submission::Hooks::IsArmed())
+                        {
+                            std::lock_guard nrBackendLock(config->NrBackendMutex);
+                            config->NrBackend.set_for_next_launch(std::string(items[i]));
+                        }
+                        else
+                        {
+                            {
+                                std::lock_guard nrBackendLock(config->NrBackendMutex);
+                                config->NrBackend = items[i];
+                            }
+                            DlssNr::AmdBridge::SyncBackendWithConfig();
+                        }
+                    }
+                    if (selected == i)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            if (!hasDaniel && !hasLmxxf)
+                ImGui::EndDisabled();
+            {
+                char installed[64] {};
+                if (hasDaniel && hasLmxxf)
+                    std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
+                else if (hasDaniel)
+                    std::snprintf(installed, sizeof(installed), "daniel");
+                else if (hasLmxxf)
+                    std::snprintf(installed, sizeof(installed), "lmxxf");
+                else
+                    std::snprintf(installed, sizeof(installed), "none");
+                char tip[640] {};
+                std::snprintf(tip, sizeof(tip),
+                              "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
+                              "\nSwitching is live when the required hooks were installed"
+                              "\nat startup. A first daniel-to-lmxxf switch requires restart."
+                              "\nTurn NR off with Enable NR above."
+                              "\nIf the chosen host is missing its files, the other installed"
+                              "\nhost runs instead."
+                              "\n\nAfter a live switch, the previous host may keep some"
+                              "\nVRAM until the game exits (safe teardown)."
+                              "\n\nInstalled here: %s",
+                              installed);
+                HelpMarker(tip);
+            }
+            if (!hasDaniel && !hasLmxxf)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
+                                   "No NR runtime beside OptiScaler (need dlssnr_amd_pass1.dll or LmxxfNrRuntime.dll).");
+            }
+            else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
+                     active == Kind::Daniel && hasLmxxf)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                   "Restart the game to use lmxxf; daniel remains active now.");
+            }
+            else if (request == Request::Lmxxf && active != Kind::Lmxxf)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                   "lmxxf not installed; running daniel.");
+            }
+            else if (request == Request::Daniel && active != Kind::Daniel)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                   "daniel not installed; running lmxxf.");
+            }
+        }
+
         if (AmdPresentExperimental::IsTarget())
         {
             ImGui::TextWrapped("Experimental final-image neural: synthetic motion/depth, no temporal history. Includes game HUD.");
@@ -307,6 +425,20 @@ void RenderMenu(Config* config, float menuResScale)
                 int debugView = (int) config->DlssNrDebugView.value_or_default();
                 if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
                     config->DlssNrDebugView = (uint32_t) debugView;
+
+                bool fitLarge = config->LmxxfFitLarge.value_or_default();
+                if (ImGui::Checkbox("Fit large color", &fitLarge))
+                {
+                    config->LmxxfFitLarge = fitLarge;
+                    // Runtime reads DLSS5_FIT_LARGE on every NativeFitLargeInput() call.
+                    _putenv(fitLarge ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+                    DlssNr::AmdBridge::InvalidateHistory();
+                }
+                HelpMarker("Off (default): Color above ~1080p is admitted only when the"
+                           "\nnetwork can take it as-is. On: fit larger Color onto the 1080"
+                           "\nnetwork (DLSS5_FIT_LARGE)."
+                           "\n\nLarger Color can use more GPU time and memory; compare"
+                           "\nperformance in your game before leaving this on.");
             }
 
             if (!isLmxxf)

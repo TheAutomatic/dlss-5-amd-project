@@ -5,6 +5,10 @@
 namespace DlssNr::AmdBridge
 {
 bool HasFiles();
+bool HasDanielRuntime();
+bool HasLmxxfRuntime();
+// Hot-switch: flip ProxyWrap, clear history, force warm-up. Both hosts stay alive.
+void SyncBackendWithConfig();
 // Install submission expansion before the first wrapped list is exposed. No runtime/HIP initialization.
 bool EnsureSubmissionHook(ID3D12CommandQueue*);
 bool Before(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*, ID3D12CommandQueue*);

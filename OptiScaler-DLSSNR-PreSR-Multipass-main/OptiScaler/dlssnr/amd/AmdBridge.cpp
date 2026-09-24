@@ -25,7 +25,36 @@ namespace DlssNr::AmdBridge
 {
 namespace
 {
-std::atomic<DlssNr::Backend::Host*> backend { nullptr };
+// Both hosts stay alive once built (Daniel HIP threads are process-lifetime).
+// Switching only changes which one Record/Submit uses.
+std::atomic<DlssNr::Backend::Host*> g_daniel { nullptr };
+std::atomic<DlssNr::Backend::Host*> g_lmxxf { nullptr };
+
+DlssNr::Backend::Host* HostForKind(DlssNr::Backend::Kind k)
+{
+    if (k == DlssNr::Backend::Kind::Lmxxf)
+        return g_lmxxf.load(std::memory_order_acquire);
+    return g_daniel.load(std::memory_order_acquire);
+}
+// Execute is on the submit path: do not re-resolve NrBackend/disk every batch.
+// -1 = unknown; SyncBackendWithConfig and first use fill it in.
+std::atomic<int> g_activeKind { -1 };
+DlssNr::Backend::Kind ActiveKindCached()
+{
+    int k = g_activeKind.load(std::memory_order_acquire);
+    if (k < 0)
+    {
+        k = static_cast<int>(DlssNr::Backend::ActiveKindFromConfig());
+        int unknown = -1;
+        if (!g_activeKind.compare_exchange_strong(unknown, k, std::memory_order_acq_rel))
+            k = unknown;
+    }
+    return static_cast<DlssNr::Backend::Kind>(k);
+}
+DlssNr::Backend::Host* ActiveHost()
+{
+    return HostForKind(ActiveKindCached());
+}
 using ExecuteFn = void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 using ExitFn = void(NTAPI*)(LONG);
 ExecuteFn executeOriginal = nullptr;
@@ -134,9 +163,14 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
                      reinterpret_cast<void*>(q), reinterpret_cast<void*>(matched));
         }
     }
-    auto b = backend.load();
-    if (b)
-        b->Submitting(q, n, c);
+    // Notify every live host. Each no-ops on lists it does not own, so a switch
+    // between Record and Execute still lands Submitted on the recording host.
+    auto daniel = g_daniel.load(std::memory_order_acquire);
+    auto lmxxf = g_lmxxf.load(std::memory_order_acquire);
+    if (daniel)
+        daniel->Submitting(q, n, c);
+    if (lmxxf)
+        lmxxf->Submitting(q, n, c);
     // Execute every game list exactly once. Private runtime Notify callbacks
     // publish HIP jobs afterwards and have their internal ECL call neutralized.
     // When lmxxf submission expand is armed, unwrap CommandListProxy (between = HIP slot).
@@ -156,12 +190,16 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         for (UINT i = 0; i < n; ++i)
             observedLists.insert(c[i]);
     }
-    if (b)
-        b->Submitted(q, n, c);
+    if (daniel)
+        daniel->Submitted(q, n, c);
+    if (lmxxf)
+        lmxxf->Submitted(q, n, c);
 }
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
-    auto b = backend.load();
+    // Only the active host may split the batch. A stale Daniel slot after
+    // switching to lmxxf must not isolate lists the lmxxf path submits whole.
+    auto b = ActiveHost();
     int index = b ? b->PendingListIndex(n, c) : -1;
     if (n > 1 && index >= 0)
     {
@@ -180,7 +218,9 @@ void NTAPI Exit(LONG code)
 {
     s_confirmedRenderQueue.Clear();
     s_awaitingTracker.Clear();
-    if (auto b = backend.load())
+    if (auto b = g_daniel.load())
+        b->Shutdown();
+    if (auto b = g_lmxxf.load())
         b->Shutdown();
     exitOriginal(code);
 }
@@ -270,21 +310,51 @@ bool EnsureSubmissionHook(ID3D12CommandQueue *q)
     device->Release();
     return ready;
 }
+bool HasDanielRuntime()
+{
+    return DlssNr::Backend::HasDanielInstalled();
+}
+bool HasLmxxfRuntime()
+{
+    return DlssNr::Backend::HasLmxxfInstalled();
+}
 bool HasFiles()
 {
     // Proxy names such as winmm.dll can load before Util::DllPath is finalized.
     // A negative result cached at that point disabled the AMD backend for the
-    // rest of the process and left the menu at "waiting for a DirectX 12 SR
-    // frame". Recheck until the package path becomes available.
-    std::error_code ec;
-    const auto dir = Directory();
-    const auto active = DlssNr::Backend::ActiveKindFromConfig();
-    if (active == DlssNr::Backend::Kind::Lmxxf)
-        return std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
-    if (active == DlssNr::Backend::Kind::Daniel)
-        return std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
-    return std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec) ||
-           std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
+    // rest of the process. If the selected runtime is absent, allow the cached
+    // choice to follow a later successful probe at the real package path.
+    auto active = ActiveKindCached();
+    auto installed = [](DlssNr::Backend::Kind kind) {
+        return kind == DlssNr::Backend::Kind::Lmxxf ? HasLmxxfRuntime() : HasDanielRuntime();
+    };
+    if (installed(active))
+        return true;
+    const auto resolved = DlssNr::Backend::ActiveKindFromConfig();
+    int expected = static_cast<int>(active);
+    g_activeKind.compare_exchange_strong(expected, static_cast<int>(resolved),
+                                         std::memory_order_acq_rel);
+    active = ActiveKindCached();
+    return installed(active);
+}
+void SyncBackendWithConfig()
+{
+    // Hot switch: both hosts stay alive. Flip ProxyWrap, drop temporal history,
+    // and force the warm-up window so the new host does not inherit stability.
+    DlssNr::Backend::InvalidateInstallProbe();
+    const auto selected = DlssNr::Backend::ActiveKindFromConfig();
+    g_activeKind.store(static_cast<int>(selected), std::memory_order_release);
+    {
+        std::lock_guard fl(frameMutex);
+        lastFrame = {};
+        stableFrames = 0;
+    }
+    if (DlssNr::Submission::Hooks::IsArmed())
+        DlssNr::Submission::Hooks::SetProxyWrap(
+            DlssNr::Backend::LmxxfWired() && selected == DlssNr::Backend::Kind::Lmxxf);
+    if (auto b = ActiveHost())
+        b->InvalidateHistory();
+    Message("AMD pre-SR: NR backend switched");
 }
 const char* RuntimeName()
 {
@@ -332,9 +402,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     if (!HasFiles())
         return false;
     const auto requested = DlssNr::Backend::RequestedKind();
-    const auto active = DlssNr::Backend::ActiveKindFromConfig();
-    if (active == DlssNr::Backend::Kind::Off)
-        return true;
+    const auto active = ActiveKindCached();
     if (requested == DlssNr::Backend::Kind::Lmxxf && !DlssNr::Backend::LmxxfWired())
     {
         static bool loggedLmxxfFallback = false;
@@ -411,23 +479,29 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         return true;
     }
     std::lock_guard initGuard(initMutex);
-    auto b = backend.load();
-    if (!b)
+    if (!InstallSubmissionHook(device, q))
     {
-        if (!InstallSubmissionHook(device, q))
-        {
-            device->Release();
-            if (confirmedQ) confirmedQ->Release();
-            return true;
-        }
-        if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed())
-            DlssNr::Submission::Hooks::SetProxyWrap(true);
-        if (active == DlssNr::Backend::Kind::Lmxxf)
-            b = new DlssNr::Backend::LmxxfBackend(device, q, Directory());
-        else
-            b = new DlssNr::Backend::DanielBackend(device, q, Directory());
-        backend.store(b);
+        device->Release();
+        if (confirmedQ) confirmedQ->Release();
+        return true;
     }
+    if (DlssNr::Submission::Hooks::IsArmed())
+        DlssNr::Submission::Hooks::SetProxyWrap(
+            DlssNr::Backend::LmxxfWired() && active == DlssNr::Backend::Kind::Lmxxf);
+    // Build only the selected host on first use. The other is built when it is
+    // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
+    if (active == DlssNr::Backend::Kind::Lmxxf)
+    {
+        if (!g_lmxxf.load(std::memory_order_acquire))
+            g_lmxxf.store(new DlssNr::Backend::LmxxfBackend(device, q, Directory()),
+                          std::memory_order_release);
+    }
+    else if (!g_daniel.load(std::memory_order_acquire))
+    {
+        g_daniel.store(new DlssNr::Backend::DanielBackend(device, q, Directory()),
+                       std::memory_order_release);
+    }
+    auto b = HostForKind(active);
     device->Release();
     if (confirmedQ)
     {
@@ -603,18 +677,18 @@ void Restore(NVSDK_NGX_Parameter* params)
 }
 void InvalidateHistory()
 {
-    if (auto b = backend.load())
+    if (auto b = ActiveHost())
         b->InvalidateHistory();
 }
 void TraceContextRelease(unsigned int handle, bool after)
 {
-    if (auto b = backend.load())
+    if (auto b = ActiveHost())
         b->TraceBoundary(std::string(after ? "after" : "before") +
                          " SR context release handle=" + std::to_string(handle));
 }
 bool GraphicsRestartNeeded(UINT activePasses)
 {
-    if (auto b = backend.load())
+    if (auto b = ActiveHost())
         return b->GraphicsRestartNeeded(activePasses);
     return false;
 }
@@ -626,7 +700,7 @@ std::string Status()
         if (!message.empty())
             return message;
     }
-    if (auto b = backend.load())
+    if (auto b = ActiveHost())
         return b->Status();
     return "AMD pre-SR: idle";
 }

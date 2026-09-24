@@ -192,8 +192,8 @@ RunBeforeSR=true
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
 ; daniel - danielblnc 0.3.0 / 0.3.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
-; off    - Disable neural rendering pass, passthrough colour to upscaler
-; lmxxf, daniel, off - Setup writes the backend chosen at install. Neither is the sole default.
+; lmxxf or daniel only. Turn the pass off with Enabled=false, not with NrBackend.
+; If the chosen host is missing its files, the other installed host runs instead.
 NrBackend=lmxxf
 
 ; Diagnostic mode for lmxxf backend (NO NR)
@@ -206,7 +206,7 @@ NrBackend=lmxxf
 LmxxfDiagnostic=off
 
 ; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
-; Installer also writes DLSS5-AMD\native-game-flags.txt beside the game. true/false - Default is false
+; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
 LmxxfFitLarge=false
 
 ; Resolution scale factor for neural rendering model input
