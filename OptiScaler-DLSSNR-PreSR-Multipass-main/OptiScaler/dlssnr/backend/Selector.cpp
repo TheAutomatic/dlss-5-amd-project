@@ -16,20 +16,14 @@ Kind RequestedKind()
 
 Kind ActiveKindFromConfig()
 {
-    const auto requested = RequestedKind();
     const auto& raw = Config::Instance()->NrBackend;
-    const bool isAuto = !raw.has_value() || raw.value().empty() ||
-                        (_stricmp(raw.value().c_str(), "auto") == 0);
-    if (isAuto)
-    {
-        std::error_code ec;
-        const auto dir = Util::DllPath().parent_path();
-        const bool hasDaniel = std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
-        const bool hasLmxxf = std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
-        if (hasLmxxf && !hasDaniel && LmxxfWired())
-            return Kind::Lmxxf;
-    }
-    return ActiveKind(requested);
+    const Request request =
+        raw.has_value() ? ParseRequest(raw.value()) : Request::Auto;
+    std::error_code ec;
+    const auto dir = Util::DllPath().parent_path();
+    const bool hasDaniel = std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
+    const bool hasLmxxf = std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
+    return ResolveInstalled(request, hasDaniel, hasLmxxf, LmxxfWired());
 }
 
 bool SubmissionHooksWanted()

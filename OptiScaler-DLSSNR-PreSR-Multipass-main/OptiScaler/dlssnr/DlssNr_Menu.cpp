@@ -246,7 +246,12 @@ void RenderMenu(Config* config, float menuResScale)
         // Enable NR is the on/off switch — there is no separate "off" host.
         {
             using DlssNr::Backend::Kind;
+            using DlssNr::Backend::Request;
             const Kind active = DlssNr::Backend::ActiveKindFromConfig();
+            const auto& rawBackend = config->NrBackend;
+            const Request request =
+                rawBackend.has_value() ? DlssNr::Backend::ParseRequest(rawBackend.value())
+                                       : Request::Auto;
             int selected = active == Kind::Lmxxf ? 1 : 0;
             static const char* items[] = { "daniel", "lmxxf" };
             const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
@@ -276,9 +281,26 @@ void RenderMenu(Config* config, float menuResScale)
                               "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
                               "\nSwitching is live; temporal history resets."
                               "\nTurn NR off with Enable NR above."
+                              "\nIf the chosen host is missing its files, the other installed"
+                              "\nhost runs instead."
                               "\n\nInstalled here: %s",
                               installed);
                 HelpMarker(tip);
+            }
+            if (!hasDaniel && !hasLmxxf)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
+                                   "No NR runtime beside OptiScaler (need dlssnr_amd_pass1.dll or LmxxfNrRuntime.dll).");
+            }
+            else if (request == Request::Lmxxf && active != Kind::Lmxxf)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                   "lmxxf not installed; running daniel.");
+            }
+            else if (request == Request::Daniel && active != Kind::Daniel)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                   "daniel not installed; running lmxxf.");
             }
         }
 

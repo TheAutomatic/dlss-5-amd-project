@@ -8,7 +8,7 @@ Tracked ADR for the lmxxf graft. Plan: `exports/lmxxf-main-backend-integration-p
 | Item | Now |
 |---|---|
 | Branch | `work/lmxxf-backend` off `main @ 2792909` (1.8.6 Daniel). **Not pushed.** |
-| Default ini `NrBackend` | **daniel** (missing / empty / `auto` / `off` / `none` / unknown → daniel). Only `daniel` or `lmxxf`; `Enabled` is the on/off. |
+| Default ini `NrBackend` | **daniel** or **lmxxf**. Missing / empty / `auto` / `off` / `none` / unknown → whichever host is installed (lmxxf if alone). Explicit choice missing its files falls back to the other installed host. Neither installed → `HasFiles()` false and the menu reports it. `Enabled` is the on/off. |
 | `LmxxfWired()` | **`true` for local E only** (`Kind.h`). Revert before push/default. |
 | Active lmxxf | Only when **Wired ∧** `[DlssNr] NrBackend=lmxxf` → `ActiveKind==Lmxxf` → `LmxxfBackend` |
 | `NrBackend=lmxxf` while Wired false | Logged once, falls back to Daniel |
