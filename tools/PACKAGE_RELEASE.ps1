@@ -181,19 +181,19 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 ; Synthesizes detail and denoises ray-traced inputs before upscaling (FSR/XeSS).
 
 ; Enables DLSS-NR Pre-SR pipeline
-; true or false - Default is false
+; true or false - Program default is false. Setup turns this on.
 Enabled=false
 
 ; Controls whether neural rendering executes before the upscaler
 ; When true, runs on the pre-upscale colour texture before FSR/XeSS
-; true or false - Default is true
+; true or false - This package sets true. If the key is absent, the program uses false.
 RunBeforeSR=true
 
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
 ; daniel - danielblnc 0.3.0 / 0.3.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
 ; off    - Disable neural rendering pass, passthrough colour to upscaler
-; lmxxf, daniel, off - Default is lmxxf
+; lmxxf, daniel, off - Setup writes the backend chosen at install. Neither is the sole default.
 NrBackend=lmxxf
 
 ; Diagnostic mode for lmxxf backend (NO NR)
@@ -255,16 +255,17 @@ AmdNeuralLightingStrength=0.5
 Passes=1
 
 ; Weight for preserving local tone mapping
-; float value - Default is 0
-LocalTone=0
+; float value - Default is 1
+LocalTone=1
 
 ; Weight for preserving fine local structure and edges
 ; float value - Default is 1
 LocalStructure=1
 
 ; Weight for preserving skin structure and texture
-; float value - Default is 1
-SkinStructure=1
+; -1 follows local structure (the model's own default), not a strength of zero
+; float value - Default is -1
+SkinStructure=-1
 
 ; Apply neural rendering adjustments after Ray Reconstruction
 ; true or false - Default is false
@@ -350,20 +351,9 @@ $lmxxfShaderSrc = Join-Path $root 'third_party/lmxxf/shaders'
 if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
     $lmxxfShaderDst = Join-Path $stage 'shaders'
     New-Item -ItemType Directory -Path $lmxxfShaderDst -Force | Out-Null
-    # Live glue: top-level *.hlsl plus the precompiled shader-cache/*.dxbc (CI packs only the tracked
-    # blobs). Cache names hash the full source + entry + macros, so a blob for an older shader is
-    # never loaded; current ones spare the first PrepareFrame a compile, and every launch when the
-    # game folder is not writable.
+    # Live glue: top-level *.hlsl only. shader-cache/*.dxbc is a local compile cache and is not shipped.
     Get-ChildItem -LiteralPath $lmxxfShaderSrc -Filter '*.hlsl' -File | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfShaderDst $_.Name) -Force
-    }
-    $lmxxfCacheSrc = Join-Path $lmxxfShaderSrc 'shader-cache'
-    if (Test-Path -LiteralPath $lmxxfCacheSrc -PathType Container) {
-        $lmxxfCacheDst = Join-Path $lmxxfShaderDst 'shader-cache'
-        New-Item -ItemType Directory -Path $lmxxfCacheDst -Force | Out-Null
-        Get-ChildItem -LiteralPath $lmxxfCacheSrc -Filter '*.dxbc' -File | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfCacheDst $_.Name) -Force
-        }
     }
 }
 

@@ -121,8 +121,8 @@ analysis/
 exports/
 .handoff/
 GIT-REWRITE-STATUS.md
-# shipped precompiled dxbc (FIT/SRGB variants); keep
-# third_party/lmxxf/shaders/shader-cache/
+# D3D shader cache. Regenerated beside the hlsl on first use. Not shipped.
+third_party/lmxxf/shaders/shader-cache/
 
 
 # lmxxf local module build output from sync-lmxxf-upstream.ps1
