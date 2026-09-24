@@ -212,7 +212,7 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
 int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, outputHash = false, rejectFormats = false,
-         useExposure = false;
+         useExposure = false, ultrawide = false;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -227,11 +227,13 @@ int main(int argc, char **argv)
             rejectFormats = true;
         else if (!std::strcmp(argv[i], "--exposure"))
             useExposure = outputHash = true;
+        else if (!std::strcmp(argv[i], "--ultrawide"))
+            ultrawide = outputHash = true;
         else
         {
             std::fprintf(stderr,
                          "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
-                         "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats]\n");
+                         "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide]\n");
             return 2;
         }
     }
@@ -239,7 +241,7 @@ int main(int argc, char **argv)
     {
         std::fprintf(stderr,
                      "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
-                     "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats]\n");
+                     "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide]\n");
         return 2;
     }
 
@@ -291,8 +293,10 @@ int main(int argc, char **argv)
     hp.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC td {};
     td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    td.Width = 1920;
-    td.Height = 1080;
+    // 2024x848 is 3440x1440 at DLSS Quality 1: 1.72M pixels, under the 1920x1080 budget of
+    // 2.07M, but wider than 1920. Admission is by pixel budget precisely so this is allowed.
+    td.Width = ultrawide ? 2024 : 1920;
+    td.Height = ultrawide ? 848 : 1080;
     td.DepthOrArraySize = td.MipLevels = 1;
     td.Format = rgb9e5 ? DXGI_FORMAT_R9G9B9E5_SHAREDEXP : DXGI_FORMAT_R16G16B16A16_FLOAT;
     td.SampleDesc.Count = 1;
@@ -325,8 +329,8 @@ int main(int argc, char **argv)
 
     LmxxfNrFrameInfo frame {};
     frame.struct_size = sizeof(frame);
-    frame.color_width = 1920;
-    frame.color_height = 1080;
+    frame.color_width = static_cast<UINT>(td.Width);
+    frame.color_height = td.Height;
     frame.color = color;
     frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     // An unsupported colour must be a retryable contract rejection, not a poisoned session.
@@ -583,6 +587,7 @@ int main(int argc, char **argv)
         adapter->Release();
     FreeLibrary(dll);
     std::printf("lmxxf_nr_gpu: ok%s\n", queueMismatch ? " (queue mismatch fallback)" :
-                                         resize ? " (default-path resize teardown)" : "");
+                                         resize ? " (default-path resize teardown)" :
+                                         ultrawide ? " (2024x848 ultrawide admitted)" : "");
     return 0;
 }

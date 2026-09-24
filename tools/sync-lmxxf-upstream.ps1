@@ -10,8 +10,9 @@
   Live shaders/ are mirror-cleaned to top-level *.hlsl only (retired dx12-network is not vendored).
   Upstream does not publish .hsaco on git (release/ is ignored); shipping modules are built
   locally with hip/build-modules.ps1 (default) or supplied via -ModulesPath.
-  By default, Development\HIP\hip_d3d12_bridge.h and src\native_rgb_reflect.h are preserved (pinned & patched).
-  Pass -UpdateBridge / -UpdateReflect to overwrite each from upstream and re-apply local patches (fail-closed).
+  By default, Development\HIP\hip_d3d12_bridge.h, src\native_rgb_reflect.h and src\native_input_geometry.h
+  are preserved (pinned & patched). Pass -UpdateBridge / -UpdateReflect / -UpdateInputGeometry to overwrite
+  each from upstream and re-apply local patches (fail-closed).
   Pinned files are marker-checked each sync. Fails closed when hip recipes change but
   modules do not, or modules disagree with hip/SHA256SUMS gfx1201, unless -AllowStaleModules.
 
@@ -62,6 +63,11 @@
   .\tools\sync-lmxxf-upstream.ps1 -ModulesPath 'D:\built\gfx1201'
   .\tools\sync-lmxxf-upstream.ps1 -SkipModules -AllowStaleModules
   .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge
+.PARAMETER UpdateInputGeometry
+  If set, overwrites src\native_input_geometry.h from upstream and re-applies the local
+  pixel-budget admission (ultrawide inputs whose width exceeds 1920 but whose pixel count
+  stays within the 1920x1080 budget).
+
   .\tools\sync-lmxxf-upstream.ps1 -UpdateReflect
   .\tools\sync-lmxxf-upstream.ps1 -AllowOfflineUpstream
 #>
@@ -77,6 +83,7 @@ param(
     [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
     [switch]$UpdateReflect,
+    [switch]$UpdateInputGeometry,
     [switch]$SkipBuild
 )
 
@@ -136,6 +143,21 @@ function Assert-BridgeLocalMarkers([string]$bridgePath, [string]$context) {
 }
 
 
+
+function Assert-InputGeometryLocalMarkers([string]$geomPath, [string]$context) {
+    if (-not (Test-Path -LiteralPath $geomPath -PathType Leaf)) {
+        throw ("Input geometry header missing ($context): " + $geomPath)
+    }
+    $c = Get-Content -LiteralPath $geomPath -Raw
+    foreach ($r in @(
+        @{ Needle = 'max_pixels'; What = 'max_pixels pixel budget' },
+        @{ Needle = 'w*h<=max_pixels'; What = 'Supported() pixel-budget admission' }
+    )) {
+        if (-not $c.Contains($r.Needle)) {
+            throw ("Input geometry local markers incomplete ($context): missing '" + $r.What + "'. Pass -UpdateInputGeometry to re-apply patches from a matching upstream ref, or restore the pinned header.")
+        }
+    }
+}
 
 function Assert-ReflectLocalMarkers([string]$reflectPath, [string]$context) {
     if (-not (Test-Path -LiteralPath $reflectPath -PathType Leaf)) {
@@ -440,6 +462,7 @@ $archivePaths = @(
     'src/native_pinned_resource.h',
     'src/native_pso.h',
     'src/native_rgb_reflect.h',
+    'src/native_input_geometry.h',
     'src/native_rgb_texture.h',
     'src/native_shader_cache.h',
     'shaders',
@@ -494,6 +517,7 @@ $headerFiles = @(
     'src\native_pinned_resource.h',
     'src\native_pso.h',
     'src\native_rgb_reflect.h',
+    'src\native_input_geometry.h',
     'src\native_rgb_texture.h',
     'src\native_shader_cache.h'
 )
@@ -505,6 +529,10 @@ foreach ($rel in $headerFiles) {
     }
     if ($rel -eq 'src\native_rgb_reflect.h' -and -not $UpdateReflect) {
         Write-Host "  Preserved (pinned & patched): $rel (pass -UpdateReflect to overwrite and re-patch)" -ForegroundColor DarkYellow
+        continue
+    }
+    if ($rel -eq 'src\native_input_geometry.h' -and -not $UpdateInputGeometry) {
+        Write-Host "  Preserved (pinned & patched): $rel (pass -UpdateInputGeometry to overwrite and re-patch)" -ForegroundColor DarkYellow
         continue
     }
     $src = Join-Path $script:UpstreamTree $rel
@@ -872,6 +900,36 @@ if (-not $UpdateReflect) {
         Write-Host "  Patch C: native_split.h already absent in refreshed reflect header" -ForegroundColor DarkYellow
     }
     Assert-ReflectLocalMarkers -reflectPath $reflectH -context '-UpdateReflect post-patch'
+}
+
+# Patch D: admit ultrawide inputs by pixel budget instead of per axis.
+# 2024x848 (3440x1440 at Quality 1) is 1.72M pixels, under the 1920x1080 budget, but a per-axis
+# cap rejects it on width alone. The budget is exactly that box, so nothing admitted before is lost.
+$geomH = Join-Path $vendorRoot 'src\native_input_geometry.h'
+if (-not (Test-Path -LiteralPath $geomH -PathType Leaf)) {
+    throw "Patch D failed: missing native_input_geometry.h"
+}
+if (-not $UpdateInputGeometry) {
+    Write-Host "  Preserved Patch D: native_input_geometry.h is pinned (pass -UpdateInputGeometry to re-patch)" -ForegroundColor DarkYellow
+    Assert-InputGeometryLocalMarkers -geomPath $geomH -context 'pinned input geometry (no -UpdateInputGeometry)'
+} else {
+    $content = Get-Content -LiteralPath $geomH -Raw
+    if ($content -notmatch 'max_pixels') {
+        $mxAnchor = 'static constexpr unsigned max_width=1920,max_height=1080;'
+        if (-not $content.Contains($mxAnchor)) {
+            throw "Patch D failed: cannot find max_width/max_height anchor in native_input_geometry.h"
+        }
+        $content = $content.Replace($mxAnchor, $mxAnchor + "`r`n static constexpr uint64_t max_pixels=uint64_t(max_width)*max_height;")
+    }
+    if ($content -notmatch 'w\*h<=max_pixels') {
+        $supAnchor = '(large||(w<=max_width&&h<=max_height))'
+        if (-not $content.Contains($supAnchor)) {
+            throw "Patch D failed: cannot find Supported() per-axis anchor in native_input_geometry.h"
+        }
+        $content = $content.Replace($supAnchor, '(large||w*h<=max_pixels)')
+    }
+    [IO.File]::WriteAllText($geomH, $content, [Text.UTF8Encoding]::new($false))
+    Assert-InputGeometryLocalMarkers -geomPath $geomH -context '-UpdateInputGeometry post-patch'
 }
 
 # 6. Update UPSTREAM.md with new commit and timestamp

@@ -22,6 +22,7 @@ Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves
 |---|---|---|
 | `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual safeguards for `LmxxfNrRuntime` | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
 | `src/native_rgb_reflect.h` | Drop unused `#include "native_split.h"` so codec builds without the D3D12 network body | **Preserve**; `-UpdateReflect` to overwrite + re-drop include |
+| `src/native_input_geometry.h` | Admit by pixel budget so ultrawide inputs are not rejected on width alone | **Preserve**; `-UpdateInputGeometry` to overwrite + re-apply |
 | `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** — never copied from upstream |
 | `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` gfx1201 rows | Shipping COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
 
@@ -38,7 +39,7 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 | `Development/HIP/packed_weights.h` | Weight packing |
 | `src/native_hip_network.h` | HIP entry |
 | `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers |
-| `src/native_input_geometry.h` | Input viewport / fit |
+| `src/native_input_geometry.h` | Input viewport / fit (see OURS above for the local admission patch) |
 | `src/native_lab_paths.h` | Paths, typed views, weight IO |
 | `src/native_game_codec.h` | Scene encode / decode host |
 | `src/native_game_rgb_input.h`, `src/native_rgb_texture.h` | RGB IO |
@@ -68,6 +69,15 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 ### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
 > See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (fail-closed anchors + marker check).
+
+### `src/native_input_geometry.h` (Vendor-Pinned & Patched)
+
+1. **Pixel-budget admission**: `Supported()` admits by `w*h <= 1920*1080` instead of `w<=1920 && h<=1080`.
+   A 3440x1440 ultrawide at DLSS Quality 1 renders 2024x848 = 1.72M pixels, less work than the 2.07M of
+   1920x1080, but the per-axis cap rejected it on width alone and the codec threw
+   "codec unverified input format/geometry" (SILENT HILL Townfall). The budget is exactly the old box, so
+   every previously admitted input still is; the fit math is unchanged and is the same path `DLSS5_FIT_LARGE`
+   already uses for larger inputs.
 
 ### `src/native_rgb_reflect.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
