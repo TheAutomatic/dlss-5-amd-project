@@ -15,10 +15,12 @@ extern "C" {
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
  * On recovery, EnqueueHip returns OK only after the private neural output was fully zeroed;
- * GetLastError then contains a recovery diagnostic. The caller must submit its
- * consumer before Retire, Drain, or Destroy. The runtime drains a changed
- * consumer queue before output reuse or destruction. A failed/uncertain clear
- * returns FAILED and the session must be rebuilt. */
+ * GetLastError then contains a recovery diagnostic. Submit input and output work
+ * on the queue passed to EnqueueHip, and submit the output reader before Retire,
+ * Drain, or Destroy. The runtime waits for that supplied queue before output reuse
+ * or destruction. It cannot discover output readers on other queues; callers must
+ * synchronize those queues themselves before reuse or destruction. A failed or
+ * uncertain clear returns FAILED and the session must be rebuilt. */
 #define LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK (1u << 0)
 
 enum LmxxfNrStatus

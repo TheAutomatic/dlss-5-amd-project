@@ -24,8 +24,8 @@ namespace
 {
 thread_local char g_lastError[256] = {};
 
-// EnqueueHip's recovery waits run inside the host's ExecuteCommandLists. Windows resets a GPU
-// stuck for 2 s (TDR), so waiting longer there only lengthens a stall; teardown keeps 30 s.
+// Bound each D3D12 queue wait during EnqueueHip recovery to limit stalls.
+// Teardown keeps its 30 s wait; HIP stream synchronization is not bounded here.
 constexpr DWORD kSubmissionWaitMs = 3000;
 
 void SetError(const char *text)

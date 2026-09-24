@@ -758,8 +758,8 @@ private:
    submitted=true;clear_submission_unconfirmed=true;
    Check(targetQueue->Signal(completion,1),"signal clear completion");
    Check(completion->SetEventOnCompletion(1,completedEvent),"wait for clear completion");
-   // This wait runs inside the host's submission. Windows resets a GPU stuck for 2 s,
-   // so a longer timeout only lengthens a stall.
+   // Bound this synchronous D3D12 wait to limit a recovery stall.
+   // HIP stream synchronization above is not covered by this timeout.
    ok=WaitForSingleObject(completedEvent,3000)==WAIT_OBJECT_0&&completion->GetCompletedValue()>=1&&SUCCEEDED(device->GetDeviceRemovedReason());
    if(ok)clear_submission_unconfirmed=false;
   }catch(...){ok=false;}

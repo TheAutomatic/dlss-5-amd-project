@@ -85,7 +85,7 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
    - In `NotifyOutputSubmittedIfRecorded()`, if `failed` is true, safely resets `phase = Phase::Ready` without asserting `QueueContract`, allowing safe teardown or re-initialization.
 5. **Runtime Opt-In and Consumer Queue Lifetime**:
    - `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK` enables recovery in the C ABI; the default keeps strict enqueue errors.
-   - Queue mismatch recovery drains both the original session queue and the target producer queue before HIP zeroing. The Runtime retains the consumer queue and drains it before frame reuse or destruction.
+   - Queue mismatch recovery waits for submitted work on both the original session queue and the queue supplied to `EnqueueHip` before zeroing. The Runtime retains and drains the supplied queue before frame reuse or destruction; callers must synchronize any additional queue that reads the output.
 
 ## Shipping modules (`.hsaco`)
 
