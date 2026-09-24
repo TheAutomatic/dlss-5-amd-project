@@ -10,7 +10,7 @@ Files are copied byte-for-byte from that commit unless a later commit in this tr
 says otherwise.
 
 `tools/sync-lmxxf-upstream.ps1` pins sync to `-UpstreamRef` (default `origin/main`) via
-`git archive` into a temp tree …the upstream working-tree branch cannot poison the copy.
+`git archive` into a temp tree — the upstream working-tree branch cannot poison the copy.
 Pass `-SkipUpstreamFetch` / `-AllowOfflineUpstream` when fetch is unavailable. Live
 `shaders/*.hlsl` are mirror-cleaned to the top-level glue set only (`dx12-network/` is not vendored).
 
@@ -23,7 +23,7 @@ Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves
 | `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual safeguards for `LmxxfNrRuntime` | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
 | `src/native_rgb_reflect.h` | Drop unused `#include "native_split.h"` so codec builds without the D3D12 network body | **Preserve**; `-UpdateReflect` to overwrite + re-drop include |
 | `src/native_input_geometry.h` | Admit by pixel budget so ultrawide inputs are not rejected on width alone | **Preserve**; `-UpdateInputGeometry` to overwrite + re-apply |
-| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, ...) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** …never copied from upstream |
+| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** — never copied from upstream |
 | `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` gfx1201 rows | Shipping COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
 
 ## FOLLOW (track upstream performance / recipe)
