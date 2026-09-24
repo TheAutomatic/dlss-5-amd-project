@@ -102,6 +102,31 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
         [IO.File]::WriteAllText($localRecipe, $recipeText, [Text.UTF8Encoding]::new($false))
     }
     if (-not $localRecipe) { $localRecipe = $buildPs1 }
+    # hip/build-modules.ps1 needs Get-FileHash for its manifest rows. Windows PowerShell has it,
+    # but loses it when started with an inherited PSModulePath that lists PowerShell 7's module
+    # directories first (from pwsh 7 or a Git Bash shell): 5.1 then autoloads the PS7
+    # Microsoft.PowerShell.Utility, which it cannot use, and the module build fails on its first
+    # module. The recipe runs in-process below; a child powershell.exe would not see the shim.
+    if (-not (Get-Command Get-FileHash -ErrorAction SilentlyContinue)) {
+        # global: build-modules.ps1 is invoked as a child SCRIPT and does not see this function's locals.
+        function global:Get-FileHash {
+            param(
+                [Parameter(Position = 0)]$Path,
+                [Parameter(Position = 1)]$Second,
+                $File,
+                $LiteralPath,
+                $Algorithm,
+                [Parameter(ValueFromRemainingArguments = $true)]$Rest
+            )
+            foreach ($cand in (@($Path, $Second, $File, $LiteralPath) + @($Rest))) {
+                if ($cand -is [string] -and (Test-Path -LiteralPath $cand -PathType Leaf)) {
+                    return [pscustomobject]@{ Hash = (Get-FileSha256Hex $cand); Path = $cand }
+                }
+            }
+            throw ("Get-FileHash shim: no readable file among its arguments")
+        }
+        Write-Host "  Get-FileHash is not resolvable in this session (inherited PSModulePath?); shimmed from Get-FileSha256Hex" -ForegroundColor DarkYellow
+    }
     Write-Host ("  Building gfx1201 modules via build-modules.ps1 -> " + $outDir) -ForegroundColor Cyan
     try {
         # | Write-Host, NOT the pipeline: the recipe Write-Outputs one hash line per module, and
