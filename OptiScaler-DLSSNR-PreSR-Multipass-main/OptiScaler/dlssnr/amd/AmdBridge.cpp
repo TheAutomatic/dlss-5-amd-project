@@ -182,14 +182,10 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 }
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
-    // Daniel isolates its private neural list; lmxxf always returns -1.
-    // Ask both so a mid-switch still splits the batch correctly.
-    int index = -1;
-    if (auto d = g_daniel.load(std::memory_order_acquire))
-        index = d->PendingListIndex(n, c);
-    if (index < 0)
-        if (auto l = g_lmxxf.load(std::memory_order_acquire))
-            index = l->PendingListIndex(n, c);
+    // Only the active host may split the batch. A stale Daniel slot after
+    // switching to lmxxf must not isolate lists the lmxxf path submits whole.
+    auto b = ActiveHost();
+    int index = b ? b->PendingListIndex(n, c) : -1;
     if (n > 1 && index >= 0)
     {
         // Separate Execute calls establish an execution boundary around the
@@ -464,8 +460,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (confirmedQ) confirmedQ->Release();
         return true;
     }
-    if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed())
-        DlssNr::Submission::Hooks::SetProxyWrap(true);
+    if (DlssNr::Submission::Hooks::IsArmed())
+        DlssNr::Submission::Hooks::SetProxyWrap(DlssNr::Backend::SubmissionHooksWanted());
     // Build only the selected host on first use. The other is built when it is
     // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
     if (active == DlssNr::Backend::Kind::Lmxxf)
