@@ -3,3 +3,6 @@
 # 于是 case 模式、heredoc、变量里都会混进多余的 \r —— 典型症状是
 # 「\r: command not found」和莫名其妙匹配不上的分支。
 .githooks/* text eol=lf
+
+# Unified patches are applied to LF git-archive files on Windows too.
+tools/lmxxf-sync/patches/*.patch text eol=lf

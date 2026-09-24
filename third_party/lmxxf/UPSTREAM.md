@@ -9,10 +9,22 @@ This is a **vendored source closure**, not a git submodule and not the `analysis
 Files are copied byte-for-byte from that commit unless a later commit in this tree
 says otherwise.
 
-`tools/sync-lmxxf-upstream.ps1` pins sync to `-UpstreamRef` (default `origin/main`) via
-`git archive` into a temp tree — the upstream working-tree branch cannot poison the copy.
-Pass `-SkipUpstreamFetch` / `-AllowOfflineUpstream` when fetch is unavailable. Live
-`shaders/*.hlsl` are mirror-cleaned to the top-level glue set only (`dx12-network/` is not vendored).
+`tools/sync-lmxxf-upstream.ps1` resolves `-UpstreamRef` (default `origin/main`) once and
+uses that immutable commit for source extraction and integration review. The commit above
+is the last **completed** sync; `sync-state.json` records any pending source staging.
+See [the sync and review workflow](../../tools/lmxxf-sync/README.md) before pulling upstream.
+A successful copy or build alone does not mean new features are wired into this product.
+
+The single manifest in `tools/lmxxf-sync/manifest.json` owns the selected header closure.
+Ordinary headers, `hip/*.hip` and top-level `shaders/*.hlsl` are mirror-cleaned in their
+respective owners. Missing required upstream paths and patch conflicts fail before vendor
+mutation. The three local headers below stay pinned unless explicitly refreshed.
+
+The mandatory audit collects changed paths, runtime values, deployment/test switches and
+per-module compile gates, then requires a commit/content-bound review record. Review each
+feature as integrated, deliberately deferred with a next step, or excluded with evidence.
+Only after review and requested verification succeed does the completed commit advance.
+`-SkipEnablementAudit` is a source-staging-only escape hatch; it leaves the sync pending.
 
 ## OURS (do not follow upstream on sync)
 
@@ -39,7 +51,6 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 | `Development/HIP/packed_weights.h` | Weight packing |
 | `src/native_hip_network.h` | HIP entry |
 | `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers |
-| `src/native_input_geometry.h` | Input viewport / fit (see OURS above for the local admission patch) |
 | `src/native_lab_paths.h` | Paths, typed views, weight IO |
 | `src/native_game_codec.h` | Scene encode / decode host |
 | `src/native_game_rgb_input.h`, `src/native_rgb_texture.h` | RGB IO |
@@ -68,7 +79,7 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 
 ### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
-> See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (fail-closed anchors + marker check).
+> See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (independent unified patch check + local contract check).
 
 ### `src/native_input_geometry.h` (Vendor-Pinned & Patched)
 
@@ -110,9 +121,9 @@ Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not**
 - syncs hip *sources* and upstream's non-gfx1201 `SHA256SUMS` rows from upstream git. The `gfx1201/` rows stay local: after the module refresh they are rehashed from `third_party/lmxxf/modules`, because upstream's rows come from a different COMGR and never match local builds;
 - by default runs `hip/build-modules.ps1 -Targets gfx1201` into a local build dir, then copies into `third_party/lmxxf/modules`;
 - or accepts an explicit `-ModulesPath` to already-built flat gfx1201 `.hsaco`;
-- **fails closed** if hip recipes (`*.hip`, `build-modules.ps1`, `rtc_compile.cpp`) change but modules were neither rebuilt in the same run nor changed, if a module upstream lists is missing, or if robocopy fails.
+- **fails closed** if hip recipes (`*.hip`, `build-modules.ps1`, `rtc_compile.cpp`) change but modules were neither rebuilt in the same run nor changed, if a module upstream lists is missing, or if source/module verification fails. A failed run retains its original recipe baseline so a retry cannot silently accept old modules.
 
-Use `-SkipModules -AllowStaleModules` only for intentional header-only syncs. Use `-NoBuildModules` with `-ModulesPath` when modules were built offline.
+Use `-SkipModules -AllowStaleModules` only for intentional staged integration, with the exception and next steps recorded in the review. Use `-NoBuildModules` with `-ModulesPath` when modules were built offline.
 
 ## Upstream Contribution & Decoupling Roadmap
 
