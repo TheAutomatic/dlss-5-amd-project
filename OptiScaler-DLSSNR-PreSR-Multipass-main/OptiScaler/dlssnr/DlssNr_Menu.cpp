@@ -384,9 +384,7 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::Checkbox("Fit large color", &fitLarge))
                 {
                     config->LmxxfFitLarge = fitLarge;
-                    // NativeFitLargeInput() reads DLSS5_FIT_LARGE on every call, so a
-                    // live env write is enough — no restart. The codec may rebuild on
-                    // the next frame if admission changes.
+                    // Runtime reads DLSS5_FIT_LARGE on every NativeFitLargeInput() call.
                     _putenv(fitLarge ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
@@ -396,10 +394,7 @@ void RenderMenu(Config* config, float menuResScale)
                            "\n\nFitLarge + large Color can hitch badly on the same-frame path"
                            "\n(Palworld ~2s/frame at 2258x1271). Prefer internal render at or"
                            "\nbelow roughly 4K Performance / 1440p Balanced / 1080p native,"
-                           "\nor leave this off."
-                           "\n\nLive: applies to the next frame. If the new setting rejects"
-                           "\nthe current Color size, that frame falls back to original colour"
-                           "\n(no NR) until the chain rebuilds — the game is not interrupted.");
+                           "\nor leave this off.");
             }
 
             if (!isLmxxf)
