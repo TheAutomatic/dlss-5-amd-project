@@ -7,7 +7,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <cstdlib>
 
 static void Require(bool ok, const char *what)
 {
@@ -143,11 +142,13 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
         std::fprintf(stderr, "output_hash: output is not a texture; skipped\n");
         return 0;
     }
-    const UINT w = static_cast<UINT>(td.Width), h = td.Height;
+    const UINT h = td.Height;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp {};
     UINT numRows = 0;
-    UINT64 total = 0;
-    device->GetCopyableFootprints(&td, 0, 1, 0, &fp, &numRows, nullptr, &total);
+    // rowBytes is the footprint's own count of valid bytes per row, so every output format
+    // hashes correctly; guessing bytes-per-pixel over-read the last row of a 4-byte format.
+    UINT64 rowBytes = 0, total = 0;
+    device->GetCopyableFootprints(&td, 0, 1, 0, &fp, &numRows, &rowBytes, &total);
 
     D3D12_HEAP_PROPERTIES rbh {};
     rbh.Type = D3D12_HEAP_TYPE_READBACK;
@@ -188,8 +189,6 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
     queue->ExecuteCommandLists(1, ls);
     WaitQueue(device, queue);
 
-    const UINT bytesPerPixel = (td.Format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP) ? 4u : 8u;
-    const UINT64 rowBytes = UINT64(w) * bytesPerPixel;
     uint64_t hsh = 1469598103934665603ull;
     void *mapped = nullptr;
     Check(rb->Map(0, nullptr, &mapped), "map readback");
@@ -238,7 +237,8 @@ int main(int argc, char **argv)
         {
             std::fprintf(stderr,
                          "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
-                         "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide]\n");
+                         "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide] "
+                         "[--exposure|--exposure-bad] [--subrect]\n");
             return 2;
         }
     }
@@ -246,7 +246,8 @@ int main(int argc, char **argv)
     {
         std::fprintf(stderr,
                      "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
-                     "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide]\n");
+                     "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide] "
+                         "[--exposure|--exposure-bad] [--subrect]\n");
         return 2;
     }
 
@@ -374,28 +375,35 @@ int main(int argc, char **argv)
             Require(std::strstr(badErr, "fmt=") != nullptr, "rejection names the format");
             badTex->Release();
         }
-        // Oversized input with LmxxfFitLarge off is the documented limit; same contract.
-        D3D12_RESOURCE_DESC bigDesc = td;
-        bigDesc.Width = 2560;
-        bigDesc.Height = 1440;
-        ID3D12Resource *bigTex = nullptr;
-        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bigDesc,
-                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                                              nullptr, IID_PPV_ARGS(&bigTex)),
-              "oversized colour");
-        LmxxfNrFrameInfo bigFrame = frame;
-        bigFrame.color = bigTex;
-        bigFrame.color_width = 2560;
-        bigFrame.color_height = 1440;
-        LmxxfNrJob bigJob {};
-        bigJob.struct_size = sizeof(bigJob);
-        const int32_t bigRc = api.PrepareFrame(ctx, &bigFrame, &bigJob);
-        char bigErr[256] {};
-        api.GetLastError(bigErr, sizeof bigErr);
-        std::printf("reject 2560x1440 rc=%d err=%s\n", bigRc, bigErr);
-        Require(bigRc == LMXXF_NR_INVALID_ARGUMENT, "oversized input -> INVALID_ARGUMENT");
-        Require(std::strstr(bigErr, "outside admitted geometry") != nullptr, "geometry reason named");
-        bigTex->Release();
+        // Geometry with LmxxfFitLarge off is the documented limit; same contract. 2560x1440 is over
+        // the pixel budget. The other two are within it but would be downsampled too far: 2600x720
+        // is past the 2560 width cap, 1440x1440 is taller than 1080.
+        const struct { UINT64 w; UINT h; } kBadShapes[] = {{2560, 1440}, {2600, 720}, {1440, 1440}};
+        for (const auto &shape : kBadShapes)
+        {
+            D3D12_RESOURCE_DESC bigDesc = td;
+            bigDesc.Width = shape.w;
+            bigDesc.Height = shape.h;
+            ID3D12Resource *bigTex = nullptr;
+            Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bigDesc,
+                                                  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                  nullptr, IID_PPV_ARGS(&bigTex)),
+                  "oversized colour");
+            LmxxfNrFrameInfo bigFrame = frame;
+            bigFrame.color = bigTex;
+            bigFrame.color_width = static_cast<uint32_t>(shape.w);
+            bigFrame.color_height = shape.h;
+            LmxxfNrJob bigJob {};
+            bigJob.struct_size = sizeof(bigJob);
+            const int32_t bigRc = api.PrepareFrame(ctx, &bigFrame, &bigJob);
+            char bigErr[256] {};
+            api.GetLastError(bigErr, sizeof bigErr);
+            std::printf("reject %llux%u rc=%d err=%s\n", static_cast<unsigned long long>(shape.w), shape.h,
+                        bigRc, bigErr);
+            Require(bigRc == LMXXF_NR_INVALID_ARGUMENT, "inadmissible geometry -> INVALID_ARGUMENT");
+            Require(std::strstr(bigErr, "outside admitted geometry") != nullptr, "geometry reason named");
+            bigTex->Release();
+        }
 
         // A host built against ABI v1 sends the smaller struct and has no exposure fields.
         // That must still run: the exposure fields are an ABI growth, not a new requirement.
@@ -606,6 +614,43 @@ int main(int argc, char **argv)
                                                                  static_cast<ID3D12Resource *>(job.private_output))),
                     frame.color_width, frame.color_height);
 
+    if (useExposure && !badExposure)
+    {
+        // A change of the exposure FORMAT is the one case that must rebuild: the stable copy has
+        // to match its source for CopyTextureRegion. The old copy is still bound by the live
+        // codecs and was read by the frame above, so the runtime may only free it after its
+        // drain. This runs that path (R32 -> R16) and then checks the new binding is stable.
+        auto recreates = [&]() -> long {
+            char st[256] {};
+            if (api.GetStatus)
+                api.GetStatus(ctx, st, sizeof st);
+            const char *p = std::strstr(st, "recreates=");
+            return p ? std::strtol(p + 10, nullptr, 10) : -1;
+        };
+        D3D12_RESOURCE_DESC ed = exposureTex->GetDesc();
+        ed.Format = DXGI_FORMAT_R16_FLOAT;
+        ID3D12Resource *halfExposure = nullptr;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &ed,
+                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr, IID_PPV_ARGS(&halfExposure)),
+              "R16 exposure");
+        const long before = recreates();
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            LmxxfNrFrameInfo halfFrame = frame;
+            halfFrame.exposure = halfExposure;
+            LmxxfNrJob halfJob {};
+            halfJob.struct_size = sizeof(halfJob);
+            const int32_t halfRc = api.PrepareFrame(ctx, &halfFrame, &halfJob);
+            const long now = recreates();
+            std::printf("exposure format change pass %d rc=%d recreates %ld->%ld\n", pass, halfRc, before, now);
+            Require(halfRc == LMXXF_NR_OK && halfJob.handle != nullptr, "exposure format change still runs");
+            Require(now == before + 1, pass == 0 ? "exposure format change rebuilds once"
+                                                 : "same format afterwards does not rebuild again");
+            Require(api.CancelUnsubmitted(ctx, halfJob.handle) == LMXXF_NR_OK, "cancel format-change frame");
+        }
+        halfExposure->Release();
+    }
     ID3D12Resource *resizedColor = nullptr;
     if (resize)
     {

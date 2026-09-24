@@ -10,7 +10,7 @@ Files are copied byte-for-byte from that commit unless a later commit in this tr
 says otherwise.
 
 `tools/sync-lmxxf-upstream.ps1` pins sync to `-UpstreamRef` (default `origin/main`) via
-`git archive` into a temp tree …the upstream working-tree branch cannot poison the copy.
+`git archive` into a temp tree — the upstream working-tree branch cannot poison the copy.
 Pass `-SkipUpstreamFetch` / `-AllowOfflineUpstream` when fetch is unavailable. Live
 `shaders/*.hlsl` are mirror-cleaned to the top-level glue set only (`dx12-network/` is not vendored).
 
@@ -23,7 +23,7 @@ Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves
 | `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual safeguards for `LmxxfNrRuntime` | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
 | `src/native_rgb_reflect.h` | Drop unused `#include "native_split.h"` so codec builds without the D3D12 network body | **Preserve**; `-UpdateReflect` to overwrite + re-drop include |
 | `src/native_input_geometry.h` | Admit by pixel budget so ultrawide inputs are not rejected on width alone | **Preserve**; `-UpdateInputGeometry` to overwrite + re-apply |
-| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, ...) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** …never copied from upstream |
+| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** — never copied from upstream |
 | `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` gfx1201 rows | Shipping COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
 
 ## FOLLOW (track upstream performance / recipe)
@@ -72,12 +72,15 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 
 ### `src/native_input_geometry.h` (Vendor-Pinned & Patched)
 
-1. **Pixel-budget admission**: `Supported()` admits by `w*h <= 1920*1080` instead of `w<=1920 && h<=1080`.
-   A 3440x1440 ultrawide at DLSS Quality 1 renders 2024x848 = 1.72M pixels, less work than the 2.07M of
-   1920x1080, but the per-axis cap rejected it on width alone and the codec threw
-   "codec unverified input format/geometry" (SILENT HILL Townfall). The budget is exactly the old box, so
-   every previously admitted input still is; the fit math is unchanged and is the same path `DLSS5_FIT_LARGE`
-   already uses for larger inputs.
+1. **Pixel-budget admission**: without `DLSS5_FIT_LARGE`, `Supported()` admits `w <= 2560 && h <= 1080 &&
+   w*h <= 1920*1080` instead of `w <= 1920 && h <= 1080`. A 3440x1440 ultrawide at DLSS Quality 1 renders
+   2024x848 = 1.72M pixels, but the per-axis cap rejected it on width alone and the codec threw
+   "codec unverified input format/geometry" (SILENT HILL Townfall). An input wider than 1920 is downsampled
+   onto the network surface, the same fit `DLSS5_FIT_LARGE` applies to larger inputs, so the width cap
+   bounds that at 25% (it covers 21:9 and 32:9 ultrawide within the budget; 3840x540-style shapes are not
+   admitted). Every previously admitted input still is; the fit math is unchanged. Upstream's
+   `native_network_geometry.h` comment "inputs beyond 1920x1080 are rejected before this" is no longer
+   literally true for width; the `auto` tier picks 1080 for them.
 
 ### `src/native_rgb_reflect.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
