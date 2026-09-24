@@ -943,6 +943,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 OutputDebugStringA("\n");
                 SetError(geoMsg);
             }
+            // One warm-up dispatch before recording so lazy weight and module uploads cannot
+            // land inside the producer-wait callback later (the author's RE9 host does the
+            // same). Only reached after the colour contract passed, so a title we cannot
+            // serve never pays for it.
+            session->bridge->PrepareStagedKernels();
             NativeGameCodec *enc = nullptr;
             NativeGameRgbInput *rgbIn = nullptr;
             NativeRgbTexture *rgbOut = nullptr;

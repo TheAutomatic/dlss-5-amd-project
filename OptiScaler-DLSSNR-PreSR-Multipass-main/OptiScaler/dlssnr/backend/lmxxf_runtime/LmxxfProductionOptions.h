@@ -59,5 +59,8 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.vit_qkv_frag = true;
     o.vit_contract_frag = true;
     o.prefix_inline = true;
+    // Byte-packed multihead / decoder paths. Matches the upstream package defaults
+    // (scripts/hip-game-flags.txt, hip-re9-flags.txt) and the RE9 host patch.
+    o.mh_feature_byte = o.mh_proj_diag_fb = o.mh_byte_stream = o.decoder_byte = o.mh_ffn_frag256 = true;
     return o;
 }
