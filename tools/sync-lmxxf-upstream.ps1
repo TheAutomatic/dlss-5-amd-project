@@ -122,7 +122,7 @@ function Assert-BridgeLocalMarkers([string]$bridgePath, [string]$context) {
     if (-not (Test-Path -LiteralPath $bridgePath -PathType Leaf)) {
         throw ("Bridge header missing ($context): " + $bridgePath)
     }
-    $c = Get-Content -LiteralPath $bridgePath -Raw
+    $c = Get-Content -LiteralPath $bridgePath -Encoding UTF8 -Raw
     $required = @(
         @{ Needle = 'zero_upload'; What = 'zero_upload member (ClearOutput resources)' },
         @{ Needle = 'clear_submission_unconfirmed'; What = 'clear_submission_unconfirmed fail-closed flag' },
@@ -156,7 +156,7 @@ function Assert-InputGeometryLocalMarkers([string]$geomPath, [string]$context) {
     if (-not (Test-Path -LiteralPath $geomPath -PathType Leaf)) {
         throw ("Input geometry header missing ($context): " + $geomPath)
     }
-    $c = Get-Content -LiteralPath $geomPath -Raw
+    $c = Get-Content -LiteralPath $geomPath -Encoding UTF8 -Raw
     foreach ($r in @(
         @{ Needle = 'max_pixels'; What = 'max_pixels pixel budget' },
         @{ Needle = 'w*h<=max_pixels'; What = 'Supported() pixel-budget admission' }
@@ -171,7 +171,7 @@ function Assert-ReflectLocalMarkers([string]$reflectPath, [string]$context) {
     if (-not (Test-Path -LiteralPath $reflectPath -PathType Leaf)) {
         throw ("Reflect header missing ($context): " + $reflectPath)
     }
-    $c = Get-Content -LiteralPath $reflectPath -Raw
+    $c = Get-Content -LiteralPath $reflectPath -Encoding UTF8 -Raw
     if ($c -match '#include\s*"native_split\.h"') {
         throw ("Reflect local marker failed ($context): still includes native_split.h. Pass -UpdateReflect to refresh from upstream and re-drop the include, or restore the pinned header.")
     }
@@ -324,7 +324,7 @@ function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [swit
         return
     }
     $bad = @()
-    foreach ($line in Get-Content -LiteralPath $hipSums) {
+    foreach ($line in Get-Content -LiteralPath $hipSums -Encoding UTF8) {
         if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+gfx1201/(?<n>.+\.hsaco)$') { continue }
         $name = $Matches['n']
         $want = $Matches['h'].ToLowerInvariant()
@@ -359,12 +359,12 @@ function Merge-HipSums([string]$upstreamSums, [string]$dstSums, [string]$modules
     $rowPattern = '^(?<h>[0-9a-fA-F]{64})(?<sep>\s+)gfx1201/(?<n>.+\.hsaco)$'
     $local = @{}
     if (Test-Path -LiteralPath $dstSums -PathType Leaf) {
-        foreach ($line in Get-Content -LiteralPath $dstSums) {
+        foreach ($line in Get-Content -LiteralPath $dstSums -Encoding UTF8) {
             if ($line -match $rowPattern) { $local[$Matches['n']] = $Matches['h'].ToLowerInvariant() }
         }
     }
     $out = @()
-    foreach ($line in Get-Content -LiteralPath $upstreamSums) {
+    foreach ($line in Get-Content -LiteralPath $upstreamSums -Encoding UTF8) {
         if ($line -match $rowPattern) {
             $name = $Matches['n']
             $sep = $Matches['sep']
@@ -403,7 +403,7 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
     $srcSums = Join-Path $srcDir 'SHA256SUMS'
     $wroteSums = $false
     if (Test-Path -LiteralPath $srcSums -PathType Leaf) {
-        $lines = @(Get-Content -LiteralPath $srcSums | Where-Object {
+        $lines = @(Get-Content -LiteralPath $srcSums -Encoding UTF8 | Where-Object {
             ($_ -match '^[0-9a-fA-F]{64}\s+\*?([^\\/]+)$') -and ($_ -match '\.hsaco\s*$')
         })
         if ($lines.Count -gt 0) {
@@ -416,7 +416,7 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
         if (Test-Path -LiteralPath $parentSums -PathType Leaf) {
             $leaf = Split-Path -Leaf $srcDir
             $mapped = @()
-            foreach ($line in Get-Content -LiteralPath $parentSums) {
+            foreach ($line in Get-Content -LiteralPath $parentSums -Encoding UTF8) {
                 if ($line -match '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<p>.+)$') {
                     $p = ($Matches['p'] -replace '\\', '/')
                     $prefix = $leaf + '/'
@@ -443,7 +443,7 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
     }
     $readme = Join-Path $dstDir 'README.md'
     if (Test-Path -LiteralPath $readme -PathType Leaf) {
-        $md = Get-Content -LiteralPath $readme -Raw
+        $md = Get-Content -LiteralPath $readme -Encoding UTF8 -Raw
         $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: `)[^`]+(`)', '${1}' + $commitHash + '${2}')
         if ($md2 -eq $md) {
             $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: ).*$', '${1}`' + $commitHash + '`')
@@ -454,7 +454,7 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
     }
     $manifest = Join-Path $dstDir 'runtime-manifest.json'
     if (Test-Path -LiteralPath $manifest -PathType Leaf) {
-        $js = Get-Content -LiteralPath $manifest -Raw
+        $js = Get-Content -LiteralPath $manifest -Encoding UTF8 -Raw
         $js2 = [regex]::Replace($js, '("upstream_commit"\s*:\s*")[0-9a-fA-F]*(")', '${1}' + $commitHash + '${2}')
         if ($js2 -ne $js) {
             [IO.File]::WriteAllText($manifest, $js2, [Text.UTF8Encoding]::new($false))
@@ -688,7 +688,7 @@ $refNet = Join-Path $vendorRoot 'Development\HIP\hip_reference_network.h'
 if (-not (Test-Path -LiteralPath $refNet -PathType Leaf)) {
     throw "Patch A failed: missing hip_reference_network.h"
 }
-$content = Get-Content -LiteralPath $refNet -Raw
+$content = Get-Content -LiteralPath $refNet -Encoding UTF8 -Raw
 if ($content -notmatch '#include\s*<algorithm>') {
     if ($content -notmatch '#include\s*<vector>') {
         throw "Patch A failed: cannot find #include <vector> anchor in hip_reference_network.h"
@@ -708,7 +708,7 @@ if (Test-Path $bridgeH) {
         Write-Host "  Preserved Patch B: hip_d3d12_bridge.h is pinned (pass -UpdateBridge to re-patch)" -ForegroundColor DarkYellow
         Assert-BridgeLocalMarkers -bridgePath $bridgeH -context 'pinned bridge (no -UpdateBridge)'
     } else {
-        $content = Get-Content -LiteralPath $bridgeH -Raw
+        $content = Get-Content -LiteralPath $bridgeH -Encoding UTF8 -Raw
 
         # B.0: Ensure #include <algorithm>
         if ($content -notmatch '#include\s*<algorithm>') {
@@ -960,7 +960,7 @@ if (-not $UpdateReflect) {
     Write-Host "  Preserved Patch C: native_rgb_reflect.h is pinned (pass -UpdateReflect to re-patch)" -ForegroundColor DarkYellow
     Assert-ReflectLocalMarkers -reflectPath $reflectH -context 'pinned reflect (no -UpdateReflect)'
 } else {
-    $content = Get-Content -LiteralPath $reflectH -Raw
+    $content = Get-Content -LiteralPath $reflectH -Encoding UTF8 -Raw
     if ($content -match '#include\s*"native_split\.h"') {
         $content = $content -replace '#include\s*"native_split\.h"\r?\n?', ''
         if ($content -match '#include\s*"native_split\.h"') {
@@ -987,7 +987,7 @@ if (-not $UpdateInputGeometry) {
     Write-Host "  Preserved Patch D: native_input_geometry.h is pinned (pass -UpdateInputGeometry to re-patch)" -ForegroundColor DarkYellow
     Assert-InputGeometryLocalMarkers -geomPath $geomH -context 'pinned input geometry (no -UpdateInputGeometry)'
 } else {
-    $content = Get-Content -LiteralPath $geomH -Raw
+    $content = Get-Content -LiteralPath $geomH -Encoding UTF8 -Raw
     if ($content -notmatch 'max_pixels') {
         $mxAnchor = 'static constexpr unsigned max_width=1920,max_height=1080;'
         if (-not $content.Contains($mxAnchor)) {
@@ -1009,7 +1009,10 @@ if (-not $UpdateInputGeometry) {
 # 6. Update UPSTREAM.md with new commit and timestamp
 $upstreamMd = Join-Path $vendorRoot 'UPSTREAM.md'
 if (Test-Path $upstreamMd) {
-    $md = Get-Content -LiteralPath $upstreamMd -Raw
+    $md = Get-Content -LiteralPath $upstreamMd -Encoding UTF8 -Raw
+# Every Get-Content in this script names -Encoding UTF8. Windows PowerShell 5.1 otherwise decodes a
+# BOM-less UTF-8 file with the ANSI code page (936 here), and the WriteAllText that follows bakes the
+# damage in: this is how UPSTREAM.md's em dashes became U+9325 followed by '?' on each sync.
     $today = (Get-Date).ToString('yyyy-MM-dd')
     $md = $md -replace '(?m)^- Commit: .*', "- Commit: ``$commitHash`` (synced $today)"
     [IO.File]::WriteAllText($upstreamMd, $md, [Text.UTF8Encoding]::new($false))
