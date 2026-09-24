@@ -36,6 +36,13 @@ set "PATH=C:\msys64\ucrt64\bin;%PATH%"
 "%LMXXF_GXX%" -std=c++17 -O2 -shared -static -static-libgcc -static-libstdc++ -D_WIN32_WINNT=0x0A00 -DLMXXF_NR_RUNTIME_EXPORTS -I "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime" -I "third_party\lmxxf\src" -I "third_party\lmxxf\Development\HIP" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime\LmxxfNrRuntime.cpp" -o "%OUT%\LmxxfNrRuntime.dll" -Wl,--out-implib,"%OUT%\LmxxfNrRuntime.dll.a" -ld3d12 -ldxgi -ld3dcompiler -ldxguid
 
 :verify
+rem The exit code must be checked separately from "is the DLL there": a failed compile leaves a
+rem stale DLL in place and used to sail through to BUILD_OK, so tests ran against yesterday's
+rem binary while the log said the build was fine.
+if not %errorlevel%==0 (
+  echo FAIL: compilation of LmxxfNrRuntime.dll failed
+  exit /b 1
+)
 if not exist "%OUT%\LmxxfNrRuntime.dll" (
   echo FAIL: LmxxfNrRuntime.dll not produced
   exit /b 1
