@@ -139,6 +139,12 @@ int main()
             Check(cmd->Reset(b.Get(), nullptr), "proxy reset");
             D3D12_VIEWPORT vp {0, 0, 16, 8, 0, 1};
             cmd->RSSetViewports(1, &vp);
+            Require(logical->CapturedViewportCount() == 1, "viewport captured");
+            // An explicit clear is D3D12's default-empty state. It must be modelled as unset,
+            // not ignored: otherwise the continuation would replay the viewport above.
+            cmd->RSSetViewports(0, nullptr);
+            Require(logical->CapturedViewportCount() == 0, "explicit viewport clear is modelled as unset");
+            cmd->RSSetViewports(1, &vp);
             D3D12_TEXTURE_COPY_LOCATION dst {}, src {};
             dst.pResource = texture.Get(); dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
             src.pResource = upload.Get(); src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint = footprint;

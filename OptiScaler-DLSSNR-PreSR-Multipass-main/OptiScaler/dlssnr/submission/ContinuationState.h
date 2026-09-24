@@ -168,7 +168,17 @@ struct ContinuationState
 
     void OnViewports(UINT n, const D3D12_VIEWPORT *v)
     {
-        if (!v || n == 0 || n > 16)
+        if (n == 0 || !v)
+        {
+            // An explicit clear is D3D12's default-empty state after Create/Reset/ClearState.
+            // Record it as unset: the continuation list starts empty, so "unset" means ApplyTo
+            // leaves it alone. Ignoring the clear would replay whatever viewport was captured
+            // before it - the same KnownUnset-vs-Unknown gap the graphics wait path had.
+            hasViewports = false;
+            numViewports = 0;
+            return;
+        }
+        if (n > 16)
             return;
         numViewports = n;
         for (UINT i = 0; i < n; ++i)
@@ -178,7 +188,13 @@ struct ContinuationState
 
     void OnScissors(UINT n, const D3D12_RECT *r)
     {
-        if (!r || n == 0 || n > 16)
+        if (n == 0 || !r)
+        {
+            hasScissors = false;
+            numScissors = 0;
+            return;
+        }
+        if (n > 16)
             return;
         numScissors = n;
         for (UINT i = 0; i < n; ++i)

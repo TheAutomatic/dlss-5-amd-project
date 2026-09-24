@@ -336,13 +336,23 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE RSSetViewports(UINT n, const D3D12_VIEWPORT *v) override
     {
-        contState.OnViewports(n, v);
+        // Modelled: an explicit clear (n == 0) and 1..16 viewports. Anything else we cannot
+        // reproduce on the continuation, and replaying a stale or invented viewport would be
+        // worse than declining to split - same rule as the graphics path's "Unknown is not
+        // auto-admitted, never fabricate viewport/topology".
+        if (n > 16 || (n > 0 && !v))
+            MarkSplitIneligible("viewport_unmodelled");
+        else
+            contState.OnViewports(n, v);
         if (auto *c = Cur())
             c->RSSetViewports(n, v);
     }
     void STDMETHODCALLTYPE RSSetScissorRects(UINT n, const D3D12_RECT *r) override
     {
-        contState.OnScissors(n, r);
+        if (n > 16 || (n > 0 && !r))
+            MarkSplitIneligible("scissor_unmodelled");
+        else
+            contState.OnScissors(n, r);
         if (auto *c = Cur())
             c->RSSetScissorRects(n, r);
     }
