@@ -244,6 +244,37 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
         Remove-Item -LiteralPath $outDir -Recurse -Force
     }
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    # Kernel gates the author turns on in his own deployment scripts but not in the recipe.
+    # hip/build-modules.ps1's `defines` column is only part of his configuration: prod7 builds
+    # mhfast.generated.hip from a lab generator we do not have, so a speed-up he ships can sit
+    # here behind a #define the recipe never sets. tools/audit-lmxxf-enablements.py reports the
+    # gaps; this table is the ones we decided to take. The macro is module-wide, so only add it
+    # where the per-instantiation preconditions hold (see the audit and the kernel comment).
+    $ModuleDefineOverrides = @{
+        'multihead-fast-padded-wave-packed' = @('HIP_FFN_LINE_STORES 1')
+        'multihead-fast-padded-wave'        = @('HIP_FFN_LINE_STORES 1')
+    }
+    $localRecipe = $null
+    if ($ModuleDefineOverrides.Count -gt 0) {
+        $recipeText = [IO.File]::ReadAllText($buildPs1)
+        foreach ($m in $ModuleDefineOverrides.Keys) {
+            $rx = New-Object Text.RegularExpressions.Regex(
+                "(?m)^(\s*@\{\s*name = '" + [regex]::Escape($m) + "';\s*defines = @\()([^)]*)(\))")
+            $hit = $rx.Match($recipeText)
+            if (-not $hit.Success) {
+                throw "Module define override: no recipe row named '$m' in $buildPs1"
+            }
+            $inner = $hit.Groups[2].Value.Trim()
+            $extra = ($ModuleDefineOverrides[$m] | ForEach-Object { "'$_'" }) -join ', '
+            if ($inner.Length -gt 0) { $combined = $inner + ', ' + $extra } else { $combined = $extra }
+            $recipeText = $recipeText.Substring(0, $hit.Groups[2].Index) + $combined +
+                          $recipeText.Substring($hit.Groups[2].Index + $hit.Groups[2].Length)
+            Write-Host ("  module define override: $m + " + ($ModuleDefineOverrides[$m] -join ', ')) -ForegroundColor Yellow
+        }
+        $localRecipe = Join-Path $outDir 'build-modules.local.ps1'
+        [IO.File]::WriteAllText($localRecipe, $recipeText, [Text.UTF8Encoding]::new($false))
+    }
+    if (-not $localRecipe) { $localRecipe = $buildPs1 }
     Write-Host ("  Building gfx1201 modules via build-modules.ps1 -> " + $outDir) -ForegroundColor Cyan
     # hip/build-modules.ps1 needs Get-FileHash for its manifest rows. Windows PowerShell on this
     # machine has no such cmdlet - not even after Import-Module Microsoft.PowerShell.Utility -
@@ -276,7 +307,7 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
         # this function's return value is a PATH. Capturing that output turned $modulesSrc into
         # an array of 24 hash lines plus the path, and every later -LiteralPath / -Filter argument
         # in Sync-LmxxfModules then shifted out of place.
-        & $buildPs1 -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets gfx1201 | Write-Host
+        & $localRecipe -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets gfx1201 | Write-Host
     } catch {
         throw ("build-modules.ps1 failed: " + $_.Exception.Message + " [at: " + $_.InvocationInfo.PositionMessage + "]")
     }

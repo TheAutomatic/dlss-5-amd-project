@@ -121,6 +121,15 @@ for name in kernels:
     except Exception:
         pass
 print("  recipe defines      : " + (", ".join(sorted(recipe_defs)) or "(none beyond the implicit ones)"))
+# We also inject defines at build time through sync's $ModuleDefineOverrides, for gates the
+# author enables in his own deployment scripts but not in his recipe. Count those as ours or
+# the report keeps flagging a gap we already closed.
+ours_extra = set()
+_sync = io.open(os.path.join(ROOT, "tools", "sync-lmxxf-upstream.ps1"), encoding="utf-8", errors="replace").read()
+_blk = re.search(r"\$ModuleDefineOverrides\s*=\s*@\{(.*?)\n\s*\}", _sync, re.S)
+if _blk:
+    ours_extra |= set(re.findall(r"'(HIP_[A-Z0-9_]+) \d+'", _blk.group(1)))
+recipe_defs |= ours_extra
 
 # Where does the author actually turn a gate ON? A gate with no "= 1" anywhere is an ablation or an
 # experiment he never shipped, and noise. One set by a deployments/ script is a speed-up he runs in
@@ -136,14 +145,29 @@ for path in subprocess.check_output(["git", "-C", UP, "ls-tree", "-r", "--name-o
     for g in re.findall(r"(HIP_[A-Z0-9_]+)\s*=\s*1", body):
         enabled_at.setdefault(g, set()).add(path)
 
-unbacked = sorted(g for g in kernel_gates if g not in recipe_defs and g not in
+# A gate whose #ifndef default is already on is not a gap: the recipe never mentions
+# HIP_FFN_TRANSPOSED_TAIL and it is enabled regardless. Without this the report cried wolf on it.
+kernel_default_on = set()
+for name in kernels:
+    try:
+        src = up("hip/" + name)
+    except Exception:
+        continue
+    for m in re.finditer(r"#ifndef\s+(HIP_[A-Z0-9_]+)[^\n]*\n#define\s+HIP_[A-Z0-9_]+\s+([01])", src):
+        if m.group(2) == "1":
+            kernel_default_on.add(m.group(1))
+
+unbacked = sorted(g for g in kernel_gates if g not in recipe_defs and g not in kernel_default_on and g not in
                   ("HIP_ISA_HALF", "HIP_PREPACKED_WEIGHTS", "HIP_NATIVE_FP8_F", "HIP_NATIVE_RTZ",
                    "HIP_LDS_FENCE", "HIP_BRANCHLESS_F", "HIP_MH_RTZ_ISA"))
+if kernel_default_on:
+    print("  gates that default ON in the kernel (no recipe entry needed): " + ", ".join(sorted(kernel_default_on)))
 shipped = [g for g in unbacked if g in enabled_at and any("deployments" in p for p in enabled_at[g])]
 other = [g for g in unbacked if g not in shipped]
 
 if shipped:
     print("  TURNED ON BY HIS DEPLOYMENT SCRIPTS BUT NOT BY OUR RECIPE  <-- we are shipping without these:")
+    print("    (a define we inject via sync's ModuleDefineOverrides is NOT missing; only real gaps appear here)")
     for g in shipped:
         where = [p for p in sorted(enabled_at[g]) if "deployments" in p]
         kernels_using = [n for n in kernels

@@ -128,9 +128,9 @@
     {
         "target":  "gfx1201",
         "module":  "multihead-fast-padded-wave",
-        "defines":  "HIP_ISA_HALF 1",
+        "defines":  "HIP_ISA_HALF 1; HIP_FFN_LINE_STORES 1",
         "sources":  "multihead_fast_padded.hip",
-        "sha256":  "12e523fd49878831b96e47613d534a88451215850ddb6d479ba585da11df7a8d"
+        "sha256":  "8eebf29ff5090f1b3aea80e90967a1ad99a31b94200adf3c6d20c21ec3d7fa77"
     },
     {
         "target":  "gfx1201",
@@ -163,8 +163,8 @@
     {
         "target":  "gfx1201",
         "module":  "multihead-fast-padded-wave-packed",
-        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_FFN_LINE_STORES 1",
         "sources":  "multihead_fast_padded.hip",
-        "sha256":  "ef62b0efc455147a47839cf447539066fb9deb91df2c0975613e42c6c0a76fa5"
+        "sha256":  "c470b76984026a21b3c89882caf5a6a2dc730d801c7835d48eaa400ee327161a"
     }
 ]
