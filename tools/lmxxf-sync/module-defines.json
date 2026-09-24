@@ -1,0 +1,8 @@
+{
+  "multihead-fast-padded-wave-packed": [
+    "HIP_FFN_LINE_STORES 1"
+  ],
+  "multihead-fast-padded-wave": [
+    "HIP_FFN_LINE_STORES 1"
+  ]
+}
