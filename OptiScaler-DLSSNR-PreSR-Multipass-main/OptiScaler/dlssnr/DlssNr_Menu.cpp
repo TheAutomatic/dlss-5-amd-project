@@ -133,6 +133,60 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::Checkbox("Enable NR", &enabled))
             config->DlssNrEnabled = enabled;
 
+        // NR host selector. Options below follow the selection immediately; a host that
+        // already started is process-lifetime (Daniel HIP threads), so the switch itself
+        // needs a game restart — same contract as New wait mode.
+        {
+            using DlssNr::Backend::Kind;
+            const Kind active = DlssNr::Backend::ActiveKindFromConfig();
+            int selected = active == Kind::Lmxxf ? 1 : active == Kind::Off ? 2 : 0;
+            static const char* items[] = { "daniel", "lmxxf", "off" };
+            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
+            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Backend");
+            HGap(0.15f);
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+            if (ImGui::Combo("##NrBackend", &selected, items, IM_ARRAYSIZE(items)))
+            {
+                config->NrBackend = std::string(items[selected]);
+                if (DlssNr::AmdBridge::BackendRestartNeeded())
+                    ImGui::OpenPopup("Backend restart");
+            }
+            {
+                char installed[64] {};
+                if (hasDaniel && hasLmxxf)
+                    std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
+                else if (hasDaniel)
+                    std::snprintf(installed, sizeof(installed), "daniel");
+                else if (hasLmxxf)
+                    std::snprintf(installed, sizeof(installed), "lmxxf");
+                else
+                    std::snprintf(installed, sizeof(installed), "none");
+                char tip[512] {};
+                std::snprintf(tip, sizeof(tip),
+                              "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime;"
+                              "\noff = no AMD NR (original colour to Super Resolution)."
+                              "\n\nOptions below follow this choice immediately."
+                              "\nA host that already started keeps running until the game restarts."
+                              "\n\nInstalled here: %s",
+                              installed);
+                HelpMarker(tip);
+            }
+            if (ImGui::BeginPopupModal("Backend restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::TextUnformatted("The NR host for this process cannot change mid-session.");
+                ImGui::TextUnformatted("Your choice is saved. Restart the game to switch backends.");
+                ImGui::TextUnformatted("The option list already shows the selected backend.");
+                if (ImGui::Button("OK"))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+            if (DlssNr::AmdBridge::BackendRestartNeeded())
+                ImGui::TextDisabled("Restart the game to switch the NR host (options preview the selection).");
+        }
+
         if (DlssNr::AmdBridge::HasFiles())
         {
             const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
@@ -307,6 +361,29 @@ void RenderMenu(Config* config, float menuResScale)
                 int debugView = (int) config->DlssNrDebugView.value_or_default();
                 if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
                     config->DlssNrDebugView = (uint32_t) debugView;
+
+                bool fitLarge = config->LmxxfFitLarge.value_or_default();
+                if (ImGui::Checkbox("Fit large color (restart)", &fitLarge))
+                {
+                    config->LmxxfFitLarge = fitLarge;
+                    ImGui::OpenPopup("FitLarge restart");
+                }
+                HelpMarker("Off (default): Color above ~1080p is admitted only when the"
+                           "\nnetwork can take it as-is. On: fit larger Color onto the 1080"
+                           "\nnetwork (DLSS5_FIT_LARGE)."
+                           "\n\nFitLarge + large Color can hitch badly on the same-frame path"
+                           "\n(Palworld ~2s/frame at 2258x1271). Prefer internal render at or"
+                           "\nbelow roughly 4K Performance / 1440p Balanced / 1080p native,"
+                           "\nor leave this off."
+                           "\n\nApplied when the lmxxf host starts; restart after changing.");
+                if (ImGui::BeginPopupModal("FitLarge restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextUnformatted("FitLarge is applied when the lmxxf host starts.");
+                    ImGui::TextUnformatted("Restart the game to apply the new value.");
+                    if (ImGui::Button("OK"))
+                        ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
             }
 
             if (!isLmxxf)

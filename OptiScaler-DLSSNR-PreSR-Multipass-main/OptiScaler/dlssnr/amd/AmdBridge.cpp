@@ -26,6 +26,8 @@ namespace DlssNr::AmdBridge
 namespace
 {
 std::atomic<DlssNr::Backend::Host*> backend { nullptr };
+// Kind of the host constructed in this process. -1 = none yet (Config decides the next one).
+std::atomic<int> liveBackendKind { -1 };
 using ExecuteFn = void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 using ExitFn = void(NTAPI*)(LONG);
 ExecuteFn executeOriginal = nullptr;
@@ -270,21 +272,41 @@ bool EnsureSubmissionHook(ID3D12CommandQueue *q)
     device->Release();
     return ready;
 }
+bool HasDanielRuntime()
+{
+    std::error_code ec;
+    return std::filesystem::exists(Directory() / L"dlssnr_amd_pass1.dll", ec);
+}
+bool HasLmxxfRuntime()
+{
+    std::error_code ec;
+    return std::filesystem::exists(Directory() / L"LmxxfNrRuntime.dll", ec);
+}
 bool HasFiles()
 {
     // Proxy names such as winmm.dll can load before Util::DllPath is finalized.
     // A negative result cached at that point disabled the AMD backend for the
     // rest of the process and left the menu at "waiting for a DirectX 12 SR
     // frame". Recheck until the package path becomes available.
-    std::error_code ec;
-    const auto dir = Directory();
     const auto active = DlssNr::Backend::ActiveKindFromConfig();
     if (active == DlssNr::Backend::Kind::Lmxxf)
-        return std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
+        return HasLmxxfRuntime();
     if (active == DlssNr::Backend::Kind::Daniel)
-        return std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
-    return std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec) ||
-           std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
+        return HasDanielRuntime();
+    return HasLmxxfRuntime() || HasDanielRuntime();
+}
+DlssNr::Backend::Kind LiveBackendKind()
+{
+    const int live = liveBackendKind.load(std::memory_order_acquire);
+    if (live < 0)
+        return DlssNr::Backend::ActiveKindFromConfig();
+    return static_cast<DlssNr::Backend::Kind>(live);
+}
+bool BackendRestartNeeded()
+{
+    if (liveBackendKind.load(std::memory_order_acquire) < 0)
+        return false;
+    return LiveBackendKind() != DlssNr::Backend::ActiveKindFromConfig();
 }
 const char* RuntimeName()
 {
@@ -427,6 +449,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         else
             b = new DlssNr::Backend::DanielBackend(device, q, Directory());
         backend.store(b);
+        liveBackendKind.store(static_cast<int>(active), std::memory_order_release);
     }
     device->Release();
     if (confirmedQ)
