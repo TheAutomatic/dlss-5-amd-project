@@ -28,6 +28,14 @@ typedef unsigned uint;
  storage.raw round trip, no two barriers, no 128-thread serial loop. Re-associates the 32-term sum (two 16-term partial sums) before
  rsqrt; everything else unchanged. -0.18/-0.14 ms on top of HIP_FFN_TRANSPOSED_TAIL. Enable only after image-quality judgment. */
 #endif
+#ifndef HIP_FFN_LINE_STORES
+#define HIP_FFN_LINE_STORES 0 /* 2026-09-24 experiment (needs TRANSPOSED_TAIL, non-BatchNorm, ByteFeature out): the FFN+QKV tail's global
+ stores go out as full 128-byte lines. clock-ledger-20260924: the kernel family's power is in its narrow global stores (removing norm
+ stores +4% clock, norm+out +7%), and merging 24 b8 into 3 b64 per lane did not help because each store instruction still touches 16
+ lines (lane = row). Here the out bytes are written from the qfeature LDS copy after the existing barrier (one wave = one row = 256
+ contiguous bytes at C=256), and the three norm parts are staged in LDS (parts 0/1 share a buffer, part 2 its own) and written row-wise:
+ part 0 flushed after part 1's first barrier, parts 1/2 after one extra barrier at the end. Same bytes, same addresses: bit-exact. */
+#endif
 #ifndef HIP_FFN_TRANSPOSED_TAIL
 #define HIP_FFN_TRANSPOSED_TAIL 1 /* 2026-09-23: projection and QKV WMMAs take swapped operands so each lane holds one token row and
  8 consecutive columns (A/B fragment register layouts are identical). Residual input, out/qfeature bytes, storage.raw rows and norm
@@ -641,6 +649,12 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
  __attribute__((shared)) Storage storage;unsigned char*hidden=storage.bytes;
  __attribute__((shared)) unsigned char qfeature[16*(C+4)];
  __attribute__((shared)) float inverse[(BatchNorm?2:1)*16*(C/32)];
+#if HIP_FFN_LINE_STORES
+ constexpr uint NS=C+8; /* row stride: 8-byte aligned, 66 dwords at C=256 so the 16 lanes' rows land in different banks */
+ __attribute__((shared)) unsigned char nstage[2][16*NS];
+ /* one 8-byte piece per thread (2C threads = 16 rows x C/8 pieces): wave w writes row w at C=256, contiguous C bytes per row */
+ auto flush_norm=[&](const unsigned char*st,uint part){uint row=tid/(C/8),col=(tid%(C/8))*8;unsigned long long v;__builtin_memcpy(&v,st+row*NS+col,8);__builtin_memcpy(norm+((first+row)*3+part)*C+col,&v,8);};
+#endif
  const uint*pw=reinterpret_cast<const uint*>(w);
 #if HIP_FFN_COOP_INPUT
  if constexpr(!ByteIn){
@@ -717,11 +731,18 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
   for(uint k=0;k<C;k+=16){i2 a,b;__builtin_memcpy(&a,hidden+rc*(C+4)+k+group*8,8);uint off=8*C*C+((wave*16+rc)*C+k+group*8)/4;if constexpr(Frag)b=frag_b(reinterpret_cast<const unsigned char*>(w+8*C*C),wave*16+rc,C,k,group);else b={int(pw[off]),int(pw[off+1])};result=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,result);}
 #endif
 #if HIP_FFN_TRANSPOSED_TAIL
-  for(uint e=0;e<8;e++){uint byte=q8_fused_round(result[e]);float v=__builtin_amdgcn_cvt_f32_fp8(int(byte),0);uint c=wave*16+group*8+e;if constexpr(ByteFeature)out[(first+rc)*C+c]=static_cast<unsigned char>(byte);else reinterpret_cast<float*>(out)[(first+rc)*C+c]=v;qfeature[rc*(C+4)+c]=static_cast<unsigned char>(byte);}
+  for(uint e=0;e<8;e++){uint byte=q8_fused_round(result[e]);float v=__builtin_amdgcn_cvt_f32_fp8(int(byte),0);uint c=wave*16+group*8+e;if constexpr(ByteFeature){
+#if !HIP_FFN_LINE_STORES
+   out[(first+rc)*C+c]=static_cast<unsigned char>(byte);
+#endif
+   }else reinterpret_cast<float*>(out)[(first+rc)*C+c]=v;qfeature[rc*(C+4)+c]=static_cast<unsigned char>(byte);}
 #else
   for(uint e=0;e<8;e++){uint byte=q8_fused_round(result[e]);float v=__builtin_amdgcn_cvt_f32_fp8(int(byte),0);if constexpr(ByteFeature)out[(first+group*8+e)*C+wave*16+rc]=static_cast<unsigned char>(byte);else reinterpret_cast<float*>(out)[(first+group*8+e)*C+wave*16+rc]=v;qfeature[(group*8+e)*(C+4)+wave*16+rc]=static_cast<unsigned char>(byte);}
 #endif
   __builtin_amdgcn_s_barrier();
+#if HIP_FFN_LINE_STORES
+  if constexpr(ByteFeature){uint row=tid/(C/8),col=(tid%(C/8))*8;unsigned long long v;__builtin_memcpy(&v,qfeature+row*(C+4)+col,8);__builtin_memcpy(out+(first+row)*C+col,&v,8);}
+#endif
   const uint*aq=reinterpret_cast<const uint*>(aw);
   if constexpr(BatchNorm){
    f8 q[3]{};
@@ -755,15 +776,26 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
    if(part<2){for(uint e=0;e<8;e++)storage.raw[((wave/2)*16+group*8+e)*33+(wave%2)*16+rc]=q[e];
 #endif
     __builtin_amdgcn_s_barrier();
+#if HIP_FFN_LINE_STORES
+    if(part==1)flush_norm(nstage[0],0); /* part 0's rows are complete (staged before this barrier); nstage[0] is rewritten only after the next barrier */
+#endif
     if(tid<16*(C/32)){uint head=tid/16,row=tid%16;float ss=0;for(uint k=0;k<32;k++){float v=storage.raw[(head*16+row)*33+k];ss+=v*v;}inverse[tid]=__builtin_amdgcn_rsqf(maxf(ss,6.198883056640625e-5f))*(part==0?aw[4*C*C+(C/32)*4096+head]:1.f);}
     __builtin_amdgcn_s_barrier();
    }
 #if HIP_FFN_TRANSPOSED_TAIL
+#if HIP_FFN_LINE_STORES
+   {float inv=part<2?inverse[(wave/2)*16+rc]:1.f;unsigned char*st=nstage[part==2?1:0];for(uint e=0;e<8;e++)st[rc*NS+wave*16+group*8+e]=static_cast<unsigned char>(q8_fused_round(q[e]*inv));}
+#else
    {float inv=part<2?inverse[(wave/2)*16+rc]:1.f;for(uint e=0;e<8;e++)norm[((first+rc)*3+part)*C+wave*16+group*8+e]=static_cast<unsigned char>(q8_fused_round(q[e]*inv));}
+#endif
 #else
    for(uint e=0;e<8;e++){uint row=group*8+e;float inv=part<2?inverse[(wave/2)*16+row]:1.f;norm[((first+row)*3+part)*C+wave*16+rc]=static_cast<unsigned char>(q8_fused_round(q[e]*inv));}
 #endif
   }
+#if HIP_FFN_LINE_STORES
+  WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2); /* parts 1 and 2 staged by every wave */
+  flush_norm(nstage[0],1);flush_norm(nstage[1],2);
+#endif
 #endif
  }else{
  for(uint e=0;e<8;e++)out[(first+group*8+e)*C+wave*16+rc]=static_cast<unsigned char>(q8_fused_round(Hrtz(accum[e])));

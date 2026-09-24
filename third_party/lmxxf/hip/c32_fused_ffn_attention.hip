@@ -40,6 +40,13 @@
 #ifndef HIP_C32_HOIST_PW
 #define HIP_C32_HOIST_PW 1 /* 2026-09-17: -0.05ms, bit-exact. projection scale w[8193+col] read once per lane instead of 16 aliasing-forced reloads in the output loop */
 #endif
+#ifndef HIP_C32_TRANSPOSED_TAIL
+#define HIP_C32_TRANSPOSED_TAIL 0 /* 2026-09-24 experiment: FFN contraction, prefix matrix and projection computed transposed (WMMA operand swap
+ = exact transpose, as in the folded expand and mh_fast's tail). A lane then holds one token row with 8 consecutive channels, so the
+ unrolled narrow stores widen: ffn8 bytes 16 -> 2 (8-byte), scratch.ex halves 16 -> 2 (16-byte), the raw FP8 out bytes 16 -> 2 per wave,
+ pre16 halves likewise; the residual init reads 8 consecutive in16 halves per lane. Projection scale needs 16 hoisted loads instead of 2.
+ Requires FOLDED_FFN + REGISTER_FFN (saved_ffn/ffn8 layout). Same values at the same addresses -> bit-exact. */
+#endif
 #ifndef HIP_C32_LOCAL_ATTN_SYNC
 #define HIP_C32_LOCAL_ATTN_SYNC 0 /* probabilities in the wave's own ex rows; attention-phase barriers become wave-local fences (HLSL fast4: two group syncs) */
 #endif
@@ -92,6 +99,15 @@ typedef unsigned uint;
 #define KERNEL extern "C" __attribute__((global)) __attribute__((target("cumode")))
 #else
 #define KERNEL extern "C" __attribute__((global))
+#endif
+#if HIP_C32_TRANSPOSED_TAIL && !(HIP_C32_FOLDED_FFN && HIP_C32_REGISTER_FFN)
+#error "HIP_C32_TRANSPOSED_TAIL needs HIP_C32_FOLDED_FFN and HIP_C32_REGISTER_FFN"
+#endif
+/* FFN-contraction family accumulations (residual diagonal, expand->contract): operand order swapped under the transposed tail */
+#if HIP_C32_TRANSPOSED_TAIL
+#define C32_WMMA_ACC(a,b,c) __builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,c)
+#else
+#define C32_WMMA_ACC(a,b,c) __builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,c)
 #endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
@@ -279,8 +295,14 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
   if(l<16){float f[16]{};fused_prefix_values(rgba,hist,base+first+l,sourcew,seed,temporal,f);for(uint k=0;k<16;k++)values[l*16+k]=f[k];}
   sync_window();
   for(uint tile=0;tile<2;tile++){h8 a{};for(uint e=0;e<8;e++){uint k=tile*16+gr()*8+e;a[e]=(_Float16)(k<16?values[rc()*16+k]:0.f);}
-   for(uint col=0;col<2;col++){h8 b{};for(uint e=0;e<8;e++){uint k=tile*16+gr()*8+e;b[e]=(_Float16)(k<16?fw[(col*16+rc())*16+k]:0.f);}pre_acc[col]=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(a,b,pre_acc[col]);}}
+   for(uint col=0;col<2;col++){h8 b{};for(uint e=0;e<8;e++){uint k=tile*16+gr()*8+e;b[e]=(_Float16)(k<16?fw[(col*16+rc())*16+k]:0.f);}
+#if HIP_C32_TRANSPOSED_TAIL
+    pre_acc[col]=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(b,a,pre_acc[col]);}} // transposed: lane = token row, e = channel
+  for(uint col=0;col<2;col++){h8 hv{};for(uint e=0;e<8;e++){float v=Hrtz(pre_acc[col][e]);pre_acc[col][e]=v;hv[e]=(_Float16)v;}__builtin_memcpy(pre16+rc()*32+col*16+gr()*8,&hv,16);}
+#else
+    pre_acc[col]=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(a,b,pre_acc[col]);}}
   for(uint col=0;col<2;col++)for(uint e=0;e<8;e++){float v=Hrtz(pre_acc[col][e]);pre_acc[col][e]=v;pre16[(gr()*8+e)*32+col*16+rc()]=(_Float16)v;}
+#endif
   sync_window();
   #pragma unroll
   for(uint j=0;j<16;j++)packed[(first+j)*36+l]=static_cast<unsigned char>(fp8(float(pre16[j*32+l])));
@@ -369,7 +391,11 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
     sync between expand and contract go away. Residual initialisation of acc stays before the contract, as before.
     Bit-exact; whole network about -0.10ms (1080) / -0.06ms (900), see Development/results/c32-transposed-ffn-20260922. */
  f8 acc[2];acc[0]=f8{};acc[1]=f8{};
+#if HIP_C32_TRANSPOSED_TAIL
+ if(residual_mode==0){for(uint ci=0;ci<2;ci++)for(uint e=0;e<8;e++){uint row=first+rc(),c=ci*16+gr()*8+e;float x; // transposed accumulator layout
+#else
  if(residual_mode==0){for(uint ci=0;ci<2;ci++)for(uint e=0;e<8;e++){uint row=first+gr()*8+e,c=ci*16+rc();float x;
+#endif
 #if HIP_C32_LANE_STAGE
    if constexpr(Prefix)x=pre_acc[ci][e];else if constexpr(NeedIn16)x=float(in16[row*34+c]);else x=Mapped?mapped_c32_input<RawMapped,Merge>(raw_input,window,row,c,sourcew,sourceh,sx,sy,prevw,prevsx,prevsy,skip,scales):raw_input[(base+row)*32+c];
 #else
@@ -377,7 +403,7 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
 #endif
    acc[ci][e]=clampf(x,-448.f,448.f)*fw[8704+c];}}
 #if HIP_C32_DIAG_WEIGHTS
- else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++)for(uint kt=0;kt<2;kt++){i2 a=load8(packed+(first+rc())*36+kt*16+gr()*8),b=matrix8(fw,34944+((part*2+ci)*2+kt)*512+(gr()*16+rc())*8);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}}
+ else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++)for(uint kt=0;kt<2;kt++){i2 a=load8(packed+(first+rc())*36+kt*16+gr()*8),b=matrix8(fw,34944+((part*2+ci)*2+kt)*512+(gr()*16+rc())*8);acc[ci]=C32_WMMA_ACC(a,b,acc[ci]);}}
 #else
  else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++){uint c=ci*16+rc();float remaining=fw[8704+c],piece=0;for(uint j=0;j<=part;j++){piece=scale_piece(remaining);remaining-=piece;}
    for(uint kt=0;kt<2;kt++){i2 a{},b{};
@@ -386,14 +412,14 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
 #else
     for(uint e=0;e<8;e++){uint k=kt*16+gr()*8+e;put_bits(a,e,packed[(first+rc())*36+k]);put_bits(b,e,k==c?fp8(piece):0u);}
 #endif
-    acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}
+    acc[ci]=C32_WMMA_ACC(a,b,acc[ci]);}
   }}
 #endif
 #if HIP_C32_ABLATE!=1
  C32_LOOP for(uint t=0;t<8;t++){f8 sum{};uint col=t*16;
   for(uint kt=0;kt<2;kt++){i2 a{},b{};uint k=kt*16+gr()*8;a=load8(packed+(first+rc())*36+k);b=matrix8(fw+512,(col+rc())*32+k);sum=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,sum);}
   i2 h{};for(uint e=0;e<8;e++){float v=sum[e],g=clampf(v,-4.f,4.f),q=absf(g)*(-.055908203125f)+.447265625f,p=g*q+.89453125f;put_bits(h,e,fp8(v*p));}
-  {uint k=col+gr()*8;for(uint ci=0;ci<2;ci++){i2 b=matrix8(fw+4608,(ci*16+rc())*128+k);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(h,b,acc[ci]);}}
+  {uint k=col+gr()*8;for(uint ci=0;ci<2;ci++){i2 b=matrix8(fw+4608,(ci*16+rc())*128+k);acc[ci]=C32_WMMA_ACC(h,b,acc[ci]);}}
  }
 #endif
 #else
@@ -418,7 +444,7 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
 #endif
    acc[ci][e]=clampf(x,-448.f,448.f)*fw[8704+c];}}
 #if HIP_C32_DIAG_WEIGHTS
- else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++)for(uint kt=0;kt<2;kt++){i2 a=load8(packed+(first+rc())*36+kt*16+gr()*8),b=matrix8(fw,34944+((part*2+ci)*2+kt)*512+(gr()*16+rc())*8);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}}
+ else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++)for(uint kt=0;kt<2;kt++){i2 a=load8(packed+(first+rc())*36+kt*16+gr()*8),b=matrix8(fw,34944+((part*2+ci)*2+kt)*512+(gr()*16+rc())*8);acc[ci]=C32_WMMA_ACC(a,b,acc[ci]);}}
 #else
  else{for(uint part=0;part<3;part++)for(uint ci=0;ci<2;ci++){uint c=ci*16+rc();float remaining=fw[8704+c],piece=0;for(uint j=0;j<=part;j++){piece=scale_piece(remaining);remaining-=piece;}
    for(uint kt=0;kt<2;kt++){i2 a{},b{};
@@ -427,12 +453,12 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
 #else
     for(uint e=0;e<8;e++){uint k=kt*16+gr()*8+e;put_bits(a,e,packed[(first+rc())*36+k]);put_bits(b,e,k==c?fp8(piece):0u);}
 #endif
-    acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}
+    acc[ci]=C32_WMMA_ACC(a,b,acc[ci]);}
   }}
 #endif
 #if HIP_C32_ABLATE!=1
  C32_LOOP for(uint chunk=0;chunk<4;chunk++)for(uint ci=0;ci<2;ci++){
-  for(uint kt=0;kt<2;kt++){i2 a{},b{};uint k=chunk*32+kt*16+gr()*8;a=load8(scratch.hidden+(first+rc())*132+k);b=matrix8(fw+4608,(ci*16+rc())*128+k);acc[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[ci]);}
+  for(uint kt=0;kt<2;kt++){i2 a{},b{};uint k=chunk*32+kt*16+gr()*8;a=load8(scratch.hidden+(first+rc())*132+k);b=matrix8(fw+4608,(ci*16+rc())*128+k);acc[ci]=C32_WMMA_ACC(a,b,acc[ci]);}
  }
 #endif
 #endif
@@ -441,6 +467,9 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
  // Preserve the validated contraction-to-FFN phase boundary.
  sync_window();
 #endif
+#if HIP_C32_TRANSPOSED_TAIL
+ for(uint ci=0;ci<2;ci++){i2 fb{};for(uint e=0;e<8;e++){float v=Hrtz(acc[ci][e]);saved_ffn[ci][e]=(_Float16)v;put_bits(fb,e,fp8(v));}__builtin_memcpy(ffn8+(first+rc())*36+ci*16+gr()*8,&fb,8);} // 8 consecutive channels of the lane's token
+#else
  for(uint ci=0;ci<2;ci++)for(uint e=0;e<8;e++){
 #if HIP_C32_REGISTER_FFN
   float v=Hrtz(acc[ci][e]);saved_ffn[ci][e]=(_Float16)v;ffn8[(first+gr()*8+e)*36+ci*16+rc()]=static_cast<unsigned char>(fp8(v));
@@ -448,6 +477,7 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
   ffn[(first+gr()*8+e)*34+ci*16+rc()]=(_Float16)Hrtz(acc[ci][e]);
 #endif
  }
+#endif
  sync_window();
  // A single raw QKV plane is reused after its norm has been packed separately.
  C32_LOOP for(uint part=0;part<3;part++){
@@ -528,6 +558,31 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
  ATTN_SYNC();
  for(uint ci=0;ci<2;ci++)for(uint e=0;e<8;e++)packed[(first+gr()*8+e)*36+ci*16+rc()]=static_cast<unsigned char>(fp8(av[ci][e]));
  ATTN_SYNC();
+#if HIP_C32_TRANSPOSED_TAIL
+#if HIP_C32_ABLATE!=3
+ // Transposed projection: lane = token row, e = channel within an 8-run. The per-channel scale becomes 16 hoisted loads.
+ float pwt[2][8];for(uint ci=0;ci<2;ci++)for(uint e=0;e<8;e++)pwt[ci][e]=w[8193+ci*16+gr()*8+e];
+ C32_LOOP for(uint col=0;col<32;col+=16){f8 acc{};
+  for(uint kt=0;kt<2;kt++){i2 a{},b{};for(uint e=0;e<8;e++){uint k=kt*16+gr()*8+e;put_bits(a,e,packed[(first+rc())*36+k]);}b=matrix8(w,3072+(col+rc())*32+kt*16+gr()*8);acc=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,acc);}
+  const uint row=first+rc(),c0=col+gr()*8,i0=(base+row)*32+c0;h8 hv{},ho{};i2 fb{};f8 fv{};
+  for(uint e=0;e<8;e++){float residual=float(saved_ffn[col/16][e]),prod=residual*pwt[col/16][e],v=Hrtz(acc[e]+prod);hv[e]=(_Float16)v;
+   if constexpr(Finish||RgbHead){}
+#if HIP_C32_BYTE_CHAIN
+   else if constexpr(HalfOutput){put_bits(fb,e,fp8(F(float((_Float16)v))));ho[e]=(_Float16)F(v);}else fv[e]=raw_output?v:F(v);}
+#else
+   else if constexpr(HalfOutput)ho[e]=(_Float16)(raw_output?v:F(v));else fv[e]=raw_output?v:F(v);}
+#endif
+  if constexpr(RgbHead||Finish)__builtin_memcpy(scratch.ex+row*34+c0,&hv,16); // raw_output is 1 here: v is the half the finish/head would have read back
+  if constexpr(Finish){if(out)__builtin_memcpy(reinterpret_cast<_Float16*>(out)+i0,&hv,16);}
+  else if constexpr(RgbHead){}
+#if HIP_C32_BYTE_CHAIN
+  else if constexpr(HalfOutput){if(raw_output)__builtin_memcpy(reinterpret_cast<unsigned char*>(out)+i0,&fb,8);else __builtin_memcpy(reinterpret_cast<_Float16*>(out)+i0,&ho,16);}else __builtin_memcpy(out+i0,&fv,32);
+#else
+  else if constexpr(HalfOutput)__builtin_memcpy(reinterpret_cast<_Float16*>(out)+i0,&ho,16);else __builtin_memcpy(out+i0,&fv,32);
+#endif
+ }
+#endif
+#else
 #if HIP_C32_HOIST_PW
  // The projection scale is per column: read the lane's two values once. Inside the loop the reads sat between the out[]
  // stores, so the compiler re-issued global_load + s_wait_loadcnt 0 for every one of the 16 outputs (ISA, 2026-09-17).
@@ -557,6 +612,7 @@ DEV void c32_fused_body(const float*raw_input,const float*fw,const float*w,float
 #endif
  }
 #endif
+#endif /* HIP_C32_TRANSPOSED_TAIL */
 
  if constexpr(Finish){
   // c32_finish_crop_half / c32_finish_fast_half_main8 in the epilogue (HLSL DLSS5_C32_EPILOGUE finish shape): the wave's 16
