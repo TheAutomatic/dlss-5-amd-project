@@ -284,13 +284,16 @@ void RenderMenu(Config* config, float menuResScale)
                     std::snprintf(installed, sizeof(installed), "lmxxf");
                 else
                     std::snprintf(installed, sizeof(installed), "none");
-                char tip[512] {};
+                char tip[640] {};
                 std::snprintf(tip, sizeof(tip),
                               "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
                               "\nSwitching is live; temporal history resets."
                               "\nTurn NR off with Enable NR above."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
+                              "\n\nAfter you switch once, the host you left may keep some VRAM"
+                              "\nuntil the game exits (safe teardown). A little extra memory;"
+                              "\nframe rate is unaffected."
                               "\n\nInstalled here: %s",
                               installed);
                 HelpMarker(tip);
