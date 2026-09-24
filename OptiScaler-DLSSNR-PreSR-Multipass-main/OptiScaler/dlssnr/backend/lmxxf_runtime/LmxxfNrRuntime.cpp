@@ -420,6 +420,11 @@ struct Session
     /* What the live codecs were actually created with (exposureCopy, or null when we are
      * running without exposure). */
     ID3D12Resource *boundExposure = nullptr;
+    /* The Color texture's ALLOCATION size when the codecs were created. Deliberately separate
+     * from job.width/height, which holds the NGX subrect: the two are not interchangeable and
+     * comparing one against the other rebuilds the chain on every frame of any title whose
+     * render subrect is smaller than its buffer (UE5 at a non-native DLSS scale). */
+    UINT allocWidth = 0, allocHeight = 0;
 
     // NativeGameCodec::Record wants one state per source plus one more for the exposure SRV.
     // RecordInputs always leaves the copy in NON_PIXEL_SHADER_RESOURCE.
@@ -912,6 +917,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
             _putenv("DLSS5_NETWORK_HEIGHT=auto");
         NativeResolveNetworkGeometry(info->color_width, info->color_height);
+        // Set when PrepareFrame deliberately leaves a notice in the error slot for the host to
+        // log. Declared here, before the first HIP lazy-Create block, because BOTH of those
+        // blocks must skip SetError when a notice is already pending - otherwise the recreate
+        // reason is clobbered and a per-frame rebuild becomes invisible in the log.
+        bool keepLastError = false;
         if (!session->hipPrepared)
         {
             auto geo = NativeCurrentNetworkGeometry();
@@ -929,7 +939,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                           geo.processing_width, geo.processing_height);
             OutputDebugStringA(geoMsg);
             OutputDebugStringA("\n");
-            SetError(geoMsg);
+            // Do not clobber a more useful notice (the recreate reason above is set just before
+            // this block runs, and without this guard it was overwritten every time).
+            if (!keepLastError)
+                SetError(geoMsg);
         }
         auto *color = static_cast<ID3D12Resource *>(info->color);
         if (!color)
@@ -967,7 +980,6 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (info->exposure_scale > 0.0f && info->exposure_scale < 1.0e6f)
                 frameExposureScale = info->exposure_scale;
         }
-        bool keepLastError = false;
         // Exposure is an enhancement, not a requirement. The codec samples Texture2D<float> at
         // (0,0), so it can only use a 1x1 R16/R32 float; anything else must cost the game its
         // exposure, not the whole frame. Rejecting here disabled NR outright on Palworld, whose
@@ -1041,19 +1053,20 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
             bindExposure = session->exposureCopy;
         }
-        // Split so the recreate log can name the trigger. Note allocVsValid compares the
-        // Color texture ALLOCATION (cw/ch from GetDesc) to the last VALID size stored in
-        // job.width/height (NGX subrect via color_width/height) -  if those differ, geoChanged
-        // is true on every subsequent frame.
+        // Split so the recreate log can name the trigger. Compare like with like: the render
+        // subrect (info->color_width/height, remembered in job.width/height) against the previous
+        // subrect, and the Color texture allocation (cw/ch from GetDesc) against the previous
+        // allocation. The old code compared the remembered SUBRECT against the ALLOCATION, so any
+        // title whose buffer is larger than its render area rebuilt the codec chain every frame.
         const bool exposureChanged = session->encode && session->boundExposure != bindExposure;
         const bool validChanged =
             session->encode && (session->job.width != info->color_width ||
                                 session->job.height != info->color_height);
         const bool formatChanged = session->encode && session->colorFormat != cfmt;
-        const bool allocVsValid =
-            session->encode && ((session->job.width && cw != session->job.width) ||
-                                (session->job.height && ch != session->job.height));
-        const bool geoChanged = exposureChanged || validChanged || formatChanged || allocVsValid;
+        const bool allocChanged = session->encode &&
+                                  ((session->allocWidth && cw != session->allocWidth) ||
+                                   (session->allocHeight && ch != session->allocHeight));
+        const bool geoChanged = exposureChanged || validChanged || formatChanged || allocChanged;
         const bool pointerChanged = session->encode && color != session->job.color;
 
         if (session->encode && geoChanged)
@@ -1062,7 +1075,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             char reason[96] {};
             std::snprintf(reason, sizeof reason, "%s%s%s%s", exposureChanged ? "exposure+" : "",
                           validChanged ? "valid+" : "", formatChanged ? "format+" : "",
-                          allocVsValid ? "alloc_ne_valid" : "");
+                          allocChanged ? "alloc_ne_valid" : "");
             // Trim a trailing '+' when allocVsValid is false.
             size_t rlen = std::strlen(reason);
             if (rlen && reason[rlen - 1] == '+')
@@ -1105,7 +1118,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                               geo.processing_width, geo.processing_height);
                 OutputDebugStringA(geoMsg);
                 OutputDebugStringA("\n");
-                SetError(geoMsg);
+                if (!keepLastError)
+                    SetError(geoMsg);
             }
             // One warm-up dispatch before recording so lazy weight and module uploads cannot
             // land inside the producer-wait callback later (the author's RE9 host does the
@@ -1126,6 +1140,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 // the game's format, or the UNORM8/R11G11B10 raw-buffer copies).
                 const bool privateFloatOutput = (cfmt == DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
                 session->boundExposure = bindExposure;
+                session->allocWidth = cw;
+                session->allocHeight = ch;
                 enc = new NativeGameCodec();
                 enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, bindExposure);
                 rgbIn = new NativeGameRgbInput();

@@ -213,7 +213,7 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
 int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, outputHash = false, rejectFormats = false,
-         useExposure = false, badExposure = false, ultrawide = false;
+         useExposure = false, badExposure = false, ultrawide = false, subrect = false;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -232,6 +232,8 @@ int main(int argc, char **argv)
             useExposure = badExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--ultrawide"))
             ultrawide = outputHash = true;
+        else if (!std::strcmp(argv[i], "--subrect"))
+            subrect = outputHash = true;
         else
         {
             std::fprintf(stderr,
@@ -334,6 +336,13 @@ int main(int argc, char **argv)
     frame.struct_size = sizeof(frame);
     frame.color_width = static_cast<UINT>(td.Width);
     frame.color_height = td.Height;
+    // --subrect: the Color buffer is larger than the render area the game actually uses (NGX
+    // subrect). The codec is built at the ALLOCATION size, so the two disagree on every frame.
+    if (subrect)
+    {
+        frame.color_width = 1280;
+        frame.color_height = 720;
+    }
     frame.color = color;
     frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     // An unsupported colour must be a retryable contract rejection, not a poisoned session.
@@ -524,6 +533,37 @@ int main(int argc, char **argv)
 
     if (queueMismatch)
         Require(outs == LMXXF_NR_OK, "RecordOutputs after zero fallback");
+
+    if (subrect)
+    {
+        // A subrect smaller than its buffer must NOT rebuild the codec chain. The old check
+        // compared the remembered SUBRECT against the ALLOCATION, so this second frame - same
+        // subrect, same buffer - would have taken geoChanged and paid a full rebuild.
+        char stBefore[256] {}, stAfter[256] {};
+        if (api.GetStatus)
+            api.GetStatus(ctx, stBefore, sizeof stBefore);
+        LmxxfNrFrameInfo again = frame;
+        LmxxfNrJob againJob {};
+        againJob.struct_size = sizeof(againJob);
+        const int32_t againRc = api.PrepareFrame(ctx, &again, &againJob);
+        std::printf("subrect second frame rc=%d\n", againRc);
+        Require(againRc == LMXXF_NR_OK && againJob.handle != nullptr, "second subrect frame runs");
+        // GetLastError BEFORE GetStatus: GetStatus clears the last-error slot.
+        char why[320] {};
+        if (api.GetLastError)
+            api.GetLastError(why, sizeof why);
+        std::printf("subrect rebuild reason: %s\n", why);
+        if (api.GetStatus)
+            api.GetStatus(ctx, stAfter, sizeof stAfter);
+        auto recreates = [](const char *st) -> long {
+            const char *p = std::strstr(st, "recreates=");
+            return p ? std::strtol(p + 10, nullptr, 10) : -1;
+        };
+        std::printf("recreates before=%ld after=%ld (%s)\n", recreates(stBefore), recreates(stAfter), stAfter);
+        Require(recreates(stBefore) == recreates(stAfter),
+                "subrect != allocation must not rebuild the codec chain");
+        Require(api.CancelUnsubmitted(ctx, againJob.handle) == LMXXF_NR_OK, "cancel second subrect frame");
+    }
 
     if (useExposure && !badExposure)
     {
