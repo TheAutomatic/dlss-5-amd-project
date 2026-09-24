@@ -159,7 +159,8 @@ function Assert-InputGeometryLocalMarkers([string]$geomPath, [string]$context) {
     $c = Get-Content -LiteralPath $geomPath -Encoding UTF8 -Raw
     foreach ($r in @(
         @{ Needle = 'max_pixels'; What = 'max_pixels pixel budget' },
-        @{ Needle = 'w*h<=max_pixels'; What = 'Supported() pixel-budget admission' }
+        @{ Needle = 'max_budget_width=2560'; What = 'max_budget_width width cap' },
+        @{ Needle = '(large||(w<=max_budget_width&&h<=max_height&&w*h<=max_pixels))'; What = 'Supported() pixel-budget admission' }
     )) {
         if (-not $c.Contains($r.Needle)) {
             throw ("Input geometry local markers incomplete ($context): missing '" + $r.What + "'. Pass -UpdateInputGeometry to re-apply patches from a matching upstream ref, or restore the pinned header.")
@@ -978,7 +979,8 @@ if (-not $UpdateReflect) {
 
 # Patch D: admit ultrawide inputs by pixel budget instead of per axis.
 # 2024x848 (3440x1440 at Quality 1) is 1.72M pixels, under the 1920x1080 budget, but a per-axis
-# cap rejects it on width alone. The budget is exactly that box, so nothing admitted before is lost.
+# cap rejects it on width alone. A wider input is downsampled onto the network surface, so the width
+# is capped at 2560 (at most 25%) and the height stays within 1080; nothing admitted before is lost.
 $geomH = Join-Path $vendorRoot 'src\native_input_geometry.h'
 if (-not (Test-Path -LiteralPath $geomH -PathType Leaf)) {
     throw "Patch D failed: missing native_input_geometry.h"
@@ -993,26 +995,27 @@ if (-not $UpdateInputGeometry) {
         if (-not $content.Contains($mxAnchor)) {
             throw "Patch D failed: cannot find max_width/max_height anchor in native_input_geometry.h"
         }
-        $content = $content.Replace($mxAnchor, $mxAnchor + "`r`n static constexpr uint64_t max_pixels=uint64_t(max_width)*max_height;")
+        $content = $content.Replace($mxAnchor, $mxAnchor + "`r`n static constexpr uint64_t max_pixels=uint64_t(max_width)*max_height;" +
+                                    "`r`n static constexpr unsigned max_budget_width=2560;")
     }
-    if ($content -notmatch 'w\*h<=max_pixels') {
+    if (-not $content.Contains('(large||(w<=max_budget_width&&h<=max_height&&w*h<=max_pixels))')) {
         $supAnchor = '(large||(w<=max_width&&h<=max_height))'
         if (-not $content.Contains($supAnchor)) {
             throw "Patch D failed: cannot find Supported() per-axis anchor in native_input_geometry.h"
         }
-        $content = $content.Replace($supAnchor, '(large||w*h<=max_pixels)')
+        $content = $content.Replace($supAnchor, '(large||(w<=max_budget_width&&h<=max_height&&w*h<=max_pixels))')
     }
     [IO.File]::WriteAllText($geomH, $content, [Text.UTF8Encoding]::new($false))
     Assert-InputGeometryLocalMarkers -geomPath $geomH -context '-UpdateInputGeometry post-patch'
 }
 
 # 6. Update UPSTREAM.md with new commit and timestamp
-$upstreamMd = Join-Path $vendorRoot 'UPSTREAM.md'
-if (Test-Path $upstreamMd) {
-    $md = Get-Content -LiteralPath $upstreamMd -Encoding UTF8 -Raw
 # Every Get-Content in this script names -Encoding UTF8. Windows PowerShell 5.1 otherwise decodes a
 # BOM-less UTF-8 file with the ANSI code page (936 here), and the WriteAllText that follows bakes the
 # damage in: this is how UPSTREAM.md's em dashes became U+9225 followed by '?' on each sync.
+$upstreamMd = Join-Path $vendorRoot 'UPSTREAM.md'
+if (Test-Path $upstreamMd) {
+    $md = Get-Content -LiteralPath $upstreamMd -Encoding UTF8 -Raw
     $today = (Get-Date).ToString('yyyy-MM-dd')
     $md = $md -replace '(?m)^- Commit: .*', "- Commit: ``$commitHash`` (synced $today)"
     [IO.File]::WriteAllText($upstreamMd, $md, [Text.UTF8Encoding]::new($false))

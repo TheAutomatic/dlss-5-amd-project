@@ -51,8 +51,9 @@ typedef struct LmxxfNrCapabilities
 {
     uint32_t struct_size;
     uint32_t abi_version;
-    /* The always-admitted box. Admission is by pixel budget, so a wider input is also accepted
-     * while width*height stays within max_input_width*max_input_height (ultrawide). */
+    /* The always-admitted box. Admission is by pixel budget, so a wider input (up to 2560, height
+     * still within max_input_height) is also accepted while width*height stays within
+     * max_input_width*max_input_height (ultrawide). */
     uint32_t max_input_width;
     uint32_t max_input_height;
     uint32_t history_supported; /* first product version: 0 */
