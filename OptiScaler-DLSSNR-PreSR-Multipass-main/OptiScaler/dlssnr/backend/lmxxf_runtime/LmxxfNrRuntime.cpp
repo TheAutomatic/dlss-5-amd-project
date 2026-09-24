@@ -950,6 +950,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (info->exposure_scale > 0.0f && info->exposure_scale < 1.0e6f)
                 frameExposureScale = info->exposure_scale;
         }
+        bool keepLastError = false;
+        // Exposure is an enhancement, not a requirement. The codec samples Texture2D<float> at
+        // (0,0), so it can only use a 1x1 R16/R32 float; anything else must cost the game its
+        // exposure, not the whole frame. Rejecting here disabled NR outright on Palworld, whose
+        // NGX ExposureTexture is not that shape (thousands of failed frames in one session).
         if (frameExposure)
         {
             const D3D12_RESOURCE_DESC ed = frameExposure->GetDesc();
@@ -959,8 +964,29 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                                     (ed.Format == DXGI_FORMAT_R16_FLOAT || ed.Format == DXGI_FORMAT_R32_FLOAT) &&
                                     !(ed.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
             if (!exposureOk)
-                return Fail(LMXXF_NR_INVALID_ARGUMENT,
-                            "PrepareFrame: exposure must be a shader-readable 1x1 R16_FLOAT/R32_FLOAT texture");
+            {
+                // Diagnostics only, so do not pay for them per frame: GetDesc and the checks
+                // above are the whole recurring cost, and none of it touches the GPU or rebuilds
+                // the codec chain.
+                static unsigned exposureNotices = 0;
+                if (exposureNotices < 3 || (exposureNotices % 300) == 0)
+                {
+                    char msg[224];
+                    std::snprintf(msg, sizeof msg,
+                                  "PrepareFrame: exposure unusable, continuing without it "
+                                  "(fmt=%u %llux%llu arr=%u mips=%u samples=%u flags=0x%x)",
+                                  unsigned(ed.Format), static_cast<unsigned long long>(ed.Width),
+                                  static_cast<unsigned long long>(ed.Height), unsigned(ed.DepthOrArraySize),
+                                  unsigned(ed.MipLevels), unsigned(ed.SampleDesc.Count), unsigned(ed.Flags));
+                    OutputDebugStringA(msg);
+                    OutputDebugStringA("\n");
+                    SetError(msg);
+                    keepLastError = true;
+                }
+                ++exposureNotices;
+                frameExposure = nullptr;
+                frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            }
         }
         // Split so the recreate log can name the trigger. Note allocVsValid compares the
         // Color texture ALLOCATION (cw/ch from GetDesc) to the last VALID size stored in
@@ -976,7 +1002,6 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                                 (session->job.height && ch != session->job.height));
         const bool geoChanged = exposureChanged || validChanged || formatChanged || allocVsValid;
         const bool pointerChanged = session->encode && color != session->job.color;
-        bool keepRecreateLog = false;
 
         if (session->encode && geoChanged)
         {
@@ -1000,7 +1025,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             OutputDebugStringA(msg);
             OutputDebugStringA("\n");
             SetError(msg);
-            keepRecreateLog = true;
+            keepLastError = true;
             if (FAILED(session->DrainGpu()))
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             "PrepareFrame: color geometry change; GPU drain failed (retry or rebuild session)");
@@ -1132,7 +1157,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         job->private_output = session->decode->BufferOutput()
                                    ? static_cast<void *>(session->decodeDisplay)
                                    : static_cast<void *>(session->decode->Output());
-        if (!keepRecreateLog)
+        if (!keepLastError)
             SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });

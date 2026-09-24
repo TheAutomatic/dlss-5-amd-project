@@ -212,7 +212,7 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
 int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, outputHash = false, rejectFormats = false,
-         useExposure = false, ultrawide = false;
+         useExposure = false, badExposure = false, ultrawide = false;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -227,6 +227,8 @@ int main(int argc, char **argv)
             rejectFormats = true;
         else if (!std::strcmp(argv[i], "--exposure"))
             useExposure = outputHash = true;
+        else if (!std::strcmp(argv[i], "--exposure-bad"))
+            useExposure = badExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--ultrawide"))
             ultrawide = outputHash = true;
         else
@@ -405,28 +407,13 @@ int main(int argc, char **argv)
     {
         D3D12_RESOURCE_DESC ed {};
         ed.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        ed.Width = 2;
-        ed.Height = 2;
+        // --exposure-bad hands the codec a 2x2 scale. That is unusable (it samples Texture2D<float>
+        // at (0,0)) and must cost the frame its exposure, not reject the frame itself.
+        ed.Width = badExposure ? 2u : 1u;
+        ed.Height = badExposure ? 2u : 1u;
         ed.DepthOrArraySize = ed.MipLevels = 1;
         ed.Format = DXGI_FORMAT_R32_FLOAT;
         ed.SampleDesc.Count = 1;
-        ID3D12Resource *badExp = nullptr;
-        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &ed,
-                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                                              nullptr, IID_PPV_ARGS(&badExp)),
-              "bad exposure");
-        LmxxfNrFrameInfo badFrame = frame;
-        badFrame.exposure = badExp;
-        LmxxfNrJob badJob {};
-        badJob.struct_size = sizeof(badJob);
-        const int32_t badRc = api.PrepareFrame(ctx, &badFrame, &badJob);
-        char badErr[256] {};
-        api.GetLastError(badErr, sizeof badErr);
-        std::printf("reject 2x2 exposure rc=%d err=%s\n", badRc, badErr);
-        Require(badRc == LMXXF_NR_INVALID_ARGUMENT, "non-1x1 exposure -> INVALID_ARGUMENT");
-        badExp->Release();
-
-        ed.Width = ed.Height = 1;
         Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &ed,
                                               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                               nullptr, IID_PPV_ARGS(&exposureTex)),

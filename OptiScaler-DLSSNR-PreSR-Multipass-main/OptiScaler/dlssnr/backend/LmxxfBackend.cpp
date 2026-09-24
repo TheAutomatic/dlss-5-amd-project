@@ -523,15 +523,16 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     {
         // Surface runtime codec-recreate diagnostics into OptiScaler.log (rate-limited).
         // Must read GetLastError BEFORE GetStatus - GetStatus clears the last-error slot.
-        char recreateMsg[320] {};
+        // A successful PrepareFrame may still leave a notice (codec recreate, unusable exposure).
+        char noticeMsg[320] {};
         if (api->table.GetLastError)
-            api->table.GetLastError(recreateMsg, sizeof recreateMsg);
-        if (recreateMsg[0] && std::strstr(recreateMsg, "codec recreate"))
+            api->table.GetLastError(noticeMsg, sizeof noticeMsg);
+        if (noticeMsg[0])
         {
-            static unsigned recreateLogs = 0;
-            if (recreateLogs < 8 || (recreateLogs % 30) == 0)
-                LOG_INFO("{}", recreateMsg);
-            ++recreateLogs;
+            static unsigned noticeLogs = 0;
+            if (noticeLogs < 8 || (noticeLogs % 30) == 0)
+                LOG_INFO("{}", noticeMsg);
+            ++noticeLogs;
         }
         static bool loggedGeo = false;
         if (!loggedGeo && api->table.GetStatus)
