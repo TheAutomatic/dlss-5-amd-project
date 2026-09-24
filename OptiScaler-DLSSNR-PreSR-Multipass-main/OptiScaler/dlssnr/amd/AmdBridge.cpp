@@ -307,14 +307,12 @@ bool HasFiles()
         return HasLmxxfRuntime();
     return HasDanielRuntime();
 }
-DlssNr::Backend::Kind LiveBackendKind()
-{
-    return DlssNr::Backend::ActiveKindFromConfig();
-}
 void SyncBackendWithConfig()
 {
     // Hot switch: both hosts stay alive. Flip ProxyWrap, drop temporal history,
     // and force the warm-up window so the new host does not inherit stability.
+    // Residual: a switch between one frame's Record and its Execute can deliver
+    // Submitting/Submitted to the other host. Menu toggles land between frames.
     {
         std::lock_guard fl(frameMutex);
         lastFrame = {};
@@ -457,11 +455,19 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     }
     if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed())
         DlssNr::Submission::Hooks::SetProxyWrap(true);
-    // Build the selected host on first use; keep the other alive for switching back.
-    if (active == DlssNr::Backend::Kind::Lmxxf && !g_lmxxf.load(std::memory_order_acquire))
-        g_lmxxf.store(new DlssNr::Backend::LmxxfBackend(device, q, Directory()), std::memory_order_release);
+    // Build only the selected host on first use. The other is built when it is
+    // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
+    if (active == DlssNr::Backend::Kind::Lmxxf)
+    {
+        if (!g_lmxxf.load(std::memory_order_acquire))
+            g_lmxxf.store(new DlssNr::Backend::LmxxfBackend(device, q, Directory()),
+                          std::memory_order_release);
+    }
     else if (!g_daniel.load(std::memory_order_acquire))
-        g_daniel.store(new DlssNr::Backend::DanielBackend(device, q, Directory()), std::memory_order_release);
+    {
+        g_daniel.store(new DlssNr::Backend::DanielBackend(device, q, Directory()),
+                       std::memory_order_release);
+    }
     auto b = HostForKind(active);
     device->Release();
     if (confirmedQ)

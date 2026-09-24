@@ -306,8 +306,9 @@ class Config
     // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
-    // NR host: daniel (default) or lmxxf. Missing key = daniel.
-    // Ins menu switches live (both hosts stay built; history resets). Enable NR is the on/off.
+    // NR host: daniel or lmxxf. Missing / auto / legacy off-none pick an installed host.
+    // Explicit choice missing its files falls back to the other. Enable NR is the on/off.
+    // Ins menu switches live (both hosts stay built once used; history resets).
     CustomOptional<std::string> NrBackend { "daniel" };
     // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.

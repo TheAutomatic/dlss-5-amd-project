@@ -252,7 +252,15 @@ void RenderMenu(Config* config, float menuResScale)
             const Request request =
                 rawBackend.has_value() ? DlssNr::Backend::ParseRequest(rawBackend.value())
                                        : Request::Auto;
-            int selected = active == Kind::Lmxxf ? 1 : 0;
+            // Show the explicit request when there is one, so a fallback (request
+            // lmxxf, running daniel) still lets the user re-assert "daniel".
+            int selected = 0;
+            if (request == Request::Lmxxf)
+                selected = 1;
+            else if (request == Request::Daniel)
+                selected = 0;
+            else
+                selected = (active == Kind::Lmxxf) ? 1 : 0;
             static const char* items[] = { "daniel", "lmxxf" };
             const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
             const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
