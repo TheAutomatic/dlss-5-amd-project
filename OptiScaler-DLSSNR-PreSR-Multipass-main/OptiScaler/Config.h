@@ -315,7 +315,8 @@ class Config
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
     // Fit Color inputs above 1920x1080 onto the 1080 network (DLSS5_FIT_LARGE).
     // Default false: missing/auto => false (Palworld: FitLarge+~2K Color same-frame can hitch ~2s/frame).
-    // Opt-in with explicit true; applied to env on Config load / lmxxf backend start; installer writes flags.
+    // Opt-in with explicit true. Written to env on Config load and on menu change (runtime
+    // reads the env every call). Installer also writes native-game-flags.txt.
     CustomOptional<bool> LmxxfFitLarge { false };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.

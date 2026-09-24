@@ -381,10 +381,14 @@ void RenderMenu(Config* config, float menuResScale)
                     config->DlssNrDebugView = (uint32_t) debugView;
 
                 bool fitLarge = config->LmxxfFitLarge.value_or_default();
-                if (ImGui::Checkbox("Fit large color (restart)", &fitLarge))
+                if (ImGui::Checkbox("Fit large color", &fitLarge))
                 {
                     config->LmxxfFitLarge = fitLarge;
-                    ImGui::OpenPopup("FitLarge restart");
+                    // NativeFitLargeInput() reads DLSS5_FIT_LARGE on every call, so a
+                    // live env write is enough — no restart. The codec may rebuild on
+                    // the next frame if admission changes.
+                    _putenv(fitLarge ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+                    DlssNr::AmdBridge::InvalidateHistory();
                 }
                 HelpMarker("Off (default): Color above ~1080p is admitted only when the"
                            "\nnetwork can take it as-is. On: fit larger Color onto the 1080"
@@ -393,15 +397,9 @@ void RenderMenu(Config* config, float menuResScale)
                            "\n(Palworld ~2s/frame at 2258x1271). Prefer internal render at or"
                            "\nbelow roughly 4K Performance / 1440p Balanced / 1080p native,"
                            "\nor leave this off."
-                           "\n\nApplied when the lmxxf host starts; restart after changing.");
-                if (ImGui::BeginPopupModal("FitLarge restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-                {
-                    ImGui::TextUnformatted("FitLarge is applied when the lmxxf host starts.");
-                    ImGui::TextUnformatted("Restart the game to apply the new value.");
-                    if (ImGui::Button("OK"))
-                        ImGui::CloseCurrentPopup();
-                    ImGui::EndPopup();
-                }
+                           "\n\nLive: applies to the next frame. If the new setting rejects"
+                           "\nthe current Color size, that frame falls back to original colour"
+                           "\n(no NR) until the chain rebuilds — the game is not interrupted.");
             }
 
             if (!isLmxxf)

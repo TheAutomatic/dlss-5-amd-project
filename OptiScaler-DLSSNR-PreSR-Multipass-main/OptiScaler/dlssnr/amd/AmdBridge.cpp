@@ -148,9 +148,14 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
                      reinterpret_cast<void*>(q), reinterpret_cast<void*>(matched));
         }
     }
-    auto b = ActiveHost();
-    if (b)
-        b->Submitting(q, n, c);
+    // Notify every live host. Each no-ops on lists it does not own, so a switch
+    // between Record and Execute still lands Submitted on the recording host.
+    auto daniel = g_daniel.load(std::memory_order_acquire);
+    auto lmxxf = g_lmxxf.load(std::memory_order_acquire);
+    if (daniel)
+        daniel->Submitting(q, n, c);
+    if (lmxxf)
+        lmxxf->Submitting(q, n, c);
     // Execute every game list exactly once. Private runtime Notify callbacks
     // publish HIP jobs afterwards and have their internal ECL call neutralized.
     // When lmxxf submission expand is armed, unwrap CommandListProxy (between = HIP slot).
@@ -170,13 +175,21 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         for (UINT i = 0; i < n; ++i)
             observedLists.insert(c[i]);
     }
-    if (b)
-        b->Submitted(q, n, c);
+    if (daniel)
+        daniel->Submitted(q, n, c);
+    if (lmxxf)
+        lmxxf->Submitted(q, n, c);
 }
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
-    auto b = ActiveHost();
-    int index = b ? b->PendingListIndex(n, c) : -1;
+    // Daniel isolates its private neural list; lmxxf always returns -1.
+    // Ask both so a mid-switch still splits the batch correctly.
+    int index = -1;
+    if (auto d = g_daniel.load(std::memory_order_acquire))
+        index = d->PendingListIndex(n, c);
+    if (index < 0)
+        if (auto l = g_lmxxf.load(std::memory_order_acquire))
+            index = l->PendingListIndex(n, c);
     if (n > 1 && index >= 0)
     {
         // Separate Execute calls establish an execution boundary around the
@@ -311,8 +324,6 @@ void SyncBackendWithConfig()
 {
     // Hot switch: both hosts stay alive. Flip ProxyWrap, drop temporal history,
     // and force the warm-up window so the new host does not inherit stability.
-    // Residual: a switch between one frame's Record and its Execute can deliver
-    // Submitting/Submitted to the other host. Menu toggles land between frames.
     {
         std::lock_guard fl(frameMutex);
         lastFrame = {};
