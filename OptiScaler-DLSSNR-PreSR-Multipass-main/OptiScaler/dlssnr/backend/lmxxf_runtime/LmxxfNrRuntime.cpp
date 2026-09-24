@@ -404,6 +404,8 @@ struct Session
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+    /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
+    uint32_t codecRecreates = 0;
     /* Exposure is the game's 1x1 scale. Its SRV is baked into the codec heap at Create, so a
      * change of identity rebuilds the chain (see geoChanged). Not owned here: the codec holds
      * the reference for the life of the chain. */
@@ -959,16 +961,45 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 return Fail(LMXXF_NR_INVALID_ARGUMENT,
                             "PrepareFrame: exposure must be a shader-readable 1x1 R16_FLOAT/R32_FLOAT texture");
         }
-        const bool geoChanged =
-            session->encode &&
-            (session->exposure != frameExposure || session->job.width != info->color_width ||
-             session->job.height != info->color_height ||
-             session->colorFormat != cfmt || (session->job.width && cw != session->job.width) ||
-             (session->job.height && ch != session->job.height));
+        // Split so the recreate log can name the trigger. Note allocVsValid compares the
+        // Color texture ALLOCATION (cw/ch from GetDesc) to the last VALID size stored in
+        // job.width/height (NGX subrect via color_width/height) -  if those differ, geoChanged
+        // is true on every subsequent frame.
+        const bool exposureChanged = session->encode && session->exposure != frameExposure;
+        const bool validChanged =
+            session->encode && (session->job.width != info->color_width ||
+                                session->job.height != info->color_height);
+        const bool formatChanged = session->encode && session->colorFormat != cfmt;
+        const bool allocVsValid =
+            session->encode && ((session->job.width && cw != session->job.width) ||
+                                (session->job.height && ch != session->job.height));
+        const bool geoChanged = exposureChanged || validChanged || formatChanged || allocVsValid;
         const bool pointerChanged = session->encode && color != session->job.color;
+        bool keepRecreateLog = false;
 
         if (session->encode && geoChanged)
         {
+            ++session->codecRecreates;
+            char reason[96] {};
+            std::snprintf(reason, sizeof reason, "%s%s%s%s", exposureChanged ? "exposure+" : "",
+                          validChanged ? "valid+" : "", formatChanged ? "format+" : "",
+                          allocVsValid ? "alloc_ne_valid" : "");
+            // Trim a trailing '+' when allocVsValid is false.
+            size_t rlen = std::strlen(reason);
+            if (rlen && reason[rlen - 1] == '+')
+                reason[rlen - 1] = 0;
+            if (!reason[0])
+                std::snprintf(reason, sizeof reason, "unknown");
+            char msg[320] {};
+            std::snprintf(msg, sizeof msg,
+                          "lmxxf: codec recreate #%u reason=%s valid=%ux%u->%ux%u alloc=%ux%u fmt=%u->%u",
+                          session->codecRecreates, reason, session->job.width, session->job.height,
+                          info->color_width, info->color_height, cw, ch,
+                          static_cast<unsigned>(session->colorFormat), static_cast<unsigned>(cfmt));
+            OutputDebugStringA(msg);
+            OutputDebugStringA("\n");
+            SetError(msg);
+            keepRecreateLog = true;
             if (FAILED(session->DrainGpu()))
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             "PrepareFrame: color geometry change; GPU drain failed (retry or rebuild session)");
@@ -1100,7 +1131,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         job->private_output = session->decode->BufferOutput()
                                    ? static_cast<void *>(session->decodeDisplay)
                                    : static_cast<void *>(session->decode->Output());
-        SetError("");
+        if (!keepRecreateLog)
+            SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
 }
@@ -1425,17 +1457,18 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             {
                 auto geo = NativeCurrentNetworkGeometry();
                 std::snprintf(text, sizeof text,
-                              "lmxxf modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u",
+                              "lmxxf modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
                               static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
                               session->job.width, session->job.height,
-                              session->weightsDir.empty() ? 0u : 1u);
+                              session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
             }
             else
             {
-                std::snprintf(text, sizeof text, "lmxxf modules_ok=%u hip=0 prepared=%u queue=%u weights=%u",
+                std::snprintf(text, sizeof text,
+                              "lmxxf modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
                               static_cast<unsigned>(session->hsacoCount), session->hipPrepared ? 1u : 0u,
                               session->queueBound ? 1u : 0u,
-                              session->weightsDir.empty() ? 0u : 1u);
+                              session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
             }
         std::strncpy(buf, text, buf_chars - 1);
         buf[buf_chars - 1] = 0;
