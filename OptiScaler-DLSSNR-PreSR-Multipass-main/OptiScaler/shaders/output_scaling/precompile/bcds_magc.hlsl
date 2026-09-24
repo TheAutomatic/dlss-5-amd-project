@@ -52,7 +52,7 @@ static const float R = 1.5f;
 #define TILE_SIZE 32
 #define MAX_TAPS  12
 
-// De-interleaved R/G/B — no wasted .w, no bank conflicts on consecutive lx reads
+// De-interleaved R/G/B â€” no wasted .w, no bank conflicts on consecutive lx reads
 groupshared float lds_R[TILE_SIZE][TILE_SIZE];
 groupshared float lds_G[TILE_SIZE][TILE_SIZE];
 groupshared float lds_B[TILE_SIZE][TILE_SIZE];
@@ -105,7 +105,7 @@ void CSMain(uint3 id : SV_DispatchThreadID,
     tileStart.y = ClampInt(tileStart.y, 0, max(_SrcHeight - tileH, 0));
 
     // ----------------------------
-    // 2) Cooperative LDS load — de-interleaved into separate R/G/B planes
+    // 2) Cooperative LDS load â€” de-interleaved into separate R/G/B planes
     // ----------------------------
     uint lane = tid.y * 8u + tid.x;
     uint total = (uint) (tileW * tileH);

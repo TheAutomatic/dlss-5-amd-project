@@ -284,7 +284,7 @@ static void SpoofMultiSzW(LPBYTE lpData, LPDWORD lpcbData, const std::wstring& s
     if (segments.empty())
         return;
 
-    // Rebuild the MULTI_SZ in-place (same buffer, same or smaller size — safe)
+    // Rebuild the MULTI_SZ in-place (same buffer, same or smaller size â€” safe)
     wchar_t* dst = reinterpret_cast<wchar_t*>(lpData);
     DWORD written = 0;
     for (const auto& seg : segments)
@@ -477,7 +477,7 @@ static LONG hkRegQueryValueExW(HKEY hKey, LPCWSTR lpValueName, LPDWORD lpReserve
             }
             else
             {
-                // REG_SZ fallback — single string, replace in-place
+                // REG_SZ fallback â€” single string, replace in-place
                 std::wstring data(reinterpret_cast<wchar_t*>(lpData), *lpcbData / sizeof(wchar_t));
                 std::wstring newData = ReplaceVendorDeviceTokensW(data, vendorId, deviceId);
 

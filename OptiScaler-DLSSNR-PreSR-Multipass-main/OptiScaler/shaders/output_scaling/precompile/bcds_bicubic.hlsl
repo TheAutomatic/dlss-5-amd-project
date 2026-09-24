@@ -50,7 +50,7 @@ static float CubicKeys(float x)
 }
 
 // Compute two bilinear sample positions and their combined weights from 4 cubic taps.
-// This is the standard ì4 taps via 2 bilinear taps per axisî trick.
+// This is the standard ‚Äú4 taps via 2 bilinear taps per axis‚Äù trick.
 static void BicubicAxis(float t, out float w01, out float w23, out float o01, out float o23)
 {
     // t is fractional part in [0,1)
@@ -66,7 +66,7 @@ static void BicubicAxis(float t, out float w01, out float w23, out float o01, ou
     float invW01 = (w01 != 0.0f) ? (1.0f / w01) : 0.0f;
     float invW23 = (w23 != 0.0f) ? (1.0f / w23) : 0.0f;
 
-    // Offsets relative to the ìbaseî texel index (floor(pos) - 1)
+    // Offsets relative to the ‚Äúbase‚Äù texel index (floor(pos) - 1)
     // These produce the correct mix of the two texels in each bilinear pair.
     o01 = (-1.0f) + (w1 * invW01); // between base+0 and base+1
     o23 = (1.0f) + (w3 * invW23); // between base+2 and base+3

@@ -874,8 +874,23 @@ $ini = Join-Path $release 'OptiScaler.ini'
 $gameIni = Join-Path $game 'OptiScaler.ini'
 if (Test-Path -LiteralPath $ini -PathType Leaf) {
     if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
-        # First install: copy package ini. Upgrades keep the game ini and upsert [DlssNr] keys below.
         Install-One $ini 'OptiScaler.ini'
+    } else {
+        # Recommended on a large version jump. -NonInteractive takes that option.
+        $overwriteIni = $NonInteractive
+        if (-not $NonInteractive) {
+            $iniChoice = Ask-Choice 'OptiScaler.ini already exists in the game folder.' @(
+                'Overwrite OptiScaler.ini (Recommended: major version update!)'
+                'Keep the existing OptiScaler.ini'
+            )
+            $overwriteIni = ($iniChoice -eq 1)
+        }
+        if ($overwriteIni) {
+            Install-One $ini 'OptiScaler.ini'
+            Write-Host 'Replaced OptiScaler.ini with the package file.' -ForegroundColor Cyan
+        } else {
+            Write-Host 'Keeping the existing OptiScaler.ini.' -ForegroundColor Cyan
+        }
     }
 }
 $deps = Join-Path $release 'OptiScaler'
@@ -959,9 +974,11 @@ if ($installLmxxf) {
 
 }
 
-# --- Configure OptiScaler.ini [DlssNr] (no full-file overwrite) ---
-# Installer-owned keys are always written. Preference keys are only added when missing, so a
-# user's model scale, every-frame, encoding or FitLarge opt-in survives reinstalls and upgrades.
+# --- Configure OptiScaler.ini [DlssNr] ---
+# Runs after a package overwrite as well. These keys are this install's choices, so the
+# copied template cannot leave NrBackend (or Enabled / RunBeforeSR) on the package placeholder.
+# Preference keys are only added when missing, so a kept ini retains model scale, every-frame,
+# encoding and FitLarge. An overwrite already replaced those with the package defaults.
 if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
         'Enabled' = 'true'
