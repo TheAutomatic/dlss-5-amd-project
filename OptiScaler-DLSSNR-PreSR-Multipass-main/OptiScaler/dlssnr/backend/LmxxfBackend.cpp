@@ -477,8 +477,10 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (execSl) execSl->Release();
         ++prepareFrameFailLogs;
         // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
-        // drop host session so the next Record EnsureSession starts clean.
-        const bool rebindish = (err[0] && (std::strstr(err, "rebind") || std::strstr(err, "geometry")));
+        // drop host session so the next Record EnsureSession starts clean. An input contract
+        // violation is INVALID_ARGUMENT and a rebuild cannot help it, so never rebuild for it.
+        const bool rebindish = frameRc != LMXXF_NR_INVALID_ARGUMENT &&
+                               (err[0] && (std::strstr(err, "rebind") || std::strstr(err, "geometry")));
         if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
         {
             LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
