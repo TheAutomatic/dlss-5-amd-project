@@ -29,6 +29,10 @@ thread_local char g_lastError[256] = {};
 // offset where the exposure fields start, or an old host's frames are rejected outright.
 static_assert(offsetof(LmxxfNrFrameInfo, exposure) == LMXXF_NR_FRAME_INFO_V1_SIZE,
               "LMXXF_NR_FRAME_INFO_V1_SIZE must match the ABI v1 LmxxfNrFrameInfo size");
+static_assert(offsetof(LmxxfNrFrameInfo, paper_white) == LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,
+              "paper_white must start where the exposure-sized frame info ended");
+static_assert(sizeof(LmxxfNrFrameInfo) > LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,
+              "paper_white must grow the frame info past the exposure-sized host");
 
 // Bound each D3D12 queue wait during EnqueueHip recovery to limit stalls.
 // Teardown keeps its 30 s wait; HIP stream synchronization is not bounded here.
@@ -379,6 +383,7 @@ struct Job
     uint32_t debug_view = 0;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
+    float paper_white = 1.0f;
     /* The game's exposure texture and its state at RecordInputs: the source of the per-frame
      * copy into Session::exposureCopy. Not bound to any codec. */
     ID3D12Resource *sourceExposure = nullptr;
@@ -834,12 +839,13 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (!session || !info || !job)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
         RequireSession(session);
-        // Historical sizes: 64 ends at color_state/flags, LMXXF_NR_FRAME_INFO_V1_SIZE ends at
-        // model_scale. A host whose struct_size stops earlier simply has no later fields.
+        // Historical sizes: 64 ends at color_state/flags, V1 ends at model_scale, the exposure
+        // size ends at exposure_scale. A host whose struct_size stops earlier has no later fields.
         const uint32_t legacySize = 64;
         const uint32_t v1Size = LMXXF_NR_FRAME_INFO_V1_SIZE;
-        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != v1Size &&
-             info->struct_size != legacySize) ||
+        const uint32_t exposureSize = LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE;
+        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != exposureSize &&
+             info->struct_size != v1Size && info->struct_size != legacySize) ||
             job->struct_size != sizeof(LmxxfNrJob))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
         job->handle = nullptr;
@@ -876,7 +882,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         float color_strength = 1.0f;
         uint32_t debug_view = 0;
         float model_scale = 1.0f;
-        if (info->struct_size >= sizeof(LmxxfNrFrameInfo))
+        if (info->struct_size >= LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE)
         {
             if (info->flags & LMXXF_NR_FRAME_FLAG_STRENGTH)
             {
@@ -908,8 +914,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         {
             debug_view = 4; // Tint
         }
-        if (transfer_strength < 0.0f || transfer_strength > 1.0f || color_strength < 0.0f || color_strength > 1.0f)
-            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: transfer_strength and color_strength must be in [0, 1]");
+        if (transfer_strength < 0.0f || transfer_strength > 3.0f || color_strength < 0.0f || color_strength > 3.0f)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: transfer_strength and color_strength must be in [0, 3]");
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
         // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
@@ -971,7 +977,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         ID3D12Resource *frameExposure = nullptr;
         D3D12_RESOURCE_STATES frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         float framePreExposure = 1.0f, frameExposureScale = 1.0f;
-        if (info->struct_size >= sizeof(LmxxfNrFrameInfo))
+        if (info->struct_size >= LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE)
         {
             frameExposure = static_cast<ID3D12Resource *>(info->exposure);
             frameExposureState = static_cast<D3D12_RESOURCE_STATES>(info->exposure_state);
@@ -979,6 +985,14 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 framePreExposure = info->pre_exposure;
             if (info->exposure_scale > 0.0f && info->exposure_scale < 1.0e6f)
                 frameExposureScale = info->exposure_scale;
+        }
+        float framePaperWhite = 1.0f;
+        if (info->struct_size >= offsetof(LmxxfNrFrameInfo, paper_white) + sizeof(float))
+        {
+            framePaperWhite = info->paper_white;
+            if (!(framePaperWhite > 0.0f && framePaperWhite <= 64.0f && framePaperWhite == framePaperWhite))
+                return Fail(LMXXF_NR_INVALID_ARGUMENT,
+                            "PrepareFrame: paper_white must be finite and in (0, 64]");
         }
         // Exposure is an enhancement, not a requirement. The codec samples Texture2D<float> at
         // (0,0), so it can only use a 1x1 R16/R32 float; anything else must cost the game its
@@ -1232,6 +1246,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.debug_view = debug_view;
         session->job.pre_exposure = framePreExposure;
         session->job.exposure_scale = frameExposureScale;
+        session->job.paper_white = framePaperWhite;
         session->job.sourceExposure = frameExposure;
         session->job.sourceExposureState = frameExposureState;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
@@ -1297,11 +1312,14 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             list->ResourceBarrier(nb, b);
         }
 
-        // Strengths stay on the legacy path for the encoder; only the exposure scalars are new.
-        NativeCodecParameters encParams = NativeGameCodec::LegacyParameters();
+        // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
+        // menu and force Cyberpunk2077.exe colour strength to 0.
+        NativeCodecParameters encParams;
+        encParams.transfer_strength = j->transfer_strength;
+        encParams.color_strength = j->color_strength;
         encParams.pre_exposure = j->pre_exposure;
         encParams.exposure_scale = j->exposure_scale;
-        session->encode->Record(list, session->CodecStates({j->colorState}), 1.f, encParams);
+        session->encode->Record(list, session->CodecStates({j->colorState}), j->paper_white, encParams);
         if (j->codec_passthrough)
         {
             // Bypass HIP: Copy encoder output directly to rgbTex output so decoder receives it as neural input.
@@ -1468,7 +1486,7 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
                                 session->CodecStates({D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                                       j->colorState}),
-                                1.f, codecParams);
+                                j->paper_white, codecParams);
         if (session->decode->BufferOutput())
         {
             if (!session->decodeDisplay)

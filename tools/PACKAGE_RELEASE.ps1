@@ -209,6 +209,10 @@ LmxxfDiagnostic=off
 ; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
 LmxxfFitLarge=false
 
+; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
+; Not the HDR Paper White anchor.
+LmxxfPaperWhite=1
+
 ; Resolution scale factor for neural rendering model input
 ; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
 ; float value - Default is 1

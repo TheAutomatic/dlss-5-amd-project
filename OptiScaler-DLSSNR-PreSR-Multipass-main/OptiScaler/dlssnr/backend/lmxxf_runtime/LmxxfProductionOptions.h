@@ -13,6 +13,9 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.fast_vit = true;
     o.wmma = o.wave = o.tiled = o.pooled = true;
     o.graph = false;
+    /* Chained-launch overlap. The _pdl kernels are compiled into the gfx1201 modules
+     * (HIP_PDL_KERNELS defaults on). Graph must stay off or the network refuses to start. */
+    o.pdl = true;
     o.skip_blocks = hip_reference::ParseSkipBlocks("42,43,46");
     o.modules = modules;
     o.assets = assets;

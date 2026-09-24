@@ -580,3 +580,32 @@ void c128_attention_project_fb_bout_diag(const unsigned char*normalized,const fl
 
 KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
 void c256_attention_project_fb_bout_diag(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy){c256_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);}
+
+#ifndef HIP_PDL_KERNELS
+#define HIP_PDL_KERNELS 1
+#endif
+#if HIP_PDL_KERNELS
+// ---- Programmatic-dependent-launch emulation (2026-09-25, results/pdl-chain-20260925); see multihead_fast_padded.hip. ----
+DEV void pdl_attn_wait(const uint*fflags,uint fepoch,uint width,uint height){
+ uint windows=(width/8)*(height/8),win=__builtin_amdgcn_workgroup_id_x(),tid=__builtin_amdgcn_workitem_id_x();
+ if(tid<64&&win<windows){uint p=raster(win,tid,width);
+  while(__hip_atomic_load(fflags+p/16,__ATOMIC_RELAXED,__HIP_MEMORY_SCOPE_AGENT)<fepoch)__builtin_amdgcn_s_sleep(1);}
+ __builtin_amdgcn_s_barrier();
+}
+DEV void pdl_publish(uint*flags,uint slot){
+ __builtin_amdgcn_fence(__ATOMIC_RELEASE,"agent");
+ if(__builtin_amdgcn_workitem_id_x()%32==0)__hip_atomic_fetch_add(flags+slot,1u,__ATOMIC_RELAXED,__HIP_MEMORY_SCOPE_AGENT);
+}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
+void c128_attention_project_fb_bout_diag_pdl(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy,const uint*fflags,uint fepoch,uint*aflags,uint aepoch){pdl_attn_wait(fflags,fepoch,width,height);c128_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);pdl_publish(aflags,__builtin_amdgcn_workgroup_id_x());}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
+void c128_attention_project_fb_diag_pdl(const unsigned char*normalized,const float*w,const unsigned char*feature,float*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy,const uint*fflags,uint fepoch,uint*aflags,uint aepoch){pdl_attn_wait(fflags,fepoch,width,height);c128_attention_project_body<true,false,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);pdl_publish(aflags,__builtin_amdgcn_workgroup_id_x());}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
+void c256_attention_project_fb_bout_diag_pdl(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy,const uint*fflags,uint fepoch,uint*aflags,uint aepoch){pdl_attn_wait(fflags,fepoch,width,height);c256_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);pdl_publish(aflags,__builtin_amdgcn_workgroup_id_x());}
+KERNEL __attribute__((amdgpu_flat_work_group_size(512,512)))
+void c256_attention_project_fb_diag_pdl(const unsigned char*normalized,const float*w,const unsigned char*feature,float*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy,const uint*fflags,uint fepoch,uint*aflags,uint aepoch){pdl_attn_wait(fflags,fepoch,width,height);c256_attention_project_body<true,false,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);pdl_publish(aflags,__builtin_amdgcn_workgroup_id_x());}
+KERNEL __attribute__((amdgpu_flat_work_group_size(256,256)))
+void c64_attention_project_fb_bout_diag_pdl(const unsigned char*normalized,const float*w,const unsigned char*feature,unsigned char*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy,const uint*fflags,uint fepoch,uint*aflags,uint aepoch){pdl_attn_wait(fflags,fepoch,width,height);c64_attention_project_body<true,true,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);pdl_publish(aflags,__builtin_amdgcn_workgroup_id_x());}
+KERNEL __attribute__((amdgpu_flat_work_group_size(256,256)))
+void c64_attention_project_fb_diag_pdl(const unsigned char*normalized,const float*w,const unsigned char*feature,float*out,uint width,uint height,uint post,uint cropw,uint croph,uint sx,uint sy,const uint*fflags,uint fepoch,uint*aflags,uint aepoch){pdl_attn_wait(fflags,fepoch,width,height);c64_attention_project_body<true,false,true>(normalized,w,feature,out,width,height,post,cropw,croph,sx,sy);pdl_publish(aflags,__builtin_amdgcn_workgroup_id_x());}
+#endif

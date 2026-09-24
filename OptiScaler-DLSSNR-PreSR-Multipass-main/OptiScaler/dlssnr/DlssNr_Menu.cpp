@@ -413,12 +413,24 @@ void RenderMenu(Config* config, float menuResScale)
             if (isLmxxf)
             {
                 float transfer = config->DlssNrTransferStrength.value_or_default();
-                if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 1.0f, "%.2f"))
+                if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrTransferStrength = transfer;
+                HelpMarker("How far the frame moves toward the network result."
+                           "\n0 is the upscaler picture, 1 is the network result."
+                           "\nAbove 1 extrapolates past it. The codec accepts 0 to 3.");
 
                 float colour = config->DlssNrColourStrength.value_or_default();
-                if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 1.0f, "%.2f"))
+                if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrColourStrength = colour;
+                HelpMarker("0 keeps the game hue and only the brightness changes."
+                           "\n1 brings the network colour. Above 1 extrapolates."
+                           "\nThe codec accepts 0 to 3.");
+
+                float paper = config->LmxxfPaperWhite.value_or_default();
+                if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f"))
+                    config->LmxxfPaperWhite = paper;
+                HelpMarker("The paper white the encode and decode Record calls use."
+                           "\nDefault 1. This is not the HDR Paper White anchor.");
 
                 static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
                                                     "Difference (amplified)" };
@@ -808,7 +820,7 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::SeparatorText("How much of it lands");
 
         float transfer = config->DlssNrTransferStrength.value_or_default();
-        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 1.0f, "%.2f"))
+        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
             config->DlssNrTransferStrength = transfer;
 
         ImGui::SameLine();
@@ -821,11 +833,12 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nblends between the two, so both ends are real pictures and everything between"
                        "\nthem is one too."
                        "\n\n0 gives back exactly what the upscaler produced. 1 is the model's picture."
+                       "\nThe lmxxf codec accepts 0 to 3. Above 1 extrapolates past the network result."
                        "\n\nThis is the control to push if you want more effect: Intensity belongs to the model"
                        "\nand it decides what to do with it.");
 
         float colour = config->DlssNrColourStrength.value_or_default();
-        if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 1.0f, "%.2f"))
+        if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
             config->DlssNrColourStrength = colour;
 
         ImGui::SameLine();
@@ -842,7 +855,8 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nlet a warm subject come back green."
                        "\n\nAbove 1 it OVER-SATURATES: the colour keeps its hue but grows more vivid,"
                        "\nand rolls off at the edge of what the display can show rather than clipping"
-                       "\ninto a flat blown patch. 1 is the model's own colour; push past it for punch.");
+                       "\ninto a flat blown patch. 1 is the model's own colour; push past it for punch."
+                       "\nThe lmxxf codec accepts 0 to 3.");
 
         // Experimental. 0 off (soft knee), 1 Neutwo + our composition, 2 Neutwo + pure-inverse replace,
         // 3 hybrid+composed, 4 hybrid+replace (identity midtones + unclipped highlights). Always shown.

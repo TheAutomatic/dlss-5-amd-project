@@ -2,7 +2,7 @@
   "schema": 1,
   "runtime_abi": 1,
   "upstream_repo": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "upstream_commit": "3d9b3e42f3529609f824506c8d385bdd00b3e70c",
+  "upstream_commit": "24986ae094bbd150f4d86a0ca76159a43f374884",
   "modules_dir": "third_party/lmxxf/modules",
   "recipe": "third_party/lmxxf/hip/build-modules.ps1",
   "compiler": "System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK)",

@@ -330,6 +330,9 @@ class Config
     // Opt-in with explicit true. Written to env on Config load and on menu change (runtime
     // reads the env every call). Installer also writes native-game-flags.txt.
     CustomOptional<bool> LmxxfFitLarge { false };
+    /* Codec paper white passed into encode and decode Record. Finite and in (0, 64].
+     * Default 1 is the value Record used to hardcode. Not the HDR Paper White anchor. */
+    CustomOptional<float> LmxxfPaperWhite { 1.0f };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

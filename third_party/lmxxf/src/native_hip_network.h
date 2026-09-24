@@ -22,6 +22,7 @@ public:
   if(const char*v=std::getenv("DLSS5_HIP_VIT_ATTN_FUSED")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("ViT attention fused flag");o.vit_attn_fused=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_VIT_EXPAND_FRAG")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("ViT expand fragment flag");o.vit_expand_frag=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_VIT_EXPAND_M4")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("ViT expand M4 flag");o.vit_expand_m4=!strcmp(v,"1");}
+  if(const char*v=std::getenv("DLSS5_HIP_PDL")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("HIP PDL flag");o.pdl=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_MH_BYTE_STREAM")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("MH byte stream flag");o.mh_byte_stream=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_VIT_BYTE_STREAM")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("ViT byte stream flag");o.vit_byte_stream=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_VIT_HALF_STREAM")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("ViT half stream flag");o.vit_half_stream=!strcmp(v,"1");}

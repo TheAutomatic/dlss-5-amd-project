@@ -15,6 +15,10 @@ extern "C" {
 /* sizeof() of an ABI v1 LmxxfNrFrameInfo: it stopped at model_scale, before the exposure
  * fields. A host talking to a runtime that predates them sends this as struct_size. */
 #define LMXXF_NR_FRAME_INFO_V1_SIZE 80u
+/* sizeof of the frame info that grew through the exposure fields and stopped there.
+ * The 4 bytes after exposure_scale were tail padding. paper_white starts at this size,
+ * so a host that still sends 104 does not supply it and the runtime uses 1. */
+#define LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE 104u
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
  * On recovery, EnqueueHip returns OK only after the private neural output was fully zeroed;
@@ -87,8 +91,8 @@ typedef struct LmxxfNrFrameInfo
     void *color; /* ID3D12Resource*; required for RecordInputs */
     uint32_t color_state; /* D3D12_RESOURCE_STATES at RecordInputs */
     uint32_t flags; /* LMXXF_NR_FRAME_FLAG_* (0 in legacy ABI v1) */
-    float transfer_strength; /* Detail strength: 0..1, default 1.0 */
-    float color_strength;    /* Colour strength: 0..1, default 1.0 */
+    float transfer_strength; /* Detail strength: 0..3, default 1. Above 1 extrapolates past the network result. */
+    float color_strength;    /* Colour strength: 0..3, default 1. 0 keeps hue. Above 1 extrapolates. */
     uint32_t debug_view;     /* 0=normal, 1=proxy, 2=neural solo, 3=diff 20x, 4=tint */
     float model_scale;       /* 0.25..1.0, default 1.0 */
     /* Optional exposure (ABI growth; LMXXF_NR_ABI_VERSION is unchanged because the function
@@ -99,6 +103,11 @@ typedef struct LmxxfNrFrameInfo
     uint32_t exposure_state; /* D3D12_RESOURCE_STATES of exposure at RecordInputs */
     float pre_exposure;   /* game pre-exposure; finite and > 0, default 1 */
     float exposure_scale; /* exposure scale; finite and > 0, default 1 */
+    /* Occupies the tail padding of the 104-byte exposure struct. Leave 0. */
+    uint32_t reserved_after_exposure;
+    /* Codec paper white passed to encode and decode Record. Finite and in (0, 64], default 1.
+     * Not the HDR Paper White anchor. Absent when struct_size stops at EXPOSURE_SIZE. */
+    float paper_white;
 } LmxxfNrFrameInfo;
 
 typedef struct LmxxfNrJob

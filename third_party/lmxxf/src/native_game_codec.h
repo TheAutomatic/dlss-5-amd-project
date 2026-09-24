@@ -15,7 +15,7 @@ struct NativeCodecParameters {
  NativeCodecDebugView debug_view=NativeCodecDebugView::Final;
  float pre_exposure=1.f,exposure_scale=1.f;
  bool Valid()const{return std::isfinite(pre_exposure)&&pre_exposure>0&&std::isfinite(exposure_scale)&&exposure_scale>0&&ValidStrength();}
- bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=1.f&&color_strength>=0.f&&color_strength<=1.f&&uint32_t(debug_view)<=4;}
+ bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&uint32_t(debug_view)<=4;}
 };
 // Validated mode1 math, fixed1080p float16 textures. Caller owns queue ordering.
 // This is a resource stage, not a game callback or a history-feedback policy.
@@ -127,12 +127,22 @@ public:
  // Preserve legacy DLSS5_STRENGTH semantics for existing callers. Explicit parameters
  // override them for this dispatch only, allowing a host UI to update every frame.
  static NativeCodecParameters LegacyParameters(){
-  static const std::array<float,2>strength=[]{std::array<float,2>v{1.f,1.f};if(const wchar_t*e=_wgetenv(L"DLSS5_STRENGTH")){float a=1.f,b=1.f;if(swscanf(e,L"%f,%f",&a,&b)==2&&a>=0.f&&a<=1.f&&b>=0.f&&b<=1.f){v[0]=a;v[1]=b;}}return v;}();
+  static const std::array<float,2>strength=[]{std::array<float,2>v{1.f,1.f};const wchar_t*e=_wgetenv(L"DLSS5_STRENGTH");float a=1.f,b=1.f;
+   if(e&&swscanf(e,L"%f,%f",&a,&b)==2&&a>=0.f&&a<=3.f&&b>=0.f&&b<=3.f){v[0]=a;v[1]=b;} /* 2026-09-24: >1 extrapolates (lerp past the network result) -- diagnostic only, makes the network's contribution visible */
+   else{ /* unset or "auto" (the shipped template since 0.30): per-title quirk table. The pre-upscale route hands the network the
+            linear colour buffer *before* the game's tone mapper and colour grading; taking the network's hue there and then
+            running it through the game's LUT turns the hue (Cyberpunk 2077 2.31: green neon ambient became brown, R +14% G -16%).
+            Luminance transfer alone keeps the detail gain (+19% vs +22% high-pass) with the game's own hue. Measured 2026-09-24. */
+    wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);const wchar_t*base=wcsrchr(exe,L'\\');base=base?base+1:exe;
+    struct{const wchar_t*exe;float transfer,color;}static const table[]={{L"Cyberpunk2077.exe",1.f,0.f}};const wchar_t*hit=nullptr;
+    for(const auto&t:table)if(!_wcsicmp(base,t.exe)){v[0]=t.transfer;v[1]=t.color;hit=t.exe;}
+    if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=strength detail=auto exe=%ls -> %g,%g%s\n",GetCurrentProcessId(),GetTickCount64(),base,v[0],v[1],hit?" (quirk)":"");fclose(f);}}
+   return v;}();
   return {strength[0],strength[1],NativeCodecDebugView::Final};
  }
  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f){Record(c,before,paper_white,LegacyParameters());}
  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white,const NativeCodecParameters&parameters){
-  if(!c||!pso||before.size()!=count+(exposure_texture?1u:0u)||(paper_white!=1.f&&paper_white!=.5f&&paper_white!=2.f)||!parameters.Valid())throw std::runtime_error("codec unverified record contract");
+  if(!c||!pso||before.size()!=count+(exposure_texture?1u:0u)||!(paper_white>0.f&&paper_white<=64.f&&paper_white==paper_white) /* 2026-09-24: any finite positive scale (DLSS5_PAPER_WHITE); was {0.5,1,2} */||!parameters.Valid())throw std::runtime_error("codec unverified record contract");
   if(recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   for(UINT i=0;i<count;i++)transition(c,source[i],before[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

@@ -269,36 +269,38 @@ jobs:
             dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
           body: |
+            alpha版本尚未经过实机游戏测试
+
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - **Unreal Engine 5 (UE5) Compatibility Fixes for lmxxf:** Resolves session invalidation and fallback issues in complex UE5 titles (tested on *Neverness to Everness*, *Palworld*, etc.).
-              - Correctly binds to the game's actual rendering queue to avoid crashes and queue mismatch errors.
-              - Adds queue safety guards to skip HIP calls gracefully when unexpected command lists are dispatched.
-              - Flushes the GPU prior to queue migration to reduce VRAM leak risks.
-              - Fixes command list split eligibility, removes startup hash delays, and adds log rate-limiting.
-            - **New `lmxxf` HIP Neural Rendering Backend:** Introduces the open-source `lmxxf` backend alongside the existing `danielblnc` backend.
-            - **DLSS/XeSS Proxy Support for lmxxf:** Enables the `lmxxf` backend to intercept DLSS and XeSS inputs before upscaling (Pre-SR), allowing games without native FSR to use the lmxxf denoiser.
-            - **Dual-Backend Support:** Seamlessly supports both `lmxxf` and `danielblnc` backends. Switch between them in `OptiScaler.ini` via `NrBackend=lmxxf` or `NrBackend=daniel`.
-            - **In-Game Parameter Controls:** Real-time sliders for `Detail strength` and `Colour strength`, plus live `Debug view` channel inspection in the Ins menu.
+            - **New `lmxxf` HIP Neural Rendering Backend:** Introduces the open-source `lmxxf` backend alongside the existing `danielblnc` backend, with improved DLSS/XeSS proxy integration.
+              - **Unreal Engine 5 (UE5) Compatibility Fixes:** Resolves session invalidation and fallback issues in complex UE5 titles (tested on *Neverness to Everness*, *Palworld*, etc.).
+                - Correctly binds to the game's actual rendering queue to avoid crashes and queue mismatch errors.
+                - Adds queue safety guards to skip HIP calls gracefully when unexpected command lists are dispatched.
+                - Flushes the GPU prior to queue migration to reduce VRAM leak risks.
+                - Fixes command list split eligibility, removes startup hash delays, and adds log rate-limiting.
+              - **Runtime and Resolution Improvements:** Improves exposure handling, buffer resizing, clear handling, and recovery; adds RGB9E5 color input support and improves input admission for wide resolutions up to 2560x1080.
+              - **In-Game Controls:** The Ins menu includes real-time `Detail strength` and `Colour strength` sliders, plus live `Debug view` channel inspection.
+            - **Dual-Backend Switching:** Supports both `lmxxf` and `danielblnc`. Select a backend in the in-game Ins menu or in `OptiScaler.ini` with `NrBackend=lmxxf` or `NrBackend=daniel`. The first switch from `daniel` to `lmxxf` requires a game restart if the required hooks were not enabled at startup. After a live switch, the previous backend may retain some VRAM until the game exits.
             - **User-Supplied Weights:** Model weights must be provided manually (`native-game-tiled-assets/` for lmxxf, or `dlssnr_on_amd_weights.bin` for danielblnc).
-            - **Installer Update:** Fixed installer interaction logic.
+            - **Installer Update:** Fixed installer interaction logic. Stale shader cleanup is limited to retired `native_` / `preblock_` shaders; uninstall preserves unrelated user flags.
 
             ### Known issues
             - **`lmxxf` Pre-SR above ~1080p internal resolution is not fully integrated yet.** Same-frame neural rendering with FitLarge / larger Color can hitch badly. Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native** (keep Pre-SR Color near 1080p). `LmxxfFitLarge` defaults to **false**; only enable explicitly if you accept the cost.
 
             ### 中文
-            - **修复 lmxxf 后端对虚幻引擎 5（UE5）兼容：** 解决在复杂 UE5 游戏（已在《异环》、《幻兽帕鲁》等实机验证）中的会话失效与切分回退问题。
-              - 正确绑定游戏实际的渲染队列，避免因多队列冲突导致报错或降噪失效。
-              - 增加跨队列安全保护，遇到非预期队列时安全跳过 HIP 调用并保持正常渲染。
-              - 队列切换时等待 GPU 完成排干，减少潜在的显存泄漏风险。
-              - 修复命令切分准入判定，移除导致部分游戏启动卡顿数十秒的静态哈希，并对日志进行限流。
-            - **引入 `lmxxf` HIP 神经渲染后端：** 新增开源 `lmxxf` 后端，与原有的 `danielblnc` 后端并存。
-            - **lmxxf 支持 DLSS/XeSS 代理接入：** 让 lmxxf 后端同样能拦截 DLSS / XeSS 输入并在送交 FSR 前完成降噪，使无原生 FSR 的游戏也能使用。
-            - **双后端共存与切换：** 支持 `lmxxf` 与 `danielblnc` 双后端。可在 `OptiScaler.ini` 中随时通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 切换。
-            - **动态调参滑块：** Ins 菜单提供 `Detail strength` 与 `Colour strength` 调节滑块，以及实时的 `Debug view` 通道检查。
-            - **自备权重：** 需自备模型权重（lmxxf 需 `native-game-tiled-assets/`，danielblnc 需 `dlssnr_on_amd_weights.bin`）。
-            - **安装器更新：** 修复安装器交互逻辑。
+            - **新增 `lmxxf` HIP 神经渲染后端：** 在现有 `danielblnc` 后端之外加入开源 `lmxxf` 后端，并改进其 DLSS/XeSS 代理接入能力。
+              - **修复 lmxxf 后端对虚幻引擎 5（UE5）的兼容性：** 解决复杂 UE5 游戏中的会话失效与回退问题，已在《异环》《幻兽帕鲁》等游戏中测试。
+                - 正确绑定游戏实际使用的渲染队列，避免崩溃和队列不匹配错误。
+                - 增加队列安全保护；遇到意外提交的命令列表时跳过 HIP 调用。
+                - 队列迁移前等待 GPU 完成工作，降低显存泄漏风险。
+                - 修复命令列表切分准入判定，移除启动时的哈希延迟，并增加日志限流。
+              - **改进 lmxxf 运行时与分辨率支持：** 改进曝光处理、缓冲区尺寸调整、清屏和异常恢复逻辑；增加对 RGB9E5 颜色输入的支持，并改进对宽分辨率输入的接纳，最高至 2560x1080。
+              - **游戏内控制：** Ins 菜单提供实时调节 `Detail strength` 和 `Colour strength` 的滑块，以及实时的 `Debug view` 通道检查。
+            - **双后端切换：** 同时支持 `lmxxf` 与 `danielblnc`。可在游戏内 Ins 菜单或 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 选择后端。如果启动时未启用所需 hooks，从 `daniel` 首次切换到 `lmxxf` 需要重启游戏。实时切换后，原后端可能会占用部分显存直到游戏退出。
+            - **用户仍需自备权重：** 用户需自行提供模型权重（lmxxf 使用 `native-game-tiled-assets/`，danielblnc 使用 `dlssnr_on_amd_weights.bin`）。
+            - **安装器与卸载器更新：** 修复安装器交互逻辑及相关行为。过期着色器清理范围限制为已废弃的 `native_` / `preblock_` 着色器；卸载时保留其他用户 flags。
 
             ### 已知问题
             - **`lmxxf` 超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 开启 FitLarge / 更大 Color 的同帧路径可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K 平衡档**、或 **1080p 原生**（尽量让 Pre-SR Color 接近 1080p）。`LmxxfFitLarge` 默认 **false**，仅在接受开销时显式开启。
