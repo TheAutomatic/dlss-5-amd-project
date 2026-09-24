@@ -14,11 +14,11 @@ Tracked ADR for the lmxxf graft. Plan: `exports/lmxxf-main-backend-integration-p
 | `NrBackend=lmxxf` while Wired false | Logged once, falls back to Daniel |
 | `NrBackend=off` | No AMD Record; original colour to SR |
 | HasFiles / ECL / New wait / menu | Unchanged (HasFiles still expects Daniel `dlssnr_amd_pass1.dll`) |
-| `hip_ready` | Still **0** in QueryCapabilities — trust OptiScaler.log, not the menu bit |
+| Capabilities | `history` / `overlap` / `graph` stay 0. No `hip_ready` field. |
 | `third_party/lmxxf` | Vendored @ `68dc099` + local C ABI runtime |
 | `submission/` | List1–10 proxy, Create/CL1 hooks when `SubmissionHooksWanted()`, continuation seed + admission reject + Execute-decay book |
 
-Do not change `main`'s release default until **G3∧G4∧G5**.
+Plan F is closed. Neither backend is the sole release default; Setup selects at install time.
 
 ## Local E (燕云)
 
@@ -56,10 +56,10 @@ the original error when the runtime subsequently reports only a poisoned session
 
 ## Admission / continuation (plans C–D)
 
-- Min G1 reject: open query at the cut / invalid query scope / predication / enhanced barrier / open split barrier / aliasing / render pass / RTAS / meta / root·sample overflow → Split fails → ordinary SR. Completed queries and timestamp EndQuery remain eligible.
+- Min G1 reject: open query at the cut / invalid query scope / predication / enhanced barrier / open split barrier / render pass / RTAS / meta / root·sample overflow → Split fails → ordinary SR. A completed aliasing barrier does not reject (`803c8ba`). Completed queries and timestamp EndQuery remain eligible.
 - Continuation seed: viewport/scissor/topology/PSO/rootsig/heaps/blend/stencil/OM + IA/SO/VRS/strip-cut/view-mask + RootBindState + sample positions + depth bounds.
 - `ResourceStateBook::ApplyExecuteDecay` updates **our book** only (M3); does not rewrite game barriers. Live proof needs debug layer (plan E).
 
 ## Review notes (post-`ebd6072` → `8751305`)
 
-See `exports/lmxxf-review-8751305.md`. Open E risks: query-whole-list reject, RootBindState 64 caps, decay bookkeeping-only, CL1 wrap whenever hooks armed, outdated menu `hip_ready`.
+See `exports/lmxxf-review-8751305.md`. Open E risks: query-whole-list reject, RootBindState 64 caps, decay bookkeeping-only, CL1 wrap whenever hooks armed.

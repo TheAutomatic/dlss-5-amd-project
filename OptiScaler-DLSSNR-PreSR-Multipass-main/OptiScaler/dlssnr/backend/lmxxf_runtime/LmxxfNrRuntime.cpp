@@ -728,7 +728,6 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
         out->history_supported = 0;
         out->overlap_supported = 0;
         out->graph_supported = 0;
-        out->hip_ready = 0;
         out->gfx1201_target = 1;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);

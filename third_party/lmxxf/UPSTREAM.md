@@ -127,4 +127,4 @@ C ABI in `include/LmxxfNrApi.h`. MSVC (primary) or MinGW (fallback) `tools/build
 
 - Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from current `hip/` + local COMGR (see modules/README.md Commit Base)).
 - Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).
-- `QueryCapabilities.hip_ready` stays **0**. Product wiring lives in OptiScaler `lmxxf_runtime` / `LmxxfWired()` (not this vendor doc alone).
+- Product wiring lives in OptiScaler `lmxxf_runtime` / `LmxxfWired()` (not this vendor doc alone).

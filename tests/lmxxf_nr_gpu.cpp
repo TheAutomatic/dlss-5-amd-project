@@ -261,7 +261,7 @@ int main(int argc, char **argv)
     LmxxfNrCapabilities caps {};
     caps.struct_size = sizeof(caps);
     Require(api.QueryCapabilities(&caps) == LMXXF_NR_OK, "QueryCapabilities");
-    Require(caps.hip_ready == 0, "hip_ready stays 0");
+
     Require(caps.graph_supported == 0, "graph off");
 
     IDXGIFactory4 *factory = nullptr;

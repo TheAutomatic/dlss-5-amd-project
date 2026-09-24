@@ -61,7 +61,6 @@ int main(int argc, char **argv)
     }
     Require(caps.history_supported == 0 && caps.overlap_supported == 0, "history/overlap off");
     Require(caps.graph_supported == 0, "graph off");
-    Require(caps.hip_ready == 0, "HIP not wired");
     Require(caps.gfx1201_target == 1, "gfx1201 target");
 
     void *ctx = reinterpret_cast<void *>(1);

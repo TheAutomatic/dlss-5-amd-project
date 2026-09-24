@@ -58,7 +58,6 @@ typedef struct LmxxfNrCapabilities
     uint32_t history_supported; /* first product version: 0 */
     uint32_t overlap_supported; /* first product version: 0 */
     uint32_t graph_supported;   /* first product version: 0; EnqueueHip must not graph-wait */
-    uint32_t hip_ready;         /* 1 once host+hsaco are loaded */
     uint32_t gfx1201_target;    /* 1 = this binary is for gfx1201 */
 } LmxxfNrCapabilities;
 
