@@ -54,13 +54,6 @@ inline Kind ParseKind(std::string_view raw)
 // First increment: no LmxxfNrRuntime. Everything else is Daniel.
 inline bool LmxxfWired() { return true; } // LOCAL E trial only — do not push/default
 
-inline Kind ActiveKind(Kind requested)
-{
-    if (requested == Kind::Lmxxf && LmxxfWired())
-        return Kind::Lmxxf;
-    return Kind::Daniel;
-}
-
 // Pick the host that will actually run.
 // Explicit request wins when its files are on disk; otherwise fall back to the
 // other installed host. Auto takes whichever is installed (lmxxf if it is alone).

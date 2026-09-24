@@ -206,7 +206,7 @@ NrBackend=lmxxf
 LmxxfDiagnostic=off
 
 ; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
-; Live from the Ins menu (env is re-read every frame). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
+; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
 LmxxfFitLarge=false
 
 ; Resolution scale factor for neural rendering model input
