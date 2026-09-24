@@ -88,6 +88,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Report WHERE a failure happened: a terminating error outside any try/catch used to surface only
+# as "NamedParameterNotFound" with no position, which cost an afternoon of guessing.
+trap {
+    Write-Host ('  FATAL ' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host ('  at    ' + ($_.InvocationInfo.PositionMessage -replace '\s+', ' ')) -ForegroundColor Red
+    Write-Host ('  cmd   ' + $_.InvocationInfo.Line) -ForegroundColor Red
+    break
+}
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }
 $vendorRoot = Join-Path $root 'third_party\lmxxf'
@@ -237,11 +245,42 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
     }
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     Write-Host ("  Building gfx1201 modules via build-modules.ps1 -> " + $outDir) -ForegroundColor Cyan
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildPs1 -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets gfx1201
-    if ($LASTEXITCODE -ne 0) {
-        throw ("build-modules.ps1 failed with ExitCode " + $LASTEXITCODE)
+    # hip/build-modules.ps1 needs Get-FileHash for its manifest rows. Windows PowerShell on this
+    # machine has no such cmdlet - not even after Import-Module Microsoft.PowerShell.Utility -
+    # which is why this script and PACKAGE_RELEASE compute digests through Get-FileSha256Hex
+    # instead (the same workaround is recorded as "r19b ... 公开不再依赖 Get-FileHash 的模块自动加载").
+    # Run the recipe in-process behind a shim: a child powershell.exe would not see the shim.
+    if (-not (Get-Command Get-FileHash -ErrorAction SilentlyContinue)) {
+        # global: on purpose - this helper is defined inside a function and build-modules.ps1 is
+        # invoked as a child SCRIPT, which does not see the enclosing function's locals.
+        function global:Get-FileHash {
+            param(
+                [Parameter(Position = 0)]$Path,
+                [Parameter(Position = 1)]$Second,
+                $File,
+                $LiteralPath,
+                $Algorithm,
+                [Parameter(ValueFromRemainingArguments = $true)]$Rest
+            )
+            foreach ($cand in (@($Path, $Second, $File, $LiteralPath) + @($Rest))) {
+                if ($cand -is [string] -and (Test-Path -LiteralPath $cand -PathType Leaf)) {
+                    return [pscustomobject]@{ Hash = (Get-FileSha256Hex $cand); Path = $cand }
+                }
+            }
+            throw ("Get-FileHash shim: no readable file among its arguments")
+        }
+        Write-Host "  Get-FileHash is absent on this machine; shimmed from Get-FileSha256Hex" -ForegroundColor DarkYellow
     }
-    $built = @(Get-ChildItem -LiteralPath $outDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+    try {
+        # | Write-Host, NOT the pipeline: the recipe Write-Outputs one hash line per module, and
+        # this function's return value is a PATH. Capturing that output turned $modulesSrc into
+        # an array of 24 hash lines plus the path, and every later -LiteralPath / -Filter argument
+        # in Sync-LmxxfModules then shifted out of place.
+        & $buildPs1 -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets gfx1201 | Write-Host
+    } catch {
+        throw ("build-modules.ps1 failed: " + $_.Exception.Message + " [at: " + $_.InvocationInfo.PositionMessage + "]")
+    }
+    $built = @(Get-ChildItem -LiteralPath $outDir -Filter '*.hsaco' -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
     if ($built.Count -lt 1) {
         throw ("build-modules.ps1 produced no .hsaco under " + $outDir)
     }
@@ -316,7 +355,7 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
     if (-not (Test-Path -LiteralPath $dstDir)) {
         New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
     }
-    $hsacos = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+    $hsacos = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.hsaco' -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
     if ($hsacos.Count -lt 1) {
         throw ('No .hsaco files found in modules source: ' + $srcDir)
     }
@@ -474,7 +513,11 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archiveTar)) {
 }
 Push-Location $script:UpstreamTree
 try {
-    & tar -xf $archiveTar
+    # tar must not see a drive letter. GNU tar (what resolves as `tar` when this script is started
+    # with a Git Bash PATH) parses "C:\..." as the remote host "C:" and fails with
+    # "Cannot connect to C: resolve failed"; bsdtar accepts it. A relative path is safe for both.
+    $archiveRel = (Resolve-Path -Relative -LiteralPath $archiveTar)
+    & tar -xf $archiveRel
     if ($LASTEXITCODE -ne 0) {
         throw "tar extract of upstream archive failed (exit $LASTEXITCODE)."
     }
@@ -982,6 +1025,26 @@ if ($hipChanged -and $SkipModules -and -not $AllowStaleModules) {
 }
 if ((-not $hipChanged) -and $SkipModules) {
     Write-Host '  hip unchanged; -SkipModules accepted.' -ForegroundColor DarkYellow
+}
+
+# 9. Enablement audit: syncing code is not the same as following the configuration.
+# We once pulled half a day of kernel work and shipped with all five of the author's HIP
+# optimisation switches off, because they live in scripts/hip-game-flags.txt and in no file we
+# vendor. Best-effort: a missing python is a warning, never a failed sync.
+$auditPy = Join-Path $PSScriptRoot 'audit-lmxxf-enablements.py'
+if (Test-Path -LiteralPath $auditPy -PathType Leaf) {
+    $py = (Get-Command python -ErrorAction SilentlyContinue)
+    if (-not $py) { $py = (Get-Command python3 -ErrorAction SilentlyContinue) }
+    if ($py) {
+        Write-Host ''
+        Write-Host 'Enablement audit (what upstream turns on vs what we turn on):' -ForegroundColor Cyan
+        & $py.Source $auditPy $upstream.Path $UpstreamRef
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning '  enablement audit reported an error; read its output above'
+        }
+    } else {
+        Write-Warning '  python not found; skipped tools/audit-lmxxf-enablements.py (run it by hand before shipping)'
+    }
 }
 
 Write-Host "Sync complete! Upstream commit: $commitHash" -ForegroundColor Green
