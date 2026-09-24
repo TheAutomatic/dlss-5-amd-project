@@ -12,6 +12,9 @@ extern "C" {
 #endif
 
 #define LMXXF_NR_ABI_VERSION 1u
+/* sizeof() of an ABI v1 LmxxfNrFrameInfo: it stopped at model_scale, before the exposure
+ * fields. A host talking to a runtime that predates them sends this as struct_size. */
+#define LMXXF_NR_FRAME_INFO_V1_SIZE 80u
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
  * On recovery, EnqueueHip returns OK only after the private neural output was fully zeroed;
@@ -86,6 +89,14 @@ typedef struct LmxxfNrFrameInfo
     float color_strength;    /* Colour strength: 0..1, default 1.0 */
     uint32_t debug_view;     /* 0=normal, 1=proxy, 2=neural solo, 3=diff 20x, 4=tint */
     float model_scale;       /* 0.25..1.0, default 1.0 */
+    /* Optional exposure (ABI growth; LMXXF_NR_ABI_VERSION is unchanged because the function
+     * table is not). struct_size negotiates this: a host whose struct_size stops before these
+     * fields simply does not supply them, and the runtime falls back to no exposure and the
+     * scalars below at their defaults. */
+    void *exposure;    /* ID3D12Resource* 1x1 R16_FLOAT/R32_FLOAT, shader-readable; NULL = none */
+    uint32_t exposure_state; /* D3D12_RESOURCE_STATES of exposure at RecordInputs */
+    float pre_exposure;   /* game pre-exposure; finite and > 0, default 1 */
+    float exposure_scale; /* exposure scale; finite and > 0, default 1 */
 } LmxxfNrFrameInfo;
 
 typedef struct LmxxfNrJob

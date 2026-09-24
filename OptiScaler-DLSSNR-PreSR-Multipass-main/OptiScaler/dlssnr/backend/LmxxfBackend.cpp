@@ -421,7 +421,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 
     D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
     LmxxfNrFrameInfo fi {};
-    fi.struct_size = sizeof(fi);
+    fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
     fi.frame_id = ++frameId;
     fi.command_list = cmd;
     fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
@@ -433,10 +433,34 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.color_strength = std::clamp(Config::Instance()->DlssNrColourStrength.value_or_default(), 0.0f, 1.0f);
     fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
     fi.model_scale = settings.modelScale;
+    // AmdBridge already collects these from the NGX parameters (ExposureTexture,
+    // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
+    fi.exposure = frame.exposure;
+    fi.exposure_state = static_cast<uint32_t>(frame.exposureState);
+    fi.pre_exposure = frame.preExposure;
+    fi.exposure_scale = frame.exposureScale;
 
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
-    const int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+    int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+    if (frameRc == LMXXF_NR_INVALID_ARGUMENT && !frameInfoV1)
+    {
+        char sizeErr[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(sizeErr, sizeof sizeErr);
+        // A runtime built before the exposure fields rejects the larger struct. Fall back to
+        // the ABI v1 size once and keep going without exposure, the way we drop the Create
+        // flags for a runtime that predates them.
+        if (std::strstr(sizeErr, "struct_size mismatch"))
+        {
+            LOG_WARN("lmxxf: runtime predates the exposure fields ({}); continuing without exposure", sizeErr);
+            frameInfoV1 = true;
+            fi.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
+            job = {};
+            job.struct_size = sizeof(job);
+            frameRc = api->table.PrepareFrame(session, &fi, &job);
+        }
+    }
     if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
     {
         char err[256] {};

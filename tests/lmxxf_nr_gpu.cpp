@@ -211,7 +211,8 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
 
 int main(int argc, char **argv)
 {
-    bool queueMismatch = false, resize = false, rgb9e5 = false, outputHash = false, rejectFormats = false;
+    bool queueMismatch = false, resize = false, rgb9e5 = false, outputHash = false, rejectFormats = false,
+         useExposure = false;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -224,6 +225,8 @@ int main(int argc, char **argv)
             outputHash = true;
         else if (!std::strcmp(argv[i], "--reject-formats"))
             rejectFormats = true;
+        else if (!std::strcmp(argv[i], "--exposure"))
+            useExposure = outputHash = true;
         else
         {
             std::fprintf(stderr,
@@ -377,6 +380,107 @@ int main(int argc, char **argv)
         Require(bigRc == LMXXF_NR_INVALID_ARGUMENT, "oversized input -> INVALID_ARGUMENT");
         Require(std::strstr(bigErr, "outside admitted geometry") != nullptr, "geometry reason named");
         bigTex->Release();
+
+        // A host built against ABI v1 sends the smaller struct and has no exposure fields.
+        // That must still run: the exposure fields are an ABI growth, not a new requirement.
+        LmxxfNrFrameInfo v1Frame = frame;
+        v1Frame.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
+        v1Frame.exposure = nullptr;
+        LmxxfNrJob v1Job {};
+        v1Job.struct_size = sizeof(v1Job);
+        const int32_t v1Rc = api.PrepareFrame(ctx, &v1Frame, &v1Job);
+        std::printf("v1 frame struct_size=%u rc=%d\n", unsigned(LMXXF_NR_FRAME_INFO_V1_SIZE), v1Rc);
+        Require(v1Rc == LMXXF_NR_OK && v1Job.handle != nullptr, "ABI v1 struct_size still runs");
+        Require(api.CancelUnsubmitted(ctx, v1Job.handle) == LMXXF_NR_OK, "cancel v1 frame");
+    }
+
+    // Exposure reaches the codec through a 1x1 scale texture plus two scalars. The output hash
+    // must differ from the no-exposure run, which is what shows it got as far as the shader.
+    ID3D12Resource *exposureTex = nullptr;
+    if (useExposure)
+    {
+        D3D12_RESOURCE_DESC ed {};
+        ed.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        ed.Width = 2;
+        ed.Height = 2;
+        ed.DepthOrArraySize = ed.MipLevels = 1;
+        ed.Format = DXGI_FORMAT_R32_FLOAT;
+        ed.SampleDesc.Count = 1;
+        ID3D12Resource *badExp = nullptr;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &ed,
+                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr, IID_PPV_ARGS(&badExp)),
+              "bad exposure");
+        LmxxfNrFrameInfo badFrame = frame;
+        badFrame.exposure = badExp;
+        LmxxfNrJob badJob {};
+        badJob.struct_size = sizeof(badJob);
+        const int32_t badRc = api.PrepareFrame(ctx, &badFrame, &badJob);
+        char badErr[256] {};
+        api.GetLastError(badErr, sizeof badErr);
+        std::printf("reject 2x2 exposure rc=%d err=%s\n", badRc, badErr);
+        Require(badRc == LMXXF_NR_INVALID_ARGUMENT, "non-1x1 exposure -> INVALID_ARGUMENT");
+        badExp->Release();
+
+        ed.Width = ed.Height = 1;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &ed,
+                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr, IID_PPV_ARGS(&exposureTex)),
+              "exposure");
+        D3D12_HEAP_PROPERTIES up {};
+        up.Type = D3D12_HEAP_TYPE_UPLOAD;
+        D3D12_RESOURCE_DESC bd {};
+        bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        bd.Width = 4;
+        bd.Height = 1;
+        bd.DepthOrArraySize = bd.MipLevels = 1;
+        bd.SampleDesc.Count = 1;
+        bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ID3D12Resource *expUpload = nullptr;
+        Check(device->CreateCommittedResource(&up, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                              nullptr, IID_PPV_ARGS(&expUpload)),
+              "exposure upload");
+        void *expMapped = nullptr;
+        Check(expUpload->Map(0, nullptr, &expMapped), "map exposure upload");
+        *static_cast<float *>(expMapped) = 0.25f;
+        expUpload->Unmap(0, nullptr);
+        ID3D12CommandAllocator *expAlloc = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&expAlloc)), "exp alloc");
+        ID3D12GraphicsCommandList *expCl = nullptr;
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, expAlloc, nullptr, IID_PPV_ARGS(&expCl)),
+              "exp list");
+        D3D12_RESOURCE_BARRIER expToCopy {};
+        expToCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        expToCopy.Transition = {exposureTex, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST};
+        expCl->ResourceBarrier(1, &expToCopy);
+        D3D12_TEXTURE_COPY_LOCATION expDst {}, expSrc {};
+        expDst.pResource = exposureTex;
+        expDst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        expSrc.pResource = expUpload;
+        expSrc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        expSrc.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+        expSrc.PlacedFootprint.Footprint.Width = 1;
+        expSrc.PlacedFootprint.Footprint.Height = 1;
+        expSrc.PlacedFootprint.Footprint.Depth = 1;
+        expSrc.PlacedFootprint.Footprint.RowPitch = 256;
+        expCl->CopyTextureRegion(&expDst, 0, 0, 0, &expSrc, nullptr);
+        D3D12_RESOURCE_BARRIER expToSrv = expToCopy;
+        expToSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        expToSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        expCl->ResourceBarrier(1, &expToSrv);
+        Check(expCl->Close(), "close exp list");
+        ID3D12CommandList *expLs[] = {expCl};
+        submitQueue->ExecuteCommandLists(1, expLs);
+        WaitQueue(device, submitQueue);
+        expCl->Release();
+        expAlloc->Release();
+        expUpload->Release();
+
+        frame.exposure = exposureTex;
+        frame.exposure_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        frame.pre_exposure = 2.0f;
+        frame.exposure_scale = 0.5f;
     }
 
     LmxxfNrJob job {};
@@ -462,6 +566,8 @@ int main(int argc, char **argv)
     }
 
     Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy");
+    if (exposureTex)
+        exposureTex->Release();
     if (resizedColor)
         resizedColor->Release();
     color->Release();

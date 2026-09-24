@@ -24,6 +24,11 @@ namespace
 {
 thread_local char g_lastError[256] = {};
 
+// LMXXF_NR_FRAME_INFO_V1_SIZE is what an ABI v1 host sends as struct_size. It must equal the
+// offset where the exposure fields start, or an old host's frames are rejected outright.
+static_assert(offsetof(LmxxfNrFrameInfo, exposure) == LMXXF_NR_FRAME_INFO_V1_SIZE,
+              "LMXXF_NR_FRAME_INFO_V1_SIZE must match the ABI v1 LmxxfNrFrameInfo size");
+
 // Bound each D3D12 queue wait during EnqueueHip recovery to limit stalls.
 // Teardown keeps its 30 s wait; HIP stream synchronization is not bounded here.
 constexpr DWORD kSubmissionWaitMs = 3000;
@@ -371,6 +376,8 @@ struct Job
     float transfer_strength = 1.0f;
     float color_strength = 1.0f;
     uint32_t debug_view = 0;
+    float pre_exposure = 1.0f;
+    float exposure_scale = 1.0f;
     bool codec_passthrough = false;
 };
 
@@ -397,6 +404,19 @@ struct Session
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+    /* Exposure is the game's 1x1 scale. Its SRV is baked into the codec heap at Create, so a
+     * change of identity rebuilds the chain (see geoChanged). Not owned here: the codec holds
+     * the reference for the life of the chain. */
+    ID3D12Resource *exposure = nullptr;
+    D3D12_RESOURCE_STATES exposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+    // NativeGameCodec::Record wants one state per source plus one more for the exposure SRV.
+    std::vector<D3D12_RESOURCE_STATES> CodecStates(std::vector<D3D12_RESOURCE_STATES> s) const
+    {
+        if (exposure)
+            s.push_back(exposureState);
+        return s;
+    }
 
     void TeardownCodecChain()
     {
@@ -789,8 +809,12 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (!session || !info || !job)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
         RequireSession(session);
+        // Historical sizes: 64 ends at color_state/flags, LMXXF_NR_FRAME_INFO_V1_SIZE ends at
+        // model_scale. A host whose struct_size stops earlier simply has no later fields.
         const uint32_t legacySize = 64;
-        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != legacySize) ||
+        const uint32_t v1Size = LMXXF_NR_FRAME_INFO_V1_SIZE;
+        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != v1Size &&
+             info->struct_size != legacySize) ||
             job->struct_size != sizeof(LmxxfNrJob))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
         job->handle = nullptr;
@@ -906,9 +930,39 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                           NativeFitLargeInput() ? 1 : 0);
             return Fail(LMXXF_NR_INVALID_ARGUMENT, msg);
         }
+
+        // Exposure is optional and sits after model_scale, so only a host whose struct_size
+        // covers it supplies one. The scalars are clamped rather than trusted: a NaN or an
+        // infinity here would otherwise fail NativeCodecParameters::Valid() at Record time,
+        // which throws and poisons the session.
+        ID3D12Resource *frameExposure = nullptr;
+        D3D12_RESOURCE_STATES frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        float framePreExposure = 1.0f, frameExposureScale = 1.0f;
+        if (info->struct_size >= sizeof(LmxxfNrFrameInfo))
+        {
+            frameExposure = static_cast<ID3D12Resource *>(info->exposure);
+            frameExposureState = static_cast<D3D12_RESOURCE_STATES>(info->exposure_state);
+            if (info->pre_exposure > 0.0f && info->pre_exposure < 1.0e6f)
+                framePreExposure = info->pre_exposure;
+            if (info->exposure_scale > 0.0f && info->exposure_scale < 1.0e6f)
+                frameExposureScale = info->exposure_scale;
+        }
+        if (frameExposure)
+        {
+            const D3D12_RESOURCE_DESC ed = frameExposure->GetDesc();
+            const bool exposureOk = ed.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && ed.Width == 1 &&
+                                    ed.Height == 1 && ed.MipLevels == 1 && ed.DepthOrArraySize == 1 &&
+                                    ed.SampleDesc.Count == 1 &&
+                                    (ed.Format == DXGI_FORMAT_R16_FLOAT || ed.Format == DXGI_FORMAT_R32_FLOAT) &&
+                                    !(ed.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+            if (!exposureOk)
+                return Fail(LMXXF_NR_INVALID_ARGUMENT,
+                            "PrepareFrame: exposure must be a shader-readable 1x1 R16_FLOAT/R32_FLOAT texture");
+        }
         const bool geoChanged =
             session->encode &&
-            (session->job.width != info->color_width || session->job.height != info->color_height ||
+            (session->exposure != frameExposure || session->job.width != info->color_width ||
+             session->job.height != info->color_height ||
              session->colorFormat != cfmt || (session->job.width && cw != session->job.width) ||
              (session->job.height && ch != session->job.height));
         const bool pointerChanged = session->encode && color != session->job.color;
@@ -961,15 +1015,17 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 // gets the same rule. Other formats keep the existing output routes (writing
                 // the game's format, or the UNORM8/R11G11B10 raw-buffer copies).
                 const bool privateFloatOutput = (cfmt == DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
+                session->exposure = frameExposure;
+                session->exposureState = frameExposureState;
                 enc = new NativeGameCodec();
-                enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput);
+                enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, frameExposure);
                 rgbIn = new NativeGameRgbInput();
                 rgbIn->Create(session->device, enc->Output(), session->shaderDir);
                 rgbOut = new NativeRgbTexture();
                 rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
                 dec = new NativeGameCodec();
                 dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir,
-                            privateFloatOutput);
+                            privateFloatOutput, frameExposure);
                 if (dec->BufferOutput())
                 {
                     D3D12_RESOURCE_DESC td = cdesc;
@@ -1032,6 +1088,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.transfer_strength = transfer_strength;
         session->job.color_strength = color_strength;
         session->job.debug_view = debug_view;
+        session->job.pre_exposure = framePreExposure;
+        session->job.exposure_scale = frameExposureScale;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
         session->job.seed = 1;
@@ -1064,7 +1122,11 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: job not in PREPARED state");
         ListContract(session, list);
 
-        session->encode->Record(list, {j->colorState}, 1.f);
+        // Strengths stay on the legacy path for the encoder; only the exposure scalars are new.
+        NativeCodecParameters encParams = NativeGameCodec::LegacyParameters();
+        encParams.pre_exposure = j->pre_exposure;
+        encParams.exposure_scale = j->exposure_scale;
+        session->encode->Record(list, session->CodecStates({j->colorState}), 1.f, encParams);
         if (j->codec_passthrough)
         {
             // Bypass HIP: Copy encoder output directly to rgbTex output so decoder receives it as neural input.
@@ -1225,9 +1287,12 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
         codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view);
+        codecParams.pre_exposure = j->pre_exposure;
+        codecParams.exposure_scale = j->exposure_scale;
         session->decode->Record(list,
-                                {D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, j->colorState},
+                                session->CodecStates({D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                      j->colorState}),
                                 1.f, codecParams);
         if (session->decode->BufferOutput())
         {
