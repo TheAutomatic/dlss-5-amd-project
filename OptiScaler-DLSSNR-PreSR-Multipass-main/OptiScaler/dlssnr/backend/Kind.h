@@ -7,10 +7,10 @@ enum class Kind
 {
     Daniel,
     Lmxxf,
-    Off,
 };
 
-// Case-insensitive. Missing, empty, "auto", and unknown values are Daniel.
+// Case-insensitive. Missing, empty, "auto", "off", "none", and unknown are Daniel.
+// There is no separate "off" host: Enable NR is the on/off switch.
 inline Kind ParseKind(std::string_view raw)
 {
     auto eq = [](std::string_view a, std::string_view b) {
@@ -28,22 +28,16 @@ inline Kind ParseKind(std::string_view raw)
         }
         return true;
     };
-    if (raw.empty() || eq(raw, "auto") || eq(raw, "daniel"))
-        return Kind::Daniel;
-    if (eq(raw, "off") || eq(raw, "none"))
-        return Kind::Off;
     if (eq(raw, "lmxxf"))
         return Kind::Lmxxf;
     return Kind::Daniel;
 }
 
-// First increment: no LmxxfNrRuntime. Off stays Off; everything else is Daniel.
+// First increment: no LmxxfNrRuntime. Everything else is Daniel.
 inline bool LmxxfWired() { return true; } // LOCAL E trial only — do not push/default
 
 inline Kind ActiveKind(Kind requested)
 {
-    if (requested == Kind::Off)
-        return Kind::Off;
     if (requested == Kind::Lmxxf && LmxxfWired())
         return Kind::Lmxxf;
     return Kind::Daniel;

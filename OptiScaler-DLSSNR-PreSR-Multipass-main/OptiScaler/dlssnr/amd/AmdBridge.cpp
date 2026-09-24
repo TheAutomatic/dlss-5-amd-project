@@ -34,9 +34,7 @@ DlssNr::Backend::Host* HostForKind(DlssNr::Backend::Kind k)
 {
     if (k == DlssNr::Backend::Kind::Lmxxf)
         return g_lmxxf.load(std::memory_order_acquire);
-    if (k == DlssNr::Backend::Kind::Daniel)
-        return g_daniel.load(std::memory_order_acquire);
-    return nullptr;
+    return g_daniel.load(std::memory_order_acquire);
 }
 DlssNr::Backend::Host* ActiveHost()
 {
@@ -307,9 +305,7 @@ bool HasFiles()
     const auto active = DlssNr::Backend::ActiveKindFromConfig();
     if (active == DlssNr::Backend::Kind::Lmxxf)
         return HasLmxxfRuntime();
-    if (active == DlssNr::Backend::Kind::Daniel)
-        return HasDanielRuntime();
-    return HasLmxxfRuntime() || HasDanielRuntime();
+    return HasDanielRuntime();
 }
 DlssNr::Backend::Kind LiveBackendKind()
 {
@@ -377,8 +373,6 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         return false;
     const auto requested = DlssNr::Backend::RequestedKind();
     const auto active = DlssNr::Backend::ActiveKindFromConfig();
-    if (active == DlssNr::Backend::Kind::Off)
-        return true;
     if (requested == DlssNr::Backend::Kind::Lmxxf && !DlssNr::Backend::LmxxfWired())
     {
         static bool loggedLmxxfFallback = false;
@@ -466,7 +460,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // Build the selected host on first use; keep the other alive for switching back.
     if (active == DlssNr::Backend::Kind::Lmxxf && !g_lmxxf.load(std::memory_order_acquire))
         g_lmxxf.store(new DlssNr::Backend::LmxxfBackend(device, q, Directory()), std::memory_order_release);
-    else if (active == DlssNr::Backend::Kind::Daniel && !g_daniel.load(std::memory_order_acquire))
+    else if (!g_daniel.load(std::memory_order_acquire))
         g_daniel.store(new DlssNr::Backend::DanielBackend(device, q, Directory()), std::memory_order_release);
     auto b = HostForKind(active);
     device->Release();

@@ -8,11 +8,10 @@ Tracked ADR for the lmxxf graft. Plan: `exports/lmxxf-main-backend-integration-p
 | Item | Now |
 |---|---|
 | Branch | `work/lmxxf-backend` off `main @ 2792909` (1.8.6 Daniel). **Not pushed.** |
-| Default ini `NrBackend` | **daniel** (missing / empty / `auto` / unknown → daniel) |
+| Default ini `NrBackend` | **daniel** (missing / empty / `auto` / `off` / `none` / unknown → daniel). Only `daniel` or `lmxxf`; `Enabled` is the on/off. |
 | `LmxxfWired()` | **`true` for local E only** (`Kind.h`). Revert before push/default. |
 | Active lmxxf | Only when **Wired ∧** `[DlssNr] NrBackend=lmxxf` → `ActiveKind==Lmxxf` → `LmxxfBackend` |
 | `NrBackend=lmxxf` while Wired false | Logged once, falls back to Daniel |
-| `NrBackend=off` | No AMD Record; original colour to SR |
 | HasFiles / ECL / New wait / menu | Unchanged (HasFiles still expects Daniel `dlssnr_amd_pass1.dll`) |
 | Capabilities | `history` / `overlap` / `graph` stay 0. No `hip_ready` field. |
 | `third_party/lmxxf` | Vendored @ `68dc099` + local C ABI runtime |

@@ -16,15 +16,13 @@ int main()
     assert(ParseKind("DANIEL") == Kind::Daniel);
     assert(ParseKind("lmxxf") == Kind::Lmxxf);
     assert(ParseKind("LMXXF") == Kind::Lmxxf);
-    assert(ParseKind("off") == Kind::Off);
-    assert(ParseKind("Off") == Kind::Off);
-    assert(ParseKind("none") == Kind::Off);
+    // Legacy "off"/"none" fall back to daniel; Enable NR is the on/off switch.
+    assert(ParseKind("off") == Kind::Daniel);
+    assert(ParseKind("Off") == Kind::Daniel);
+    assert(ParseKind("none") == Kind::Daniel);
     assert(ParseKind("garbage") == Kind::Daniel);
 
-    // Local E: LmxxfWired() may be true. ActiveKind still respects Off;
-    // lmxxf only activates when Wired.
     assert(ActiveKind(Kind::Daniel) == Kind::Daniel);
-    assert(ActiveKind(Kind::Off) == Kind::Off);
     if (LmxxfWired())
         assert(ActiveKind(Kind::Lmxxf) == Kind::Lmxxf);
     else

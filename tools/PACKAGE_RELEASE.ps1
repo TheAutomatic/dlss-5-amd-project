@@ -192,8 +192,7 @@ RunBeforeSR=true
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
 ; daniel - danielblnc 0.3.0 / 0.3.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
-; off    - Disable neural rendering pass, passthrough colour to upscaler
-; lmxxf, daniel, off - Setup writes the backend chosen at install. Neither is the sole default.
+; lmxxf or daniel only. Turn the pass off with Enabled=false, not with NrBackend.
 NrBackend=lmxxf
 
 ; Diagnostic mode for lmxxf backend (NO NR)
