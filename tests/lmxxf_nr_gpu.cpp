@@ -375,28 +375,35 @@ int main(int argc, char **argv)
             Require(std::strstr(badErr, "fmt=") != nullptr, "rejection names the format");
             badTex->Release();
         }
-        // Oversized input with LmxxfFitLarge off is the documented limit; same contract.
-        D3D12_RESOURCE_DESC bigDesc = td;
-        bigDesc.Width = 2560;
-        bigDesc.Height = 1440;
-        ID3D12Resource *bigTex = nullptr;
-        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bigDesc,
-                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                                              nullptr, IID_PPV_ARGS(&bigTex)),
-              "oversized colour");
-        LmxxfNrFrameInfo bigFrame = frame;
-        bigFrame.color = bigTex;
-        bigFrame.color_width = 2560;
-        bigFrame.color_height = 1440;
-        LmxxfNrJob bigJob {};
-        bigJob.struct_size = sizeof(bigJob);
-        const int32_t bigRc = api.PrepareFrame(ctx, &bigFrame, &bigJob);
-        char bigErr[256] {};
-        api.GetLastError(bigErr, sizeof bigErr);
-        std::printf("reject 2560x1440 rc=%d err=%s\n", bigRc, bigErr);
-        Require(bigRc == LMXXF_NR_INVALID_ARGUMENT, "oversized input -> INVALID_ARGUMENT");
-        Require(std::strstr(bigErr, "outside admitted geometry") != nullptr, "geometry reason named");
-        bigTex->Release();
+        // Geometry with LmxxfFitLarge off is the documented limit; same contract. 2560x1440 is over
+        // the pixel budget. The other two are within it but would be downsampled too far: 2600x720
+        // is past the 2560 width cap, 1440x1440 is taller than 1080.
+        const struct { UINT64 w; UINT h; } kBadShapes[] = {{2560, 1440}, {2600, 720}, {1440, 1440}};
+        for (const auto &shape : kBadShapes)
+        {
+            D3D12_RESOURCE_DESC bigDesc = td;
+            bigDesc.Width = shape.w;
+            bigDesc.Height = shape.h;
+            ID3D12Resource *bigTex = nullptr;
+            Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bigDesc,
+                                                  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                  nullptr, IID_PPV_ARGS(&bigTex)),
+                  "oversized colour");
+            LmxxfNrFrameInfo bigFrame = frame;
+            bigFrame.color = bigTex;
+            bigFrame.color_width = static_cast<uint32_t>(shape.w);
+            bigFrame.color_height = shape.h;
+            LmxxfNrJob bigJob {};
+            bigJob.struct_size = sizeof(bigJob);
+            const int32_t bigRc = api.PrepareFrame(ctx, &bigFrame, &bigJob);
+            char bigErr[256] {};
+            api.GetLastError(bigErr, sizeof bigErr);
+            std::printf("reject %llux%u rc=%d err=%s\n", static_cast<unsigned long long>(shape.w), shape.h,
+                        bigRc, bigErr);
+            Require(bigRc == LMXXF_NR_INVALID_ARGUMENT, "inadmissible geometry -> INVALID_ARGUMENT");
+            Require(std::strstr(bigErr, "outside admitted geometry") != nullptr, "geometry reason named");
+            bigTex->Release();
+        }
 
         // A host built against ABI v1 sends the smaller struct and has no exposure fields.
         // That must still run: the exposure fields are an ABI growth, not a new requirement.
@@ -607,13 +614,6 @@ int main(int argc, char **argv)
                                                                  static_cast<ID3D12Resource *>(job.private_output))),
                     frame.color_width, frame.color_height);
 
-    ID3D12Resource *resizedColor = nullptr;
-    if (resize)
-    {
-        td.Width = 1600;
-        td.Height = 900;
-        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
-                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
     if (useExposure && !badExposure)
     {
         // A change of the exposure FORMAT is the one case that must rebuild: the stable copy has
@@ -651,6 +651,13 @@ int main(int argc, char **argv)
         }
         halfExposure->Release();
     }
+    ID3D12Resource *resizedColor = nullptr;
+    if (resize)
+    {
+        td.Width = 1600;
+        td.Height = 900;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
+                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                               nullptr, IID_PPV_ARGS(&resizedColor)), "resized color");
         frame.color_width = 1600;
         frame.color_height = 900;

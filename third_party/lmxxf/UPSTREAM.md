@@ -72,12 +72,15 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 
 ### `src/native_input_geometry.h` (Vendor-Pinned & Patched)
 
-1. **Pixel-budget admission**: `Supported()` admits by `w*h <= 1920*1080` instead of `w<=1920 && h<=1080`.
-   A 3440x1440 ultrawide at DLSS Quality 1 renders 2024x848 = 1.72M pixels, less work than the 2.07M of
-   1920x1080, but the per-axis cap rejected it on width alone and the codec threw
-   "codec unverified input format/geometry" (SILENT HILL Townfall). The budget is exactly the old box, so
-   every previously admitted input still is; the fit math is unchanged and is the same path `DLSS5_FIT_LARGE`
-   already uses for larger inputs.
+1. **Pixel-budget admission**: without `DLSS5_FIT_LARGE`, `Supported()` admits `w <= 2560 && h <= 1080 &&
+   w*h <= 1920*1080` instead of `w <= 1920 && h <= 1080`. A 3440x1440 ultrawide at DLSS Quality 1 renders
+   2024x848 = 1.72M pixels, but the per-axis cap rejected it on width alone and the codec threw
+   "codec unverified input format/geometry" (SILENT HILL Townfall). An input wider than 1920 is downsampled
+   onto the network surface, the same fit `DLSS5_FIT_LARGE` applies to larger inputs, so the width cap
+   bounds that at 25% (it covers 21:9 and 32:9 ultrawide within the budget; 3840x540-style shapes are not
+   admitted). Every previously admitted input still is; the fit math is unchanged. Upstream's
+   `native_network_geometry.h` comment "inputs beyond 1920x1080 are rejected before this" is no longer
+   literally true for width; the `auto` tier picks 1080 for them.
 
 ### `src/native_rgb_reflect.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]

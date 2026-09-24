@@ -714,8 +714,8 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "QueryCapabilities: struct_size mismatch");
         out->abi_version = LMXXF_NR_ABI_VERSION;
         EnsureFitLargeApplied();
-        // Without FIT_LARGE: the 1920x1080 pixel budget (wider but smaller inputs, i.e. ultrawide,
-        // are admitted too). With it: NativeInputGeometry::Supported(..., large) ceiling.
+        // Without FIT_LARGE: the 1920x1080 pixel budget (wider but smaller inputs up to 2560 wide,
+        // i.e. ultrawide, are admitted too). With it: NativeInputGeometry::Supported(..., large) ceiling.
         if (NativeFitLargeInput())
         {
             out->max_input_width = 16384;
