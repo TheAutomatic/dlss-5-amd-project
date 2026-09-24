@@ -691,7 +691,7 @@ static NVSDK_NGX_Result TryCreateOptiFeature(ID3D12GraphicsCommandList* InCmdLis
 
         D3D12Hooks::SetRootSignatureTracking(true);
 
-        // Partial cleanup � handle is allocated but context is incomplete
+        // Partial cleanup — handle is allocated but context is incomplete
         Dx12Contexts.erase(handleId);
         return NVSDK_NGX_Result_Fail;
     }
