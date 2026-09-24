@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <cstdlib>
 
 static void Require(bool ok, const char *what)
 {
@@ -523,6 +524,41 @@ int main(int argc, char **argv)
 
     if (queueMismatch)
         Require(outs == LMXXF_NR_OK, "RecordOutputs after zero fallback");
+
+    if (useExposure && !badExposure)
+    {
+        // The runtime must bind its own stable copy, not the game's texture. Handing it a NEW
+        // allocation of the same format has to be free: the codec bakes the exposure SRV at
+        // Create, so a pointer-sensitivity here would rebuild the whole chain every frame. The
+        // observable is GetStatus's recreate count, which must not move.
+        char stBefore[256] {}, stAfter[256] {};
+        if (api.GetStatus)
+            api.GetStatus(ctx, stBefore, sizeof stBefore);
+        D3D12_RESOURCE_DESC ed = exposureTex->GetDesc();
+        ID3D12Resource *rotated = nullptr;
+        Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &ed,
+                                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr, IID_PPV_ARGS(&rotated)),
+              "rotated exposure");
+        LmxxfNrFrameInfo rotFrame = frame;
+        rotFrame.exposure = rotated;
+        LmxxfNrJob rotJob {};
+        rotJob.struct_size = sizeof(rotJob);
+        const int32_t rotRc = api.PrepareFrame(ctx, &rotFrame, &rotJob);
+        std::printf("exposure pointer rotation rc=%d\n", rotRc);
+        Require(rotRc == LMXXF_NR_OK && rotJob.handle != nullptr, "new exposure allocation still runs");
+        if (api.GetStatus)
+            api.GetStatus(ctx, stAfter, sizeof stAfter);
+        auto recreates = [](const char *st) -> long {
+            const char *p = std::strstr(st, "recreates=");
+            return p ? std::strtol(p + 10, nullptr, 10) : -1;
+        };
+        std::printf("recreates before=%ld after=%ld (%s)\n", recreates(stBefore), recreates(stAfter), stAfter);
+        Require(recreates(stBefore) == recreates(stAfter),
+                "a new exposure allocation must not rebuild the codec chain");
+        Require(api.CancelUnsubmitted(ctx, rotJob.handle) == LMXXF_NR_OK, "cancel rotated frame");
+        rotated->Release();
+    }
 
     if (outputHash && outs == LMXXF_NR_OK && job.private_output)
         std::printf("output_hash=%016llx %ux%u\n",

@@ -378,6 +378,10 @@ struct Job
     uint32_t debug_view = 0;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
+    /* The game's exposure texture and its state at RecordInputs: the source of the per-frame
+     * copy into Session::exposureCopy. Not bound to any codec. */
+    ID3D12Resource *sourceExposure = nullptr;
+    D3D12_RESOURCE_STATES sourceExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     bool codec_passthrough = false;
 };
 
@@ -406,17 +410,23 @@ struct Session
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
-    /* Exposure is the game's 1x1 scale. Its SRV is baked into the codec heap at Create, so a
-     * change of identity rebuilds the chain (see geoChanged). Not owned here: the codec holds
-     * the reference for the life of the chain. */
-    ID3D12Resource *exposure = nullptr;
-    D3D12_RESOURCE_STATES exposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    /* The codecs bind OUR stable 1x1 copy, never the game's texture. An engine may hand us a
+     * new allocation every frame, and the codec bakes the SRV at Create, so binding the game's
+     * pointer would rebuild the whole chain (including a warm-up dispatch) every frame. A copy
+     * also pins the format - CopyTextureRegion needs matching formats - so only a change of the
+     * SOURCE's format recreates it and therefore rebuilds. */
+    ID3D12Resource *exposureCopy = nullptr;
+    DXGI_FORMAT exposureCopyFormat = DXGI_FORMAT_UNKNOWN;
+    /* What the live codecs were actually created with (exposureCopy, or null when we are
+     * running without exposure). */
+    ID3D12Resource *boundExposure = nullptr;
 
     // NativeGameCodec::Record wants one state per source plus one more for the exposure SRV.
+    // RecordInputs always leaves the copy in NON_PIXEL_SHADER_RESOURCE.
     std::vector<D3D12_RESOURCE_STATES> CodecStates(std::vector<D3D12_RESOURCE_STATES> s) const
     {
-        if (exposure)
-            s.push_back(exposureState);
+        if (boundExposure)
+            s.push_back(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         return s;
     }
 
@@ -532,6 +542,10 @@ struct Session
         rgbTex = nullptr;
         rgbInput = nullptr;
         encode = nullptr;
+        boundExposure = nullptr;
+        // Owned here rather than by a codec, but the same fail-closed rule applies: do not free
+        // what the GPU may still reference.
+        exposureCopy = nullptr;
         // The queue may still own GPU work. Keep our reference on fail-closed teardown.
         fallbackConsumerQueue = nullptr;
         if (queue)
@@ -593,6 +607,9 @@ struct Session
         if (queue)
             queue->Release();
         queue = nullptr;
+        if (exposureCopy)
+            exposureCopy->Release();
+        exposureCopy = nullptr;
         if (device)
             device->Release();
         device = nullptr;
@@ -988,11 +1005,47 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             }
         }
+        // Choose what the codecs will bind: our stable copy if this frame has a usable source,
+        // otherwise nothing. Rebuilding follows a change of THAT, not of the game's pointer.
+        ID3D12Resource *bindExposure = nullptr;
+        if (frameExposure)
+        {
+            const DXGI_FORMAT srcFormat = frameExposure->GetDesc().Format;
+            if (!session->exposureCopy || session->exposureCopyFormat != srcFormat)
+            {
+                if (session->exposureCopy)
+                {
+                    session->exposureCopy->Release();
+                    session->exposureCopy = nullptr;
+                }
+                D3D12_RESOURCE_DESC cd {};
+                cd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                cd.Width = cd.Height = 1;
+                cd.DepthOrArraySize = cd.MipLevels = 1;
+                cd.Format = srcFormat;
+                cd.SampleDesc.Count = 1;
+                D3D12_HEAP_PROPERTIES hp {};
+                hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+                if (SUCCEEDED(session->device->CreateCommittedResource(
+                        &hp, D3D12_HEAP_FLAG_NONE, &cd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                        nullptr, IID_PPV_ARGS(&session->exposureCopy))))
+                {
+                    session->exposureCopyFormat = srcFormat;
+                }
+                else
+                {
+                    session->exposureCopy = nullptr;
+                    session->exposureCopyFormat = DXGI_FORMAT_UNKNOWN;
+                    frameExposure = nullptr;
+                }
+            }
+            bindExposure = session->exposureCopy;
+        }
         // Split so the recreate log can name the trigger. Note allocVsValid compares the
         // Color texture ALLOCATION (cw/ch from GetDesc) to the last VALID size stored in
         // job.width/height (NGX subrect via color_width/height) -  if those differ, geoChanged
         // is true on every subsequent frame.
-        const bool exposureChanged = session->encode && session->exposure != frameExposure;
+        const bool exposureChanged = session->encode && session->boundExposure != bindExposure;
         const bool validChanged =
             session->encode && (session->job.width != info->color_width ||
                                 session->job.height != info->color_height);
@@ -1072,17 +1125,16 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 // gets the same rule. Other formats keep the existing output routes (writing
                 // the game's format, or the UNORM8/R11G11B10 raw-buffer copies).
                 const bool privateFloatOutput = (cfmt == DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
-                session->exposure = frameExposure;
-                session->exposureState = frameExposureState;
+                session->boundExposure = bindExposure;
                 enc = new NativeGameCodec();
-                enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, frameExposure);
+                enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, bindExposure);
                 rgbIn = new NativeGameRgbInput();
                 rgbIn->Create(session->device, enc->Output(), session->shaderDir);
                 rgbOut = new NativeRgbTexture();
                 rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
                 dec = new NativeGameCodec();
                 dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir,
-                            privateFloatOutput, frameExposure);
+                            privateFloatOutput, bindExposure);
                 if (dec->BufferOutput())
                 {
                     D3D12_RESOURCE_DESC td = cdesc;
@@ -1147,6 +1199,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.debug_view = debug_view;
         session->job.pre_exposure = framePreExposure;
         session->job.exposure_scale = frameExposureScale;
+        session->job.sourceExposure = frameExposure;
+        session->job.sourceExposureState = frameExposureState;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
         session->job.seed = 1;
@@ -1179,6 +1233,32 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         if (j->state != LMXXF_NR_JOB_PREPARED)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: job not in PREPARED state");
         ListContract(session, list);
+
+        // Refresh our stable exposure copy from the game's texture. Both textures share a format
+        // (CopyTextureRegion requires it), and we leave the copy in NON_PIXEL_SHADER_RESOURCE so
+        // the codec's exposure transition is a no-op.
+        if (session->boundExposure && j->sourceExposure)
+        {
+            D3D12_RESOURCE_BARRIER b[2] {};
+            b[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b[0].Transition = {j->sourceExposure, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                               j->sourceExposureState, D3D12_RESOURCE_STATE_COPY_SOURCE};
+            b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b[1].Transition = {session->exposureCopy, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST};
+            list->ResourceBarrier(2, b);
+            D3D12_TEXTURE_COPY_LOCATION dst {}, src {};
+            dst.pResource = session->exposureCopy;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.pResource = j->sourceExposure;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+            b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            b[0].Transition.StateAfter = j->sourceExposureState;
+            b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            list->ResourceBarrier(2, b);
+        }
 
         // Strengths stay on the legacy path for the encoder; only the exposure scalars are new.
         NativeCodecParameters encParams = NativeGameCodec::LegacyParameters();
