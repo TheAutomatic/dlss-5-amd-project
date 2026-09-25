@@ -1,5 +1,11 @@
 # Repository agent instructions
 
+## Release tests (no GPU)
+
+After merging to `release/1.9.0` or touching installer/packaging/sync, run
+[tools/RELEASE-TESTS.md](tools/RELEASE-TESTS.md). `PACKAGE_RELEASE.ps1` does
+not run those suites; it only checks artifact freshness.
+
 ## Synchronizing lmxxf upstream
 
 Before changing or running `tools/sync-lmxxf-upstream.ps1`, read
