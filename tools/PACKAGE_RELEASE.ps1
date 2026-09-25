@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.9.0
+  Default product: OptiScaler-AMD-PreSR-1.9.3-alpha
     1.9.0  = this fork's product version
     0.3.1  = supported danielblnc runtime (0.3.0 also accepted)
     lmxxf  = supported lmxxf HIP neural rendering runtime
@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.9.0.3',
+    [string]$Version = '1.9.3-alpha',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -38,6 +38,14 @@ function Get-Sha256([string]$path) {
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }
 $source = Join-Path $root 'OptiScaler-DLSSNR-PreSR-Multipass-main'
+# Prefer repo-root VERSION when -Version was not passed explicitly.
+if (-not $PSBoundParameters.ContainsKey('Version')) {
+    $vf = Join-Path $root 'VERSION'
+    if (Test-Path -LiteralPath $vf -PathType Leaf) {
+        $v = (Get-Content -LiteralPath $vf -Encoding UTF8 -TotalCount 1).Trim()
+        if ($v) { $Version = $v }
+    }
+}
 if (-not $Name) { $Name = "OptiScaler-AMD-PreSR-$Version" }
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
