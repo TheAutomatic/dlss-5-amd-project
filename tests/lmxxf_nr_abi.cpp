@@ -75,17 +75,45 @@ int main(int argc, char **argv)
     Require(api.Create(&info, &ctx) == LMXXF_NR_INVALID_ARGUMENT, "Create without assets_directory");
     Require(ctx == nullptr, "Create without assets clears context");
 
+    auto resolveArch = reinterpret_cast<int32_t (*)(const wchar_t *, const char *, wchar_t *, uint32_t, char *, uint32_t)>(
+        GetProcAddress(dll, "LmxxfNrResolveArchModules"));
+    Require(resolveArch != nullptr, "GetProcAddress LmxxfNrResolveArchModules");
+
     if (argc >= 3)
     {
         const std::wstring modules = Widen(argv[2]);
+
+        // Pure path resolution tests
+        wchar_t outPath[MAX_PATH] {};
+        char errBuf[256] {};
+        Require(resolveArch(modules.c_str(), "gfx1200", outPath, MAX_PATH, errBuf, sizeof(errBuf)) == LMXXF_NR_OK,
+                "ResolveArchModules gfx1200");
+        Require(std::wstring(outPath).find(L"gfx1200") != std::wstring::npos, "resolved gfx1200 path");
+
+        Require(resolveArch(modules.c_str(), "gfx1201", outPath, MAX_PATH, errBuf, sizeof(errBuf)) == LMXXF_NR_OK,
+                "ResolveArchModules gfx1201");
+        Require(std::wstring(outPath).find(L"gfx1201") != std::wstring::npos, "resolved gfx1201 path");
+
+        Require(resolveArch(modules.c_str(), "gfx1100", outPath, MAX_PATH, errBuf, sizeof(errBuf)) == LMXXF_NR_UNAVAILABLE,
+                "ResolveArchModules rejects unsupported arch");
+        Require(std::strstr(errBuf, "unsupported HIP architecture") != nullptr,
+                "ResolveArchModules error diagnostics");
+
+        const std::wstring leafDir = modules + L"\\gfx1201";
+        Require(resolveArch(leafDir.c_str(), "gfx1201", outPath, MAX_PATH, errBuf, sizeof(errBuf)) == LMXXF_NR_OK,
+                "ResolveArchModules flat leaf");
+        Require(std::wstring(outPath) == leafDir, "ResolveArchModules leaf identity");
+
+        // Dual-arch Create & Status
         info.assets_directory = modules.c_str();
-        Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create with modules directory");
+        Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create with dual-arch modules directory");
         Require(ctx != nullptr, "session handle with modules");
 
         char status[256] {};
         Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus modules");
-        const std::string st(status);
-        Require(st.find("modules_ok=") != std::string::npos, "status reports modules_ok");
+        std::string st(status);
+        Require(st.find("modules_ok=48") != std::string::npos, "status reports modules_ok=48");
+        Require(st.find("arch=unknown") != std::string::npos, "status reports arch=unknown before bridge");
         Require(st.find("hip=0") != std::string::npos, "status hip still 0");
 
         Require(api.PrepareSession(ctx) == LMXXF_NR_INVALID_ARGUMENT,
@@ -101,6 +129,16 @@ int main(int argc, char **argv)
         Require(err[0] != 0, "last error populated");
 
         Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy modules session");
+
+        // Leaf / flat directory Create & Status
+        info.assets_directory = leafDir.c_str();
+        Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create with leaf modules directory");
+        Require(ctx != nullptr, "session handle with leaf modules");
+        Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus leaf modules");
+        st = status;
+        Require(st.find("modules_ok=24") != std::string::npos, "status reports modules_ok=24 for leaf");
+        Require(st.find("arch=unknown") != std::string::npos, "status reports arch=unknown for leaf");
+        Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy leaf session");
     }
     else
     {

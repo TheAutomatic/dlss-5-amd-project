@@ -54,11 +54,44 @@ float CodecPaperWhite()
 const char *FriendlyPrepareFrameError(const char *err)
 {
     if (!err || !err[0])
-        return "lmxxf: PrepareFrame failed";
+        return "lmxxf: session initialization failed";
     if (std::strstr(err, "NoBinaryForGpu") || std::strstr(err, "no binary for GPU") ||
-        std::strstr(err, "hipErrorNoBinary") || std::strstr(err, "WrongDevice"))
+        std::strstr(err, "hipErrorNoBinary") || std::strstr(err, "WrongDevice") ||
+        std::strstr(err, "unsupported HIP architecture"))
     {
         return "lmxxf: this GPU is not supported by the installed lmxxf modules (need matching ISA, e.g. 9070 XT = gfx1201). Switch Backend to daniel, or install matching lmxxf-modules.";
+    }
+    if (std::strstr(err, "missing module architecture directory"))
+    {
+        return "lmxxf: modules missing subfolder for this GPU architecture. Check modules installation or reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "stale flat"))
+    {
+        return "lmxxf: stale flat .hsaco files found in dual-architecture directory. Reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "leaf SHA256SUMS mismatch"))
+    {
+        return "lmxxf: module leaf manifest mismatch with root. Reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "dual-architecture directory missing") ||
+        std::strstr(err, "incomplete") ||
+        std::strstr(err, "fewer than 24"))
+    {
+        return "lmxxf: dual-architecture module set incomplete. Reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "checksum mismatch") ||
+        std::strstr(err, "failed to compute checksum") ||
+        std::strstr(err, "invalid SHA256"))
+    {
+        return "lmxxf: module checksum verification failed. Reinstall lmxxf-modules or run sync.";
+    }
+    if (std::strstr(err, "unsafe module path"))
+    {
+        return "lmxxf: unsafe path detected in module manifest.";
+    }
+    if (std::strstr(err, "no HIP device matches"))
+    {
+        return "lmxxf: no HIP device matches D3D12 adapter. Switch Backend to daniel.";
     }
     if ((std::strstr(err, "missing") || std::strstr(err, "not found")) &&
         (std::strstr(err, "block") || std::strstr(err, ".f16") || std::strstr(err, ".f32") ||
@@ -72,6 +105,8 @@ const char *FriendlyPrepareFrameError(const char *err)
         return "lmxxf: NR is off after a fatal error (see OptiScaler.log). Fix the first error, then restart the game.";
     if (std::strstr(err, "hsaco") || std::strstr(err, "module"))
         return "lmxxf: lmxxf-modules failed to load on this GPU. Check modules vs GPU (gfx1200/1201) or use Backend daniel.";
+    if (std::strstr(err, "Create:"))
+        return "lmxxf: module initialization failed (see OptiScaler.log)";
     return "lmxxf: PrepareFrame failed";
 }
 
@@ -295,7 +330,7 @@ bool LmxxfBackend::EnsureSession()
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
         LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
-        SetStatus("lmxxf: Create failed");
+        SetStatus(FriendlyPrepareFrameError(err));
         NoteSessionFailure();
         return false;
     }
@@ -313,7 +348,7 @@ bool LmxxfBackend::EnsureSession()
             api->table.GetLastError(err, sizeof err);
         LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
         api->table.Destroy(ctx);
-        SetStatus("lmxxf: PrepareSession failed");
+        SetStatus(FriendlyPrepareFrameError(err));
         NoteSessionFailure();
         return false;
     }

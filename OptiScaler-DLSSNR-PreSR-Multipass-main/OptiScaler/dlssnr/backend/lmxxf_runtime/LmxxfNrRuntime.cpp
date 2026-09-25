@@ -19,6 +19,10 @@
 #include <cstdlib>
 #include <exception>
 #include <string>
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <set>
 #include <vector>
 
 namespace
@@ -63,6 +67,17 @@ std::string Utf8(const std::wstring &s)
     return r;
 }
 
+std::wstring Widen(const std::string &s)
+{
+    if (s.empty())
+        return {};
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0);
+    std::wstring r(n, L'\0');
+    if (n)
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), r.data(), n);
+    return r;
+}
+
 bool IsDirectory(const std::wstring &path)
 {
     const DWORD attr = GetFileAttributesW(path.c_str());
@@ -82,6 +97,267 @@ std::wstring JoinPath(const std::wstring &dir, const wchar_t *name)
         out += L'\\';
     out += name;
     return out;
+}
+
+bool IsReparsePoint(const std::wstring &path)
+{
+    DWORD attr = GetFileAttributesW(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+bool IsPathSafelyContained(const std::wstring &rootDir, const std::wstring &subPath)
+{
+    wchar_t rootCanonical[MAX_PATH] = {};
+    if (!GetFullPathNameW(rootDir.c_str(), MAX_PATH, rootCanonical, nullptr))
+        return false;
+    std::wstring combined = JoinPath(rootCanonical, subPath.c_str());
+    wchar_t combinedCanonical[MAX_PATH] = {};
+    if (!GetFullPathNameW(combined.c_str(), MAX_PATH, combinedCanonical, nullptr))
+        return false;
+    size_t rootLen = wcslen(rootCanonical);
+    if (_wcsnicmp(rootCanonical, combinedCanonical, rootLen) != 0)
+        return false;
+    if (combinedCanonical[rootLen] != L'\\' && combinedCanonical[rootLen] != L'\0')
+        return false;
+    return true;
+}
+
+namespace Sha256Detail
+{
+inline uint32_t RightRotate(uint32_t value, uint32_t count)
+{
+    return (value >> count) | (value << (32 - count));
+}
+
+static const uint32_t K[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+struct Context
+{
+    uint32_t state[8];
+    uint64_t count;
+    uint8_t buffer[64];
+};
+
+inline void Init(Context *ctx)
+{
+    ctx->state[0] = 0x6a09e667;
+    ctx->state[1] = 0xbb67ae85;
+    ctx->state[2] = 0x3c6ef372;
+    ctx->state[3] = 0xa54ff53a;
+    ctx->state[4] = 0x510e527f;
+    ctx->state[5] = 0x9b05688c;
+    ctx->state[6] = 0x1f83d9ab;
+    ctx->state[7] = 0x5be0cd19;
+    ctx->count = 0;
+}
+
+inline void Transform(uint32_t state[8], const uint8_t data[64])
+{
+    uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+    uint32_t e = state[4], f = state[5], g = state[6], h = state[7];
+    uint32_t w[64];
+    for (int i = 0; i < 16; ++i)
+    {
+        w[i] = (static_cast<uint32_t>(data[i * 4]) << 24) |
+               (static_cast<uint32_t>(data[i * 4 + 1]) << 16) |
+               (static_cast<uint32_t>(data[i * 4 + 2]) << 8) |
+               (static_cast<uint32_t>(data[i * 4 + 3]));
+    }
+    for (int i = 16; i < 64; ++i)
+    {
+        const uint32_t s0 = RightRotate(w[i - 15], 7) ^ RightRotate(w[i - 15], 18) ^ (w[i - 15] >> 3);
+        const uint32_t s1 = RightRotate(w[i - 2], 17) ^ RightRotate(w[i - 2], 19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    for (int i = 0; i < 64; ++i)
+    {
+        const uint32_t S1 = RightRotate(e, 6) ^ RightRotate(e, 11) ^ RightRotate(e, 25);
+        const uint32_t ch = (e & f) ^ ((~e) & g);
+        const uint32_t temp1 = h + S1 + ch + K[i] + w[i];
+        const uint32_t S0 = RightRotate(a, 2) ^ RightRotate(a, 13) ^ RightRotate(a, 22);
+        const uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+        const uint32_t temp2 = S0 + maj;
+
+        h = g;
+        g = f;
+        f = e;
+        e = d + temp1;
+        d = c;
+        c = b;
+        b = a;
+        a = temp1 + temp2;
+    }
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+    state[5] += f;
+    state[6] += g;
+    state[7] += h;
+}
+
+inline void Update(Context *ctx, const uint8_t *data, size_t len)
+{
+    size_t bufferIndex = static_cast<size_t>(ctx->count & 63);
+    ctx->count += len;
+    size_t dataIndex = 0;
+    if (bufferIndex > 0)
+    {
+        size_t needed = 64 - bufferIndex;
+        if (len < needed)
+        {
+            std::memcpy(&ctx->buffer[bufferIndex], data, len);
+            return;
+        }
+        std::memcpy(&ctx->buffer[bufferIndex], data, needed);
+        Transform(ctx->state, ctx->buffer);
+        dataIndex += needed;
+        len -= needed;
+        bufferIndex = 0;
+    }
+    while (len >= 64)
+    {
+        Transform(ctx->state, &data[dataIndex]);
+        dataIndex += 64;
+        len -= 64;
+    }
+    if (len > 0)
+    {
+        std::memcpy(ctx->buffer, &data[dataIndex], len);
+    }
+}
+
+inline void Final(Context *ctx, uint8_t digest[32])
+{
+    const uint64_t totalBits = ctx->count * 8;
+    size_t bufferIndex = static_cast<size_t>(ctx->count & 63);
+    ctx->buffer[bufferIndex++] = 0x80;
+    if (bufferIndex > 56)
+    {
+        std::memset(&ctx->buffer[bufferIndex], 0, 64 - bufferIndex);
+        Transform(ctx->state, ctx->buffer);
+        bufferIndex = 0;
+    }
+    std::memset(&ctx->buffer[bufferIndex], 0, 56 - bufferIndex);
+    for (int i = 7; i >= 0; --i)
+    {
+        ctx->buffer[56 + (7 - i)] = static_cast<uint8_t>((totalBits >> (i * 8)) & 0xff);
+    }
+    Transform(ctx->state, ctx->buffer);
+    for (int i = 0; i < 8; ++i)
+    {
+        digest[i * 4] = static_cast<uint8_t>((ctx->state[i] >> 24) & 0xff);
+        digest[i * 4 + 1] = static_cast<uint8_t>((ctx->state[i] >> 16) & 0xff);
+        digest[i * 4 + 2] = static_cast<uint8_t>((ctx->state[i] >> 8) & 0xff);
+        digest[i * 4 + 3] = static_cast<uint8_t>(ctx->state[i] & 0xff);
+    }
+}
+
+inline bool ComputeFileSha256(const std::wstring &path, std::string *outHex)
+{
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    Context ctx;
+    Init(&ctx);
+    uint8_t buffer[65536];
+    DWORD read = 0;
+    while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+    {
+        Update(&ctx, buffer, read);
+    }
+    CloseHandle(file);
+    uint8_t digest[32];
+    Final(&ctx, digest);
+    char hex[65];
+    for (int i = 0; i < 32; ++i)
+    {
+        std::snprintf(&hex[i * 2], 3, "%02x", digest[i]);
+    }
+    hex[64] = '\0';
+    if (outHex)
+        *outHex = hex;
+    return true;
+}
+} // namespace Sha256Detail
+
+static const char *const kKnownModuleNames[24] = {
+    "boundary-fast.hsaco",
+    "boundary_reference.hsaco",
+    "c32_fast.hsaco",
+    "c32_fast_attention.hsaco",
+    "c32_fused_attention.hsaco",
+    "c32_fused_ffn_attention-packed.hsaco",
+    "c32_fused_ffn_attention.hsaco",
+    "c32_prefix_reference.hsaco",
+    "c32_tiled.hsaco",
+    "c32_wmma.hsaco",
+    "deep_fast-packed.hsaco",
+    "deep_fast.hsaco",
+    "deep_reference.hsaco",
+    "deep_wmma.hsaco",
+    "multihead-fast-packed.hsaco",
+    "multihead-fast-padded-wave-packed.hsaco",
+    "multihead-fast-padded-wave.hsaco",
+    "multihead-fast.hsaco",
+    "multihead-reference.hsaco",
+    "multihead-tiled.hsaco",
+    "multihead-wmma.hsaco",
+    "multihead_fused_attention.hsaco",
+    "prefix_fast.hsaco",
+    "wave-pointwise.hsaco",
+};
+
+bool IsKnownModuleName(const std::string &name)
+{
+    for (const char *known : kKnownModuleNames)
+    {
+        if (name == known)
+            return true;
+    }
+    return false;
+}
+
+inline bool ResolveArchModulesDir(const std::wstring &modulesRoot, const std::string &arch,
+                                  std::wstring *outEffectiveDir, std::string *outError)
+{
+    if (arch != "gfx1200" && arch != "gfx1201")
+    {
+        if (outError)
+            *outError = "unsupported HIP architecture: " + arch;
+        return false;
+    }
+    const std::wstring archW = Widen(arch);
+    const std::wstring g1200 = JoinPath(modulesRoot, L"gfx1200");
+    const std::wstring g1201 = JoinPath(modulesRoot, L"gfx1201");
+    if (IsDirectory(g1200) || IsDirectory(g1201))
+    {
+        const std::wstring targetDir = JoinPath(modulesRoot, archW.c_str());
+        if (!IsDirectory(targetDir))
+        {
+            if (outError)
+                *outError = "missing module architecture directory: " + arch;
+            return false;
+        }
+        if (outEffectiveDir)
+            *outEffectiveDir = targetDir;
+        return true;
+    }
+    // Flat / explicit leaf layout
+    if (outEffectiveDir)
+        *outEffectiveDir = modulesRoot;
+    return true;
 }
 
 std::wstring DllDirectory()
@@ -301,6 +577,32 @@ bool ResolveModulesDir(const std::wstring &assets, std::wstring *modulesDir)
 int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
 {
     *outCount = 0;
+    if (!IsDirectory(modulesDir))
+        return Fail(LMXXF_NR_UNAVAILABLE, "Create: modules directory not found");
+
+    const bool hasGfx1200 = IsDirectory(JoinPath(modulesDir, L"gfx1200"));
+    const bool hasGfx1201 = IsDirectory(JoinPath(modulesDir, L"gfx1201"));
+    const bool isDualArch = hasGfx1200 || hasGfx1201;
+
+    if (isDualArch)
+    {
+        // 1. Detect stale flat .hsaco files in root of dual-arch directory
+        WIN32_FIND_DATAW fd {};
+        HANDLE hFind = FindFirstFileW(JoinPath(modulesDir, L"*.hsaco").c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE)
+        {
+            FindClose(hFind);
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: stale flat .hsaco files found in dual-architecture directory; please reinstall lmxxf-modules");
+        }
+        // 2. Both arch directories must exist in a dual-architecture bundle
+        if (!hasGfx1200 || !hasGfx1201)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: dual-architecture directory missing required architecture directory (need both gfx1200 and gfx1201)");
+        }
+    }
+
     const std::wstring sumsPath = JoinPath(modulesDir, L"SHA256SUMS");
     HANDLE file = CreateFileW(sumsPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -322,7 +624,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
     CloseHandle(file);
     text.resize(read);
 
-    uint32_t found = 0;
+    std::map<std::string, std::string> rootMap; // normalized relative path -> lowercase sha256
+    uint32_t count1200 = 0;
+    uint32_t count1201 = 0;
+
     size_t pos = 0;
     while (pos < text.size())
     {
@@ -333,29 +638,266 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         pos = eol + 1;
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
-        if (line.empty())
+        if (line.empty() || line[0] == '#')
             continue;
+
         const size_t sp = line.find_first_of(" \t");
-        if (sp == std::string::npos)
-            continue;
-        size_t nameStart = line.find_first_not_of(" \t", sp);
+        if (sp == std::string::npos || sp != 64)
+            return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 format in SHA256SUMS");
+
+        std::string sha = line.substr(0, 64);
+        for (char &c : sha)
+        {
+            if (!std::isxdigit(static_cast<unsigned char>(c)))
+                return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 hex character in SHA256SUMS");
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+
+        size_t nameStart = line.find_first_not_of(" \t*", sp);
         if (nameStart == std::string::npos)
-            continue;
-        std::string name = line.substr(nameStart);
-        if (name.size() < 7 || name.rfind(".hsaco") != name.size() - 6)
-            continue;
-        std::wstring wname(name.begin(), name.end());
-        const std::wstring full = JoinPath(modulesDir, wname.c_str());
-        if (!IsDirectory(full) && GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES)
-            ++found;
+            return Fail(LMXXF_NR_UNAVAILABLE, "Create: missing file path in SHA256SUMS");
+
+        std::string path = line.substr(nameStart);
+        while (!path.empty() && (path.back() == ' ' || path.back() == '\t'))
+            path.pop_back();
+
+        for (char &c : path)
+        {
+            if (c == '\\')
+                c = '/';
+        }
+        if (path.rfind("./", 0) == 0)
+            path = path.substr(2);
+
+        // Path safety checks
+        if (path.find(':') != std::string::npos || path.front() == '/' ||
+            path.find("..") != std::string::npos || path.find("//") != std::string::npos)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE, ("Create: unsafe module path in SHA256SUMS: " + path).c_str());
+        }
+
+        if (isDualArch)
+        {
+            if (path.rfind("gfx1200/", 0) != 0 && path.rfind("gfx1201/", 0) != 0)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: unexpected path in dual-architecture SHA256SUMS: " + path).c_str());
+            }
+            const std::string arch = path.substr(0, 7);
+            const std::string modName = path.substr(8);
+            if (!IsKnownModuleName(modName))
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: unknown module name in SHA256SUMS: " + path).c_str());
+            }
+            if (rootMap.find(path) != rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: duplicate module entry in SHA256SUMS: " + path).c_str());
+            }
+            rootMap[path] = sha;
+            if (arch == "gfx1200")
+                ++count1200;
+            else
+                ++count1201;
+        }
         else
-            return Fail(LMXXF_NR_UNAVAILABLE, "Create: hsaco listed in SHA256SUMS is missing");
+        {
+            if (path.find('/') != std::string::npos)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: nested path in flat SHA256SUMS: " + path).c_str());
+            }
+            if (!IsKnownModuleName(path))
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: unknown module name in SHA256SUMS: " + path).c_str());
+            }
+            if (rootMap.find(path) != rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: duplicate module entry in SHA256SUMS: " + path).c_str());
+            }
+            rootMap[path] = sha;
+        }
     }
-    if (found == 0)
-        return Fail(LMXXF_NR_UNAVAILABLE, "Create: no .hsaco entries in SHA256SUMS");
-    if (found < 24)
-        return Fail(LMXXF_NR_UNAVAILABLE, "Create: fewer than 24 hsaco modules; host/module set incomplete");
-    *outCount = found;
+
+    if (isDualArch)
+    {
+        if (count1200 != 24 || count1201 != 24 || rootMap.size() != 48)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 24 gfx1200 and 24 gfx1201 entries)");
+        }
+        for (const char *known : kKnownModuleNames)
+        {
+            if (rootMap.find(std::string("gfx1200/") + known) == rootMap.end() ||
+                rootMap.find(std::string("gfx1201/") + known) == rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: dual-architecture SHA256SUMS missing module: " + std::string(known)).c_str());
+            }
+        }
+
+        // Verify leaf SHA256SUMS in each architecture directory
+        const char *const archList[2] = {"gfx1200", "gfx1201"};
+        for (const char *arch : archList)
+        {
+            const std::wstring leafPath = JoinPath(JoinPath(modulesDir, Widen(arch).c_str()), L"SHA256SUMS");
+            HANDLE leafFile = CreateFileW(leafPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                          FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (leafFile == INVALID_HANDLE_VALUE)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS missing for " + std::string(arch)).c_str());
+            }
+            LARGE_INTEGER leafSize {};
+            if (!GetFileSizeEx(leafFile, &leafSize) || leafSize.QuadPart <= 0 || leafSize.QuadPart > 1 << 20)
+            {
+                CloseHandle(leafFile);
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS unreadable for " + std::string(arch)).c_str());
+            }
+            std::string leafText(static_cast<size_t>(leafSize.QuadPart), '\0');
+            DWORD leafRead = 0;
+            if (!ReadFile(leafFile, leafText.data(), static_cast<DWORD>(leafText.size()), &leafRead, nullptr))
+            {
+                CloseHandle(leafFile);
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS read failed for " + std::string(arch)).c_str());
+            }
+            CloseHandle(leafFile);
+            leafText.resize(leafRead);
+
+            std::map<std::string, std::string> leafMap;
+            size_t lpos = 0;
+            while (lpos < leafText.size())
+            {
+                size_t leol = leafText.find('\n', lpos);
+                if (leol == std::string::npos)
+                    leol = leafText.size();
+                std::string lline = leafText.substr(lpos, leol - lpos);
+                lpos = leol + 1;
+                if (!lline.empty() && lline.back() == '\r')
+                    lline.pop_back();
+                if (lline.empty() || lline[0] == '#')
+                    continue;
+
+                const size_t lsp = lline.find_first_of(" \t");
+                if (lsp == std::string::npos || lsp != 64)
+                    return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 format in leaf SHA256SUMS");
+
+                std::string lsha = lline.substr(0, 64);
+                for (char &c : lsha)
+                {
+                    if (!std::isxdigit(static_cast<unsigned char>(c)))
+                        return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 hex character in leaf SHA256SUMS");
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                }
+
+                size_t lstart = lline.find_first_not_of(" \t*", lsp);
+                if (lstart == std::string::npos)
+                    return Fail(LMXXF_NR_UNAVAILABLE, "Create: missing file path in leaf SHA256SUMS");
+
+                std::string lpath = lline.substr(lstart);
+                while (!lpath.empty() && (lpath.back() == ' ' || lpath.back() == '\t'))
+                    lpath.pop_back();
+
+                for (char &c : lpath)
+                {
+                    if (c == '\\')
+                        c = '/';
+                }
+                if (lpath.rfind("./", 0) == 0)
+                    lpath = lpath.substr(2);
+                const std::string prefix = std::string(arch) + "/";
+                if (lpath.rfind(prefix, 0) == 0)
+                    lpath = lpath.substr(prefix.size());
+
+                if (!IsKnownModuleName(lpath))
+                {
+                    return Fail(LMXXF_NR_UNAVAILABLE,
+                                ("Create: unknown module name in leaf SHA256SUMS: " + lpath).c_str());
+                }
+                if (leafMap.find(lpath) != leafMap.end())
+                {
+                    return Fail(LMXXF_NR_UNAVAILABLE,
+                                ("Create: duplicate module entry in leaf SHA256SUMS: " + lpath).c_str());
+                }
+                leafMap[lpath] = lsha;
+
+                const std::string rootKey = std::string(arch) + "/" + lpath;
+                if (rootMap[rootKey] != lsha)
+                {
+                    return Fail(LMXXF_NR_UNAVAILABLE,
+                                ("Create: leaf SHA256SUMS mismatch with root for " + rootKey).c_str());
+                }
+            }
+            if (leafMap.size() != 24)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS incomplete for " + std::string(arch)).c_str());
+            }
+        }
+    }
+    else
+    {
+        if (rootMap.size() != 24)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: SHA256SUMS incomplete (expected 24 hsaco modules)");
+        }
+        for (const char *known : kKnownModuleNames)
+        {
+            if (rootMap.find(known) == rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: flat SHA256SUMS missing module: " + std::string(known)).c_str());
+            }
+        }
+    }
+
+    // Verify all module files and their SHA256 checksums
+    for (const auto &pair : rootMap)
+    {
+        const std::string &relPath = pair.first;
+        const std::string &expectedSha = pair.second;
+
+        std::wstring wrel = Widen(relPath);
+        std::wstring full = JoinPath(modulesDir, wrel.c_str());
+
+        if (!IsPathSafelyContained(modulesDir, wrel))
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: unsafe module path escape: " + relPath).c_str());
+        }
+
+        DWORD attr = GetFileAttributesW(full.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: module file missing: " + relPath).c_str());
+        }
+        if (attr & FILE_ATTRIBUTE_REPARSE_POINT)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: module file is a symlink/reparse point: " + relPath).c_str());
+        }
+
+        std::string computedSha;
+        if (!Sha256Detail::ComputeFileSha256(full, &computedSha))
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: failed to compute checksum for " + relPath).c_str());
+        }
+        if (computedSha != expectedSha)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: checksum mismatch in " + relPath + " (computed " + computedSha + ", expected " + expectedSha + ")").c_str());
+        }
+    }
+
+    *outCount = static_cast<uint32_t>(rootMap.size());
     return static_cast<int32_t>(LMXXF_NR_OK);
 }
 
@@ -416,6 +958,11 @@ struct Session
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
+    // Hardware & module selection diagnostics
+    std::string actualArch = "unknown";
+    std::string selectedModulesDir;
+    std::string deviceMatch = "none";
+    std::string adapterName;
     /* The codecs bind OUR stable 1x1 copy, never the game's texture. An engine may hand us a
      * new allocation every frame, and the codec bakes the SRV at Create, so binding the game's
      * pointer would rebuild the whole chain (including a warm-up dispatch) every frame. A copy
@@ -939,6 +1486,19 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->bridge = new hip_reference::D3D12Bridge();
             session->bridge->Create(session->queue, opt, {});
             session->hipPrepared = true;
+            session->actualArch = session->bridge->architecture;
+            session->selectedModulesDir = session->bridge->module_directory;
+            session->deviceMatch = session->bridge->device_match;
+            session->adapterName = session->bridge->adapter_name;
+            {
+                char diagMsg[512] {};
+                std::snprintf(diagMsg, sizeof diagMsg,
+                              "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' modules='%s'",
+                              session->actualArch.c_str(), session->deviceMatch.c_str(),
+                              session->adapterName.c_str(), session->selectedModulesDir.c_str());
+                OutputDebugStringA(diagMsg);
+                OutputDebugStringA("\n");
+            }
             char geoMsg[192] {};
             std::snprintf(geoMsg, sizeof geoMsg,
                           "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
@@ -1143,6 +1703,19 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->bridge = new hip_reference::D3D12Bridge();
                 session->bridge->Create(session->queue, opt, {});
                 session->hipPrepared = true;
+                session->actualArch = session->bridge->architecture;
+                session->selectedModulesDir = session->bridge->module_directory;
+                session->deviceMatch = session->bridge->device_match;
+                session->adapterName = session->bridge->adapter_name;
+                {
+                    char diagMsg[512] {};
+                    std::snprintf(diagMsg, sizeof diagMsg,
+                                  "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' modules='%s'",
+                                  session->actualArch.c_str(), session->deviceMatch.c_str(),
+                                  session->adapterName.c_str(), session->selectedModulesDir.c_str());
+                    OutputDebugStringA(diagMsg);
+                    OutputDebugStringA("\n");
+                }
                 char geoMsg[192] {};
                 std::snprintf(geoMsg, sizeof geoMsg,
                               "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
@@ -1615,11 +2188,19 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         else if (!session->modulesValidated)
             std::snprintf(text, sizeof text, "lmxxf runtime stub (no modules path)");
         else
+        {
+            const char *archStr = (session->hipPrepared && !session->actualArch.empty())
+                                      ? session->actualArch.c_str()
+                                      : "unknown";
+            const char *matchStr = (session->hipPrepared && !session->deviceMatch.empty())
+                                       ? session->deviceMatch.c_str()
+                                       : "none";
             if (session->hipPrepared && NativeNetworkGeometryResolved())
             {
                 auto geo = NativeCurrentNetworkGeometry();
                 std::snprintf(text, sizeof text,
-                              "lmxxf modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
+                              "lmxxf arch=%s match=%s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
+                              archStr, matchStr,
                               static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
                               session->job.width, session->job.height,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
@@ -1627,11 +2208,13 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             else
             {
                 std::snprintf(text, sizeof text,
-                              "lmxxf modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
+                              "lmxxf arch=%s match=%s modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
+                              archStr, matchStr,
                               static_cast<unsigned>(session->hsacoCount), session->hipPrepared ? 1u : 0u,
                               session->queueBound ? 1u : 0u,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
             }
+        }
         std::strncpy(buf, text, buf_chars - 1);
         buf[buf_chars - 1] = 0;
         SetError("");
@@ -1687,4 +2270,30 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
 BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)
 {
     return TRUE;
+}
+
+
+extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrResolveArchModules(const wchar_t *modulesRoot, const char *arch,
+                                                             wchar_t *outEffectiveDir, uint32_t maxChars,
+                                                             char *outError, uint32_t maxErrChars)
+{
+    if (!modulesRoot || !arch)
+        return Fail(LMXXF_NR_INVALID_ARGUMENT, "LmxxfNrResolveArchModules: null argument");
+    std::wstring effective;
+    std::string err;
+    if (!ResolveArchModulesDir(modulesRoot, arch, &effective, &err))
+    {
+        if (outError && maxErrChars > 0)
+        {
+            std::strncpy(outError, err.c_str(), maxErrChars - 1);
+            outError[maxErrChars - 1] = '\0';
+        }
+        return Fail(LMXXF_NR_UNAVAILABLE, err.c_str());
+    }
+    if (outEffectiveDir && maxChars > 0)
+    {
+        wcsncpy(outEffectiveDir, effective.c_str(), maxChars - 1);
+        outEffectiveDir[maxChars - 1] = L'\0';
+    }
+    return static_cast<int32_t>(LMXXF_NR_OK);
 }
