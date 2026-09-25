@@ -446,61 +446,6 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nCyberpunk 2077: if green neon turns brown, set this to 0."
                            "\nApplies on the next frame. No restart.");
 
-                float paper = config->LmxxfPaperWhite.value_or_default();
-                if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
-                                       ImGuiSliderFlags_Logarithmic))
-                    config->LmxxfPaperWhite = paper;
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Reset##paper"))
-                    config->LmxxfPaperWhite = 1.0f;
-                HelpMarker("White level used by encode and decode. Default 1."
-                           "\nLog slider, so 1 is easy to land on. Reset returns to 1."
-                           "\nNot the HDR Paper White control further down."
-                           "\nApplies on the next frame. No restart.");
-
-                // The HIP chain reads PDL once, when it is first built.
-                static bool pdlAtStart = true;
-                static bool pdlAtStartCaptured = false;
-                if (!pdlAtStartCaptured)
-                {
-                    pdlAtStart = config->LmxxfPdl.value_or_default();
-                    pdlAtStartCaptured = true;
-                }
-                bool pdl = config->LmxxfPdl.value_or_default();
-                if (ImGui::Checkbox("PDL chained launch", &pdl))
-                {
-                    config->LmxxfPdl = pdl;
-                    _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
-                }
-                HelpMarker("Overlaps HIP kernel launches. Leave this on."
-                           "\nThe picture is the same either way."
-                           "\nTurn it off only when neural rendering fails to start"
-                           "\nand the log says: missing HIP export hipExtModuleLaunchKernel."
-                           "\nThe running chain does not pick this up.");
-                if (!pdl)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
-                    ImGui::TextWrapped(
-                        "Only turn this off when neural rendering fails to start and the log says "
-                        "missing HIP export hipExtModuleLaunchKernel. Otherwise leave it on.");
-                    ImGui::PopStyleColor();
-                }
-                if (pdl != pdlAtStart)
-                {
-                    ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
-                                       "Save Settings and restart to apply the changes");
-                }
-
-                static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
-                                                    "Difference (amplified)" };
-                int debugView = (int) config->DlssNrDebugView.value_or_default();
-                if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
-                    config->DlssNrDebugView = (uint32_t) debugView;
-                HelpMarker("Off is the normal picture."
-                           "\nProxy is what the network is shown. Model output is its raw answer."
-                           "\nDifference amplifies the edit."
-                           "\nApplies on the next frame. No restart.");
-
                 bool fitLarge = config->LmxxfFitLarge.value_or_default();
                 if (ImGui::Checkbox("Fit large color", &fitLarge))
                 {
@@ -516,6 +461,80 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nhitch and use more memory."
                            "\nApplies on the next frame, including after a resolution change."
                            "\nThe network may rebuild once. No restart.");
+
+                if (ImGui::TreeNode("Experimental"))
+                {
+                    float paper = config->LmxxfPaperWhite.value_or_default();
+                    if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
+                                           ImGuiSliderFlags_Logarithmic))
+                        config->LmxxfPaperWhite = paper;
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Reset##paper"))
+                        config->LmxxfPaperWhite = 1.0f;
+                    HelpMarker("White level used by encode and decode. Default 1."
+                               "\nLog slider, so 1 is easy to land on. Reset returns to 1."
+                               "\nNot the HDR Paper White control further down."
+                               "\nApplies on the next frame. No restart.");
+
+                    // The HIP chain reads PDL once, when it is first built.
+                    static bool pdlAtStart = true;
+                    static bool pdlAtStartCaptured = false;
+                    if (!pdlAtStartCaptured)
+                    {
+                        pdlAtStart = config->LmxxfPdl.value_or_default();
+                        pdlAtStartCaptured = true;
+                    }
+                    bool pdl = config->LmxxfPdl.value_or_default();
+                    if (ImGui::Checkbox("PDL chained launch", &pdl))
+                    {
+                        config->LmxxfPdl = pdl;
+                        _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
+                    }
+                    HelpMarker("Overlaps HIP kernel launches. Leave this on."
+                               "\nThe picture is the same either way."
+                               "\nTurn it off only when neural rendering fails to start"
+                               "\nand the log says: missing HIP export hipExtModuleLaunchKernel."
+                               "\nThe running chain does not pick this up.");
+                    if (!pdl)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                        ImGui::TextWrapped(
+                            "Only turn this off when neural rendering fails to start and the log says "
+                            "missing HIP export hipExtModuleLaunchKernel. Otherwise leave it on.");
+                        ImGui::PopStyleColor();
+                    }
+                    if (pdl != pdlAtStart)
+                    {
+                        ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
+                                           "Save Settings and restart to apply the changes");
+                    }
+
+                    static const char* debugNames[] = { "Off", "Proxy (what the model sees)",
+                                                        "Model output (raw)", "Difference (amplified)" };
+                    int debugView = (int) config->DlssNrDebugView.value_or_default();
+                    if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
+                        config->DlssNrDebugView = (uint32_t) debugView;
+                    HelpMarker("Off is the normal picture."
+                               "\nProxy is what the network is shown. Model output is its raw answer."
+                               "\nDifference amplifies the edit."
+                               "\nApplies on the next frame. No restart.");
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::Button("Reset to defaults##lmxxf"))
+                {
+                    config->DlssNrTransferStrength = 1.0f;
+                    config->DlssNrColourStrength = 1.0f;
+                    config->LmxxfPaperWhite = 1.0f;
+                    config->LmxxfFitLarge = false;
+                    _putenv("DLSS5_FIT_LARGE=0");
+                    config->DlssNrDebugView = 0u;
+                    config->LmxxfPdl = true;
+                    _putenv("DLSS5_HIP_PDL=1");
+                    DlssNr::AmdBridge::InvalidateHistory();
+                }
+                HelpMarker("Detail=1, Colour=1, paper white=1, PDL on,"
+                           "\nFit large off, Debug view Off.");
             }
 
             if (!isLmxxf)
