@@ -1010,6 +1010,28 @@ struct Session
     bool pdlRequested = false;
     bool pdlEffective = false;
     std::string pdlReason;
+
+    // Record what the bridge actually selected. Both lazy-Create sites call this: they used to
+    // copy the assignments separately and the first one never read the PDL state, so GetStatus
+    // reported pdl=0/0(off) whenever that site created the network - including the normal first
+    // frame - even with PDL running.
+    void CaptureBridgeDiagnostics()
+    {
+        actualArch = bridge->architecture;
+        selectedModulesDir = bridge->module_directory;
+        deviceMatch = bridge->device_match;
+        adapterName = bridge->adapter_name;
+        pdlRequested = bridge->PdlRequested();
+        pdlEffective = bridge->PdlEffective();
+        pdlReason = bridge->PdlReason();
+        char diagMsg[512] {};
+        std::snprintf(diagMsg, sizeof diagMsg,
+                      "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' pdl=%u/%u(%s) modules='%s'",
+                      actualArch.c_str(), deviceMatch.c_str(), adapterName.c_str(), pdlRequested ? 1u : 0u,
+                      pdlEffective ? 1u : 0u, pdlReason.c_str(), selectedModulesDir.c_str());
+        OutputDebugStringA(diagMsg);
+        OutputDebugStringA("\n");
+    }
     /* The codecs bind OUR stable 1x1 copy, never the game's texture. An engine may hand us a
      * new allocation every frame, and the codec bakes the SRV at Create, so binding the game's
      * pointer would rebuild the whole chain (including a warm-up dispatch) every frame. A copy
@@ -1536,19 +1558,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->bridge = new hip_reference::D3D12Bridge();
             session->bridge->Create(session->queue, opt, {});
             session->hipPrepared = true;
-            session->actualArch = session->bridge->architecture;
-            session->selectedModulesDir = session->bridge->module_directory;
-            session->deviceMatch = session->bridge->device_match;
-            session->adapterName = session->bridge->adapter_name;
-            {
-                char diagMsg[512] {};
-                std::snprintf(diagMsg, sizeof diagMsg,
-                              "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' modules='%s'",
-                              session->actualArch.c_str(), session->deviceMatch.c_str(),
-                              session->adapterName.c_str(), session->selectedModulesDir.c_str());
-                OutputDebugStringA(diagMsg);
-                OutputDebugStringA("\n");
-            }
+            session->CaptureBridgeDiagnostics();
             char geoMsg[192] {};
             std::snprintf(geoMsg, sizeof geoMsg,
                           "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
@@ -1753,26 +1763,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->bridge = new hip_reference::D3D12Bridge();
                 session->bridge->Create(session->queue, opt, {});
                 session->hipPrepared = true;
-                session->actualArch = session->bridge->architecture;
-                session->selectedModulesDir = session->bridge->module_directory;
-                session->deviceMatch = session->bridge->device_match;
-                session->adapterName = session->bridge->adapter_name;
-                session->pdlRequested = session->bridge->PdlRequested();
-                session->pdlEffective = session->bridge->PdlEffective();
-                session->pdlReason = session->bridge->PdlReason();
-                {
-                    char diagMsg[512] {};
-                    std::snprintf(diagMsg, sizeof diagMsg,
-                                  "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' pdl=%u/%u(%s) modules='%s'",
-                                  session->actualArch.c_str(), session->deviceMatch.c_str(),
-                                  session->adapterName.c_str(),
-                                  session->pdlRequested ? 1u : 0u,
-                                  session->pdlEffective ? 1u : 0u,
-                                  session->pdlReason.c_str(),
-                                  session->selectedModulesDir.c_str());
-                    OutputDebugStringA(diagMsg);
-                    OutputDebugStringA("\n");
-                }
+                session->CaptureBridgeDiagnostics();
                 char geoMsg[192] {};
                 std::snprintf(geoMsg, sizeof geoMsg,
                               "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
