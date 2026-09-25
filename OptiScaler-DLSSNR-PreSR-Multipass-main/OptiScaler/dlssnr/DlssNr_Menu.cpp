@@ -467,9 +467,9 @@ void RenderMenu(Config* config, float menuResScale)
                     bool autoExposure = config->LmxxfAutoExposure.value_or_default();
                     if (ImGui::Checkbox("Auto exposure", &autoExposure))
                         config->LmxxfAutoExposure = autoExposure;
-                    HelpMarker("When the game does not send an exposure texture,"
-                               "\nestimate a white point from image mean (mid-grey"
-                               "\ntarget, like daniel). Ignores Exposure scale."
+                    HelpMarker("When the game does not send a usable exposure texture,"
+                               "\nmeasure the frame's mean brightness once per frame and"
+                               "\nsmooth it over time (like daniel). Ignores Exposure scale."
                                "\nGames that already pass exposure are unchanged."
                                "\nApplies on the next frame. No restart.");
                     if (!autoExposure)

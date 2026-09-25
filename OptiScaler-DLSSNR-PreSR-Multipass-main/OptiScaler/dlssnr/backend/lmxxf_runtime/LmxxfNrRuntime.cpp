@@ -957,6 +957,221 @@ bool LooksLikeObject(void *p)
     return info.State == MEM_COMMIT;
 }
 
+// Auto exposure for games that give no usable exposure texture (Wo Long 2: AutoExposure=true,
+// IsHdr=true, FP16 linear colour). Without it the codec normalises HDR scene values by an
+// exposure of 1 and highlights blow out. Before RecordInputs' encode, one 16x16 thread group
+// samples the valid region, and the exposure that puts the encoded mean at 0.45 is smoothed in
+// the log domain with the same 0.25 factor the daniel runtime uses. The result lives in our own
+// 1x1 R32_FLOAT texture, which the codecs bind exactly like a copied game exposure, so the codec
+// path and its `PaperWhite / exposure` white point are unchanged. At steady state this matches the
+// shader-side mean white point (auto-white.patch); the difference is that it is measured once per
+// frame and does not jump with a single bright object.
+struct ExposureMeter
+{
+    static constexpr UINT kSrvRing = 16;
+    ID3D12Resource *value = nullptr; // R32_FLOAT 1x1, left in NON_PIXEL_SHADER_RESOURCE
+    ID3D12DescriptorHeap *heap = nullptr; // [0] value UAV, [1..kSrvRing] colour SRVs
+    ID3D12RootSignature *root = nullptr;
+    ID3D12PipelineState *pso = nullptr;
+    UINT increment = 0;
+    uint64_t frames = 0;
+    bool failed = false;
+
+    bool Ready() const { return value && heap && root && pso; }
+
+    // Returns false (and stays failed) if any piece cannot be created; the frame then runs
+    // without exposure, as before this existed.
+    bool Ensure(ID3D12Device *device)
+    {
+        if (Ready())
+            return true;
+        if (failed || !device)
+            return false;
+        static const char kSource[] = R"(
+Texture2D<float4> Colour : register(t0);
+RWTexture2D<float> Exposure : register(u0);
+cbuffer Region : register(b0) { uint2 Origin; uint2 Extent; };
+groupshared float s_sum[256];
+groupshared uint s_count[256];
+[numthreads(16, 16, 1)]
+void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
+{
+    uint2 extent = max(Extent, uint2(1, 1));
+    uint2 p = Origin + min(uint2((float2(t.xy) + 0.5) * float2(extent) / 16.0), extent - 1);
+    float y = dot(max(Colour.Load(int3(p, 0)).rgb, 0.0), float3(0.2126, 0.7152, 0.0722));
+    bool ok = !isnan(y) && !isinf(y);
+    s_sum[i] = ok ? y : 0.0;
+    s_count[i] = ok ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll] for (uint s = 128; s > 0; s >>= 1)
+    {
+        if (i < s) { s_sum[i] += s_sum[i + s]; s_count[i] += s_count[i + s]; }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (i != 0 || s_count[0] == 0)
+        return; // nothing measurable: keep the previous exposure
+    float mean = max(s_sum[0] / float(s_count[0]), 1e-4);
+    float encoded = pow(0.45, 2.2);
+    float target = clamp((encoded / (1.0 - encoded)) / mean, 1e-4, 100.0);
+    float prev = Exposure[uint2(0, 0)];
+    bool warm = prev > 0.0 && !isnan(prev) && !isinf(prev);
+    Exposure[uint2(0, 0)] = warm ? exp(lerp(log(prev), log(target), 0.25)) : target;
+}
+)";
+        ID3DBlob *code = nullptr, *errors = nullptr;
+        HRESULT hr = D3DCompile(kSource, sizeof kSource - 1, "lmxxf-exposure-meter", nullptr, nullptr, "main",
+                                "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
+        if (errors)
+            errors->Release();
+        if (FAILED(hr) || !code)
+            return Fail();
+
+        D3D12_DESCRIPTOR_RANGE ranges[2] {};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[0].NumDescriptors = 1;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[1].NumDescriptors = 1;
+        D3D12_ROOT_PARAMETER params[3] {};
+        for (int k = 0; k < 2; ++k)
+        {
+            params[k].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            params[k].DescriptorTable = {1, &ranges[k]};
+            params[k].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        }
+        params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        params[2].Constants = {0, 0, 4};
+        params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_SIGNATURE_DESC rsd {3, params, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE};
+        ID3DBlob *serialized = nullptr;
+        hr = D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &errors);
+        if (errors)
+            errors->Release();
+        if (SUCCEEDED(hr))
+            hr = device->CreateRootSignature(0, serialized->GetBufferPointer(), serialized->GetBufferSize(),
+                                             IID_PPV_ARGS(&root));
+        if (serialized)
+            serialized->Release();
+        if (SUCCEEDED(hr))
+        {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC pd {};
+            pd.pRootSignature = root;
+            pd.CS = {code->GetBufferPointer(), code->GetBufferSize()};
+            hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
+        }
+        code->Release();
+        if (FAILED(hr))
+            return Fail();
+
+        D3D12_DESCRIPTOR_HEAP_DESC hd {};
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        hd.NumDescriptors = 1 + kSrvRing;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FAILED(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap))))
+            return Fail();
+        increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        // Committed resources are zero-initialised, and the shader treats 0 as "no history",
+        // so the first metered frame takes its target directly.
+        D3D12_HEAP_PROPERTIES hp {};
+        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC rd {};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        rd.Width = rd.Height = 1;
+        rd.DepthOrArraySize = rd.MipLevels = 1;
+        rd.Format = DXGI_FORMAT_R32_FLOAT;
+        rd.SampleDesc.Count = 1;
+        rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+                                                   IID_PPV_ARGS(&value))))
+            return Fail();
+        D3D12_UNORDERED_ACCESS_VIEW_DESC ud {};
+        ud.Format = DXGI_FORMAT_R32_FLOAT;
+        ud.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(value, nullptr, &ud, heap->GetCPUDescriptorHandleForHeapStart());
+        return true;
+    }
+
+    // colourState is the colour's state at RecordInputs; it is restored before returning.
+    void Record(ID3D12GraphicsCommandList *list, ID3D12Device *device, ID3D12Resource *colour,
+                D3D12_RESOURCE_STATES colourState, UINT width, UINT height)
+    {
+        // A fresh SRV every frame in a ring, never a rewrite of a slot the GPU may still be
+        // reading: the colour pointer can change per frame, and a cached view keyed by pointer
+        // could outlive its resource.
+        const UINT slot = 1 + static_cast<UINT>(frames++ % kSrvRing);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = heap->GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += SIZE_T(slot) * increment;
+        const D3D12_RESOURCE_DESC cd = colour->GetDesc();
+        D3D12_SHADER_RESOURCE_VIEW_DESC sd {};
+        sd.Format = NativeViewFormat(cd.Format);
+        sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        sd.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(colour, &sd, cpu);
+
+        const bool moveColour = (colourState & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) == 0;
+        D3D12_RESOURCE_BARRIER b[2] {};
+        b[0].Type = b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b[0].Transition = {value, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS};
+        b[1].Transition = {colour, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, colourState,
+                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE};
+        list->ResourceBarrier(moveColour ? 2u : 1u, b);
+
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu = heap->GetGPUDescriptorHandleForHeapStart();
+        list->SetDescriptorHeaps(1, &heap);
+        list->SetComputeRootSignature(root);
+        list->SetPipelineState(pso);
+        list->SetComputeRootDescriptorTable(0, gpu);
+        gpu.ptr += UINT64(slot) * increment;
+        list->SetComputeRootDescriptorTable(1, gpu);
+        const UINT region[4] = {0, 0, (std::max)(width, 1u), (std::max)(height, 1u)};
+        list->SetComputeRoot32BitConstants(2, 4, region, 0);
+        list->Dispatch(1, 1, 1);
+
+        D3D12_RESOURCE_BARRIER a[3] {};
+        a[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        a[0].UAV.pResource = value;
+        a[1] = b[0];
+        a[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        a[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        a[2] = b[1];
+        a[2].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        a[2].Transition.StateAfter = colourState;
+        list->ResourceBarrier(moveColour ? 3u : 2u, a);
+    }
+
+    void Release()
+    {
+        for (IUnknown *p : {static_cast<IUnknown *>(value), static_cast<IUnknown *>(heap),
+                            static_cast<IUnknown *>(root), static_cast<IUnknown *>(pso)})
+            if (p)
+                p->Release();
+        value = nullptr;
+        heap = nullptr;
+        root = nullptr;
+        pso = nullptr;
+    }
+
+    // Fail-closed teardown: the GPU may still reference these, so drop them without Release.
+    void Abandon()
+    {
+        value = nullptr;
+        heap = nullptr;
+        root = nullptr;
+        pso = nullptr;
+    }
+
+  private:
+    bool Fail()
+    {
+        Release();
+        failed = true;
+        return false;
+    }
+};
+
 struct Job
 {
     uint32_t state = LMXXF_NR_JOB_NONE;
@@ -974,6 +1189,9 @@ struct Job
      * copy into Session::exposureCopy. Not bound to any codec. */
     ID3D12Resource *sourceExposure = nullptr;
     D3D12_RESOURCE_STATES sourceExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    /* No usable game exposure and the host asked for auto: RecordInputs meters the colour into
+     * Session::meter.value, which the codecs bind in place of a game exposure. */
+    bool autoExposure = false;
     bool codec_passthrough = false;
 };
 
@@ -1039,6 +1257,7 @@ struct Session
      * SOURCE's format recreates it and therefore rebuilds. */
     ID3D12Resource *exposureCopy = nullptr;
     DXGI_FORMAT exposureCopyFormat = DXGI_FORMAT_UNKNOWN;
+    ExposureMeter meter;
     /* What the live codecs were actually created with (exposureCopy, or null when we are
      * running without exposure). */
     ID3D12Resource *boundExposure = nullptr;
@@ -1176,6 +1395,7 @@ struct Session
         // Owned here rather than by a codec, but the same fail-closed rule applies: do not free
         // what the GPU may still reference.
         exposureCopy = nullptr;
+        meter.Abandon();
         // The queue may still own GPU work. Keep our reference on fail-closed teardown.
         fallbackConsumerQueue = nullptr;
         if (queue)
@@ -1240,6 +1460,7 @@ struct Session
         if (exposureCopy)
             exposureCopy->Release();
         exposureCopy = nullptr;
+        meter.Release();
         if (device)
             device->Release();
         device = nullptr;
@@ -1489,7 +1710,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (session->bridge->CurrentPhase() != hip_reference::D3D12Bridge::Phase::Ready)
                 return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: previous frame consumer not yet submitted (bridge not Ready)");
         }
-        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
+        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW |
+                                      LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
         if ((info->flags & ~allowedFlags) != 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: unknown flags");
         if (session->shaderDir.empty())
@@ -1653,8 +1875,35 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             }
         }
+        // No usable game exposure: meter the colour ourselves when the host asks for it. The
+        // metered value already includes whatever pre-exposure the game baked into the colour,
+        // so the game scalars must not be applied on top of it.
+        bool frameAutoExposure = false;
+        if (!frameExposure && (info->flags & LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE))
+        {
+            frameAutoExposure = session->meter.Ensure(session->device);
+            if (frameAutoExposure)
+            {
+                framePreExposure = 1.0f;
+                frameExposureScale = 1.0f;
+            }
+            else
+            {
+                static std::atomic<unsigned> meterNotices {0};
+                if (meterNotices.fetch_add(1, std::memory_order_relaxed) == 0)
+                {
+                    const char *msg =
+                        "PrepareFrame: auto exposure unavailable (meter setup failed); continuing without exposure";
+                    OutputDebugStringA(msg);
+                    OutputDebugStringA("\n");
+                    SetError(msg);
+                    keepLastError = true;
+                }
+            }
+        }
         // Choose what the codecs will bind: our stable copy if this frame has a usable source,
-        // otherwise nothing. Rebuilding follows a change of THAT, not of the game's pointer.
+        // the meter's texture in auto mode, otherwise nothing. Rebuilding follows a change of
+        // THAT, not of the game's pointer.
         ID3D12Resource *bindExposure = nullptr;
         // A copy replaced below while the codecs are alive. The codecs hold an SRV to it and
         // frames already submitted may still read it, so it is only released once the drain in
@@ -1700,6 +1949,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
             bindExposure = session->exposureCopy;
         }
+        else if (frameAutoExposure)
+            bindExposure = session->meter.value;
         // Split so the recreate log can name the trigger. Compare like with like: the render
         // subrect (info->color_width/height, remembered in job.width/height) against the previous
         // subrect, and the Color texture allocation (cw/ch from GetDesc) against the previous
@@ -1870,6 +2121,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.exposure_scale = frameExposureScale;
         session->job.paper_white = framePaperWhite;
         session->job.sourceExposure = frameExposure;
+        session->job.autoExposure = frameAutoExposure && bindExposure == session->meter.value;
         session->job.sourceExposureState = frameExposureState;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
@@ -1932,6 +2184,12 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
             b[1].Transition.StateAfter = j->sourceExposureState;
             list->ResourceBarrier(nb, b);
+        }
+        else if (j->autoExposure && session->boundExposure == session->meter.value && session->meter.Ready())
+        {
+            // The codecs set their own heap, root signature and PSO in Record, so the meter's
+            // bindings do not leak into the encode that follows.
+            session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
         }
 
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
@@ -2264,11 +2522,12 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             {
                 auto geo = NativeCurrentNetworkGeometry();
                 std::snprintf(text, sizeof text,
-                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
+                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u autoexp=%u",
                               archStr, matchStr, pdlBuf,
                               static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
                               session->job.width, session->job.height,
-                              session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
+                              session->weightsDir.empty() ? 0u : 1u, session->codecRecreates,
+                              session->job.autoExposure ? 1u : 0u);
             }
             else
             {

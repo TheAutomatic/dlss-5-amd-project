@@ -80,6 +80,10 @@ typedef struct LmxxfNrCreateInfo
 #define LMXXF_NR_FRAME_FLAG_STRENGTH          (1u << 0)
 #define LMXXF_NR_FRAME_FLAG_DEBUG_VIEW        (1u << 1)
 #define LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH (1u << 2)
+/* No usable exposure texture in this frame: the runtime meters the colour input itself (mean
+ * luminance, log-domain smoothing) and binds the result as the codec exposure. Ignored when a
+ * usable exposure is supplied; pre_exposure and exposure_scale are then not applied. */
+#define LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE     (1u << 3)
 
 typedef struct LmxxfNrFrameInfo
 {

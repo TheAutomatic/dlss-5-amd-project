@@ -247,7 +247,8 @@ LmxxfPdl=true
 LmxxfPaperWhite=1
 
 ; Auto exposure when the game sends no exposure texture (default true).
-; true = fixed fallback scale 8 (ignores LmxxfAutoExposureScale). false = use the scale below.
+; true = measure mean brightness each frame and smooth it over time (ignores LmxxfAutoExposureScale).
+; false = use the fixed scale below.
 LmxxfAutoExposure=true
 ; Manual white scale only when Auto exposure is false and there is no game exposure. Default 8.
 LmxxfAutoExposureScale=8

@@ -338,10 +338,11 @@ class Config
     CustomOptional<float> LmxxfPaperWhite { 1.0f };
     // When the game supplies no exposure texture (e.g. Wo Long 2), scale the codec white
     // point so HDR scene values are not encoded as if exposure were 1. Games that pass
-    // exposure keep using that texture and ignore this. Default on (fixed fallback 8).
+    // exposure keep using that texture and ignore this. Default on: the runtime meters the
+    // colour and smooths it (LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE).
     CustomOptional<bool> LmxxfAutoExposure { true };
     // Manual white scale when exposure is missing AND LmxxfAutoExposure is off.
-    // Unused when Auto exposure is on (shader estimates) or when the game sends exposure.
+    // Unused when Auto exposure is on (runtime meter) or when the game sends exposure.
     CustomOptional<float> LmxxfAutoExposureScale { 8.0f };
     // Allow NR on command lists that use D3D12 enhanced barriers (CommandListProxy::Barrier).
     // State is not fully modeled for those groups (layout/access), and a split can cut a

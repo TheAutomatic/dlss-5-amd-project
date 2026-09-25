@@ -45,6 +45,9 @@ static void WaitQueue(ID3D12Device *device, ID3D12CommandQueue *queue)
 // "different math". RGB9E5 words use exponent 15 with varying 9-bit mantissas; that
 // format has no Inf/NaN, so any bit pattern is a finite value. R10G10B10A2 is UNORM, so
 // the 10-bit channels are the same mantissa pattern widened to 10 bits.
+// --scale16 raises every FP16 exponent by 4: an exact x16 of the same pattern.
+static UINT g_patternExponentShift = 0;
+
 static void FillRow(unsigned char *dst, UINT y, UINT w, DXGI_FORMAT format)
 {
     const bool rgb9e5 = format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
@@ -71,9 +74,9 @@ static void FillRow(unsigned char *dst, UINT y, UINT w, DXGI_FORMAT format)
             // 8 bytes per pixel: four FP16 channels (NOT four float32). Exponent 12..15
             // keeps every value finite; 0x3C00 is 1.0f in FP16.
             const UINT16 h[4] = {
-                static_cast<UINT16>(((12u + (mR >> 7)) << 10) | (mR & 0x3FFu)),
-                static_cast<UINT16>(((12u + (mG >> 7)) << 10) | (mG & 0x3FFu)),
-                static_cast<UINT16>(((12u + (mB >> 7)) << 10) | (mB & 0x3FFu)),
+                static_cast<UINT16>(((12u + g_patternExponentShift + (mR >> 7)) << 10) | (mR & 0x3FFu)),
+                static_cast<UINT16>(((12u + g_patternExponentShift + (mG >> 7)) << 10) | (mG & 0x3FFu)),
+                static_cast<UINT16>(((12u + g_patternExponentShift + (mB >> 7)) << 10) | (mB & 0x3FFu)),
                 0x3C00u
             };
             std::memcpy(dst + size_t(x) * 8, h, sizeof h);
@@ -143,7 +146,10 @@ static void UploadColorPattern(ID3D12Device *device, ID3D12CommandQueue *queue, 
 // FNV-1a over the valid bytes of each row (row padding is uninitialized and would
 // make the hash unstable). NativeGameCodec::Record leaves its output in
 // NON_PIXEL_SHADER_RESOURCE.
-static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12Resource *tex)
+// exponentShift > 0 divides every normal FP16 value by 2^shift before hashing, so a run on an
+// exactly scaled input can be compared bit for bit with the unscaled one.
+static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12Resource *tex,
+                            UINT exponentShift = 0)
 {
     const D3D12_RESOURCE_DESC td = tex->GetDesc();
     if (td.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
@@ -207,7 +213,18 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
         const unsigned char *row = base + size_t(y) * fp.Footprint.RowPitch;
         for (UINT64 i = 0; i < rowBytes; ++i)
         {
-            hsh ^= row[i];
+            unsigned char byte = row[i];
+            // RGB only: the decoder stores the source alpha unscaled.
+            if (exponentShift && td.Format == DXGI_FORMAT_R16G16B16A16_FLOAT && ((i >> 1) & 3) != 3)
+            {
+                UINT16 half = 0;
+                std::memcpy(&half, row + (i & ~UINT64(1)), 2);
+                const UINT e = (half >> 10) & 0x1Fu;
+                if (e > exponentShift && e < 31)
+                    half = static_cast<UINT16>(half - (exponentShift << 10));
+                byte = (i & 1) ? static_cast<unsigned char>(half >> 8) : static_cast<unsigned char>(half);
+            }
+            hsh ^= byte;
             hsh *= 1099511628211ull;
         }
     }
@@ -220,7 +237,8 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
 
 int main(int argc, char **argv)
 {
-    bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, outputHash = false, rejectFormats = false,
+    bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
+         scale16 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false;
     for (int i = 3; i < argc; ++i)
     {
@@ -244,12 +262,16 @@ int main(int argc, char **argv)
             ultrawide = outputHash = true;
         else if (!std::strcmp(argv[i], "--subrect"))
             subrect = outputHash = true;
+        else if (!std::strcmp(argv[i], "--auto-exposure"))
+            autoExposure = outputHash = true;
+        else if (!std::strcmp(argv[i], "--scale16"))
+            scale16 = outputHash = true;
         else
         {
             std::fprintf(stderr,
                          "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
                          "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
-                         "[--exposure|--exposure-bad] [--subrect]\n");
+                         "[--exposure|--exposure-bad] [--subrect] [--auto-exposure] [--scale16]\n");
             return 2;
         }
     }
@@ -258,7 +280,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr,
                      "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
                      "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
-                         "[--exposure|--exposure-bad] [--subrect]\n");
+                         "[--exposure|--exposure-bad] [--subrect] [--auto-exposure] [--scale16]\n");
         return 2;
     }
 
@@ -343,7 +365,10 @@ int main(int argc, char **argv)
                                           nullptr, IID_PPV_ARGS(&color)),
           "color");
     if (outputHash)
+    {
+        g_patternExponentShift = scale16 ? 4u : 0u;
         UploadColorPattern(device, submitQueue, color);
+    }
 
     const std::wstring modules = Widen(argv[2]);
     LmxxfNrCreateInfo info {};
@@ -376,6 +401,10 @@ int main(int argc, char **argv)
     }
     frame.color = color;
     frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    // No exposure texture: the runtime meters the colour. With --scale16 the network must see the
+    // same input, so the output is exactly 16x the unscaled run and hashes equal after /16.
+    if (autoExposure)
+        frame.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
     frame.paper_white = 1.0f;
     // An unsupported colour must be a retryable contract rejection, not a poisoned session.
     // Poisoning is what made RE9's RGB9E5 failure permanent and left no clue in the log.
@@ -644,7 +673,8 @@ int main(int argc, char **argv)
     if (outputHash && outs == LMXXF_NR_OK && job.private_output)
         std::printf("output_hash=%016llx %ux%u\n",
                     static_cast<unsigned long long>(HashTexture(device, submitQueue,
-                                                                 static_cast<ID3D12Resource *>(job.private_output))),
+                                                                 static_cast<ID3D12Resource *>(job.private_output),
+                                                                 scale16 ? 4u : 0u)),
                     frame.color_width, frame.color_height);
 
     if (useExposure && !badExposure)

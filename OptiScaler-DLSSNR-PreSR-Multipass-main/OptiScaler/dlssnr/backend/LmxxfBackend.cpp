@@ -61,10 +61,10 @@ float CodecPaperWhite()
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 1.0f;
 }
 
-// Games that pass an exposure texture use the codec path as before. When there is
-// no exposure (Wo Long 2), the encode/decode shaders estimate a white point from
-// image mean (target encoded mean 0.45), matching the daniel meter. Host sends
-// paper_white=1 as trim; auto off uses the manual slider as a fixed divisor.
+// Games that pass a usable exposure texture use it. When there is none (Wo Long 2: AutoExposure +
+// IsHdr), auto exposure asks the runtime to meter the colour and bind its own smoothed exposure
+// (LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE); codec paper white stays the user's trim either way. Auto
+// off uses the manual slider as a fixed divisor.
 static bool IsUsableExposureTexture(void *res)
 {
     if (!res)
@@ -78,23 +78,25 @@ static bool IsUsableExposureTexture(void *res)
 
 // Pointer alone is not enough (Palworld NGX ExposureTexture is the wrong shape and the
 // runtime drops it). Decide auto vs fixed from a usable texture.
+bool WantsAutoExposure(bool usableExposure)
+{
+    return !usableExposure && Config::Instance()->LmxxfAutoExposure.value_or_default();
+}
+
 float EffectiveCodecPaperWhite(bool usableExposure)
 {
-    if (usableExposure)
+    if (usableExposure || WantsAutoExposure(usableExposure))
         return CodecPaperWhite();
-    if (Config::Instance()->LmxxfAutoExposure.value_or_default())
-        return 1.0f;
     const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
 }
 
-uint32_t CodecDebugViewBits(bool usableExposure)
+// The shader-side mean white point (auto-white.patch, debug_view bit 0x10000) is superseded by
+// the runtime meter and no longer requested: the bit also broke the decode debug views, which
+// compare the whole word against 1..4.
+uint32_t CodecDebugViewBits(bool)
 {
-    uint32_t dv = Config::Instance()->DlssNrDebugView.value_or_default();
-    // Bit 0x10000: request mean-based auto white when there is no usable game exposure.
-    if (!usableExposure && Config::Instance()->LmxxfAutoExposure.value_or_default())
-        dv |= 0x10000u;
-    return dv;
+    return Config::Instance()->DlssNrDebugView.value_or_default() & 0xFu;
 }
 
 // Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
@@ -573,6 +575,9 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.model_scale = settings.modelScale;
     fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
     fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
+    // A runtime that predates the flag rejects it, so only ask when it takes the full struct.
+    if (!frameInfoV1 && WantsAutoExposure(IsUsableExposureTexture(frame.exposure)))
+        fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
     // AmdBridge already collects these from the NGX parameters (ExposureTexture,
     // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
     fi.exposure = frame.exposure;
@@ -596,6 +601,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             LOG_WARN("lmxxf: runtime predates the exposure fields ({}); continuing without exposure", sizeErr);
             frameInfoV1 = true;
             fi.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
+            fi.flags &= ~LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
             job = {};
             job.struct_size = sizeof(job);
             frameRc = api->table.PrepareFrame(session, &fi, &job);
@@ -818,6 +824,8 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
                 fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
                 fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
+                if (WantsAutoExposure(IsUsableExposureTexture(frame.exposure)))
+                    fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
                 fi.model_scale = settings.modelScale;
                 // Same frame contract as the normal path: without these, passthrough
                 // is not a clean A/B of "network off" for highlight/exposure bugs.
