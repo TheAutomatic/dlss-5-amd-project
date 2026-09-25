@@ -252,12 +252,23 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
              'note': 'Inspect pinned-headers.diff; retaining a header can miss new API/features even when its local markers pass.'})
     if supplied_modules is not None:
         bundle = Path(supplied_modules)
-        binaries = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in sorted(bundle.glob('*.hsaco')) if path.is_file()}
+        binaries = {}
+        for path in sorted(bundle.rglob('*.hsaco')):
+            if path.is_file():
+                rel = path.relative_to(bundle).as_posix()
+                if rel.startswith('/') or '..' in rel:
+                    raise ValueError(f'Unsafe module path: {rel}')
+                binaries[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
         if not binaries:
             raise ValueError(f'No external modules to review: {bundle}')
-        metadata = {name: file_hash(bundle / name) for name in ('SHA256SUMS', 'modules.json', 'runtime-manifest.json')
-                    if (bundle / name).is_file()}
+        meta_names = {'SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md'}
+        metadata = {}
+        for path in sorted(bundle.rglob('*')):
+            if path.is_file() and path.name in meta_names:
+                rel = path.relative_to(bundle).as_posix()
+                if rel.startswith('/') or '..' in rel:
+                    raise ValueError(f'Unsafe metadata path: {rel}')
+                metadata[rel] = file_hash(path)
         item('modules:external', 'external-modules', {'binaries': binaries, 'metadata': metadata,
              'required': 'Record build source/defines/toolchain provenance and validation; hashes alone do not prove source equivalence.'})
     for check in sorted(set(skipped)):

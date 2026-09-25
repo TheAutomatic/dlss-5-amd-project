@@ -323,6 +323,29 @@ class AuditTests(Fixture):
         changed = audit.collect(self.local, repository, self.base, self.target, [], bundle)[0]
         self.assertTrue(audit.validate_review(changed, reviewed))
 
+    def test_external_modules_dual_arch_detects_gfx1200_change(self):
+        bundle = self.folder / 'external modules dual'
+        bundle.mkdir()
+        (bundle / 'gfx1200').mkdir()
+        (bundle / 'gfx1201').mkdir()
+        (bundle / 'gfx1200/test.hsaco').write_bytes(b'gfx1200 binary')
+        (bundle / 'gfx1201/test.hsaco').write_bytes(b'gfx1201 binary')
+        write(bundle / 'gfx1200/SHA256SUMS', audit.file_hash(bundle / 'gfx1200/test.hsaco') + '  test.hsaco\n')
+        write(bundle / 'gfx1201/SHA256SUMS', audit.file_hash(bundle / 'gfx1201/test.hsaco') + '  test.hsaco\n')
+        repository = audit.Git(self.up)
+        report = audit.collect(self.local, repository, self.base, self.target, [], bundle)[0]
+        items = {item['id']: item for item in report['items']}
+        self.assertIn('modules:external', items)
+        ext = items['modules:external']['evidence']
+        self.assertIn('gfx1200/test.hsaco', ext['binaries'])
+        self.assertIn('gfx1201/test.hsaco', ext['binaries'])
+        self.assertIn('gfx1200/SHA256SUMS', ext['metadata'])
+        self.assertIn('gfx1201/SHA256SUMS', ext['metadata'])
+        reviewed = self.reviewed(report)
+        (bundle / 'gfx1200/test.hsaco').write_bytes(b'gfx1200 modified')
+        changed = audit.collect(self.local, repository, self.base, self.target, [], bundle)[0]
+        self.assertTrue(audit.validate_review(changed, reviewed))
+
     def test_text_fingerprint_survives_checkout_line_endings(self):
         path = self.folder / 'text.txt'
         path.write_bytes(b'first\nsecond\n')
@@ -419,6 +442,119 @@ if ($result -isnot [string] -or -not (Test-Path -LiteralPath $result -PathType C
         self.assertEqual((self.vendor / 'modules/new.hsaco').read_bytes(), data)
         self.assertTrue((self.vendor / 'modules/notes.txt').exists())
         self.assertIn(expected, (self.vendor / 'modules/SHA256SUMS').read_text())
+
+    def test_fingerprint_detects_gfx1200_change(self):
+        bundle = self.folder / 'fingerprint-modules'
+        bundle.mkdir()
+        (bundle / 'gfx1200').mkdir()
+        (bundle / 'gfx1201').mkdir()
+        (bundle / 'gfx1200/test.hsaco').write_bytes(b'gfx1200 v1')
+        (bundle / 'gfx1201/test.hsaco').write_bytes(b'gfx1201 v1')
+        write(bundle / 'gfx1200/SHA256SUMS', hashlib.sha256(b'gfx1200 v1').hexdigest() + '  test.hsaco\n')
+        write(bundle / 'gfx1201/SHA256SUMS', hashlib.sha256(b'gfx1201 v1').hexdigest() + '  test.hsaco\n')
+        fp1_res = self.helpers("Get-TreeFingerprint '" + str(bundle).replace('\\', '/') + "'\n")
+        self.assertEqual(fp1_res.returncode, 0, fp1_res.stdout)
+        fp1 = fp1_res.stdout.strip()
+        # Modify only gfx1200
+        (bundle / 'gfx1200/test.hsaco').write_bytes(b'gfx1200 v2')
+        fp2_res = self.helpers("Get-TreeFingerprint '" + str(bundle).replace('\\', '/') + "'\n")
+        self.assertEqual(fp2_res.returncode, 0, fp2_res.stdout)
+        fp2 = fp2_res.stdout.strip()
+        self.assertNotEqual(fp1, fp2)
+
+    def test_dual_arch_bundle_sync_and_validation(self):
+        bundle = self.up / 'dual_modules'
+        bundle.mkdir()
+        (bundle / 'gfx1200').mkdir()
+        (bundle / 'gfx1201').mkdir()
+        data_1200 = b'gfx1200 code'
+        data_1201 = b'gfx1201 code'
+        (bundle / 'gfx1200/m1200.hsaco').write_bytes(data_1200)
+        (bundle / 'gfx1201/m1201.hsaco').write_bytes(data_1201)
+        h1200 = hashlib.sha256(data_1200).hexdigest()
+        h1201 = hashlib.sha256(data_1201).hexdigest()
+        write(bundle / 'gfx1200/SHA256SUMS', f'{h1200}  m1200.hsaco\n')
+        write(bundle / 'gfx1201/SHA256SUMS', f'{h1201}  m1201.hsaco\n')
+        write(bundle / 'SHA256SUMS', f'{h1200}  gfx1200/m1200.hsaco\n{h1201}  gfx1201/m1201.hsaco\n')
+        write(bundle / 'modules.json', '{"targets": ["gfx1200", "gfx1201"]}')
+        write(self.vendor / 'modules/notes.txt', 'local metadata')
+        
+        result = self.helpers("Sync-LmxxfModules '" + str(bundle).replace('\\', '/') + "' $modules 'fixture'\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.vendor / 'modules/gfx1200/m1200.hsaco').read_bytes(), data_1200)
+        self.assertEqual((self.vendor / 'modules/gfx1201/m1201.hsaco').read_bytes(), data_1201)
+        self.assertTrue((self.vendor / 'modules/notes.txt').exists())
+        sums_text = (self.vendor / 'modules/SHA256SUMS').read_text()
+        self.assertIn(f'{h1200}  gfx1200/m1200.hsaco', sums_text)
+        self.assertIn(f'{h1201}  gfx1201/m1201.hsaco', sums_text)
+
+    def test_corrupt_dual_arch_bundle_fails_before_destination_copy(self):
+        bundle = self.up / 'bad_dual_modules'
+        bundle.mkdir()
+        (bundle / 'gfx1200').mkdir()
+        (bundle / 'gfx1201').mkdir()
+        (bundle / 'gfx1200/m1200.hsaco').write_bytes(b'good')
+        (bundle / 'gfx1201/m1201.hsaco').write_bytes(b'corrupted')
+        h1200 = hashlib.sha256(b'good').hexdigest()
+        h1201 = hashlib.sha256(b'different').hexdigest()
+        write(bundle / 'gfx1200/SHA256SUMS', f'{h1200}  m1200.hsaco\n')
+        write(bundle / 'gfx1201/SHA256SUMS', f'{h1201}  m1201.hsaco\n')
+        write(bundle / 'SHA256SUMS', f'{h1200}  gfx1200/m1200.hsaco\n{h1201}  gfx1201/m1201.hsaco\n')
+        
+        before = (self.vendor / 'modules/test.hsaco').read_bytes()
+        result = self.helpers("Sync-LmxxfModules '" + str(bundle).replace('\\', '/') + "' $modules 'fixture'\n")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('checksum mismatch', result.stdout)
+        self.assertEqual((self.vendor / 'modules/test.hsaco').read_bytes(), before)
+        self.assertFalse((self.vendor / 'modules/gfx1200').exists())
+
+    def test_uninstall_dual_arch_modules_preserves_user_files(self):
+        game = self.folder / 'game_for_uninstall'
+        game.mkdir()
+        mods = game / 'lmxxf-modules'
+        mods.mkdir()
+        g1200 = mods / 'gfx1200'
+        g1201 = mods / 'gfx1201'
+        g1200.mkdir()
+        g1201.mkdir()
+
+        # Installer files
+        (g1200 / 'k1.hsaco').write_bytes(b'k1 code')
+        (g1201 / 'k2.hsaco').write_bytes(b'k2 code')
+        h1 = hashlib.sha256(b'k1 code').hexdigest()
+        h2 = hashlib.sha256(b'k2 code').hexdigest()
+        write(g1200 / 'SHA256SUMS', f'{h1}  k1.hsaco\n')
+        write(g1201 / 'SHA256SUMS', f'{h2}  k2.hsaco\n')
+        write(mods / 'SHA256SUMS', f'{h1}  gfx1200/k1.hsaco\n{h2}  gfx1201/k2.hsaco\n')
+        write(mods / 'modules.json', '{}')
+        write(g1200 / 'modules.json', '{}')
+
+        # User files that must NOT be removed
+        user_file_arch = g1200 / 'user_weights.bin'
+        user_file_arch.write_bytes(b'weights')
+        user_file_root = mods / 'user_config.bin'
+        user_file_root.write_bytes(b'config')
+
+        script = ROOT / 'tools/uninstall-amd-presr.ps1'
+        cmd = [PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script),
+               '-GameDir', str(game), '-NonInteractive']
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+        # Installer files deleted
+        self.assertFalse((g1200 / 'k1.hsaco').exists())
+        self.assertFalse((g1201 / 'k2.hsaco').exists())
+        self.assertFalse((g1201 / 'SHA256SUMS').exists())
+        self.assertFalse((mods / 'SHA256SUMS').exists())
+        self.assertFalse((mods / 'modules.json').exists())
+        # Empty arch dir removed
+        self.assertFalse(g1201.exists())
+
+        # User files and containing dirs preserved
+        self.assertTrue(user_file_arch.exists())
+        self.assertTrue(user_file_root.exists())
+        self.assertTrue(g1200.exists())
+        self.assertTrue(mods.exists())
 
 
 class AuditCliTests(Fixture):

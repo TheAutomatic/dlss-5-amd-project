@@ -395,7 +395,7 @@ foreach ($root in $roots) {
         } else {
             # Delete only files listed in SHA256SUMS (installer set) or standard module files. Keep user weights/extras.
             $sums = Join-Path $lmxxfMods 'SHA256SUMS'
-            $manifestNames = @()
+            $manifestNames = [System.Collections.Generic.List[string]]::new()
             if (Test-Path -LiteralPath $sums -PathType Leaf) {
                 Get-Content -LiteralPath $sums -ErrorAction SilentlyContinue | ForEach-Object {
                     $line = $_.Trim()
@@ -403,17 +403,47 @@ foreach ($root in $roots) {
                     $parts = $line -split '\s+', 2
                     if ($parts.Count -ge 2) {
                         $raw = $parts[1].Trim()
-                        # Strictly reject path separators or directory traversal
-                        if ($raw -notmatch '[/\\\\]|\.\.') {
-                            $manifestNames += $raw
+                        # Accept root or single-arch relative paths: e.g. foo.hsaco or gfx1201/foo.hsaco
+                        if ($raw -match '(?i)^((gfx[0-9a-z]+[/\\])?[^/\\:*?"<>|]+\.hsaco)$' -and $raw -notmatch '\.\.') {
+                            $manifestNames.Add($raw.Replace('/', '\'))
                         }
                     }
                 }
             }
-            # Also safely sweep any .hsaco code modules in lmxxf-modules root
+            # Sweep known architecture subdirectories (gfx1200, gfx1201, etc.)
+            $archDirs = @(Get-ChildItem -LiteralPath $lmxxfMods -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^gfx[0-9a-zA-Z]+$' })
+            foreach ($arch in $archDirs) {
+                if (Test-TreeReparse $arch.FullName) {
+                    $kept.Add("linked path: $($arch.FullName)")
+                    $errors.Add("$($arch.FullName) : contains a linked path, not deleted")
+                    continue
+                }
+                $leafSums = Join-Path $arch.FullName 'SHA256SUMS'
+                if (Test-Path -LiteralPath $leafSums -PathType Leaf) {
+                    Get-Content -LiteralPath $leafSums -ErrorAction SilentlyContinue | ForEach-Object {
+                        $line = $_.Trim()
+                        if (-not $line) { return }
+                        $parts = $line -split '\s+', 2
+                        if ($parts.Count -ge 2) {
+                            $raw = $parts[1].Trim()
+                            if ($raw -match '(?i)^[^/\\:*?"<>|]+\.hsaco$' -and $raw -notmatch '\.\.') {
+                                $manifestNames.Add($arch.Name + '\' + $raw)
+                            }
+                        }
+                    }
+                }
+                Get-ChildItem -LiteralPath $arch.FullName -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
+                    ForEach-Object { $manifestNames.Add($arch.Name + '\' + $_.Name) }
+                foreach ($extra in @('SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md')) {
+                    $manifestNames.Add($arch.Name + '\' + $extra)
+                }
+            }
+            # Also safely sweep any .hsaco code modules in lmxxf-modules root (legacy flat)
             Get-ChildItem -LiteralPath $lmxxfMods -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
-                ForEach-Object { $manifestNames += $_.Name }
-            $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')
+                ForEach-Object { $manifestNames.Add($_.Name) }
+            foreach ($extra in @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')) {
+                $manifestNames.Add($extra)
+            }
             $lmxxfModsFull = [IO.Path]::GetFullPath($lmxxfMods).TrimEnd('\') + '\'
             foreach ($name in ($manifestNames | Select-Object -Unique)) {
                 if (-not $name) { continue }
