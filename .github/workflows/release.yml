@@ -273,6 +273,36 @@ jobs:
 
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
+            ### 1.9.3-alpha 新增
+
+            **danielblnc 后端支持更新**
+            - 对齐 **0.3.2 / 0.3.3 / 0.4.0** 的文件布局与启动隔离（请自行下载 daniel 相关权重文件）。
+
+            **新增lmxxf后端支持**
+            - 同一安装包内置 **gfx1200 + gfx1201** 各 24 个算子。9060 系列（gfx1200）标为**实验性**，待实机；9070 仍为正式路径。
+            - **PDL** 两套显卡目标都带上；启动时检查驱动扩展与 `_pdl` 符号，缺失则安全关闭 PDL。
+            - **自动曝光**：游戏没有可用曝光纹理时（如卧龙 2 demo），按画面均值估白点（目标编码均值 0.45）。`LmxxfAutoExposure` 默认开启；只有关掉它才用 `LmxxfAutoExposureScale` 手动档。
+            - **增强游戏兼容与 bug 修复**：加载时校验算子 SHA，按 GPU ISA 选择算子并写入日志；支持 **R10G10B10A2** 颜色（地平线：西之绝境），作业尺寸按颜色纹理实际大小；使用 Enhanced barrier 的命令列表也可继续 NR（`LmxxfAllowEnhancedBarriers` 默认 true，设为 false 则保守拒绝）；所有引擎在 submission hook 就绪后再开 early exe wrap（UE5 与非 UE）。
+            - 菜单新增选项：**High resolution**（原 Fit large color）；Experimental（paper white / PDL / debug）；**Reset to defaults**。
+
+            **本包尚未包含**
+            - 9060 XT 理论上已被 lmxxf 后端兼容，但未实机验证；卧龙 2 demo 高光/闪屏仍在跟进。
+
+            ### What's new in 1.9.3-alpha
+
+            **danielblnc backend update**
+            - Updated for **0.3.2 / 0.3.3 / 0.4.0** file layout and startup isolation. Please download the daniel weights/files yourself.
+
+            **New lmxxf backend**
+            - Ships **gfx1200 + gfx1201** compute modules in one package (24+24). 9060-series (gfx1200) is **experimental** until field-tested; 9070 remains the supported path.
+            - PDL chained launch is included for both GPU targets. On start it checks the driver extension and `_pdl` symbols and turns PDL off safely if anything is missing.
+            - **Auto exposure** when the game does not send a usable exposure texture (e.g. Wo Long 2): white point is estimated from image mean (target encoded mean 0.45). `LmxxfAutoExposure` is on by default; `LmxxfAutoExposureScale` is used only when auto is off.
+            - **Better game compatibility & bug fixes:** Module checksums are verified at load; modules are selected by GPU ISA and session status is logged; **R10G10B10A2** colour is accepted (Horizon Forbidden West) and job size follows the real colour texture; enhanced-barrier lists can stay on the NR path (`LmxxfAllowEnhancedBarriers`, default true; set false to refuse); early exe wrap is enabled for all engines only after the submission hook is armed (UE5 and non-UE).
+            - In-game menu: **High resolution** (formerly Fit large color); **Experimental** group (paper white / PDL / debug); **Reset to defaults**.
+
+            **Not in this build**
+            - 9060 XT is expected to work with the lmxxf backend in theory but has **not** been tested on real hardware. Wo Long 2 demo highlight blowout / flicker is still being investigated.
+
             ### English
             - **New `lmxxf` HIP Neural Rendering Backend:** Introduces the open-source `lmxxf` backend alongside the existing `danielblnc` backend, with improved DLSS/XeSS proxy integration.
               - **Unreal Engine 5 (UE5) Compatibility Fixes:** Resolves session invalidation and fallback issues in complex UE5 titles (tested on *Neverness to Everness*, *Palworld*, etc.).
