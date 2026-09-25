@@ -115,6 +115,15 @@ struct AmdLayout
     // Return addresses after Dispatch calls in the pinned wait helper.
     std::uint32_t waitDispatchInit = 0, waitDispatchFallback = 0;
     std::uint32_t waitDispatchSlices = 0, waitDispatchFinish = 0;
+    // 0.3.3 overlay/settings channels ([DlssNrOnAmd] in dlssnr_on_amd.ini).
+    // 0 = runtime does not expose. style: 0 Default / 1 Natural / 2 Cinematic.
+    // toneCurve: 0 reinhard (soft) / 1 aces (filmic). toneLift: black lift 0..max.
+    // useGameExposure: 1 = game FSR exposure when present; 0 = auto (encoded mean → 0.5).
+    // When useGameExposure==1 but the game provides no texture, 0.3.3 still falls back to auto.
+    std::uint32_t style = 0;
+    std::uint32_t toneCurve = 0;
+    std::uint32_t toneLift = 0;
+    std::uint32_t useGameExposure = 0;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -183,7 +192,26 @@ inline constexpr AmdLayout kAmd032 {
     0x17b70, 0x17f10, 0x17f6a, 0x18057
 };
 
-inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031, &kAmd032 };
+// 0.3.3 version.dll (SHA 907b30a6). Mapped from 0.3.2 via instruction windows
+// plus [DlssNrOnAmd] GetPrivateProfile stores (analysis/daniel-033/). .data
+// cluster moves ~+0x7800; Packet tail +0x4c..+0x5c unchanged (still 0x60).
+// New overlay channels: Style / ToneCurve / ToneLift / UseGameExposure.
+inline constexpr AmdLayout kAmd033 {
+    "0.3.3",
+    7607296,
+    Sha256FromHex("907b30a61644a6d7e43e58a43a9d97a04a24b1a764a88bdef3954ac807e8d112"),
+    0, 0x23be0, 0x149c0, 0x9b00, 0x185d0, 0xa2680,
+    0xa18c0, 0xa18c8, 0xa18d8, 0xa19f8, 0xa1a00, 0xa1c10, 0xa1c12,
+    0xa2118, 0xa214c, 0xa2150, 0xa217c, 0xa2348, 0xa2428, 0xa2434,
+    0xa24d8, 0xa24dc, 0xa24e4, 0xa24e5, 0xa24e6, 0xa24e7, 0xa24e8,
+    0xa24f8, 0xa24fc, 0xa2500, 0xa2508, 0xa250c, 0xa2608,
+    0xa25e0, 0xa2568, 0xa2414, 0xa2430, 0xa2440,
+    0xa2304, 0xa2310, 0xa2278, 0x18e20, 0x19550,
+    0x19010, 0x193b0, 0x1940a, 0x194f7,
+    0xa2510, 0xa2514, 0xa2518, 0xa251c
+};
+
+inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033 };
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
 // of each known runtime. A wrong-length literal already fails Sha256FromHex;
@@ -192,4 +220,5 @@ static_assert(kAmd0217.sha256.bytes[0] == 0xbc && kAmd0217.sha256.bytes[31] == 0
 static_assert(kAmd03.sha256.bytes[0] == 0x83 && kAmd03.sha256.bytes[31] == 0x38);
 static_assert(kAmd031.sha256.bytes[0] == 0xb1 && kAmd031.sha256.bytes[31] == 0x54);
 static_assert(kAmd032.sha256.bytes[0] == 0xb9 && kAmd032.sha256.bytes[31] == 0x1e);
+static_assert(kAmd033.sha256.bytes[0] == 0x90 && kAmd033.sha256.bytes[31] == 0x12);
 }

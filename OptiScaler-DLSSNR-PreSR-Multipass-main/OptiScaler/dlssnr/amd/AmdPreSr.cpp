@@ -1572,6 +1572,13 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             At<float>(r, L->skin) = cfg.skin;
             At<UINT>(r, L->toneChannels)=cfg.toneChannels?1u:0u;
             At<UINT>(r, L->charMask) = 1; // Enable native semantic character-mask channel.
+            // 0.3.3 overlay channels. Prefer the game's FSR exposure when we have
+            // a live texture; otherwise force auto (encoded mean → 0.5) so FP16
+            // HDR frames without exposure (Wo Long) are not left at white-point 1.
+            if (L->useGameExposure)
+                At<UINT>(r, L->useGameExposure) = exposureSource ? 1u : 0u;
+            if (L->style)
+                At<UINT>(r, L->style) = (std::min)(Config::Instance()->DlssNrStyle.value_or_default(), 2u);
             // The old shader ceiling expired at high render resolutions even
             // when inference finished well inside the original runtime's watchdog.
             // Scale the spin allowance with pixels, but retain a hard ceiling
