@@ -1950,6 +1950,8 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         encParams.color_strength = j->color_strength;
         encParams.pre_exposure = j->pre_exposure;
         encParams.exposure_scale = j->exposure_scale;
+        encParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
+        encParams.auto_white = (j->debug_view & 0x10000u) != 0;
         session->encode->Record(list, session->CodecStates({j->colorState}), j->paper_white, encParams);
         if (j->codec_passthrough)
         {
@@ -2110,7 +2112,8 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         NativeCodecParameters codecParams;
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
-        codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view);
+        codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
+        codecParams.auto_white = (j->debug_view & 0x10000u) != 0;
         codecParams.pre_exposure = j->pre_exposure;
         codecParams.exposure_scale = j->exposure_scale;
         session->decode->Record(list,

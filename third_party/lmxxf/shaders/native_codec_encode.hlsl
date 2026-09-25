@@ -52,8 +52,11 @@ float EffectivePaperWhite() {
  float exposure=e*scale/pre;
  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
 #else
- // No game exposure texture: estimate a white point from this image (not a fixed scale).
- return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+ // No game exposure texture. auto_white (Reserved.x bit 0x10000): estimate from image mean.
+ // Otherwise PaperWhiteScale is a fixed divisor (manual / legacy).
+ if ((Reserved.x & 0x10000u) != 0)
+     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+ return PaperWhiteScale;
 #endif
 }
 #ifndef NATIVE_CODEC_FIT

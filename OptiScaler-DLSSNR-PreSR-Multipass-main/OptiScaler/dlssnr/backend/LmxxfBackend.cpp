@@ -54,14 +54,36 @@ float CodecPaperWhite()
 // no exposure (Wo Long 2), the encode/decode shaders estimate a white point from
 // image mean (target encoded mean 0.45), matching the daniel meter. Host sends
 // paper_white=1 as trim; auto off uses the manual slider as a fixed divisor.
-float EffectiveCodecPaperWhite(bool hasGameExposure)
+static bool IsUsableExposureTexture(void *res)
 {
-    if (hasGameExposure)
+    if (!res)
+        return false;
+    const auto ed = static_cast<ID3D12Resource *>(res)->GetDesc();
+    return ed.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && ed.Width == 1 && ed.Height == 1 &&
+           ed.MipLevels == 1 && ed.DepthOrArraySize == 1 && ed.SampleDesc.Count == 1 &&
+           (ed.Format == DXGI_FORMAT_R16_FLOAT || ed.Format == DXGI_FORMAT_R32_FLOAT) &&
+           !(ed.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+}
+
+// Pointer alone is not enough (Palworld NGX ExposureTexture is the wrong shape and the
+// runtime drops it). Decide auto vs fixed from a usable texture.
+float EffectiveCodecPaperWhite(bool usableExposure)
+{
+    if (usableExposure)
         return CodecPaperWhite();
     if (Config::Instance()->LmxxfAutoExposure.value_or_default())
         return 1.0f;
     const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
+}
+
+uint32_t CodecDebugViewBits(bool usableExposure)
+{
+    uint32_t dv = Config::Instance()->DlssNrDebugView.value_or_default();
+    // Bit 0x10000: request mean-based auto white when there is no usable game exposure.
+    if (!usableExposure && Config::Instance()->LmxxfAutoExposure.value_or_default())
+        dv |= 0x10000u;
+    return dv;
 }
 
 // Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
@@ -537,9 +559,9 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
     fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
     fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
-    fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
     fi.model_scale = settings.modelScale;
-    fi.paper_white = EffectiveCodecPaperWhite(frame.exposure != nullptr);
+    fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
+    fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
     // AmdBridge already collects these from the NGX parameters (ExposureTexture,
     // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
     fi.exposure = frame.exposure;
@@ -783,8 +805,8 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
                 fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
-                fi.paper_white = EffectiveCodecPaperWhite(frame.exposure != nullptr);
-                fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
+                fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
+                fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
                 fi.model_scale = settings.modelScale;
                 // Same frame contract as the normal path: without these, passthrough
                 // is not a clean A/B of "network off" for highlight/exposure bugs.

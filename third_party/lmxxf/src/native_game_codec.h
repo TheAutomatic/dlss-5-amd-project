@@ -14,8 +14,11 @@ struct NativeCodecParameters {
  float transfer_strength=1.f,color_strength=1.f;
  NativeCodecDebugView debug_view=NativeCodecDebugView::Final;
  float pre_exposure=1.f,exposure_scale=1.f;
+ // No usable game exposure texture: estimate white point from image mean.
+ // Packed into the debug_view cbuffer word high bit (0x10000).
+ bool auto_white=false;
  bool Valid()const{return std::isfinite(pre_exposure)&&pre_exposure>0&&std::isfinite(exposure_scale)&&exposure_scale>0&&ValidStrength();}
- bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&uint32_t(debug_view)<=4;}
+ bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&(uint32_t(debug_view)&0xFu)<=4;}
 };
 // Validated mode1 math, fixed1080p float16 textures. Caller owns queue ordering.
 // This is a resource stage, not a game callback or a history-feedback policy.
@@ -147,7 +150,7 @@ public:
   for(UINT i=0;i<count;i++)transition(c,source[i],before[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
-  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
+  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view)|(parameters.auto_white?0x10000u:0u);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;

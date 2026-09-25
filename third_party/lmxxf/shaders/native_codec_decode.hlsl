@@ -42,7 +42,9 @@ float EffectivePaperWhite() {
  float exposure=e*scale/pre;
  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
 #else
- return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+ if ((Reserved.x & 0x10000u) != 0)
+     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+ return PaperWhiteScale;
 #endif
 }
 #ifndef NATIVE_CODEC_FIT
