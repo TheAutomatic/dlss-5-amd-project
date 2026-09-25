@@ -971,6 +971,9 @@ struct Session
     std::string selectedModulesDir;
     std::string deviceMatch = "none";
     std::string adapterName;
+    bool pdlRequested = false;
+    bool pdlEffective = false;
+    std::string pdlReason;
     /* The codecs bind OUR stable 1x1 copy, never the game's texture. An engine may hand us a
      * new allocation every frame, and the codec bakes the SRV at Create, so binding the game's
      * pointer would rebuild the whole chain (including a warm-up dispatch) every frame. A copy
@@ -1019,6 +1022,9 @@ struct Session
         delete bridge;
         bridge = nullptr;
         hipPrepared = false;
+        pdlRequested = false;
+        pdlEffective = false;
+        pdlReason.clear();
         if (decodeDisplay)
         {
             decodeDisplay->Release();
@@ -1715,12 +1721,19 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->selectedModulesDir = session->bridge->module_directory;
                 session->deviceMatch = session->bridge->device_match;
                 session->adapterName = session->bridge->adapter_name;
+                session->pdlRequested = session->bridge->PdlRequested();
+                session->pdlEffective = session->bridge->PdlEffective();
+                session->pdlReason = session->bridge->PdlReason();
                 {
                     char diagMsg[512] {};
                     std::snprintf(diagMsg, sizeof diagMsg,
-                                  "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' modules='%s'",
+                                  "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' pdl=%u/%u(%s) modules='%s'",
                                   session->actualArch.c_str(), session->deviceMatch.c_str(),
-                                  session->adapterName.c_str(), session->selectedModulesDir.c_str());
+                                  session->adapterName.c_str(),
+                                  session->pdlRequested ? 1u : 0u,
+                                  session->pdlEffective ? 1u : 0u,
+                                  session->pdlReason.c_str(),
+                                  session->selectedModulesDir.c_str());
                     OutputDebugStringA(diagMsg);
                     OutputDebugStringA("\n");
                 }
@@ -2203,12 +2216,26 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             const char *matchStr = (session->hipPrepared && !session->deviceMatch.empty())
                                        ? session->deviceMatch.c_str()
                                        : "none";
+            char pdlBuf[64];
+            if (session->hipPrepared)
+            {
+                const char *pdlTag = session->pdlEffective ? "on" : (session->pdlRequested ? "fallback" : "off");
+                std::snprintf(pdlBuf, sizeof pdlBuf, "pdl=%u/%u(%s)",
+                              session->pdlRequested ? 1u : 0u,
+                              session->pdlEffective ? 1u : 0u,
+                              pdlTag);
+            }
+            else
+            {
+                std::snprintf(pdlBuf, sizeof pdlBuf, "pdl=0/0(unknown)");
+            }
+
             if (session->hipPrepared && NativeNetworkGeometryResolved())
             {
                 auto geo = NativeCurrentNetworkGeometry();
                 std::snprintf(text, sizeof text,
-                              "lmxxf arch=%s match=%s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
-                              archStr, matchStr,
+                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
+                              archStr, matchStr, pdlBuf,
                               static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
                               session->job.width, session->job.height,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
@@ -2216,8 +2243,8 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             else
             {
                 std::snprintf(text, sizeof text,
-                              "lmxxf arch=%s match=%s modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
-                              archStr, matchStr,
+                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
+                              archStr, matchStr, pdlBuf,
                               static_cast<unsigned>(session->hsacoCount), session->hipPrepared ? 1u : 0u,
                               session->queueBound ? 1u : 0u,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);

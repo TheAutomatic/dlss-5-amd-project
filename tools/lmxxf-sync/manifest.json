@@ -32,7 +32,9 @@
         "ClearOutputAsync",
         "bool ClearOutput(",
         "CancelUnsubmitted",
-        "CurrentPhase"
+        "CurrentPhase",
+        "PdlRequested",
+        "PdlEffective"
       ],
       "patterns": [
         "pending=true;\\s*phase=consumer_recorded\\?Phase::OutputRecorded:Phase::HipQueued;"

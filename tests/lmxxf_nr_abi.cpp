@@ -114,6 +114,7 @@ int main(int argc, char **argv)
         std::string st(status);
         Require(st.find("modules_ok=48") != std::string::npos, "status reports modules_ok=48");
         Require(st.find("arch=unknown") != std::string::npos, "status reports arch=unknown before bridge");
+        Require(st.find("pdl=0/0(unknown)") != std::string::npos, "status reports pdl=0/0(unknown) before bridge");
         Require(st.find("hip=0") != std::string::npos, "status hip still 0");
 
         Require(api.PrepareSession(ctx) == LMXXF_NR_INVALID_ARGUMENT,
@@ -138,6 +139,7 @@ int main(int argc, char **argv)
         st = status;
         Require(st.find("modules_ok=24") != std::string::npos, "status reports modules_ok=24 for leaf");
         Require(st.find("arch=unknown") != std::string::npos, "status reports arch=unknown for leaf");
+        Require(st.find("pdl=0/0(unknown)") != std::string::npos, "status reports pdl=0/0(unknown) for leaf");
         Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy leaf session");
     }
     else

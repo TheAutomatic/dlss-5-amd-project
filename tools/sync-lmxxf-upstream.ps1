@@ -184,7 +184,7 @@ try {
         } else { Assert-LocalHeader $spec $vendorRoot }
     }
     $reference = Join-Path $tree 'Development/HIP/hip_reference_network.h'
-    if ((Get-Content -LiteralPath $reference -Encoding UTF8 -Raw) -notmatch '#include\s*<algorithm>') {
+    if ((Get-Content -LiteralPath $reference -Encoding UTF8 -Raw) -notmatch 'PreflightPdl') {
         Invoke-LocalHeaderPatch $tree (Join-Path $configRoot 'patches/reference-network.patch')
     }
     foreach ($dir in @('src', 'Development/HIP', 'hip', 'shaders', 'modules')) {

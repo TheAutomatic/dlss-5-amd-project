@@ -63,7 +63,9 @@ typedef struct LmxxfNrCapabilities
     uint32_t history_supported; /* first product version: 0 */
     uint32_t overlap_supported; /* first product version: 0 */
     uint32_t graph_supported;   /* first product version: 0; EnqueueHip must not graph-wait */
-    uint32_t gfx1201_target;    /* 1 = this binary is for gfx1201 */
+    /* [DEPRECATED] 1 = legacy single-target indicator; does not reflect active runtime GPU arch.
+     * Query session via GetStatus(context) for active architecture. */
+    uint32_t gfx1201_target;
 } LmxxfNrCapabilities;
 
 typedef struct LmxxfNrCreateInfo

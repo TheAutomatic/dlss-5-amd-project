@@ -10,7 +10,7 @@ rem Check if MSVC cl.exe is available in PATH
 where cl.exe >nul 2>&1
 if %errorlevel%==0 (
   echo Building LmxxfNrRuntime.dll with MSVC...
-  cl /nologo /std:c++17 /O2 /LD /EHsc /DNOMINMAX /D_WIN32_WINNT=0x0A00 /DLMXXF_NR_RUNTIME_EXPORTS ^
+  cl /nologo /std:c++17 /O2 /LD /EHsc /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 /DLMXXF_NR_RUNTIME_EXPORTS ^
     /I "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime" ^
     /I "third_party\lmxxf\src" ^
     /I "third_party\lmxxf\Development\HIP" ^

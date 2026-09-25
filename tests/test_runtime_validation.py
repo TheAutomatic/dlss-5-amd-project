@@ -19,7 +19,7 @@ class LmxxfNrApi(ctypes.Structure):
 LmxxfNrApi._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('abi_version', ctypes.c_uint32),
-    ('QueryCapabilities', ctypes.c_void_p),
+    ('QueryCapabilities', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p)),
     ('Create', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(LmxxfNrCreateInfo), ctypes.POINTER(ctypes.c_void_p))),
     ('Destroy', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p)),
     ('PrepareSession', ctypes.c_void_p),
@@ -86,6 +86,7 @@ class RuntimeValidationTests(unittest.TestCase):
         st = status_buf.value.decode()
         self.assertIn("modules_ok=48", st)
         self.assertIn("arch=unknown", st)
+        self.assertIn("pdl=0/0(unknown)", st)
         self.assertIn("hip=0", st)
 
         self.assertEqual(self.api.Destroy(ctx), 0)
@@ -101,9 +102,32 @@ class RuntimeValidationTests(unittest.TestCase):
         st = status_buf.value.decode()
         self.assertIn("modules_ok=24", st)
         self.assertIn("arch=unknown", st)
+        self.assertIn("pdl=0/0(unknown)", st)
         self.assertIn("hip=0", st)
 
         self.assertEqual(self.api.Destroy(ctx), 0)
+
+    def test_v1_abi_capabilities_and_pdl_status(self):
+        class LmxxfNrCapabilities(ctypes.Structure):
+            _fields_ = [
+                ("struct_size", ctypes.c_uint32),
+                ("abi_version", ctypes.c_uint32),
+                ("max_input_width", ctypes.c_uint32),
+                ("max_input_height", ctypes.c_uint32),
+                ("history_supported", ctypes.c_uint32),
+                ("overlap_supported", ctypes.c_uint32),
+                ("graph_supported", ctypes.c_uint32),
+                ("gfx1201_target", ctypes.c_uint32),
+            ]
+        caps = LmxxfNrCapabilities()
+        caps.struct_size = ctypes.sizeof(LmxxfNrCapabilities)
+        rc = self.api.QueryCapabilities(ctypes.byref(caps))
+        self.assertEqual(rc, 0)
+        self.assertEqual(caps.abi_version, 1)
+        self.assertEqual(caps.history_supported, 0)
+        self.assertEqual(caps.overlap_supported, 0)
+        self.assertEqual(caps.graph_supported, 0)
+        self.assertEqual(caps.gfx1201_target, 1)  # preserved deprecated v1 target
 
     def test_resolve_arch_modules(self):
         out = ctypes.create_unicode_buffer(260)
