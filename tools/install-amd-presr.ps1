@@ -319,7 +319,8 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
     Fail "Game folder not found: $GameDir"
 }
-$game = (Resolve-Path -LiteralPath $GameDir).Path
+# Resolve-Path keeps 8.3 names such as RUNNER~1. GetFullPath expands them.
+$game = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $GameDir).Path)
 $proxies = @(
     'dxgi.dll','winmm.dll','d3d12.dll','version.dll',
     'winhttp.dll','wininet.dll','dbghelp.dll','dinput8.dll'

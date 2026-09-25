@@ -70,7 +70,10 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
     Fail "Game folder not found: $GameDir"
 }
+# Resolve-Path keeps 8.3 names such as RUNNER~1. GetFullPath expands them.
+# Later checks use GetFullPath, so the game root must be that same form.
 $game = (Resolve-Path -LiteralPath $GameDir).Path
+$game = [IO.Path]::GetFullPath($game)
 
 # New packages share the controlled module names. A standalone copied uninstaller
 # can still use the installed manifests; it never claims ownership by extension.
@@ -132,7 +135,7 @@ $errors = New-Object System.Collections.Generic.List[string]
 
 function Test-UninstallPath([string]$path) {
     $full = [IO.Path]::GetFullPath($path)
-    $base = $game.TrimEnd('\')
+    $base = [IO.Path]::GetFullPath($game).TrimEnd('\')
     if ($full -ine $base -and -not $full.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)) {
         $kept.Add("outside game folder: $path")
         return $false
