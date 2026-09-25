@@ -50,6 +50,33 @@ float CodecPaperWhite()
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 1.0f;
 }
 
+// Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
+const char *FriendlyPrepareFrameError(const char *err)
+{
+    if (!err || !err[0])
+        return "lmxxf: PrepareFrame failed";
+    if (std::strstr(err, "NoBinaryForGpu") || std::strstr(err, "no binary for GPU") ||
+        std::strstr(err, "hipErrorNoBinary") || std::strstr(err, "WrongDevice"))
+    {
+        return "lmxxf: this GPU is not supported by the installed lmxxf modules (need matching ISA, e.g. 9070 XT = gfx1201). Switch Backend to daniel, or install matching lmxxf-modules.";
+    }
+    if ((std::strstr(err, "missing") || std::strstr(err, "not found")) &&
+        (std::strstr(err, "block") || std::strstr(err, ".f16") || std::strstr(err, ".f32") ||
+         std::strstr(err, "weight")))
+    {
+        return "lmxxf: neural weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.";
+    }
+    if (std::strstr(err, "weights") && (std::strstr(err, "not") || std::strstr(err, "unset")))
+        return "lmxxf: neural weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.";
+    if (std::strstr(err, "poisoned"))
+        return "lmxxf: NR is off after a fatal error (see OptiScaler.log). Fix the first error, then restart the game.";
+    if (std::strstr(err, "hsaco") || std::strstr(err, "module"))
+        return "lmxxf: lmxxf-modules failed to load on this GPU. Check modules vs GPU (gfx1200/1201) or use Backend daniel.";
+    return "lmxxf: PrepareFrame failed";
+}
+
+bool IsPoisonedError(const char *err) { return err && std::strstr(err, "poisoned") != nullptr; }
+
 } // namespace
 
 void LmxxfBackend::SetStatus(const char *s)
@@ -215,7 +242,10 @@ bool LmxxfBackend::EnsureSession()
         if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", now, MAX_PATH) && now[0])
             LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR={}", std::filesystem::path(now).string());
         else
+        {
             LOG_WARN("lmxxf: LMXXF_WEIGHTS_DIR unset (PrepareSession may fail without tiled weights)");
+            SetStatus("lmxxf: weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.");
+        }
     }
 
     const auto modules = ResolveModulesDir(directory);
@@ -481,7 +511,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
         const auto enqueue = LmxxfCut::LastEnqueueDiagnostic();
-        static unsigned prepareFrameFailLogs = 0;
         static unsigned prepareFrameRebuilds = 0;
         static constexpr GUID kStreamlineRiid = { 0xADEC44E2, 0x61F0, 0x45C3, { 0xAD, 0x9F, 0x1B, 0x37, 0x37, 0x92, 0x84, 0xFF } };
         IUnknown *sessId = nullptr;
@@ -498,7 +527,15 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (enqueue.queue)
             enqueue.queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&execSl));
 
-        if (prepareFrameFailLogs < 3 || (prepareFrameFailLogs % 30) == 0)
+        const bool poisoned = IsPoisonedError(err);
+        // First failure is the diagnosis; a poisoned session cannot recover this launch.
+        // Keep later repeats quiet so OptiScaler.log stays readable (summary is printed on Shutdown).
+        const unsigned failN = ++prepareFrameFailLogs;
+        if (poisoned)
+            ++prepareFramePoisonLogs;
+        const bool shouldLog = (failN == 1) || (!poisoned && (failN <= 3 || (failN % 60) == 0)) ||
+                               (poisoned && (failN % 2000) == 0);
+        if (shouldLog)
             LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} lastEnqueueRc={:X} lastEnqueueErr={} sessQ={:p}(t={},id={:p},sl={:p}) execQ={:p}(t={},id={:p},sl={:p}) {}x{} (fail#{})",
                       frameRc, job.handle != nullptr, job.private_output != nullptr, err,
                       enqueue.rc, enqueue.error.data(),
@@ -507,13 +544,12 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                       reinterpret_cast<void *>(enqueue.queue), enqueue.queue ? static_cast<int>(enqueue.queue->GetDesc().Type) : -1,
                       reinterpret_cast<void *>(execId), reinterpret_cast<void *>(execSl),
                       fi.color_width, fi.color_height,
-                      prepareFrameFailLogs + 1);
+                      failN);
 
         if (sessId) sessId->Release();
         if (sessSl) sessSl->Release();
         if (execId) execId->Release();
         if (execSl) execSl->Release();
-        ++prepareFrameFailLogs;
         // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
         // drop host session so the next Record EnsureSession starts clean. An input contract
         // violation is INVALID_ARGUMENT and a rebuild cannot help it, so never rebuild for it.
@@ -530,7 +566,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         }
         else
         {
-            SetStatus("lmxxf: PrepareFrame failed");
+            SetStatus(FriendlyPrepareFrameError(err));
         }
         return nullptr;
     }
@@ -965,6 +1001,9 @@ bool LmxxfBackend::Shutdown()
         std::lock_guard lock(jobMutex);
         pendingJobInfo = {};
     }
+    if (prepareFrameFailLogs)
+        LOG_WARN("lmxxf: session end — PrepareFrame failed {} times ({} poisoned); those frames used original Color (no NR)",
+                 prepareFrameFailLogs, prepareFramePoisonLogs);
     if (session && api && api->table.Destroy)
     {
         api->table.Destroy(session);

@@ -50,6 +50,9 @@ class LmxxfBackend final : public Host
     // Set once a runtime has rejected the current LmxxfNrFrameInfo size: it predates the
     // exposure fields, so send the ABI v1 size and run without exposure.
     bool frameInfoV1 = false;
+    // PrepareFrame failure accounting: first error is fully logged; later poison repeats are quiet.
+    unsigned prepareFrameFailLogs = 0;
+    unsigned prepareFramePoisonLogs = 0;
     ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &);
 
     bool EnsureRuntime();
