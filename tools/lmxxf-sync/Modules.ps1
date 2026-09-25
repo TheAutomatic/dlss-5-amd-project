@@ -1,4 +1,4 @@
-﻿# lmxxf module build / sync / hashing helpers.
+# lmxxf module build / sync / hashing helpers.
 
 function Get-FileSha256Hex([string]$filePath) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -67,13 +67,23 @@ function Invoke-BuildModules([string]$hipDir, [string]$outDir, [string[]]$target
     }
     $compiler = Join-Path $hipDir 'rtc_compile.exe'
     $rtcCpp = Join-Path $hipDir 'rtc_compile.cpp'
-    if (-not (Test-Path -LiteralPath $rtcCpp -PathType Leaf)) {
-        throw ("Missing rtc_compile.exe / rtc_compile.cpp under " + $hipDir)
-    }
-    Write-Host "  Building rtc_compile.exe from rtc_compile.cpp..." -ForegroundColor Cyan
-    & cl.exe /nologo /O2 /EHsc /Fe:$compiler $rtcCpp | Write-Host
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-        throw "Failed to build rtc_compile.exe (need MSVC cl in PATH)"
+    if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath $rtcCpp -PathType Leaf)) {
+            throw ("Missing rtc_compile.exe / rtc_compile.cpp under " + $hipDir)
+        }
+        if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+            $msvcCl = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\cl.exe'
+            if (Test-Path -LiteralPath $msvcCl -PathType Leaf) {
+                $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64;$env:PATH"
+                $env:INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\include;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared;$env:INCLUDE"
+                $env:LIB = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\um\x64;$env:LIB"
+            }
+        }
+        Write-Host "  Building rtc_compile.exe from rtc_compile.cpp..." -ForegroundColor Cyan
+        & cl.exe /nologo /O2 /EHsc /Fe:$compiler $rtcCpp | Write-Host
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw "Failed to build rtc_compile.exe (need MSVC cl in PATH)"
+        }
     }
     if (Test-Path -LiteralPath $outDir) {
         Remove-SyncTree -Path $outDir -Within $hipDir
