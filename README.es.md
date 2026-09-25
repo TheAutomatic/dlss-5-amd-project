@@ -331,3 +331,9 @@ Patrimonio del código base (de arriba a abajo):
 - [**Este proyecto (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **Licencia GPL-3.0**: Planificación multi-ranura, ejecución en la misma cola del fotograma, creación de runtime con C-ABI y PR upstream, congelación/restauración de estado 0.3.1, coexistencia de doble backend e instalador inteligente.
 
 Esta distribución no contiene binarios propietarios de NVIDIA, herramientas del instalador de danielblnc ni pesos de modelo no autorizados. Por favor, respete todas las licencias upstream.
+
+## Problemas conocidos (1.9.2-alpha)
+
+- **Backend `lmxxf`: el renderizado neuronal Pre-SR por encima de ~1080p de resolución interna aún no está completamente integrado.** La ruta de mismo fotograma puede entrecortarse con Color más grande (p. ej. calidad 4K ~2258×1271). Prefiera una resolución interna aproximadamente igual o inferior a: **4K Rendimiento**, **1440p Equilibrado** o **1080p nativo**. `LmxxfFitLarge` está desactivado de forma predeterminada; active `true` solo si acepta el coste. Sin FitLarge, el ancho debe ser como máximo 2560, la altura como máximo 1080 y el número de píxeles dentro de 1920×1080 (por ejemplo 2024×848). 2560×1080 se rechaza. Con FitLarge, Color más grande se ajusta a la red de 1080.
+- **Neón marrón en Cyberpunk 2077:** con Colour strength 1, Pre-SR envía el tono de la red al etalonaje posterior del juego y el neón verde puede volver marrón. Ponga Colour strength a 0 para cambiar solo el brillo. Esto no se selecciona por el nombre del juego.
+- **PDL:** el arranque encadenado está activado de forma predeterminada. Si el controlador no tiene `hipExtModuleLaunchKernel`, ponga `LmxxfPdl=false` (o `DLSS5_HIP_PDL=0`) y reinicie.
