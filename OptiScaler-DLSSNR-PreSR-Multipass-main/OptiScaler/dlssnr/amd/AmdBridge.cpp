@@ -554,16 +554,34 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     const float sessionScale=Config::Instance()->AmdNrScale.value_or_default();
     const float requestedScale=sessionScale;
     const auto now=GetTickCount64();
+    const bool firstProbe = (settlingWidth == 0 && settlingHeight == 0);
     if(settlingWidth!=f.width || settlingHeight!=f.height || settlingScale!=requestedScale) {
-        b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
-            std::to_string(settlingHeight) + " -> " + std::to_string(f.width) + "x" +
-            std::to_string(f.height) + "; NR scale " + std::to_string(settlingScale) +
-            " -> " + std::to_string(requestedScale));
-        settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;settlingSince=now;
-        b->InvalidateHistory();
+        if (!firstProbe)
+        {
+            // Real change after we already had a size: keep the settle window.
+            b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
+                std::to_string(settlingHeight) + " -> " + std::to_string(f.width) + "x" +
+                std::to_string(f.height) + "; NR scale " + std::to_string(settlingScale) +
+                " -> " + std::to_string(requestedScale));
+            LOG_INFO("AMD pre-SR settle: {}x{} scale {:.3f} -> {}x{} scale {:.3f} (thread {})",
+                     settlingWidth, settlingHeight, settlingScale, f.width, f.height, requestedScale,
+                     GetCurrentThreadId());
+            b->InvalidateHistory();
+            settlingSince=now;
+        }
+        // First probe (0x0 -> real size) is startup, not a mid-session change.
+        // Leave settlingSince at 0 so we do not skip the first stable frames.
+        settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;
     }
-    if(now-settlingSince<300) {
-        Message("AMD neural: waiting for resolution settings to settle");
+    if(settlingSince != 0 && now-settlingSince<300) {
+        static ULONGLONG lastSettleLog = 0;
+        if (now - lastSettleLog >= 250)
+        {
+            lastSettleLog = now;
+            LOG_INFO("AMD neural: waiting for resolution settings to settle ({}x{} scale {:.3f}, thread {})",
+                     f.width, f.height, requestedScale, GetCurrentThreadId());
+            Message("AMD neural: waiting for resolution settings to settle");
+        }
         return true;
     }
     const FrameIdentity current { f.colour, f.motion, f.depth, f.width, f.height };
