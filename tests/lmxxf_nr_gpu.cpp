@@ -43,9 +43,12 @@ static void WaitQueue(ID3D12Device *device, ID3D12CommandQueue *queue)
 
 // Deterministic, non-constant pattern so an output hash can tell "same math" from
 // "different math". RGB9E5 words use exponent 15 with varying 9-bit mantissas; that
-// format has no Inf/NaN, so any bit pattern is a finite value.
-static void FillRow(unsigned char *dst, UINT y, UINT w, bool rgb9e5)
+// format has no Inf/NaN, so any bit pattern is a finite value. R10G10B10A2 is UNORM, so
+// the 10-bit channels are the same mantissa pattern widened to 10 bits.
+static void FillRow(unsigned char *dst, UINT y, UINT w, DXGI_FORMAT format)
 {
+    const bool rgb9e5 = format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
+    const bool r10g10b10a2 = format == DXGI_FORMAT_R10G10B10A2_UNORM;
     for (UINT x = 0; x < w; ++x)
     {
         const UINT mR = (x * 37u + y * 11u) & 0x1FFu;
@@ -55,6 +58,12 @@ static void FillRow(unsigned char *dst, UINT y, UINT w, bool rgb9e5)
         {
             // 4 bytes per pixel: three 9-bit mantissas plus a shared 5-bit exponent.
             const UINT word = mR | (mG << 9) | (mB << 18) | (15u << 27);
+            std::memcpy(dst + size_t(x) * 4, &word, 4);
+        }
+        else if (r10g10b10a2)
+        {
+            // 4 bytes per pixel: 10-bit R, G, B and a 2-bit alpha of 3 (opaque).
+            const UINT word = (mR << 1) | ((mG << 1) << 10) | ((mB << 1) << 20) | (3u << 30);
             std::memcpy(dst + size_t(x) * 4, &word, 4);
         }
         else
@@ -73,7 +82,7 @@ static void FillRow(unsigned char *dst, UINT y, UINT w, bool rgb9e5)
 }
 
 // Fills `tex` with FillRow. `tex` must start and end in NON_PIXEL_SHADER_RESOURCE.
-static void UploadColorPattern(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12Resource *tex, bool rgb9e5)
+static void UploadColorPattern(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12Resource *tex)
 {
     const D3D12_RESOURCE_DESC td = tex->GetDesc();
     const UINT w = static_cast<UINT>(td.Width), h = td.Height;
@@ -99,7 +108,7 @@ static void UploadColorPattern(ID3D12Device *device, ID3D12CommandQueue *queue, 
     Check(upload->Map(0, nullptr, &mapped), "map pattern upload");
     auto *base = static_cast<unsigned char *>(mapped);
     for (UINT y = 0; y < h; ++y)
-        FillRow(base + size_t(y) * fp.Footprint.RowPitch, y, w, rgb9e5);
+        FillRow(base + size_t(y) * fp.Footprint.RowPitch, y, w, td.Format);
     upload->Unmap(0, nullptr);
 
     ID3D12CommandAllocator *al = nullptr;
@@ -211,7 +220,7 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
 
 int main(int argc, char **argv)
 {
-    bool queueMismatch = false, resize = false, rgb9e5 = false, outputHash = false, rejectFormats = false,
+    bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false;
     for (int i = 3; i < argc; ++i)
     {
@@ -221,6 +230,8 @@ int main(int argc, char **argv)
             resize = true;
         else if (!std::strcmp(argv[i], "--rgb9e5"))
             rgb9e5 = outputHash = true;
+        else if (!std::strcmp(argv[i], "--r10g10b10a2"))
+            r10g10b10a2 = outputHash = true;
         else if (!std::strcmp(argv[i], "--output-hash"))
             outputHash = true;
         else if (!std::strcmp(argv[i], "--reject-formats"))
@@ -237,7 +248,7 @@ int main(int argc, char **argv)
         {
             std::fprintf(stderr,
                          "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
-                         "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide] "
+                         "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
                          "[--exposure|--exposure-bad] [--subrect]\n");
             return 2;
         }
@@ -246,7 +257,7 @@ int main(int argc, char **argv)
     {
         std::fprintf(stderr,
                      "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
-                     "[--queue-mismatch|--resize] [--rgb9e5] [--output-hash] [--reject-formats] [--ultrawide] "
+                     "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
                          "[--exposure|--exposure-bad] [--subrect]\n");
         return 2;
     }
@@ -321,7 +332,9 @@ int main(int argc, char **argv)
     td.Width = ultrawide ? 2024 : 1920;
     td.Height = ultrawide ? 848 : 1080;
     td.DepthOrArraySize = td.MipLevels = 1;
-    td.Format = rgb9e5 ? DXGI_FORMAT_R9G9B9E5_SHAREDEXP : DXGI_FORMAT_R16G16B16A16_FLOAT;
+    td.Format = rgb9e5        ? DXGI_FORMAT_R9G9B9E5_SHAREDEXP
+                : r10g10b10a2 ? DXGI_FORMAT_R10G10B10A2_UNORM
+                              : DXGI_FORMAT_R16G16B16A16_FLOAT;
     td.SampleDesc.Count = 1;
     // RE9's scene colour is RGB9E5 and is only ever read (SRV), so do not request a UAV.
     td.Flags = rgb9e5 ? D3D12_RESOURCE_FLAG_NONE : D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -330,7 +343,7 @@ int main(int argc, char **argv)
                                           nullptr, IID_PPV_ARGS(&color)),
           "color");
     if (outputHash)
-        UploadColorPattern(device, submitQueue, color, rgb9e5);
+        UploadColorPattern(device, submitQueue, color);
 
     const std::wstring modules = Widen(argv[2]);
     LmxxfNrCreateInfo info {};
@@ -368,8 +381,10 @@ int main(int argc, char **argv)
     // Poisoning is what made RE9's RGB9E5 failure permanent and left no clue in the log.
     if (rejectFormats)
     {
+        // R10G10B10A2 left this list when the runtime started accepting it (Horizon); --r10g10b10a2
+        // runs it end to end instead. R8G8 stands in as a 4-byte format the codec cannot read.
         const DXGI_FORMAT kBadFormats[] = {DXGI_FORMAT_R32G32B32A32_FLOAT,
-                                           DXGI_FORMAT_R10G10B10A2_UNORM,
+                                           DXGI_FORMAT_R8G8_UNORM,
                                            DXGI_FORMAT_R32_FLOAT};
         for (DXGI_FORMAT fmt : kBadFormats)
         {
