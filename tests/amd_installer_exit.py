@@ -8,9 +8,12 @@ from pathlib import Path
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
+
+from lmxxf_fixtures import damage_modules, locked_file, make_modules, snapshot_files
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -40,6 +43,7 @@ class InstallerExitTests(unittest.TestCase):
         # runtime with its default module discovery, like a double-click.
         self.env.pop("PSMODULEPATH", None)
         self.env["PATH"] = str(PS.parent) + os.pathsep + self.env.get("PATH", "")
+        shutil.copy2(REPO / "tools/lmxxf-module-package.ps1", self.package)
         source = (REPO / "tools/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
         for title_name, script, file_name in (
             ("Setup", "install", "Setup"),
@@ -129,6 +133,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("Install SUCCEEDED.", output)
         self.assertNotIn("Setup failed", output)
+        self.assertNotIn("Existing OptiScaler installation detected", output)
         self.assertEqual((self.game / "dlssnr_amd_pass1.dll").read_bytes(), FAKE_RUNTIME)
         self.assertTrue((self.game / "Uninstall_OptiScaler_NR.bat").is_file(), output)
         self.assertTrue((self.game / "Uninstall_OptiScaler_NR.ps1").is_file(), output)
@@ -167,6 +172,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn("Cancelled.", output)
         self.assertNotIn("Install SUCCEEDED.", output)
         self.assertNotIn("Setup failed", output)
+        self.assertNotIn("Existing OptiScaler installation detected", output)
         self.assertEqual((self.game / "dxgi.dll").read_bytes(), b"another mod")
 
     def test_noninteractive_install_success_does_not_wait(self):
@@ -304,28 +310,7 @@ class InstallerExitTests(unittest.TestCase):
     def ready_lmxxf_dual_arch(self):
         (self.package / "OptiScaler.dll").write_bytes(b"fixture proxy")
         (self.package / "LmxxfNrRuntime.dll").write_bytes(b"fixture lmxxf runtime")
-        mods = self.package / "lmxxf-modules"
-        mods.mkdir(parents=True, exist_ok=True)
-        g1200 = mods / "gfx1200"
-        g1201 = mods / "gfx1201"
-        g1200.mkdir(parents=True, exist_ok=True)
-        g1201.mkdir(parents=True, exist_ok=True)
-
-        lines_root = []
-        for arch, arch_dir in (("gfx1200", g1200), ("gfx1201", g1201)):
-            lines_leaf = []
-            for i in range(24):
-                mod_name = f"mod_{i}.hsaco"
-                data = f"{arch} module {i}".encode("ascii")
-                (arch_dir / mod_name).write_bytes(data)
-                digest = hashlib.sha256(data).hexdigest()
-                lines_leaf.append(f"{digest}  {mod_name}")
-                lines_root.append(f"{digest}  {arch}/{mod_name}")
-            (arch_dir / "SHA256SUMS").write_text("\n".join(lines_leaf) + "\n", encoding="utf-8")
-            (arch_dir / "modules.json").write_text('{"count": 24}', encoding="utf-8")
-
-        (mods / "SHA256SUMS").write_text("\n".join(lines_root) + "\n", encoding="utf-8")
-        (mods / "runtime-manifest.json").write_text('{"targets": ["gfx1200", "gfx1201"]}', encoding="utf-8")
+        make_modules(self.package / "lmxxf-modules")
 
         shaders = self.package / "shaders"
         shaders.mkdir(parents=True, exist_ok=True)
@@ -346,111 +331,265 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue((game_mods / "SHA256SUMS").is_file(), output)
         self.assertTrue((game_mods / "runtime-manifest.json").is_file(), output)
 
-    def test_dual_arch_lmxxf_upgrade_from_legacy_flat_preserves_user_files(self):
+    def ready_legacy_install(self):
         self.ready_lmxxf_dual_arch()
-        game_mods = self.game / "lmxxf-modules"
-        game_mods.mkdir(parents=True, exist_ok=True)
-        for i in range(5):
-            (game_mods / f"legacy_{i}.hsaco").write_bytes(f"legacy {i}".encode("ascii"))
-        (game_mods / "modules.json").write_text('{"legacy": true}', encoding="utf-8")
-        (game_mods / "SHA256SUMS").write_text("dummy sha legacy", encoding="utf-8")
+        mods = self.game / "lmxxf-modules"
+        shutil.copytree(self.package / "lmxxf-modules/gfx1201", mods)
+        (self.game / "dxgi.dll").write_bytes(b"fixture proxy")
+        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"old runtime")
+        (self.game / "OptiScaler.ini").write_text("[DlssNr]\nUserSentinel=keep\n", encoding="utf-8")
+        (mods / "user-custom.hsaco").write_bytes(b"user-owned GPU code")
+        (mods / "user_weights.bin").write_bytes(b"user weights")
+        return mods
 
-        user_weights = game_mods / "user_custom_weights.bin"
-        user_weights.write_bytes(b"important user trained weights")
-        user_folder = game_mods / "user_extra"
-        user_folder.mkdir()
-        (user_folder / "info.txt").write_text("keep me", encoding="utf-8")
+    def assert_dual_arch_installed(self):
+        mods = self.game / "lmxxf-modules"
+        self.assertFalse(list(mods.glob("*.hsaco")))
+        self.assertFalse((mods / "modules.json").exists())
+        for arch in ("gfx1200", "gfx1201"):
+            self.assertEqual(len(list((mods / arch).glob("*.hsaco"))), 24)
+        return mods
 
+    def assert_custom_module_backed_up(self):
+        saved = list(self.game.glob("backup-amd-presr-*/lmxxf-modules/user-custom.hsaco"))
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0].read_bytes(), b"user-owned GPU code")
+
+    def test_legacy_upgrade_noninteractive_overwrites_with_backup(self):
+        mods = self.ready_legacy_install()
+        before = snapshot_files(mods)
         code, output = self.run_direct()
         self.assertEqual(code, 0, output)
-        self.assertIn("Detected legacy flat lmxxf-modules", output)
-        self.assertIn("migrated lmxxf-modules to dual-architecture layout", output)
+        self.assertIn("Install SUCCEEDED", output)
+        self.assertNotIn("Uninstalling the existing", output)
+        self.assert_dual_arch_installed()
+        self.assert_custom_module_backed_up()
+        backups = list(self.game.glob("backup-amd-presr-*/lmxxf-modules"))
+        self.assertEqual(snapshot_files(backups[0]), before)
+        self.assertEqual((mods / "user_weights.bin").read_bytes(), b"user weights")
 
-        # Check backup created
-        backups = list(self.game.glob("backup-amd-presr-*"))
-        self.assertTrue(len(backups) > 0, "backup directory must be created")
-        backup_mods = backups[0] / "lmxxf-modules"
-        self.assertTrue((backup_mods / "legacy_0.hsaco").is_file(), "legacy flat hsaco backed up")
-        self.assertTrue((backup_mods / "modules.json").is_file(), "legacy root modules.json backed up")
+    def test_setup_no_overwrites_legacy_without_uninstall_or_second_proxy_prompt(self):
+        self.ready_legacy_install()
+        code, output = self.run_batch(stdin="n\n")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(output.count("Existing OptiScaler installation detected"), 1, output)
+        self.assertIn("Recommended: uninstall before installing this version", output)
+        self.assertIn("Continuing with an overwrite installation", output)
+        self.assertNotIn("Uninstalling the existing", output)
+        self.assertNotIn("How to continue?", output)
+        self.assert_dual_arch_installed()
+        self.assert_custom_module_backed_up()
+        self.assertIn("UserSentinel", (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"))
 
-        # Check game dir cleaned of flat hsaco and root modules.json
-        self.assertEqual(len(list(game_mods.glob("*.hsaco"))), 0, "flat hsaco purged from root")
-        self.assertFalse((game_mods / "modules.json").exists(), "root modules.json purged")
+    def test_setup_yes_uses_new_uninstaller_then_installs_without_second_confirmation(self):
+        self.ready_legacy_install()
+        (self.package / "OptiScaler.ini").write_text("[DlssNr]\nPackageSentinel=yes\n", encoding="utf-8")
+        (self.game / "dlssnr_amd_pass3.dll").write_bytes(b"old unused backend")
+        write_ps(self.game / "Uninstall_OptiScaler_NR.ps1", "throw 'old uninstaller must not run'\n")
+        backup = self.game / "backup-amd-presr-existing"
+        backup.mkdir()
+        (backup / "keep.bin").write_bytes(b"old backup")
+        code, output = self.run_batch(stdin="Y\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Uninstall SUCCEEDED.", output)
+        self.assertIn("Install SUCCEEDED.", output)
+        self.assertLess(output.index("Uninstall SUCCEEDED."), output.index("Installing OptiScaler as"))
+        self.assertNotIn("Type Y to delete", output)
+        self.assertNotIn("Keep these backup folders?", output)
+        self.assertNotIn("old uninstaller must not run", output)
+        self.assertFalse((self.game / "dlssnr_amd_pass3.dll").exists())
+        self.assertEqual((backup / "keep.bin").read_bytes(), b"old backup")
+        self.assert_dual_arch_installed()
+        self.assert_custom_module_backed_up()
+        ini = (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig")
+        self.assertIn("PackageSentinel", ini)
+        self.assertNotIn("UserSentinel", ini)
 
-        # Check dual-arch directories installed
-        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 24)
-        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 24)
+    def test_existing_install_prompt_precedes_proxy_menu(self):
+        self.ready_legacy_install()
+        args = [str(PS), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                str(self.package / "Setup.ps1"), "-GameDir", str(self.game), "-NoPause"]
+        code, output = self.run_process(args, "NO\n1\n")
+        self.assertEqual(code, 0, output)
+        self.assertLess(output.index("Existing OptiScaler installation detected"), output.index("Which proxy DLL"))
 
-        # Check user files preserved
-        self.assertTrue(user_weights.is_file(), "user weights must be preserved")
-        self.assertEqual(user_weights.read_bytes(), b"important user trained weights")
-        self.assertTrue((user_folder / "info.txt").is_file(), "user extra files must be preserved")
+    def test_setup_overwrite_moves_other_opti_proxy_without_reprompt(self):
+        self.ready_legacy_install()
+        (self.game / "dxgi.dll").rename(self.game / "winmm.dll")
+        code, output = self.run_batch(stdin="N\n")
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.game / "winmm.dll").exists())
+        self.assertEqual((self.game / "dxgi.dll").read_bytes(), b"fixture proxy")
+        self.assertTrue(list(self.game.glob("backup-amd-presr-*/winmm.dll.moved")))
+        self.assertNotIn("How to continue?", output)
 
-        # Repeated install must also succeed cleanly and preserve user files
-        code_repeat, out_repeat = self.run_direct()
-        self.assertEqual(code_repeat, 0, out_repeat)
-        self.assertTrue(user_weights.is_file())
-        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 24)
+    def test_setup_uninstall_failure_stops_before_install(self):
+        self.ready_legacy_install()
+        write_ps(self.package / "Uninstall_OptiScaler_NR.ps1",
+                 "param($GameDir, [switch]$NonInteractive, [switch]$NoPause)\nexit 7\n")
+        before = snapshot_files(self.game)
+        code, output = self.run_batch(stdin="Y\n")
+        self.assertEqual(code, 1, output)
+        self.assertIn("Uninstall failed (exit code 7)", output)
+        self.assertNotIn("Install SUCCEEDED", output)
+        self.assertEqual(snapshot_files(self.game), before)
+        self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
 
-        # Uninstall must remove project files and arch dirs but preserve user weights & folder
-        code_un, out_un = self.run_direct(name="Uninstall")
-        self.assertEqual(code_un, 0, out_un)
-        self.assertFalse((self.game / "LmxxfNrRuntime.dll").exists())
-        self.assertFalse((game_mods / "gfx1200").exists())
-        self.assertFalse((game_mods / "gfx1201").exists())
-        self.assertTrue(user_weights.is_file(), "user weights preserved after uninstall")
-        self.assertTrue((user_folder / "info.txt").is_file(), "user folder preserved after uninstall")
-        self.assertTrue(game_mods.is_dir(), "lmxxf-modules directory kept alive by user files")
+    def test_setup_missing_new_uninstaller_preserves_old_install(self):
+        self.ready_legacy_install()
+        (self.package / "Uninstall_OptiScaler_NR.ps1").unlink()
+        before = snapshot_files(self.game)
+        code, output = self.run_batch(stdin="Y\n")
+        self.assertEqual(code, 1, output)
+        self.assertIn("Missing Uninstall_OptiScaler_NR.ps1", output)
+        self.assertEqual(snapshot_files(self.game), before)
 
+    def test_setup_corrupt_package_is_rejected_before_agreed_uninstall(self):
+        self.ready_legacy_install()
+        before = snapshot_files(self.game)
+        damage_modules(self.package / "lmxxf-modules", "corrupt")
+        code, output = self.run_batch(stdin="Y\n")
+        self.assertEqual(code, 1, output)
+        self.assertIn("checksum mismatch", output)
+        self.assertNotIn("Uninstalling the existing", output)
+        self.assertEqual(snapshot_files(self.game), before)
 
-    def test_package_release_rejects_intermediate_generated_hip(self):
+    def test_noninteractive_uninstall_requires_explicit_opt_in(self):
+        self.ready_legacy_install()
+        code, output = self.run_direct(flags=("-NonInteractive", "-UninstallExisting"))
+        self.assertEqual(code, 0, output)
+        self.assertIn("Uninstall SUCCEEDED.", output)
+        self.assertIn("Install SUCCEEDED.", output)
+
+    def test_setup_clean_reinstall_preserves_reused_game_runtime_and_shaders(self):
         self.ready_lmxxf_dual_arch()
-        (self.package / "lmxxf-modules/gfx1200/kernel.generated.hip").write_text("intermediate", encoding="utf-8")
-        source = (REPO / "tools/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
-        # Run the staging validation block against self.package
-        val_block = f"""
-$stage = '{str(self.package).replace('\\', '/')}'
-$forbidden = '(?i)^(nvngx.*\\.dll|dlssnr_amd_pass.*\\.dll|dlssnr_on_amd_weights\\.bin|version\\.dll|dlssnr_on_amd_setup\\.exe|.*\\.generated\\.hip|.*\\.hsaco\\.s)$'
-$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object {{ $_.Name -match $forbidden }}
-if ($badAll) {{
-    throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object {{ $_.FullName.Substring($stage.Length+1) }}) -join ', ')"
-}}
-"""
-        code, out = self.run_process([str(PS), "-NoProfile", "-Command", val_block])
-        self.assertNotEqual(code, 0)
-        self.assertIn("Refusing to package proprietary/user-supplied file", out)
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        (self.package / "LmxxfNrRuntime.dll").unlink()
+        (self.package / "shaders/native_codec_encode.hlsl").unlink()
+        code, output = self.run_batch(stdin="yes\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Uninstall SUCCEEDED.", output)
+        self.assertEqual((self.game / "LmxxfNrRuntime.dll").read_bytes(), b"fixture lmxxf runtime")
+        self.assertTrue((self.game / "shaders/native_codec_encode.hlsl").is_file())
+        self.assertFalse(list(self.game.glob(".amd-presr-source-*")))
 
-    def test_package_release_rejects_intermediate_hsaco_s(self):
+    def test_setup_clean_reinstall_from_package_in_game_preserves_its_sources(self):
         self.ready_lmxxf_dual_arch()
-        (self.package / "lmxxf-modules/gfx1201/kernel.hsaco.s").write_text("assembly", encoding="utf-8")
-        val_block = f"""
-$stage = '{str(self.package).replace('\\', '/')}'
-$forbidden = '(?i)^(nvngx.*\\.dll|dlssnr_amd_pass.*\\.dll|dlssnr_on_amd_weights\\.bin|version\\.dll|dlssnr_on_amd_setup\\.exe|.*\\.generated\\.hip|.*\\.hsaco\\.s)$'
-$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object {{ $_.Name -match $forbidden }}
-if ($badAll) {{
-    throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object {{ $_.FullName.Substring($stage.Length+1) }}) -join ', ')"
-}}
-"""
-        code, out = self.run_process([str(PS), "-NoProfile", "-Command", val_block])
-        self.assertNotEqual(code, 0)
-        self.assertIn("Refusing to package proprietary/user-supplied file", out)
+        (self.package / "dxgi.dll").write_bytes(b"fixture proxy")
+        code, output = self.run_batch(game=self.package, stdin="Y\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Uninstall SUCCEEDED.", output)
+        self.assertTrue((self.package / "LmxxfNrRuntime.dll").is_file())
+        self.assertTrue((self.package / "Uninstall_OptiScaler_NR.ps1").is_file())
+        self.assertTrue((self.package / "lmxxf-module-package.ps1").is_file())
+        self.assertFalse(list(self.package.glob(".amd-presr-source-*")))
 
-    def test_package_release_rejects_flat_root_hsaco_in_staged_modules(self):
+    def test_locked_legacy_module_is_preserved(self):
+        mods = self.ready_legacy_install()
+        before = snapshot_files(self.game)
+        # The old directory cannot move: no partial publication or file cleanup.
+        with locked_file(mods, share=3, directory=True):
+            code, output = self.run_direct()
+        self.assertEqual(code, 1, output)
+        self.assertIn("Could not install lmxxf-modules", output)
+        self.assertEqual(snapshot_files(self.game), before)
+
+    def test_uninstall_then_install_preserves_extra_hsaco(self):
+        mods = self.ready_legacy_install()
+        code, output = self.run_direct(name="Uninstall")
+        self.assertEqual(code, 0, output)
+        self.assertEqual((mods / "user-custom.hsaco").read_bytes(), b"user-owned GPU code")
+        self.assertEqual(list(mods.glob("*.hsaco")), [mods / "user-custom.hsaco"])
+        self.assertTrue((mods / "user_weights.bin").exists())
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        self.assert_custom_module_backed_up()
+        self.assert_dual_arch_installed()
+        self.assertTrue((mods / "user_weights.bin").exists())
+
+    def test_dual_arch_reinstall_and_uninstall_preserve_user_files(self):
         self.ready_lmxxf_dual_arch()
-        (self.package / "lmxxf-modules/legacy.hsaco").write_bytes(b"flat")
-        val_block = f"""
-$stage = '{str(self.package).replace('\\', '/')}'
-$stagedMods = Join-Path $stage 'lmxxf-modules'
-$stagedRootHsaco = @(Get-ChildItem -LiteralPath $stagedMods -Filter '*.hsaco' -File)
-if ($stagedRootHsaco.Count -gt 0) {{
-    throw "Staged lmxxf-modules contains legacy flat .hsaco modules in root: $(($stagedRootHsaco | ForEach-Object {{ $_.Name }}) -join ', ')"
-}}
-"""
-        code, out = self.run_process([str(PS), "-NoProfile", "-Command", val_block])
-        self.assertNotEqual(code, 0)
-        self.assertIn("Staged lmxxf-modules contains legacy flat .hsaco modules in root", out)
+        mods = self.game / "lmxxf-modules"
+        make_modules(mods, marker="old")
+        (mods / "user_extra").mkdir()
+        (mods / "user_extra/info.txt").write_bytes(b"keep me")
+        (mods / "user_weights.bin").write_bytes(b"weights")
+        for _ in range(2):
+            code, output = self.run_direct()
+            self.assertEqual(code, 0, output)
+            self.assertEqual((mods / "user_extra/info.txt").read_bytes(), b"keep me")
+            self.assertEqual((mods / "user_weights.bin").read_bytes(), b"weights")
+        # Extra modules added by the user after installation are not uninstaller-owned.
+        (mods / "gfx1200/user-custom.hsaco").write_bytes(b"extra")
+        code, output = self.run_direct(name="Uninstall")
+        self.assertEqual(code, 0, output)
+        self.assertEqual((mods / "gfx1200/user-custom.hsaco").read_bytes(), b"extra")
+        self.assertFalse((mods / "gfx1200/c32_fast.hsaco").exists())
+        self.assertFalse((mods / "gfx1201").exists())
+        self.assertTrue((mods / "user_extra/info.txt").exists())
+
+    def assert_invalid_package_preserves_install(self, kind):
+        self.ready_lmxxf_dual_arch()
+        make_modules(self.game / "lmxxf-modules", marker="old")
+        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"old runtime")
+        (self.game / "OptiScaler.ini").write_bytes(b"old configuration")
+        # An invalid module input must fail even before a selected external setup runs.
+        (self.package / "dlssnr_on_amd_setup.exe").write_bytes(b"must never be launched")
+        before = snapshot_files(self.game)
+        damage_modules(self.package / "lmxxf-modules", kind)
+        code, output = self.run_direct()
+        self.assertEqual(code, 1, output)
+        self.assertNotIn("Install SUCCEEDED", output)
+        self.assertNotIn("Launching danielblnc setup", output)
+        self.assertEqual(snapshot_files(self.game), before)
+        self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
+        self.assertFalse(list(self.game.glob("backup-amd-presr-*")))
+        return output
+
+    def test_corrupt_module_rejected_before_dll_or_ini_changes(self):
+        self.assertIn("checksum mismatch", self.assert_invalid_package_preserves_install("corrupt"))
+
+    def test_missing_arch_rejected_before_install(self):
+        self.assert_invalid_package_preserves_install("missing-arch")
+
+    def test_missing_root_manifest_cannot_fall_back_to_installed_modules(self):
+        self.assert_invalid_package_preserves_install("missing-root")
+
+    def test_missing_leaf_rejected_before_install(self):
+        self.assert_invalid_package_preserves_install("missing-leaf")
+
+    def test_parent_leaf_mismatch_rejected_before_install(self):
+        self.assert_invalid_package_preserves_install("leaf-mismatch")
+
+    def test_same_count_renamed_module_rejected_before_install(self):
+        self.assert_invalid_package_preserves_install("rename")
+
+    def test_inconsistent_metadata_rejected_before_install(self):
+        self.assert_invalid_package_preserves_install("wrong-metadata")
+
+    def test_locked_source_leaves_old_modules_and_runtime_intact(self):
+        self.ready_lmxxf_dual_arch()
+        make_modules(self.game / "lmxxf-modules", marker="old")
+        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"old runtime")
+        before = snapshot_files(self.game)
+        with locked_file(self.package / "lmxxf-modules/gfx1201/wave-pointwise.hsaco"):
+            code, output = self.run_direct()
+        self.assertEqual(code, 1, output)
+        self.assertEqual(snapshot_files(self.game), before)
+
+    def test_failed_module_directory_switch_leaves_old_install_intact(self):
+        self.ready_lmxxf_dual_arch()
+        mods = make_modules(self.game / "lmxxf-modules", marker="old")
+        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"old runtime")
+        before = snapshot_files(self.game)
+        with locked_file(mods, share=3, directory=True):
+            code, output = self.run_direct()
+        self.assertEqual(code, 1, output)
+        self.assertIn("Could not install lmxxf-modules", output)
+        self.assertEqual(snapshot_files(self.game), before)
+        self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

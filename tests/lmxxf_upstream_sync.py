@@ -11,6 +11,8 @@ import sys
 import tempfile
 import unittest
 
+from lmxxf_fixtures import damage_modules, locked_file, make_modules, snapshot_files
+
 ROOT = Path(__file__).resolve().parents[1]
 PS = os.environ.get('LMXXF_TEST_POWERSHELL', shutil.which('powershell.exe') or shutil.which('pwsh'))
 spec = importlib.util.spec_from_file_location('lmxxf_audit', ROOT / 'tools/audit-lmxxf-enablements.py')
@@ -45,12 +47,18 @@ class Fixture(unittest.TestCase):
         self.config = self.local / audit.CONFIG
         shutil.copytree(ROOT / audit.CONFIG, self.config)
         shutil.copy2(ROOT / 'tools/sync-lmxxf-upstream.ps1', self.local / 'tools')
+        shutil.copy2(ROOT / 'tools/lmxxf-module-package.ps1', self.local / 'tools')
         shutil.copy2(ROOT / 'tools/audit-lmxxf-enablements.py', self.local / 'tools')
         manifest = audit.read_json(self.config / 'manifest.json')
         for name in manifest['headers']:
             content = (ROOT / audit.VENDOR / name).read_text(encoding='utf-8')
             write(self.vendor / name, content)
             write(self.up / name, content)
+        # Independently frozen raw input, shared by the pending and planned commits.
+        reference = ROOT / 'tests/fixtures/lmxxf/hip_reference_network.upstream.h'
+        self.assertEqual(hashlib.sha256(reference.read_bytes()).hexdigest(),
+                         'f06d492cdb16873e618082992a85fa9999007afad16cabaec391dfbfb636518e')
+        shutil.copy2(reference, self.up / 'Development/HIP/hip_reference_network.h')
         # Construct raw upstream from the independently maintained patches.
         for entry in manifest['pinned']:
             git(self.up, 'apply', '--reverse', str(self.config / 'patches' / entry['patch']))
@@ -63,18 +71,15 @@ class Fixture(unittest.TestCase):
             "@{ name = '%s'; defines = @(); sources = @('active.hip') }" % module
             for module in ('multihead-fast-padded-wave', 'multihead-fast-padded-wave-packed')) + '\n)\n'
         kernel = '#ifndef HIP_FFN_LINE_STORES\n#define HIP_FFN_LINE_STORES 0\n#endif\n#if defined(HIP_EXPERIMENT) && HIP_OTHER\n#endif\n'
-        module = b'fixture hsaco bytes'
-        module_hash = hashlib.sha256(module).hexdigest()
+        make_modules(self.vendor / 'modules')
+        module_sums = (self.vendor / 'modules/SHA256SUMS').read_text()
         for owner in (self.up, self.vendor):
             write(owner / 'hip/active.hip', kernel)
             write(owner / 'hip/build-modules.ps1', recipe)
             write(owner / 'hip/rtc_compile.cpp', '// fixture compiler\n')
             write(owner / 'hip/README.md', 'fixture\n')
-            write(owner / 'hip/SHA256SUMS', module_hash + '  gfx1201/test.hsaco\n')
+            write(owner / 'hip/SHA256SUMS', module_sums)
             write(owner / 'shaders/active.hlsl', '// fixture shader\n')
-        (self.vendor / 'modules').mkdir()
-        (self.vendor / 'modules/test.hsaco').write_bytes(module)
-        write(self.vendor / 'modules/SHA256SUMS', module_hash + '  test.hsaco\n')
         write(self.up / 'Development/deployments/prod.ps1', "$defines = @('HIP_FFN_LINE_STORES 1')\n")
         write(self.up / 'Development/HIP/experiments/test.ps1', 'HIP_EXPERIMENT=1\n')
         git(self.up, 'init', '-q')
@@ -173,6 +178,27 @@ class SyncTests(Fixture):
         self.assertIn('bridge.patch', result.stdout)
         self.assertEqual((self.vendor / 'shaders/active.hlsl').read_bytes(), before)
         self.assertEqual((self.vendor / 'Development/HIP/hip_d3d12_bridge.h').read_bytes(), self.pinned['Development/HIP/hip_d3d12_bridge.h'])
+
+    def test_reference_network_patch_applies_to_raw_target_and_survives_resync(self):
+        reference = 'Development/HIP/hip_reference_network.h'
+        raw = (self.up / reference).read_text(encoding='utf-8')
+        self.assertNotIn('PreflightPdl', raw)
+        expected = (self.vendor / reference).read_text(encoding='utf-8')
+        for _ in range(2):
+            result = self.sync()
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual((self.vendor / reference).read_text(encoding='utf-8'), expected)
+            self.assertEqual((self.up / reference).read_text(encoding='utf-8'), raw)
+
+    def test_reference_network_conflict_fails_before_vendor_changes(self):
+        path = self.up / 'Development/HIP/hip_reference_network.h'
+        write(path, path.read_text(encoding='utf-8').replace('unsigned PdlCalls()', 'unsigned ChangedPdlCalls()'))
+        commit(self.up)
+        before = snapshot_files(self.vendor)
+        result = self.sync()
+        self.assert_failed(result)
+        self.assertIn('reference-network.patch', result.stdout)
+        self.assertEqual(snapshot_files(self.vendor), before)
 
     def test_audit_nonzero_never_advances_pin(self):
         result = self.sync(audit_exit=19)
@@ -302,6 +328,13 @@ class AuditTests(Fixture):
         reviewed['decisions'].append(copy.deepcopy(reviewed['decisions'][0]))
         self.assertTrue(audit.validate_review(report, reviewed))
 
+    def test_shared_module_helper_is_bound_to_review(self):
+        report = self.collect()
+        reviewed = self.reviewed(report)
+        helper = self.local / 'tools/lmxxf-module-package.ps1'
+        write(helper, helper.read_text(encoding='utf-8') + '\n# changed module policy\n')
+        self.assertTrue(audit.validate_review(self.collect(), reviewed))
+
     def test_only_unchanged_decisions_are_carried(self):
         report = self.collect()
         reviewed = self.reviewed(report)
@@ -417,144 +450,154 @@ if ($result -isnot [string] -or -not (Test-Path -LiteralPath $result -PathType C
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn('differently', result.stdout)
 
-    def test_corrupt_bundle_fails_before_destination_copy(self):
-        bundle = self.up / 'modules'
-        bundle.mkdir()
-        (bundle / 'test.hsaco').write_bytes(b'corrupt')
-        write(bundle / 'SHA256SUMS', '0' * 64 + '  test.hsaco\n')
-        before = (self.vendor / 'modules/test.hsaco').read_bytes()
+    def test_existing_compiler_is_rebuilt_before_recipe(self):
+        compiler = self.vendor / 'hip/rtc_compile.exe'
+        compiler.write_bytes(b'old compiler')
+        result = self.helpers(self.mock_recipe())
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(compiler.read_text(), 'fixture compiler')
+        self.assertIn('Building rtc_compile.exe', result.stdout)
+
+    def test_compiler_failure_cannot_use_old_executable(self):
+        (self.vendor / 'hip/rtc_compile.exe').write_bytes(b'old compiler')
+        body = self.mock_recipe().replace("$global:LASTEXITCODE = 0", "$global:LASTEXITCODE = 17")
+        result = self.helpers(body)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('Failed to build rtc_compile.exe', result.stdout)
+        self.assertFalse((self.vendor / 'hip/_build_gfx1201').exists())
+
+    def assert_invalid_source(self, kind):
+        bundle = make_modules(self.up / 'modules', marker='new')
+        damage_modules(bundle, kind)
+        before = snapshot_files(self.vendor / 'modules')
         result = self.helpers("Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules 'fixture'\n")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn('checksum mismatch', result.stdout)
-        self.assertEqual((self.vendor / 'modules/test.hsaco').read_bytes(), before)
+        self.assertEqual(snapshot_files(self.vendor / 'modules'), before)
+        return result.stdout
 
-    def test_valid_bundle_removes_retired_modules_and_rehashes(self):
-        bundle = self.up / 'modules'
-        bundle.mkdir()
-        data = b'new module'
-        (bundle / 'new.hsaco').write_bytes(data)
-        expected = hashlib.sha256(data).hexdigest()
-        write(bundle / 'SHA256SUMS', expected + '  new.hsaco\n')
-        write(self.vendor / 'modules/notes.txt', 'local metadata')
-        result = self.helpers("Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules 'fixture'\n")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertFalse((self.vendor / 'modules/test.hsaco').exists())
-        self.assertEqual((self.vendor / 'modules/new.hsaco').read_bytes(), data)
-        self.assertTrue((self.vendor / 'modules/notes.txt').exists())
-        self.assertIn(expected, (self.vendor / 'modules/SHA256SUMS').read_text())
+    def test_corrupt_bundle_fails_before_destination_copy(self):
+        self.assertIn('checksum mismatch', self.assert_invalid_source('corrupt'))
 
-    def test_fingerprint_detects_gfx1200_change(self):
-        bundle = self.folder / 'fingerprint-modules'
-        bundle.mkdir()
-        (bundle / 'gfx1200').mkdir()
-        (bundle / 'gfx1201').mkdir()
-        (bundle / 'gfx1200/test.hsaco').write_bytes(b'gfx1200 v1')
-        (bundle / 'gfx1201/test.hsaco').write_bytes(b'gfx1201 v1')
-        write(bundle / 'gfx1200/SHA256SUMS', hashlib.sha256(b'gfx1200 v1').hexdigest() + '  test.hsaco\n')
-        write(bundle / 'gfx1201/SHA256SUMS', hashlib.sha256(b'gfx1201 v1').hexdigest() + '  test.hsaco\n')
-        fp1_res = self.helpers("Get-TreeFingerprint '" + str(bundle).replace('\\', '/') + "'\n")
-        self.assertEqual(fp1_res.returncode, 0, fp1_res.stdout)
-        fp1 = fp1_res.stdout.strip()
-        # Modify only gfx1200
-        (bundle / 'gfx1200/test.hsaco').write_bytes(b'gfx1200 v2')
-        fp2_res = self.helpers("Get-TreeFingerprint '" + str(bundle).replace('\\', '/') + "'\n")
-        self.assertEqual(fp2_res.returncode, 0, fp2_res.stdout)
-        fp2 = fp2_res.stdout.strip()
-        self.assertNotEqual(fp1, fp2)
+    def test_missing_arch_fails_before_destination_copy(self):
+        self.assert_invalid_source('missing-arch')
+
+    def test_invalid_source_does_not_create_destination(self):
+        bundle = make_modules(self.up / 'modules')
+        damage_modules(bundle, 'missing-arch')
+        result = self.helpers("Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') (Join-Path $env:LMXXF_FIXTURE_VENDOR 'new-modules') 'fixture'")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertFalse((self.vendor / 'new-modules').exists())
+
+    def test_missing_root_manifest_fails_before_destination_copy(self):
+        self.assert_invalid_source('missing-root')
+
+    def test_missing_leaf_manifest_fails_before_destination_copy(self):
+        self.assert_invalid_source('missing-leaf')
+
+    def test_missing_metadata_fails_before_destination_copy(self):
+        self.assert_invalid_source('missing-metadata')
+
+    def test_parent_leaf_mismatch_fails_before_destination_copy(self):
+        self.assert_invalid_source('root-mismatch')
+
+    def test_unrecognized_same_count_set_fails_before_destination_copy(self):
+        self.assert_invalid_source('rename')
+
+    def test_unsafe_module_source_fails_before_destination_copy(self):
+        self.assert_invalid_source('traversal')
+
+    def test_incomplete_destination_root_cannot_pass_final_audit_or_stale_waiver(self):
+        damage_modules(self.vendor / 'modules', 'incomplete-root')
+        for suffix in ('', ' -allowStale'):
+            result = self.helpers("Assert-ModulesMatchHipSums $modules (Join-Path $hip 'SHA256SUMS')" + suffix)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn('Incomplete module SHA256SUMS', result.stdout)
+        before = (self.vendor / 'hip/SHA256SUMS').read_bytes()
+        result = self.helpers("Merge-HipSums (Join-Path $hip 'SHA256SUMS') (Join-Path $hip 'SHA256SUMS') $modules")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.vendor / 'hip/SHA256SUMS').read_bytes(), before)
 
     def test_dual_arch_bundle_sync_and_validation(self):
-        bundle = self.up / 'dual_modules'
-        bundle.mkdir()
-        (bundle / 'gfx1200').mkdir()
-        (bundle / 'gfx1201').mkdir()
-        data_1200 = b'gfx1200 code'
-        data_1201 = b'gfx1201 code'
-        (bundle / 'gfx1200/m1200.hsaco').write_bytes(data_1200)
-        (bundle / 'gfx1201/m1201.hsaco').write_bytes(data_1201)
-        h1200 = hashlib.sha256(data_1200).hexdigest()
-        h1201 = hashlib.sha256(data_1201).hexdigest()
-        write(bundle / 'gfx1200/SHA256SUMS', f'{h1200}  m1200.hsaco\n')
-        write(bundle / 'gfx1201/SHA256SUMS', f'{h1201}  m1201.hsaco\n')
-        write(bundle / 'SHA256SUMS', f'{h1200}  gfx1200/m1200.hsaco\n{h1201}  gfx1201/m1201.hsaco\n')
-        write(bundle / 'modules.json', '{"targets": ["gfx1200", "gfx1201"]}')
+        bundle = make_modules(self.up / 'modules', marker='new')
         write(self.vendor / 'modules/notes.txt', 'local metadata')
-        
-        result = self.helpers("Sync-LmxxfModules '" + str(bundle).replace('\\', '/') + "' $modules 'fixture'\n")
+        result = self.helpers("""
+Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules 'fixture'
+Merge-HipSums (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'hip/SHA256SUMS') (Join-Path $hip 'SHA256SUMS') $modules
+if (-not (Assert-ModulesMatchHipSums $modules (Join-Path $hip 'SHA256SUMS'))) { throw 'Final audit failed' }
+""")
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual((self.vendor / 'modules/gfx1200/m1200.hsaco').read_bytes(), data_1200)
-        self.assertEqual((self.vendor / 'modules/gfx1201/m1201.hsaco').read_bytes(), data_1201)
+        for arch in ('gfx1200', 'gfx1201'):
+            for path in (bundle / arch).glob('*.hsaco'):
+                self.assertEqual((self.vendor / 'modules' / arch / path.name).read_bytes(), path.read_bytes())
+        self.assertEqual((self.vendor / 'modules/SHA256SUMS').read_bytes(), (bundle / 'SHA256SUMS').read_bytes())
         self.assertTrue((self.vendor / 'modules/notes.txt').exists())
-        sums_text = (self.vendor / 'modules/SHA256SUMS').read_text()
-        self.assertIn(f'{h1200}  gfx1200/m1200.hsaco', sums_text)
-        self.assertIn(f'{h1201}  gfx1201/m1201.hsaco', sums_text)
 
-    def test_corrupt_dual_arch_bundle_fails_before_destination_copy(self):
-        bundle = self.up / 'bad_dual_modules'
-        bundle.mkdir()
-        (bundle / 'gfx1200').mkdir()
-        (bundle / 'gfx1201').mkdir()
-        (bundle / 'gfx1200/m1200.hsaco').write_bytes(b'good')
-        (bundle / 'gfx1201/m1201.hsaco').write_bytes(b'corrupted')
-        h1200 = hashlib.sha256(b'good').hexdigest()
-        h1201 = hashlib.sha256(b'different').hexdigest()
-        write(bundle / 'gfx1200/SHA256SUMS', f'{h1200}  m1200.hsaco\n')
-        write(bundle / 'gfx1201/SHA256SUMS', f'{h1201}  m1201.hsaco\n')
-        write(bundle / 'SHA256SUMS', f'{h1200}  gfx1200/m1200.hsaco\n{h1201}  gfx1201/m1201.hsaco\n')
-        
-        before = (self.vendor / 'modules/test.hsaco').read_bytes()
-        result = self.helpers("Sync-LmxxfModules '" + str(bundle).replace('\\', '/') + "' $modules 'fixture'\n")
+    def test_build_output_metadata_added_before_publish(self):
+        bundle = make_modules(self.up / 'modules', marker='new', runtime_manifest=False)
+        result = self.helpers("""
+$dest = Join-Path $env:LMXXF_FIXTURE_VENDOR 'new-modules'
+Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $dest 'fixture'
+Assert-LmxxfModulePackage $dest
+""")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse((bundle / 'runtime-manifest.json').exists())
+        metadata = json.loads((self.vendor / 'new-modules/runtime-manifest.json').read_text())
+        self.assertEqual(metadata['upstream_commit'], 'fixture')
+        self.assertEqual(metadata['module_count'], 48)
+
+    def test_destination_trailing_separator_is_normalized(self):
+        make_modules(self.up / 'modules', marker='new')
+        result = self.helpers("Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') ($modules + [IO.Path]::DirectorySeparatorChar) 'fixture'")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(list((self.vendor / 'modules').glob('.lmxxf-stage-*')))
+        self.assertEqual((self.vendor / 'modules/gfx1200/c32_fast.hsaco').read_bytes(),
+                         (self.up / 'modules/gfx1200/c32_fast.hsaco').read_bytes())
+
+    def test_locked_source_does_not_modify_destination(self):
+        bundle = make_modules(self.up / 'modules', marker='new')
+        before = snapshot_files(self.vendor / 'modules')
+        with locked_file(bundle / 'gfx1201/wave-pointwise.hsaco'):
+            result = self.helpers("Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules 'fixture'")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn('checksum mismatch', result.stdout)
-        self.assertEqual((self.vendor / 'modules/test.hsaco').read_bytes(), before)
-        self.assertFalse((self.vendor / 'modules/gfx1200').exists())
+        self.assertEqual(snapshot_files(self.vendor / 'modules'), before)
 
-    def test_uninstall_dual_arch_modules_preserves_user_files(self):
-        game = self.folder / 'game_for_uninstall'
-        game.mkdir()
-        mods = game / 'lmxxf-modules'
-        mods.mkdir()
-        g1200 = mods / 'gfx1200'
-        g1201 = mods / 'gfx1201'
-        g1200.mkdir()
-        g1201.mkdir()
+    def test_publish_failure_restores_previous_directory(self):
+        make_modules(self.up / 'modules', marker='new')
+        before = snapshot_files(self.vendor / 'modules')
+        result = self.helpers("""
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class StageLock {
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern IntPtr CreateFileW(string p, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
+    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+}
+'@
+$stage = New-LmxxfModuleStage (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules
+$handle = [StageLock]::CreateFileW($stage, [uint32]2147483648, 3, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
+if ($handle -eq [IntPtr](-1)) { throw 'Could not lock stage directory' }
+$rejected = $false
+try {
+    try { Publish-LmxxfModuleStage $stage $modules }
+    catch { $rejected = $true }
+} finally {
+    [void][StageLock]::CloseHandle($handle)
+    Remove-LmxxfTemporaryTree $stage (Split-Path -Parent $stage)
+}
+if (-not $rejected) { throw 'Locked stage was unexpectedly published' }
+""")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(snapshot_files(self.vendor / 'modules'), before)
+        self.assertFalse(list(self.vendor.glob('.lmxxf-previous-*')))
 
-        # Installer files
-        (g1200 / 'k1.hsaco').write_bytes(b'k1 code')
-        (g1201 / 'k2.hsaco').write_bytes(b'k2 code')
-        h1 = hashlib.sha256(b'k1 code').hexdigest()
-        h2 = hashlib.sha256(b'k2 code').hexdigest()
-        write(g1200 / 'SHA256SUMS', f'{h1}  k1.hsaco\n')
-        write(g1201 / 'SHA256SUMS', f'{h2}  k2.hsaco\n')
-        write(mods / 'SHA256SUMS', f'{h1}  gfx1200/k1.hsaco\n{h2}  gfx1201/k2.hsaco\n')
-        write(mods / 'modules.json', '{}')
-        write(g1200 / 'modules.json', '{}')
-
-        # User files that must NOT be removed
-        user_file_arch = g1200 / 'user_weights.bin'
-        user_file_arch.write_bytes(b'weights')
-        user_file_root = mods / 'user_config.bin'
-        user_file_root.write_bytes(b'config')
-
-        script = ROOT / 'tools/uninstall-amd-presr.ps1'
-        cmd = [PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script),
-               '-GameDir', str(game), '-NonInteractive']
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-
-        # Installer files deleted
-        self.assertFalse((g1200 / 'k1.hsaco').exists())
-        self.assertFalse((g1201 / 'k2.hsaco').exists())
-        self.assertFalse((g1201 / 'SHA256SUMS').exists())
-        self.assertFalse((mods / 'SHA256SUMS').exists())
-        self.assertFalse((mods / 'modules.json').exists())
-        # Empty arch dir removed
-        self.assertFalse(g1201.exists())
-
-        # User files and containing dirs preserved
-        self.assertTrue(user_file_arch.exists())
-        self.assertTrue(user_file_root.exists())
-        self.assertTrue(g1200.exists())
-        self.assertTrue(mods.exists())
+    def test_fingerprint_detects_gfx1200_change(self):
+        fp1 = self.helpers("Get-TreeFingerprint $modules")
+        self.assertEqual(fp1.returncode, 0, fp1.stdout)
+        (self.vendor / 'modules/gfx1200/c32_fast.hsaco').write_bytes(b'changed')
+        fp2 = self.helpers("Get-TreeFingerprint $modules")
+        self.assertEqual(fp2.returncode, 0, fp2.stdout)
+        self.assertNotEqual(fp1.stdout.strip(), fp2.stdout.strip())
 
 
 class AuditCliTests(Fixture):

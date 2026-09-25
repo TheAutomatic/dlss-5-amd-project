@@ -72,12 +72,21 @@ if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
 }
 $game = (Resolve-Path -LiteralPath $GameDir).Path
 
+# New packages share the controlled module names. A standalone copied uninstaller
+# can still use the installed manifests; it never claims ownership by extension.
+$moduleHelper = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
+$controlledModules = @()
+if (Test-Path -LiteralPath $moduleHelper -PathType Leaf) {
+    . $moduleHelper
+    $controlledModules = @(Get-LmxxfModuleNames)
+}
+
 # File names this project installs. Proxy names are deleted only when the file is OptiScaler.
 $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','wininet.dll','dbghelp.dll')
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
     'OptiScaler.ini','amd-presr-install.txt',
-    'LmxxfNrRuntime.dll',
+    'LmxxfNrRuntime.dll', 'lmxxf-module-package.ps1',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'Uninstall.bat','Uninstall.ps1'
 )
@@ -401,17 +410,17 @@ foreach ($root in $roots) {
                     $line = $_.Trim()
                     if (-not $line) { return }
                     $parts = $line -split '\s+', 2
-                    if ($parts.Count -ge 2) {
-                        $raw = $parts[1].Trim()
+                    if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9a-fA-F]{64}$') {
+                        $raw = $parts[1].Trim().TrimStart('*')
                         # Accept root or single-arch relative paths: e.g. foo.hsaco or gfx1201/foo.hsaco
-                        if ($raw -match '(?i)^((gfx[0-9a-z]+[/\\])?[^/\\:*?"<>|]+\.hsaco)$' -and $raw -notmatch '\.\.') {
+                        if ($raw -match '(?i)^(((?:gfx1200|gfx1201)[/\\])?[^/\\:*?"<>|]+\.hsaco)$' -and $raw -notmatch '\.\.') {
                             $manifestNames.Add($raw.Replace('/', '\'))
                         }
                     }
                 }
             }
-            # Sweep known architecture subdirectories (gfx1200, gfx1201, etc.)
-            $archDirs = @(Get-ChildItem -LiteralPath $lmxxfMods -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^gfx[0-9a-zA-Z]+$' })
+            # Only the two supported architecture directories are project-owned.
+            $archDirs = @(Get-ChildItem -LiteralPath $lmxxfMods -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('gfx1200', 'gfx1201') })
             foreach ($arch in $archDirs) {
                 if (Test-TreeReparse $arch.FullName) {
                     $kept.Add("linked path: $($arch.FullName)")
@@ -424,23 +433,21 @@ foreach ($root in $roots) {
                         $line = $_.Trim()
                         if (-not $line) { return }
                         $parts = $line -split '\s+', 2
-                        if ($parts.Count -ge 2) {
-                            $raw = $parts[1].Trim()
+                        if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9a-fA-F]{64}$') {
+                            $raw = $parts[1].Trim().TrimStart('*')
                             if ($raw -match '(?i)^[^/\\:*?"<>|]+\.hsaco$' -and $raw -notmatch '\.\.') {
                                 $manifestNames.Add($arch.Name + '\' + $raw)
                             }
                         }
                     }
                 }
-                Get-ChildItem -LiteralPath $arch.FullName -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
-                    ForEach-Object { $manifestNames.Add($arch.Name + '\' + $_.Name) }
+                foreach ($name in $controlledModules) { $manifestNames.Add($arch.Name + '\' + $name) }
                 foreach ($extra in @('SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md')) {
                     $manifestNames.Add($arch.Name + '\' + $extra)
                 }
             }
-            # Also safely sweep any .hsaco code modules in lmxxf-modules root (legacy flat)
-            Get-ChildItem -LiteralPath $lmxxfMods -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
-                ForEach-Object { $manifestNames.Add($_.Name) }
+            # Legacy flat installs own only recorded or controlled module names.
+            foreach ($name in $controlledModules) { $manifestNames.Add($name) }
             foreach ($extra in @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')) {
                 $manifestNames.Add($extra)
             }

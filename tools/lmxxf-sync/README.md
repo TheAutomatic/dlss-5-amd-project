@@ -36,7 +36,7 @@
 
 ## 补丁维护
 
-`patches/bridge.patch`、`reflect.patch`、`input-geometry.patch` 是三个独立的标准 unified diff，基于 `3d9b3e42f3529609f824506c8d385bdd00b3e70c` 生成。输入尺寸补丁保留现有 2560 宽、1080 高和 1920×1080 像素预算限制。`reference-network.patch` 仅补 `<algorithm>`；当前上游已包含它，脚本会检查后跳过。
+`patches/bridge.patch`、`reflect.patch`、`input-geometry.patch` 是三个独立的标准 unified diff，基于 `3d9b3e42f3529609f824506c8d385bdd00b3e70c` 生成。输入尺寸补丁保留现有 2560 宽、1080 高和 1920×1080 像素预算限制。`reference-network.patch` 基于 pending 目标 `24986ae094bbd150f4d86a0ca76159a43f374884` 的原始 Network，只维护本地 PDL preflight、状态查询和分配失败清理。该头文件在计划目标 `f812188b9f8df92275bb15e1ed26518d5466053e` 中字节相同；测试使用 `tests/fixtures/lmxxf/hip_reference_network.upstream.h` 保存的原始快照验证应用，不能用已打补丁的 vendor 文件伪装上游输入。每次都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
 更新固定头文件时，先对临时归档执行 `git apply --check`，成功后应用，再检查本地契约。任何 hunk 对不上均停止，不使用模糊替换、`--reject` 或部分应用。上游挪动上下文、改变契约或吸收了补丁时，在临时干净副本中重新审阅和生成对应 `.patch`，检查 diff 仅含预期修改，再验证 Runtime/相关测试。主同步脚本中不再存放 C++ 代码替换字符串。
 
@@ -48,6 +48,7 @@
 - `-SkipEnablementAudit` 仅供无 Python 机器准备源码以便后续审阅：返回 0 表示准备完成，状态仍为 pending，不构建、不前移完成 pin，也不打印同步完成。后续必须不带该开关重新执行。
 - `-SkipBuild`、`-SkipModules`、`-AllowStaleModules` 是明确的验证例外，必须在审阅中说明并安排后续验证。跳过构建绝不意味着产物已可发布。
 - 首次使用此流程还没有模块验证基线，需构建模块，或明确使用 `-AllowStaleModules` 并记录后续验证；不能仅因当次源码没有变化就认定已有模块有效。
+- `-ModulesPath` 只接受完整的 gfx1200 + gfx1201 构建树/模块包：两架构各 24 个受控模块、根/叶子 `SHA256SUMS` 和两份 `modules.json` 必须一致。上游构建树可不含产品 `runtime-manifest.json`，同步时在候选目录补齐；安装和打包则必须已经包含它。缺少一个架构、清单不完整、哈希错配或链接路径均在目标改变前失败；`-AllowStaleModules` 不能绕过包完整性校验。旧扁平目标需先移出同步目录。
 - `-ModulesPath` 把提供模块的实际内容绑定到审阅记录，校验提供目录的摘要并刷新模块；摘要只证明字节一致，不能证明这些字节由当前源码生成，构建来源也需人工/AI审阅。
 - 源码复制之后的失败会保留待审阅状态，方便分步接入。不要删除 `sync-state.json` 来清除失败；它保留失败前模块比较基线，防止第二次运行误把旧模块认作新源码的产物。审阅通过后也不会用一个允许旧模块的例外把这些模块标成已验证。
 - `UPSTREAM.md` 的 pin 是最近完成的同步。pending 时用 `sync-state.json` 的 `to_commit` 查看正在接入哪个版本。提交接入变更时同时保留审阅记录和状态记录，避免其他 checkout 丢失上下文。

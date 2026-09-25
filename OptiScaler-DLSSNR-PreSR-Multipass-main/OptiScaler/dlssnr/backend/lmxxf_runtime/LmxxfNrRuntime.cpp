@@ -96,30 +96,59 @@ std::wstring JoinPath(const std::wstring &dir, const wchar_t *name)
     if (!out.empty() && out.back() != L'\\' && out.back() != L'/')
         out += L'\\';
     out += name;
+    // Extended Win32 paths do not translate '/' for us. Manifest paths use '/'.
+    std::replace(out.begin(), out.end(), L'/', L'\\');
     return out;
 }
 
-bool IsReparsePoint(const std::wstring &path)
+bool FullPath(const std::wstring &path, std::wstring *out)
 {
-    DWORD attr = GetFileAttributesW(path.c_str());
-    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    const DWORD required = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
+    if (!required || required > 32768)
+        return false;
+    std::vector<wchar_t> buffer(required);
+    const DWORD written = GetFullPathNameW(path.c_str(), required, buffer.data(), nullptr);
+    if (!written || written >= required)
+        return false;
+    out->assign(buffer.data(), written);
+    std::replace(out->begin(), out->end(), L'/', L'\\');
+    return true;
 }
 
 bool IsPathSafelyContained(const std::wstring &rootDir, const std::wstring &subPath)
 {
-    wchar_t rootCanonical[MAX_PATH] = {};
-    if (!GetFullPathNameW(rootDir.c_str(), MAX_PATH, rootCanonical, nullptr))
+    std::wstring rootCanonical, combinedCanonical;
+    if (!FullPath(rootDir, &rootCanonical) ||
+        !FullPath(JoinPath(rootCanonical, subPath.c_str()), &combinedCanonical))
         return false;
-    std::wstring combined = JoinPath(rootCanonical, subPath.c_str());
-    wchar_t combinedCanonical[MAX_PATH] = {};
-    if (!GetFullPathNameW(combined.c_str(), MAX_PATH, combinedCanonical, nullptr))
+
+    // Include the separator in the prefix. This also handles drive/UNC roots and
+    // an explicitly supplied trailing slash without indexing into the child name.
+    const std::wstring prefix = JoinPath(rootCanonical, L"");
+    if (combinedCanonical.size() <= prefix.size() ||
+        _wcsnicmp(prefix.c_str(), combinedCanonical.c_str(), prefix.size()) != 0)
         return false;
-    size_t rootLen = wcslen(rootCanonical);
-    if (_wcsnicmp(rootCanonical, combinedCanonical, rootLen) != 0)
+
+    // GetFullPathNameW is lexical. Check the root and every component before
+    // opening manifests or modules so a directory junction cannot escape it.
+    const DWORD rootAttr = GetFileAttributesW(rootCanonical.c_str());
+    if (rootAttr == INVALID_FILE_ATTRIBUTES || !(rootAttr & FILE_ATTRIBUTE_DIRECTORY) ||
+        (rootAttr & FILE_ATTRIBUTE_REPARSE_POINT))
         return false;
-    if (combinedCanonical[rootLen] != L'\\' && combinedCanonical[rootLen] != L'\0')
-        return false;
-    return true;
+    size_t pos = prefix.size();
+    for (;;)
+    {
+        const size_t next = combinedCanonical.find(L'\\', pos);
+        const std::wstring component = combinedCanonical.substr(0, next);
+        const DWORD attr = GetFileAttributesW(component.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT))
+            return false;
+        if (next == std::wstring::npos)
+            return true;
+        if (!(attr & FILE_ATTRIBUTE_DIRECTORY))
+            return false;
+        pos = next + 1;
+    }
 }
 
 namespace Sha256Detail
@@ -611,6 +640,16 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
     }
 
     const std::wstring sumsPath = JoinPath(modulesDir, L"SHA256SUMS");
+    if (FileExists(sumsPath) && !IsPathSafelyContained(modulesDir, L"SHA256SUMS"))
+        return Fail(LMXXF_NR_UNAVAILABLE, "Create: unsafe module manifest path (symlink/junction/reparse point): SHA256SUMS");
+    // These metadata files are optional to the v1 ABI, but must obey the same
+    // path contract whenever supplied alongside the checksum manifests.
+    for (const wchar_t *relative : {L"runtime-manifest.json", L"modules.json",
+                                   L"gfx1200\\modules.json", L"gfx1201\\modules.json"})
+    {
+        if (FileExists(JoinPath(modulesDir, relative)) && !IsPathSafelyContained(modulesDir, relative))
+            return Fail(LMXXF_NR_UNAVAILABLE, "Create: unsafe module metadata path (symlink/junction/reparse point)");
+    }
     HANDLE file = CreateFileW(sumsPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE)
@@ -750,7 +789,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         const char *const archList[2] = {"gfx1200", "gfx1201"};
         for (const char *arch : archList)
         {
-            const std::wstring leafPath = JoinPath(JoinPath(modulesDir, Widen(arch).c_str()), L"SHA256SUMS");
+            const std::wstring leafRelative = JoinPath(Widen(arch), L"SHA256SUMS");
+            const std::wstring leafPath = JoinPath(modulesDir, leafRelative.c_str());
+            if (FileExists(leafPath) && !IsPathSafelyContained(modulesDir, leafRelative))
+                return Fail(LMXXF_NR_UNAVAILABLE, "Create: unsafe leaf manifest path (symlink/junction/reparse point)");
             HANDLE leafFile = CreateFileW(leafPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                           FILE_ATTRIBUTE_NORMAL, nullptr);
             if (leafFile == INVALID_HANDLE_VALUE)
@@ -874,22 +916,16 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         std::wstring wrel = Widen(relPath);
         std::wstring full = JoinPath(modulesDir, wrel.c_str());
 
-        if (!IsPathSafelyContained(modulesDir, wrel))
-        {
-            return Fail(LMXXF_NR_UNAVAILABLE,
-                        ("Create: unsafe module path escape: " + relPath).c_str());
-        }
-
         DWORD attr = GetFileAttributesW(full.c_str());
         if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
                         ("Create: module file missing: " + relPath).c_str());
         }
-        if (attr & FILE_ATTRIBUTE_REPARSE_POINT)
+        if (!IsPathSafelyContained(modulesDir, wrel))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        ("Create: module file is a symlink/reparse point: " + relPath).c_str());
+                        ("Create: unsafe module path (escape/symlink/junction/reparse point): " + relPath).c_str());
         }
 
         std::string computedSha;

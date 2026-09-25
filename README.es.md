@@ -98,10 +98,12 @@ Prepare cualquiera de los backends (o ambos para instalación conjunta):
 
 #### Opción A: [Preparar archivos del backend `lmxxf`](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [haga clic aquí](https://gofile.io/d/RyvcrDxz) para descargar los pesos
 - `LmxxfNrRuntime.dll` (del lanzamiento del proyecto o del [repositorio upstream de lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
-- Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 24 módulos `.hsaco` cada uno y un total de 48 módulos; selección automática según GPU D3D12/HIP y migración automática desde versiones planas anteriores);
+- Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 24 módulos `.hsaco` cada uno y un total de 48 módulos; selección automática según GPU D3D12/HIP; el instalador valida el paquete completo y permite actualizar las instalaciones planas anteriores);
 - Carpeta de shaders `shaders\` (con los archivos `.hlsl`);
 - Carpeta de pesos `native-game-tiled-assets\` (se puede descargar [aquí](https://gofile.io/d/RyvcrDxz));
 - Coloque estos elementos en la misma carpeta descomprimida junto a `Setup.bat`.
+
+Para actualizar, ejecute `Setup.bat` del paquete nuevo y seleccione la carpeta del juego. Si detecta OptiScaler, el instalador recomienda desinstalarlo primero para evitar conflictos entre los archivos nuevos, la estructura de módulos y la configuración anterior. Elija **Y (Recomendado)** para ejecutar automáticamente el desinstalador nuevo y continuar con la instalación, o **N** para sobrescribir la instalación existente. La desinstalación restablece la configuración de OptiScaler y conserva los pesos y las copias de seguridad existentes. La actualización guarda la carpeta de módulos anterior; los archivos `.hsaco` adicionales se conservan en `backup-amd-presr-*/lmxxf-modules`, en la ruta indicada al terminar, mientras que los demás archivos compatibles del usuario permanecen en su sitio.
 
 #### Opción B: [Preparar archivos del backend `danielblnc`](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
 - `dlssnr_on_amd_setup.exe` y `nvngx_dlssnr.dll` (de los [Releases de danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD/releases); el instalador genera los pesos automáticamente);
@@ -117,8 +119,9 @@ Prepare cualquiera de los backends (o ambos para instalación conjunta):
 3. **Asegúrese de que el juego no se esté ejecutando**;
 4. **Haga doble clic en `Setup.bat`**:
    - Seleccione el directorio del ejecutable de su juego (ej. `...\Binaries\Win64\`);
-   - Si se detectan ambos backends, elija cuál instalar o instale ambos;
+   - Si OptiScaler ya está instalado, elija **Y** para desinstalarlo automáticamente antes de instalar (recomendado), o **N** para sobrescribir;
    - Seleccione el nombre del DLL proxy (predeterminado `dxgi.dll`, recomendado; también se admiten `winmm.dll`, `d3d12.dll`; **no use `dinput8.dll`**);
+   - Si se detectan ambos backends, elija cuál instalar o instale ambos;
    - El instalador configura los proxies, elimina archivos duplicados en conflicto y configura `OptiScaler.ini`.
 
 ---

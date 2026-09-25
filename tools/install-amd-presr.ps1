@@ -32,12 +32,31 @@ param(
     [string]$Root,
     [string]$AuthorDll,
     [switch]$NonInteractive,
+    # Explicit opt-in for unattended clean reinstall. Otherwise unattended setup overwrites.
+    [switch]$UninstallExisting,
     # Setup.bat owns the final pause; keep all folder/proxy/confirmation prompts.
     [switch]$NoPause
 )
 $ErrorActionPreference = 'Stop'
+$lmxxfStage = $null
+$setupSourceStage = $null
 
 function Pause-Exit([int]$code) {
+    if ($lmxxfStage) {
+        try { Remove-LmxxfTemporaryTree $lmxxfStage ([IO.Path]::GetDirectoryName($lmxxfStage)) }
+        catch { Write-Warning "Module staging cleanup failed: $($_.Exception.Message)" }
+    }
+    if ($setupSourceStage) {
+        try {
+            $full = Assert-LmxxfUnlinkedPath $setupSourceStage
+            if ([IO.Path]::GetDirectoryName($full) -ine (Assert-LmxxfUnlinkedPath $game) -or
+                [IO.Path]::GetFileName($full) -notmatch '^\.amd-presr-source-[0-9a-f]{32}$') {
+                throw "Unexpected installer source staging path: $full"
+            }
+            $null = @(Get-LmxxfUnlinkedFiles $full)
+            Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+        } catch { Write-Warning "Installer source cleanup failed: $($_.Exception.Message)" }
+    }
     if (-not $NonInteractive -and -not $NoPause) {
         Write-Host ''
         Write-Host 'Press any key to exit...'
@@ -57,6 +76,8 @@ function Fail([string]$msg) {
 # an invalid danielblnc setup executable). The batch also catches parser/parameter
 # binding failures, which happen before this script body can run.
 trap { Fail ("Unexpected install error: " + $_.Exception.Message) }
+
+. (Join-Path $PSScriptRoot 'lmxxf-module-package.ps1')
 
 # $Root must not be a param default of $PSScriptRoot: when invoked via powershell -File,
 # $PSScriptRoot is not yet assigned during parameter binding (assigned inside script body).
@@ -112,6 +133,48 @@ function Ask-Choice([string]$title, [string[]]$options) {
         if ([int]::TryParse($ans, [ref]$n) -and $n -ge 1 -and $n -le $options.Count) { return $n }
         Write-Host 'Invalid choice.'
     } while ($true)
+}
+
+function Ask-UninstallExisting {
+    Write-Host ''
+    Write-Host "Existing OptiScaler installation detected in: $game" -ForegroundColor Yellow
+    Write-Host 'Recommended: uninstall before installing this version to avoid conflicts with old files and settings.' -ForegroundColor Yellow
+    Write-Host '  Y = uninstall automatically, then install (Recommended; resets OptiScaler settings)'
+    Write-Host '  N = continue with an overwrite installation'
+    Write-Host 'Weights and existing backup folders will be kept.'
+    while ($true) {
+        $answer = (Read-Host 'Uninstall before installing? [Y/N]').Trim()
+        if ($answer -match '^(?i)y(es)?$') { return $true }
+        if ($answer -match '^(?i)n(o)?$') { return $false }
+        Write-Host 'Please type Y or N (not case sensitive).'
+    }
+}
+
+# An install can reuse runtime/shader files from the game, or even run from a
+# package extracted there. Preserve just the sources we need before uninstalling;
+# never recursively copy the entire game folder.
+function Save-ReinstallSource([string]$Path) {
+    if (-not $Path) { return $null }
+    $full = [IO.Path]::GetFullPath($Path)
+    $prefix = $game.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $Path }
+    $null = Assert-LmxxfUnlinkedPath $full
+    if (-not $script:setupSourceStage) {
+        $script:setupSourceStage = Join-Path $game ('.amd-presr-source-' + [guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($script:setupSourceStage)
+    }
+    $dest = Join-Path $script:setupSourceStage $full.Substring($prefix.Length)
+    if (Test-Path -LiteralPath $full -PathType Container) {
+        $null = @(Get-LmxxfUnlinkedFiles $full)
+        [void][IO.Directory]::CreateDirectory($dest)
+        Get-ChildItem -LiteralPath $full -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force -ErrorAction Stop
+        }
+    } else {
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($dest))
+        Copy-Item -LiteralPath $full -Destination $dest -Force -ErrorAction Stop
+    }
+    return $dest
 }
 
 function Ask-GameFolder {
@@ -253,25 +316,14 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
     }
 }
 
-# Interactive proxy pick (like older 1.7.x installers). dinput8 is invalid for this build.
-if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Proxy')) {
-    $proxyOptions = @(
-        'dxgi.dll (default; if the game fails to start, try winmm.dll)',
-        'winmm.dll (recommended by some games)',
-        'd3d12.dll',
-        'winhttp.dll',
-        'wininet.dll',
-        'dbghelp.dll'
-    )
-    $pi = Ask-Choice 'Which proxy DLL should OptiScaler install as?' $proxyOptions
-    $Proxy = ($proxyOptions[$pi - 1] -split '\s+')[0]
-    Write-Host "Selected proxy: $Proxy"
-}
-
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
     Fail "Game folder not found: $GameDir"
 }
 $game = (Resolve-Path -LiteralPath $GameDir).Path
+$proxies = @(
+    'dxgi.dll','winmm.dll','d3d12.dll','version.dll',
+    'winhttp.dll','wininet.dll','dbghelp.dll','dinput8.dll'
+)
 
 # Store packages: WindowsApps is not a writable install target (ACL / TrustedInstaller).
 if ($game -match '(?i)\\WindowsApps\\') {
@@ -304,7 +356,7 @@ function Test-FileLocked([string]$path) {
 }
 
 $locked = @()
-foreach ($name in @($Proxy, 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin')) {
+foreach ($name in ($proxies + @('LmxxfNrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
     $p = Join-Path $game $name
     if (Test-FileLocked $p) { $locked += $name }
 }
@@ -346,6 +398,35 @@ OptiScaler.dll sits next to Setup.ps1.
 "@
 }
 
+# Ask once, immediately after selecting and checking the game folder. The actual
+# uninstall waits until the new package and any reusable sources are ready.
+$existingOpti = @($proxies | Where-Object { Test-OptiProxy (Join-Path $game $_) }).Count -gt 0
+$existingRecord = Join-Path $game 'amd-presr-install.txt'
+if (-not $existingOpti -and (Test-Path -LiteralPath $existingRecord -PathType Leaf)) {
+    $existingOpti = [IO.File]::ReadAllText($existingRecord) -match '(?m)^project=OptiScaler AMD pre-SR\r?$'
+}
+$uninstallFirst = $false
+if ($existingOpti) {
+    if ($UninstallExisting) { $uninstallFirst = $true }
+    elseif (-not $NonInteractive) { $uninstallFirst = Ask-UninstallExisting }
+    if (-not $uninstallFirst) { Write-Host 'Continuing with an overwrite installation.' -ForegroundColor Cyan }
+}
+
+# Interactive proxy pick (like older 1.7.x installers). dinput8 is invalid for this build.
+if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Proxy')) {
+    $proxyOptions = @(
+        'dxgi.dll (default; if the game fails to start, try winmm.dll)',
+        'winmm.dll (recommended by some games)',
+        'd3d12.dll',
+        'winhttp.dll',
+        'wininet.dll',
+        'dbghelp.dll'
+    )
+    $pi = Ask-Choice 'Which proxy DLL should OptiScaler install as?' $proxyOptions
+    $Proxy = ($proxyOptions[$pi - 1] -split '\s+')[0]
+    Write-Host "Selected proxy: $Proxy"
+}
+
 function Confirm-Continue([string]$title) {
     if ($NonInteractive) { Fail $title }
     $choice = Ask-Choice $title @('Cancel and exit', 'Continue anyway')
@@ -358,6 +439,19 @@ function Find-FirstFile([string[]]$paths) {
     }
     return $null
 }
+
+# Always use the new package's uninstaller, and check it before changing the game.
+$ps1Src = Find-FirstFile @(
+    (Join-Path $Root 'Uninstall_OptiScaler_NR.ps1'),
+    (Join-Path $release 'Uninstall_OptiScaler_NR.ps1'),
+    (Join-Path $PSScriptRoot 'uninstall-amd-presr.ps1')
+)
+if (-not $ps1Src) { Fail 'Missing Uninstall_OptiScaler_NR.ps1 next to Setup.ps1.' }
+$batSrc = Find-FirstFile @(
+    (Join-Path $Root 'Uninstall_OptiScaler_NR.bat'),
+    (Join-Path $release 'Uninstall_OptiScaler_NR.bat')
+)
+$moduleHelperSrc = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
 
 # Hash: only known danielblnc runtimes are supported. The RVA layout is pinned to
 # each binary — a different build will not run correctly. Fail closed.
@@ -406,8 +500,7 @@ foreach ($candidate in @(
         (Join-Path $Root 'third_party\lmxxf\modules'),
         (Join-Path $game 'lmxxf-modules')
     )) {
-    if ((Test-Path -LiteralPath $candidate -PathType Container) -and
-        (Test-Path -LiteralPath (Join-Path $candidate 'SHA256SUMS') -PathType Leaf)) {
+    if (Test-Path -LiteralPath $candidate -PathType Container) {
         $lmxxfMods = $candidate
         break
     }
@@ -502,6 +595,14 @@ No valid neural rendering backend files detected.
 - If using lmxxf backend: ensure LmxxfNrRuntime.dll and lmxxf-modules (and native-game-tiled-assets weights folder) are present.
 - If using danielblnc backend: place dlssnr_on_amd_setup.exe + nvngx_dlssnr.dll (or existing version.dll + weights.bin) next to Setup.bat.
 "@
+}
+
+# Validate and stage the complete package before changing installed files,
+# including danielblnc setup, proxy moves, DLL/INI copies and module manifests.
+if ($installLmxxf) {
+    $gameModsDir = Join-Path $game 'lmxxf-modules'
+    try { $lmxxfStage = New-LmxxfModuleStage $lmxxfMods $gameModsDir -Upgrade }
+    catch { Fail $_.Exception.Message }
 }
 
 # --- process danielblnc runtime if selected ---
@@ -629,11 +730,35 @@ Run dlssnr_on_amd_setup.exe (with nvngx_dlssnr.dll available), then retry.
     }
 }
 
-# --- inspect common injection DLLs ---
-$proxies = @(
-    'dxgi.dll','winmm.dll','d3d12.dll','version.dll',
-    'winhttp.dll','wininet.dll','dbghelp.dll','dinput8.dll'
-)
+if ($uninstallFirst) {
+    try {
+        $optiSource = Save-ReinstallSource (Join-Path $release 'OptiScaler.dll')
+        foreach ($name in @('OptiScaler.ini', 'OptiScaler')) {
+            $path = Join-Path $release $name
+            if (Test-Path -LiteralPath $path) { $null = Save-ReinstallSource $path }
+        }
+        $release = [IO.Path]::GetDirectoryName($optiSource)
+        if ($installLmxxf) {
+            $lmxxfRuntime = Save-ReinstallSource $lmxxfRuntime
+            $lmxxfShaders = Save-ReinstallSource $lmxxfShaders
+        }
+        if ($installDaniel) { $srcA = Save-ReinstallSource $srcA }
+        $ps1Src = Save-ReinstallSource $ps1Src
+        $batSrc = Save-ReinstallSource $batSrc
+        $moduleHelperSrc = Save-ReinstallSource $moduleHelperSrc
+    } catch { Fail ("Could not preserve installation sources before uninstall: " + $_.Exception.Message) }
+
+    Write-Host ''
+    Write-Host 'Uninstalling the existing OptiScaler installation...' -ForegroundColor Cyan
+    # A child process isolates the uninstaller's exit statement. Y already grants
+    # consent: no second confirmation, backup deletion, or intermediate pause.
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $ps1Src -GameDir $game -NonInteractive -NoPause
+    if ($LASTEXITCODE -ne 0) { Fail "Uninstall failed (exit code $LASTEXITCODE). Installation stopped; fix the reported error and run Setup again." }
+    Write-Host 'Uninstall completed. Continuing installation...' -ForegroundColor Green
+}
+
+# --- inspect common injection DLLs after the optional uninstall ---
 $found = @()
 foreach ($name in $proxies) {
     $p = Join-Path $game $name
@@ -669,10 +794,8 @@ if ($found.Count -eq 0) {
     Write-Host 'For ReShade or another mod: choose Ignore only if you know they can coexist.'
 }
 
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$stamp = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $backup = Join-Path $game "backup-amd-presr-$stamp"
-$skipBackup = $false
-$backupCreated = $false
 $toMove = @()
 # Files the user chose to keep. The install step must not overwrite these.
 $keep = @{}
@@ -693,48 +816,11 @@ foreach ($f in $found) {
         continue
     }
     if ($f.IsOptiScaler) {
-        if ($isTarget) {
-            if ($NonInteractive) {
-                $toMove += $f
-                continue
-            }
-            $choice = Ask-Choice ("{0} is already an OptiScaler install. How to continue?" -f $f.Name) @(
-                'Cancel install'
-                'Backup existing files, then install'
-                'Direct overwrite (clean in-place overwrite)'
-            )
-            switch ($choice) {
-                1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
-                2 {
-                    $skipBackup = $false
-                    $toMove += $f
-                }
-                3 {
-                    $skipBackup = $true
-                    # Direct overwrite: do not move or backup; Install-One overwrites directly
-                }
-            }
-        } else {
-            # An existing OptiScaler proxy with a DIFFERENT name (e.g. winmm.dll while installing dxgi.dll).
-            # Two OptiScaler proxies will hook the process twice, causing crashes / double injection.
-            if ($NonInteractive) {
-                Write-Host ("{0} is a previous OptiScaler proxy — moving to backup to prevent duplicate injection with {1}." -f $f.Name, $Proxy) -ForegroundColor Yellow
-                $toMove += $f
-                continue
-            }
-            $choice = Ask-Choice ("{0} is a previous OptiScaler proxy (cannot coexist with {1}; causes double injection). How to continue?" -f $f.Name, $Proxy) @(
-                'Cancel install'
-                'Move previous OptiScaler proxy to backup (Recommended)'
-                'Ignore and leave in place (Not recommended; may crash)'
-            )
-            switch ($choice) {
-                1 { Write-Host 'Cancelled.'; Pause-Exit 0 }
-                2 { $toMove += $f }
-                3 {
-                    $keep[$f.Name] = $true
-                    Write-Host ("WARNING: Leaving {0} in place alongside {1}." -f $f.Name, $Proxy) -ForegroundColor Red
-                }
-            }
+        # The early Y/N already selected the install path. Back up the existing
+        # target and retire any other OptiScaler proxy to avoid double injection.
+        $toMove += $f
+        if (-not $isTarget) {
+            Write-Host ("{0} is a previous OptiScaler proxy — moving to backup to prevent duplicate injection with {1}." -f $f.Name, $Proxy) -ForegroundColor Yellow
         }
     } else {
         if ($NonInteractive) {
@@ -764,19 +850,25 @@ foreach ($f in $found) {
     }
 }
 
-# Create the backup folder if backup is enabled or if there are files to safely move aside
-if ((-not $skipBackup) -or ($toMove.Count -gt 0)) {
-    if (-not (Test-Path -LiteralPath $backup)) {
-        [void][System.IO.Directory]::CreateDirectory($backup)
+# Overwriting keeps a backup, including old/custom modules excluded from the new bundle.
+[void][System.IO.Directory]::CreateDirectory($backup)
+
+# Publish a fully validated module tree before changing DLLs. A failed directory
+# switch restores the previous tree; no per-file live module overwrite is used.
+if ($installLmxxf) {
+    $moduleBackup = Join-Path $backup 'lmxxf-modules'
+    try { Publish-LmxxfModuleStage $lmxxfStage $gameModsDir $moduleBackup -Upgrade }
+    catch { Fail ("Could not install lmxxf-modules: " + $_.Exception.Message) }
+    $lmxxfStage = $null
+    if (Test-Path -LiteralPath $moduleBackup) {
+        Write-Host "Previous module files, including extra .hsaco files, are preserved in: $moduleBackup" -ForegroundColor Cyan
     }
-    $backupCreated = $true
 }
 
 # Any file scheduled for movement is ALWAYS safely backed up to .moved; NEVER silently deleted
 foreach ($f in $toMove) {
     if (-not (Test-Path -LiteralPath $backup)) {
         [void][System.IO.Directory]::CreateDirectory($backup)
-        $backupCreated = $true
     }
     Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
     Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
@@ -811,13 +903,10 @@ function Install-One([string]$src, [string]$rel) {
             if ($isWeight) {
                 return
             }
-            if (-not $skipBackup) {
-                $save = Join-Path $backup $rel
-                $sdir = Split-Path -Parent $save
-                if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
-                Copy-Item -LiteralPath $dest -Destination $save -Force
-                $backupCreated = $true
-            }
+            $save = Join-Path $backup $rel
+            $sdir = Split-Path -Parent $save
+            if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
+            Copy-Item -LiteralPath $dest -Destination $save -Force
         }
         $ddir = Split-Path -Parent $dest
         if ($ddir) { [void][System.IO.Directory]::CreateDirectory($ddir) }
@@ -926,65 +1015,7 @@ if ($installLmxxf) {
     Write-Host 'Installing lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
     Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
 
-    # Pre-installation validation and migration for lmxxf-modules
-    $gameModsDir = Join-Path $game 'lmxxf-modules'
-    $legacyFlatHsaco = @()
-    $legacyFlatManifest = $null
-    $isDualArchSrc = (Test-Path -LiteralPath (Join-Path $lmxxfMods 'gfx1200\SHA256SUMS') -PathType Leaf) -and
-                     (Test-Path -LiteralPath (Join-Path $lmxxfMods 'gfx1201\SHA256SUMS') -PathType Leaf)
-
-    if (Test-Path -LiteralPath $gameModsDir -PathType Container) {
-        $legacyFlatHsaco = @(Get-ChildItem -LiteralPath $gameModsDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
-        $candManifest = Join-Path $gameModsDir 'modules.json'
-        if (Test-Path -LiteralPath $candManifest -PathType Leaf) {
-            $legacyFlatManifest = $candManifest
-        }
-    }
-
-    if ($isDualArchSrc -and ($legacyFlatHsaco.Count -gt 0 -or $legacyFlatManifest)) {
-        Write-Host 'Detected legacy flat lmxxf-modules; backing up for dual-architecture migration...' -ForegroundColor Cyan
-        if (-not $skipBackup) {
-            $backupMods = Join-Path $backup 'lmxxf-modules'
-            [void][System.IO.Directory]::CreateDirectory($backupMods)
-            foreach ($lf in $legacyFlatHsaco) {
-                $dst = Join-Path $backupMods $lf.Name
-                Copy-Item -LiteralPath $lf.FullName -Destination $dst -Force
-                $backupCreated = $true
-            }
-            if ($legacyFlatManifest) {
-                Copy-Item -LiteralPath $legacyFlatManifest -Destination (Join-Path $backupMods 'modules.json') -Force
-                $backupCreated = $true
-            }
-            Write-Host ("  backed up {0} legacy flat file(s) to {1}" -f ($legacyFlatHsaco.Count + [int]($null -ne $legacyFlatManifest)), $backupMods) -ForegroundColor Cyan
-        }
-    }
-
-    Get-ChildItem -LiteralPath $lmxxfMods -Recurse -File | ForEach-Object {
-        $rel = Join-Path 'lmxxf-modules' $_.FullName.Substring($lmxxfMods.Length).TrimStart('\','/')
-        Install-One $_.FullName $rel
-    }
-
-    if ($isDualArchSrc -and ($legacyFlatHsaco.Count -gt 0 -or $legacyFlatManifest)) {
-        # Purge only legacy flat modules and legacy root modules.json.
-        # User custom files (custom weights, configs, subdirectories) are strictly preserved.
-        foreach ($lf in $legacyFlatHsaco) {
-            try {
-                Remove-Item -LiteralPath $lf.FullName -Force
-                Write-Host ("  purged legacy flat module: {0}" -f $lf.Name) -ForegroundColor DarkYellow
-            } catch {
-                Write-Host ("  WARN: could not remove legacy flat module {0}: {1}" -f $lf.Name, $_.Exception.Message) -ForegroundColor Yellow
-            }
-        }
-        if ($legacyFlatManifest -and (Test-Path -LiteralPath $legacyFlatManifest -PathType Leaf)) {
-            try {
-                Remove-Item -LiteralPath $legacyFlatManifest -Force
-                Write-Host "  purged legacy root modules.json" -ForegroundColor DarkYellow
-            } catch {
-                Write-Host ("  WARN: could not remove legacy root modules.json: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
-            }
-        }
-        Write-Host "  migrated lmxxf-modules to dual-architecture layout (gfx1200 / gfx1201)." -ForegroundColor Green
-    }
+    Write-Host '  installed verified dual-architecture modules (48 modules).'
     if ($lmxxfShaders) {
         $shaderKeep = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         Get-ChildItem -LiteralPath $lmxxfShaders -Recurse -File | ForEach-Object {
@@ -1091,34 +1122,10 @@ if ($installLmxxf) {
 }
 
 # Uninstaller is copied into the game folder. Double-click it there; it
-# targets that directory (no folder picker). Look next to Setup first —
-# $release may be a legacy release\ subfolder that does not contain it.
-$ps1Src = $null
-foreach ($candidate in @(
-        (Join-Path $Root 'Uninstall_OptiScaler_NR.ps1'),
-        (Join-Path $release 'Uninstall_OptiScaler_NR.ps1'),
-        (Join-Path $PSScriptRoot 'uninstall-amd-presr.ps1')
-    )) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $ps1Src = $candidate
-        break
-    }
-}
-if (-not $ps1Src) {
-    Fail 'Missing Uninstall_OptiScaler_NR.ps1 next to Setup.ps1. Setup copies it into the game folder.'
-}
+# targets that directory (no folder picker). Sources were resolved before install
+# and preserved if the automatic uninstall could remove them.
 Install-One $ps1Src 'Uninstall_OptiScaler_NR.ps1'
-
-$batSrc = $null
-foreach ($candidate in @(
-        (Join-Path $Root 'Uninstall_OptiScaler_NR.bat'),
-        (Join-Path $release 'Uninstall_OptiScaler_NR.bat')
-    )) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $batSrc = $candidate
-        break
-    }
-}
+Install-One $moduleHelperSrc 'lmxxf-module-package.ps1'
 if ($batSrc) {
     Install-One $batSrc 'Uninstall_OptiScaler_NR.bat'
 } else {
@@ -1199,13 +1206,7 @@ Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:           $game"
 Write-Host "  Proxy:          $Proxy"
 if (Test-Path -LiteralPath $backup) {
-    if ($skipBackup -and $toMove.Count -gt 0) {
-        Write-Host "  Backup:         $backup  (retained moved proxy)"
-    } else {
-        Write-Host "  Backup:         $backup"
-    }
-} else {
-    Write-Host '  Backup:         (none - direct overwrite)'
+    Write-Host "  Backup:         $backup"
 }
 Write-Host "  Active Backend: $activeBackend" -ForegroundColor Cyan
 if ($installDaniel -and $installLmxxf) {

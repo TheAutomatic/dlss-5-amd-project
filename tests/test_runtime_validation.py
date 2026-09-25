@@ -3,6 +3,8 @@ import shutil
 import tempfile
 import unittest
 import ctypes
+from pathlib import Path
+import subprocess
 
 class LmxxfNrCreateInfo(ctypes.Structure):
     _fields_ = [
@@ -40,7 +42,7 @@ LmxxfNrApi._fields_ = [
 class RuntimeValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        dll_path = os.path.abspath(r'exports\lmxxf-runtime\LmxxfNrRuntime.dll')
+        dll_path = os.path.abspath(os.environ.get('LMXXF_TEST_RUNTIME', r'exports\lmxxf-runtime\LmxxfNrRuntime.dll'))
         assert os.path.exists(dll_path), f"DLL not found: {dll_path}"
         cls.dll = ctypes.WinDLL(dll_path)
 
@@ -61,7 +63,7 @@ class RuntimeValidationTests(unittest.TestCase):
         ]
         cls.resolve_arch.restype = ctypes.c_int32
 
-        cls.real_modules = os.path.abspath(r'third_party\lmxxf\modules')
+        cls.real_modules = os.path.abspath(os.environ.get('LMXXF_TEST_MODULES', r'third_party\lmxxf\modules'))
 
     def call_create(self, modules_dir):
         ctx = ctypes.c_void_p()
@@ -106,6 +108,108 @@ class RuntimeValidationTests(unittest.TestCase):
         self.assertIn("hip=0", st)
 
         self.assertEqual(self.api.Destroy(ctx), 0)
+
+    def test_equivalent_trailing_separators(self):
+        for directory in (self.real_modules, os.path.join(self.real_modules, 'gfx1201')):
+            for separator in ('\\', '/', '\\\\'):
+                with self.subTest(directory=directory, separator=separator):
+                    rc, ctx, err = self.call_create(directory + separator)
+                    try:
+                        self.assertEqual(rc, 0, err)
+                        self.assertIsNotNone(ctx.value)
+                    finally:
+                        if ctx.value:
+                            self.api.Destroy(ctx)
+
+    def test_relative_path_with_trailing_separator(self):
+        relative = os.path.relpath(self.real_modules) + os.sep
+        rc, ctx, err = self.call_create(relative)
+        try:
+            self.assertEqual(rc, 0, err)
+        finally:
+            if ctx.value:
+                self.api.Destroy(ctx)
+
+    def test_extended_length_module_path(self):
+        with tempfile.TemporaryDirectory(prefix='lmxxf-runtime-long-') as td:
+            nested = Path(td) / ('a' * 90) / ('b' * 90) / ('c' * 90)
+            extended = '\\\\?\\' + str(nested)
+            try:
+                shutil.copytree(self.real_modules, extended)
+                self.assertGreater(len(extended), 260)
+                rc, ctx, err = self.call_create(extended + '\\')
+                try:
+                    self.assertEqual(rc, 0, err)
+                finally:
+                    if ctx.value:
+                        self.api.Destroy(ctx)
+            finally:
+                # Use the same extended path for cleanup; the short spelling can
+                # exceed Win32 MAX_PATH while traversing this intentionally long tree.
+                self.assertEqual(os.path.commonpath((str(nested), td)), td)
+                if os.path.exists(extended):
+                    shutil.rmtree(extended)
+
+    def make_junction(self, path, target):
+        env = os.environ.copy()
+        env['LMXXF_TEST_LINK'] = str(path)
+        env['LMXXF_TEST_TARGET'] = str(target)
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-Command',
+            'New-Item -ItemType Junction -Path $env:LMXXF_TEST_LINK -Target $env:LMXXF_TEST_TARGET | Out-Null'],
+            env=env, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_architecture_junction_cannot_escape_module_root(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / 'modules'
+            outside = Path(td) / 'outside'
+            shutil.copytree(self.real_modules, root)
+            (root / 'gfx1200').rename(outside)
+            self.make_junction(root / 'gfx1200', outside)
+            try:
+                rc, ctx, err = self.call_create(str(root))
+                self.assertEqual(rc, 4, err)
+                self.assertIsNone(ctx.value)
+                self.assertIn('reparse point', err)
+            finally:
+                os.rmdir(root / 'gfx1200')
+            self.assertTrue((outside / 'c32_fast.hsaco').exists())
+
+    def test_module_root_junction_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / 'modules'
+            outside = Path(td) / 'outside'
+            shutil.copytree(self.real_modules, outside)
+            self.make_junction(root, outside)
+            try:
+                rc, ctx, err = self.call_create(str(root))
+                self.assertEqual(rc, 4, err)
+                self.assertIsNone(ctx.value)
+                self.assertIn('reparse point', err)
+            finally:
+                os.rmdir(root)
+
+    def test_manifest_symlinks_are_rejected(self):
+        for relative in ('SHA256SUMS', 'runtime-manifest.json', 'gfx1200/SHA256SUMS', 'gfx1201/modules.json'):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / 'modules'
+                outside = Path(td) / 'outside-manifest'
+                shutil.copytree(self.real_modules, root)
+                path = root / relative
+                path.rename(outside)
+                try:
+                    path.symlink_to(outside)
+                except OSError as exc:
+                    if getattr(exc, 'winerror', None) == 1314:
+                        self.skipTest('Creating file symlinks requires Windows Developer Mode or privilege')
+                    raise
+                try:
+                    rc, ctx, err = self.call_create(str(root))
+                    self.assertEqual(rc, 4, err)
+                    self.assertIsNone(ctx.value)
+                    self.assertIn('reparse point', err)
+                finally:
+                    path.unlink()
 
     def test_v1_abi_capabilities_and_pdl_status(self):
         class LmxxfNrCapabilities(ctypes.Structure):

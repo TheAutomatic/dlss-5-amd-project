@@ -20,6 +20,7 @@ param(
     [switch]$AllowMissingDeps
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lmxxf-module-package.ps1')
 
 # 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
 # 当环境里的 PSModulePath 指向 PowerShell 7 的模块目录时（CI 里在 shell: pwsh
@@ -55,7 +56,16 @@ if (!(Test-Path -LiteralPath $OptiDll)) {
     throw 'OptiScaler.dll not found. Build Release first (r18: ordinary Release, multi-slot default).'
 }
 
-if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+# Fail on an invalid source before replacing any existing staged package.
+$lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
+Assert-LmxxfModulePackage $lmxxfModSrc
+$outputRoot = [IO.Path]::GetFullPath((Join-Path $root $OutDir)).TrimEnd('\', '/')
+$stage = Assert-LmxxfUnlinkedPath $stage
+if ([IO.Path]::GetDirectoryName($stage) -ine $outputRoot) { throw 'Package Name must be a single directory name inside OutDir.' }
+if (Test-Path -LiteralPath $stage) {
+    $null = @(Get-LmxxfUnlinkedFiles $stage)
+    Remove-Item -LiteralPath $stage -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $stage, (Join-Path $stage 'OptiScaler'), (Join-Path $stage 'Licenses') | Out-Null
 Copy-Item -LiteralPath $OptiDll -Destination (Join-Path $stage 'OptiScaler.dll') -Force
 
@@ -374,6 +384,7 @@ if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }
 $installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
 if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
 Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'lmxxf-module-package.ps1') -Destination $stage -Force
 @'
 @echo off
 setlocal
@@ -426,53 +437,20 @@ if ($badAll) {
     throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object { $_.FullName.Substring($stage.Length+1) }) -join ', ')"
 }
 
-# Validate dual-arch modules structure if staged
-$stagedMods = Join-Path $stage 'lmxxf-modules'
-if (Test-Path -LiteralPath $stagedMods -PathType Container) {
-    $stagedRootSums = Join-Path $stagedMods 'SHA256SUMS'
-    if (!(Test-Path -LiteralPath $stagedRootSums -PathType Leaf)) {
-        throw "Staged lmxxf-modules is missing root SHA256SUMS manifest"
-    }
-    $stagedManifest = Join-Path $stagedMods 'runtime-manifest.json'
-    if (!(Test-Path -LiteralPath $stagedManifest -PathType Leaf)) {
-        throw "Staged lmxxf-modules is missing runtime-manifest.json"
-    }
-    $stagedRootHsaco = @(Get-ChildItem -LiteralPath $stagedMods -Filter '*.hsaco' -File)
-    if ($stagedRootHsaco.Count -gt 0) {
-        throw "Staged lmxxf-modules contains legacy flat .hsaco modules in root: $(($stagedRootHsaco | ForEach-Object { $_.Name }) -join ', ')"
-    }
-    if (Test-Path -LiteralPath (Join-Path $stagedMods 'modules.json') -PathType Leaf) {
-        throw "Staged lmxxf-modules contains legacy modules.json in root (must be per-arch only)"
-    }
-    foreach ($arch in @('gfx1200', 'gfx1201')) {
-        $archDir = Join-Path $stagedMods $arch
-        if (!(Test-Path -LiteralPath $archDir -PathType Container)) {
-            throw "Staged lmxxf-modules is missing required architecture directory: $arch"
-        }
-        if (!(Test-Path -LiteralPath (Join-Path $archDir 'SHA256SUMS') -PathType Leaf)) {
-            throw "Staged lmxxf-modules/$arch is missing leaf SHA256SUMS"
-        }
-        if (!(Test-Path -LiteralPath (Join-Path $archDir 'modules.json') -PathType Leaf)) {
-            throw "Staged lmxxf-modules/$arch is missing leaf modules.json"
-        }
-        $archHsaco = @(Get-ChildItem -LiteralPath $archDir -Filter '*.hsaco' -File)
-        if ($archHsaco.Count -ne 24) {
-            throw "Staged lmxxf-modules/$arch must contain exactly 24 .hsaco modules, found $($archHsaco.Count)"
-        }
-    }
-    $totalHsaco = @(Get-ChildItem -LiteralPath $stagedMods -Filter '*.hsaco' -Recurse -File)
-    if ($totalHsaco.Count -ne 48) {
-        throw "Staged lmxxf-modules must contain exactly 48 .hsaco modules in total, found $($totalHsaco.Count)"
-    }
-}
+# Check the copied tree, including actual hashes and parent/leaf metadata.
+Assert-LmxxfModulePackage (Join-Path $stage 'lmxxf-modules')
 
+$expectedEntries = @{}
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
     Sort-Object FullName |
     ForEach-Object {
         # 正斜杠：清单是 coreutils 格式（`sha256sum -c` 用），反斜杠分隔符在 git-bash /
         # Linux 上认不出来。Windows 侧 PowerShell 用正斜杠访问文件同样正常。
-        '{0} *{1}' -f (Get-Sha256 $_.FullName), ($_.FullName.Substring($stage.Length + 1) -replace '\\', '/')
+        $relative = $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
+        $digest = Get-Sha256 $_.FullName
+        $expectedEntries[$relative] = $digest
+        '{0} *{1}' -f $digest, $relative
     }
 # 不要用 Set-Content -Encoding UTF8：Windows PowerShell 5.1 的 -Encoding UTF8 会写 BOM，
 # BOM 直接粘在第一个哈希前面，用户跑 `sha256sum -c SHA256SUMS.txt` 会看到
@@ -484,62 +462,38 @@ $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     (($hashes -join "`n") + "`n"),
     [Text.UTF8Encoding]::new($false))
 
+$expectedEntries['SHA256SUMS.txt'] = Get-Sha256 (Join-Path $stage 'SHA256SUMS.txt')
+
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
 
 # Validate the actual artifact, not only the staging tree. This catches a changed
 # archive command, a stale/wrapped staging directory, or anything injected between
 # the preflight above and Compress-Archive. An unreadable archive also fails closed.
 try {
+    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($zip)
     try {
-        $badZip = @($archive.Entries |
-            Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
-            ForEach-Object { $_.FullName })
-        $entryNames = @($archive.Entries | ForEach-Object { $_.Name })
+        $seen = @{}
+        foreach ($entry in $archive.Entries) {
+            $relative = $entry.FullName.Replace('\', '/')
+            if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+            if ($entry.Name -match $forbidden -or -not $expectedEntries.ContainsKey($relative) -or $seen.ContainsKey($relative)) {
+                throw "Unexpected, forbidden or duplicate archive entry: $relative"
+            }
+            $seen[$relative] = $true
+            $stream = $entry.Open()
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try { $actual = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+            finally { $stream.Dispose(); $sha.Dispose() }
+            if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
+        }
+        foreach ($required in @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'lmxxf-module-package.ps1') + @($expectedEntries.Keys)) {
+            if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
+        }
     } finally {
         $archive.Dispose()
-    }
-    if ($badZip.Count -gt 0) {
-        throw "Forbidden proprietary/user-supplied file in zip: $($badZip -join ', ')"
-    }
-    $requiredNames = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
-    foreach ($req in $requiredNames) {
-        if ($entryNames -notcontains $req) {
-            throw "Package archive missing required component: $req"
-        }
-    }
-    # Validate dual-arch modules in zip archive
-    $zipHsaco = @($archive.Entries | Where-Object { $_.FullName -like 'lmxxf-modules/*.hsaco' -or $_.FullName -like 'lmxxf-modules/*/*.hsaco' })
-    if ($zipHsaco.Count -gt 0) {
-        $rootZipHsaco = @($archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -match '^lmxxf-modules/[^/]+\.hsaco$' })
-        if ($rootZipHsaco.Count -gt 0) {
-            throw "Package archive contains flat .hsaco modules in lmxxf-modules root"
-        }
-        $g1200Hsaco = @($archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -match '^lmxxf-modules/gfx1200/[^/]+\.hsaco$' })
-        if ($g1200Hsaco.Count -ne 24) {
-            throw "Package archive gfx1200 must have 24 .hsaco entries, found $($g1200Hsaco.Count)"
-        }
-        $g1201Hsaco = @($archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -match '^lmxxf-modules/gfx1201/[^/]+\.hsaco$' })
-        if ($g1201Hsaco.Count -ne 24) {
-            throw "Package archive gfx1201 must have 24 .hsaco entries, found $($g1201Hsaco.Count)"
-        }
-        $requiredModEntries = @(
-            'lmxxf-modules/SHA256SUMS',
-            'lmxxf-modules/runtime-manifest.json',
-            'lmxxf-modules/gfx1200/SHA256SUMS',
-            'lmxxf-modules/gfx1200/modules.json',
-            'lmxxf-modules/gfx1201/SHA256SUMS',
-            'lmxxf-modules/gfx1201/modules.json'
-        )
-        $allEntryFullNames = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
-        foreach ($rme in $requiredModEntries) {
-            if ($allEntryFullNames -notcontains $rme) {
-                throw "Package archive missing required module entry: $rme"
-            }
-        }
     }
 } catch {
     if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }

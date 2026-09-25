@@ -6,3 +6,6 @@
 
 # Unified patches are applied to LF git-archive files on Windows too.
 tools/lmxxf-sync/patches/*.patch text eol=lf
+
+# Frozen upstream fixture: its raw SHA256 must survive a Windows checkout.
+tests/fixtures/lmxxf/hip_reference_network.upstream.h text eol=lf

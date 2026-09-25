@@ -1,4 +1,5 @@
 # lmxxf module build / sync / hashing helpers.
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'lmxxf-module-package.ps1')
 
 function Get-FileSha256Hex([string]$filePath) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -67,23 +68,23 @@ function Invoke-BuildModules([string]$hipDir, [string]$outDir, [string[]]$target
     }
     $compiler = Join-Path $hipDir 'rtc_compile.exe'
     $rtcCpp = Join-Path $hipDir 'rtc_compile.cpp'
-    if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-        if (-not (Test-Path -LiteralPath $rtcCpp -PathType Leaf)) {
-            throw ("Missing rtc_compile.exe / rtc_compile.cpp under " + $hipDir)
+    # The upstream compiler source is synchronized on every run. Never reuse a stale EXE.
+    if (-not (Test-Path -LiteralPath $rtcCpp -PathType Leaf)) {
+        throw ("Missing rtc_compile.cpp under " + $hipDir)
+    }
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+        $msvcCl = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\cl.exe'
+        if (Test-Path -LiteralPath $msvcCl -PathType Leaf) {
+            $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64;$env:PATH"
+            $env:INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\include;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared;$env:INCLUDE"
+            $env:LIB = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\um\x64;$env:LIB"
         }
-        if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
-            $msvcCl = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\cl.exe'
-            if (Test-Path -LiteralPath $msvcCl -PathType Leaf) {
-                $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64;$env:PATH"
-                $env:INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\include;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared;$env:INCLUDE"
-                $env:LIB = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\um\x64;$env:LIB"
-            }
-        }
-        Write-Host "  Building rtc_compile.exe from rtc_compile.cpp..." -ForegroundColor Cyan
-        & cl.exe /nologo /O2 /EHsc /Fe:$compiler $rtcCpp | Write-Host
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-            throw "Failed to build rtc_compile.exe (need MSVC cl in PATH)"
-        }
+    }
+    Write-Host "  Building rtc_compile.exe from rtc_compile.cpp..." -ForegroundColor Cyan
+    $rtcObj = Join-Path $hipDir 'rtc_compile.obj'
+    & cl.exe /nologo /O2 /EHsc /Fe:$compiler /Fo:$rtcObj $rtcCpp | Write-Host
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+        throw "Failed to build rtc_compile.exe (need MSVC cl in PATH)"
     }
     if (Test-Path -LiteralPath $outDir) {
         Remove-SyncTree -Path $outDir -Within $hipDir
@@ -163,271 +164,51 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir, [string[]]
 }
 
 function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [switch]$allowStale) {
-    if (-not (Test-Path -LiteralPath $hipSums -PathType Leaf)) {
-        throw 'hip SHA256SUMS missing; cannot verify shipping modules.'
-    }
-    $bad = @()
-    $rowCount = 0
-    $rows1200 = 0
-    $rows1201 = 0
-    foreach ($line in Get-Content -LiteralPath $hipSums -Encoding UTF8) {
-        if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+(?<arch>gfx1200|gfx1201)/(?<n>[^/\\]+\.hsaco)$') { continue }
-        $rowCount++
-        $arch = $Matches['arch']
-        $name = $Matches['n']
-        if ($arch -eq 'gfx1200') { $rows1200++ } else { $rows1201++ }
-        if ($name -match '[/\\]' -or $name -eq '..') { throw 'Unsafe module path in SHA256SUMS' }
-        $want = $Matches['h'].ToLowerInvariant()
-        
-        $fp = Join-Path (Join-Path $modulesDir $arch) $name
-        if (-not (Test-Path -LiteralPath $fp -PathType Leaf) -and $arch -eq 'gfx1201') {
-            $flatFp = Join-Path $modulesDir $name
-            if (Test-Path -LiteralPath $flatFp -PathType Leaf) { $fp = $flatFp }
-        }
-        if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) {
-            $bad += ("missing $arch/$name")
-            continue
-        }
-        $got = Get-FileSha256Hex $fp
-        if ($got -ne $want) {
-            $bad += ("$arch/$name (want $want got $got)")
-        }
-    }
-    if ($rowCount -eq 0) { throw 'hip SHA256SUMS contains no gfx1200 or gfx1201 modules.' }
+    # A stale-recipe waiver must never waive a corrupt/incomplete shipping package.
+    Assert-LmxxfModulePackage $modulesDir
+    $package = Read-LmxxfModuleSums (Join-Path $modulesDir 'SHA256SUMS')
+    $recipes = Read-LmxxfModuleSums $hipSums
+    $bad = @($package.Keys | Where-Object { -not $recipes.ContainsKey($_) -or $package[$_] -ne $recipes[$_] })
     if ($bad.Count -eq 0) {
-        Write-Host "  modules match hip/SHA256SUMS entries (gfx1200: $rows1200, gfx1201: $rows1201)" -ForegroundColor Green
+        Write-Host '  Complete dual-architecture package matches hip/SHA256SUMS (24 + 24 modules).' -ForegroundColor Green
         return $true
     }
-    $msg = "Shipping modules do not match hip/SHA256SUMS recipes:`n  - " + ($bad -join "`n  - ")
-    if ($allowStale) {
-        Write-Warning $msg
-        return $false
-    }
-    throw ($msg + "`nRebuild with hip/build-modules.ps1, pass a matching -ModulesPath, or use -AllowStaleModules.")
+    $msg = 'Shipping modules do not match hip/SHA256SUMS recipes: ' + ($bad -join ', ')
+    if ($allowStale) { Write-Warning $msg; return $false }
+    throw ($msg + '. Rebuild, pass matching -ModulesPath, or explicitly use -AllowStaleModules.')
 }
 
 function Merge-HipSums([string]$upstreamSums, [string]$dstSums, [string]$modulesDir) {
     $rowPattern = '^(?<h>[0-9a-fA-F]{64})(?<sep>\s+)(?<arch>gfx1200|gfx1201)/(?<n>.+\.hsaco)$'
     $local = @{}
-    if (Test-Path -LiteralPath $dstSums -PathType Leaf) {
+    if ($modulesDir) {
+        Assert-LmxxfModulePackage $modulesDir
+        $local = Read-LmxxfModuleSums (Join-Path $modulesDir 'SHA256SUMS')
+    } elseif (Test-Path -LiteralPath $dstSums -PathType Leaf) {
         foreach ($line in Get-Content -LiteralPath $dstSums -Encoding UTF8) {
-            if ($line -match $rowPattern) {
-                $key = $Matches['arch'] + '/' + $Matches['n']
-                $local[$key] = $Matches['h'].ToLowerInvariant()
-            }
+            if ($line -match $rowPattern) { $local[$Matches['arch'] + '/' + $Matches['n']] = $Matches['h'].ToLowerInvariant() }
         }
     }
     $out = @()
     foreach ($line in Get-Content -LiteralPath $upstreamSums -Encoding UTF8) {
         if ($line -match $rowPattern) {
-            $arch = $Matches['arch']
-            $name = $Matches['n']
-            $sep = $Matches['sep']
-            $key = "$arch/$name"
-            $hash = $null
-            if ($modulesDir) {
-                $fp = Join-Path (Join-Path $modulesDir $arch) $name
-                if (-not (Test-Path -LiteralPath $fp -PathType Leaf) -and $arch -eq 'gfx1201') {
-                    $flatFp = Join-Path $modulesDir $name
-                    if (Test-Path -LiteralPath $flatFp -PathType Leaf) { $fp = $flatFp }
-                }
-                if (Test-Path -LiteralPath $fp -PathType Leaf) {
-                    $hash = Get-FileSha256Hex $fp
-                }
-            } elseif ($local.ContainsKey($key)) {
-                $hash = $local[$key]
-            }
-            if ($hash) { $line = $hash + $sep + $key }
+            $key = $Matches['arch'] + '/' + $Matches['n']
+            if ($modulesDir -and -not $local.ContainsKey($key)) { throw "Unexpected module in hip/SHA256SUMS: $key" }
+            if ($local.ContainsKey($key)) { $line = $local[$key] + '  ' + $key }
         }
         $out += $line
     }
-    [IO.File]::WriteAllText($dstSums, (($out -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllLines($dstSums, $out, [Text.UTF8Encoding]::new($false))
 }
 
 function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash) {
-    if (-not (Test-Path -LiteralPath $dstDir)) {
-        New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+    # Validate both architectures and provenance before creating or changing the destination.
+    # Upstream build outputs omit product metadata; staging supplies it before final validation.
+    $stage = New-LmxxfModuleStage $srcDir $dstDir $commitHash
+    try {
+        Publish-LmxxfModuleStage $stage $dstDir
+    } finally {
+        Remove-LmxxfTemporaryTree $stage ([IO.Path]::GetDirectoryName($stage))
     }
-    $archDirs = @(Get-ChildItem -LiteralPath $srcDir -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^gfx[0-9a-zA-Z]+$' })
-    
-    if ($archDirs.Count -gt 0) {
-        # --- Dual / Multi-Architecture Layout ---
-        $rootSums = Join-Path $srcDir 'SHA256SUMS'
-        $rootListed = @{}
-        if (Test-Path -LiteralPath $rootSums -PathType Leaf) {
-            foreach ($line in Get-Content -LiteralPath $rootSums -Encoding UTF8) {
-                if (-not $line.Trim() -or $line.TrimStart().StartsWith('#')) { continue }
-                if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<rel>[^/\\]+[/\\][^/\\]+\.hsaco)$') {
-                    if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<rel>[^/\\]+\.hsaco)$') {
-                        throw "Invalid ModulesPath SHA256SUMS row: $line"
-                    }
-                }
-                $relName = $Matches['rel'].Replace('\', '/')
-                if ($relName -match '(^|/)\.\.(/|$)') { throw "Traversal in ModulesPath SHA256SUMS: $relName" }
-                $expected = $Matches['h'].ToLowerInvariant()
-                if ($rootListed.ContainsKey($relName)) { throw "Duplicate ModulesPath checksum: $relName" }
-                $rootListed[$relName] = $expected
-            }
-        }
-        
-        # Verify each architecture leaf before touching dstDir
-        $archModules = @{}
-        foreach ($arch in $archDirs) {
-            $archName = $arch.Name
-            $hsacos = @(Get-ChildItem -LiteralPath $arch.FullName -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
-            if ($hsacos.Count -lt 1) {
-                throw ("No .hsaco files found in architecture directory: " + $arch.FullName)
-            }
-            $archModules[$archName] = $hsacos
-            $leafSums = Join-Path $arch.FullName 'SHA256SUMS'
-            $leafListed = @{}
-            if (Test-Path -LiteralPath $leafSums -PathType Leaf) {
-                foreach ($line in Get-Content -LiteralPath $leafSums -Encoding UTF8) {
-                    if (-not $line.Trim() -or $line.TrimStart().StartsWith('#')) { continue }
-                    if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<n>[^/\\]+\.hsaco)$') {
-                        throw "Invalid ModulesPath leaf SHA256SUMS row in $($archName): $line"
-                    }
-                    $name = $Matches['n']
-                    if ($name -match '(^|/)\.\.(/|$)') { throw "Traversal in leaf SHA256SUMS: $name" }
-                    $expected = $Matches['h'].ToLowerInvariant()
-                    if ($leafListed.ContainsKey($name)) { throw "Duplicate ModulesPath checksum: $name" }
-                    $leafListed[$name] = $expected
-                    $fp = Join-Path $arch.FullName $name
-                    if (-not (Test-Path -LiteralPath $fp -PathType Leaf) -or (Get-FileSha256Hex $fp) -ne $expected) {
-                        throw "ModulesPath checksum mismatch: $archName/$name"
-                    }
-                }
-                foreach ($file in $hsacos) {
-                    if (-not $leafListed.ContainsKey($file.Name)) {
-                        throw "ModulesPath leaf SHA256SUMS in $archName omits $($file.Name)"
-                    }
-                }
-            }
-            foreach ($file in $hsacos) {
-                $relKey = "$archName/$($file.Name)"
-                if ($rootListed.ContainsKey($relKey)) {
-                    $expectedRoot = $rootListed[$relKey]
-                    $actual = Get-FileSha256Hex $file.FullName
-                    if ($actual -ne $expectedRoot) {
-                        throw "ModulesPath checksum mismatch against root manifest: $relKey"
-                    }
-                }
-            }
-        }
-        
-        # All checks passed! Now safely synchronize into dstDir
-        Get-ChildItem -LiteralPath $dstDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue | Remove-Item -Force
-        
-        $allRootRows = [System.Collections.Generic.List[string]]::new()
-        foreach ($arch in $archDirs) {
-            $archName = $arch.Name
-            $dstArchDir = Join-Path $dstDir $archName
-            if (-not (Test-Path -LiteralPath $dstArchDir)) {
-                New-Item -ItemType Directory -Force -Path $dstArchDir | Out-Null
-            }
-            Sync-FlatFiles -Source $arch.FullName -Destination $dstArchDir -Filter '*.hsaco'
-            foreach ($extra in @('modules.json', 'runtime-manifest.json')) {
-                $srcExtra = Join-Path $arch.FullName $extra
-                if (Test-Path -LiteralPath $srcExtra -PathType Leaf) {
-                    Copy-Item -LiteralPath $srcExtra -Destination (Join-Path $dstArchDir $extra) -Force
-                }
-            }
-            $leafHsacos = @(Get-ChildItem -LiteralPath $dstArchDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
-            $leafRows = @($leafHsacos | Sort-Object Name | ForEach-Object {
-                $h = Get-FileSha256Hex $_.FullName
-                $allRootRows.Add("$h  $archName/$($_.Name)")
-                "$h  $($_.Name)"
-            })
-            [IO.File]::WriteAllText((Join-Path $dstArchDir 'SHA256SUMS'), (($leafRows -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-        }
-        
-        $sortedRootRows = @($allRootRows | Sort-Object)
-        [IO.File]::WriteAllText((Join-Path $dstDir 'SHA256SUMS'), (($sortedRootRows -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-        
-        foreach ($extra in @('modules.json', 'runtime-manifest.json')) {
-            $srcExtra = Join-Path $srcDir $extra
-            if (Test-Path -LiteralPath $srcExtra -PathType Leaf) {
-                Copy-Item -LiteralPath $srcExtra -Destination (Join-Path $dstDir $extra) -Force
-            }
-        }
-        $readme = Join-Path $dstDir 'README.md'
-        if (Test-Path -LiteralPath $readme -PathType Leaf) {
-            $md = Get-Content -LiteralPath $readme -Encoding UTF8 -Raw
-            $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: `)[^`]+(`)', '${1}' + $commitHash + '${2}')
-            if ($md2 -eq $md) {
-                $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: ).*$', '${1}`' + $commitHash + '`')
-            }
-            if ($md2 -ne $md) {
-                [IO.File]::WriteAllText($readme, $md2, [Text.UTF8Encoding]::new($false))
-            }
-        }
-        $manifest = Join-Path $dstDir 'runtime-manifest.json'
-        if (Test-Path -LiteralPath $manifest -PathType Leaf) {
-            $js = Get-Content -LiteralPath $manifest -Encoding UTF8 -Raw
-            $js2 = [regex]::Replace($js, '("upstream_commit"\s*:\s*")[0-9a-fA-F]*(")', '${1}' + $commitHash + '${2}')
-            if ($js2 -ne $js) {
-                [IO.File]::WriteAllText($manifest, $js2, [Text.UTF8Encoding]::new($false))
-            }
-        }
-        Write-Host ('  Synchronized dual-architecture modules (' + $allRootRows.Count + ' total .hsaco across ' + $archDirs.Count + ' targets) from ' + $srcDir) -ForegroundColor Green
-    } else {
-        # --- Flat Modules Layout (Single Target / Legacy) ---
-        $hsacos = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.hsaco' -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
-        if ($hsacos.Count -lt 1) {
-            throw ('No .hsaco files found in modules source: ' + $srcDir)
-        }
-        $inputSums = Join-Path $srcDir 'SHA256SUMS'
-        if (Test-Path -LiteralPath $inputSums -PathType Leaf) {
-            $listed = @{}
-            foreach ($line in Get-Content -LiteralPath $inputSums -Encoding UTF8) {
-                if (-not $line.Trim() -or $line.TrimStart().StartsWith('#')) { continue }
-                if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<n>[^/\\]+\.hsaco)$') {
-                    throw "Invalid ModulesPath SHA256SUMS row: $line"
-                }
-                $name = $Matches['n']; $expected = $Matches['h'].ToLowerInvariant()
-                if ($name -match '(^|/)\.\.(/|$)') { throw "Traversal in ModulesPath SHA256SUMS: $name" }
-                if ($listed.ContainsKey($name)) { throw "Duplicate ModulesPath checksum: $name" }
-                $listed[$name] = $true
-                $file = Assert-SyncPath (Join-Path $srcDir $name) $srcDir
-                if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or (Get-FileSha256Hex $file) -ne $expected) {
-                    throw "ModulesPath checksum mismatch: $name"
-                }
-            }
-            foreach ($file in $hsacos) {
-                if (-not $listed.ContainsKey($file.Name)) { throw "ModulesPath SHA256SUMS omits $($file.Name)" }
-            }
-        }
-        Sync-FlatFiles -Source $srcDir -Destination $dstDir -Filter '*.hsaco'
-        foreach ($extra in @('modules.json', 'runtime-manifest.json')) {
-            $srcExtra = Join-Path $srcDir $extra
-            if (Test-Path -LiteralPath $srcExtra -PathType Leaf) {
-                Copy-Item -LiteralPath $srcExtra -Destination (Join-Path $dstDir $extra) -Force
-            }
-        }
-        $sumsDst = Join-Path $dstDir 'SHA256SUMS'
-        $rows = @($hsacos | Sort-Object Name | ForEach-Object {
-            (Get-FileSha256Hex (Join-Path $dstDir $_.Name)) + '  ' + $_.Name
-        })
-        [IO.File]::WriteAllText($sumsDst, (($rows -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-        $readme = Join-Path $dstDir 'README.md'
-        if (Test-Path -LiteralPath $readme -PathType Leaf) {
-            $md = Get-Content -LiteralPath $readme -Encoding UTF8 -Raw
-            $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: `)[^`]+(`)', '${1}' + $commitHash + '${2}')
-            if ($md2 -eq $md) {
-                $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: ).*$', '${1}`' + $commitHash + '`')
-            }
-            if ($md2 -ne $md) {
-                [IO.File]::WriteAllText($readme, $md2, [Text.UTF8Encoding]::new($false))
-            }
-        }
-        $manifest = Join-Path $dstDir 'runtime-manifest.json'
-        if (Test-Path -LiteralPath $manifest -PathType Leaf) {
-            $js = Get-Content -LiteralPath $manifest -Encoding UTF8 -Raw
-            $js2 = [regex]::Replace($js, '("upstream_commit"\s*:\s*")[0-9a-fA-F]*(")', '${1}' + $commitHash + '${2}')
-            if ($js2 -ne $js) {
-                [IO.File]::WriteAllText($manifest, $js2, [Text.UTF8Encoding]::new($false))
-            }
-        }
-        Write-Host ('  Synchronized modules (' + $hsacos.Count + ' .hsaco) from ' + $srcDir) -ForegroundColor Green
-    }
+    Write-Host ('  Synchronized verified dual-architecture modules (24 + 24) from ' + $srcDir) -ForegroundColor Green
 }

@@ -37,7 +37,7 @@
 .PARAMETER AllowStaleModules
   Explicitly allow stale modules for staged integration; the review must acknowledge this.
 .PARAMETER ModulesPath
-  Flat gfx1201 module directory built separately. Validate its origin manually in the review.
+  Complete gfx1200 + gfx1201 build/package directory. Validate its origin manually in the review.
 .PARAMETER NoBuildModules
   Require ModulesPath unless SkipModules is set.
 .PARAMETER SkipBuild
@@ -183,10 +183,9 @@ try {
             Assert-LocalHeader $spec $tree
         } else { Assert-LocalHeader $spec $vendorRoot }
     }
-    $reference = Join-Path $tree 'Development/HIP/hip_reference_network.h'
-    if ((Get-Content -LiteralPath $reference -Encoding UTF8 -Raw) -notmatch 'PreflightPdl') {
-        Invoke-LocalHeaderPatch $tree (Join-Path $configRoot 'patches/reference-network.patch')
-    }
+    # Always apply to the raw selected snapshot. A matching method name alone does
+    # not prove that upstream absorbed our whole contract; conflicts require review.
+    Invoke-LocalHeaderPatch $tree (Join-Path $configRoot 'patches/reference-network.patch')
     foreach ($dir in @('src', 'Development/HIP', 'hip', 'shaders', 'modules')) {
         $owned = Assert-SyncPath (Join-Path $vendorRoot $dir) $vendorRoot
         if (Test-Path -LiteralPath $owned) {
