@@ -44,6 +44,17 @@ float CodecStrength(float v)
     return std::isfinite(v) ? std::clamp(v, 0.0f, 3.0f) : 1.0f;
 }
 
+// The NGX render subrect when it is usable, else the Colour allocation. The subrect is the
+// normal case: UE at a non-native scale and dynamic resolution render into a corner of a larger
+// buffer, and sizing the job by the allocation would feed the network the unrendered border and
+// could push the input past the admission budget. The allocation is only the fallback for a
+// missing (0) or impossible (larger than the texture) subrect, which is what the community
+// Horizon patch was working around.
+uint32_t JobExtent(uint32_t subrect, UINT64 texture)
+{
+    return (subrect > 0 && subrect <= texture) ? subrect : static_cast<uint32_t>(texture);
+}
+
 float CodecPaperWhite()
 {
     const float v = Config::Instance()->LmxxfPaperWhite.value_or_default();
@@ -552,8 +563,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
     fi.frame_id = ++frameId;
     fi.command_list = cmd;
-    fi.color_width = static_cast<uint32_t>(desc.Width);
-    fi.color_height = static_cast<uint32_t>(desc.Height);
+    fi.color_width = JobExtent(frame.width, desc.Width);
+    fi.color_height = JobExtent(frame.height, desc.Height);
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
@@ -798,8 +809,8 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.struct_size = sizeof(fi);
                 fi.frame_id = ++frameId;
                 fi.command_list = cmd;
-                fi.color_width = static_cast<uint32_t>(desc.Width);
-                fi.color_height = static_cast<uint32_t>(desc.Height);
+                fi.color_width = JobExtent(frame.width, desc.Width);
+                fi.color_height = JobExtent(frame.height, desc.Height);
                 fi.color = frame.colour;
                 fi.color_state = static_cast<uint32_t>(frame.colourState);
                 fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
