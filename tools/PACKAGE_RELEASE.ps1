@@ -222,13 +222,16 @@ RunBeforeSR=true
 ; If the chosen host is missing its files, the other installed host runs instead.
 NrBackend=lmxxf
 
-; Diagnostic mode for lmxxf backend (NO NR)
-; off              - Normal neural rendering operation
-; original         - Passthrough original colour
-; copy-current     - Diagnostic copy of current frame colour
-; staging-current  - Staging isolation test with current frame
-; staging-previous - Staging isolation test with previous frame
-; off, original, copy-current, staging-current, staging-previous - Default is off
+; Diagnostic mode for lmxxf backend (most modes skip NR)
+; off               - Normal neural rendering
+; original          - Pass through the game colour (no NR)
+; copy-current      - Copy current frame colour (diagnostic)
+; staging-current   - Staging isolation, current frame
+; staging-previous  - Staging isolation, previous frame
+; proxy-original    - Open-list proxy, original colour
+; split-original    - Split list then original colour
+; codec-passthrough - Encode to decode without the network (no HIP)
+; Default is off. Restart after changing. Invalid values do not enable NR.
 LmxxfDiagnostic=off
 
 ; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
@@ -242,6 +245,12 @@ LmxxfPdl=true
 ; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
 ; Not the HDR Paper White anchor.
 LmxxfPaperWhite=1
+
+; Auto exposure when the game sends no exposure texture (default true).
+; true = fixed fallback scale 8 (ignores LmxxfAutoExposureScale). false = use the scale below.
+LmxxfAutoExposure=true
+; Manual white scale only when Auto exposure is false and there is no game exposure. Default 8.
+LmxxfAutoExposureScale=8
 
 ; Resolution scale factor for neural rendering model input
 ; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
