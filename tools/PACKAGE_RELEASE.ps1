@@ -209,6 +209,10 @@ LmxxfDiagnostic=off
 ; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
 LmxxfFitLarge=false
 
+; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
+; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
+LmxxfPdl=true
+
 ; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
 ; Not the HDR Paper White anchor.
 LmxxfPaperWhite=1

@@ -269,17 +269,34 @@ int main(int argc, char **argv)
     Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
     IDXGIAdapter1 *adapter = nullptr;
     ID3D12Device *device = nullptr;
+    // The first AMD device is often the 780M iGPU. The gfx1201 modules only match the
+    // discrete card, so pick the AMD adapter with the most dedicated memory.
+    SIZE_T bestMemory = 0;
+    DXGI_ADAPTER_DESC1 chosen {};
     for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i)
     {
         DXGI_ADAPTER_DESC1 desc {};
         adapter->GetDesc1(&desc);
-        if (desc.VendorId == 0x1002 && SUCCEEDED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device))))
-            break;
+        const bool amd = desc.VendorId == 0x1002 && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE);
+        if (amd && desc.DedicatedVideoMemory > bestMemory)
+        {
+            ID3D12Device *candidate = nullptr;
+            if (SUCCEEDED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&candidate))))
+            {
+                if (device)
+                    device->Release();
+                device = candidate;
+                chosen = desc;
+                bestMemory = desc.DedicatedVideoMemory;
+            }
+        }
         adapter->Release();
         adapter = nullptr;
     }
     factory->Release();
     Require(device != nullptr, "AMD D3D12 device");
+    std::printf("adapter=%ls dedicated_mib=%llu\n", chosen.Description,
+                static_cast<unsigned long long>(chosen.DedicatedVideoMemory / (1024ull * 1024ull)));
 
     D3D12_COMMAND_QUEUE_DESC qd {};
     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -346,6 +363,7 @@ int main(int argc, char **argv)
     }
     frame.color = color;
     frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    frame.paper_white = 1.0f;
     // An unsupported colour must be a retryable contract rejection, not a poisoned session.
     // Poisoning is what made RE9's RGB9E5 failure permanent and left no clue in the log.
     if (rejectFormats)

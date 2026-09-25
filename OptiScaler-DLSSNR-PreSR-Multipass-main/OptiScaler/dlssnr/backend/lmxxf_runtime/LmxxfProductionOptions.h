@@ -1,5 +1,7 @@
 #pragma once
 #include "hip_reference_network.h"
+#include <cstdlib>
+#include <cstring>
 #include <string>
 
 /* First-version production HIP flags (HIP_FAST=1, graph off, skip 42,43,46). Instance, not getenv. */
@@ -13,9 +15,17 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.fast_vit = true;
     o.wmma = o.wave = o.tiled = o.pooled = true;
     o.graph = false;
-    /* Chained-launch overlap. The _pdl kernels are compiled into the gfx1201 modules
-     * (HIP_PDL_KERNELS defaults on). Graph must stay off or the network refuses to start. */
+    /* Chained-launch overlap. The _pdl kernels ship with each arch's hsaco (same .hip).
+     * On unless DLSS5_HIP_PDL=0, so a driver without hipExtModuleLaunchKernel can turn it off.
+     * Graph must stay off or the network refuses to start. */
     o.pdl = true;
+    if (const char *pdl = std::getenv("DLSS5_HIP_PDL"))
+    {
+        if (std::strcmp(pdl, "0") == 0)
+            o.pdl = false;
+        else if (std::strcmp(pdl, "1") == 0)
+            o.pdl = true;
+    }
     o.skip_blocks = hip_reference::ParseSkipBlocks("42,43,46");
     o.modules = modules;
     o.assets = assets;

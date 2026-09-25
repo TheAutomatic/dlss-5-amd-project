@@ -415,6 +415,18 @@ bool Config::Reload(std::filesystem::path iniPath)
                 const bool fit = LmxxfFitLarge.value_or_default();
                 _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
             }
+            // Missing or auto stays on. Explicit false is the off switch for PDL.
+            {
+                const auto pdlRaw = readString("DlssNr", "LmxxfPdl", true);
+                if (!pdlRaw.has_value() || pdlRaw->empty() || _stricmp(pdlRaw->c_str(), "auto") == 0)
+                    LmxxfPdl.set_from_config(true);
+                else
+                    LmxxfPdl.set_from_config(readBool("DlssNr", "LmxxfPdl"));
+            }
+            {
+                const bool pdl = LmxxfPdl.value_or_default();
+                _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
+            }
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));
@@ -1396,6 +1408,7 @@ bool Config::SaveIni()
     if (auto diagnostic = Instance()->LmxxfDiagnostic.value_for_config(); diagnostic.has_value())
         ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
     ini.SetValue("DlssNr", "LmxxfFitLarge", GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LmxxfPdl", GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfPaperWhite",
                  GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdGraphicsUnsafe", GetIntValue(Instance()->AmdGraphicsUnsafe.value_for_config()).c_str());

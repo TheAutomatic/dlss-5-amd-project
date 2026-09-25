@@ -988,6 +988,7 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     })
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
         'LmxxfFitLarge' = 'false'
+        'LmxxfPdl' = 'true'
         'LmxxfPaperWhite' = '1'
         'AmdModelScale' = '1'
         'AmdEncoding' = '0'

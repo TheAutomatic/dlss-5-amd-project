@@ -325,6 +325,8 @@ Codebase heritage (top to bottom):
 
 This distribution contains no NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights. Please respect all upstream licenses.
 
-## Known issues (1.9.1-alpha)
+## Known issues (1.9.2-alpha)
 
-- **`lmxxf` backend: Pre-SR neural rendering above ~1080p internal resolution is not fully integrated yet.** The same-frame path can hitch badly on larger Color (e.g. 4K Quality ~2258×1271). Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native**. `LmxxfFitLarge` defaults to off; set `true` only if you accept the cost.
+- **`lmxxf` backend: Pre-SR neural rendering above ~1080p internal resolution is not fully integrated yet.** The same-frame path can hitch badly on larger Color (e.g. 4K Quality ~2258×1271). Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native**. `LmxxfFitLarge` defaults to off; set `true` only if you accept the cost. Without FitLarge, width must be at most 2560, height at most 1080, and the pixel count within 1920×1080 (for example 2024×848). 2560×1080 is rejected. With FitLarge, larger Color is fitted onto the 1080 network.
+- **Cyberpunk 2077 neon turning brown:** At Colour strength 1, Pre-SR feeds the network's hue into the game's later grade and green neon can turn brown. Set Colour strength to 0 to change brightness only. This is not selected by the game's name.
+- **PDL:** Chained launch is on by default. If the driver has no `hipExtModuleLaunchKernel`, set `LmxxfPdl=false` (or `DLSS5_HIP_PDL=0`) and restart.

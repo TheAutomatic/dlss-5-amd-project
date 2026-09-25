@@ -415,28 +415,74 @@ void RenderMenu(Config* config, float menuResScale)
                 float transfer = config->DlssNrTransferStrength.value_or_default();
                 if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrTransferStrength = transfer;
-                HelpMarker("How far the frame moves toward the network result."
-                           "\n0 is the upscaler picture, 1 is the network result."
-                           "\nAbove 1 extrapolates past it. The codec accepts 0 to 3.");
+                HelpMarker("How much of the network's detail replaces the upscaler picture."
+                           "\n0 is the upscaler picture. 1 is the network result."
+                           "\nAbove 1 pushes past that result, up to 3."
+                           "\nApplies on the next frame. No restart.");
 
                 float colour = config->DlssNrColourStrength.value_or_default();
                 if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrColourStrength = colour;
-                HelpMarker("0 keeps the game hue and only the brightness changes."
-                           "\n1 brings the network colour. Above 1 extrapolates."
-                           "\nThe codec accepts 0 to 3.");
+                HelpMarker("How much of the network's colour replaces the game's hue."
+                           "\n0 keeps the game's hue and changes brightness only."
+                           "\n1 uses the network colour. Above 1 pushes it further, up to 3."
+                           "\nCyberpunk 2077: if green neon turns brown, set this to 0."
+                           "\nApplies on the next frame. No restart.");
 
                 float paper = config->LmxxfPaperWhite.value_or_default();
-                if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f"))
+                if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
+                                       ImGuiSliderFlags_Logarithmic))
                     config->LmxxfPaperWhite = paper;
-                HelpMarker("The paper white the encode and decode Record calls use."
-                           "\nDefault 1. This is not the HDR Paper White anchor.");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Reset##paper"))
+                    config->LmxxfPaperWhite = 1.0f;
+                HelpMarker("White level used by encode and decode. Default 1."
+                           "\nLog slider, so 1 is easy to land on. Reset returns to 1."
+                           "\nNot the HDR Paper White control further down."
+                           "\nApplies on the next frame. No restart.");
+
+                // The HIP chain reads PDL once, when it is first built.
+                static bool pdlAtStart = true;
+                static bool pdlAtStartCaptured = false;
+                if (!pdlAtStartCaptured)
+                {
+                    pdlAtStart = config->LmxxfPdl.value_or_default();
+                    pdlAtStartCaptured = true;
+                }
+                bool pdl = config->LmxxfPdl.value_or_default();
+                if (ImGui::Checkbox("PDL chained launch", &pdl))
+                {
+                    config->LmxxfPdl = pdl;
+                    _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
+                }
+                HelpMarker("Overlaps HIP kernel launches. Leave this on."
+                           "\nThe picture is the same either way."
+                           "\nTurn it off only when neural rendering fails to start"
+                           "\nand the log says: missing HIP export hipExtModuleLaunchKernel."
+                           "\nThe running chain does not pick this up.");
+                if (!pdl)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                    ImGui::TextWrapped(
+                        "Only turn this off when neural rendering fails to start and the log says "
+                        "missing HIP export hipExtModuleLaunchKernel. Otherwise leave it on.");
+                    ImGui::PopStyleColor();
+                }
+                if (pdl != pdlAtStart)
+                {
+                    ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
+                                       "Save Settings and restart to apply the changes");
+                }
 
                 static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
                                                     "Difference (amplified)" };
                 int debugView = (int) config->DlssNrDebugView.value_or_default();
                 if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
                     config->DlssNrDebugView = (uint32_t) debugView;
+                HelpMarker("Off is the normal picture."
+                           "\nProxy is what the network is shown. Model output is its raw answer."
+                           "\nDifference amplifies the edit."
+                           "\nApplies on the next frame. No restart.");
 
                 bool fitLarge = config->LmxxfFitLarge.value_or_default();
                 if (ImGui::Checkbox("Fit large color", &fitLarge))
@@ -446,11 +492,13 @@ void RenderMenu(Config* config, float menuResScale)
                     _putenv(fitLarge ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
-                HelpMarker("Off (default): Color above ~1080p is admitted only when the"
-                           "\nnetwork can take it as-is. On: fit larger Color onto the 1080"
-                           "\nnetwork (DLSS5_FIT_LARGE)."
-                           "\n\nLarger Color can use more GPU time and memory; compare"
-                           "\nperformance in your game before leaving this on.");
+                HelpMarker("Off (default): a wide frame is admitted only when width is"
+                           "\nat most 2560, height at most 1080, and the pixel count stays"
+                           "\nwithin 1920x1080. 2024x848 passes. 2560x1080 does not."
+                           "\nOn: larger Color is fitted onto the 1080 network. That can"
+                           "\nhitch and use more memory."
+                           "\nApplies on the next frame, including after a resolution change."
+                           "\nThe network may rebuild once. No restart.");
             }
 
             if (!isLmxxf)

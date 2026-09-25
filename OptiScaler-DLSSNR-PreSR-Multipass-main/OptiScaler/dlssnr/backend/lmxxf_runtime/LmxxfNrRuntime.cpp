@@ -882,7 +882,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         float color_strength = 1.0f;
         uint32_t debug_view = 0;
         float model_scale = 1.0f;
-        if (info->struct_size >= LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE)
+        // These three fields are inside the 80-byte v1 frame. Exposure starts at 104.
+        if (info->struct_size >= LMXXF_NR_FRAME_INFO_V1_SIZE)
         {
             if (info->flags & LMXXF_NR_FRAME_FLAG_STRENGTH)
             {

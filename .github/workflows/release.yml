@@ -280,7 +280,7 @@ jobs:
                 - Adds queue safety guards to skip HIP calls gracefully when unexpected command lists are dispatched.
                 - Flushes the GPU prior to queue migration to reduce VRAM leak risks.
                 - Fixes command list split eligibility, removes startup hash delays, and adds log rate-limiting.
-              - **Runtime and Resolution Improvements:** Improves exposure handling, buffer resizing, clear handling, and recovery; adds RGB9E5 color input support and improves input admission for wide resolutions up to 2560x1080.
+              - **Runtime and Resolution Improvements:** Improves exposure handling, buffer resizing, clear handling, and recovery; adds RGB9E5 color input support. Without FitLarge, a wide frame is admitted only when width is at most 2560, height is at most 1080, and the pixel count stays within 1920x1080 (for example 2024x848). 2560x1080 is over that budget and is rejected. `LmxxfFitLarge` is a separate switch: it fits larger Color onto the 1080 network, and it stays off unless you turn it on.
               - **In-Game Controls:** The Ins menu includes real-time `Detail strength` and `Colour strength` sliders, plus live `Debug view` channel inspection.
             - **Dual-Backend Switching:** Supports both `lmxxf` and `danielblnc`. Select a backend in the in-game Ins menu or in `OptiScaler.ini` with `NrBackend=lmxxf` or `NrBackend=daniel`. The first switch from `daniel` to `lmxxf` requires a game restart if the required hooks were not enabled at startup. After a live switch, the previous backend may retain some VRAM until the game exits.
             - **User-Supplied Weights:** Model weights must be provided manually (`native-game-tiled-assets/` for lmxxf, or `dlssnr_on_amd_weights.bin` for danielblnc).
@@ -288,6 +288,8 @@ jobs:
 
             ### Known issues
             - **`lmxxf` Pre-SR above ~1080p internal resolution is not fully integrated yet.** Same-frame neural rendering with FitLarge / larger Color can hitch badly. Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native** (keep Pre-SR Color near 1080p). `LmxxfFitLarge` defaults to **false**; only enable explicitly if you accept the cost.
+            - **Cyberpunk 2077 neon turning brown:** Pre-SR feeds the network's hue into the game's later grade. At Colour strength 1, green neon can turn brown. Set Colour strength to 0 to keep the game's hue and change brightness only. This is not selected by the game's name.
+            - **PDL:** Chained launch is on by default. If neural rendering fails to start because the driver has no `hipExtModuleLaunchKernel`, set `LmxxfPdl=false` (or `DLSS5_HIP_PDL=0`) and restart.
 
             ### 中文
             - **新增 `lmxxf` HIP 神经渲染后端：** 在现有 `danielblnc` 后端之外加入开源 `lmxxf` 后端，并改进其 DLSS/XeSS 代理接入能力。
@@ -296,14 +298,16 @@ jobs:
                 - 增加队列安全保护；遇到意外提交的命令列表时跳过 HIP 调用。
                 - 队列迁移前等待 GPU 完成工作，降低显存泄漏风险。
                 - 修复命令列表切分准入判定，移除启动时的哈希延迟，并增加日志限流。
-              - **改进 lmxxf 运行时与分辨率支持：** 改进曝光处理、缓冲区尺寸调整、清屏和异常恢复逻辑；增加对 RGB9E5 颜色输入的支持，并改进对宽分辨率输入的接纳，最高至 2560x1080。
+              - **改进 lmxxf 运行时与分辨率支持：** 改进曝光处理、缓冲区尺寸调整、清屏和异常恢复逻辑；增加对 RGB9E5 颜色输入的支持。不开 FitLarge 时，宽分辨率要同时满足：宽不超过 2560、高不超过 1080、总像素不超过 1920×1080，例如 2024×848。2560×1080 超过这个像素预算，不会放行。`LmxxfFitLarge` 是另一档：打开后更大的 Color 会拟合到 1080 网络上，默认关闭。
               - **游戏内控制：** Ins 菜单提供实时调节 `Detail strength` 和 `Colour strength` 的滑块，以及实时的 `Debug view` 通道检查。
             - **双后端切换：** 同时支持 `lmxxf` 与 `danielblnc`。可在游戏内 Ins 菜单或 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 选择后端。如果启动时未启用所需 hooks，从 `daniel` 首次切换到 `lmxxf` 需要重启游戏。实时切换后，原后端可能会占用部分显存直到游戏退出。
             - **用户仍需自备权重：** 用户需自行提供模型权重（lmxxf 使用 `native-game-tiled-assets/`，danielblnc 使用 `dlssnr_on_amd_weights.bin`）。
             - **安装器与卸载器更新：** 修复安装器交互逻辑及相关行为。过期着色器清理范围限制为已废弃的 `native_` / `preblock_` 着色器；卸载时保留其他用户 flags。
 
             ### 已知问题
-            - **`lmxxf` 超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 开启 FitLarge / 更大 Color 的同帧路径可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K 平衡档**、或 **1080p 原生**（尽量让 Pre-SR Color 接近 1080p）。`LmxxfFitLarge` 默认 **false**，仅在接受开销时显式开启。
+            - **`lmxxf` 超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 开启 FitLarge / 更大 Color 的同帧路径可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K 平衡档**、或 **1080p 原生**（尽量让 Pre-SR Color 接近 1080p）。`LmxxfFitLarge` 默认 **false**，仅在接受开销时显式开启。不开 FitLarge 时，宽不超过 2560、高不超过 1080，并且总像素不超过 1920×1080（例如 2024×848）；2560×1080 不会放行。
+            - **《赛博朋克 2077》霓虹发棕：** Colour strength 为 1 时，超分前送进游戏调色的色相会让绿霓虹变棕。把 Colour strength 调到 0，只改亮度、不改色相。不会按游戏名自动处理。
+            - **PDL：** 链式启动默认打开。如果驱动里没有 `hipExtModuleLaunchKernel`，神经渲染起不来，把 `LmxxfPdl` 设为 false（或 `DLSS5_HIP_PDL=0`）后重启。
 
             - No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
             - See README inside the zip.
