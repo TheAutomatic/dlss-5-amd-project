@@ -98,7 +98,7 @@
 
 #### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
 - 准备 `LmxxfNrRuntime.dll`（可从本项目 Release 或 [lmxxf 仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 获取）；
-- 算子模块目录 `lmxxf-modules\`（包含 71 个 `.hsaco` 与 `SHA256SUMS`）；
+- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 24 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 48 个模块；运行时由 D3D12/HIP 设备智能自动匹配，升级时安装器自动迁移旧版扁平模块并清理残留）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
 - 模型权重目录 `native-game-tiled-assets\`（可[点击这里](https://gofile.io/d/RyvcrDxz)直接下载）；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
@@ -231,7 +231,11 @@
 
 ### 二、`lmxxf` 后端：开源 HIP 算力核心与同帧同步调度
 
-- **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对现代 RDNA 架构进行汇编级优化，最新版已引入 LDS 局部作用域栅栏与 C32 CU 模式；
+- **双架构硬件支持与自动选择**：
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**：标准正式生产架构，包含经过完整验证与调优的 24 模块集合；
+  - **AMD Radeon RX 9060 (`gfx1200`)**：实验性支持，源码与离线 COMGR 3.0 编译验证完成，硬件实机冒烟与 PDL 表现待后续实机进一步验证；
+  - **架构自适应与严格校验**：运行时基于 D3D12 渲染队列绑定与 HIP 设备 LUID 自动匹配对应架构子目录，严格执行 SHA-256 完整性校验与 PDL 孪生符号预检（Preflight）；
+- **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对现代 RDNA 架构进行汇编级优化，引入 LDS 局部作用域栅栏与 C32 CU 模式；
 - **主队列同帧同步执行**：OptiScaler 在当前帧的命令列表提交前完成输入录制与外部 Fence 编排，使网络推理与主渲染管线在同一队列周期内紧密衔接，彻底消除外部多进程等待延迟；
 - **原生参数支持**：无需重启游戏，可在 Ins 菜单内直接调整细节锐度与色彩校正滑条。
 

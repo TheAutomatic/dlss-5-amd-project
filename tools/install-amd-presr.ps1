@@ -89,8 +89,15 @@ function Test-OptiProxy([string]$path) {
     if (!(Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
     try {
         $vi = (Get-Item -LiteralPath $path).VersionInfo
-        return ($vi.ProductName -eq 'OptiScaler' -or $vi.FileDescription -eq 'OptiScaler')
-    } catch { return $false }
+        if ($vi.ProductName -eq 'OptiScaler' -or $vi.FileDescription -eq 'OptiScaler') { return $true }
+    } catch { }
+    try {
+        $pkgOpti = Join-Path $release 'OptiScaler.dll'
+        if (Test-Path -LiteralPath $pkgOpti -PathType Leaf) {
+            if ((Get-Sha256 $path) -eq (Get-Sha256 $pkgOpti)) { return $true }
+        }
+    } catch { }
+    return $false
 }
 
 function Ask-Choice([string]$title, [string[]]$options) {
@@ -918,9 +925,65 @@ if ($installDaniel) {
 if ($installLmxxf) {
     Write-Host 'Installing lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
     Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
+
+    # Pre-installation validation and migration for lmxxf-modules
+    $gameModsDir = Join-Path $game 'lmxxf-modules'
+    $legacyFlatHsaco = @()
+    $legacyFlatManifest = $null
+    $isDualArchSrc = (Test-Path -LiteralPath (Join-Path $lmxxfMods 'gfx1200\SHA256SUMS') -PathType Leaf) -and
+                     (Test-Path -LiteralPath (Join-Path $lmxxfMods 'gfx1201\SHA256SUMS') -PathType Leaf)
+
+    if (Test-Path -LiteralPath $gameModsDir -PathType Container) {
+        $legacyFlatHsaco = @(Get-ChildItem -LiteralPath $gameModsDir -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
+        $candManifest = Join-Path $gameModsDir 'modules.json'
+        if (Test-Path -LiteralPath $candManifest -PathType Leaf) {
+            $legacyFlatManifest = $candManifest
+        }
+    }
+
+    if ($isDualArchSrc -and ($legacyFlatHsaco.Count -gt 0 -or $legacyFlatManifest)) {
+        Write-Host 'Detected legacy flat lmxxf-modules; backing up for dual-architecture migration...' -ForegroundColor Cyan
+        if (-not $skipBackup) {
+            $backupMods = Join-Path $backup 'lmxxf-modules'
+            [void][System.IO.Directory]::CreateDirectory($backupMods)
+            foreach ($lf in $legacyFlatHsaco) {
+                $dst = Join-Path $backupMods $lf.Name
+                Copy-Item -LiteralPath $lf.FullName -Destination $dst -Force
+                $backupCreated = $true
+            }
+            if ($legacyFlatManifest) {
+                Copy-Item -LiteralPath $legacyFlatManifest -Destination (Join-Path $backupMods 'modules.json') -Force
+                $backupCreated = $true
+            }
+            Write-Host ("  backed up {0} legacy flat file(s) to {1}" -f ($legacyFlatHsaco.Count + [int]($null -ne $legacyFlatManifest)), $backupMods) -ForegroundColor Cyan
+        }
+    }
+
     Get-ChildItem -LiteralPath $lmxxfMods -Recurse -File | ForEach-Object {
         $rel = Join-Path 'lmxxf-modules' $_.FullName.Substring($lmxxfMods.Length).TrimStart('\','/')
         Install-One $_.FullName $rel
+    }
+
+    if ($isDualArchSrc -and ($legacyFlatHsaco.Count -gt 0 -or $legacyFlatManifest)) {
+        # Purge only legacy flat modules and legacy root modules.json.
+        # User custom files (custom weights, configs, subdirectories) are strictly preserved.
+        foreach ($lf in $legacyFlatHsaco) {
+            try {
+                Remove-Item -LiteralPath $lf.FullName -Force
+                Write-Host ("  purged legacy flat module: {0}" -f $lf.Name) -ForegroundColor DarkYellow
+            } catch {
+                Write-Host ("  WARN: could not remove legacy flat module {0}: {1}" -f $lf.Name, $_.Exception.Message) -ForegroundColor Yellow
+            }
+        }
+        if ($legacyFlatManifest -and (Test-Path -LiteralPath $legacyFlatManifest -PathType Leaf)) {
+            try {
+                Remove-Item -LiteralPath $legacyFlatManifest -Force
+                Write-Host "  purged legacy root modules.json" -ForegroundColor DarkYellow
+            } catch {
+                Write-Host ("  WARN: could not remove legacy root modules.json: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+            }
+        }
+        Write-Host "  migrated lmxxf-modules to dual-architecture layout (gfx1200 / gfx1201)." -ForegroundColor Green
     }
     if ($lmxxfShaders) {
         $shaderKeep = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)

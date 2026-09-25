@@ -98,7 +98,7 @@ Prepare either backend (or both for side-by-side coexistence):
 
 #### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [Click Here](https://gofile.io/d/RyvcrDxz) to download weights
 - `LmxxfNrRuntime.dll` (from project release or [upstream lmxxf repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
-- Module folder `lmxxf-modules\` (with 71 `.hsaco` files and `SHA256SUMS`);
+- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 24 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 48 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; installer automatically migrates older flat modules with backup and cleanup);
 - Shader folder `shaders\` (with `native_codec_encode.hlsl`);
 - Weights folder `native-game-tiled-assets\` (can be downloaded [here](https://gofile.io/d/RyvcrDxz));
 - Place these in the same extracted folder as `Setup.bat`.
@@ -229,6 +229,10 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
 
 ### 2. `lmxxf` Backend: Open-Source HIP Compute & Same-Frame Queue Execution
 
+- **Dual-Architecture Support & Auto-Selection**:
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**: Standard verified production architecture with 24 tuned compute modules;
+  - **AMD Radeon RX 9060 (`gfx1200`)**: Experimental support, verified through COMGR 3.0 compilation; real-device smoke test and PDL speedup pending hardware verification;
+  - **Adaptive Architecture & Strict Verification**: Automatically selects matching arch subfolder based on D3D12 queue binding and HIP device LUID, with SHA-256 integrity verification and PDL twin symbol preflight;
 - **Open Source & Hardware Optimized**: All 71 ViT neural network modules are implemented in HIP, tuned for modern RDNA architectures with LDS workgroup fences and C32 CU mode;
 - **Same-Frame Queue Execution**: OptiScaler schedules input recording, HIP inference, and barrier synchronization on the main queue before command list close, eliminating external cross-process synchronization delays;
 - **Dynamic Parameter Controls**: Real-time continuous sliders for detail/brightness enhancement and color calibration directly in the Ins menu.

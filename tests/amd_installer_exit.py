@@ -301,5 +301,156 @@ class InstallerExitTests(unittest.TestCase):
                 self.assertEqual(code, expected, output)
 
 
+    def ready_lmxxf_dual_arch(self):
+        (self.package / "OptiScaler.dll").write_bytes(b"fixture proxy")
+        (self.package / "LmxxfNrRuntime.dll").write_bytes(b"fixture lmxxf runtime")
+        mods = self.package / "lmxxf-modules"
+        mods.mkdir(parents=True, exist_ok=True)
+        g1200 = mods / "gfx1200"
+        g1201 = mods / "gfx1201"
+        g1200.mkdir(parents=True, exist_ok=True)
+        g1201.mkdir(parents=True, exist_ok=True)
+
+        lines_root = []
+        for arch, arch_dir in (("gfx1200", g1200), ("gfx1201", g1201)):
+            lines_leaf = []
+            for i in range(24):
+                mod_name = f"mod_{i}.hsaco"
+                data = f"{arch} module {i}".encode("ascii")
+                (arch_dir / mod_name).write_bytes(data)
+                digest = hashlib.sha256(data).hexdigest()
+                lines_leaf.append(f"{digest}  {mod_name}")
+                lines_root.append(f"{digest}  {arch}/{mod_name}")
+            (arch_dir / "SHA256SUMS").write_text("\n".join(lines_leaf) + "\n", encoding="utf-8")
+            (arch_dir / "modules.json").write_text('{"count": 24}', encoding="utf-8")
+
+        (mods / "SHA256SUMS").write_text("\n".join(lines_root) + "\n", encoding="utf-8")
+        (mods / "runtime-manifest.json").write_text('{"targets": ["gfx1200", "gfx1201"]}', encoding="utf-8")
+
+        shaders = self.package / "shaders"
+        shaders.mkdir(parents=True, exist_ok=True)
+        (shaders / "native_codec_encode.hlsl").write_text("// shader fixture", encoding="utf-8")
+
+    def test_dual_arch_lmxxf_clean_install(self):
+        self.ready_lmxxf_dual_arch()
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        self.assertIn("Install SUCCEEDED.", output)
+        self.assertTrue((self.game / "LmxxfNrRuntime.dll").is_file(), output)
+        game_mods = self.game / "lmxxf-modules"
+        self.assertTrue((game_mods / "gfx1200").is_dir(), output)
+        self.assertTrue((game_mods / "gfx1201").is_dir(), output)
+        self.assertEqual(len(list(game_mods.glob("*.hsaco"))), 0, "no flat hsaco in root")
+        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 24)
+        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 24)
+        self.assertTrue((game_mods / "SHA256SUMS").is_file(), output)
+        self.assertTrue((game_mods / "runtime-manifest.json").is_file(), output)
+
+    def test_dual_arch_lmxxf_upgrade_from_legacy_flat_preserves_user_files(self):
+        self.ready_lmxxf_dual_arch()
+        game_mods = self.game / "lmxxf-modules"
+        game_mods.mkdir(parents=True, exist_ok=True)
+        for i in range(5):
+            (game_mods / f"legacy_{i}.hsaco").write_bytes(f"legacy {i}".encode("ascii"))
+        (game_mods / "modules.json").write_text('{"legacy": true}', encoding="utf-8")
+        (game_mods / "SHA256SUMS").write_text("dummy sha legacy", encoding="utf-8")
+
+        user_weights = game_mods / "user_custom_weights.bin"
+        user_weights.write_bytes(b"important user trained weights")
+        user_folder = game_mods / "user_extra"
+        user_folder.mkdir()
+        (user_folder / "info.txt").write_text("keep me", encoding="utf-8")
+
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        self.assertIn("Detected legacy flat lmxxf-modules", output)
+        self.assertIn("migrated lmxxf-modules to dual-architecture layout", output)
+
+        # Check backup created
+        backups = list(self.game.glob("backup-amd-presr-*"))
+        self.assertTrue(len(backups) > 0, "backup directory must be created")
+        backup_mods = backups[0] / "lmxxf-modules"
+        self.assertTrue((backup_mods / "legacy_0.hsaco").is_file(), "legacy flat hsaco backed up")
+        self.assertTrue((backup_mods / "modules.json").is_file(), "legacy root modules.json backed up")
+
+        # Check game dir cleaned of flat hsaco and root modules.json
+        self.assertEqual(len(list(game_mods.glob("*.hsaco"))), 0, "flat hsaco purged from root")
+        self.assertFalse((game_mods / "modules.json").exists(), "root modules.json purged")
+
+        # Check dual-arch directories installed
+        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 24)
+        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 24)
+
+        # Check user files preserved
+        self.assertTrue(user_weights.is_file(), "user weights must be preserved")
+        self.assertEqual(user_weights.read_bytes(), b"important user trained weights")
+        self.assertTrue((user_folder / "info.txt").is_file(), "user extra files must be preserved")
+
+        # Repeated install must also succeed cleanly and preserve user files
+        code_repeat, out_repeat = self.run_direct()
+        self.assertEqual(code_repeat, 0, out_repeat)
+        self.assertTrue(user_weights.is_file())
+        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 24)
+
+        # Uninstall must remove project files and arch dirs but preserve user weights & folder
+        code_un, out_un = self.run_direct(name="Uninstall")
+        self.assertEqual(code_un, 0, out_un)
+        self.assertFalse((self.game / "LmxxfNrRuntime.dll").exists())
+        self.assertFalse((game_mods / "gfx1200").exists())
+        self.assertFalse((game_mods / "gfx1201").exists())
+        self.assertTrue(user_weights.is_file(), "user weights preserved after uninstall")
+        self.assertTrue((user_folder / "info.txt").is_file(), "user folder preserved after uninstall")
+        self.assertTrue(game_mods.is_dir(), "lmxxf-modules directory kept alive by user files")
+
+
+    def test_package_release_rejects_intermediate_generated_hip(self):
+        self.ready_lmxxf_dual_arch()
+        (self.package / "lmxxf-modules/gfx1200/kernel.generated.hip").write_text("intermediate", encoding="utf-8")
+        source = (REPO / "tools/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
+        # Run the staging validation block against self.package
+        val_block = f"""
+$stage = '{str(self.package).replace('\\', '/')}'
+$forbidden = '(?i)^(nvngx.*\\.dll|dlssnr_amd_pass.*\\.dll|dlssnr_on_amd_weights\\.bin|version\\.dll|dlssnr_on_amd_setup\\.exe|.*\\.generated\\.hip|.*\\.hsaco\\.s)$'
+$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object {{ $_.Name -match $forbidden }}
+if ($badAll) {{
+    throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object {{ $_.FullName.Substring($stage.Length+1) }}) -join ', ')"
+}}
+"""
+        code, out = self.run_process([str(PS), "-NoProfile", "-Command", val_block])
+        self.assertNotEqual(code, 0)
+        self.assertIn("Refusing to package proprietary/user-supplied file", out)
+
+    def test_package_release_rejects_intermediate_hsaco_s(self):
+        self.ready_lmxxf_dual_arch()
+        (self.package / "lmxxf-modules/gfx1201/kernel.hsaco.s").write_text("assembly", encoding="utf-8")
+        val_block = f"""
+$stage = '{str(self.package).replace('\\', '/')}'
+$forbidden = '(?i)^(nvngx.*\\.dll|dlssnr_amd_pass.*\\.dll|dlssnr_on_amd_weights\\.bin|version\\.dll|dlssnr_on_amd_setup\\.exe|.*\\.generated\\.hip|.*\\.hsaco\\.s)$'
+$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object {{ $_.Name -match $forbidden }}
+if ($badAll) {{
+    throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object {{ $_.FullName.Substring($stage.Length+1) }}) -join ', ')"
+}}
+"""
+        code, out = self.run_process([str(PS), "-NoProfile", "-Command", val_block])
+        self.assertNotEqual(code, 0)
+        self.assertIn("Refusing to package proprietary/user-supplied file", out)
+
+    def test_package_release_rejects_flat_root_hsaco_in_staged_modules(self):
+        self.ready_lmxxf_dual_arch()
+        (self.package / "lmxxf-modules/legacy.hsaco").write_bytes(b"flat")
+        val_block = f"""
+$stage = '{str(self.package).replace('\\', '/')}'
+$stagedMods = Join-Path $stage 'lmxxf-modules'
+$stagedRootHsaco = @(Get-ChildItem -LiteralPath $stagedMods -Filter '*.hsaco' -File)
+if ($stagedRootHsaco.Count -gt 0) {{
+    throw "Staged lmxxf-modules contains legacy flat .hsaco modules in root: $(($stagedRootHsaco | ForEach-Object {{ $_.Name }}) -join ', ')"
+}}
+"""
+        code, out = self.run_process([str(PS), "-NoProfile", "-Command", val_block])
+        self.assertNotEqual(code, 0)
+        self.assertIn("Staged lmxxf-modules contains legacy flat .hsaco modules in root", out)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

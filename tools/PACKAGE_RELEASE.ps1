@@ -419,11 +419,51 @@ if (Test-Path $readmeEs) {
 # danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
 # Keep this filename-only and case-insensitive: the same expression validates the
 # staged tree and every entry in the finished archive.
-$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe|.*\.generated\.hip|.*\.hsaco\.s)$'
 $badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match $forbidden }
 if ($badAll) {
     throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object { $_.FullName.Substring($stage.Length+1) }) -join ', ')"
+}
+
+# Validate dual-arch modules structure if staged
+$stagedMods = Join-Path $stage 'lmxxf-modules'
+if (Test-Path -LiteralPath $stagedMods -PathType Container) {
+    $stagedRootSums = Join-Path $stagedMods 'SHA256SUMS'
+    if (!(Test-Path -LiteralPath $stagedRootSums -PathType Leaf)) {
+        throw "Staged lmxxf-modules is missing root SHA256SUMS manifest"
+    }
+    $stagedManifest = Join-Path $stagedMods 'runtime-manifest.json'
+    if (!(Test-Path -LiteralPath $stagedManifest -PathType Leaf)) {
+        throw "Staged lmxxf-modules is missing runtime-manifest.json"
+    }
+    $stagedRootHsaco = @(Get-ChildItem -LiteralPath $stagedMods -Filter '*.hsaco' -File)
+    if ($stagedRootHsaco.Count -gt 0) {
+        throw "Staged lmxxf-modules contains legacy flat .hsaco modules in root: $(($stagedRootHsaco | ForEach-Object { $_.Name }) -join ', ')"
+    }
+    if (Test-Path -LiteralPath (Join-Path $stagedMods 'modules.json') -PathType Leaf) {
+        throw "Staged lmxxf-modules contains legacy modules.json in root (must be per-arch only)"
+    }
+    foreach ($arch in @('gfx1200', 'gfx1201')) {
+        $archDir = Join-Path $stagedMods $arch
+        if (!(Test-Path -LiteralPath $archDir -PathType Container)) {
+            throw "Staged lmxxf-modules is missing required architecture directory: $arch"
+        }
+        if (!(Test-Path -LiteralPath (Join-Path $archDir 'SHA256SUMS') -PathType Leaf)) {
+            throw "Staged lmxxf-modules/$arch is missing leaf SHA256SUMS"
+        }
+        if (!(Test-Path -LiteralPath (Join-Path $archDir 'modules.json') -PathType Leaf)) {
+            throw "Staged lmxxf-modules/$arch is missing leaf modules.json"
+        }
+        $archHsaco = @(Get-ChildItem -LiteralPath $archDir -Filter '*.hsaco' -File)
+        if ($archHsaco.Count -ne 24) {
+            throw "Staged lmxxf-modules/$arch must contain exactly 24 .hsaco modules, found $($archHsaco.Count)"
+        }
+    }
+    $totalHsaco = @(Get-ChildItem -LiteralPath $stagedMods -Filter '*.hsaco' -Recurse -File)
+    if ($totalHsaco.Count -ne 48) {
+        throw "Staged lmxxf-modules must contain exactly 48 .hsaco modules in total, found $($totalHsaco.Count)"
+    }
 }
 
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
@@ -469,6 +509,36 @@ try {
     foreach ($req in $requiredNames) {
         if ($entryNames -notcontains $req) {
             throw "Package archive missing required component: $req"
+        }
+    }
+    # Validate dual-arch modules in zip archive
+    $zipHsaco = @($archive.Entries | Where-Object { $_.FullName -like 'lmxxf-modules/*.hsaco' -or $_.FullName -like 'lmxxf-modules/*/*.hsaco' })
+    if ($zipHsaco.Count -gt 0) {
+        $rootZipHsaco = @($archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -match '^lmxxf-modules/[^/]+\.hsaco$' })
+        if ($rootZipHsaco.Count -gt 0) {
+            throw "Package archive contains flat .hsaco modules in lmxxf-modules root"
+        }
+        $g1200Hsaco = @($archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -match '^lmxxf-modules/gfx1200/[^/]+\.hsaco$' })
+        if ($g1200Hsaco.Count -ne 24) {
+            throw "Package archive gfx1200 must have 24 .hsaco entries, found $($g1200Hsaco.Count)"
+        }
+        $g1201Hsaco = @($archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -match '^lmxxf-modules/gfx1201/[^/]+\.hsaco$' })
+        if ($g1201Hsaco.Count -ne 24) {
+            throw "Package archive gfx1201 must have 24 .hsaco entries, found $($g1201Hsaco.Count)"
+        }
+        $requiredModEntries = @(
+            'lmxxf-modules/SHA256SUMS',
+            'lmxxf-modules/runtime-manifest.json',
+            'lmxxf-modules/gfx1200/SHA256SUMS',
+            'lmxxf-modules/gfx1200/modules.json',
+            'lmxxf-modules/gfx1201/SHA256SUMS',
+            'lmxxf-modules/gfx1201/modules.json'
+        )
+        $allEntryFullNames = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+        foreach ($rme in $requiredModEntries) {
+            if ($allEntryFullNames -notcontains $rme) {
+                throw "Package archive missing required module entry: $rme"
+            }
         }
     }
 } catch {

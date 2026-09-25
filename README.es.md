@@ -98,7 +98,7 @@ Prepare cualquiera de los backends (o ambos para instalación conjunta):
 
 #### Opción A: [Preparar archivos del backend `lmxxf`](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [haga clic aquí](https://gofile.io/d/RyvcrDxz) para descargar los pesos
 - `LmxxfNrRuntime.dll` (del lanzamiento del proyecto o del [repositorio upstream de lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
-- Carpeta de módulos `lmxxf-modules\` (con los archivos `.hsaco` y `SHA256SUMS`);
+- Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 24 módulos `.hsaco` cada uno y un total de 48 módulos; selección automática según GPU D3D12/HIP y migración automática desde versiones planas anteriores);
 - Carpeta de shaders `shaders\` (con los archivos `.hlsl`);
 - Carpeta de pesos `native-game-tiled-assets\` (se puede descargar [aquí](https://gofile.io/d/RyvcrDxz));
 - Coloque estos elementos en la misma carpeta descomprimida junto a `Setup.bat`.
@@ -229,6 +229,10 @@ Este proyecto introdujo la **planificación multi-ranura (Multi-Slot Scheduling)
 
 ### 2. Backend `lmxxf`: Cómputo HIP de código abierto y ejecución en la misma cola del fotograma
 
+- **Soporte de doble arquitectura y autoselección**:
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**: Arquitectura de producción estándar verificada con 24 módulos optimizados;
+  - **AMD Radeon RX 9060 (`gfx1200`)**: Soporte experimental compilado y verificado con COMGR 3.0; pruebas en hardware real y aceleración PDL pendientes;
+  - **Selección adaptativa y verificación estricta**: Selección automática de la subcarpeta según D3D12/HIP LUID, con verificación SHA-256 y preflight de símbolos PDL gemelos;
 - **Código abierto y optimizado para hardware**: Los módulos de la red neuronal ViT están implementados en HIP, optimizados para arquitecturas RDNA modernas con barreras de grupo de trabajo LDS y modo C32 CU;
 - **Ejecución en la misma cola del fotograma**: OptiScaler planifica la grabación de entrada, inferencia HIP y sincronización de barreras en la cola principal antes del cierre de la lista de comandos, eliminando retrasos de sincronización entre procesos;
 - **Controles dinámicos de parámetros**: Controles deslizantes continuos en tiempo real para realce de detalle/brillo y calibración de color directamente en el menú Ins.
