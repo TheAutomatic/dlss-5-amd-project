@@ -2,7 +2,7 @@
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
-  Copies danielblnc's 0.3.1 or 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
+  Copies danielblnc's 0.3.2 / 0.3.1 / 0.3.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
@@ -12,9 +12,9 @@
     OptiScaler.dll              this fork
     OptiScaler.ini              optional
     OptiScaler\                 FFX / XeSS / Agility deps
-    version.dll                 danielblnc AMD NR 0.3.1 or 0.3.0 (copied to pass1-3)
+    version.dll                 danielblnc AMD NR 0.3.2 / 0.3.1 / 0.3.0 (copied to pass1-3)
     nvngx_dlssnr.dll            optional, to generate weights with danielblnc setup
-    dlssnr_on_amd_setup.exe     optional, danielblnc 0.3.1 / 0.3.0 setup
+    dlssnr_on_amd_setup.exe     optional, danielblnc 0.3.2 / 0.3.1 / 0.3.0 setup
     dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE
@@ -361,11 +361,12 @@ function Find-FirstFile([string[]]$paths) {
 
 # Hash: only known danielblnc runtimes are supported. The RVA layout is pinned to
 # each binary — a different build will not run correctly. Fail closed.
-# 0.3.0 = AmdLayout.h kAmd03; 0.3.1 = kAmd031 (mapped 2026-09-16).
+# 0.3.0 = AmdLayout.h kAmd03; 0.3.1 = kAmd031; 0.3.2 = kAmd032 (mapped 2026-09-25).
 $expectedA030 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
 $expectedA031 = 'B108D6407EB7F094A4F9111EDD778EEE7B978B648D413A9FC7AEEDFDD914C154'
+$expectedA032 = 'B92F7481BC03FA41F443B1E1E54B502789DF2BBBCEFE48C680DF7BB02A33FC1E'
 $knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
-$expectedAuthor = @($expectedA030, $expectedA031)
+$expectedAuthor = @($expectedA030, $expectedA031, $expectedA032)
 
 # Walk every candidate and accept only a file whose SHA256 is a known runtime.
 # A game may have B installed as version.dll (README allows that); the first
@@ -545,7 +546,7 @@ if ($installDaniel) {
     if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
         Fail @"
 Still missing a known DLSS-NR-on-AMD runtime (version.dll) after danielblnc setup.
-Supported: 0.3.0 or 0.3.1.
+Supported: 0.3.0, 0.3.1 or 0.3.2.
 1. Run dlssnr_on_amd_setup.exe yourself and finish its install
 2. Put the version.dll it produces next to Setup.bat (or leave it in the game folder)
 Download from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
@@ -556,13 +557,13 @@ Download from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
     Write-Host ("danielblnc runtime SHA256: {0}" -f $hashA)
     if ($expectedAuthor -notcontains $hashA) {
         $what = 'unknown build'
-        if ($hashA -eq $knownA0217) { $what = 'this is 0.2.17, not 0.3.0/0.3.1' }
+        if ($hashA -eq $knownA0217) { $what = 'this is 0.2.17, not 0.3.0/0.3.1/0.3.2' }
         Fail @"
 $srcA is not a supported DLSS-NR-on-AMD runtime ($what).
   file:     $srcA
   got:      $hashA
-  expected: $expectedA030 (0.3.0) or $expectedA031 (0.3.1)
-Download 0.3.0 or 0.3.1 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
+  expected: $expectedA030 (0.3.0), $expectedA031 (0.3.1) or $expectedA032 (0.3.2)
+Download 0.3.0, 0.3.1 or 0.3.2 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
     }
 
