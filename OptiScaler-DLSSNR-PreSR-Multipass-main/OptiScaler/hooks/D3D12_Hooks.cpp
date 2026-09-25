@@ -3008,7 +3008,8 @@ static void HookToDevice(ID3D12Device* InDevice)
             else
             {
                 LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
-                if (State::Instance().gameEngine == GameEngineType::Unreal)
+                // All engines: early lists appear before swapchain on some titles (e.g. Forza).
+                // Only wrap when the submission hook is installed on a real queue (UE5 boot crash if not).
                 {
                     D3D12_COMMAND_QUEUE_DESC queueDesc {};
                     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -3019,7 +3020,7 @@ static void HookToDevice(ID3D12Device* InDevice)
                     if (earlyQueue)
                         earlyQueue->Release();
                     DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
-                    LOG_INFO("lmxxf Unreal early executable proxy: {} (submission hook ready={})", ready, ready);
+                    LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", ready, ready);
                 }
             }
         }
