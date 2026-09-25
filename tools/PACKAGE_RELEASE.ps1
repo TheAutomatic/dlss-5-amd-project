@@ -450,6 +450,13 @@ Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 if (Test-Path $readmeEs) {
     Copy-Item $readmeEs (Join-Path $stage 'README.es.md') -Force
 }
+# Ship the version string so a package can be identified without running Setup.
+$versionFile = Join-Path $root 'VERSION'
+if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
+    Copy-Item -LiteralPath $versionFile -Destination (Join-Path $stage 'VERSION') -Force
+} else {
+    Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value ($Version + "`n") -Encoding UTF8
+}
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
 # danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
