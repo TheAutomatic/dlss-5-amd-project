@@ -38,6 +38,14 @@
 
 `patches/bridge.patch`、`reflect.patch`、`input-geometry.patch` 是三个独立的标准 unified diff，基于 `3d9b3e42f3529609f824506c8d385bdd00b3e70c` 生成。输入尺寸补丁保留现有 2560 宽、1080 高和 1920×1080 像素预算限制。`reference-network.patch` 基于 pending 目标 `24986ae094bbd150f4d86a0ca76159a43f374884` 的原始 Network，只维护本地 PDL preflight、状态查询和分配失败清理。该头文件在计划目标 `f812188b9f8df92275bb15e1ed26518d5466053e` 中字节相同；测试使用 `tests/fixtures/lmxxf/hip_reference_network.upstream.h` 保存的原始快照验证应用，不能用已打补丁的 vendor 文件伪装上游输入。每次都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
+`manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
+
+- `reference-network.patch`：见上。
+- `auto-white.patch`：`shaders/native_codec_encode.hlsl`、`shaders/native_codec_decode.hlsl`、`src/native_game_codec.h` 里无游戏曝光时的均值白点（`Reserved.x` 的 0x10000 位）。基于 `24986ae094bbd150f4d86a0ca76159a43f374884`。着色器目录本来会被整体镜像成上游版本，没有这个补丁，sync 会把它悄悄冲掉。
+- `r10g10b10a2.patch`：`src/native_lab_paths.h` 接受 R10G10B10A2 颜色输入（Horizon）。基于同一提交。
+
+新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
+
 更新固定头文件时，先对临时归档执行 `git apply --check`，成功后应用，再检查本地契约。任何 hunk 对不上均停止，不使用模糊替换、`--reject` 或部分应用。上游挪动上下文、改变契约或吸收了补丁时，在临时干净副本中重新审阅和生成对应 `.patch`，检查 diff 仅含预期修改，再验证 Runtime/相关测试。主同步脚本中不再存放 C++ 代码替换字符串。
 
 `module-defines.json` 按模块维护本地明确启用的宏。目前保留两个 multihead-fast-padded-wave 模块的 `HIP_FFN_LINE_STORES 1`。单个模块启用了某宏，不能代表其他模块也启用。上游出现同名同值定义时不重复注入；值冲突会失败，要求审阅。

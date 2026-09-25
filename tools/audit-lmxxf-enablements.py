@@ -128,7 +128,7 @@ def local_inputs(root, manifest):
              Path('tools/sync-lmxxf-upstream.ps1'), Path('tools/audit-lmxxf-enablements.py'),
              Path('tools/lmxxf-module-package.ps1')}
     files.update(CONFIG / 'patches' / spec['patch'] for spec in manifest['pinned'])
-    files.add(CONFIG / 'patches/reference-network.patch')
+    files.update(CONFIG / 'patches' / name for name in manifest['local_patches'])
     files.update(path.relative_to(root) for path in (root / CONFIG).glob('*.ps1'))
     files.update(VENDOR / path for path in manifest['headers'])
     files.update(path.relative_to(root) for path in (root / VENDOR / 'hip').glob('*.hip'))

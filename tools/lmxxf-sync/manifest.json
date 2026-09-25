@@ -66,6 +66,11 @@
       "forbidden": []
     }
   ],
+  "local_patches": [
+    "reference-network.patch",
+    "auto-white.patch",
+    "r10g10b10a2.patch"
+  ],
   "hip_files": [
     "build-modules.ps1",
     "rtc_compile.cpp",

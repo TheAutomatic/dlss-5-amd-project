@@ -62,6 +62,15 @@ class Fixture(unittest.TestCase):
         # Construct raw upstream from the independently maintained patches.
         for entry in manifest['pinned']:
             git(self.up, 'apply', '--reverse', str(self.config / 'patches' / entry['patch']))
+        # Local patches carry our hunks in files that otherwise follow upstream. The codec shaders
+        # they touch are not headers, so seed them from the vendor tree before reversing.
+        for shader in ('shaders/native_codec_encode.hlsl', 'shaders/native_codec_decode.hlsl'):
+            content = (ROOT / audit.VENDOR / shader).read_text(encoding='utf-8')
+            write(self.vendor / shader, content)
+            write(self.up / shader, content)
+        for name in manifest['local_patches']:
+            if name != 'reference-network.patch':  # raw input already comes from the frozen fixture
+                git(self.up, 'apply', '--reverse', str(self.config / 'patches' / name))
         product = (ROOT / audit.OPTIONS).read_text(encoding='utf-8')
         write(self.local / audit.OPTIONS, product)
         write(self.up / 'src/LmxxfProductionOptions.h', product)
@@ -198,6 +207,20 @@ class SyncTests(Fixture):
         result = self.sync()
         self.assert_failed(result)
         self.assertIn('reference-network.patch', result.stdout)
+        self.assertEqual(snapshot_files(self.vendor), before)
+
+    def test_local_shader_patch_conflict_fails_before_vendor_changes(self):
+        # A shader that follows upstream still carries our auto-white hunks. If upstream edits the
+        # lines they sit on, the sync must stop rather than mirror the shader back to upstream.
+        path = self.up / 'shaders/native_codec_encode.hlsl'
+        text = path.read_text(encoding='utf-8')
+        self.assertIn('float EffectivePaperWhite() {', text)
+        write(path, text.replace('float EffectivePaperWhite() {', 'float UpstreamPaperWhite() {'))
+        commit(self.up)
+        before = snapshot_files(self.vendor)
+        result = self.sync()
+        self.assert_failed(result)
+        self.assertIn('auto-white.patch', result.stdout)
         self.assertEqual(snapshot_files(self.vendor), before)
 
     def test_audit_nonzero_never_advances_pin(self):

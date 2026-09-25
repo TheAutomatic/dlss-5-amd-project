@@ -77,6 +77,20 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 3. `SetNoise` skips the 201 MiB buffer when `fast_prefix` is on.
 4. `#include <algorithm>` for MinGW/MSVC `std::sort` / `std::min` in `hip_reference_network.h` and `hip_d3d12_bridge.h`.
 
+### Local patches on files that still follow upstream
+
+`tools/lmxxf-sync/manifest.json` `local_patches` are applied to every synced snapshot, in order, before
+any vendor file changes; a patch that no longer applies fails the sync closed. These files are NOT pinned:
+they take upstream changes and carry only our hunks.
+
+| Patch | Files | Why |
+|---|---|---|
+| `reference-network.patch` | `Development/HIP/hip_reference_network.h` | PDL preflight, status queries, allocation-failure cleanup |
+| `auto-white.patch` | `shaders/native_codec_encode.hlsl`, `shaders/native_codec_decode.hlsl`, `src/native_game_codec.h` | Mean-based white point when the game gives no usable exposure (`Reserved.x` bit 0x10000). Shaders are otherwise mirrored from upstream, so without the patch a sync reverts this silently |
+| `r10g10b10a2.patch` | `src/native_lab_paths.h` | Accept R10G10B10A2 colour input (Horizon) |
+
+Any new product edit to a vendored file must ship with a patch in `local_patches`, or the next sync drops it.
+
 ### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
 > See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (independent unified patch check + local contract check).

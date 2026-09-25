@@ -80,6 +80,14 @@ if ($manifest.schema -ne 1 -or @($manifest.headers | Select-Object -Unique).Coun
 if (@($manifest.pinned).Count -ne 3 -or @(Compare-Object $expectedPinned @($manifest.pinned.path)).Count) {
     throw 'Only the three documented local headers may be pinned.'
 }
+# Local patches carry product changes to files that otherwise follow upstream (shaders and
+# unpinned headers). Without them a sync silently mirrors those files back to upstream.
+if (@($manifest.local_patches).Count -lt 1 -or @($manifest.local_patches | Select-Object -Unique).Count -ne @($manifest.local_patches).Count) {
+    throw 'Invalid or duplicate local_patches in lmxxf-sync/manifest.json'
+}
+foreach ($localPatch in $manifest.local_patches) {
+    if ($localPatch -notmatch '^[A-Za-z0-9._-]+\.patch$') { throw "Invalid local patch name: $localPatch" }
+}
 foreach ($path in $manifest.headers) {
     if ($path -notmatch '^(src|Development/HIP)/[^/\\]+\.h$') { throw "Header outside owned closure: $path" }
 }
@@ -185,7 +193,10 @@ try {
     }
     # Always apply to the raw selected snapshot. A matching method name alone does
     # not prove that upstream absorbed our whole contract; conflicts require review.
-    Invoke-LocalHeaderPatch $tree (Join-Path $configRoot 'patches/reference-network.patch')
+    # Unlike the pinned headers these files keep following upstream; only our hunks are carried.
+    foreach ($localPatch in $manifest.local_patches) {
+        Invoke-LocalHeaderPatch $tree (Join-Path $configRoot ('patches/' + $localPatch))
+    }
     foreach ($dir in @('src', 'Development/HIP', 'hip', 'shaders', 'modules')) {
         $owned = Assert-SyncPath (Join-Path $vendorRoot $dir) $vendorRoot
         if (Test-Path -LiteralPath $owned) {

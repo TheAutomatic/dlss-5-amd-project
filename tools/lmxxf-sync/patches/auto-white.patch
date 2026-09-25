@@ -1,0 +1,119 @@
+--- a/shaders/native_codec_encode.hlsl
++++ b/shaders/native_codec_encode.hlsl
+@@ -23,6 +23,28 @@
+ #if NATIVE_CODEC_EXPOSURE
+ Texture2D<float> GameExposure : register(t4);
+ #endif
++// Mirror daniel white-point meter: aim encoded mean at mid-grey (0.45).
++static const float kTargetEncodedMean = 0.45f;
++float WhitePointForMean(float meanLuma) {
++    float encoded = pow(kTargetEncodedMean, 2.2f);
++    float ratio = encoded / (1.0 - encoded);
++    float wp = meanLuma / ratio;
++    return clamp(wp, 0.01f, 10000.0f);
++}
++float SampleMeanLuma() {
++    uint w = max(SourceSize.x, 1u), h = max(SourceSize.y, 1u);
++    float sum = 0.0;
++    const int N = 5;
++    for (int y = 0; y < N; y++) {
++        for (int x = 0; x < N; x++) {
++            uint2 p = uint2(uint((x + 0.5) * (w - 1) / (N - 1)), uint((y + 0.5) * (h - 1) / (N - 1)));
++            p = min(p, uint2(w, h) - 1);
++            float3 c = max(Original.Load(int3(p, 0)).rgb, 0.0);
++            sum += dot(c, float3(0.2126, 0.7152, 0.0722));
++        }
++    }
++    return max(sum / float(N * N), 1e-4);
++}
+ float EffectivePaperWhite() {
+ #if NATIVE_CODEC_EXPOSURE
+  float e=GameExposure.Load(int3(0,0,0));
+@@ -30,6 +52,10 @@
+  float exposure=e*scale/pre;
+  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+ #else
++ // No game exposure texture. auto_white (Reserved.x bit 0x10000): estimate from image mean.
++ // Otherwise PaperWhiteScale is a fixed divisor (manual / legacy).
++ if ((Reserved.x & 0x10000u) != 0)
++     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+  return PaperWhiteScale;
+ #endif
+ }
+--- a/shaders/native_codec_decode.hlsl
++++ b/shaders/native_codec_decode.hlsl
+@@ -10,6 +10,31 @@
+ #if NATIVE_CODEC_EXPOSURE
+ Texture2D<float> GameExposure : register(t4);
+ #endif
++// Same meter as encode; sample the original game colour so both sides share the white point.
++Texture2D<float4> Proxy : register(t1);
++Texture2D<float4> Neural : register(t2);
++Texture2D<float4> OutputOriginal : register(t3);
++static const float kTargetEncodedMean = 0.45f;
++float WhitePointForMean(float meanLuma) {
++    float encoded = pow(kTargetEncodedMean, 2.2f);
++    float ratio = encoded / (1.0 - encoded);
++    float wp = meanLuma / ratio;
++    return clamp(wp, 0.01f, 10000.0f);
++}
++float SampleMeanLuma() {
++    uint w = max(SourceSize.x, 1u), h = max(SourceSize.y, 1u);
++    float sum = 0.0;
++    const int N = 5;
++    for (int y = 0; y < N; y++) {
++        for (int x = 0; x < N; x++) {
++            uint2 p = uint2(uint((x + 0.5) * (w - 1) / (N - 1)), uint((y + 0.5) * (h - 1) / (N - 1)));
++            p = min(p, uint2(w, h) - 1);
++            float3 c = max(OutputOriginal.Load(int3(p, 0)).rgb, 0.0);
++            sum += dot(c, float3(0.2126, 0.7152, 0.0722));
++        }
++    }
++    return max(sum / float(N * N), 1e-4);
++}
+ float EffectivePaperWhite() {
+ #if NATIVE_CODEC_EXPOSURE
+  float e=GameExposure.Load(int3(0,0,0));
+@@ -17,6 +42,8 @@
+  float exposure=e*scale/pre;
+  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+ #else
++ if ((Reserved.x & 0x10000u) != 0)
++     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+  return PaperWhiteScale;
+ #endif
+ }
+@@ -32,9 +59,6 @@
+ }
+ // Mode1 candidate. Oracle: captured codec-22724-36e36d370.dxbc.
+ // Host must reject other modes; GPU comparison required before integration.
+-Texture2D<float4> Proxy : register(t1);
+-Texture2D<float4> Neural : register(t2);
+-Texture2D<float4> OutputOriginal : register(t3);
+ #ifndef NATIVE_CODEC_UINT_OUT
+ #define NATIVE_CODEC_UINT_OUT 0
+ #endif
+--- a/src/native_game_codec.h
++++ b/src/native_game_codec.h
+@@ -14,8 +14,11 @@
+  float transfer_strength=1.f,color_strength=1.f;
+  NativeCodecDebugView debug_view=NativeCodecDebugView::Final;
+  float pre_exposure=1.f,exposure_scale=1.f;
++ // No usable game exposure texture: estimate white point from image mean.
++ // Packed into the debug_view cbuffer word high bit (0x10000).
++ bool auto_white=false;
+  bool Valid()const{return std::isfinite(pre_exposure)&&pre_exposure>0&&std::isfinite(exposure_scale)&&exposure_scale>0&&ValidStrength();}
+- bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&uint32_t(debug_view)<=4;}
++ bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&(uint32_t(debug_view)&0xFu)<=4;}
+ };
+ // Validated mode1 math, fixed1080p float16 textures. Caller owns queue ordering.
+ // This is a resource stage, not a game callback or a history-feedback policy.
+@@ -147,7 +150,7 @@
+   for(UINT i=0;i<count;i++)transition(c,source[i],before[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
+-  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
++  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view)|(parameters.auto_white?0x10000u:0u);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
+   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
+   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;
