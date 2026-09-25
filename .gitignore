@@ -68,6 +68,9 @@ dist/
 # 编辑器/会话
 .claude/
 .vs/
+.vscode/
+*.code-workspace
+
 
 # Python 字节码缓存
 __pycache__/

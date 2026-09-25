@@ -10,7 +10,7 @@ Contract only. Status: `.handoff/HANDOFF.md` · plans: `exports/lmxxf-*.md`. Pla
 | legacy `off` / `none` | Config load migrates the choice to `Enabled=false` and `NrBackend=daniel` |
 
 - `LmxxfWired()` (`Kind.h`) is compile-time. `SubmissionHooksWanted()` checks the resolved host.
-- When startup chose daniel, the lmxxf command-list proxy is not armed. The Ins menu saves a first switch to lmxxf for the next launch while daniel keeps running. Starting with lmxxf arms the proxy, so later switches between installed hosts can apply live.
+- Live vs restart: switching applies immediately only when the command-list proxy was armed at startup (session began on lmxxf). Starting on daniel leaves that proxy off; a pick of lmxxf is stored for the next launch and the menu says so. The combo labels that case `lmxxf (after restart)`.
 - lmxxf assets: `LmxxfNrRuntime.dll` (MinGW, `LmxxfNrApi.h` only) + `lmxxf-modules/` (or `LMXXF_MODULES_DIR`) + `LMXXF_WEIGHTS_DIR` = tiled assets, not `HIP/`.
 - `LmxxfBackend::Record`: PrepareFrame → require proxy → RecordInputs → Split → RecordOutputs → pending EnqueueHip in the Execute between slot. Fail → ordinary SR. No Record-time HIP.
 - Product Execute uses `ExecuteExpanded` when armed; `PendingListIndex` is -1 (Daniel-only).

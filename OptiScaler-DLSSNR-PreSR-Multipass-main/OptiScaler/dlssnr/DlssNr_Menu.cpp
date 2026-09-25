@@ -261,6 +261,9 @@ void RenderMenu(Config* config, float menuResScale)
                     ? DlssNr::Backend::ParseRequest(config->NrBackend.value())
                     : Request::Auto;
             }
+            const bool hooksArmed = DlssNr::Submission::Hooks::IsArmed();
+            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
+            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
             // Show the explicit request when there is one, so a fallback (request
             // lmxxf, running daniel) still lets the user re-assert "daniel".
             int selected = 0;
@@ -270,27 +273,32 @@ void RenderMenu(Config* config, float menuResScale)
                 selected = 0;
             else
                 selected = (active == Kind::Lmxxf) ? 1 : 0;
+            // lmxxf needs proxy hooks from startup. Without them, pick = next launch only.
+            const bool deferLmxxf = selected == 1 && active != Kind::Lmxxf && !hooksArmed && hasLmxxf;
+            auto itemLabel = [&](int i) -> const char* {
+                if (i == 1 && active != Kind::Lmxxf && !hooksArmed && hasLmxxf)
+                    return "lmxxf (after restart)";
+                return i == 0 ? "daniel" : "lmxxf";
+            };
             static const char* items[] = { "daniel", "lmxxf" };
-            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
-            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
 
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted("Backend");
             HGap(0.15f);
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
             if (!hasDaniel && !hasLmxxf)
                 ImGui::BeginDisabled();
-            if (ImGui::BeginCombo("##NrBackend", items[selected]))
+            if (ImGui::BeginCombo("##NrBackend", itemLabel(selected)))
             {
                 for (int i = 0; i < IM_ARRAYSIZE(items); ++i)
                 {
                     const bool installed = i == 0 ? hasDaniel : hasLmxxf;
                     const auto flags = installed ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
-                    if (ImGui::Selectable(items[i], selected == i, flags))
+                    if (ImGui::Selectable(itemLabel(i), selected == i, flags))
                     {
                         selected = i;
-                        if (i == 1 && active != Kind::Lmxxf &&
-                            !DlssNr::Submission::Hooks::IsArmed())
+                        const bool live = hooksArmed || active == Kind::Lmxxf || i == 0;
+                        if (!live)
                         {
                             std::lock_guard nrBackendLock(config->NrBackendMutex);
                             config->NrBackend.set_for_next_launch(std::string(items[i]));
@@ -324,8 +332,12 @@ void RenderMenu(Config* config, float menuResScale)
                 char tip[640] {};
                 std::snprintf(tip, sizeof(tip),
                               "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
-                              "\nSwitching is live when the required hooks were installed"
-                              "\nat startup. A first daniel-to-lmxxf switch requires restart."
+                              "\nLive switch: when proxy hooks were armed at startup"
+                              "\n(lmxxf was active this session), the other host takes"
+                              "\nover immediately."
+                              "\nNeeds restart: first switch to lmxxf after a daniel-only"
+                              "\nstart is saved and applies on the next launch. The line"
+                              "\nbelow always says which case you are in."
                               "\nTurn NR off with Enable NR above."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
@@ -339,6 +351,11 @@ void RenderMenu(Config* config, float menuResScale)
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
                                    "No NR runtime beside OptiScaler (need dlssnr_amd_pass1.dll or LmxxfNrRuntime.dll).");
+            }
+            else if (deferLmxxf)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                   "lmxxf saved for next launch. This session keeps using daniel.");
             }
             else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
                      active == Kind::Daniel && hasLmxxf)
