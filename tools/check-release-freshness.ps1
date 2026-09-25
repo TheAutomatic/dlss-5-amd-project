@@ -99,7 +99,7 @@ if (Test-Path -LiteralPath $optiDll -PathType Leaf) {
         $newest = $optiSources[0].LastWriteTimeUtc
         $a = Get-Stamp $optiDll
         if ($newest -gt $a) {
-            $warnings.Add(("OptiScaler.dll may be stale: source {0} newer than {1}" -f $optiSources[0].Name, $optiDll))
+            $failures.Add(("STALE OptiScaler.dll: source {0} is newer than {1} — run tools\build-release-local.cmd" -f $optiSources[0].Name, $optiDll))
         }
     }
 } else {
