@@ -53,12 +53,18 @@ float CodecPaperWhite()
 // Games that pass an exposure texture use the codec path as before. When there is
 // no exposure (Wo Long 2), scale the white point so HDR scene values are not
 // treated as exposure=1 (which blows highlights).
+// Auto exposure on: fixed fallback scale (slider ignored).
+// Auto exposure off: manual LmxxfAutoExposureScale.
 float EffectiveCodecPaperWhite(bool hasGameExposure)
 {
-    if (hasGameExposure || !Config::Instance()->LmxxfAutoExposure.value_or_default())
+    if (hasGameExposure)
         return CodecPaperWhite();
-    const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
-    return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
+    if (!Config::Instance()->LmxxfAutoExposure.value_or_default())
+    {
+        const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
+        return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
+    }
+    return 8.0f;
 }
 
 // Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.

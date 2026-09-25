@@ -467,12 +467,12 @@ void RenderMenu(Config* config, float menuResScale)
                     bool autoExposure = config->LmxxfAutoExposure.value_or_default();
                     if (ImGui::Checkbox("Auto exposure", &autoExposure))
                         config->LmxxfAutoExposure = autoExposure;
-                    HelpMarker("When the game does not send an exposure texture"
-                               "\n(some titles use HDR colour without exposure),"
-                               "\nscale the codec white point so highlights are not blown."
+                    HelpMarker("When the game does not send an exposure texture,"
+                               "\nuse a fixed fallback white scale (default 8) so"
+                               "\nhighlights are not blown. Ignores Exposure scale."
                                "\nGames that already pass exposure are unchanged."
                                "\nApplies on the next frame. No restart.");
-                    if (autoExposure)
+                    if (!autoExposure)
                     {
                         float expScale = config->LmxxfAutoExposureScale.value_or_default();
                         if (ImGui::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
@@ -481,8 +481,8 @@ void RenderMenu(Config* config, float menuResScale)
                         ImGui::SameLine();
                         if (ImGui::SmallButton("Reset##autoexp"))
                             config->LmxxfAutoExposureScale = 8.0f;
-                        HelpMarker("Used only when auto exposure is on and the game"
-                                   "\nsends no exposure texture. Higher darkens the"
+                        HelpMarker("Manual scale when the game sends no exposure"
+                                   "\nand Auto exposure is off. Higher darkens the"
                                    "\nnetwork input (less blown highlights). Default 8.");
                     }
 
