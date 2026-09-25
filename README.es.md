@@ -8,6 +8,14 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
+## Novedades en 1.9.3-alpha
+
+> Aún sin probar en juegos reales. Se agradecen informes de error con archivos `.log`.
+
+- Backend **danielblnc** sincronizado a **0.4**; funciones del backend **lmxxf** sincronizadas a **0.3.0**;
+- Se corrigieron algunos problemas de compatibilidad de lmxxf; soporte inicial para **9060 XT**; las GPU de la **serie 7000** aún no están totalmente soportadas. Algunas correcciones de compatibilidad no están verificadas — gracias [@OUCO86](https://github.com/OUCO86), [debate](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901);
+- **Problema conocido:** lmxxf puede seguir sobreexponiendo en la demo de Wo Long 2; la corrección aún no está completa.
+
 ---
 
 ## Índice

@@ -8,6 +8,14 @@
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
+## 1.9.3-alpha 主要更新
+
+> 尚未经过实机验证，欢迎附 `.log` 文件反馈 bug。
+
+- **danielblnc** 后端同步至 **0.4**，**lmxxf** 后端功能同步至 **0.3.0**；
+- 修复 lmxxf 部分兼容问题，初步支持 **9060 XT**，仍未完成 **7000 系列**显卡支持；部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)，[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)；
+- **已知问题**：lmxxf 在卧龙 2 demo 中仍可能过曝，修复尚未完成。
+
 ---
 
 ## 目录
