@@ -2,6 +2,7 @@
 #include <Config.h>
 #include <Util.h>
 #include <dlssnr/amd/AmdBridge.h>
+#include <dlssnr/backend/LmxxfColorProbe.h>
 #include <proxies/FfxApi_Proxy.h>
 #include "FFXFeature_Dx12.h"
 #include "MathUtils.h"
@@ -583,7 +584,20 @@ bool FFXFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList, 
     }
 
     LOG_DEBUG("Dispatch!!");
+    const auto probe = DlssNr::Backend::LmxxfProbe::CurrentEvidence();
+    if (probe.sampled && probe.list == InCommandList)
+        LOG_INFO("lmxxf probe FSR: eval={} copied={} replacement={} expected={} paramColor={} dispatchColor={} identityMatch={} mv={} depth={} render={}x{} jitter={},{} mode={} epoch={} age={} srcSeq={} priming={} (CPU binding, not pixel proof)",
+                 probe.evaluateId, probe.copied, amdReplacement, static_cast<void *>(probe.expectedColor),
+                 static_cast<void *>(paramColor), params.color.resource, params.color.resource == probe.expectedColor,
+                 params.motionVectors.resource, params.depth.resource, params.renderSize.width, params.renderSize.height,
+                 params.jitterOffset.x, params.jitterOffset.y,
+                 static_cast<int>(probe.mode), probe.epoch, probe.age, probe.sourceSequence, probe.priming);
     auto result = FfxApiProxy::D3D12_Dispatch(&_context, &params.header);
+    if (probe.sampled && probe.list == InCommandList)
+    {
+        LOG_INFO("lmxxf probe FSR result: eval={} rc={}", probe.evaluateId, static_cast<int>(result));
+        DlssNr::Backend::LmxxfProbe::CurrentEvidence() = {};
+    }
 
     if (result != FFX_API_RETURN_OK)
     {

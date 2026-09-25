@@ -325,6 +325,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrToggleKey.set_from_config(readInt("DlssNr", "ToggleKey"));
             DlssNrTransferStrength.set_from_config(readFloat("DlssNr", "TransferStrength"));
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
+            LmxxfPaperWhite.set_from_config(readFloat("DlssNr", "LmxxfPaperWhite"));
             DlssNrMaxRatio.set_from_config(readFloat("DlssNr", "MaxRatio"));
             DlssNrTransfer.set_from_config(readUInt("DlssNr", "Transfer"));
 
@@ -380,6 +381,52 @@ bool Config::Reload(std::filesystem::path iniPath)
             AmdEveryFrame.set_from_config(readBool("DlssNr", "AmdEveryFrame"));
             AmdSpinDraw.set_from_config(readInt("DlssNr", "AmdSpinDraw"));
             AmdGraphicsWait.set_from_config(readInt("DlssNr", "AmdGraphicsWait"));
+            const auto nrBackendIni = readString("DlssNr", "NrBackend", true);
+            const bool legacyNrOff = nrBackendIni.has_value() &&
+                (_stricmp(nrBackendIni->c_str(), "off") == 0 ||
+                 _stricmp(nrBackendIni->c_str(), "none") == 0);
+            bool migratedLegacyNrOff = false;
+            {
+                std::lock_guard nrBackendLock(NrBackendMutex);
+                if (legacyNrOff && !NrBackend.has_value())
+                {
+                    // Earlier releases used NrBackend=off to bypass the NR pass
+                    // even when Enabled=true. Preserve the choice on first load.
+                    NrBackend = std::string("daniel");
+                    DlssNrEnabled = false;
+                    migratedLegacyNrOff = true;
+                }
+                else
+                    NrBackend.set_from_config(nrBackendIni);
+            }
+            if (migratedLegacyNrOff)
+                LOG_INFO("Migrated legacy [DlssNr] NrBackend=off/none to Enabled=false");
+            LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
+            // true/false only; missing or "auto" => false (do not enable FitLarge by accident).
+            {
+                const auto fitRaw = readString("DlssNr", "LmxxfFitLarge", true);
+                if (!fitRaw.has_value() || fitRaw->empty() || _stricmp(fitRaw->c_str(), "auto") == 0)
+                    LmxxfFitLarge.set_from_config(false);
+                else
+                    LmxxfFitLarge.set_from_config(readBool("DlssNr", "LmxxfFitLarge"));
+            }
+            // Runtime reads DLSS5_FIT_LARGE / flags; keep env aligned with ini so QueryCapabilities matches.
+            {
+                const bool fit = LmxxfFitLarge.value_or_default();
+                _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+            }
+            // Missing or auto stays on. Explicit false is the off switch for PDL.
+            {
+                const auto pdlRaw = readString("DlssNr", "LmxxfPdl", true);
+                if (!pdlRaw.has_value() || pdlRaw->empty() || _stricmp(pdlRaw->c_str(), "auto") == 0)
+                    LmxxfPdl.set_from_config(true);
+                else
+                    LmxxfPdl.set_from_config(readBool("DlssNr", "LmxxfPdl"));
+            }
+            {
+                const bool pdl = LmxxfPdl.value_or_default();
+                _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
+            }
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));
@@ -1350,6 +1397,20 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "AmdEveryFrame", GetBoolValue(Instance()->AmdEveryFrame.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdSpinDraw", GetIntValue(Instance()->AmdSpinDraw.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdGraphicsWait", GetIntValue(Instance()->AmdGraphicsWait.value_for_config()).c_str());
+    // Write the active menu choice even when it equals the default. Leaving an
+    // older lmxxf key untouched would undo a switch back to daniel on restart.
+    std::string nrBackend;
+    {
+        std::lock_guard nrBackendLock(Instance()->NrBackendMutex);
+        nrBackend = Instance()->NrBackend.value_for_config().value_or("daniel");
+    }
+    ini.SetValue("DlssNr", "NrBackend", nrBackend.c_str());
+    if (auto diagnostic = Instance()->LmxxfDiagnostic.value_for_config(); diagnostic.has_value())
+        ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
+    ini.SetValue("DlssNr", "LmxxfFitLarge", GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LmxxfPdl", GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LmxxfPaperWhite",
+                 GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdGraphicsUnsafe", GetIntValue(Instance()->AmdGraphicsUnsafe.value_for_config()).c_str());
     ini.SetValue("AmdRtgi", "Enabled", GetBoolValue(Instance()->AmdRtgiEnabled.value_for_config()).c_str());
     ini.SetValue("AmdRtgi", "Quality", GetIntValue(Instance()->AmdRtgiQuality.value_for_config()).c_str());

@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "menu_common.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 
@@ -2258,7 +2258,12 @@ void MenuCommon::RenderMainMenuHeaderMessages(RenderMenuContext& ctx)
         }
         else if (!versionStatus.error.empty())
         {
-            LOG_ERROR("Version check failed: {0}", versionStatus.error);
+            static std::string s_lastLoggedVersionError;
+            if (s_lastLoggedVersionError != versionStatus.error)
+            {
+                LOG_ERROR("Version check failed: {0}", versionStatus.error);
+                s_lastLoggedVersionError = versionStatus.error;
+            }
             versionStatus.error.clear();
         }
         // Disabled error message

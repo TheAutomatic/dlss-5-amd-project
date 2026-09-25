@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version (fork-runtime), e.g. 1.8.3-0.3.1'
+        description: 'Product version, e.g. 1.9.0.3'
         required: false
-        default: '1.8.6-0.3.1'
+        default: '1.9.0.3'
 
 permissions:
   contents: write
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.8.6-0.3.1'
+          $v = '1.9.0.3'
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -154,6 +154,32 @@ jobs:
           cmd /d /c tools\test-amd-host-contracts.cmd "$env:BUILD_OUT"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Build LmxxfNrRuntime DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmd /d /c tools\build-lmxxf-runtime.cmd exports/lmxxf-runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "exports/lmxxf-runtime/LmxxfNrRuntime.dll")) {
+            throw "Build did not produce exports/lmxxf-runtime/LmxxfNrRuntime.dll"
+          }
+
+      - name: ABI regression test for LmxxfNrRuntime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cl /nologo /std:c++17 /O2 /EHsc /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
+            tests/lmxxf_nr_abi.cpp /Fe:exports/lmxxf-runtime/lmxxf_nr_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & exports/lmxxf-runtime/lmxxf_nr_abi.exe exports/lmxxf-runtime/LmxxfNrRuntime.dll third_party/lmxxf/modules
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # C host smoke test: export table, capabilities, create-flag accept/reject (no GPU).
+          cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
+            tests/lmxxf_zero_fallback_abi.c /Fo:exports/lmxxf-runtime/ /Fe:exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build OptiScaler Release (default = multi-slot)
         shell: pwsh
         run: |
@@ -208,12 +234,19 @@ jobs:
             $bad = @($archive.Entries |
               Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
               ForEach-Object { $_.FullName })
+            $entryNames = @($archive.Entries | ForEach-Object { $_.Name })
           } finally {
             $archive.Dispose()
           }
           if ($bad.Count -gt 0) {
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
+          }
+          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
+          foreach ($r in $required) {
+            if ($entryNames -notcontains $r) {
+              throw "REQUIRED COMPONENT MISSING IN ZIP: $r"
+            }
           }
 
       - name: Upload artifact
@@ -229,24 +262,52 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
+          # Pre-release when tag name has an -alpha/-beta/-rc suffix (e.g. v1.9.1-alpha).
+          # Formal tags like v1.9.1 stay latest/stable; plain substrings such as "source" do not count.
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           files: |
             dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
           body: |
+            alpha版本尚未经过实机游戏测试
+
             OptiScaler AMD pre-SR **${{ steps.ver.outputs.version }}**.
 
             ### English
-            - **Versus 1.8.5:** based on in-game feedback from players of **Wuthering Waves** and **Neverness to Everness (NTE)**, the Ins menu **restores the Every-frame checkbox** (1.8.5 had no menu control; `AmdEveryFrame` in the ini still worked). **No actual performance change** — only the switch returns to the menu, with an updated layout.
-            - Ins layout: **Enable NR** (with runtime version) and **Every-frame** on one row; **NR slots** (narrow dropdown 2–5) then **New wait mode** on the next. Off New wait mode = original-wait mode, no game restart needed.
-            - Multi-slot (default 3) remains the main change versus the Matheus line: nearly every frame carries NR; measured about **+33%** FPS vs the old single-slot baseline in original repo 1.7.3. Also fully integrates **danielblnc 0.3.1**. Overall bridge cost measured ~**0.01–0.03 ms**, effectively negligible.
-            - In game: **Ins** → **DLSS Neural Rendering** → enable **NR**. You must prepare original-author `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll` (or ready `version.dll` + weights).
+            - **New `lmxxf` HIP Neural Rendering Backend:** Introduces the open-source `lmxxf` backend alongside the existing `danielblnc` backend, with improved DLSS/XeSS proxy integration.
+              - **Unreal Engine 5 (UE5) Compatibility Fixes:** Resolves session invalidation and fallback issues in complex UE5 titles (tested on *Neverness to Everness*, *Palworld*, etc.).
+                - Correctly binds to the game's actual rendering queue to avoid crashes and queue mismatch errors.
+                - Adds queue safety guards to skip HIP calls gracefully when unexpected command lists are dispatched.
+                - Flushes the GPU prior to queue migration to reduce VRAM leak risks.
+                - Fixes command list split eligibility, removes startup hash delays, and adds log rate-limiting.
+              - **Runtime and Resolution Improvements:** Improves exposure handling, buffer resizing, clear handling, and recovery; adds RGB9E5 color input support. Without FitLarge, a wide frame is admitted only when width is at most 2560, height is at most 1080, and the pixel count stays within 1920x1080 (for example 2024x848). 2560x1080 is over that budget and is rejected. `LmxxfFitLarge` is a separate switch: it fits larger Color onto the 1080 network, and it stays off unless you turn it on.
+              - **In-Game Controls:** The Ins menu includes real-time `Detail strength` and `Colour strength` sliders, plus live `Debug view` channel inspection.
+            - **Dual-Backend Switching:** Supports both `lmxxf` and `danielblnc`. Select a backend in the in-game Ins menu or in `OptiScaler.ini` with `NrBackend=lmxxf` or `NrBackend=daniel`. The first switch from `daniel` to `lmxxf` requires a game restart if the required hooks were not enabled at startup. After a live switch, the previous backend may retain some VRAM until the game exits.
+            - **User-Supplied Weights:** Model weights must be provided manually (`native-game-tiled-assets/` for lmxxf, or `dlssnr_on_amd_weights.bin` for danielblnc).
+            - **Installer Update:** Fixed installer interaction logic. Stale shader cleanup is limited to retired `native_` / `preblock_` shaders; uninstall preserves unrelated user flags.
+
+            ### Known issues
+            - **`lmxxf` Pre-SR above ~1080p internal resolution is not fully integrated yet.** Same-frame neural rendering with FitLarge / larger Color can hitch badly. Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native** (keep Pre-SR Color near 1080p). `LmxxfFitLarge` defaults to **false**; only enable explicitly if you accept the cost.
+            - **Cyberpunk 2077 neon turning brown:** Pre-SR feeds the network's hue into the game's later grade. At Colour strength 1, green neon can turn brown. Set Colour strength to 0 to keep the game's hue and change brightness only. This is not selected by the game's name.
+            - **PDL:** Chained launch is on by default. If neural rendering fails to start because the driver has no `hipExtModuleLaunchKernel`, set `LmxxfPdl=false` (or `DLSS5_HIP_PDL=0`) and restart.
 
             ### 中文
-            - **相对 1.8.5：** 根据玩**鸣潮**、**异环**等网友的实机反馈，Ins 菜单**补回 Every-frame 勾选**（1.8.5 菜单无此按钮，仍可通过 ini 的 `AmdEveryFrame` 修改）。**无实际性能提升**，只是把开关交回菜单，并更新排版。
-            - 菜单排版：**Enable NR**（含运行时版本）与 **Every-frame** 同排；下一行 **NR slots**（窄下拉 2–5）再 **New wait mode**。关闭 New wait mode 即原等待模式，无需重启游戏。
-            - 相对 Matheus 线的主要改动仍是**多槽**（默认 3）：尽量每帧 NR；相对原 repo 1.7.3 版单槽旧基线实测约 **+33%** 帧率。同时全面适配 **danielblnc 0.3.1** 版，整体桥接开销实测约 **0.01～0.03 ms**，几乎不影响性能。
-            - 进游戏：**Ins** → **DLSS Neural Rendering** → 勾选 **Enable NR**。需自备原作者 `dlssnr_on_amd_setup.exe` + `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）。
+            - **新增 `lmxxf` HIP 神经渲染后端：** 在现有 `danielblnc` 后端之外加入开源 `lmxxf` 后端，并改进其 DLSS/XeSS 代理接入能力。
+              - **修复 lmxxf 后端对虚幻引擎 5（UE5）的兼容性：** 解决复杂 UE5 游戏中的会话失效与回退问题，已在《异环》《幻兽帕鲁》等游戏中测试。
+                - 正确绑定游戏实际使用的渲染队列，避免崩溃和队列不匹配错误。
+                - 增加队列安全保护；遇到意外提交的命令列表时跳过 HIP 调用。
+                - 队列迁移前等待 GPU 完成工作，降低显存泄漏风险。
+                - 修复命令列表切分准入判定，移除启动时的哈希延迟，并增加日志限流。
+              - **改进 lmxxf 运行时与分辨率支持：** 改进曝光处理、缓冲区尺寸调整、清屏和异常恢复逻辑；增加对 RGB9E5 颜色输入的支持。不开 FitLarge 时，宽分辨率要同时满足：宽不超过 2560、高不超过 1080、总像素不超过 1920×1080，例如 2024×848。2560×1080 超过这个像素预算，不会放行。`LmxxfFitLarge` 是另一档：打开后更大的 Color 会拟合到 1080 网络上，默认关闭。
+              - **游戏内控制：** Ins 菜单提供实时调节 `Detail strength` 和 `Colour strength` 的滑块，以及实时的 `Debug view` 通道检查。
+            - **双后端切换：** 同时支持 `lmxxf` 与 `danielblnc`。可在游戏内 Ins 菜单或 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 选择后端。如果启动时未启用所需 hooks，从 `daniel` 首次切换到 `lmxxf` 需要重启游戏。实时切换后，原后端可能会占用部分显存直到游戏退出。
+            - **用户仍需自备权重：** 用户需自行提供模型权重（lmxxf 使用 `native-game-tiled-assets/`，danielblnc 使用 `dlssnr_on_amd_weights.bin`）。
+            - **安装器与卸载器更新：** 修复安装器交互逻辑及相关行为。过期着色器清理范围限制为已废弃的 `native_` / `preblock_` 着色器；卸载时保留其他用户 flags。
 
-            - Corresponding source: `${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}`
-            - No NVIDIA DLLs, original-author setup, weights, or author pass DLLs in this zip.
+            ### 已知问题
+            - **`lmxxf` 超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 开启 FitLarge / 更大 Color 的同帧路径可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K 平衡档**、或 **1080p 原生**（尽量让 Pre-SR Color 接近 1080p）。`LmxxfFitLarge` 默认 **false**，仅在接受开销时显式开启。不开 FitLarge 时，宽不超过 2560、高不超过 1080，并且总像素不超过 1920×1080（例如 2024×848）；2560×1080 不会放行。
+            - **《赛博朋克 2077》霓虹发棕：** Colour strength 为 1 时，超分前送进游戏调色的色相会让绿霓虹变棕。把 Colour strength 调到 0，只改亮度、不改色相。不会按游戏名自动处理。
+            - **PDL：** 链式启动默认打开。如果驱动里没有 `hipExtModuleLaunchKernel`，神经渲染起不来，把 `LmxxfPdl` 设为 false（或 `DLSS5_HIP_PDL=0`）后重启。
+
+            - No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
             - See README inside the zip.

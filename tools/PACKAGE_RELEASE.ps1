@@ -1,17 +1,18 @@
 ﻿<#
 .SYNOPSIS
-  Stage and zip a complete user package (no NVIDIA / author proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.8.6-0.3.1
-    1.8.6  = this fork's product version
-    0.3.1  = primary upstream NR runtime (0.3.0 still accepted)
+  Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
+  Default product: OptiScaler-AMD-PreSR-1.9.0
+    1.9.0  = this fork's product version
+    0.3.1  = supported danielblnc runtime (0.3.0 also accepted)
+    lmxxf  = supported lmxxf HIP neural rendering runtime
 
 .EXAMPLE
   .\PACKAGE_RELEASE.ps1
-  .\PACKAGE_RELEASE.ps1 -Version 1.8.6-0.3.1 -DepsRoot 'C:\path\with\OptiScaler'
+  .\PACKAGE_RELEASE.ps1 -Version 1.9.0 -DepsRoot 'C:\path\with\OptiScaler'
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.6-0.3.1',
+    [string]$Version = '1.9.0.3',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -176,33 +177,112 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version - NR slots default 3 (2-5 in-game, 1-5 here).
-; Requires DLSS-NR-on-AMD 0.3.0 or 0.3.1 (https://github.com/danielblnc/DLSS-NR-on-AMD)
-; as dlssnr_amd_pass1-3.dll (Setup copies version.dll from the package folder).
-; AmdEveryFrame=true is the product default (Ins menu: "Every-frame"; also INI).
-; AmdGraphicsWait=1 is New wait mode (0.3.1 1-pixel draw; still testing).
-; Set 0 for Original wait.
-; Unsafe dirty insert stays off (AmdGraphicsUnsafe=0).
+; Product $Version - Dual-backend AMD Neural Rendering (DLSS 5 on AMD) Pre-SR pipeline.
+; Synthesizes detail and denoises ray-traced inputs before upscaling (FSR/XeSS).
+
+; Enables DLSS-NR Pre-SR pipeline
+; true or false - Program default is false. Setup turns this on.
 Enabled=false
+
+; Controls whether neural rendering executes before the upscaler
+; When true, runs on the pre-upscale colour texture before FSR/XeSS
+; true or false - This package sets true. If the key is absent, the program uses false.
 RunBeforeSR=true
+
+; Selects the neural rendering backend
+; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
+; daniel - danielblnc 0.3.0 / 0.3.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
+; lmxxf or daniel only. Turn the pass off with Enabled=false, not with NrBackend.
+; If the chosen host is missing its files, the other installed host runs instead.
+NrBackend=lmxxf
+
+; Diagnostic mode for lmxxf backend (NO NR)
+; off              - Normal neural rendering operation
+; original         - Passthrough original colour
+; copy-current     - Diagnostic copy of current frame colour
+; staging-current  - Staging isolation test with current frame
+; staging-previous - Staging isolation test with previous frame
+; off, original, copy-current, staging-current, staging-previous - Default is off
+LmxxfDiagnostic=off
+
+; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
+; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
+LmxxfFitLarge=false
+
+; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
+; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
+LmxxfPdl=true
+
+; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
+; Not the HDR Paper White anchor.
+LmxxfPaperWhite=1
+
+; Resolution scale factor for neural rendering model input
+; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
+; float value - Default is 1
 AmdModelScale=1
+
+; Encoding format mode for model inputs/outputs
+; 0 = FP16 (standard), 1 = FP8 / compressed
+; Integer value - Default is 0
 AmdEncoding=0
+
+; Schedule neural rendering execution on every frame
+; When enabled, avoids skipping frames; multi-slot pipeline skips post-execute wait
+; true or false - Default is true
 AmdEveryFrame=true
+
+; Number of pipeline slots for asynchronous GPU execution (danielblnc backend)
+; Higher values reduce wait time at the cost of VRAM (each slot holds intermediate buffers)
+; Recommended: 3 slots (tested 0 wait on yysls)
+; 1 to 5 - Default is 3
 AmdSlots=3
+
+; GPU synchronization / wait mode between NR and game command queue (danielblnc backend)
+; 0 = Original wait (compute dispatch spin)
+; 1 = New wait mode (1-pixel graphics draw spin; prevents GPU watchdog resets)
+; 0 or 1 - Default is 1
 AmdGraphicsWait=1
+
+; Allow unsafe dirty command insertion when graphics state admission fails
+; 0 = Safe mode (fallback to original color on state conflict)
+; 1 = Unsafe mode (force injection; higher risk of visual glitch)
+; 0 or 1 - Default is 0
 AmdGraphicsUnsafe=0
+
+; Experimental neural lighting pass (Gather/Resolve shaders)
+; true or false - Default is true
 AmdNeuralLighting=true
+
+; Intensity of the neural lighting effect
+; float value (0.0 to 1.0) - Default is 0.5
 AmdNeuralLightingStrength=0.5
+
+; Number of neural rendering passes
+; 1 to 3 - Default is 1
 Passes=1
-LocalTone=0
+
+; Weight for preserving local tone mapping
+; float value - Default is 1
+LocalTone=1
+
+; Weight for preserving fine local structure and edges
+; float value - Default is 1
 LocalStructure=1
-SkinStructure=1
+
+; Weight for preserving skin structure and texture
+; -1 follows local structure (the model's own default), not a strength of zero
+; float value - Default is -1
+SkinStructure=-1
+
+; Apply neural rendering adjustments after Ray Reconstruction
+; true or false - Default is false
 ApplyAfterRR=false
 
 "@)
-# 这两段只在源 ini 里还没有的时候才追加。
-# 无条件追加的写法在源 ini 哪天自带 [AmdLook]/[AmdRtgi] 时会写出重复段 ——
-# 而追加的那份是 Enabled=false，可能把用户调好的值顶掉。
+# These sections are only appended if they do not already exist in the source ini.
+# Unconditional appending would duplicate sections if source ini ever includes [AmdLook]/[AmdRtgi].
+# The appended block has Enabled=false to avoid overriding user values.
 $amdLookBlock = @"
 
 [AmdLook]
@@ -261,9 +341,34 @@ if (Test-Path $rtgiSrc) {
     Get-ChildItem -LiteralPath $rtgiSrc -File | Copy-Item -Destination $rtgiDst -Force
 }
 
-# Installer + docs (CN + EN). No duplicate 使用说明.txt.
+# Bundled open-source lmxxf runtime binaries, modules, and shaders
+$lmxxfDllSrc = Join-Path $root 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
+if (!(Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf)) {
+    throw "Required LmxxfNrRuntime.dll not found at $lmxxfDllSrc! Build it first with tools\build-lmxxf-runtime.cmd."
+}
+Copy-Item -LiteralPath $lmxxfDllSrc -Destination (Join-Path $stage 'LmxxfNrRuntime.dll') -Force
+
+$lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
+if (Test-Path -LiteralPath $lmxxfModSrc -PathType Container) {
+    $lmxxfModDst = Join-Path $stage 'lmxxf-modules'
+    New-Item -ItemType Directory -Path $lmxxfModDst -Force | Out-Null
+    Copy-Item -Path (Join-Path $lmxxfModSrc '*') -Destination $lmxxfModDst -Recurse -Force
+}
+
+$lmxxfShaderSrc = Join-Path $root 'third_party/lmxxf/shaders'
+if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
+    $lmxxfShaderDst = Join-Path $stage 'shaders'
+    New-Item -ItemType Directory -Path $lmxxfShaderDst -Force | Out-Null
+    # Live glue: top-level *.hlsl only. shader-cache/*.dxbc is a local compile cache and is not shipped.
+    Get-ChildItem -LiteralPath $lmxxfShaderSrc -Filter '*.hlsl' -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfShaderDst $_.Name) -Force
+    }
+}
+
+# Installer + docs (CN + EN + ES). No duplicate 使用说明.txt.
 $readmeZh = Join-Path $root 'README.md'
 $readmeEn = Join-Path $root 'README.en.md'
+$readmeEs = Join-Path $root 'README.es.md'
 if (!(Test-Path $readmeZh)) { throw "Missing $readmeZh" }
 if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }
 $installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
@@ -306,9 +411,12 @@ exit /b %EC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall_OptiScaler_NR.bat') -Encoding ASCII
 Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
+if (Test-Path $readmeEs) {
+    Copy-Item $readmeEs (Join-Path $stage 'README.es.md') -Force
+}
 
 # 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
-# 原作者 pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有原作者 pass」。
+# danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
 # Keep this filename-only and case-insensitive: the same expression validates the
 # staged tree and every entry in the finished archive.
 $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
@@ -350,11 +458,18 @@ try {
         $badZip = @($archive.Entries |
             Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
             ForEach-Object { $_.FullName })
+        $entryNames = @($archive.Entries | ForEach-Object { $_.Name })
     } finally {
         $archive.Dispose()
     }
     if ($badZip.Count -gt 0) {
         throw "Forbidden proprietary/user-supplied file in zip: $($badZip -join ', ')"
+    }
+    $requiredNames = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
+    foreach ($req in $requiredNames) {
+        if ($entryNames -notcontains $req) {
+            throw "Package archive missing required component: $req"
+        }
     }
 } catch {
     if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }

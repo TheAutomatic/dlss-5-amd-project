@@ -7,7 +7,7 @@
   Removes identified OptiScaler proxies, named passes/config/logs, listed dependencies,
   and this uninstaller. Asks whether to keep backup-amd-presr-* folders, then lists
   planned deletions, then asks Y/N. Does NOT delete nvngx_dlssnr.dll, weights,
-  original-author setup/log, other proxies, or user-added plugins and unknown files.
+  danielblnc setup/log, other proxies, or user-added plugins and unknown files.
 
 .EXAMPLE
   .\Uninstall_OptiScaler_NR.bat
@@ -77,6 +77,7 @@ $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
     'OptiScaler.ini','amd-presr-install.txt',
+    'LmxxfNrRuntime.dll',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'Uninstall.bat','Uninstall.ps1'
 )
@@ -96,7 +97,23 @@ $protectedNames = @(
     'dlssnr_on_amd_weights.bin',
     'dlssnr_on_amd_setup.exe',
     'dlssnr_on_amd.log',
-    'version.dll'
+    'version.dll',
+    'native-game-tiled-assets'
+)
+# Live glue set (12 top-level *.hlsl). Install/uninstall also purge retired native_/preblock_ leftovers.
+$lmxxfShaderFiles = @(
+    'native_black_probe.hlsl',
+    'native_codec_decode.hlsl',
+    'native_codec_encode.hlsl',
+    'native_game_rgb_input.hlsl',
+    'native_history_guard.hlsl',
+    'native_output_smooth.hlsl',
+    'native_rgb_reflect.hlsl',
+    'native_rgb_texture.hlsl',
+    'native_temporal_coordinates.hlsl',
+    'native_temporal_feed.hlsl',
+    'native_temporal_sample.hlsl',
+    'native_text_overlay.hlsl'
 )
 
 $planned = New-Object System.Collections.Generic.List[string]
@@ -154,6 +171,13 @@ function Add-PlannedFile([string]$path, [string]$why) {
     }
 }
 
+# Setup only upserts one DLSS5_FIT_LARGE line; the file may also hold the user's own
+# upstream lmxxf flags. Return the text left after removing our line.
+function Get-FlagsRemainder([string]$path) {
+    $text = [IO.File]::ReadAllText($path)
+    return [regex]::Replace($text, '(?m)^DLSS5_FIT_LARGE=.*(\r?\n|$)', '')
+}
+
 $recordedProxy = $null
 $installMark = Join-Path $game 'amd-presr-install.txt'
 if ((Test-UninstallPath $installMark) -and (Test-Path -LiteralPath $installMark -PathType Leaf)) {
@@ -203,6 +227,35 @@ foreach ($root in $roots) {
             Add-PlannedFile (Join-Path $deps $relative) 'project-dependency'
         }
     }
+    $lmxxfMods = Join-Path $root 'lmxxf-modules'
+    if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
+        $planned.Add("$lmxxfMods  (lmxxf modules tree)")
+    }
+    $shadersDir = Join-Path $root 'shaders'
+    if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
+        foreach ($sf in $lmxxfShaderFiles) {
+            Add-PlannedFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
+        }
+        # Also plan retired wave/vit/preblock hlsl left by older installs (install used to upsert-only).
+        Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(native_|preblock_)' -and ($lmxxfShaderFiles -notcontains $_.Name) } |
+            ForEach-Object { Add-PlannedFile $_.FullName 'lmxxf-shader-stale' }
+        $cacheDir = Join-Path $shadersDir 'shader-cache'
+        if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
+            Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+                Add-PlannedFile $_.FullName 'lmxxf-shader-cache'
+            }
+        }
+    }
+
+    $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
+    if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
+        if ((Get-FlagsRemainder $flagsFile).Trim().Length -eq 0) {
+            Add-PlannedFile $flagsFile 'lmxxf-flags'
+        } else {
+            $planned.Add("$flagsFile  (lmxxf-flags: remove the DLSS5_FIT_LARGE line; other flags kept)")
+        }
+    }
 }
 
 foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe','dlssnr_on_amd.log')) {
@@ -212,6 +265,13 @@ foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_am
         if (Test-Path -LiteralPath $p -PathType Leaf) {
             $kept.Add("kept on purpose: $p")
         }
+    }
+}
+foreach ($root in $roots) {
+    if (!(Test-UninstallPath $root)) { continue }
+    $weightsDir = Join-Path $root 'native-game-tiled-assets'
+    if (Test-Path -LiteralPath $weightsDir -PathType Container) {
+        $kept.Add("kept on purpose (weights directory): $weightsDir")
     }
 }
 $backupDirs = New-Object System.Collections.Generic.List[string]
@@ -231,7 +291,7 @@ Write-Host ''
 Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
 Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
 Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
-Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, original-author setup.' -ForegroundColor Yellow
+Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, native-game-tiled-assets, danielblnc setup.' -ForegroundColor Yellow
 Write-Host ''
 
 if ($backupDirs.Count -gt 0) {
@@ -325,6 +385,84 @@ foreach ($root in $roots) {
         }
         Remove-EmptyDirectory (Join-Path $deps 'D3D12_OptiScaler')
         Remove-EmptyDirectory $deps
+    }
+
+    $lmxxfMods = Join-Path $root 'lmxxf-modules'
+    if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
+        if (Test-TreeReparse $lmxxfMods) {
+            $kept.Add("linked path: $lmxxfMods")
+            $errors.Add("$lmxxfMods : contains a linked path, not deleted")
+        } else {
+            # Delete only files listed in SHA256SUMS (installer set) or standard module files. Keep user weights/extras.
+            $sums = Join-Path $lmxxfMods 'SHA256SUMS'
+            $manifestNames = @()
+            if (Test-Path -LiteralPath $sums -PathType Leaf) {
+                Get-Content -LiteralPath $sums -ErrorAction SilentlyContinue | ForEach-Object {
+                    $line = $_.Trim()
+                    if (-not $line) { return }
+                    $parts = $line -split '\s+', 2
+                    if ($parts.Count -ge 2) {
+                        $raw = $parts[1].Trim()
+                        # Strictly reject path separators or directory traversal
+                        if ($raw -notmatch '[/\\\\]|\.\.') {
+                            $manifestNames += $raw
+                        }
+                    }
+                }
+            }
+            # Also safely sweep any .hsaco code modules in lmxxf-modules root
+            Get-ChildItem -LiteralPath $lmxxfMods -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
+                ForEach-Object { $manifestNames += $_.Name }
+            $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')
+            $lmxxfModsFull = [IO.Path]::GetFullPath($lmxxfMods).TrimEnd('\') + '\'
+            foreach ($name in ($manifestNames | Select-Object -Unique)) {
+                if (-not $name) { continue }
+                $fp = Join-Path $lmxxfMods $name
+                $fpFull = [IO.Path]::GetFullPath($fp)
+                if ($fpFull.StartsWith($lmxxfModsFull, [StringComparison]::OrdinalIgnoreCase) -and
+                    (Test-UninstallPath $fp) -and (Test-Path -LiteralPath $fp -PathType Leaf)) {
+                    Remove-SafeFile $fp 'lmxxf-module'
+                }
+            }
+            # Remove empty subdirs then the folder if empty (user files keep it alive).
+            Get-ChildItem -LiteralPath $lmxxfMods -Directory -Recurse -ErrorAction SilentlyContinue |
+                Sort-Object { $_.FullName.Length } -Descending |
+                ForEach-Object { Remove-EmptyDirectory $_.FullName }
+            Remove-EmptyDirectory $lmxxfMods
+        }
+    }
+    $shadersDir = Join-Path $root 'shaders'
+    if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
+        foreach ($sf in $lmxxfShaderFiles) {
+            Remove-SafeFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
+        }
+        Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(native_|preblock_)' } |
+            ForEach-Object { Remove-SafeFile $_.FullName 'lmxxf-shader-stale' }
+        $cacheDir = Join-Path $shadersDir 'shader-cache'
+        if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
+            Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+                Remove-SafeFile $_.FullName 'lmxxf-shader-cache'
+            }
+            Remove-EmptyDirectory $cacheDir
+        }
+        Remove-EmptyDirectory $shadersDir
+    }
+
+    $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
+    if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
+        $flagsRest = Get-FlagsRemainder $flagsFile
+        if ($flagsRest.Trim().Length -eq 0) {
+            Remove-SafeFile $flagsFile 'lmxxf-flags'
+            Remove-EmptyDirectory (Join-Path $root 'DLSS5-AMD')
+        } else {
+            try {
+                [IO.File]::WriteAllText($flagsFile, $flagsRest)
+                $deleted.Add("$flagsFile  (lmxxf-flags: removed the DLSS5_FIT_LARGE line)")
+            } catch {
+                $errors.Add("$flagsFile : $($_.Exception.Message)")
+            }
+        }
     }
 }
 foreach ($root in $roots) {

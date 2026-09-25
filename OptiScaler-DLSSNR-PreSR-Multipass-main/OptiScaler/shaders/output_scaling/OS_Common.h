@@ -684,7 +684,7 @@ RWTexture2D<float4> OutputTexture : register(u0);
 #endif
 SamplerState LinearClampSampler : register(s0);
 
-// CatmullñRom = Keys bicubic with A = -0.5
+// Catmull‚ÄìRom = Keys bicubic with A = -0.5
 static const float A = -0.45f;
 
 static float CubicKeys(float x)
@@ -825,7 +825,7 @@ static float CubicKeys(float x)
 }
 
 // Compute two bilinear sample positions and their combined weights from 4 cubic taps.
-// This is the standard ì4 taps via 2 bilinear taps per axisî trick.
+// This is the standard ‚Äú4 taps via 2 bilinear taps per axis‚Äù trick.
 static void BicubicAxis(float t, out float w01, out float w23, out float o01, out float o23)
 {
     // t is fractional part in [0,1)
@@ -841,7 +841,7 @@ static void BicubicAxis(float t, out float w01, out float w23, out float o01, ou
     float invW01 = (w01 != 0.0f) ? (1.0f / w01) : 0.0f;
     float invW23 = (w23 != 0.0f) ? (1.0f / w23) : 0.0f;
 
-    // Offsets relative to the ìbaseî texel index (floor(pos) - 1)
+    // Offsets relative to the ‚Äúbase‚Äù texel index (floor(pos) - 1)
     // These produce the correct mix of the two texels in each bilinear pair.
     o01 = (-1.0f) + (w1 * invW01); // between base+0 and base+1
     o23 = ( 1.0f) + (w3 * invW23); // between base+2 and base+3
@@ -958,7 +958,7 @@ static const float R = 1.5f;
 #define TILE_SIZE 32
 #define MAX_TAPS  12
 
-// De-interleaved R/G/B ó no wasted .w, no bank conflicts on consecutive lx reads
+// De-interleaved R/G/B ‚Äî no wasted .w, no bank conflicts on consecutive lx reads
 groupshared float lds_R[TILE_SIZE][TILE_SIZE];
 groupshared float lds_G[TILE_SIZE][TILE_SIZE];
 groupshared float lds_B[TILE_SIZE][TILE_SIZE];
@@ -1011,7 +1011,7 @@ void CSMain(uint3 id : SV_DispatchThreadID,
     tileStart.y = ClampInt(tileStart.y, 0, max(_SrcHeight - tileH, 0));
 
     // ----------------------------
-    // 2) Cooperative LDS load ó de-interleaved into separate R/G/B planes
+    // 2) Cooperative LDS load ‚Äî de-interleaved into separate R/G/B planes
     // ----------------------------
     uint lane = tid.y * 8u + tid.x;
     uint total = (uint) (tileW * tileH);

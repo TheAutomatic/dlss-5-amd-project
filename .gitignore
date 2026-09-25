@@ -50,6 +50,9 @@ exports/build/
 # 没有，`git add -A` 会扫进来。
 exports/release-local/
 
+/tools/minhook-master
+/tools/reshade-main
+
 # 旧的按版本命名的发布目录（r17/r18 等），本地留档用
 exports/release-r*/
 
@@ -65,6 +68,9 @@ dist/
 # 编辑器/会话
 .claude/
 .vs/
+.vscode/
+*.code-workspace
+
 
 # Python 字节码缓存
 __pycache__/
@@ -118,3 +124,13 @@ analysis/
 exports/
 .handoff/
 GIT-REWRITE-STATUS.md
+# D3D shader cache. Regenerated beside the hlsl on first use. Not shipped.
+third_party/lmxxf/shaders/shader-cache/
+
+
+# lmxxf local module build output from sync-lmxxf-upstream.ps1
+third_party/lmxxf/hip/_build_gfx1201/
+
+# local HIP module compiler built from rtc_compile.cpp
+third_party/lmxxf/hip/rtc_compile.exe
+third_party/lmxxf/hip/*.hsaco.s

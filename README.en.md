@@ -1,16 +1,12 @@
-[中文](README.md) | **English**
+[中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.0
+# OptiScaler AMD pre-SR — 1.9.0.3
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
 This project is forked from **Matheus** and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
-
-> [!WARNING]
-> **Release Status Notice:**  
-> In real-world testing of Unreal Engine 5 titles (such as *Palworld* and *Neverness to Everness*), an urgent split admission issue was identified (command list Query barriers triggering split ineligibility, fallback to original color, and excessive log flooding). The **v1.9.0.x Release package has been temporarily retracted** while an emergency fix and split admission optimization are underway. An updated release will be published as soon as verification is complete. Thank you for your patience!
 
 ---
 
@@ -28,27 +24,31 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ## 📢 1.9.0 Changelog
 
-Version 1.9.0 is a **major architectural milestone upgrade**. We officially introduce the open-source [**`lmxxf` HIP Neural Rendering backend**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting).
+Version 1.9.0 is a **major architectural milestone upgrade**. We officially introduce the open-source [**`lmxxf` HIP Neural Rendering backend**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) and resolve critical multi-queue and command list split compatibility hurdles in modern Unreal Engine 5 titles.
 
 ### 🚀 Key Highlights
 
-1. **Brand-New `lmxxf` Neural Rendering Backend**
-   - **Open-Source Compute Core**: In addition to maintaining full compatibility with the existing `danielblnc` backend, we integrate the open-source HIP neural rendering core.
-   - **Same-Frame Queue Execution**: Seamlessly embeds input recording, HIP asynchronous inference, and output barrier synchronization within the game's primary command queue before upscaling (Pre-SR). Compared to upstream standalone runs, this theoretically enables true same-frame DLSS5 neural rendering in modern Unreal Engine titles and games like *Where Winds Meet* that have complex post-upscale GPU activity.
-   - **DLSS / XeSS Input Interception**: Leverages OptiScaler's proxy architecture to intercept native DLSS/XeSS inputs (Color / Motion Vectors / Depth) and route them into the neural denoiser before passing them to FFX/FSR, bringing DLSS5 to games without native FSR support.
-   - **Dual-Backend Compatibility & Coexistence**: Full backward compatibility. Users can choose either backend during installation or install both side-by-side. Switch between them anytime in `OptiScaler.ini` via `NrBackend=lmxxf` or `NrBackend=daniel`.
+1. **Unreal Engine 5 (UE5) Compatibility Fixes for lmxxf (*Neverness to Everness*, *Palworld*, etc.) (1.9.0.3)**
+   - **Render Queue Binding (*Neverness to Everness*)**: Correctly binds to the game's actual Direct rendering queue executing DLSS-NR commands, avoiding crashes and session invalidation caused by viewport render queue vs. Swapchain present queue mismatch (`QueueContract: targetQueue != sessionQueue`).
+   - **Queue Safety Guard**: Adds COM identity checks during command list execution callbacks to skip HIP evaluation gracefully when unexpected command lists are dispatched.
+   - **GPU Draining on Migration**: Flushes the GPU prior to queue migration to reduce VRAM leak risks from session recreation.
+   - **Command List Split & Startup Fixes (*Palworld*)**: Hardens split eligibility checks, adjusts default log level to 2 (Information) to remove startup hashing delays, and introduces log rate-limiting.
+
+2. **New `lmxxf` Neural Rendering Backend**
+   - **Open-Source Compute Core**: In addition to maintaining compatibility with the existing `danielblnc` backend, integrates the open-source HIP neural rendering core.
+   - **Same-Frame Queue Execution**: Embeds input recording, HIP asynchronous inference, and output barrier synchronization within the game's primary command queue before upscaling (Pre-SR).
+   - **DLSS / XeSS Proxy Support for lmxxf**: Enables the `lmxxf` backend to intercept DLSS and XeSS inputs before upscaling (Pre-SR), allowing games without native FSR to use the lmxxf denoiser.
+   - **Dual-Backend Support**: Seamlessly supports both `lmxxf` and `danielblnc` backends. Switch between them anytime in `OptiScaler.ini` via `NrBackend=lmxxf` or `NrBackend=daniel`.
    - **Memory & Stability Hardening**: Optimizes `fast_prefix` mode to bypass the redundant 201MB noise buffer allocation, reducing host memory footprint and startup overhead. Enhances GPU LUID matching in Fake NVAPI to prevent cross-adapter crashes in multi-GPU or spoofed environments.
    - **⚠️ Resolution Recommendation**: The current `lmxxf` model architecture is optimized for **pre-upscale render resolution ≤ 1080p**:
      - **4K Output**: Recommended to use **FSR Performance** (1080p render) or Ultra Performance (720p render).
      - **1440p (2K) Output**: Recommended to use **FSR Quality / Balanced / Performance** (all render at or below 1080p).
      - **1080p Output**: Supports **Native 1080p** or any FSR scaling mode.
 
-2. **Installer & Uninstaller Overhaul**
-   - **Dual-Backend Detection**: The installer (`Setup.bat` / `tools/install-amd-presr.ps1`) automatically scans for `danielblnc` or `lmxxf` components. If both are present, an interactive menu allows selecting which one to install, or deploying both for easy switching.
-   - **Safe Overwrite & Coexistence**: Cleanly updates existing files when choosing the same backend; allows side-by-side coexistence when switching.
-   - **Uninstaller Safety**: `Uninstall_OptiScaler_NR.bat` features path traversal guards and preserves user model weights (`native-game-tiled-assets/` and `dlssnr_on_amd_weights.bin`) by default to avoid re-downloading large assets.
+3. **Installer Update**
+   - Fixed installer interaction logic, supporting dual-backend selection and safe coexistence/overwrites.
 
-3. **Menu (Ins Menu) Polish & Real-Time Parameter Sliders**
+4. **Menu (Ins Menu) Polish & Real-Time Parameter Sliders**
    - **Context-Aware Menu**: Automatically hides Daniel-specific options (e.g. slots, passes, new wait) when in `lmxxf` mode to eliminate confusion.
    - **Layout Fixes**: Resolves layout clumping between `Enable NR` and `AMD processing`, restoring clear vertical structure.
    - **Live Sliders**: Introduces continuous sliders for `Detail strength` and `Colour strength`, along with a real-time `Debug view` channel selector for live visual diagnostics.
@@ -84,7 +84,7 @@ This project is built upon the collective achievements of pioneering developers 
 | `Uninstall_OptiScaler_NR.bat` / `.ps1` | Safe uninstaller (automatically placed in game directory) |
 | `tools\` | Internal build and verification utilities |
 | `Licenses\` | Third-party open-source licenses |
-| `README.md` / `README.en.md` | Documentation (Chinese / English) |
+| `README.md` / `README.en.md` / `README.es.md` | Documentation (Chinese / English / Spanish) |
 
 > **Note**: To comply with upstream licenses and distribution policies, this package **does not bundle** NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights.
 
@@ -305,7 +305,7 @@ When reporting issues, please include:
 5. Relevant `.log` files listed above.
 
 ### 4. Known Issues
-- **Palworld (UE5 / Unreal Engine 5)**: When running with the `lmxxf` backend, Palworld currently falls back to original color output without neural reconstruction due to Unreal Engine's command list split barriers (`same-frame split ineligible`). This is a known issue under active investigation and will be addressed in an upcoming update specifically targeting UE5 command list recording patterns.
+- **UE5 (Palworld, Neverness to Everness, and others)**: Older builds rejected every query and left game command lists created before the first swapchain unwrapped, causing the `lmxxf` backend to return original color. The current source permits completed queries and wraps lists created by the game executable earlier. D3D12 tests pass; neural rendering and image stability still need validation in the games.
 
 ---
 
@@ -324,3 +324,9 @@ Codebase heritage (top to bottom):
 - [**This Project (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
 
 This distribution contains no NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights. Please respect all upstream licenses.
+
+## Known issues (1.9.2-alpha)
+
+- **`lmxxf` backend: Pre-SR neural rendering above ~1080p internal resolution is not fully integrated yet.** The same-frame path can hitch badly on larger Color (e.g. 4K Quality ~2258×1271). Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native**. `LmxxfFitLarge` defaults to off; set `true` only if you accept the cost. Without FitLarge, width must be at most 2560, height at most 1080, and the pixel count within 1920×1080 (for example 2024×848). 2560×1080 is rejected. With FitLarge, larger Color is fitted onto the 1080 network.
+- **Cyberpunk 2077 neon turning brown:** At Colour strength 1, Pre-SR feeds the network's hue into the game's later grade and green neon can turn brown. Set Colour strength to 0 to change brightness only. This is not selected by the game's name.
+- **PDL:** Chained launch is on by default. If the driver has no `hipExtModuleLaunchKernel`, set `LmxxfPdl=false` (or `DLSS5_HIP_PDL=0`) and restart.

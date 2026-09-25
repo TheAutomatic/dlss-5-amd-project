@@ -1,0 +1,229 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#define LOG_WARN(...) ((void)0)
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfEvaluateCut.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfQueueDrain.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/amd/AwaitingListTracker.h"
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SubmissionHooks.h"
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <thread>
+
+static thread_local const char *g_fakeRuntimeError = "";
+
+static void Check(HRESULT hr, const char *what)
+{
+    if (FAILED(hr))
+    {
+        std::fprintf(stderr, "FAIL: %s hr=%08lx\n", what, static_cast<unsigned long>(hr));
+        std::exit(1);
+    }
+}
+
+static void Require(bool ok, const char *what)
+{
+    if (!ok)
+    {
+        std::fprintf(stderr, "FAIL: %s\n", what);
+        std::exit(1);
+    }
+}
+
+static ID3D12Device *MakeDevice()
+{
+    IDXGIFactory4 *factory = nullptr;
+    Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
+    ID3D12Device *device = nullptr;
+    IDXGIAdapter1 *adapter = nullptr;
+    for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i)
+    {
+        DXGI_ADAPTER_DESC1 desc {};
+        adapter->GetDesc1(&desc);
+        if (!(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
+            SUCCEEDED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device))))
+        {
+            adapter->Release();
+            break;
+        }
+        adapter->Release();
+        adapter = nullptr;
+    }
+    factory->Release();
+    return device;
+}
+
+static int32_t FakeEnqueue(void *session, void *job, void *queue)
+{
+    Require(session == reinterpret_cast<void *>(0x1111), "session");
+    Require(job == reinterpret_cast<void *>(0x2222), "job");
+    Require(queue != nullptr, "queue");
+    return 0;
+}
+
+static int32_t FakeEnqueueFailure(void *, void *, void *)
+{
+    g_fakeRuntimeError = "bridge submission queue mismatch";
+    return 5;
+}
+
+static int32_t FakeLastError(char *buffer, uint32_t size)
+{
+    std::snprintf(buffer, size, "%s", g_fakeRuntimeError);
+    return 0;
+}
+
+int main()
+{
+    ID3D12Device *device = MakeDevice();
+    Require(device != nullptr, "device");
+    Check(DlssNr::Submission::Hooks::ArmCreate(device), "ArmCreate");
+
+    D3D12_COMMAND_QUEUE_DESC qd {};
+    qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    ID3D12CommandQueue *queue = nullptr;
+    Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)), "queue");
+    // Expand path used by AmdBridge when armed.
+    DlssNr::Submission::Hooks::g_expandEnabled.store(true, std::memory_order_release);
+
+    // Non-proxy: S_FALSE
+    {
+        ID3D12CommandAllocator *a = nullptr;
+        ID3D12GraphicsCommandList *raw = nullptr;
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)), "a0");
+        {
+            DlssNr::Submission::SuppressProxyWrap suppress;
+            Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a, nullptr, IID_PPV_ARGS(&raw)), "raw");
+        }
+        Require(DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(raw) == S_FALSE, "non-proxy S_FALSE");
+        raw->Close();
+        raw->Release();
+        a->Release();
+    }
+
+    ID3D12CommandAllocator *alloc = nullptr;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "alloc");
+    ID3D12GraphicsCommandList *list = nullptr;
+    // Must be a proxied logical list: product CreateCommandList is not wrapped (CL1-only).
+    Check(DlssNr::Submission::Hooks::CreateProxiedCommandList(
+              device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list)),
+          "CreateProxiedCommandList");
+    Require(list != nullptr, "proxy list");
+
+    ID3D12CommandAllocator *otherAlloc = nullptr;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&otherAlloc)), "other alloc");
+    ID3D12GraphicsCommandList *otherList = nullptr;
+    Check(DlssNr::Submission::Hooks::CreateProxiedCommandList(
+              device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, otherAlloc, nullptr, IID_PPV_ARGS(&otherList)),
+          "other proxy list");
+    Require(DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(otherList) == S_OK, "other split");
+    Check(otherList->Close(), "other close");
+
+    // Evaluate cut: Split + pending EnqueueHip + ArmBetween
+    const HRESULT splitHr = DlssNr::Backend::LmxxfCut::TrySplitAtEvaluate(list);
+    Require(splitHr == S_OK, "TrySplitAtEvaluate must return S_OK on proxy (not S_FALSE)");
+    auto &pending = DlssNr::Backend::LmxxfCut::Pending();
+    pending.betweenHits.store(0);
+    pending.enqueueCalls.store(0);
+    pending.skippedHits.store(0);
+    pending.lastEnqueueRc.store(-1);
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueue, nullptr, list);
+    DlssNr::Backend::LmxxfCut::ArmBetweenSlot();
+
+    // A split unrelated list can execute and be reported Submitted first.
+    ID3D12CommandList *otherBatch[] = {otherList};
+    const auto between = DlssNr::Submission::Hooks::GetBetween();
+    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, otherBatch, between.fn, between.ctx,
+                                               [](ID3D12CommandQueue *q, UINT n, ID3D12CommandList *const *c) {
+                                                   q->ExecuteCommandLists(n, c);
+                                               });
+    DlssNr::Backend::LmxxfCut::ClearPendingEnqueueIfSubmitted(1, otherBatch);
+    Require(pending.enqueueCalls.load() == 0 && pending.skippedHits.load() == 0,
+            "unrelated split/submit must not consume HIP");
+
+    // Record a trivial clear on continuation side after split
+    list->Close();
+    ID3D12CommandList *batch[] = {list};
+    DlssNr::Submission::Hooks::ExecuteExpanded(queue, 1, batch, between.fn, between.ctx,
+                                               [](ID3D12CommandQueue *q, UINT n, ID3D12CommandList *const *c) {
+                                                   q->ExecuteCommandLists(n, c);
+                                               });
+
+    Require(pending.betweenHits.load() == 1, "betweenHits");
+    Require(pending.enqueueCalls.load() == 1, "enqueueCalls must be 1 (real Enqueue)");
+    Require(pending.skippedHits.load() == 0, "skippedHits must be 0");
+    Require(pending.lastEnqueueRc.load() == 0, "EnqueueHip rc");
+    DlssNr::Backend::LmxxfCut::ClearPendingEnqueueIfSubmitted(1, batch);
+
+    // The runtime error is thread-local; capture it on the submission thread.
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueueFailure, &FakeLastError, list);
+    std::thread submission([&] { DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); });
+    submission.join();
+    const auto diagnostic = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagnostic.rc == 5, "failed EnqueueHip rc retained");
+    Require(std::strcmp(diagnostic.error.data(), "bridge submission queue mismatch") == 0,
+            "submission-thread runtime error retained");
+
+    // Expected queue match vs mismatch test:
+    ID3D12CommandQueue *queue2 = nullptr;
+    Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue2)), "queue2");
+
+    // Case A1: Queue mismatch where clear succeeds -> records kEnqueueQueueMismatch
+    pending.skippedHits.store(0);
+    const int callsBefore = pending.enqueueCalls.load();
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueue, nullptr, list, queue2);
+    DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue != queue2
+    const auto diagMismatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagMismatch.rc == DlssNr::Backend::LmxxfCut::kEnqueueQueueMismatch, "queue mismatch rc");
+    Require(pending.skippedHits.load() == 1, "queue mismatch must record skipped hit");
+    Require(pending.enqueueCalls.load() == callsBefore + 1, "queue mismatch calls enqueue for zeroing fallback");
+
+    // Case A2: Queue mismatch where clear FAILS -> must propagate failure rc, never report success
+    pending.skippedHits.store(0);
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueueFailure, &FakeLastError, list, queue2);
+    DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue != queue2
+    const auto diagMismatchFail = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagMismatchFail.rc == 5, "queue mismatch with failed clear must propagate error rc");
+    Require(std::strcmp(diagMismatchFail.error.data(), "bridge submission queue mismatch") == 0,
+            "queue mismatch with failed clear must retain error message");
+
+    // Case B: Queue match - should execute Enqueue normally
+    DlssNr::Backend::LmxxfCut::SetPendingEnqueue(reinterpret_cast<void *>(0x1111), reinterpret_cast<void *>(0x2222),
+                                                 &FakeEnqueue, nullptr, list, queue);
+    DlssNr::Backend::LmxxfCut::BetweenThunk(queue, list, nullptr); // executed on queue == queue
+    const auto diagMatch = DlssNr::Backend::LmxxfCut::LastEnqueueDiagnostic();
+    Require(diagMatch.rc == 0, "queue match rc must be 0");
+    Require(pending.enqueueCalls.load() == callsBefore + 3, "queue match must call enqueue");
+
+    // Exercise the same queue drain and awaiting-list implementations used by the host.
+    Require(!DlssNr::Backend::DrainQueue(nullptr, nullptr, 1000), "DrainQueue rejects null device and queue");
+    Require(!DlssNr::Backend::DrainQueue(device, nullptr, 1000), "DrainQueue rejects null queue");
+    Require(DlssNr::Backend::DrainQueue(device, queue, 1000), "DrainQueue succeeds on valid device and queue");
+
+    DlssNr::AmdBridge::AwaitingListTracker awaitingLists;
+    awaitingLists.Add(list);
+    awaitingLists.Add(otherList);
+    ID3D12CommandList *subBatch[] = { otherList };
+    ID3D12GraphicsCommandList *matchedList = awaitingLists.MatchAndRemove(1, subBatch);
+    Require(matchedList == otherList, "multi-buffer matched list");
+    Require(awaitingLists.Count() == 1 && awaitingLists.Contains(list),
+            "retained in-flight awaiting list across multi-buffering");
+
+    DlssNr::Backend::LmxxfCut::DisarmBetweenSlot();
+    DlssNr::Submission::Hooks::Disarm();
+    queue2->Release();
+    list->Release();
+    alloc->Release();
+    otherList->Release();
+    otherAlloc->Release();
+    queue->Release();
+    device->Release();
+    std::printf("lmxxf_evaluate_cut: ok (between->FakeEnqueue rc=0, queue guard ok, mismatch clear failure propagated, DrainQueue validated, multi-buffer retention validated)\n");
+    return 0;
+}

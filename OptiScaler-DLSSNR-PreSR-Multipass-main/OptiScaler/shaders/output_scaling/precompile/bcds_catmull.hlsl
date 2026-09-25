@@ -25,7 +25,7 @@ RWTexture2D<float4> OutputTexture : register(u0);
 #endif
 SamplerState LinearClampSampler : register(s0);
 
-// Catmull–Rom = Keys bicubic with A = -0.5
+// Catmullâ€“Rom = Keys bicubic with A = -0.5
 static const float A = -0.5f;
 
 static float CubicKeys(float x)

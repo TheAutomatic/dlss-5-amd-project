@@ -1,0 +1,1048 @@
+#include "pch.h"
+#include "LmxxfBackend.h"
+#include "LmxxfQueueDrain.h"
+#include <cstring>
+#include "../submission/SubmissionTls.h"
+#include "lmxxf_runtime/LmxxfNrApi.h"
+#include "../amd/AmdBridge.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <fstream>
+#include <string>
+
+namespace DlssNr::Backend
+{
+struct LmxxfBackend::Api
+{
+    LmxxfNrApi table {};
+};
+
+namespace
+{
+std::wstring WidenPath(const std::filesystem::path &p) { return p.wstring(); }
+
+std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
+{
+    wchar_t env[MAX_PATH] {};
+    if (GetEnvironmentVariableW(L"LMXXF_MODULES_DIR", env, MAX_PATH) && env[0])
+        return env;
+    const auto nextToDll = directory / L"lmxxf-modules";
+    if (std::filesystem::exists(nextToDll))
+        return nextToDll;
+    // Dev layout: repo exports/lmxxf-modules-68dc099 relative to OptiScaler.dll parent is uncommon;
+    // prefer env. Fall back to directory itself so Create can still run and fail loudly.
+    return directory;
+}
+
+// Each zero-output recovery blocks the game's submission thread on a GPU drain or clear.
+// Past this many in a row, HIP is not coming back for this session.
+constexpr uint32_t kMaxConsecutiveRecoveries = 10;
+
+float CodecStrength(float v)
+{
+    return std::isfinite(v) ? std::clamp(v, 0.0f, 3.0f) : 1.0f;
+}
+
+float CodecPaperWhite()
+{
+    const float v = Config::Instance()->LmxxfPaperWhite.value_or_default();
+    return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 1.0f;
+}
+
+// Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
+const char *FriendlyPrepareFrameError(const char *err)
+{
+    if (!err || !err[0])
+        return "lmxxf: PrepareFrame failed";
+    if (std::strstr(err, "NoBinaryForGpu") || std::strstr(err, "no binary for GPU") ||
+        std::strstr(err, "hipErrorNoBinary") || std::strstr(err, "WrongDevice"))
+    {
+        return "lmxxf: this GPU is not supported by the installed lmxxf modules (need matching ISA, e.g. 9070 XT = gfx1201). Switch Backend to daniel, or install matching lmxxf-modules.";
+    }
+    if ((std::strstr(err, "missing") || std::strstr(err, "not found")) &&
+        (std::strstr(err, "block") || std::strstr(err, ".f16") || std::strstr(err, ".f32") ||
+         std::strstr(err, "weight")))
+    {
+        return "lmxxf: neural weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.";
+    }
+    if (std::strstr(err, "weights") && (std::strstr(err, "not") || std::strstr(err, "unset")))
+        return "lmxxf: neural weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.";
+    if (std::strstr(err, "poisoned"))
+        return "lmxxf: NR is off after a fatal error (see OptiScaler.log). Fix the first error, then restart the game.";
+    if (std::strstr(err, "hsaco") || std::strstr(err, "module"))
+        return "lmxxf: lmxxf-modules failed to load on this GPU. Check modules vs GPU (gfx1200/1201) or use Backend daniel.";
+    return "lmxxf: PrepareFrame failed";
+}
+
+bool IsPoisonedError(const char *err) { return err && std::strstr(err, "poisoned") != nullptr; }
+
+} // namespace
+
+void LmxxfBackend::SetStatus(const char *s)
+{
+    if (!s)
+        return;
+    if (status == s)
+        return;
+    status = s;
+    // Surface to OptiScaler.log with progressive rate-limiting on status changes.
+    static std::atomic<uint32_t> s_statusLogCount{0};
+    const uint32_t c = s_statusLogCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (c <= 10 ||
+        (c <= 100 && (c % 20 == 0)) ||
+        (c <= 1000 && (c % 100 == 0)) ||
+        (c % 1000 == 0))
+    {
+        LOG_INFO("lmxxf status: {} (status change #{})", status, c);
+    }
+}
+
+LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::filesystem::path &dir)
+    : device(dev), queue(q), directory(dir)
+{
+    if (device)
+        device->AddRef();
+    if (queue)
+        queue->AddRef();
+    api = new Api();
+    // Pending() is process-wide; count only recoveries that happen under this backend.
+    seenRecoveries = LmxxfCut::Pending().recoveredEnqueues.load(std::memory_order_relaxed);
+    seenEnqueueCalls = static_cast<uint64_t>(LmxxfCut::Pending().enqueueCalls.load(std::memory_order_relaxed));
+    diagnostic = LmxxfProbe::ParseMode(Config::Instance()->LmxxfDiagnostic.value_or_default());
+    LOG_INFO("lmxxf diagnostic: mode={} (restart to change; off/original/copy-current/staging-current/staging-previous/proxy-original/split-original)",
+             Config::Instance()->LmxxfDiagnostic.value_or_default());
+    {
+        const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
+        _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+        LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; NativeFitLargeInput re-reads env each call)", fit);
+    }
+    SetStatus("lmxxf: constructed (session not ready)");
+}
+
+LmxxfBackend::~LmxxfBackend()
+{
+    Shutdown();
+    delete api;
+    api = nullptr;
+    if (queue)
+    {
+        queue->Release();
+        queue = nullptr;
+    }
+    if (device)
+    {
+        device->Release();
+        device = nullptr;
+    }
+}
+
+bool LmxxfBackend::EnsureRuntime()
+{
+    if (runtimeDll && api && api->table.EnqueueHip)
+        return true;
+    const auto dllPath = directory / L"LmxxfNrRuntime.dll";
+    runtimeDll = reinterpret_cast<void *>(LoadLibraryW(dllPath.c_str()));
+    if (!runtimeDll)
+    {
+        SetStatus("lmxxf: LmxxfNrRuntime.dll missing next to OptiScaler");
+        return false;
+    }
+    auto getApi = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrApi *)>(GetProcAddress(reinterpret_cast<HMODULE>(runtimeDll), "LmxxfNrGetApi"));
+    if (!getApi)
+    {
+        SetStatus("lmxxf: LmxxfNrGetApi missing");
+        return false;
+    }
+    api->table.struct_size = sizeof(LmxxfNrApi);
+    if (getApi(LMXXF_NR_ABI_VERSION, &api->table) != LMXXF_NR_OK)
+    {
+        SetStatus("lmxxf: GetApi failed");
+        return false;
+    }
+    return true;
+}
+
+bool LmxxfBackend::EnsureSession()
+{
+    if (sessionReady && session)
+        return true;
+    if (recoveryDisabled)
+        return false;
+    // A failed Create/PrepareSession retries with backoff, not (with its logs) on every frame.
+    if (sessionRetryIn > 0)
+    {
+        --sessionRetryIn;
+        return false;
+    }
+    if (!EnsureRuntime() || !device || !queue)
+        return false;
+
+    // Upstream 0.21+: auto picks 720/900/1080 from Color size. Unset defaults to 1080 and blacks 720p Color.
+    if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
+    {
+        _putenv("DLSS5_NETWORK_HEIGHT=auto");
+        SetEnvironmentVariableA("DLSS5_NETWORK_HEIGHT", "auto");
+        LOG_INFO("lmxxf: DLSS5_NETWORK_HEIGHT defaulted to auto");
+    }
+    // Weights directory detection:
+    // 1. Prioritize local folder next to OptiScaler / game (native-game-tiled-assets or lmxxf-weights).
+    // 2. Sibling hint file (lmxxf-weights-dir.txt).
+    // 3. Fallback to LMXXF_WEIGHTS_DIR environment variable (for development/benchmarks).
+    {
+        const auto localWeights = directory / L"native-game-tiled-assets";
+        const auto altWeights = directory / L"lmxxf-weights";
+        const auto hint = directory / L"lmxxf-weights-dir.txt";
+
+        if (std::filesystem::exists(localWeights) && std::filesystem::is_directory(localWeights))
+        {
+            SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", localWeights.c_str());
+            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR prioritized local dir: {}", localWeights.string());
+        }
+        else if (std::filesystem::exists(altWeights) && std::filesystem::is_directory(altWeights))
+        {
+            SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", altWeights.c_str());
+            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR prioritized local dir: {}", altWeights.string());
+        }
+        else if (std::filesystem::exists(hint))
+        {
+            std::wifstream in(hint);
+            std::wstring line;
+            if (in && std::getline(in, line) && !line.empty())
+            {
+                while (!line.empty() && (line.back() == L'\r' || line.back() == L' '))
+                    line.pop_back();
+                if (std::filesystem::exists(line) && std::filesystem::is_directory(line))
+                {
+                    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", line.c_str());
+                    LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from hint file: {}", std::filesystem::path(line).string());
+                }
+            }
+        }
+        else
+        {
+            // Fallback: check environment variable for development, but validate that it exists!
+            wchar_t env[MAX_PATH] {};
+            if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", env, MAX_PATH) && env[0])
+            {
+                if (std::filesystem::exists(env) && std::filesystem::is_directory(env))
+                {
+                    LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from environment: {}", std::filesystem::path(env).string());
+                }
+                else
+                {
+                    LOG_WARN("lmxxf: LMXXF_WEIGHTS_DIR in environment points to non-existent path '{}', ignoring",
+                             std::filesystem::path(env).string());
+                    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", nullptr);
+                }
+            }
+        }
+
+        wchar_t now[MAX_PATH] {};
+        if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", now, MAX_PATH) && now[0])
+            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR={}", std::filesystem::path(now).string());
+        else
+        {
+            LOG_WARN("lmxxf: LMXXF_WEIGHTS_DIR unset (PrepareSession may fail without tiled weights)");
+            SetStatus("lmxxf: weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.");
+        }
+    }
+
+    const auto modules = ResolveModulesDir(directory);
+    const std::wstring modulesW = WidenPath(modules);
+    LOG_INFO("lmxxf: assets/modules dir={}", modules.string());
+
+    static constexpr GUID kStreamlineRiid = { 0xADEC44E2, 0x61F0, 0x45C3, { 0xAD, 0x9F, 0x1B, 0x37, 0x37, 0x92, 0x84, 0xFF } };
+    IUnknown *qId = nullptr;
+    if (queue)
+        queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&qId));
+    IUnknown *slQueue = nullptr;
+    if (queue)
+        queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&slQueue));
+    LOG_INFO("lmxxf: session queue={:p} (type {}) id={:p} sl={:p}",
+             reinterpret_cast<void *>(queue),
+             queue ? static_cast<int>(queue->GetDesc().Type) : -1,
+             reinterpret_cast<void *>(qId),
+             reinterpret_cast<void *>(slQueue));
+    if (qId) qId->Release();
+    if (slQueue) slQueue->Release();
+
+    LmxxfNrCreateInfo info {};
+    info.struct_size = sizeof(info);
+    info.device = device;
+    info.queue = queue;
+    info.assets_directory = modulesW.c_str();
+    info.flags = LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK;
+    void *ctx = nullptr;
+    int32_t createRc = api->table.Create(&info, &ctx);
+    if (createRc == LMXXF_NR_INVALID_ARGUMENT && !ctx)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        // Runtimes that predate the recovery flag accept only flags == 0.
+        if (std::strstr(err, "flags"))
+        {
+            LOG_WARN("lmxxf: runtime rejected Create flags ({}); older LmxxfNrRuntime.dll? continuing without zero-output recovery",
+                     err);
+            info.flags = 0;
+            createRc = api->table.Create(&info, &ctx);
+        }
+    }
+    if (createRc != LMXXF_NR_OK || !ctx)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
+        SetStatus("lmxxf: Create failed");
+        NoteSessionFailure();
+        return false;
+    }
+    if (api->table.GetStatus)
+    {
+        char st[256] {};
+        api->table.GetStatus(ctx, st, sizeof st);
+        LOG_INFO("lmxxf: after Create status={}", st);
+    }
+    const int32_t prepRc = api->table.PrepareSession(ctx);
+    if (prepRc != LMXXF_NR_OK)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
+        api->table.Destroy(ctx);
+        SetStatus("lmxxf: PrepareSession failed");
+        NoteSessionFailure();
+        return false;
+    }
+    session = ctx;
+    sessionReady = true;
+    sessionFailures = 0;
+    SetStatus("lmxxf: session ready");
+    return true;
+}
+
+void LmxxfBackend::NoteSessionFailure()
+{
+    // 2, 4, 8 ... Record calls, capped near 10 s at 60 fps.
+    ++sessionFailures;
+    sessionRetryIn = std::min<uint32_t>(600u, 1u << std::min<uint32_t>(sessionFailures, 10u));
+}
+
+// EnqueueHip returns OK after a zero-output recovery, so the frame showed original Color
+// without an error code. Log it, and turn NR off for this session when recoveries repeat.
+bool LmxxfBackend::NoteEnqueueRecoveries()
+{
+    if (recoveryDisabled)
+        return false;
+    auto &p = LmxxfCut::Pending();
+    const uint64_t calls = static_cast<uint64_t>(p.enqueueCalls.load(std::memory_order_relaxed));
+    const uint64_t recovered = p.recoveredEnqueues.load(std::memory_order_relaxed);
+    if (recovered != seenRecoveries)
+    {
+        consecutiveRecoveries += static_cast<uint32_t>(recovered - seenRecoveries);
+        if (recovered <= 5 || recovered % 100 == 0)
+            LOG_WARN("lmxxf nr recovered: {} (consecutive {}, total {})",
+                     LmxxfCut::LastEnqueueDiagnostic().error.data(), consecutiveRecoveries, recovered);
+    }
+    else if (calls != seenEnqueueCalls)
+    {
+        consecutiveRecoveries = 0;
+    }
+    seenRecoveries = recovered;
+    seenEnqueueCalls = calls;
+    if (consecutiveRecoveries < kMaxConsecutiveRecoveries)
+        return true;
+    LOG_ERROR("lmxxf: {} zero-output recoveries in a row; NR off for this session (original Color). Last: {}",
+              consecutiveRecoveries, LmxxfCut::LastEnqueueDiagnostic().error.data());
+    recoveryDisabled = true;
+    // Each recovery completed its clear, so the session is not poisoned; free its VRAM.
+    if (session && api && api->table.Destroy)
+        api->table.Destroy(session);
+    session = nullptr;
+    sessionReady = false;
+    SetStatus("lmxxf: HIP enqueue keeps failing; NR off (original Color)");
+    return false;
+}
+
+
+
+ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle,
+                                           void *privateOutput)
+{
+    if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus("lmxxf: RecordInputs failed");
+        return nullptr;
+    }
+    const HRESULT splitHr = LmxxfCut::TrySplitAtEvaluate(recordCmd);
+    if (FAILED(splitHr) || splitHr == S_FALSE)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus(FAILED(splitHr) ? "lmxxf: Split failed" : "lmxxf: Split returned S_FALSE");
+        return nullptr;
+    }
+    if (api->table.RecordOutputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus("lmxxf: RecordOutputs failed");
+        return nullptr;
+    }
+    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip,
+                               api->table.GetLastError, recordCmd, queue);
+    LmxxfCut::ArmBetweenSlot();
+    {
+        std::lock_guard lock(jobMutex);
+        pendingJobInfo.job = jobHandle;
+        pendingJobInfo.cmd = recordCmd;
+    }
+    SetStatus("lmxxf: Record ok (pending EnqueueHip)");
+    return reinterpret_cast<ID3D12Resource *>(privateOutput);
+}
+
+
+ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
+                                     const AmdPreSr::Settings &settings)
+{
+    std::lock_guard recordLock(recordMutex);
+    if (!cmd || !frame.colour)
+    {
+        SetStatus("lmxxf: Record missing cmd/colour");
+        return nullptr;
+    }
+    bool previousPending = false;
+    {
+        std::lock_guard lock(jobMutex);
+        previousPending = pendingJobInfo.job != nullptr;
+    }
+    if (previousPending)
+    {
+        // The previous Evaluate already returned its output to SR. Cancelling its
+        // job here would leave that recorded continuation consuming invalid data.
+        SetStatus("lmxxf: previous frame not submitted (original Color; NO NR)");
+        return nullptr;
+    }
+    // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,
+    // or submit HIP. split-original only cuts the game list for boundary validation.
+    if (diagnostic != LmxxfProbe::Mode::Off)
+        return RecordDiagnostic(cmd, frame);
+    // Never substitute Color from an earlier Evaluate to work around an unsubmitted producer.
+    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+    if (FAILED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                  reinterpret_cast<void **>(&logical))) || !logical)
+    {
+        SetStatus("lmxxf: same-frame boundary unavailable (original Color; NO NR)");
+        return nullptr;
+    }
+    const bool ineligible = logical->IsSplitIneligible();
+    const char *reason = logical->SplitRejectionReason();
+    logical->Release();
+    if (ineligible)
+    {
+        char status[128] {};
+        std::snprintf(status, sizeof(status), "lmxxf: split ineligible: %s (NO NR)",
+                      reason ? reason : "unknown");
+        SetStatus(status);
+        static std::atomic<uint32_t> s_ineligibleCount{0};
+        const uint32_t c = s_ineligibleCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (c <= 10 ||
+            (c <= 100 && (c % 20 == 0)) ||
+            (c <= 1000 && (c % 100 == 0)) ||
+            (c % 1000 == 0))
+        {
+            LOG_WARN("{} (frame #{})", status, c);
+        }
+        return nullptr;
+    }
+    if (!NoteEnqueueRecoveries())
+        return nullptr;
+    if (!EnsureSession())
+        return nullptr;
+
+    D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
+    LmxxfNrFrameInfo fi {};
+    fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
+    fi.frame_id = ++frameId;
+    fi.command_list = cmd;
+    fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
+    fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+    fi.color = frame.colour;
+    fi.color_state = static_cast<uint32_t>(frame.colourState);
+    fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
+    fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
+    fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
+    fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
+    fi.model_scale = settings.modelScale;
+    fi.paper_white = CodecPaperWhite();
+    // AmdBridge already collects these from the NGX parameters (ExposureTexture,
+    // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
+    fi.exposure = frame.exposure;
+    fi.exposure_state = static_cast<uint32_t>(frame.exposureState);
+    fi.pre_exposure = frame.preExposure;
+    fi.exposure_scale = frame.exposureScale;
+
+    LmxxfNrJob job {};
+    job.struct_size = sizeof(job);
+    int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+    if (frameRc == LMXXF_NR_INVALID_ARGUMENT && !frameInfoV1)
+    {
+        char sizeErr[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(sizeErr, sizeof sizeErr);
+        // A runtime built before the exposure fields rejects the larger struct. Fall back to
+        // the ABI v1 size once and keep going without exposure, the way we drop the Create
+        // flags for a runtime that predates them.
+        if (std::strstr(sizeErr, "struct_size mismatch"))
+        {
+            LOG_WARN("lmxxf: runtime predates the exposure fields ({}); continuing without exposure", sizeErr);
+            frameInfoV1 = true;
+            fi.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
+            job = {};
+            job.struct_size = sizeof(job);
+            frameRc = api->table.PrepareFrame(session, &fi, &job);
+        }
+    }
+    if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
+    {
+        char err[256] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(err, sizeof err);
+        const auto enqueue = LmxxfCut::LastEnqueueDiagnostic();
+        static unsigned prepareFrameRebuilds = 0;
+        static constexpr GUID kStreamlineRiid = { 0xADEC44E2, 0x61F0, 0x45C3, { 0xAD, 0x9F, 0x1B, 0x37, 0x37, 0x92, 0x84, 0xFF } };
+        IUnknown *sessId = nullptr;
+        if (queue)
+            queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&sessId));
+        IUnknown *sessSl = nullptr;
+        if (queue)
+            queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&sessSl));
+
+        IUnknown *execId = nullptr;
+        if (enqueue.queue)
+            enqueue.queue->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(&execId));
+        IUnknown *execSl = nullptr;
+        if (enqueue.queue)
+            enqueue.queue->QueryInterface(kStreamlineRiid, reinterpret_cast<void **>(&execSl));
+
+        const bool poisoned = IsPoisonedError(err);
+        // First failure is the diagnosis; a poisoned session cannot recover this launch.
+        // Keep later repeats quiet so OptiScaler.log stays readable (summary is printed on Shutdown).
+        const unsigned failN = ++prepareFrameFailLogs;
+        if (poisoned)
+            ++prepareFramePoisonLogs;
+        const bool shouldLog = (failN == 1) || (!poisoned && (failN <= 3 || (failN % 60) == 0)) ||
+                               (poisoned && (failN % 2000) == 0);
+        if (shouldLog)
+            LOG_ERROR("lmxxf: PrepareFrame rc={} handle={} out={} err={} lastEnqueueRc={:X} lastEnqueueErr={} sessQ={:p}(t={},id={:p},sl={:p}) execQ={:p}(t={},id={:p},sl={:p}) {}x{} (fail#{})",
+                      frameRc, job.handle != nullptr, job.private_output != nullptr, err,
+                      enqueue.rc, enqueue.error.data(),
+                      reinterpret_cast<void *>(queue), queue ? static_cast<int>(queue->GetDesc().Type) : -1,
+                      reinterpret_cast<void *>(sessId), reinterpret_cast<void *>(sessSl),
+                      reinterpret_cast<void *>(enqueue.queue), enqueue.queue ? static_cast<int>(enqueue.queue->GetDesc().Type) : -1,
+                      reinterpret_cast<void *>(execId), reinterpret_cast<void *>(execSl),
+                      fi.color_width, fi.color_height,
+                      failN);
+
+        if (sessId) sessId->Release();
+        if (sessSl) sessSl->Release();
+        if (execId) execId->Release();
+        if (execSl) execSl->Release();
+        // Menu/resize: runtime drains/rebuilds codec on rebind/geometry; if still failing,
+        // drop host session so the next Record EnsureSession starts clean. An input contract
+        // violation is INVALID_ARGUMENT and a rebuild cannot help it, so never rebuild for it.
+        const bool rebindish = frameRc != LMXXF_NR_INVALID_ARGUMENT &&
+                               (err[0] && (std::strstr(err, "rebind") || std::strstr(err, "geometry")));
+        if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
+        {
+            LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
+            if (session && api && api->table.Destroy)
+                api->table.Destroy(session);
+            session = nullptr;
+            sessionReady = false;
+            SetStatus("lmxxf: session rebuild after PrepareFrame fail");
+        }
+        else
+        {
+            SetStatus(FriendlyPrepareFrameError(err));
+        }
+        return nullptr;
+    }
+    {
+        // Surface runtime codec-recreate diagnostics into OptiScaler.log (rate-limited).
+        // Must read GetLastError BEFORE GetStatus - GetStatus clears the last-error slot.
+        // A successful PrepareFrame may still leave a notice (codec recreate, unusable exposure).
+        char noticeMsg[320] {};
+        if (api->table.GetLastError)
+            api->table.GetLastError(noticeMsg, sizeof noticeMsg);
+        if (noticeMsg[0])
+        {
+            static unsigned noticeLogs = 0;
+            if (noticeLogs < 8 || (noticeLogs % 30) == 0)
+                LOG_INFO("{}", noticeMsg);
+            ++noticeLogs;
+        }
+        static bool loggedGeo = false;
+        if (!loggedGeo && api->table.GetStatus)
+        {
+            char st[256] {};
+            api->table.GetStatus(session, st, sizeof st);
+            LOG_INFO("lmxxf: after PrepareFrame HIP/net geometry status={}", st);
+            loggedGeo = true;
+        }
+    }
+
+    ID3D12Resource *result = FinishRecord(cmd, job.handle, job.private_output);
+    static uint64_t recordEvalCount = 0;
+    const auto rEval = ++recordEvalCount;
+    auto &p = LmxxfCut::Pending();
+    const auto lastRc = static_cast<unsigned>(p.lastEnqueueRc.load(std::memory_order_relaxed));
+    const auto submitFails = DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed);
+
+    if (rEval <= 5)
+    {
+        LOG_INFO("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} transfer={:.2f} color={:.2f} debugView={} scale={:.2f} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+                 rEval, static_cast<void *>(result),
+                 p.betweenHits.load(std::memory_order_relaxed),
+                 p.enqueueCalls.load(std::memory_order_relaxed),
+                 p.skippedHits.load(std::memory_order_relaxed),
+                 lastRc,
+                 fi.transfer_strength, fi.color_strength, fi.debug_view, fi.model_scale,
+                 DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                 DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                 submitFails);
+    }
+    else if ((lastRc != 0 && lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueSkipped) &&
+              lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueQueueMismatch)) || submitFails > 0)
+    {
+        static uint64_t warnCount = 0;
+        if (++warnCount <= 5 || (warnCount % 120 == 0))
+        {
+            LOG_WARN("lmxxf nr anomaly: eval={} lastEnqueueRc={:X} submitFailures={} skippedHits={}",
+                     rEval, lastRc, submitFails, p.skippedHits.load(std::memory_order_relaxed));
+        }
+    }
+    else if (rEval % 120 == 0)
+    {
+        LOG_DEBUG("lmxxf nr: eval={} output={} betweenHits={} enqueueCalls={} skippedHits={} lastEnqueueRc={:X} transfer={:.2f} color={:.2f} debugView={} scale={:.2f} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+                  rEval, static_cast<void *>(result),
+                  p.betweenHits.load(std::memory_order_relaxed),
+                  p.enqueueCalls.load(std::memory_order_relaxed),
+                  p.skippedHits.load(std::memory_order_relaxed),
+                  lastRc,
+                  fi.transfer_strength, fi.color_strength, fi.debug_view, fi.model_scale,
+                  DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                  DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                  submitFails);
+    }
+    return result;
+}
+
+
+ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame)
+{
+    const auto seq = ++evaluateSequence_;
+    const auto id = ++probeEvaluateId;
+    const bool sampled = id <= 3 || id % 120 == 0;
+    const auto d = frame.colour->GetDesc();
+    const UINT w = frame.width ? frame.width : static_cast<UINT>(d.Width);
+    const UINT h = frame.height ? frame.height : d.Height;
+    ID3D12Resource *output = nullptr;
+    const char *reason = "original_no_nr";
+    LmxxfProbe::Evidence ev {};
+    ev.evaluateId = id;
+    ev.list = cmd;
+    ev.sampled = sampled;
+    ev.mode = diagnostic;
+
+    if (diagnostic == LmxxfProbe::Mode::CodecPassthrough)
+    {
+        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+        const bool isProxy = SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                         reinterpret_cast<void **>(&logical))) && logical;
+        if (!isProxy)
+        {
+            reason = "boundary_not_proxy";
+            ++boundaryRejects;
+            SetStatus("lmxxf diagnostic: codec-passthrough REJECTED (not proxy; original Color)");
+        }
+        else
+        {
+            ++boundaryProxyHits;
+            if (logical->IsSplitIneligible())
+            {
+                reason = logical->SplitRejectionReason();
+                ++boundaryRejects;
+                char state[256] {};
+                snprintf(state, sizeof state, "lmxxf diagnostic: codec-passthrough REJECTED (%s; original Color)", reason);
+                SetStatus(state);
+            }
+            else if (!EnsureSession())
+            {
+                reason = "ensure_session_failed";
+                ++boundaryRejects;
+                SetStatus("lmxxf diagnostic: codec-passthrough REJECTED (session failed; original Color)");
+            }
+            else
+            {
+                D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
+                LmxxfNrFrameInfo fi {};
+                fi.struct_size = sizeof(fi);
+                fi.frame_id = ++frameId;
+                fi.command_list = cmd;
+                fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
+                fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+                fi.color = frame.colour;
+                fi.color_state = static_cast<uint32_t>(frame.colourState);
+                fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
+                fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
+                fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
+                fi.paper_white = CodecPaperWhite();
+                fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
+                fi.model_scale = 1.0f;
+
+                LmxxfNrJob job {};
+                job.struct_size = sizeof(job);
+                const int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+                if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
+                {
+                    char err[256] {};
+                    if (api->table.GetLastError)
+                        api->table.GetLastError(err, sizeof err);
+                    static uint64_t diagPrepareFails = 0;
+                    if (++diagPrepareFails <= 5 || (diagPrepareFails % 300 == 0))
+                    {
+                        LOG_ERROR("lmxxf diagnostic: codec-passthrough PrepareFrame rc={} handle={} out={} err='{}' {}x{} (fail#{})",
+                                  frameRc, job.handle != nullptr, job.private_output != nullptr, err,
+                                  fi.color_width, fi.color_height, diagPrepareFails);
+                    }
+                    reason = "prepare_frame_failed";
+                    ++boundaryRejects;
+                    SetStatus((std::string("lmxxf diagnostic: codec-passthrough PrepareFrame failed: ") + err).c_str());
+                }
+                else if (api->table.RecordInputs(session, job.handle, cmd) != LMXXF_NR_OK)
+                {
+                    char err[256] {};
+                    if (api->table.GetLastError)
+                        api->table.GetLastError(err, sizeof err);
+                    LOG_ERROR("lmxxf diagnostic: codec-passthrough RecordInputs failed: {}", err);
+                    reason = "record_inputs_failed";
+                    ++boundaryRejects;
+                    SetStatus("lmxxf diagnostic: codec-passthrough RecordInputs failed");
+                }
+                else
+                {
+                    const HRESULT cutHr = logical->SplitSegments();
+                    if (cutHr != S_OK)
+                    {
+                        char err[256] {};
+                        if (api->table.GetLastError)
+                            api->table.GetLastError(err, sizeof err);
+                        LOG_ERROR("lmxxf diagnostic: codec-passthrough Split failed: hr={:X} err='{}'", static_cast<unsigned>(cutHr), err);
+                        reason = "boundary_split_failed";
+                        ++boundaryRejects;
+                        SetStatus("lmxxf diagnostic: codec-passthrough Split failed");
+                    }
+                    else
+                    {
+                        ++boundaryCuts;
+                        if (api->table.RecordOutputs(session, job.handle, cmd) != LMXXF_NR_OK)
+                        {
+                            char err[256] {};
+                            if (api->table.GetLastError)
+                                api->table.GetLastError(err, sizeof err);
+                            LOG_ERROR("lmxxf diagnostic: codec-passthrough RecordOutputs failed: {}", err);
+                            reason = "record_outputs_failed";
+                            ++boundaryRejects;
+                            SetStatus("lmxxf diagnostic: codec-passthrough RecordOutputs failed");
+                        }
+                        else
+                        {
+                            output = reinterpret_cast<ID3D12Resource *>(job.private_output);
+                            reason = "codec_passthrough_recorded";
+                            SetStatus("lmxxf diagnostic: codec-passthrough (NO HIP; encode->decode passthrough)");
+                        }
+                    }
+                }
+            }
+        }
+        if (logical)
+            logical->Release();
+        if (sampled)
+            LOG_INFO("lmxxf boundary: eval={} proxy={} reason={} proxyHits={} cutsRecorded={} rejected={} output={} unsplitSubmitted={} producerSubmitted={} continuationSubmitted={} submitFailures={}",
+                     id, isProxy, reason, boundaryProxyHits, boundaryCuts, boundaryRejects, static_cast<void *>(output),
+                     DlssNr::Submission::g_unsplitProxySubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+    }
+    else if (LmxxfProbe::NeedsOpenListProxy(diagnostic))
+    {
+        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+        HRESULT cutHr = S_FALSE;
+        const bool isProxy = SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                         reinterpret_cast<void **>(&logical))) && logical;
+        if (!isProxy)
+            reason = "boundary_not_proxy";
+        else
+        {
+            ++boundaryProxyHits;
+            if (diagnostic == LmxxfProbe::Mode::ProxyOriginal)
+                reason = "proxy_original_no_nr";
+            else if (logical->IsSplitIneligible())
+                reason = logical->SplitRejectionReason();
+            else
+            {
+                cutHr = logical->SplitSegments();
+                if (cutHr == S_OK)
+                {
+                    ++boundaryCuts;
+                    reason = "split_original_recorded_no_nr";
+                }
+                else
+                    reason = "boundary_split_failed";
+            }
+        }
+        if (logical)
+            logical->Release();
+        if (!isProxy || (diagnostic == LmxxfProbe::Mode::SplitOriginal && cutHr != S_OK))
+            ++boundaryRejects;
+        char state[256] {};
+        snprintf(state, sizeof state, "lmxxf diagnostic: %s (original Color; NO NR)", reason);
+        SetStatus(state);
+        if (sampled)
+            LOG_INFO("lmxxf boundary: eval={} proxy={} cutHr={:X} proxyHits={} cutsRecorded={} rejected={} unsplitSubmitted={} producerSubmitted={} continuationSubmitted={} submitFailures={} (counts are NOT GPU completion)",
+                     id, isProxy, static_cast<unsigned>(cutHr), boundaryProxyHits, boundaryCuts, boundaryRejects,
+                     DlssNr::Submission::g_unsplitProxySubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
+                     DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+    }
+    else if (diagnostic == LmxxfProbe::Mode::CopyCurrent)
+    {
+        output = colorProbe.Record(device, cmd, frame.colour, frame.colourState, w, h);
+        reason = colorProbe.Reason();
+        SetStatus(output ? "lmxxf diagnostic: copy-current (NO NR; recorded, not GPU-complete)"
+                         : "lmxxf diagnostic: copy-current REJECTED (original Color; see log)");
+    }
+    else if (diagnostic == LmxxfProbe::Mode::StagingCurrent || diagnostic == LmxxfProbe::Mode::StagingPrevious)
+    {
+        auto r = stagingProbe.Record(diagnostic, device, cmd, frame.colour, frame.colourState, w, h, seq);
+        output = r.output;
+        reason = r.reason;
+        ev.epoch = r.epoch;
+        ev.sourceSequence = r.sourceSequence;
+        ev.age = r.age;
+        ev.priming = r.priming;
+        const char *modeName = (diagnostic == LmxxfProbe::Mode::StagingCurrent) ? "staging-current" : "staging-previous";
+        if (r.priming)
+        {
+            char buf[256];
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s PRIMING (no previous; original Color)", modeName);
+            SetStatus(buf);
+        }
+        else if (output)
+        {
+            char buf[256];
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s (NO NR; age=%u src=%llu)",
+                     modeName, r.age, static_cast<unsigned long long>(r.sourceSequence));
+            SetStatus(buf);
+        }
+        else
+        {
+            char buf[256];
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s REJECTED (%s)", modeName, reason);
+            SetStatus(buf);
+        }
+    }
+    else if (diagnostic == LmxxfProbe::Mode::Original)
+        SetStatus("lmxxf diagnostic: original (NO NR, no replacement)");
+    else
+    {
+        reason = "invalid_diagnostic_option";
+        SetStatus("lmxxf diagnostic: INVALID option (original Color; no HIP)");
+    }
+
+    ev.expectedColor = output ? output : frame.colour;
+    ev.copied = output != nullptr;
+    LmxxfProbe::CurrentEvidence() = ev;
+
+    if (sampled)
+    {
+        const auto st = stagingProbe.GetStats();
+        LOG_INFO("lmxxf probe: eval={} seq={} list={} color={} output={} mv={} depth={} valid={}x{} allocation={}x{} format={} colorState={} preExposure={} exposureScale={} reset={} reason={} mode={} epoch={} age={} srcSeq={} priming={} window={} best={} pins={} bytes={} (CPU record only)",
+                 id, seq, static_cast<void *>(cmd), static_cast<void *>(frame.colour), static_cast<void *>(output),
+                 static_cast<void *>(frame.motion), static_cast<void *>(frame.depth), w, h, d.Width, d.Height,
+                 static_cast<unsigned>(d.Format), static_cast<unsigned>(frame.colourState), frame.preExposure,
+                 frame.exposureScale, frame.reset, reason, static_cast<int>(diagnostic),
+                 ev.epoch, ev.age, ev.sourceSequence, ev.priming,
+                 st.currentWindowLength, st.bestWindowLength,
+                 stagingProbe.CaptureCount() + stagingProbe.OutputCount() + colorProbe.EntryCount(),
+                 stagingProbe.AllocatedBytes() + colorProbe.AllocatedBytes());
+    }
+    return output;
+}
+
+// Daniel uses PendingListIndex to isolate a private neural list from a multi-list batch.
+// lmxxf HIP sits in ExecuteExpanded's between-slot on the game proxy itself, so isolation
+// is unnecessary: AmdBridge::ExecuteBatch always calls ExecuteExpanded when ExpandEnabled().
+int LmxxfBackend::PendingListIndex(UINT, ID3D12CommandList *const *) const { return -1; }
+
+void LmxxfBackend::Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) {}
+
+void LmxxfBackend::TraceBoundary(const std::string &) {}
+
+void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandList *const * lists)
+{
+    void *jobToRetire = nullptr;
+    bool containsCmd = false;
+    {
+        std::lock_guard lock(jobMutex);
+        if (lists)
+        {
+            for (UINT i = 0; i < count; ++i)
+            {
+                if (pendingJobInfo.cmd && lists[i] == pendingJobInfo.cmd)
+                {
+                    containsCmd = true;
+                    break;
+                }
+            }
+        }
+        if (containsCmd)
+        {
+            if (session && pendingJobInfo.job && api && api->table.Retire)
+            {
+                jobToRetire = pendingJobInfo.job;
+            }
+            pendingJobInfo = {};
+        }
+    }
+    if (containsCmd && q && q != queue)
+    {
+        bool sameQueue = (this->queue == q);
+        if (!sameQueue && this->queue && q)
+        {
+            IUnknown* id1 = nullptr;
+            IUnknown* id2 = nullptr;
+            this->queue->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id1));
+            q->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id2));
+            sameQueue = (id1 && id2 && id1 == id2);
+            if (id1) id1->Release();
+            if (id2) id2->Release();
+        }
+        if (!sameQueue)
+        {
+            LOG_WARN("lmxxf: queue transition detected (current={:p}, actual={:p}); draining actual queue and old session before migration",
+                     reinterpret_cast<void*>(this->queue), reinterpret_cast<void*>(q));
+            // 1. Drain the actual queue q that just executed producer and continuation:
+            const bool actualDrained = DrainQueue(this->device, q);
+
+            // 2. Drain the old session queue:
+            const bool sessionDrained = !session || ((api && api->table.Drain)
+                                            ? (api->table.Drain(session) == LMXXF_NR_OK)
+                                            : false);
+
+            if (actualDrained && sessionDrained)
+            {
+                if (session && api && api->table.Destroy)
+                    api->table.Destroy(session);
+                session = nullptr;
+                sessionReady = false;
+                q->AddRef();
+                if (this->queue) this->queue->Release();
+                this->queue = q;
+                jobToRetire = nullptr;
+                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
+                SetStatus("lmxxf: session migrated to new render queue");
+                LOG_INFO("lmxxf: session cleanly destroyed after verified dual queue drain; queue updated to {:p}",
+                         reinterpret_cast<void*>(q));
+            }
+            else
+            {
+                LOG_ERROR("lmxxf: GPU drain failed during queue transition (actualDrained={}, sessionDrained={}); abandoning old session without Destroy to prevent GPU UAF",
+                          actualDrained, sessionDrained);
+                // CRITICAL SAFETY: If either queue failed to drain, GPU may still be referencing
+                // old session resources. We MUST NOT call Destroy(session) to avoid GPU Use-After-Free.
+                session = nullptr;
+                sessionReady = false;
+                jobToRetire = nullptr;
+                q->AddRef();
+                if (this->queue) this->queue->Release();
+                this->queue = q;
+                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
+                SetStatus("lmxxf: queue migration completed with abandoned undrained session (GPU safety fallback)");
+            }
+        }
+    }
+    if (jobToRetire)
+    {
+        const int32_t retireRc = api->table.Retire(session, jobToRetire);
+        if (retireRc != LMXXF_NR_OK)
+        {
+            char err[256] {};
+            if (api->table.GetLastError)
+                api->table.GetLastError(err, sizeof err);
+            LOG_ERROR("lmxxf: Retire rc={} err={} submitQ={:p} sessQ={:p}",
+                      retireRc, err, reinterpret_cast<void *>(q), reinterpret_cast<void *>(queue));
+        }
+    }
+    // Other UE/FG lists may submit before the list containing this Evaluate.
+    // Only that list can retire the pending HIP slot.
+    LmxxfCut::ClearPendingEnqueueIfSubmitted(count, lists);
+}
+
+bool LmxxfBackend::Shutdown()
+{
+    LmxxfCut::DisarmBetweenSlot();
+    {
+        std::lock_guard lock(jobMutex);
+        pendingJobInfo = {};
+    }
+    if (prepareFrameFailLogs)
+        LOG_WARN("lmxxf: session end — PrepareFrame failed {} times ({} poisoned); those frames used original Color (no NR)",
+                 prepareFrameFailLogs, prepareFramePoisonLogs);
+    if (session && api && api->table.Destroy)
+    {
+        api->table.Destroy(session);
+        session = nullptr;
+    }
+    sessionReady = false;
+    if (runtimeDll)
+    {
+        FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll));
+        runtimeDll = nullptr;
+    }
+    if (api)
+        api->table = {};
+    SetStatus("lmxxf: shutdown");
+    return true;
+}
+
+void LmxxfBackend::InvalidateHistory()
+{
+    if (session && api && api->table.ResetHistory)
+    {
+        const int32_t resetRc = api->table.ResetHistory(session);
+        if (resetRc != LMXXF_NR_OK)
+        {
+            static std::atomic<uint32_t> resetFailures { 0 };
+            const uint32_t n = resetFailures.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n <= 3 || n % 120 == 0)
+            {
+                char err[256] {};
+                if (api->table.GetLastError)
+                    api->table.GetLastError(err, sizeof err);
+                LOG_ERROR("lmxxf: ResetHistory rc={} err={} (fail#{})", resetRc, err, n);
+            }
+        }
+    }
+    stagingProbe.InvalidateEpoch();
+}
+
+std::string LmxxfBackend::Status() const { return status; }
+
+bool LmxxfBackend::GraphicsRestartNeeded(UINT) const { return false; }
+} // namespace DlssNr::Backend

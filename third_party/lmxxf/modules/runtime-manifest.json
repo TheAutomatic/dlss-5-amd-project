@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "runtime_abi": 1,
+  "upstream_repo": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
+  "upstream_commit": "24986ae094bbd150f4d86a0ca76159a43f374884",
+  "modules_dir": "third_party/lmxxf/modules",
+  "recipe": "third_party/lmxxf/hip/build-modules.ps1",
+  "compiler": "System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK)",
+  "target_isa": "amdgcn-amd-amdhsa--gfx1201",
+  "module_count": 24,
+  "history": false,
+  "overlap": false,
+  "graph": false,
+  "color_abi": {
+    "input": "linear FP16",
+    "paper_white": 1.0,
+    "strength": [1.0, 1.0],
+    "codec_srgb": 0
+  },
+  "notes": [
+    "Do not pair these hsaco with host logic from OptiScaler-DLSS5-AMD-0.24.2 package.",
+    "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
+    "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir."
+  ]
+}

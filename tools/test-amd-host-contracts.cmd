@@ -7,6 +7,10 @@ if not defined AMD_TEST_OUT set "AMD_TEST_OUT=exports\amd-host-tests"
 for %%I in ("%AMD_TEST_OUT%") do set "AMD_TEST_OUT=%%~fI"
 if not exist "%AMD_TEST_OUT%" mkdir "%AMD_TEST_OUT%"
 if not defined AMD_TEST_PYTHON set "AMD_TEST_PYTHON=python"
+cl /nologo /std:c++20 /EHsc /W4 tests\nr_backend_selector.cpp /Fe"%AMD_TEST_OUT%\nr_backend_selector.exe" /Fo"%AMD_TEST_OUT%\nr_backend_selector.obj"
+if not %errorlevel%==0 exit /b 1
+"%AMD_TEST_OUT%\nr_backend_selector.exe"
+if not %errorlevel%==0 exit /b 1
 cl /nologo /std:c++20 /EHsc /W4 tests\amd_submission_state.cpp /Fe"%AMD_TEST_OUT%\amd_submission_state.exe" /Fo"%AMD_TEST_OUT%\amd_submission_state.obj"
 if not %errorlevel%==0 exit /b 1
 "%AMD_TEST_OUT%\amd_submission_state.exe"

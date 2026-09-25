@@ -3,6 +3,11 @@
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsInvocation.h>
+#include <dlssnr/backend/Selector.h>
+#include <dlssnr/backend/LmxxfGenerationObserver.h>
+#include <dlssnr/backend/LmxxfColorProbe.h>
+#include <dlssnr/amd/AmdBridge.h>
+#include <dlssnr/submission/SubmissionHooks.h>
 
 #include <Util.h>
 #include <Config.h>
@@ -1626,7 +1631,10 @@ void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
     const bool restoreComputeSignature = Config::Instance()->RestoreComputeSignature.value_or_default();
     const bool restoreGraphicSignature = Config::Instance()->RestoreGraphicSignature.value_or_default();
     const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-    const bool amdGraphicsTrackerWanted = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+    // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
+    const bool amdGraphicsTrackerWanted =
+        Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
+        !DlssNr::Backend::SubmissionHooksWanted();
 
     s_SetPipelineState.o_lateHook = (PFN_SetPipelineState) pVTable[25];
     s_SetDescriptorHeaps.o_lateHook = (PFN_SetDescriptorHeaps) pVTable[28];
@@ -1813,7 +1821,10 @@ static void HookToCommandList(ID3D12Device* InDevice)
             PVOID* pVTable = *(PVOID**) commandList;
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-            const bool amdGraphicsTrackerWanted = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+            // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
+    const bool amdGraphicsTrackerWanted =
+        Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
+        !DlssNr::Backend::SubmissionHooksWanted();
             const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
             LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 
@@ -2954,12 +2965,22 @@ static void HookToDevice(ID3D12Device* InDevice)
                 DetourAttach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
         }
 
-        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList != nullptr)
-            DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
-        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandList1 != nullptr)
-            DetourAttach(&(PVOID&) o_CreateCommandList1, hkCreateCommandList1);
-        if (Config::Instance()->AmdGraphicsWait.value_or_default() && o_CreateCommandSignature != nullptr)
-            DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
+        // lmxxf: ArmCreate after commit (ExpandEnabled). ProxyWrap stays OFF until swapchain
+        // (wrapping every DIRECT list during Streamline/device boot crashes yysls).
+        // Graphics Create* hooks are mutually exclusive with ArmCreate Create* Detours.
+        if (DlssNr::Backend::SubmissionHooksWanted())
+        {
+            // Skip AmdGraphicsWait CreateCommandList / CreateCommandList1 / CreateCommandSignature.
+        }
+        else if (Config::Instance()->AmdGraphicsWait.value_or_default())
+        {
+            if (o_CreateCommandList != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);
+            if (o_CreateCommandList1 != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandList1, hkCreateCommandList1);
+            if (o_CreateCommandSignature != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
+        }
 
         auto detourResult = DetourTransactionCommit();
         if (detourResult != NO_ERROR)
@@ -2972,6 +2993,35 @@ static void HookToDevice(ID3D12Device* InDevice)
             o_CreatePlacedResource = nullptr;
             o_D3D12DeviceRelease = nullptr;
             o_GetResourceAllocationInfo = nullptr;
+        }
+        else if (DlssNr::Backend::SubmissionHooksWanted())
+        {
+            const auto diagMode = DlssNr::Backend::LmxxfProbe::ParseMode(
+                Config::Instance()->LmxxfDiagnostic.value_or_default());
+            const bool wrapOpen = (diagMode == DlssNr::Backend::LmxxfProbe::Mode::Off) ||
+                                  DlssNr::Backend::LmxxfProbe::NeedsOpenListProxy(diagMode);
+            DlssNr::Submission::Hooks::SetWrapOpenLists(wrapOpen);
+            LOG_INFO("lmxxf same-frame: open-list proxy diagnostic={}", wrapOpen);
+            const HRESULT armHr = DlssNr::Submission::Hooks::ArmCreate(InDevice);
+            if (FAILED(armHr))
+                LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
+            else
+            {
+                LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
+                if (State::Instance().gameEngine == GameEngineType::Unreal)
+                {
+                    D3D12_COMMAND_QUEUE_DESC queueDesc {};
+                    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+                    ID3D12CommandQueue *earlyQueue = nullptr;
+                    const bool created = SUCCEEDED(InDevice->CreateCommandQueue(
+                        &queueDesc, IID_PPV_ARGS(&earlyQueue)));
+                    const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
+                    if (earlyQueue)
+                        earlyQueue->Release();
+                    DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
+                    LOG_INFO("lmxxf Unreal early executable proxy: {} (submission hook ready={})", ready, ready);
+                }
+            }
         }
     }
 

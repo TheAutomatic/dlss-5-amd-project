@@ -106,6 +106,23 @@ class InstallerExitTests(unittest.TestCase):
         (self.package / "OptiScaler.dll").write_bytes(b"fixture proxy")
         (self.package / "dlssnr_on_amd_setup.exe").write_bytes(b"invalid executable")
 
+    def test_noninteractive_ini_overwrite_keeps_install_backend(self):
+        self.ready_install()
+        (self.package / "OptiScaler.ini").write_text(
+            "[DlssNr]\nPackageSentinel=yes\nNrBackend=lmxxf\n", encoding="utf-8"
+        )
+        (self.game / "OptiScaler.ini").write_text(
+            "[DlssNr]\nUserSentinel=keep\nNrBackend=lmxxf\n", encoding="utf-8"
+        )
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        text = (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig")
+        self.assertIn("PackageSentinel=yes", text)
+        self.assertNotIn("UserSentinel", text)
+        self.assertIn("NrBackend = daniel", text)
+        self.assertNotIn("NrBackend=lmxxf", text)
+        self.assertNotIn("NrBackend = lmxxf", text)
+
     def test_install_success_pauses_once(self):
         self.ready_install()
         code, output = self.run_batch()

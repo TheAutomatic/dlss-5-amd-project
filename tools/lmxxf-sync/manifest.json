@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "headers": [
+    "Development/HIP/hip_api.h",
+    "Development/HIP/hip_d3d12_bridge.h",
+    "Development/HIP/hip_device_properties.h",
+    "Development/HIP/hip_reference_network.h",
+    "Development/HIP/packed_weights.h",
+    "src/native_device_identity.h",
+    "src/native_game_codec.h",
+    "src/native_game_rgb_input.h",
+    "src/native_hip_network.h",
+    "src/native_input_geometry.h",
+    "src/native_lab_paths.h",
+    "src/native_network_geometry.h",
+    "src/native_pinned_resource.h",
+    "src/native_pso.h",
+    "src/native_rgb_reflect.h",
+    "src/native_rgb_texture.h",
+    "src/native_shader_cache.h"
+  ],
+  "pinned": [
+    {
+      "path": "Development/HIP/hip_d3d12_bridge.h",
+      "switch": "UpdateBridge",
+      "patch": "bridge.patch",
+      "required": [
+        "zero_upload",
+        "clear_submission_unconfirmed",
+        "GetCompletedValue()<target",
+        "EnsureZeroClearResources",
+        "ClearOutputAsync",
+        "bool ClearOutput(",
+        "CancelUnsubmitted",
+        "CurrentPhase"
+      ],
+      "patterns": [
+        "pending=true;\\s*phase=consumer_recorded\\?Phase::OutputRecorded:Phase::HipQueued;"
+      ],
+      "forbidden": []
+    },
+    {
+      "path": "src/native_rgb_reflect.h",
+      "switch": "UpdateReflect",
+      "patch": "reflect.patch",
+      "required": [
+        "class NativeRgbReflect"
+      ],
+      "patterns": [],
+      "forbidden": [
+        "#include\\s*\"native_split\\.h\""
+      ]
+    },
+    {
+      "path": "src/native_input_geometry.h",
+      "switch": "UpdateInputGeometry",
+      "patch": "input-geometry.patch",
+      "required": [
+        "max_pixels",
+        "max_budget_width=2560",
+        "(large||(w<=max_budget_width&&h<=max_height&&w*h<=max_pixels))"
+      ],
+      "patterns": [],
+      "forbidden": []
+    }
+  ],
+  "hip_files": [
+    "build-modules.ps1",
+    "rtc_compile.cpp",
+    "README.md",
+    "SHA256SUMS"
+  ]
+}

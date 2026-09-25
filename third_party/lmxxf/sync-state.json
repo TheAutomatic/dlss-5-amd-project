@@ -1,0 +1,19 @@
+{
+    "schema":  1,
+    "status":  "pending",
+    "from_commit":  "3d9b3e42f3529609f824506c8d385bdd00b3e70c",
+    "to_commit":  "24986ae094bbd150f4d86a0ca76159a43f374884",
+    "recipes_verified":  "0bf4dad9069de237b87a67871d35c8329c41619ed4bf26ed49adc92935a22b3f:5a9d4cab5ba93c83921d8bca925aef1df94a49cf993128b35fb59d44b0df77b3",
+    "modules_verified":  "f77626e32ba240752f8884eb753cddb9d5c2ad072632a5b9bd33b24c3c55e5c1",
+    "skipped_checks":  [
+
+                       ],
+    "updated_utc":  "2026-09-24T19:43:16.8207732Z",
+    "integration":  {
+                        "pdl":  "gfx1201 modules rebuilt from the staged .hip. HIP_PDL_KERNELS is the source default, and _pdl is present in multihead-fast-padded-wave, its packed variant, and multihead_fused_attention. LmxxfProductionOptions sets opt.pdl true and keeps graph false. Author measured about 1.6% at 900p and 0.6% at 1080p, bit-identical. This machine did not re-hash network outputs.",
+                        "strength":  "Menu sliders, PrepareFrame, and LmxxfBackend accept detail and colour strength 0..3. Default stays 1. Above 1 extrapolates past the network result.",
+                        "paper_white":  "LmxxfPaperWhite defaults to 1, must be finite and in (0, 64], and is passed to encode and decode Record. It is not the HDR Paper White anchor. Hosts that still send the 104-byte frame info get 1.",
+                        "encoder":  "RecordInputs uses the frame strengths. It does not call LegacyParameters(), so Cyberpunk2077.exe is not forced to colour strength 0. Every game follows the sliders and still defaults to 1 and 1.",
+                        "review":  "The 346-item enablement review is not filled. status stays pending. The UPSTREAM.md completed pin is not advanced."
+                    }
+}

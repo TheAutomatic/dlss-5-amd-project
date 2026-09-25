@@ -137,6 +137,17 @@ public class UninstallProxyFixture { }
         }
     }
     Write-Host 'PASS storage, dependency and Agility junction targets preserved'
+
+    $flagsGame = Join-Path $testRoot 'flags-game'
+    Put-File (Join-Path $flagsGame 'DLSS5-AMD\native-game-flags.txt') "DLSS5_FIT_LARGE=1`r`n"
+    $null = Run-Uninstall $flagsGame
+    Assert-Removed (Join-Path $flagsGame 'DLSS5-AMD')
+    $userFlags = Join-Path $testRoot 'user-flags-game\DLSS5-AMD\native-game-flags.txt'
+    Put-File $userFlags "DLSS5_NETWORK_HEIGHT=900`r`nDLSS5_FIT_LARGE=0`r`nDLSS5_STRENGTH=1,1`r`n"
+    $null = Run-Uninstall (Join-Path $testRoot 'user-flags-game')
+    $left = [IO.File]::ReadAllText($userFlags)
+    if ($left -cne "DLSS5_NETWORK_HEIGHT=900`r`nDLSS5_STRENGTH=1,1`r`n") { throw "User flags not preserved: [$left]" }
+    Write-Host 'PASS flags file: Setup FIT_LARGE line removed, user flags kept'
     Write-Host 'All uninstall regression checks passed.'
 } finally {
     # Remove junctions themselves before fixture cleanup. Never recursively

@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -309,6 +309,21 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\amd\RtgiNative.h" />
     <ClCompile Include="dlssnr\amd\AmdPreSr.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><ForcedIncludeFiles>$(IntDir)amd_graphics_source_id.h;%(ForcedIncludeFiles)</ForcedIncludeFiles></ClCompile>
     <ClCompile Include="dlssnr\amd\AmdBridge.cpp" />
+    <ClCompile Include="dlssnr\backend\Selector.cpp" />
+    <ClCompile Include="dlssnr\backend\DanielBackend.cpp" />
+    <ClCompile Include="dlssnr\backend\LmxxfBackend.cpp" />
+    <ClInclude Include="dlssnr\backend\Kind.h" />
+    <ClInclude Include="dlssnr\backend\Host.h" />
+    <ClInclude Include="dlssnr\backend\Selector.h" />
+    <ClInclude Include="dlssnr\backend\DanielBackend.h" />
+    <ClInclude Include="dlssnr\backend\LmxxfBackend.h" />
+    <ClInclude Include="dlssnr\backend\LmxxfEvaluateCut.h" />
+    <ClInclude Include="dlssnr\submission\LogicalList.h" />
+    <ClInclude Include="dlssnr\submission\CommandListProxy.h" />
+    <ClInclude Include="dlssnr\submission\SubmissionHooks.h" />
+    <ClInclude Include="dlssnr\submission\SubmissionTls.h" />
+    <ClInclude Include="dlssnr\submission\ContinuationState.h" />
+    <ClInclude Include="dlssnr\submission\ResourceStateBook.h" />
     <ClInclude Include="dlssnr\amd\AmdPreSr.h" />
     <ClInclude Include="dlssnr\amd\SubmissionState.h" />
     <ClInclude Include="dlssnr\amd\RuntimeNotification.h" />
