@@ -341,8 +341,11 @@ class Config
     // exposure keep using that texture and ignore this. Default on (fixed fallback 8).
     CustomOptional<bool> LmxxfAutoExposure { true };
     // Manual white scale when exposure is missing AND LmxxfAutoExposure is off.
-    // Unused when Auto exposure is on (fixed 8) or when the game sends exposure.
+    // Unused when Auto exposure is on (shader estimates) or when the game sends exposure.
     CustomOptional<float> LmxxfAutoExposureScale { 8.0f };
+    // Allow NR on command lists that use D3D12 enhanced barriers (CommandListProxy::Barrier).
+    // State is not fully modeled for those groups (best-effort). false restores fail-closed reject.
+    CustomOptional<bool> LmxxfAllowEnhancedBarriers { true };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

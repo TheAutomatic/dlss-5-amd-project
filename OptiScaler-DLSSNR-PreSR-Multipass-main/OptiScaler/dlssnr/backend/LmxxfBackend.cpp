@@ -51,20 +51,17 @@ float CodecPaperWhite()
 }
 
 // Games that pass an exposure texture use the codec path as before. When there is
-// no exposure (Wo Long 2), scale the white point so HDR scene values are not
-// treated as exposure=1 (which blows highlights).
-// Auto exposure on: fixed fallback scale (slider ignored).
-// Auto exposure off: manual LmxxfAutoExposureScale.
+// no exposure (Wo Long 2), the encode/decode shaders estimate a white point from
+// image mean (target encoded mean 0.45), matching the daniel meter. Host sends
+// paper_white=1 as trim; auto off uses the manual slider as a fixed divisor.
 float EffectiveCodecPaperWhite(bool hasGameExposure)
 {
     if (hasGameExposure)
         return CodecPaperWhite();
-    if (!Config::Instance()->LmxxfAutoExposure.value_or_default())
-    {
-        const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
-        return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
-    }
-    return 8.0f;
+    if (Config::Instance()->LmxxfAutoExposure.value_or_default())
+        return 1.0f;
+    const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
+    return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
 }
 
 // Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
@@ -168,6 +165,11 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
         const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
         _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
         LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; NativeFitLargeInput re-reads env each call)", fit);
+    }
+    {
+        const bool allowEb = Config::Instance()->LmxxfAllowEnhancedBarriers.value_or_default();
+        SetAllowEnhancedBarriers(allowEb);
+        LOG_INFO("lmxxf enhanced barriers allowed={} (LmxxfAllowEnhancedBarriers)", allowEb);
     }
     {
         wchar_t srgb[8] {};

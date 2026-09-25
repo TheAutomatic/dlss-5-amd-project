@@ -468,8 +468,8 @@ void RenderMenu(Config* config, float menuResScale)
                     if (ImGui::Checkbox("Auto exposure", &autoExposure))
                         config->LmxxfAutoExposure = autoExposure;
                     HelpMarker("When the game does not send an exposure texture,"
-                               "\nuse a fixed fallback white scale (default 8) so"
-                               "\nhighlights are not blown. Ignores Exposure scale."
+                               "\nestimate a white point from image mean (mid-grey"
+                               "\ntarget, like daniel). Ignores Exposure scale."
                                "\nGames that already pass exposure are unchanged."
                                "\nApplies on the next frame. No restart.");
                     if (!autoExposure)

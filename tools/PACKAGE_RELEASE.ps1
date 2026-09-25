@@ -252,6 +252,9 @@ LmxxfAutoExposure=true
 ; Manual white scale only when Auto exposure is false and there is no game exposure. Default 8.
 LmxxfAutoExposureScale=8
 
+; Allow NR when the command list uses D3D12 enhanced barriers (default true). false = reject those lists.
+LmxxfAllowEnhancedBarriers=true
+
 ; Resolution scale factor for neural rendering model input
 ; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
 ; float value - Default is 1

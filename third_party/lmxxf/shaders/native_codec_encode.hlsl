@@ -23,6 +23,28 @@ cbuffer CodecConstants : register(b0) {
 #if NATIVE_CODEC_EXPOSURE
 Texture2D<float> GameExposure : register(t4);
 #endif
+// Mirror daniel white-point meter: aim encoded mean at mid-grey (0.45).
+static const float kTargetEncodedMean = 0.45f;
+float WhitePointForMean(float meanLuma) {
+    float encoded = pow(kTargetEncodedMean, 2.2f);
+    float ratio = encoded / (1.0 - encoded);
+    float wp = meanLuma / ratio;
+    return clamp(wp, 0.01f, 10000.0f);
+}
+float SampleMeanLuma() {
+    uint w = max(SourceSize.x, 1u), h = max(SourceSize.y, 1u);
+    float sum = 0.0;
+    const int N = 5;
+    for (int y = 0; y < N; y++) {
+        for (int x = 0; x < N; x++) {
+            uint2 p = uint2(uint((x + 0.5) * (w - 1) / (N - 1)), uint((y + 0.5) * (h - 1) / (N - 1)));
+            p = min(p, uint2(w, h) - 1);
+            float3 c = max(Original.Load(int3(p, 0)).rgb, 0.0);
+            sum += dot(c, float3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    return max(sum / float(N * N), 1e-4);
+}
 float EffectivePaperWhite() {
 #if NATIVE_CODEC_EXPOSURE
  float e=GameExposure.Load(int3(0,0,0));
@@ -30,7 +52,8 @@ float EffectivePaperWhite() {
  float exposure=e*scale/pre;
  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
 #else
- return PaperWhiteScale;
+ // No game exposure texture: estimate a white point from this image (not a fixed scale).
+ return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
 #endif
 }
 #ifndef NATIVE_CODEC_FIT
