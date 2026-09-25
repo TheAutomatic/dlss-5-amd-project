@@ -67,11 +67,26 @@ class InstallerExitTests(unittest.TestCase):
         return f"{name}.bat", f"{name}.ps1"
 
     def run_process(self, args, stdin=""):
-        result = subprocess.run(
-            args, input=stdin.encode("ascii"), stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, cwd=self.package, env=self.env, timeout=30,
+        # A timeout must end Setup.bat's PowerShell too. Killing only cmd.exe
+        # leaves that child holding stdout, and the test then waits forever.
+        proc = subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, cwd=self.package, env=self.env,
         )
-        return result.returncode, result.stdout.decode("mbcs", errors="replace")
+        try:
+            out, _ = proc.communicate(stdin.encode("ascii"), timeout=30)
+        except subprocess.TimeoutExpired:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            try:
+                out, _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                out = b""
+            text = out.decode("mbcs", errors="replace")
+            raise AssertionError("timed out after 30 seconds\n" + text) from None
+        return proc.returncode, out.decode("mbcs", errors="replace")
 
     def run_batch(self, name="Setup", game=None, proxy="dxgi.dll", stdin=""):
         bat, _ = self.launcher_files(name)

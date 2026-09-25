@@ -137,11 +137,13 @@ jobs:
         uses: microsoft/setup-msbuild@v3
 
       - name: Installer and uninstaller regression
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           # Isolated synthetic files only; exercise the Windows PowerShell 5.1 launchers.
-          python -B tests/amd_installer_exit.py
+          # --failfast prints the first assertion and lets the step exit.
+          python -B tests/amd_installer_exit.py --failfast
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/amd_uninstall.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
