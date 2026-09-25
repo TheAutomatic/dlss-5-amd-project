@@ -273,8 +273,15 @@ inline bool ComputeFileSha256(const std::wstring &path, std::string *outHex)
     Init(&ctx);
     uint8_t buffer[65536];
     DWORD read = 0;
-    while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+    for (;;)
     {
+        if (!ReadFile(file, buffer, sizeof(buffer), &read, nullptr))
+        {
+            CloseHandle(file);
+            return false;
+        }
+        if (read == 0)
+            break;
         Update(&ctx, buffer, read);
     }
     CloseHandle(file);
@@ -827,7 +834,8 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
                 leafMap[lpath] = lsha;
 
                 const std::string rootKey = std::string(arch) + "/" + lpath;
-                if (rootMap[rootKey] != lsha)
+                const auto rootIt = rootMap.find(rootKey);
+                if (rootIt == rootMap.end() || rootIt->second != lsha)
                 {
                     return Fail(LMXXF_NR_UNAVAILABLE,
                                 ("Create: leaf SHA256SUMS mismatch with root for " + rootKey).c_str());
