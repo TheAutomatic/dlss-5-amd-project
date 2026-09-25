@@ -463,7 +463,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,
     // or submit HIP. split-original only cuts the game list for boundary validation.
     if (diagnostic != LmxxfProbe::Mode::Off)
-        return RecordDiagnostic(cmd, frame);
+        return RecordDiagnostic(cmd, frame, settings);
     // Never substitute Color from an earlier Evaluate to work around an unsubmitted producer.
     DlssNr::Submission::ILogicalCommandList *logical = nullptr;
     if (FAILED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
@@ -627,6 +627,20 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             LOG_INFO("lmxxf: after PrepareFrame HIP/net geometry status={}", st);
             loggedGeo = true;
         }
+        // Highlight triage: exposure and colour contract, not every frame.
+        {
+            static unsigned colorDiagN = 0;
+            ++colorDiagN;
+            if (colorDiagN <= 8 || (colorDiagN % 300) == 0)
+            {
+                LOG_INFO("lmxxf color: fmt={} {}x{} alloc={}x{} exposure={} expState={} preExposure={:.6g} "
+                         "exposureScale={:.6g} paperWhite={:.6g} transfer={:.3f} colour={:.3f}",
+                         static_cast<unsigned>(desc.Format), fi.color_width, fi.color_height,
+                         static_cast<unsigned>(desc.Width), static_cast<unsigned>(desc.Height),
+                         static_cast<void *>(fi.exposure), fi.exposure_state, fi.pre_exposure,
+                         fi.exposure_scale, fi.paper_white, fi.transfer_strength, fi.color_strength);
+            }
+        }
     }
 
     ID3D12Resource *result = FinishRecord(cmd, job.handle, job.private_output);
@@ -676,7 +690,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 }
 
 
-ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame)
+ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
+                                               const AmdPreSr::Settings &settings)
 {
     const auto seq = ++evaluateSequence_;
     const auto id = ++probeEvaluateId;
@@ -736,7 +751,13 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
                 fi.paper_white = CodecPaperWhite();
                 fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
-                fi.model_scale = 1.0f;
+                fi.model_scale = settings.modelScale;
+                // Same frame contract as the normal path: without these, passthrough
+                // is not a clean A/B of "network off" for highlight/exposure bugs.
+                fi.exposure = frame.exposure;
+                fi.exposure_state = static_cast<uint32_t>(frame.exposureState);
+                fi.pre_exposure = frame.preExposure;
+                fi.exposure_scale = frame.exposureScale;
 
                 LmxxfNrJob job {};
                 job.struct_size = sizeof(job);

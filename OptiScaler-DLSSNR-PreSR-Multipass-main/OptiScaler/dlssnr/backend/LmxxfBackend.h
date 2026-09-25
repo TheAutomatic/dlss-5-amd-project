@@ -53,7 +53,8 @@ class LmxxfBackend final : public Host
     // PrepareFrame failure accounting: first error is fully logged; later poison repeats are quiet.
     unsigned prepareFrameFailLogs = 0;
     unsigned prepareFramePoisonLogs = 0;
-    ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &);
+    ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &,
+                                     const AmdPreSr::Settings &);
 
     bool EnsureRuntime();
     ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput);
