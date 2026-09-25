@@ -344,8 +344,14 @@ class Config
     // Unused when Auto exposure is on (shader estimates) or when the game sends exposure.
     CustomOptional<float> LmxxfAutoExposureScale { 8.0f };
     // Allow NR on command lists that use D3D12 enhanced barriers (CommandListProxy::Barrier).
-    // State is not fully modeled for those groups (best-effort). false restores fail-closed reject.
-    CustomOptional<bool> LmxxfAllowEnhancedBarriers { true };
+    // State is not fully modeled for those groups (layout/access), and a split can cut a
+    // SYNC_SPLIT barrier group across two submits. Default false (fail-closed reject).
+    // true opts in for games that need those lists on the NR path.
+    CustomOptional<bool> LmxxfAllowEnhancedBarriers { false };
+    // Wrap host CreateCommandList results before the swapchain exists.
+    // Missing = engine whitelist (Unreal + Forza). false = never. true = force for any engine.
+    // Other engines (e.g. Yan Yun) can crash with early ArmCreate + wrap. Restart after change.
+    CustomOptional<bool, NoDefault> LmxxfEarlyExeWrap;
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

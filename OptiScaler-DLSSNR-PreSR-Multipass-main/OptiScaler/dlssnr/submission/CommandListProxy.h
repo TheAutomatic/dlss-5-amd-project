@@ -5,7 +5,8 @@
 #include "QueryStateBook.h"
 #include <atomic>
 // Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
-inline std::atomic<bool> g_allowEnhancedBarriers { true };
+// Fail-closed default: split state does not model layout/access, so leave those lists off NR.
+inline std::atomic<bool> g_allowEnhancedBarriers { false };
 inline void SetAllowEnhancedBarriers(bool on) { g_allowEnhancedBarriers.store(on, std::memory_order_release); }
 inline bool AllowEnhancedBarriers() { return g_allowEnhancedBarriers.load(std::memory_order_acquire); }
 

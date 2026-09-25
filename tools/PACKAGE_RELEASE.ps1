@@ -252,8 +252,15 @@ LmxxfAutoExposure=true
 ; Manual white scale only when Auto exposure is false and there is no game exposure. Default 8.
 LmxxfAutoExposureScale=8
 
-; Allow NR when the command list uses D3D12 enhanced barriers (default true). false = reject those lists.
-LmxxfAllowEnhancedBarriers=true
+; Allow NR when the command list uses D3D12 enhanced barriers (default false).
+; Enhanced-barrier layout/access is not fully tracked and a split can cut a SYNC_SPLIT
+; group across two submits. true opts in; false rejects those lists. Restart after changing.
+LmxxfAllowEnhancedBarriers=false
+
+; Wrap host command lists created before the swapchain. Leave unset for the engine
+; whitelist (Unreal + Forza). true = force for any engine. false = never.
+; Other engines can crash with early wrap (e.g. Yan Yun). Restart after changing.
+; LmxxfEarlyExeWrap=
 
 ; Resolution scale factor for neural rendering model input
 ; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)

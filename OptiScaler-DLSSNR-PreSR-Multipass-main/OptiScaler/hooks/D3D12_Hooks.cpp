@@ -3008,19 +3008,40 @@ static void HookToDevice(ID3D12Device* InDevice)
             else
             {
                 LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
-                // All engines: early lists appear before swapchain on some titles (e.g. Forza).
-                // Only wrap when the submission hook is installed on a real queue (UE5 boot crash if not).
+                // Whitelist: Unreal (session bind) and Forza (lists before swapchain).
+                // Other engines can crash with early ArmCreate + wrap (e.g. Yan Yun).
+                // LmxxfEarlyExeWrap=true/false forces the decision; missing keeps the whitelist.
                 {
-                    D3D12_COMMAND_QUEUE_DESC queueDesc {};
-                    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-                    ID3D12CommandQueue *earlyQueue = nullptr;
-                    const bool created = SUCCEEDED(InDevice->CreateCommandQueue(
-                        &queueDesc, IID_PPV_ARGS(&earlyQueue)));
-                    const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
-                    if (earlyQueue)
-                        earlyQueue->Release();
-                    DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
-                    LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", ready, ready);
+                    const auto& st = State::Instance();
+                    std::string exeLower = st.gameExe;
+                    for (char& c : exeLower)
+                        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    const bool isUnreal = st.gameEngine == GameEngineType::Unreal ||
+                                          (st.gameQuirks & GameQuirk::ForceUnrealEngine);
+                    const bool isForza = exeLower.find("forza") != std::string::npos;
+                    bool allowEarly = isUnreal || isForza;
+                    const auto forced = Config::Instance()->LmxxfEarlyExeWrap;
+                    if (forced.has_value())
+                        allowEarly = *forced;
+                    LOG_INFO("lmxxf early exe wrap allow={} (unreal={} forza={} override={})", allowEarly, isUnreal,
+                             isForza, forced.has_value() ? (*forced ? "true" : "false") : "auto");
+                    if (allowEarly)
+                    {
+                        D3D12_COMMAND_QUEUE_DESC queueDesc {};
+                        queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+                        ID3D12CommandQueue *earlyQueue = nullptr;
+                        const bool created = SUCCEEDED(InDevice->CreateCommandQueue(
+                            &queueDesc, IID_PPV_ARGS(&earlyQueue)));
+                        const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
+                        if (earlyQueue)
+                            earlyQueue->Release();
+                        DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
+                        LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", ready, ready);
+                    }
+                    else
+                    {
+                        DlssNr::Submission::Hooks::SetEarlyExeWrap(false);
+                    }
                 }
             }
         }
