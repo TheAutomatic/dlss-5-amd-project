@@ -101,12 +101,12 @@ struct AmdLayout
     std::uint32_t gate4c;
     std::uint32_t gate68;
     std::uint32_t counter78;
-    // 0.3.1 only: inline-wait spin. 0 = Dispatch spin (this project's original wait);
+    // 0.3.1+ inline-wait spin. 0 = Dispatch spin (this project's original wait);
     // non-zero = predicated 1-pixel Draw (this project's new wait). SpinDraw=0 is
     // still 0.3.1-sliced, so it is not identical to the 0.3.0 wait.
     // 0 on the layout field means "runtime does not expose this flag".
     std::uint32_t spinDraw;
-    // Read-only 0.3.1 new-wait diagnostics; zero for earlier runtimes.
+    // Read-only 0.3.1+ new-wait diagnostics; zero for earlier runtimes.
     // Bound to the SHA above, never used to invoke a private factory.
     std::uint32_t graphicsPso = 0;
     std::uint32_t predicateReady = 0;
@@ -164,7 +164,26 @@ inline constexpr AmdLayout kAmd031 {
     0x17b70, 0x17f10, 0x17f6a, 0x18057
 };
 
-inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031 };
+// 0.3.2 version.dll (SHA b92f7481). Mapped from 0.3.1 via unique instruction
+// windows (analysis/daniel-032/map_a032_rva.py). Record/Notify/shutdown and the
+// whole .data field cluster keep the 0.3.1 RVAs; only init moves 0x21720→0x216f0
+// (pdata-confirmed). Packet tail (+0x4c..+0x5c) and wait-helper diagnostics are
+// role-for-role identical. .hip_fat shrinks ~500KB — host-external kernel packing.
+inline constexpr AmdLayout kAmd032 {
+    "0.3.2",
+    6788096,
+    Sha256FromHex("b92f7481bc03fa41f443b1e1e54b502789df2bbbcefe48c680df7bb02a33fc1e"),
+    0, 0x216f0, 0x13540, 0x9720, 0x17150, 0x9ae68,
+    0x9a0e8, 0x9a0f0, 0x9a100, 0x9a218, 0x9a220, 0x9a420, 0x9a422,
+    0x9a928, 0x9a95c, 0x9a960, 0x9a98c, 0x9ab58, 0x9ac38, 0x9ac44,
+    0x9ace8, 0x9acec, 0x9acf4, 0x9acf5, 0x9acf6, 0x9acf7, 0x9acf8,
+    0x9ad08, 0x9ad0c, 0x9ad10, 0x9ad18, 0x9ad1c, 0x9ae08,
+    0x9ade0, 0x9ad68, 0x9ac24, 0x9ac40, 0x9ac50,
+    0x9ab14, 0x9ab20, 0x9aa88, 0x17980, 0x180a6,
+    0x17b70, 0x17f10, 0x17f6a, 0x18057
+};
+
+inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031, &kAmd032 };
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
 // of each known runtime. A wrong-length literal already fails Sha256FromHex;
@@ -172,4 +191,5 @@ inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031
 static_assert(kAmd0217.sha256.bytes[0] == 0xbc && kAmd0217.sha256.bytes[31] == 0x4e);
 static_assert(kAmd03.sha256.bytes[0] == 0x83 && kAmd03.sha256.bytes[31] == 0x38);
 static_assert(kAmd031.sha256.bytes[0] == 0xb1 && kAmd031.sha256.bytes[31] == 0x54);
+static_assert(kAmd032.sha256.bytes[0] == 0xb9 && kAmd032.sha256.bytes[31] == 0x1e);
 }

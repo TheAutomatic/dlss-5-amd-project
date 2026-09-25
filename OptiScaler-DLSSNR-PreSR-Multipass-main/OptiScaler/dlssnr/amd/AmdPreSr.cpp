@@ -2097,7 +2097,7 @@ std::string Backend::Status() const
                 reportedTimeouts += count - p->observedTimeouts[i];
         }
     // Menu / Status must name the runtime that was actually identified —
-    // 0.3.0 and 0.3.1 are both valid, and the user cannot tell them apart
+    // 0.3.0 / 0.3.1 / 0.3.2 are all valid, and the user cannot tell them apart
     // from pass DLL filenames alone.
     const std::string runtimeTag = L ? (std::string("AMD runtime ") + L->name + " | ") : std::string();
     if (!p->failed && p->lastSubmitted)
