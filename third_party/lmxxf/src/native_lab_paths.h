@@ -15,8 +15,9 @@ inline bool NativeIsRgba8Unorm(DXGI_FORMAT f){DXGI_FORMAT v=NativeViewFormat(f);
 /* R11G11B10_FLOAT scene colour (UE5 default, Black Myth: Wukong's XeSS output, 2026-09-18): read through a float SRV like FP16; written back as
    packed 32-bit words through a raw buffer (the UNORM8 route with a different packing), 4 bytes per pixel. */
 inline bool NativeIsR11G11B10(DXGI_FORMAT f){return NativeViewFormat(f)==DXGI_FORMAT_R11G11B10_FLOAT;}
-inline bool NativeIsGameColor(DXGI_FORMAT f){return NativeIsRgba16Float(f)||NativeIsRgba8Unorm(f)||NativeIsR11G11B10(f);}
-inline unsigned NativeBytesPerPixel(DXGI_FORMAT f){return (NativeIsRgba8Unorm(f)||NativeIsR11G11B10(f))?4u:8u;}
+inline bool NativeIsR10G10B10A2(DXGI_FORMAT f){return NativeViewFormat(f)==DXGI_FORMAT_R10G10B10A2_UNORM;}
+inline bool NativeIsGameColor(DXGI_FORMAT f){return NativeIsRgba16Float(f)||NativeIsRgba8Unorm(f)||NativeIsR11G11B10(f)||NativeIsR10G10B10A2(f);}
+inline unsigned NativeBytesPerPixel(DXGI_FORMAT f){return (NativeIsRgba8Unorm(f)||NativeIsR11G11B10(f)||NativeIsR10G10B10A2(f))?4u:8u;}
 /* Motion-vector sign relative to the FSR contract (+1: FSR/Stellar Blade UV units; -1: XeSS titles whose velocity scale is (-w,-h)). Set by the hook before the frame is created. */
 inline float&NativeMotionSign(){static float s=1.f;return s;}
 /* Motion-vector unit as declared by the upscaler dispatch (FFX motionVectorScale): raster value * scale = pixels of the render grid. Set by the hook

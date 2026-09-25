@@ -528,8 +528,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
     fi.frame_id = ++frameId;
     fi.command_list = cmd;
-    fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
-    fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+    fi.color_width = static_cast<uint32_t>(desc.Width);
+    fi.color_height = static_cast<uint32_t>(desc.Height);
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
@@ -774,8 +774,8 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.struct_size = sizeof(fi);
                 fi.frame_id = ++frameId;
                 fi.command_list = cmd;
-                fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
-                fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+                fi.color_width = static_cast<uint32_t>(desc.Width);
+                fi.color_height = static_cast<uint32_t>(desc.Height);
                 fi.color = frame.colour;
                 fi.color_state = static_cast<uint32_t>(frame.colourState);
                 fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
