@@ -447,7 +447,7 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nApplies on the next frame. No restart.");
 
                 bool fitLarge = config->LmxxfFitLarge.value_or_default();
-                if (ImGui::Checkbox("Fit large color", &fitLarge))
+                if (ImGui::Checkbox("High resolution", &fitLarge))
                 {
                     config->LmxxfFitLarge = fitLarge;
                     // Runtime reads DLSS5_FIT_LARGE on every NativeFitLargeInput() call.
@@ -464,6 +464,28 @@ void RenderMenu(Config* config, float menuResScale)
 
                 if (ImGui::TreeNode("Experimental"))
                 {
+                    bool autoExposure = config->LmxxfAutoExposure.value_or_default();
+                    if (ImGui::Checkbox("Auto exposure", &autoExposure))
+                        config->LmxxfAutoExposure = autoExposure;
+                    HelpMarker("When the game does not send an exposure texture"
+                               "\n(some titles use HDR colour without exposure),"
+                               "\nscale the codec white point so highlights are not blown."
+                               "\nGames that already pass exposure are unchanged."
+                               "\nApplies on the next frame. No restart.");
+                    if (autoExposure)
+                    {
+                        float expScale = config->LmxxfAutoExposureScale.value_or_default();
+                        if (ImGui::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
+                                               ImGuiSliderFlags_Logarithmic))
+                            config->LmxxfAutoExposureScale = expScale;
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Reset##autoexp"))
+                            config->LmxxfAutoExposureScale = 8.0f;
+                        HelpMarker("Used only when auto exposure is on and the game"
+                                   "\nsends no exposure texture. Higher darkens the"
+                                   "\nnetwork input (less blown highlights). Default 8.");
+                    }
+
                     float paper = config->LmxxfPaperWhite.value_or_default();
                     if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
                                            ImGuiSliderFlags_Logarithmic))
@@ -526,6 +548,8 @@ void RenderMenu(Config* config, float menuResScale)
                     config->DlssNrTransferStrength = 1.0f;
                     config->DlssNrColourStrength = 1.0f;
                     config->LmxxfPaperWhite = 1.0f;
+                    config->LmxxfAutoExposure = true;
+                    config->LmxxfAutoExposureScale = 8.0f;
                     config->LmxxfFitLarge = false;
                     _putenv("DLSS5_FIT_LARGE=0");
                     config->DlssNrDebugView = 0u;
@@ -533,8 +557,8 @@ void RenderMenu(Config* config, float menuResScale)
                     _putenv("DLSS5_HIP_PDL=1");
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
-                HelpMarker("Detail=1, Colour=1, paper white=1, PDL on,"
-                           "\nFit large off, Debug view Off.");
+                HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
+                           "\nPDL on, High resolution off, Debug view Off.");
             }
 
             if (!isLmxxf)

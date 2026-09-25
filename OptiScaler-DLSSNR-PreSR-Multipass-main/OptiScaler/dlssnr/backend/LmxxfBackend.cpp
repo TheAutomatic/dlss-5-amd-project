@@ -50,6 +50,17 @@ float CodecPaperWhite()
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 1.0f;
 }
 
+// Games that pass an exposure texture use the codec path as before. When there is
+// no exposure (Wo Long 2), scale the white point so HDR scene values are not
+// treated as exposure=1 (which blows highlights).
+float EffectiveCodecPaperWhite(bool hasGameExposure)
+{
+    if (hasGameExposure || !Config::Instance()->LmxxfAutoExposure.value_or_default())
+        return CodecPaperWhite();
+    const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
+    return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
+}
+
 // Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
 const char *FriendlyPrepareFrameError(const char *err)
 {
@@ -151,6 +162,15 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
         const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
         _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
         LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; NativeFitLargeInput re-reads env each call)", fit);
+    }
+    {
+        wchar_t srgb[8] {};
+        const DWORD n = GetEnvironmentVariableW(L"DLSS5_CODEC_SRGB", srgb, 8);
+        char val[16] {};
+        if (n > 0 && n < 8)
+            WideCharToMultiByte(CP_UTF8, 0, srgb, -1, val, sizeof(val), nullptr, nullptr);
+        LOG_INFO("lmxxf codec sRGB env: {} (DLSS5_CODEC_SRGB={}; codec compile reads this once; 1=display-referred passthrough)",
+                 val[0] ? "set" : "unset", val);
     }
     SetStatus("lmxxf: constructed (session not ready)");
 }
@@ -511,7 +531,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
     fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
     fi.model_scale = settings.modelScale;
-    fi.paper_white = CodecPaperWhite();
+    fi.paper_white = EffectiveCodecPaperWhite(frame.exposure != nullptr);
     // AmdBridge already collects these from the NGX parameters (ExposureTexture,
     // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
     fi.exposure = frame.exposure;
@@ -633,12 +653,18 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             ++colorDiagN;
             if (colorDiagN <= 8 || (colorDiagN % 300) == 0)
             {
+                wchar_t srgbEnv[8] {};
+                const DWORD n = GetEnvironmentVariableW(L"DLSS5_CODEC_SRGB", srgbEnv, 8);
+                char srgbVal[8] {};
+                if (n > 0 && n < 8)
+                    WideCharToMultiByte(CP_UTF8, 0, srgbEnv, -1, srgbVal, sizeof(srgbVal), nullptr, nullptr);
                 LOG_INFO("lmxxf color: fmt={} {}x{} alloc={}x{} exposure={} expState={} preExposure={:.6g} "
-                         "exposureScale={:.6g} paperWhite={:.6g} transfer={:.3f} colour={:.3f}",
+                         "exposureScale={:.6g} paperWhite={:.6g} transfer={:.3f} colour={:.3f} srgbEnv={}",
                          static_cast<unsigned>(desc.Format), fi.color_width, fi.color_height,
                          static_cast<unsigned>(desc.Width), static_cast<unsigned>(desc.Height),
                          static_cast<void *>(fi.exposure), fi.exposure_state, fi.pre_exposure,
-                         fi.exposure_scale, fi.paper_white, fi.transfer_strength, fi.color_strength);
+                         fi.exposure_scale, fi.paper_white, fi.transfer_strength, fi.color_strength,
+                         srgbVal[0] ? srgbVal : "unset");
             }
         }
     }
@@ -749,7 +775,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
                 fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
-                fi.paper_white = CodecPaperWhite();
+                fi.paper_white = EffectiveCodecPaperWhite(frame.exposure != nullptr);
                 fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
                 fi.model_scale = settings.modelScale;
                 // Same frame contract as the normal path: without these, passthrough

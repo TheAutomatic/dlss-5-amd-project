@@ -336,6 +336,12 @@ class Config
     /* Codec paper white passed into encode and decode Record. Finite and in (0, 64].
      * Default 1 is the value Record used to hardcode. Not the HDR Paper White anchor. */
     CustomOptional<float> LmxxfPaperWhite { 1.0f };
+    // When the game supplies no exposure texture (e.g. Wo Long 2), scale the codec white
+    // point so HDR scene values are not encoded as if exposure were 1. Games that pass
+    // exposure keep using that texture and ignore this. Default on.
+    CustomOptional<bool> LmxxfAutoExposure { true };
+    // Effective paper white used only when LmxxfAutoExposure is on and exposure is missing.
+    CustomOptional<float> LmxxfAutoExposureScale { 8.0f };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };
