@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -327,6 +328,41 @@ inline bool ComputeFileSha256(const std::wstring &path, std::string *outHex)
     return true;
 }
 } // namespace Sha256Detail
+
+// Create validates every listed module (48, about 11 MB) and runs on the game's render thread,
+// and a host session rebuild calls Create again. Reuse a digest while the file's size and
+// write time are unchanged. This guards against partial or mixed installs, not tampering.
+bool CachedFileSha256(const std::wstring &path, std::string *outHex)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fad {};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fad))
+        return false;
+    const uint64_t size = (uint64_t(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+    const uint64_t stamp = (uint64_t(fad.ftLastWriteTime.dwHighDateTime) << 32) | fad.ftLastWriteTime.dwLowDateTime;
+    struct Entry
+    {
+        uint64_t size, stamp;
+        std::string hex;
+    };
+    static std::mutex lock;
+    static std::map<std::wstring, Entry> cache;
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        const auto it = cache.find(path);
+        if (it != cache.end() && it->second.size == size && it->second.stamp == stamp)
+        {
+            *outHex = it->second.hex;
+            return true;
+        }
+    }
+    std::string hex;
+    if (!Sha256Detail::ComputeFileSha256(path, &hex))
+        return false;
+    std::lock_guard<std::mutex> guard(lock);
+    cache[path] = Entry {size, stamp, hex};
+    *outHex = hex;
+    return true;
+}
 
 static const char *const kKnownModuleNames[24] = {
     "boundary-fast.hsaco",
@@ -929,7 +965,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         }
 
         std::string computedSha;
-        if (!Sha256Detail::ComputeFileSha256(full, &computedSha))
+        if (!CachedFileSha256(full, &computedSha))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
                         ("Create: failed to compute checksum for " + relPath).c_str());
