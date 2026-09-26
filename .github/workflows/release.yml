@@ -283,7 +283,7 @@ jobs:
             **新增lmxxf后端支持**
             - 同一安装包内置 **gfx1200 + gfx1201** 各 24 个算子。9060 系列（gfx1200）标为**实验性**，待实机；9070 仍为正式路径。
             - **PDL** 两套显卡目标都带上；启动时检查驱动扩展与 `_pdl` 符号，缺失则安全关闭 PDL。
-            - **自动曝光**：游戏没有可用曝光纹理时（如卧龙 2 demo），按画面均值估白点（目标编码均值 0.45）。`LmxxfAutoExposure` 默认开启；只有关掉它才用 `LmxxfAutoExposureScale` 手动档。
+            - **自动曝光**：游戏没有可用曝光纹理时（如卧龙 2 demo），按画面均值估白点（目标编码均值 0.45），每帧统计一次并做时间平滑，避免亮度跳动。`LmxxfAutoExposure` 默认开启；只有关掉它才用 `LmxxfAutoExposureScale` 手动档。
             -**增强游戏兼容与 bug 修复**，部分修复兼容更新内容感谢[@OUCO86](https://github.com/OUCO86)
 
 
@@ -301,7 +301,7 @@ jobs:
             **New lmxxf backend**
             - Ships **gfx1200 + gfx1201** compute modules in one package (24 each). 9060-series (gfx1200) is **experimental** pending real-hardware testing; 9070 remains the supported path.
             - **PDL** is included for both GPU targets. On start it checks the driver extension and `_pdl` symbols and turns PDL off safely if anything is missing.
-            - **Auto exposure** when the game does not send a usable exposure texture (e.g. Wo Long 2 demo): white point is estimated from image mean (target encoded mean 0.45). `LmxxfAutoExposure` is on by default; `LmxxfAutoExposureScale` is used only when auto is off.
+            - **Auto exposure** when the game does not send a usable exposure texture (e.g. Wo Long 2 demo): white point is estimated from image mean (target encoded mean 0.45), measured once per frame and smoothed over time so brightness does not jump. `LmxxfAutoExposure` is on by default; `LmxxfAutoExposureScale` is used only when auto is off.
             - **Better game compatibility & bug fixes**, some compatibility fixes unverified — thanks [@OUCO86](https://github.com/OUCO86)
 
             **In-game menu**
