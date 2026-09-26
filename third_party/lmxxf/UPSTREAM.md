@@ -86,7 +86,7 @@ they take upstream changes and carry only our hunks.
 | Patch | Files | Why |
 |---|---|---|
 | `reference-network.patch` | `Development/HIP/hip_reference_network.h` | PDL preflight, status queries, allocation-failure cleanup |
-| `auto-white.patch` | `shaders/native_codec_encode.hlsl`, `shaders/native_codec_decode.hlsl`, `src/native_game_codec.h` | Mean-based white point when the game gives no usable exposure (`Reserved.x` bit 0x10000). Shaders are otherwise mirrored from upstream, so without the patch a sync reverts this silently |
+| `auto-white.patch` | `shaders/native_codec_encode.hlsl`, `shaders/native_codec_decode.hlsl`, `src/native_game_codec.h` | Mean-based white point when the game gives no usable exposure (`Reserved.x` bit 0x10000). The runtime meter (log-smoothed) is the live path and the host no longer sets this bit; the patch stays so a sync cannot silently revert the shader contract. Shaders are otherwise mirrored from upstream |
 | `r10g10b10a2.patch` | `src/native_lab_paths.h` | Accept R10G10B10A2 colour input (Horizon) |
 
 Any new product edit to a vendored file must ship with a patch in `local_patches`, or the next sync drops it.

@@ -1162,6 +1162,8 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         list->SetComputeRootDescriptorTable(0, gpu);
         gpu.ptr += UINT64(slot) * increment;
         list->SetComputeRootDescriptorTable(1, gpu);
+        // Origin is always (0,0): AmdBridge rejects nonzero DLSS colour subrect bases, and
+        // job width/height is that top-left subrect (fallback: the whole allocation).
         const UINT region[4] = {0, 0, (std::max)(width, 1u), (std::max)(height, 1u)};
         list->SetComputeRoot32BitConstants(2, 4, region, 0);
         list->Dispatch(1, 1, 1);
@@ -2236,7 +2238,9 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         encParams.pre_exposure = j->pre_exposure;
         encParams.exposure_scale = j->exposure_scale;
         encParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
-        encParams.auto_white = (j->debug_view & 0x10000u) != 0;
+        // Meter already wrote the white point into boundExposure. Never also ask the codec
+        // shader to estimate one (debug_view 0x10000): that would apply the correction twice.
+        encParams.auto_white = !j->autoExposure && (j->debug_view & 0x10000u) != 0;
         session->encode->Record(list, session->CodecStates({j->colorState}), j->paper_white, encParams);
         if (j->codec_passthrough)
         {
@@ -2398,7 +2402,7 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
         codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
-        codecParams.auto_white = (j->debug_view & 0x10000u) != 0;
+        codecParams.auto_white = !j->autoExposure && (j->debug_view & 0x10000u) != 0;
         codecParams.pre_exposure = j->pre_exposure;
         codecParams.exposure_scale = j->exposure_scale;
         session->decode->Record(list,
