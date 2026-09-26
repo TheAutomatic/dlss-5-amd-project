@@ -563,9 +563,13 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
                 std::to_string(settlingHeight) + " -> " + std::to_string(f.width) + "x" +
                 std::to_string(f.height) + "; NR scale " + std::to_string(settlingScale) +
                 " -> " + std::to_string(requestedScale));
-            LOG_INFO("AMD pre-SR settle: {}x{} scale {:.3f} -> {}x{} scale {:.3f} (thread {})",
-                     settlingWidth, settlingHeight, settlingScale, f.width, f.height, requestedScale,
-                     GetCurrentThreadId());
+            // Dynamic resolution can change the extent every few frames; keep the log bounded.
+            static unsigned settleChanges = 0;
+            ++settleChanges;
+            if (settleChanges <= 8 || settleChanges % 100 == 0)
+                LOG_INFO("AMD pre-SR settle #{}: {}x{} scale {:.3f} -> {}x{} scale {:.3f} (thread {})",
+                         settleChanges, settlingWidth, settlingHeight, settlingScale, f.width, f.height,
+                         requestedScale, GetCurrentThreadId());
             b->InvalidateHistory();
             settlingSince=now;
         }
@@ -574,10 +578,11 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;
     }
     if(settlingSince != 0 && now-settlingSince<300) {
-        static ULONGLONG lastSettleLog = 0;
-        if (now - lastSettleLog >= 250)
+        // Once per settle window, not every 250 ms: Message() also lands in amd_bridge.log.
+        static ULONGLONG loggedWindow = 0;
+        if (loggedWindow != settlingSince)
         {
-            lastSettleLog = now;
+            loggedWindow = settlingSince;
             LOG_INFO("AMD neural: waiting for resolution settings to settle ({}x{} scale {:.3f}, thread {})",
                      f.width, f.height, requestedScale, GetCurrentThreadId());
             Message("AMD neural: waiting for resolution settings to settle");
