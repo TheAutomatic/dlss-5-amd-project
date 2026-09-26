@@ -237,8 +237,8 @@ NrBackend=lmxxf
 LmxxfDiagnostic=off
 
 ; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
-; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is false
-LmxxfFitLarge=false
+; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is true
+LmxxfFitLarge=true
 
 ; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
 ; without hipExtModuleLaunchKernel can still start the network. Restart after changing.

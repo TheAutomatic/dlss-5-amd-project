@@ -18,7 +18,7 @@ A successful copy or build alone does not mean new features are wired into this 
 The single manifest in `tools/lmxxf-sync/manifest.json` owns the selected header closure.
 Ordinary headers, `hip/*.hip` and top-level `shaders/*.hlsl` are mirror-cleaned in their
 respective owners. Missing required upstream paths and patch conflicts fail before vendor
-mutation. The three local headers below stay pinned unless explicitly refreshed.
+mutation. Only `hip_d3d12_bridge.h` stays pinned unless explicitly refreshed.
 
 The mandatory audit collects changed paths, runtime values, deployment/test switches and
 per-module compile gates, then requires a commit/content-bound review record. Review each
@@ -28,14 +28,12 @@ Only after review and requested verification succeed does the completed commit a
 
 ## OURS (do not follow upstream on sync)
 
-Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves** the vendor files below by default; pass the named switch only when intentionally refreshing from upstream and re-applying local patches (fail-closed).
+Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves** the vendor file below by default; pass the named switch only when intentionally refreshing from upstream and re-applying local patches (fail-closed). After PR #9 merged upstream, reflect / input-geometry no longer need pinning.
 
 | Path | Owner note | Sync default |
 |---|---|---|
-| `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual safeguards for `LmxxfNrRuntime` | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
-| `src/native_rgb_reflect.h` | Drop unused `#include "native_split.h"` so codec builds without the D3D12 network body | **Preserve**; `-UpdateReflect` to overwrite + re-drop include |
-| `src/native_input_geometry.h` | Admit by pixel budget so ultrawide inputs are not rejected on width alone | **Preserve**; `-UpdateInputGeometry` to overwrite + re-apply |
-| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product) | **Not in sync list** — never copied from upstream |
+| `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual + product `PdlRequested/Effective/Reason`; merge upstream VRAM pool when refreshing | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
+| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product; forks upstream runtime with auto-exposure meter etc.) | **Not in sync list** — never copied from upstream; merge deliberately |
 | `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` gfx1201 rows | Shipping COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
 
 ## FOLLOW (track upstream performance / recipe)
@@ -47,15 +45,18 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 | `hip/*.hip`, `hip/build-modules.ps1`, `hip/rtc_compile.cpp`, upstream `hip/SHA256SUMS` recipe rows | gfx1201 HIP kernels (then local rebuild of modules) |
 | `Development/HIP/hip_api.h` | Loaded HIP ABI |
 | `Development/HIP/hip_device_properties.h` | Device props |
-| `Development/HIP/hip_reference_network.h` | HIP network (plus tiny local `#include <algorithm>` patch) |
+| `Development/HIP/hip_reference_network.h` | HIP network (plus local `reference-network.patch`) |
 | `Development/HIP/packed_weights.h` | Weight packing |
 | `src/native_hip_network.h` | HIP entry |
-| `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers |
-| `src/native_lab_paths.h` | Paths, typed views, weight IO |
-| `src/native_game_codec.h` | Scene encode / decode host |
+| `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers + Near() tier pick |
+| `src/native_input_geometry.h` | Ultrawide pixel-budget admission (upstream after PR #9) |
+| `src/native_rgb_reflect.h` | Codec reflection helper (upstream; no local include drop needed) |
+| `src/native_hip_env_options.h` | Shared `DLSS5_*` flag parser (add-on + LmxxfNrRuntime) |
+| `src/native_lab_paths.h` | Paths, typed views, weight IO (plus `r10g10b10a2.patch`) |
+| `src/native_game_codec.h` | Scene encode / decode host (plus `auto-white.patch`) |
 | `src/native_game_rgb_input.h`, `src/native_rgb_texture.h` | RGB IO |
 | `src/native_device_identity.h`, `src/native_pinned_resource.h`, `src/native_pso.h`, `src/native_shader_cache.h` | Supporting glue |
-| `shaders/*.hlsl` (top-level live glue only) | D3D12 glue; mirror-cleaned; `dx12-network/` not vendored |
+| `shaders/*.hlsl` (top-level live glue only) | D3D12 glue; mirror-cleaned; `dx12-network/` not vendored (plus `auto-white.patch`) |
 
 ## Excluded on purpose (not vendored)
 
@@ -73,7 +74,7 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 
 ### General Headers
 1. `NativeLabRoot()` still matches upstream (may fall back to `D:\\DLSSNR-Lab` when no `DLSS5-AMD\\native-game-flags.txt` is found). Product installs write that flags file beside the game.
-2. `native_rgb_reflect.h` (**pinned**): dropped unused `native_split.h`; codec compiles without the D3D12 network body. Sync preserves it unless `-UpdateReflect`.
+2. `native_rgb_reflect.h`: follows upstream after PR #9 (no local include drop required).
 3. `SetNoise` skips the 201 MiB buffer when `fast_prefix` is on.
 4. `#include <algorithm>` for MinGW/MSVC `std::sort` / `std::min` in `hip_reference_network.h` and `hip_d3d12_bridge.h`.
 
@@ -95,21 +96,16 @@ Any new product edit to a vendored file must ship with a patch in `local_patches
 > [!IMPORTANT]
 > See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (independent unified patch check + local contract check).
 
-### `src/native_input_geometry.h` (Vendor-Pinned & Patched)
+### `src/native_input_geometry.h` (FOLLOW after PR #9)
 
-1. **Pixel-budget admission**: without `DLSS5_FIT_LARGE`, `Supported()` admits `w <= 2560 && h <= 1080 &&
-   w*h <= 1920*1080` instead of `w <= 1920 && h <= 1080`. A 3440x1440 ultrawide at DLSS Quality 1 renders
-   2024x848 = 1.72M pixels, but the per-axis cap rejected it on width alone and the codec threw
-   "codec unverified input format/geometry" (SILENT HILL Townfall). An input wider than 1920 is downsampled
-   onto the network surface, the same fit `DLSS5_FIT_LARGE` applies to larger inputs, so the width cap
-   bounds that at 25% (it covers 21:9 and 32:9 ultrawide within the budget; 3840x540-style shapes are not
-   admitted). Every previously admitted input still is; the fit math is unchanged. Upstream's
-   `native_network_geometry.h` comment "inputs beyond 1920x1080 are rejected before this" is no longer
-   literally true for width; the `auto` tier picks 1080 for them.
+Upstream now carries the pixel-budget admission (`w <= 2560 && h <= 1080 && w*h <= 1920*1080` without
+`DLSS5_FIT_LARGE`). The file follows upstream; do not re-pin unless a new product-only rule appears.
 
-### `src/native_rgb_reflect.h` (Vendor-Pinned & Patched)
-> [!IMPORTANT]
-> See **OURS** above. Upstream still `#include "native_split.h"` even though `NativeRgbReflect` does not use it; that would pull the excluded D3D12 network body. Sync preserves our header (include already removed) unless `-UpdateReflect`, which re-copies upstream then drops the include again.
+### `src/native_rgb_reflect.h` (FOLLOW after PR #9)
+
+Upstream no longer pulls `native_split.h` into this helper. Follow upstream; no local include drop.
+
+### `Development/HIP/hip_d3d12_bridge.h` (still Vendor-Pinned & Patched)
 
 1. **Queue Drain Completion Verification**: In `WaitForSubmittedWork()`, additionally checks `fence->GetCompletedValue() >= target` after `WaitForSingleObject` returns `WAIT_OBJECT_0`, preventing queue drain race conditions.
 2. **Zero-Residual Fallback Path**:

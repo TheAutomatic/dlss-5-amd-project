@@ -3,7 +3,8 @@
   Stage a pinned lmxxf source closure, require integration review, then verify the build.
 .DESCRIPTION
   Reads one source manifest and applies independent unified patches in a temporary git
-  archive. The three local headers are preserved unless their Update switch is supplied.
+  archive. hip_d3d12_bridge.h is preserved unless -UpdateBridge is supplied (product Pdl*
+  accessors + local patches). Other headers follow upstream after PR #9.
   Missing required files or patch conflicts fail before vendor files are touched.
   Ordinary headers, hip/*.hip and top-level shaders/*.hlsl are mirrored within their owners.
 
@@ -20,10 +21,6 @@
   Allow a failed fetch to use the local ref, with an explicit warning.
 .PARAMETER UpdateBridge
   Refresh hip_d3d12_bridge.h and apply patches/bridge.patch; conflicts fail closed.
-.PARAMETER UpdateReflect
-  Refresh native_rgb_reflect.h and apply patches/reflect.patch.
-.PARAMETER UpdateInputGeometry
-  Refresh native_input_geometry.h and apply patches/input-geometry.patch.
 .PARAMETER ReviewFile
   Reviewed JSON decisions. Default: third_party/lmxxf/upstream-review.json.
 .PARAMETER SkipEnablementAudit
@@ -58,8 +55,6 @@ param(
     [switch]$NoBuildModules,
     [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
-    [switch]$UpdateReflect,
-    [switch]$UpdateInputGeometry,
     [switch]$SkipBuild,
     [string]$ReviewFile = '',
     [switch]$SkipEnablementAudit,
@@ -72,13 +67,14 @@ $configRoot = Join-Path $PSScriptRoot 'lmxxf-sync'
 . (Join-Path $configRoot 'Files.ps1')
 . (Join-Path $configRoot 'Modules.ps1')
 $manifest = Read-SyncJson (Join-Path $configRoot 'manifest.json')
-$updates = @{ UpdateBridge = [bool]$UpdateBridge; UpdateReflect = [bool]$UpdateReflect; UpdateInputGeometry = [bool]$UpdateInputGeometry }
-$expectedPinned = @('Development/HIP/hip_d3d12_bridge.h', 'src/native_rgb_reflect.h', 'src/native_input_geometry.h')
+$updates = @{ UpdateBridge = [bool]$UpdateBridge }
+# reflect / input-geometry follow upstream after PR #9; only the bridge keeps a product patch.
+$expectedPinned = @('Development/HIP/hip_d3d12_bridge.h')
 if ($manifest.schema -ne 1 -or @($manifest.headers | Select-Object -Unique).Count -ne $manifest.headers.Count) {
     throw 'Invalid or duplicate header entries in lmxxf-sync/manifest.json'
 }
-if (@($manifest.pinned).Count -ne 3 -or @(Compare-Object $expectedPinned @($manifest.pinned.path)).Count) {
-    throw 'Only the three documented local headers may be pinned.'
+if (@($manifest.pinned).Count -ne 1 -or @(Compare-Object $expectedPinned @($manifest.pinned.path)).Count) {
+    throw 'Only hip_d3d12_bridge.h may be pinned.'
 }
 # Local patches carry product changes to files that otherwise follow upstream (shaders and
 # unpinned headers). Without them a sync silently mirrors those files back to upstream.

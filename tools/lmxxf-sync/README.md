@@ -6,7 +6,7 @@
 
 1. 在独立 worktree 中工作，保留当前完成的 `third_party/lmxxf/UPSTREAM.md` pin。运行 `tools/sync-lmxxf-upstream.ps1`；可用 `-UpstreamPath` 指定本地作者仓库。脚本默认 fetch，然后只使用解析出的同一个 commit SHA。离线使用 `-SkipUpstreamFetch`，不要误把旧的 origin/main 当成刚拉到的代码。
 2. 第一次运行会准备源码，然后生成 `exports/lmxxf-upstream/report.md`、`report.json`、`upstream.diff`、`pinned-headers.diff` 和 `review.template.json`。审阅尚未完成时退出非零，这是待接入状态。`sync-state.json` 记录当前尝试；`UPSTREAM.md` 的完成 pin 此时不前移。补丁冲突、必需文件消失会在任何 vendor 拷贝或删除前失败，保留完整旧快照。
-3. 阅读整个上游 diff，包括没有进入 vendor 的脚本、部署配置、测试和文档。报告为每个变化路径保留审阅项，防止新的配置位置、生成器或开关命名绕过文本扫描。检查三个保留头文件的 diff，决定继续保留还是分别使用 `-UpdateBridge`、`-UpdateReflect`、`-UpdateInputGeometry` 更新。
+3. 阅读整个上游 diff，包括没有进入 vendor 的脚本、部署配置、测试和文档。报告为每个变化路径保留审阅项，防止新的配置位置、生成器或开关命名绕过文本扫描。检查 `hip_d3d12_bridge.h` 的 diff，决定继续保留还是 `-UpdateBridge` 更新（并重新套上 `Pdl*` 与本地契约）。
 4. 追踪相关功能的完整调用链：上游 Options/环境变量 → 本地 `LmxxfProductionOptions.h` 和 Runtime/C ABI → 模块选择和资源/尺寸前提 → 每个模块的编译宏 → 内核实际执行路径。对照作者的发布配置、deployments 和实验记录。特别检查默认从 0 变 1、从 1 变 0、数值变化、参数删除、只在生成器中启用的优化，以及绕过/消融/诊断分支。
 5. 将模板复制到 `third_party/lmxxf/upstream-review.json`（或 `-ReviewFile` 指定的位置），逐项填写决策。需要接入的功能按依赖分批修改、构建和验证；暂缓的功能保留明确的下一步和验收条件。不要用脚本把所有项批量填成已接入或不相关。已审阅且证据不变的决策会带入新模板；整体验证仍需重新填写。
 6. 修改本地接入代码、模块宏或补丁后，重新运行同步，使用新模板重新检查变化项。审阅绑定上游范围和本地接入内容；旧记录不能直接放行新源码。不要把普通 FOLLOW 文件中的手工改动当作已保存的接入成果：重新运行会用上游版本覆盖这些文件；持久兼容修正应有明确补丁和验证。
@@ -31,12 +31,12 @@
 
 - 普通头文件：只维护 `src/*.h`、`Development/HIP/*.h` 的选定闭包。移出清单的旧头文件会删除。仍在必需清单中但上游消失的路径必须先修清单和调用者，不能留下混合快照后继续成功。
 - `hip/*.hip`、`shaders/*.hlsl`：按顶层镜像同步；上游删除或改名后，旧文件删除。子目录、缓存和其他扩展名不属于这个镜像。
-- 固定保留的三个头文件只有 `hip_d3d12_bridge.h`、`native_rgb_reflect.h`、`native_input_geometry.h`。默认不覆盖也不删除，并验证本地契约标记。上游不再有该头文件时，继续保留会产生审阅项；请求更新则失败。
+- 固定保留头文件现在只有 `hip_d3d12_bridge.h`（含产品 `Pdl*` 查询）。`native_rgb_reflect.h`、`native_input_geometry.h` 在 PR #9 合入后改为 FOLLOW。默认不覆盖 bridge，也不删除，并验证本地契约标记。
 - 本地 Runtime、模块构建输出及元数据属于各自流程，不属于头文件镜像。上游新依赖头文件需要审阅后加入闭包。
 
 ## 补丁维护
 
-`patches/bridge.patch`、`reflect.patch`、`input-geometry.patch` 是三个独立的标准 unified diff，基于 `3d9b3e42f3529609f824506c8d385bdd00b3e70c` 生成。输入尺寸补丁保留现有 2560 宽、1080 高和 1920×1080 像素预算限制。`reference-network.patch` 基于 pending 目标 `24986ae094bbd150f4d86a0ca76159a43f374884` 的原始 Network，只维护本地 PDL preflight、状态查询和分配失败清理。该头文件在计划目标 `f812188b9f8df92275bb15e1ed26518d5466053e` 中字节相同；测试使用 `tests/fixtures/lmxxf/hip_reference_network.upstream.h` 保存的原始快照验证应用，不能用已打补丁的 vendor 文件伪装上游输入。每次都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
+`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 基于 pending 目标 `24986ae094bbd150f4d86a0ca76159a43f374884` 的原始 Network，只维护本地 PDL preflight、状态查询和分配失败清理。该头文件在计划目标 `f812188b9f8df92275bb15e1ed26518d5466053e` 中字节相同；测试使用 `tests/fixtures/lmxxf/hip_reference_network.upstream.h` 保存的原始快照验证应用，不能用已打补丁的 vendor 文件伪装上游输入。每次都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
 `manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
 

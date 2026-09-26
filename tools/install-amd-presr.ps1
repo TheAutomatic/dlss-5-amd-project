@@ -1085,7 +1085,7 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         'LmxxfDiagnostic' = 'off'
     })
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
-        'LmxxfFitLarge' = 'false'
+        'LmxxfFitLarge' = 'true'
         'LmxxfPdl' = 'true'
         'LmxxfPaperWhite' = '1'
         'AmdModelScale' = '1'
@@ -1099,7 +1099,7 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
 # Rewrite FIT_LARGE every install when lmxxf is installed so upsert cannot disagree with a stale flags file.
 # Same rule as Config: only true/1 enables FitLarge; missing, auto or anything else is off.
 if ($installLmxxf) {
-    $fitLarge = $false
+    $fitLarge = $true
     if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         $fitLine = Select-String -LiteralPath $gameIni -Pattern '^\s*LmxxfFitLarge\s*=' -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($fitLine -and $fitLine.Line -match '=\s*(true|1)\s*$') { $fitLarge = $true }

@@ -326,10 +326,11 @@ class Config
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
     // Fit Color inputs above 1920x1080 onto the 1080 network (DLSS5_FIT_LARGE).
-    // Default false: missing/auto => false (Palworld: FitLarge+~2K Color same-frame can hitch ~2s/frame).
-    // Opt-in with explicit true. Written to env on Config load and on menu change (runtime
+    // Default true, matching upstream package flags. Large Color costs same-frame NR
+    // time even after the per-frame rebuild bug (alloc vs render subrect) was fixed.
+    // Written to env on Config load and on menu change (runtime
     // reads the env every call). Installer also writes native-game-flags.txt.
-    CustomOptional<bool> LmxxfFitLarge { false };
+    CustomOptional<bool> LmxxfFitLarge { true };
     // PDL chained launch. Default on. false writes DLSS5_HIP_PDL=0 so a driver without
     // hipExtModuleLaunchKernel can still start the network. Read when the HIP chain is built.
     CustomOptional<bool> LmxxfPdl { true };

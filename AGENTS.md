@@ -14,7 +14,7 @@ Before changing or running `tools/sync-lmxxf-upstream.ps1`, read
 - Work in an isolated worktree for upstream integration.
 - Read the complete upstream diff, including deployment profiles, generators and experiments
   outside the vendor closure. Trace relevant options through this product's runtime, module
-  selection, compile definitions and kernel consumers. Inspect the three pinned header diffs.
+  selection, compile definitions and kernel consumers. Inspect the pinned bridge header diff.
 - Classify each new/changed switch using evidence. Do not enable or exclude a switch merely
   because of its name. Never bulk-fill the generated review template to get a passing exit.
 - Integrate incrementally. Record concrete reasons, source locations, actual validation and

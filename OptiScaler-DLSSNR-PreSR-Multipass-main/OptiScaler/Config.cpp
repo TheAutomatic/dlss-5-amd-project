@@ -406,11 +406,11 @@ bool Config::Reload(std::filesystem::path iniPath)
             if (migratedLegacyNrOff)
                 LOG_INFO("Migrated legacy [DlssNr] NrBackend=off/none to Enabled=false");
             LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
-            // true/false only; missing or "auto" => false (do not enable FitLarge by accident).
+            // true/false only; missing or "auto" => true (upstream package flags default).
             {
                 const auto fitRaw = readString("DlssNr", "LmxxfFitLarge", true);
                 if (!fitRaw.has_value() || fitRaw->empty() || _stricmp(fitRaw->c_str(), "auto") == 0)
-                    LmxxfFitLarge.set_from_config(false);
+                    LmxxfFitLarge.set_from_config(true);
                 else
                     LmxxfFitLarge.set_from_config(readBool("DlssNr", "LmxxfFitLarge"));
             }
