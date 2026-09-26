@@ -1576,7 +1576,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             // a live texture; otherwise force auto (encoded mean → 0.5) so FP16
             // HDR frames without exposure (Wo Long) are not left at white-point 1.
             if (L->useGameExposure)
-                At<UINT>(r, L->useGameExposure) = exposureSource ? 1u : 0u;
+                At<uint8_t>(r, L->useGameExposure) = exposureSource ? 1u : 0u; // a byte in 0.3.3/0.4.0 (setne byte)
             if (L->style)
                 At<UINT>(r, L->style) = (std::min)(Config::Instance()->DlssNrStyle.value_or_default(), 2u);
             // The old shader ceiling expired at high render resolutions even
