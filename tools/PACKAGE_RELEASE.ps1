@@ -94,11 +94,13 @@ if ($DepsRoot) {
 }
 # Fail early if bundled DLL/hsaco are older than the sources they came from.
 $freshness = Join-Path $PSScriptRoot 'check-release-freshness.ps1'
-if (Test-Path -LiteralPath $freshness -PathType Leaf) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $freshness -Root $root
-    if ($LASTEXITCODE -ne 0) {
-        throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
-    }
+# A release gate: a missing script must not quietly skip it.
+if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
+    throw "Release freshness check is missing: $freshness"
+}
+& powershell -NoProfile -ExecutionPolicy Bypass -File $freshness -Root $root -OptiDll $OptiDll
+if ($LASTEXITCODE -ne 0) {
+    throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
 }
 $depSearch += (Join-Path $source 'external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin')
 $depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler')

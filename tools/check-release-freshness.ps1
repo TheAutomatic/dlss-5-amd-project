@@ -2,6 +2,9 @@
 # Run from the repo root, or via PACKAGE_RELEASE.ps1 (it calls this automatically).
 param(
     [string]$Root = '',
+    # The OptiScaler.dll that will actually be packaged. PACKAGE_RELEASE passes its -OptiDll so
+    # the stale-DLL rule checks that file rather than a fixed local build path.
+    [string]$OptiDll = '',
     [switch]$WarnOnly
 )
 
@@ -76,7 +79,16 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
     # Oldest hsaco vs newest .hip source under third_party/lmxxf/hip
     $hipSrc = Get-ChildItem -LiteralPath (Join-Path $Root 'third_party/lmxxf/hip') -Filter '*.hip' -File -ErrorAction SilentlyContinue
     $hsaco = Get-ChildItem -LiteralPath $modRoot -Recurse -Filter '*.hsaco' -File -ErrorAction SilentlyContinue
-    if ($hipSrc -and $hsaco) {
+    # Committed .hip and .hsaco carry checkout-order timestamps, not build times: on a fresh CI
+    # clone a .hip written a few ms after a .hsaco looked "newer" and failed the release. Sync
+    # already refuses recipe changes without rebuilt modules, so the timestamp rule only guards
+    # local, uncommitted edits.
+    $gitClean = $false
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $dirty = & git -C $Root status --porcelain -- 'third_party/lmxxf/hip' 'third_party/lmxxf/modules' 2>$null
+        $gitClean = ($LASTEXITCODE -eq 0) -and -not $dirty
+    }
+    if ($hipSrc -and $hsaco -and -not $gitClean) {
         $newestHip = ($hipSrc | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
         $oldestMod = ($hsaco | Sort-Object LastWriteTimeUtc | Select-Object -First 1).LastWriteTimeUtc
         if ($newestHip -gt $oldestMod) {
@@ -86,7 +98,7 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
 }
 
 # 3) OptiScaler.dll vs main host sources (best-effort: vcxproj tree timestamps)
-$optiDll = Join-Path $Root 'exports/release-local/OptiScaler.dll'
+$optiDll = if ($OptiDll) { $OptiDll } else { Join-Path $Root 'exports/release-local/OptiScaler.dll' }
 $optiSrcRoot = Join-Path $Root 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler'
 if (Test-Path -LiteralPath $optiDll -PathType Leaf) {
     $optiSources = Get-ChildItem -LiteralPath $optiSrcRoot -Recurse -Include '*.cpp', '*.h' -File -ErrorAction SilentlyContinue |

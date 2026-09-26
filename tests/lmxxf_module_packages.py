@@ -25,6 +25,9 @@ class ModulePackageTests(unittest.TestCase):
                      'lmxxf-module-package.ps1', 'stage-lmxxf-beside-optiscaler.cmd',
                      'stage-lmxxf-beside-optiscaler.ps1'):
             shutil.copy2(REPO / 'tools' / name, self.root / 'tools' / name)
+        # The packager refuses to run without its freshness gate. These tests exercise module
+        # packaging on synthetic bundles, not build freshness, so the gate is a pass-through stub.
+        (self.root / 'tools/check-release-freshness.ps1').write_text('exit 0\n', encoding='ascii')
         for name in ('README.md', 'README.en.md', 'README.es.md'):
             shutil.copy2(REPO / name, self.root / name)
         (self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main').mkdir()
