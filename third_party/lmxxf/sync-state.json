@@ -6,7 +6,7 @@
     "recipes_verified":  "cdd8e8c215d498ca38f1872e9c5c5ddbde8de677eea113547b1ad9d83bfa382d:5a9d4cab5ba93c83921d8bca925aef1df94a49cf993128b35fb59d44b0df77b3",
     "modules_verified":  "c078808237602dc6f7b1342b7ed6187d006e939d3a5016261c7c500b57007b29",
     "skipped_checks":  [
-                           "AllowStaleModules"
+
                        ],
-    "updated_utc":  "2026-09-27T05:13:30.3922066Z"
+    "updated_utc":  "2026-09-27T06:11:40.0590872Z"
 }

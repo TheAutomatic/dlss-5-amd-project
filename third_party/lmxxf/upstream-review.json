@@ -2,14 +2,14 @@
   "schema": 1,
   "from_commit": "3d9b3e42f3529609f824506c8d385bdd00b3e70c",
   "to_commit": "f9a016a9c46d941cfdb1be0c280498a660747ed0",
-  "snapshot": "b95880744562b81248f1077ccb71c8c68dc8d3e174c7b9fd07b1e6315a0b9192",
+  "snapshot": "9b8d3d322899245d056deb39a3fea426cb9dbfb5b734a66b0532b7063eeaacd7",
   "reviewer": "TheAutomatic (agent assist)",
   "summary": "Follow upstream f9a016a9 (0.33-era). Product keeps OptiScaler host rules: menu/ini > flags/env, DLSS5_* names for cross-layer keys. Vendor follows hip/src glue; Development experiments and package scripts stay out of tree. 0.33 pack8 kernel fragments are understood; shipping modules are still pre-pack8 until a dual-arch rebuild with the new recipe.",
   "validation": "Built LmxxfNrRuntime.dll after taking native_hip_network/env_options and build-modules.ps1. NativeApplyHipEnvironment + ApplyFlagsFileFallback cover runtime flags. Module goldens for pack8 not rerun; installer suites OK earlier.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "7b3cd5a22f291586d1477cf7ae7aeade1e997a9564c40da7019952ccd11dacbd",
+      "fingerprint": "744e932dfd2bfb6693413229b3533d77dbc0afcd65d29d90d0e48a29da8ec90a",
       "classification": "production",
       "decision": "deferred",
       "reason": "0.33 glue and recipes staged; pack8 modules and pin advance need a verified dual-arch rebuild.",
@@ -10076,16 +10076,6 @@
       "evidence": "Upstream range 3d9b3e4..f9a016a; audit item pinned:Development/HIP/hip_d3d12_bridge.h.",
       "validation": "hip_d3d12_bridge.h contains ClearOutput*, PdlRequested/Effective/Reason, PoolEnabled/ShareNew; LmxxfNrRuntime builds.",
       "next_step": ""
-    },
-    {
-      "id": "validation:AllowStaleModules",
-      "fingerprint": "2643ee4a2d576be2d268e52ae29cf2e460f04a62f1516f41a3b638172389c6b6",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Module bundle freshness is acknowledged explicitly for this pass.",
-      "evidence": "Switch validation:AllowStaleModules requested during sync of f9a016a.",
-      "validation": "",
-      "next_step": "Drop AllowStaleModules after a full verified dual-arch pack8 rebuild."
     }
   ]
 }
