@@ -2,8 +2,10 @@
 // ini / txt / env identifiers. Menu labels are UI-only and must never be used as ini keys.
 // Config priority: Ins session / OptiScaler.ini > native-game-flags.txt / DLSS5_* env >
 // compile defaults (see AGENTS.md and LmxxfNrRuntime ApplyFlagsFileFallback).
-// daniel [DlssNrOnAmd] / dlssnr_on_amd.ini: Ins session > OptiScaler.ini (Save) >
-// dlssnr_on_amd.ini / env > defaults. Prefer the same string on both sides.
+// daniel: Ins session > OptiScaler.ini [DlssNr] (Save) > dlssnr_on_amd.ini [DlssNrOnAmd] > defaults.
+// OptiScaler.ini always uses kSection. kDanielSection is ONLY the daniel runtime file we
+// write on Save Settings. Prefer the same key string on both sides (AmdInline is the
+// exception: host 1 = same-frame, daniel Async=0).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
