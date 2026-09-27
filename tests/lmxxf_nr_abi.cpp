@@ -112,7 +112,7 @@ int main(int argc, char **argv)
         char status[256] {};
         Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus modules");
         std::string st(status);
-        Require(st.find("modules_ok=48") != std::string::npos, "status reports modules_ok=48");
+        Require(st.find("modules_ok=58") != std::string::npos, "status reports modules_ok=58");
         Require(st.find("arch=unknown") != std::string::npos, "status reports arch=unknown before bridge");
         Require(st.find("pdl=0/0(unknown)") != std::string::npos, "status reports pdl=0/0(unknown) before bridge");
         Require(st.find("hip=0") != std::string::npos, "status hip still 0");
@@ -137,7 +137,7 @@ int main(int argc, char **argv)
         Require(ctx != nullptr, "session handle with leaf modules");
         Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus leaf modules");
         st = status;
-        Require(st.find("modules_ok=24") != std::string::npos, "status reports modules_ok=24 for leaf");
+        Require(st.find("modules_ok=29") != std::string::npos, "status reports modules_ok=29 for leaf");
         Require(st.find("arch=unknown") != std::string::npos, "status reports arch=unknown for leaf");
         Require(st.find("pdl=0/0(unknown)") != std::string::npos, "status reports pdl=0/0(unknown) for leaf");
         Require(api.Destroy(ctx) == LMXXF_NR_OK, "Destroy leaf session");
