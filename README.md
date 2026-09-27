@@ -16,6 +16,20 @@
 - 修复 lmxxf 部分兼容问题，初步支持 **9060 XT**，仍未完成 **7000 系列**显卡支持；部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)，[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)；
 - **已知问题**：lmxxf 在卧龙 2 demo 中仍可能过曝，修复尚未完成。
 
+### lmxxf 配置速查（ini / 菜单）
+
+跨层键与上游同名（`DLSS5_*`）。**Ins 菜单文案不会写入 ini**；优先级：菜单/ini > `native-game-flags.txt` / 环境变量 > 默认值。`DLSS5_STRENGTH` 与 Detail/Colour 为同一组强度，宿主已发送时以菜单为准，无需第二套滑条。
+
+| 菜单位置 | 键 | 说明 |
+|---|---|---|
+| 顶层 | `TransferStrength` / `ColourStrength` | 网络细节/色彩合成（0–3） |
+| 顶层 | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合 1080 网络 |
+| 顶层 | `DLSS5_NETWORK_HEIGHT` | auto / 720 / 900 / 1080 网络档 |
+| Experimental | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；paper white |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 0.31 内核 / 显存池 / 字节流 |
+| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
+| Debug / Advanced | `DLSS5_HIP_PDL`、Debug view、增强屏障、early wrap | 排错与兼容开关 |
+
 ---
 
 ## 目录

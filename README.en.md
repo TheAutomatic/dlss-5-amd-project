@@ -16,6 +16,20 @@ This project is forked from **Matheus** and upstream community projects, maintai
 - Fixed some lmxxf compatibility issues; early support for **9060 XT**; **7000-series** GPUs are still not fully supported. Some game compatibility fixes are unverified — thanks [@OUCO86](https://github.com/OUCO86), [discussion](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901);
 - **Known issue:** lmxxf may still over-brighten in the Wo Long 2 demo; the fix is not complete yet.
 
+### lmxxf config map (ini / Ins menu)
+
+Cross-layer keys use the same `DLSS5_*` names as upstream. **Ins labels are never written to the ini.** Priority: menu/ini > `native-game-flags.txt` / environment > defaults. `DLSS5_STRENGTH` is the same pair as Detail/Colour strength; when the host sends those fields the menu wins — no second slider.
+
+| Menu location | Key | Notes |
+|---|---|---|
+| Top | `TransferStrength` / `ColourStrength` | Network detail / colour mix (0–3) |
+| Top | `DLSS5_FIT_LARGE` | High resolution; fit large Color to the 1080 network |
+| Top | `DLSS5_NETWORK_HEIGHT` | auto / 720 / 900 / 1080 |
+| Experimental | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | 0.31 kernels / shared pool / byte stream |
+| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
+| Debug / Advanced | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
+
 ---
 
 ## Table of Contents

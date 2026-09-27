@@ -591,7 +591,11 @@ void RenderMenu(Config* config, float menuResScale)
                                    "\nApplies on the next network rebuild.");
                         ImGui::TreePop();
                     }
+                    ImGui::TreePop();
+                }
 
+                if (ImGui::TreeNode("Debug / Advanced"))
+                {
                     // The HIP chain reads PDL once, when it is first built.
                     static bool pdlAtStart = true;
                     static bool pdlAtStartCaptured = false;
@@ -634,6 +638,31 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nProxy is what the network is shown. Model output is its raw answer."
                                "\nDifference amplifies the edit."
                                "\nApplies on the next frame. No restart.");
+
+                    {
+                        bool eb = config->LmxxfAllowEnhancedBarriers.value_or_default();
+                        if (ImGui::Checkbox("Allow enhanced barriers", &eb))
+                        {
+                            config->LmxxfAllowEnhancedBarriers = eb;
+                        }
+                        HelpMarker("Leave off unless a game needs NR on lists that use"
+                                   "\nenhanced barriers (may corrupt state / TDR). Restart.");
+                    }
+                    {
+                        static const char *wrapNames[] = {"auto (Unreal/Forza)", "force on", "force off"};
+                        int wrapIdx = 0;
+                        if (config->LmxxfEarlyExeWrap.has_value())
+                            wrapIdx = *config->LmxxfEarlyExeWrap ? 1 : 2;
+                        if (ImGui::Combo("Early exe wrap", &wrapIdx, wrapNames, 3))
+                        {
+                            if (wrapIdx == 0)
+                                config->LmxxfEarlyExeWrap.reset();
+                            else
+                                config->LmxxfEarlyExeWrap = (wrapIdx == 1);
+                        }
+                        HelpMarker("Wrap game command lists created before the swapchain."
+                                   "\nauto: Unreal and Forza only. Restart to apply.");
+                    }
                     ImGui::TreePop();
                 }
 
