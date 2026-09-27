@@ -280,20 +280,18 @@ jobs:
             - 对齐 **0.3.2 / 0.3.3 / 0.4.0** 与 **0.4.1 / 0.4.2 / 0.4.3** 的文件布局与启动隔离（请自行下载 daniel 相关权重文件）。
 
             **新增lmxxf后端支持**（权重文件下载：[lmxxf原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)或[网盘链接](https://gofile.io/d/wRln0Pue)）
-            - **对齐上游更新**：当前已同步至 **0.35** 版（含 wave/C32 优化与 ViT stream 实验路径）。
+            - **对齐上游更新**：当前已同步至 **0.35** 版。
             - **9060系列显卡支持**：待更多实机验证。
             - **性能提升**：大量性能提升，暂未计算百分比。
-            - **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。有 pre-exposure 时优先使用，不再测光。
-            - **修复高光泛白与闪屏**（卧龙 2 demo 等）：16 位 TYPELESS 画面按 **FLOAT16** 解释，细节增强不再被错误放大。
-            - **色彩保护**：**Colour strength** 0–1 保留游戏原色（1 为网络亮度 + 原图色相）；大于 1 才向网络色混合（可作趣味调节）。
+            - **修复部分游戏高光泛白与闪屏**（如卧龙 2 demo）：优先用游戏曝光。
+            - **Colour strength**：0–1 保留游戏原色；>1 才向网络色混合。
+            - **NR%**：新增三档可调节 NR 分辨率功能。
+            - **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
             - **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢[@OUCO86](https://github.com/OUCO86)
             - **High resolution**：更新支持超过原生1080p画面输入（4K/2K画面支持使用FSR平衡或以上挡位不再报错）。
-            - **NR 挡位（NR%）**：支持 **720 / 900 / 1080** 三档；默认勾选自动。取消后可固定档位；高于当前输入分辨率的档位会置灰。Save Settings 后写入 ini。
 
             **游戏内菜单**
-            - **Kernels** 下可选 **ViT stream**（与 ViT byte stream 互斥）
-            - 集成多项lmxxf功能更新及实验性功能按钮
-            - 同步daniel侧功能开关并重新设计布局
+            - 菜单布局优化，同步 lmxxf / daniel 功能开关
 
             ### What's new in 1.9.5-alpha
 
@@ -301,20 +299,18 @@ jobs:
             - Updated for **0.3.2 / 0.3.3 / 0.4.0** and **0.4.1 / 0.4.2 / 0.4.3** file layout and startup isolation (please download the daniel weights/files yourself).
 
             **New lmxxf backend** (weight files: [lmxxf upstream](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [cloud drive](https://gofile.io/d/wRln0Pue))
-            - **Upstream alignment**: currently synced to **0.35** (wave/C32 updates and ViT stream experimental path).
+            - **Upstream alignment**: currently synced to **0.35**.
             - **9060-series GPU support**: more real-hardware testing still needed.
             - **Performance**: major performance gains; exact percentage not measured yet.
-            - **Auto exposure**: when the game does not transmit exposure in-frame, **Auto exposure** is on by default; turn it off to use the **Exposure scale** slider. Host pre-exposure is preferred over metering when present.
-            - **Fixes blown highlights and flicker** (Wo Long 2 demo and similar): 16-bit TYPELESS color is interpreted as **FLOAT16**; detail-style enhancement is no longer wrongly amplified.
-            - **Colour protection**: **Colour strength** 0–1 keeps the game colour (1 = network brightness with game hue). Above 1 blends toward network colour (toy).
+            - **Fixes blown highlights and flicker in some games** (e.g. Wo Long 2 demo): uses game exposure first.
+            - **Colour strength**: 0–1 keeps the game colour; above 1 mixes toward network colour.
+            - **NR%**: new three-level adjustable NR resolution.
+            - **Auto exposure**: when the game does not transmit exposure in-frame, **Auto exposure** is on by default; turn it off to use **Exposure scale**.
             - **Better game compatibility & bug fixes**: some compatibility fixes unverified — thanks [@OUCO86](https://github.com/OUCO86)
             - **High resolution**: now accepts color input above native 1080p (4K/2K with FSR Balanced or higher no longer errors).
-            - **NR tier (NR%)**: pick **720 / 900 / 1080**; auto is default. Tiers taller than the current input are disabled. Click Save Settings to write the ini.
 
             **In-game menu**
-            - **Kernels** exposes **ViT stream** (mutually exclusive with ViT byte stream)
-            - Integrates multiple lmxxf feature updates and experimental feature buttons
-            - Syncs daniel-side feature toggles with a redesigned layout
+            - Menu layout cleanup with lmxxf / daniel feature toggles
 
             No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
 

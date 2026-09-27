@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.3-alpha
+# OptiScaler AMD pre-SR — 1.9.5-alpha
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
@@ -8,25 +8,38 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## Novedades en 1.9.3-alpha
+## Novedades en 1.9.5-alpha
 
-> Aún sin probar en juegos reales. Se agradecen informes de error con archivos `.log`.
+> Aún sin pruebas amplias en juegos reales. Se agradecen informes de error con archivos `.log`.
 
-- Backend **danielblnc** sincronizado a **0.4**; funciones del backend **lmxxf** sincronizadas a **0.3.0**;
-- Se corrigieron algunos problemas de compatibilidad de lmxxf; soporte inicial para **9060 XT**; las GPU de la **serie 7000** aún no están totalmente soportadas. Algunas correcciones de compatibilidad no están verificadas — gracias [@OUCO86](https://github.com/OUCO86), [debate](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901);
-- **Problema conocido:** lmxxf puede seguir sobreexponiendo en la demo de Wo Long 2; la corrección aún no está completa.
+**Actualización del backend danielblnc**
+- Compatible con **0.3.2 / 0.3.3 / 0.4.0** y **0.4.1 / 0.4.2 / 0.4.3** (layout de archivos y aislamiento de inicio; descargue usted mismo los pesos de daniel).
+
+**Nuevo backend lmxxf** (pesos: [repositorio lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [nube](https://gofile.io/d/wRln0Pue))
+- **Sincronización upstream**: versión **0.35**.
+- **GPUs serie 9060**: faltan más pruebas en hardware real.
+- **Rendimiento**: mejoras importantes; porcentaje aún sin medir.
+- **Corrige destellos y parpadeos en algunos juegos** (p. ej. demo de Wo Long 2): usa primero la exposición del juego.
+- **Colour strength**: 0–1 conserva el color del juego; por encima de 1 se mezcla hacia el color de la red.
+- **NR%**: nueva función de resolución NR ajustable en tres niveles.
+- **Exposición automática**: si el juego no envía exposición, **Auto exposure** está activada; se puede apagar y usar **Exposure scale**.
+- **Alta resolución**: acepta entrada por encima de 1080p nativo (4K/2K con FSR Equilibrado o superior ya no da error).
+- **Compatibilidad y correcciones**: algunas sin verificar — gracias [@OUCO86](https://github.com/OUCO86)
+
+**Menú en el juego**
+- Menú reorganizado con interruptores lmxxf / daniel
 
 ### Mapa de configuración lmxxf (ini / menú Ins)
 
-Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las etiquetas del menú Ins no se escriben en el ini.** Prioridad: menú/ini > `native-game-flags.txt` / variables de entorno > valores predeterminados. `DLSS5_STRENGTH` es el mismo par que Detail/Colour; si el host envía esos campos, manda el menú — no hace falta un segundo control.
+Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las etiquetas del menú Ins no se escriben en el ini.** Prioridad: menú/ini > `native-game-flags.txt` / variables de entorno > valores predeterminados.
 
 | Ubicación en el menú | Clave | Notas |
 |---|---|---|
-| Superior | `TransferStrength` / `ColourStrength` | Mezcla de detalle/color de la red (0–3) |
-| Superior | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red 1080 |
-| Superior | `DLSS5_NETWORK_HEIGHT` | auto / 720 / 900 / 1080 |
+| Superior | `TransferStrength` / `ColourStrength` | Detalle / color (Colour 0–1 conserva el color del juego) |
+| Superior | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red (incl. >1080p) |
+| Superior | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (predeterminado) o 720 / 900 / 1080 |
 | Experimental | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
-| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos 0.31 / pool / byte stream |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos / pool / byte stream |
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
 | Debug / Advanced | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
 

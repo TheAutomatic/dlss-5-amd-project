@@ -16,17 +16,18 @@
 - 对齐 **0.3.2 / 0.3.3 / 0.4.0** 与 **0.4.1 / 0.4.2 / 0.4.3** 的文件布局与启动隔离（请自行下载 daniel 相关权重文件）。
 
 **lmxxf 后端支持**（权重文件：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)）
-- **对齐上游更新**：当前已同步至 **0.34** 版。
+- **对齐上游更新**：当前已同步至 **0.35** 版。
 - **9060 系列显卡支持**：待更多实机验证；9070 仍为正式路径。
 - **性能提升**：大量性能提升，暂未计算百分比。
+- **修复部分游戏高光泛白与闪屏**（如卧龙 2 demo）：优先用游戏曝光。
+- **Colour strength**：0–1 保留游戏原色；>1 才向网络色混合。
+- **NR%**：新增三档可调节 NR 分辨率功能。
 - **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
 - **High resolution**：支持超过原生 1080p 画面输入（4K/2K 使用 FSR 平衡或以上挡位不再报错）。
-- **NR 挡位**：菜单支持 **720 / 900 / 1080** 三档固定分辨率；默认勾选自动（lmxxf 按画面选档），取消后可手动固定，**Save Settings** 后写入 ini。
 - **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)（[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)）。
 
 **游戏内菜单**
-- 集成多项 lmxxf 功能更新及实验性功能按钮
-- 同步 daniel 侧功能开关并重新设计布局
+- 菜单布局优化，同步 lmxxf / daniel 功能开关
 
 ### lmxxf 配置速查（ini / 菜单）
 
@@ -34,11 +35,11 @@
 
 | 菜单位置 | 键 | 说明 |
 |---|---|---|
-| 顶层 | `TransferStrength` / `ColourStrength` | 网络细节/色彩合成（0–3） |
+| 顶层 | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
 | 顶层 | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
-| 顶层 | `DLSS5_NETWORK_HEIGHT` | NR tier auto（默认）或固定 720 / 900 / 1080 |
+| 顶层 | `DLSS5_NETWORK_HEIGHT` | **NR%** auto（默认）或 720 / 900 / 1080 |
 | Experimental | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
-| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 0.31 内核 / 显存池 / 字节流 |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 内核 / 显存池 / 字节流 |
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
 | Debug / Advanced | `DLSS5_HIP_PDL`、Debug view、增强屏障、early wrap | 排错与兼容开关 |
 

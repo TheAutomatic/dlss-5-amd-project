@@ -1,6 +1,6 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.3-alpha
+# OptiScaler AMD pre-SR — 1.9.5-alpha
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
@@ -8,13 +8,26 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## What's new in 1.9.3-alpha
+## What's new in 1.9.5-alpha
 
-> Not yet field-tested on real games. Bug reports with `.log` files are welcome.
+> Not yet broadly field-tested. Bug reports with `.log` files are welcome.
 
-- **danielblnc** backend synced to **0.4**; **lmxxf** backend features synced to **0.3.0**;
-- Fixed some lmxxf compatibility issues; early support for **9060 XT**; **7000-series** GPUs are still not fully supported. Some game compatibility fixes are unverified — thanks [@OUCO86](https://github.com/OUCO86), [discussion](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901);
-- **Known issue:** lmxxf may still over-brighten in the Wo Long 2 demo; the fix is not complete yet.
+**danielblnc backend update**
+- Updated for **0.3.2 / 0.3.3 / 0.4.0** and **0.4.1 / 0.4.2 / 0.4.3** file layout and startup isolation (please download the daniel weights/files yourself).
+
+**New lmxxf backend** (weight files: [lmxxf upstream](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [cloud drive](https://gofile.io/d/wRln0Pue))
+- **Upstream alignment**: currently synced to **0.35**.
+- **9060-series GPU support**: more real-hardware testing still needed.
+- **Performance**: major performance gains; exact percentage not measured yet.
+- **Fixes blown highlights and flicker in some games** (e.g. Wo Long 2 demo): uses game exposure first.
+- **Colour strength**: 0–1 keeps the game colour; above 1 mixes toward network colour.
+- **NR%**: new three-level adjustable NR resolution.
+- **Auto exposure**: when the game does not transmit exposure in-frame, **Auto exposure** is on by default; turn it off to use **Exposure scale**.
+- **High resolution**: now accepts color input above native 1080p (4K/2K with FSR Balanced or higher no longer errors).
+- **Better game compatibility & bug fixes**: some compatibility fixes unverified — thanks [@OUCO86](https://github.com/OUCO86)
+
+**In-game menu**
+- Menu layout cleanup with lmxxf / daniel feature toggles
 
 ### lmxxf config map (ini / Ins menu)
 
@@ -22,11 +35,11 @@ Cross-layer keys use the same `DLSS5_*` names as upstream. **Ins labels are neve
 
 | Menu location | Key | Notes |
 |---|---|---|
-| Top | `TransferStrength` / `ColourStrength` | Network detail / colour mix (0–3) |
-| Top | `DLSS5_FIT_LARGE` | High resolution; fit large Color to the 1080 network |
-| Top | `DLSS5_NETWORK_HEIGHT` | auto / 720 / 900 / 1080 |
+| Top | `TransferStrength` / `ColourStrength` | Detail / colour mix (Colour 0–1 keeps game colour) |
+| Top | `DLSS5_FIT_LARGE` | High resolution; fit large Color into the network (incl. >1080p) |
+| Top | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (default) or 720 / 900 / 1080 |
 | Experimental | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
-| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | 0.31 kernels / shared pool / byte stream |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Kernels / shared pool / byte stream |
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
 | Debug / Advanced | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
 
