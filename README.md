@@ -304,7 +304,7 @@ Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
 | Tone curve | `ToneCurve` | `ToneCurve` | reinhard |
 | Tone lift (black) | `ToneLift` | `ToneLift` | 0 |
 | Quality | `Quality` | `Quality` | Fast |
-| HIP high-priority queue | `AmdQueuePriority` | `QueuePriority` | 关 |
+| HIP high-priority queue | `QueuePriority` | `QueuePriority` | 关 |
 | Style（Pass 1） | `Style` | `Style` | 0 Default |
 
 daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。  

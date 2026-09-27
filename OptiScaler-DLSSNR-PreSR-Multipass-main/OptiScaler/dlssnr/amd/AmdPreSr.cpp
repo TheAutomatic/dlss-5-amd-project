@@ -231,22 +231,40 @@ void SaveDanielSettings()
         return;
     const std::wstring ini = (g_danielDir / L"dlssnr_on_amd.ini").wstring();
     const auto *cfg = Config::Instance();
+    // Fill gaps only: write keys the host actually set. Do not stamp Opti defaults
+    // over a hand-tuned dlssnr_on_amd.ini (same contract as native-game-flags).
     // Keys match daniel [DlssNrOnAmd] names (ConfigKeys.h). Async=0 is inline.
-    const bool inlineMode = cfg->AmdInline.value_or_default() != 0;
-    WritePrivateProfileStringW(L"DlssNrOnAmd", L"Async", inlineMode ? L"0" : L"1", ini.c_str());
-    WritePrivateProfileStringW(L"DlssNrOnAmd", L"Quality",
-                               cfg->DlssNrQuality.value_or_default() ? L"fast" : L"reference", ini.c_str());
-    WritePrivateProfileStringW(L"DlssNrOnAmd", L"Style",
-                               (std::to_wstring(cfg->DlssNrStyle.value_or_default() % 3u)).c_str(), ini.c_str());
-    WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneCurve",
-                               cfg->DlssNrToneCurve.value_or_default() ? L"aces" : L"reinhard", ini.c_str());
+    if (cfg->AmdInline.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Async",
+                                   cfg->AmdInline.value_or_default() ? L"0" : L"1", ini.c_str());
+    }
+    if (cfg->DlssNrQuality.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Quality",
+                                   cfg->DlssNrQuality.value_or_default() ? L"fast" : L"reference", ini.c_str());
+    }
+    if (cfg->DlssNrStyle.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Style",
+                                   (std::to_wstring(cfg->DlssNrStyle.value_or_default() % 3u)).c_str(), ini.c_str());
+    }
+    if (cfg->DlssNrToneCurve.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneCurve",
+                                   cfg->DlssNrToneCurve.value_or_default() ? L"aces" : L"reinhard", ini.c_str());
+    }
+    if (cfg->DlssNrToneLift.has_value())
     {
         wchar_t lift[32] {};
         swprintf_s(lift, L"%.4f", cfg->DlssNrToneLift.value_or_default());
         WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneLift", lift, ini.c_str());
     }
-    WritePrivateProfileStringW(L"DlssNrOnAmd", L"QueuePriority",
-                               cfg->AmdQueuePriority.value_or_default() ? L"1" : L"0", ini.c_str());
+    if (cfg->AmdQueuePriority.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"QueuePriority",
+                                   cfg->AmdQueuePriority.value_or_default() ? L"1" : L"0", ini.c_str());
+    }
 }
 const char* IdentifyRuntimeName(const std::filesystem::path& passDll)
 {
