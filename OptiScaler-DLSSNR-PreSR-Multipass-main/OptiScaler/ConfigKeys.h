@@ -39,6 +39,7 @@ inline constexpr const char *SharedPool = "DLSS5_HIP_SHARED_POOL";
 inline constexpr const char *MHByteStream = "DLSS5_HIP_MH_BYTE_STREAM";
 inline constexpr const char *DecoderByte = "DLSS5_HIP_DECODER_BYTE";
 inline constexpr const char *VitByteStream = "DLSS5_HIP_VIT_BYTE_STREAM";
+inline constexpr const char *VitStream = "DLSS5_HIP_VIT_STREAM";
 inline constexpr const char *VitAdaptive = "DLSS5_VIT_ADAPTIVE";
 inline constexpr const char *VitReusePeriod = "DLSS5_VIT_REUSE_PERIOD";
 inline constexpr const char *VitReuseGlobal = "DLSS5_VIT_REUSE_GLOBAL";
@@ -148,6 +149,7 @@ inline constexpr const char *const kKnown[] = {
     MHByteStream,
     DecoderByte,
     VitByteStream,
+    VitStream,
     VitAdaptive,
     VitReusePeriod,
     VitReuseGlobal,

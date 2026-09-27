@@ -477,6 +477,11 @@ bool Config::Reload(std::filesystem::path iniPath)
                 const bool vb = readUnifiedBoolDefault(CfgKey::VitByteStream, false);
                 LmxxfVitByteStream.set_from_config(vb);
                 CfgKey::PutEnvAlias(CfgKey::VitByteStream, vb);
+                int vstream = 0;
+                if (auto vs = readInt(CfgKey::kSection, CfgKey::VitStream))
+                    vstream = (*vs >= 0 && *vs <= 3) ? *vs : 0;
+                LmxxfVitStream.set_from_config(vstream);
+                CfgKey::PutEnvString(CfgKey::VitStream, std::to_string(vstream).c_str());
                 const bool adapt = readUnifiedBoolDefault(CfgKey::VitAdaptive, true);
                 LmxxfVitAdaptive.set_from_config(adapt);
                 CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
@@ -1507,6 +1512,8 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::MHByteStream, GetBoolValue(Instance()->LmxxfMHByteStream.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::DecoderByte, GetBoolValue(Instance()->LmxxfDecoderByte.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitByteStream, GetBoolValue(Instance()->LmxxfVitByteStream.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitStream,
+                 GetIntValue(Instance()->LmxxfVitStream.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitAdaptive, GetBoolValue(Instance()->LmxxfVitAdaptive.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReusePeriod, GetIntValue(Instance()->LmxxfVitReusePeriod.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReuseGlobal, GetFloatValue(Instance()->LmxxfVitReuseGlobal.value_for_config()).c_str());

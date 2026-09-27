@@ -20,6 +20,16 @@ struct LmxxfBackend::Api
 
 namespace
 {
+std::atomic<unsigned> g_lastColorH { 0 };
+}
+
+unsigned LastLmxxfColorHeight()
+{
+    return g_lastColorH.load(std::memory_order_relaxed);
+}
+
+namespace
+{
 std::wstring WidenPath(const std::filesystem::path &p) { return p.wstring(); }
 
 std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
@@ -629,6 +639,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.command_list = cmd;
     fi.color_width = JobExtent(frame.width, desc.Width);
     fi.color_height = JobExtent(frame.height, desc.Height);
+    g_lastColorH.store(fi.color_height, std::memory_order_relaxed);
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;

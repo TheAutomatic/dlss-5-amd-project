@@ -2,6 +2,7 @@
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
+#include "backend/LmxxfBackend.h"
 #include "submission/SubmissionHooks.h"
 #include "DlssNrFeature_Vk.h"
 
@@ -536,14 +537,31 @@ void RenderMenu(Config* config, float menuResScale)
                     if (!autoTier)
                     {
                         static const char *tiers[] = {"720", "900", "1080"};
+                        static const int tierH[] = {720, 900, 1080};
                         int tierIdx = (lastFixed == "720") ? 0 : (lastFixed == "900") ? 1 : 2;
-                        if (ImGui::Combo("NR%", &tierIdx, tiers, 3))
+                        const unsigned inputH = DlssNr::Backend::LastLmxxfColorHeight();
+                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                        if (ImGui::BeginCombo("NR%", tiers[tierIdx]))
                         {
-                            lastFixed = tiers[tierIdx];
-                            config->LmxxfNetworkHeight = lastFixed;
-                            CfgKey::PutEnvString(CfgKey::NetworkHeight, lastFixed.c_str());
-                            DlssNr::AmdBridge::InvalidateHistory();
-                            LOG_INFO("NR tier menu set to {}", lastFixed);
+                            for (int i = 0; i < 3; ++i)
+                            {
+                                // Hide tiers taller than the current colour input (e.g. 720p job cannot use 900/1080).
+                                const bool tooTall = inputH != 0 && tierH[i] > static_cast<int>(inputH);
+                                if (tooTall)
+                                    ImGui::BeginDisabled();
+                                if (ImGui::Selectable(tiers[i], tierIdx == i))
+                                {
+                                    tierIdx = i;
+                                    lastFixed = tiers[i];
+                                    config->LmxxfNetworkHeight = lastFixed;
+                                    CfgKey::PutEnvString(CfgKey::NetworkHeight, lastFixed.c_str());
+                                    DlssNr::AmdBridge::InvalidateHistory();
+                                    LOG_INFO("NR tier menu set to {}", lastFixed);
+                                }
+                                if (tooTall)
+                                    ImGui::EndDisabled();
+                            }
+                            ImGui::EndCombo();
                         }
                     }
                 }
@@ -585,7 +603,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nNot the HDR Paper White control further down."
                                "\nApplies on the next frame. No restart.");
 
-                    if (ImGui::TreeNode("Kernels (0.31)"))
+                    if (ImGui::TreeNode("Kernels"))
                     {
                         auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
                             bool v = opt.value_or_default();
@@ -601,9 +619,42 @@ void RenderMenu(Config* config, float menuResScale)
                         kernelToggle("Shared buffer pool", config->LmxxfSharedPool, CfgKey::SharedPool);
                         kernelToggle("MH byte stream", config->LmxxfMHByteStream, CfgKey::MHByteStream);
                         kernelToggle("Decoder byte", config->LmxxfDecoderByte, CfgKey::DecoderByte);
-                        kernelToggle("ViT byte stream (exp)", config->LmxxfVitByteStream, CfgKey::VitByteStream);
+
+                        // ViT stream (0..3) and ViT byte stream cannot both be active.
+                        int vitStream = config->LmxxfVitStream.value_or_default();
+                        if (vitStream < 0 || vitStream > 3)
+                            vitStream = 0;
+                        bool vitByte = config->LmxxfVitByteStream.value_or_default();
+                        if (ImGui::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
+                        {
+                            config->LmxxfVitStream = vitStream;
+                            char buf[8];
+                            snprintf(buf, sizeof buf, "%d", vitStream);
+                            CfgKey::PutEnvString(CfgKey::VitStream, buf);
+                            if (vitStream != 0 && vitByte)
+                            {
+                                vitByte = false;
+                                config->LmxxfVitByteStream = false;
+                                CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                            }
+                        }
+                        if (vitStream != 0)
+                            ImGui::BeginDisabled();
+                        if (ImGui::Checkbox("ViT byte stream (exp)", &vitByte))
+                        {
+                            config->LmxxfVitByteStream = vitByte;
+                            CfgKey::PutEnvAlias(CfgKey::VitByteStream, vitByte);
+                            if (vitByte && vitStream != 0)
+                            {
+                                vitStream = 0;
+                                config->LmxxfVitStream = 0;
+                                CfgKey::PutEnvString(CfgKey::VitStream, "0");
+                            }
+                        }
+                        if (vitStream != 0)
+                            ImGui::EndDisabled();
                         HelpMarker("Upstream production kernels. Off restores the previous path."
-                                   "\nByte-stream options are coupled; leave them together."
+                                   "\nViT stream and ViT byte stream are mutually exclusive."
                                    "\nApplies on the next network rebuild.");
                         ImGui::TreePop();
                     }
@@ -762,6 +813,8 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvAlias(CfgKey::DecoderByte, true);
                     config->LmxxfVitByteStream = false;
                     CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                    config->LmxxfVitStream = 0;
+                    CfgKey::PutEnvString(CfgKey::VitStream, "0");
                     config->LmxxfVitAdaptive = true;
                     CfgKey::PutEnvAlias(CfgKey::VitAdaptive, true);
                     config->LmxxfVitReusePeriod = 4;

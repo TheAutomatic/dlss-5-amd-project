@@ -376,6 +376,8 @@ class Config
     CustomOptional<bool> LmxxfMHByteStream { true };
     CustomOptional<bool> LmxxfDecoderByte { true };
     CustomOptional<bool> LmxxfVitByteStream { false };
+    // 0=off; bit0 AV FP8, bit1 contract F16 (DLSS5_HIP_VIT_STREAM).
+    CustomOptional<int> LmxxfVitStream { 0 };
     // Static-frame ViT reuse (tunable; not bit-exact).
     CustomOptional<bool> LmxxfVitAdaptive { true };
     CustomOptional<int> LmxxfVitReusePeriod { 4 };

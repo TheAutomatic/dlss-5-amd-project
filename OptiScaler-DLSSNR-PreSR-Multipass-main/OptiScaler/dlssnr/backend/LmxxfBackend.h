@@ -8,6 +8,10 @@
 
 namespace DlssNr::Backend
 {
+// Last lmxxf colour job height seen in Record (0 = unknown). Menus use this to
+// gray NR% tiers that are taller than the current input.
+unsigned LastLmxxfColorHeight();
+
 // Full Host for lmxxf. Constructed only when ActiveKind==Lmxxf (requires LmxxfWired()).
 // Record: PrepareFrame → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
 class LmxxfBackend final : public Host
