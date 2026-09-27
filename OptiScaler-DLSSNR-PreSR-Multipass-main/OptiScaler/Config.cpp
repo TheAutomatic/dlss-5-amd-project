@@ -432,6 +432,11 @@ bool Config::Reload(std::filesystem::path iniPath)
             {
                 auto netH = readString(CfgKey::kSection, CfgKey::NetworkHeight, true);
                 std::string net = (netH.has_value() && !netH->empty()) ? *netH : "auto";
+                if (net != "auto" && net != "720" && net != "900" && net != "1080")
+                {
+                    LOG_WARN("DlssNr.{}='{}' is not auto/720/900/1080; using auto", CfgKey::NetworkHeight, net);
+                    net = "auto";
+                }
                 LmxxfNetworkHeight.set_from_config(net);
                 CfgKey::PutEnvString(CfgKey::NetworkHeight, net.c_str());
             }

@@ -519,31 +519,21 @@ void RenderMenu(Config* config, float menuResScale)
 
                     if (ImGui::TreeNode("Kernels (0.31)"))
                     {
-                        auto kernelToggle = [&](const char *label, const char *key, bool *value) {
-                            if (ImGui::Checkbox(label, value))
-                                CfgKey::PutEnvAlias(key, *value);
+                        auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
+                            bool v = opt.value_or_default();
+                            if (ImGui::Checkbox(label, &v))
+                            {
+                                opt = v;
+                                CfgKey::PutEnvAlias(key, v);
+                            }
                         };
-                        bool wave = config->LmxxfWaveOwned.value_or_default();
-                        kernelToggle("Wave-owned attention", CfgKey::WaveOwned, &wave);
-                        config->LmxxfWaveOwned = wave;
-                        bool c512 = config->LmxxfC512M32.value_or_default();
-                        kernelToggle("C512 M32", CfgKey::C512M32, &c512);
-                        config->LmxxfC512M32 = c512;
-                        bool vn = config->LmxxfVitProjN64.value_or_default();
-                        kernelToggle("ViT proj N64", CfgKey::VitProjN64, &vn);
-                        config->LmxxfVitProjN64 = vn;
-                        bool pool = config->LmxxfSharedPool.value_or_default();
-                        kernelToggle("Shared buffer pool", CfgKey::SharedPool, &pool);
-                        config->LmxxfSharedPool = pool;
-                        bool mh = config->LmxxfMHByteStream.value_or_default();
-                        kernelToggle("MH byte stream", CfgKey::MHByteStream, &mh);
-                        config->LmxxfMHByteStream = mh;
-                        bool dec = config->LmxxfDecoderByte.value_or_default();
-                        kernelToggle("Decoder byte", CfgKey::DecoderByte, &dec);
-                        config->LmxxfDecoderByte = dec;
-                        bool vb = config->LmxxfVitByteStream.value_or_default();
-                        kernelToggle("ViT byte stream (exp)", CfgKey::VitByteStream, &vb);
-                        config->LmxxfVitByteStream = vb;
+                        kernelToggle("Wave-owned attention", config->LmxxfWaveOwned, CfgKey::WaveOwned);
+                        kernelToggle("C512 M32", config->LmxxfC512M32, CfgKey::C512M32);
+                        kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
+                        kernelToggle("Shared buffer pool", config->LmxxfSharedPool, CfgKey::SharedPool);
+                        kernelToggle("MH byte stream", config->LmxxfMHByteStream, CfgKey::MHByteStream);
+                        kernelToggle("Decoder byte", config->LmxxfDecoderByte, CfgKey::DecoderByte);
+                        kernelToggle("ViT byte stream (exp)", config->LmxxfVitByteStream, CfgKey::VitByteStream);
                         HelpMarker("Upstream production kernels. Off restores the previous path."
                                    "\nByte-stream options are coupled; leave them together."
                                    "\nApplies on the next network rebuild.");
@@ -554,8 +544,10 @@ void RenderMenu(Config* config, float menuResScale)
                     {
                         bool adapt = config->LmxxfVitAdaptive.value_or_default();
                         if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                        {
+                            config->LmxxfVitAdaptive = adapt;
                             CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
-                        config->LmxxfVitAdaptive = adapt;
+                        }
                         int period = config->LmxxfVitReusePeriod.value_or_default();
                         if (ImGui::SliderInt("Reuse period", &period, 1, 16))
                         {
@@ -590,8 +582,10 @@ void RenderMenu(Config* config, float menuResScale)
                         }
                         bool hot = config->LmxxfVitReuseHotkey.value_or_default();
                         if (ImGui::Checkbox("Hotkey F8", &hot))
+                        {
+                            config->LmxxfVitReuseHotkey = hot;
                             CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
-                        config->LmxxfVitReuseHotkey = hot;
+                        }
                         HelpMarker("Static frames reuse ViT; motion returns to full cost."
                                    "\nStrength sliders are tunable (not bit-exact)."
                                    "\nApplies on the next network rebuild.");
@@ -655,10 +649,41 @@ void RenderMenu(Config* config, float menuResScale)
                     config->DlssNrDebugView = 0u;
                     config->LmxxfPdl = true;
                     CfgKey::PutEnvAlias(CfgKey::Pdl, true);
+                    config->LmxxfNetworkHeight = "auto";
+                    CfgKey::PutEnvString(CfgKey::NetworkHeight, "auto");
+                    config->LmxxfWaveOwned = true;
+                    CfgKey::PutEnvAlias(CfgKey::WaveOwned, true);
+                    config->LmxxfC512M32 = true;
+                    CfgKey::PutEnvAlias(CfgKey::C512M32, true);
+                    config->LmxxfVitProjN64 = true;
+                    CfgKey::PutEnvAlias(CfgKey::VitProjN64, true);
+                    config->LmxxfSharedPool = true;
+                    CfgKey::PutEnvAlias(CfgKey::SharedPool, true);
+                    config->LmxxfMHByteStream = true;
+                    CfgKey::PutEnvAlias(CfgKey::MHByteStream, true);
+                    config->LmxxfDecoderByte = true;
+                    CfgKey::PutEnvAlias(CfgKey::DecoderByte, true);
+                    config->LmxxfVitByteStream = false;
+                    CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                    config->LmxxfVitAdaptive = true;
+                    CfgKey::PutEnvAlias(CfgKey::VitAdaptive, true);
+                    config->LmxxfVitReusePeriod = 4;
+                    CfgKey::PutEnvString(CfgKey::VitReusePeriod, "4");
+                    config->LmxxfVitReuseGlobal = 0.22f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseGlobal, "0.22");
+                    config->LmxxfVitReuseLocal = 1.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseLocal, "1");
+                    config->LmxxfVitReuseImage = 0.35f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseImage, "0.35");
+                    config->LmxxfVitReuseHotkey = true;
+                    CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, true);
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
                 HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
-                           "\nPDL on, High resolution on, Debug view Off.");
+                           "\nPDL on, High resolution on, network tier auto,"
+                           "\n0.31 kernels / shared pool on, ViT byte off,"
+                           "\nimage reuse on (period 4, global 0.22, local 1, image 0.35),"
+                           "\nDebug view Off.");
             }
 
             if (!isLmxxf)
