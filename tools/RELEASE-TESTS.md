@@ -63,9 +63,25 @@ python -m unittest tests.lmxxf_upstream_sync
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 -AllowMissingDeps
 ```
 
-- 版本号读根目录 `VERSION`（当前如 `1.9.3-alpha`），或显式 `-Version`。  
+- 版本号读根目录 `VERSION`（当前如 `1.9.5-alpha`），或显式 `-Version`。  
 - 新鲜度检查失败会 **中止打包**（DLL/hsaco 比源码旧）。  
 - **不**替代 A/B 测试。
+
+### C2. 打 tag / 发 GitHub Release 前（必跑）
+
+本地 A 不含 ABI；CI 会在 tag 上跑，漏了会红。**先跑与 Actions 相同的 ABI 再 tag**：
+
+```powershell
+# 需 VS/MSVC 开发者环境
+cl /nologo /std:c++17 /O2 /EHsc /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
+  tests/lmxxf_nr_abi.cpp /Fe:exports/lmxxf-runtime/lmxxf_nr_abi.exe
+& exports/lmxxf-runtime/lmxxf_nr_abi.exe exports/lmxxf-runtime/LmxxfNrRuntime.dll third_party/lmxxf/modules
+cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
+  tests/lmxxf_zero_fallback_abi.c /Fo:exports/lmxxf-runtime/ /Fe:exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+& exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+```
+
+模块计数、导出表与包装契约改过时，这里最容易漏（例如 29→30 时只改了 python 侧）。
 
 ---
 
@@ -88,6 +104,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 -A
 | sync / 第三方 | ✓ | ✓ | ✓ | | 模块新鲜度 + ABI |
 | 菜单/配置键 | ✓ 或抽测 | | | | 不必加步 |
 | 发 zip | ✓ | | ✓ | 按需 | 全量发版 job |
+| 打 tag / GitHub Release | ✓ | | ✓ | 按需 | 全量发版 job（含 ABI） |
 
 ### CI 与本地分工（避免把秒级契约测试塞进 Actions）
 
