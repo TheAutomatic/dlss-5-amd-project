@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "Config.h"
+#include "ConfigKeys.h"
 
 #include "Util.h"
 
@@ -371,6 +372,13 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrPreset.set_from_config(readUInt("DlssNr", "Preset"));
             DlssNrIntensity.set_from_config(readFloat("DlssNr", "Intensity"));
             DlssNrStyle.set_from_config(readUInt("DlssNr", "Style"));
+            DlssNrToneCurve.set_from_config(readUInt("DlssNr", "ToneCurve"));
+            DlssNrToneLift.set_from_config(readFloat("DlssNr", "ToneLift"));
+            AmdQueuePriority.set_from_config(readInt("DlssNr", CfgKey::QueuePriority));
+            if (!AmdQueuePriority.has_value())
+                AmdQueuePriority.set_from_config(readInt("DlssNr", CfgKey::QueuePriorityLegacy));
+            AmdInline.set_from_config(readInt("DlssNr", CfgKey::Inline));
+            DlssNrQuality.set_from_config(readInt("DlssNr", "Quality"));
             DlssNrPass2Preset.set_from_config(readUInt("DlssNr", "Pass2Preset"));
             DlssNrPass2Style.set_from_config(readUInt("DlssNr", "Pass2Style"));
             DlssNrPass3Preset.set_from_config(readUInt("DlssNr", "Pass3Preset"));
@@ -1454,6 +1462,11 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Preset", GetIntValue(Instance()->DlssNrPreset.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Intensity", GetFloatValue(Instance()->DlssNrIntensity.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Style", GetIntValue(Instance()->DlssNrStyle.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ToneCurve", GetIntValue(Instance()->DlssNrToneCurve.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ToneLift", GetFloatValue(Instance()->DlssNrToneLift.value_for_config()).c_str());
+    ini.SetValue("DlssNr", CfgKey::QueuePriority, GetIntValue(Instance()->AmdQueuePriority.value_for_config()).c_str());
+    ini.SetValue("DlssNr", CfgKey::Inline, GetIntValue(Instance()->AmdInline.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Quality", GetIntValue(Instance()->DlssNrQuality.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass2Preset",
                  GetIntValue(Instance()->DlssNrPass2Preset.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass2Style",

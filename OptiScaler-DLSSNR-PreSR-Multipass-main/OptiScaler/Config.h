@@ -280,6 +280,18 @@ class Config
     CustomOptional<float> DlssNrIntensity { 1.0f };
     // 0 default (standard), 1 natural, 2 cinematic -- the model's own processing profiles.
     CustomOptional<uint32_t> DlssNrStyle { 0 };
+    // 0 reinhard (soft), 1 aces (filmic). 0.3.3+ daniel overlay / ToneCurve.
+    CustomOptional<uint32_t> DlssNrToneCurve { 0 };
+    // Black lift on the display curve. 0 = none. 0.3.3+ ToneLift.
+    CustomOptional<float> DlssNrToneLift { 0.0f };
+    // 0 = null HIP stream, 1 = high-priority stream (0.4.1 QueuePriority). Heavy-load path.
+    CustomOptional<int> AmdQueuePriority { 0 };
+    // 1 = daniel inline same-frame wait (historical default). 0 requests non-inline
+    // admission when the runtime supports it. Writes configuredInline; see handoff.
+    CustomOptional<int> AmdInline { 1 };
+    // 0.4.2+ daniel Quality: 1 = Fast (cheaper math, default), 0 = Reference
+    // (NVIDIA-exact arithmetic). RX 7000 always runs Reference inside the runtime.
+    CustomOptional<int> DlssNrQuality { 1 };
     // Optional per-pass model profiles. Pass 1 uses Preset/Style above; an absent override inherits
     // pass 1. Keeping inheritance explicit preserves every existing configuration and lets changing
     // the base profile update the whole stack unless a later pass was deliberately specialised.

@@ -240,6 +240,58 @@ void RenderMenu(Config* config, float menuResScale)
                         ImGui::CloseCurrentPopup();
                     ImGui::EndPopup();
                 }
+
+                // daniel: wait / schedule at top; display + experimental/debug folded
+                // (same Ins density pattern as the lmxxf block above).
+                {
+                    bool inlineWait = config->AmdInline.value_or_default() != 0;
+                    if (ImGui::Checkbox("Inline same-frame wait", &inlineWait))
+                        config->AmdInline = inlineWait ? 1 : 0;
+                    HelpMarker("On (default): game waits for NR in the same frame (historical path)."
+                               "\nOff: async (daniel Async=1); pre-upscale is forced off because it requires inline."
+                               "\nSaved to dlssnr_on_amd.ini only with Save Settings. Restart may be required.");
+                }
+
+                if (ImGui::TreeNode("Display (daniel 0.3.3+)"))
+                {
+                    static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
+                    int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
+                        config->DlssNrToneCurve = (uint32_t) curve;
+                    HelpMarker("Display curve the network sees (ToneCurve)."
+                               "\nReinhard usually has better colour; ACES if highlights oversaturate.");
+                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.5f, 0.0f);
+                    HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
+                    static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
+                    int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
+                        config->DlssNrQuality = quality ? 1 : 0;
+                    HelpMarker("Quality (0.4.2+). Fast is usually visually equivalent and faster."
+                               "\nReference keeps NVIDIA's exact arithmetic. RX 7000 always runs Reference.");
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("Experimental"))
+                {
+                    bool qprio = config->AmdQueuePriority.value_or_default() != 0;
+                    if (ImGui::Checkbox("HIP high-priority queue", &qprio))
+                        config->AmdQueuePriority = qprio ? 1 : 0;
+                    HelpMarker("QueuePriority=1: high-priority HIP stream (helps under heavy load)."
+                               "\nOff: null stream (QueuePriority=0).");
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("Debug / Advanced"))
+                {
+                    ImGui::TextWrapped(
+                        "daniel extras live in dlssnr_on_amd.ini [DlssNrOnAmd]: PollSpacing,"
+                        " OverlayKey, HipDevice, InlineWaitMs, ..."
+                        "\nIns menu / OptiScaler.ini win on Save for keys this menu exposes."
+                        "\nOverlayKey only binds daniel's own overlay (unused when driving from Ins)."
+                        "\nProcess env (advanced, no Ins toggle): DLSSNR_NO_REG, DLSSNR_CHAIN,"
+                        " DLSSNR_NOBLEND, DLSSNR_NO_REPACK, DLSSNR_WBLOG.");
+                    ImGui::TreePop();
+                }
             }
         }
 

@@ -124,6 +124,12 @@ struct AmdLayout
     std::uint32_t toneCurve = 0;
     std::uint32_t toneLift = 0;
     std::uint32_t useGameExposure = 0;
+    // 0.4.1+ [DlssNrOnAmd] QueuePriority: 0 null stream, 1 high-priority HIP stream.
+    std::uint32_t queuePriority = 0;
+    // Pre-upscale capture (0.3.3+). Requires inline; forced off when AmdInline=0.
+    std::uint32_t preUpscale = 0;
+    // 0.4.2+ [DlssNrOnAmd] Quality: 1 = fast (cheaper math), 0 = reference (NVIDIA-exact).
+    std::uint32_t quality = 0;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -229,7 +235,65 @@ inline constexpr AmdLayout kAmd040 {
     0xa8630, 0xa8634, 0xa8638, 0xa863c
 };
 
-inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040 };
+// 0.4.1 version.dll (SHA 823063eb). Changelog: +8% vs 0.4.0, +9% heavy load via
+// QueuePriority (0=null stream / 1=high-priority HIP stream). Packet 0x60 unchanged.
+// QueuePriority is read from [DlssNrOnAmd] by the runtime; host need not write it
+// unless we add an Opti menu item (see handoff missing-options).
+inline constexpr AmdLayout kAmd041 {
+    "0.4.1",
+    9916928,
+    Sha256FromHex("823063eb4c76b1334fd1800c41798873ae61d4016af0406f1f0b9dce57b1d376"),
+    0, 0x26130, 0x14c40, 0x9d80, 0x188d0, 0xaa7d8,
+    0xa98e0, 0xa98e8, 0xa98f8, 0xa9a40, 0xa9a48, 0xa9d48, 0xa9d4a,
+    0xaa250, 0xaa284, 0xaa288, 0xaa2b4, 0xaa4a0, 0xaa580, 0xaa58c,
+    0xaa630, 0xaa634, 0xaa63c, 0xaa63d, 0xaa63e, 0xaa63f, 0xaa640,
+    0xaa650, 0xaa654, 0xaa658, 0xaa660, 0xaa664, 0xaa760,
+    0xaa738, 0xaa6c0, 0xaa56c, 0xaa588, 0xaa598,
+    0xaa454, 0xaa468, 0xaa3c8, 0x19120, 0x19846,
+    0x19310, 0x196b0, 0x1970a, 0x197f7,
+    0xaa668, 0xaa66c, 0xaa670, 0xaa674,
+    0xaa45c, 0xaa19c
+};
+
+// 0.4.2: Quality=fast|reference (default fast; RX 7000 runs reference). 15% Fast vs 0.4.1.
+inline constexpr AmdLayout kAmd042 {
+    "0.4.2",
+    12981760,
+    Sha256FromHex("8aa2dcc5b6596aca97995dbfd4e0a9790d8c15108495e0ed154dd15dbb5b465a"),
+    0, 0x28170, 0x15040, 0x9db0, 0x18cf0, 0xaf9b0,
+    0xaeaa0, 0xaeaa8, 0xaeab8, 0xaec00, 0xaec08, 0xaef18, 0xaef1a,
+    0xaf420, 0xaf454, 0xaf458, 0xaf484, 0xaf678, 0xaf758, 0xaf764,
+    0xaf808, 0xaf80c, 0xaf814, 0xaf815, 0xaf816, 0xaf817, 0xaf818,
+    0xaf828, 0xaf82c, 0xaf830, 0xaf838, 0xaf83c, 0xaf938,
+    0xaf910, 0xaf898, 0xaf744, 0xaf760, 0xaf770,
+    0xaf624, 0xaf640, 0xaf598, 0x19540, 0x19c66,
+    0x19730, 0x19ad0, 0x19b2a, 0x19c17,
+    0xaf840, 0xaf844, 0xaf848, 0xaf84c,
+    0xaf62c, 0xaf36c, 0xaf84d
+};
+
+// 0.4.3: +20% Reference / +18% Fast vs 0.4.2; OverlayKey (daniel ini only).
+// Data cluster is NOT a uniform delta from 0.4.2: device/queue/engine/history* use
+// +0x2170, option block +0x2178, trampoline +0x21a0 (see analysis/daniel-040 remap).
+inline constexpr AmdLayout kAmd043 {
+    "0.4.3",
+    12749824,
+    Sha256FromHex("d1e320862a8763ac39e7ce194536d4b6c55ba61bae9e8a92753cec32df67a457"),
+    0, 0x28a20, 0x157f0, 0xa200, 0x194a0, 0xb1b50,
+    0xb0c10, 0xb0c18, 0xb0c28, 0xb0d70, 0xb0d78, 0xb1090, 0xb1092,
+    0xb1598, 0xb15cc, 0xb15d0, 0xb15fc, 0xb17f0, 0xb18d0, 0xb18dc,
+    0xb1980, 0xb1984, 0xb198c, 0xb198d, 0xb198e, 0xb198f, 0xb1990,
+    0xb19a0, 0xb19a4, 0xb19a8, 0xb19b0, 0xb19b4, 0xb1ab0,
+    0xb1a88, 0xb1a10, 0xb18bc, 0xb18d8, 0xb18e8,
+    0xb179c, 0xb17b8, 0xb1710, 0x19cf0, 0x1a416,
+    0x19ee0, 0x1a280, 0x1a2da, 0x1a3c7,
+    0xb19b8, 0xb19bc, 0xb19c0, 0xb19c4,
+    0xb17a4, 0xb14e4, 0xb19c5
+};
+
+inline constexpr const AmdLayout* kAmdLayouts[] = {
+    &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043
+};
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
 // of each known runtime. A wrong-length literal already fails Sha256FromHex;
@@ -240,4 +304,7 @@ static_assert(kAmd031.sha256.bytes[0] == 0xb1 && kAmd031.sha256.bytes[31] == 0x5
 static_assert(kAmd032.sha256.bytes[0] == 0xb9 && kAmd032.sha256.bytes[31] == 0x1e);
 static_assert(kAmd033.sha256.bytes[0] == 0x90 && kAmd033.sha256.bytes[31] == 0x12);
 static_assert(kAmd040.sha256.bytes[0] == 0xd6 && kAmd040.sha256.bytes[31] == 0x80);
+static_assert(kAmd041.sha256.bytes[0] == 0x82 && kAmd041.sha256.bytes[31] == 0x76);
+static_assert(kAmd042.sha256.bytes[0] == 0x8a && kAmd042.sha256.bytes[31] == 0x5a);
+static_assert(kAmd043.sha256.bytes[0] == 0xd1 && kAmd043.sha256.bytes[31] == 0x57);
 }
