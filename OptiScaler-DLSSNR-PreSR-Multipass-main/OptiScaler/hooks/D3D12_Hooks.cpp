@@ -1822,9 +1822,9 @@ static void HookToCommandList(ID3D12Device* InDevice)
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
             // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
-    const bool amdGraphicsTrackerWanted =
-        Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
-        !DlssNr::Backend::SubmissionHooksWanted();
+            const bool amdGraphicsTrackerWanted =
+                Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
+                !DlssNr::Backend::SubmissionHooksWanted();
             const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
             LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <windows.h>
 
 namespace CfgKey
 {
@@ -176,6 +177,8 @@ inline const char *EnvAlias(const char *iniKey)
 }
 
 // Host writes env so ApplyFlagsFileFallback cannot override an ini/menu choice.
+// MSVC _putenv and MinGW getenv are different CRTs: also set the Win32 process
+// environment so LmxxfNrRuntime (g++) can see menu/ini updates at runtime.
 inline void PutEnvAlias(const char *iniKey, bool on)
 {
     const char *env = EnvAlias(iniKey);
@@ -184,6 +187,7 @@ inline void PutEnvAlias(const char *iniKey, bool on)
     char entry[160];
     std::snprintf(entry, sizeof entry, "%s=%d", env, on ? 1 : 0);
     _putenv(entry);
+    SetEnvironmentVariableA(env, on ? "1" : "0");
 }
 
 inline void PutEnvString(const char *iniKey, const char *value)
@@ -194,5 +198,6 @@ inline void PutEnvString(const char *iniKey, const char *value)
     char entry[192];
     std::snprintf(entry, sizeof entry, "%s=%s", env, value);
     _putenv(entry);
+    SetEnvironmentVariableA(env, value);
 }
 } // namespace CfgKey

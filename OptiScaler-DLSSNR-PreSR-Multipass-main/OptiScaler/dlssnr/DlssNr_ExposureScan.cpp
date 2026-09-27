@@ -301,7 +301,7 @@ void Adopt(ID3D12Resource* resource, const std::string& shape, unsigned int byte
     g_scan.tracked.push_back(t);
 
     if (g_scan.tracked.size() <= 8 || (g_scan.tracked.size() % 16) == 0)
-        LOG_INFO("DLSS-NR exposure scan: candidate {} -- {}", g_scan.tracked.size(), shape);
+        LOG_DEBUG("DLSS-NR exposure scan: candidate {} -- {}", g_scan.tracked.size(), shape);
 }
 
 void NoteResource(const D3D12_RESOURCE_DESC* desc, ID3D12Resource* resource)
@@ -331,9 +331,9 @@ void NoteResource(const D3D12_RESOURCE_DESC* desc, ID3D12Resource* resource)
         if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 && g_scan.nearMissLogged < 8)
         {
             g_scan.nearMissLogged++;
-            LOG_INFO("DLSS-NR scan near-miss #{}: UAV dim {} {}x{}x{} fmt {} (filter rejected)",
-                     g_scan.nearMissLogged, (int) desc->Dimension, (unsigned int) desc->Width,
-                     desc->Height, desc->DepthOrArraySize, (int) desc->Format);
+            LOG_DEBUG("DLSS-NR scan near-miss #{}: UAV dim {} {}x{}x{} fmt {} (filter rejected)",
+                      g_scan.nearMissLogged, (int) desc->Dimension, (unsigned int) desc->Width,
+                      desc->Height, desc->DepthOrArraySize, (int) desc->Format);
         }
 
         return;

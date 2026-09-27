@@ -95,6 +95,9 @@ Kind ActiveKindFromConfig()
 
 bool SubmissionHooksWanted()
 {
+    // Must NOT depend on DlssNrEnabled: device hooks are installed once at
+    // CreateDevice. If we skip ArmCreate when NR starts off, enabling NR
+    // in-game has no submission path and the pass cannot start.
     return LmxxfWired() && ActiveKindFromConfig() == Kind::Lmxxf;
 }
 } // namespace DlssNr::Backend

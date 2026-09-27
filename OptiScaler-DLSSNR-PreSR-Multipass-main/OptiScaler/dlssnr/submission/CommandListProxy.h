@@ -13,6 +13,9 @@ inline bool AllowEnhancedBarriers() { return g_allowEnhancedBarriers.load(std::m
 #ifndef LOG_WARN
 #define LOG_WARN(...) ((void)0)
 #endif
+#ifndef LOG_DEBUG
+#define LOG_DEBUG(...) ((void)0)
+#endif
 
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
 // QI accepts List1..List10 + base. Newer methods QI the live producer; if unsupported, fail-closed (no-op / E_UNEXPECTED).
@@ -163,13 +166,16 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                 rawInterfaceEscaped = true;
                 static std::atomic<uint32_t> s_escapeWarnCount{0};
                 const uint32_t c = s_escapeWarnCount.fetch_add(1, std::memory_order_relaxed) + 1;
-                if (c <= 10 ||
-                    (c <= 100 && (c % 20 == 0)) ||
-                    (c <= 1000 && (c % 100 == 0)) ||
-                    (c % 1000 == 0))
+                // One WARN is enough for users; the event counter lives at Debug.
+                if (c == 1)
                 {
-                    LOG_WARN("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X} (event #{})",
-                             (void*)this, riid.Data1, c);
+                    LOG_WARN("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X}",
+                             (void*)this, riid.Data1);
+                }
+                else
+                {
+                    LOG_DEBUG("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X} (event #{})",
+                              (void*)this, riid.Data1, c);
                 }
             }
             return hr;
