@@ -16,6 +16,20 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 - Se corrigieron algunos problemas de compatibilidad de lmxxf; soporte inicial para **9060 XT**; las GPU de la **serie 7000** aún no están totalmente soportadas. Algunas correcciones de compatibilidad no están verificadas — gracias [@OUCO86](https://github.com/OUCO86), [debate](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901);
 - **Problema conocido:** lmxxf puede seguir sobreexponiendo en la demo de Wo Long 2; la corrección aún no está completa.
 
+### Mapa de configuración lmxxf (ini / menú Ins)
+
+Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las etiquetas del menú Ins no se escriben en el ini.** Prioridad: menú/ini > `native-game-flags.txt` / variables de entorno > valores predeterminados. `DLSS5_STRENGTH` es el mismo par que Detail/Colour; si el host envía esos campos, manda el menú — no hace falta un segundo control.
+
+| Ubicación en el menú | Clave | Notas |
+|---|---|---|
+| Superior | `TransferStrength` / `ColourStrength` | Mezcla de detalle/color de la red (0–3) |
+| Superior | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red 1080 |
+| Superior | `DLSS5_NETWORK_HEIGHT` | auto / 720 / 900 / 1080 |
+| Experimental | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos 0.31 / pool / byte stream |
+| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
+| Debug / Advanced | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
+
 ---
 
 ## Índice
