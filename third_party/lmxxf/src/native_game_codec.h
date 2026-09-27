@@ -44,7 +44,7 @@ class NativeGameCodec {
  }
 public:
  NativeGameCodec()=default;NativeGameCodec(const NativeGameCodec&)=delete;
- ~NativeGameCodec(){if(exposure_texture)exposure_texture->Release();ClearBindings();for(auto*r:source)if(r)r->Release();if(output)output->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+ ~NativeGameCodec(){NativeUntrackResource(output);if(exposure_texture)exposure_texture->Release();ClearBindings();for(auto*r:source)if(r)r->Release();if(output)output->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
  // Encode: {linear original}. Decode: {encoded proxy, encoded neural, linear original}.
  void Create(ID3D12Device*d,const std::vector<ID3D12Resource*>&inputs,const std::wstring&dir,bool privateFloatOutput=false,ID3D12Resource*exposure=nullptr){
   private_float_output=privateFloatOutput;

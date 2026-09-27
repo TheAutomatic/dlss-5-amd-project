@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputDir = (Join-Path $PSScriptRoot 'modules'),
     [string]$Compiler = (Join-Path $PSScriptRoot 'rtc_compile.exe'),
     [string]$SourceDir = $PSScriptRoot,
@@ -13,7 +13,8 @@ param(
 # One row per module: output name, extra #defines, source files (concatenated in order). Every row prepends HIP_ISA_HALF 1;
 # names ending in -packed also prepend HIP_PREPACKED_WEIGHTS 1. The extra defines below are the production selections of
 # 2026-09-17 (0.20); they coincide with the sources' defaults and are spelled out so the recipe does not depend on them.
-# -ExtraDefines 'CW_PACK8 1',...: prepended to every module (experiments; macros a module does not use are inert).
+# -ExtraDefines 'CW_PACK8 1',...: prepended to every module (experiments; macros a module does not use are inert); a macro
+# the recipe also defines takes the -ExtraDefines value.
 # Compiler: rtc_compile.exe built from rtc_compile.cpp (see README.md); it uses the driver's amd_comgr_3.dll, no SDK needed.
 $ErrorActionPreference = 'Stop'
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
@@ -45,7 +46,7 @@ $modules = @(
     @{ name = 'multihead-fast-packed';              defines = @();                        sources = @('multihead_fast.hip') },
     @{ name = 'multihead-fast-padded-wave-packed';  defines = @('HIP_FFN_HOIST_RES 2','HIP_FFN_LINE_STORES 1','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip') },
     @{ name = 'c32-wave1'; defines = @('HIP_PREPACKED_WEIGHTS 1','CW_ROLL_HIDDEN 1','CW_ROLL_WINDOW 1','CW_VEC_INPUT 1','CW_PREFIX_SPLIT 1','CW_PACK8 1','HIP_FP8_SAT_MODE 3'); sources = @('c32_fused_ffn_attention.hip','wave_owned_c32.inc') },
-    @{ name = 'c64-wave2'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 3','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','wave_owned_attention_setup.inc','@wave-owned-attention-body','wave_owned_attention_exports.inc') },
+    @{ name = 'c64-wave2'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','wave_owned_attention_setup.inc','@wave-owned-attention-body','wave_owned_attention_exports.inc') },
     @{ name = 'c512-m32-mh'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','c512_m32_mh.inc') },
     @{ name = 'c512-m32-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1'); sources = @('deep_fast.hip','c512_m32_deep.inc') },
     @{ name = 'vit-wide-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1'); sources = @('deep_fast.hip','vit_wide_deep.inc') }
@@ -59,7 +60,10 @@ foreach ($m in $modules) {
     if ($Only -and $m.name -ne $Only) { continue }
     $text = "#define HIP_ISA_HALF 1`n"
     if ($m.name -like '*-packed') { $text += "#define HIP_PREPACKED_WEIGHTS 1`n" }
-    foreach ($d in @($ExtraDefines)+$m.defines) { $text += "#define $d`n" }
+    # an -ExtraDefines macro overrides the recipe's own value of the same macro
+    $extraNames = @($ExtraDefines | ForEach-Object { ($_ -split '\s+')[0] })
+    $recipe = @($m.defines | Where-Object { ($_ -split '\s+')[0] -notin $extraNames })
+    foreach ($d in @($ExtraDefines)+$recipe) { $text += "#define $d`n" }
     foreach ($part in $m.sources) {
         if ($part -eq '@wave-owned-attention-body') {
             $core=[IO.File]::ReadAllText((Join-Path $SourceDir 'wave_owned_mh.inc'))
@@ -73,7 +77,7 @@ foreach ($m in $modules) {
     [IO.File]::WriteAllText($generated, $text, $utf8)
     & $Compiler $hsaco $generated comgr $target | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "COMGR failed: $($m.name)" }
-    $manifest += [pscustomobject]@{ target = $target; module = $m.name; defines = (@('HIP_ISA_HALF 1') + $(if ($m.name -like '*-packed') { @('HIP_PREPACKED_WEIGHTS 1') } else { @() }) + @($ExtraDefines) + $m.defines) -join '; '; sources = $m.sources -join '+'; sha256 = (Get-FileHash $hsaco).Hash }
+    $manifest += [pscustomobject]@{ target = $target; module = $m.name; defines = (@('HIP_ISA_HALF 1') + $(if ($m.name -like '*-packed') { @('HIP_PREPACKED_WEIGHTS 1') } else { @() }) + @($ExtraDefines) + $recipe) -join '; '; sources = $m.sources -join '+'; sha256 = (Get-FileHash $hsaco).Hash }
     Write-Output ("{0} {1,-40} {2}" -f $target,$m.name, $manifest[-1].sha256)
 }
 [IO.File]::WriteAllText((Join-Path $OutputDir 'modules.json'), ($manifest | ConvertTo-Json -Depth 3), $utf8)

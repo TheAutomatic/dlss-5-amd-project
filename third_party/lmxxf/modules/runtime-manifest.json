@@ -32,5 +32,5 @@
                   "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
                   "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir."
               ],
-    "upstream_commit":  "f9a016a9c46d941cfdb1be0c280498a660747ed0"
+    "upstream_commit":  "b11223950b46f184685acdce30dbf31099e7c0d4"
 }

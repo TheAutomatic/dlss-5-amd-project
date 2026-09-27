@@ -1,7 +1,7 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `f9a016a9c46d941cfdb1be0c280498a660747ed0` (synced 2026-09-27)
+- Commit: `b11223950b46f184685acdce30dbf31099e7c0d4` (synced 2026-09-27)
 - **0.33** dual-arch modules (29/29) rebuilt from `hip/build-modules.ps1` including pack8 recipe rows (CW_PACK8 / W2_PACK8 / FMED3 / SAT3). `AllowStaleModules` was used once for this pass; drop it on the next sync.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1

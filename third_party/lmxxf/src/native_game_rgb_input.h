@@ -19,7 +19,7 @@ class NativeGameRgbInput {
  }
 public:
  NativeGameRgbInput()=default;NativeGameRgbInput(const NativeGameRgbInput&)=delete;
- ~NativeGameRgbInput(){for(auto*r:{source,tiles,color})if(r)r->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+ ~NativeGameRgbInput(){for(auto*r:{tiles,color})NativeUntrackResource(r);for(auto*r:{source,tiles,color})if(r)r->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
  void Create(ID3D12Device*d,ID3D12Resource*texture,const std::wstring&dir){
   if(source||!d||!texture)throw std::runtime_error("game RGB initialization");
   geometry=NativeCurrentNetworkGeometry();auto desc=texture->GetDesc();
