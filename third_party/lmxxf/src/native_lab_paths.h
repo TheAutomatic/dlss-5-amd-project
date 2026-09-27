@@ -7,7 +7,10 @@
 #include "native_pso.h"
 #include <dxgi.h>
 /* Typeless game textures (Rise of the Ronin's XeSS output is R16G16B16A16_TYPELESS, its velocity R16G16_TYPELESS): views use the float format. */
-inline DXGI_FORMAT NativeViewFormat(DXGI_FORMAT f){switch(f){case DXGI_FORMAT_R16G16B16A16_TYPELESS:return DXGI_FORMAT_R16G16B16A16_UNORM;/* Ronin: LDR output, the game views it as UNORM (verified from a dump: UNORM decodes to the scene, FLOAT to noise) */case DXGI_FORMAT_R16G16_TYPELESS:return DXGI_FORMAT_R16G16_FLOAT;case DXGI_FORMAT_R32G32_TYPELESS:return DXGI_FORMAT_R32G32_FLOAT;case DXGI_FORMAT_R32G32B32A32_TYPELESS:return DXGI_FORMAT_R32G32B32A32_FLOAT;case DXGI_FORMAT_R8G8B8A8_TYPELESS:return DXGI_FORMAT_R8G8B8A8_UNORM;case DXGI_FORMAT_B8G8R8A8_TYPELESS:return DXGI_FORMAT_B8G8R8A8_UNORM;default:return f;}}
+/* PRODUCT: R16G16B16A16_TYPELESS is Ronin LDR UNORM but Wo Long HDR FLOAT. Default stays UNORM for upstream/Ronin;
+   OptiScaler pre-SR sets NativeTypelessRgba16AsFloat() so meter/codec all share one interpretation. */
+inline bool& NativeTypelessRgba16AsFloat(){static bool v=false;return v;}
+inline DXGI_FORMAT NativeViewFormat(DXGI_FORMAT f){switch(f){case DXGI_FORMAT_R16G16B16A16_TYPELESS:return NativeTypelessRgba16AsFloat()?DXGI_FORMAT_R16G16B16A16_FLOAT:DXGI_FORMAT_R16G16B16A16_UNORM;/* Ronin default UNORM: LDR output, the game views it as UNORM (dump: UNORM decodes to the scene, FLOAT to noise) */case DXGI_FORMAT_R16G16_TYPELESS:return DXGI_FORMAT_R16G16_FLOAT;case DXGI_FORMAT_R32G32_TYPELESS:return DXGI_FORMAT_R32G32_FLOAT;case DXGI_FORMAT_R32G32B32A32_TYPELESS:return DXGI_FORMAT_R32G32B32A32_FLOAT;case DXGI_FORMAT_R8G8B8A8_TYPELESS:return DXGI_FORMAT_R8G8B8A8_UNORM;case DXGI_FORMAT_B8G8R8A8_TYPELESS:return DXGI_FORMAT_B8G8R8A8_UNORM;default:return f;}}
 inline bool NativeIsRgba16Float(DXGI_FORMAT f){DXGI_FORMAT v=NativeViewFormat(f);return v==DXGI_FORMAT_R16G16B16A16_FLOAT||v==DXGI_FORMAT_R16G16B16A16_UNORM;}
 /* 8-bit game/host textures (Magpie's FSR3/FSR4 effect: shared R8G8B8A8_UNORM colour and output). Views are UNORM (0..1), the decoder writes
    UNORM8 bits through a raw buffer that the frame copies into the texture (same route as Ronin's UNORM16). */

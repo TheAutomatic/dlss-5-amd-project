@@ -271,13 +271,14 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::TreePop();
                 }
 
-                if (ImGui::TreeNode("Experimental"))
+                if (ImGui::TreeNode("Queue (experimental)"))
                 {
                     bool qprio = config->AmdQueuePriority.value_or_default() != 0;
                     if (ImGui::Checkbox("HIP high-priority queue", &qprio))
                         config->AmdQueuePriority = qprio ? 1 : 0;
                     HelpMarker("QueuePriority=1: high-priority HIP stream (helps under heavy load)."
-                               "\nOff: null stream (QueuePriority=0).");
+                               "\nOff: null stream (QueuePriority=0)."
+                               "\nSaved to dlssnr_on_amd.ini only with Save Settings.");
                     ImGui::TreePop();
                 }
 
@@ -388,8 +389,9 @@ void RenderMenu(Config* config, float menuResScale)
                               "\n(lmxxf was active this session), the other host takes"
                               "\nover immediately."
                               "\nNeeds restart: first switch to lmxxf after a daniel-only"
-                              "\nstart is saved and applies on the next launch. The line"
-                              "\nbelow always says which case you are in."
+                              "\nstart is staged for the next launch. Click Save Settings"
+                              "\nto keep it in OptiScaler.ini. The line below always says"
+                              "\nwhich case you are in."
                               "\nTurn NR off with Enable NR above."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
@@ -407,7 +409,7 @@ void RenderMenu(Config* config, float menuResScale)
             else if (deferLmxxf)
             {
                 ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                   "lmxxf saved for next launch. This session keeps using daniel.");
+                                   "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
             }
             else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
                      active == Kind::Daniel && hasLmxxf)
@@ -493,9 +495,8 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrColourStrength = colour;
                 HelpMarker("How much of the network's colour replaces the game's hue."
-                           "\n0 keeps the game's hue and changes brightness only."
-                           "\n1 uses the network colour. Above 1 pushes it further, up to 3."
-                           "\nCyberpunk 2077: if green neon turns brown, set this to 0."
+                           "\n0–1: keep the game colour; the network only changes brightness."
+                           "\nAbove 1 blends toward the full network colour (toy; can tint)."
                            "\nApplies on the next frame. No restart.");
 
                 bool fitLarge = config->LmxxfFitLarge.value_or_default();
@@ -531,7 +532,7 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     HelpMarker("On (default): lmxxf picks the smallest tier that fits."
                                "\nOff: pin NR to one tier in the menu below."
-                               "\nApplies on the next network rebuild. Saved in OptiScaler.ini.");
+                               "\nApplies on the next network rebuild. Written to OptiScaler.ini with Save Settings.");
                     if (!autoTier)
                     {
                         static const char *tiers[] = {"720", "900", "1080"};
@@ -542,6 +543,7 @@ void RenderMenu(Config* config, float menuResScale)
                             config->LmxxfNetworkHeight = lastFixed;
                             CfgKey::PutEnvString(CfgKey::NetworkHeight, lastFixed.c_str());
                             DlssNr::AmdBridge::InvalidateHistory();
+                            LOG_INFO("NR tier menu set to {}", lastFixed);
                         }
                     }
                 }
@@ -553,7 +555,8 @@ void RenderMenu(Config* config, float menuResScale)
                         config->LmxxfAutoExposure = autoExposure;
                     HelpMarker("When the game does not send a usable exposure texture,"
                                "\nmeasure the frame's mean brightness once per frame and"
-                               "\nsmooth it over time (like daniel). Ignores Exposure scale."
+                               "\nsmooth it over time so highlights do not jump."
+                               "\nIgnores Exposure scale."
                                "\nGames that already pass exposure are unchanged."
                                "\nApplies on the next frame. No restart.");
                     if (!autoExposure)
@@ -782,7 +785,7 @@ void RenderMenu(Config* config, float menuResScale)
 
             if (!isLmxxf)
             {
-                if (ImGui::TreeNode("Experimental"))
+                if (ImGui::TreeNode("Lighting (experimental)"))
                 {
                     ImGui::PushID("RTGI");
                     bool enabled = config->AmdRtgiEnabled.value_or_default();

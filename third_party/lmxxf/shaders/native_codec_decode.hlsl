@@ -44,6 +44,9 @@ float EffectivePaperWhite() {
 #else
  if ((Reserved.x & 0x10000u) != 0)
      return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+ float pre=asfloat(Reserved.y);
+ if (isfinite(pre)&&pre>0&&pre!=1.0)
+     return PaperWhiteScale*pre;
  return PaperWhiteScale;
 #endif
 }
@@ -176,7 +179,11 @@ void main(uint3 id:SV_DispatchThreadID) {
 #endif
  float oy=Luminance(original),uy=Luminance(upgraded);
  float ratio=oy==0?1:clamp(uy/oy,0,4);
- float3 result=lerp(original*ratio,upgraded,ColorStrength);
+ /* ColourStrength: <=1 keeps the game chroma (network luma only). >1 is a toy
+    that lerps/extrapolates toward the full network colour. */
+ float3 hueSafe=original*ratio;
+ float colourT=max(ColorStrength-1.0,0.0);
+ float3 result=lerp(hueSafe,upgraded,colourT);
  // Optional per-dispatch views; view 0 preserves the captured composition exactly.
  if(Reserved.x==1||Reserved.x==2){
 #if NATIVE_CODEC_FIT

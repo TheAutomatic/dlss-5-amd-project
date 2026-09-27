@@ -1830,8 +1830,35 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
         // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
         EnsureFitLargeApplied();
-        if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
-            _putenv("DLSS5_NETWORK_HEIGHT=auto");
+        {
+            // Host is MSVC: menu/ini _putenv in its CRT. Copy Win32 env into MinGW CRT
+            // so live DLSS5_NETWORK_HEIGHT tier switches apply without a restart.
+            char winEnv[64] {};
+            const DWORD n = GetEnvironmentVariableA("DLSS5_NETWORK_HEIGHT", winEnv, sizeof winEnv);
+            if (n > 0 && n < sizeof winEnv)
+            {
+                char entry[96] {};
+                std::snprintf(entry, sizeof entry, "DLSS5_NETWORK_HEIGHT=%s", winEnv);
+                _putenv(entry);
+            }
+            else if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
+                _putenv("DLSS5_NETWORK_HEIGHT=auto");
+        }
+        {
+            // Log only when the tier actually changes (not every frame).
+            const char *h = std::getenv("DLSS5_NETWORK_HEIGHT");
+            static std::string lastTier;
+            const std::string now = h ? h : "";
+            if (now != lastTier)
+            {
+                lastTier = now;
+                char tierMsg[128] {};
+                std::snprintf(tierMsg, sizeof tierMsg, "lmxxf: NETWORK_HEIGHT=%s color=%ux%u",
+                              now.empty() ? "(unset)" : now.c_str(), info->color_width,
+                              info->color_height);
+                SetError(tierMsg);
+            }
+        }
         auto resolvedGeo = NativeResolveNetworkGeometry(info->color_width, info->color_height);
         // Set when PrepareFrame deliberately leaves a notice in the error slot for the host to
         // log. Declared here, before the first HIP lazy-Create block, because BOTH of those
@@ -1881,6 +1908,29 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                           unsigned(cdesc.MipLevels), unsigned(cdesc.SampleDesc.Count), unsigned(cdesc.Flags),
                           NativeFitLargeInput() ? 1 : 0);
             return Fail(LMXXF_NR_INVALID_ARGUMENT, msg);
+        }
+
+        // R16G16B16A16_TYPELESS: Wo Long HDR uses FLOAT views (daniel/FFX agree); Ronin LDR
+        // needs UNORM. One flag shared by meter + codec SRVs/UAV. Product default FLOAT.
+        // DLSS5_TYPELESS_RGBA16=unorm|float overrides (Ronin: unorm).
+        if (cfmt == DXGI_FORMAT_R16G16B16A16_TYPELESS)
+        {
+            bool asFloat = true;
+            if (const wchar_t *e = _wgetenv(L"DLSS5_TYPELESS_RGBA16"))
+            {
+                if (!_wcsicmp(e, L"unorm") || !wcscmp(e, L"0"))
+                    asFloat = false;
+                else if (!_wcsicmp(e, L"float") || !wcscmp(e, L"1"))
+                    asFloat = true;
+            }
+            if (NativeTypelessRgba16AsFloat() != asFloat)
+            {
+                NativeTypelessRgba16AsFloat() = asFloat;
+                char fmtMsg[96];
+                std::snprintf(fmtMsg, sizeof fmtMsg, "lmxxf: TYPELESS RGBA16 view=%s",
+                              asFloat ? "FLOAT16" : "UNORM16");
+                SetError(fmtMsg);
+            }
         }
 
         // Exposure is optional and sits after model_scale, so only a host whose struct_size

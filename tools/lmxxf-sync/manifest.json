@@ -46,7 +46,9 @@
   "local_patches": [
     "reference-network.patch",
     "auto-white.patch",
-    "r10g10b10a2.patch"
+    "r10g10b10a2.patch",
+    "typeless-float16.patch",
+    "codec-hue-safe-preexp.patch"
   ],
   "hip_files": [
     "build-modules.ps1",
