@@ -523,7 +523,7 @@ void RenderMenu(Config* config, float menuResScale)
                         lastFixed = net;
 
                     bool autoTier = isAuto;
-                    if (ImGui::Checkbox("NR tier auto", &autoTier))
+                    if (ImGui::Checkbox("NR% auto", &autoTier))
                     {
                         const char *value = autoTier ? "auto" : lastFixed.c_str();
                         config->LmxxfNetworkHeight = value;
@@ -537,7 +537,7 @@ void RenderMenu(Config* config, float menuResScale)
                     {
                         static const char *tiers[] = {"720", "900", "1080"};
                         int tierIdx = (lastFixed == "720") ? 0 : (lastFixed == "900") ? 1 : 2;
-                        if (ImGui::Combo("NR tier", &tierIdx, tiers, 3))
+                        if (ImGui::Combo("NR%", &tierIdx, tiers, 3))
                         {
                             lastFixed = tiers[tierIdx];
                             config->LmxxfNetworkHeight = lastFixed;
