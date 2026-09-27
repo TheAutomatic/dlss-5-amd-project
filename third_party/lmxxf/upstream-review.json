@@ -1,741 +1,151 @@
 {
   "schema": 1,
-  "from_commit": "f9a016a9c46d941cfdb1be0c280498a660747ed0",
-  "to_commit": "b11223950b46f184685acdce30dbf31099e7c0d4",
-  "snapshot": "3b6fd945da0907b42a8ecd53c23f97dec7a1555d539f2bdae499ef7d0c395282",
+  "from_commit": "b11223950b46f184685acdce30dbf31099e7c0d4",
+  "to_commit": "61ac166b72f01d0466b34029877e26d01862e578",
+  "snapshot": "175c1082ea3d53cee90be3f6ae0eacdf3e8af47a84cc5e943a2ab92d3b960c0b",
   "reviewer": "TheAutomatic (agent assist)",
-  "summary": "Follow upstream f9a016a9 (0.33-era). Product keeps OptiScaler host rules: menu/ini > flags/env, DLSS5_* names for cross-layer keys. Vendor follows hip/src glue; Development experiments and package scripts stay out of tree. 0.33 pack8 kernel fragments are understood; shipping modules are still pre-pack8 until a dual-arch rebuild with the new recipe.",
-  "validation": "Built LmxxfNrRuntime.dll after taking native_hip_network/env_options and build-modules.ps1. NativeApplyHipEnvironment + ApplyFlagsFileFallback cover runtime flags. Module goldens for pack8 not rerun; installer suites OK earlier.",
+  "summary": "Chase lmxxf 0.34 (b1122395 -> 61ac166b). Docs/packaging only. Zero FOLLOW-path code delta. Shipping modules provided via ModulesPath (committed dual-arch package). W2_PACK8 6 already in recipe; Stellar Blade acceptance is field intel. RE9 VRAM untrack already in vendor. hip/SHA256SUMS merged to include 0.33+ extra module rows.",
+  "validation": "git diff empty on Development/HIP src shaders hip. 198 fingerprints carried. package/README/conversation excluded. ModulesPath=third_party/lmxxf/modules (29+29) validated; SkipBuild justified by identical headers.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "ea95cf092f5489c8d2899baad4b4c03a82aeadb6cb3ff190d6193e05a125b778",
+      "fingerprint": "531009660943141b313f3b0fa0cf16a781b74ea3493d1e23c2aa56de5b9be422",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "0.33 glue and recipes staged; pack8 modules and pin advance need a verified dual-arch rebuild.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item integration.",
-      "validation": "",
-      "next_step": "Rebuild gfx1200/1201 with build-modules ExtraDefines as published; hash/compare; then advance UPSTREAM pin."
+      "decision": "integrated",
+      "reason": "0.34 is docs/packaging only. Zero deltas in Development/HIP, src, shaders, hip since b1122395. W2_PACK8 6 already in c64-wave2 recipe; Stellar Blade acceptance is field intel only.",
+      "evidence": "git diff --stat b1122395..origin/main -- Development/HIP src shaders hip empty. Upstream 61ac166b. RE9 NativeUntrackResource + pdl_keep destructor already in vendor at b1122395.",
+      "validation": "Verified vendored-path empty diff; modules/runtime skipped because recipes and headers byte-identical to last verified pin. No game test required for docs-only chase.",
+      "next_step": ""
     },
     {
       "id": "file:Development/DevHistory.md",
-      "fingerprint": "db69aee82debb85a52159f4ba3cda18355dc35c3b50078f413e7dfea82146476",
+      "fingerprint": "f896cb55ca20e434c4487eda8089761dbc3d5bcae4250b5472b811213470be1c",
       "classification": "out-of-scope",
       "decision": "excluded",
-      "reason": "Upstream development notes/experiments outside the runtime vendor closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:Development/DevHistory.md.",
-      "validation": "",
-      "next_step": ""
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/asm.ps1",
-      "fingerprint": "0f9bebf4db131886539149d8c7775c7120a58d5ccb0360a30ebf4bf2617c1122",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/asm.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/asm_compile.cpp",
-      "fingerprint": "69c29779b619a392e1a30b8492858bd18ba49753da18c8036e5bd87e4a631323",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/asm_compile.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/build-src.ps1",
-      "fingerprint": "3339b5be29e0b7a6d46770d57f788a0e52a85e3d91574c49751e96c8e26d0df8",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/build-src.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/h1-kernel.diff",
-      "fingerprint": "54852cf300b074ecbd8dac395223aa6ae37480a5907d7a6a668932690d47e00d",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/h1-kernel.diff.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/mkset.ps1",
-      "fingerprint": "c553e9e08249bc3214764927f418b3e245024bbfef1eb859862f088bc1fc5225",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/mkset.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/patch_l1.py",
-      "fingerprint": "4971aee8f1bb23294b7af4992c40c3a29089a6e79c7562dfb0b702029e118490",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/patch_l1.py.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/regression.ps1",
-      "fingerprint": "661abaea1fcd0a8c43dcc8748fa3a7817d7c785498ed9fec9aac132c565ca8ff",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/regression.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/rt.ps1",
-      "fingerprint": "ff530acc3eb9c251916160ba5c061cc0a47b73611863efbcafcf889f513d7be0",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/rt.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/zs.ps1",
-      "fingerprint": "1eeaeb41c413c9a8a539683d41e72c0fb25a358bcdbbd7d738a7e983c95c65ca",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/zs.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/zsign.cpp",
-      "fingerprint": "41fd5c9c27d60daaac86d68e2e392fd8f707449ad895a050cf53b48d92ad08eb",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/zsign.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/c64-hand-asm/zsign.hip",
-      "fingerprint": "9a3620120f7f1c5c879b8e9ad358f23f272b7bb82e9154934417c93f881bcc50",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/c64-hand-asm/zsign.hip.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pack8/build.ps1",
-      "fingerprint": "fa956b672abe3490ca3f5f4ac20c24ad3f451d4c69d31bd59b7d88d0cc21cd1b",
-      "classification": "out-of-scope",
-      "decision": "excluded",
-      "reason": "Upstream development notes/experiments outside the runtime vendor closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:Development/HIP/experiments/pack8/build.ps1.",
-      "validation": "",
-      "next_step": ""
-    },
-    {
-      "id": "file:Development/HIP/experiments/pair-unpack/probe.cpp",
-      "fingerprint": "c480c275692aef98f1a1afbad1ccea0f2ac2159e7d3f6d9956b96a3648c06727",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pair-unpack/probe.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pair-unpack/probe.hip",
-      "fingerprint": "5a3a687521a20efda4d3a19baab4211c91004e6f1396c2619e5f01f2d1ebf964",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pair-unpack/probe.hip.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pair-unpack/probe2.cpp",
-      "fingerprint": "21d0223f6987c91fd594986e865157059065c443a8f3f040982ce2897b7dfb7f",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pair-unpack/probe2.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pair-unpack/probe2.hip",
-      "fingerprint": "a80e4bfbda7bae39f8388c0e3fe86383a0c0d3313d2297c941fed258de054ee1",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pair-unpack/probe2.hip.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pdl-audit/build.sh",
-      "fingerprint": "58c24c024281d2cfac99b42169ff6c0fd1cab1b13eb1fc1a12b5e1234a7b6403",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pdl-audit/build.sh.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pdl-audit/protocol_witness.py",
-      "fingerprint": "18ef38c54156b34bdae7fe08b34ba142be7b498d16bb7eff4d68a0fd3f37c957",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pdl-audit/protocol_witness.py.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/pdl-audit/run.ps1",
-      "fingerprint": "c3f8fbeb6f56479f0eeb6ecb1f2479c888cac6ec84164dd858a4b096e23416bd",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/pdl-audit/run.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/bridge.ps1",
-      "fingerprint": "b5c189c2600dc8d81bea052065bfaf2b0530311fd911e0973b9e1367cd527b14",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/bridge.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/bridge_probe.cpp",
-      "fingerprint": "a0fafc6b877997f01b749f10151c71ce72693ba7936f567df0efa6b383f94bc9",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/bridge_probe.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/build-stream-probe.py",
-      "fingerprint": "3c9ab5011587f5f17345657fd5ffe5b135de238c4bc4aeb50f6d3459a0cc7a80",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/build-stream-probe.py.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/build.sh",
-      "fingerprint": "31d030931b715996b6cc1a902e59dbb925d0515bed7df8a1990072153f953dc7",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/build.sh.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/diagnostic.py",
-      "fingerprint": "d40da96967b8677cd9b38e21be1d82c00ae0c6c6452e3469d92195bfc08a4d90",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/diagnostic.py.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/module.ps1",
-      "fingerprint": "4b02a1fe3bde9b844be7ed1bbf3a3deb73bf96fa3c6deb86fbb34b3ac0971fbc",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/module.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/module_probe.cpp",
-      "fingerprint": "a42927abc71c3c9a1f029770301eeed452a957fc256e3f6deb8927fd2a02448a",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/module_probe.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/run.ps1",
-      "fingerprint": "5ff7cc72a70db81862a011445daa949fbc0d2e79cbed0d051055e2279fe8fdfe",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/run.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/semaphore.ps1",
-      "fingerprint": "a5d1baffc1d2884d40387b2e37c2b4deb216f3d1197d685982e8dfc593ccea99",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/semaphore.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/semaphore_probe.cpp",
-      "fingerprint": "5694f01007e11e4543831cc86678683ef0dcbdf6242620a11120a993639862fd",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/semaphore_probe.cpp.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/experiments/re9-runtime-leak/verify.ps1",
-      "fingerprint": "cd90dedc5cfb3adf340697d1ae9c167d416bfebc32055d40ad7c844eb0cf321d",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/HIP/experiments/re9-runtime-leak/verify.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/HIP/hip_d3d12_bridge.h",
-      "fingerprint": "d86457a528e9e85b4529ad96f89d6c61e135a77b956fe46878966bd74166f377",
-      "classification": "out-of-scope",
-      "decision": "excluded",
-      "reason": "Upstream development notes/experiments outside the runtime vendor closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:Development/HIP/hip_d3d12_bridge.h.",
-      "validation": "",
-      "next_step": ""
-    },
-    {
-      "id": "file:Development/HIP/hip_reference_network.h",
-      "fingerprint": "3de34d5cc0272c750e46dfb462c7689f2492078897ae0f2e2d61896031cb0292",
-      "classification": "out-of-scope",
-      "decision": "excluded",
-      "reason": "Upstream development notes/experiments outside the runtime vendor closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:Development/HIP/hip_reference_network.h.",
-      "validation": "",
-      "next_step": ""
-    },
-    {
-      "id": "file:Development/RE9/presr/build-runtime.sh",
-      "fingerprint": "7a0bdc14dd6cd866288829e3a6a9b7b561998a46e830b09f2c137ff1fc3d931d",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/RE9/presr/build-runtime.sh.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/RE9/presr/prepare-host.py",
-      "fingerprint": "a64aa375dff0cc60819c85bdf277dfb453b3ee276d5763a8b7f01b7eaf73e7e4",
-      "classification": "out-of-scope",
-      "decision": "excluded",
-      "reason": "Upstream development notes/experiments outside the runtime vendor closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:Development/RE9/presr/prepare-host.py.",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:Development/DevHistory.md. Not in manifest headers/hip/shaders.",
       "validation": "",
       "next_step": ""
     },
     {
       "id": "file:Development/WorkingPlan.md",
-      "fingerprint": "84f802c6bf55a89a0148d7fd526163027941b3800cfd3444747c056a6bce1ac4",
+      "fingerprint": "35d9264eac4bc1503e29b0f544ebf545721070007edd90532d6d0db193af364f",
       "classification": "out-of-scope",
       "decision": "excluded",
-      "reason": "Upstream development notes/experiments outside the runtime vendor closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:Development/WorkingPlan.md.",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:Development/WorkingPlan.md. Not in manifest headers/hip/shaders.",
       "validation": "",
       "next_step": ""
     },
     {
-      "id": "file:Development/deployments/ovfl-20260927/README.md",
-      "fingerprint": "f64338f187c4c8918be8f15089b48f8819ac8d3ad8edf8e102ad4a835c18f87d",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/deployments/ovfl-20260927/README.md.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/deployments/ovfl-20260927/install.ps1",
-      "fingerprint": "78e8338b630f503f3771c470faf5e7d6985641d6b3b4182e5934cde3e17e27e4",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/deployments/ovfl-20260927/install.ps1.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/c64-hand-asm-20260927/README.md",
-      "fingerprint": "1e3dda46197625f4609557ecdb76204a1f77d24f5e5d757496dc8d8114d3e7b9",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/c64-hand-asm-20260927/README.md.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/ovfl-census-20260927/README.md",
-      "fingerprint": "49d85913482bc7d662e71e343d42d9b1dc1abfdf3d431a3da47efbeb7dbf4f36",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/ovfl-census-20260927/README.md.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/pdl-audit-20260927/README.md",
-      "fingerprint": "a397fbe447181a58e335239e9c91654b7474b9b5b082b5a397b25053db447215",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/pdl-audit-20260927/README.md.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/pdl-audit-20260927/correctness.txt",
-      "fingerprint": "3123a1b4f7486b602a3dfd761e61a4748291f4389cde1dfaf9e2c6cd681cece3",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/pdl-audit-20260927/correctness.txt.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/pdl-audit-20260927/manifest.json",
-      "fingerprint": "9656a31f6610595eacb6346621f95b09e9beb65456acfebc42efcd2d165cc169",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/pdl-audit-20260927/manifest.json.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/pdl-audit-20260927/results.csv",
-      "fingerprint": "80cee09ff9ab5b12b9c57f4c611d8d6f8280de1a6599e1c4ca7f797281ea1939",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/pdl-audit-20260927/results.csv.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/pdl-audit-20260927/wrap-witness.json",
-      "fingerprint": "d1f752c80d40aaac28ca865344a817ebadd9658e550bb0af2bf8683733f6dcf5",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/pdl-audit-20260927/wrap-witness.json.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/README.md",
-      "fingerprint": "138ac44e8b315a5b83d81dfe126050d4235472e2dedd34d0d8aa6f74f1f30f5d",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/README.md.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/base-pdl1.log",
-      "fingerprint": "b368e3817d04efb85bd683a39d16c88eacce2765f2372dcb04a52704934af77b",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/base-pdl1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/bridge.log",
-      "fingerprint": "63eb2f2aa7c47e74a126bf28130bbe83c590a9ac011aa5e87b7d134408a6f170",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/bridge.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/diag-pdl1.log",
-      "fingerprint": "f535a624c1eb41f224ba182e442405e5858ad0e28dab307549c6cebdd494b8c9",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/diag-pdl1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/final-pdl1.log",
-      "fingerprint": "40904581c908a075279b5da477f7d8557a67b247c3ac924cf5f97127c492d615",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/final-pdl1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/final2-hash-1080.log",
-      "fingerprint": "3e6db7449487e9f8e7b30fe5964079eb5c81c7f492d2af52815dfbaf89058dce",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/final2-hash-1080.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/final2-hash-900.log",
-      "fingerprint": "04b46cd516c72110f8b61021dd6ce2cf1b1b23121eab3f68ace0c7a2bc006d6c",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/final2-hash-900.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/final2-pdl0.log",
-      "fingerprint": "9c5e57b46f2aee62333a787de357c1d7eeabfc04e9301dbd58ec3e548cda9fb3",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/final2-pdl0.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/final2-pdl1.log",
-      "fingerprint": "8f3f39d9a023372ee87f2876071e9632a07740d2eab9ddb77f2988609898ef85",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/final2-pdl1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/final2-smoke.log",
-      "fingerprint": "7159eef433a5a44135ace42d93d82a996b8ef8789d796a28654f7e25922ab114",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/final2-smoke.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/fix-pdl0.log",
-      "fingerprint": "0c3bdb53d4a449f7f3646294689bcb879ffb6b57b3f8d19a82f05a682d7b42b2",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/fix-pdl0.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/fix-pdl1.log",
-      "fingerprint": "e4a9f6d37a1e1ad79a9c6c39c30f02e010b1fe43cc592343bb6b4de9ff8078fc",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/fix-pdl1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/geometry-final2.log",
-      "fingerprint": "b9a396a5ce7da71cae8de8908cf63662001dde33458a399a9caf17eaa788f742",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/geometry-final2.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/geometry.log",
-      "fingerprint": "a1733aa19fbe353e665edc61bd4f621ab7a6304da58d784972736717fbe7f57c",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/geometry.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/manifest.json",
-      "fingerprint": "d292a538d445c3e92444289c7e719d01f7870b22e163f57811e7c9162ffc88ba",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/manifest.json.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/measurements.csv",
-      "fingerprint": "20347186e0db2aa2cfadd9e54816a625a689d1b1b956f8a701d63efd3bef1063",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/measurements.csv.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/module.log",
-      "fingerprint": "1e93ce0543b50d2691d97f401ecf2df949c86bf3e5c1f63e60a263a21a1728d1",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/module.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/semaphore-0.log",
-      "fingerprint": "7d4638909182652505de080fed161ff10b647f2d616d7abeba714219e78fd4d2",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/semaphore-0.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/semaphore-1.log",
-      "fingerprint": "849d043f7343f445ed7d94237ac4992369f7668094d2f768de31929b2f2df6a6",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/semaphore-1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:Development/results/re9-runtime-leak-20260927/stream-pdl1.log",
-      "fingerprint": "a04bee5a698d9ddff0067d401a6e36962543d06de636426d8e006d2aaa5efedb",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:Development/results/re9-runtime-leak-20260927/stream-pdl1.log.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:conversation/20260927/yami-dlss5-tasks-20260927.md",
-      "fingerprint": "98b5e59f13b103c0e94234f6153d25aa357087c6234e1d1101cb62f376bf888e",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:conversation/20260927/yami-dlss5-tasks-20260927.md.",
-      "validation": "",
-      "next_step": "Revisit on next upstream chase."
-    },
-    {
-      "id": "file:hip/build-modules.ps1",
-      "fingerprint": "5589601ef89779a479265f88446e9397c1d769000e8345e6047f55ffc65d84e4",
-      "classification": "production",
-      "decision": "integrated",
-      "reason": "Vendor FOLLOW file taken for sync/closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:hip/build-modules.ps1.",
-      "validation": "Present under third_party/lmxxf; runtime or sync tests use it.",
-      "next_step": ""
-    },
-    {
-      "id": "file:hip/wave_owned_mh.inc",
-      "fingerprint": "13e8a8d5eff04235aefb945413b2c7b5593e2c73378850f54f70c22fd6ffae91",
-      "classification": "production",
-      "decision": "integrated",
-      "reason": "Vendor FOLLOW file taken for sync/closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:hip/wave_owned_mh.inc.",
-      "validation": "Present under third_party/lmxxf; runtime or sync tests use it.",
-      "next_step": ""
-    },
-    {
-      "id": "file:src/LmxxfNrRuntime.cpp",
-      "fingerprint": "524b5e50bde7a565db5051259c33adbcef1a66beb4f4b9a66eca495531768dba",
+      "id": "file:Development/tools/package-034.ps1",
+      "fingerprint": "1b21c29bdc016bf66b0e2531695ffa1e35921fffeb45246f54ddc434ecf1bbc9",
       "classification": "out-of-scope",
       "decision": "excluded",
-      "reason": "Upstream standalone runtime is not the product fork (auto-exposure meter, host contracts).",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:src/LmxxfNrRuntime.cpp.",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:Development/tools/package-034.ps1. Not in manifest headers/hip/shaders.",
       "validation": "",
       "next_step": ""
     },
     {
-      "id": "file:src/native_game_codec.h",
-      "fingerprint": "bc492c877b07a1d070a67a37ccde91e0ee69cc97f6b25eb7d05d48cdf2bcba37",
-      "classification": "production",
-      "decision": "integrated",
-      "reason": "Vendor FOLLOW file taken for sync/closure.",
-      "evidence": "Upstream range 3d9b3e4..f9a016a; audit item file:src/native_game_codec.h.",
-      "validation": "Present under third_party/lmxxf; runtime or sync tests use it.",
+      "id": "file:Development/tools/release-034-results.json",
+      "fingerprint": "cf81d30b3ccfd0e749e28bbd87b734ad4f6625485409d6d1090c32f2390e1198",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:Development/tools/release-034-results.json. Not in manifest headers/hip/shaders.",
+      "validation": "",
       "next_step": ""
     },
     {
-      "id": "file:src/native_game_rgb_input.h",
-      "fingerprint": "cbdae7ba1ae152a280930ac026d917915833ff4de8122a9bbc858c5b9e04577d",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:src/native_game_rgb_input.h.",
+      "id": "file:README.md",
+      "fingerprint": "ba43243300d07cc162d11f9352a79aa98ee226a54ed8272803b21fdbb7821c25",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:README.md. Not in manifest headers/hip/shaders.",
       "validation": "",
-      "next_step": "Revisit on next upstream chase."
+      "next_step": ""
     },
     {
-      "id": "file:src/native_pinned_resource.h",
-      "fingerprint": "8fdc780064108f40f967bf106b6d359069b07f2c00847b15fd114979975a7f23",
-      "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Carried; evidence fingerprint refreshed for current snapshot.",
-      "evidence": "Template file:src/native_pinned_resource.h.",
+      "id": "file:README.zh-CN.md",
+      "fingerprint": "c5abad771b607b128bc48f9f20bd2fa61e43b4dd888d21c5aa3d1afb88b0973c",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:README.zh-CN.md. Not in manifest headers/hip/shaders.",
       "validation": "",
-      "next_step": "Revisit on next upstream chase."
+      "next_step": ""
+    },
+    {
+      "id": "file:conversation/20260927/yami-c32-aco-audit.md",
+      "fingerprint": "0f2051e2be354bbcebb640420a682cd3a5e74f106ed64af7e13c659dd1b68cb8",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:conversation/20260927/yami-c32-aco-audit.md. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
+    },
+    {
+      "id": "file:scripts/package-notes/magpie-en.txt",
+      "fingerprint": "0e0263a3edea6bf77b9ac0afebff0834b535686785068c8cd8e3e3a3a74b9e03",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:scripts/package-notes/magpie-en.txt. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
+    },
+    {
+      "id": "file:scripts/package-notes/magpie-zh.txt",
+      "fingerprint": "e613d2dddcc0ea7b919e674ba82720c152d807f6db60a2a16259bff8e4602537",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:scripts/package-notes/magpie-zh.txt. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
+    },
+    {
+      "id": "file:scripts/package-notes/optiscaler-en.txt",
+      "fingerprint": "32fe5f6943cd64f3c2df33615f781e51494bc7f6da503343c6cdb6374f5a0219",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:scripts/package-notes/optiscaler-en.txt. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
+    },
+    {
+      "id": "file:scripts/package-notes/optiscaler-zh.txt",
+      "fingerprint": "9d4000a785cfe32a3ffe90b92a4b0c1f84fed28bf47b7318a070d05c9182a7b6",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:scripts/package-notes/optiscaler-zh.txt. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
+    },
+    {
+      "id": "file:scripts/package-notes/re9-en.txt",
+      "fingerprint": "10abfe7df8dfeba0c18c38d16af10a3170ba078ebb1a9d98c98bb14645f97c13",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:scripts/package-notes/re9-en.txt. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
+    },
+    {
+      "id": "file:scripts/package-notes/re9-zh.txt",
+      "fingerprint": "cbbfcff4f3c16167cec056dc320fb73e4a4f47a3afdd1d40193f20723a39abb4",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Upstream release notes / packaging / conversation outside the runtime vendor closure (UPSTREAM.md Excluded on purpose).",
+      "evidence": "Upstream range b1122395..61ac166b; audit item file:scripts/package-notes/re9-zh.txt. Not in manifest headers/hip/shaders.",
+      "validation": "",
+      "next_step": ""
     },
     {
       "id": "option:assets",
@@ -2716,6 +2126,26 @@
       "evidence": "Upstream range 3d9b3e4..f9a016a; audit item pinned:Development/HIP/hip_d3d12_bridge.h.",
       "validation": "hip_d3d12_bridge.h contains ClearOutput*, PdlRequested/Effective/Reason, PoolEnabled/ShareNew; LmxxfNrRuntime builds.",
       "next_step": ""
+    },
+    {
+      "id": "modules:external",
+      "fingerprint": "6929ce8e3ee3a103d20a71f31ade900dcee18d5208721c633f3a345770a3161e",
+      "classification": "production",
+      "decision": "integrated",
+      "reason": "External -ModulesPath is the committed third_party/lmxxf/modules dual-arch package (29+29). Same bytes already shipping; no recipe change in this range.",
+      "evidence": "ModulesPath=third_party/lmxxf/modules; Assert-LmxxfModulePackage 58 hsaco; hip/SHA256SUMS merged from this package for 0.33+ extra rows.",
+      "validation": "Package integrity + SHA256SUMS root/leaf consistency validated by sync. No rebuild; bytes unchanged from last verified modules_verified.",
+      "next_step": "On next hip/ recipe change, rebuild via build-modules.ps1 rather than reusing this package."
+    },
+    {
+      "id": "validation:SkipBuild",
+      "fingerprint": "905fee02eca438905accd785f5c5c44317c68393917ca14fe73c095f0538341b",
+      "classification": "production",
+      "decision": "integrated",
+      "reason": "SkipBuild used: all FOLLOW headers/shaders byte-identical to last completed pin; LmxxfNrRuntime.cpp is product-owned and not copied from upstream.",
+      "evidence": "Empty diff on Development/HIP src shaders; product runtime not in sync list (UPSTREAM.md OURS).",
+      "validation": "No runtime recompile required for docs-only 0.34 chase.",
+      "next_step": "On next FOLLOW header/shader change, rebuild LmxxfNrRuntime.dll and run tests/lmxxf_nr_gpu --output-hash A/B before release."
     }
   ]
 }
