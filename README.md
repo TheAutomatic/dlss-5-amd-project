@@ -285,7 +285,30 @@
 - **`danielblnc` 专属**：
   - `NR slots`：多槽缓冲数量调节（2～5 槽，默认 3）；
   - `Every-frame`：强制每帧执行 NR 开关；
-  - `New wait mode`：0.3.1 状态冻结/恢复新等待模式开关。
+  - `New wait mode`：0.3.1 状态冻结/恢复新等待模式开关；
+  - `Inline same-frame wait`：同帧等待 / async；
+  - **Display**：`Tone curve` / `Tone lift` / `Quality`；
+  - **Experimental**：`HIP high-priority queue`；
+  - **Debug / Advanced**：`dlssnr_on_amd.ini` 额外键说明。
+
+#### daniel 配置键（与 `dlssnr_on_amd.ini` `[DlssNrOnAmd]` 对应）
+
+**优先级：Ins 会话 > `OptiScaler.ini` `[DlssNr]`（Save 后）> `dlssnr_on_amd.ini` / 环境 > 默认。**  
+Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
+
+| Ins 菜单 | OptiScaler.ini | daniel 键 | 默认 |
+|---|---|---|---|
+| New wait mode | `AmdGraphicsWait` | `SpinDraw` | 开 |
+| Inline same-frame wait | `AmdInline` | `Async`（0=inline） | 开 |
+| NR slots | `AmdSlots` | — | 3 |
+| Tone curve | `ToneCurve` | `ToneCurve` | reinhard |
+| Tone lift (black) | `ToneLift` | `ToneLift` | 0 |
+| Quality | `Quality` | `Quality` | Fast |
+| HIP high-priority queue | `AmdQueuePriority` | `QueuePriority` | 关 |
+| Style（Pass 1） | `Style` | `Style` | 0 Default |
+
+daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。  
+高级进程环境变量（无 Ins 开关）：`DLSSNR_NO_REG`、`DLSSNR_CHAIN`、`DLSSNR_NOBLEND`、`DLSSNR_NO_REPACK`、`DLSSNR_WBLOG`。
 
 ---
 

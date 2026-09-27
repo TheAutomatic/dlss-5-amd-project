@@ -280,9 +280,15 @@ Este proyecto introdujo la **planificación multi-ranura (Multi-Slot Scheduling)
   - `Colour strength`: Control deslizante continuo para saturación y equilibrio de color (predeterminado 1.0);
   - `Debug view`: Visualización en tiempo real de entradas, salida de la red y búferes de diferencias.
 - **Específicos de `danielblnc`**:
-  - `NR slots`: Cantidad de búferes paralelos (2–5, predeterminado 3);
-  - `Every-frame`: Fuerza la reducción de ruido en cada fotograma;
-  - `New wait mode`: Alternador del modo de espera de congelación/restauración de estado de 0.3.1.
+  - `NR slots`, `Every-frame`, `New wait mode`, `Inline same-frame wait`;
+  - **Display**: `Tone curve` / `Tone lift` / `Quality`;
+  - **Experimental**: `HIP high-priority queue`;
+  - **Debug / Advanced**: claves extra de `dlssnr_on_amd.ini`.
+
+**Prioridad:** sesión Ins > `OptiScaler.ini` `[DlssNr]` (con Guardar) > `dlssnr_on_amd.ini` / entorno > valores predeterminados.  
+Las etiquetas Ins no se escriben al ini; **Guardar** sincroniza ambos ini.  
+`OverlayKey` solo controla el overlay propio de daniel.  
+Variables de entorno avanzadas (sin interruptor Ins): `DLSSNR_NO_REG`, `DLSSNR_CHAIN`, `DLSSNR_NOBLEND`, `DLSSNR_NO_REPACK`, `DLSSNR_WBLOG`.
 
 ---
 

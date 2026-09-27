@@ -7215,8 +7215,8 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     if (ImGui::Button("Save Settings"))
     {
         config->SaveIni();
-        // Keep daniel's Async= in step with AmdInline; only on explicit save.
-        AmdPreSr::SaveDanielInlineIni(config->AmdInline.value_or_default() != 0);
+        // Sync Ins-exposed daniel keys; only on explicit save (same contract as SaveIni).
+        AmdPreSr::SaveDanielSettings();
     }
 
     ImGui::SameLine(0.0f, 6.0f);

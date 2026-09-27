@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "Config.h"
+#include "ConfigKeys.h"
 
 #include "Util.h"
 
@@ -373,7 +374,9 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrStyle.set_from_config(readUInt("DlssNr", "Style"));
             DlssNrToneCurve.set_from_config(readUInt("DlssNr", "ToneCurve"));
             DlssNrToneLift.set_from_config(readFloat("DlssNr", "ToneLift"));
-            AmdQueuePriority.set_from_config(readInt("DlssNr", "AmdQueuePriority"));
+            AmdQueuePriority.set_from_config(readInt("DlssNr", CfgKey::QueuePriority));
+            if (!AmdQueuePriority.has_value())
+                AmdQueuePriority.set_from_config(readInt("DlssNr", CfgKey::QueuePriorityLegacy));
             AmdInline.set_from_config(readInt("DlssNr", "AmdInline"));
             DlssNrQuality.set_from_config(readInt("DlssNr", "Quality"));
             DlssNrPass2Preset.set_from_config(readUInt("DlssNr", "Pass2Preset"));
@@ -1461,7 +1464,7 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Style", GetIntValue(Instance()->DlssNrStyle.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ToneCurve", GetIntValue(Instance()->DlssNrToneCurve.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ToneLift", GetFloatValue(Instance()->DlssNrToneLift.value_for_config()).c_str());
-    ini.SetValue("DlssNr", "AmdQueuePriority", GetIntValue(Instance()->AmdQueuePriority.value_for_config()).c_str());
+    ini.SetValue("DlssNr", CfgKey::QueuePriority, GetIntValue(Instance()->AmdQueuePriority.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdInline", GetIntValue(Instance()->AmdInline.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Quality", GetIntValue(Instance()->DlssNrQuality.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass2Preset",

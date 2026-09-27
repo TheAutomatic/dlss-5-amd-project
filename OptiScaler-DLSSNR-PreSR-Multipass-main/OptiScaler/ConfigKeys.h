@@ -2,6 +2,8 @@
 // ini / txt / env identifiers. Menu labels are UI-only and must never be used as ini keys.
 // Config priority: Ins session / OptiScaler.ini > native-game-flags.txt / DLSS5_* env >
 // compile defaults (see AGENTS.md and LmxxfNrRuntime ApplyFlagsFileFallback).
+// daniel [DlssNrOnAmd] / dlssnr_on_amd.ini: Ins session > OptiScaler.ini (Save) >
+// dlssnr_on_amd.ini / env > defaults. Prefer the same string on both sides.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -9,6 +11,7 @@
 namespace CfgKey
 {
 inline constexpr const char *kSection = "DlssNr";
+inline constexpr const char *kDanielSection = "DlssNrOnAmd";
 
 // Cross-layer product keys use the upstream DLSS5_* names so ini == env == txt.
 // Host _putenv writes that name; ApplyFlagsFileFallback will not override it.
@@ -39,6 +42,16 @@ inline constexpr const char *VitReuseGlobal = "DLSS5_VIT_REUSE_GLOBAL";
 inline constexpr const char *VitReuseLocal = "DLSS5_VIT_REUSE_LOCAL";
 inline constexpr const char *VitReuseImage = "DLSS5_VIT_REUSE_IMAGE";
 inline constexpr const char *VitReuseHotkey = "DLSS5_VIT_REUSE_HOTKEY";
+
+// daniel [DlssNrOnAmd] channels. Same string in OptiScaler.ini when possible.
+inline constexpr const char *ToneCurve = "ToneCurve";
+inline constexpr const char *ToneLift = "ToneLift";
+inline constexpr const char *Quality = "Quality";
+inline constexpr const char *QueuePriority = "QueuePriority";
+inline constexpr const char *QueuePriorityLegacy = "AmdQueuePriority";
+// AmdInline=1 means daniel Async=0 (same-frame). Write Async on Save.
+inline constexpr const char *Inline = "AmdInline";
+inline constexpr const char *Async = "Async";
 
 // Known DlssNr ini keys (save path). Adding a menu control requires adding its key here
 // first; labels stay in DlssNr_Menu.cpp only.
@@ -107,6 +120,13 @@ inline constexpr const char *const kKnown[] = {
     "Pass3AutoMask",
     "ApplyModel",
     "HoldFrame",
+    ToneCurve,
+    ToneLift,
+    Quality,
+    QueuePriority,
+    QueuePriorityLegacy,
+    Inline,
+    Async,
     FitLarge,
     Pdl,
     FitLargeLegacy,

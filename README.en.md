@@ -281,9 +281,15 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
   - `Colour strength`: Continuous slider for color saturation and balance (default 1.0);
   - `Debug view`: Live visualization of inputs, network output, and difference buffers.
 - **`danielblnc` Specific**:
-  - `NR slots`: Parallel buffer count (2–5, default 3);
-  - `Every-frame`: Enforces denoising on every frame;
-  - `New wait mode`: 0.3.1 state freeze/restore wait mode toggle.
+  - `NR slots`, `Every-frame`, `New wait mode`, `Inline same-frame wait`;
+  - **Display**: `Tone curve` / `Tone lift` / `Quality`;
+  - **Experimental**: `HIP high-priority queue`;
+  - **Debug / Advanced**: extra `dlssnr_on_amd.ini` keys.
+
+**Priority:** Ins session > `OptiScaler.ini` `[DlssNr]` (after Save) > `dlssnr_on_amd.ini` / env > defaults.  
+Ins labels are not written to ini; **Save Settings** persists menu values to both inis.  
+Unlisted daniel keys (`OverlayKey`, `PollSpacing`, ...) stay in `dlssnr_on_amd.ini`; `OverlayKey` binds only daniel's own overlay.  
+Advanced process env (no Ins toggle): `DLSSNR_NO_REG`, `DLSSNR_CHAIN`, `DLSSNR_NOBLEND`, `DLSSNR_NO_REPACK`, `DLSSNR_WBLOG`.
 
 ---
 
