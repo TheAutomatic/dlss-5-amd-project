@@ -177,9 +177,29 @@ function Save-ReinstallSource([string]$Path) {
     return $dest
 }
 
+function Get-LastGameDir {
+    try {
+        $p = Get-ItemProperty -Path 'HKCU:\Software\OptiScaler-AMD-PreSR' -Name LastGameDir -ErrorAction Stop
+        $v = [string]$p.LastGameDir
+        if ($v -and (Test-Path -LiteralPath $v -PathType Container)) { return $v }
+    } catch { }
+    return ''
+}
+
+function Save-LastGameDir([string]$Path) {
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path)) { return }
+        if (!(Test-Path -LiteralPath 'HKCU:\Software\OptiScaler-AMD-PreSR')) {
+            New-Item -Path 'HKCU:\Software\OptiScaler-AMD-PreSR' -Force | Out-Null
+        }
+        Set-ItemProperty -Path 'HKCU:\Software\OptiScaler-AMD-PreSR' -Name LastGameDir -Value $Path
+    } catch { }
+}
+
 function Ask-GameFolder {
     # IFileDialog + FOS_PICKFOLDERS: address bar works. A parentless console
     # dialog often shows an empty nav pane unless it has an owner window.
+    $initial = Get-LastGameDir
     try {
         Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @"
 using System;
@@ -243,7 +263,7 @@ public static class AmdFolderPick {
         int hr = SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out item);
         return hr == 0 ? item : IntPtr.Zero;
     }
-    public static string PickFolder(string title) {
+    public static string PickFolder(string title, string initialPath) {
         var dlg = (IFileDialog)new FileOpenDialogRCW();
         uint opts;
         dlg.GetOptions(out opts);
@@ -266,11 +286,15 @@ public static class AmdFolderPick {
             form.Hide();
             owner = form.Handle;
         } catch { owner = IntPtr.Zero; }
-        IntPtr thisPc = ItemFromParsingName(ThisPcParsingName);
-        if (thisPc != IntPtr.Zero) {
-            try { dlg.SetDefaultFolder(thisPc); } catch { }
-            try { dlg.SetFolder(thisPc); } catch { }
-            Marshal.Release(thisPc);
+        IntPtr start = IntPtr.Zero;
+        if (!string.IsNullOrEmpty(initialPath) && System.IO.Directory.Exists(initialPath)) {
+            start = ItemFromParsingName(initialPath);
+        }
+        if (start == IntPtr.Zero) start = ItemFromParsingName(ThisPcParsingName);
+        if (start != IntPtr.Zero) {
+            try { dlg.SetDefaultFolder(start); } catch { }
+            try { dlg.SetFolder(start); } catch { }
+            Marshal.Release(start);
         }
         int hr = dlg.Show(owner);
         if (owner != IntPtr.Zero) {
@@ -292,7 +316,7 @@ public static class AmdFolderPick {
     }
 }
 "@ -ErrorAction Stop
-        $picked = [AmdFolderPick]::PickFolder('Select the game folder that contains the game .exe')
+        $picked = [AmdFolderPick]::PickFolder('Select the game folder that contains the game .exe', $initial)
         if ($picked) { return $picked }
         return $null
     } catch {
@@ -300,6 +324,7 @@ public static class AmdFolderPick {
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
         $dlg.Description = 'Select the game folder that contains the game .exe'
         $dlg.ShowNewFolderButton = $false
+        if ($initial) { $dlg.SelectedPath = $initial }
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
         return $null
     }
@@ -314,6 +339,7 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
         Write-Host 'Cancelled — no folder selected.'
         Pause-Exit 0
     }
+    Save-LastGameDir $GameDir
 }
 
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
@@ -321,6 +347,7 @@ if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
 }
 # Resolve-Path keeps 8.3 names such as RUNNER~1. GetFullPath expands them.
 $game = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $GameDir).Path)
+Save-LastGameDir $game
 $proxies = @(
     'dxgi.dll','winmm.dll','d3d12.dll','version.dll',
     'winhttp.dll','wininet.dll','dbghelp.dll','dinput8.dll'
