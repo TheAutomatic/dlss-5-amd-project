@@ -185,20 +185,11 @@ std::string Layout(ID3D12Resource* resource)
            " flags=" + std::to_string(d.Flags) + " samples=" + std::to_string(d.SampleDesc.Count) +
            " array=" + std::to_string(d.DepthOrArraySize) + " dimension=" + std::to_string(d.Dimension);
 }
-// Keep daniel's [DlssNrOnAmd] in sync with AmdInline. The runtime maps
-// Async=0 -> configuredInline=1 (same-frame wait) and Async=1 -> configuredInline=0.
-// Pre-upscale requires inline ("pre-upscale mode needs inline mode"), so force it
-// off when requesting async instead of leaving a contradictory pair.
-void SyncDanielInlineIni(const std::filesystem::path& directory, bool inlineMode)
-{
-    char ini[MAX_PATH] {};
-    const std::wstring wide = (directory / L"dlssnr_on_amd.ini").wstring();
-    if (!WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, ini, MAX_PATH, nullptr, nullptr))
-        return;
-    WritePrivateProfileStringA("DlssNrOnAmd", "Async", inlineMode ? "0" : "1", ini);
-    if (!inlineMode)
-        WritePrivateProfileStringA("DlssNrOnAmd", "PreUpscale", "0", ini);
-}
+// Persist only on Opti Save Settings (same contract as Config::SaveIni).
+// Runtime maps Async=0 -> configuredInline=1, Async=1 -> configuredInline=0.
+// Do not touch PreUpscale here: forcing it off would clobber the user's file;
+// async admission forces preUpscale=0 in memory for this session only.
+std::filesystem::path g_danielDir;
 
 const AmdLayout* IdentifyRuntime(const std::filesystem::path& file)
 {
@@ -234,6 +225,13 @@ DXGI_FORMAT ReadFormat(DXGI_FORMAT f)
     }
 }
 } // namespace
+void SaveDanielInlineIni(bool inlineMode)
+{
+    if (g_danielDir.empty())
+        return;
+    const std::wstring ini = (g_danielDir / L"dlssnr_on_amd.ini").wstring();
+    WritePrivateProfileStringW(L"DlssNrOnAmd", L"Async", inlineMode ? L"0" : L"1", ini.c_str());
+}
 const char* IdentifyRuntimeName(const std::filesystem::path& passDll)
 {
     auto* layout = IdentifyRuntime(passDll);
@@ -866,7 +864,7 @@ struct Backend::Impl
         queue->AddRef();
         At<int>(h, L->hipOrdinal) = hipDevice;
         const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
-        SyncDanielInlineIni(directory, wantInline);
+        g_danielDir = directory;
         At<uint8_t>(h, L->configuredInline) = wantInline ? 1 : 0;
         if (L->preUpscale && !wantInline)
             At<int>(h, L->preUpscale) = 0;

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "menu_common.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
+#include <dlssnr/amd/AmdPreSr.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -7212,7 +7213,11 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     ImGui::SameLine(0.0f, 15.0f);
 
     if (ImGui::Button("Save Settings"))
+    {
         config->SaveIni();
+        // Keep daniel's Async= in step with AmdInline; only on explicit save.
+        AmdPreSr::SaveDanielInlineIni(config->AmdInline.value_or_default() != 0);
+    }
 
     ImGui::SameLine(0.0f, 6.0f);
 
