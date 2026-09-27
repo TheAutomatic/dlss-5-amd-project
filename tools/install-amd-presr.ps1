@@ -1,4 +1,4 @@
-﻿\xef\xbb\xbf<#
+﻿<#
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
