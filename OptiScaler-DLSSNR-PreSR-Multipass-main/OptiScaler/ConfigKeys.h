@@ -10,10 +10,13 @@ namespace CfgKey
 {
 inline constexpr const char *kSection = "DlssNr";
 
-// Product keys that also have a DLSS5_* env alias. Host _putenv uses EnvAlias; txt must
-// not override an env entry the host already wrote.
-inline constexpr const char *FitLarge = "LmxxfFitLarge";
-inline constexpr const char *Pdl = "LmxxfPdl";
+// Cross-layer product keys use the upstream DLSS5_* names so ini == env == txt.
+// Host _putenv writes that name; ApplyFlagsFileFallback will not override it.
+inline constexpr const char *FitLarge = "DLSS5_FIT_LARGE";
+inline constexpr const char *Pdl = "DLSS5_HIP_PDL";
+// Pre-unification ini spellings. Read-only migration; never written back.
+inline constexpr const char *FitLargeLegacy = "LmxxfFitLarge";
+inline constexpr const char *PdlLegacy = "LmxxfPdl";
 inline constexpr const char *AutoExposure = "LmxxfAutoExposure";
 inline constexpr const char *AutoExposureScale = "LmxxfAutoExposureScale";
 inline constexpr const char *PaperWhite = "LmxxfPaperWhite";
@@ -90,6 +93,8 @@ inline constexpr const char *const kKnown[] = {
     "HoldFrame",
     FitLarge,
     Pdl,
+    FitLargeLegacy,
+    PdlLegacy,
     AutoExposure,
     AutoExposureScale,
     PaperWhite,
@@ -108,15 +113,13 @@ inline bool IsKnown(const char *key)
     return false;
 }
 
-// DLSS5_* name for host putenv when the product key must win over flags/txt.
+// DLSS5_* env name for a product key. Unified keys are already DLSS5_*.
 inline const char *EnvAlias(const char *iniKey)
 {
     if (!iniKey)
         return nullptr;
-    if (std::strcmp(iniKey, FitLarge) == 0)
-        return "DLSS5_FIT_LARGE";
-    if (std::strcmp(iniKey, Pdl) == 0)
-        return "DLSS5_HIP_PDL";
+    if (std::strncmp(iniKey, "DLSS5_", 6) == 0)
+        return iniKey;
     return nullptr;
 }
 

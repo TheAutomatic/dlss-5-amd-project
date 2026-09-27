@@ -406,25 +406,29 @@ bool Config::Reload(std::filesystem::path iniPath)
             if (migratedLegacyNrOff)
                 LOG_INFO("Migrated legacy [DlssNr] NrBackend=off/none to Enabled=false");
             LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
-            // true/false only; missing or "auto" => true (upstream package flags default).
+            // Cross-layer keys use DLSS5_* names (ini == env == txt). Legacy Lmxxf* names still load.
+            auto readUnifiedBool = [&](const char *unified, const char *legacy, bool defaultValue) -> bool {
+                auto raw = readString(CfgKey::kSection, unified, true);
+                if (!raw.has_value() || raw->empty())
+                    raw = readString(CfgKey::kSection, legacy, true);
+                if (!raw.has_value() || raw->empty() || _stricmp(raw->c_str(), "auto") == 0)
+                    return defaultValue;
+                const auto b = readBool(CfgKey::kSection, unified);
+                if (b.has_value())
+                    return *b;
+                const auto legacyB = readBool(CfgKey::kSection, legacy);
+                return legacyB.has_value() ? *legacyB : defaultValue;
+            };
             {
-                const auto fitRaw = readString(CfgKey::kSection, CfgKey::FitLarge, true);
-                if (!fitRaw.has_value() || fitRaw->empty() || _stricmp(fitRaw->c_str(), "auto") == 0)
-                    LmxxfFitLarge.set_from_config(true);
-                else
-                    LmxxfFitLarge.set_from_config(readBool(CfgKey::kSection, CfgKey::FitLarge));
+                const bool fit = readUnifiedBool(CfgKey::FitLarge, CfgKey::FitLargeLegacy, true);
+                LmxxfFitLarge.set_from_config(fit);
+                CfgKey::PutEnvAlias(CfgKey::FitLarge, fit);
             }
-            // ini wins over native-game-flags.txt: host writes the env alias first.
-            CfgKey::PutEnvAlias(CfgKey::FitLarge, LmxxfFitLarge.value_or_default());
-            // Missing or auto stays on. Explicit false is the off switch for PDL.
             {
-                const auto pdlRaw = readString(CfgKey::kSection, CfgKey::Pdl, true);
-                if (!pdlRaw.has_value() || pdlRaw->empty() || _stricmp(pdlRaw->c_str(), "auto") == 0)
-                    LmxxfPdl.set_from_config(true);
-                else
-                    LmxxfPdl.set_from_config(readBool(CfgKey::kSection, CfgKey::Pdl));
+                const bool pdl = readUnifiedBool(CfgKey::Pdl, CfgKey::PdlLegacy, true);
+                LmxxfPdl.set_from_config(pdl);
+                CfgKey::PutEnvAlias(CfgKey::Pdl, pdl);
             }
-            CfgKey::PutEnvAlias(CfgKey::Pdl, LmxxfPdl.value_or_default());
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));

@@ -236,13 +236,13 @@ NrBackend=lmxxf
 ; Default is off. Restart after changing. Invalid values do not enable NR.
 LmxxfDiagnostic=off
 
-; Fit Color inputs above 1920x1080 onto the 1080 network (upstream DLSS5_FIT_LARGE)
-; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). Installer also writes DLSS5-AMD\native-game-flags.txt. true/false - Default is true
-LmxxfFitLarge=true
+; Fit Color inputs above 1920x1080 onto the 1080 network (same name as env/txt)
+; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). true/false - Default is true
+DLSS5_FIT_LARGE=true
 
 ; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
 ; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
-LmxxfPdl=true
+DLSS5_HIP_PDL=true
 
 ; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
 ; Not the HDR Paper White anchor.
