@@ -341,8 +341,8 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue((game_mods / "gfx1200").is_dir(), output)
         self.assertTrue((game_mods / "gfx1201").is_dir(), output)
         self.assertEqual(len(list(game_mods.glob("*.hsaco"))), 0, "no flat hsaco in root")
-        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 24)
-        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 24)
+        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 29)
+        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 29)
         self.assertTrue((game_mods / "SHA256SUMS").is_file(), output)
         self.assertTrue((game_mods / "runtime-manifest.json").is_file(), output)
 
@@ -362,7 +362,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertFalse(list(mods.glob("*.hsaco")))
         self.assertFalse((mods / "modules.json").exists())
         for arch in ("gfx1200", "gfx1201"):
-            self.assertEqual(len(list((mods / arch).glob("*.hsaco"))), 24)
+            self.assertEqual(len(list((mods / arch).glob("*.hsaco"))), 29)
         return mods
 
     def assert_custom_module_backed_up(self):

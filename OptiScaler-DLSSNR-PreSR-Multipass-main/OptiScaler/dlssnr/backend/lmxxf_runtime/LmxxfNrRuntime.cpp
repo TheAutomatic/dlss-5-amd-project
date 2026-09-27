@@ -364,7 +364,7 @@ bool CachedFileSha256(const std::wstring &path, std::string *outHex)
     return true;
 }
 
-static const char *const kKnownModuleNames[24] = {
+static const char *const kKnownModuleNames[29] = {
     "boundary-fast.hsaco",
     "boundary_reference.hsaco",
     "c32_fast.hsaco",
@@ -375,6 +375,10 @@ static const char *const kKnownModuleNames[24] = {
     "c32_prefix_reference.hsaco",
     "c32_tiled.hsaco",
     "c32_wmma.hsaco",
+    "c32-wave1.hsaco",
+    "c64-wave2.hsaco",
+    "c512-m32-mh.hsaco",
+    "c512-m32-deep.hsaco",
     "deep_fast-packed.hsaco",
     "deep_fast.hsaco",
     "deep_reference.hsaco",
@@ -388,6 +392,7 @@ static const char *const kKnownModuleNames[24] = {
     "multihead-wmma.hsaco",
     "multihead_fused_attention.hsaco",
     "prefix_fast.hsaco",
+    "vit-wide-deep.hsaco",
     "wave-pointwise.hsaco",
 };
 
@@ -825,10 +830,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
 
     if (isDualArch)
     {
-        if (count1200 != 24 || count1201 != 24 || rootMap.size() != 48)
+        if (count1200 != 29 || count1201 != 29 || rootMap.size() != 58)
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: dual-architecture SHA256SUMS incomplete (expected 24 gfx1200 and 24 gfx1201 entries)");
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 29 gfx1200 and 29 gfx1201 entries)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -938,7 +943,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
                                 ("Create: leaf SHA256SUMS mismatch with root for " + rootKey).c_str());
                 }
             }
-            if (leafMap.size() != 24)
+            if (leafMap.size() != 29)
             {
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             ("Create: leaf SHA256SUMS incomplete for " + std::string(arch)).c_str());
@@ -947,10 +952,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
     }
     else
     {
-        if (rootMap.size() != 24)
+        if (rootMap.size() != 29)
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: SHA256SUMS incomplete (expected 24 hsaco modules)");
+                        "Create: SHA256SUMS incomplete (expected 29 hsaco modules)");
         }
         for (const char *known : kKnownModuleNames)
         {

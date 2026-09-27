@@ -170,7 +170,7 @@ function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [swit
     $recipes = Read-LmxxfModuleSums $hipSums
     $bad = @($package.Keys | Where-Object { -not $recipes.ContainsKey($_) -or $package[$_] -ne $recipes[$_] })
     if ($bad.Count -eq 0) {
-        Write-Host '  Complete dual-architecture package matches hip/SHA256SUMS (24 + 24 modules).' -ForegroundColor Green
+        Write-Host '  Complete dual-architecture package matches hip/SHA256SUMS.' -ForegroundColor Green
         return $true
     }
     $msg = 'Shipping modules do not match hip/SHA256SUMS recipes: ' + ($bad -join ', ')
@@ -190,13 +190,21 @@ function Merge-HipSums([string]$upstreamSums, [string]$dstSums, [string]$modules
         }
     }
     $out = @()
+    $seen = @{}
     foreach ($line in Get-Content -LiteralPath $upstreamSums -Encoding UTF8) {
         if ($line -match $rowPattern) {
             $key = $Matches['arch'] + '/' + $Matches['n']
-            if ($modulesDir -and -not $local.ContainsKey($key)) { throw "Unexpected module in hip/SHA256SUMS: $key" }
+            $seen[$key] = $true
             if ($local.ContainsKey($key)) { $line = $local[$key] + '  ' + $key }
+            elseif ($modulesDir) { continue } # dropped from local recipe
         }
         $out += $line
+    }
+    # 0.33+ recipe can ship modules that older hip/SHA256SUMS still lacks.
+    if ($modulesDir) {
+        foreach ($key in ($local.Keys | Sort-Object)) {
+            if (-not $seen.ContainsKey($key)) { $out += ($local[$key] + '  ' + $key) }
+        }
     }
     [IO.File]::WriteAllLines($dstSums, $out, [Text.UTF8Encoding]::new($false))
 }
@@ -210,5 +218,5 @@ function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash
     } finally {
         Remove-LmxxfTemporaryTree $stage ([IO.Path]::GetDirectoryName($stage))
     }
-    Write-Host ('  Synchronized verified dual-architecture modules (24 + 24) from ' + $srcDir) -ForegroundColor Green
+    Write-Host ('  Synchronized verified dual-architecture modules from ' + $srcDir) -ForegroundColor Green
 }

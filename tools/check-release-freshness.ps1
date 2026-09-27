@@ -70,7 +70,7 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
             continue
         }
         $hs = @(Get-ChildItem -LiteralPath (Join-Path $modRoot $arch) -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
-        if ($hs.Count -ne 24) { $failures.Add("$arch has $($hs.Count) hsaco, expected 24") }
+        if ($hs.Count -ne 29) { $failures.Add("$arch has $($hs.Count) hsaco, expected 29") }
     }
     $rootSums = Join-Path $modRoot 'SHA256SUMS'
     if (!(Test-Path -LiteralPath $rootSums -PathType Leaf)) {

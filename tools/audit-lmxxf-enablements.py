@@ -114,7 +114,10 @@ def parse_recipe(text):
         if name in rows:
             raise ValueError(f'Duplicate recipe module: {name}')
         sources = re.findall(r"'([^']+)'", match[3])
-        if not sources or any(not re.fullmatch(r'[A-Za-z0-9_.-]+\.hip', s) for s in sources):
+        # .hip sources, 0.33+ .inc fragments, and expandable recipe tokens like @wave-owned-attention-body
+        if not sources or any(
+            not re.fullmatch(r'(?:[A-Za-z0-9_.-]+\.(?:hip|inc)|@[A-Za-z0-9_-]+)', s) for s in sources
+        ):
             raise ValueError(f'Unrecognized sources in module {name}; update audit parser')
         rows[name] = {'sources': sources, 'defines': re.findall(r"'([^']+)'", match[2])}
     # Do not silently drop a row when upstream changes its recipe syntax.
@@ -225,6 +228,9 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
     for module, row in sorted(recipe.items()):
         defs = row['defines'] + overrides.get(module, [])
         for source in row['sources']:
+            # @name tokens are inline recipe fragments (not hip/ files), e.g. @wave-owned-attention-body.
+            if source.startswith('@'):
+                continue
             path = 'hip/' + source
             body = git.read(commit, path)  # Missing recipe input is an audit failure, not noise.
             names = set()
