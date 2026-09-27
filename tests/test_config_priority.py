@@ -26,6 +26,14 @@ class ConfigPriorityTests(unittest.TestCase):
                 "EarlyExeWrap",
                 "Diagnostic",
                 "kSection",
+                "kDanielSection",
+                "ToneCurve",
+                "ToneLift",
+                "Quality",
+                "QueuePriority",
+                "QueuePriorityLegacy",
+                "Inline",
+                "Async",
             }:
                 continue
             self.assertTrue(ini_key.startswith("DLSS5_"), f"{name} -> {ini_key}")
