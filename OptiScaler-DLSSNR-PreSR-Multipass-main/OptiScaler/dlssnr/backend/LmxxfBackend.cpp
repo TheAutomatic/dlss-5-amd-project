@@ -98,9 +98,10 @@ bool WantsAutoExposure(bool usableExposure, float preExposure = 1.0f)
     return Config::Instance()->LmxxfAutoExposure.value_or_default();
 }
 
-float EffectiveCodecPaperWhite(bool usableExposure, float preExposure = 1.0f)
+float EffectiveCodecPaperWhite(bool usableExposure)
 {
-    if (usableExposure || WantsAutoExposure(usableExposure, preExposure))
+    // Game pre-exposure can skip the meter without selecting the manual divisor.
+    if (usableExposure || Config::Instance()->LmxxfAutoExposure.value_or_default())
         return CodecPaperWhite();
     const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
@@ -509,8 +510,7 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     LmxxfCut::ArmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
-        pendingJobInfo.job = jobHandle;
-        pendingJobInfo.cmd = recordCmd;
+        pendingJobInfo = {jobHandle, recordCmd};
     }
     SetStatus("lmxxf: Record ok (pending EnqueueHip)");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
@@ -558,15 +558,13 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         previousPending = pendingJobInfo.job != nullptr;
         if (previousPending)
         {
-            static unsigned stalledEvaluations = 0;
-            if (++stalledEvaluations >= 8)
+            if (++pendingJobInfo.stalledEvaluations >= 8)
             {
                 // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
                 // the list was never submitted and cannot retire itself.
                 void *job = pendingJobInfo.job;
                 const bool enqueued = LmxxfCut::Pending().job != job;
                 pendingJobInfo = {};
-                stalledEvaluations = 0;
                 if (session && api && job)
                 {
                     if (enqueued && api->table.Retire)
@@ -581,11 +579,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                              enqueued ? "retired" : "cancelled", recoveries);
                 previousPending = false;
             }
-        }
-        else
-        {
-            static unsigned stalledEvaluations = 0;
-            stalledEvaluations = 0;
         }
     }
     if (previousPending)
@@ -646,7 +639,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
     fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
     fi.model_scale = settings.modelScale;
-    fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure), frame.preExposure);
+    fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
     fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
     // A runtime that predates the flag rejects it, so only ask when it takes the full struct.
     if (!frameInfoV1 && WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
@@ -895,7 +888,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
                 fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
-                fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure), frame.preExposure);
+                fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
                 fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
                 if (WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
                     fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;

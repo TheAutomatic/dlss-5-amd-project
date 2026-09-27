@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <d3d12.h>
 
+#include "../../../ConfigKeys.h"
 #include "LmxxfProductionOptions.h"
 #include "native_device_identity.h"
 #include "native_game_codec.h"
@@ -543,19 +544,9 @@ const char *ColorInputProblem(const D3D12_RESOURCE_DESC &desc)
     return nullptr;
 }
 
-// Upstream enables 1080p+ via DLSS5_FIT_LARGE=1. Host menu/ini already _putenv's product
-// keys; flags only fill gaps (ApplyFlagsFileFallback). Codec Supported() uses
-// NativeFitLargeInput(); QueryCapabilities must match.
-void EnsureFitLargeApplied()
+// Probe all missing flags independently of whether FitLarge already has a value.
+void EnsureFlagsFileFallbackApplied()
 {
-    // Host Config may set DLSS5_FIT_LARGE after process start. Re-resolve when env is
-    // present; flags probe stays at 1 Hz while neither env nor a flags file exists.
-    if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
-    {
-        NativeFitLargeInputOverride() = (e[0] == '1' && !e[1]);
-        return;
-    }
-
     static ULONGLONG nextProbe = 0;
     const ULONGLONG now = GetTickCount64();
     if (now < nextProbe)
@@ -585,8 +576,15 @@ void EnsureFitLargeApplied()
 
     for (size_t i = 0; i < n; ++i)
         ApplyFlagsFileFallback(candidates[i]);
+}
 
-    if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
+void EnsureRuntimeConfigApplied()
+{
+    static std::mutex configMutex;
+    std::lock_guard lock(configMutex);
+    CfgKey::SyncEnvAliasesFromProcess();
+    EnsureFlagsFileFallbackApplied();
+    if (const char *e = std::getenv(CfgKey::FitLarge))
         NativeFitLargeInputOverride() = (e[0] == '1' && !e[1]);
 }
 
@@ -1285,6 +1283,9 @@ struct Session
        must rebuild, or mid-game 720/900/1080/auto switches keep the old surface. */
     unsigned netW = 0;
     unsigned netH = 0;
+    // Adaptive reuse reads live env, but byte stream is baked into the network.
+    // Rebuild when byte stream changes before allowing reuse on the next frame.
+    bool vitByteStream = false;
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
     // Hardware & module selection diagnostics
@@ -1368,6 +1369,7 @@ struct Session
         hipPrepared = false;
         netW = 0;
         netH = 0;
+        vitByteStream = false;
         pdlRequested = false;
         pdlEffective = false;
         pdlReason.clear();
@@ -1627,7 +1629,7 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
         if (out->struct_size != sizeof(LmxxfNrCapabilities))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "QueryCapabilities: struct_size mismatch");
         out->abi_version = LMXXF_NR_ABI_VERSION;
-        EnsureFitLargeApplied();
+        EnsureRuntimeConfigApplied();
         // Without FIT_LARGE: the 1920x1080 pixel budget (wider but smaller inputs up to 2560 wide,
         // i.e. ultrawide, are admitted too). With it: NativeInputGeometry::Supported(..., large) ceiling.
         if (NativeFitLargeInput())
@@ -1665,7 +1667,7 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
             return Fail(LMXXF_NR_INVALID_ARGUMENT,
                         "Create: assets_directory required (modules dir from 68dc099 build)");
 
-        EnsureFitLargeApplied();
+        EnsureRuntimeConfigApplied();
         std::wstring assets = info->assets_directory;
         if (!IsDirectory(assets))
             return Fail(LMXXF_NR_UNAVAILABLE, "Create: assets_directory is not a directory");
@@ -1829,22 +1831,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: transfer_strength and color_strength must be in [0, 3]");
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
-        // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
-        EnsureFitLargeApplied();
-        {
-            // Host is MSVC: menu/ini _putenv in its CRT. Copy Win32 env into MinGW CRT
-            // so live DLSS5_NETWORK_HEIGHT tier switches apply without a restart.
-            char winEnv[64] {};
-            const DWORD n = GetEnvironmentVariableA("DLSS5_NETWORK_HEIGHT", winEnv, sizeof winEnv);
-            if (n > 0 && n < sizeof winEnv)
-            {
-                char entry[96] {};
-                std::snprintf(entry, sizeof entry, "DLSS5_NETWORK_HEIGHT=%s", winEnv);
-                _putenv(entry);
-            }
-            else if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
-                _putenv("DLSS5_NETWORK_HEIGHT=auto");
-        }
+        EnsureRuntimeConfigApplied();
+        if (!std::getenv(CfgKey::NetworkHeight))
+            _putenv("DLSS5_NETWORK_HEIGHT=auto");
         {
             // Log only when the tier actually changes (not every frame).
             const char *h = std::getenv("DLSS5_NETWORK_HEIGHT");
@@ -1876,6 +1865,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->bridge = new hip_reference::D3D12Bridge();
             session->bridge->Create(session->queue, opt, {});
             session->hipPrepared = true;
+            session->vitByteStream = opt.vit_byte_stream;
             session->netW = geo.valid_width;
             session->netH = geo.valid_height;
             session->CaptureBridgeDiagnostics();
@@ -2088,17 +2078,21 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         const bool tierChanged = session->encode &&
                                  (session->netW != resolvedGeo.valid_width ||
                                   session->netH != resolvedGeo.valid_height);
+        const char *vitByte = std::getenv(CfgKey::VitByteStream);
+        const bool vitByteStreamChanged = session->hipPrepared &&
+            session->vitByteStream != (vitByte && std::strcmp(vitByte, "1") == 0);
         const bool geoChanged =
             exposureChanged || validChanged || formatChanged || allocChanged || tierChanged;
         const bool pointerChanged = session->encode && color != session->job.color;
 
-        if (session->encode && geoChanged)
+        if ((session->encode && geoChanged) || vitByteStreamChanged)
         {
             ++session->codecRecreates;
             char reason[96] {};
-            std::snprintf(reason, sizeof reason, "%s%s%s%s%s", exposureChanged ? "exposure+" : "",
+            std::snprintf(reason, sizeof reason, "%s%s%s%s%s%s", exposureChanged ? "exposure+" : "",
                           validChanged ? "valid+" : "", formatChanged ? "format+" : "",
-                          tierChanged ? "tier+" : "", allocChanged ? "alloc" : "");
+                          tierChanged ? "tier+" : "", allocChanged ? "alloc+" : "",
+                          vitByteStreamChanged ? "vit-byte-stream" : "");
             // Trim the trailing '+' left when "alloc" is not the last trigger.
             size_t rlen = std::strlen(reason);
             if (rlen && reason[rlen - 1] == '+')
@@ -2117,7 +2111,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             keepLastError = true;
             if (FAILED(session->DrainGpu()))
                 return Fail(LMXXF_NR_UNAVAILABLE,
-                            "PrepareFrame: color geometry change; GPU drain failed (retry or rebuild session)");
+                            "PrepareFrame: geometry or ViT option change; GPU drain failed (retry or rebuild session)");
             session->TeardownCodecChain();
             session->job = {};
         }
@@ -2139,6 +2133,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->bridge = new hip_reference::D3D12Bridge();
                 session->bridge->Create(session->queue, opt, {});
                 session->hipPrepared = true;
+                session->vitByteStream = opt.vit_byte_stream;
                 session->netW = geo.valid_width;
                 session->netH = geo.valid_height;
                 session->CaptureBridgeDiagnostics();

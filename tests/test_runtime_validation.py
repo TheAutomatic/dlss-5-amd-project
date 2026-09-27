@@ -5,6 +5,20 @@ import unittest
 import ctypes
 from pathlib import Path
 import subprocess
+import sys
+import textwrap
+
+class LmxxfNrCapabilities(ctypes.Structure):
+    _fields_ = [
+        ('struct_size', ctypes.c_uint32),
+        ('abi_version', ctypes.c_uint32),
+        ('max_input_width', ctypes.c_uint32),
+        ('max_input_height', ctypes.c_uint32),
+        ('history_supported', ctypes.c_uint32),
+        ('overlap_supported', ctypes.c_uint32),
+        ('graph_supported', ctypes.c_uint32),
+        ('gfx1201_target', ctypes.c_uint32),
+    ]
 
 class LmxxfNrCreateInfo(ctypes.Structure):
     _fields_ = [
@@ -38,6 +52,75 @@ LmxxfNrApi._fields_ = [
     ('GetStatus', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32)),
     ('GetLastError', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_char_p, ctypes.c_uint32)),
 ]
+
+class RuntimeConfigTests(unittest.TestCase):
+    def run_config_probe(self, initial_env, flags, probe):
+        # Each probe uses a private DLL/flags directory and process so CRT caches,
+        # the flags probe timer and environment writes cannot leak between tests.
+        runtime = Path(os.environ.get('LMXXF_TEST_RUNTIME', r'exports\lmxxf-runtime\LmxxfNrRuntime.dll')).resolve()
+        self.assertTrue(runtime.is_file(), str(runtime))
+        with tempfile.TemporaryDirectory(prefix='lmxxf-config-') as td:
+            dll = Path(td) / runtime.name
+            shutil.copy2(runtime, dll)
+            if flags is not None:
+                (Path(td) / 'native-game-flags.txt').write_text(flags, encoding='ascii')
+            env = {key: value for key, value in os.environ.items() if not key.upper().startswith('DLSS5_')}
+            env.update(initial_env)
+            source = textwrap.dedent('''
+                import ctypes
+                import sys
+                from tests.test_runtime_validation import LmxxfNrApi, LmxxfNrCapabilities
+                dll = ctypes.WinDLL(sys.argv[1])
+                api = LmxxfNrApi()
+                api.struct_size = ctypes.sizeof(api)
+                dll.LmxxfNrGetApi.argtypes = [ctypes.c_uint32, ctypes.POINTER(LmxxfNrApi)]
+                assert dll.LmxxfNrGetApi(1, ctypes.byref(api)) == 0
+                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                kernel.SetEnvironmentVariableW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+                kernel.GetEnvironmentVariableW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+                def set_env(key, value):
+                    assert kernel.SetEnvironmentVariableW(key, value)
+                def get_env(key):
+                    value = ctypes.create_unicode_buffer(256)
+                    n = kernel.GetEnvironmentVariableW(key, value, len(value))
+                    return value.value if n else None
+                def query_size():
+                    caps = LmxxfNrCapabilities()
+                    caps.struct_size = ctypes.sizeof(caps)
+                    assert api.QueryCapabilities(ctypes.byref(caps)) == 0
+                    return caps.max_input_width, caps.max_input_height
+            ''') + textwrap.dedent(probe)
+            result = subprocess.run(
+                [sys.executable, '-c', source, str(dll)], env=env,
+                cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_live_fit_large_updates_after_crt_initialization(self):
+        self.run_config_probe({'DLSS5_FIT_LARGE': '1'}, None, '''
+            assert query_size() == (16384, 16384)
+            set_env('DLSS5_FIT_LARGE', '0')
+            assert query_size() == (1920, 1080)
+            set_env('DLSS5_FIT_LARGE', '1')
+            assert query_size() == (16384, 16384)
+        ''')
+
+    def test_flags_fill_other_keys_when_host_sets_fit_large(self):
+        self.run_config_probe(
+            {'DLSS5_FIT_LARGE': '1', 'DLSS5_HIP_WAVE_OWNED': '1'},
+            'DLSS5_FIT_LARGE=0\nDLSS5_HIP_WAVE_OWNED=0\nDLSS5_TYPELESS_RGBA16=unorm\n', '''
+                assert query_size() == (16384, 16384)
+                assert get_env('DLSS5_HIP_WAVE_OWNED') == '1'
+                assert get_env('DLSS5_TYPELESS_RGBA16') == 'unorm'
+            ''',
+        )
+
+    def test_live_host_choice_overrides_loaded_flags(self):
+        self.run_config_probe({}, 'DLSS5_FIT_LARGE=1\n', '''
+            assert query_size() == (16384, 16384)
+            set_env('DLSS5_FIT_LARGE', '0')
+            assert query_size() == (1920, 1080)
+        ''')
 
 class RuntimeValidationTests(unittest.TestCase):
     @classmethod
@@ -212,17 +295,6 @@ class RuntimeValidationTests(unittest.TestCase):
                     path.unlink()
 
     def test_v1_abi_capabilities_and_pdl_status(self):
-        class LmxxfNrCapabilities(ctypes.Structure):
-            _fields_ = [
-                ("struct_size", ctypes.c_uint32),
-                ("abi_version", ctypes.c_uint32),
-                ("max_input_width", ctypes.c_uint32),
-                ("max_input_height", ctypes.c_uint32),
-                ("history_supported", ctypes.c_uint32),
-                ("overlap_supported", ctypes.c_uint32),
-                ("graph_supported", ctypes.c_uint32),
-                ("gfx1201_target", ctypes.c_uint32),
-            ]
         caps = LmxxfNrCapabilities()
         caps.struct_size = ctypes.sizeof(LmxxfNrCapabilities)
         rc = self.api.QueryCapabilities(ctypes.byref(caps))

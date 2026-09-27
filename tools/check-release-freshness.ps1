@@ -49,7 +49,8 @@ $rtDir = Join-Path $Root 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlss
 $rtSources = @(
     (Join-Path $rtDir 'LmxxfNrRuntime.cpp'),
     (Join-Path $rtDir 'LmxxfNrApi.h'),
-    (Join-Path $rtDir 'LmxxfProductionOptions.h')
+    (Join-Path $rtDir 'LmxxfProductionOptions.h'),
+    (Join-Path $rtDir '../../../ConfigKeys.h')
 )
 Test-NotStale $dll $rtSources 'LmxxfNrRuntime.dll'
 # Pinned headers used by the runtime

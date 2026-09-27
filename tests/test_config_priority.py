@@ -1,6 +1,10 @@
 """Contract tests: Ins/ini win over native-game-flags.txt; key names stay stable."""
 from pathlib import Path
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +17,27 @@ MENU = (ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/DlssNr_
 
 
 class ConfigPriorityTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt" and shutil.which("cl"), "requires an x64 MSVC developer environment")
+    def test_host_updates_cross_independent_crt_caches(self):
+        source = ROOT / "tests/lmxxf_config_crt.cpp"
+        with tempfile.TemporaryDirectory(prefix="lmxxf-config-crt-") as td:
+            out = Path(td)
+            for fixture in (True, False):
+                name = "runtime" if fixture else "host"
+                target = out / (name + (".dll" if fixture else ".exe"))
+                command = ["cl", "/nologo", "/std:c++17", "/EHsc", "/MT", "/W4", "/utf-8",
+                           "/D_CRT_SECURE_NO_WARNINGS", str(source),
+                           f"/Fo:{out / (name + '.obj')}", f"/Fe:{target}"]
+                if fixture:
+                    command += ["/LD", "/DLMXXF_CONFIG_CRT_FIXTURE"]
+                result = subprocess.run(command, cwd=out, capture_output=True, text=True,
+                                        errors="replace", timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run([str(out / "host.exe"), str(out / "runtime.dll")],
+                                    capture_output=True, text=True, errors="replace", timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("LMXXF_CONFIG_CRT_OK", result.stdout)
+
     def test_cross_layer_keys_use_upstream_dlss5_names(self):
         for name, ini_key in re.findall(r'inline constexpr const char \*(\w+) = "([^"]+)"', KEYS):
             if name.endswith("Legacy"):

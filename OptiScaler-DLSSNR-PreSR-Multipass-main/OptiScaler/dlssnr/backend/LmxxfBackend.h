@@ -31,6 +31,7 @@ class LmxxfBackend final : public Host
     {
         void *job = nullptr;
         ID3D12CommandList *cmd = nullptr;
+        unsigned stalledEvaluations = 0; // Reset with this job on submission/replacement.
     };
     mutable std::mutex recordMutex; // The runtime session has one active job.
     mutable std::mutex jobMutex;

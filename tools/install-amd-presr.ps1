@@ -959,6 +959,19 @@ Partial files (if any) are under:
     }
 }
 
+function Get-IniSetting([string]$iniPath, [string]$sectionName, [string]$key) {
+    $inSection = $false
+    foreach ($line in [System.IO.File]::ReadAllLines($iniPath)) {
+        if ($line -match '^\s*\[([^\]]+)\]\s*$') {
+            if ($inSection) { break }
+            $inSection = ($Matches[1] -ieq $sectionName)
+        } elseif ($inSection -and $line -match ('^\s*' + [regex]::Escape($key) + '\s*=(.*)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+    return $null
+}
+
 function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collections.IDictionary]$settings, [switch]$OnlyMissing) {
     if (-not (Test-Path -LiteralPath $iniPath -PathType Leaf)) { return }
     $lines = [System.Collections.Generic.List[string]]::new()
@@ -1109,6 +1122,12 @@ if ($installLmxxf) {
 # Preference keys are only added when missing, so a kept ini retains model scale, every-frame,
 # encoding and FitLarge. An overwrite already replaced those with the package defaults.
 if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+    # Fill a missing canonical key from its legacy spelling before using defaults.
+    # -OnlyMissing below still gives an existing canonical choice precedence.
+    $fitLargeDefault = Get-IniSetting $gameIni 'DlssNr' 'LmxxfFitLarge'
+    $pdlDefault = Get-IniSetting $gameIni 'DlssNr' 'LmxxfPdl'
+    if ([string]::IsNullOrWhiteSpace($fitLargeDefault)) { $fitLargeDefault = 'true' }
+    if ([string]::IsNullOrWhiteSpace($pdlDefault)) { $pdlDefault = 'true' }
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
         'Enabled' = 'true'
         'RunBeforeSR' = 'true'
@@ -1116,8 +1135,8 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         'LmxxfDiagnostic' = 'off'
     })
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{
-        'DLSS5_FIT_LARGE' = 'true'
-        'DLSS5_HIP_PDL' = 'true'
+        'DLSS5_FIT_LARGE' = $fitLargeDefault
+        'DLSS5_HIP_PDL' = $pdlDefault
         'LmxxfPaperWhite' = '1'
         'AmdModelScale' = '1'
         'AmdEncoding' = '0'

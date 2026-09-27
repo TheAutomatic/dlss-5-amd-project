@@ -643,6 +643,11 @@ void RenderMenu(Config* config, float menuResScale)
                             ImGui::BeginDisabled();
                         if (ImGui::Checkbox("ViT byte stream (exp)", &vitByte))
                         {
+                            if (vitByte)
+                            {
+                                config->LmxxfVitAdaptive = false;
+                                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, false);
+                            }
                             config->LmxxfVitByteStream = vitByte;
                             CfgKey::PutEnvAlias(CfgKey::VitByteStream, vitByte);
                             if (vitByte && vitStream != 0)
@@ -656,6 +661,7 @@ void RenderMenu(Config* config, float menuResScale)
                             ImGui::EndDisabled();
                         HelpMarker("Upstream production kernels. Off restores the previous path."
                                    "\nViT stream and ViT byte stream are mutually exclusive."
+                                   "\nEnabling ViT byte stream turns off adaptive reuse."
                                    "\nApplies on the next network rebuild.");
                         ImGui::TreePop();
                     }
@@ -665,6 +671,11 @@ void RenderMenu(Config* config, float menuResScale)
                         bool adapt = config->LmxxfVitAdaptive.value_or_default();
                         if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
                         {
+                            if (adapt)
+                            {
+                                config->LmxxfVitByteStream = false;
+                                CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                            }
                             config->LmxxfVitAdaptive = adapt;
                             CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
                         }
@@ -707,6 +718,7 @@ void RenderMenu(Config* config, float menuResScale)
                             CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
                         }
                         HelpMarker("Static frames reuse ViT; motion returns to full cost."
+                                   "\nEnabling adaptive reuse turns off ViT byte stream."
                                    "\nStrength sliders are tunable (not bit-exact)."
                                    "\nApplies on the next network rebuild.");
                         ImGui::TreePop();

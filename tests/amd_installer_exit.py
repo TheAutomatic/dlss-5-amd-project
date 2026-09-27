@@ -142,6 +142,57 @@ class InstallerExitTests(unittest.TestCase):
         self.assertNotIn("NrBackend=lmxxf", text)
         self.assertNotIn("NrBackend = lmxxf", text)
 
+    def test_kept_ini_migrates_legacy_preferences(self):
+        self.ready_install()
+        ini = self.game / "OptiScaler.ini"
+        ini.write_text(
+            "[Other]\nLmxxfFitLarge=true\nLmxxfPdl=true\n"
+            "[DlssNr]\nLmxxfFitLarge=false\nLmxxfPdl=false\n", encoding="utf-8"
+        )
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding="utf-8-sig")
+        self.assertIn("DLSS5_FIT_LARGE = false", text)
+        self.assertIn("DLSS5_HIP_PDL = false", text)
+
+    def test_kept_ini_preserves_canonical_preferences_over_legacy(self):
+        self.ready_install()
+        ini = self.game / "OptiScaler.ini"
+        ini.write_text(
+            "[DlssNr]\nLmxxfFitLarge=true\nLmxxfPdl=false\n"
+            "DLSS5_FIT_LARGE=false\nDLSS5_HIP_PDL=true\n", encoding="utf-8"
+        )
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding="utf-8-sig")
+        self.assertIn("DLSS5_FIT_LARGE=false", text)
+        self.assertIn("DLSS5_HIP_PDL=true", text)
+        self.assertEqual(text.count("DLSS5_FIT_LARGE"), 1)
+        self.assertEqual(text.count("DLSS5_HIP_PDL"), 1)
+
+    def test_kept_ini_defaults_only_missing_preferences(self):
+        self.ready_install()
+        ini = self.game / "OptiScaler.ini"
+        ini.write_text("[DlssNr]\nLmxxfFitLarge=false\n", encoding="utf-8")
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding="utf-8-sig")
+        self.assertIn("DLSS5_FIT_LARGE = false", text)
+        self.assertIn("DLSS5_HIP_PDL = true", text)
+
+    def test_interactive_keep_ini_migrates_legacy_preferences(self):
+        self.ready_legacy_install()
+        (self.package / "OptiScaler.ini").write_text(
+            "[DlssNr]\nDLSS5_FIT_LARGE=true\nDLSS5_HIP_PDL=true\n", encoding="utf-8"
+        )
+        ini = self.game / "OptiScaler.ini"
+        ini.write_text("[DlssNr]\nLmxxfFitLarge=false\nLmxxfPdl=false\n", encoding="utf-8")
+        code, output = self.run_batch(stdin="n\n2\n")
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding="utf-8-sig")
+        self.assertIn("DLSS5_FIT_LARGE = false", text)
+        self.assertIn("DLSS5_HIP_PDL = false", text)
+
     def test_install_success_pauses_once(self):
         self.ready_install()
         code, output = self.run_batch()

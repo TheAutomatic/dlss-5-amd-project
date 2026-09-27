@@ -476,15 +476,21 @@ bool Config::Reload(std::filesystem::path iniPath)
                 CfgKey::PutEnvAlias(CfgKey::DecoderByte, dec);
                 const bool vb = readUnifiedBoolDefault(CfgKey::VitByteStream, false);
                 LmxxfVitByteStream.set_from_config(vb);
-                CfgKey::PutEnvAlias(CfgKey::VitByteStream, vb);
                 int vstream = 0;
                 if (auto vs = readInt(CfgKey::kSection, CfgKey::VitStream))
                     vstream = (*vs >= 0 && *vs <= 3) ? *vs : 0;
                 LmxxfVitStream.set_from_config(vstream);
-                CfgKey::PutEnvString(CfgKey::VitStream, std::to_string(vstream).c_str());
                 const bool adapt = readUnifiedBoolDefault(CfgKey::VitAdaptive, true);
                 LmxxfVitAdaptive.set_from_config(adapt);
-                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
+                // Match the menu's exclusions when an ini contains conflicting choices.
+                // A selected stream wins over byte stream; byte stream disables reuse.
+                if (LmxxfVitStream.value_or_default() != 0)
+                    LmxxfVitByteStream = false;
+                if (LmxxfVitByteStream.value_or_default())
+                    LmxxfVitAdaptive = false;
+                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, LmxxfVitAdaptive.value_or_default());
+                CfgKey::PutEnvAlias(CfgKey::VitByteStream, LmxxfVitByteStream.value_or_default());
+                CfgKey::PutEnvString(CfgKey::VitStream, std::to_string(LmxxfVitStream.value_or_default()).c_str());
                 const bool hot = readUnifiedBoolDefault(CfgKey::VitReuseHotkey, true);
                 LmxxfVitReuseHotkey.set_from_config(hot);
                 CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);

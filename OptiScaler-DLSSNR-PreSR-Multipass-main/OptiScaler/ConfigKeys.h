@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <windows.h>
 
 namespace CfgKey
@@ -179,8 +180,8 @@ inline const char *EnvAlias(const char *iniKey)
 }
 
 // Host writes env so ApplyFlagsFileFallback cannot override an ini/menu choice.
-// MSVC _putenv and MinGW getenv are different CRTs: also set the Win32 process
-// environment so LmxxfNrRuntime (g++) can see menu/ini updates at runtime.
+// The host and runtime can have separate CRT environments, including two MSVC
+// static CRTs. Publish to Win32; the runtime imports these keys before using them.
 inline void PutEnvAlias(const char *iniKey, bool on)
 {
     const char *env = EnvAlias(iniKey);
@@ -201,5 +202,27 @@ inline void PutEnvString(const char *iniKey, const char *value)
     std::snprintf(entry, sizeof entry, "%s=%s", env, value);
     _putenv(entry);
     SetEnvironmentVariableA(env, value);
+}
+
+// Called inside the runtime's CRT. Updating the process environment alone does not
+// refresh its getenv cache. Missing entries leave runtime/flags fallbacks intact.
+inline void SyncEnvAliasesFromProcess()
+{
+    for (const char *key : kKnown)
+    {
+        const char *env = EnvAlias(key);
+        if (!env)
+            continue;
+        char value[256] {};
+        const DWORD n = GetEnvironmentVariableA(env, value, sizeof value);
+        if (!n || n >= sizeof value)
+            continue;
+        const char *current = std::getenv(env);
+        if (!current || std::strcmp(current, value) != 0)
+        {
+            const std::string entry = std::string(env) + "=" + value;
+            _putenv(entry.c_str());
+        }
+    }
 }
 } // namespace CfgKey
