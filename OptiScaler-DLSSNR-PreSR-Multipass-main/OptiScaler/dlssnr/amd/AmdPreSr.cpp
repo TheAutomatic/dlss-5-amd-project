@@ -185,6 +185,21 @@ std::string Layout(ID3D12Resource* resource)
            " flags=" + std::to_string(d.Flags) + " samples=" + std::to_string(d.SampleDesc.Count) +
            " array=" + std::to_string(d.DepthOrArraySize) + " dimension=" + std::to_string(d.Dimension);
 }
+// Keep daniel's [DlssNrOnAmd] in sync with AmdInline. The runtime maps
+// Async=0 -> configuredInline=1 (same-frame wait) and Async=1 -> configuredInline=0.
+// Pre-upscale requires inline ("pre-upscale mode needs inline mode"), so force it
+// off when requesting async instead of leaving a contradictory pair.
+void SyncDanielInlineIni(const std::filesystem::path& directory, bool inlineMode)
+{
+    char ini[MAX_PATH] {};
+    const std::wstring wide = (directory / L"dlssnr_on_amd.ini").wstring();
+    if (!WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, ini, MAX_PATH, nullptr, nullptr))
+        return;
+    WritePrivateProfileStringA("DlssNrOnAmd", "Async", inlineMode ? "0" : "1", ini);
+    if (!inlineMode)
+        WritePrivateProfileStringA("DlssNrOnAmd", "PreUpscale", "0", ini);
+}
+
 const AmdLayout* IdentifyRuntime(const std::filesystem::path& file)
 {
     std::ifstream in(file, std::ios::binary);
@@ -850,7 +865,11 @@ struct Backend::Impl
         At<ID3D12CommandQueue*>(h, L->queue) = queue.Get();
         queue->AddRef();
         At<int>(h, L->hipOrdinal) = hipDevice;
-        At<uint8_t>(h, L->configuredInline) = 1;
+        const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
+        SyncDanielInlineIni(directory, wantInline);
+        At<uint8_t>(h, L->configuredInline) = wantInline ? 1 : 0;
+        if (L->preUpscale && !wantInline)
+            At<int>(h, L->preUpscale) = 0;
         At<uint8_t>(h, L->interop) = 1;
         At<uint8_t>(h, L->enabled) = 1;
         At<uint8_t>(h, L->fsrInputs) = 1;
@@ -1579,6 +1598,22 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 At<uint8_t>(r, L->useGameExposure) = exposureSource ? 1u : 0u; // a byte in 0.3.3/0.4.0 (setne byte)
             if (L->style)
                 At<UINT>(r, L->style) = (std::min)(Config::Instance()->DlssNrStyle.value_or_default(), 2u);
+            if (L->toneCurve)
+                At<UINT>(r, L->toneCurve) = Config::Instance()->DlssNrToneCurve.value_or_default() ? 1u : 0u;
+            if (L->toneLift)
+            {
+                const float lift = Config::Instance()->DlssNrToneLift.value_or_default();
+                At<float>(r, L->toneLift) = lift > 0.0f ? lift : 0.0f;
+            }
+            if (L->queuePriority)
+                At<UINT>(r, L->queuePriority) = Config::Instance()->AmdQueuePriority.value_or_default() ? 1u : 0u;
+            if (L->configuredInline)
+            {
+                const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
+                At<uint8_t>(r, L->configuredInline) = wantInline ? 1 : 0;
+                if (L->preUpscale && !wantInline)
+                    At<int>(r, L->preUpscale) = 0;
+            }
             // The old shader ceiling expired at high render resolutions even
             // when inference finished well inside the original runtime's watchdog.
             // Scale the spin allowance with pixels, but retain a hard ceiling

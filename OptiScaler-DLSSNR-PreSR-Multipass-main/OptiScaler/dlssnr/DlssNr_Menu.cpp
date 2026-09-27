@@ -240,6 +240,29 @@ void RenderMenu(Config* config, float menuResScale)
                         ImGui::CloseCurrentPopup();
                     ImGui::EndPopup();
                 }
+
+                // daniel 0.3.3+ display / 0.4.1 stream channels (see handoff missing-options).
+                {
+                    static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
+                    int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
+                        config->DlssNrToneCurve = (uint32_t) curve;
+                    HelpMarker("Display curve the network sees (daniel ToneCurve)."
+                               "\nReinhard usually has better colour; ACES if highlights oversaturate.");
+                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.5f, 0.0f);
+                    HelpMarker("Floor of the display curve (daniel ToneLift / Black lift). 0 = none.");
+                    bool qprio = config->AmdQueuePriority.value_or_default() != 0;
+                    if (ImGui::Checkbox("HIP high-priority queue", &qprio))
+                        config->AmdQueuePriority = qprio ? 1 : 0;
+                    HelpMarker("daniel 0.4.1 QueuePriority=1: high-priority HIP stream (helps under heavy load)."
+                               "\nOff: null stream (QueuePriority=0).");
+                    bool inlineWait = config->AmdInline.value_or_default() != 0;
+                    if (ImGui::Checkbox("Inline same-frame wait", &inlineWait))
+                        config->AmdInline = inlineWait ? 1 : 0;
+                    HelpMarker("On (default): game waits for NR in the same frame (historical path)."
+                               "\nOff: async (daniel Async=1); pre-upscale is forced off because it requires inline."
+                               "\nAlso written to dlssnr_on_amd.ini. Restart may be required.");
+                }
             }
         }
 
