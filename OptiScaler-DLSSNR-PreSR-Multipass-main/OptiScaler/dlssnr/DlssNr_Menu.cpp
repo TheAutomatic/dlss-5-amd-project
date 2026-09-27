@@ -462,6 +462,25 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nApplies on the next frame, including after a resolution change."
                            "\nThe network may rebuild once. No restart.");
 
+                {
+                    static const char *netNames[] = {"auto", "720", "900", "1080"};
+                    int netIdx = 0;
+                    const std::string net = config->LmxxfNetworkHeight.value_or_default();
+                    for (int i = 0; i < 4; ++i)
+                        if (net == netNames[i])
+                            netIdx = i;
+                    if (ImGui::Combo("Network tier", &netIdx, netNames, 4))
+                    {
+                        config->LmxxfNetworkHeight = netNames[netIdx];
+                        CfgKey::PutEnvString(CfgKey::NetworkHeight, netNames[netIdx]);
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("auto: smallest tier that fits (2K quality can use 900)."
+                               "\nFixed 720 / 900 / 1080 pins the network surface."
+                               "\nLower tiers cost less GPU time."
+                               "\nApplies on the next network rebuild.");
+                }
+
                 if (ImGui::TreeNode("Experimental"))
                 {
                     bool autoExposure = config->LmxxfAutoExposure.value_or_default();
@@ -497,6 +516,87 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nLog slider, so 1 is easy to land on. Reset returns to 1."
                                "\nNot the HDR Paper White control further down."
                                "\nApplies on the next frame. No restart.");
+
+                    if (ImGui::TreeNode("Kernels (0.31)"))
+                    {
+                        auto kernelToggle = [&](const char *label, const char *key, bool *value) {
+                            if (ImGui::Checkbox(label, value))
+                                CfgKey::PutEnvAlias(key, *value);
+                        };
+                        bool wave = config->LmxxfWaveOwned.value_or_default();
+                        kernelToggle("Wave-owned attention", CfgKey::WaveOwned, &wave);
+                        config->LmxxfWaveOwned = wave;
+                        bool c512 = config->LmxxfC512M32.value_or_default();
+                        kernelToggle("C512 M32", CfgKey::C512M32, &c512);
+                        config->LmxxfC512M32 = c512;
+                        bool vn = config->LmxxfVitProjN64.value_or_default();
+                        kernelToggle("ViT proj N64", CfgKey::VitProjN64, &vn);
+                        config->LmxxfVitProjN64 = vn;
+                        bool pool = config->LmxxfSharedPool.value_or_default();
+                        kernelToggle("Shared buffer pool", CfgKey::SharedPool, &pool);
+                        config->LmxxfSharedPool = pool;
+                        bool mh = config->LmxxfMHByteStream.value_or_default();
+                        kernelToggle("MH byte stream", CfgKey::MHByteStream, &mh);
+                        config->LmxxfMHByteStream = mh;
+                        bool dec = config->LmxxfDecoderByte.value_or_default();
+                        kernelToggle("Decoder byte", CfgKey::DecoderByte, &dec);
+                        config->LmxxfDecoderByte = dec;
+                        bool vb = config->LmxxfVitByteStream.value_or_default();
+                        kernelToggle("ViT byte stream (exp)", CfgKey::VitByteStream, &vb);
+                        config->LmxxfVitByteStream = vb;
+                        HelpMarker("Upstream production kernels. Off restores the previous path."
+                                   "\nByte-stream options are coupled; leave them together."
+                                   "\nApplies on the next network rebuild.");
+                        ImGui::TreePop();
+                    }
+
+                    if (ImGui::TreeNode("Image reuse"))
+                    {
+                        bool adapt = config->LmxxfVitAdaptive.value_or_default();
+                        if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                            CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
+                        config->LmxxfVitAdaptive = adapt;
+                        int period = config->LmxxfVitReusePeriod.value_or_default();
+                        if (ImGui::SliderInt("Reuse period", &period, 1, 16))
+                        {
+                            config->LmxxfVitReusePeriod = period;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%d", period);
+                            CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
+                        }
+                        float gl = config->LmxxfVitReuseGlobal.value_or_default();
+                        if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseGlobal = gl;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", gl);
+                            CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
+                        }
+                        float lo = config->LmxxfVitReuseLocal.value_or_default();
+                        if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseLocal = lo;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", lo);
+                            CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
+                        }
+                        float im = config->LmxxfVitReuseImage.value_or_default();
+                        if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseImage = im;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", im);
+                            CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
+                        }
+                        bool hot = config->LmxxfVitReuseHotkey.value_or_default();
+                        if (ImGui::Checkbox("Hotkey F8", &hot))
+                            CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
+                        config->LmxxfVitReuseHotkey = hot;
+                        HelpMarker("Static frames reuse ViT; motion returns to full cost."
+                                   "\nStrength sliders are tunable (not bit-exact)."
+                                   "\nApplies on the next network rebuild.");
+                        ImGui::TreePop();
+                    }
 
                     // The HIP chain reads PDL once, when it is first built.
                     static bool pdlAtStart = true;

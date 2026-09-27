@@ -429,6 +429,75 @@ bool Config::Reload(std::filesystem::path iniPath)
                 LmxxfPdl.set_from_config(pdl);
                 CfgKey::PutEnvAlias(CfgKey::Pdl, pdl);
             }
+            {
+                auto netH = readString(CfgKey::kSection, CfgKey::NetworkHeight, true);
+                std::string net = (netH.has_value() && !netH->empty()) ? *netH : "auto";
+                LmxxfNetworkHeight.set_from_config(net);
+                CfgKey::PutEnvString(CfgKey::NetworkHeight, net.c_str());
+            }
+            auto readUnifiedBoolDefault = [&](const char *key, bool defaultValue) -> bool {
+                const auto raw = readString(CfgKey::kSection, key, true);
+                if (!raw.has_value() || raw->empty() || _stricmp(raw->c_str(), "auto") == 0)
+                    return defaultValue;
+                const auto b = readBool(CfgKey::kSection, key);
+                return b.has_value() ? *b : defaultValue;
+            };
+            {
+                const bool v = readUnifiedBoolDefault(CfgKey::WaveOwned, true);
+                LmxxfWaveOwned.set_from_config(v);
+                CfgKey::PutEnvAlias(CfgKey::WaveOwned, v);
+                const bool c = readUnifiedBoolDefault(CfgKey::C512M32, true);
+                LmxxfC512M32.set_from_config(c);
+                CfgKey::PutEnvAlias(CfgKey::C512M32, c);
+                const bool n = readUnifiedBoolDefault(CfgKey::VitProjN64, true);
+                LmxxfVitProjN64.set_from_config(n);
+                CfgKey::PutEnvAlias(CfgKey::VitProjN64, n);
+                const bool pool = readUnifiedBoolDefault(CfgKey::SharedPool, true);
+                LmxxfSharedPool.set_from_config(pool);
+                CfgKey::PutEnvAlias(CfgKey::SharedPool, pool);
+                const bool mh = readUnifiedBoolDefault(CfgKey::MHByteStream, true);
+                LmxxfMHByteStream.set_from_config(mh);
+                CfgKey::PutEnvAlias(CfgKey::MHByteStream, mh);
+                const bool dec = readUnifiedBoolDefault(CfgKey::DecoderByte, true);
+                LmxxfDecoderByte.set_from_config(dec);
+                CfgKey::PutEnvAlias(CfgKey::DecoderByte, dec);
+                const bool vb = readUnifiedBoolDefault(CfgKey::VitByteStream, false);
+                LmxxfVitByteStream.set_from_config(vb);
+                CfgKey::PutEnvAlias(CfgKey::VitByteStream, vb);
+                const bool adapt = readUnifiedBoolDefault(CfgKey::VitAdaptive, true);
+                LmxxfVitAdaptive.set_from_config(adapt);
+                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
+                const bool hot = readUnifiedBoolDefault(CfgKey::VitReuseHotkey, true);
+                LmxxfVitReuseHotkey.set_from_config(hot);
+                CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
+            }
+            {
+                auto period = readInt(CfgKey::kSection, CfgKey::VitReusePeriod);
+                int p = period.has_value() ? *period : 4;
+                if (p < 1)
+                    p = 1;
+                if (p > 16)
+                    p = 16;
+                LmxxfVitReusePeriod.set_from_config(p);
+                char buf[32];
+                snprintf(buf, sizeof buf, "%d", p);
+                CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
+                auto g = readFloat(CfgKey::kSection, CfgKey::VitReuseGlobal);
+                const float gv = g.has_value() ? *g : 0.22f;
+                LmxxfVitReuseGlobal.set_from_config(gv);
+                snprintf(buf, sizeof buf, "%g", gv);
+                CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
+                auto l = readFloat(CfgKey::kSection, CfgKey::VitReuseLocal);
+                const float lv = l.has_value() ? *l : 1.0f;
+                LmxxfVitReuseLocal.set_from_config(lv);
+                snprintf(buf, sizeof buf, "%g", lv);
+                CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
+                auto im = readFloat(CfgKey::kSection, CfgKey::VitReuseImage);
+                const float iv = im.has_value() ? *im : 0.35f;
+                LmxxfVitReuseImage.set_from_config(iv);
+                snprintf(buf, sizeof buf, "%g", iv);
+                CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
+            }
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));
@@ -1411,6 +1480,21 @@ bool Config::SaveIni()
         ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::FitLarge, GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::Pdl, GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NetworkHeight,
+                 Instance()->LmxxfNetworkHeight.value_for_config_or("auto").c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::WaveOwned, GetBoolValue(Instance()->LmxxfWaveOwned.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::C512M32, GetBoolValue(Instance()->LmxxfC512M32.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitProjN64, GetBoolValue(Instance()->LmxxfVitProjN64.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::SharedPool, GetBoolValue(Instance()->LmxxfSharedPool.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MHByteStream, GetBoolValue(Instance()->LmxxfMHByteStream.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::DecoderByte, GetBoolValue(Instance()->LmxxfDecoderByte.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitByteStream, GetBoolValue(Instance()->LmxxfVitByteStream.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitAdaptive, GetBoolValue(Instance()->LmxxfVitAdaptive.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitReusePeriod, GetIntValue(Instance()->LmxxfVitReusePeriod.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitReuseGlobal, GetFloatValue(Instance()->LmxxfVitReuseGlobal.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitReuseLocal, GetFloatValue(Instance()->LmxxfVitReuseLocal.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitReuseImage, GetFloatValue(Instance()->LmxxfVitReuseImage.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitReuseHotkey, GetBoolValue(Instance()->LmxxfVitReuseHotkey.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfPaperWhite",
                  GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAutoExposure",

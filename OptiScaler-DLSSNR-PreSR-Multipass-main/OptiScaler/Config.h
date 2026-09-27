@@ -354,6 +354,23 @@ class Config
     // Missing = engine whitelist (Unreal + Forza). false = never. true = force for any engine.
     // Other engines (e.g. Yan Yun) can crash with early ArmCreate + wrap. Restart after change.
     CustomOptional<bool, NoDefault> LmxxfEarlyExeWrap;
+    // Network tier: auto | 720 | 900 | 1080 (DLSS5_NETWORK_HEIGHT).
+    CustomOptional<std::string> LmxxfNetworkHeight { "auto" };
+    // 0.31 kernels / shared pool (bit-exact per upstream). ini name == env name.
+    CustomOptional<bool> LmxxfWaveOwned { true };
+    CustomOptional<bool> LmxxfC512M32 { true };
+    CustomOptional<bool> LmxxfVitProjN64 { true };
+    CustomOptional<bool> LmxxfSharedPool { true };
+    CustomOptional<bool> LmxxfMHByteStream { true };
+    CustomOptional<bool> LmxxfDecoderByte { true };
+    CustomOptional<bool> LmxxfVitByteStream { false };
+    // Static-frame ViT reuse (tunable; not bit-exact).
+    CustomOptional<bool> LmxxfVitAdaptive { true };
+    CustomOptional<int> LmxxfVitReusePeriod { 4 };
+    CustomOptional<float> LmxxfVitReuseGlobal { 0.22f };
+    CustomOptional<float> LmxxfVitReuseLocal { 1.0f };
+    CustomOptional<float> LmxxfVitReuseImage { 0.35f };
+    CustomOptional<bool> LmxxfVitReuseHotkey { true };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

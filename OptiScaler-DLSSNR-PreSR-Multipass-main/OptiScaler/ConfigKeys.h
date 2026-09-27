@@ -24,6 +24,22 @@ inline constexpr const char *AllowEnhancedBarriers = "LmxxfAllowEnhancedBarriers
 inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
 
+// Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
+inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
+inline constexpr const char *WaveOwned = "DLSS5_HIP_WAVE_OWNED";
+inline constexpr const char *C512M32 = "DLSS5_HIP_C512_M32";
+inline constexpr const char *VitProjN64 = "DLSS5_HIP_VIT_PROJ_N64";
+inline constexpr const char *SharedPool = "DLSS5_HIP_SHARED_POOL";
+inline constexpr const char *MHByteStream = "DLSS5_HIP_MH_BYTE_STREAM";
+inline constexpr const char *DecoderByte = "DLSS5_HIP_DECODER_BYTE";
+inline constexpr const char *VitByteStream = "DLSS5_HIP_VIT_BYTE_STREAM";
+inline constexpr const char *VitAdaptive = "DLSS5_VIT_ADAPTIVE";
+inline constexpr const char *VitReusePeriod = "DLSS5_VIT_REUSE_PERIOD";
+inline constexpr const char *VitReuseGlobal = "DLSS5_VIT_REUSE_GLOBAL";
+inline constexpr const char *VitReuseLocal = "DLSS5_VIT_REUSE_LOCAL";
+inline constexpr const char *VitReuseImage = "DLSS5_VIT_REUSE_IMAGE";
+inline constexpr const char *VitReuseHotkey = "DLSS5_VIT_REUSE_HOTKEY";
+
 // Known DlssNr ini keys (save path). Adding a menu control requires adding its key here
 // first; labels stay in DlssNr_Menu.cpp only.
 inline constexpr const char *const kKnown[] = {
@@ -101,6 +117,20 @@ inline constexpr const char *const kKnown[] = {
     AllowEnhancedBarriers,
     EarlyExeWrap,
     Diagnostic,
+    NetworkHeight,
+    WaveOwned,
+    C512M32,
+    VitProjN64,
+    SharedPool,
+    MHByteStream,
+    DecoderByte,
+    VitByteStream,
+    VitAdaptive,
+    VitReusePeriod,
+    VitReuseGlobal,
+    VitReuseLocal,
+    VitReuseImage,
+    VitReuseHotkey,
 };
 
 inline bool IsKnown(const char *key)
@@ -131,6 +161,16 @@ inline void PutEnvAlias(const char *iniKey, bool on)
         return;
     char entry[160];
     std::snprintf(entry, sizeof entry, "%s=%d", env, on ? 1 : 0);
+    _putenv(entry);
+}
+
+inline void PutEnvString(const char *iniKey, const char *value)
+{
+    const char *env = EnvAlias(iniKey);
+    if (!env || !value)
+        return;
+    char entry[192];
+    std::snprintf(entry, sizeof entry, "%s=%s", env, value);
     _putenv(entry);
 }
 } // namespace CfgKey
