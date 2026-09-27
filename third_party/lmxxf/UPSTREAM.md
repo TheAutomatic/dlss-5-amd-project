@@ -1,7 +1,7 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `61ac166b72f01d0466b34029877e26d01862e578` (synced 2026-09-27)
+- Commit: `54e14de503431cd4536f8a7151b022af232178a9` (synced 2026-09-28)
 - **0.33/0.34** dual-arch modules (29/29) from `hip/build-modules.ps1` pack8 recipe rows (CW_PACK8 / W2_PACK8 6 / FMED3 / SAT3). 0.34 chase (`61ac166b`) is docs/packaging only; modules reused via `-ModulesPath` (no `AllowStaleModules`). Stellar Blade accepted `W2_PACK8 6` + HEAD add-on (PDL=1). RE9 0.34 candidate 58/41 fps.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1

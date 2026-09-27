@@ -1,5 +1,5 @@
---- a/src/src/native_lab_paths.h
-+++ b/src/src/native_lab_paths.h
+--- a/src/native_lab_paths.h
++++ b/src/native_lab_paths.h
 @@ -7,7 +7,10 @@
  #include "native_pso.h"
  #include <dxgi.h>

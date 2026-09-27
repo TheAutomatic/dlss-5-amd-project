@@ -6,7 +6,7 @@
   archive. hip_d3d12_bridge.h is preserved unless -UpdateBridge is supplied (product Pdl*
   accessors + local patches). Other headers follow upstream after PR #9.
   Missing required files or patch conflicts fail before vendor files are touched.
-  Ordinary headers, hip/*.hip and top-level shaders/*.hlsl are mirrored within their owners.
+  Ordinary headers, hip/*.hip + hip/*.inc and top-level shaders/*.hlsl are mirrored within their owners.
 
   Source copying alone never completes a sync. The audit writes a report and a review
   template to exports/lmxxf-upstream; review decisions must match the exact commit and
@@ -178,8 +178,8 @@ try {
     $required += @($manifest.hip_files | ForEach-Object { 'hip/' + $_ })
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $tree $_) -PathType Leaf) })
     if ($missing.Count) { throw ('Required upstream paths disappeared; update the closure/integration first: ' + ($missing -join ', ')) }
-    foreach ($pair in @(@('hip', '*.hip'), @('shaders', '*.hlsl'))) {
-        if (@(Get-ChildItem -LiteralPath (Join-Path $tree $pair[0]) -File -Filter $pair[1]).Count -eq 0) { throw "Empty upstream $($pair[0]) source set" }
+    foreach ($pair in @(@('hip', '*.hip'), @('hip', '*.inc'), @('shaders', '*.hlsl'))) {
+        if (@(Get-ChildItem -LiteralPath (Join-Path $tree $pair[0]) -File -Filter $pair[1]).Count -eq 0) { throw "Empty upstream $($pair[0]) source set ($($pair[1]))" }
     }
     foreach ($spec in $manifest.pinned) {
         if ($updates[$spec.switch]) {
@@ -247,6 +247,7 @@ try {
     }
     Sync-FlatFiles (Join-Path $tree 'shaders') (Join-Path $vendorRoot 'shaders') '*.hlsl'
     Sync-FlatFiles (Join-Path $tree 'hip') $dstHip '*.hip'
+    Sync-FlatFiles (Join-Path $tree 'hip') $dstHip '*.inc'
     foreach ($name in $manifest.hip_files) {
         if ($name -eq 'SHA256SUMS') { continue }
         Copy-Item -LiteralPath (Join-Path $tree ('hip/' + $name)) -Destination (Join-Path $dstHip $name) -Force

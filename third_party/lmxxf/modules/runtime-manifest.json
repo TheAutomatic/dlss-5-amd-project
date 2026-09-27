@@ -13,8 +13,8 @@
     "amdgcn-amd-amdhsa--gfx1200",
     "amdgcn-amd-amdhsa--gfx1201"
   ],
-  "module_count": 58,
-  "module_count_per_arch": 29,
+  "module_count": 60,
+  "module_count_per_arch": 30,
   "history": false,
   "overlap": false,
   "graph": false,
@@ -32,5 +32,5 @@
     "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
     "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir."
   ],
-  "upstream_commit": "61ac166b72f01d0466b34029877e26d01862e578"
+  "upstream_commit": "54e14de503431cd4536f8a7151b022af232178a9"
 }

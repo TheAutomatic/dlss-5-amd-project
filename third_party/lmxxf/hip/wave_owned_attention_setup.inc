@@ -47,3 +47,5 @@ DEV void attention_wave_body(const unsigned char*normalized,const float*aw,const
   w2_schedule();
  }
  w2_sync(); // Every head has consumed V before the plane becomes AV output.
+
+#define W2_ATTENTION_ONLY 1

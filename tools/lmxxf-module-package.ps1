@@ -11,7 +11,7 @@ function Get-LmxxfModuleNames {
         'multihead-fast-packed.hsaco', 'multihead-fast-padded-wave-packed.hsaco',
         'multihead-fast-padded-wave.hsaco', 'multihead-fast.hsaco', 'multihead-reference.hsaco',
         'multihead-tiled.hsaco', 'multihead-wmma.hsaco', 'multihead_fused_attention.hsaco',
-        'prefix_fast.hsaco', 'vit-wide-deep.hsaco', 'wave-pointwise.hsaco'
+        'prefix_fast.hsaco', 'vit-wide-deep.hsaco', 'wave-pointwise.hsaco', 'vit-stream.hsaco'
     )
 }
 
@@ -77,7 +77,7 @@ function Read-LmxxfModuleSums([string]$Path, [string]$Arch = '') {
         if ($rows.ContainsKey($name)) { throw "Duplicate module checksum in ${Path}: $name" }
         $rows[$name] = $hash
     }
-    $expectedCount = if ($Arch) { 29 } else { 58 }
+    $expectedCount = if ($Arch) { 30 } else { 60 }
     if ($rows.Count -ne $expectedCount) { throw "Incomplete module SHA256SUMS in $Path (expected $expectedCount entries, got $($rows.Count))" }
     return $rows
 }
@@ -101,7 +101,7 @@ function Assert-LmxxfModulePackage([string]$Directory, [switch]$BuildOutput) {
             throw "Unknown or misplaced .hsaco module: $rel"
         }
     }
-    if ($hsacos.Count -ne 58) { throw "Module package must contain exactly 58 known .hsaco modules; got $($hsacos.Count)." }
+    if ($hsacos.Count -ne 60) { throw "Module package must contain exactly 60 known .hsaco modules; got $($hsacos.Count)." }
     $rootSums = Read-LmxxfModuleSums (Join-Path $full 'SHA256SUMS')
     foreach ($arch in $arches) {
         $leafDir = Join-Path $full $arch
@@ -124,15 +124,15 @@ function Assert-LmxxfModulePackage([string]$Directory, [switch]$BuildOutput) {
             }
             $seen[$name] = $true
         }
-        if ($seen.Count -ne 29) { throw "Incomplete modules.json for $arch (expected 29 modules)." }
+        if ($seen.Count -ne 30) { throw "Incomplete modules.json for $arch (expected 30 modules)." }
     }
     $manifestPath = Join-Path $full 'runtime-manifest.json'
     # Upstream build-modules.ps1 emits hashes + per-arch provenance. Product metadata
     # is added by Sync-LmxxfModules; release/install inputs must already contain it.
     if (-not $BuildOutput -or (Test-Path -LiteralPath $manifestPath)) {
         $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
-        if ($manifest.schema -ne 2 -or $manifest.runtime_abi -ne 1 -or $manifest.module_count -ne 58 -or
-            $manifest.module_count_per_arch -ne 29 -or @($manifest.targets).Count -ne 2 -or
+        if ($manifest.schema -ne 2 -or $manifest.runtime_abi -ne 1 -or $manifest.module_count -ne 60 -or
+            $manifest.module_count_per_arch -ne 30 -or @($manifest.targets).Count -ne 2 -or
             @($manifest.targets | Where-Object { $arches -cnotcontains $_ }).Count -or
             @($manifest.targets | Select-Object -Unique).Count -ne 2) {
             throw 'Invalid dual-architecture runtime-manifest.json (schema, ABI, targets or module counts).'
@@ -211,7 +211,7 @@ function New-LmxxfModuleStage([string]$Source, [string]$Destination, [string]$Co
             $manifest = if (Test-Path -LiteralPath $manifestPath) {
                 [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
             } else {
-                [pscustomobject]@{ schema = 2; runtime_abi = 1; targets = @('gfx1200', 'gfx1201'); module_count = 58; module_count_per_arch = 29 }
+                [pscustomobject]@{ schema = 2; runtime_abi = 1; targets = @('gfx1200', 'gfx1201'); module_count = 60; module_count_per_arch = 30 }
             }
             $manifest | Add-Member -NotePropertyName upstream_commit -NotePropertyValue $CommitHash -Force
             [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))

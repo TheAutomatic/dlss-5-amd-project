@@ -8,6 +8,7 @@
 #include "../Development/HIP/hip_reference_network.h"
 
 inline void NativeApplyHipEnvironment(hip_reference::Options&o,bool fast){
+  if(const char*v=std::getenv("DLSS5_HIP_VIT_STREAM")){if(strcmp(v,"0")&&strcmp(v,"1")&&strcmp(v,"2")&&strcmp(v,"3"))throw std::runtime_error("ViT stream mask must be 0..3");o.vit_stream=unsigned(v[0]-'0');}
   if(const char*v=std::getenv("DLSS5_HIP_GRAPH")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("DLSS5_HIP_GRAPH must be 0 or 1");o.graph=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_PREFIX_FUSED")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("prefix fused must be 0 or 1");o.prefix_fused=!strcmp(v,"1");}
   if(const char*v=std::getenv("DLSS5_HIP_DIRECT_INPUT")){if(strcmp(v,"0")&&strcmp(v,"1"))throw std::runtime_error("direct input must be 0 or 1");o.direct_prefix_input=!strcmp(v,"1");}

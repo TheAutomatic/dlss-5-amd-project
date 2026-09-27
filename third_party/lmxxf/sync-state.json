@@ -1,12 +1,13 @@
 {
   "schema": 1,
   "status": "reviewed",
-  "from_commit": "b11223950b46f184685acdce30dbf31099e7c0d4",
-  "to_commit": "61ac166b72f01d0466b34029877e26d01862e578",
-  "recipes_verified": "76abcedf7cafe6db2dc14800a5524fecbe2992528a574733e52685c02be95dae:5a9d4cab5ba93c83921d8bca925aef1df94a49cf993128b35fb59d44b0df77b3",
-  "modules_verified": "1134f0903fe22d91fee75a5199cf7e7292e962091bf5fde553198b3082afebd1",
+  "from_commit": "61ac166b72f01d0466b34029877e26d01862e578",
+  "to_commit": "54e14de503431cd4536f8a7151b022af232178a9",
+  "recipes_verified": "e15ccf5d8f9aabdc227a40d8fb826ffb543908c70a2a7fd59014aec406aec98d:5a9d4cab5ba93c83921d8bca925aef1df94a49cf993128b35fb59d44b0df77b3",
+  "modules_verified": "5b667691a8fc7c8ac7a8a2f337571d9883031e32c3c1b82878fbb3aee071c206",
   "skipped_checks": [
-    "SkipBuild"
+    "SkipBuild",
+    "AllowStaleModules"
   ],
-  "updated_utc": "2026-09-27T09:38:46.9569542Z"
+  "updated_utc": "2026-09-27T17:54:24.6075557Z"
 }
