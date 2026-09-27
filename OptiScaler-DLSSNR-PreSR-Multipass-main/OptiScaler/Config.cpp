@@ -375,6 +375,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrToneLift.set_from_config(readFloat("DlssNr", "ToneLift"));
             AmdQueuePriority.set_from_config(readInt("DlssNr", "AmdQueuePriority"));
             AmdInline.set_from_config(readInt("DlssNr", "AmdInline"));
+            DlssNrQuality.set_from_config(readInt("DlssNr", "Quality"));
             DlssNrPass2Preset.set_from_config(readUInt("DlssNr", "Pass2Preset"));
             DlssNrPass2Style.set_from_config(readUInt("DlssNr", "Pass2Style"));
             DlssNrPass3Preset.set_from_config(readUInt("DlssNr", "Pass3Preset"));
@@ -1462,6 +1463,7 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "ToneLift", GetFloatValue(Instance()->DlssNrToneLift.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdQueuePriority", GetIntValue(Instance()->AmdQueuePriority.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdInline", GetIntValue(Instance()->AmdInline.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Quality", GetIntValue(Instance()->DlssNrQuality.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass2Preset",
                  GetIntValue(Instance()->DlssNrPass2Preset.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass2Style",

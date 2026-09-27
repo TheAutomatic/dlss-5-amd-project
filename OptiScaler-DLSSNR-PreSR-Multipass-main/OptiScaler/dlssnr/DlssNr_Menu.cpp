@@ -251,6 +251,12 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nReinhard usually has better colour; ACES if highlights oversaturate.");
                     DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.5f, 0.0f);
                     HelpMarker("Floor of the display curve (daniel ToneLift / Black lift). 0 = none.");
+                    static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
+                    int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
+                        config->DlssNrQuality = quality ? 1 : 0;
+                    HelpMarker("daniel 0.4.2+ Quality. Fast is usually visually equivalent and faster."
+                               "\nReference keeps NVIDIA's exact arithmetic. RX 7000 always runs Reference.");
                     bool qprio = config->AmdQueuePriority.value_or_default() != 0;
                     if (ImGui::Checkbox("HIP high-priority queue", &qprio))
                         config->AmdQueuePriority = qprio ? 1 : 0;

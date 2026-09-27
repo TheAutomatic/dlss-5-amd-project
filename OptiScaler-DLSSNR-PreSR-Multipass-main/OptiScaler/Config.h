@@ -289,6 +289,9 @@ class Config
     // 1 = daniel inline same-frame wait (historical default). 0 requests non-inline
     // admission when the runtime supports it. Writes configuredInline; see handoff.
     CustomOptional<int> AmdInline { 1 };
+    // 0.4.2+ daniel Quality: 1 = Fast (cheaper math, default), 0 = Reference
+    // (NVIDIA-exact arithmetic). RX 7000 always runs Reference inside the runtime.
+    CustomOptional<int> DlssNrQuality { 1 };
     // Optional per-pass model profiles. Pass 1 uses Preset/Style above; an absent override inherits
     // pass 1. Keeping inheritance explicit preserves every existing configuration and lets changing
     // the base profile update the whole stack unless a later pass was deliberately specialised.

@@ -1605,6 +1605,8 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             }
             if (L->queuePriority)
                 At<UINT>(r, L->queuePriority) = Config::Instance()->AmdQueuePriority.value_or_default() ? 1u : 0u;
+            if (L->quality)
+                At<uint8_t>(r, L->quality) = Config::Instance()->DlssNrQuality.value_or_default() ? 1 : 0;
             if (L->configuredInline)
             {
                 const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
