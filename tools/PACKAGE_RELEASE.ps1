@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
   Default product: OptiScaler-AMD-PreSR-1.9.4-alpha
