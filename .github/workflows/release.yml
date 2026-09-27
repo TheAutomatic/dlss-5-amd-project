@@ -286,7 +286,7 @@ jobs:
             - **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
             - **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢[@OUCO86](https://github.com/OUCO86)
             - **High resolution**：更新支持超过原生1080p画面输入（4K/2K画面支持使用FSR平衡或以上挡位不再报错）。
-            - **NR 挡位**：菜单支持 **720 / 900 / 1080** 三档固定分辨率；默认勾选自动（lmxxf 按画面选档），取消后可手动固定，并写入 ini。
+            - **NR 挡位**：菜单支持 **720 / 900 / 1080** 三档固定分辨率；默认勾选自动（lmxxf 按画面选档），取消后可手动固定，Save Settings 后写入 ini。
 
             **游戏内菜单**
             - 集成多项lmxxf功能更新及实验性功能按钮
@@ -304,7 +304,7 @@ jobs:
             - **Auto exposure**: for games that do not transmit exposure in-frame, **Auto exposure** is on by default; turn it off to use the **Exposure scale** slider.
             - **Better game compatibility & bug fixes**: some compatibility fixes unverified — thanks [@OUCO86](https://github.com/OUCO86)
             - **High resolution**: now accepts color input above native 1080p (4K/2K with FSR Balanced or higher no longer errors).
-            - **NR tier**: pick a fixed **720 / 900 / 1080** network resolution in the menu. Auto (default checkbox) keeps lmxxf's automatic pick; uncheck to pin a tier. Saved in the ini.
+            - **NR tier**: pick a fixed **720 / 900 / 1080** network resolution in the menu. Auto (default checkbox) keeps lmxxf's automatic pick; uncheck to pin a tier. Click Save Settings to write it to the ini.
 
             **In-game menu**
             - Integrates multiple lmxxf feature updates and experimental feature buttons

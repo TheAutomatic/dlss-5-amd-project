@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.3-alpha
+# OptiScaler AMD pre-SR — 1.9.4-alpha
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -8,13 +8,25 @@
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## 1.9.3-alpha 主要更新
+## 1.9.4-alpha 主要更新
 
-> 尚未经过实机验证，欢迎附 `.log` 文件反馈 bug。
+> 尚未经过广泛实机验证，欢迎附 `.log` 文件反馈 bug（见下文「排错」）。
 
-- **danielblnc** 后端同步至 **0.4**，**lmxxf** 后端功能同步至 **0.3.0**；
-- 修复 lmxxf 部分兼容问题，初步支持 **9060 XT**，仍未完成 **7000 系列**显卡支持；部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)，[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)；
-- **已知问题**：lmxxf 在卧龙 2 demo 中仍可能过曝，修复尚未完成。
+**danielblnc 后端支持更新**
+- 对齐 **0.3.2 / 0.3.3 / 0.4.0** 与 **0.4.1 / 0.4.2 / 0.4.3** 的文件布局与启动隔离（请自行下载 daniel 相关权重文件）。
+
+**lmxxf 后端支持**（权重文件：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)）
+- **对齐上游更新**：当前已同步至 **0.34** 版。
+- **9060 系列显卡支持**：待更多实机验证；9070 仍为正式路径。
+- **性能提升**：大量性能提升，暂未计算百分比。
+- **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
+- **High resolution**：支持超过原生 1080p 画面输入（4K/2K 使用 FSR 平衡或以上挡位不再报错）。
+- **NR 挡位**：菜单支持 **720 / 900 / 1080** 三档固定分辨率；默认勾选自动（lmxxf 按画面选档），取消后可手动固定，**Save Settings** 后写入 ini。
+- **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)（[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)）。
+
+**游戏内菜单**
+- 集成多项 lmxxf 功能更新及实验性功能按钮
+- 同步 daniel 侧功能开关并重新设计布局
 
 ### lmxxf 配置速查（ini / 菜单）
 
@@ -23,9 +35,9 @@
 | 菜单位置 | 键 | 说明 |
 |---|---|---|
 | 顶层 | `TransferStrength` / `ColourStrength` | 网络细节/色彩合成（0–3） |
-| 顶层 | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合 1080 网络 |
-| 顶层 | `DLSS5_NETWORK_HEIGHT` | auto / 720 / 900 / 1080 网络档 |
-| Experimental | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；paper white |
+| 顶层 | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
+| 顶层 | `DLSS5_NETWORK_HEIGHT` | NR tier auto（默认）或固定 720 / 900 / 1080 |
+| Experimental | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
 | Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 0.31 内核 / 显存池 / 字节流 |
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
 | Debug / Advanced | `DLSS5_HIP_PDL`、Debug view、增强屏障、early wrap | 排错与兼容开关 |
