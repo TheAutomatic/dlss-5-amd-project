@@ -502,6 +502,10 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 }
 
 
+// Set by Submitted when the split list ran on a queue other than the session's
+// (e.g. after a swapchain rebuild). Record rebuilds the session there.
+static ID3D12CommandQueue *g_requeue = nullptr;
+
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
@@ -511,10 +515,63 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         SetStatus("lmxxf: Record missing cmd/colour");
         return nullptr;
     }
+    // Swapchain rebuild can move the game to another queue (Onimusha/RE9).
+    {
+        std::lock_guard lock(jobMutex);
+        if (g_requeue && !pendingJobInfo.job)
+        {
+            if (g_requeue != queue)
+            {
+                if (session && api && api->table.Destroy)
+                    api->table.Destroy(session);
+                session = nullptr;
+                sessionReady = false;
+                g_requeue->AddRef();
+                if (queue)
+                    queue->Release();
+                queue = g_requeue;
+                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(queue);
+                LOG_INFO("lmxxf: game submits on a new queue {:p}; session rebuilt there",
+                         reinterpret_cast<void *>(queue));
+            }
+            g_requeue = nullptr;
+        }
+    }
     bool previousPending = false;
     {
         std::lock_guard lock(jobMutex);
         previousPending = pendingJobInfo.job != nullptr;
+        if (previousPending)
+        {
+            static unsigned stalledEvaluations = 0;
+            if (++stalledEvaluations >= 8)
+            {
+                // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
+                // the list was never submitted and cannot retire itself.
+                void *job = pendingJobInfo.job;
+                const bool enqueued = LmxxfCut::Pending().job != job;
+                pendingJobInfo = {};
+                stalledEvaluations = 0;
+                if (session && api && job)
+                {
+                    if (enqueued && api->table.Retire)
+                        api->table.Retire(session, job);
+                    else if (!enqueued && api->table.CancelUnsubmitted)
+                        api->table.CancelUnsubmitted(session, job);
+                }
+                LmxxfCut::ClearPendingEnqueue();
+                static unsigned recoveries = 0;
+                if (++recoveries <= 5 || recoveries % 100 == 0)
+                    LOG_WARN("lmxxf: stalled job recovered ({}; recovery {})",
+                             enqueued ? "retired" : "cancelled", recoveries);
+                previousPending = false;
+            }
+        }
+        else
+        {
+            static unsigned stalledEvaluations = 0;
+            stalledEvaluations = 0;
+        }
     }
     if (previousPending)
     {
@@ -1041,6 +1098,14 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
                     break;
                 }
             }
+        }
+        // Swapchain rebuild: the list may submit on a queue we did not bind at Record.
+        // If HIP already ran there (lastQueue), follow that queue on the next Record.
+        if (!containsCmd && q && this->queue && q != this->queue && pendingJobInfo.job)
+        {
+            const auto last = LmxxfCut::Pending().lastQueue.load(std::memory_order_relaxed);
+            if (last && last == q)
+                g_requeue = q;
         }
         if (containsCmd)
         {
