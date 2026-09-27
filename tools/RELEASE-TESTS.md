@@ -79,13 +79,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 -A
 
 ## 速查表
 
-| 改动类型 | A | B | C | 实机 |
-|---|---|---|---|---|
-| lmxxf Runtime / 宿主逻辑 | ✓ | | ✓ | 建议 |
-| 安装/打包脚本 | ✓ | | ✓ | |
-| sync / 第三方 | ✓ | ✓ | ✓ | |
-| 菜单/文案 only | ✓ 或抽测 | | | |
-| 发 zip | ✓ | | ✓ | 按需 |
+| 改动类型 | A | B | C | 实机 | CI（release.yml） |
+|---|---|---|---|---|---|
+| lmxxf Runtime / 宿主逻辑 | ✓ | | ✓ | 建议 | runtime build + ABI |
+| 安装/打包脚本 | ✓ | | ✓ | | installer/uninstall + package |
+| sync / 第三方 | ✓ | ✓ | ✓ | | 模块新鲜度 + ABI |
+| 菜单/配置键 | ✓ 或抽测 | | | | 不必加步 |
+| 发 zip | ✓ | | ✓ | 按需 | 全量发版 job |
+
+### CI 与本地分工（避免把秒级契约测试塞进 Actions）
+
+| 跑在哪 | 项 |
+|---|---|
+| **只在 GitHub Actions / 发版** | 工具链 preflight、host-contract、LmxxfNrRuntime 构建、ABI/zero-fallback、OptiScaler Release、PACKAGE_RELEASE、发 Release |
+| **合并后本地（A/B）** | `test_runtime_validation`、`lmxxf_module_packages`、`amd_installer_exit`、`amd_uninstall` |
+| **仅本地，不进 CI** | `tests/test_config_priority.py`（ini/菜单/txt 优先级与 `DLSS5_*` 键名契约；改配置时跑） |
+| **按需本地** | `lmxxf_upstream_sync`（动 vendor/sync 时）、GPU/金标/实机 |
 
 ---
 
@@ -97,5 +106,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 -A
 | `tests/test_runtime_validation.py` | 双架构 Runtime 校验（P-B，`95d030a` 等） |
 | `tests/lmxxf_module_packages.py` | 模块打包/安装助手（双架构修复轮） |
 | `tests/lmxxf_upstream_sync.py` | 上游同步与审阅门禁（`ed745d1` 等） |
+| `tests/test_config_priority.py` | 菜单/ini/txt 优先级与跨层键名（`818885e`）— **仅本地** |
 
 计划里的「无卡测试」指本清单；GPU 回归另见 P-E 与 `exports/` 实机记录。
