@@ -30,19 +30,23 @@
 `manifest.json` 是唯一头文件清单，归档和拷贝不再分别维护同一批路径。
 
 - 普通头文件：只维护 `src/*.h`、`Development/HIP/*.h` 的选定闭包。移出清单的旧头文件会删除。仍在必需清单中但上游消失的路径必须先修清单和调用者，不能留下混合快照后继续成功。
-- `hip/*.hip`、`shaders/*.hlsl`：按顶层镜像同步；上游删除或改名后，旧文件删除。子目录、缓存和其他扩展名不属于这个镜像。
+- `hip/*.hip`、`hip/*.inc`、`shaders/*.hlsl`：按顶层镜像同步；上游删除或改名后，旧文件删除。子目录、缓存和其他扩展名不属于这个镜像。
 - 固定保留头文件现在只有 `hip_d3d12_bridge.h`（含产品 `Pdl*` 查询）。`native_rgb_reflect.h`、`native_input_geometry.h` 在 PR #9 合入后改为 FOLLOW。默认不覆盖 bridge，也不删除，并验证本地契约标记。
 - 本地 Runtime、模块构建输出及元数据属于各自流程，不属于头文件镜像。上游新依赖头文件需要审阅后加入闭包。
 
 ## 补丁维护
 
-`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 基于 pending 目标 `24986ae094bbd150f4d86a0ca76159a43f374884` 的原始 Network，只维护本地 PDL preflight、状态查询和分配失败清理。该头文件在计划目标 `f812188b9f8df92275bb15e1ed26518d5466053e` 中字节相同；测试使用 `tests/fixtures/lmxxf/hip_reference_network.upstream.h` 保存的原始快照验证应用，不能用已打补丁的 vendor 文件伪装上游输入。每次都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
+`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑，补丁只把 `PdlActive` 替换为产品使用的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
+
+测试使用 `tests/fixtures/lmxxf/` 中从同一固定提交 `54e14de503431cd4536f8a7151b022af232178a9` 提取的原始快照；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
 `manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
 
 - `reference-network.patch`：见上。
 - `auto-white.patch`：`shaders/native_codec_encode.hlsl`、`shaders/native_codec_decode.hlsl`、`src/native_game_codec.h` 里无游戏曝光时的均值白点（`Reserved.x` 的 0x10000 位）。基于 `24986ae094bbd150f4d86a0ca76159a43f374884`。着色器目录本来会被整体镜像成上游版本，没有这个补丁，sync 会把它悄悄冲掉。当前线上路径是 runtime 侧 meter（带时间平滑），宿主不再设置 0x10000；补丁保留以固定着色器契约，并与 meter 互斥（有 meter 时不会同时开 shader 估白点）。
 - `r10g10b10a2.patch`：`src/native_lab_paths.h` 接受 R10G10B10A2 颜色输入（Horizon）。基于同一提交。
+- `typeless-float16.patch`：在前述格式补丁之后，为 `R16G16B16A16_TYPELESS` 增加产品可选的 FLOAT 解释，默认仍为上游的 UNORM。
+- `codec-hue-safe-preexp.patch`：在 `auto-white.patch` 之后，补齐编码/解码共用的主机 pre-exposure 回退，以及解码端保留游戏色相的 ColorStrength 混合。必须包含从原始快照到产品源码所需的完整改动，不能依赖未由前序补丁生成的中间版本。
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
 

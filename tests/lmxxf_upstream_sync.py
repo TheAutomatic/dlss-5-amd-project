@@ -5,15 +5,17 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 
-from lmxxf_fixtures import damage_modules, locked_file, make_modules, snapshot_files
+from lmxxf_fixtures import ARCHES, MODULE_NAMES, damage_modules, locked_file, make_modules, snapshot_files
 
 ROOT = Path(__file__).resolve().parents[1]
+UPSTREAM_FIXTURES = ROOT / 'tests/fixtures/lmxxf'
 PS = os.environ.get('LMXXF_TEST_POWERSHELL', shutil.which('powershell.exe') or shutil.which('pwsh'))
 spec = importlib.util.spec_from_file_location('lmxxf_audit', ROOT / 'tools/audit-lmxxf-enablements.py')
 audit = importlib.util.module_from_spec(spec)
@@ -26,8 +28,24 @@ def write(path, content):
 
 
 def git(directory, *args):
-    return subprocess.check_output(['git', '-c', 'safe.directory=' + directory.as_posix(),
-        '-C', str(directory), *args], stderr=subprocess.PIPE).decode('utf-8').strip()
+    try:
+        return subprocess.check_output(['git', '-c', 'safe.directory=' + directory.as_posix(),
+            '-C', str(directory), *args], stderr=subprocess.PIPE).decode('utf-8').strip()
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.decode('utf-8', errors='replace')
+        raise RuntimeError(f"git {' '.join(args)} failed in {directory}:\n{detail}") from error
+
+
+def frozen_upstream_files():
+    snapshot = audit.read_json(UPSTREAM_FIXTURES / 'snapshot.json')
+    files = {}
+    for entry in snapshot['files']:
+        data = (UPSTREAM_FIXTURES / entry['fixture']).read_bytes()
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != entry['sha256']:
+            raise AssertionError(f"Upstream fixture hash mismatch: {entry['fixture']} ({actual})")
+        files[entry['path']] = data
+    return files
 
 
 def commit(directory):
@@ -37,10 +55,49 @@ def commit(directory):
     return git(directory, 'rev-parse', 'HEAD')
 
 
+class SourcePatchTests(unittest.TestCase):
+    def setUp(self):
+        config = ROOT / audit.CONFIG
+        manifest = audit.read_json(config / 'manifest.json')
+        self.patches = [config / 'patches' / name for name in
+            [entry['patch'] for entry in manifest['pinned']] + manifest['local_patches']]
+        self.raw = frozen_upstream_files()
+
+    def test_raw_snapshot_covers_all_maintained_patch_targets(self):
+        targets = set()
+        for patch in self.patches:
+            paths = re.findall(r'^\+\+\+ b/([^\r\n]+)$', patch.read_text(encoding='utf-8'), re.MULTILINE)
+            self.assertTrue(paths, f'No patch targets found: {patch.name}')
+            targets.update(paths)
+        self.assertEqual(set(self.raw), targets)
+
+    def test_patch_chain_reproduces_vendor_sources(self):
+        with tempfile.TemporaryDirectory(prefix='lmxxf patch tests ') as temporary:
+            tree = Path(temporary).resolve()
+            self.assertEqual(tree.parent, Path(tempfile.gettempdir()).resolve())
+            self.assertTrue(tree.name.startswith('lmxxf patch tests '))
+            self.assertFalse(tree.is_symlink())
+            for name, data in self.raw.items():
+                path = tree / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            # Apply the same ordered patch chain as a sync with -UpdateBridge.
+            # The product tree is independent expected output, never fixture input.
+            for patch in self.patches:
+                git(tree, 'apply', '--check', str(patch))
+                git(tree, 'apply', str(patch))
+            for name in self.raw:
+                with self.subTest(path=name):
+                    actual = (tree / name).read_bytes().replace(b'\r\n', b'\n')
+                    expected = (ROOT / audit.VENDOR / name).read_bytes().replace(b'\r\n', b'\n')
+                    self.assertEqual(actual, expected, f'Patched snapshot differs from vendor: {name}')
+
+
 class Fixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='lmxxf sync tests ')
         self.folder = Path(self.temp.name).resolve()
+        self.addCleanup(self.cleanup_fixture)
         self.local = self.folder / 'local'
         self.up = self.folder / 'upstream'
         self.vendor = self.local / 'third_party/lmxxf'
@@ -54,23 +111,15 @@ class Fixture(unittest.TestCase):
             content = (ROOT / audit.VENDOR / name).read_text(encoding='utf-8')
             write(self.vendor / name, content)
             write(self.up / name, content)
-        # Independently frozen raw input, shared by the pending and planned commits.
-        reference = ROOT / 'tests/fixtures/lmxxf/hip_reference_network.upstream.h'
-        self.assertEqual(hashlib.sha256(reference.read_bytes()).hexdigest(),
-                         'f06d492cdb16873e618082992a85fa9999007afad16cabaec391dfbfb636518e')
-        shutil.copy2(reference, self.up / 'Development/HIP/hip_reference_network.h')
-        # Construct raw upstream from the independently maintained patches.
-        for entry in manifest['pinned']:
-            git(self.up, 'apply', '--reverse', str(self.config / 'patches' / entry['patch']))
-        # Local patches carry our hunks in files that otherwise follow upstream. The codec shaders
-        # they touch are not headers, so seed them from the vendor tree before reversing.
+        # Product shaders are the expected output. Every patched upstream input comes
+        # from an independently frozen raw snapshot, never by reversing its own patch.
         for shader in ('shaders/native_codec_encode.hlsl', 'shaders/native_codec_decode.hlsl'):
             content = (ROOT / audit.VENDOR / shader).read_text(encoding='utf-8')
             write(self.vendor / shader, content)
-            write(self.up / shader, content)
-        for name in manifest['local_patches']:
-            if name != 'reference-network.patch':  # raw input already comes from the frozen fixture
-                git(self.up, 'apply', '--reverse', str(self.config / 'patches' / name))
+        for name, data in frozen_upstream_files().items():
+            path = self.up / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
         product = (ROOT / audit.OPTIONS).read_text(encoding='utf-8')
         write(self.local / audit.OPTIONS, product)
         write(self.up / 'src/LmxxfProductionOptions.h', product)
@@ -84,6 +133,7 @@ class Fixture(unittest.TestCase):
         module_sums = (self.vendor / 'modules/SHA256SUMS').read_text()
         for owner in (self.up, self.vendor):
             write(owner / 'hip/active.hip', kernel)
+            write(owner / 'hip/active.inc', '// fixture HIP include\n')
             write(owner / 'hip/build-modules.ps1', recipe)
             write(owner / 'hip/rtc_compile.cpp', '// fixture compiler\n')
             write(owner / 'hip/README.md', 'fixture\n')
@@ -106,7 +156,7 @@ class Fixture(unittest.TestCase):
             "sys.exit(int(os.environ.get('LMXXF_FIXTURE_AUDIT_EXIT', '0')))\n")
         write(self.local / 'tools/build-lmxxf-runtime.cmd', '@exit /b 0\n')
 
-    def tearDown(self):
+    def cleanup_fixture(self):
         # Verify the exact cleanup target before TemporaryDirectory recursively removes it.
         self.assertEqual(self.folder.parent, Path(tempfile.gettempdir()).resolve())
         self.assertTrue(self.folder.name.startswith('lmxxf sync tests '))
@@ -138,7 +188,8 @@ class Fixture(unittest.TestCase):
 @unittest.skipUnless(PS and os.name == 'nt', 'PowerShell/Windows required')
 class SyncTests(Fixture):
     def test_mirrors_retired_files_and_preserves_pinned_headers(self):
-        retired = ('src/retired.h', 'Development/HIP/retired.h', 'hip/retired.hip', 'shaders/retired.hlsl')
+        retired = ('src/retired.h', 'Development/HIP/retired.h', 'hip/retired.hip',
+                   'hip/retired.inc', 'shaders/retired.hlsl')
         untouched = ('src/notes.txt', 'hip/notes.txt', 'shaders/shader-cache/cache.dxbc', 'shaders/retired-network/keep.hlsl')
         for rel in retired + untouched:
             write(self.vendor / rel, 'fixture\n')
@@ -164,22 +215,40 @@ class SyncTests(Fixture):
         self.assertEqual((self.vendor / 'shaders/active.hlsl').read_bytes(), before)
 
     def test_missing_pinned_upstream_needs_update_switch_to_fail(self):
-        (self.up / 'src/native_rgb_reflect.h').unlink()
+        bridge = 'Development/HIP/hip_d3d12_bridge.h'
+        (self.up / bridge).unlink()
         commit(self.up)
-        self.assert_failed(self.sync(('-UpdateReflect',)))
+        self.assert_failed(self.sync(('-UpdateBridge',)))
         result = self.sync()
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual((self.vendor / 'src/native_rgb_reflect.h').read_bytes(), self.pinned['src/native_rgb_reflect.h'])
+        self.assertEqual((self.vendor / bridge).read_bytes(), self.pinned[bridge])
 
-    def test_update_switches_reproduce_local_headers(self):
-        result = self.sync(('-UpdateBridge', '-UpdateReflect', '-UpdateInputGeometry'))
+    def test_follow_headers_are_required_without_update_switches(self):
+        for name in ('src/native_rgb_reflect.h', 'src/native_input_geometry.h'):
+            with self.subTest(header=name):
+                path = self.up / name
+                original = path.read_bytes()
+                path.unlink()
+                commit(self.up)
+                before = snapshot_files(self.vendor)
+                result = self.sync()
+                self.assert_failed(result)
+                self.assertIn('Required upstream paths disappeared', result.stdout)
+                self.assertEqual(snapshot_files(self.vendor), before)
+                path.write_bytes(original)
+                commit(self.up)
+
+    def test_bridge_update_reproduces_local_header(self):
+        result = self.sync(('-UpdateBridge',))
         self.assertEqual(result.returncode, 0, result.stdout)
         for rel, content in self.pinned.items():
             self.assertEqual((self.vendor / rel).read_bytes(), content, rel)
 
     def test_patch_conflict_leaves_vendor_untouched(self):
         path = self.up / 'Development/HIP/hip_d3d12_bridge.h'
-        write(path, path.read_text().replace('HANDLE fence_handle', 'HANDLE moved_fence_handle'))
+        text = path.read_text(encoding='utf-8')
+        self.assertIn('bool PdlActive()', text)
+        write(path, text.replace('bool PdlActive()', 'bool ChangedPdlActive()'))
         commit(self.up)
         before = (self.vendor / 'shaders/active.hlsl').read_bytes()
         result = self.sync(('-UpdateBridge',))
@@ -333,7 +402,7 @@ class AuditTests(Fixture):
         report = self.collect()
         reviewed = self.reviewed(report)
         path = self.local / audit.OPTIONS
-        write(path, path.read_text().replace('o.graph = false', 'o.graph = true'))
+        write(path, path.read_text(encoding='utf-8').replace('o.graph = false', 'o.graph = true'))
         self.assertTrue(audit.validate_review(self.collect(), reviewed))
         write(self.up / 'scripts/new-profile.txt', 'DLSS5_NEW_FEATURE=1\n')
         commit(self.up)
@@ -362,7 +431,7 @@ class AuditTests(Fixture):
         report = self.collect()
         reviewed = self.reviewed(report)
         path = self.local / audit.OPTIONS
-        write(path, path.read_text() + '\n// changed integration\n')
+        write(path, path.read_text(encoding='utf-8') + '\n// changed integration\n')
         carried = audit.template(self.collect(), reviewed)
         self.assertEqual(carried['decisions'][0]['decision'], 'pending')
         self.assertEqual(carried['validation'], '')
@@ -566,7 +635,7 @@ Assert-LmxxfModulePackage $dest
         self.assertFalse((bundle / 'runtime-manifest.json').exists())
         metadata = json.loads((self.vendor / 'new-modules/runtime-manifest.json').read_text())
         self.assertEqual(metadata['upstream_commit'], 'fixture')
-        self.assertEqual(metadata['module_count'], 48)
+        self.assertEqual(metadata['module_count'], len(ARCHES) * len(MODULE_NAMES))
 
     def test_destination_trailing_separator_is_normalized(self):
         make_modules(self.up / 'modules', marker='new')
@@ -639,7 +708,7 @@ class AuditCliTests(Fixture):
         result = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         path = self.local / audit.OPTIONS
-        write(path, path.read_text() + '\n// changed local integration\n')
+        write(path, path.read_text(encoding='utf-8') + '\n// changed local integration\n')
         result = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
 

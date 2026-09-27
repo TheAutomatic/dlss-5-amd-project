@@ -1,0 +1,36 @@
+{
+  "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
+  "commit": "54e14de503431cd4536f8a7151b022af232178a9",
+  "files": [
+    {
+      "path": "Development/HIP/hip_d3d12_bridge.h",
+      "fixture": "hip_d3d12_bridge.upstream.h",
+      "sha256": "44b35e819804cb40f28680d3fe20cd7104030f81a3c3447842687a0986a6d1a0"
+    },
+    {
+      "path": "Development/HIP/hip_reference_network.h",
+      "fixture": "hip_reference_network.upstream.h",
+      "sha256": "0f4a562b0c4ae58a49f1126e13799a9cf92268b6a1987f682c389102d8482862"
+    },
+    {
+      "path": "src/native_lab_paths.h",
+      "fixture": "native_lab_paths.upstream.h",
+      "sha256": "d12b67d66d743c815c06c8c8bc655f5ad878b3a942fc61e6bfd5b054026ac4c0"
+    },
+    {
+      "path": "src/native_game_codec.h",
+      "fixture": "native_game_codec.upstream.h",
+      "sha256": "b6fdbe327e2bf756848f8b5a47874e1b45b988458c129fc49a7bfb42bd0c2353"
+    },
+    {
+      "path": "shaders/native_codec_encode.hlsl",
+      "fixture": "native_codec_encode.upstream.hlsl",
+      "sha256": "e8fb25ab692a6834de220b2394728510379a280ca84d032831afc4a128dc2162"
+    },
+    {
+      "path": "shaders/native_codec_decode.hlsl",
+      "fixture": "native_codec_decode.upstream.hlsl",
+      "sha256": "3762d2f18c1485e2548b5d7734f357bd8f5819e5ef7b2b8b196e2634b2c4b07d"
+    }
+  ]
+}

@@ -1,16 +1,26 @@
-# Reference-network patch fixture
+# Frozen upstream patch fixtures
 
-`hip_reference_network.upstream.h` is the unmodified
-`Development/HIP/hip_reference_network.h` from lmxxf/dlss5-on-amd-9070xt-porting.
+The `*.upstream.*` files are unmodified source bytes from
+[lmxxf/dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)
+at commit `54e14de503431cd4536f8a7151b022af232178a9`, the current product pin.
+`snapshot.json` records each upstream path, fixture filename and raw SHA256.
+The snapshots were extracted with `git show <commit>:<path>`; `.gitattributes`
+preserves their LF line endings on Windows.
 
-The following fixed snapshots contain identical bytes:
+`SourcePatchTests` in `tests/lmxxf_upstream_sync.py` validates the hashes and
+coverage of every active patch target in `tools/lmxxf-sync/manifest.json`.
+It then checks and applies the bridge patch followed by every `local_patches`
+entry, in order, in a temporary source tree. The result must equal the current
+vendor files after checkout line-ending normalization. The orchestrator tests
+also use these raw inputs in their temporary upstream repositories.
 
-- `24986ae094bbd150f4d86a0ca76159a43f374884` (pending integration target)
-- `f812188b9f8df92275bb15e1ed26518d5466053e` (planned integration target)
+When the upstream baseline or maintained patches change, collect the affected
+raw files from an immutable upstream commit and update `snapshot.json` after
+reviewing the source diff. Never reconstruct inputs by reversing the tested
+patches or copy them from the patched vendor tree. Keep patch-conflict checks
+and output comparisons intact; they detect stale patches and unrecorded local
+changes.
 
-SHA256: `f06d492cdb16873e618082992a85fa9999007afad16cabaec391dfbfb636518e`.
-
-Tests apply the maintained product patch to this raw input. It must not be
-reconstructed by reversing that same patch or copied from the patched vendor tree.
-This is source-only test evidence, not approval of either upstream integration.
-The upstream license is retained at `third_party/lmxxf/LICENSE`.
+These fixtures validate source transformations only. They do not approve an
+upstream integration or validate GPU behavior. The upstream license is retained
+at `third_party/lmxxf/LICENSE`.
