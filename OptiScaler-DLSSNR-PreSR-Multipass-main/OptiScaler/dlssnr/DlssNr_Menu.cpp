@@ -515,22 +515,35 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nThe network may rebuild once. No restart.");
 
                 {
-                    static const char *netNames[] = {"auto", "720", "900", "1080"};
-                    int netIdx = 0;
                     const std::string net = config->LmxxfNetworkHeight.value_or_default();
-                    for (int i = 0; i < 4; ++i)
-                        if (net == netNames[i])
-                            netIdx = i;
-                    if (ImGui::Combo("Network tier", &netIdx, netNames, 4))
+                    const bool isAuto = net.empty() || net == "auto";
+                    static std::string lastFixed = "1080";
+                    if (!isAuto && (net == "720" || net == "900" || net == "1080"))
+                        lastFixed = net;
+
+                    bool autoTier = isAuto;
+                    if (ImGui::Checkbox("NR tier auto", &autoTier))
                     {
-                        config->LmxxfNetworkHeight = netNames[netIdx];
-                        CfgKey::PutEnvString(CfgKey::NetworkHeight, netNames[netIdx]);
+                        const char *value = autoTier ? "auto" : lastFixed.c_str();
+                        config->LmxxfNetworkHeight = value;
+                        CfgKey::PutEnvString(CfgKey::NetworkHeight, value);
                         DlssNr::AmdBridge::InvalidateHistory();
                     }
-                    HelpMarker("auto: smallest tier that fits (2K quality can use 900)."
-                               "\nFixed 720 / 900 / 1080 pins the network surface."
-                               "\nLower tiers cost less GPU time."
-                               "\nApplies on the next network rebuild.");
+                    HelpMarker("On (default): lmxxf picks the smallest tier that fits."
+                               "\nOff: pin NR to one tier in the menu below."
+                               "\nApplies on the next network rebuild. Saved in OptiScaler.ini.");
+                    if (!autoTier)
+                    {
+                        static const char *tiers[] = {"720", "900", "1080"};
+                        int tierIdx = (lastFixed == "720") ? 0 : (lastFixed == "900") ? 1 : 2;
+                        if (ImGui::Combo("NR tier", &tierIdx, tiers, 3))
+                        {
+                            lastFixed = tiers[tierIdx];
+                            config->LmxxfNetworkHeight = lastFixed;
+                            CfgKey::PutEnvString(CfgKey::NetworkHeight, lastFixed.c_str());
+                            DlssNr::AmdBridge::InvalidateHistory();
+                        }
+                    }
                 }
 
                 if (ImGui::TreeNode("Experimental"))

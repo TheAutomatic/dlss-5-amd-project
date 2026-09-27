@@ -1280,6 +1280,10 @@ struct Session
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+    /* Network tier baked into the live HIP chain (DLSS5_NETWORK_HEIGHT). A menu/ini change
+       must rebuild, or mid-game 720/900/1080/auto switches keep the old surface. */
+    unsigned netW = 0;
+    unsigned netH = 0;
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
     // Hardware & module selection diagnostics
@@ -1361,6 +1365,8 @@ struct Session
         delete bridge;
         bridge = nullptr;
         hipPrepared = false;
+        netW = 0;
+        netH = 0;
         pdlRequested = false;
         pdlEffective = false;
         pdlReason.clear();
@@ -1826,7 +1832,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         EnsureFitLargeApplied();
         if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
             _putenv("DLSS5_NETWORK_HEIGHT=auto");
-        NativeResolveNetworkGeometry(info->color_width, info->color_height);
+        auto resolvedGeo = NativeResolveNetworkGeometry(info->color_width, info->color_height);
         // Set when PrepareFrame deliberately leaves a notice in the error slot for the host to
         // log. Declared here, before the first HIP lazy-Create block, because BOTH of those
         // blocks must skip SetError when a notice is already pending - otherwise the recreate
@@ -1842,6 +1848,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->bridge = new hip_reference::D3D12Bridge();
             session->bridge->Create(session->queue, opt, {});
             session->hipPrepared = true;
+            session->netW = geo.valid_width;
+            session->netH = geo.valid_height;
             session->CaptureBridgeDiagnostics();
             char geoMsg[192] {};
             std::snprintf(geoMsg, sizeof geoMsg,
@@ -2026,16 +2034,20 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         const bool allocChanged = session->encode &&
                                   ((session->allocWidth && cw != session->allocWidth) ||
                                    (session->allocHeight && ch != session->allocHeight));
-        const bool geoChanged = exposureChanged || validChanged || formatChanged || allocChanged;
+        const bool tierChanged = session->encode &&
+                                 (session->netW != resolvedGeo.valid_width ||
+                                  session->netH != resolvedGeo.valid_height);
+        const bool geoChanged =
+            exposureChanged || validChanged || formatChanged || allocChanged || tierChanged;
         const bool pointerChanged = session->encode && color != session->job.color;
 
         if (session->encode && geoChanged)
         {
             ++session->codecRecreates;
             char reason[96] {};
-            std::snprintf(reason, sizeof reason, "%s%s%s%s", exposureChanged ? "exposure+" : "",
+            std::snprintf(reason, sizeof reason, "%s%s%s%s%s", exposureChanged ? "exposure+" : "",
                           validChanged ? "valid+" : "", formatChanged ? "format+" : "",
-                          allocChanged ? "alloc" : "");
+                          tierChanged ? "tier+" : "", allocChanged ? "alloc" : "");
             // Trim the trailing '+' left when "alloc" is not the last trigger.
             size_t rlen = std::strlen(reason);
             if (rlen && reason[rlen - 1] == '+')
@@ -2076,6 +2088,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->bridge = new hip_reference::D3D12Bridge();
                 session->bridge->Create(session->queue, opt, {});
                 session->hipPrepared = true;
+                session->netW = geo.valid_width;
+                session->netH = geo.valid_height;
                 session->CaptureBridgeDiagnostics();
                 char geoMsg[192] {};
                 std::snprintf(geoMsg, sizeof geoMsg,
