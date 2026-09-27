@@ -2,7 +2,7 @@
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
 - Commit: `f9a016a9c46d941cfdb1be0c280498a660747ed0` (synced 2026-09-27)
-- Partial follow **0.33** (2026-09-27): `native_hip_network.h` / `native_hip_env_options.h` / `hip/build-modules.ps1` taken from upstream main (env parser + `build-modules -ExtraDefines` for CW/W2 pack8). **Not** a full pin advance: `hip/*.inc` pack8 sources and gfx1200/1201 module rebuild not landed (network TLS flaked). Ship modules remain pre-pack8.
+- **0.33** dual-arch modules (29/29) rebuilt from `hip/build-modules.ps1` including pack8 recipe rows (CW_PACK8 / W2_PACK8 / FMED3 / SAT3). `AllowStaleModules` was used once for this pass; drop it on the next sync.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
