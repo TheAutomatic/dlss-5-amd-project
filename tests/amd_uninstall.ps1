@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
 
@@ -147,7 +147,7 @@ public class UninstallProxyFixture { }
     $null = Run-Uninstall (Join-Path $testRoot 'user-flags-game')
     $left = [IO.File]::ReadAllText($userFlags)
     if ($left -cne "DLSS5_NETWORK_HEIGHT=900`r`nDLSS5_STRENGTH=1,1`r`n") { throw "User flags not preserved: [$left]" }
-    Write-Host 'PASS flags file: Setup FIT_LARGE line removed, user flags kept'
+    Write-Host 'PASS flags file: installer-owned FIT_LARGE line removed, user flags kept'
     Write-Host 'All uninstall regression checks passed.'
 } finally {
     # Remove junctions themselves before fixture cleanup. Never recursively

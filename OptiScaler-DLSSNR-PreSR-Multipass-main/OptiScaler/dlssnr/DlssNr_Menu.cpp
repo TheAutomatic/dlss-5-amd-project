@@ -450,15 +450,15 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::Checkbox("High resolution", &fitLarge))
                 {
                     config->LmxxfFitLarge = fitLarge;
-                    // Runtime reads DLSS5_FIT_LARGE on every NativeFitLargeInput() call.
-                    _putenv(fitLarge ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+                    // Label is UI-only; ini key is CfgKey::FitLarge (env alias wins over txt).
+                    CfgKey::PutEnvAlias(CfgKey::FitLarge, fitLarge);
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
-                HelpMarker("Off (default): a wide frame is admitted only when width is"
+                HelpMarker("On (default): larger Color is fitted onto the 1080 network."
+                           "\nThat can cost same-frame time and memory."
+                           "\nOff: a wide frame is admitted only when width is"
                            "\nat most 2560, height at most 1080, and the pixel count stays"
                            "\nwithin 1920x1080. 2024x848 passes. 2560x1080 does not."
-                           "\nOn: larger Color is fitted onto the 1080 network. That can"
-                           "\nhitch and use more memory."
                            "\nApplies on the next frame, including after a resolution change."
                            "\nThe network may rebuild once. No restart.");
 
@@ -510,7 +510,7 @@ void RenderMenu(Config* config, float menuResScale)
                     if (ImGui::Checkbox("PDL chained launch", &pdl))
                     {
                         config->LmxxfPdl = pdl;
-                        _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
+                        CfgKey::PutEnvAlias(CfgKey::Pdl, pdl);
                     }
                     HelpMarker("Overlaps HIP kernel launches. Leave this on."
                                "\nThe picture is the same either way."
@@ -550,15 +550,15 @@ void RenderMenu(Config* config, float menuResScale)
                     config->LmxxfPaperWhite = 1.0f;
                     config->LmxxfAutoExposure = true;
                     config->LmxxfAutoExposureScale = 8.0f;
-                    config->LmxxfFitLarge = false;
-                    _putenv("DLSS5_FIT_LARGE=0");
+                    config->LmxxfFitLarge = true;
+                    CfgKey::PutEnvAlias(CfgKey::FitLarge, true);
                     config->DlssNrDebugView = 0u;
                     config->LmxxfPdl = true;
-                    _putenv("DLSS5_HIP_PDL=1");
+                    CfgKey::PutEnvAlias(CfgKey::Pdl, true);
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
                 HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
-                           "\nPDL on, High resolution off, Debug view Off.");
+                           "\nPDL on, High resolution on, Debug view Off.");
             }
 
             if (!isLmxxf)

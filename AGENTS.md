@@ -23,3 +23,15 @@ Before changing or running `tools/sync-lmxxf-upstream.ps1`, read
   integration review. Respect pending state and nonzero exits; rerun after real review.
 - Report remaining deferrals and skipped validation. Do not claim all upstream optimizations
   are in use, or that the result is release-ready, without the corresponding evidence.
+
+## Config priority (code, not tribal knowledge)
+
+Ins menu / `OptiScaler.ini` win. `native-game-flags.txt` and external `DLSS5_*` only fill
+keys the host did not set (`ApplyFlagsFileFallback` in `LmxxfNrRuntime.cpp`). Compile
+defaults in `LmxxfProductionOptions` are last. Do not invent a second order; add product
+keys to Config/menu so they are owned by ini, not by txt.
+
+Config identifiers live in `ConfigKeys.h` (`CfgKey::`). Menu **labels are UI-only** — never
+write an ImGui label into the ini. New menu controls: add the ini key to `CfgKey::kKnown`
+first, bind `Config` fields (or `CfgKey::` names), then a display string. Product keys that
+must win over `DLSS5_*` need an `EnvAlias` + `PutEnvAlias`.

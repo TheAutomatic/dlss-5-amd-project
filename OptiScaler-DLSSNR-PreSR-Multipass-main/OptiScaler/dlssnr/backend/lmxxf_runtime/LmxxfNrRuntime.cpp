@@ -447,28 +447,70 @@ std::wstring DllDirectory()
     return dir;
 }
 
-bool TryReadFitLargeFromFlagsFile(const std::wstring &path, bool *outValue)
+/* Config priority (do not invent another layer):
+ *   1) Ins menu / OptiScaler.ini (host _putenv of product keys)
+ *   2) native-game-flags.txt / external env for keys the host did not set
+ *   3) compile-time defaults in LmxxfProductionOptions
+ * Flags fill gaps only: never overwrite an existing environment entry. */
+bool ApplyFlagsFileFallback(const std::wstring &path)
 {
     FILE *f = _wfopen(path.c_str(), L"rb");
     if (!f)
         return false;
-    char line[256];
-    unsigned v = 0;
-    bool found = false;
+    char line[512];
+    bool any = false;
     while (fgets(line, sizeof line, f))
     {
-        unsigned x = 0;
-        if (sscanf(line, "DLSS5_FIT_LARGE=%u", &x) == 1)
+        char *s = line;
+        while (*s == ' ' || *s == '\t')
+            ++s;
+        if (*s == '#' || *s == ';' || *s == '\n' || *s == '\r' || !*s)
+            continue;
+        char *eq = strchr(s, '=');
+        if (!eq || eq == s)
+            continue;
+        char *keyEnd = eq;
+        while (keyEnd > s && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t'))
+            --keyEnd;
+        if (keyEnd == s)
+            continue;
+        const size_t keyLen = size_t(keyEnd - s);
+        if (keyLen == 0 || keyLen >= 128)
+            continue;
+        char key[128];
+        memcpy(key, s, keyLen);
+        key[keyLen] = 0;
+        for (size_t i = 0; i < keyLen; ++i)
         {
-            v = x;
-            found = true;
+            if (!((key[i] >= 'A' && key[i] <= 'Z') || (key[i] >= '0' && key[i] <= '9') || key[i] == '_'))
+            {
+                key[0] = 0;
+                break;
+            }
         }
+        if (!key[0])
+            continue;
+        if (std::getenv(key))
+            continue; // menu / ini / caller already owns this key
+        char *val = eq + 1;
+        while (*val == ' ' || *val == '\t')
+            ++val;
+        char *end = val + strlen(val);
+        while (end > val && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
+        {
+            --end;
+            *end = 0;
+        }
+        const size_t valLen = strlen(val);
+        if (keyLen + 1 + valLen >= 256)
+            continue;
+        char entry[256];
+        snprintf(entry, sizeof entry, "%s=%s", key, val);
+        _putenv(entry);
+        any = true;
     }
     fclose(f);
-    if (!found)
-        return false;
-    *outValue = (v == 1);
-    return true;
+    return any;
 }
 
 // The codec's colour-input contract, checked here instead of letting the codec throw.
@@ -495,28 +537,19 @@ const char *ColorInputProblem(const D3D12_RESOURCE_DESC &desc)
     return nullptr;
 }
 
-// Upstream enables 1080p+ via DLSS5_FIT_LARGE=1 (env or native-game-flags.txt).
-// Codec Supported() uses NativeFitLargeInput(); QueryCapabilities must match.
+// Upstream enables 1080p+ via DLSS5_FIT_LARGE=1. Host menu/ini already _putenv's product
+// keys; flags only fill gaps (ApplyFlagsFileFallback). Codec Supported() uses
+// NativeFitLargeInput(); QueryCapabilities must match.
 void EnsureFitLargeApplied()
 {
-    // Latch only after env or flags resolve. If neither is present yet, retry on later
-    // Create/PrepareFrame so a late-written native-game-flags.txt still applies.
-    static bool resolved = false;
-    if (resolved)
-        return;
-
+    // Host Config may set DLSS5_FIT_LARGE after process start. Re-resolve when env is
+    // present; flags probe stays at 1 Hz while neither env nor a flags file exists.
     if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
     {
-        if (e[0] == '1' && !e[1])
-            NativeFitLargeInputOverride() = true;
-        else
-            NativeFitLargeInputOverride() = false;
-        resolved = true;
+        NativeFitLargeInputOverride() = (e[0] == '1' && !e[1]);
         return;
     }
 
-    // The file probe below runs on every PrepareFrame while unresolved; once a second is
-    // enough to pick up a late-written flags file.
     static ULONGLONG nextProbe = 0;
     const ULONGLONG now = GetTickCount64();
     if (now < nextProbe)
@@ -545,24 +578,10 @@ void EnsureFitLargeApplied()
     }
 
     for (size_t i = 0; i < n; ++i)
-    {
-        bool on = false;
-        if (TryReadFitLargeFromFlagsFile(candidates[i], &on))
-        {
-            if (on)
-            {
-                NativeFitLargeInputOverride() = true;
-                _putenv("DLSS5_FIT_LARGE=1");
-            }
-            else
-            {
-                NativeFitLargeInputOverride() = false;
-                _putenv("DLSS5_FIT_LARGE=0");
-            }
-            resolved = true;
-            return;
-        }
-    }
+        ApplyFlagsFileFallback(candidates[i]);
+
+    if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
+        NativeFitLargeInputOverride() = (e[0] == '1' && !e[1]);
 }
 
 std::wstring FindShaderDir(const std::wstring &assets = {})

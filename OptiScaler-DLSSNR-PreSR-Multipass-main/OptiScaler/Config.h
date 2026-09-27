@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ConfigKeys.h"
 #include "SysUtils.h"
 #include "State.h"
 
@@ -325,14 +326,13 @@ class Config
     // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
-    // Fit Color inputs above 1920x1080 onto the 1080 network (DLSS5_FIT_LARGE).
+    // Fit Color inputs above 1920x1080 onto the 1080 network (CfgKey::FitLarge / env DLSS5_FIT_LARGE).
     // Default true, matching upstream package flags. Large Color costs same-frame NR
     // time even after the per-frame rebuild bug (alloc vs render subrect) was fixed.
-    // Written to env on Config load and on menu change (runtime
-    // reads the env every call). Installer also writes native-game-flags.txt.
+    // Host writes the env alias so ini wins over native-game-flags.txt (ConfigKeys.h).
     CustomOptional<bool> LmxxfFitLarge { true };
-    // PDL chained launch. Default on. false writes DLSS5_HIP_PDL=0 so a driver without
-    // hipExtModuleLaunchKernel can still start the network. Read when the HIP chain is built.
+    // PDL chained launch (CfgKey::Pdl / env DLSS5_HIP_PDL). Default on. false writes 0 so a
+    // driver without hipExtModuleLaunchKernel can still start the network.
     CustomOptional<bool> LmxxfPdl { true };
     /* Codec paper white passed into encode and decode Record. Finite and in (0, 64].
      * Default 1 is the value Record used to hardcode. Not the HDR Paper White anchor. */

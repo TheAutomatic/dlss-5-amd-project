@@ -408,29 +408,23 @@ bool Config::Reload(std::filesystem::path iniPath)
             LmxxfDiagnostic.set_from_config(readString("DlssNr", "LmxxfDiagnostic", true));
             // true/false only; missing or "auto" => true (upstream package flags default).
             {
-                const auto fitRaw = readString("DlssNr", "LmxxfFitLarge", true);
+                const auto fitRaw = readString(CfgKey::kSection, CfgKey::FitLarge, true);
                 if (!fitRaw.has_value() || fitRaw->empty() || _stricmp(fitRaw->c_str(), "auto") == 0)
                     LmxxfFitLarge.set_from_config(true);
                 else
-                    LmxxfFitLarge.set_from_config(readBool("DlssNr", "LmxxfFitLarge"));
+                    LmxxfFitLarge.set_from_config(readBool(CfgKey::kSection, CfgKey::FitLarge));
             }
-            // Runtime reads DLSS5_FIT_LARGE / flags; keep env aligned with ini so QueryCapabilities matches.
-            {
-                const bool fit = LmxxfFitLarge.value_or_default();
-                _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
-            }
+            // ini wins over native-game-flags.txt: host writes the env alias first.
+            CfgKey::PutEnvAlias(CfgKey::FitLarge, LmxxfFitLarge.value_or_default());
             // Missing or auto stays on. Explicit false is the off switch for PDL.
             {
-                const auto pdlRaw = readString("DlssNr", "LmxxfPdl", true);
+                const auto pdlRaw = readString(CfgKey::kSection, CfgKey::Pdl, true);
                 if (!pdlRaw.has_value() || pdlRaw->empty() || _stricmp(pdlRaw->c_str(), "auto") == 0)
                     LmxxfPdl.set_from_config(true);
                 else
-                    LmxxfPdl.set_from_config(readBool("DlssNr", "LmxxfPdl"));
+                    LmxxfPdl.set_from_config(readBool(CfgKey::kSection, CfgKey::Pdl));
             }
-            {
-                const bool pdl = LmxxfPdl.value_or_default();
-                _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
-            }
+            CfgKey::PutEnvAlias(CfgKey::Pdl, LmxxfPdl.value_or_default());
             AmdGraphicsUnsafe.set_from_config(readInt("DlssNr", "AmdGraphicsUnsafe"));
             AmdRtgiEnabled.set_from_config(readBool("AmdRtgi", "Enabled"));
             AmdRtgiQuality.set_from_config(readUInt("AmdRtgi", "Quality"));
@@ -1411,8 +1405,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "NrBackend", nrBackend.c_str());
     if (auto diagnostic = Instance()->LmxxfDiagnostic.value_for_config(); diagnostic.has_value())
         ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
-    ini.SetValue("DlssNr", "LmxxfFitLarge", GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
-    ini.SetValue("DlssNr", "LmxxfPdl", GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::FitLarge, GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::Pdl, GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfPaperWhite",
                  GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAutoExposure",

@@ -1,10 +1,12 @@
 #pragma once
 #include "hip_reference_network.h"
+#include "native_hip_env_options.h"
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
-/* First-version production HIP flags (HIP_FAST=1, graph off, skip 42,43,46). Instance, not getenv. */
+/* Production HIP defaults (HIP_FAST=1, graph off, skip 42,43,46). Then NativeApplyHipEnvironment
+ * lets DLSS5_* env keys override without a rebuild — same parser as the add-on / RE9 runtime. */
 inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsigned processing_h,
                                                      const std::string &modules, const std::string &assets)
 {
@@ -15,17 +17,8 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.fast_vit = true;
     o.wmma = o.wave = o.tiled = o.pooled = true;
     o.graph = false;
-    /* Chained-launch overlap. The _pdl kernels ship with each arch's hsaco (same .hip).
-     * On unless DLSS5_HIP_PDL=0, so a driver without hipExtModuleLaunchKernel can turn it off.
-     * Graph must stay off or the network refuses to start. */
+    /* Chained-launch overlap. On unless DLSS5_HIP_PDL=0 (NativeApplyHipEnvironment). */
     o.pdl = true;
-    if (const char *pdl = std::getenv("DLSS5_HIP_PDL"))
-    {
-        if (std::strcmp(pdl, "0") == 0)
-            o.pdl = false;
-        else if (std::strcmp(pdl, "1") == 0)
-            o.pdl = true;
-    }
     o.skip_blocks = hip_reference::ParseSkipBlocks("42,43,46");
     o.modules = modules;
     o.assets = assets;
@@ -72,8 +65,12 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.vit_qkv_frag = true;
     o.vit_contract_frag = true;
     o.prefix_inline = true;
-    // Byte-packed multihead / decoder paths. Matches the upstream package defaults
-    // (scripts/hip-game-flags.txt, hip-re9-flags.txt) and the RE9 host patch.
     o.mh_feature_byte = o.mh_proj_diag_fb = o.mh_byte_stream = o.decoder_byte = o.mh_ffn_frag256 = true;
+    /* 0.31 kernels (bit-exact). DLSS5_HIP_WAVE_OWNED / C512_M32 / VIT_PROJ_N64=0 turns each off. */
+    o.wave_owned = true;
+    o.c512_m32 = true;
+    o.vit_proj_n64 = true;
+    /* Same getenv parser as add-on / RE9; overrides the defaults above. */
+    NativeApplyHipEnvironment(o, true);
     return o;
 }

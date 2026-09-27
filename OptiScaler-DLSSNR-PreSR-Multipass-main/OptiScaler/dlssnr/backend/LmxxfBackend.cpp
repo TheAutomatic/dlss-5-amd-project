@@ -198,8 +198,8 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
              Config::Instance()->LmxxfDiagnostic.value_or_default());
     {
         const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
-        _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
-        LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; NativeFitLargeInput re-reads env each call)", fit);
+        CfgKey::PutEnvAlias(CfgKey::FitLarge, fit);
+        LOG_INFO("lmxxf FitLarge={} ({}; NativeFitLargeInput re-reads env each call)", fit, CfgKey::EnvAlias(CfgKey::FitLarge));
     }
     {
         const bool allowEb = Config::Instance()->LmxxfAllowEnhancedBarriers.value_or_default();

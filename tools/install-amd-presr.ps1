@@ -1095,34 +1095,23 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     Write-Host "Updated OptiScaler.ini [DlssNr] (Enabled=true, NrBackend=$activeBackend; preference defaults only where missing)" -ForegroundColor Green
 }
 
-# Align DLSS5-AMD\native-game-flags.txt with final ini (runtime reads flags/env, not OptiScaler.ini).
-# Rewrite FIT_LARGE every install when lmxxf is installed so upsert cannot disagree with a stale flags file.
-# Same rule as Config: only true/1 enables FitLarge; missing, auto or anything else is off.
+# Product keys live in OptiScaler.ini (menu > ini). native-game-flags.txt is only a
+# fallback for DLSS5_* keys the host did not set. Do not rewrite txt from ini here.
 if ($installLmxxf) {
-    $fitLarge = $true
-    if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
-        $fitLine = Select-String -LiteralPath $gameIni -Pattern '^\s*LmxxfFitLarge\s*=' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($fitLine -and $fitLine.Line -match '=\s*(true|1)\s*$') { $fitLarge = $true }
-    }
     $flagsDir = Join-Path $game 'DLSS5-AMD'
     New-Item -ItemType Directory -Force -Path $flagsDir | Out-Null
     $flagsPath = Join-Path $flagsDir 'native-game-flags.txt'
-    $fitLineOut = "DLSS5_FIT_LARGE=$(if ($fitLarge) { '1' } else { '0' })"
-    if (Test-Path -LiteralPath $flagsPath -PathType Leaf) {
-        $existing = [IO.File]::ReadAllText($flagsPath)
-        if ($existing -match '(?m)^DLSS5_FIT_LARGE=.*$') {
-            $existing = [regex]::Replace($existing, '(?m)^DLSS5_FIT_LARGE=.*$', $fitLineOut)
-        } else {
-            if ($existing.Length -gt 0 -and -not $existing.EndsWith("`n") -and -not $existing.EndsWith("`r")) {
-                $existing += "`r`n"
-            }
-            $existing += ($fitLineOut + "`r`n")
-        }
-        [IO.File]::WriteAllText($flagsPath, $existing)
+    if (-not (Test-Path -LiteralPath $flagsPath -PathType Leaf)) {
+        $seed = @(
+            '# Optional lmxxf upstream keys (DLSS5_*).'
+            '# OptiScaler.ini / Ins menu win on conflict; this file only fills gaps.'
+            '# Example: DLSS5_HIP_WAVE_OWNED=1'
+        ) -join "`r`n"
+        [IO.File]::WriteAllText($flagsPath, ($seed + "`r`n"))
+        Write-Host "  seeded optional flags fallback: $flagsPath" -ForegroundColor Green
     } else {
-        [IO.File]::WriteAllText($flagsPath, ($fitLineOut + "`r`n"))
+        Write-Host "  kept existing $flagsPath (OptiScaler.ini wins on conflict)" -ForegroundColor Green
     }
-    Write-Host "  aligned $flagsPath ($fitLineOut) with OptiScaler.ini LmxxfFitLarge" -ForegroundColor Green
 }
 
 # Uninstaller is copied into the game folder. Double-click it there; it
