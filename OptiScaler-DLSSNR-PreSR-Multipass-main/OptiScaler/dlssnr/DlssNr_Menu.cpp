@@ -496,7 +496,8 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrColourStrength = colour;
                 HelpMarker("How much of the network's colour replaces the game's hue."
-                           "\n0–1: keep the game colour; the network only changes brightness."
+                           "\n0: game image as-is (except brightness from Transfer)."
+                           "\n1: network brightness, game colour (safest for saturated scenes)."
                            "\nAbove 1 blends toward the full network colour (toy; can tint)."
                            "\nApplies on the next frame. No restart.");
 

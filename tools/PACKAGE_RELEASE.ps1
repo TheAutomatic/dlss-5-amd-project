@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.9.4-alpha
+  Default product: OptiScaler-AMD-PreSR-1.9.5-alpha
     1.9.0  = this fork's product version
     0.4.3  = supported danielblnc runtime (0.3.x / 0.4.x also accepted)
     lmxxf  = supported lmxxf HIP neural rendering runtime
@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.9.4-alpha',
+    [string]$Version = '1.9.5-alpha',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -548,3 +548,4 @@ Write-Host "Product: $Version"
 Write-Host "Staged:  $stage"
 Write-Host "Zip:     $zip"
 Write-Host "Opti:    $OptiDll"
+

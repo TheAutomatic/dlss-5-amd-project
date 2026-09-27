@@ -57,7 +57,7 @@ float EffectivePaperWhite() {
  if ((Reserved.x & 0x10000u) != 0)
      return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
  float pre=asfloat(Reserved.y);
- if (isfinite(pre)&&pre>0&&pre!=1.0)
+ if (isfinite(pre)&&pre>0&&abs(pre-1.0)>1e-3)
      return PaperWhiteScale*pre;
  return PaperWhiteScale;
 #endif

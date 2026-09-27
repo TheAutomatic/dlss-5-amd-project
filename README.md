@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.4-alpha
+# OptiScaler AMD pre-SR — 1.9.5-alpha
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -8,7 +8,7 @@
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## 1.9.4-alpha 主要更新
+## 1.9.5-alpha 主要更新
 
 > 尚未经过广泛实机验证，欢迎附 `.log` 文件反馈 bug（见下文「排错」）。
 

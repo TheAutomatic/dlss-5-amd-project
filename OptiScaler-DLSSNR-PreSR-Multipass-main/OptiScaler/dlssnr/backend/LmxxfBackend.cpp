@@ -93,7 +93,7 @@ bool WantsAutoExposure(bool usableExposure, float preExposure = 1.0f)
 {
     if (usableExposure)
         return false;
-    if (std::isfinite(preExposure) && preExposure > 0.0f && preExposure != 1.0f)
+    if (std::isfinite(preExposure) && preExposure > 0.0f && std::fabs(preExposure - 1.0f) > 1e-3f)
         return false;
     return Config::Instance()->LmxxfAutoExposure.value_or_default();
 }
