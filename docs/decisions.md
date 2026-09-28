@@ -1,5 +1,11 @@
 # 决策记录
 
+## 09-28 · 已修复问题的旧测量不作为当前限制
+
+- **决定**：帕鲁的秒级卡顿已由 `a129c5f` 修复；保留 `[DlssNr] DLSS5_FIT_LARGE=true` 默认值，不再引用修复前耗时建议降分辨率或关闭 FitLarge。维护者确认目前未发现 FitLarge 仍有问题。
+- **原因**：旧测量发生在 allocation 与子矩形比较错误、每帧重建链路的时期，不能代表修复后的性能。公开兼容说明应分开写当前状态与已修复案例。
+- **落在**：三语 README、[Palworld](games/palworld.md)、[lmxxf 后端](backends/lmxxf.md)。当前 ini 键名为 `DLSS5_FIT_LARGE` / `DLSS5_HIP_PDL`，旧名仅用于迁移；模块契约以 [发布测试清单](../tests/RELEASE-TESTS.md#数字契约改模块列表时必须同步) 的 30/60 为准。
+
 ## 09-28 · Matheus 仓库按 GPL-3.0 处理
 
 - **决定**：`MatheusGViana/dlss-5-amd-project` 跟随 OptiScaler，按 GPL-3.0 处理；README 的 GPL-3.0 标注正确。
@@ -38,7 +44,7 @@
 
 ## 09-25 · 旧安装升级：推荐先卸载，覆盖也必须安全
 
-- **决定**：检测到旧 OptiScaler 时推荐 Y（自动用新包卸载器卸载后安装）；N 走覆盖，旧的扁平模块目录经「验证候选目录 → 备份旧目录 → 整体切换」升级，不留混合布局。`-NonInteractive` 默认覆盖，`-UninstallExisting` 才卸载。模块包必须是完整的 gfx1200 + gfx1201 双架构（各 24 个）；gfx1200 在 9060 实机验证前视为实验性。
+- **决定**：检测到旧 OptiScaler 时推荐 Y（自动用新包卸载器卸载后安装）；N 走覆盖，旧的扁平模块目录经「验证候选目录 → 备份旧目录 → 整体切换」升级，不留混合布局。`-NonInteractive` 默认覆盖，`-UninstallExisting` 才卸载。模块包必须是完整的 gfx1200 + gfx1201 双架构（当时各 24 个，现行契约见 09-28 记录）；gfx1200 在 9060 实机验证前视为实验性。
 - **原因**：早先的自动替换会留下新旧混合的模块目录；坏包曾在校验前就覆盖了安装。
 - **落在**：`tools/install-amd-presr.ps1`、`tools/lmxxf-module-package.ps1`，见 [architecture/installer.md](architecture/installer.md)。
 

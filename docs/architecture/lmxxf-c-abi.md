@@ -17,7 +17,7 @@
 | runtime | `OptiScaler.dll` 同目录的 `LmxxfNrRuntime.dll`，唯一导出 `LmxxfNrGetApi(abi_version, LmxxfNrApi*)`；调用前宿主填 `struct_size = sizeof(LmxxfNrApi)` |
 | modules | 环境变量 `LMXXF_MODULES_DIR` 优先，否则同目录的 `lmxxf-modules/` |
 | 权重 | 依次：同目录 `native-game-tiled-assets/`、同目录 `lmxxf-weights/`、同目录 `lmxxf-weights-dir.txt` 里的一行路径、已有的环境变量 `LMXXF_WEIGHTS_DIR`（路径不存在则忽略）。找到后写回 `LMXXF_WEIGHTS_DIR` 给 runtime 用。注意是 tiled assets，不是旧的 `HIP/` 目录 |
-| FitLarge | 宿主把 ini 的 `LmxxfFitLarge` 写成进程环境 `DLSS5_FIT_LARGE`；runtime 另读 `DLSS5-AMD/native-game-flags.txt`。两者由安装器对齐，见 [installer.md](installer.md) |
+| FitLarge | 正式 ini 键是 `[DlssNr] DLSS5_FIT_LARGE`，宿主通过同名环境变量传给 runtime；flags 只补宿主未设置的键，安装器不再把 ini 复制到 flags。旧键仅用于配置迁移，见 [installer.md](installer.md) |
 
 ## 版本协商
 
