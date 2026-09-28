@@ -526,6 +526,21 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                                      const AmdPreSr::Settings &settings)
 {
     std::lock_guard recordLock(recordMutex);
+    bool nrRecorded = false;
+    // Runs before recordMutex is released and covers every early-return path.
+    auto reportOutcome = [&] {
+        if (diagnostic != LmxxfProbe::Mode::Off) return;
+        if (!frameDiagnostics.Observe(nrRecorded, GetTickCount64())) return;
+        const auto &d = frameDiagnostics;
+        auto &pending = LmxxfCut::Pending();
+        LOG_INFO("lmxxf continuity v1: calls={} recorded={} original={} switches={} last={} streak={} "
+                 "maxRecorded={} maxOriginal={} enqueueCalls={} lastEnqueueRc={} submitFailures={} reason={}",
+                 d.calls, d.recorded, d.original, d.switches, nrRecorded ? "recorded" : "original", d.streak,
+                 d.maxRecorded, d.maxOriginal, pending.enqueueCalls.load(), pending.lastEnqueueRc.load(),
+                 DlssNr::Submission::g_submissionFailures.load(), status);
+    };
+    struct OutcomeGuard { decltype(reportOutcome) &report; ~OutcomeGuard() { report(); } } outcomeGuard{reportOutcome};
+
     if (!cmd || !frame.colour)
     {
         SetStatus("lmxxf: Record missing cmd/colour");
@@ -606,7 +621,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     logical->Release();
     if (ineligible)
     {
-        char status[128] {};
+        char status[768] {};
         std::snprintf(status, sizeof(status), "lmxxf: split ineligible: %s (NO NR)",
                       reason ? reason : "unknown");
         SetStatus(status);
@@ -826,6 +841,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                   DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
                   submitFails);
     }
+    nrRecorded = result != nullptr;
     return result;
 }
 

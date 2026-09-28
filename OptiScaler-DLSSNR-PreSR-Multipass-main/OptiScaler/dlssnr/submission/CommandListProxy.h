@@ -4,6 +4,7 @@
 #include "ResourceStateBook.h"
 #include "QueryStateBook.h"
 #include <atomic>
+#include <string>
 // Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
 // Fail-closed default: split state does not model layout/access, so leave those lists off NR.
 inline std::atomic<bool> g_allowEnhancedBarriers { false };
@@ -53,9 +54,15 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     bool splitIneligible = false;
     std::atomic<bool> rawInterfaceEscaped { false }; // Lifetime-wide; an alias can outlive Reset.
     const char *splitIneligibleReason = nullptr;
+    std::string splitReasons;
+    std::string rejectionDetails;
 
     void MarkSplitIneligible(const char *reason)
     {
+        // Keep every distinct blocker: the first one can hide RTAS/DispatchRays.
+        const std::string token = std::string("|") + (reason ? reason : "unknown") + "|";
+        if (splitReasons.find(token) == std::string::npos)
+            splitReasons += token;
         splitIneligible = true;
         if (!splitIneligibleReason)
         {
@@ -224,6 +231,8 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         queryBook.Reset();
         splitIneligible = false;
         splitIneligibleReason = nullptr;
+        splitReasons.clear();
+        rejectionDetails.clear();
         if (initial)
             contState.OnPso(initial);
         return hr;
@@ -266,13 +275,14 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     const char *STDMETHODCALLTYPE SplitRejectionReason() override
     {
-        if (rawInterfaceEscaped) return "native_interface_escaped";
-        if (logical.WasSplit()) return "already_split";
-        if (splitIneligibleReason) return splitIneligibleReason;
-        if (!queryBook.CanSplit()) return "open_query";
+        rejectionDetails = splitReasons;
+        if (rawInterfaceEscaped) rejectionDetails += "|native_interface_escaped|";
+        if (logical.WasSplit()) rejectionDetails += "|already_split|";
+        if (!queryBook.CanSplit()) rejectionDetails += "|open_query|";
         const char *reason = nullptr;
-        resBook.CanSplit(&reason);
-        return reason ? reason : "eligible";
+        if (!resBook.CanSplit(&reason))
+            rejectionDetails += std::string("|") + (reason ? reason : "resource_state") + "|";
+        return rejectionDetails.empty() ? "eligible" : rejectionDetails.c_str();
     }
     const char *SplitIneligibleReason() const { return splitIneligibleReason; }
     UINT STDMETHODCALLTYPE CapturedViewportCount() override

@@ -1,5 +1,6 @@
 #pragma once
 #include "Host.h"
+#include "LmxxfFrameDiagnostics.h"
 #include "LmxxfEvaluateCut.h"
 #include "LmxxfColorProbe.h"
 #include "LmxxfStagingProbe.h"
@@ -23,6 +24,7 @@ class LmxxfBackend final : public Host
     void *session = nullptr;
     bool sessionReady = false;
     uint64_t frameId = 0;
+    FrameDiagnostics frameDiagnostics;
     std::string status { "lmxxf: idle" };
     // Function table copied from LmxxfNrGetApi (opaque here to keep header free of C ABI).
     struct Api;

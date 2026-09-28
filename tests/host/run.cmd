@@ -32,6 +32,8 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% tests\host\lmxxf_continuity.cpp /Fe"%OUT%\lmxxf_continuity.exe" /Fo"%OUT%\lmxxf_continuity.obj" || goto fail
+"%OUT%\lmxxf_continuity.exe" || goto fail
 %CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail
 "%OUT%\nr_backend_selector.exe" || goto fail
 %CXX% tests\host\amd_submission_state.cpp /Fe"%OUT%\amd_submission_state.exe" /Fo"%OUT%\amd_submission_state.obj" || goto fail
