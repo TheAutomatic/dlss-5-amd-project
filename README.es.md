@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.5-alpha
+# OptiScaler AMD pre-SR — 1.9.6
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
@@ -8,12 +8,12 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## Novedades en 1.9.5-alpha
+## Novedades en 1.9.6 (primera versión estable desde 1.8.6)
 
-> Aún sin pruebas amplias en juegos reales. Se agradecen informes de error con archivos `.log`.
+> Se agradecen informes de error con archivos `.log`.
 
 **Actualización del backend danielblnc**
-- Compatible con **0.3.2 / 0.3.3 / 0.4.0** y **0.4.1 / 0.4.2 / 0.4.3** (layout de archivos y aislamiento de inicio; descargue usted mismo los pesos de daniel).
+- Compatible con **danielblnc 0.3.0–0.5.0** (layout de archivos y aislamiento de inicio; descargue usted mismo los pesos de daniel).
 
 **Nuevo backend lmxxf** (pesos: [repositorio lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [nube](https://gofile.io/d/wRln0Pue))
 - **Sincronización upstream**: versión **0.35**.
@@ -28,6 +28,9 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 **Menú en el juego**
 - Menú reorganizado con interruptores lmxxf / daniel
+
+**Problemas conocidos**
+- Con danielblnc 0.4.3 / 0.5.0 como backend, la demo de Wo Long 2 puede cerrarse de forma inesperada; aún no se ha determinado si la causa está en este lado o en el host.
 
 ### Mapa de configuración lmxxf (ini / menú Ins)
 
@@ -99,7 +102,7 @@ Este proyecto se basa en los logros colectivos de desarrolladores pioneros en la
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | Framework proxy de reescalado universal (DLSS / FFX / XeSS) | Sirve como capa de inyección y host, proporcionando enganches (hooking) y controles de interfaz gráfica |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | Primera integración de DLSS-NR en OptiScaler; diseñaron el pipeline Pre-SR Multi-Pass | Hereda su base de código de OptiScaler y la estructura de despacho Pre-SR |
 | **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Puente de Pre-SR al runtime de AMD: Entrada DLSS → AMD NR → FFX | Creó la **planificación multi-ranura (Multi-slot)**, eliminando **8.7 ms/fotograma** de bloqueos inactivos de la GPU; adaptó 0.3.1; restauró congelación/restauración de estados D3D12; mejoró compatibilidad con XBOX PC. **Sobrecarga del puente de solo 0.01–0.03 ms** |
-| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Runtime central de AMD Neural Rendering (0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0.4.2 / 0.4.3 / 0.5.0) | Invoca el runtime estándar sin modificaciones centrales; añade protección de estado D3D12 para la espera de dibujado de 1 píxel de 0.3.1+ |
+| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Runtime central de AMD Neural Rendering (0.3.0–0.5.0) | Invoca el runtime estándar sin modificaciones centrales; añade protección de estado D3D12 para la espera de dibujado de 1 píxel de 0.3.1+ |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | Red de 71 bloques con ingeniería inversa portada a kernels abiertos AMD HIP | **Integrado en el framework proxy universal OptiScaler para admitir más juegos DLSS / XeSS**; implementó ejecución en la misma cola del fotograma; desarrolló el runtime independiente con C-ABI estandarizado (`LmxxfNrRuntime`); añadió controles deslizantes de ajuste de detalle/color en tiempo real |
 | **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | Addon de código abierto para HDR / Corrección de color | Origen de los algoritmos de composición de color en `dlssnr.hlsl` |
 

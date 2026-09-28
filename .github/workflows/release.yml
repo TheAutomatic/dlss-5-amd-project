@@ -271,13 +271,12 @@ jobs:
             dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
           body: |
-            This alpha version has not yet undergone extensive real-world gameplay testing.
-            You are welcome to report any issues you encounter, including logs (please refer to the README).
+            Bug reports with logs are welcome.
 
-            ### 1.9.5-alpha 新增
+            ### 1.9.6 新增（自 1.8.6 以来首个正式版）
 
             **danielblnc 后端支持更新**
-            - 对齐 **0.3.2 / 0.3.3 / 0.4.0** 与 **0.4.1 / 0.4.2 / 0.4.3** 的文件布局与启动隔离（请自行下载 daniel 相关权重文件）。
+            - 支持 **danielblnc 0.3.0–0.5.0**（文件布局与启动隔离；请自行下载 daniel 相关权重文件）。
 
             **新增lmxxf后端支持**（权重文件下载：[lmxxf原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)或[网盘链接](https://gofile.io/d/wRln0Pue)）
             - **对齐上游更新**：当前已同步至 **0.35** 版。
@@ -293,10 +292,13 @@ jobs:
             **游戏内菜单**
             - 菜单布局优化，同步 lmxxf / daniel 功能开关
 
-            ### What's new in 1.9.5-alpha
+            **已知问题**
+            - 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或宿主原因。
+
+            ### What's new in 1.9.6 (first stable release since 1.8.6)
 
             **danielblnc backend update**
-            - Updated for **0.3.2 / 0.3.3 / 0.4.0** and **0.4.1 / 0.4.2 / 0.4.3** file layout and startup isolation (please download the daniel weights/files yourself).
+            - Supports **danielblnc 0.3.0–0.5.0** (file layout and startup isolation; please download the daniel weights/files yourself).
 
             **New lmxxf backend** (weight files: [lmxxf upstream](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [cloud drive](https://gofile.io/d/wRln0Pue))
             - **Upstream alignment**: currently synced to **0.35**.
@@ -311,6 +313,9 @@ jobs:
 
             **In-game menu**
             - Menu layout cleanup with lmxxf / daniel feature toggles
+
+            **Known issues**
+            - Using danielblnc 0.4.3 / 0.5.0 as the backend may crash in the Wo Long 2 Demo; not yet determined whether this side or the host is at fault.
 
             No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
 

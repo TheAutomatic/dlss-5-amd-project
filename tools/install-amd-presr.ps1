@@ -2,7 +2,7 @@
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
-  Copies danielblnc's 0.5.0 / 0.4.3 / 0.4.2 / 0.4.1 / 0.4.0 / 0.3.x runtime (version.dll) to dlssnr_amd_pass1-3.dll,
+  Copies danielblnc's 0.3.0–0.5.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
@@ -12,9 +12,9 @@
     OptiScaler.dll              this fork
     OptiScaler.ini              optional
     OptiScaler\                 FFX / XeSS / Agility deps
-    version.dll                 danielblnc AMD NR 0.5.0 / 0.4.3 / 0.4.2 / 0.4.1 / 0.4.0 / 0.3.x (copied to pass1-3)
+    version.dll                 danielblnc AMD NR 0.3.0–0.5.0 (copied to pass1-3)
     nvngx_dlssnr.dll            optional, to generate weights with danielblnc setup
-    dlssnr_on_amd_setup.exe     optional, danielblnc 0.5.0 / 0.4.3 / 0.4.2 / 0.4.1 / 0.4.0 / 0.3.x setup
+    dlssnr_on_amd_setup.exe     optional, danielblnc 0.3.0–0.5.0 setup
     dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE

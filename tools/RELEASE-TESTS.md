@@ -63,7 +63,7 @@ python -m unittest tests.lmxxf_upstream_sync
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 -AllowMissingDeps
 ```
 
-- 版本号读根目录 `VERSION`（当前如 `1.9.5-alpha`），或显式 `-Version`。  
+- 版本号读根目录 `VERSION`（当前如 `1.9.6`），或显式 `-Version`。  
 - 新鲜度检查失败会 **中止打包**（DLL/hsaco 比源码旧）。  
 - **不**替代 A/B 测试。
 
