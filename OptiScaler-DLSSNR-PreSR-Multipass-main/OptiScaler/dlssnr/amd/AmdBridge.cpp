@@ -339,8 +339,8 @@ bool HasFiles()
 }
 void SyncBackendWithConfig()
 {
-    // Hot switch: both hosts stay alive. Flip ProxyWrap, drop temporal history,
-    // and force the warm-up window so the new host does not inherit stability.
+    // Hot switch: both hosts stay alive. Drop temporal history and force the
+    // warm-up window so the new host does not inherit stability.
     DlssNr::Backend::InvalidateInstallProbe();
     const auto selected = DlssNr::Backend::ActiveKindFromConfig();
     g_activeKind.store(static_cast<int>(selected), std::memory_order_release);
@@ -349,9 +349,12 @@ void SyncBackendWithConfig()
         lastFrame = {};
         stableFrames = 0;
     }
-    if (DlssNr::Submission::Hooks::IsArmed())
-        DlssNr::Submission::Hooks::SetProxyWrap(
-            DlssNr::Backend::LmxxfWired() && selected == DlssNr::Backend::Kind::Lmxxf);
+    // Sticky on: never clear ProxyWrap. Lists created while it was off stay raw
+    // forever, so daniel -> lmxxf would fail the same-frame QI. Once wrapping is
+    // on, leaving it on costs only a thin CPU proxy during daniel.
+    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::LmxxfWired() &&
+        selected == DlssNr::Backend::Kind::Lmxxf)
+        DlssNr::Submission::Hooks::SetProxyWrap(true);
     if (auto b = ActiveHost())
         b->InvalidateHistory();
     Message("AMD pre-SR: NR backend switched");
@@ -485,9 +488,10 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (confirmedQ) confirmedQ->Release();
         return true;
     }
-    if (DlssNr::Submission::Hooks::IsArmed())
-        DlssNr::Submission::Hooks::SetProxyWrap(
-            DlssNr::Backend::LmxxfWired() && active == DlssNr::Backend::Kind::Lmxxf);
+    // Sticky on (see SyncBackendWithConfig): enable for lmxxf, never clear.
+    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::LmxxfWired() &&
+        active == DlssNr::Backend::Kind::Lmxxf)
+        DlssNr::Submission::Hooks::SetProxyWrap(true);
     // Build only the selected host on first use. The other is built when it is
     // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
     if (active == DlssNr::Backend::Kind::Lmxxf)
