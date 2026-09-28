@@ -85,7 +85,9 @@ void StreamlineHooks::streamlineLogCallback(sl::LogType type, const char* msg)
             LOG_WARN("{}", trimmed_msg);
             break;
         case sl::LogType::eInfo:
-            LOG_INFO("{}", trimmed_msg);
+            // SL info is noisy (ota.cpp startup, presentCommon VRAM every frame).
+            // Keep it only at LogLevel=3; info stays readable.
+            LOG_DEBUG("{}", trimmed_msg);
             break;
         case sl::LogType::eError:
             LOG_ERROR("{}", trimmed_msg);
@@ -582,7 +584,8 @@ void StreamlineHooks::streamlineLogCallback_sl1(sl1::LogType type, const char* m
             LOG_WARN("{}", trimmed_msg);
             break;
         case sl1::LogType::eLogTypeInfo:
-            LOG_INFO("{}", trimmed_msg);
+            // Same as sl2: SL info is noisy; see streamlineLogCallback.
+            LOG_DEBUG("{}", trimmed_msg);
             break;
         case sl1::LogType::eLogTypeError:
             LOG_ERROR("{}", trimmed_msg);
