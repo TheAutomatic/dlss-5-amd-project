@@ -1,12 +1,17 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.6.2
+# OptiScaler AMD pre-SR — 1.9.6.3
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
 本项目 fork 自 **Matheus** 及上游社区。在上游成熟方案的基础上持续深度研发与维护。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## 1.9.6.3 修复
+
+- 修复 Daniel 后端逐帧向 `amd_bridge.log` 写入 `isolated neural command list` 导致日志暴涨的问题；该提示每次启动只记录一次。
+- 不改变渲染、NR 参数或命令列表提交行为。已有 1.9.6.2 用户可仅替换宿主 DLL，保留 runtime、权重和配置。
 
 ## 1.9.6.2 修复
 

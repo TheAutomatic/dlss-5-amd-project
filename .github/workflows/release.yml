@@ -296,6 +296,11 @@ jobs:
           body: |
             Bug reports with logs are welcome.
 
+            ### 1.9.6.3
+            - 修复 Daniel 后端 `amd_bridge.log` 逐帧刷屏：隔离命令列表提示每次启动只记录一次，不改变渲染或提交行为。
+            - Fixes per-frame AMD bridge log spam; the routine batch-isolation message is logged once per process. Rendering and submission behavior are unchanged.
+            - 已有 1.9.6.2 用户只需替换宿主 DLL；runtime、权重及配置可保留。Existing 1.9.6.2 users only need to replace the host DLL.
+
             ### 1.9.6.2
             - lmxxf 自适应复用采用偏性能默认值：period=16 / global=1 / local=50 / image=1，F8 开启。复用可能延迟细节更新；画质优先可改回 4 / 0.22 / 1 / 0.35。
             - Performance-oriented adaptive reuse defaults: 16 / 1 / 50 / 1, F8 enabled. May delay detail updates; conservative alternative: 4 / 0.22 / 1 / 0.35. Existing explicit ini choices remain effective.
