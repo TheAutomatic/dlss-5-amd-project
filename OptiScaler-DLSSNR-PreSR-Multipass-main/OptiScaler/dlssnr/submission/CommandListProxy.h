@@ -4,9 +4,17 @@
 #include "ResourceStateBook.h"
 #include "QueryStateBook.h"
 #include <atomic>
+// Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
+// Fail-closed default: split state does not model layout/access, so leave those lists off NR.
+inline std::atomic<bool> g_allowEnhancedBarriers { false };
+inline void SetAllowEnhancedBarriers(bool on) { g_allowEnhancedBarriers.store(on, std::memory_order_release); }
+inline bool AllowEnhancedBarriers() { return g_allowEnhancedBarriers.load(std::memory_order_acquire); }
 
 #ifndef LOG_WARN
 #define LOG_WARN(...) ((void)0)
+#endif
+#ifndef LOG_DEBUG
+#define LOG_DEBUG(...) ((void)0)
 #endif
 
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
@@ -158,13 +166,16 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                 rawInterfaceEscaped = true;
                 static std::atomic<uint32_t> s_escapeWarnCount{0};
                 const uint32_t c = s_escapeWarnCount.fetch_add(1, std::memory_order_relaxed) + 1;
-                if (c <= 10 ||
-                    (c <= 100 && (c % 20 == 0)) ||
-                    (c <= 1000 && (c % 100 == 0)) ||
-                    (c % 1000 == 0))
+                // One WARN is enough for users; the event counter lives at Debug.
+                if (c == 1)
                 {
-                    LOG_WARN("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X} (event #{})",
-                             (void*)this, riid.Data1, c);
+                    LOG_WARN("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X}",
+                             (void*)this, riid.Data1);
+                }
+                else
+                {
+                    LOG_DEBUG("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X} (event #{})",
+                              (void*)this, riid.Data1, c);
                 }
             }
             return hr;
@@ -801,8 +812,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     // --- ID3D12GraphicsCommandList7 ---
     void STDMETHODCALLTYPE Barrier(UINT32 numGroups, const D3D12_BARRIER_GROUP *groups) override
     {
-        // Enhanced barriers: fail-closed admission until we can classify groups.
-        MarkSplitIneligible("enhanced_barrier");
+        // Enhanced barriers: ResourceStateBook does not classify these groups. Default is
+        // to pass through and keep split (Horizon 6). Opt out to fail closed (older games).
+        if (!AllowEnhancedBarriers())
+            MarkSplitIneligible("enhanced_barrier");
         if (auto *c = CurAs<ID3D12GraphicsCommandList7>())
         {
             c->Barrier(numGroups, groups);

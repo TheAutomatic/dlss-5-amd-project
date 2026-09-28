@@ -205,7 +205,12 @@ void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList*
     {
         // Separate Execute calls establish an execution boundary around the
         // interop list. Preserve list order and execute each list exactly once.
-        Message("AMD isolated neural command list from a render batch");
+        // Before() clears the status each frame, defeating Message's adjacent
+        // duplicate check. This routine event needs only one log per process,
+        // including when different submission threads reach it concurrently.
+        static std::atomic_flag isolationLogged = ATOMIC_FLAG_INIT;
+        if (!isolationLogged.test_and_set(std::memory_order_relaxed))
+            Message("AMD isolated neural command list from a render batch (logged once)");
         if (index) ExecuteBatch(q, static_cast<UINT>(index), c);
         ExecuteBatch(q, 1, c + index);
         auto remaining = n - static_cast<UINT>(index) - 1;
@@ -339,8 +344,8 @@ bool HasFiles()
 }
 void SyncBackendWithConfig()
 {
-    // Hot switch: both hosts stay alive. Flip ProxyWrap, drop temporal history,
-    // and force the warm-up window so the new host does not inherit stability.
+    // Hot switch: both hosts stay alive. Drop temporal history and force the
+    // warm-up window so the new host does not inherit stability.
     DlssNr::Backend::InvalidateInstallProbe();
     const auto selected = DlssNr::Backend::ActiveKindFromConfig();
     g_activeKind.store(static_cast<int>(selected), std::memory_order_release);
@@ -349,9 +354,12 @@ void SyncBackendWithConfig()
         lastFrame = {};
         stableFrames = 0;
     }
-    if (DlssNr::Submission::Hooks::IsArmed())
-        DlssNr::Submission::Hooks::SetProxyWrap(
-            DlssNr::Backend::LmxxfWired() && selected == DlssNr::Backend::Kind::Lmxxf);
+    // Sticky on: never clear ProxyWrap. Lists created while it was off stay raw
+    // forever, so daniel -> lmxxf would fail the same-frame QI. Once wrapping is
+    // on, leaving it on costs only a thin CPU proxy during daniel.
+    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::LmxxfWired() &&
+        selected == DlssNr::Backend::Kind::Lmxxf)
+        DlssNr::Submission::Hooks::SetProxyWrap(true);
     if (auto b = ActiveHost())
         b->InvalidateHistory();
     Message("AMD pre-SR: NR backend switched");
@@ -485,9 +493,10 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (confirmedQ) confirmedQ->Release();
         return true;
     }
-    if (DlssNr::Submission::Hooks::IsArmed())
-        DlssNr::Submission::Hooks::SetProxyWrap(
-            DlssNr::Backend::LmxxfWired() && active == DlssNr::Backend::Kind::Lmxxf);
+    // Sticky on (see SyncBackendWithConfig): enable for lmxxf, never clear.
+    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::LmxxfWired() &&
+        active == DlssNr::Backend::Kind::Lmxxf)
+        DlssNr::Submission::Hooks::SetProxyWrap(true);
     // Build only the selected host on first use. The other is built when it is
     // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
     if (active == DlssNr::Backend::Kind::Lmxxf)
@@ -554,16 +563,39 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     const float sessionScale=Config::Instance()->AmdNrScale.value_or_default();
     const float requestedScale=sessionScale;
     const auto now=GetTickCount64();
+    const bool firstProbe = (settlingWidth == 0 && settlingHeight == 0);
     if(settlingWidth!=f.width || settlingHeight!=f.height || settlingScale!=requestedScale) {
-        b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
-            std::to_string(settlingHeight) + " -> " + std::to_string(f.width) + "x" +
-            std::to_string(f.height) + "; NR scale " + std::to_string(settlingScale) +
-            " -> " + std::to_string(requestedScale));
-        settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;settlingSince=now;
-        b->InvalidateHistory();
+        if (!firstProbe)
+        {
+            // Real change after we already had a size: keep the settle window.
+            b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
+                std::to_string(settlingHeight) + " -> " + std::to_string(f.width) + "x" +
+                std::to_string(f.height) + "; NR scale " + std::to_string(settlingScale) +
+                " -> " + std::to_string(requestedScale));
+            // Dynamic resolution can change the extent every few frames; keep the log bounded.
+            static unsigned settleChanges = 0;
+            ++settleChanges;
+            if (settleChanges <= 8 || settleChanges % 100 == 0)
+                LOG_INFO("AMD pre-SR settle #{}: {}x{} scale {:.3f} -> {}x{} scale {:.3f} (thread {})",
+                         settleChanges, settlingWidth, settlingHeight, settlingScale, f.width, f.height,
+                         requestedScale, GetCurrentThreadId());
+            b->InvalidateHistory();
+            settlingSince=now;
+        }
+        // First probe (0x0 -> real size) is startup, not a mid-session change.
+        // Leave settlingSince at 0 so we do not skip the first stable frames.
+        settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;
     }
-    if(now-settlingSince<300) {
-        Message("AMD neural: waiting for resolution settings to settle");
+    if(settlingSince != 0 && now-settlingSince<300) {
+        // Once per settle window, not every 250 ms: Message() also lands in amd_bridge.log.
+        static ULONGLONG loggedWindow = 0;
+        if (loggedWindow != settlingSince)
+        {
+            loggedWindow = settlingSince;
+            LOG_INFO("AMD neural: waiting for resolution settings to settle ({}x{} scale {:.3f}, thread {})",
+                     f.width, f.height, requestedScale, GetCurrentThreadId());
+            Message("AMD neural: waiting for resolution settings to settle");
+        }
         return true;
     }
     const FrameIdentity current { f.colour, f.motion, f.depth, f.width, f.height };

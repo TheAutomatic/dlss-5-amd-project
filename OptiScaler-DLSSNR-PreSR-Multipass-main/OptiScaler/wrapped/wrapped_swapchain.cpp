@@ -462,7 +462,9 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
                            DlssNr::AmdBridge::EnsureSubmissionHook(queue);
         if (queue)
             queue->Release();
-        DlssNr::Submission::Hooks::SetProxyWrap(ready);
+        // Sticky on: a failed first attempt must not clear a later enable.
+        if (ready)
+            DlssNr::Submission::Hooks::SetProxyWrap(true);
         LOG_INFO("lmxxf ProxyWrap after swapchain {}: {} (early game lists wrapped: {})", _id, ready,
                  DlssNr::Submission::Hooks::g_earlyWrappedLists.load(std::memory_order_relaxed));
     }

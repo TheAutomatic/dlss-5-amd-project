@@ -7,6 +7,10 @@ namespace AmdPreSr
 {
 // Identify pass DLL by SHA+size. Returns kAmdLayouts[].name or nullptr.
 const char* IdentifyRuntimeName(const std::filesystem::path& passDll);
+// Persist Ins-exposed daniel keys into dlssnr_on_amd.ini ([DlssNrOnAmd]).
+// Call only from Opti's Save Settings (same as SaveIni); live path uses memory flags.
+// Also writes Async= from AmdInline (1=inline -> Async=0).
+void SaveDanielSettings();
 struct Frame
 {
     ID3D12Resource *colour = nullptr, *motion = nullptr, *depth = nullptr, *exposure = nullptr;

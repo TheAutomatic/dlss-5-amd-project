@@ -36,6 +36,8 @@ struct PendingHip
     std::atomic<int32_t> lastEnqueueRc { 0 };
     // EnqueueHip returned OK with a diagnostic: the runtime zeroed its output (original Color).
     std::atomic<uint64_t> recoveredEnqueues { 0 };
+    // Queue that actually executed the split list (can differ from the bootstrap queue after a swapchain rebuild).
+    std::atomic<ID3D12CommandQueue *> lastQueue { nullptr };
 };
 
 inline PendingHip &Pending()
@@ -130,6 +132,7 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         p.getLastError = nullptr;
         p.targetList = nullptr;
         p.expectedQueue = nullptr;
+        p.lastQueue.store(queue, std::memory_order_relaxed);
     }
     p.betweenHits.fetch_add(1, std::memory_order_relaxed);
     p.enqueueCalls.fetch_add(1, std::memory_order_relaxed);

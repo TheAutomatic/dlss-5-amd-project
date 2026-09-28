@@ -70,14 +70,26 @@ if ([string]::IsNullOrWhiteSpace($GameDir)) {
 if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
     Fail "Game folder not found: $GameDir"
 }
+# Resolve-Path keeps 8.3 names such as RUNNER~1. GetFullPath expands them.
+# Later checks use GetFullPath, so the game root must be that same form.
 $game = (Resolve-Path -LiteralPath $GameDir).Path
+$game = [IO.Path]::GetFullPath($game)
+
+# New packages share the controlled module names. A standalone copied uninstaller
+# can still use the installed manifests; it never claims ownership by extension.
+$moduleHelper = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
+$controlledModules = @()
+if (Test-Path -LiteralPath $moduleHelper -PathType Leaf) {
+    . $moduleHelper
+    $controlledModules = @(Get-LmxxfModuleNames)
+}
 
 # File names this project installs. Proxy names are deleted only when the file is OptiScaler.
 $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','wininet.dll','dbghelp.dll')
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
     'OptiScaler.ini','amd-presr-install.txt',
-    'LmxxfNrRuntime.dll',
+    'LmxxfNrRuntime.dll', 'lmxxf-module-package.ps1',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'Uninstall.bat','Uninstall.ps1'
 )
@@ -123,7 +135,7 @@ $errors = New-Object System.Collections.Generic.List[string]
 
 function Test-UninstallPath([string]$path) {
     $full = [IO.Path]::GetFullPath($path)
-    $base = $game.TrimEnd('\')
+    $base = [IO.Path]::GetFullPath($game).TrimEnd('\')
     if ($full -ine $base -and -not $full.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)) {
         $kept.Add("outside game folder: $path")
         return $false
@@ -395,25 +407,53 @@ foreach ($root in $roots) {
         } else {
             # Delete only files listed in SHA256SUMS (installer set) or standard module files. Keep user weights/extras.
             $sums = Join-Path $lmxxfMods 'SHA256SUMS'
-            $manifestNames = @()
+            $manifestNames = [System.Collections.Generic.List[string]]::new()
             if (Test-Path -LiteralPath $sums -PathType Leaf) {
                 Get-Content -LiteralPath $sums -ErrorAction SilentlyContinue | ForEach-Object {
                     $line = $_.Trim()
                     if (-not $line) { return }
                     $parts = $line -split '\s+', 2
-                    if ($parts.Count -ge 2) {
-                        $raw = $parts[1].Trim()
-                        # Strictly reject path separators or directory traversal
-                        if ($raw -notmatch '[/\\\\]|\.\.') {
-                            $manifestNames += $raw
+                    if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9a-fA-F]{64}$') {
+                        $raw = $parts[1].Trim().TrimStart('*')
+                        # Accept root or single-arch relative paths: e.g. foo.hsaco or gfx1201/foo.hsaco
+                        if ($raw -match '(?i)^(((?:gfx1200|gfx1201)[/\\])?[^/\\:*?"<>|]+\.hsaco)$' -and $raw -notmatch '\.\.') {
+                            $manifestNames.Add($raw.Replace('/', '\'))
                         }
                     }
                 }
             }
-            # Also safely sweep any .hsaco code modules in lmxxf-modules root
-            Get-ChildItem -LiteralPath $lmxxfMods -Filter '*.hsaco' -File -ErrorAction SilentlyContinue |
-                ForEach-Object { $manifestNames += $_.Name }
-            $manifestNames += @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')
+            # Only the two supported architecture directories are project-owned.
+            $archDirs = @(Get-ChildItem -LiteralPath $lmxxfMods -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('gfx1200', 'gfx1201') })
+            foreach ($arch in $archDirs) {
+                if (Test-TreeReparse $arch.FullName) {
+                    $kept.Add("linked path: $($arch.FullName)")
+                    $errors.Add("$($arch.FullName) : contains a linked path, not deleted")
+                    continue
+                }
+                $leafSums = Join-Path $arch.FullName 'SHA256SUMS'
+                if (Test-Path -LiteralPath $leafSums -PathType Leaf) {
+                    Get-Content -LiteralPath $leafSums -ErrorAction SilentlyContinue | ForEach-Object {
+                        $line = $_.Trim()
+                        if (-not $line) { return }
+                        $parts = $line -split '\s+', 2
+                        if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9a-fA-F]{64}$') {
+                            $raw = $parts[1].Trim().TrimStart('*')
+                            if ($raw -match '(?i)^[^/\\:*?"<>|]+\.hsaco$' -and $raw -notmatch '\.\.') {
+                                $manifestNames.Add($arch.Name + '\' + $raw)
+                            }
+                        }
+                    }
+                }
+                foreach ($name in $controlledModules) { $manifestNames.Add($arch.Name + '\' + $name) }
+                foreach ($extra in @('SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md')) {
+                    $manifestNames.Add($arch.Name + '\' + $extra)
+                }
+            }
+            # Legacy flat installs own only recorded or controlled module names.
+            foreach ($name in $controlledModules) { $manifestNames.Add($name) }
+            foreach ($extra in @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')) {
+                $manifestNames.Add($extra)
+            }
             $lmxxfModsFull = [IO.Path]::GetFullPath($lmxxfMods).TrimEnd('\') + '\'
             foreach ($name in ($manifestNames | Select-Object -Unique)) {
                 if (-not $name) { continue }

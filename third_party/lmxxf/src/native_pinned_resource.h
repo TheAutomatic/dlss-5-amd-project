@@ -16,6 +16,12 @@
 // (DLSS5_MAKE_RESIDENT_EVERY=N frames): residency priority alone did not keep them from being demoted.
 inline std::vector<ID3D12Pageable*>&NativeTrackedResources(){static std::vector<ID3D12Pageable*>v;return v;}
 inline std::mutex&NativeTrackedMutex(){static std::mutex m;return m;}
+// Call while the owner still holds its reference, after its GPU users have completed.
+// The residency list owns an extra reference; leaving it here pins retired buffers forever.
+inline void NativeUntrackResource(ID3D12Resource*r){
+ if(!r)return;std::lock_guard<std::mutex>g(NativeTrackedMutex());auto&v=NativeTrackedResources();
+ for(auto it=v.begin();it!=v.end();++it)if(*it==r){v.erase(it);r->Release();break;}
+}
 inline HRESULT NativeMakeAllResident(ID3D12Device*d){std::lock_guard<std::mutex>g(NativeTrackedMutex());auto&v=NativeTrackedResources();if(v.empty())return S_OK;return d->MakeResident(UINT(v.size()),v.data());}
 inline HRESULT NativeCreateCommittedResource(ID3D12Device*d,const D3D12_HEAP_PROPERTIES*hp,D3D12_HEAP_FLAGS flags,const D3D12_RESOURCE_DESC*rd,D3D12_RESOURCE_STATES state,const D3D12_CLEAR_VALUE*clear,REFIID iid,void**out){
  HRESULT hr=d->CreateCommittedResource(hp,flags,rd,state,clear,iid,out);

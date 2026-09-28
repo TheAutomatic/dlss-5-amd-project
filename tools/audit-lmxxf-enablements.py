@@ -114,7 +114,10 @@ def parse_recipe(text):
         if name in rows:
             raise ValueError(f'Duplicate recipe module: {name}')
         sources = re.findall(r"'([^']+)'", match[3])
-        if not sources or any(not re.fullmatch(r'[A-Za-z0-9_.-]+\.hip', s) for s in sources):
+        # .hip sources, 0.33+ .inc fragments, and expandable recipe tokens like @wave-owned-attention-body
+        if not sources or any(
+            not re.fullmatch(r'(?:[A-Za-z0-9_.-]+\.(?:hip|inc)|@[A-Za-z0-9_-]+)', s) for s in sources
+        ):
             raise ValueError(f'Unrecognized sources in module {name}; update audit parser')
         rows[name] = {'sources': sources, 'defines': re.findall(r"'([^']+)'", match[2])}
     # Do not silently drop a row when upstream changes its recipe syntax.
@@ -125,17 +128,20 @@ def parse_recipe(text):
 
 def local_inputs(root, manifest):
     files = {CONFIG / 'manifest.json', CONFIG / 'module-defines.json',
-             Path('tools/sync-lmxxf-upstream.ps1'), Path('tools/audit-lmxxf-enablements.py')}
+             Path('tools/sync-lmxxf-upstream.ps1'), Path('tools/audit-lmxxf-enablements.py'),
+             Path('tools/lmxxf-module-package.ps1')}
     files.update(CONFIG / 'patches' / spec['patch'] for spec in manifest['pinned'])
-    files.add(CONFIG / 'patches/reference-network.patch')
+    files.update(CONFIG / 'patches' / name for name in manifest['local_patches'])
     files.update(path.relative_to(root) for path in (root / CONFIG).glob('*.ps1'))
     files.update(VENDOR / path for path in manifest['headers'])
-    files.update(path.relative_to(root) for path in (root / VENDOR / 'hip').glob('*.hip'))
+    files.update(path.relative_to(root) for pattern in ('*.hip', '*.inc')
+                 for path in (root / VENDOR / 'hip').glob(pattern))
     files.update(VENDOR / 'hip' / name for name in ('build-modules.ps1', 'rtc_compile.cpp'))
     files.update(path.relative_to(root) for path in (root / VENDOR / 'shaders').glob('*.hlsl'))
     files.update(path.relative_to(root) for path in (root / RUNTIME).rglob('*')
                  if path.is_file() and path.suffix in ('.h', '.hpp', '.cpp', '.inl'))
     files.add(OPTIONS)
+    files.add(RUNTIME.parent / 'ConfigKeys.h')
     return {path.as_posix(): file_hash(root / path) for path in sorted(files)}
 
 
@@ -224,6 +230,9 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
     for module, row in sorted(recipe.items()):
         defs = row['defines'] + overrides.get(module, [])
         for source in row['sources']:
+            # @name tokens are inline recipe fragments (not hip/ files), e.g. @wave-owned-attention-body.
+            if source.startswith('@'):
+                continue
             path = 'hip/' + source
             body = git.read(commit, path)  # Missing recipe input is an audit failure, not noise.
             names = set()
@@ -252,12 +261,23 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
              'note': 'Inspect pinned-headers.diff; retaining a header can miss new API/features even when its local markers pass.'})
     if supplied_modules is not None:
         bundle = Path(supplied_modules)
-        binaries = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in sorted(bundle.glob('*.hsaco')) if path.is_file()}
+        binaries = {}
+        for path in sorted(bundle.rglob('*.hsaco')):
+            if path.is_file():
+                rel = path.relative_to(bundle).as_posix()
+                if rel.startswith('/') or '..' in rel:
+                    raise ValueError(f'Unsafe module path: {rel}')
+                binaries[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
         if not binaries:
             raise ValueError(f'No external modules to review: {bundle}')
-        metadata = {name: file_hash(bundle / name) for name in ('SHA256SUMS', 'modules.json', 'runtime-manifest.json')
-                    if (bundle / name).is_file()}
+        meta_names = {'SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md'}
+        metadata = {}
+        for path in sorted(bundle.rglob('*')):
+            if path.is_file() and path.name in meta_names:
+                rel = path.relative_to(bundle).as_posix()
+                if rel.startswith('/') or '..' in rel:
+                    raise ValueError(f'Unsafe metadata path: {rel}')
+                metadata[rel] = file_hash(path)
         item('modules:external', 'external-modules', {'binaries': binaries, 'metadata': metadata,
              'required': 'Record build source/defines/toolchain provenance and validation; hashes alone do not prove source equivalence.'})
     for check in sorted(set(skipped)):

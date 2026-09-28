@@ -8,6 +8,10 @@
 
 namespace DlssNr::Backend
 {
+// Last lmxxf colour job height seen in Record (0 = unknown). Menus use this to
+// gray NR% tiers that are taller than the current input.
+unsigned LastLmxxfColorHeight();
+
 // Full Host for lmxxf. Constructed only when ActiveKind==Lmxxf (requires LmxxfWired()).
 // Record: PrepareFrame → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
 class LmxxfBackend final : public Host
@@ -27,6 +31,7 @@ class LmxxfBackend final : public Host
     {
         void *job = nullptr;
         ID3D12CommandList *cmd = nullptr;
+        unsigned stalledEvaluations = 0; // Reset with this job on submission/replacement.
     };
     mutable std::mutex recordMutex; // The runtime session has one active job.
     mutable std::mutex jobMutex;
@@ -53,7 +58,8 @@ class LmxxfBackend final : public Host
     // PrepareFrame failure accounting: first error is fully logged; later poison repeats are quiet.
     unsigned prepareFrameFailLogs = 0;
     unsigned prepareFramePoisonLogs = 0;
-    ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &);
+    ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &,
+                                     const AmdPreSr::Settings &);
 
     bool EnsureRuntime();
     ID3D12Resource *FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle, void *privateOutput);

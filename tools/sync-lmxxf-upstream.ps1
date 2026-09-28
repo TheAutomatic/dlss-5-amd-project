@@ -3,9 +3,10 @@
   Stage a pinned lmxxf source closure, require integration review, then verify the build.
 .DESCRIPTION
   Reads one source manifest and applies independent unified patches in a temporary git
-  archive. The three local headers are preserved unless their Update switch is supplied.
+  archive. hip_d3d12_bridge.h is preserved unless -UpdateBridge is supplied (product Pdl*
+  accessors + local patches). Other headers follow upstream after PR #9.
   Missing required files or patch conflicts fail before vendor files are touched.
-  Ordinary headers, hip/*.hip and top-level shaders/*.hlsl are mirrored within their owners.
+  Ordinary headers, hip/*.hip + hip/*.inc and top-level shaders/*.hlsl are mirrored within their owners.
 
   Source copying alone never completes a sync. The audit writes a report and a review
   template to exports/lmxxf-upstream; review decisions must match the exact commit and
@@ -20,10 +21,6 @@
   Allow a failed fetch to use the local ref, with an explicit warning.
 .PARAMETER UpdateBridge
   Refresh hip_d3d12_bridge.h and apply patches/bridge.patch; conflicts fail closed.
-.PARAMETER UpdateReflect
-  Refresh native_rgb_reflect.h and apply patches/reflect.patch.
-.PARAMETER UpdateInputGeometry
-  Refresh native_input_geometry.h and apply patches/input-geometry.patch.
 .PARAMETER ReviewFile
   Reviewed JSON decisions. Default: third_party/lmxxf/upstream-review.json.
 .PARAMETER SkipEnablementAudit
@@ -37,7 +34,7 @@
 .PARAMETER AllowStaleModules
   Explicitly allow stale modules for staged integration; the review must acknowledge this.
 .PARAMETER ModulesPath
-  Flat gfx1201 module directory built separately. Validate its origin manually in the review.
+  Complete gfx1200 + gfx1201 build/package directory. Validate its origin manually in the review.
 .PARAMETER NoBuildModules
   Require ModulesPath unless SkipModules is set.
 .PARAMETER SkipBuild
@@ -58,8 +55,6 @@ param(
     [switch]$NoBuildModules,
     [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
-    [switch]$UpdateReflect,
-    [switch]$UpdateInputGeometry,
     [switch]$SkipBuild,
     [string]$ReviewFile = '',
     [switch]$SkipEnablementAudit,
@@ -72,13 +67,22 @@ $configRoot = Join-Path $PSScriptRoot 'lmxxf-sync'
 . (Join-Path $configRoot 'Files.ps1')
 . (Join-Path $configRoot 'Modules.ps1')
 $manifest = Read-SyncJson (Join-Path $configRoot 'manifest.json')
-$updates = @{ UpdateBridge = [bool]$UpdateBridge; UpdateReflect = [bool]$UpdateReflect; UpdateInputGeometry = [bool]$UpdateInputGeometry }
-$expectedPinned = @('Development/HIP/hip_d3d12_bridge.h', 'src/native_rgb_reflect.h', 'src/native_input_geometry.h')
+$updates = @{ UpdateBridge = [bool]$UpdateBridge }
+# reflect / input-geometry follow upstream after PR #9; only the bridge keeps a product patch.
+$expectedPinned = @('Development/HIP/hip_d3d12_bridge.h')
 if ($manifest.schema -ne 1 -or @($manifest.headers | Select-Object -Unique).Count -ne $manifest.headers.Count) {
     throw 'Invalid or duplicate header entries in lmxxf-sync/manifest.json'
 }
-if (@($manifest.pinned).Count -ne 3 -or @(Compare-Object $expectedPinned @($manifest.pinned.path)).Count) {
-    throw 'Only the three documented local headers may be pinned.'
+if (@($manifest.pinned).Count -ne 1 -or @(Compare-Object $expectedPinned @($manifest.pinned.path)).Count) {
+    throw 'Only hip_d3d12_bridge.h may be pinned.'
+}
+# Local patches carry product changes to files that otherwise follow upstream (shaders and
+# unpinned headers). Without them a sync silently mirrors those files back to upstream.
+if (@($manifest.local_patches).Count -lt 1 -or @($manifest.local_patches | Select-Object -Unique).Count -ne @($manifest.local_patches).Count) {
+    throw 'Invalid or duplicate local_patches in lmxxf-sync/manifest.json'
+}
+foreach ($localPatch in $manifest.local_patches) {
+    if ($localPatch -notmatch '^[A-Za-z0-9._-]+\.patch$') { throw "Invalid local patch name: $localPatch" }
 }
 foreach ($path in $manifest.headers) {
     if ($path -notmatch '^(src|Development/HIP)/[^/\\]+\.h$') { throw "Header outside owned closure: $path" }
@@ -174,8 +178,8 @@ try {
     $required += @($manifest.hip_files | ForEach-Object { 'hip/' + $_ })
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $tree $_) -PathType Leaf) })
     if ($missing.Count) { throw ('Required upstream paths disappeared; update the closure/integration first: ' + ($missing -join ', ')) }
-    foreach ($pair in @(@('hip', '*.hip'), @('shaders', '*.hlsl'))) {
-        if (@(Get-ChildItem -LiteralPath (Join-Path $tree $pair[0]) -File -Filter $pair[1]).Count -eq 0) { throw "Empty upstream $($pair[0]) source set" }
+    foreach ($pair in @(@('hip', '*.hip'), @('hip', '*.inc'), @('shaders', '*.hlsl'))) {
+        if (@(Get-ChildItem -LiteralPath (Join-Path $tree $pair[0]) -File -Filter $pair[1]).Count -eq 0) { throw "Empty upstream $($pair[0]) source set ($($pair[1]))" }
     }
     foreach ($spec in $manifest.pinned) {
         if ($updates[$spec.switch]) {
@@ -183,9 +187,11 @@ try {
             Assert-LocalHeader $spec $tree
         } else { Assert-LocalHeader $spec $vendorRoot }
     }
-    $reference = Join-Path $tree 'Development/HIP/hip_reference_network.h'
-    if ((Get-Content -LiteralPath $reference -Encoding UTF8 -Raw) -notmatch '#include\s*<algorithm>') {
-        Invoke-LocalHeaderPatch $tree (Join-Path $configRoot 'patches/reference-network.patch')
+    # Always apply to the raw selected snapshot. A matching method name alone does
+    # not prove that upstream absorbed our whole contract; conflicts require review.
+    # Unlike the pinned headers these files keep following upstream; only our hunks are carried.
+    foreach ($localPatch in $manifest.local_patches) {
+        Invoke-LocalHeaderPatch $tree (Join-Path $configRoot ('patches/' + $localPatch))
     }
     foreach ($dir in @('src', 'Development/HIP', 'hip', 'shaders', 'modules')) {
         $owned = Assert-SyncPath (Join-Path $vendorRoot $dir) $vendorRoot
@@ -197,7 +203,7 @@ try {
     }
     $dstHip = Join-Path $vendorRoot 'hip'
     $dstModules = Join-Path $vendorRoot 'modules'
-    $hipFilters = @('*.hip', 'build-modules.ps1', 'rtc_compile.cpp')
+    $hipFilters = @('*.hip', '*.inc', 'build-modules.ps1', 'rtc_compile.cpp')
     function Get-RecipeFingerprint {
         (Get-TreeFingerprint $dstHip $hipFilters) + ':' + (Get-FileSha256Hex (Join-Path $configRoot 'module-defines.json'))
     }
@@ -241,6 +247,7 @@ try {
     }
     Sync-FlatFiles (Join-Path $tree 'shaders') (Join-Path $vendorRoot 'shaders') '*.hlsl'
     Sync-FlatFiles (Join-Path $tree 'hip') $dstHip '*.hip'
+    Sync-FlatFiles (Join-Path $tree 'hip') $dstHip '*.inc'
     foreach ($name in $manifest.hip_files) {
         if ($name -eq 'SHA256SUMS') { continue }
         Copy-Item -LiteralPath (Join-Path $tree ('hip/' + $name)) -Destination (Join-Path $dstHip $name) -Force

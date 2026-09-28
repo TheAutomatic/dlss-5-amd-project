@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ConfigKeys.h"
 #include "SysUtils.h"
 #include "State.h"
 
@@ -279,6 +280,18 @@ class Config
     CustomOptional<float> DlssNrIntensity { 1.0f };
     // 0 default (standard), 1 natural, 2 cinematic -- the model's own processing profiles.
     CustomOptional<uint32_t> DlssNrStyle { 0 };
+    // 0 reinhard (soft), 1 aces (filmic). 0.3.3+ daniel overlay / ToneCurve.
+    CustomOptional<uint32_t> DlssNrToneCurve { 0 };
+    // Black lift on the display curve. 0 = none. 0.3.3+ ToneLift.
+    CustomOptional<float> DlssNrToneLift { 0.0f };
+    // 0 = null HIP stream, 1 = high-priority stream (0.4.1 QueuePriority). Heavy-load path.
+    CustomOptional<int> AmdQueuePriority { 0 };
+    // 1 = daniel inline same-frame wait (historical default). 0 requests non-inline
+    // admission when the runtime supports it. Writes configuredInline; see handoff.
+    CustomOptional<int> AmdInline { 1 };
+    // 0.4.2+ daniel Quality: 1 = Fast (cheaper math, default), 0 = Reference
+    // (NVIDIA-exact arithmetic). RX 7000 always runs Reference inside the runtime.
+    CustomOptional<int> DlssNrQuality { 1 };
     // Optional per-pass model profiles. Pass 1 uses Preset/Style above; an absent override inherits
     // pass 1. Keeping inheritance explicit preserves every existing configuration and lets changing
     // the base profile update the whole stack unless a later pass was deliberately specialised.
@@ -325,17 +338,54 @@ class Config
     // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
-    // Fit Color inputs above 1920x1080 onto the 1080 network (DLSS5_FIT_LARGE).
-    // Default false: missing/auto => false (Palworld: FitLarge+~2K Color same-frame can hitch ~2s/frame).
-    // Opt-in with explicit true. Written to env on Config load and on menu change (runtime
-    // reads the env every call). Installer also writes native-game-flags.txt.
-    CustomOptional<bool> LmxxfFitLarge { false };
-    // PDL chained launch. Default on. false writes DLSS5_HIP_PDL=0 so a driver without
-    // hipExtModuleLaunchKernel can still start the network. Read when the HIP chain is built.
+    // Fit Color inputs above 1920x1080 onto the 1080 network (ini/env/txt: DLSS5_FIT_LARGE).
+    // Default true, matching upstream package flags. Large Color costs same-frame NR
+    // time even after the per-frame rebuild bug (alloc vs render subrect) was fixed.
+    // Host writes the env name so ini wins over native-game-flags.txt (ConfigKeys.h).
+    CustomOptional<bool> LmxxfFitLarge { true };
+    // PDL chained launch (ini/env/txt: DLSS5_HIP_PDL). Default on. false writes 0 so a
+    // driver without hipExtModuleLaunchKernel can still start the network.
     CustomOptional<bool> LmxxfPdl { true };
     /* Codec paper white passed into encode and decode Record. Finite and in (0, 64].
      * Default 1 is the value Record used to hardcode. Not the HDR Paper White anchor. */
     CustomOptional<float> LmxxfPaperWhite { 1.0f };
+    // When the game supplies no exposure texture (e.g. Wo Long 2), scale the codec white
+    // point so HDR scene values are not encoded as if exposure were 1. Games that pass
+    // exposure keep using that texture and ignore this. Default on: the runtime meters the
+    // colour and smooths it (LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE).
+    CustomOptional<bool> LmxxfAutoExposure { true };
+    // Manual white scale when exposure is missing AND LmxxfAutoExposure is off.
+    // Unused when Auto exposure is on (runtime meter) or when the game sends exposure.
+    CustomOptional<float> LmxxfAutoExposureScale { 8.0f };
+    // Allow NR on command lists that use D3D12 enhanced barriers (CommandListProxy::Barrier).
+    // State is not fully modeled for those groups (layout/access), and a split can cut a
+    // SYNC_SPLIT barrier group across two submits. Default false (fail-closed reject).
+    // true opts in for games that need those lists on the NR path.
+    CustomOptional<bool> LmxxfAllowEnhancedBarriers { false };
+    // Wrap host CreateCommandList results before the swapchain exists.
+    // Missing = engine whitelist (Unreal + Forza). false = never. true = force for any engine.
+    // Other engines (e.g. Yan Yun) can crash with early ArmCreate + wrap. Restart after change.
+    CustomOptional<bool, NoDefault> LmxxfEarlyExeWrap;
+    // Network tier: auto | 720 | 900 | 1080 (DLSS5_NETWORK_HEIGHT).
+    CustomOptional<std::string> LmxxfNetworkHeight { "auto" };
+    CustomOptional<std::string> LmxxfSkipBlocks { CfgKey::kDefaultSkipBlocks };
+    // 0.31 kernels / shared pool (bit-exact per upstream). ini name == env name.
+    CustomOptional<bool> LmxxfWaveOwned { true };
+    CustomOptional<bool> LmxxfC512M32 { true };
+    CustomOptional<bool> LmxxfVitProjN64 { true };
+    CustomOptional<bool> LmxxfSharedPool { true };
+    CustomOptional<bool> LmxxfMHByteStream { true };
+    CustomOptional<bool> LmxxfDecoderByte { true };
+    CustomOptional<bool> LmxxfVitByteStream { false };
+    // 0=off; bit0 AV FP8, bit1 contract F16 (DLSS5_HIP_VIT_STREAM).
+    CustomOptional<int> LmxxfVitStream { 0 };
+    // Static-frame ViT reuse (tunable; not bit-exact).
+    CustomOptional<bool> LmxxfVitAdaptive { true };
+    CustomOptional<int> LmxxfVitReusePeriod { 16 };
+    CustomOptional<float> LmxxfVitReuseGlobal { 1.0f };
+    CustomOptional<float> LmxxfVitReuseLocal { 50.0f };
+    CustomOptional<float> LmxxfVitReuseImage { 1.0f };
+    CustomOptional<bool> LmxxfVitReuseHotkey { true };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };

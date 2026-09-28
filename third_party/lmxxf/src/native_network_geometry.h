@@ -14,10 +14,14 @@ struct NativeNetworkGeometry {
   if(height==1080)return {1920,1080,1920,1152};
   throw std::runtime_error("unsupported network height");
  }
- /* DLSS5_NETWORK_HEIGHT=auto (2026-09-17): the smallest tier the input fits in — <=1280x720 -> 720, <=1600x900 -> 900, else 1080 (inputs beyond 1920x1080 are rejected before this). */
+ /* DLSS5_NETWORK_HEIGHT=auto (2026-09-17): the smallest tier the input fits in — <=1280x720 -> 720, <=1600x900 -> 900, else 1080 (inputs beyond 1920x1080 are rejected before this).
+    2026-09-26: an input at most 10% beyond a tier on both axes is fitted DOWN into it instead of UP into the next one. 2K quality
+    (1707x961) went to 1080 = bilinear upscale into 1920x1152, 35% more pixels than the input carries; fitted into 900 (1599x900) it
+    costs a 6% downscale and the Stellar Blade frame went 49-50 -> 60 (capped). 1080 inputs still take 1080. */
+ static bool Near(unsigned width,unsigned height,unsigned tw,unsigned th){return width*10u<=tw*11u&&height*10u<=th*11u;}
  static NativeNetworkGeometry ForInput(unsigned width,unsigned height){
-  if(width<=1280&&height<=720)return FromHeight(720);
-  if(width<=1600&&height<=900)return FromHeight(900);
+  if(Near(width,height,1280,720))return FromHeight(720);
+  if(Near(width,height,1600,900))return FromHeight(900);
   return FromHeight(1080);
  }
 };

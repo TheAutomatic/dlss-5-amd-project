@@ -73,6 +73,19 @@ DEV uint rc(){return __builtin_amdgcn_workitem_id_x()&15u;}
 DEV uint gr(){return (__builtin_amdgcn_workitem_id_x()>>4)&1u;}
 DEV uint bid(){return __builtin_amdgcn_workgroup_id_x();}
 DEV void pack(i2&x,uint e,float v){uint b=uint(__builtin_amdgcn_cvt_pk_fp8_f32(clampf(v,-448.f,448.f),0.f,0,false))&255;x[e/4]=int(uint(x[e/4])|(b<<(8*(e%4))));}
+// DF_PACK8 (2026-09-27, results/pack8-20260927): an 8-byte fragment filled by pack() from zero, as two values per
+// v_cvt_pk_fp8_f32 straight into the words (same clamp, same per-element conversion) instead of cvt + and/shift/or per byte.
+#ifndef DF_PACK8
+#define DF_PACK8 0
+#endif
+#if DF_PACK8
+DEV float df_z(float v){return clampf(v,-448.f,448.f);}
+DEV i2 df_pack8(const float*t){int lo=__builtin_amdgcn_cvt_pk_fp8_f32(df_z(t[0]),df_z(t[1]),0,false);lo=__builtin_amdgcn_cvt_pk_fp8_f32(df_z(t[2]),df_z(t[3]),lo,true);
+ int hi=__builtin_amdgcn_cvt_pk_fp8_f32(df_z(t[4]),df_z(t[5]),0,false);hi=__builtin_amdgcn_cvt_pk_fp8_f32(df_z(t[6]),df_z(t[7]),hi,true);i2 x;x[0]=lo;x[1]=hi;return x;}
+#define DF_PACK8_LOOP(V,...) {float df_t_[8];for(uint e=0;e<8;e++)df_t_[e]=(__VA_ARGS__);V=df_pack8(df_t_);}
+#else
+#define DF_PACK8_LOOP(V,...) for(uint e=0;e<8;e++)pack(V,e,__VA_ARGS__)
+#endif
 template<bool ByteInput=false>
 DEV f8 dot8(const float*in,const float*w,uint first,uint row,uint channels,uint begin,uint end,f8 a){
  for(uint k=begin;k<end;k+=16){i2 x{},y{};
@@ -297,7 +310,7 @@ DEV void vit_expand_blocked_body(const float*in,const float*w,float*out,uint tok
  for(uint k=0;k<inputs;k+=16){i2 a{};
   if constexpr(TiledInput){__builtin_memcpy(&a,reinterpret_cast<const unsigned char*>(in)+vit_tile_offset(first+rc(),k+gr()*8,inputs),8);}
   else if constexpr(ByteInput){const uint*p=reinterpret_cast<const uint*>(in);uint off=((first+rc())*inputs+k+gr()*8)/4;a={int(p[off]),int(p[off+1])};}
-  else for(uint e=0;e<8;e++)pack(a,e,in[(first+rc())*inputs+k+gr()*8+e]);
+  else DF_PACK8_LOOP(a,in[(first+rc())*inputs+k+gr()*8+e]);
   for(uint n=0;n<4;n++){uint row=col+n*16+rc();i2 b;if constexpr(Frag)b=vit_weight_fragment_native(w,row,inputs,k);else b=vit_weight_fragment<Tiled>(w,row,inputs,k);accum[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,accum[n]);}
  }
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){float v=accum[n][e],g=clampf(v,-4.f,4.f),poly=__builtin_fmaf(g,absf(g)*(-.055908203125f)+.447265625f,.89453125f);reinterpret_cast<unsigned char*>(out)[(first+gr()*8+e)*outputs+col+n*16+rc()]=byte_F(v*poly);}
@@ -312,7 +325,7 @@ DEV void vit_expand_blocked_body_m(const float*in,const float*w,float*out,uint t
  f8 accum[BM][4]{};
  for(uint k=0;k<inputs;k+=16){i2 a[BM];
   #pragma unroll
-  for(uint m=0;m<BM;m++){a[m]={};uint row=first+m*16;if(row<tokens){if constexpr(ByteInput){const uint*p=reinterpret_cast<const uint*>(in);uint off=((row+rc())*inputs+k+gr()*8)/4;a[m]={int(p[off]),int(p[off+1])};}else for(uint e=0;e<8;e++)pack(a[m],e,in[(row+rc())*inputs+k+gr()*8+e]);}}
+  for(uint m=0;m<BM;m++){a[m]={};uint row=first+m*16;if(row<tokens){if constexpr(ByteInput){const uint*p=reinterpret_cast<const uint*>(in);uint off=((row+rc())*inputs+k+gr()*8)/4;a[m]={int(p[off]),int(p[off+1])};}else DF_PACK8_LOOP(a[m],in[(row+rc())*inputs+k+gr()*8+e]);}}
   i2 b[4];
   #pragma unroll
   for(uint n=0;n<4;n++){if constexpr(Frag)b[n]=vit_weight_fragment_native(w,col+n*16+rc(),inputs,k);else b[n]=vit_weight_fragment<Tiled>(w,col+n*16+rc(),inputs,k);}
@@ -456,11 +469,11 @@ WAVE void split_mix_blocked_h16w(const float*in,const float*w,float*out,uint tok
 WAVE void split_projection_blocked(const float*in,const float*w,const float*skip,float*out,uint tokens){
  uint first=bid()/8*16,row=bid()%8*64;if(first>=tokens)return;f8 acc[4]{};
  for(uint j=0;j<4;j++)for(uint e=0;e<8;e++)acc[j][e]=H(skip[(first+gr()*8+e)*512+row+j*16+rc()]*w[262144+row+j*16+rc()]);
- for(uint k=0;k<512;k+=16){i2 a{};for(uint e=0;e<8;e++)pack(a,e,in[(first+rc())*512+k+gr()*8+e]);for(uint j=0;j<4;j++){i2 b{};
+ for(uint k=0;k<512;k+=16){i2 a{};DF_PACK8_LOOP(a,in[(first+rc())*512+k+gr()*8+e]);for(uint j=0;j<4;j++){i2 b{};
 #ifdef HIP_PREPACKED_WEIGHTS
   const uint*pw=reinterpret_cast<const uint*>(w);uint off=((row+j*16+rc())*512+k+gr()*8)/4;b={int(pw[off]),int(pw[off+1])};
 #else
-  for(uint e=0;e<8;e++)pack(b,e,w[(row+j*16+rc())*512+k+gr()*8+e]);
+  DF_PACK8_LOOP(b,w[(row+j*16+rc())*512+k+gr()*8+e]);
 #endif
   acc[j]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[j]);}}
  for(uint j=0;j<4;j++)for(uint e=0;e<8;e++)out[(first+gr()*8+e)*512+row+j*16+rc()]=F(H(acc[j][e]));
@@ -471,11 +484,11 @@ WAVE void split_projection_blocked(const float*in,const float*w,const float*skip
 WAVE void split_projection_blocked_t8(const float*in,const float*w,const float*skip,float*out,unsigned char*out8,uint tokens){
  uint first=bid()/8*16,row=bid()%8*64;if(first>=tokens)return;f8 acc[4]{};
  for(uint j=0;j<4;j++)for(uint e=0;e<8;e++)acc[j][e]=H(skip[(first+gr()*8+e)*512+row+j*16+rc()]*w[262144+row+j*16+rc()]);
- for(uint k=0;k<512;k+=16){i2 a{};for(uint e=0;e<8;e++)pack(a,e,in[(first+rc())*512+k+gr()*8+e]);for(uint j=0;j<4;j++){i2 b{};
+ for(uint k=0;k<512;k+=16){i2 a{};DF_PACK8_LOOP(a,in[(first+rc())*512+k+gr()*8+e]);for(uint j=0;j<4;j++){i2 b{};
 #ifdef HIP_PREPACKED_WEIGHTS
   const uint*pw=reinterpret_cast<const uint*>(w);uint off=((row+j*16+rc())*512+k+gr()*8)/4;b={int(pw[off]),int(pw[off+1])};
 #else
-  for(uint e=0;e<8;e++)pack(b,e,w[(row+j*16+rc())*512+k+gr()*8+e]);
+  DF_PACK8_LOOP(b,w[(row+j*16+rc())*512+k+gr()*8+e]);
 #endif
   acc[j]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[j]);}}
  for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint r=first+gr()*8+e,c=row+j*16+rc();float v=F(H(acc[j][e]));out[r*512+c]=v;out8[((r/16)*16+c/32)*512+(r%16)*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
@@ -573,7 +586,7 @@ WAVE void vit_qkv_project_normalize_fused_f16compact_fp8(const float*in,const fl
 // 16 lanes touching 16 different weight rows.
 DEV f8 dot8_frag(const float*in,const unsigned char*wf,uint first,uint row,uint channels,uint begin,uint end,f8 a){
  for(uint k=begin;k<end;k+=16){i2 x{},y{};
-  for(uint e=0;e<8;e++)pack(x,e,in[(first+rc())*channels+k+gr()*8+e]);
+  DF_PACK8_LOOP(x,in[(first+rc())*channels+k+gr()*8+e]);
   __builtin_memcpy(&y,wf+((row/16)*(channels/32)+k/32)*512+((((k%32)/16)*2+gr())*16+rc())*8,8);
   a=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(x,y,a);
  }return a;

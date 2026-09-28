@@ -2,6 +2,7 @@
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
+#include "backend/LmxxfBackend.h"
 #include "submission/SubmissionHooks.h"
 #include "DlssNrFeature_Vk.h"
 
@@ -240,6 +241,59 @@ void RenderMenu(Config* config, float menuResScale)
                         ImGui::CloseCurrentPopup();
                     ImGui::EndPopup();
                 }
+
+                // daniel: wait / schedule at top; display + experimental/debug folded
+                // (same Ins density pattern as the lmxxf block above).
+                {
+                    bool inlineWait = config->AmdInline.value_or_default() != 0;
+                    if (ImGui::Checkbox("Inline same-frame wait", &inlineWait))
+                        config->AmdInline = inlineWait ? 1 : 0;
+                    HelpMarker("On (default): game waits for NR in the same frame (historical path)."
+                               "\nOff: async (daniel Async=1); pre-upscale is forced off because it requires inline."
+                               "\nSaved to dlssnr_on_amd.ini only with Save Settings. Restart may be required.");
+                }
+
+                if (ImGui::TreeNode("Display (daniel 0.3.3+)"))
+                {
+                    static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
+                    int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
+                        config->DlssNrToneCurve = (uint32_t) curve;
+                    HelpMarker("Display curve the network sees (ToneCurve)."
+                               "\nReinhard usually has better colour; ACES if highlights oversaturate.");
+                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.5f, 0.0f);
+                    HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
+                    static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
+                    int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
+                        config->DlssNrQuality = quality ? 1 : 0;
+                    HelpMarker("Quality (0.4.2+). Fast is usually visually equivalent and faster."
+                               "\nReference keeps NVIDIA's exact arithmetic. RX 7000 always runs Reference.");
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("Queue (experimental)"))
+                {
+                    bool qprio = config->AmdQueuePriority.value_or_default() != 0;
+                    if (ImGui::Checkbox("HIP high-priority queue", &qprio))
+                        config->AmdQueuePriority = qprio ? 1 : 0;
+                    HelpMarker("QueuePriority=1: high-priority HIP stream (helps under heavy load)."
+                               "\nOff: null stream (QueuePriority=0)."
+                               "\nSaved to dlssnr_on_amd.ini only with Save Settings.");
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("Debug / Advanced"))
+                {
+                    ImGui::TextWrapped(
+                        "daniel extras live in dlssnr_on_amd.ini [DlssNrOnAmd]: PollSpacing,"
+                        " OverlayKey, HipDevice, InlineWaitMs, ..."
+                        "\nIns menu / OptiScaler.ini win on Save for keys this menu exposes."
+                        "\nOverlayKey only binds daniel's own overlay (unused when driving from Ins)."
+                        "\nProcess env (advanced, no Ins toggle): DLSSNR_NO_REG, DLSSNR_CHAIN,"
+                        " DLSSNR_NOBLEND, DLSSNR_NO_REPACK, DLSSNR_WBLOG.");
+                    ImGui::TreePop();
+                }
             }
         }
 
@@ -336,8 +390,9 @@ void RenderMenu(Config* config, float menuResScale)
                               "\n(lmxxf was active this session), the other host takes"
                               "\nover immediately."
                               "\nNeeds restart: first switch to lmxxf after a daniel-only"
-                              "\nstart is saved and applies on the next launch. The line"
-                              "\nbelow always says which case you are in."
+                              "\nstart is staged for the next launch. Click Save Settings"
+                              "\nto keep it in OptiScaler.ini. The line below always says"
+                              "\nwhich case you are in."
                               "\nTurn NR off with Enable NR above."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
@@ -355,7 +410,7 @@ void RenderMenu(Config* config, float menuResScale)
             else if (deferLmxxf)
             {
                 ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                   "lmxxf saved for next launch. This session keeps using daniel.");
+                                   "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
             }
             else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
                      active == Kind::Daniel && hasLmxxf)
@@ -441,86 +496,391 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrColourStrength = colour;
                 HelpMarker("How much of the network's colour replaces the game's hue."
-                           "\n0 keeps the game's hue and changes brightness only."
-                           "\n1 uses the network colour. Above 1 pushes it further, up to 3."
-                           "\nCyberpunk 2077: if green neon turns brown, set this to 0."
-                           "\nApplies on the next frame. No restart.");
-
-                float paper = config->LmxxfPaperWhite.value_or_default();
-                if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
-                                       ImGuiSliderFlags_Logarithmic))
-                    config->LmxxfPaperWhite = paper;
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Reset##paper"))
-                    config->LmxxfPaperWhite = 1.0f;
-                HelpMarker("White level used by encode and decode. Default 1."
-                           "\nLog slider, so 1 is easy to land on. Reset returns to 1."
-                           "\nNot the HDR Paper White control further down."
-                           "\nApplies on the next frame. No restart.");
-
-                // The HIP chain reads PDL once, when it is first built.
-                static bool pdlAtStart = true;
-                static bool pdlAtStartCaptured = false;
-                if (!pdlAtStartCaptured)
-                {
-                    pdlAtStart = config->LmxxfPdl.value_or_default();
-                    pdlAtStartCaptured = true;
-                }
-                bool pdl = config->LmxxfPdl.value_or_default();
-                if (ImGui::Checkbox("PDL chained launch", &pdl))
-                {
-                    config->LmxxfPdl = pdl;
-                    _putenv(pdl ? "DLSS5_HIP_PDL=1" : "DLSS5_HIP_PDL=0");
-                }
-                HelpMarker("Overlaps HIP kernel launches. Leave this on."
-                           "\nThe picture is the same either way."
-                           "\nTurn it off only when neural rendering fails to start"
-                           "\nand the log says: missing HIP export hipExtModuleLaunchKernel."
-                           "\nThe running chain does not pick this up.");
-                if (!pdl)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
-                    ImGui::TextWrapped(
-                        "Only turn this off when neural rendering fails to start and the log says "
-                        "missing HIP export hipExtModuleLaunchKernel. Otherwise leave it on.");
-                    ImGui::PopStyleColor();
-                }
-                if (pdl != pdlAtStart)
-                {
-                    ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
-                                       "Save Settings and restart to apply the changes");
-                }
-
-                static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
-                                                    "Difference (amplified)" };
-                int debugView = (int) config->DlssNrDebugView.value_or_default();
-                if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
-                    config->DlssNrDebugView = (uint32_t) debugView;
-                HelpMarker("Off is the normal picture."
-                           "\nProxy is what the network is shown. Model output is its raw answer."
-                           "\nDifference amplifies the edit."
+                           "\n0: game image as-is (except brightness from Transfer)."
+                           "\n1: network brightness, game colour (safest for saturated scenes)."
+                           "\nAbove 1 blends toward the full network colour (toy; can tint)."
                            "\nApplies on the next frame. No restart.");
 
                 bool fitLarge = config->LmxxfFitLarge.value_or_default();
-                if (ImGui::Checkbox("Fit large color", &fitLarge))
+                if (ImGui::Checkbox("High resolution", &fitLarge))
                 {
                     config->LmxxfFitLarge = fitLarge;
-                    // Runtime reads DLSS5_FIT_LARGE on every NativeFitLargeInput() call.
-                    _putenv(fitLarge ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
+                    // Label is UI-only; ini key is CfgKey::FitLarge (env alias wins over txt).
+                    CfgKey::PutEnvAlias(CfgKey::FitLarge, fitLarge);
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
-                HelpMarker("Off (default): a wide frame is admitted only when width is"
+                HelpMarker("On (default): larger Color is fitted onto the 1080 network."
+                           "\nThat can cost same-frame time and memory."
+                           "\nOff: a wide frame is admitted only when width is"
                            "\nat most 2560, height at most 1080, and the pixel count stays"
                            "\nwithin 1920x1080. 2024x848 passes. 2560x1080 does not."
-                           "\nOn: larger Color is fitted onto the 1080 network. That can"
-                           "\nhitch and use more memory."
                            "\nApplies on the next frame, including after a resolution change."
                            "\nThe network may rebuild once. No restart.");
+
+                {
+                    const std::string net = config->LmxxfNetworkHeight.value_or_default();
+                    const bool isAuto = net.empty() || net == "auto";
+                    static std::string lastFixed = "1080";
+                    if (!isAuto && (net == "720" || net == "900" || net == "1080"))
+                        lastFixed = net;
+
+                    bool autoTier = isAuto;
+                    if (ImGui::Checkbox("NR% auto", &autoTier))
+                    {
+                        const char *value = autoTier ? "auto" : lastFixed.c_str();
+                        config->LmxxfNetworkHeight = value;
+                        CfgKey::PutEnvString(CfgKey::NetworkHeight, value);
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("On (default): lmxxf picks the smallest tier that fits."
+                               "\nOff: pin NR to one tier in the menu below."
+                               "\nApplies on the next network rebuild. Written to OptiScaler.ini with Save Settings.");
+                    if (!autoTier)
+                    {
+                        static const char *tiers[] = {"720", "900", "1080"};
+                        static const int tierH[] = {720, 900, 1080};
+                        int tierIdx = (lastFixed == "720") ? 0 : (lastFixed == "900") ? 1 : 2;
+                        const unsigned inputH = DlssNr::Backend::LastLmxxfColorHeight();
+                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                        if (ImGui::BeginCombo("NR%", tiers[tierIdx]))
+                        {
+                            for (int i = 0; i < 3; ++i)
+                            {
+                                // Hide tiers taller than the current colour input (e.g. 720p job cannot use 900/1080).
+                                const bool tooTall = inputH != 0 && tierH[i] > static_cast<int>(inputH);
+                                if (tooTall)
+                                    ImGui::BeginDisabled();
+                                if (ImGui::Selectable(tiers[i], tierIdx == i))
+                                {
+                                    tierIdx = i;
+                                    lastFixed = tiers[i];
+                                    config->LmxxfNetworkHeight = lastFixed;
+                                    CfgKey::PutEnvString(CfgKey::NetworkHeight, lastFixed.c_str());
+                                    DlssNr::AmdBridge::InvalidateHistory();
+                                    LOG_INFO("NR tier menu set to {}", lastFixed);
+                                }
+                                if (tooTall)
+                                    ImGui::EndDisabled();
+                            }
+                            ImGui::EndCombo();
+                        }
+                    }
+                }
+
+                if (ImGui::TreeNode("Experimental"))
+                {
+                    bool autoExposure = config->LmxxfAutoExposure.value_or_default();
+                    if (ImGui::Checkbox("Auto exposure", &autoExposure))
+                        config->LmxxfAutoExposure = autoExposure;
+                    HelpMarker("When the game does not send a usable exposure texture,"
+                               "\nmeasure the frame's mean brightness once per frame and"
+                               "\nsmooth it over time so highlights do not jump."
+                               "\nIgnores Exposure scale."
+                               "\nGames that already pass exposure are unchanged."
+                               "\nApplies on the next frame. No restart.");
+                    if (!autoExposure)
+                    {
+                        float expScale = config->LmxxfAutoExposureScale.value_or_default();
+                        if (ImGui::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
+                                               ImGuiSliderFlags_Logarithmic))
+                            config->LmxxfAutoExposureScale = expScale;
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Reset##autoexp"))
+                            config->LmxxfAutoExposureScale = 8.0f;
+                        HelpMarker("Manual paper white when Auto exposure is off"
+                                   "\n(including when the game sends pre-exposure)."
+                                   "\nHigher darkens the network input and weakens"
+                                   "\nhighlight rolloff. Default 8.");
+                    }
+
+                    float paper = config->LmxxfPaperWhite.value_or_default();
+                    if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
+                                           ImGuiSliderFlags_Logarithmic))
+                        config->LmxxfPaperWhite = paper;
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Reset##paper"))
+                        config->LmxxfPaperWhite = 1.0f;
+                    HelpMarker("White level used by encode and decode. Default 1."
+                               "\nLog slider, so 1 is easy to land on. Reset returns to 1."
+                               "\nNot the HDR Paper White control further down."
+                               "\nApplies on the next frame. No restart.");
+
+                    if (ImGui::TreeNode("Kernels"))
+                    {
+                        static char skippedInput[256] {};
+                        static std::string skippedLoaded;
+                        static bool skippedInvalid = false;
+                        const auto skipped = config->LmxxfSkipBlocks.value_or_default();
+                        if (skippedLoaded != skipped)
+                        {
+                            std::snprintf(skippedInput, sizeof skippedInput, "%s", skipped.c_str());
+                            skippedLoaded = skipped;
+                            skippedInvalid = false;
+                        }
+                        if (ImGui::InputText("Skipped residual blocks", skippedInput, sizeof skippedInput,
+                                             ImGuiInputTextFlags_EnterReturnsTrue))
+                        {
+                            std::string normalized;
+                            skippedInvalid = !CfgKey::NormalizeSkipBlocks(skippedInput, normalized);
+                            if (!skippedInvalid)
+                            {
+                                config->LmxxfSkipBlocks = normalized;
+                                CfgKey::PutEnvString(CfgKey::SkipBlocks, normalized.c_str());
+                            }
+                        }
+                        if (skippedInvalid)
+                            ImGui::TextUnformatted("Use 1-38, 40-69 separated by commas, or none.");
+                        HelpMarker("Press Enter to apply. Default: 42,43,46. Use none to run all blocks."
+                                   "\nChanges quality and performance; applies on the next network rebuild."
+                                   "\nDisable MH byte stream before skipping blocks 5-22 or 48-65.");
+                        auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
+                            bool v = opt.value_or_default();
+                            if (ImGui::Checkbox(label, &v))
+                            {
+                                opt = v;
+                                CfgKey::PutEnvAlias(key, v);
+                            }
+                        };
+                        kernelToggle("Wave-owned attention", config->LmxxfWaveOwned, CfgKey::WaveOwned);
+                        kernelToggle("C512 M32", config->LmxxfC512M32, CfgKey::C512M32);
+                        kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
+                        kernelToggle("Shared buffer pool", config->LmxxfSharedPool, CfgKey::SharedPool);
+                        kernelToggle("MH byte stream", config->LmxxfMHByteStream, CfgKey::MHByteStream);
+                        kernelToggle("Decoder byte", config->LmxxfDecoderByte, CfgKey::DecoderByte);
+
+                        // ViT stream (0..3) and ViT byte stream cannot both be active.
+                        int vitStream = config->LmxxfVitStream.value_or_default();
+                        if (vitStream < 0 || vitStream > 3)
+                            vitStream = 0;
+                        bool vitByte = config->LmxxfVitByteStream.value_or_default();
+                        if (ImGui::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
+                        {
+                            config->LmxxfVitStream = vitStream;
+                            char buf[8];
+                            snprintf(buf, sizeof buf, "%d", vitStream);
+                            CfgKey::PutEnvString(CfgKey::VitStream, buf);
+                            if (vitStream != 0 && vitByte)
+                            {
+                                vitByte = false;
+                                config->LmxxfVitByteStream = false;
+                                CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                            }
+                        }
+                        if (vitStream != 0)
+                            ImGui::BeginDisabled();
+                        if (ImGui::Checkbox("ViT byte stream (exp)", &vitByte))
+                        {
+                            if (vitByte)
+                            {
+                                config->LmxxfVitAdaptive = false;
+                                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, false);
+                            }
+                            config->LmxxfVitByteStream = vitByte;
+                            CfgKey::PutEnvAlias(CfgKey::VitByteStream, vitByte);
+                            if (vitByte && vitStream != 0)
+                            {
+                                vitStream = 0;
+                                config->LmxxfVitStream = 0;
+                                CfgKey::PutEnvString(CfgKey::VitStream, "0");
+                            }
+                        }
+                        if (vitStream != 0)
+                            ImGui::EndDisabled();
+                        HelpMarker("Upstream production kernels. Off restores the previous path."
+                                   "\nViT stream and ViT byte stream are mutually exclusive."
+                                   "\nEnabling ViT byte stream turns off adaptive reuse."
+                                   "\nApplies on the next network rebuild.");
+                        ImGui::TreePop();
+                    }
+
+                    if (ImGui::TreeNode("Image reuse"))
+                    {
+                        bool adapt = config->LmxxfVitAdaptive.value_or_default();
+                        if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                        {
+                            if (adapt)
+                            {
+                                config->LmxxfVitByteStream = false;
+                                CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                            }
+                            config->LmxxfVitAdaptive = adapt;
+                            CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
+                        }
+                        int period = config->LmxxfVitReusePeriod.value_or_default();
+                        if (ImGui::SliderInt("Reuse period", &period, 1, 16))
+                        {
+                            config->LmxxfVitReusePeriod = period;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%d", period);
+                            CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
+                        }
+                        float gl = config->LmxxfVitReuseGlobal.value_or_default();
+                        if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseGlobal = gl;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", gl);
+                            CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
+                        }
+                        float lo = config->LmxxfVitReuseLocal.value_or_default();
+                        if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseLocal = lo;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", lo);
+                            CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
+                        }
+                        float im = config->LmxxfVitReuseImage.value_or_default();
+                        if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseImage = im;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", im);
+                            CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
+                        }
+                        bool hot = config->LmxxfVitReuseHotkey.value_or_default();
+                        if (ImGui::Checkbox("Hotkey F8", &hot))
+                        {
+                            config->LmxxfVitReuseHotkey = hot;
+                            CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
+                        }
+                        HelpMarker("Static frames reuse ViT; motion returns to full cost."
+                                   "\nEnabling adaptive reuse turns off ViT byte stream."
+                                   "\nStrength sliders are tunable (not bit-exact)."
+                                   "\nApplies on the next network rebuild.");
+                        ImGui::TreePop();
+                    }
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("Debug / Advanced"))
+                {
+                    // The HIP chain reads PDL once, when it is first built.
+                    static bool pdlAtStart = true;
+                    static bool pdlAtStartCaptured = false;
+                    if (!pdlAtStartCaptured)
+                    {
+                        pdlAtStart = config->LmxxfPdl.value_or_default();
+                        pdlAtStartCaptured = true;
+                    }
+                    bool pdl = config->LmxxfPdl.value_or_default();
+                    if (ImGui::Checkbox("PDL chained launch", &pdl))
+                    {
+                        config->LmxxfPdl = pdl;
+                        CfgKey::PutEnvAlias(CfgKey::Pdl, pdl);
+                    }
+                    HelpMarker("Overlaps HIP kernel launches. Leave this on."
+                               "\nThe picture is the same either way."
+                               "\nTurn it off only when neural rendering fails to start"
+                               "\nand the log says: missing HIP export hipExtModuleLaunchKernel."
+                               "\nThe running chain does not pick this up.");
+                    if (!pdl)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                        ImGui::TextWrapped(
+                            "Only turn this off when neural rendering fails to start and the log says "
+                            "missing HIP export hipExtModuleLaunchKernel. Otherwise leave it on.");
+                        ImGui::PopStyleColor();
+                    }
+                    if (pdl != pdlAtStart)
+                    {
+                        ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
+                                           "Save Settings and restart to apply the changes");
+                    }
+
+                    static const char* debugNames[] = { "Off", "Proxy (what the model sees)",
+                                                        "Model output (raw)", "Difference (amplified)" };
+                    int debugView = (int) config->DlssNrDebugView.value_or_default();
+                    if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
+                        config->DlssNrDebugView = (uint32_t) debugView;
+                    HelpMarker("Off is the normal picture."
+                               "\nProxy is what the network is shown. Model output is its raw answer."
+                               "\nDifference amplifies the edit."
+                               "\nApplies on the next frame. No restart.");
+
+                    {
+                        bool eb = config->LmxxfAllowEnhancedBarriers.value_or_default();
+                        if (ImGui::Checkbox("Allow enhanced barriers", &eb))
+                        {
+                            config->LmxxfAllowEnhancedBarriers = eb;
+                        }
+                        HelpMarker("Leave off unless a game needs NR on lists that use"
+                                   "\nenhanced barriers (may corrupt state / TDR). Restart.");
+                    }
+                    {
+                        static const char *wrapNames[] = {"auto (Unreal/Forza)", "force on", "force off"};
+                        int wrapIdx = 0;
+                        if (config->LmxxfEarlyExeWrap.has_value())
+                            wrapIdx = *config->LmxxfEarlyExeWrap ? 1 : 2;
+                        if (ImGui::Combo("Early exe wrap", &wrapIdx, wrapNames, 3))
+                        {
+                            if (wrapIdx == 0)
+                                config->LmxxfEarlyExeWrap.reset();
+                            else
+                                config->LmxxfEarlyExeWrap = (wrapIdx == 1);
+                        }
+                        HelpMarker("Wrap game command lists created before the swapchain."
+                                   "\nauto: Unreal and Forza only. Restart to apply.");
+                    }
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::Button("Reset to defaults##lmxxf"))
+                {
+                    config->DlssNrTransferStrength = 1.0f;
+                    config->DlssNrColourStrength = 1.0f;
+                    config->LmxxfPaperWhite = 1.0f;
+                    config->LmxxfAutoExposure = true;
+                    config->LmxxfAutoExposureScale = 8.0f;
+                    config->LmxxfFitLarge = true;
+                    CfgKey::PutEnvAlias(CfgKey::FitLarge, true);
+                    config->DlssNrDebugView = 0u;
+                    config->LmxxfPdl = true;
+                    CfgKey::PutEnvAlias(CfgKey::Pdl, true);
+                    config->LmxxfNetworkHeight = "auto";
+                    CfgKey::PutEnvString(CfgKey::NetworkHeight, "auto");
+                    config->LmxxfSkipBlocks = CfgKey::kDefaultSkipBlocks;
+                    CfgKey::PutEnvString(CfgKey::SkipBlocks, CfgKey::kDefaultSkipBlocks);
+                    config->LmxxfWaveOwned = true;
+                    CfgKey::PutEnvAlias(CfgKey::WaveOwned, true);
+                    config->LmxxfC512M32 = true;
+                    CfgKey::PutEnvAlias(CfgKey::C512M32, true);
+                    config->LmxxfVitProjN64 = true;
+                    CfgKey::PutEnvAlias(CfgKey::VitProjN64, true);
+                    config->LmxxfSharedPool = true;
+                    CfgKey::PutEnvAlias(CfgKey::SharedPool, true);
+                    config->LmxxfMHByteStream = true;
+                    CfgKey::PutEnvAlias(CfgKey::MHByteStream, true);
+                    config->LmxxfDecoderByte = true;
+                    CfgKey::PutEnvAlias(CfgKey::DecoderByte, true);
+                    config->LmxxfVitByteStream = false;
+                    CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                    config->LmxxfVitStream = 0;
+                    CfgKey::PutEnvString(CfgKey::VitStream, "0");
+                    config->LmxxfVitAdaptive = true;
+                    CfgKey::PutEnvAlias(CfgKey::VitAdaptive, true);
+                    config->LmxxfVitReusePeriod = 16;
+                    CfgKey::PutEnvString(CfgKey::VitReusePeriod, "16");
+                    config->LmxxfVitReuseGlobal = 1.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseGlobal, "1");
+                    config->LmxxfVitReuseLocal = 50.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseLocal, "50");
+                    config->LmxxfVitReuseImage = 1.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseImage, "1");
+                    config->LmxxfVitReuseHotkey = true;
+                    CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, true);
+                    DlssNr::AmdBridge::InvalidateHistory();
+                }
+                HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
+                           "\nPDL on, High resolution on, network tier auto,"
+                           "\n0.31 kernels / shared pool on, ViT byte off,"
+                           "\nimage reuse on (period 16, global 1, local 50, image 1),"
+                           "\nDebug view Off.");
             }
 
             if (!isLmxxf)
             {
-                if (ImGui::TreeNode("Experimental"))
+                if (ImGui::TreeNode("Lighting (experimental)"))
                 {
                     ImGui::PushID("RTGI");
                     bool enabled = config->AmdRtgiEnabled.value_or_default();

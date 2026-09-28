@@ -300,7 +300,8 @@ void Adopt(ID3D12Resource* resource, const std::string& shape, unsigned int byte
 
     g_scan.tracked.push_back(t);
 
-    LOG_INFO("DLSS-NR exposure scan: candidate {} -- {}", g_scan.tracked.size(), shape);
+    if (g_scan.tracked.size() <= 8 || (g_scan.tracked.size() % 16) == 0)
+        LOG_DEBUG("DLSS-NR exposure scan: candidate {} -- {}", g_scan.tracked.size(), shape);
 }
 
 void NoteResource(const D3D12_RESOURCE_DESC* desc, ID3D12Resource* resource)
@@ -327,12 +328,12 @@ void NoteResource(const D3D12_RESOURCE_DESC* desc, ID3D12Resource* resource)
         // in an unlisted format, or a UAV buffer just over 128 bytes -> widen precisely to match) or
         // nothing scannable at all (only large buffers/textures -> the exposure is baked in a bigger
         // buffer and no filter change can help). Read these against Examined() in the log.
-        if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 && g_scan.nearMissLogged < 40)
+        if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 && g_scan.nearMissLogged < 8)
         {
             g_scan.nearMissLogged++;
-            LOG_INFO("DLSS-NR scan near-miss #{}: UAV dim {} {}x{}x{} fmt {} (filter rejected)",
-                     g_scan.nearMissLogged, (int) desc->Dimension, (unsigned int) desc->Width,
-                     desc->Height, desc->DepthOrArraySize, (int) desc->Format);
+            LOG_DEBUG("DLSS-NR scan near-miss #{}: UAV dim {} {}x{}x{} fmt {} (filter rejected)",
+                      g_scan.nearMissLogged, (int) desc->Dimension, (unsigned int) desc->Width,
+                      desc->Height, desc->DepthOrArraySize, (int) desc->Format);
         }
 
         return;

@@ -1,12 +1,69 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.0.3
+# OptiScaler AMD pre-SR — 1.9.6.3
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
 本项目 fork 自 **Matheus** 及上游社区。在上游成熟方案的基础上持续深度研发与维护。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## 1.9.6.3 修复
+
+- 修复 Daniel 后端逐帧向 `amd_bridge.log` 写入 `isolated neural command list` 导致日志暴涨的问题；该提示每次启动只记录一次。
+- 不改变渲染、NR 参数或命令列表提交行为。已有 1.9.6.2 用户可仅替换宿主 DLL，保留 runtime、权重和配置。
+
+## 1.9.6.2 修复
+
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
+- 修复 Daniel 0.5.0 部分 `version.dll` 因文件哈希不同而无法安装或识别的问题；兼容两种已核验文件，保留严格哈希校验。
+- 本次无 GPU 回归验证，不包含新的实机验证。
+
+## 1.9.6.1 修复
+
+- lmxxf 新增 `DLSS5_SKIP_BLOCKS` ini／菜单设置，默认仍为 `42,43,46`；修改在下一次网络重建时生效。
+- 修复 HIP `.inc` 片段未计入同步审阅、模块配方与发布新鲜度校验的问题。
+- 发布附件上传增加重试与 SHA-256 校验；上传失败不再先删除已有附件。
+
+## 1.9.6 主要更新（自 1.8.6 以来首个正式版）
+
+> 欢迎附 `.log` 文件反馈 bug。
+
+**danielblnc 后端支持更新**
+- 支持 **danielblnc 0.3.0–0.5.0**（文件布局与启动隔离；请自行下载 daniel 相关权重文件）。
+
+**lmxxf 后端支持**（权重文件：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)）
+- **对齐上游更新**：当前已同步至 **0.35** 版。
+- **9060 系列显卡支持**：待更多实机验证；9070 仍为正式路径。
+- **性能提升**：大量性能提升，暂未计算百分比。
+- **修复部分游戏高光泛白与闪屏**（如卧龙 2 demo）：优先用游戏曝光。
+- **Colour strength**：0–1 保留游戏原色；>1 才向网络色混合。
+- **NR%**：新增三档可调节 NR 分辨率功能。
+- **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
+- **High resolution**：支持超过原生 1080p 画面输入（4K/2K 使用 FSR 平衡或以上挡位不再报错）。
+- **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)（[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)）。
+
+**游戏内菜单**
+- 菜单布局优化，同步 lmxxf / daniel 功能开关
+
+**已知问题**
+- 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或上游原因。
+- 博德之门 3：（未证实是否与 DX11 有关）有时可能需要反复更改游戏内 DLSS 等级，和 Ins 菜单内左上角 DX11 转 DX12 FSR4.1.1 升频器，以使得 NR 功能生效。
+
+### lmxxf 配置速查（ini / 菜单）
+
+跨层键与上游同名（`DLSS5_*`）。**Ins 菜单文案不会写入 ini**；优先级：菜单/ini > `native-game-flags.txt` / 环境变量 > 默认值。`DLSS5_STRENGTH` 与 Detail/Colour 为同一组强度，本侧已传入时以菜单为准，无需第二套滑条。
+
+| 菜单位置 | 键 | 说明 |
+|---|---|---|
+| 顶层 | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
+| 顶层 | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
+| 顶层 | `DLSS5_NETWORK_HEIGHT` | **NR%** auto（默认）或 720 / 900 / 1080 |
+| Experimental | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 内核 / 显存池 / 字节流 |
+| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
+| Debug / Advanced | `DLSS5_HIP_PDL`、Debug view、增强屏障、early wrap | 排错与兼容开关 |
 
 ---
 
@@ -64,7 +121,7 @@
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分辨率代理框架（支持 DLSS / FFX / XeSS 输入输出） | 作为整体安装与运行主体，提供通用注入、Hook 与配置界面 |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 首次把 DLSS 神经渲染接进 OptiScaler，并提出在超分前运行多 pass 的 Pre-SR 架构 | 继承其 OptiScaler 代码基底与 Pre-SR 调度管线 |
 | **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
-| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体（0.3.0 / 0.3.1） | **不改动其核心**，按规范接口调用；并针对 0.3.1 的 1 像素 Draw 等待补齐状态保护，确保在 DLSS/XeSS 游戏上安全运行 |
+| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体（0.3.0–0.5.0） | **不改动其核心**，按规范接口调用；并针对 0.3.1+ 的 1 像素 Draw 等待补齐状态保护，确保在 DLSS/XeSS 游戏上安全运行 |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 逆向恢复 71 块网络并移植到 AMD HIP 的开源神经渲染算力核心 | **接入 OptiScaler 通用代理框架以兼容更多纯 DLSS / XeSS 游戏**；实现主队列同帧同步执行；开发标准版本化 C-ABI 独立运行时（`LmxxfNrRuntime` 并反哺合并至上游）；增加动态色彩/细节无级滑条等 |
 | **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | 开源 HDR / 色彩渲染 Addon | `dlssnr.hlsl` 色彩合成算法来源 |
 
@@ -80,11 +137,17 @@
 | `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
 | `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 双后端切换与参数选项） |
 | `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
+| `LmxxfNrRuntime.dll` | lmxxf 后端运行时（开源 HIP 神经渲染） |
+| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 24 个 `.hsaco`，附 `SHA256SUMS` 清单） |
+| `shaders\` | lmxxf 编解码着色器（`native_codec_encode.hlsl` 等） |
+| `experimental_lighting\` | 实验性光照 pass 的预编译着色器（`GatherCS.cso` / `ResolveCS.cso`） |
 | `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
 | `Uninstall_OptiScaler_NR.bat` / `.ps1` | 智能卸载器（安装时自动同步至游戏目录，安全防误删） |
-| `tools\` | 内部构建、验证与切换辅助脚本 |
+| `lmxxf-module-package.ps1` | 安装器与卸载器共用的模块校验助手（须与 `Setup.ps1` 放在同一目录） |
 | `Licenses\` | 第三方开源许可证文本 |
 | `README.md` / `README.en.md` / `README.es.md` | 本使用文档（中英西三语） |
+| `VERSION` | 本包版本号 |
+| `SHA256SUMS.txt` | 包内全部文件的 SHA256 清单（可用 `sha256sum -c SHA256SUMS.txt` 校验） |
 
 > **提示**：为遵守各开源协议与版权约束，本压缩包**不随包分发** NVIDIA 专有二进制文件、danielblnc 安装器或未授权模型权重。
 
@@ -98,10 +161,13 @@
 
 #### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
 - 准备 `LmxxfNrRuntime.dll`（可从本项目 Release 或 [lmxxf 仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 获取）；
-- 算子模块目录 `lmxxf-modules\`（包含 71 个 `.hsaco` 与 `SHA256SUMS`）；
+- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 24 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 48 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
 - 模型权重目录 `native-game-tiled-assets\`（可[点击这里](https://gofile.io/d/RyvcrDxz)直接下载）；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
+
+升级时直接运行新包的 `Setup.bat` 并选择游戏目录。检测到已有 OptiScaler 后，安装器会建议先卸载，以避免新版文件、模块布局和旧设置冲突：输入 **Y（推荐）**会自动调用新包卸载器，再继续安装；输入 **N** 则直接覆盖安装。卸载会重置 OptiScaler 设置，保留权重和已有备份。覆盖升级会备份旧模块目录；额外 `.hsaco` 保存在安装结束时显示的 `backup-amd-presr-*/lmxxf-modules` 中，不混入新版模块目录，其他兼容的用户文件继续保留。
+
 
 #### 选项 B：[准备 `danielblnc` 后端文件](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
 - 准备 `dlssnr_on_amd_setup.exe` 与 `nvngx_dlssnr.dll`（推荐，可从 [danielblnc Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取，安装器会自动调用生成 weights）；
@@ -117,8 +183,9 @@
 3. **确认已完全退出游戏**；
 4. **双击运行 `Setup.bat`**：
    - 弹出文件夹选择框，选中 **游戏主程序 exe 所在的目录**（例如 `...\Binaries\Win64\`）；
-   - 安装器自动扫描检测你的文件，若同时检测到两个后端，会弹出菜单让你选择安装哪一个，或两者皆装；
+   - 若检测到已有 OptiScaler，输入 **Y** 自动卸载后安装（推荐），或输入 **N** 覆盖安装；
    - 按照提示选择你要注入的 **代理 DLL 名称**（默认为 `dxgi.dll`，推荐；也支持 `winmm.dll`、`d3d12.dll` 等，**不要选 `dinput8.dll`**）；
+   - 安装器自动扫描检测你的文件，若同时检测到两个后端，会弹出菜单让你选择安装哪一个，或两者皆装；
    - 安装器自动处理重命名、防双重注入清理、依赖部署，并配置 `OptiScaler.ini`。
 
 ---
@@ -231,7 +298,11 @@
 
 ### 二、`lmxxf` 后端：开源 HIP 算力核心与同帧同步调度
 
-- **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对现代 RDNA 架构进行汇编级优化，最新版已引入 LDS 局部作用域栅栏与 C32 CU 模式；
+- **双架构硬件支持与自动选择**：
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**：标准正式生产架构，包含经过完整验证与调优的 24 模块集合；
+  - **AMD Radeon RX 9060 (`gfx1200`)**：实验性支持，源码与离线 COMGR 3.0 编译验证完成，硬件实机冒烟与 PDL 表现待后续实机进一步验证；
+  - **架构自适应与严格校验**：运行时基于 D3D12 渲染队列绑定与 HIP 设备 LUID 自动匹配对应架构子目录，严格执行 SHA-256 完整性校验与 PDL 孪生符号预检（Preflight）；
+- **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对现代 RDNA 架构进行汇编级优化，引入 LDS 局部作用域栅栏与 C32 CU 模式；
 - **主队列同帧同步执行**：OptiScaler 在当前帧的命令列表提交前完成输入录制与外部 Fence 编排，使网络推理与主渲染管线在同一队列周期内紧密衔接，彻底消除外部多进程等待延迟；
 - **原生参数支持**：无需重启游戏，可在 Ins 菜单内直接调整细节锐度与色彩校正滑条。
 
@@ -255,7 +326,30 @@
 - **`danielblnc` 专属**：
   - `NR slots`：多槽缓冲数量调节（2～5 槽，默认 3）；
   - `Every-frame`：强制每帧执行 NR 开关；
-  - `New wait mode`：0.3.1 状态冻结/恢复新等待模式开关。
+  - `New wait mode`：0.3.1 状态冻结/恢复新等待模式开关；
+  - `Inline same-frame wait`：同帧等待 / async；
+  - **Display**：`Tone curve` / `Tone lift` / `Quality`；
+  - **Experimental**：`HIP high-priority queue`；
+  - **Debug / Advanced**：`dlssnr_on_amd.ini` 额外键说明。
+
+#### daniel 配置键（与 `dlssnr_on_amd.ini` `[DlssNrOnAmd]` 对应）
+
+**优先级：Ins 会话 > `OptiScaler.ini` `[DlssNr]`（Save 后）> `dlssnr_on_amd.ini` / 环境 > 默认。**  
+Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
+
+| Ins 菜单 | OptiScaler.ini | daniel 键 | 默认 |
+|---|---|---|---|
+| New wait mode | `AmdGraphicsWait` | `SpinDraw` | 开 |
+| Inline same-frame wait | `AmdInline` | `Async`（0=inline） | 开 |
+| NR slots | `AmdSlots` | — | 3 |
+| Tone curve | `ToneCurve` | `ToneCurve` | reinhard |
+| Tone lift (black) | `ToneLift` | `ToneLift` | 0 |
+| Quality | `Quality` | `Quality` | Fast |
+| HIP high-priority queue | `QueuePriority` | `QueuePriority` | 关 |
+| Style（Pass 1） | `Style` | `Style` | 0 Default |
+
+daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。  
+高级进程环境变量（无 Ins 开关）：`DLSSNR_NO_REG`、`DLSSNR_CHAIN`、`DLSSNR_NOBLEND`、`DLSSNR_NO_REPACK`、`DLSSNR_WBLOG`。
 
 ---
 
@@ -329,6 +423,6 @@
 
 ## 已知问题（1.9.2-alpha）
 
-- **`lmxxf` 后端：超分前（Pre-SR）在约 1080p 以上内部分辨率的神经渲染尚未完成接入。** 当前同帧路径在更大 Color（例如 4K 画质档 ~2258×1271）上可能严重卡顿。建议内部分辨率大致不超过：**4K 性能档**、**2K（1440p）平衡档**、或 **1080p 原生**。`LmxxfFitLarge` 默认关闭；仅在明确需要时设为 `true`。不开 FitLarge 时，宽不超过 2560、高不超过 1080，并且总像素不超过 1920×1080（例如 2024×848）；2560×1080 不会放行。打开 FitLarge 后，更大的 Color 会拟合到 1080 网络上。
-- **《赛博朋克 2077》霓虹发棕：** Colour strength 为 1 时，超分前送进游戏调色的色相会让绿霓虹变棕。把 Colour strength 调到 0，只改亮度、不改色相。不会按游戏名自动处理。
-- **PDL：** 链式启动默认打开。驱动里没有 `hipExtModuleLaunchKernel` 时，把 `LmxxfPdl` 设为 false（或 `DLSS5_HIP_PDL=0`）后重启。
+- **`lmxxf` 大分辨率输入：** `[DlssNr] DLSS5_FIT_LARGE` 默认开启，更大的 Color 会拟合到网络尺寸。此前帕鲁的秒级卡顿是每帧重复重建链路的 Bug，已修复；截至 2026-09-28，维护者未发现修复后 FitLarge 仍有问题，不再根据旧测量建议降低分辨率或关闭它。显式设为 `false` 时，输入宽不超过 2560、高不超过 1080，并且总像素不超过 1920×1080（例如 2024×848）；2560×1080 不会放行。
+- **《赛博朋克 2077》色彩：** 旧版网络色相混入导致霓虹发棕的路径已调整；当前 Colour strength 0–1 保留游戏原色，>1 才向网络色混合。无需沿用旧版强制设为 0 的建议；该规则适用于所有游戏。
+- **PDL：** 链式启动默认打开。驱动里没有 `hipExtModuleLaunchKernel` 时，把 `DLSS5_HIP_PDL` 设为 false 后重启。

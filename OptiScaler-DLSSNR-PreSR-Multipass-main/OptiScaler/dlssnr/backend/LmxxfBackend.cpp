@@ -20,6 +20,16 @@ struct LmxxfBackend::Api
 
 namespace
 {
+std::atomic<unsigned> g_lastColorH { 0 };
+}
+
+unsigned LastLmxxfColorHeight()
+{
+    return g_lastColorH.load(std::memory_order_relaxed);
+}
+
+namespace
+{
 std::wstring WidenPath(const std::filesystem::path &p) { return p.wstring(); }
 
 std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
@@ -44,21 +54,110 @@ float CodecStrength(float v)
     return std::isfinite(v) ? std::clamp(v, 0.0f, 3.0f) : 1.0f;
 }
 
+// The NGX render subrect when it is usable, else the Colour allocation. The subrect is the
+// normal case: UE at a non-native scale and dynamic resolution render into a corner of a larger
+// buffer, and sizing the job by the allocation would feed the network the unrendered border and
+// could push the input past the admission budget. The allocation is only the fallback for a
+// missing (0) or impossible (larger than the texture) subrect, which is what the community
+// Horizon patch was working around.
+uint32_t JobExtent(uint32_t subrect, UINT64 texture)
+{
+    return (subrect > 0 && subrect <= texture) ? subrect : static_cast<uint32_t>(texture);
+}
+
 float CodecPaperWhite()
 {
     const float v = Config::Instance()->LmxxfPaperWhite.value_or_default();
     return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 1.0f;
 }
 
+// Games that pass a usable exposure texture use it. When there is none (Wo Long 2: AutoExposure +
+// IsHdr), auto exposure asks the runtime to meter the colour and bind its own smoothed exposure
+// (LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE); codec paper white stays the user's trim either way. Auto
+// off uses the manual slider as a fixed divisor.
+static bool IsUsableExposureTexture(void *res)
+{
+    if (!res)
+        return false;
+    const auto ed = static_cast<ID3D12Resource *>(res)->GetDesc();
+    return ed.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && ed.Width == 1 && ed.Height == 1 &&
+           ed.MipLevels == 1 && ed.DepthOrArraySize == 1 && ed.SampleDesc.Count == 1 &&
+           (ed.Format == DXGI_FORMAT_R16_FLOAT || ed.Format == DXGI_FORMAT_R32_FLOAT) &&
+           !(ed.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+}
+
+// Pointer alone is not enough (Palworld NGX ExposureTexture is the wrong shape and the
+// runtime drops it). Decide auto vs fixed from a usable texture. A host pre-exposure
+// (DLSS_Pre_Exposure != 1) is treated as the game's exposure and skips the meter.
+bool WantsAutoExposure(bool usableExposure, float preExposure = 1.0f)
+{
+    if (usableExposure)
+        return false;
+    if (std::isfinite(preExposure) && preExposure > 0.0f && std::fabs(preExposure - 1.0f) > 1e-3f)
+        return false;
+    return Config::Instance()->LmxxfAutoExposure.value_or_default();
+}
+
+float EffectiveCodecPaperWhite(bool usableExposure)
+{
+    // Pre-exposure skips the meter but does not force the manual divisor: paper white
+    // follows Auto (codec trim) or Off (Exposure scale), same as with a game texture.
+    if (usableExposure || Config::Instance()->LmxxfAutoExposure.value_or_default())
+        return CodecPaperWhite();
+    const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
+    return (std::isfinite(v) && v > 0.0f && v <= 64.0f) ? v : 8.0f;
+}
+
+// The shader-side mean white point (auto-white.patch, debug_view bit 0x10000) is superseded by
+// the runtime meter and no longer requested: the bit also broke the decode debug views, which
+// compare the whole word against 1..4.
+uint32_t CodecDebugViewBits(bool)
+{
+    return Config::Instance()->DlssNrDebugView.value_or_default() & 0xFu;
+}
+
 // Short, actionable menu copy for the common PrepareFrame fatals. Keep technical detail in OptiScaler.log.
 const char *FriendlyPrepareFrameError(const char *err)
 {
     if (!err || !err[0])
-        return "lmxxf: PrepareFrame failed";
+        return "lmxxf: session initialization failed";
     if (std::strstr(err, "NoBinaryForGpu") || std::strstr(err, "no binary for GPU") ||
-        std::strstr(err, "hipErrorNoBinary") || std::strstr(err, "WrongDevice"))
+        std::strstr(err, "hipErrorNoBinary") || std::strstr(err, "WrongDevice") ||
+        std::strstr(err, "unsupported HIP architecture"))
     {
         return "lmxxf: this GPU is not supported by the installed lmxxf modules (need matching ISA, e.g. 9070 XT = gfx1201). Switch Backend to daniel, or install matching lmxxf-modules.";
+    }
+    if (std::strstr(err, "missing module architecture directory"))
+    {
+        return "lmxxf: modules missing subfolder for this GPU architecture. Check modules installation or reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "stale flat"))
+    {
+        return "lmxxf: stale flat .hsaco files found in dual-architecture directory. Reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "leaf SHA256SUMS mismatch"))
+    {
+        return "lmxxf: module leaf manifest mismatch with root. Reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "dual-architecture directory missing") ||
+        std::strstr(err, "incomplete") ||
+        std::strstr(err, "fewer than 24"))
+    {
+        return "lmxxf: dual-architecture module set incomplete. Reinstall lmxxf-modules.";
+    }
+    if (std::strstr(err, "checksum mismatch") ||
+        std::strstr(err, "failed to compute checksum") ||
+        std::strstr(err, "invalid SHA256"))
+    {
+        return "lmxxf: module checksum verification failed. Reinstall lmxxf-modules or run sync.";
+    }
+    if (std::strstr(err, "unsafe module path"))
+    {
+        return "lmxxf: unsafe path detected in module manifest.";
+    }
+    if (std::strstr(err, "no HIP device matches"))
+    {
+        return "lmxxf: no HIP device matches D3D12 adapter. Switch Backend to daniel.";
     }
     if ((std::strstr(err, "missing") || std::strstr(err, "not found")) &&
         (std::strstr(err, "block") || std::strstr(err, ".f16") || std::strstr(err, ".f32") ||
@@ -72,6 +171,8 @@ const char *FriendlyPrepareFrameError(const char *err)
         return "lmxxf: NR is off after a fatal error (see OptiScaler.log). Fix the first error, then restart the game.";
     if (std::strstr(err, "hsaco") || std::strstr(err, "module"))
         return "lmxxf: lmxxf-modules failed to load on this GPU. Check modules vs GPU (gfx1200/1201) or use Backend daniel.";
+    if (std::strstr(err, "Create:"))
+        return "lmxxf: module initialization failed (see OptiScaler.log)";
     return "lmxxf: PrepareFrame failed";
 }
 
@@ -114,8 +215,22 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
              Config::Instance()->LmxxfDiagnostic.value_or_default());
     {
         const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
-        _putenv(fit ? "DLSS5_FIT_LARGE=1" : "DLSS5_FIT_LARGE=0");
-        LOG_INFO("lmxxf FitLarge={} (DLSS5_FIT_LARGE; NativeFitLargeInput re-reads env each call)", fit);
+        CfgKey::PutEnvAlias(CfgKey::FitLarge, fit);
+        LOG_INFO("lmxxf FitLarge={} ({}; NativeFitLargeInput re-reads env each call)", fit, CfgKey::EnvAlias(CfgKey::FitLarge));
+    }
+    {
+        const bool allowEb = Config::Instance()->LmxxfAllowEnhancedBarriers.value_or_default();
+        SetAllowEnhancedBarriers(allowEb);
+        LOG_INFO("lmxxf enhanced barriers allowed={} (LmxxfAllowEnhancedBarriers)", allowEb);
+    }
+    {
+        wchar_t srgb[8] {};
+        const DWORD n = GetEnvironmentVariableW(L"DLSS5_CODEC_SRGB", srgb, 8);
+        char val[16] {};
+        if (n > 0 && n < 8)
+            WideCharToMultiByte(CP_UTF8, 0, srgb, -1, val, sizeof(val), nullptr, nullptr);
+        LOG_INFO("lmxxf codec sRGB env: {} (DLSS5_CODEC_SRGB={}; codec compile reads this once; 1=display-referred passthrough)",
+                 val[0] ? "set" : "unset", val);
     }
     SetStatus("lmxxf: constructed (session not ready)");
 }
@@ -295,7 +410,7 @@ bool LmxxfBackend::EnsureSession()
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
         LOG_ERROR("lmxxf: Create rc={} err={}", createRc, err);
-        SetStatus("lmxxf: Create failed");
+        SetStatus(FriendlyPrepareFrameError(err));
         NoteSessionFailure();
         return false;
     }
@@ -313,7 +428,7 @@ bool LmxxfBackend::EnsureSession()
             api->table.GetLastError(err, sizeof err);
         LOG_ERROR("lmxxf: PrepareSession rc={} err={}", prepRc, err);
         api->table.Destroy(ctx);
-        SetStatus("lmxxf: PrepareSession failed");
+        SetStatus(FriendlyPrepareFrameError(err));
         NoteSessionFailure();
         return false;
     }
@@ -396,13 +511,16 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     LmxxfCut::ArmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
-        pendingJobInfo.job = jobHandle;
-        pendingJobInfo.cmd = recordCmd;
+        pendingJobInfo = {jobHandle, recordCmd};
     }
     SetStatus("lmxxf: Record ok (pending EnqueueHip)");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
 }
 
+
+// Set by Submitted when the split list ran on a queue other than the session's
+// (e.g. after a swapchain rebuild). Record rebuilds the session there.
+static ID3D12CommandQueue *g_requeue = nullptr;
 
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
@@ -413,10 +531,56 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         SetStatus("lmxxf: Record missing cmd/colour");
         return nullptr;
     }
+    // Swapchain rebuild can move the game to another queue (Onimusha/RE9).
+    {
+        std::lock_guard lock(jobMutex);
+        if (g_requeue && !pendingJobInfo.job)
+        {
+            if (g_requeue != queue)
+            {
+                if (session && api && api->table.Destroy)
+                    api->table.Destroy(session);
+                session = nullptr;
+                sessionReady = false;
+                g_requeue->AddRef();
+                if (queue)
+                    queue->Release();
+                queue = g_requeue;
+                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(queue);
+                LOG_INFO("lmxxf: game submits on a new queue {:p}; session rebuilt there",
+                         reinterpret_cast<void *>(queue));
+            }
+            g_requeue = nullptr;
+        }
+    }
     bool previousPending = false;
     {
         std::lock_guard lock(jobMutex);
         previousPending = pendingJobInfo.job != nullptr;
+        if (previousPending)
+        {
+            if (++pendingJobInfo.stalledEvaluations >= 8)
+            {
+                // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
+                // the list was never submitted and cannot retire itself.
+                void *job = pendingJobInfo.job;
+                const bool enqueued = LmxxfCut::Pending().job != job;
+                pendingJobInfo = {};
+                if (session && api && job)
+                {
+                    if (enqueued && api->table.Retire)
+                        api->table.Retire(session, job);
+                    else if (!enqueued && api->table.CancelUnsubmitted)
+                        api->table.CancelUnsubmitted(session, job);
+                }
+                LmxxfCut::ClearPendingEnqueue();
+                static unsigned recoveries = 0;
+                if (++recoveries <= 5 || recoveries % 100 == 0)
+                    LOG_WARN("lmxxf: stalled job recovered ({}; recovery {})",
+                             enqueued ? "retired" : "cancelled", recoveries);
+                previousPending = false;
+            }
+        }
     }
     if (previousPending)
     {
@@ -428,7 +592,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,
     // or submit HIP. split-original only cuts the game list for boundary validation.
     if (diagnostic != LmxxfProbe::Mode::Off)
-        return RecordDiagnostic(cmd, frame);
+        return RecordDiagnostic(cmd, frame, settings);
     // Never substitute Color from an earlier Evaluate to work around an unsubmitted producer.
     DlssNr::Submission::ILogicalCommandList *logical = nullptr;
     if (FAILED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
@@ -467,16 +631,20 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
     fi.frame_id = ++frameId;
     fi.command_list = cmd;
-    fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
-    fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+    fi.color_width = JobExtent(frame.width, desc.Width);
+    fi.color_height = JobExtent(frame.height, desc.Height);
+    g_lastColorH.store(fi.color_height, std::memory_order_relaxed);
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
     fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
     fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
-    fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
     fi.model_scale = settings.modelScale;
-    fi.paper_white = CodecPaperWhite();
+    fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
+    fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
+    // A runtime that predates the flag rejects it, so only ask when it takes the full struct.
+    if (!frameInfoV1 && WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
+        fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
     // AmdBridge already collects these from the NGX parameters (ExposureTexture,
     // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
     fi.exposure = frame.exposure;
@@ -500,6 +668,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             LOG_WARN("lmxxf: runtime predates the exposure fields ({}); continuing without exposure", sizeErr);
             frameInfoV1 = true;
             fi.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
+            fi.flags &= ~LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
             job = {};
             job.struct_size = sizeof(job);
             frameRc = api->table.PrepareFrame(session, &fi, &job);
@@ -592,6 +761,26 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             LOG_INFO("lmxxf: after PrepareFrame HIP/net geometry status={}", st);
             loggedGeo = true;
         }
+        // Highlight triage: exposure and colour contract, not every frame.
+        {
+            static unsigned colorDiagN = 0;
+            ++colorDiagN;
+            if (colorDiagN <= 8 || (colorDiagN % 300) == 0)
+            {
+                wchar_t srgbEnv[8] {};
+                const DWORD n = GetEnvironmentVariableW(L"DLSS5_CODEC_SRGB", srgbEnv, 8);
+                char srgbVal[8] {};
+                if (n > 0 && n < 8)
+                    WideCharToMultiByte(CP_UTF8, 0, srgbEnv, -1, srgbVal, sizeof(srgbVal), nullptr, nullptr);
+                LOG_INFO("lmxxf color: fmt={} {}x{} alloc={}x{} exposure={} expState={} preExposure={:.6g} "
+                         "exposureScale={:.6g} paperWhite={:.6g} transfer={:.3f} colour={:.3f} srgbEnv={}",
+                         static_cast<unsigned>(desc.Format), fi.color_width, fi.color_height,
+                         static_cast<unsigned>(desc.Width), static_cast<unsigned>(desc.Height),
+                         static_cast<void *>(fi.exposure), fi.exposure_state, fi.pre_exposure,
+                         fi.exposure_scale, fi.paper_white, fi.transfer_strength, fi.color_strength,
+                         srgbVal[0] ? srgbVal : "unset");
+            }
+        }
     }
 
     ID3D12Resource *result = FinishRecord(cmd, job.handle, job.private_output);
@@ -641,7 +830,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 }
 
 
-ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame)
+ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
+                                               const AmdPreSr::Settings &settings)
 {
     const auto seq = ++evaluateSequence_;
     const auto id = ++probeEvaluateId;
@@ -692,16 +882,24 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.struct_size = sizeof(fi);
                 fi.frame_id = ++frameId;
                 fi.command_list = cmd;
-                fi.color_width = frame.width ? frame.width : static_cast<uint32_t>(desc.Width);
-                fi.color_height = frame.height ? frame.height : static_cast<uint32_t>(desc.Height);
+                fi.color_width = JobExtent(frame.width, desc.Width);
+                fi.color_height = JobExtent(frame.height, desc.Height);
                 fi.color = frame.colour;
                 fi.color_state = static_cast<uint32_t>(frame.colourState);
                 fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
                 fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
-                fi.paper_white = CodecPaperWhite();
-                fi.debug_view = Config::Instance()->DlssNrDebugView.value_or_default();
-                fi.model_scale = 1.0f;
+                fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
+                fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
+                if (WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
+                    fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
+                fi.model_scale = settings.modelScale;
+                // Same frame contract as the normal path: without these, passthrough
+                // is not a clean A/B of "network off" for highlight/exposure bugs.
+                fi.exposure = frame.exposure;
+                fi.exposure_state = static_cast<uint32_t>(frame.exposureState);
+                fi.pre_exposure = frame.preExposure;
+                fi.exposure_scale = frame.exposureScale;
 
                 LmxxfNrJob job {};
                 job.struct_size = sizeof(job);
@@ -910,6 +1108,14 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
                     break;
                 }
             }
+        }
+        // Swapchain rebuild: the list may submit on a queue we did not bind at Record.
+        // If HIP already ran there (lastQueue), follow that queue on the next Record.
+        if (!containsCmd && q && this->queue && q != this->queue && pendingJobInfo.job)
+        {
+            const auto last = LmxxfCut::Pending().lastQueue.load(std::memory_order_relaxed);
+            if (last && last == q)
+                g_requeue = q;
         }
         if (containsCmd)
         {

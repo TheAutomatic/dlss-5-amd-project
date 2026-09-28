@@ -56,7 +56,19 @@ DEV uint lane(){return __builtin_amdgcn_workgroup_id_x()*256u+__builtin_amdgcn_w
 DEV float absf(float x){return value(bits(x)&0x7fffffffu);}
 DEV float maxf(float a,float b){return a>b?a:b;}
 DEV float minf(float a,float b){return a<b?a:b;}
+// HIP_FMED3_CLAMP (experiment fmed3-clamp, default 0): clamps as one v_med3_num_f32 via __builtin_amdgcn_fmed3f. The fminf/
+// fmaxf forms also become med3, but with a v_max_num(x,x) canonicalisation in front of each (IEEE mode quiets sNaN); the
+// target intrinsic has no such requirement. Same result for every non-NaN input; a NaN input gives lo in both forms.
+#ifndef HIP_FMED3_CLAMP
+#define HIP_FMED3_CLAMP 0
+#endif
+#if HIP_FMED3_CLAMP
+DEV float clampf(float a,float lo,float hi){return __builtin_amdgcn_fmed3f(a,lo,hi);}
+#define HIP_FP8_CLAMP(x) __builtin_amdgcn_fmed3f((x),-448.f,448.f)
+#else
 DEV float clampf(float a,float lo,float hi){return minf(maxf(a,lo),hi);}
+#define HIP_FP8_CLAMP(x) __builtin_fminf(__builtin_fmaxf((x),-448.f),448.f)
+#endif
 DEV uint shift_rne(uint x,uint n){if(n>31)return 0;uint q=x>>n,mask=(1u<<n)-1u,r=x&mask,mid=1u<<(n-1);return q+uint(r>mid||(r==mid&&(q&1u)));}
 DEV uint half_bits(float x){uint b=bits(x),a=b&0x7fffffffu,s=(b>>16)&0x8000u;int e=int(a>>23)-127;
  if(a>=0x7f800000u)return s|0x7c00u|((a&0x7fffffu)?0x200u:0u);
@@ -79,7 +91,7 @@ DEV float H(float x){if((bits(x)&0x7fffffffu)>=0x7f800000u)return x;return from_
 #define HIP_BRANCHLESS_F 1 /* 2026-09-17: with deep_fast and the fused attention file -0.12ms, bit-exact. F() as clamp+cvt+cndmask instead of a divergent branch pair per call (same values for every non-NaN input; NaN gives -448 instead of +-448) */
 #endif
 #if HIP_NATIVE_FP8_F && HIP_BRANCHLESS_F
-DEV float F(float x){uint a=bits(x)&0x7fffffffu;float c=__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f);float r=__builtin_amdgcn_cvt_f32_fp8(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false),0);return a==0?0.f:r;}
+DEV float F(float x){uint a=bits(x)&0x7fffffffu;float c=HIP_FP8_CLAMP(x);float r=__builtin_amdgcn_cvt_f32_fp8(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false),0);return a==0?0.f:r;}
 #elif HIP_NATIVE_FP8_F
 DEV float F(float x){
  uint b=bits(x),a=b&0x7fffffffu;
@@ -599,7 +611,7 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c
 #define HIP_BRANCHLESS_Q8 1 /* 2026-09-17: with HIP_MH_RTZ_ISA -0.16ms, bit-exact. q8_fused_round as clamp+cvt+select (ISA: every call was a divergent branch pair, 64 per FFN+QKV kernel); same byte for every non-NaN input */
 #endif
 #if HIP_BRANCHLESS_Q8
-DEV uint q8_fused_round(float x){uint a=bits(x)&0x7fffffffu;uint q=q8(__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f));return a==0?0u:q;}
+DEV uint q8_fused_round(float x){uint a=bits(x)&0x7fffffffu;uint q=q8(HIP_FP8_CLAMP(x));return a==0?0u:q;}
 #else
 DEV uint q8_fused_round(float x){uint b=bits(x),a=b&0x7fffffffu;if(!a)return 0;if(a>=0x43e00000u)return ((b>>24)&128u)|126u;return q8(x);}
 #endif
@@ -689,13 +701,13 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
 #elif HIP_FFN_PK_ACT==1
  // Exact pairing: two activated values per v_cvt_pk_fp8_f32 (same clamp/RNE per element), the canonical-zero select on the bytes.
  for(uint tile=0;tile<4;tile++)for(uint e=0;e<8;e+=2){float x[2];for(uint j=0;j<2;j++){float a=expand[tile][e+j],g=clampf(a,-4.f,4.f),q=absf(g)*(-.055908203125f)+.447265625f,poly=g*q+.89453125f;x[j]=a*poly;}
-  uint two=uint(__builtin_amdgcn_cvt_pk_fp8_f32(__builtin_fminf(__builtin_fmaxf(x[0],-448.f),448.f),__builtin_fminf(__builtin_fmaxf(x[1],-448.f),448.f),0,false));
+  uint two=uint(__builtin_amdgcn_cvt_pk_fp8_f32(HIP_FP8_CLAMP(x[0]),HIP_FP8_CLAMP(x[1]),0,false));
   for(uint j=0;j<2;j++)hidden[(group*8+e+j)*(4*C+4)+wave*64+tile*16+rc]=static_cast<unsigned char>((bits(x[j])&0x7fffffffu)?(two>>(8*j))&255u:0u);}
 #elif HIP_FFN_PK_ACT==2
  // Relaxed (PSNR-gated): the activation polynomial in packed f16 (v_pk_*), two lanes of the 8-vector per instruction;
  // the product a*poly is formed in f16 before the E4M3 cast (f32 in the exact chain), so the byte can differ by one ulp.
  for(uint tile=0;tile<4;tile++)for(uint e=0;e<8;e+=2){h2 a=__builtin_convertvector(f2{expand[tile][e],expand[tile][e+1]},h2);h2 g=__builtin_elementwise_min(__builtin_elementwise_max(a,h2{-4.f,-4.f}),h2{4.f,4.f});h2 q=__builtin_elementwise_abs(g)*h2{-.055908203125f,-.055908203125f}+h2{.447265625f,.447265625f};h2 o=a*(g*q+h2{.89453125f,.89453125f});f2 x=__builtin_convertvector(o,f2);
-  uint two=uint(__builtin_amdgcn_cvt_pk_fp8_f32(__builtin_fminf(__builtin_fmaxf(x[0],-448.f),448.f),__builtin_fminf(__builtin_fmaxf(x[1],-448.f),448.f),0,false));
+  uint two=uint(__builtin_amdgcn_cvt_pk_fp8_f32(HIP_FP8_CLAMP(x[0]),HIP_FP8_CLAMP(x[1]),0,false));
   for(uint j=0;j<2;j++)hidden[(group*8+e+j)*(4*C+4)+wave*64+tile*16+rc]=static_cast<unsigned char>((bits(x[j])&0x7fffffffu)?(two>>(8*j))&255u:0u);}
 #else
  for(uint tile=0;tile<4;tile++)for(uint e=0;e<8;e++){float a=expand[tile][e],g=clampf(a,-4.f,4.f),q=absf(g)*(-.055908203125f)+.447265625f,poly=g*q+.89453125f;hidden[(group*8+e)*(4*C+4)+wave*64+tile*16+rc]=static_cast<unsigned char>(q8_fused_round(a*poly));}

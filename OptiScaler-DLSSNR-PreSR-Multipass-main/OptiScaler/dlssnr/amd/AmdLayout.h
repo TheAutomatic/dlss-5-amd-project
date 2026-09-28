@@ -101,12 +101,12 @@ struct AmdLayout
     std::uint32_t gate4c;
     std::uint32_t gate68;
     std::uint32_t counter78;
-    // 0.3.1 only: inline-wait spin. 0 = Dispatch spin (this project's original wait);
+    // 0.3.1+ inline-wait spin. 0 = Dispatch spin (this project's original wait);
     // non-zero = predicated 1-pixel Draw (this project's new wait). SpinDraw=0 is
     // still 0.3.1-sliced, so it is not identical to the 0.3.0 wait.
     // 0 on the layout field means "runtime does not expose this flag".
     std::uint32_t spinDraw;
-    // Read-only 0.3.1 new-wait diagnostics; zero for earlier runtimes.
+    // Read-only 0.3.1+ new-wait diagnostics; zero for earlier runtimes.
     // Bound to the SHA above, never used to invoke a private factory.
     std::uint32_t graphicsPso = 0;
     std::uint32_t predicateReady = 0;
@@ -115,6 +115,21 @@ struct AmdLayout
     // Return addresses after Dispatch calls in the pinned wait helper.
     std::uint32_t waitDispatchInit = 0, waitDispatchFallback = 0;
     std::uint32_t waitDispatchSlices = 0, waitDispatchFinish = 0;
+    // 0.3.3 overlay/settings channels ([DlssNrOnAmd] in dlssnr_on_amd.ini).
+    // 0 = runtime does not expose. style: 0 Default / 1 Natural / 2 Cinematic.
+    // toneCurve: 0 reinhard (soft) / 1 aces (filmic). toneLift: black lift 0..max.
+    // useGameExposure: 1 = game FSR exposure when present; 0 = auto (encoded mean → 0.5).
+    // When useGameExposure==1 but the game provides no texture, 0.3.3 still falls back to auto.
+    std::uint32_t style = 0;
+    std::uint32_t toneCurve = 0;
+    std::uint32_t toneLift = 0;
+    std::uint32_t useGameExposure = 0;
+    // 0.4.1+ [DlssNrOnAmd] QueuePriority: 0 null stream, 1 high-priority HIP stream.
+    std::uint32_t queuePriority = 0;
+    // Pre-upscale capture (0.3.3+). Requires inline; forced off when AmdInline=0.
+    std::uint32_t preUpscale = 0;
+    // 0.4.2+ [DlssNrOnAmd] Quality: 1 = fast (cheaper math), 0 = reference (NVIDIA-exact).
+    std::uint32_t quality = 0;
 };
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
@@ -147,7 +162,7 @@ inline constexpr AmdLayout kAmd03 {
 };
 
 // 0.3.1 version.dll (SHA b108d640). Mapped from 0.3.0 via unique instruction
-// windows (analysis/map_a031_rva.py); Record/Notify/shutdown heads and the
+// windows; Record/Notify/shutdown heads and the
 // recreate sticky-bit xrefs match 0.3.0 role-for-role. Data section moved
 // ~+0x3180 and .text grew — every RVA below is 0.3.1-specific.
 inline constexpr AmdLayout kAmd031 {
@@ -164,7 +179,163 @@ inline constexpr AmdLayout kAmd031 {
     0x17b70, 0x17f10, 0x17f6a, 0x18057
 };
 
-inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031 };
+// 0.3.2 version.dll (SHA b92f7481). Mapped from 0.3.1 via unique instruction
+// windows. Record/Notify/shutdown and the
+// whole .data field cluster keep the 0.3.1 RVAs; only init moves 0x21720→0x216f0
+// (pdata-confirmed). Packet tail (+0x4c..+0x5c) and wait-helper diagnostics are
+// role-for-role identical. .hip_fat shrinks ~500KB — host-external kernel packing.
+inline constexpr AmdLayout kAmd032 {
+    "0.3.2",
+    6788096,
+    Sha256FromHex("b92f7481bc03fa41f443b1e1e54b502789df2bbbcefe48c680df7bb02a33fc1e"),
+    0, 0x216f0, 0x13540, 0x9720, 0x17150, 0x9ae68,
+    0x9a0e8, 0x9a0f0, 0x9a100, 0x9a218, 0x9a220, 0x9a420, 0x9a422,
+    0x9a928, 0x9a95c, 0x9a960, 0x9a98c, 0x9ab58, 0x9ac38, 0x9ac44,
+    0x9ace8, 0x9acec, 0x9acf4, 0x9acf5, 0x9acf6, 0x9acf7, 0x9acf8,
+    0x9ad08, 0x9ad0c, 0x9ad10, 0x9ad18, 0x9ad1c, 0x9ae08,
+    0x9ade0, 0x9ad68, 0x9ac24, 0x9ac40, 0x9ac50,
+    0x9ab14, 0x9ab20, 0x9aa88, 0x17980, 0x180a6,
+    0x17b70, 0x17f10, 0x17f6a, 0x18057
+};
+
+// 0.3.3 version.dll (SHA 907b30a6). Mapped from 0.3.2 via instruction windows
+// plus [DlssNrOnAmd] GetPrivateProfile stores. .data
+// cluster moves ~+0x7800; Packet tail +0x4c..+0x5c unchanged (still 0x60).
+// New overlay channels: Style / ToneCurve / ToneLift / UseGameExposure.
+inline constexpr AmdLayout kAmd033 {
+    "0.3.3",
+    7607296,
+    Sha256FromHex("907b30a61644a6d7e43e58a43a9d97a04a24b1a764a88bdef3954ac807e8d112"),
+    0, 0x23be0, 0x149c0, 0x9b00, 0x185d0, 0xa2680,
+    0xa18c0, 0xa18c8, 0xa18d8, 0xa19f8, 0xa1a00, 0xa1c10, 0xa1c12,
+    0xa2118, 0xa214c, 0xa2150, 0xa217c, 0xa2348, 0xa2428, 0xa2434,
+    0xa24d8, 0xa24dc, 0xa24e4, 0xa24e5, 0xa24e6, 0xa24e7, 0xa24e8,
+    0xa24f8, 0xa24fc, 0xa2500, 0xa2508, 0xa250c, 0xa2608,
+    0xa25e0, 0xa2568, 0xa2414, 0xa2430, 0xa2440,
+    0xa2304, 0xa2310, 0xa2278, 0x18e20, 0x19546, // wait helper end = begin + 0x726, as 0.3.1/0.3.2/0.4.0
+    0x19010, 0x193b0, 0x1940a, 0x194f7,
+    0xa2510, 0xa2514, 0xa2518, 0xa251c
+};
+
+// 0.4.0 version.dll (SHA d62be3d8). Mapped from 0.3.3; Packet 0x60 unchanged.
+// Changelog is performance-only (+42% vs 0.3.3) in .hip_fat / new chain-ViT
+// kernels; overlay channels keep the 0.3.3 set. New INI: PollSpacing (diagnostic).
+inline constexpr AmdLayout kAmd040 {
+    "0.4.0",
+    10027008,
+    Sha256FromHex("d62be3d8b9fbb3c6c81982c4ddb3dfa00eb9662e3206925cbe5b7e1bc6798b80"),
+    0, 0x26110, 0x14cd0, 0x9e10, 0x188e0, 0xa87a0,
+    0xa78c0, 0xa78c8, 0xa78d8, 0xa7a20, 0xa7a28, 0xa7d10, 0xa7d12,
+    0xa8218, 0xa824c, 0xa8250, 0xa827c, 0xa8468, 0xa8548, 0xa8554,
+    0xa85f8, 0xa85fc, 0xa8604, 0xa8605, 0xa8606, 0xa8607, 0xa8608,
+    0xa8618, 0xa861c, 0xa8620, 0xa8628, 0xa862c, 0xa8728,
+    0xa8700, 0xa8688, 0xa8534, 0xa8550, 0xa8560,
+    0xa841c, 0xa8430, 0xa8390, 0x19130, 0x19856,
+    0x19320, 0x196c0, 0x1971a, 0x19807,
+    0xa8630, 0xa8634, 0xa8638, 0xa863c
+};
+
+// 0.4.1 version.dll (SHA 823063eb). Changelog: +8% vs 0.4.0, +9% heavy load via
+// QueuePriority (0=null stream / 1=high-priority HIP stream). Packet 0x60 unchanged.
+// QueuePriority is read from [DlssNrOnAmd] by the runtime; host need not write it
+// unless we add an Opti menu item (see handoff missing-options).
+inline constexpr AmdLayout kAmd041 {
+    "0.4.1",
+    9916928,
+    Sha256FromHex("823063eb4c76b1334fd1800c41798873ae61d4016af0406f1f0b9dce57b1d376"),
+    0, 0x26130, 0x14c40, 0x9d80, 0x188d0, 0xaa7d8,
+    0xa98e0, 0xa98e8, 0xa98f8, 0xa9a40, 0xa9a48, 0xa9d48, 0xa9d4a,
+    0xaa250, 0xaa284, 0xaa288, 0xaa2b4, 0xaa4a0, 0xaa580, 0xaa58c,
+    0xaa630, 0xaa634, 0xaa63c, 0xaa63d, 0xaa63e, 0xaa63f, 0xaa640,
+    0xaa650, 0xaa654, 0xaa658, 0xaa660, 0xaa664, 0xaa760,
+    0xaa738, 0xaa6c0, 0xaa56c, 0xaa588, 0xaa598,
+    0xaa454, 0xaa468, 0xaa3c8, 0x19120, 0x19846,
+    0x19310, 0x196b0, 0x1970a, 0x197f7,
+    0xaa668, 0xaa66c, 0xaa670, 0xaa674,
+    0xaa45c, 0xaa19c
+};
+
+// 0.4.2: Quality=fast|reference (default fast; RX 7000 runs reference). 15% Fast vs 0.4.1.
+inline constexpr AmdLayout kAmd042 {
+    "0.4.2",
+    12981760,
+    Sha256FromHex("8aa2dcc5b6596aca97995dbfd4e0a9790d8c15108495e0ed154dd15dbb5b465a"),
+    0, 0x28170, 0x15040, 0x9db0, 0x18cf0, 0xaf9b0,
+    0xaeaa0, 0xaeaa8, 0xaeab8, 0xaec00, 0xaec08, 0xaef18, 0xaef1a,
+    0xaf420, 0xaf454, 0xaf458, 0xaf484, 0xaf678, 0xaf758, 0xaf764,
+    0xaf808, 0xaf80c, 0xaf814, 0xaf815, 0xaf816, 0xaf817, 0xaf818,
+    0xaf828, 0xaf82c, 0xaf830, 0xaf838, 0xaf83c, 0xaf938,
+    0xaf910, 0xaf898, 0xaf744, 0xaf760, 0xaf770,
+    0xaf624, 0xaf640, 0xaf598, 0x19540, 0x19c66,
+    0x19730, 0x19ad0, 0x19b2a, 0x19c17,
+    0xaf840, 0xaf844, 0xaf848, 0xaf84c,
+    0xaf62c, 0xaf36c, 0xaf84d
+};
+
+// 0.4.3: +20% Reference / +18% Fast vs 0.4.2; OverlayKey (daniel ini only).
+// Data cluster is NOT a uniform delta from 0.4.2: device/queue/engine/history* use
+// +0x2170, option block +0x2178, trampoline +0x21a0.
+inline constexpr AmdLayout kAmd043 {
+    "0.4.3",
+    12749824,
+    Sha256FromHex("d1e320862a8763ac39e7ce194536d4b6c55ba61bae9e8a92753cec32df67a457"),
+    0, 0x28a20, 0x157f0, 0xa200, 0x194a0, 0xb1b50,
+    0xb0c10, 0xb0c18, 0xb0c28, 0xb0d70, 0xb0d78, 0xb1090, 0xb1092,
+    0xb1598, 0xb15cc, 0xb15d0, 0xb15fc, 0xb17f0, 0xb18d0, 0xb18dc,
+    0xb1980, 0xb1984, 0xb198c, 0xb198d, 0xb198e, 0xb198f, 0xb1990,
+    0xb19a0, 0xb19a4, 0xb19a8, 0xb19b0, 0xb19b4, 0xb1ab0,
+    0xb1a88, 0xb1a10, 0xb18bc, 0xb18d8, 0xb18e8,
+    0xb179c, 0xb17b8, 0xb1710, 0x19cf0, 0x1a416,
+    0x19ee0, 0x1a280, 0x1a2da, 0x1a3c7,
+    0xb19b8, 0xb19bc, 0xb19c0, 0xb19c4,
+    0xb17a4, 0xb14e4, 0xb19c5
+};
+
+// 0.5.0: RDNA3 register kernels are the only RDNA3 path (Rdna3RegKernels obsolete);
+// fidelity pass for skin/faces. Exports 857 identical to 0.4.3. Packet unchanged.
+// Data cluster is NOT a uniform delta from 0.4.3: device/queue/engine/history* use
+// +0x5008, option/control block +0x5038.
+// Host-contract pins follow the same contract as prior layouts; record +81 B.
+// Two verified 0.5.0 files differ only by trailing data beginning with default ini text.
+// The shorter file exactly matches the longer file through the end of the PE sections;
+// the RVA pins below apply to both. The extraction/installation mechanism is unverified.
+inline constexpr AmdLayout kAmd050 {
+    "0.5.0",
+    39367841,
+    Sha256FromHex("d4c2cb557da9684adec67ca828872e6d46bac25aba4857e5fb55e077b6a57f14"),
+    0, 0x29870, 0x15640, 0xa000, 0x19340, 0xb6b88,
+    0xb5c18, 0xb5c20, 0xb5c30, 0xb5d78, 0xb5d80, 0xb60c8, 0xb60ca,
+    0xb65d0, 0xb6604, 0xb6608, 0xb6634, 0xb6828, 0xb6908, 0xb6914,
+    0xb69b8, 0xb69bc, 0xb69c4, 0xb69c5, 0xb69c6, 0xb69c7, 0xb69c8,
+    0xb69d8, 0xb69dc, 0xb69e0, 0xb69e8, 0xb69ec, 0xb6ae8,
+    0xb6ac0, 0xb6a48, 0xb68f4, 0xb6910, 0xb6920,
+    0xb67d4, 0xb67f0, 0xb6748, 0x19b90, 0x1a2b6,
+    0x19d80, 0x1a120, 0x1a17a, 0x1a267,
+    0xb69f0, 0xb69f4, 0xb69f8, 0xb69fc,
+    0xb67dc, 0xb651c, 0xb69fd
+};
+
+// 0.5.0 PE image only (game-folder copy / overlay stripped). Identical sections.
+inline constexpr AmdLayout kAmd050Pe {
+    "0.5.0-pe",
+    38703616,
+    Sha256FromHex("cddfb09e019347957bf7b96c95c0e900e8d3062dfaed697a8a96b0a039aec31a"),
+    0, 0x29870, 0x15640, 0xa000, 0x19340, 0xb6b88,
+    0xb5c18, 0xb5c20, 0xb5c30, 0xb5d78, 0xb5d80, 0xb60c8, 0xb60ca,
+    0xb65d0, 0xb6604, 0xb6608, 0xb6634, 0xb6828, 0xb6908, 0xb6914,
+    0xb69b8, 0xb69bc, 0xb69c4, 0xb69c5, 0xb69c6, 0xb69c7, 0xb69c8,
+    0xb69d8, 0xb69dc, 0xb69e0, 0xb69e8, 0xb69ec, 0xb6ae8,
+    0xb6ac0, 0xb6a48, 0xb68f4, 0xb6910, 0xb6920,
+    0xb67d4, 0xb67f0, 0xb6748, 0x19b90, 0x1a2b6,
+    0x19d80, 0x1a120, 0x1a17a, 0x1a267,
+    0xb69f0, 0xb69f4, 0xb69f8, 0xb69fc,
+    0xb67dc, 0xb651c, 0xb69fd
+};
+
+inline constexpr const AmdLayout* kAmdLayouts[] = {
+    &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043,
+    &kAmd050, &kAmd050Pe
+};
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
 // of each known runtime. A wrong-length literal already fails Sha256FromHex;
@@ -172,4 +343,12 @@ inline constexpr const AmdLayout* kAmdLayouts[] = { &kAmd0217, &kAmd03, &kAmd031
 static_assert(kAmd0217.sha256.bytes[0] == 0xbc && kAmd0217.sha256.bytes[31] == 0x4e);
 static_assert(kAmd03.sha256.bytes[0] == 0x83 && kAmd03.sha256.bytes[31] == 0x38);
 static_assert(kAmd031.sha256.bytes[0] == 0xb1 && kAmd031.sha256.bytes[31] == 0x54);
+static_assert(kAmd032.sha256.bytes[0] == 0xb9 && kAmd032.sha256.bytes[31] == 0x1e);
+static_assert(kAmd033.sha256.bytes[0] == 0x90 && kAmd033.sha256.bytes[31] == 0x12);
+static_assert(kAmd040.sha256.bytes[0] == 0xd6 && kAmd040.sha256.bytes[31] == 0x80);
+static_assert(kAmd041.sha256.bytes[0] == 0x82 && kAmd041.sha256.bytes[31] == 0x76);
+static_assert(kAmd042.sha256.bytes[0] == 0x8a && kAmd042.sha256.bytes[31] == 0x5a);
+static_assert(kAmd043.sha256.bytes[0] == 0xd1 && kAmd043.sha256.bytes[31] == 0x57);
+static_assert(kAmd050.sha256.bytes[0] == 0xd4 && kAmd050.sha256.bytes[31] == 0x14);
+static_assert(kAmd050Pe.sha256.bytes[0] == 0xcd && kAmd050Pe.sha256.bytes[31] == 0x1a);
 }

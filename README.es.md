@@ -1,12 +1,69 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.0.3
+# OptiScaler AMD pre-SR — 1.9.6.3
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
 Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, manteniendo y evolucionando la base de código con optimizaciones profundas continuas.
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## Corrección 1.9.6.3
+
+- Corrige el crecimiento excesivo de `amd_bridge.log` por los mensajes `isolated neural command list` del backend Daniel. Ahora se registra una sola vez por proceso.
+- No cambia el renderizado, los ajustes NR ni el envío de comandos. Desde 1.9.6.2 basta con sustituir la DLL del host y conservar runtime, pesos y configuración.
+
+## Corrección 1.9.6.2
+
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
+- Acepta ambas variantes verificadas de `version.dll` de Daniel 0.5.0 en el instalador y el host, manteniendo la comprobación estricta del hash.
+- Validado con pruebas sin GPU; sin nuevas pruebas en juegos.
+
+## Novedades en 1.9.6.1
+
+- Añade el ajuste ini/menú `DLSS5_SKIP_BLOCKS` de lmxxf; el valor predeterminado sigue siendo `42,43,46`. Se aplica al reconstruir la red.
+- Incluye los fragmentos HIP `.inc` en la revisión de sincronización, las huellas de compilación de módulos y la comprobación de vigencia del paquete.
+- Reintenta la subida y verifica SHA-256 sin borrar el archivo publicado antes de completar la transferencia.
+
+## Novedades en 1.9.6 (primera versión estable desde 1.8.6)
+
+> Se agradecen informes de error con archivos `.log`.
+
+**Actualización del backend danielblnc**
+- Compatible con **danielblnc 0.3.0–0.5.0** (layout de archivos y aislamiento de inicio; descargue usted mismo los pesos de daniel).
+
+**Nuevo backend lmxxf** (pesos: [repositorio lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [nube](https://gofile.io/d/wRln0Pue))
+- **Sincronización upstream**: versión **0.35**.
+- **GPUs serie 9060**: faltan más pruebas en hardware real.
+- **Rendimiento**: mejoras importantes; porcentaje aún sin medir.
+- **Corrige destellos y parpadeos en algunos juegos** (p. ej. demo de Wo Long 2): usa primero la exposición del juego.
+- **Colour strength**: 0–1 conserva el color del juego; por encima de 1 se mezcla hacia el color de la red.
+- **NR%**: nueva función de resolución NR ajustable en tres niveles.
+- **Exposición automática**: si el juego no envía exposición, **Auto exposure** está activada; se puede apagar y usar **Exposure scale**.
+- **Alta resolución**: acepta entrada por encima de 1080p nativo (4K/2K con FSR Equilibrado o superior ya no da error).
+- **Compatibilidad y correcciones**: algunas sin verificar — gracias [@OUCO86](https://github.com/OUCO86)
+
+**Menú en el juego**
+- Menú reorganizado con interruptores lmxxf / daniel
+
+**Problemas conocidos**
+- Con danielblnc 0.4.3 / 0.5.0 como backend, la demo de Wo Long 2 puede cerrarse de forma inesperada; aún no se ha determinado si la causa está en este proyecto o en el backend upstream.
+- Baldur's Gate 3: (no está confirmado si está relacionado con DX11) a veces puede ser necesario alternar el nivel de DLSS del juego y el upscaler DX11-a-DX12 FSR 4.1.1 de la esquina superior izquierda del menú Ins hasta que el NR funcione.
+
+### Mapa de configuración lmxxf (ini / menú Ins)
+
+Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las etiquetas del menú Ins no se escriben en el ini.** Prioridad: menú/ini > `native-game-flags.txt` / variables de entorno > valores predeterminados.
+
+| Ubicación en el menú | Clave | Notas |
+|---|---|---|
+| Superior | `TransferStrength` / `ColourStrength` | Detalle / color (Colour 0–1 conserva el color del juego) |
+| Superior | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red (incl. >1080p) |
+| Superior | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (predeterminado) o 720 / 900 / 1080 |
+| Experimental | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
+| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos / pool / byte stream |
+| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
+| Debug / Advanced | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
 
 ---
 
@@ -64,7 +121,7 @@ Este proyecto se basa en los logros colectivos de desarrolladores pioneros en la
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | Framework proxy de reescalado universal (DLSS / FFX / XeSS) | Sirve como capa de inyección y host, proporcionando enganches (hooking) y controles de interfaz gráfica |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | Primera integración de DLSS-NR en OptiScaler; diseñaron el pipeline Pre-SR Multi-Pass | Hereda su base de código de OptiScaler y la estructura de despacho Pre-SR |
 | **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Puente de Pre-SR al runtime de AMD: Entrada DLSS → AMD NR → FFX | Creó la **planificación multi-ranura (Multi-slot)**, eliminando **8.7 ms/fotograma** de bloqueos inactivos de la GPU; adaptó 0.3.1; restauró congelación/restauración de estados D3D12; mejoró compatibilidad con XBOX PC. **Sobrecarga del puente de solo 0.01–0.03 ms** |
-| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Runtime central de AMD Neural Rendering (0.3.0 / 0.3.1) | Invoca el runtime estándar sin modificaciones centrales; añade protección de estado D3D12 para la espera de dibujado de 1 píxel de 0.3.1 |
+| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Runtime central de AMD Neural Rendering (0.3.0–0.5.0) | Invoca el runtime estándar sin modificaciones centrales; añade protección de estado D3D12 para la espera de dibujado de 1 píxel de 0.3.1+ |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | Red de 71 bloques con ingeniería inversa portada a kernels abiertos AMD HIP | **Integrado en el framework proxy universal OptiScaler para admitir más juegos DLSS / XeSS**; implementó ejecución en la misma cola del fotograma; desarrolló el runtime independiente con C-ABI estandarizado (`LmxxfNrRuntime`); añadió controles deslizantes de ajuste de detalle/color en tiempo real |
 | **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | Addon de código abierto para HDR / Corrección de color | Origen de los algoritmos de composición de color en `dlssnr.hlsl` |
 
@@ -80,11 +137,17 @@ Este proyecto se basa en los logros colectivos de desarrolladores pioneros en la
 | `OptiScaler.dll` | Binario principal (se renombra durante la instalación al nombre de proxy elegido) |
 | `OptiScaler.ini` | Archivo de configuración central (contiene opciones de doble backend en `[DlssNr]`) |
 | `OptiScaler\` | Dependencias centrales (FFX, XeSS, Agility SDK, plugins) |
+| `LmxxfNrRuntime.dll` | Runtime del backend lmxxf (renderizado neuronal HIP de código abierto) |
+| `lmxxf-modules\` | Módulos de cómputo lmxxf de doble arquitectura (24 `.hsaco` para cada una de `gfx1200` / `gfx1201`, con manifiestos `SHA256SUMS`) |
+| `shaders\` | Shaders del códec lmxxf (`native_codec_encode.hlsl` y otros) |
+| `experimental_lighting\` | Shaders precompilados del pase de iluminación experimental (`GatherCS.cso` / `ResolveCS.cso`) |
 | `Setup.bat` / `Setup.ps1` | Instalador interactivo (**Haga doble clic en `Setup.bat`**) |
 | `Uninstall_OptiScaler_NR.bat` / `.ps1` | Desinstalador seguro (se coloca automáticamente en el directorio del juego) |
-| `tools\` | Utilidades internas de compilación y verificación |
+| `lmxxf-module-package.ps1` | Asistente de validación de módulos que comparten el instalador y el desinstalador (debe estar junto a `Setup.ps1`) |
 | `Licenses\` | Licencias de código abierto de terceros |
 | `README.md` / `README.en.md` / `README.es.md` | Documentación (Chino / Inglés / Español) |
+| `VERSION` | Versión del paquete |
+| `SHA256SUMS.txt` | SHA256 de cada archivo del paquete (verifíquelo con `sha256sum -c SHA256SUMS.txt`) |
 
 > **Nota**: Para cumplir con las licencias y políticas de distribución upstream, este paquete **no incluye** binarios propietarios de NVIDIA, herramientas del instalador de danielblnc ni pesos de modelo no autorizados.
 
@@ -98,10 +161,12 @@ Prepare cualquiera de los backends (o ambos para instalación conjunta):
 
 #### Opción A: [Preparar archivos del backend `lmxxf`](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [haga clic aquí](https://gofile.io/d/RyvcrDxz) para descargar los pesos
 - `LmxxfNrRuntime.dll` (del lanzamiento del proyecto o del [repositorio upstream de lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
-- Carpeta de módulos `lmxxf-modules\` (con los archivos `.hsaco` y `SHA256SUMS`);
+- Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 24 módulos `.hsaco` cada uno y un total de 48 módulos; selección automática según GPU D3D12/HIP; el instalador valida el paquete completo y permite actualizar las instalaciones planas anteriores);
 - Carpeta de shaders `shaders\` (con los archivos `.hlsl`);
 - Carpeta de pesos `native-game-tiled-assets\` (se puede descargar [aquí](https://gofile.io/d/RyvcrDxz));
 - Coloque estos elementos en la misma carpeta descomprimida junto a `Setup.bat`.
+
+Para actualizar, ejecute `Setup.bat` del paquete nuevo y seleccione la carpeta del juego. Si detecta OptiScaler, el instalador recomienda desinstalarlo primero para evitar conflictos entre los archivos nuevos, la estructura de módulos y la configuración anterior. Elija **Y (Recomendado)** para ejecutar automáticamente el desinstalador nuevo y continuar con la instalación, o **N** para sobrescribir la instalación existente. La desinstalación restablece la configuración de OptiScaler y conserva los pesos y las copias de seguridad existentes. La actualización guarda la carpeta de módulos anterior; los archivos `.hsaco` adicionales se conservan en `backup-amd-presr-*/lmxxf-modules`, en la ruta indicada al terminar, mientras que los demás archivos compatibles del usuario permanecen en su sitio.
 
 #### Opción B: [Preparar archivos del backend `danielblnc`](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
 - `dlssnr_on_amd_setup.exe` y `nvngx_dlssnr.dll` (de los [Releases de danielblnc](https://github.com/danielblnc/DLSS-NR-on-AMD/releases); el instalador genera los pesos automáticamente);
@@ -117,8 +182,9 @@ Prepare cualquiera de los backends (o ambos para instalación conjunta):
 3. **Asegúrese de que el juego no se esté ejecutando**;
 4. **Haga doble clic en `Setup.bat`**:
    - Seleccione el directorio del ejecutable de su juego (ej. `...\Binaries\Win64\`);
-   - Si se detectan ambos backends, elija cuál instalar o instale ambos;
+   - Si OptiScaler ya está instalado, elija **Y** para desinstalarlo automáticamente antes de instalar (recomendado), o **N** para sobrescribir;
    - Seleccione el nombre del DLL proxy (predeterminado `dxgi.dll`, recomendado; también se admiten `winmm.dll`, `d3d12.dll`; **no use `dinput8.dll`**);
+   - Si se detectan ambos backends, elija cuál instalar o instale ambos;
    - El instalador configura los proxies, elimina archivos duplicados en conflicto y configura `OptiScaler.ini`.
 
 ---
@@ -229,6 +295,10 @@ Este proyecto introdujo la **planificación multi-ranura (Multi-Slot Scheduling)
 
 ### 2. Backend `lmxxf`: Cómputo HIP de código abierto y ejecución en la misma cola del fotograma
 
+- **Soporte de doble arquitectura y autoselección**:
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**: Arquitectura de producción estándar verificada con 24 módulos optimizados;
+  - **AMD Radeon RX 9060 (`gfx1200`)**: Soporte experimental compilado y verificado con COMGR 3.0; pruebas en hardware real y aceleración PDL pendientes;
+  - **Selección adaptativa y verificación estricta**: Selección automática de la subcarpeta según D3D12/HIP LUID, con verificación SHA-256 y preflight de símbolos PDL gemelos;
 - **Código abierto y optimizado para hardware**: Los módulos de la red neuronal ViT están implementados en HIP, optimizados para arquitecturas RDNA modernas con barreras de grupo de trabajo LDS y modo C32 CU;
 - **Ejecución en la misma cola del fotograma**: OptiScaler planifica la grabación de entrada, inferencia HIP y sincronización de barreras en la cola principal antes del cierre de la lista de comandos, eliminando retrasos de sincronización entre procesos;
 - **Controles dinámicos de parámetros**: Controles deslizantes continuos en tiempo real para realce de detalle/brillo y calibración de color directamente en el menú Ins.
@@ -251,9 +321,15 @@ Este proyecto introdujo la **planificación multi-ranura (Multi-Slot Scheduling)
   - `Colour strength`: Control deslizante continuo para saturación y equilibrio de color (predeterminado 1.0);
   - `Debug view`: Visualización en tiempo real de entradas, salida de la red y búferes de diferencias.
 - **Específicos de `danielblnc`**:
-  - `NR slots`: Cantidad de búferes paralelos (2–5, predeterminado 3);
-  - `Every-frame`: Fuerza la reducción de ruido en cada fotograma;
-  - `New wait mode`: Alternador del modo de espera de congelación/restauración de estado de 0.3.1.
+  - `NR slots`, `Every-frame`, `New wait mode`, `Inline same-frame wait`;
+  - **Display**: `Tone curve` / `Tone lift` / `Quality`;
+  - **Experimental**: `HIP high-priority queue`;
+  - **Debug / Advanced**: claves extra de `dlssnr_on_amd.ini`.
+
+**Prioridad:** sesión Ins > `OptiScaler.ini` `[DlssNr]` (con Guardar) > `dlssnr_on_amd.ini` / entorno > valores predeterminados.  
+Las etiquetas Ins no se escriben al ini; **Guardar** sincroniza ambos ini.  
+`OverlayKey` solo controla el overlay propio de daniel.  
+Variables de entorno avanzadas (sin interruptor Ins): `DLSSNR_NO_REG`, `DLSSNR_CHAIN`, `DLSSNR_NOBLEND`, `DLSSNR_NO_REPACK`, `DLSSNR_WBLOG`.
 
 ---
 
@@ -324,3 +400,9 @@ Patrimonio del código base (de arriba a abajo):
 - [**Este proyecto (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **Licencia GPL-3.0**: Planificación multi-ranura, ejecución en la misma cola del fotograma, creación de runtime con C-ABI y PR upstream, congelación/restauración de estado 0.3.1, coexistencia de doble backend e instalador inteligente.
 
 Esta distribución no contiene binarios propietarios de NVIDIA, herramientas del instalador de danielblnc ni pesos de modelo no autorizados. Por favor, respete todas las licencias upstream.
+
+## Problemas conocidos (1.9.2-alpha)
+
+- **Entradas grandes con `lmxxf`:** `[DlssNr] DLSS5_FIT_LARGE` está activado de forma predeterminada y ajusta las entradas Color grandes a las dimensiones de la red. Las antiguas pausas de varios segundos en Palworld se debían a un fallo que reconstruía la cadena en cada fotograma; ya está corregido. A fecha de 2026-09-28, el mantenedor no ha encontrado problemas de FitLarge tras esa corrección. Las mediciones antiguas ya no justifican recomendar una resolución menor ni desactivar FitLarge. Si se establece explícitamente en `false`, el ancho se limita a 2560, la altura a 1080 y el número de píxeles a 1920×1080 (por ejemplo 2024×848); 2560×1080 se rechaza.
+- **Color en Cyberpunk 2077:** se ha modificado la antigua mezcla del tono de la red que podía volver marrón el neón. Colour strength 0–1 conserva ahora el color original del juego; los valores superiores a 1 mezclan el color de la red. Ya no se aplica la antigua recomendación de fijarlo en 0. Esta regla es común a todos los juegos.
+- **PDL:** el arranque encadenado está activado de forma predeterminada. Si el controlador no tiene `hipExtModuleLaunchKernel`, ponga `DLSS5_HIP_PDL=false` y reinicie.

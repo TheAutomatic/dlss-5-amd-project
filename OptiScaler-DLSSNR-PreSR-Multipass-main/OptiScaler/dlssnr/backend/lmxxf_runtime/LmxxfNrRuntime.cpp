@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <d3d12.h>
 
+#include "../../../ConfigKeys.h"
 #include "LmxxfProductionOptions.h"
 #include "native_device_identity.h"
 #include "native_game_codec.h"
@@ -19,6 +20,11 @@
 #include <cstdlib>
 #include <exception>
 #include <string>
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <mutex>
+#include <set>
 #include <vector>
 
 namespace
@@ -63,6 +69,17 @@ std::string Utf8(const std::wstring &s)
     return r;
 }
 
+std::wstring Widen(const std::string &s)
+{
+    if (s.empty())
+        return {};
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0);
+    std::wstring r(n, L'\0');
+    if (n)
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), r.data(), n);
+    return r;
+}
+
 bool IsDirectory(const std::wstring &path)
 {
     const DWORD attr = GetFileAttributesW(path.c_str());
@@ -81,7 +98,345 @@ std::wstring JoinPath(const std::wstring &dir, const wchar_t *name)
     if (!out.empty() && out.back() != L'\\' && out.back() != L'/')
         out += L'\\';
     out += name;
+    // Extended Win32 paths do not translate '/' for us. Manifest paths use '/'.
+    std::replace(out.begin(), out.end(), L'/', L'\\');
     return out;
+}
+
+bool FullPath(const std::wstring &path, std::wstring *out)
+{
+    const DWORD required = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
+    if (!required || required > 32768)
+        return false;
+    std::vector<wchar_t> buffer(required);
+    const DWORD written = GetFullPathNameW(path.c_str(), required, buffer.data(), nullptr);
+    if (!written || written >= required)
+        return false;
+    out->assign(buffer.data(), written);
+    std::replace(out->begin(), out->end(), L'/', L'\\');
+    return true;
+}
+
+bool IsPathSafelyContained(const std::wstring &rootDir, const std::wstring &subPath)
+{
+    std::wstring rootCanonical, combinedCanonical;
+    if (!FullPath(rootDir, &rootCanonical) ||
+        !FullPath(JoinPath(rootCanonical, subPath.c_str()), &combinedCanonical))
+        return false;
+
+    // Include the separator in the prefix. This also handles drive/UNC roots and
+    // an explicitly supplied trailing slash without indexing into the child name.
+    const std::wstring prefix = JoinPath(rootCanonical, L"");
+    if (combinedCanonical.size() <= prefix.size() ||
+        _wcsnicmp(prefix.c_str(), combinedCanonical.c_str(), prefix.size()) != 0)
+        return false;
+
+    // GetFullPathNameW is lexical. Check the root and every component before
+    // opening manifests or modules so a directory junction cannot escape it.
+    const DWORD rootAttr = GetFileAttributesW(rootCanonical.c_str());
+    if (rootAttr == INVALID_FILE_ATTRIBUTES || !(rootAttr & FILE_ATTRIBUTE_DIRECTORY) ||
+        (rootAttr & FILE_ATTRIBUTE_REPARSE_POINT))
+        return false;
+    size_t pos = prefix.size();
+    for (;;)
+    {
+        const size_t next = combinedCanonical.find(L'\\', pos);
+        const std::wstring component = combinedCanonical.substr(0, next);
+        const DWORD attr = GetFileAttributesW(component.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT))
+            return false;
+        if (next == std::wstring::npos)
+            return true;
+        if (!(attr & FILE_ATTRIBUTE_DIRECTORY))
+            return false;
+        pos = next + 1;
+    }
+}
+
+namespace Sha256Detail
+{
+inline uint32_t RightRotate(uint32_t value, uint32_t count)
+{
+    return (value >> count) | (value << (32 - count));
+}
+
+static const uint32_t K[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+struct Context
+{
+    uint32_t state[8];
+    uint64_t count;
+    uint8_t buffer[64];
+};
+
+inline void Init(Context *ctx)
+{
+    ctx->state[0] = 0x6a09e667;
+    ctx->state[1] = 0xbb67ae85;
+    ctx->state[2] = 0x3c6ef372;
+    ctx->state[3] = 0xa54ff53a;
+    ctx->state[4] = 0x510e527f;
+    ctx->state[5] = 0x9b05688c;
+    ctx->state[6] = 0x1f83d9ab;
+    ctx->state[7] = 0x5be0cd19;
+    ctx->count = 0;
+}
+
+inline void Transform(uint32_t state[8], const uint8_t data[64])
+{
+    uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+    uint32_t e = state[4], f = state[5], g = state[6], h = state[7];
+    uint32_t w[64];
+    for (int i = 0; i < 16; ++i)
+    {
+        w[i] = (static_cast<uint32_t>(data[i * 4]) << 24) |
+               (static_cast<uint32_t>(data[i * 4 + 1]) << 16) |
+               (static_cast<uint32_t>(data[i * 4 + 2]) << 8) |
+               (static_cast<uint32_t>(data[i * 4 + 3]));
+    }
+    for (int i = 16; i < 64; ++i)
+    {
+        const uint32_t s0 = RightRotate(w[i - 15], 7) ^ RightRotate(w[i - 15], 18) ^ (w[i - 15] >> 3);
+        const uint32_t s1 = RightRotate(w[i - 2], 17) ^ RightRotate(w[i - 2], 19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    for (int i = 0; i < 64; ++i)
+    {
+        const uint32_t S1 = RightRotate(e, 6) ^ RightRotate(e, 11) ^ RightRotate(e, 25);
+        const uint32_t ch = (e & f) ^ ((~e) & g);
+        const uint32_t temp1 = h + S1 + ch + K[i] + w[i];
+        const uint32_t S0 = RightRotate(a, 2) ^ RightRotate(a, 13) ^ RightRotate(a, 22);
+        const uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+        const uint32_t temp2 = S0 + maj;
+
+        h = g;
+        g = f;
+        f = e;
+        e = d + temp1;
+        d = c;
+        c = b;
+        b = a;
+        a = temp1 + temp2;
+    }
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+    state[5] += f;
+    state[6] += g;
+    state[7] += h;
+}
+
+inline void Update(Context *ctx, const uint8_t *data, size_t len)
+{
+    size_t bufferIndex = static_cast<size_t>(ctx->count & 63);
+    ctx->count += len;
+    size_t dataIndex = 0;
+    if (bufferIndex > 0)
+    {
+        size_t needed = 64 - bufferIndex;
+        if (len < needed)
+        {
+            std::memcpy(&ctx->buffer[bufferIndex], data, len);
+            return;
+        }
+        std::memcpy(&ctx->buffer[bufferIndex], data, needed);
+        Transform(ctx->state, ctx->buffer);
+        dataIndex += needed;
+        len -= needed;
+        bufferIndex = 0;
+    }
+    while (len >= 64)
+    {
+        Transform(ctx->state, &data[dataIndex]);
+        dataIndex += 64;
+        len -= 64;
+    }
+    if (len > 0)
+    {
+        std::memcpy(ctx->buffer, &data[dataIndex], len);
+    }
+}
+
+inline void Final(Context *ctx, uint8_t digest[32])
+{
+    const uint64_t totalBits = ctx->count * 8;
+    size_t bufferIndex = static_cast<size_t>(ctx->count & 63);
+    ctx->buffer[bufferIndex++] = 0x80;
+    if (bufferIndex > 56)
+    {
+        std::memset(&ctx->buffer[bufferIndex], 0, 64 - bufferIndex);
+        Transform(ctx->state, ctx->buffer);
+        bufferIndex = 0;
+    }
+    std::memset(&ctx->buffer[bufferIndex], 0, 56 - bufferIndex);
+    for (int i = 7; i >= 0; --i)
+    {
+        ctx->buffer[56 + (7 - i)] = static_cast<uint8_t>((totalBits >> (i * 8)) & 0xff);
+    }
+    Transform(ctx->state, ctx->buffer);
+    for (int i = 0; i < 8; ++i)
+    {
+        digest[i * 4] = static_cast<uint8_t>((ctx->state[i] >> 24) & 0xff);
+        digest[i * 4 + 1] = static_cast<uint8_t>((ctx->state[i] >> 16) & 0xff);
+        digest[i * 4 + 2] = static_cast<uint8_t>((ctx->state[i] >> 8) & 0xff);
+        digest[i * 4 + 3] = static_cast<uint8_t>(ctx->state[i] & 0xff);
+    }
+}
+
+inline bool ComputeFileSha256(const std::wstring &path, std::string *outHex)
+{
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    Context ctx;
+    Init(&ctx);
+    uint8_t buffer[65536];
+    DWORD read = 0;
+    for (;;)
+    {
+        if (!ReadFile(file, buffer, sizeof(buffer), &read, nullptr))
+        {
+            CloseHandle(file);
+            return false;
+        }
+        if (read == 0)
+            break;
+        Update(&ctx, buffer, read);
+    }
+    CloseHandle(file);
+    uint8_t digest[32];
+    Final(&ctx, digest);
+    char hex[65];
+    for (int i = 0; i < 32; ++i)
+    {
+        std::snprintf(&hex[i * 2], 3, "%02x", digest[i]);
+    }
+    hex[64] = '\0';
+    if (outHex)
+        *outHex = hex;
+    return true;
+}
+} // namespace Sha256Detail
+
+// Create validates every listed module (48, about 11 MB) and runs on the game's render thread,
+// and a host session rebuild calls Create again. Reuse a digest while the file's size and
+// write time are unchanged. This guards against partial or mixed installs, not tampering.
+bool CachedFileSha256(const std::wstring &path, std::string *outHex)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fad {};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fad))
+        return false;
+    const uint64_t size = (uint64_t(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+    const uint64_t stamp = (uint64_t(fad.ftLastWriteTime.dwHighDateTime) << 32) | fad.ftLastWriteTime.dwLowDateTime;
+    struct Entry
+    {
+        uint64_t size, stamp;
+        std::string hex;
+    };
+    static std::mutex lock;
+    static std::map<std::wstring, Entry> cache;
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        const auto it = cache.find(path);
+        if (it != cache.end() && it->second.size == size && it->second.stamp == stamp)
+        {
+            *outHex = it->second.hex;
+            return true;
+        }
+    }
+    std::string hex;
+    if (!Sha256Detail::ComputeFileSha256(path, &hex))
+        return false;
+    std::lock_guard<std::mutex> guard(lock);
+    cache[path] = Entry {size, stamp, hex};
+    *outHex = hex;
+    return true;
+}
+
+static const char *const kKnownModuleNames[30] = {
+    "boundary-fast.hsaco",
+    "boundary_reference.hsaco",
+    "c32_fast.hsaco",
+    "c32_fast_attention.hsaco",
+    "c32_fused_attention.hsaco",
+    "c32_fused_ffn_attention-packed.hsaco",
+    "c32_fused_ffn_attention.hsaco",
+    "c32_prefix_reference.hsaco",
+    "c32_tiled.hsaco",
+    "c32_wmma.hsaco",
+    "c32-wave1.hsaco",
+    "c64-wave2.hsaco",
+    "c512-m32-mh.hsaco",
+    "c512-m32-deep.hsaco",
+    "deep_fast-packed.hsaco",
+    "deep_fast.hsaco",
+    "deep_reference.hsaco",
+    "deep_wmma.hsaco",
+    "multihead-fast-packed.hsaco",
+    "multihead-fast-padded-wave-packed.hsaco",
+    "multihead-fast-padded-wave.hsaco",
+    "multihead-fast.hsaco",
+    "multihead-reference.hsaco",
+    "multihead-tiled.hsaco",
+    "multihead-wmma.hsaco",
+    "multihead_fused_attention.hsaco",
+    "prefix_fast.hsaco",
+    "vit-wide-deep.hsaco",
+    "wave-pointwise.hsaco",
+    "vit-stream.hsaco",
+};
+
+bool IsKnownModuleName(const std::string &name)
+{
+    for (const char *known : kKnownModuleNames)
+    {
+        if (name == known)
+            return true;
+    }
+    return false;
+}
+
+inline bool ResolveArchModulesDir(const std::wstring &modulesRoot, const std::string &arch,
+                                  std::wstring *outEffectiveDir, std::string *outError)
+{
+    if (arch != "gfx1200" && arch != "gfx1201")
+    {
+        if (outError)
+            *outError = "unsupported HIP architecture: " + arch;
+        return false;
+    }
+    const std::wstring archW = Widen(arch);
+    const std::wstring g1200 = JoinPath(modulesRoot, L"gfx1200");
+    const std::wstring g1201 = JoinPath(modulesRoot, L"gfx1201");
+    if (IsDirectory(g1200) || IsDirectory(g1201))
+    {
+        const std::wstring targetDir = JoinPath(modulesRoot, archW.c_str());
+        if (!IsDirectory(targetDir))
+        {
+            if (outError)
+                *outError = "missing module architecture directory: " + arch;
+            return false;
+        }
+        if (outEffectiveDir)
+            *outEffectiveDir = targetDir;
+        return true;
+    }
+    // Flat / explicit leaf layout
+    if (outEffectiveDir)
+        *outEffectiveDir = modulesRoot;
+    return true;
 }
 
 std::wstring DllDirectory()
@@ -99,28 +454,70 @@ std::wstring DllDirectory()
     return dir;
 }
 
-bool TryReadFitLargeFromFlagsFile(const std::wstring &path, bool *outValue)
+/* Config priority (do not invent another layer):
+ *   1) Ins menu / OptiScaler.ini (host _putenv of product keys)
+ *   2) native-game-flags.txt / external env for keys the host did not set
+ *   3) compile-time defaults in LmxxfProductionOptions
+ * Flags fill gaps only: never overwrite an existing environment entry. */
+bool ApplyFlagsFileFallback(const std::wstring &path)
 {
     FILE *f = _wfopen(path.c_str(), L"rb");
     if (!f)
         return false;
-    char line[256];
-    unsigned v = 0;
-    bool found = false;
+    char line[512];
+    bool any = false;
     while (fgets(line, sizeof line, f))
     {
-        unsigned x = 0;
-        if (sscanf(line, "DLSS5_FIT_LARGE=%u", &x) == 1)
+        char *s = line;
+        while (*s == ' ' || *s == '\t')
+            ++s;
+        if (*s == '#' || *s == ';' || *s == '\n' || *s == '\r' || !*s)
+            continue;
+        char *eq = strchr(s, '=');
+        if (!eq || eq == s)
+            continue;
+        char *keyEnd = eq;
+        while (keyEnd > s && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t'))
+            --keyEnd;
+        if (keyEnd == s)
+            continue;
+        const size_t keyLen = size_t(keyEnd - s);
+        if (keyLen == 0 || keyLen >= 128)
+            continue;
+        char key[128];
+        memcpy(key, s, keyLen);
+        key[keyLen] = 0;
+        for (size_t i = 0; i < keyLen; ++i)
         {
-            v = x;
-            found = true;
+            if (!((key[i] >= 'A' && key[i] <= 'Z') || (key[i] >= '0' && key[i] <= '9') || key[i] == '_'))
+            {
+                key[0] = 0;
+                break;
+            }
         }
+        if (!key[0])
+            continue;
+        if (std::getenv(key))
+            continue; // menu / ini / caller already owns this key
+        char *val = eq + 1;
+        while (*val == ' ' || *val == '\t')
+            ++val;
+        char *end = val + strlen(val);
+        while (end > val && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
+        {
+            --end;
+            *end = 0;
+        }
+        const size_t valLen = strlen(val);
+        if (keyLen + 1 + valLen >= 256)
+            continue;
+        char entry[256];
+        snprintf(entry, sizeof entry, "%s=%s", key, val);
+        _putenv(entry);
+        any = true;
     }
     fclose(f);
-    if (!found)
-        return false;
-    *outValue = (v == 1);
-    return true;
+    return any;
 }
 
 // The codec's colour-input contract, checked here instead of letting the codec throw.
@@ -147,28 +544,9 @@ const char *ColorInputProblem(const D3D12_RESOURCE_DESC &desc)
     return nullptr;
 }
 
-// Upstream enables 1080p+ via DLSS5_FIT_LARGE=1 (env or native-game-flags.txt).
-// Codec Supported() uses NativeFitLargeInput(); QueryCapabilities must match.
-void EnsureFitLargeApplied()
+// Probe all missing flags independently of whether FitLarge already has a value.
+void EnsureFlagsFileFallbackApplied()
 {
-    // Latch only after env or flags resolve. If neither is present yet, retry on later
-    // Create/PrepareFrame so a late-written native-game-flags.txt still applies.
-    static bool resolved = false;
-    if (resolved)
-        return;
-
-    if (const char *e = std::getenv("DLSS5_FIT_LARGE"))
-    {
-        if (e[0] == '1' && !e[1])
-            NativeFitLargeInputOverride() = true;
-        else
-            NativeFitLargeInputOverride() = false;
-        resolved = true;
-        return;
-    }
-
-    // The file probe below runs on every PrepareFrame while unresolved; once a second is
-    // enough to pick up a late-written flags file.
     static ULONGLONG nextProbe = 0;
     const ULONGLONG now = GetTickCount64();
     if (now < nextProbe)
@@ -197,24 +575,17 @@ void EnsureFitLargeApplied()
     }
 
     for (size_t i = 0; i < n; ++i)
-    {
-        bool on = false;
-        if (TryReadFitLargeFromFlagsFile(candidates[i], &on))
-        {
-            if (on)
-            {
-                NativeFitLargeInputOverride() = true;
-                _putenv("DLSS5_FIT_LARGE=1");
-            }
-            else
-            {
-                NativeFitLargeInputOverride() = false;
-                _putenv("DLSS5_FIT_LARGE=0");
-            }
-            resolved = true;
-            return;
-        }
-    }
+        ApplyFlagsFileFallback(candidates[i]);
+}
+
+void EnsureRuntimeConfigApplied()
+{
+    static std::mutex configMutex;
+    std::lock_guard lock(configMutex);
+    CfgKey::SyncEnvAliasesFromProcess();
+    EnsureFlagsFileFallbackApplied();
+    if (const char *e = std::getenv(CfgKey::FitLarge))
+        NativeFitLargeInputOverride() = (e[0] == '1' && !e[1]);
 }
 
 std::wstring FindShaderDir(const std::wstring &assets = {})
@@ -301,7 +672,43 @@ bool ResolveModulesDir(const std::wstring &assets, std::wstring *modulesDir)
 int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
 {
     *outCount = 0;
+    if (!IsDirectory(modulesDir))
+        return Fail(LMXXF_NR_UNAVAILABLE, "Create: modules directory not found");
+
+    const bool hasGfx1200 = IsDirectory(JoinPath(modulesDir, L"gfx1200"));
+    const bool hasGfx1201 = IsDirectory(JoinPath(modulesDir, L"gfx1201"));
+    const bool isDualArch = hasGfx1200 || hasGfx1201;
+
+    if (isDualArch)
+    {
+        // 1. Detect stale flat .hsaco files in root of dual-arch directory
+        WIN32_FIND_DATAW fd {};
+        HANDLE hFind = FindFirstFileW(JoinPath(modulesDir, L"*.hsaco").c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE)
+        {
+            FindClose(hFind);
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: stale flat .hsaco files found in dual-architecture directory; please reinstall lmxxf-modules");
+        }
+        // 2. Both arch directories must exist in a dual-architecture bundle
+        if (!hasGfx1200 || !hasGfx1201)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: dual-architecture directory missing required architecture directory (need both gfx1200 and gfx1201)");
+        }
+    }
+
     const std::wstring sumsPath = JoinPath(modulesDir, L"SHA256SUMS");
+    if (FileExists(sumsPath) && !IsPathSafelyContained(modulesDir, L"SHA256SUMS"))
+        return Fail(LMXXF_NR_UNAVAILABLE, "Create: unsafe module manifest path (symlink/junction/reparse point): SHA256SUMS");
+    // These metadata files are optional to the v1 ABI, but must obey the same
+    // path contract whenever supplied alongside the checksum manifests.
+    for (const wchar_t *relative : {L"runtime-manifest.json", L"modules.json",
+                                   L"gfx1200\\modules.json", L"gfx1201\\modules.json"})
+    {
+        if (FileExists(JoinPath(modulesDir, relative)) && !IsPathSafelyContained(modulesDir, relative))
+            return Fail(LMXXF_NR_UNAVAILABLE, "Create: unsafe module metadata path (symlink/junction/reparse point)");
+    }
     HANDLE file = CreateFileW(sumsPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE)
@@ -322,7 +729,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
     CloseHandle(file);
     text.resize(read);
 
-    uint32_t found = 0;
+    std::map<std::string, std::string> rootMap; // normalized relative path -> lowercase sha256
+    uint32_t count1200 = 0;
+    uint32_t count1201 = 0;
+
     size_t pos = 0;
     while (pos < text.size())
     {
@@ -333,29 +743,264 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         pos = eol + 1;
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
-        if (line.empty())
+        if (line.empty() || line[0] == '#')
             continue;
+
         const size_t sp = line.find_first_of(" \t");
-        if (sp == std::string::npos)
-            continue;
-        size_t nameStart = line.find_first_not_of(" \t", sp);
+        if (sp == std::string::npos || sp != 64)
+            return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 format in SHA256SUMS");
+
+        std::string sha = line.substr(0, 64);
+        for (char &c : sha)
+        {
+            if (!std::isxdigit(static_cast<unsigned char>(c)))
+                return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 hex character in SHA256SUMS");
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+
+        size_t nameStart = line.find_first_not_of(" \t*", sp);
         if (nameStart == std::string::npos)
-            continue;
-        std::string name = line.substr(nameStart);
-        if (name.size() < 7 || name.rfind(".hsaco") != name.size() - 6)
-            continue;
-        std::wstring wname(name.begin(), name.end());
-        const std::wstring full = JoinPath(modulesDir, wname.c_str());
-        if (!IsDirectory(full) && GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES)
-            ++found;
+            return Fail(LMXXF_NR_UNAVAILABLE, "Create: missing file path in SHA256SUMS");
+
+        std::string path = line.substr(nameStart);
+        while (!path.empty() && (path.back() == ' ' || path.back() == '\t'))
+            path.pop_back();
+
+        for (char &c : path)
+        {
+            if (c == '\\')
+                c = '/';
+        }
+        if (path.rfind("./", 0) == 0)
+            path = path.substr(2);
+
+        // Path safety checks
+        if (path.find(':') != std::string::npos || path.front() == '/' ||
+            path.find("..") != std::string::npos || path.find("//") != std::string::npos)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE, ("Create: unsafe module path in SHA256SUMS: " + path).c_str());
+        }
+
+        if (isDualArch)
+        {
+            if (path.rfind("gfx1200/", 0) != 0 && path.rfind("gfx1201/", 0) != 0)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: unexpected path in dual-architecture SHA256SUMS: " + path).c_str());
+            }
+            const std::string arch = path.substr(0, 7);
+            const std::string modName = path.substr(8);
+            if (!IsKnownModuleName(modName))
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: unknown module name in SHA256SUMS: " + path).c_str());
+            }
+            if (rootMap.find(path) != rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: duplicate module entry in SHA256SUMS: " + path).c_str());
+            }
+            rootMap[path] = sha;
+            if (arch == "gfx1200")
+                ++count1200;
+            else
+                ++count1201;
+        }
         else
-            return Fail(LMXXF_NR_UNAVAILABLE, "Create: hsaco listed in SHA256SUMS is missing");
+        {
+            if (path.find('/') != std::string::npos)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: nested path in flat SHA256SUMS: " + path).c_str());
+            }
+            if (!IsKnownModuleName(path))
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: unknown module name in SHA256SUMS: " + path).c_str());
+            }
+            if (rootMap.find(path) != rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: duplicate module entry in SHA256SUMS: " + path).c_str());
+            }
+            rootMap[path] = sha;
+        }
     }
-    if (found == 0)
-        return Fail(LMXXF_NR_UNAVAILABLE, "Create: no .hsaco entries in SHA256SUMS");
-    if (found < 24)
-        return Fail(LMXXF_NR_UNAVAILABLE, "Create: fewer than 24 hsaco modules; host/module set incomplete");
-    *outCount = found;
+
+    if (isDualArch)
+    {
+        if (count1200 != 30 || count1201 != 30 || rootMap.size() != 60)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 30 gfx1200 and 30 gfx1201 entries)");
+        }
+        for (const char *known : kKnownModuleNames)
+        {
+            if (rootMap.find(std::string("gfx1200/") + known) == rootMap.end() ||
+                rootMap.find(std::string("gfx1201/") + known) == rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: dual-architecture SHA256SUMS missing module: " + std::string(known)).c_str());
+            }
+        }
+
+        // Verify leaf SHA256SUMS in each architecture directory
+        const char *const archList[2] = {"gfx1200", "gfx1201"};
+        for (const char *arch : archList)
+        {
+            const std::wstring leafRelative = JoinPath(Widen(arch), L"SHA256SUMS");
+            const std::wstring leafPath = JoinPath(modulesDir, leafRelative.c_str());
+            if (FileExists(leafPath) && !IsPathSafelyContained(modulesDir, leafRelative))
+                return Fail(LMXXF_NR_UNAVAILABLE, "Create: unsafe leaf manifest path (symlink/junction/reparse point)");
+            HANDLE leafFile = CreateFileW(leafPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                          FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (leafFile == INVALID_HANDLE_VALUE)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS missing for " + std::string(arch)).c_str());
+            }
+            LARGE_INTEGER leafSize {};
+            if (!GetFileSizeEx(leafFile, &leafSize) || leafSize.QuadPart <= 0 || leafSize.QuadPart > 1 << 20)
+            {
+                CloseHandle(leafFile);
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS unreadable for " + std::string(arch)).c_str());
+            }
+            std::string leafText(static_cast<size_t>(leafSize.QuadPart), '\0');
+            DWORD leafRead = 0;
+            if (!ReadFile(leafFile, leafText.data(), static_cast<DWORD>(leafText.size()), &leafRead, nullptr))
+            {
+                CloseHandle(leafFile);
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS read failed for " + std::string(arch)).c_str());
+            }
+            CloseHandle(leafFile);
+            leafText.resize(leafRead);
+
+            std::map<std::string, std::string> leafMap;
+            size_t lpos = 0;
+            while (lpos < leafText.size())
+            {
+                size_t leol = leafText.find('\n', lpos);
+                if (leol == std::string::npos)
+                    leol = leafText.size();
+                std::string lline = leafText.substr(lpos, leol - lpos);
+                lpos = leol + 1;
+                if (!lline.empty() && lline.back() == '\r')
+                    lline.pop_back();
+                if (lline.empty() || lline[0] == '#')
+                    continue;
+
+                const size_t lsp = lline.find_first_of(" \t");
+                if (lsp == std::string::npos || lsp != 64)
+                    return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 format in leaf SHA256SUMS");
+
+                std::string lsha = lline.substr(0, 64);
+                for (char &c : lsha)
+                {
+                    if (!std::isxdigit(static_cast<unsigned char>(c)))
+                        return Fail(LMXXF_NR_UNAVAILABLE, "Create: invalid SHA256 hex character in leaf SHA256SUMS");
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                }
+
+                size_t lstart = lline.find_first_not_of(" \t*", lsp);
+                if (lstart == std::string::npos)
+                    return Fail(LMXXF_NR_UNAVAILABLE, "Create: missing file path in leaf SHA256SUMS");
+
+                std::string lpath = lline.substr(lstart);
+                while (!lpath.empty() && (lpath.back() == ' ' || lpath.back() == '\t'))
+                    lpath.pop_back();
+
+                for (char &c : lpath)
+                {
+                    if (c == '\\')
+                        c = '/';
+                }
+                if (lpath.rfind("./", 0) == 0)
+                    lpath = lpath.substr(2);
+                const std::string prefix = std::string(arch) + "/";
+                if (lpath.rfind(prefix, 0) == 0)
+                    lpath = lpath.substr(prefix.size());
+
+                if (!IsKnownModuleName(lpath))
+                {
+                    return Fail(LMXXF_NR_UNAVAILABLE,
+                                ("Create: unknown module name in leaf SHA256SUMS: " + lpath).c_str());
+                }
+                if (leafMap.find(lpath) != leafMap.end())
+                {
+                    return Fail(LMXXF_NR_UNAVAILABLE,
+                                ("Create: duplicate module entry in leaf SHA256SUMS: " + lpath).c_str());
+                }
+                leafMap[lpath] = lsha;
+
+                const std::string rootKey = std::string(arch) + "/" + lpath;
+                const auto rootIt = rootMap.find(rootKey);
+                if (rootIt == rootMap.end() || rootIt->second != lsha)
+                {
+                    return Fail(LMXXF_NR_UNAVAILABLE,
+                                ("Create: leaf SHA256SUMS mismatch with root for " + rootKey).c_str());
+                }
+            }
+            if (leafMap.size() != 30)
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: leaf SHA256SUMS incomplete for " + std::string(arch)).c_str());
+            }
+        }
+    }
+    else
+    {
+        if (rootMap.size() != 30)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        "Create: SHA256SUMS incomplete (expected 30 hsaco modules)");
+        }
+        for (const char *known : kKnownModuleNames)
+        {
+            if (rootMap.find(known) == rootMap.end())
+            {
+                return Fail(LMXXF_NR_UNAVAILABLE,
+                            ("Create: flat SHA256SUMS missing module: " + std::string(known)).c_str());
+            }
+        }
+    }
+
+    // Verify all module files and their SHA256 checksums
+    for (const auto &pair : rootMap)
+    {
+        const std::string &relPath = pair.first;
+        const std::string &expectedSha = pair.second;
+
+        std::wstring wrel = Widen(relPath);
+        std::wstring full = JoinPath(modulesDir, wrel.c_str());
+
+        DWORD attr = GetFileAttributesW(full.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: module file missing: " + relPath).c_str());
+        }
+        if (!IsPathSafelyContained(modulesDir, wrel))
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: unsafe module path (escape/symlink/junction/reparse point): " + relPath).c_str());
+        }
+
+        std::string computedSha;
+        if (!CachedFileSha256(full, &computedSha))
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: failed to compute checksum for " + relPath).c_str());
+        }
+        if (computedSha != expectedSha)
+        {
+            return Fail(LMXXF_NR_UNAVAILABLE,
+                        ("Create: checksum mismatch in " + relPath + " (computed " + computedSha + ", expected " + expectedSha + ")").c_str());
+        }
+    }
+
+    *outCount = static_cast<uint32_t>(rootMap.size());
     return static_cast<int32_t>(LMXXF_NR_OK);
 }
 
@@ -370,6 +1015,223 @@ bool LooksLikeObject(void *p)
         return false;
     return info.State == MEM_COMMIT;
 }
+
+// Auto exposure for games that give no usable exposure texture (Wo Long 2: AutoExposure=true,
+// IsHdr=true, FP16 linear colour). Without it the codec normalises HDR scene values by an
+// exposure of 1 and highlights blow out. Before RecordInputs' encode, one 16x16 thread group
+// samples the valid region, and the exposure that puts the encoded mean at 0.45 is smoothed in
+// the log domain with the same 0.25 factor the daniel runtime uses. The result lives in our own
+// 1x1 R32_FLOAT texture, which the codecs bind exactly like a copied game exposure, so the codec
+// path and its `PaperWhite / exposure` white point are unchanged. At steady state this matches the
+// shader-side mean white point (auto-white.patch); the difference is that it is measured once per
+// frame and does not jump with a single bright object.
+struct ExposureMeter
+{
+    static constexpr UINT kSrvRing = 16;
+    ID3D12Resource *value = nullptr; // R32_FLOAT 1x1, left in NON_PIXEL_SHADER_RESOURCE
+    ID3D12DescriptorHeap *heap = nullptr; // [0] value UAV, [1..kSrvRing] colour SRVs
+    ID3D12RootSignature *root = nullptr;
+    ID3D12PipelineState *pso = nullptr;
+    UINT increment = 0;
+    uint64_t frames = 0;
+    bool failed = false;
+
+    bool Ready() const { return value && heap && root && pso; }
+
+    // Returns false (and stays failed) if any piece cannot be created; the frame then runs
+    // without exposure, as before this existed.
+    bool Ensure(ID3D12Device *device)
+    {
+        if (Ready())
+            return true;
+        if (failed || !device)
+            return false;
+        static const char kSource[] = R"(
+Texture2D<float4> Colour : register(t0);
+RWTexture2D<float> Exposure : register(u0);
+cbuffer Region : register(b0) { uint2 Origin; uint2 Extent; };
+groupshared float s_sum[256];
+groupshared uint s_count[256];
+[numthreads(16, 16, 1)]
+void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
+{
+    uint2 extent = max(Extent, uint2(1, 1));
+    uint2 p = Origin + min(uint2((float2(t.xy) + 0.5) * float2(extent) / 16.0), extent - 1);
+    float y = dot(max(Colour.Load(int3(p, 0)).rgb, 0.0), float3(0.2126, 0.7152, 0.0722));
+    bool ok = !isnan(y) && !isinf(y);
+    s_sum[i] = ok ? y : 0.0;
+    s_count[i] = ok ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll] for (uint s = 128; s > 0; s >>= 1)
+    {
+        if (i < s) { s_sum[i] += s_sum[i + s]; s_count[i] += s_count[i + s]; }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (i != 0 || s_count[0] == 0)
+        return; // nothing measurable: keep the previous exposure
+    float mean = max(s_sum[0] / float(s_count[0]), 1e-4);
+    float encoded = pow(0.45, 2.2);
+    float target = clamp((encoded / (1.0 - encoded)) / mean, 1e-4, 100.0);
+    float prev = Exposure[uint2(0, 0)];
+    bool warm = prev > 0.0 && !isnan(prev) && !isinf(prev);
+    Exposure[uint2(0, 0)] = warm ? exp(lerp(log(prev), log(target), 0.25)) : target;
+}
+)";
+        ID3DBlob *code = nullptr, *errors = nullptr;
+        HRESULT hr = D3DCompile(kSource, sizeof kSource - 1, "lmxxf-exposure-meter", nullptr, nullptr, "main",
+                                "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
+        if (errors)
+            errors->Release();
+        if (FAILED(hr) || !code)
+            return Fail();
+
+        D3D12_DESCRIPTOR_RANGE ranges[2] {};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[0].NumDescriptors = 1;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[1].NumDescriptors = 1;
+        D3D12_ROOT_PARAMETER params[3] {};
+        for (int k = 0; k < 2; ++k)
+        {
+            params[k].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            params[k].DescriptorTable = {1, &ranges[k]};
+            params[k].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        }
+        params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        params[2].Constants = {0, 0, 4};
+        params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_SIGNATURE_DESC rsd {3, params, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE};
+        ID3DBlob *serialized = nullptr;
+        hr = D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &errors);
+        if (errors)
+            errors->Release();
+        if (SUCCEEDED(hr))
+            hr = device->CreateRootSignature(0, serialized->GetBufferPointer(), serialized->GetBufferSize(),
+                                             IID_PPV_ARGS(&root));
+        if (serialized)
+            serialized->Release();
+        if (SUCCEEDED(hr))
+        {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC pd {};
+            pd.pRootSignature = root;
+            pd.CS = {code->GetBufferPointer(), code->GetBufferSize()};
+            hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
+        }
+        code->Release();
+        if (FAILED(hr))
+            return Fail();
+
+        D3D12_DESCRIPTOR_HEAP_DESC hd {};
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        hd.NumDescriptors = 1 + kSrvRing;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FAILED(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap))))
+            return Fail();
+        increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        // Committed resources are zero-initialised, and the shader treats 0 as "no history",
+        // so the first metered frame takes its target directly.
+        D3D12_HEAP_PROPERTIES hp {};
+        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC rd {};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        rd.Width = rd.Height = 1;
+        rd.DepthOrArraySize = rd.MipLevels = 1;
+        rd.Format = DXGI_FORMAT_R32_FLOAT;
+        rd.SampleDesc.Count = 1;
+        rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+                                                   IID_PPV_ARGS(&value))))
+            return Fail();
+        D3D12_UNORDERED_ACCESS_VIEW_DESC ud {};
+        ud.Format = DXGI_FORMAT_R32_FLOAT;
+        ud.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(value, nullptr, &ud, heap->GetCPUDescriptorHandleForHeapStart());
+        return true;
+    }
+
+    // colourState is the colour's state at RecordInputs; it is restored before returning.
+    void Record(ID3D12GraphicsCommandList *list, ID3D12Device *device, ID3D12Resource *colour,
+                D3D12_RESOURCE_STATES colourState, UINT width, UINT height)
+    {
+        // A fresh SRV every frame in a ring, never a rewrite of a slot the GPU may still be
+        // reading: the colour pointer can change per frame, and a cached view keyed by pointer
+        // could outlive its resource.
+        const UINT slot = 1 + static_cast<UINT>(frames++ % kSrvRing);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = heap->GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += SIZE_T(slot) * increment;
+        const D3D12_RESOURCE_DESC cd = colour->GetDesc();
+        D3D12_SHADER_RESOURCE_VIEW_DESC sd {};
+        sd.Format = NativeViewFormat(cd.Format);
+        sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        sd.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(colour, &sd, cpu);
+
+        const bool moveColour = (colourState & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) == 0;
+        D3D12_RESOURCE_BARRIER b[2] {};
+        b[0].Type = b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b[0].Transition = {value, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS};
+        b[1].Transition = {colour, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, colourState,
+                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE};
+        list->ResourceBarrier(moveColour ? 2u : 1u, b);
+
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu = heap->GetGPUDescriptorHandleForHeapStart();
+        list->SetDescriptorHeaps(1, &heap);
+        list->SetComputeRootSignature(root);
+        list->SetPipelineState(pso);
+        list->SetComputeRootDescriptorTable(0, gpu);
+        gpu.ptr += UINT64(slot) * increment;
+        list->SetComputeRootDescriptorTable(1, gpu);
+        // Origin is always (0,0): AmdBridge rejects nonzero DLSS colour subrect bases, and
+        // job width/height is that top-left subrect (fallback: the whole allocation).
+        const UINT region[4] = {0, 0, (std::max)(width, 1u), (std::max)(height, 1u)};
+        list->SetComputeRoot32BitConstants(2, 4, region, 0);
+        list->Dispatch(1, 1, 1);
+
+        D3D12_RESOURCE_BARRIER a[3] {};
+        a[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        a[0].UAV.pResource = value;
+        a[1] = b[0];
+        a[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        a[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        a[2] = b[1];
+        a[2].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        a[2].Transition.StateAfter = colourState;
+        list->ResourceBarrier(moveColour ? 3u : 2u, a);
+    }
+
+    void Release()
+    {
+        for (IUnknown *p : {static_cast<IUnknown *>(value), static_cast<IUnknown *>(heap),
+                            static_cast<IUnknown *>(root), static_cast<IUnknown *>(pso)})
+            if (p)
+                p->Release();
+        value = nullptr;
+        heap = nullptr;
+        root = nullptr;
+        pso = nullptr;
+    }
+
+    // Fail-closed teardown: the GPU may still reference these, so drop them without Release.
+    void Abandon()
+    {
+        value = nullptr;
+        heap = nullptr;
+        root = nullptr;
+        pso = nullptr;
+    }
+
+  private:
+    bool Fail()
+    {
+        Release();
+        failed = true;
+        return false;
+    }
+};
 
 struct Job
 {
@@ -388,6 +1250,9 @@ struct Job
      * copy into Session::exposureCopy. Not bound to any codec. */
     ID3D12Resource *sourceExposure = nullptr;
     D3D12_RESOURCE_STATES sourceExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    /* No usable game exposure and the host asked for auto: RecordInputs meters the colour into
+     * Session::meter.value, which the codecs bind in place of a game exposure. */
+    bool autoExposure = false;
     bool codec_passthrough = false;
 };
 
@@ -414,8 +1279,45 @@ struct Session
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+    /* Network tier baked into the live HIP chain (DLSS5_NETWORK_HEIGHT). A menu/ini change
+       must rebuild, or mid-game 720/900/1080/auto switches keep the old surface. */
+    unsigned netW = 0;
+    unsigned netH = 0;
+    // Adaptive reuse reads live env, but byte stream is baked into the network.
+    // Rebuild when byte stream changes before allowing reuse on the next frame.
+    bool vitByteStream = false;
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
+    // Hardware & module selection diagnostics
+    std::string actualArch = "unknown";
+    std::string selectedModulesDir;
+    std::string deviceMatch = "none";
+    std::string adapterName;
+    bool pdlRequested = false;
+    bool pdlEffective = false;
+    std::string pdlReason;
+
+    // Record what the bridge actually selected. Both lazy-Create sites call this: they used to
+    // copy the assignments separately and the first one never read the PDL state, so GetStatus
+    // reported pdl=0/0(off) whenever that site created the network - including the normal first
+    // frame - even with PDL running.
+    void CaptureBridgeDiagnostics()
+    {
+        actualArch = bridge->architecture;
+        selectedModulesDir = bridge->module_directory;
+        deviceMatch = bridge->device_match;
+        adapterName = bridge->adapter_name;
+        pdlRequested = bridge->PdlRequested();
+        pdlEffective = bridge->PdlEffective();
+        pdlReason = bridge->PdlReason();
+        char diagMsg[512] {};
+        std::snprintf(diagMsg, sizeof diagMsg,
+                      "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' pdl=%u/%u(%s) modules='%s'",
+                      actualArch.c_str(), deviceMatch.c_str(), adapterName.c_str(), pdlRequested ? 1u : 0u,
+                      pdlEffective ? 1u : 0u, pdlReason.c_str(), selectedModulesDir.c_str());
+        OutputDebugStringA(diagMsg);
+        OutputDebugStringA("\n");
+    }
     /* The codecs bind OUR stable 1x1 copy, never the game's texture. An engine may hand us a
      * new allocation every frame, and the codec bakes the SRV at Create, so binding the game's
      * pointer would rebuild the whole chain (including a warm-up dispatch) every frame. A copy
@@ -423,6 +1325,7 @@ struct Session
      * SOURCE's format recreates it and therefore rebuilds. */
     ID3D12Resource *exposureCopy = nullptr;
     DXGI_FORMAT exposureCopyFormat = DXGI_FORMAT_UNKNOWN;
+    ExposureMeter meter;
     /* What the live codecs were actually created with (exposureCopy, or null when we are
      * running without exposure). */
     ID3D12Resource *boundExposure = nullptr;
@@ -464,6 +1367,12 @@ struct Session
         delete bridge;
         bridge = nullptr;
         hipPrepared = false;
+        netW = 0;
+        netH = 0;
+        vitByteStream = false;
+        pdlRequested = false;
+        pdlEffective = false;
+        pdlReason.clear();
         if (decodeDisplay)
         {
             decodeDisplay->Release();
@@ -557,6 +1466,7 @@ struct Session
         // Owned here rather than by a codec, but the same fail-closed rule applies: do not free
         // what the GPU may still reference.
         exposureCopy = nullptr;
+        meter.Abandon();
         // The queue may still own GPU work. Keep our reference on fail-closed teardown.
         fallbackConsumerQueue = nullptr;
         if (queue)
@@ -621,6 +1531,7 @@ struct Session
         if (exposureCopy)
             exposureCopy->Release();
         exposureCopy = nullptr;
+        meter.Release();
         if (device)
             device->Release();
         device = nullptr;
@@ -718,7 +1629,7 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
         if (out->struct_size != sizeof(LmxxfNrCapabilities))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "QueryCapabilities: struct_size mismatch");
         out->abi_version = LMXXF_NR_ABI_VERSION;
-        EnsureFitLargeApplied();
+        EnsureRuntimeConfigApplied();
         // Without FIT_LARGE: the 1920x1080 pixel budget (wider but smaller inputs up to 2560 wide,
         // i.e. ultrawide, are admitted too). With it: NativeInputGeometry::Supported(..., large) ceiling.
         if (NativeFitLargeInput())
@@ -756,7 +1667,7 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
             return Fail(LMXXF_NR_INVALID_ARGUMENT,
                         "Create: assets_directory required (modules dir from 68dc099 build)");
 
-        EnsureFitLargeApplied();
+        EnsureRuntimeConfigApplied();
         std::wstring assets = info->assets_directory;
         if (!IsDirectory(assets))
             return Fail(LMXXF_NR_UNAVAILABLE, "Create: assets_directory is not a directory");
@@ -870,7 +1781,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (session->bridge->CurrentPhase() != hip_reference::D3D12Bridge::Phase::Ready)
                 return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: previous frame consumer not yet submitted (bridge not Ready)");
         }
-        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
+        const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW |
+                                      LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
         if ((info->flags & ~allowedFlags) != 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: unknown flags");
         if (session->shaderDir.empty())
@@ -919,11 +1831,25 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: transfer_strength and color_strength must be in [0, 3]");
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
-        // Prefer CRT _putenv so MinGW std::getenv sees "auto" (SetEnvironmentVariable alone may not).
-        EnsureFitLargeApplied();
-        if (!std::getenv("DLSS5_NETWORK_HEIGHT"))
+        EnsureRuntimeConfigApplied();
+        if (!std::getenv(CfgKey::NetworkHeight))
             _putenv("DLSS5_NETWORK_HEIGHT=auto");
-        NativeResolveNetworkGeometry(info->color_width, info->color_height);
+        {
+            // Log only when the tier actually changes (not every frame).
+            const char *h = std::getenv("DLSS5_NETWORK_HEIGHT");
+            static std::string lastTier;
+            const std::string now = h ? h : "";
+            if (now != lastTier)
+            {
+                lastTier = now;
+                char tierMsg[128] {};
+                std::snprintf(tierMsg, sizeof tierMsg, "lmxxf: NETWORK_HEIGHT=%s color=%ux%u",
+                              now.empty() ? "(unset)" : now.c_str(), info->color_width,
+                              info->color_height);
+                SetError(tierMsg);
+            }
+        }
+        auto resolvedGeo = NativeResolveNetworkGeometry(info->color_width, info->color_height);
         // Set when PrepareFrame deliberately leaves a notice in the error slot for the host to
         // log. Declared here, before the first HIP lazy-Create block, because BOTH of those
         // blocks must skip SetError when a notice is already pending - otherwise the recreate
@@ -939,6 +1865,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->bridge = new hip_reference::D3D12Bridge();
             session->bridge->Create(session->queue, opt, {});
             session->hipPrepared = true;
+            session->vitByteStream = opt.vit_byte_stream;
+            session->netW = geo.valid_width;
+            session->netH = geo.valid_height;
+            session->CaptureBridgeDiagnostics();
             char geoMsg[192] {};
             std::snprintf(geoMsg, sizeof geoMsg,
                           "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
@@ -969,6 +1899,29 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                           unsigned(cdesc.MipLevels), unsigned(cdesc.SampleDesc.Count), unsigned(cdesc.Flags),
                           NativeFitLargeInput() ? 1 : 0);
             return Fail(LMXXF_NR_INVALID_ARGUMENT, msg);
+        }
+
+        // R16G16B16A16_TYPELESS: Wo Long HDR uses FLOAT views (daniel/FFX agree); Ronin LDR
+        // needs UNORM. One flag shared by meter + codec SRVs/UAV. Product default FLOAT.
+        // DLSS5_TYPELESS_RGBA16=unorm|float overrides (Ronin: unorm).
+        if (cfmt == DXGI_FORMAT_R16G16B16A16_TYPELESS)
+        {
+            bool asFloat = true;
+            if (const wchar_t *e = _wgetenv(L"DLSS5_TYPELESS_RGBA16"))
+            {
+                if (!_wcsicmp(e, L"unorm") || !wcscmp(e, L"0"))
+                    asFloat = false;
+                else if (!_wcsicmp(e, L"float") || !wcscmp(e, L"1"))
+                    asFloat = true;
+            }
+            if (NativeTypelessRgba16AsFloat() != asFloat)
+            {
+                NativeTypelessRgba16AsFloat() = asFloat;
+                char fmtMsg[96];
+                std::snprintf(fmtMsg, sizeof fmtMsg, "lmxxf: TYPELESS RGBA16 view=%s",
+                              asFloat ? "FLOAT16" : "UNORM16");
+                SetError(fmtMsg);
+            }
         }
 
         // Exposure is optional and sits after model_scale, so only a host whose struct_size
@@ -1033,8 +1986,35 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             }
         }
+        // No usable game exposure: meter the colour ourselves when the host asks for it. The
+        // metered value already includes whatever pre-exposure the game baked into the colour,
+        // so the game scalars must not be applied on top of it.
+        bool frameAutoExposure = false;
+        if (!frameExposure && (info->flags & LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE))
+        {
+            frameAutoExposure = session->meter.Ensure(session->device);
+            if (frameAutoExposure)
+            {
+                framePreExposure = 1.0f;
+                frameExposureScale = 1.0f;
+            }
+            else
+            {
+                static std::atomic<unsigned> meterNotices {0};
+                if (meterNotices.fetch_add(1, std::memory_order_relaxed) == 0)
+                {
+                    const char *msg =
+                        "PrepareFrame: auto exposure unavailable (meter setup failed); continuing without exposure";
+                    OutputDebugStringA(msg);
+                    OutputDebugStringA("\n");
+                    SetError(msg);
+                    keepLastError = true;
+                }
+            }
+        }
         // Choose what the codecs will bind: our stable copy if this frame has a usable source,
-        // otherwise nothing. Rebuilding follows a change of THAT, not of the game's pointer.
+        // the meter's texture in auto mode, otherwise nothing. Rebuilding follows a change of
+        // THAT, not of the game's pointer.
         ID3D12Resource *bindExposure = nullptr;
         // A copy replaced below while the codecs are alive. The codecs hold an SRV to it and
         // frames already submitted may still read it, so it is only released once the drain in
@@ -1080,6 +2060,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
             bindExposure = session->exposureCopy;
         }
+        else if (frameAutoExposure)
+            bindExposure = session->meter.value;
         // Split so the recreate log can name the trigger. Compare like with like: the render
         // subrect (info->color_width/height, remembered in job.width/height) against the previous
         // subrect, and the Color texture allocation (cw/ch from GetDesc) against the previous
@@ -1093,16 +2075,24 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         const bool allocChanged = session->encode &&
                                   ((session->allocWidth && cw != session->allocWidth) ||
                                    (session->allocHeight && ch != session->allocHeight));
-        const bool geoChanged = exposureChanged || validChanged || formatChanged || allocChanged;
+        const bool tierChanged = session->encode &&
+                                 (session->netW != resolvedGeo.valid_width ||
+                                  session->netH != resolvedGeo.valid_height);
+        const char *vitByte = std::getenv(CfgKey::VitByteStream);
+        const bool vitByteStreamChanged = session->hipPrepared &&
+            session->vitByteStream != (vitByte && std::strcmp(vitByte, "1") == 0);
+        const bool geoChanged =
+            exposureChanged || validChanged || formatChanged || allocChanged || tierChanged;
         const bool pointerChanged = session->encode && color != session->job.color;
 
-        if (session->encode && geoChanged)
+        if ((session->encode && geoChanged) || vitByteStreamChanged)
         {
             ++session->codecRecreates;
             char reason[96] {};
-            std::snprintf(reason, sizeof reason, "%s%s%s%s", exposureChanged ? "exposure+" : "",
+            std::snprintf(reason, sizeof reason, "%s%s%s%s%s%s", exposureChanged ? "exposure+" : "",
                           validChanged ? "valid+" : "", formatChanged ? "format+" : "",
-                          allocChanged ? "alloc" : "");
+                          tierChanged ? "tier+" : "", allocChanged ? "alloc+" : "",
+                          vitByteStreamChanged ? "vit-byte-stream" : "");
             // Trim the trailing '+' left when "alloc" is not the last trigger.
             size_t rlen = std::strlen(reason);
             if (rlen && reason[rlen - 1] == '+')
@@ -1121,7 +2111,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             keepLastError = true;
             if (FAILED(session->DrainGpu()))
                 return Fail(LMXXF_NR_UNAVAILABLE,
-                            "PrepareFrame: color geometry change; GPU drain failed (retry or rebuild session)");
+                            "PrepareFrame: geometry or ViT option change; GPU drain failed (retry or rebuild session)");
             session->TeardownCodecChain();
             session->job = {};
         }
@@ -1143,6 +2133,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->bridge = new hip_reference::D3D12Bridge();
                 session->bridge->Create(session->queue, opt, {});
                 session->hipPrepared = true;
+                session->vitByteStream = opt.vit_byte_stream;
+                session->netW = geo.valid_width;
+                session->netH = geo.valid_height;
+                session->CaptureBridgeDiagnostics();
                 char geoMsg[192] {};
                 std::snprintf(geoMsg, sizeof geoMsg,
                               "lmxxf: HIP lazy Create color=%ux%u network=%ux%u (proc %ux%u)",
@@ -1249,6 +2243,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.exposure_scale = frameExposureScale;
         session->job.paper_white = framePaperWhite;
         session->job.sourceExposure = frameExposure;
+        session->job.autoExposure = frameAutoExposure && bindExposure == session->meter.value;
         session->job.sourceExposureState = frameExposureState;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
@@ -1312,6 +2307,12 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             b[1].Transition.StateAfter = j->sourceExposureState;
             list->ResourceBarrier(nb, b);
         }
+        else if (j->autoExposure && session->boundExposure == session->meter.value && session->meter.Ready())
+        {
+            // The codecs set their own heap, root signature and PSO in Record, so the meter's
+            // bindings do not leak into the encode that follows.
+            session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
+        }
 
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
         // menu and force Cyberpunk2077.exe colour strength to 0.
@@ -1320,6 +2321,10 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         encParams.color_strength = j->color_strength;
         encParams.pre_exposure = j->pre_exposure;
         encParams.exposure_scale = j->exposure_scale;
+        encParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
+        // Meter already wrote the white point into boundExposure. Never also ask the codec
+        // shader to estimate one (debug_view 0x10000): that would apply the correction twice.
+        encParams.auto_white = !j->autoExposure && (j->debug_view & 0x10000u) != 0;
         session->encode->Record(list, session->CodecStates({j->colorState}), j->paper_white, encParams);
         if (j->codec_passthrough)
         {
@@ -1480,7 +2485,8 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         NativeCodecParameters codecParams;
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
-        codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view);
+        codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
+        codecParams.auto_white = !j->autoExposure && (j->debug_view & 0x10000u) != 0;
         codecParams.pre_exposure = j->pre_exposure;
         codecParams.exposure_scale = j->exposure_scale;
         session->decode->Record(list,
@@ -1615,23 +2621,48 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         else if (!session->modulesValidated)
             std::snprintf(text, sizeof text, "lmxxf runtime stub (no modules path)");
         else
+        {
+            const char *archStr = (session->hipPrepared && !session->actualArch.empty())
+                                      ? session->actualArch.c_str()
+                                      : "unknown";
+            const char *matchStr = (session->hipPrepared && !session->deviceMatch.empty())
+                                       ? session->deviceMatch.c_str()
+                                       : "none";
+            char pdlBuf[64];
+            if (session->hipPrepared)
+            {
+                const char *pdlTag = session->pdlEffective ? "on" : (session->pdlRequested ? "fallback" : "off");
+                std::snprintf(pdlBuf, sizeof pdlBuf, "pdl=%u/%u(%s)",
+                              session->pdlRequested ? 1u : 0u,
+                              session->pdlEffective ? 1u : 0u,
+                              pdlTag);
+            }
+            else
+            {
+                std::snprintf(pdlBuf, sizeof pdlBuf, "pdl=0/0(unknown)");
+            }
+
             if (session->hipPrepared && NativeNetworkGeometryResolved())
             {
                 auto geo = NativeCurrentNetworkGeometry();
                 std::snprintf(text, sizeof text,
-                              "lmxxf modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u",
+                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u autoexp=%u",
+                              archStr, matchStr, pdlBuf,
                               static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
                               session->job.width, session->job.height,
-                              session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
+                              session->weightsDir.empty() ? 0u : 1u, session->codecRecreates,
+                              session->job.autoExposure ? 1u : 0u);
             }
             else
             {
                 std::snprintf(text, sizeof text,
-                              "lmxxf modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
+                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=0 prepared=%u queue=%u weights=%u recreates=%u",
+                              archStr, matchStr, pdlBuf,
                               static_cast<unsigned>(session->hsacoCount), session->hipPrepared ? 1u : 0u,
                               session->queueBound ? 1u : 0u,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
             }
+        }
         std::strncpy(buf, text, buf_chars - 1);
         buf[buf_chars - 1] = 0;
         SetError("");
@@ -1687,4 +2718,30 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
 BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)
 {
     return TRUE;
+}
+
+
+extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrResolveArchModules(const wchar_t *modulesRoot, const char *arch,
+                                                             wchar_t *outEffectiveDir, uint32_t maxChars,
+                                                             char *outError, uint32_t maxErrChars)
+{
+    if (!modulesRoot || !arch)
+        return Fail(LMXXF_NR_INVALID_ARGUMENT, "LmxxfNrResolveArchModules: null argument");
+    std::wstring effective;
+    std::string err;
+    if (!ResolveArchModulesDir(modulesRoot, arch, &effective, &err))
+    {
+        if (outError && maxErrChars > 0)
+        {
+            std::strncpy(outError, err.c_str(), maxErrChars - 1);
+            outError[maxErrChars - 1] = '\0';
+        }
+        return Fail(LMXXF_NR_UNAVAILABLE, err.c_str());
+    }
+    if (outEffectiveDir && maxChars > 0)
+    {
+        wcsncpy(outEffectiveDir, effective.c_str(), maxChars - 1);
+        outEffectiveDir[maxChars - 1] = L'\0';
+    }
+    return static_cast<int32_t>(LMXXF_NR_OK);
 }

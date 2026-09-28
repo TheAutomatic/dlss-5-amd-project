@@ -10,6 +10,31 @@ cbuffer CodecConstants : register(b0) {
 #if NATIVE_CODEC_EXPOSURE
 Texture2D<float> GameExposure : register(t4);
 #endif
+// Same meter as encode; sample the original game colour so both sides share the white point.
+Texture2D<float4> Proxy : register(t1);
+Texture2D<float4> Neural : register(t2);
+Texture2D<float4> OutputOriginal : register(t3);
+static const float kTargetEncodedMean = 0.45f;
+float WhitePointForMean(float meanLuma) {
+    float encoded = pow(kTargetEncodedMean, 2.2f);
+    float ratio = encoded / (1.0 - encoded);
+    float wp = meanLuma / ratio;
+    return clamp(wp, 0.01f, 10000.0f);
+}
+float SampleMeanLuma() {
+    uint w = max(SourceSize.x, 1u), h = max(SourceSize.y, 1u);
+    float sum = 0.0;
+    const int N = 5;
+    for (int y = 0; y < N; y++) {
+        for (int x = 0; x < N; x++) {
+            uint2 p = uint2(uint((x + 0.5) * (w - 1) / (N - 1)), uint((y + 0.5) * (h - 1) / (N - 1)));
+            p = min(p, uint2(w, h) - 1);
+            float3 c = max(OutputOriginal.Load(int3(p, 0)).rgb, 0.0);
+            sum += dot(c, float3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    return max(sum / float(N * N), 1e-4);
+}
 float EffectivePaperWhite() {
 #if NATIVE_CODEC_EXPOSURE
  float e=GameExposure.Load(int3(0,0,0));
@@ -17,6 +42,11 @@ float EffectivePaperWhite() {
  float exposure=e*scale/pre;
  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
 #else
+ if ((Reserved.x & 0x10000u) != 0)
+     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+ float pre=asfloat(Reserved.y);
+ if (isfinite(pre)&&pre>0&&abs(pre-1.0)>1e-3)
+     return PaperWhiteScale*pre;
  return PaperWhiteScale;
 #endif
 }
@@ -32,9 +62,6 @@ uint ByteOffset(uint2 p,uint bpp) {
 }
 // Mode1 candidate. Oracle: captured codec-22724-36e36d370.dxbc.
 // Host must reject other modes; GPU comparison required before integration.
-Texture2D<float4> Proxy : register(t1);
-Texture2D<float4> Neural : register(t2);
-Texture2D<float4> OutputOriginal : register(t3);
 #ifndef NATIVE_CODEC_UINT_OUT
 #define NATIVE_CODEC_UINT_OUT 0
 #endif
@@ -152,7 +179,10 @@ void main(uint3 id:SV_DispatchThreadID) {
 #endif
  float oy=Luminance(original),uy=Luminance(upgraded);
  float ratio=oy==0?1:clamp(uy/oy,0,4);
- float3 result=lerp(original*ratio,upgraded,ColorStrength);
+ float3 hueSafe=original*ratio;
+ /* CS<=0: original; 0..1: toward network luma with game chroma; >1: toy toward network colour. */
+ float3 result=lerp(original,hueSafe,clamp(ColorStrength,0.0,1.0));
+ result=lerp(result,upgraded,max(ColorStrength-1.0,0.0));
  // Optional per-dispatch views; view 0 preserves the captured composition exactly.
  if(Reserved.x==1||Reserved.x==2){
 #if NATIVE_CODEC_FIT

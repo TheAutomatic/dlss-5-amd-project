@@ -7,7 +7,7 @@ namespace DlssNr::AmdBridge
 bool HasFiles();
 bool HasDanielRuntime();
 bool HasLmxxfRuntime();
-// Hot-switch: flip ProxyWrap, clear history, force warm-up. Both hosts stay alive.
+// Hot-switch: clear history, force warm-up; ProxyWrap is sticky-on once lmxxf enabled it.
 void SyncBackendWithConfig();
 // Install submission expansion before the first wrapped list is exposed. No runtime/HIP initialization.
 bool EnsureSubmissionHook(ID3D12CommandQueue*);
@@ -18,7 +18,7 @@ void InvalidateHistory();
 void TraceContextRelease(unsigned int handle, bool after);
 std::string Status();
 bool GraphicsRestartNeeded(UINT activePasses);
-// pass1 SHA name ("0.3.0" / "0.3.1" / …) or nullptr if missing/unknown.
+// pass1 SHA name ("0.3.0" / "0.3.1" / "0.3.2" / …) or nullptr if missing/unknown.
 // Cached for menu display until the DLL path, size, or write time changes.
 const char* RuntimeName();
 void UpdateConfirmedRenderQueue(ID3D12CommandQueue *q);

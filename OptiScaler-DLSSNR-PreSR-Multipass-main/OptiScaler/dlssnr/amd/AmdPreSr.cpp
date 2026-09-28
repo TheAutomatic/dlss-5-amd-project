@@ -185,6 +185,12 @@ std::string Layout(ID3D12Resource* resource)
            " flags=" + std::to_string(d.Flags) + " samples=" + std::to_string(d.SampleDesc.Count) +
            " array=" + std::to_string(d.DepthOrArraySize) + " dimension=" + std::to_string(d.Dimension);
 }
+// Persist only on Opti Save Settings (same contract as Config::SaveIni).
+// Runtime maps Async=0 -> configuredInline=1, Async=1 -> configuredInline=0.
+// Do not touch PreUpscale here: forcing it off would clobber the user's file;
+// async admission forces preUpscale=0 in memory for this session only.
+std::filesystem::path g_danielDir;
+
 const AmdLayout* IdentifyRuntime(const std::filesystem::path& file)
 {
     std::ifstream in(file, std::ios::binary);
@@ -219,6 +225,47 @@ DXGI_FORMAT ReadFormat(DXGI_FORMAT f)
     }
 }
 } // namespace
+void SaveDanielSettings()
+{
+    if (g_danielDir.empty())
+        return;
+    const std::wstring ini = (g_danielDir / L"dlssnr_on_amd.ini").wstring();
+    const auto *cfg = Config::Instance();
+    // Fill gaps only: write keys the host actually set. Do not stamp Opti defaults
+    // over a hand-tuned dlssnr_on_amd.ini (same contract as native-game-flags).
+    // Keys match daniel [DlssNrOnAmd] names (ConfigKeys.h). Async=0 is inline.
+    if (cfg->AmdInline.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Async",
+                                   cfg->AmdInline.value_or_default() ? L"0" : L"1", ini.c_str());
+    }
+    if (cfg->DlssNrQuality.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Quality",
+                                   cfg->DlssNrQuality.value_or_default() ? L"fast" : L"reference", ini.c_str());
+    }
+    if (cfg->DlssNrStyle.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Style",
+                                   (std::to_wstring(cfg->DlssNrStyle.value_or_default() % 3u)).c_str(), ini.c_str());
+    }
+    if (cfg->DlssNrToneCurve.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneCurve",
+                                   cfg->DlssNrToneCurve.value_or_default() ? L"aces" : L"reinhard", ini.c_str());
+    }
+    if (cfg->DlssNrToneLift.has_value())
+    {
+        wchar_t lift[32] {};
+        swprintf_s(lift, L"%.4f", cfg->DlssNrToneLift.value_or_default());
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneLift", lift, ini.c_str());
+    }
+    if (cfg->AmdQueuePriority.has_value())
+    {
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"QueuePriority",
+                                   cfg->AmdQueuePriority.value_or_default() ? L"1" : L"0", ini.c_str());
+    }
+}
 const char* IdentifyRuntimeName(const std::filesystem::path& passDll)
 {
     auto* layout = IdentifyRuntime(passDll);
@@ -850,7 +897,11 @@ struct Backend::Impl
         At<ID3D12CommandQueue*>(h, L->queue) = queue.Get();
         queue->AddRef();
         At<int>(h, L->hipOrdinal) = hipDevice;
-        At<uint8_t>(h, L->configuredInline) = 1;
+        const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
+        g_danielDir = directory;
+        At<uint8_t>(h, L->configuredInline) = wantInline ? 1 : 0;
+        if (L->preUpscale && !wantInline)
+            At<int>(h, L->preUpscale) = 0;
         At<uint8_t>(h, L->interop) = 1;
         At<uint8_t>(h, L->enabled) = 1;
         At<uint8_t>(h, L->fsrInputs) = 1;
@@ -1572,6 +1623,31 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             At<float>(r, L->skin) = cfg.skin;
             At<UINT>(r, L->toneChannels)=cfg.toneChannels?1u:0u;
             At<UINT>(r, L->charMask) = 1; // Enable native semantic character-mask channel.
+            // 0.3.3 overlay channels. Prefer the game's FSR exposure when we have
+            // a live texture; otherwise force auto (encoded mean → 0.5) so FP16
+            // HDR frames without exposure (Wo Long) are not left at white-point 1.
+            if (L->useGameExposure)
+                At<uint8_t>(r, L->useGameExposure) = exposureSource ? 1u : 0u; // a byte in 0.3.3/0.4.0 (setne byte)
+            if (L->style)
+                At<UINT>(r, L->style) = (std::min)(Config::Instance()->DlssNrStyle.value_or_default(), 2u);
+            if (L->toneCurve)
+                At<UINT>(r, L->toneCurve) = Config::Instance()->DlssNrToneCurve.value_or_default() ? 1u : 0u;
+            if (L->toneLift)
+            {
+                const float lift = Config::Instance()->DlssNrToneLift.value_or_default();
+                At<float>(r, L->toneLift) = lift > 0.0f ? lift : 0.0f;
+            }
+            if (L->queuePriority)
+                At<UINT>(r, L->queuePriority) = Config::Instance()->AmdQueuePriority.value_or_default() ? 1u : 0u;
+            if (L->quality)
+                At<uint8_t>(r, L->quality) = Config::Instance()->DlssNrQuality.value_or_default() ? 1 : 0;
+            if (L->configuredInline)
+            {
+                const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
+                At<uint8_t>(r, L->configuredInline) = wantInline ? 1 : 0;
+                if (L->preUpscale && !wantInline)
+                    At<int>(r, L->preUpscale) = 0;
+            }
             // The old shader ceiling expired at high render resolutions even
             // when inference finished well inside the original runtime's watchdog.
             // Scale the spin allowance with pixels, but retain a hard ceiling
@@ -2097,7 +2173,7 @@ std::string Backend::Status() const
                 reportedTimeouts += count - p->observedTimeouts[i];
         }
     // Menu / Status must name the runtime that was actually identified —
-    // 0.3.0 and 0.3.1 are both valid, and the user cannot tell them apart
+    // 0.3.0 / 0.3.1 / 0.3.2 are all valid, and the user cannot tell them apart
     // from pass DLL filenames alone.
     const std::string runtimeTag = L ? (std::string("AMD runtime ") + L->name + " | ") : std::string();
     if (!p->failed && p->lastSubmitted)

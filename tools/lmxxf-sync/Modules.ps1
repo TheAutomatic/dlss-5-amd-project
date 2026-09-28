@@ -1,27 +1,47 @@
-# Shipping module build and verification helpers. Dot-sourced by sync-lmxxf-upstream.ps1.
-function Get-FileSha256Hex([string]$path) {
+# lmxxf module build / sync / hashing helpers.
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'lmxxf-module-package.ps1')
+
+function Get-FileSha256Hex([string]$filePath) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
+    $fs = [IO.File]::OpenRead($filePath)
     try {
-        $fs = [IO.File]::OpenRead($path)
-        try {
-            return (-join ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }))
-        } finally { $fs.Dispose() }
-    } finally { $sha.Dispose() }
+        return (-join ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }))
+    } finally {
+        $fs.Dispose()
+        $sha.Dispose()
+    }
 }
 
-function Get-TreeFingerprint([string]$dir, [string[]]$filters) {
-    if (-not (Test-Path -LiteralPath $dir)) { return 'missing' }
-    $files = @()
+function Get-TreeFingerprint([string]$dir, [string[]]$filters = @('*.hsaco')) {
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return 'missing' }
+    $resolvedDir = (Resolve-Path -LiteralPath $dir).Path.TrimEnd('\', '/')
+    $prefix = $resolvedDir + [IO.Path]::DirectorySeparatorChar
+    $fileList = [System.Collections.Generic.List[psobject]]::new()
     foreach ($f in $filters) {
-        $files += @(Get-ChildItem -LiteralPath $dir -File -Filter $f -ErrorAction SilentlyContinue)
+        $found = @(Get-ChildItem -LiteralPath $dir -Filter $f -File -Recurse -ErrorAction SilentlyContinue)
+        foreach ($file in $found) {
+            $full = [IO.Path]::GetFullPath($file.FullName)
+            if (-not $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Path traversal in module fingerprint: $($file.FullName)"
+            }
+            $rel = $full.Substring($prefix.Length).Replace('\', '/').ToLowerInvariant()
+            if ($rel -match '(^|/)\.\.(/|$)') {
+                throw "Invalid traversal in module fingerprint: $rel"
+            }
+            $fileList.Add([pscustomobject]@{
+                RelPath = $rel
+                Length  = $file.Length
+                FullName = $file.FullName
+            })
+        }
     }
-    $files = @($files | Sort-Object { $_.Name.ToLowerInvariant() } -Unique)
+    $files = @($fileList | Sort-Object { $_.RelPath } -Unique)
     if ($files.Count -lt 1) { return 'empty' }
     $sha = [System.Security.Cryptography.SHA256]::Create()
     $ms = New-Object IO.MemoryStream
     try {
         foreach ($file in $files) {
-            $nameBytes = [Text.Encoding]::UTF8.GetBytes($file.Name + ':' + $file.Length + ':')
+            $nameBytes = [Text.Encoding]::UTF8.GetBytes($file.RelPath + ':' + $file.Length + ':')
             $ms.Write($nameBytes, 0, $nameBytes.Length)
             $payload = [IO.File]::ReadAllBytes($file.FullName)
             $ms.Write($payload, 0, $payload.Length)
@@ -34,7 +54,6 @@ function Get-TreeFingerprint([string]$dir, [string[]]$filters) {
 }
 
 function Resolve-ModulesPath([string]$override) {
-    # Upstream git never publishes .hsaco (release/ is gitignored). Only an explicit path counts.
     if (-not $override) { return $null }
     if (-not (Test-Path -LiteralPath $override -PathType Container)) {
         throw ("ModulesPath not found: " + $override)
@@ -42,19 +61,28 @@ function Resolve-ModulesPath([string]$override) {
     return (Resolve-Path -LiteralPath $override).Path
 }
 
-function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
+function Invoke-BuildModules([string]$hipDir, [string]$outDir, [string[]]$targets = @('gfx1200', 'gfx1201')) {
     $buildPs1 = Join-Path $hipDir 'build-modules.ps1'
     if (-not (Test-Path -LiteralPath $buildPs1 -PathType Leaf)) {
         throw ("Missing " + $buildPs1 + "; cannot build shipping .hsaco")
     }
     $compiler = Join-Path $hipDir 'rtc_compile.exe'
-    # Rebuild the small compiler too: its source may have changed since the previous sync.
     $rtcCpp = Join-Path $hipDir 'rtc_compile.cpp'
+    # The upstream compiler source is synchronized on every run. Never reuse a stale EXE.
     if (-not (Test-Path -LiteralPath $rtcCpp -PathType Leaf)) {
-        throw ("Missing rtc_compile.exe / rtc_compile.cpp under " + $hipDir)
+        throw ("Missing rtc_compile.cpp under " + $hipDir)
+    }
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+        $msvcCl = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\cl.exe'
+        if (Test-Path -LiteralPath $msvcCl -PathType Leaf) {
+            $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64;$env:PATH"
+            $env:INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\include;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared;$env:INCLUDE"
+            $env:LIB = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\um\x64;$env:LIB"
+        }
     }
     Write-Host "  Building rtc_compile.exe from rtc_compile.cpp..." -ForegroundColor Cyan
-    & cl.exe /nologo /O2 /EHsc /Fe:$compiler $rtcCpp | Write-Host
+    $rtcObj = Join-Path $hipDir 'rtc_compile.obj'
+    & cl.exe /nologo /O2 /EHsc /Fe:$compiler /Fo:$rtcObj $rtcCpp | Write-Host
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
         throw "Failed to build rtc_compile.exe (need MSVC cl in PATH)"
     }
@@ -62,12 +90,6 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
         Remove-SyncTree -Path $outDir -Within $hipDir
     }
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    # Kernel gates the author turns on in his own deployment scripts but not in the recipe.
-    # hip/build-modules.ps1's `defines` column is only part of his configuration: prod7 builds
-    # mhfast.generated.hip from a lab generator we do not have, so a speed-up he ships can sit
-    # here behind a #define the recipe never sets. tools/audit-lmxxf-enablements.py reports the
-    # gaps; this table is the ones we decided to take. The macro is module-wide, so only add it
-    # where the per-instantiation preconditions hold (see the audit and the kernel comment).
     $ModuleDefineOverrides = @{}
     $defineConfig = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'module-defines.json') -Encoding UTF8 -Raw | ConvertFrom-Json
     foreach ($entry in $defineConfig.PSObject.Properties) { $ModuleDefineOverrides[$entry.Name] = @($entry.Value) }
@@ -102,13 +124,7 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
         [IO.File]::WriteAllText($localRecipe, $recipeText, [Text.UTF8Encoding]::new($false))
     }
     if (-not $localRecipe) { $localRecipe = $buildPs1 }
-    # hip/build-modules.ps1 needs Get-FileHash for its manifest rows. Windows PowerShell has it,
-    # but loses it when started with an inherited PSModulePath that lists PowerShell 7's module
-    # directories first (from pwsh 7 or a Git Bash shell): 5.1 then autoloads the PS7
-    # Microsoft.PowerShell.Utility, which it cannot use, and the module build fails on its first
-    # module. The recipe runs in-process below; a child powershell.exe would not see the shim.
     if (-not (Get-Command Get-FileHash -ErrorAction SilentlyContinue)) {
-        # global: build-modules.ps1 is invoked as a child SCRIPT and does not see this function's locals.
         function global:Get-FileHash {
             param(
                 [Parameter(Position = 0)]$Path,
@@ -127,152 +143,80 @@ function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir) {
         }
         Write-Host "  Get-FileHash is not resolvable in this session (inherited PSModulePath?); shimmed from Get-FileSha256Hex" -ForegroundColor DarkYellow
     }
-    Write-Host ("  Building gfx1201 modules via build-modules.ps1 -> " + $outDir) -ForegroundColor Cyan
+    $targetDesc = $targets -join ', '
+    Write-Host ("  Building modules ($targetDesc) via build-modules.ps1 -> " + $outDir) -ForegroundColor Cyan
     try {
-        # | Write-Host, NOT the pipeline: the recipe Write-Outputs one hash line per module, and
-        # this function's return value is a PATH. Capturing that output turned $modulesSrc into
-        # an array of 24 hash lines plus the path, and every later -LiteralPath / -Filter argument
-        # in Sync-LmxxfModules then shifted out of place.
         $global:LASTEXITCODE = 0
-        & $localRecipe -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets gfx1201 | Write-Host
+        & $localRecipe -OutputDir $outDir -Compiler $compiler -SourceDir $hipDir -Targets $targets | Write-Host
         if ($LASTEXITCODE -ne 0) { throw "Module recipe exited with $LASTEXITCODE" }
     } catch {
         throw ("build-modules.ps1 failed: " + $_.Exception.Message + " [at: " + $_.InvocationInfo.PositionMessage + "]")
     }
-    $built = @(Get-ChildItem -LiteralPath $outDir -Filter '*.hsaco' -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
+    $built = @(Get-ChildItem -LiteralPath $outDir -Recurse -Filter '*.hsaco' -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
     if ($built.Count -lt 1) {
         throw ("build-modules.ps1 produced no .hsaco under " + $outDir)
     }
     return $outDir
 }
 
-function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [switch]$allowStale) {
-    if (-not (Test-Path -LiteralPath $hipSums -PathType Leaf)) {
-        throw 'hip SHA256SUMS missing; cannot verify shipping modules.'
-    }
-    $bad = @()
-    $rowCount = 0
-    foreach ($line in Get-Content -LiteralPath $hipSums -Encoding UTF8) {
-        if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+gfx1201/(?<n>.+\.hsaco)$') { continue }
-        $rowCount++
-        $name = $Matches['n']
-        if ($name -match '[/\\]' -or $name -eq '..') { throw 'Unsafe module path in SHA256SUMS' }
-        $want = $Matches['h'].ToLowerInvariant()
-        $fp = Join-Path $modulesDir $name
-        if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) {
-            $bad += ('missing ' + $name)
-            continue
-        }
-        $got = Get-FileSha256Hex $fp
-        if ($got -ne $want) {
-            $bad += ($name + ' (want ' + $want + ' got ' + $got + ')')
-        }
-    }
-    if ($rowCount -eq 0) { throw 'hip SHA256SUMS contains no gfx1201 modules.' }
-    if ($bad.Count -eq 0) {
-        Write-Host '  modules match hip/SHA256SUMS gfx1201 entries' -ForegroundColor Green
-        return $true
-    }
-    $msg = "Shipping modules do not match hip/SHA256SUMS gfx1201 recipes:`n  - " + ($bad -join "`n  - ")
-    if ($allowStale) {
-        Write-Warning $msg
-        return $false
-    }
-    throw ($msg + "`nRebuild with hip/build-modules.ps1, pass a matching -ModulesPath, or use -AllowStaleModules.")
+function Invoke-BuildGfx1201Modules([string]$hipDir, [string]$outDir, [string[]]$targets = @('gfx1200', 'gfx1201')) {
+    return (Invoke-BuildModules -hipDir $hipDir -outDir $outDir -targets $targets)
 }
 
-# hip/SHA256SUMS: non-gfx1201 rows follow upstream. gfx1201 rows are OURS: they hash the
-# shipping modules built here with local COMGR; upstream's rows never match those bytes.
-# With -modulesDir, gfx1201 rows are recomputed from that dir; otherwise the current local
-# rows are kept. A module upstream lists but we lack keeps upstream's row, so the
-# modules-vs-recipe check still reports it as missing.
+function Assert-ModulesMatchHipSums([string]$modulesDir, [string]$hipSums, [switch]$allowStale) {
+    # A stale-recipe waiver must never waive a corrupt/incomplete shipping package.
+    Assert-LmxxfModulePackage $modulesDir
+    $package = Read-LmxxfModuleSums (Join-Path $modulesDir 'SHA256SUMS')
+    $recipes = Read-LmxxfModuleSums $hipSums
+    $bad = @($package.Keys | Where-Object { -not $recipes.ContainsKey($_) -or $package[$_] -ne $recipes[$_] })
+    if ($bad.Count -eq 0) {
+        Write-Host '  Complete dual-architecture package matches hip/SHA256SUMS.' -ForegroundColor Green
+        return $true
+    }
+    $msg = 'Shipping modules do not match hip/SHA256SUMS recipes: ' + ($bad -join ', ')
+    if ($allowStale) { Write-Warning $msg; return $false }
+    throw ($msg + '. Rebuild, pass matching -ModulesPath, or explicitly use -AllowStaleModules.')
+}
+
 function Merge-HipSums([string]$upstreamSums, [string]$dstSums, [string]$modulesDir) {
-    $rowPattern = '^(?<h>[0-9a-fA-F]{64})(?<sep>\s+)gfx1201/(?<n>.+\.hsaco)$'
+    $rowPattern = '^(?<h>[0-9a-fA-F]{64})(?<sep>\s+)(?<arch>gfx1200|gfx1201)/(?<n>.+\.hsaco)$'
     $local = @{}
-    if (Test-Path -LiteralPath $dstSums -PathType Leaf) {
+    if ($modulesDir) {
+        Assert-LmxxfModulePackage $modulesDir
+        $local = Read-LmxxfModuleSums (Join-Path $modulesDir 'SHA256SUMS')
+    } elseif (Test-Path -LiteralPath $dstSums -PathType Leaf) {
         foreach ($line in Get-Content -LiteralPath $dstSums -Encoding UTF8) {
-            if ($line -match $rowPattern) { $local[$Matches['n']] = $Matches['h'].ToLowerInvariant() }
+            if ($line -match $rowPattern) { $local[$Matches['arch'] + '/' + $Matches['n']] = $Matches['h'].ToLowerInvariant() }
         }
     }
     $out = @()
+    $seen = @{}
     foreach ($line in Get-Content -LiteralPath $upstreamSums -Encoding UTF8) {
         if ($line -match $rowPattern) {
-            $name = $Matches['n']
-            $sep = $Matches['sep']
-            $hash = $null
-            if ($modulesDir) {
-                $fp = Join-Path $modulesDir $name
-                if (Test-Path -LiteralPath $fp -PathType Leaf) { $hash = Get-FileSha256Hex $fp }
-            } elseif ($local.ContainsKey($name)) {
-                $hash = $local[$name]
-            }
-            if ($hash) { $line = $hash + $sep + 'gfx1201/' + $name }
+            $key = $Matches['arch'] + '/' + $Matches['n']
+            $seen[$key] = $true
+            if ($local.ContainsKey($key)) { $line = $local[$key] + '  ' + $key }
+            elseif ($modulesDir) { continue } # dropped from local recipe
         }
         $out += $line
     }
-    [IO.File]::WriteAllText($dstSums, (($out -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+    # 0.33+ recipe can ship modules that older hip/SHA256SUMS still lacks.
+    if ($modulesDir) {
+        foreach ($key in ($local.Keys | Sort-Object)) {
+            if (-not $seen.ContainsKey($key)) { $out += ($local[$key] + '  ' + $key) }
+        }
+    }
+    [IO.File]::WriteAllLines($dstSums, $out, [Text.UTF8Encoding]::new($false))
 }
 
 function Sync-LmxxfModules([string]$srcDir, [string]$dstDir, [string]$commitHash) {
-    if (-not (Test-Path -LiteralPath $dstDir)) {
-        New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+    # Validate both architectures and provenance before creating or changing the destination.
+    # Upstream build outputs omit product metadata; staging supplies it before final validation.
+    $stage = New-LmxxfModuleStage $srcDir $dstDir $commitHash
+    try {
+        Publish-LmxxfModuleStage $stage $dstDir
+    } finally {
+        Remove-LmxxfTemporaryTree $stage ([IO.Path]::GetDirectoryName($stage))
     }
-    $hsacos = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.hsaco' -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
-    if ($hsacos.Count -lt 1) {
-        throw ('No .hsaco files found in modules source: ' + $srcDir)
-    }
-    $inputSums = Join-Path $srcDir 'SHA256SUMS'
-    if (Test-Path -LiteralPath $inputSums -PathType Leaf) {
-        $listed = @{}
-        foreach ($line in Get-Content -LiteralPath $inputSums -Encoding UTF8) {
-            if (-not $line.Trim() -or $line.TrimStart().StartsWith('#')) { continue }
-            if ($line -notmatch '^(?<h>[0-9a-fA-F]{64})\s+\*?(?<n>[^/\\]+\.hsaco)$') {
-                throw "Invalid ModulesPath SHA256SUMS row: $line"
-            }
-            $name = $Matches['n']; $expected = $Matches['h']
-            if ($listed.ContainsKey($name)) { throw "Duplicate ModulesPath checksum: $name" }
-            $listed[$name] = $true
-            $file = Assert-SyncPath (Join-Path $srcDir $name) $srcDir
-            if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or (Get-FileSha256Hex $file) -ne $expected) {
-                throw "ModulesPath checksum mismatch: $name"
-            }
-        }
-        foreach ($file in $hsacos) {
-            if (-not $listed.ContainsKey($file.Name)) { throw "ModulesPath SHA256SUMS omits $($file.Name)" }
-        }
-    }
-    Sync-FlatFiles -Source $srcDir -Destination $dstDir -Filter '*.hsaco'
-    foreach ($extra in @('modules.json', 'runtime-manifest.json')) {
-        $srcExtra = Join-Path $srcDir $extra
-        if (Test-Path -LiteralPath $srcExtra -PathType Leaf) {
-            Copy-Item -LiteralPath $srcExtra -Destination (Join-Path $dstDir $extra) -Force
-        }
-    }
-    $sumsDst = Join-Path $dstDir 'SHA256SUMS'
-    $rows = @($hsacos | Sort-Object Name | ForEach-Object {
-        (Get-FileSha256Hex (Join-Path $dstDir $_.Name)) + '  ' + $_.Name
-    })
-    [IO.File]::WriteAllText($sumsDst, (($rows -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-    $readme = Join-Path $dstDir 'README.md'
-    if (Test-Path -LiteralPath $readme -PathType Leaf) {
-        $md = Get-Content -LiteralPath $readme -Encoding UTF8 -Raw
-        $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: `)[^`]+(`)', '${1}' + $commitHash + '${2}')
-        if ($md2 -eq $md) {
-            $md2 = [regex]::Replace($md, '(?m)^(- \*\*Commit Base\*\*: ).*$', '${1}`' + $commitHash + '`')
-        }
-        if ($md2 -ne $md) {
-            [IO.File]::WriteAllText($readme, $md2, [Text.UTF8Encoding]::new($false))
-        }
-    }
-    $manifest = Join-Path $dstDir 'runtime-manifest.json'
-    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
-        $js = Get-Content -LiteralPath $manifest -Encoding UTF8 -Raw
-        $js2 = [regex]::Replace($js, '("upstream_commit"\s*:\s*")[0-9a-fA-F]*(")', '${1}' + $commitHash + '${2}')
-        if ($js2 -ne $js) {
-            [IO.File]::WriteAllText($manifest, $js2, [Text.UTF8Encoding]::new($false))
-        }
-    }
-    Write-Host ('  Synchronized modules (' + $hsacos.Count + ' .hsaco) from ' + $srcDir) -ForegroundColor Green
+    Write-Host ('  Synchronized verified dual-architecture modules from ' + $srcDir) -ForegroundColor Green
 }
-
-
