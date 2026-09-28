@@ -1,12 +1,24 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.6.1
+# OptiScaler AMD pre-SR — 1.9.6.3
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
 This project is forked from **Matheus** and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## 1.9.6.3 fix
+
+- Fixes per-frame `isolated neural command list` messages rapidly growing `amd_bridge.log` on the Daniel backend. This routine event is now logged once per process.
+- Rendering, NR settings and command-list submission are unchanged. Existing 1.9.6.2 users can replace only the host DLL, keeping their runtime, weights and configuration.
+
+## 1.9.6.2 fix
+
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
+- Accepts both verified Daniel 0.5.0 `version.dll` variants in the installer and runtime host, retaining strict file-hash checks.
+- Validated with no-GPU regression tests; no new game testing.
 
 ## What's new in 1.9.6.1
 

@@ -205,7 +205,12 @@ void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList*
     {
         // Separate Execute calls establish an execution boundary around the
         // interop list. Preserve list order and execute each list exactly once.
-        Message("AMD isolated neural command list from a render batch");
+        // Before() clears the status each frame, defeating Message's adjacent
+        // duplicate check. This routine event needs only one log per process,
+        // including when different submission threads reach it concurrently.
+        static std::atomic_flag isolationLogged = ATOMIC_FLAG_INIT;
+        if (!isolationLogged.test_and_set(std::memory_order_relaxed))
+            Message("AMD isolated neural command list from a render batch (logged once)");
         if (index) ExecuteBatch(q, static_cast<UINT>(index), c);
         ExecuteBatch(q, 1, c + index);
         auto remaining = n - static_cast<UINT>(index) - 1;
