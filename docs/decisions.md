@@ -116,7 +116,7 @@
 
 ## 09-22 · 不跨仓库 cherry-pick；modules 进 `third_party`
 
-- **决定**：上游代码只通过 `tools/sync-lmxxf-upstream.ps1`（`git archive` + `-UpstreamRef`）进入本仓库，不跨仓库 cherry-pick。预编译 `.hsaco` 统一放在 `third_party/lmxxf/modules/` 并提交进 git，不再用带提交号的临时目录。hsaco 跟 hip 源码一起走：sync 在本机重编，CI 只打包已提交的 modules。
+- **决定**：lmxxf 上游代码只通过 `tools/sync-lmxxf-upstream.ps1`（`git archive` + `-UpstreamRef`）进入本仓库，不跨仓库 cherry-pick。预编译 `.hsaco` 统一放在 `third_party/lmxxf/modules/` 并提交进 git，不再用带提交号的临时目录。hsaco 跟 hip 源码一起走：sync 在本机重编，CI 只打包已提交的 modules。
 - **原因**：上游 git 不发布 hsaco；cherry-pick 无法记录 pin 和审阅状态。
 - **落在**：`tools/sync-lmxxf-upstream.ps1`、`tools/lmxxf-sync/`、`third_party/lmxxf/UPSTREAM.md`。
 
