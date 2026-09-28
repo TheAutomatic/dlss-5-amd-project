@@ -1,12 +1,18 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.6
+# OptiScaler AMD pre-SR — 1.9.6.1
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
 Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, manteniendo y evolucionando la base de código con optimizaciones profundas continuas.
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## Novedades en 1.9.6.1
+
+- Añade el ajuste ini/menú `DLSS5_SKIP_BLOCKS` de lmxxf; el valor predeterminado sigue siendo `42,43,46`. Se aplica al reconstruir la red.
+- Incluye los fragmentos HIP `.inc` en la revisión de sincronización, las huellas de compilación de módulos y la comprobación de vigencia del paquete.
+- Reintenta la subida y verifica SHA-256 sin borrar el archivo publicado antes de completar la transferencia.
 
 ## Novedades en 1.9.6 (primera versión estable desde 1.8.6)
 

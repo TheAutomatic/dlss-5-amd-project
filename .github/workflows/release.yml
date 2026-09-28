@@ -29,7 +29,7 @@ on:
       version:
         description: 'Product version, e.g. 1.9.0.3'
         required: false
-        default: '1.9.0.3'
+        default: ''
 
 permissions:
   contents: write
@@ -53,12 +53,18 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Release upload regression
+        shell: pwsh
+        run: |
+          python -B tests/test_release_upload.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Resolve version
         id: ver
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = '1.9.0.3'
+          $v = (Get-Content -LiteralPath VERSION -Raw).Trim()
           if ('${{ github.ref_type }}' -eq 'tag') {
             $v = '${{ github.ref_name }}' -replace '^v', ''
           } elseif ('${{ github.event.inputs.version }}') {
@@ -279,18 +285,21 @@ jobs:
             dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release metadata
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
           # Pre-release when tag name has an -alpha/-beta/-rc suffix (e.g. v1.9.1-alpha).
           # Formal tags like v1.9.1 stay latest/stable; plain substrings such as "source" do not count.
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
-          files: |
-            dist/OptiScaler-AMD-PreSR-${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
           body: |
             Bug reports with logs are welcome.
+
+            ### 1.9.6.1
+            - 新增 lmxxf `DLSS5_SKIP_BLOCKS` ini／菜单设置；默认行为不变。
+            - 修复 HIP `.inc` 构建／审阅指纹遗漏，以及 Release 上传中断时附件丢失的问题。
+            - Adds lmxxf skip-block configuration with unchanged defaults, tracks HIP include fragments, and verifies/retries release uploads without deleting published assets.
 
             ### 1.9.6 新增（自 1.8.6 以来首个正式版）
 
@@ -341,3 +350,16 @@ jobs:
             No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
 
             See README inside the zip.
+
+      - name: Upload release asset with verified retries
+        if: startsWith(github.ref, 'refs/tags/')
+        timeout-minutes: 20
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptiScaler-AMD-PreSR-$env:RELEASE_VERSION.zip"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

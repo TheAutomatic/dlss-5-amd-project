@@ -1,12 +1,18 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.6
+# OptiScaler AMD pre-SR — 1.9.6.1
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
 This project is forked from **Matheus** and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## What's new in 1.9.6.1
+
+- Adds the lmxxf `DLSS5_SKIP_BLOCKS` ini/menu setting; the default remains `42,43,46`. Changes apply on the next network rebuild.
+- Includes HIP `.inc` fragments in sync review, module recipe fingerprints and release freshness checks.
+- Retries release uploads and verifies SHA-256 without deleting an existing asset before a transfer succeeds.
 
 ## What's new in 1.9.6 (first stable release since 1.8.6)
 
