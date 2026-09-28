@@ -102,6 +102,15 @@ if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
     throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
 }
+# 30/arch, 60 dual must agree across runtime, tests, packager, and recipe.
+$contract = Join-Path $PSScriptRoot 'check-module-contract.ps1'
+if (-not (Test-Path -LiteralPath $contract -PathType Leaf)) {
+    throw "Module contract check is missing: $contract"
+}
+& powershell -NoProfile -ExecutionPolicy Bypass -File $contract
+if ($LASTEXITCODE -ne 0) {
+    throw "Module contract check failed. Do not ship mismatched module counts."
+}
 $depSearch += (Join-Path $source 'external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin')
 $depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler')
 $depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler')

@@ -13,10 +13,11 @@
 |---|---|
 | 合并功能/修复到 `release/1.9.0` 后 | 全套 A+B |
 | 改 `tools/PACKAGE_RELEASE` / 安装 / 卸载 / 模块校验 | 全套 A+B |
+| **增删 hsaco / 改模块列表** | **先跑 `check-module-contract.ps1`，再 A、C2** |
 | 只改文档 / 注释 | 可跳过 |
-| 准备打 zip 发给玩家 | 全套 A+B，再 `PACKAGE_RELEASE` |
+| 准备打 zip 发给玩家 | 全套 A+B + **C2 ABI**，再 `PACKAGE_RELEASE` |
 
-`PACKAGE_RELEASE.ps1` **不会**自动跑这些测试；它只做 **新鲜度门禁**（`check-release-freshness.ps1`）。
+`PACKAGE_RELEASE.ps1` **不会**自动跑这些测试；它只做 **新鲜度门禁**（`check-release-freshness.ps1`）和模块契约（`check-module-contract.ps1`）。
 
 ---
 
@@ -25,6 +26,9 @@
 按顺序；任一失败则 **不要发包**。
 
 ```powershell
+# 0) 模块数字契约（30/arch、60 dual 必须一致）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-module-contract.ps1
+
 # 1) Runtime 清单/路径/ABI 无卡
 # 若改过 LmxxfNrRuntime.cpp 或 runtime 头，先：
 #   tools\build-lmxxf-runtime.cmd
@@ -38,7 +42,7 @@ python -m unittest tests.lmxxf_module_packages
 python tests\amd_installer_exit.py
 ```
 
-预期：三项全 `OK`（当前约 19 + 16 + 40 用例）。
+预期：契约 `OK` + 三项全 `OK`（当前约 22 + 16 + 44 用例）。
 
 ---
 
@@ -67,9 +71,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 -A
 - 新鲜度检查失败会 **中止打包**（DLL/hsaco 比源码旧）。  
 - **不**替代 A/B 测试。
 
-### C2. 打 tag / 发 GitHub Release 前（必跑）
+### C2. 打包 / 打 tag 前（必跑，不要拖到 CI 才发现）
 
-本地 A 不含 ABI；CI 会在 tag 上跑，漏了会红。**先跑与 Actions 相同的 ABI 再 tag**：
+本地 A 不含 ABI。**与 Actions 相同的 ABI 必须在 PACKAGE_RELEASE 之前跑过**（29→30 那次就是只改了 python 侧）：
 
 ```powershell
 # 需 VS/MSVC 开发者环境
@@ -106,14 +110,30 @@ cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/
 | 发 zip | ✓ | | ✓ | 按需 | 全量发版 job |
 | 打 tag / GitHub Release | ✓ | | ✓ | 按需 | 全量发版 job（含 ABI） |
 
-### CI 与本地分工（避免把秒级契约测试塞进 Actions）
+### CI 与本地分工（契约测试必须两边都有）
 
 | 跑在哪 | 项 |
 |---|---|
-| **只在 GitHub Actions / 发版** | 工具链 preflight、host-contract、LmxxfNrRuntime 构建、ABI/zero-fallback、OptiScaler Release、PACKAGE_RELEASE、发 Release |
-| **合并后本地（A/B）** | `test_runtime_validation`、`lmxxf_module_packages`、`amd_installer_exit`、`amd_uninstall` |
-| **仅本地，不进 CI** | `tests/test_config_priority.py`（ini/菜单/txt 优先级与 `DLSS5_*` 键名契约；改配置时跑） |
+| **CI + 本地** | `check-module-contract`、`test_runtime_validation`、`lmxxf_module_packages`、`amd_installer_exit`、ABI/zero-fallback、PACKAGE_RELEASE 门禁 |
+| **只在 GitHub Actions / 发版** | 工具链 preflight、host-contract、LmxxfNrRuntime/OptiScaler 构建、发 Release |
+| **仅本地，不进 CI** | `tests/test_config_priority.py`（ini/菜单/txt 优先级与 `DLSS5_*` 键名契约；改配置时跑）、`amd_uninstall.ps1` 交互向用例 |
 | **按需本地** | `lmxxf_upstream_sync`（动 vendor/sync 时）、GPU/金标/实机 |
+
+### 数字契约（改模块列表时必须同步）
+
+`30` = 每架构 hsaco 数；`60` = 双架构合计。**改列表时同时改下表全部位置**，再跑 `tools\check-module-contract.ps1`：
+
+| 文件 | 断言 |
+|---|---|
+| `LmxxfNrRuntime.cpp` | `kKnownModuleNames[30]` 与实际名字个数 |
+| `tests/lmxxf_fixtures.py` | `MODULE_NAMES` 30 个 |
+| `third_party/lmxxf/hip/build-modules.ps1` | `name = '...'` 30 行（含注释里的总数） |
+| `tools/check-release-freshness.ps1` | `$hs.Count -ne 30` |
+| `tools/lmxxf-module-package.ps1` | 30/60 与 manifest 字段 |
+| `tests/lmxxf_nr_abi.cpp` | `modules_ok=60` / `modules_ok=30` |
+| `tests/test_runtime_validation.py` | 同上 |
+
+漏改任一处 = 玩家包装了新模块但测试/CI 仍是旧数，或反过来。
 
 ---
 
