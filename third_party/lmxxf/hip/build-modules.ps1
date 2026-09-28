@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$OutputDir = (Join-Path $PSScriptRoot 'modules'),
     [string]$Compiler = (Join-Path $PSScriptRoot 'rtc_compile.exe'),
     [string]$SourceDir = $PSScriptRoot,
@@ -6,7 +6,7 @@
     [string[]]$ExtraDefines = @(),
     [ValidateSet('gfx1200','gfx1201')][string[]]$Targets = @('gfx1200','gfx1201')
 )
-# Builds 29 modules per target (24 legacy, two opt-in wave-owned modules, two opt-in C512 32-token modules, one opt-in ViT
+# Builds 30 modules per target (24 legacy, two opt-in wave-owned modules, two opt-in C512 32-token modules, one opt-in ViT
 # projection 64-column module). 2026-09-26: the mh_fast row now spells out HIP_FFN_LINE_STORES 1 -- prod7/prod8 were built
 # with it (deployments/stellar-prod7-20260924, prod8/mhfast.generated.hip) but the row lacked it, so a recipe rebuild silently
 # dropped the prod7 full-line stores (bit-exact either way, -0.6/-0.7%).; by default gfx1200 and gfx1201 go into architecture subdirectories.

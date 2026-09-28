@@ -148,6 +148,18 @@ jobs:
           powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/amd_uninstall.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Runtime and module-package regression
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Module-count / ABI contract (30 per arch, 60 dual) so a vit-stream-style
+          # add cannot ship with stale tests. Needs LmxxfNrRuntime.dll from the next step
+          # for the ctypes suite; run the packager suite first (no GPU, no runtime).
+          $env:PYTHONPATH = 'tests'
+          python -B -m unittest tests.lmxxf_module_packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: AMD host-contract regression
         shell: pwsh
         run: |
@@ -180,6 +192,11 @@ jobs:
             tests/lmxxf_zero_fallback_abi.c /Fo:exports/lmxxf-runtime/ /Fe:exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # ctypes suite against the just-built runtime + vendor modules (30/60 contract).
+          $env:PYTHONPATH = 'tests'
+          $env:LMXXF_TEST_RUNTIME = 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
+          python -B -m unittest tests.test_runtime_validation
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build OptiScaler Release (default = multi-slot)
