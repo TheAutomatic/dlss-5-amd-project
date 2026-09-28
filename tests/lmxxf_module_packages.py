@@ -23,14 +23,24 @@ class ModulePackageTests(unittest.TestCase):
         (self.root / 'tools').mkdir()
         for name in ('PACKAGE_RELEASE.ps1', 'install-amd-presr.ps1', 'uninstall-amd-presr.ps1',
                      'lmxxf-module-package.ps1', 'stage-lmxxf-beside-optiscaler.cmd',
-                     'stage-lmxxf-beside-optiscaler.ps1'):
+                     'stage-lmxxf-beside-optiscaler.ps1', 'check-module-contract.ps1',
+                     'check-release-freshness.ps1'):
             shutil.copy2(REPO / 'tools' / name, self.root / 'tools' / name)
-        # The packager refuses to run without its freshness gate. These tests exercise module
-        # packaging on synthetic bundles, not build freshness, so the gate is a pass-through stub.
-        (self.root / 'tools/check-release-freshness.ps1').write_text('exit 0\n', encoding='ascii')
+        # Both real gates run against this synthetic checkout. Carry their source inputs
+        # along with the entrypoint instead of replacing a new gate with a success stub.
+        for name in (
+            'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrRuntime.cpp',
+            'tests/lmxxf_nr_abi.cpp', 'tests/test_runtime_validation.py', 'tests/lmxxf_fixtures.py',
+            'third_party/lmxxf/hip/build-modules.ps1',
+        ):
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / name, target)
+        if shutil.which('git'):
+            subprocess.run(['git', 'init', '-q', str(self.root)], check=True, capture_output=True)
         for name in ('README.md', 'README.en.md', 'README.es.md'):
             shutil.copy2(REPO / name, self.root / name)
-        (self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main').mkdir()
+        (self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main').mkdir(exist_ok=True)
         shutil.copy2(REPO / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler.ini',
                      self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler.ini')
         self.opti = self.root / 'fixture-opti.dll'
