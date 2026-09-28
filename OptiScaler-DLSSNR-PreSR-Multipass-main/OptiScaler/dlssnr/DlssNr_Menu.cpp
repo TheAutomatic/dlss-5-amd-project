@@ -587,9 +587,10 @@ void RenderMenu(Config* config, float menuResScale)
                         ImGui::SameLine();
                         if (ImGui::SmallButton("Reset##autoexp"))
                             config->LmxxfAutoExposureScale = 8.0f;
-                        HelpMarker("Manual scale when the game sends no exposure"
-                                   "\nand Auto exposure is off. Higher darkens the"
-                                   "\nnetwork input (less blown highlights). Default 8.");
+                        HelpMarker("Manual paper white when Auto exposure is off"
+                                   "\n(including when the game sends pre-exposure)."
+                                   "\nHigher darkens the network input and weakens"
+                                   "\nhighlight rolloff. Default 8.");
                     }
 
                     float paper = config->LmxxfPaperWhite.value_or_default();

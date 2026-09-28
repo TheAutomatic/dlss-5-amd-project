@@ -100,7 +100,8 @@ bool WantsAutoExposure(bool usableExposure, float preExposure = 1.0f)
 
 float EffectiveCodecPaperWhite(bool usableExposure)
 {
-    // Game pre-exposure can skip the meter without selecting the manual divisor.
+    // Pre-exposure skips the meter but does not force the manual divisor: paper white
+    // follows Auto (codec trim) or Off (Exposure scale), same as with a game texture.
     if (usableExposure || Config::Instance()->LmxxfAutoExposure.value_or_default())
         return CodecPaperWhite();
     const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
