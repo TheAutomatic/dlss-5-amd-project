@@ -291,8 +291,30 @@ inline constexpr AmdLayout kAmd043 {
     0xb17a4, 0xb14e4, 0xb19c5
 };
 
+// 0.5.0: RDNA3 register kernels are the only RDNA3 path (Rdna3RegKernels obsolete);
+// fidelity pass for skin/faces. Exports 857 identical to 0.4.3. Packet unchanged.
+// Data cluster is NOT a uniform delta from 0.4.3: device/queue/engine/history* use
+// +0x5008, option/control block +0x5038 (see analysis/daniel-050 remap).
+// Host-contract pins follow the same contract as prior layouts; record +81 B.
+inline constexpr AmdLayout kAmd050 {
+    "0.5.0",
+    39367841,
+    Sha256FromHex("d4c2cb557da9684adec67ca828872e6d46bac25aba4857e5fb55e077b6a57f14"),
+    0, 0x29870, 0x15640, 0xa000, 0x19340, 0xb6b88,
+    0xb5c18, 0xb5c20, 0xb5c30, 0xb5d78, 0xb5d80, 0xb60c8, 0xb60ca,
+    0xb65d0, 0xb6604, 0xb6608, 0xb6634, 0xb6828, 0xb6908, 0xb6914,
+    0xb69b8, 0xb69bc, 0xb69c4, 0xb69c5, 0xb69c6, 0xb69c7, 0xb69c8,
+    0xb69d8, 0xb69dc, 0xb69e0, 0xb69e8, 0xb69ec, 0xb6ae8,
+    0xb6ac0, 0xb6a48, 0xb68f4, 0xb6910, 0xb6920,
+    0xb67d4, 0xb67f0, 0xb6748, 0x19b90, 0x1a2b6,
+    0x19d80, 0x1a120, 0x1a17a, 0x1a267,
+    0xb69f0, 0xb69f4, 0xb69f8, 0xb69fc,
+    0xb67dc, 0xb651c, 0xb69fd
+};
+
 inline constexpr const AmdLayout* kAmdLayouts[] = {
-    &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043
+    &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043,
+    &kAmd050
 };
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
@@ -307,4 +329,5 @@ static_assert(kAmd040.sha256.bytes[0] == 0xd6 && kAmd040.sha256.bytes[31] == 0x8
 static_assert(kAmd041.sha256.bytes[0] == 0x82 && kAmd041.sha256.bytes[31] == 0x76);
 static_assert(kAmd042.sha256.bytes[0] == 0x8a && kAmd042.sha256.bytes[31] == 0x5a);
 static_assert(kAmd043.sha256.bytes[0] == 0xd1 && kAmd043.sha256.bytes[31] == 0x57);
+static_assert(kAmd050.sha256.bytes[0] == 0xd4 && kAmd050.sha256.bytes[31] == 0x14);
 }
