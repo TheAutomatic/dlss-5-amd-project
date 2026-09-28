@@ -713,6 +713,52 @@ int main(int argc, char **argv)
             Require(api.CancelUnsubmitted(ctx, halfJob.handle) == LMXXF_NR_OK, "cancel format-change frame");
         }
         halfExposure->Release();
+
+        // Exercise actual submissions across game -> auto -> manual -> game
+        // exposure changes. A binding change may rebuild codecs, never the model.
+        auto bridgeCreates = [&]() -> long {
+            char st[768] {};
+            Require(api.GetStatus(ctx, st, sizeof(st)) == LMXXF_NR_OK, "exposure status");
+            std::printf("exposure transition status: %s\n", st);
+            const char *p = std::strstr(st, "bridgeCreates=");
+            return p ? std::strtol(p + 14, nullptr, 10) : -1;
+        };
+        Require(bridgeCreates() == 1, "R32/R16 exposure changes retain the original model");
+        uint64_t exposureHashes[3] {};
+        for (unsigned pass = 0; pass < 6; ++pass)
+        {
+            Require(api.Drain(ctx) == LMXXF_NR_OK, "drain previous exposure frame");
+            UploadColorPattern(device, submitQueue, color);
+            Check(alloc->Reset(), "exposure producer allocator reset");
+            Check(list->Reset(alloc, nullptr), "exposure producer list reset");
+            LmxxfNrFrameInfo changing = frame;
+            changing.exposure = pass % 3 == 0 ? exposureTex : nullptr;
+            changing.flags = pass % 3 == 1 ? LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE : 0;
+            LmxxfNrJob changingJob {}; changingJob.struct_size = sizeof(changingJob);
+            Require(api.PrepareFrame(ctx, &changing, &changingJob) == LMXXF_NR_OK, "prepare exposure transition");
+            Require(bridgeCreates() == 1, "exposure transition must not reload/warm model");
+            Require(api.RecordInputs(ctx, changingJob.handle, list) == LMXXF_NR_OK, "exposure inputs");
+            Check(list->Close(), "exposure producer close");
+            submitQueue->ExecuteCommandLists(1, lists);
+            Require(api.EnqueueHip(ctx, changingJob.handle, submitQueue) == LMXXF_NR_OK, "exposure enqueue");
+            char why[256] {}; api.GetLastError(why, sizeof(why));
+            Require(!std::strstr(why, "output zeroed"), "no recovery output during exposure transition");
+            WaitQueue(device, submitQueue);
+            Check(outAlloc->Reset(), "exposure output allocator reset");
+            Check(list->Reset(outAlloc, nullptr), "exposure output reset");
+            Require(api.RecordOutputs(ctx, changingJob.handle, list) == LMXXF_NR_OK, "exposure outputs");
+            Check(list->Close(), "exposure output close");
+            submitQueue->ExecuteCommandLists(1, lists);
+            Require(api.Retire(ctx, changingJob.handle) == LMXXF_NR_OK, "exposure retire");
+            Require(api.Drain(ctx) == LMXXF_NR_OK, "exposure GPU completion");
+            Check(device->GetDeviceRemovedReason(), "exposure device healthy");
+            const uint64_t hash = HashTexture(device, submitQueue,
+                                             static_cast<ID3D12Resource *>(changingJob.private_output));
+            if (pass < 3) exposureHashes[pass] = hash;
+            else Require(hash == exposureHashes[pass % 3], "returning to exposure mode preserves pixel output");
+            std::printf("exposure transition pass=%u output_hash=%016llx\n", pass,
+                        static_cast<unsigned long long>(hash));
+        }
     }
     ID3D12Resource *resizedColor = nullptr;
     if (resize)
@@ -736,6 +782,10 @@ int main(int argc, char **argv)
         }
         Require(resizeRc == LMXXF_NR_OK && resizedJob.private_output != nullptr,
                 "resized PrepareFrame after default-path teardown");
+        char resizeStatus[768] {};
+        Require(api.GetStatus(ctx, resizeStatus, sizeof(resizeStatus)) == LMXXF_NR_OK, "resize status");
+        Require(std::strstr(resizeStatus, "bridgeCreates=2 ") != nullptr,
+                "geometry change still rebuilds the model");
         Require(api.CancelUnsubmitted(ctx, resizedJob.handle) == LMXXF_NR_OK,
                 "cancel unsubmitted resized frame");
     }

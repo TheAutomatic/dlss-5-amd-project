@@ -538,6 +538,12 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                  d.calls, d.recorded, d.original, d.switches, nrRecorded ? "recorded" : "original", d.streak,
                  d.maxRecorded, d.maxOriginal, pending.enqueueCalls.load(), pending.lastEnqueueRc.load(),
                  DlssNr::Submission::g_submissionFailures.load(), status);
+        if (session && api && api->table.GetStatus)
+        {
+            char perf[768] {};
+            if (api->table.GetStatus(session, perf, sizeof(perf)) == LMXXF_NR_OK)
+                LOG_INFO("lmxxf runtime snapshot: {}", perf);
+        }
     };
     struct OutcomeGuard { decltype(reportOutcome) &report; ~OutcomeGuard() { report(); } } outcomeGuard{reportOutcome};
 
