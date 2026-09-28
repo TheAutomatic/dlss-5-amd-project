@@ -290,6 +290,28 @@ int main(int argc, char **argv)
     fclose(captured);
     Require(records == 63 * (4 * 5 + 1), "bounded capture has all submitted stages and tiles");
     DeleteFileW(capture.Path());
+    // A short session can end before the 64-frame cap. Its writer must finish
+    // before Destroy returns and the host is allowed to unload the runtime.
+    std::wstring shortPath;
+    {
+        HighlightDiagnostics::Capture shortCapture;
+        reset(); fill(77); recordProducer();
+        shortCapture.Begin(device.Get(), metadata, true);
+        shortCapture.Copy(cmd.Get(), source.Get(), read, 0, 0, 0, 13, 7);
+        shortCapture.OutputsRecorded();
+        Check(cmd->Close(), "short capture close"); execute();
+        shortCapture.Submitted(queue.Get());
+        Check(queue->Signal(fence.Get(), ++submitted), "short capture tail");
+        Check(fence->SetEventOnCompletion(submitted, event), "short capture completion");
+        Require(WaitForSingleObject(event, 10000) == WAIT_OBJECT_0, "short capture wait");
+        shortCapture.ReleaseAfterGpuIdle();
+        shortPath = shortCapture.Path();
+    }
+    Require(_wfopen_s(&captured, shortPath.c_str(), L"rb") == 0 && captured, "writer joined at session destruction");
+    Require(fread(magic, 1, 8, captured) == 8 && memcmp(magic, "NRHLV1\0\0", 8) == 0, "short capture magic");
+    Require(fread(&record, sizeof record, 1, captured) == 1 && record.frame == 1, "partial capture flushed");
+    fclose(captured); DeleteFileW(shortPath.c_str());
+
     std::printf("PASS: highlight capture exact pixels, four stages, discard, async completion, 64-frame cap\n");
     if (info)
     {
