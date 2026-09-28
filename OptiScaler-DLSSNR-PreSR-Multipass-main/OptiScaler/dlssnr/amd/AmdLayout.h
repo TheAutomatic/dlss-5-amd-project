@@ -296,9 +296,9 @@ inline constexpr AmdLayout kAmd043 {
 // Data cluster is NOT a uniform delta from 0.4.3: device/queue/engine/history* use
 // +0x5008, option/control block +0x5038 (see analysis/daniel-050 remap).
 // Host-contract pins follow the same contract as prior layouts; record +81 B.
-// 0.5.0 is the first build that appends a default [DlssNrOnAmd] ini after the PE.
-// Game-folder copies (and some extractors) drop that overlay; every PE section is
-// byte-identical, so the RVA pins below apply to both files.
+// Two verified 0.5.0 files differ only by trailing data beginning with default ini text.
+// The shorter file exactly matches the longer file through the end of the PE sections;
+// the RVA pins below apply to both. The extraction/installation mechanism is unverified.
 inline constexpr AmdLayout kAmd050 {
     "0.5.0",
     39367841,

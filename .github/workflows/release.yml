@@ -296,6 +296,10 @@ jobs:
           body: |
             Bug reports with logs are welcome.
 
+            ### 1.9.6.2
+            - 修复 Daniel 0.5.0 部分 version.dll 的安装和宿主识别失败；两种已核验文件均保留严格 SHA-256 校验。
+            - Accepts both verified Daniel 0.5.0 file variants in the installer and host. No GPU/game testing for this patch.
+
             ### 1.9.6.1
             - 新增 lmxxf `DLSS5_SKIP_BLOCKS` ini／菜单设置；默认行为不变。
             - 修复 HIP `.inc` 构建／审阅指纹遗漏，以及 Release 上传中断时附件丢失的问题。
