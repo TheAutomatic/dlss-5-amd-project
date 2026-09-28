@@ -125,11 +125,17 @@ Este proyecto se basa en los logros colectivos de desarrolladores pioneros en la
 | `OptiScaler.dll` | Binario principal (se renombra durante la instalación al nombre de proxy elegido) |
 | `OptiScaler.ini` | Archivo de configuración central (contiene opciones de doble backend en `[DlssNr]`) |
 | `OptiScaler\` | Dependencias centrales (FFX, XeSS, Agility SDK, plugins) |
+| `LmxxfNrRuntime.dll` | Runtime del backend lmxxf (renderizado neuronal HIP de código abierto) |
+| `lmxxf-modules\` | Módulos de cómputo lmxxf de doble arquitectura (24 `.hsaco` para cada una de `gfx1200` / `gfx1201`, con manifiestos `SHA256SUMS`) |
+| `shaders\` | Shaders del códec lmxxf (`native_codec_encode.hlsl` y otros) |
+| `experimental_lighting\` | Shaders precompilados del pase de iluminación experimental (`GatherCS.cso` / `ResolveCS.cso`) |
 | `Setup.bat` / `Setup.ps1` | Instalador interactivo (**Haga doble clic en `Setup.bat`**) |
 | `Uninstall_OptiScaler_NR.bat` / `.ps1` | Desinstalador seguro (se coloca automáticamente en el directorio del juego) |
-| `tools\` | Utilidades internas de compilación y verificación |
+| `lmxxf-module-package.ps1` | Asistente de validación de módulos que comparten el instalador y el desinstalador (debe estar junto a `Setup.ps1`) |
 | `Licenses\` | Licencias de código abierto de terceros |
 | `README.md` / `README.en.md` / `README.es.md` | Documentación (Chino / Inglés / Español) |
+| `VERSION` | Versión del paquete |
+| `SHA256SUMS.txt` | SHA256 de cada archivo del paquete (verifíquelo con `sha256sum -c SHA256SUMS.txt`) |
 
 > **Nota**: Para cumplir con las licencias y políticas de distribución upstream, este paquete **no incluye** binarios propietarios de NVIDIA, herramientas del instalador de danielblnc ni pesos de modelo no autorizados.
 

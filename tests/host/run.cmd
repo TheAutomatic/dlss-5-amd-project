@@ -1,0 +1,67 @@
+@echo off
+rem Host-contract tests. Every *.cpp in tests\host belongs to exactly one tier below.
+rem Usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
+rem   ci     : CPU only, no GPU. nr_backend_selector, amd_submission_state, amd_graphics_{snapshot,
+rem            tracker,restore,restore_dx12,invocation,native_hooks}, amd_runtime_host_load (+ its
+rem            generated fixture PE), amd_retirement_diagnostics, and hip_load.ps1 (amd_hip_load +
+rem            amd_hip_load_fixture in space/unicode dirs; never loads the machine HIP runtime).
+rem   device : amd_graphics_d3 (hardware D3D12 adapter; prints SKIP without one).
+rem Requires Python 3 (standard library only). Enters MSVC 14.44 itself when cl is missing.
+setlocal EnableExtensions
+cd /d "%~dp0..\.."
+set "REPO=%CD%"
+set "TIER=%~1"
+if not defined TIER set "TIER=ci"
+set "OUT=%~2"
+if not defined OUT set "OUT=exports\test-run\host"
+for %%I in ("%OUT%") do set "OUT=%%~fI"
+if not exist "%OUT%" mkdir "%OUT%"
+if not defined AMD_TEST_PYTHON set "AMD_TEST_PYTHON=python"
+call "%REPO%\tests\_lib\msvc-env.cmd" 2>nul || exit /b 1
+rem Repo-rooted includes (#include "OptiScaler-..." / "third_party/..."). The repo root goes at the END of
+rem INCLUDE, not in /I: /I is searched before the SDK/STL dirs, and on a case-insensitive disk
+rem <version> would then resolve to the repo's VERSION file.
+set "INCLUDE=%INCLUDE%;%REPO%"
+set "INC=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include"
+set "DETOURS=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib"
+set "CXX=cl /nologo /std:c++20 /EHsc /W4"
+if /i "%TIER%"=="ci" goto ci
+if /i "%TIER%"=="all" goto ci
+if /i "%TIER%"=="device" goto device
+echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
+exit /b 2
+
+:ci
+%CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail
+"%OUT%\nr_backend_selector.exe" || goto fail
+%CXX% tests\host\amd_submission_state.cpp /Fe"%OUT%\amd_submission_state.exe" /Fo"%OUT%\amd_submission_state.obj" || goto fail
+"%OUT%\amd_submission_state.exe" || goto fail
+for %%T in (amd_graphics_snapshot amd_graphics_tracker amd_graphics_restore amd_graphics_restore_dx12 amd_graphics_invocation) do (
+  %CXX% /utf-8 tests\host\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" || goto fail
+  "%OUT%\%%T.exe" || goto fail
+)
+%CXX% /O2 /utf-8 /I"%INC%" tests\host\amd_graphics_native_hooks.cpp /Fe"%OUT%\amd_graphics_native_hooks.exe" /Fo"%OUT%\amd_graphics_native_hooks.obj" /link "%DETOURS%" || goto fail
+"%OUT%\amd_graphics_native_hooks.exe" || goto fail
+%CXX% /utf-8 /I"%INC%" tests\host\amd_runtime_host_load.cpp /Fe"%OUT%\amd_runtime_host_load.exe" /Fo"%OUT%\amd_runtime_host_load.obj" /link "%DETOURS%" || goto fail
+"%AMD_TEST_PYTHON%" -B tests\host\amd_runtime_host_fixture.py "%OUT%\amd_runtime_bootstrap_fixture.dll" || goto fail
+"%OUT%\amd_runtime_host_load.exe" "%OUT%\amd_runtime_bootstrap_fixture.dll" || goto fail
+%CXX% /utf-8 tests\host\amd_retirement_diagnostics.cpp /Fe"%OUT%\amd_retirement_diagnostics.exe" /Fo"%OUT%\amd_retirement_diagnostics.obj" || goto fail
+if exist "%OUT%\retirement" rmdir /s /q "%OUT%\retirement"
+mkdir "%OUT%\retirement"
+"%OUT%\amd_retirement_diagnostics.exe" "%OUT%\retirement" || goto fail
+"%AMD_TEST_PYTHON%" -B -m unittest tests\host\test_retirement_stats.py || goto fail
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO%\tests\host\hip_load.ps1" "%OUT%\hip" || goto fail
+"%AMD_TEST_PYTHON%" -B tests\host\test_config_priority.py || goto fail
+
+echo host ci: PASS
+if /i not "%TIER%"=="all" exit /b 0
+
+:device
+%CXX% /utf-8 tests\host\amd_graphics_d3.cpp /Fe"%OUT%\amd_graphics_d3.exe" /Fo"%OUT%\amd_graphics_d3.obj" /link d3d12.lib dxgi.lib || goto fail
+"%OUT%\amd_graphics_d3.exe" || goto fail
+echo host device: PASS
+exit /b 0
+
+:fail
+echo host %TIER%: FAIL
+exit /b 1

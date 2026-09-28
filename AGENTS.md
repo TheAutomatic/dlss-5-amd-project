@@ -1,10 +1,27 @@
 # Repository agent instructions
 
+## Where things go
+
+Read [docs/workspace.md](docs/workspace.md) before creating any file outside product code.
+
+- Throwaway scripts and output: `work/scratch/` (purged after 14 days). Never the repo root,
+  the root of `tools/` or `tests/`, `exports/` or `dist/`.
+- Investigation write-ups: `work/notes/YYYY-MM-DD-topic.md`; once settled, distil into `docs/`.
+  Decisions go to `docs/decisions.md`.
+- Game/user logs: `work/logs/<game>/<date>/`. Anything that must not be public: `work/private/`.
+- Handoff: `work/handoff/HANDOFF.md`, at most ~80 lines; sections older than 7 days move to
+  `work/handoff/archive/`.
+- Build output only in `exports/`. `dist/` holds releases and is never touched.
+- New tools go in a `tools/<group>/` folder; new tests go in `tests/<area>/` and must be wired
+  into that area's `run.cmd`.
+- Tracked files must not depend on files under `work/`. `analysis/`, `.analysis-tools/` and
+  `.handoff/` are retired: do not recreate them.
+
 ## Release tests (no GPU)
 
 After merging to `release/1.9.0` or touching installer/packaging/sync, run
-[tools/RELEASE-TESTS.md](tools/RELEASE-TESTS.md). `PACKAGE_RELEASE.ps1` does
-not run those suites; it only checks artifact freshness.
+[tests/RELEASE-TESTS.md](tests/RELEASE-TESTS.md) (`tests\run-all.cmd --tier ci`).
+`tools/release/PACKAGE_RELEASE.ps1` does not run those suites; it only checks artifact freshness.
 
 ## Synchronizing lmxxf upstream
 

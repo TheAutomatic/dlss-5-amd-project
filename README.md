@@ -125,11 +125,17 @@
 | `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
 | `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 双后端切换与参数选项） |
 | `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
+| `LmxxfNrRuntime.dll` | lmxxf 后端运行时（开源 HIP 神经渲染） |
+| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 24 个 `.hsaco`，附 `SHA256SUMS` 清单） |
+| `shaders\` | lmxxf 编解码着色器（`native_codec_encode.hlsl` 等） |
+| `experimental_lighting\` | 实验性光照 pass 的预编译着色器（`GatherCS.cso` / `ResolveCS.cso`） |
 | `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
 | `Uninstall_OptiScaler_NR.bat` / `.ps1` | 智能卸载器（安装时自动同步至游戏目录，安全防误删） |
-| `tools\` | 内部构建、验证与切换辅助脚本 |
+| `lmxxf-module-package.ps1` | 安装器与卸载器共用的模块校验助手（须与 `Setup.ps1` 放在同一目录） |
 | `Licenses\` | 第三方开源许可证文本 |
 | `README.md` / `README.en.md` / `README.es.md` | 本使用文档（中英西三语） |
+| `VERSION` | 本包版本号 |
+| `SHA256SUMS.txt` | 包内全部文件的 SHA256 清单（可用 `sha256sum -c SHA256SUMS.txt` 校验） |
 
 > **提示**：为遵守各开源协议与版权约束，本压缩包**不随包分发** NVIDIA 专有二进制文件、danielblnc 安装器或未授权模型权重。
 

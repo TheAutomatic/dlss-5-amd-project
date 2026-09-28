@@ -894,7 +894,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="WriteAmdGraphicsSourceIdentity" BeforeTargets="ClCompile">
-    <Exec WorkingDirectory="$(ProjectDir)" Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\tools\write-amd-graphics-source-id.ps1&quot; -ProjectDirectory &quot;$(ProjectDir).&quot; -OutputPath &quot;$(IntDir)amd_graphics_source_id.h&quot;" />
+    <Exec WorkingDirectory="$(ProjectDir)" Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\tools\build\write-amd-graphics-source-id.ps1&quot; -ProjectDirectory &quot;$(ProjectDir).&quot; -OutputPath &quot;$(IntDir)amd_graphics_source_id.h&quot;" />
   </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

@@ -162,7 +162,7 @@ inline constexpr AmdLayout kAmd03 {
 };
 
 // 0.3.1 version.dll (SHA b108d640). Mapped from 0.3.0 via unique instruction
-// windows (analysis/map_a031_rva.py); Record/Notify/shutdown heads and the
+// windows; Record/Notify/shutdown heads and the
 // recreate sticky-bit xrefs match 0.3.0 role-for-role. Data section moved
 // ~+0x3180 and .text grew — every RVA below is 0.3.1-specific.
 inline constexpr AmdLayout kAmd031 {
@@ -180,7 +180,7 @@ inline constexpr AmdLayout kAmd031 {
 };
 
 // 0.3.2 version.dll (SHA b92f7481). Mapped from 0.3.1 via unique instruction
-// windows (analysis/daniel-032/map_a032_rva.py). Record/Notify/shutdown and the
+// windows. Record/Notify/shutdown and the
 // whole .data field cluster keep the 0.3.1 RVAs; only init moves 0x21720→0x216f0
 // (pdata-confirmed). Packet tail (+0x4c..+0x5c) and wait-helper diagnostics are
 // role-for-role identical. .hip_fat shrinks ~500KB — host-external kernel packing.
@@ -199,7 +199,7 @@ inline constexpr AmdLayout kAmd032 {
 };
 
 // 0.3.3 version.dll (SHA 907b30a6). Mapped from 0.3.2 via instruction windows
-// plus [DlssNrOnAmd] GetPrivateProfile stores (analysis/daniel-033/). .data
+// plus [DlssNrOnAmd] GetPrivateProfile stores. .data
 // cluster moves ~+0x7800; Packet tail +0x4c..+0x5c unchanged (still 0x60).
 // New overlay channels: Style / ToneCurve / ToneLift / UseGameExposure.
 inline constexpr AmdLayout kAmd033 {

@@ -1,6 +1,6 @@
 # NR backend selector
 
-Contract only. Status: `.handoff/HANDOFF.md` · plans: `exports/lmxxf-*.md`. Players: root `README.md`.
+Contract only. Design notes: `docs/backends/lmxxf.md`, `docs/architecture/`. Players: root `README.md`.
 
 | `[DlssNr] NrBackend` | Active |
 |---|---|

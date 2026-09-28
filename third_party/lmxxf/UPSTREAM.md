@@ -6,7 +6,7 @@
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
-This is a **vendored source closure**, not a git submodule and not the `analysis/` clone.
+This is a **vendored source closure**, not a git submodule and not a nested clone.
 Files are copied byte-for-byte from that commit unless a later commit in this tree
 says otherwise.
 
@@ -148,7 +148,7 @@ Use `-SkipModules -AllowStaleModules` only for intentional staged integration, w
 
 ## Runtime ABI (this tree)
 
-C ABI in `include/LmxxfNrApi.h`. MSVC (primary) or MinGW (fallback) `tools/build-lmxxf-runtime.cmd` compiles the HIP bridge and codec into `LmxxfNrRuntime.dll`.
+C ABI in `include/LmxxfNrApi.h`. MSVC (primary) or MinGW (fallback) `tools/build/build-lmxxf-runtime.cmd` compiles the HIP bridge and codec into `LmxxfNrRuntime.dll`.
 
 - Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from current `hip/` + local COMGR (see modules/README.md Commit Base)).
 - Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).

@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Product version, e.g. 1.9.0.3'
+        description: 'Product version; leave empty to read VERSION'
         required: false
         default: ''
 
@@ -56,7 +56,7 @@ jobs:
       - name: Release upload regression
         shell: pwsh
         run: |
-          python -B tests/test_release_upload.py
+          python -B tests/install/test_release_upload.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Resolve version
@@ -142,70 +142,20 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
 
-      - name: Installer and uninstaller regression
-        timeout-minutes: 10
+      - name: Module contract gate
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          # Isolated synthetic files only; exercise the Windows PowerShell 5.1 launchers.
-          # --failfast prints the first assertion and lets the step exit.
-          python -B tests/amd_installer_exit.py --failfast
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/amd_uninstall.ps1
+          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/release/check-module-contract.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Runtime and module-package regression
-        timeout-minutes: 15
+      - name: No-GPU regression suites
+        timeout-minutes: 20
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          # Module-count / ABI contract (30 per arch, 60 dual) so a vit-stream-style
-          # add cannot ship with stale tests. Needs LmxxfNrRuntime.dll from the next step
-          # for the ctypes suite; run the packager suite first (no GPU, no runtime).
-          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/check-module-contract.ps1
+          cmd /d /c tests\run-all.cmd --tier ci --out exports\release-ci\tests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:PYTHONPATH = 'tests'
-          python -B -m unittest tests.lmxxf_module_packages
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: AMD host-contract regression
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # Uses a generated test PE, never a proprietary author runtime or a GPU.
-          cmd /d /c tools\test-amd-host-contracts.cmd "$env:BUILD_OUT"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Build LmxxfNrRuntime DLL
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cmd /d /c tools\build-lmxxf-runtime.cmd exports/lmxxf-runtime
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path "exports/lmxxf-runtime/LmxxfNrRuntime.dll")) {
-            throw "Build did not produce exports/lmxxf-runtime/LmxxfNrRuntime.dll"
-          }
-
-      - name: ABI regression test for LmxxfNrRuntime
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cl /nologo /std:c++17 /O2 /EHsc /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
-            tests/lmxxf_nr_abi.cpp /Fe:exports/lmxxf-runtime/lmxxf_nr_abi.exe
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & exports/lmxxf-runtime/lmxxf_nr_abi.exe exports/lmxxf-runtime/LmxxfNrRuntime.dll third_party/lmxxf/modules
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # C host smoke test: export table, capabilities, create-flag accept/reject (no GPU).
-          cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
-            tests/lmxxf_zero_fallback_abi.c /Fo:exports/lmxxf-runtime/ /Fe:exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # ctypes suite against the just-built runtime + vendor modules (30/60 contract).
-          $env:PYTHONPATH = 'tests'
-          $env:LMXXF_TEST_RUNTIME = 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
-          python -B -m unittest tests.test_runtime_validation
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force exports/lmxxf-runtime | Out-Null
+          Copy-Item -LiteralPath exports/release-ci/tests/runtime/LmxxfNrRuntime.dll -Destination exports/lmxxf-runtime/LmxxfNrRuntime.dll
 
       - name: Build OptiScaler Release (default = multi-slot)
         shell: pwsh
@@ -239,7 +189,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = '${{ steps.ver.outputs.version }}'
-          powershell -ExecutionPolicy Bypass -File tools\PACKAGE_RELEASE.ps1 `
+          powershell -ExecutionPolicy Bypass -File tools\release\PACKAGE_RELEASE.ps1 `
             -Version $ver `
             -OptiDll "$env:BUILD_OUT\OptiScaler.dll" `
             -OutDir dist
