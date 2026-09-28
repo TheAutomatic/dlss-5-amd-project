@@ -274,7 +274,7 @@ inline constexpr AmdLayout kAmd042 {
 
 // 0.4.3: +20% Reference / +18% Fast vs 0.4.2; OverlayKey (daniel ini only).
 // Data cluster is NOT a uniform delta from 0.4.2: device/queue/engine/history* use
-// +0x2170, option block +0x2178, trampoline +0x21a0 (see analysis/daniel-040 remap).
+// +0x2170, option block +0x2178, trampoline +0x21a0.
 inline constexpr AmdLayout kAmd043 {
     "0.4.3",
     12749824,
@@ -294,7 +294,7 @@ inline constexpr AmdLayout kAmd043 {
 // 0.5.0: RDNA3 register kernels are the only RDNA3 path (Rdna3RegKernels obsolete);
 // fidelity pass for skin/faces. Exports 857 identical to 0.4.3. Packet unchanged.
 // Data cluster is NOT a uniform delta from 0.4.3: device/queue/engine/history* use
-// +0x5008, option/control block +0x5038 (see analysis/daniel-050 remap).
+// +0x5008, option/control block +0x5038.
 // Host-contract pins follow the same contract as prior layouts; record +81 B.
 inline constexpr AmdLayout kAmd050 {
     "0.5.0",
