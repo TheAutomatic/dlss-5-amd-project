@@ -22,7 +22,7 @@ int main()
     proxy.BuildRaytracingAccelerationStructure(nullptr, 0, nullptr);
     proxy.SetPipelineState1(nullptr);
     const char *why=proxy.SplitRejectionReason();
-    Require(std::strcmp(why,"|state_object||dispatch_rays||rtas|")==0, "all distinct blockers retained");
+    Require(std::strcmp(why,"|null_state_object||null_dispatch_rays||rtas|")==0, "all distinct blockers retained");
     Require(proxy.IsSplitIneligible(), "diagnostics never relax split safety");
     std::puts("continuity: PASS");
 }

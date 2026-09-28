@@ -3,8 +3,8 @@ rem lmxxf runtime and submission tests. Every test in tests\lmxxf belongs to exa
 rem Usage: tests\lmxxf\run.cmd abi^|warp^|device^|gpu [out-dir]
 rem   abi    : lmxxf_nr_abi, lmxxf_zero_fallback_abi.c, test_runtime_validation.py (no GPU)
 rem   warp   : lmxxf_same_frame_boundary, lmxxf_color_probe (D3D12 WARP; no GPU)
-rem   device : lmxxf_list_split, lmxxf_list1_wrap, lmxxf_create_execute, lmxxf_evaluate_cut
-rem            (hardware D3D12 adapter)
+rem   device : lmxxf_state_object, lmxxf_list_split, lmxxf_list1_wrap, lmxxf_create_execute,
+rem            lmxxf_evaluate_cut (hardware D3D12; state_object requires SDK DXC and DXR)
 rem   gpu    : lmxxf_nr_gpu (13 modes, 3 output hashes checked), lmxxf_bridge_zero_gpu (/std:c++17;
 rem            fails under C++20 on hip_d3d12_bridge.h char8_t). Needs an AMD GPU and LMXXF_ASSETS =
 rem            the weights folder (native-game-tiled-assets). Modules come from third_party\lmxxf\modules.
@@ -57,6 +57,14 @@ goto pass
 goto pass
 
 :device
+set "DXC=%WindowsSdkDir%bin\%WindowsSDKVersion%x64\dxc.exe"
+if not exist "%DXC%" (
+  echo FAIL: Windows SDK dxc.exe required for DXR continuation test.
+  goto fail
+)
+"%DXC%" -T lib_6_3 tests\lmxxf\lmxxf_state_object.hlsl -Fo "%OUT%\lmxxf_state_object.dxil" || goto fail
+%CXX% tests\lmxxf\lmxxf_state_object.cpp /Fe"%OUT%\lmxxf_state_object.exe" /Fo"%OUT%\lmxxf_state_object.obj" /link %D3D% d3dcompiler.lib || goto fail
+"%OUT%\lmxxf_state_object.exe" "%OUT%\lmxxf_state_object.dxil" || goto fail
 %CXX% tests\lmxxf\lmxxf_list_split.cpp /Fe"%OUT%\lmxxf_list_split.exe" /Fo"%OUT%\lmxxf_list_split.obj" /link %D3D% || goto fail
 "%OUT%\lmxxf_list_split.exe" || goto fail
 for %%T in (lmxxf_list1_wrap lmxxf_create_execute lmxxf_evaluate_cut) do (

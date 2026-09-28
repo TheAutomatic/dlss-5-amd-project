@@ -190,7 +190,7 @@ class LogicalList
         return S_OK;
     }
 
-    HRESULT Split()
+    HRESULT Split(bool needsList4 = false)
     {
         if (phase != Phase::RecordingProducer || !device || !producer)
             return E_UNEXPECTED;
@@ -208,6 +208,18 @@ class LogicalList
         {
             nextAlloc->Release();
             return hr;
+        }
+        // Check before closing the producer: failure must preserve a usable list.
+        if (needsList4)
+        {
+            ID3D12GraphicsCommandList4 *l4 = nullptr;
+            hr = nextList->QueryInterface(IID_PPV_ARGS(&l4));
+            if (FAILED(hr) || !l4)
+            {
+                nextList->Release(); nextAlloc->Release();
+                return FAILED(hr) ? hr : E_NOINTERFACE;
+            }
+            l4->Release();
         }
         hr = producer->Close();
         if (FAILED(hr))

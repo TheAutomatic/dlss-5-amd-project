@@ -247,7 +247,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             MarkSplitIneligible(why ? why : "resource_state");
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
-        const HRESULT hr = logical.Split();
+        const HRESULT hr = logical.Split(contState.stateObject != nullptr);
         if (FAILED(hr))
             return hr;
         // Seed continuation with captured producer bindings (IA/SO/VRS included).
@@ -771,7 +771,8 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE SetPipelineState1(ID3D12StateObject *stateObject) override
     {
-        MarkSplitIneligible("state_object");
+        if (!stateObject) MarkSplitIneligible("null_state_object");
+        contState.OnStateObject(stateObject);
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->SetPipelineState1(stateObject);
@@ -780,7 +781,10 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     void STDMETHODCALLTYPE DispatchRays(const D3D12_DISPATCH_RAYS_DESC *desc) override
     {
-        MarkSplitIneligible("dispatch_rays");
+        // DispatchRays is already recorded on the producer. Its shader tables and
+        // resource barriers remain there; the continuation restores pipeline/root
+        // bindings, never replays the dispatch. Keep AS-build and other guards.
+        if (!desc) MarkSplitIneligible("null_dispatch_rays");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->DispatchRays(desc);
