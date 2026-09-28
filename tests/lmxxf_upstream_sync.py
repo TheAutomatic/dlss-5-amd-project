@@ -122,6 +122,8 @@ class Fixture(unittest.TestCase):
             path.write_bytes(data)
         product = (ROOT / audit.OPTIONS).read_text(encoding='utf-8')
         write(self.local / audit.OPTIONS, product)
+        keys = audit.RUNTIME.parent / 'ConfigKeys.h'
+        write(self.local / keys, (ROOT / keys).read_text(encoding='utf-8-sig'))
         write(self.up / 'src/LmxxfProductionOptions.h', product)
         for profile in audit.PROFILES:
             write(self.up / profile, 'DLSS5_HIP_GRAPH=0\nDLSS5_TEST_UNKNOWN=1\nDLSS5_NETWORK_HEIGHT=900\n')
@@ -329,6 +331,29 @@ class SyncTests(Fixture):
         self.assert_failed(result)
         self.assertIn('HIP recipes/defines changed', result.stdout)
 
+    def test_include_change_requires_modules_after_a_verified_baseline(self):
+        # Establish a synthetic baseline for the actual fingerprint implementation.
+        baseline = self.sync()
+        self.assertEqual(baseline.returncode, 0, baseline.stdout)
+        state_path = self.vendor / 'sync-state.json'
+        script = self.folder / 'fingerprint.ps1'
+        write(script, ". '" + str(self.config / 'Modules.ps1').replace("'", "''") + "'\n"
+              + "(Get-TreeFingerprint '" + str(self.vendor / 'hip').replace("'", "''")
+              + "' @('*.hip','*.inc','build-modules.ps1','rtc_compile.cpp')) + ':' + "
+              + "(Get-FileSha256Hex '" + str(self.config / 'module-defines.json').replace("'", "''") + "')\n")
+        fp = subprocess.check_output([PS, '-NoProfile', '-File', str(script)], text=True).strip()
+        state = audit.read_json(state_path)
+        state['recipes_verified'] = fp
+        write(state_path, json.dumps(state))
+        self.assertEqual(self.sync(allow_stale=False).returncode, 0)
+        self.pin_before = (self.vendor / 'UPSTREAM.md').read_bytes()
+        write(self.up / 'hip/active.inc', '// changed include body\n')
+        commit(self.up)
+        result = self.sync(allow_stale=False)
+        self.assert_failed(result)
+        self.assertIn('HIP recipes/defines changed', result.stdout)
+        self.assert_failed(self.sync(allow_stale=False))
+
     def test_runtime_build_failure_does_not_complete(self):
         write(self.local / 'tools/build-lmxxf-runtime.cmd', '@exit /b 23\n')
         result = self.sync(skip_build=False)
@@ -410,6 +435,21 @@ class AuditTests(Fixture):
         self.assertIn('file:scripts/new-profile.txt', {item['id'] for item in newer['items']})
         self.assertTrue(audit.validate_review(newer, reviewed))
 
+    def test_local_include_changes_invalidate_review(self):
+        reviewed = self.reviewed(self.collect())
+        path = self.vendor / 'hip/active.inc'
+        for content in ('// changed local include\n', None):
+            if content is None:
+                path.unlink()
+            else:
+                write(path, content)
+            self.assertTrue(audit.validate_review(self.collect(), reviewed))
+
+    def test_host_config_keys_are_bound_to_review(self):
+        reviewed = self.reviewed(self.collect())
+        write(self.local / audit.RUNTIME.parent / 'ConfigKeys.h', '// changed product configuration\n')
+        self.assertTrue(audit.validate_review(self.collect(), reviewed))
+
     def test_integrated_needs_validation_and_duplicate_ids_fail(self):
         report = self.collect()
         reviewed = self.reviewed(report)
@@ -485,6 +525,26 @@ class AuditTests(Fixture):
 
 @unittest.skipUnless(PS and os.name == 'nt', 'PowerShell/Windows required')
 class ModuleTests(Fixture):
+    def test_release_freshness_rejects_a_newer_local_include(self):
+        write(self.local / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll', 'fixture runtime')
+        for path in (self.vendor / 'hip').glob('*'):
+            if path.suffix in ('.hip', '.inc'):
+                os.utime(path, (1000000000, 1000000000))
+        for path in (self.vendor / 'modules').rglob('*.hsaco'):
+            os.utime(path, (2000000000, 2000000000))
+        git(self.local, 'init', '-q')
+        commit(self.local)
+        command = [PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                   str(ROOT / 'tools/check-release-freshness.ps1'), '-Root', str(self.local)]
+        result = subprocess.run(command, capture_output=True, text=True, errors='replace')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        include = self.vendor / 'hip/active.inc'
+        write(include, '// locally changed include\n')
+        os.utime(include, (2100000000, 2100000000))
+        result = subprocess.run(command, capture_output=True, text=True, errors='replace')
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('STALE modules', result.stdout)
+
     def helpers(self, body):
         runner = self.local / 'helpers-test.ps1'
         write(runner, "$ErrorActionPreference = 'Stop'\n"

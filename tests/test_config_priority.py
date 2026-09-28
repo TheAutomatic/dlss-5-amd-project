@@ -30,6 +30,8 @@ class ConfigPriorityTests(unittest.TestCase):
                            f"/Fo:{out / (name + '.obj')}", f"/Fe:{target}"]
                 if fixture:
                     command += ["/LD", "/DLMXXF_CONFIG_CRT_FIXTURE"]
+                    command += [f"/I{ROOT / 'third_party/lmxxf/Development/HIP'}",
+                                f"/I{ROOT / 'third_party/lmxxf/src'}", "/DNOMINMAX"]
                 result = subprocess.run(command, cwd=out, capture_output=True, text=True,
                                         errors="replace", timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -76,6 +78,8 @@ class ConfigPriorityTests(unittest.TestCase):
         self.assertIn("PutEnvAlias(CfgKey::FitLarge", CONFIG)
         self.assertIn("PutEnvAlias(CfgKey::Pdl", CONFIG)
         self.assertIn("PutEnvString(CfgKey::NetworkHeight", CONFIG)
+        self.assertIn("PutEnvString(CfgKey::SkipBlocks", CONFIG)
+        self.assertIn("Instance()->LmxxfSkipBlocks.value_for_config_or", CONFIG)
         # Legacy names are read, never written back as the save key.
         self.assertIn("FitLargeLegacy", CONFIG)
         self.assertNotIn('SetValue(CfgKey::kSection, CfgKey::FitLargeLegacy', CONFIG)

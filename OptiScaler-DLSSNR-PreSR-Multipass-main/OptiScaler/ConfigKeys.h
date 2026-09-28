@@ -33,6 +33,8 @@ inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
 
 // Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
 inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
+inline constexpr const char *SkipBlocks = "DLSS5_SKIP_BLOCKS";
+inline constexpr char kDefaultSkipBlocks[] = "42,43,46";
 inline constexpr const char *WaveOwned = "DLSS5_HIP_WAVE_OWNED";
 inline constexpr const char *C512M32 = "DLSS5_HIP_C512_M32";
 inline constexpr const char *VitProjN64 = "DLSS5_HIP_VIT_PROJ_N64";
@@ -143,6 +145,7 @@ inline constexpr const char *const kKnown[] = {
     EarlyExeWrap,
     Diagnostic,
     NetworkHeight,
+    SkipBlocks,
     WaveOwned,
     C512M32,
     VitProjN64,
@@ -167,6 +170,58 @@ inline bool IsKnown(const char *key)
         if (std::strcmp(k, key) == 0)
             return true;
     return false;
+}
+
+// Canonical CSV for the residual blocks accepted by upstream ParseSkipBlocks.
+// Use a nonempty 'none' sentinel: an empty CRT environment value removes the key.
+inline bool NormalizeSkipBlocks(const std::string &input, std::string &result)
+{
+    const auto first = input.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return false;
+    const auto text = input.substr(first, input.find_last_not_of(" \t\r\n") - first + 1);
+    if (_stricmp(text.c_str(), "auto") == 0 || _stricmp(text.c_str(), "none") == 0)
+    {
+        result = _stricmp(text.c_str(), "auto") == 0 ? kDefaultSkipBlocks : "none";
+        return true;
+    }
+    bool blocks[70] {};
+    size_t pos = 0;
+    while (pos < text.size())
+    {
+        const auto end = text.find(',', pos);
+        const auto word = text.substr(pos, end == std::string::npos ? end : end - pos);
+        const auto begin = word.find_first_not_of(" \t\r\n");
+        const auto last = word.find_last_not_of(" \t\r\n");
+        if (begin == std::string::npos)
+            return false;
+        unsigned block = 0;
+        for (size_t i = begin; i <= last; ++i)
+        {
+            if (word[i] < '0' || word[i] > '9')
+                return false;
+            block = block * 10 + unsigned(word[i] - '0');
+            if (block > 69)
+                return false;
+        }
+        if (block == 0 || block == 39)
+            return false;
+        blocks[block] = true;
+        if (end == std::string::npos)
+            break;
+        pos = end + 1;
+        if (pos == text.size())
+            return false;
+    }
+    result.clear();
+    for (unsigned block = 1; block < 70; ++block)
+        if (blocks[block])
+        {
+            if (!result.empty())
+                result += ',';
+            result += std::to_string(block);
+        }
+    return true;
 }
 
 // DLSS5_* env name for a product key. Unified keys are already DLSS5_*.
@@ -198,9 +253,8 @@ inline void PutEnvString(const char *iniKey, const char *value)
     const char *env = EnvAlias(iniKey);
     if (!env || !value)
         return;
-    char entry[192];
-    std::snprintf(entry, sizeof entry, "%s=%s", env, value);
-    _putenv(entry);
+    const std::string entry = std::string(env) + "=" + value;
+    _putenv(entry.c_str());
     SetEnvironmentVariableA(env, value);
 }
 

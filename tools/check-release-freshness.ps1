@@ -59,7 +59,7 @@ foreach ($h in @('hip_d3d12_bridge.h', 'hip_reference_network.h')) {
     if (Test-Path -LiteralPath $p -PathType Leaf) { Test-NotStale $dll @($p) "LmxxfNrRuntime.dll ($h)" }
 }
 
-# 2) Dual-arch modules vs hip recipe/sources (modules must not be older than .hip)
+# 2) Dual-arch modules vs hip recipe/sources (modules must not be older than .hip/.inc)
 $modRoot = Join-Path $Root 'third_party/lmxxf/modules'
 if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
     $failures.Add("Missing modules dir: $modRoot")
@@ -77,8 +77,9 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
     if (!(Test-Path -LiteralPath $rootSums -PathType Leaf)) {
         $failures.Add('Missing parent SHA256SUMS')
     }
-    # Oldest hsaco vs newest .hip source under third_party/lmxxf/hip
-    $hipSrc = Get-ChildItem -LiteralPath (Join-Path $Root 'third_party/lmxxf/hip') -Filter '*.hip' -File -ErrorAction SilentlyContinue
+    # Oldest hsaco vs newest .hip/.inc source under third_party/lmxxf/hip
+    $hipSrc = Get-ChildItem -LiteralPath (Join-Path $Root 'third_party/lmxxf/hip') -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @('.hip', '.inc') }
     $hsaco = Get-ChildItem -LiteralPath $modRoot -Recurse -Filter '*.hsaco' -File -ErrorAction SilentlyContinue
     # Committed .hip and .hsaco carry checkout-order timestamps, not build times: on a fresh CI
     # clone a .hip written a few ms after a .hsaco looked "newer" and failed the release. Sync
@@ -93,7 +94,7 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
         $newestHip = ($hipSrc | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
         $oldestMod = ($hsaco | Sort-Object LastWriteTimeUtc | Select-Object -First 1).LastWriteTimeUtc
         if ($newestHip -gt $oldestMod) {
-            $failures.Add(("STALE modules: hip/*.hip newer than oldest hsaco ({0} > {1}) — rebuild with build-modules / sync" -f $newestHip, $oldestMod))
+            $failures.Add(("STALE modules: hip/*.hip or *.inc newer than oldest hsaco ({0} > {1}) — rebuild with build-modules / sync" -f $newestHip, $oldestMod))
         }
     }
 }

@@ -448,6 +448,15 @@ bool Config::Reload(std::filesystem::path iniPath)
                 LmxxfNetworkHeight.set_from_config(net);
                 CfgKey::PutEnvString(CfgKey::NetworkHeight, net.c_str());
             }
+            {
+                const auto raw = readString(CfgKey::kSection, CfgKey::SkipBlocks, true);
+                std::string blocks = CfgKey::kDefaultSkipBlocks;
+                if (raw && !raw->empty() && !CfgKey::NormalizeSkipBlocks(*raw, blocks))
+                    LOG_WARN("DlssNr.{}='{}' is not a residual block list; using {}",
+                             CfgKey::SkipBlocks, *raw, blocks);
+                LmxxfSkipBlocks.set_from_config(blocks);
+                CfgKey::PutEnvString(CfgKey::SkipBlocks, blocks.c_str());
+            }
             auto readUnifiedBoolDefault = [&](const char *key, bool defaultValue) -> bool {
                 const auto raw = readString(CfgKey::kSection, key, true);
                 if (!raw.has_value() || raw->empty() || _stricmp(raw->c_str(), "auto") == 0)
@@ -1511,6 +1520,8 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::Pdl, GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NetworkHeight,
                  Instance()->LmxxfNetworkHeight.value_for_config_or("auto").c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::SkipBlocks,
+                 Instance()->LmxxfSkipBlocks.value_for_config_or(CfgKey::kDefaultSkipBlocks).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::WaveOwned, GetBoolValue(Instance()->LmxxfWaveOwned.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::C512M32, GetBoolValue(Instance()->LmxxfC512M32.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitProjN64, GetBoolValue(Instance()->LmxxfVitProjN64.value_for_config()).c_str());

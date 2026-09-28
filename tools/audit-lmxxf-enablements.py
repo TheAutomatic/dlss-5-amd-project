@@ -134,12 +134,14 @@ def local_inputs(root, manifest):
     files.update(CONFIG / 'patches' / name for name in manifest['local_patches'])
     files.update(path.relative_to(root) for path in (root / CONFIG).glob('*.ps1'))
     files.update(VENDOR / path for path in manifest['headers'])
-    files.update(path.relative_to(root) for path in (root / VENDOR / 'hip').glob('*.hip'))
+    files.update(path.relative_to(root) for pattern in ('*.hip', '*.inc')
+                 for path in (root / VENDOR / 'hip').glob(pattern))
     files.update(VENDOR / 'hip' / name for name in ('build-modules.ps1', 'rtc_compile.cpp'))
     files.update(path.relative_to(root) for path in (root / VENDOR / 'shaders').glob('*.hlsl'))
     files.update(path.relative_to(root) for path in (root / RUNTIME).rglob('*')
                  if path.is_file() and path.suffix in ('.h', '.hpp', '.cpp', '.inl'))
     files.add(OPTIONS)
+    files.add(RUNTIME.parent / 'ConfigKeys.h')
     return {path.as_posix(): file_hash(root / path) for path in sorted(files)}
 
 

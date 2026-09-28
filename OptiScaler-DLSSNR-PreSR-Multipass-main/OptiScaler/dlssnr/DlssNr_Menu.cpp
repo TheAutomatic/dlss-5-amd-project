@@ -607,6 +607,32 @@ void RenderMenu(Config* config, float menuResScale)
 
                     if (ImGui::TreeNode("Kernels"))
                     {
+                        static char skippedInput[256] {};
+                        static std::string skippedLoaded;
+                        static bool skippedInvalid = false;
+                        const auto skipped = config->LmxxfSkipBlocks.value_or_default();
+                        if (skippedLoaded != skipped)
+                        {
+                            std::snprintf(skippedInput, sizeof skippedInput, "%s", skipped.c_str());
+                            skippedLoaded = skipped;
+                            skippedInvalid = false;
+                        }
+                        if (ImGui::InputText("Skipped residual blocks", skippedInput, sizeof skippedInput,
+                                             ImGuiInputTextFlags_EnterReturnsTrue))
+                        {
+                            std::string normalized;
+                            skippedInvalid = !CfgKey::NormalizeSkipBlocks(skippedInput, normalized);
+                            if (!skippedInvalid)
+                            {
+                                config->LmxxfSkipBlocks = normalized;
+                                CfgKey::PutEnvString(CfgKey::SkipBlocks, normalized.c_str());
+                            }
+                        }
+                        if (skippedInvalid)
+                            ImGui::TextUnformatted("Use 1-38, 40-69 separated by commas, or none.");
+                        HelpMarker("Press Enter to apply. Default: 42,43,46. Use none to run all blocks."
+                                   "\nChanges quality and performance; applies on the next network rebuild."
+                                   "\nDisable MH byte stream before skipping blocks 5-22 or 48-65.");
                         auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
                             bool v = opt.value_or_default();
                             if (ImGui::Checkbox(label, &v))
@@ -813,6 +839,8 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvAlias(CfgKey::Pdl, true);
                     config->LmxxfNetworkHeight = "auto";
                     CfgKey::PutEnvString(CfgKey::NetworkHeight, "auto");
+                    config->LmxxfSkipBlocks = CfgKey::kDefaultSkipBlocks;
+                    CfgKey::PutEnvString(CfgKey::SkipBlocks, CfgKey::kDefaultSkipBlocks);
                     config->LmxxfWaveOwned = true;
                     CfgKey::PutEnvAlias(CfgKey::WaveOwned, true);
                     config->LmxxfC512M32 = true;

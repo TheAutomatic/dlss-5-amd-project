@@ -2,6 +2,13 @@
 #include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/ConfigKeys.h"
 
 #ifdef LMXXF_CONFIG_CRT_FIXTURE
+#include "../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfProductionOptions.h"
+extern "C" __declspec(dllexport) bool RuntimeSkips(const char *expected)
+{
+    auto options = LmxxfProductionOptions(1920, 1152, "modules", "assets");
+    return options.skip_blocks == hip_reference::ParseSkipBlocks(expected);
+}
+
 extern "C" __declspec(dllexport) const char *ReadRuntimeEnvironment(const char *key)
 {
     return std::getenv(key);
@@ -36,7 +43,8 @@ int main(int argc, char **argv)
     const auto read = reinterpret_cast<const char *(*)(const char *)>(
         GetProcAddress(dll, "ReadRuntimeEnvironment"));
     const auto sync = reinterpret_cast<void (*)()>(GetProcAddress(dll, "SyncRuntimeEnvironment"));
-    Require(read && sync, "missing runtime fixture exports");
+    const auto skips = reinterpret_cast<bool (*)(const char *)>(GetProcAddress(dll, "RuntimeSkips"));
+    Require(read && sync && skips, "missing runtime fixture exports");
     auto expect = [&](const char *key, const char *value) {
         const char *actual = read(key);
         if (!actual || std::strcmp(actual, value) != 0)
@@ -74,6 +82,32 @@ int main(int argc, char **argv)
     CfgKey::PutEnvString(CfgKey::NetworkHeight, "auto");
     sync();
     expect(CfgKey::NetworkHeight, "auto");
+
+    std::string normalized;
+    Require(CfgKey::NormalizeSkipBlocks(" 46,42,43,42 ", normalized) && normalized == "42,43,46",
+            "skip block normalization failed");
+    for (const char *invalid : {"", "0", "39", "70", "1,,2", "1,", "-1", "4294967297", "1x"})
+        Require(!CfgKey::NormalizeSkipBlocks(invalid, normalized), "accepted invalid skip blocks");
+    for (const char *value : {"1,2", "none", "auto", "bad"})
+    {
+        CfgKey::PutEnvString(CfgKey::SkipBlocks, value);
+        sync();
+        const char *expected = std::strcmp(value, "1,2") == 0 ? "1,2" :
+                               std::strcmp(value, "none") == 0 ? "" : "42,43,46";
+        Require(skips(expected), "Runtime did not use the host skip block selection");
+    }
+    // The full valid list exceeds the old PutEnvString fixed buffer once the key is added.
+    std::string all;
+    for (unsigned i = 1; i <= 69; ++i)
+        if (i != 39)
+        {
+            if (!all.empty()) all += ',';
+            all += std::to_string(i);
+        }
+    CfgKey::PutEnvString(CfgKey::SkipBlocks, all.c_str());
+    sync();
+    expect(CfgKey::SkipBlocks, all.c_str());
+    Require(skips(all.c_str()), "full skip block list was truncated");
 
     FreeLibrary(dll);
     std::puts("LMXXF_CONFIG_CRT_OK");

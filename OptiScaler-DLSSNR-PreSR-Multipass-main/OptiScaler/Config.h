@@ -368,6 +368,7 @@ class Config
     CustomOptional<bool, NoDefault> LmxxfEarlyExeWrap;
     // Network tier: auto | 720 | 900 | 1080 (DLSS5_NETWORK_HEIGHT).
     CustomOptional<std::string> LmxxfNetworkHeight { "auto" };
+    CustomOptional<std::string> LmxxfSkipBlocks { CfgKey::kDefaultSkipBlocks };
     // 0.31 kernels / shared pool (bit-exact per upstream). ini name == env name.
     CustomOptional<bool> LmxxfWaveOwned { true };
     CustomOptional<bool> LmxxfC512M32 { true };

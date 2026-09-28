@@ -1,6 +1,7 @@
 #pragma once
 #include "hip_reference_network.h"
 #include "native_hip_env_options.h"
+#include "../../../ConfigKeys.h"
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -19,7 +20,10 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.graph = false;
     /* Chained-launch overlap. On unless DLSS5_HIP_PDL=0 (NativeApplyHipEnvironment). */
     o.pdl = true;
-    o.skip_blocks = hip_reference::ParseSkipBlocks("42,43,46");
+    std::string skipped = CfgKey::kDefaultSkipBlocks;
+    if (const char *value = std::getenv(CfgKey::SkipBlocks))
+        CfgKey::NormalizeSkipBlocks(value, skipped);
+    o.skip_blocks = hip_reference::ParseSkipBlocks(skipped == "none" ? "" : skipped);
     o.modules = modules;
     o.assets = assets;
     o.fast_c32 = o.fused_c32 = o.fused_ffn = o.fast_mh = o.fused_mh = o.mh_wave = o.fast_deep =
