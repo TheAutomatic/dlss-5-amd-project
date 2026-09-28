@@ -494,8 +494,10 @@ $expectedA041 = '823063EB4C76B1334FD1800C41798873AE61D4016AF0406F1F0B9DCE57B1D37
 $expectedA042 = '8AA2DCC5B6596ACA97995DBFD4E0A9790D8C15108495E0ED154DD15DBB5B465A'
 $expectedA043 = 'D1E320862A8763AC39E7CE194536D4B6C55BA61BAE9E8A92753CEC32DF67A457'
 $expectedA050 = 'D4C2CB557DA9684ADEC67CA828872E6D46BAC25ABA4857E5FB55E077B6A57F14'
+# 0.5.0 PE image only (game-folder copy; trailing default-ini overlay stripped)
+$expectedA050Pe = 'CDDFB09E019347957BF7B96C95C0E900E8D3062DFAED697A8A96B0A039AEC31A'
 $knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
-$expectedAuthor = @($expectedA030, $expectedA031, $expectedA032, $expectedA033, $expectedA040, $expectedA041, $expectedA042, $expectedA043, $expectedA050)
+$expectedAuthor = @($expectedA030, $expectedA031, $expectedA032, $expectedA033, $expectedA040, $expectedA041, $expectedA042, $expectedA043, $expectedA050, $expectedA050Pe)
 
 # Walk every candidate and accept only a file whose SHA256 is a known runtime.
 # A game may have B installed as version.dll (README allows that); the first
