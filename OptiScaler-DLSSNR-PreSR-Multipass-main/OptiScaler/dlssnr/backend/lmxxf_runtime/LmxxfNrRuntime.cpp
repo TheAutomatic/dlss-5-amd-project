@@ -27,6 +27,7 @@
 #include <set>
 #include <vector>
 #include <chrono>
+#include "HighlightCapture.h"
 
 namespace
 {
@@ -1354,6 +1355,9 @@ struct Session
     ID3D12Resource *exposureCopy = nullptr;
     DXGI_FORMAT exposureCopyFormat = DXGI_FORMAT_UNKNOWN;
     ExposureMeter meter;
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+    HighlightDiagnostics::Capture highlights;
+#endif
     /* What the live codecs were actually created with (exposureCopy, or null when we are
      * running without exposure). */
     ID3D12Resource *boundExposure = nullptr;
@@ -1567,6 +1571,9 @@ struct Session
             exposureCopy->Release();
         exposureCopy = nullptr;
         meter.Release();
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        highlights.ReleaseAfterGpuIdle();
+#endif
         if (device)
             device->Release();
         device = nullptr;
@@ -2368,6 +2375,19 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
         }
 
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        HighlightDiagnostics::Record captureMeta {};
+        captureMeta.exposureSource = j->sourceExposure ? 1u : j->autoExposure ? 2u : 3u;
+        captureMeta.debugView = j->debug_view;
+        captureMeta.pre = j->pre_exposure; captureMeta.scale = j->exposure_scale;
+        captureMeta.paper = j->paper_white; captureMeta.transfer = j->transfer_strength;
+        captureMeta.color = j->color_strength;
+        session->highlights.Begin(session->device, captureMeta, (GetAsyncKeyState(VK_F9) & 0x8000) != 0);
+        session->highlights.Copy(list, j->color, j->colorState, 0, 0, 0, j->width, j->height);
+        session->highlights.Copy(list, session->boundExposure, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                 4, 0, 0, 1, 1);
+#endif
+
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
         // menu and force Cyberpunk2077.exe colour strength to 0.
         NativeCodecParameters encParams;
@@ -2380,6 +2400,11 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         // shader to estimate one (debug_view 0x10000): that would apply the correction twice.
         encParams.auto_white = !j->autoExposure && (j->debug_view & 0x10000u) != 0;
         session->encode->Record(list, session->CodecStates({j->colorState}), j->paper_white, encParams);
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        const auto &captureGeo = session->encode->Geometry();
+        session->highlights.Copy(list, session->encode->Output(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                 1, captureGeo.x, captureGeo.y, captureGeo.fit_width, captureGeo.fit_height);
+#endif
         if (j->codec_passthrough)
         {
             // Bypass HIP: Copy encoder output directly to rgbTex output so decoder receives it as neural input.
@@ -2584,6 +2609,14 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
             std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
             list->ResourceBarrier(2, barriers);
         }
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        const auto &captureGeo = session->encode->Geometry();
+        session->highlights.Copy(list, session->rgbTex->Output(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                 2, captureGeo.x, captureGeo.y, captureGeo.fit_width, captureGeo.fit_height);
+        session->highlights.Copy(list, session->decode->BufferOutput() ? session->decodeDisplay : session->decode->Output(),
+                                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, 3, 0, 0, j->width, j->height);
+        session->highlights.OutputsRecorded();
+#endif
         j->state = LMXXF_NR_JOB_CONSUMER_COMPLETE;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2604,6 +2637,9 @@ int32_t CancelUnsubmitted(void *context, void *job)
         auto *j = static_cast<Job *>(job ? job : &session->job);
         if (j)
             j->state = LMXXF_NR_JOB_RETIRED;
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        session->highlights.Cancel();
+#endif
         if (session->bridge)
             session->bridge->CancelUnsubmitted();
         SetError("");
@@ -2634,6 +2670,9 @@ int32_t Retire(void *context, void *job)
             j->state = LMXXF_NR_JOB_RETIRED;
         if (session->bridge)
             session->bridge->NotifyOutputSubmittedIfRecorded(session->queue);
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        session->highlights.Submitted(session->queue);
+#endif
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -2668,7 +2707,7 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         if (!buf || buf_chars == 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetStatus: empty buffer");
         auto *session = static_cast<Session *>(context);
-        char text[768] {};
+        char text[2048] {};
         if (!session)
             std::snprintf(text, sizeof text, "no session");
         else if (session->failed)
@@ -2729,6 +2768,14 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
                           session->rebuildTiming.lastMs.load(), session->rebuildTiming.peakMs.exchange(0), session->rebuildTiming.maxMs.load(),
                           session->drainTiming.lastMs.load(), session->drainTiming.peakMs.exchange(0), session->drainTiming.maxMs.load());
         }
+#ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+        if (session)
+        {
+            const auto status = session->highlights.Status();
+            const size_t used = std::strlen(text);
+            std::snprintf(text + used, sizeof(text) - used, "%s", status.c_str());
+        }
+#endif
         std::strncpy(buf, text, buf_chars - 1);
         buf[buf_chars - 1] = 0;
         SetError("");

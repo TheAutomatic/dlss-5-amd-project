@@ -47,6 +47,7 @@ rem It loads LmxxfNrRuntime.dll by bare name, i.e. from beside the exe: stage th
 copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 "%OUT%\lmxxf_zero_fallback_abi.exe" || goto fail
 "%AMD_TEST_PYTHON%" -B tests\lmxxf\test_runtime_validation.py || goto fail
+"%AMD_TEST_PYTHON%" -B tests\lmxxf\test_highlight_capture.py || goto fail
 goto pass
 
 :warp

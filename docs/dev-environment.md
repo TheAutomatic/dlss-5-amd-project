@@ -16,6 +16,7 @@
 | `tools/install-amd-presr.ps1`、`tools/uninstall-amd-presr.ps1`、`tools/lmxxf-module-package.ps1`、`tools/stage-lmxxf-beside-optiscaler.*` | 安装、卸载、模块包、开发部署。计划移入 `tools/install/`，等上游集成审阅收尾后再动 |
 | `tools/sync-lmxxf-upstream.ps1`、`tools/audit-lmxxf-enablements.py` + `tools/lmxxf-sync/` | 上游同步与审阅门禁。计划整体移入 `tools/lmxxf-sync/`，时机同上 |
 | `tools/diag/set-lmxxf-diagnostic.ps1` | 改游戏 ini 的 `LmxxfDiagnostic`（`-GameDir` 必填） |
+| `tools/diag/analyze-highlight.py` | 将鸣潮测试 runtime 的 F9 `.nrhl` 采集转成逐阶段、逐区域的时序 CSV；见 [采集说明](highlight-capture.md) |
 | `tools/diag/retirement_stats.py` | 汇总 `AMD_RETIRE_DIAGNOSTICS` 构建输出的 retirement 采集 |
 | `tools/dev/scan-mojibake.py` | 扫描乱码（UTF-8 标点被按 GB18030 解码后写回，典型：U+9225 + `?`） |
 

@@ -10,6 +10,9 @@
 #include <vector>
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfColorProbe.h"
 
+#define LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/HighlightCapture.h"
+
 using Microsoft::WRL::ComPtr;
 using namespace DlssNr::Backend::LmxxfProbe;
 static void Require(bool ok, const char *what)
@@ -219,6 +222,75 @@ int main(int argc, char **argv)
     Require(probe.EntryCount() == 32 && probe.AllocatedBytes() <= 128ull * 1024 * 1024, "bounded retained storage");
     probe.ReleaseAfterGpuIdleAndDiscard();
     Require(probe.EntryCount() == 0, "explicit proven-idle teardown");
+    // Real asynchronous readback of all four stages. The first recording is
+    // deliberately discarded; no fence from a later frame may certify it.
+    ComPtr<ID3D12Resource> exposure32, exposure16;
+    auto ed = source->GetDesc(); ed.Width = ed.Height = 1; ed.Flags = D3D12_RESOURCE_FLAG_NONE;
+    ed.Format = DXGI_FORMAT_R32_FLOAT;
+    Check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &ed, read, nullptr,
+                                          IID_PPV_ARGS(&exposure32)), "capture R32 exposure");
+    ed.Format = DXGI_FORMAT_R16_FLOAT;
+    Check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &ed, read, nullptr,
+                                          IID_PPV_ARGS(&exposure16)), "capture R16 exposure");
+    HighlightDiagnostics::Capture capture;
+    HighlightDiagnostics::Record metadata {};
+    metadata.pre = 1.25f; metadata.exposureSource = 3;
+    for (unsigned frame = 0; frame < 64; ++frame)
+    {
+        reset(); fill(frame); recordProducer();
+        capture.Begin(device.Get(), metadata, frame == 0);
+        for (unsigned stage = 0; stage < 4; ++stage)
+            capture.Copy(cmd.Get(), source.Get(), read, stage, 0, 0, 13, 7);
+        auto *exposure = frame % 2 ? exposure16.Get() : exposure32.Get();
+        Barrier(cmd.Get(), exposure, read, D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_TEXTURE_COPY_LOCATION exposureDst {}, exposureSrc {};
+        exposureDst.pResource = exposure; exposureDst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        exposureSrc.pResource = upload.Get(); exposureSrc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        exposureSrc.PlacedFootprint.Footprint = {exposure->GetDesc().Format, 1, 1, 1, 256};
+        cmd->CopyTextureRegion(&exposureDst, 0, 0, 0, &exposureSrc, nullptr);
+        Barrier(cmd.Get(), exposure, D3D12_RESOURCE_STATE_COPY_DEST, read);
+        capture.Copy(cmd.Get(), exposure, read, 4, 0, 0, 1, 1);
+        capture.OutputsRecorded();
+        capture.Poll(); // Recording alone must never map unsubmitted data.
+        Check(cmd->Close(), "capture close");
+        if (frame == 0) { capture.Cancel(); continue; }
+        execute();
+        capture.Submitted(queue.Get());
+        // Wait belongs to the test, never the production capture implementation.
+        Check(queue->Signal(fence.Get(), ++submitted), "capture tail signal");
+        Check(fence->SetEventOnCompletion(submitted, event), "capture tail completion");
+        Require(WaitForSingleObject(event, 10000) == WAIT_OBJECT_0, "capture tail wait");
+        capture.Poll();
+    }
+    capture.ReleaseAfterGpuIdle();
+    for (unsigned i = 0; i < 500 && capture.Status().find("highlight=writing") != std::string::npos; ++i)
+        Sleep(10);
+    Require(capture.Status().find("highlight=saved") != std::string::npos, "capture file saved asynchronously");
+    FILE *captured = nullptr;
+    Require(_wfopen_s(&captured, capture.Path(), L"rb") == 0 && captured, "open capture");
+    char magic[8] {};
+    Require(fread(magic, 1, 8, captured) == 8 && memcmp(magic, "NRHLV1\0\0", 8) == 0, "capture magic");
+    unsigned records = 0;
+    HighlightDiagnostics::Record record {};
+    while (fread(&record, sizeof record, 1, captured) == 1)
+    {
+        Require(record.frame >= 2 && record.frame <= 64 && record.pre == 1.25f &&
+                ((record.w == 13 && record.h == 7 && record.stage < 4) ||
+                 (record.w == 1 && record.h == 1 && record.stage == 4)), "capture metadata and discarded slot");
+        fill(record.frame - 1);
+        const unsigned bpp = record.format == DXGI_FORMAT_R32_FLOAT ? 4 : record.format == DXGI_FORMAT_R16_FLOAT ? 2 : 8;
+        std::vector<unsigned char> pixels(record.w * record.h * bpp);
+        Require(fread(pixels.data(), 1, pixels.size(), captured) == pixels.size(), "complete capture payload");
+        for (unsigned y = 0; y < record.h; ++y)
+            Require(memcmp(pixels.data() + y * record.w * bpp,
+                           expected.data() + ((y + record.y) * 16 + record.x) * bpp, record.w * bpp) == 0,
+                    "captured ROI matches exact producer frame bytes");
+        ++records;
+    }
+    fclose(captured);
+    Require(records == 63 * (4 * 5 + 1), "bounded capture has all submitted stages and tiles");
+    DeleteFileW(capture.Path());
+    std::printf("PASS: highlight capture exact pixels, four stages, discard, async completion, 64-frame cap\n");
     if (info)
     {
         const UINT64 n = info->GetNumStoredMessages();

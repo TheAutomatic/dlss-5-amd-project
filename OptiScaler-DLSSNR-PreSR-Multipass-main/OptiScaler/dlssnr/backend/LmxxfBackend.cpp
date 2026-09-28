@@ -540,7 +540,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                  DlssNr::Submission::g_submissionFailures.load(), status);
         if (session && api && api->table.GetStatus)
         {
-            char perf[768] {};
+            char perf[2048] {};
             if (api->table.GetStatus(session, perf, sizeof(perf)) == LMXXF_NR_OK)
                 LOG_INFO("lmxxf runtime snapshot: {}", perf);
         }
