@@ -47,6 +47,7 @@ class Capture
     bool previousKey = false, triggered = false, sealed = false;
     std::vector<unsigned char> bytes {'N','R','H','L','V','1',0,0};
     std::shared_ptr<std::atomic<int>> saved = std::make_shared<std::atomic<int>>(0);
+    std::thread writer;
     std::atomic<int> phase {0}; // Publishes the immutable path to GetStatus.
     wchar_t path[MAX_PATH] {};
     Record meta {};
@@ -71,14 +72,14 @@ class Capture
         // disk I/O and file close never run on the render thread.
         try
         {
-            std::thread([data = std::move(bytes), destination, state]() {
+            writer = std::thread([data = std::move(bytes), destination, state]() {
                 FILE *f = nullptr;
                 if (_wfopen_s(&f, destination.c_str(), L"wb") || !f)
                 { state->store(-1); return; }
                 const bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
                 const bool closed = fclose(f) == 0;
                 state->store(ok && closed ? 1 : -1);
-            }).detach();
+            });
         }
         catch (...) { state->store(-1); }
     }
@@ -87,6 +88,9 @@ class Capture
     Capture() = default;
     Capture(const Capture &) = delete;
     Capture &operator=(const Capture &) = delete;
+    // Session destruction must join before the host can unload the runtime DLL.
+    // Ordinary frames never join, and the worker never holds GPU resources.
+    ~Capture() { if (writer.joinable()) writer.join(); }
     const wchar_t *Path() const { return path; }
     // No destructor release: the Session explicitly proves GPU idle before Release.
     // Its fail-closed path intentionally retains these bounded GPU allocations.
