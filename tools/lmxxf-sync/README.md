@@ -39,7 +39,7 @@
 
 ## 补丁维护
 
-`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑，补丁只把 `PdlActive` 替换为产品使用的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
+`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑，补丁将 `PdlActive` 替换为产品使用的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在每次 HIP 输出信号后记录可复用的完成事件，允许驱动回收提交记录；事件在已确认完成后的销毁路径中释放。该改动不加入 CPU 等待，不改变模型计算。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
 
 测试使用 `tests/sync/fixtures/lmxxf/` 中从同一固定提交 `54e14de503431cd4536f8a7151b022af232178a9` 提取的原始快照；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 

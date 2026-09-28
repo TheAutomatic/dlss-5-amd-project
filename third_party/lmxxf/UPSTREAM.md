@@ -94,6 +94,8 @@ they take upstream changes and carry only our hunks.
 Any new product edit to a vendored file must ship with a patch in `local_patches`, or the next sync drops it.
 
 ### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
+
+The local patch also records a reusable HIP completion event after each output signal, without a CPU wait. This bounds driver launch bookkeeping on externally synchronized streams; status reports marker successes/failures. Event handles are destroyed only after submitted work drains. The upstream pin and GPU module recipes are unchanged.
 > [!IMPORTANT]
 > See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (independent unified patch check + local contract check).
 

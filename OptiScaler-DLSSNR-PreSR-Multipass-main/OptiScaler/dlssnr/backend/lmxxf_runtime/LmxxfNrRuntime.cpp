@@ -2761,8 +2761,10 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " perf=v2 bridgeCreates=%u cpuMs(last/peak/max) prepare=%.2f/%.2f/%.2f enqueue=%.2f/%.2f/%.2f rebuild=%.2f/%.2f/%.2f drain=%.2f/%.2f/%.2f",
+                          " perf=v3 bridgeCreates=%u releaseMarks=%llu releaseMarkFailures=%llu cpuMs(last/peak/max) prepare=%.2f/%.2f/%.2f enqueue=%.2f/%.2f/%.2f rebuild=%.2f/%.2f/%.2f drain=%.2f/%.2f/%.2f",
                           session->bridgeCreates,
+                          session->bridge ? session->bridge->ReleaseMarks() : 0ull,
+                          session->bridge ? session->bridge->ReleaseMarkFailures() : 0ull,
                           session->prepareTiming.lastMs.load(), session->prepareTiming.peakMs.exchange(0), session->prepareTiming.maxMs.load(),
                           session->enqueueTiming.lastMs.load(), session->enqueueTiming.peakMs.exchange(0), session->enqueueTiming.maxMs.load(),
                           session->rebuildTiming.lastMs.load(), session->rebuildTiming.peakMs.exchange(0), session->rebuildTiming.maxMs.load(),
