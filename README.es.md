@@ -10,6 +10,8 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 ## Corrección 1.9.6.2
 
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
 - Acepta ambas variantes verificadas de `version.dll` de Daniel 0.5.0 en el instalador y el host, manteniendo la comprobación estricta del hash.
 - Validado con pruebas sin GPU; sin nuevas pruebas en juegos.
 

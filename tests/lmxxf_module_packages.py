@@ -86,6 +86,12 @@ class ModulePackageTests(unittest.TestCase):
         code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game), '-NonInteractive'])
         self.assertEqual(code, 0, out)
         self.assertIn('Install SUCCEEDED', out)
+        installed_ini = (game / 'OptiScaler.ini').read_text(encoding='utf-8-sig')
+        for key, value in {'DLSS5_VIT_ADAPTIVE': '1', 'DLSS5_VIT_REUSE_PERIOD': '16',
+                           'DLSS5_VIT_REUSE_GLOBAL': '1', 'DLSS5_VIT_REUSE_LOCAL': '50',
+                           'DLSS5_VIT_REUSE_IMAGE': '1', 'DLSS5_VIT_REUSE_HOTKEY': '1'}.items():
+            self.assertIn(key + '=' + value, installed_ini)
+
         self.assertEqual(snapshot_files(game / 'lmxxf-modules'), snapshot_files(self.modules))
         code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game),
                                  '-NonInteractive', '-UninstallExisting'])

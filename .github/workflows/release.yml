@@ -297,6 +297,8 @@ jobs:
             Bug reports with logs are welcome.
 
             ### 1.9.6.2
+            - lmxxf 自适应复用采用偏性能默认值：period=16 / global=1 / local=50 / image=1，F8 开启。复用可能延迟细节更新；画质优先可改回 4 / 0.22 / 1 / 0.35。
+            - Performance-oriented adaptive reuse defaults: 16 / 1 / 50 / 1, F8 enabled. May delay detail updates; conservative alternative: 4 / 0.22 / 1 / 0.35. Existing explicit ini choices remain effective.
             - 修复 Daniel 0.5.0 部分 version.dll 的安装和宿主识别失败；两种已核验文件均保留严格 SHA-256 校验。
             - Accepts both verified Daniel 0.5.0 file variants in the installer and host. No GPU/game testing for this patch.
 

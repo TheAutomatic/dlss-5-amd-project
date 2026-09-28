@@ -10,6 +10,8 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ## 1.9.6.2 fix
 
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
 - Accepts both verified Daniel 0.5.0 `version.dll` variants in the installer and runtime host, retaining strict file-hash checks.
 - Validated with no-GPU regression tests; no new game testing.
 

@@ -10,6 +10,8 @@
 
 ## 1.9.6.2 修复
 
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
 - 修复 Daniel 0.5.0 部分 `version.dll` 因文件哈希不同而无法安装或识别的问题；兼容两种已核验文件，保留严格哈希校验。
 - 本次无 GPU 回归验证，不包含新的实机验证。
 

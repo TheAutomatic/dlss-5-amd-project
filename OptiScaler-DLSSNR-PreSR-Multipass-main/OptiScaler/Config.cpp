@@ -506,7 +506,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             }
             {
                 auto period = readInt(CfgKey::kSection, CfgKey::VitReusePeriod);
-                int p = period.has_value() ? *period : 4;
+                int p = period.has_value() ? *period : 16;
                 if (p < 1)
                     p = 1;
                 if (p > 16)
@@ -516,17 +516,17 @@ bool Config::Reload(std::filesystem::path iniPath)
                 snprintf(buf, sizeof buf, "%d", p);
                 CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
                 auto g = readFloat(CfgKey::kSection, CfgKey::VitReuseGlobal);
-                const float gv = g.has_value() ? *g : 0.22f;
+                const float gv = g.has_value() ? *g : 1.0f;
                 LmxxfVitReuseGlobal.set_from_config(gv);
                 snprintf(buf, sizeof buf, "%g", gv);
                 CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
                 auto l = readFloat(CfgKey::kSection, CfgKey::VitReuseLocal);
-                const float lv = l.has_value() ? *l : 1.0f;
+                const float lv = l.has_value() ? *l : 50.0f;
                 LmxxfVitReuseLocal.set_from_config(lv);
                 snprintf(buf, sizeof buf, "%g", lv);
                 CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
                 auto im = readFloat(CfgKey::kSection, CfgKey::VitReuseImage);
-                const float iv = im.has_value() ? *im : 0.35f;
+                const float iv = im.has_value() ? *im : 1.0f;
                 LmxxfVitReuseImage.set_from_config(iv);
                 snprintf(buf, sizeof buf, "%g", iv);
                 CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);

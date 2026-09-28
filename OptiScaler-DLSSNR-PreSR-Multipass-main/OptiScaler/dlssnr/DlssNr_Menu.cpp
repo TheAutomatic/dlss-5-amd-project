@@ -723,7 +723,7 @@ void RenderMenu(Config* config, float menuResScale)
                             CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
                         }
                         float lo = config->LmxxfVitReuseLocal.value_or_default();
-                        if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 2.f, "%.2f"))
+                        if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
                         {
                             config->LmxxfVitReuseLocal = lo;
                             char buf[32];
@@ -859,14 +859,14 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitStream, "0");
                     config->LmxxfVitAdaptive = true;
                     CfgKey::PutEnvAlias(CfgKey::VitAdaptive, true);
-                    config->LmxxfVitReusePeriod = 4;
-                    CfgKey::PutEnvString(CfgKey::VitReusePeriod, "4");
-                    config->LmxxfVitReuseGlobal = 0.22f;
-                    CfgKey::PutEnvString(CfgKey::VitReuseGlobal, "0.22");
-                    config->LmxxfVitReuseLocal = 1.0f;
-                    CfgKey::PutEnvString(CfgKey::VitReuseLocal, "1");
-                    config->LmxxfVitReuseImage = 0.35f;
-                    CfgKey::PutEnvString(CfgKey::VitReuseImage, "0.35");
+                    config->LmxxfVitReusePeriod = 16;
+                    CfgKey::PutEnvString(CfgKey::VitReusePeriod, "16");
+                    config->LmxxfVitReuseGlobal = 1.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseGlobal, "1");
+                    config->LmxxfVitReuseLocal = 50.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseLocal, "50");
+                    config->LmxxfVitReuseImage = 1.0f;
+                    CfgKey::PutEnvString(CfgKey::VitReuseImage, "1");
                     config->LmxxfVitReuseHotkey = true;
                     CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, true);
                     DlssNr::AmdBridge::InvalidateHistory();
@@ -874,7 +874,7 @@ void RenderMenu(Config* config, float menuResScale)
                 HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
                            "\nPDL on, High resolution on, network tier auto,"
                            "\n0.31 kernels / shared pool on, ViT byte off,"
-                           "\nimage reuse on (period 4, global 0.22, local 1, image 0.35),"
+                           "\nimage reuse on (period 16, global 1, local 50, image 1),"
                            "\nDebug view Off.");
             }
 
