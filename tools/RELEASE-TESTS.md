@@ -60,7 +60,7 @@ python -m unittest tests.lmxxf_upstream_sync
 ## C. 发包（产品产物）
 
 ```powershell
-# 若改了宿主或 runtime 源码，先编：
+# 若改了 OptiScaler 本体或 runtime 源码，先编：
 # tools\build-release-local.cmd   (OptiScaler.dll)
 # tools\build-lmxxf-runtime.cmd   (LmxxfNrRuntime.dll)
 
@@ -103,7 +103,7 @@ cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/
 
 | 改动类型 | A | B | C | 实机 | CI（release.yml） |
 |---|---|---|---|---|---|
-| lmxxf Runtime / 宿主逻辑 | ✓ | | ✓ | 建议 | runtime build + ABI |
+| lmxxf Runtime / OptiScaler 本体逻辑 | ✓ | | ✓ | 建议 | runtime build + ABI |
 | 安装/打包脚本 | ✓ | | ✓ | | installer/uninstall + package |
 | sync / 第三方 | ✓ | ✓ | ✓ | | 模块新鲜度 + ABI |
 | 菜单/配置键 | ✓ 或抽测 | | | | 不必加步 |

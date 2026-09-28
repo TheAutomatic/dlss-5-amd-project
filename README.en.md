@@ -30,7 +30,7 @@ This project is forked from **Matheus** and upstream community projects, maintai
 - Menu layout cleanup with lmxxf / daniel feature toggles
 
 **Known issues**
-- Using danielblnc 0.4.3 / 0.5.0 as the backend may crash in the Wo Long 2 Demo; not yet determined whether this side or the host is at fault.
+- Using danielblnc 0.4.3 / 0.5.0 as the backend may crash in the Wo Long 2 Demo; not yet determined whether this project or the upstream backend is at fault.
 - Baldur's Gate 3: (not confirmed whether this is DX11-related) you may sometimes need to toggle the in-game DLSS quality level and the Ins-menu top-left DX11-to-DX12 FSR 4.1.1 upscaler back and forth before NR takes effect.
 
 ### lmxxf config map (ini / Ins menu)

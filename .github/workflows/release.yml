@@ -312,7 +312,7 @@ jobs:
             - 菜单布局优化，同步 lmxxf / daniel 功能开关
 
             **已知问题**
-            - 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或宿主原因。
+            - 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或上游原因。
             - 博德之门 3：（未证实是否与 DX11 有关）有时可能需要反复更改游戏内 DLSS 等级，和 Ins 菜单内左上角 DX11 转 DX12 FSR4.1.1 升频器，以使得 NR 功能生效。
 
             ### What's new in 1.9.6 (first stable release since 1.8.6)
@@ -335,7 +335,7 @@ jobs:
             - Menu layout cleanup with lmxxf / daniel feature toggles
 
             **Known issues**
-            - Using danielblnc 0.4.3 / 0.5.0 as the backend may crash in the Wo Long 2 Demo; not yet determined whether this side or the host is at fault.
+            - Using danielblnc 0.4.3 / 0.5.0 as the backend may crash in the Wo Long 2 Demo; not yet determined whether this project or the upstream backend is at fault.
             - Baldur's Gate 3: (not confirmed whether this is DX11-related) you may sometimes need to toggle the in-game DLSS quality level and the Ins-menu top-left DX11-to-DX12 FSR 4.1.1 upscaler back and forth before NR takes effect.
 
             No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.

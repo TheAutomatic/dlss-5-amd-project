@@ -30,7 +30,7 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 - Menú reorganizado con interruptores lmxxf / daniel
 
 **Problemas conocidos**
-- Con danielblnc 0.4.3 / 0.5.0 como backend, la demo de Wo Long 2 puede cerrarse de forma inesperada; aún no se ha determinado si la causa está en este lado o en el host.
+- Con danielblnc 0.4.3 / 0.5.0 como backend, la demo de Wo Long 2 puede cerrarse de forma inesperada; aún no se ha determinado si la causa está en este proyecto o en el backend upstream.
 - Baldur's Gate 3: (no está confirmado si está relacionado con DX11) a veces puede ser necesario alternar el nivel de DLSS del juego y el upscaler DX11-a-DX12 FSR 4.1.1 de la esquina superior izquierda del menú Ins hasta que el NR funcione.
 
 ### Mapa de configuración lmxxf (ini / menú Ins)

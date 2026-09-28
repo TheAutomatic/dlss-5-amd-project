@@ -30,12 +30,12 @@
 - 菜单布局优化，同步 lmxxf / daniel 功能开关
 
 **已知问题**
-- 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或宿主原因。
+- 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或上游原因。
 - 博德之门 3：（未证实是否与 DX11 有关）有时可能需要反复更改游戏内 DLSS 等级，和 Ins 菜单内左上角 DX11 转 DX12 FSR4.1.1 升频器，以使得 NR 功能生效。
 
 ### lmxxf 配置速查（ini / 菜单）
 
-跨层键与上游同名（`DLSS5_*`）。**Ins 菜单文案不会写入 ini**；优先级：菜单/ini > `native-game-flags.txt` / 环境变量 > 默认值。`DLSS5_STRENGTH` 与 Detail/Colour 为同一组强度，宿主已发送时以菜单为准，无需第二套滑条。
+跨层键与上游同名（`DLSS5_*`）。**Ins 菜单文案不会写入 ini**；优先级：菜单/ini > `native-game-flags.txt` / 环境变量 > 默认值。`DLSS5_STRENGTH` 与 Detail/Colour 为同一组强度，本侧已传入时以菜单为准，无需第二套滑条。
 
 | 菜单位置 | 键 | 说明 |
 |---|---|---|
