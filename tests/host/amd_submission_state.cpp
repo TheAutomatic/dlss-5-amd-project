@@ -1,5 +1,6 @@
 #include <Windows.h>
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/amd/SubmissionState.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/amd/AmdLayout.h"
 #include <cassert>
 #include <iostream>
 
@@ -56,5 +57,31 @@ int main()
     assert(state.submitted);
     assert(!state.CanRetire(false, 3, 4));
     assert(state.CanRetire(true, 4, 4));
+    // Asynchronous fallback completes through the common worker publication,
+    // while the inline counter stays zero. Neither an initial -1 nor an early
+    // D3D fence may release the slot; a real worker completion must release it.
+    for (auto layout : {&AmdPreSr::kAmd042, &AmdPreSr::kAmd043,
+                        &AmdPreSr::kAmd050, &AmdPreSr::kAmd050Pe})
+    {
+        state.Record(1); state.Submit(2);
+        std::uint32_t worker = UINT32_MAX, inlined = 0;
+        const auto completed = [&] {
+            return AmdPreSr::ReadCompletedJob(*layout, [&](std::uint32_t rva) {
+                assert(rva == layout->workerDone);
+                return rva == layout->workerDone ? worker : inlined;
+            });
+        };
+        assert(completed() == 0);
+        assert(!state.CanRetire(completed() >= 1, 1, 1));
+        worker = 1;
+        assert(!state.CanRetire(completed() >= 1, 0, 1));
+        assert(state.CanRetire(completed() >= 1, 1, 1));
+        assert(!state.CanRetire(completed() >= 2, 2, 2));
+        worker = 2;
+        assert(state.CanRetire(completed() >= 2, 2, 2));
+    }
+    const auto legacy = AmdPreSr::ReadCompletedJob(AmdPreSr::kAmd031,
+        [](std::uint32_t rva) { assert(rva == AmdPreSr::kAmd031.jobDone); return 7u; });
+    assert(legacy == 7);
     std::cout << "submission-state regression scenarios passed\n";
 }

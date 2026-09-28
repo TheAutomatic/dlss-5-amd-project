@@ -39,6 +39,14 @@ namespace AmdPreSr
 namespace
 {
 template <class T> T& At(HMODULE h, size_t rva) { return *reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(h) + rva); }
+UINT CompletedJob(HMODULE h, const AmdLayout* layout)
+{
+    if (!h || !layout) return 0;
+    return ReadCompletedJob(*layout, [h](std::uint32_t rva) {
+        return static_cast<UINT>(InterlockedCompareExchange(
+            reinterpret_cast<volatile LONG*>(&At<UINT>(h, rva)), 0, 0));
+    });
+}
 void Check(HRESULT hr, const char* operation)
 {
     if (FAILED(hr))
@@ -523,7 +531,7 @@ struct Backend::Impl
         for (UINT i = 0; i < runtime.size(); ++i)
             if (auto h = runtime[i])
                 Log("AMD boundary pass " + std::to_string(i + 1) + " native=" +
-                    std::to_string(At<UINT>(h, L->jobDone)) + "/" + std::to_string(traced->jobs[i]) +
+                    std::to_string(CompletedJob(h, L)) + "/" + std::to_string(traced->jobs[i]) +
                     " nativePending=" + std::to_string(reinterpret_cast<uintptr_t>(At<void*>(h, L->pendingList))) +
                     " timeouts=" + std::to_string(At<UINT>(h, L->timeoutCount)));
         if (FAILED(removed) && !deviceLostReported)
@@ -588,8 +596,7 @@ struct Backend::Impl
                 jobs += std::to_string(sl.jobs[i]);
                 UINT done = 0;
                 if (L && i < runtime.size() && runtime[i])
-                    done = static_cast<UINT>(InterlockedCompareExchange(
-                        reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
+                    done = CompletedJob(runtime[i], L);
                 dones += std::to_string(done);
             }
             Log("AMD slot-snap k=" + std::to_string(k) +
@@ -624,8 +631,7 @@ struct Backend::Impl
         const UINT passCount = (sl.passCount == Slot::kPassUnset) ? 0u : sl.passCount;
         for (UINT i = 0; i < passCount; ++i)
         {
-            const auto done = static_cast<UINT>(InterlockedCompareExchange(
-                reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
+            const auto done = CompletedJob(runtime[i], L);
             nativeDone &= sl.jobs[i] != 0 && done >= sl.jobs[i];
 #ifdef AMD_RETIRE_DIAGNOSTICS
             // sample is null for every slot except the one RetireSubmission
@@ -761,7 +767,7 @@ struct Backend::Impl
             // taken and how far the native counter had progressed.
             if (++skipWaits <= 3 || skipWaits % 300 == 0)
                 Log("AMD wait skipped (not rebuilding); count=" + std::to_string(skipWaits) +
-                    " nativeDone=" + std::to_string(L && runtime[0] ? At<UINT>(runtime[0], L->jobDone) : 0) +
+                    " nativeDone=" + std::to_string(CompletedJob(runtime[0], L)) +
                     " job=" + std::to_string(slots[k].jobs[0]));
             return;
         }
@@ -795,8 +801,7 @@ struct Backend::Impl
                     nativeDone = false;
                     break;
                 }
-                const auto done = static_cast<UINT>(InterlockedCompareExchange(
-                    reinterpret_cast<volatile LONG*>(&At<UINT>(runtime[i], L->jobDone)), 0, 0));
+                const auto done = CompletedJob(runtime[i], L);
                 if (done < slots[k].jobs[i])
                 {
                     nativeDone = false;
@@ -1675,7 +1680,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             const void* pendingBefore = At<ID3D12CommandList*>(r, L->pendingList);
             const unsigned recreateBefore = L->recreate ? At<volatile uint8_t>(r, L->recreate) : 0;
             const UINT jobBefore = At<UINT>(r, L->jobId);
-            const UINT doneBefore = At<UINT>(r, L->jobDone);
+            const UINT doneBefore = CompletedJob(r, L);
             // 0.3.1 uses a blocking mutex. +0x4c is its ownership/recursion
             // count, not a waiter count or a measure of worker saturation.
             const UINT lockBefore = L->recordLock ? At<UINT>(r, L->recordLock + 0x4c) : 0;
@@ -1847,6 +1852,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                 p->Log("AMD Record ok: n=" + std::to_string(p->recordCalls) +
                        " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
                        " call_us=" + std::to_string(callMicros) +
+                       " completion=" + (L->workerDone ? "worker" : "inline-legacy") +
+                       " inlineDone=" + std::to_string(At<UINT>(r, L->jobDone)) +
+                       " workerDone=" + std::to_string(CompletedJob(r, L)) +
                        " slot=" + std::to_string(static_cast<UINT>(sl - &p->slots[0])));
         }
         Barrier(cmd, f.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.motionState);
@@ -2131,8 +2139,7 @@ void Backend::Submitted(ID3D12CommandQueue* queue, UINT n, ID3D12CommandList* co
         // All runtimes use HIP stream 0. Publish the next pass only once the previous
         // worker finished; otherwise its capture-wait kernel could block the first pass.
         auto start = GetTickCount64();
-        while (static_cast<UINT>(InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(&At<UINT>(h, L->jobDone)), 0,
-                                                            0)) < sl.jobs[i])
+        while (CompletedJob(h, L) < sl.jobs[i])
         {
             if (GetTickCount64() - start > 5000)
             {
