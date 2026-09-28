@@ -93,11 +93,13 @@ for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--ex
   echo --- lmxxf_nr_gpu %%~M
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )
-rem Output-hash baselines: fixed pattern, 1920x1080, seed 1 (RX 9070 XT, this weights set).
-call :Hash 5e30fd5e768d35bb --output-hash || goto fail
-call :Hash 9417d81940875916 --auto-exposure || goto fail
-call :Hash 9417d81940875916 --auto-exposure --scale16 || goto fail
-call :Hash ed30d52b0aa422fc --r10g10b10a2 || goto fail
+rem Output-hash baselines: fixed pattern, 1920x1080, seed 1 (RX 9070 XT).
+rem Rebuilt main 9a721fc control, vendor pin 54e14de5; the previous DLL baseline predated
+rem the current source. Completion-event candidate independently matched every control hash.
+call :Hash d3e681a3fdee46d8 --output-hash || goto fail
+call :Hash bb3b572fa319bd6d --auto-exposure || goto fail
+call :Hash bb3b572fa319bd6d --auto-exposure --scale16 || goto fail
+call :Hash 9372fe6db7976169 --r10g10b10a2 || goto fail
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_bridge_zero_gpu.cpp /Fe"%OUT%\lmxxf_bridge_zero_gpu.exe" /Fo"%OUT%\lmxxf_bridge_zero_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --probe-drain || goto fail
