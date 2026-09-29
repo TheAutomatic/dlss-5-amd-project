@@ -253,6 +253,15 @@ DLSS5_FIT_LARGE=true
 ; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
 DLSS5_HIP_PDL=true
 
+; Performance-oriented adaptive ViT reuse. F8 toggles reuse.
+; More conservative values: period=4, global=0.22, local=1, image=0.35.
+DLSS5_VIT_ADAPTIVE=1
+DLSS5_VIT_REUSE_PERIOD=16
+DLSS5_VIT_REUSE_GLOBAL=1
+DLSS5_VIT_REUSE_LOCAL=50
+DLSS5_VIT_REUSE_IMAGE=1
+DLSS5_VIT_REUSE_HOTKEY=1
+
 ; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
 ; Not the HDR Paper White anchor.
 LmxxfPaperWhite=1

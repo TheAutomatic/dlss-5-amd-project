@@ -381,10 +381,10 @@ class Config
     CustomOptional<int> LmxxfVitStream { 0 };
     // Static-frame ViT reuse (tunable; not bit-exact).
     CustomOptional<bool> LmxxfVitAdaptive { true };
-    CustomOptional<int> LmxxfVitReusePeriod { 4 };
-    CustomOptional<float> LmxxfVitReuseGlobal { 0.22f };
-    CustomOptional<float> LmxxfVitReuseLocal { 1.0f };
-    CustomOptional<float> LmxxfVitReuseImage { 0.35f };
+    CustomOptional<int> LmxxfVitReusePeriod { 16 };
+    CustomOptional<float> LmxxfVitReuseGlobal { 1.0f };
+    CustomOptional<float> LmxxfVitReuseLocal { 50.0f };
+    CustomOptional<float> LmxxfVitReuseImage { 1.0f };
     CustomOptional<bool> LmxxfVitReuseHotkey { true };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.

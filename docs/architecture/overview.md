@@ -57,7 +57,7 @@ lmxxf 后端细节见 [backends/lmxxf.md](../backends/lmxxf.md)。
 | `amd_presr.log` | 同上 | daniel 路径：横幅、runtime 版本、Record / Completed / 边界、退休统计 |
 | `amd_bridge.log` | 同上 | 桥接层：窗口与退出钩子、分辨率稳定等 |
 | `dlssnr_on_amd.log` | 作者 runtime 写，商店版游戏在游戏目录的 `_storage_\` 子目录，不在代理同目录 | `network job`、`SPIKE` 等 |
-| `DLSS5-AMD/native-game-flags.txt` | 游戏目录 | 不是日志；lmxxf runtime 读的 `DLSS5_FIT_LARGE` |
+| `DLSS5-AMD/native-game-flags.txt` | 游戏目录 | 不是日志；lmxxf 的可选 `DLSS5_*` 配置，只补菜单 / ini 未设置的键 |
 
 商店（XGP）版游戏装在可写的 `Content\` 一类目录，不装进 `WindowsApps`（见 [installer.md](installer.md)）。
 

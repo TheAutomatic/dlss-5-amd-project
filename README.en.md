@@ -1,12 +1,24 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.6.1
+# OptiScaler AMD pre-SR — 1.9.6.3
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
 This project is forked from **Matheus** and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
+
+## 1.9.6.3 fix
+
+- Fixes per-frame `isolated neural command list` messages rapidly growing `amd_bridge.log` on the Daniel backend. This routine event is now logged once per process.
+- Rendering, NR settings and command-list submission are unchanged. Existing 1.9.6.2 users can replace only the host DLL, keeping their runtime, weights and configuration.
+
+## 1.9.6.2 fix
+
+- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
+
+- Accepts both verified Daniel 0.5.0 `version.dll` variants in the installer and runtime host, retaining strict file-hash checks.
+- Validated with no-GPU regression tests; no new game testing.
 
 ## What's new in 1.9.6.1
 
@@ -392,6 +404,6 @@ This distribution contains no NVIDIA proprietary binaries, danielblnc installer 
 
 ## Known issues (1.9.2-alpha)
 
-- **`lmxxf` backend: Pre-SR neural rendering above ~1080p internal resolution costs noticeably more per frame.** Larger Color (e.g. 4K Quality ~2258×1271) adds same-frame work; the older per-frame chain-rebuild hitch is fixed. Prefer internal render at or below roughly: **4K Performance**, **1440p Balanced**, or **1080p native**. `DLSS5_FIT_LARGE` defaults to on (matching upstream package flags; set `false` explicitly to opt out). Without FitLarge, width must be at most 2560, height at most 1080, and the pixel count within 1920×1080 (for example 2024×848). 2560×1080 is rejected. With FitLarge, larger Color is fitted onto the 1080 network.
-- **Cyberpunk 2077 neon turning brown:** At Colour strength 1, Pre-SR feeds the network's hue into the game's later grade and green neon can turn brown. Set Colour strength to 0 to change brightness only. This is not selected by the game's name.
+- **Large inputs with `lmxxf`:** `[DlssNr] DLSS5_FIT_LARGE` is enabled by default and fits larger Color inputs to the network dimensions. Palworld's former multi-second stalls came from a bug that rebuilt the chain every frame; it is fixed. As of 2026-09-28, the maintainer has found no remaining FitLarge problem after that fix. The old measurements are no longer grounds for recommending a lower resolution or disabling FitLarge. When explicitly set to `false`, input width is limited to 2560, height to 1080, and pixel count to 1920×1080 (for example 2024×848); 2560×1080 is rejected.
+- **Cyberpunk 2077 colour:** The old network-hue mixing path that could turn neon brown has been changed. Colour strength 0–1 now preserves the game's original chroma; values above 1 blend toward network colour. The old recommendation to force it to 0 no longer applies. This rule applies to all games.
 - **PDL:** Chained launch is on by default. If the driver has no `hipExtModuleLaunchKernel`, set `DLSS5_HIP_PDL=false` and restart.

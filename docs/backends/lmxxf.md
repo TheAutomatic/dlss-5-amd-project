@@ -34,12 +34,9 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 
 ### FitLarge
 
-`LmxxfFitLarge` 对应上游的 `DLSS5_FIT_LARGE`。安装器会把 `DLSS5-AMD/native-game-flags.txt` 里的这一行和 ini 同步。
+正式配置键为 `[DlssNr] DLSS5_FIT_LARGE`，默认 **true**；旧名 `LmxxfFitLarge` 仅用于读取旧配置。菜单 / ini 优先，flags 只补宿主未设置的键，具体见 [安装器与配置](../architecture/installer.md#dlss5-amdnative-game-flagstxt)。
 
-| 日期 | 默认值 | 原因 |
-|---|---|---|
-| 2026-09-24 | false（`auto` 也当作 false） | 帕鲁在 2258×1271 下变成约 2 s/帧（见 [palworld](../games/palworld.md)） |
-| 2026-09-27（`d788963`） | **true** | 跟上游安装包的 flags 保持一致。每帧重建的那个 bug（alloc 和 valid 比较不一致）已经修掉，但大分辨率的 Color 仍然会增加同帧开销 |
+帕鲁曾出现的秒级卡顿由 allocation 与渲染子矩形比较错误造成，已在 `a129c5f` 修复。截至 2026-09-28，维护者未发现修复后 FitLarge 仍有问题；旧耗时不能作为现行性能结论，也不构成关闭 FitLarge 或限制分辨率的建议。修复经验与回归依据见 [Palworld](../games/palworld.md)，默认值变更历史见 [决策记录](../decisions.md)。
 
 ## 曝光
 
@@ -69,7 +66,7 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 - **切档不爆显存**：`CancelUnsubmitted` 和 `NotifyOutputSubmittedIfRecorded`（在 `hip_d3d12_bridge.h` 里，这个文件被 pin 住）会回滚未提交的 bridge 状态。燕云以前切档时显存涨到 21.6 GB，就是这个原因。
 - **重建判断**：allocation 与 allocation 比、valid 与 valid 比（`a129c5f`）。以前拿 alloc 去和 valid 比，UE5 在非原生档位下每帧都会重建整条链。
 - **viewport**：显式清空 viewport 记为 unset，不回放清空之前的旧状态。
-- **PDL**：`LmxxfPdl` 默认 true；设为 false 时写 `DLSS5_HIP_PDL=0`，给不支持的驱动用。
+- **PDL**：`[DlssNr] DLSS5_HIP_PDL` 默认 true；设为 false 时传递同名环境变量值 0，给不支持的驱动用。旧键 `LmxxfPdl` 仅用于配置迁移。
 
 ## 输出哈希 A/B（判断“优化”还是“改画质”）
 
@@ -118,21 +115,14 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 - 有意排除的 D3D12 网络主体；
 - 没人开的消融或死实验。
 
-作者从来没打开过的开关，我们不追。
+开关是否接入，以实际消费者、上游部署证据和逐项审阅记录为准；不能仅凭名称或某次部署没有启用就排除。
 
 ## 暂缓 / 不做
 
-以下来自 09-25 的能力评审，本次没有复核：
-
-- `PRE_UPSCALE_ASYNC` 对我们不适用。
-- 不做按游戏的颜色默认值（项目规则：不按游戏名判断）。
-- PDL-C512 排除。
-- gfx1200 在 9060 实测之前都算实验性。
-- RGBA32F 曝光定为不做：安全降级，NR 照常运行。
+逐项的暂缓、排除理由及下一步，以 [upstream-review.json](../../third_party/lmxxf/upstream-review.json) 为准；实际跳过的验证以 [sync-state.json](../../third_party/lmxxf/sync-state.json) 的 `skipped_checks` 为准。旧能力评审的列表不能直接当作当前结论；`reviewed` 也不代表所有功能都已启用或所有验证都已完成。
 
 ## 与上游的关系
 
 - 产品维护 `LmxxfNrApi.h`、`LmxxfNrRuntime.cpp`、`LmxxfProductionOptions.h`；vendor 中的 codec 等文件也携带本地补丁。文件归属与完成 pin 以 [UPSTREAM.md](../../third_party/lmxxf/UPSTREAM.md) 为准，生效补丁以 manifest 和 [补丁维护说明](../../tools/lmxxf-sync/README.md#补丁维护) 为准；同步时应逐项核对上游是否已吸收对应契约。
 - `d788963` 之后，PR #9（零输出回退）已并入上游。我们随之把 `native_rgb_reflect.h` 和 `native_input_geometry.h` 改回跟上游，只剩 `hip_d3d12_bridge.h` 还 pin 着。
-- 完成的 pin 仍是 `3d9b3e4`。`sync-state.json` 处于 pending（目标 `24986ae`），因为 346 项的启用点审阅还没填完。
-- 给上游的 PR 攒着一次提，实机验证之后再提（分支 `feat/colour-contract-and-kernel-flags`）。
+- 当前源码 pin 和同步状态分别读取 [UPSTREAM.md](../../third_party/lmxxf/UPSTREAM.md) 与 [sync-state.json](../../third_party/lmxxf/sync-state.json)，本页不维护第二份提交号。2026-09-28 文档核对时，状态为 `reviewed`，但记录了 `SkipBuild` 和 `AllowStaleModules`；这些是该次同步的验证例外，不能据此宣称完成构建或 GPU 验证。

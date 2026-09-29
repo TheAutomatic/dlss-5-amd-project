@@ -296,6 +296,9 @@ inline constexpr AmdLayout kAmd043 {
 // Data cluster is NOT a uniform delta from 0.4.3: device/queue/engine/history* use
 // +0x5008, option/control block +0x5038.
 // Host-contract pins follow the same contract as prior layouts; record +81 B.
+// Two verified 0.5.0 files differ only by trailing data beginning with default ini text.
+// The shorter file exactly matches the longer file through the end of the PE sections;
+// the RVA pins below apply to both. The extraction/installation mechanism is unverified.
 inline constexpr AmdLayout kAmd050 {
     "0.5.0",
     39367841,
@@ -312,9 +315,26 @@ inline constexpr AmdLayout kAmd050 {
     0xb67dc, 0xb651c, 0xb69fd
 };
 
+// 0.5.0 PE image only (game-folder copy / overlay stripped). Identical sections.
+inline constexpr AmdLayout kAmd050Pe {
+    "0.5.0-pe",
+    38703616,
+    Sha256FromHex("cddfb09e019347957bf7b96c95c0e900e8d3062dfaed697a8a96b0a039aec31a"),
+    0, 0x29870, 0x15640, 0xa000, 0x19340, 0xb6b88,
+    0xb5c18, 0xb5c20, 0xb5c30, 0xb5d78, 0xb5d80, 0xb60c8, 0xb60ca,
+    0xb65d0, 0xb6604, 0xb6608, 0xb6634, 0xb6828, 0xb6908, 0xb6914,
+    0xb69b8, 0xb69bc, 0xb69c4, 0xb69c5, 0xb69c6, 0xb69c7, 0xb69c8,
+    0xb69d8, 0xb69dc, 0xb69e0, 0xb69e8, 0xb69ec, 0xb6ae8,
+    0xb6ac0, 0xb6a48, 0xb68f4, 0xb6910, 0xb6920,
+    0xb67d4, 0xb67f0, 0xb6748, 0x19b90, 0x1a2b6,
+    0x19d80, 0x1a120, 0x1a17a, 0x1a267,
+    0xb69f0, 0xb69f4, 0xb69f8, 0xb69fc,
+    0xb67dc, 0xb651c, 0xb69fd
+};
+
 inline constexpr const AmdLayout* kAmdLayouts[] = {
     &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043,
-    &kAmd050
+    &kAmd050, &kAmd050Pe
 };
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
@@ -330,4 +350,5 @@ static_assert(kAmd041.sha256.bytes[0] == 0x82 && kAmd041.sha256.bytes[31] == 0x7
 static_assert(kAmd042.sha256.bytes[0] == 0x8a && kAmd042.sha256.bytes[31] == 0x5a);
 static_assert(kAmd043.sha256.bytes[0] == 0xd1 && kAmd043.sha256.bytes[31] == 0x57);
 static_assert(kAmd050.sha256.bytes[0] == 0xd4 && kAmd050.sha256.bytes[31] == 0x14);
+static_assert(kAmd050Pe.sha256.bytes[0] == 0xcd && kAmd050Pe.sha256.bytes[31] == 0x1a);
 }

@@ -81,16 +81,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\PACKAGE_RELEAS
 
 ### C2. 打包 / 打 tag 前（必跑，不要拖到 CI 才发现）
 
-本地 A 不含 ABI。**与 Actions 相同的 ABI 必须在 PACKAGE_RELEASE 之前跑过**（29→30 那次就是只改了 python 侧）：
+统一 `--tier ci` 已包含 ABI；只跑分项 A/B 时，还需在 PACKAGE_RELEASE 前执行以下 ABI 入口。它配置头文件路径，并一起运行 C++ ABI、C 冒烟和 Python runtime 校验：
 
 ```powershell
-# 需 VS/MSVC 开发者环境
-cl /nologo /std:c++17 /O2 /EHsc /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
-  tests/lmxxf/lmxxf_nr_abi.cpp /Fe:exports/lmxxf-runtime/lmxxf_nr_abi.exe
-& exports/lmxxf-runtime/lmxxf_nr_abi.exe exports/lmxxf-runtime/LmxxfNrRuntime.dll third_party/lmxxf/modules
-cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime" `
-  tests/lmxxf/lmxxf_zero_fallback_abi.c /Fo:exports/lmxxf-runtime/ /Fe:exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
-& exports/lmxxf-runtime/lmxxf_zero_fallback_abi.exe
+# 验证即将打包的 runtime；修改过源码时先重建。
+$env:LMXXF_TEST_RUNTIME = (Resolve-Path exports/lmxxf-runtime/LmxxfNrRuntime.dll).Path
+cmd /d /c tests\lmxxf\run.cmd abi
+if ($LASTEXITCODE -ne 0) { throw 'lmxxf ABI regression failed' }
 ```
 
 模块计数、导出表与包装契约改过时，这里最容易漏（例如 29→30 时只改了 python 侧）。
@@ -125,7 +122,8 @@ cl /nologo /TC /W4 /I "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/
 | **CI + 本地** | `check-module-contract`、`test_runtime_validation`、`lmxxf_module_packages`、`amd_installer_exit`、ABI/zero-fallback、PACKAGE_RELEASE 门禁 |
 | **构建 / 发版** | 工具链 preflight、host-contract、LmxxfNrRuntime/OptiScaler 构建、发 Release |
 | **统一 ci 层额外覆盖** | `tests/host/test_config_priority.py`（ini/菜单/txt 优先级与 `DLSS5_*` 键名契约；改配置时跑）、`amd_uninstall.ps1` 交互向用例 |
-| **按需本地** | `lmxxf_upstream_sync`（动 vendor/sync 时）、GPU/金标/实机 |
+| **统一 ci 层** | `tests/sync/test_upstream_sync.py`（同步工具的离线回归，不执行真实上游集成） |
+| **按需本地** | GPU/金标/实机 |
 
 ### 数字契约（改模块列表时必须同步）
 

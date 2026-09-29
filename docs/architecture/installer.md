@@ -18,7 +18,7 @@
 | 两边都在，`-NonInteractive` | 两套都装，`NrBackend=lmxxf`，之后可改 ini |
 | 都没有 | 报错退出 |
 
-daniel runtime 白名单是 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 的完整 SHA256（`$expectedAuthor`），与 `AmdLayout.h` 的 `kAmd*` 行一一对应；未知 SHA 一律拒绝（fail closed）。加新版本时两处一起改，并验证「同尺寸改 1 字节」的文件会被拒。
+daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0.4.2 / 0.4.3 / 0.5.0 的完整 SHA256（`$expectedAuthor`），与 `AmdLayout.h` 的 `kAmd*` 行对应；未知 SHA 一律拒绝（fail closed）。加新版本时两处一起改，并验证「同尺寸改 1 字节」的文件会被拒。
 
 ## 旧安装的升级
 
@@ -39,24 +39,22 @@ daniel runtime 白名单是 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 的完整 SHA2
 | 类别 | 键 |
 |---|---|
 | 强制写入（本次安装的选择） | `Enabled=true`、`RunBeforeSR=true`、`NrBackend=<本次选择>`、`LmxxfDiagnostic=off` |
-| 只在缺失时补（用户偏好） | `LmxxfFitLarge=true`、`LmxxfPdl=true`、`LmxxfPaperWhite=1`、`AmdModelScale=1`、`AmdEncoding=0`、`AmdEveryFrame=true` |
+| 只在缺失时补（用户偏好） | `DLSS5_FIT_LARGE`、`DLSS5_HIP_PDL`：优先迁移对应旧键的值，否则补 `true`；其余补 `LmxxfPaperWhite=1`、`AmdModelScale=1`、`AmdEncoding=0`、`AmdEveryFrame=true` |
 
-包内模板里的 `NrBackend=lmxxf` 只是占位，安装器会改掉。程序在键缺失时的默认值与包内值不同：`Enabled` 与 `RunBeforeSR` 缺失时为 false，`NrBackend` 缺失时为 `daniel`，`LmxxfFitLarge` 缺失或 `auto` 时为 true（`Config.h` / `Config.cpp`）。
+包内模板里的 `NrBackend=lmxxf` 只是占位，安装器会改掉。程序在键缺失时的默认值与包内值不同：`Enabled` 与 `RunBeforeSR` 缺失时为 false，`NrBackend` 缺失时为 `daniel`。FitLarge 和 PDL 默认均为 true，正式键名由 `ConfigKeys.h` 的 `CfgKey::FitLarge` / `CfgKey::Pdl` 定义。`LmxxfFitLarge` / `LmxxfPdl` 仅供读取旧配置；新键已有有效值时优先，保存设置写正式键名。
 
 ## `DLSS5-AMD/native-game-flags.txt`
 
-runtime 从环境变量或这个 flags 文件读 FitLarge，不读 `OptiScaler.ini`。安装 lmxxf 时，安装器每次都改写文件里的 `DLSS5_FIT_LARGE=` 这一行（没有就追加），文件里的其它行保留。卸载只删这一行，文件没有别的内容时才删文件。
+安装 lmxxf 时，安装器保留已有 flags 文件；文件不存在时只创建带说明和示例注释的空模板，不把 ini 设置复制进去。卸载器兼容旧安装留下的 `DLSS5_FIT_LARGE=` 行：移除这一行，保留其它内容；没有其它内容时才删除文件。
 
-读取优先级（`LmxxfNrRuntime.cpp` 的 `EnsureFitLargeApplied`）：环境变量 `DLSS5_FIT_LARGE` 存在时只看它；不存在时才探测 runtime DLL 目录和 exe 目录下的 `native-game-flags.txt` 与 `DLSS5-AMD/native-game-flags.txt`，每秒最多探测一次。OptiScaler 宿主读 ini 后总会设置这个环境变量，所以游戏内以 ini 为准；flags 文件主要影响不经 OptiScaler 的加载方式。
-
-> **d788963 的已知不一致（未核实是否已在其它分支修复）**：`install-amd-presr.ps1` 里 `$fitLarge` 初值为 `$true`，只有匹配到 `true|1` 时才再赋 `$true`，没有置 false 的分支。保留的旧 ini 写着 `LmxxfFitLarge=false` 时，flags 文件仍写 `DLSS5_FIT_LARGE=1`。按上面的优先级，经 OptiScaler 加载时不影响结果，但文件与 ini 不再一致。该段注释「missing, auto or anything else is off」也与 `Config.cpp` 的「missing or auto => true」相反。
+配置优先级：Ins 菜单 / `OptiScaler.ini` 优先；flags 文件和外部 `DLSS5_*` 环境变量只补宿主未设置的键；最后才用编译默认值。宿主通过 `CfgKey::PutEnvAlias` 传递设置，runtime 的 `ApplyFlagsFileFallback` 不覆盖这些选择。此前安装器把 FitLarge 强制写回 flags 的行为已移除。
 
 ## lmxxf 模块包校验（双架构）
 
 包内 `lmxxf-modules/` 必须是双架构布局，`tools/lmxxf-module-package.ps1` 在改动游戏目录**之前**完成全部校验：
 
 - 恰好 `gfx1200/` 与 `gfx1201/` 两个架构目录，不允许其它 `gfx*`；根目录不允许旧的 `modules.json`。
-- 每个架构恰好 24 个已知模块（共 48）；根 `SHA256SUMS` 与各叶子 `SHA256SUMS` 一致，且与实际文件哈希一致；`modules.json` 与 `runtime-manifest.json`（schema、ABI、targets、计数）一致。
+- 每个架构恰好 30 个已知模块（共 60）；根 `SHA256SUMS` 与各叶子 `SHA256SUMS` 一致，且与实际文件哈希一致；`modules.json` 与 `runtime-manifest.json`（schema、ABI、targets、计数）一致。修改模块列表时，按 [数字契约](../../tests/RELEASE-TESTS.md#数字契约改模块列表时必须同步) 同步各处断言。
 - 覆盖升级时先生成并验证候选目录，再把旧目录整体移入 `backup-amd-presr-*/lmxxf-modules`，最后切换；切换失败恢复旧目录。这只保证模块目录不留混合布局，不代表整套卸载加安装具备事务回滚。用户额外放的 `.hsaco` 留在备份里。
 - runtime 自身在读清单和模块前也检查根目录与每级路径的 reparse 属性，拒绝 junction 和 symlink。
 
