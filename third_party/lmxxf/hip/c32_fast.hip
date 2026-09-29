@@ -104,7 +104,7 @@ template<uint Mode,bool Map3=false> DEV void tiled(const float*input,const float
  }
  #pragma unroll
  for(uint e=0;e<8;e++){uint p=first+wave_row+half*8+e,c=col+wave_col+rc;if(p>=tokens)continue;float v=acc[e];
-  if(Mode==0){float a=v,g=clampf(a,-4.f,4.f),q=absf(g)*(-.055908203125f)+.447265625f,poly=g*q+.89453125f;output[p*128+c]=F(a*poly);}
+  if(Mode==0){float a=v,g=clampf(a,-4.f,4.f),q=__builtin_fmaf(absf(g),-.055908203125f,.447265625f),poly=__builtin_fmaf(g,q,.89453125f);output[p*128+c]=F(a*poly);}
   else if(Mode==1){if(raw_output==2)output[p*32+c]=v;else{v=Hrtz(v);output[p*32+c]=raw_output?v:F(v);}}
   else if(Mode==2){v=H(v);output[(part*tokens+p)*32+c]=part==2?F(v):v;}
   else{v=half_add_midpoint(v,H(input[p*32+c]*weights[8193+c]));output[p*32+c]=raw_output?v:F(v);}

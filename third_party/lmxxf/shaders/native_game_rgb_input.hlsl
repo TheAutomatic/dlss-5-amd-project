@@ -14,7 +14,9 @@ void main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID) {
     if (p.x >= width || p.y >= processing_height) return;
     uint sy = p.y < height ? p.y : 2*height-2-p.y;
     float4 pixel = source.Load(int3(p.x, sy, 0));
+#if !NATIVE_RGB_NO_TILES // HIP backend: the tile-ordered copy is never read
     uint tile = group.y * (width/8) + group.x;
     tiles[tile * 64 + lane.y * 8 + lane.x] = pixel;
+#endif
     post_base[p.y * width + p.x] = pixel;
 }

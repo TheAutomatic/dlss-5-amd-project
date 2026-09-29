@@ -1,8 +1,8 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `54e14de503431cd4536f8a7151b022af232178a9` (synced 2026-09-28)
-- **0.33/0.34** dual-arch modules (29/29) from `hip/build-modules.ps1` pack8 recipe rows (CW_PACK8 / W2_PACK8 6 / FMED3 / SAT3). 0.34 chase (`61ac166b`) is docs/packaging only; modules reused via `-ModulesPath` (no `AllowStaleModules`). Stellar Blade accepted `W2_PACK8 6` + HEAD add-on (PDL=1). RE9 0.34 candidate 58/41 fps.
+- Commit: `c0a61968874e438ca3f887506f09c185ce378020` (synced 2026-09-29)
+- **0.36 + 2026-09-29** dual-arch modules (30/30) rebuilt from `hip/build-modules.ps1` at this pin: FMA activations, C256/C512/ViT fusion, `C512_COMPACT_QKV_ATTN`/`C512_FUSED_QKV_ATTN`/`C512_HEAD_GROUP`, `HIP_VIT_ATTN_TRANSPOSED_SCORE`, `CW_UP_FUSED`/`W2_UP_FUSED`. FMA is an intentional numerical baseline change (328e1081). Direct I/O and FRAME_STATS sources follow for compile completeness; product wiring deferred.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 

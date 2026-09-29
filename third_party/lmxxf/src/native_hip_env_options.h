@@ -6,6 +6,7 @@
 #include <cstring>
 #include <stdexcept>
 #include "../Development/HIP/hip_reference_network.h"
+#include "native_frame_stats.h" // NativeFrameStatsSeconds: shared DLSS5_FRAME_STATS parser
 
 inline void NativeApplyHipEnvironment(hip_reference::Options&o,bool fast){
   if(const char*v=std::getenv("DLSS5_HIP_VIT_STREAM")){if(strcmp(v,"0")&&strcmp(v,"1")&&strcmp(v,"2")&&strcmp(v,"3"))throw std::runtime_error("ViT stream mask must be 0..3");o.vit_stream=unsigned(v[0]-'0');}

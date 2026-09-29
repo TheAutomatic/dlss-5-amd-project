@@ -37,6 +37,18 @@ DEV float cw_clampf(float x,float lo,float hi){
  return clampf(x,lo,hi);
 #endif
 }
+// Activation clamp only: the polynomial retains all original rounding
+// boundaries. fmed3(x,-4,4) returns -4 for NaN just like the ternary clamp.
+#ifndef CW_ACT_FMED3
+#define CW_ACT_FMED3 0
+#endif
+DEV float cw_act_gate(float x){
+#if CW_ACT_FMED3
+ return __builtin_amdgcn_fmed3f(x,-4.f,4.f);
+#else
+ return cw_clampf(x,-4.f,4.f);
+#endif
+}
 // Two independent RTZ conversions in the instruction we already use; no packed-half arithmetic,
 // no MODE change, and no contraction across an arithmetic/rounding boundary.
 #if CW_RTZ_PAIR
@@ -144,12 +156,30 @@ DEV i2 cw_input(const unsigned char*in,uint win,uint qt,uint ci,uint width,uint 
  uint ww=width+2*sx;int x=int((win%(ww/8))*8+(qt*16+r)%8)-int(sx),y=int((win/(ww/8))*8+(qt*16+r)/8)-int(sy);i2 a{};
  if(x>=0&&y>=0&&x<int(width)&&y<int(height)){uint xx=uint(x)+px,yy=uint(y)+py,tile=(yy/8)*(prevw/8)+xx/8,tok=(yy%8)*8+xx%8;__builtin_memcpy(&a,in+(tile*64+tok)*32+ci*16+g*8,8);}return a;
 }
-template<bool Chain,bool Finish=false,bool DownCrop=false,bool Post=false,bool Prefix=false>
-DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0){fp8_sat_mode();
+#ifndef CW_UP_FUSED
+#define CW_UP_FUSED 0
+#endif
+DEV float cw_up_F(float x){uint a=bits(x)&0x7fffffffu;float c=__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f);float r=__builtin_amdgcn_cvt_f32_fp8(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false),0);return a==0?0.f:r;}
+DEV float cw_up_shuffle(float v,uint lane){return __builtin_bit_cast(float,__builtin_amdgcn_ds_bpermute(lane*4,__builtin_bit_cast(int,v)));}
+template<bool Chain,bool Finish=false,bool DownCrop=false,bool Post=false,bool Prefix=false,bool Up=false>
+DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0,const float*upw=nullptr){fp8_sat_mode();
  constexpr uint cw_kind=Prefix?5:Post?4:Finish?(DownCrop?3:2):Chain?0:1;
  uint win=bid();if(win>=windows)return;
  __attribute__((shared)) _Float16 residual[4*2*32*8];
  cw_i16 keys{},values{},queries{};
+ f8 up_totals[2]{};
+ if constexpr(Up){
+  uint lane=__builtin_amdgcn_workitem_id_x(),r=lane&15u,g=lane>>4;
+  uint ww=width+2*sx,iw=width/2,ih=height/2;
+  int lx=(int((win%(ww/8))*8)-int(sx))/2+int(r%4),ly=(int((win/(ww/8))*8)-int(sy))/2+int(r/4);
+  for(uint k=0;k<64;k+=16){h8 a{},b{};
+   if(lx>=0&&ly>=0&&lx<int(iw)&&ly<int(ih))for(uint e=0;e<8;e++)a[e]=(_Float16)reinterpret_cast<const float*>(in)[(uint(ly)*iw+uint(lx))*64+k+g*8+e];
+   for(uint ci=0;ci<2;ci++){
+    __builtin_memcpy(&b,reinterpret_cast<const _Float16*>(upw)+(ci*16+r)*64+k+g*8,16);
+    up_totals[ci]=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(b,a,up_totals[ci]);
+   }
+  }
+ }
 #if CW_ROLL_WINDOW
  _Pragma("clang loop unroll(disable)")
 #else
@@ -192,6 +222,19 @@ DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned ch
     CW_Q8_DECL(packed);for(uint e=0;e<8;e++){float v=Hrtz(pre[e]);CW_Q8_SET(packed,e,v);ffn[ci][e]=cw_clampf(v,-448.f,448.f)*fw[8704+ci*16+g*8+e];}CW_Q8_END(packed);input[ci]=packed;
    }
   }
+  else if constexpr(Up){
+   uint ww=width+2*sx,tok=qt*16+r,lo=(tok/16)*4+(tok%8)/2;
+   int x=int((win%(ww/8))*8+tok%8)-int(sx),y=int((win/(ww/8))*8+tok/8)-int(sy);
+   bool valid=x>=0&&y>=0&&x<int(width)&&y<int(height);
+   for(uint ci=0;ci<2;ci++){
+    CW_Q8_DECL(a);for(uint e=0;e<8;e++){
+     uint c=ci*16+g*8+e;float v=0.f,t=H(cw_up_shuffle(up_totals[ci][e],lo+g*16));
+     if(valid)v=H(t+cw_up_F(reinterpret_cast<const float*>(skip)[(uint(y)*width+uint(x))*32+c])*upw[2048+c]);
+     // Keep raw half-valued Up output for FFN residual; quantize only its matrix operand.
+     CW_Q8_SET(a,e,v);ffn[ci][e]=cw_clampf(float((_Float16)v),-448.f,448.f)*fw[8704+c];
+    }CW_Q8_END(a);input[ci]=a;
+   }
+  }
   else{
    uint ww=width+2*sx;int x=int((win%(ww/8))*8+(qt*16+r)%8)-int(sx),y=int((win/(ww/8))*8+(qt*16+r)/8)-int(sy);
    bool valid=x>=0&&y>=0&&x<int(width)&&y<int(height);
@@ -224,7 +267,7 @@ DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned ch
 #endif
   for(uint ht=0;ht<8;ht++){
    f8 expanded{};for(uint kt=0;kt<2;kt++){i2 b=matrix8(fw+512,(ht*16+r)*32+kt*16+g*8);expanded=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,input[kt],expanded);}
-   CW_Q8_DECL(a);for(uint e=0;e<8;e++){float v=expanded[e],g=cw_clampf(v,-4.f,4.f),q=absf(g)*(-.055908203125f)+.447265625f,p=g*q+.89453125f;CW_Q8_SET(a,e,v*p);}CW_Q8_END_SITE(a,1);
+   CW_Q8_DECL(a);for(uint e=0;e<8;e++){float v=expanded[e],g=cw_act_gate(v),q=__builtin_fmaf(absf(g),-.055908203125f,.447265625f),p=__builtin_fmaf(g,q,.89453125f);CW_Q8_SET(a,e,v*p);}CW_Q8_END_SITE(a,1);
    for(uint ci=0;ci<2;ci++){i2 b=matrix8(fw+4608,(ci*16+r)*128+ht*16+g*8);ffn[ci]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,ffn[ci]);}
   }
   i2 feature[2];for(uint ci=0;ci<2;ci++){CW_Q8_DECL(a);
@@ -378,3 +421,7 @@ CW_FINISH(c32_wave1_finish,false)
 CW_FINISH(c32_wave1_finish_dcrop,true)
 CW_ENTRY void c32_wave1_post(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
 CW_ENTRY void c32_wave1_prefix(const unsigned char*rgba,const float*history,const float*fw,const float*w,float*main,float*down,uint windows,uint mode,uint raw,uint width,uint height,uint seed,uint temporal){cw_body<false,true,false,false,true>(rgba,fw,w,nullptr,windows,mode,raw,width,height,0,0,0,0,0,main,down,nullptr,nullptr,nullptr,nullptr,nullptr,0.f,history,seed,temporal);}
+
+#if CW_UP_FUSED
+CW_ENTRY void c32_wave1_up(const unsigned char*low,const float*upw,const float*skip,const float*fw,const float*aw,unsigned char*out,uint windows,uint width,uint height,uint sx,uint sy){cw_body<false,false,false,false,false,true>(low,fw,aw,out,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,reinterpret_cast<const unsigned char*>(skip),nullptr,nullptr,nullptr,nullptr,0.f,nullptr,0,0,upw);}
+#endif

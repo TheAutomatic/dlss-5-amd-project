@@ -18,7 +18,8 @@
     "src/native_rgb_reflect.h",
     "src/native_rgb_texture.h",
     "src/native_shader_cache.h",
-    "src/native_hip_env_options.h"
+    "src/native_hip_env_options.h",
+    "src/native_frame_stats.h"
   ],
   "pinned": [
     {

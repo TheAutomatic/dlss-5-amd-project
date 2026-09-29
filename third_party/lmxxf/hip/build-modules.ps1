@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputDir = (Join-Path $PSScriptRoot 'modules'),
     [string]$Compiler = (Join-Path $PSScriptRoot 'rtc_compile.exe'),
     [string]$SourceDir = $PSScriptRoot,
@@ -6,10 +6,13 @@ param(
     [string[]]$ExtraDefines = @(),
     [ValidateSet('gfx1200','gfx1201')][string[]]$Targets = @('gfx1200','gfx1201')
 )
-# Builds 30 modules per target (24 legacy, two opt-in wave-owned modules, two opt-in C512 32-token modules, one opt-in ViT
+# Builds 29 modules per target (24 legacy, two opt-in wave-owned modules, two opt-in C512 32-token modules, one opt-in ViT
 # projection 64-column module). 2026-09-26: the mh_fast row now spells out HIP_FFN_LINE_STORES 1 -- prod7/prod8 were built
 # with it (deployments/stellar-prod7-20260924, prod8/mhfast.generated.hip) but the row lacked it, so a recipe rebuild silently
 # dropped the prod7 full-line stores (bit-exact either way, -0.6/-0.7%).; by default gfx1200 and gfx1201 go into architecture subdirectories.
+# 2026-09-28 numerical baseline: fast activations explicitly fuse both polynomial multiply-adds as float FMA.
+# This intentionally replaces the separate-rounding fast baseline; half reference kernels remain unchanged.
+# DX12 precise fast shaders retain the old baseline; see README.md (Numerical baseline).
 # One row per module: output name, extra #defines, source files (concatenated in order). Every row prepends HIP_ISA_HALF 1;
 # names ending in -packed also prepend HIP_PREPACKED_WEIGHTS 1. The extra defines below are the production selections of
 # 2026-09-17 (0.20); they coincide with the sources' defaults and are spelled out so the recipe does not depend on them.
@@ -42,12 +45,12 @@ $modules = @(
     @{ name = 'multihead-fast-padded-wave';         defines = @('HIP_FMED3_CLAMP 1');                        sources = @('multihead_fast_padded.hip') },
     @{ name = 'multihead_fused_attention';          defines = @('HIP_MH_RTZ_ISA 1');      sources = @('multihead_fused_attention.hip') },
     @{ name = 'deep_fast';                          defines = @();                        sources = @('deep_fast.hip') },
-    @{ name = 'deep_fast-packed';                   defines = @('HIP_BRANCHLESS_F 1');    sources = @('deep_fast.hip') },
+    @{ name = 'deep_fast-packed';                   defines = @('HIP_VIT_ATTN_TRANSPOSED_SCORE 1','HIP_BRANCHLESS_F 1');    sources = @('deep_fast.hip') },
     @{ name = 'multihead-fast-packed';              defines = @();                        sources = @('multihead_fast.hip') },
-    @{ name = 'multihead-fast-padded-wave-packed';  defines = @('HIP_FFN_HOIST_RES 2','HIP_FFN_LINE_STORES 1','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip') },
-    @{ name = 'c32-wave1'; defines = @('HIP_PREPACKED_WEIGHTS 1','CW_ROLL_HIDDEN 1','CW_ROLL_WINDOW 1','CW_VEC_INPUT 1','CW_PREFIX_SPLIT 1','CW_PACK8 1','HIP_FP8_SAT_MODE 3','CW_DIRECT_OUT 1','CW_RTZ_PAIR 1','CW_PACK_MODE_MASK 127','CW_PREFIX_DIRECT_OUT 1','CW_PREFIX_FULL_TILE 1','CW_FINISH_FULL_TILE 1'); sources = @('c32_fused_ffn_attention.hip','wave_owned_c32.inc') },
-    @{ name = 'c64-wave2'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1','W2_BYTE_INPUT_LOADS 1','W2_RTZ_PAIR 1','W2_DIRECT_COORDS 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','wave_owned_attention_setup.inc','@wave-owned-attention-body','wave_owned_attention_exports.inc') },
-    @{ name = 'c512-m32-mh'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','c512_m32_mh.inc') },
+    @{ name = 'multihead-fast-padded-wave-packed';  defines = @('C512_HEAD_GROUP 1','HIP_FFN_HOIST_RES 2','HIP_FFN_LINE_STORES 1','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','c512_head_group.inc') },
+    @{ name = 'c32-wave1'; defines = @('CW_UP_FUSED 1','CW_ACT_FMED3 1','HIP_PREPACKED_WEIGHTS 1','CW_ROLL_HIDDEN 1','CW_ROLL_WINDOW 1','CW_VEC_INPUT 1','CW_PREFIX_SPLIT 1','CW_PACK8 1','HIP_FP8_SAT_MODE 3','CW_DIRECT_OUT 1','CW_RTZ_PAIR 1','CW_PACK_MODE_MASK 127','CW_PREFIX_DIRECT_OUT 1','CW_PREFIX_FULL_TILE 1','CW_FINISH_FULL_TILE 1'); sources = @('c32_fused_ffn_attention.hip','wave_owned_c32.inc') },
+    @{ name = 'c64-wave2'; defines = @('W2_UP_FUSED 1','W2_FFN_QT_SMALL_MASK 3','W2_FFN_QT_BATCH 2','W2_BOUNDED_RCP 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1','W2_BYTE_INPUT_LOADS 1','W2_RTZ_PAIR 1','W2_DIRECT_COORDS 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','wave_owned_attention_setup.inc','@wave-owned-attention-body','wave_owned_attention_exports.inc') },
+    @{ name = 'c512-m32-mh'; defines = @('C512_COMPACT_QKV_ATTN 1','C512_FUSED_QKV_ATTN 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','c512_m32_mh.inc','c512_qkv_attention_fused.inc','c512_qkv_attention_compact.inc') },
     @{ name = 'c512-m32-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1'); sources = @('deep_fast.hip','c512_m32_deep.inc') },
     @{ name = 'vit-stream'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1','HIP_VIT_STREAM_KERNELS 1'); sources = @('deep_fast.hip','vit_stream.inc') },
     @{ name = 'vit-wide-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1'); sources = @('deep_fast.hip','vit_wide_deep.inc') }
