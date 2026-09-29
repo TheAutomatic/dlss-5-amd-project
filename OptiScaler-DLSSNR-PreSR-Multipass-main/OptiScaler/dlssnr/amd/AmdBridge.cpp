@@ -411,6 +411,14 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         return false;
     const auto requested = DlssNr::Backend::RequestedKind();
     const auto active = ActiveKindCached();
+    struct HistorySkipGuard
+    {
+        bool enabled=false, reachedRecord=false;
+        ~HistorySkipGuard() {
+            if(enabled && !reachedRecord)
+                if(auto host=ActiveHost()) host->InvalidateHistory();
+        }
+    } historySkip{active==DlssNr::Backend::Kind::Lmxxf};
     if (requested == DlssNr::Backend::Kind::Lmxxf && !DlssNr::Backend::LmxxfWired())
     {
         static bool loggedLmxxfFallback = false;
@@ -619,6 +627,16 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     f.depthInverted = (flags & NVSDK_NGX_DLSS_Feature_Flags_DepthInverted) != 0;
     params->Get(NVSDK_NGX_Parameter_Reset, &reset);
     f.reset = reset != 0;
+    f.motionJittered = (flags & NVSDK_NGX_DLSS_Feature_Flags_MVJittered) != 0;
+    const bool jitterXKnown = params->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &f.jitterX) == NVSDK_NGX_Result_Success;
+    const bool jitterYKnown = params->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &f.jitterY) == NVSDK_NGX_Result_Success;
+    UINT motionX = 0, motionY = 0, depthX = 0, depthY = 0;
+    params->Get(NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_X, &motionX);
+    params->Get(NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_Y, &motionY);
+    params->Get(NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_X, &depthX);
+    params->Get(NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_Y, &depthY);
+    f.temporalInputsValid = haveFlags && jitterXKnown && jitterYKnown &&
+                            !motionX && !motionY && !depthX && !depthY;
     params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &f.motionScaleX);
     params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &f.motionScaleY);
     const auto& cfg = *Config::Instance();
@@ -686,6 +704,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         s.skin = s.structure;
     // Evaluate cut: Split proxy + SetBetween(EnqueueHip). Live only when SubmissionHooksWanted() (Wired && NrBackend=lmxxf).
     DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
+    historySkip.reachedRecord=true;
     if (auto replacement = b->Record(cmd, f, s))
     {
         originalColour = f.colour;

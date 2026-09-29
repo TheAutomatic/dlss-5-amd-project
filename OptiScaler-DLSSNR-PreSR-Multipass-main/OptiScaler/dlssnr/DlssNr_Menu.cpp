@@ -569,6 +569,30 @@ void RenderMenu(Config* config, float menuResScale)
 
                 if (ImGui::TreeNode("Experimental"))
                 {
+                    if(ImGui::TreeNode("Temporal stability (test)")) {
+                        ImGui::TextWrapped("Status: %s",DlssNr::Backend::LastLmxxfTemporalStatus().c_str());
+                        bool history=config->LmxxfModelHistory.value_or_default();
+                        float smoothing=std::clamp(config->LmxxfOutputSmoothing.value_or_default(),0.f,.5f);
+                        bool changed=ImGui::Checkbox("Model history",&history);
+                        changed|=ImGui::SliderFloat("Output smoothing",&smoothing,0.f,.5f,"%.2f");
+                        HelpMarker("Independent experiments. Both default off. Changes apply live."
+                                   "\nHistory uses motion and depth; missing inputs keep the current-frame path."
+                                   "\nSmoothing can reduce shimmer but may leave trails or soften detail."
+                                   "\nCompare the same camera movement and unchanged NR strength.");
+                        if(ImGui::Button("A: Baseline")) {history=false;smoothing=0;changed=true;}
+                        ImGui::SameLine();
+                        if(ImGui::Button("B: History")) {history=true;smoothing=0;changed=true;}
+                        if(ImGui::Button("C: Smoothing")) {history=false;smoothing=.25f;changed=true;}
+                        ImGui::SameLine();
+                        if(ImGui::Button("D: Both")) {history=true;smoothing=.25f;changed=true;}
+                        if(changed) {
+                            config->LmxxfModelHistory=history;
+                            config->LmxxfOutputSmoothing=smoothing;
+                            LOG_INFO("lmxxf temporal menu: modelHistory={} outputSmoothing={:.2f}",history,smoothing);
+                        }
+                        ImGui::TextWrapped("Start with A then B. Try C and D only if needed. Check flicker, dark trails and detail strength.");
+                        ImGui::TreePop();
+                    }
                     bool autoExposure = config->LmxxfAutoExposure.value_or_default();
                     if (ImGui::Checkbox("Auto exposure", &autoExposure))
                         config->LmxxfAutoExposure = autoExposure;
@@ -831,6 +855,8 @@ void RenderMenu(Config* config, float menuResScale)
                     config->DlssNrColourStrength = 1.0f;
                     config->LmxxfPaperWhite = 1.0f;
                     config->LmxxfAutoExposure = true;
+                    config->LmxxfModelHistory = false;
+                    config->LmxxfOutputSmoothing = 0.0f;
                     config->LmxxfAutoExposureScale = 8.0f;
                     config->LmxxfFitLarge = true;
                     CfgKey::PutEnvAlias(CfgKey::FitLarge, true);

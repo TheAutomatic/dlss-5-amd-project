@@ -540,6 +540,14 @@ class ModuleTests(Fixture):
         result = subprocess.run(command, capture_output=True, text=True, errors='replace')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         include = self.vendor / 'hip/active.inc'
+        # Embedded shaders are part of the runtime too, not just its .cpp file.
+        temporal_header = self.local / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/TemporalHistory.h'
+        write(temporal_header, '// changed temporal shader\n')
+        os.utime(temporal_header, (2100000000, 2100000000))
+        result = subprocess.run(command, capture_output=True, text=True, errors='replace')
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('STALE', result.stdout)
+        os.utime(temporal_header, (1000000000, 1000000000))
         write(include, '// locally changed include\n')
         os.utime(include, (2100000000, 2100000000))
         result = subprocess.run(command, capture_output=True, text=True, errors='replace')

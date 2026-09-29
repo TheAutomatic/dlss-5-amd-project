@@ -239,7 +239,7 @@ int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
-         useExposure = false, badExposure = false, ultrawide = false, subrect = false;
+         useExposure = false, badExposure = false, ultrawide = false, subrect = false, temporalTest = false;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -266,6 +266,8 @@ int main(int argc, char **argv)
             autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--scale16"))
             scale16 = outputHash = true;
+        else if (!std::strcmp(argv[i], "--temporal"))
+            temporalTest = outputHash = true;
         else
         {
             std::fprintf(stderr,
@@ -552,6 +554,78 @@ int main(int argc, char **argv)
         frame.exposure_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         frame.pre_exposure = 2.0f;
         frame.exposure_scale = 0.5f;
+    }
+
+    if(temporalTest)
+    {
+        ID3D12Resource *motion=nullptr,*depth=nullptr;
+        auto gd=td;gd.Format=DXGI_FORMAT_R32G32_FLOAT;gd.Flags=D3D12_RESOURCE_FLAG_NONE;
+        Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&gd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr,IID_PPV_ARGS(&motion)),"temporal motion");
+        gd.Format=DXGI_FORMAT_R32_FLOAT;
+        Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&gd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                              nullptr,IID_PPV_ARGS(&depth)),"temporal depth");
+        frame.motion=motion;frame.depth=depth;
+        frame.motion_width=frame.color_width;frame.motion_height=frame.color_height;
+        frame.motion_scale_x=frame.motion_scale_y=1;
+        frame.motion_state=frame.depth_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        const UINT guides=LMXXF_NR_TEMPORAL_INPUTS_VALID|LMXXF_NR_TEMPORAL_DEPTH_INVERTED;
+        frame.temporal_flags=guides;
+        UINT run=0;
+        const auto execute=[&](const char *expected) -> uint64_t {
+            ++run;++frame.evaluate_sequence;
+            ID3D12CommandAllocator *pa=nullptr,*ca=nullptr;
+            ID3D12GraphicsCommandList *pc=nullptr,*cc=nullptr;
+            Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&pa)),"temporal producer alloc");
+            Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&ca)),"temporal consumer alloc");
+            Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,pa,nullptr,IID_PPV_ARGS(&pc)),"temporal producer");
+            Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,ca,nullptr,IID_PPV_ARGS(&cc)),"temporal consumer");
+            LmxxfNrJob tj{};tj.struct_size=sizeof(tj);
+            const auto ok=[&](int rc,const char *step){if(rc!=LMXXF_NR_OK){char why[256]{};api.GetLastError(why,sizeof why);std::fprintf(stderr,"temporal %s rc=%d %s\n",step,rc,why);}Require(rc==LMXXF_NR_OK,step);};
+            ok(api.PrepareFrame(ctx,&frame,&tj),"temporal PrepareFrame");
+            char state[2048]{};api.GetStatus(ctx,state,sizeof state);
+            std::printf("temporal run=%u %s\n",run,state);
+            Require(std::strstr(state,expected)!=nullptr,"temporal effective state");
+            ok(api.RecordInputs(ctx,tj.handle,pc),"temporal inputs");Check(pc->Close(),"temporal producer close");
+            // Same contract as the product: record the consumer before EnqueueHip.
+            ok(api.RecordOutputs(ctx,tj.handle,cc),"temporal outputs");Check(cc->Close(),"temporal consumer close");
+            ID3D12CommandList *ps[]={pc},*cs[]={cc};submitQueue->ExecuteCommandLists(1,ps);
+            ok(api.EnqueueHip(ctx,tj.handle,submitQueue),"temporal enqueue");submitQueue->ExecuteCommandLists(1,cs);
+            ok(api.Retire(ctx,tj.handle),"temporal retire");WaitQueue(device,submitQueue);
+            const auto hash=HashTexture(device,submitQueue,static_cast<ID3D12Resource*>(tj.private_output));
+            pc->Release();cc->Release();pa->Release();ca->Release();return hash;
+        };
+        const auto baseline=execute("temporal=off");
+        frame.temporal_flags=guides|LMXXF_NR_TEMPORAL_MODEL_HISTORY;
+        Require(execute("temporal=priming")==baseline,"history priming preserves baseline pixels");
+        const auto historyHash=execute("temporal=active modelHistory=1");
+        Require(historyHash!=baseline,"history reaches network math");
+        execute("temporal=active modelHistory=1");
+        frame.temporal_flags|=LMXXF_NR_TEMPORAL_RESET;
+        Require(execute("temporal=priming")==baseline,"reset preserves baseline");
+        frame.temporal_flags=guides|LMXXF_NR_TEMPORAL_MODEL_HISTORY;execute("temporal=active modelHistory=1");
+        frame.temporal_flags=guides;frame.output_smoothing=.25f;
+        Require(execute("temporal=priming")==baseline,"smoothing-only priming preserves baseline");
+        execute("temporal=active modelHistory=0 smoothing=0.25");
+        frame.temporal_flags|=LMXXF_NR_TEMPORAL_MODEL_HISTORY;execute("temporal=priming");execute("temporal=active modelHistory=1 smoothing=0.25");
+        frame.temporal_flags=guides;frame.output_smoothing=0;
+        Require(execute("temporal=off")==baseline,"off restores baseline after both modes");
+        frame.temporal_flags|=LMXXF_NR_TEMPORAL_MODEL_HISTORY;execute("temporal=priming");
+        Require(api.ResetHistory(ctx)==LMXXF_NR_OK,"ResetHistory API");
+        Require(execute("temporal=priming")==baseline,"ResetHistory drops prior frame");
+        frame.evaluate_sequence+=3;execute("temporal=priming");execute("temporal=active modelHistory=1");
+        frame.motion=nullptr;Require(execute("temporal=missing-guides")==baseline,"missing motion preserves baseline");
+        frame.motion=motion;execute("temporal=priming");execute("temporal=active modelHistory=1");
+        for(UINT size:{LMXXF_NR_FRAME_INFO_V1_SIZE,LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE}) {
+            frame.struct_size=size;Require(execute("temporal=legacy-frame")==baseline,"legacy frame ignores temporal tail");
+        }
+        frame.struct_size=sizeof(frame);
+        Require(api.Destroy(ctx)==LMXXF_NR_OK,"temporal destroy");motion->Release();depth->Release();
+        color->Release();list->Release();alloc->Release();queue->Release();device->Release();
+        FreeLibrary(dll);
+        std::printf("temporal integrated: PASS (%u frames, baseline=%016llx history=%016llx)\n",run,
+                    static_cast<unsigned long long>(baseline),static_cast<unsigned long long>(historyHash));
+        return 0;
     }
 
     LmxxfNrJob job {};

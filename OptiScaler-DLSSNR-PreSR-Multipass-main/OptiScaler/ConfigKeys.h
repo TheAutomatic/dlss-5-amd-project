@@ -30,6 +30,8 @@ inline constexpr const char *PaperWhite = "LmxxfPaperWhite";
 inline constexpr const char *AllowEnhancedBarriers = "LmxxfAllowEnhancedBarriers";
 inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
+inline constexpr const char *ModelHistory = "LmxxfModelHistory";
+inline constexpr const char *OutputSmoothing = "LmxxfOutputSmoothing";
 
 // Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
 inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
@@ -63,6 +65,8 @@ inline constexpr const char *Async = "Async";
 // Known DlssNr ini keys (save path). Adding a menu control requires adding its key here
 // first; labels stay in DlssNr_Menu.cpp only.
 inline constexpr const char *const kKnown[] = {
+    ModelHistory,
+    OutputSmoothing,
     "Enabled",
     "RunBeforeSR",
     "ApplyAfterRR",

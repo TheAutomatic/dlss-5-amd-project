@@ -19,6 +19,7 @@ extern "C" {
  * The 4 bytes after exposure_scale were tail padding. paper_white starts at this size,
  * so a host that still sends 104 does not supply it and the runtime uses 1. */
 #define LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE 104u
+#define LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE 112u
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
  * On recovery, EnqueueHip returns OK only after the private neural output was fully zeroed;
@@ -60,7 +61,7 @@ typedef struct LmxxfNrCapabilities
      * max_input_width*max_input_height (ultrawide). */
     uint32_t max_input_width;
     uint32_t max_input_height;
-    uint32_t history_supported; /* first product version: 0 */
+    uint32_t history_supported; /* 1: optional temporal frame tail supported */
     uint32_t overlap_supported; /* first product version: 0 */
     uint32_t graph_supported;   /* first product version: 0; EnqueueHip must not graph-wait */
     /* [DEPRECATED] 1 = legacy single-target indicator; does not reflect active runtime GPU arch.
@@ -84,6 +85,13 @@ typedef struct LmxxfNrCreateInfo
  * luminance, log-domain smoothing) and binds the result as the codec exposure. Ignored when a
  * usable exposure is supplied; pre_exposure and exposure_scale are then not applied. */
 #define LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE     (1u << 3)
+
+/* Optional temporal tail; no change to the ABI v1 function table. */
+#define LMXXF_NR_TEMPORAL_MODEL_HISTORY (1u << 0)
+#define LMXXF_NR_TEMPORAL_RESET         (1u << 1)
+#define LMXXF_NR_TEMPORAL_MV_JITTERED   (1u << 2)
+#define LMXXF_NR_TEMPORAL_DEPTH_INVERTED (1u << 3)
+#define LMXXF_NR_TEMPORAL_INPUTS_VALID  (1u << 4)
 
 typedef struct LmxxfNrFrameInfo
 {
@@ -114,6 +122,20 @@ typedef struct LmxxfNrFrameInfo
     /* Codec paper white passed to encode and decode Record. Finite and in (0, 64], default 1.
      * Not the HDR Paper White anchor. Absent when struct_size stops at EXPOSURE_SIZE. */
     float paper_white;
+    uint32_t reserved_after_paper_white; /* preserve the 112-byte predecessor */
+    void *motion;
+    void *depth;
+    uint32_t motion_state;
+    uint32_t depth_state;
+    uint32_t motion_width;  /* active vector grid, excluding allocation padding */
+    uint32_t motion_height;
+    float motion_scale_x;  /* texture value -> pixels of the active vector grid */
+    float motion_scale_y;
+    float jitter_x;        /* NGX jitter, render-pixel units */
+    float jitter_y;
+    uint32_t temporal_flags;
+    float output_smoothing; /* 0..0.5; independent of model history, default 0 */
+    uint64_t evaluate_sequence; /* includes skipped evaluations; gaps reset history */
 } LmxxfNrFrameInfo;
 
 typedef struct LmxxfNrJob

@@ -51,6 +51,8 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
+%CXX% tests\lmxxf\lmxxf_temporal.cpp /Fe"%OUT%\lmxxf_temporal.exe" /Fo"%OUT%\lmxxf_temporal.obj" /link %D3D% d3dcompiler.lib || goto fail
+"%OUT%\lmxxf_temporal.exe" || goto fail
 %CXX% /I"%INC%" tests\lmxxf\lmxxf_same_frame_boundary.cpp /Fe"%OUT%\lmxxf_same_frame_boundary.exe" /Fo"%OUT%\lmxxf_same_frame_boundary.obj" /link %D3D% d3dcompiler.lib "%DETOURS%" || goto fail
 "%OUT%\lmxxf_same_frame_boundary.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_color_probe.cpp /Fe"%OUT%\lmxxf_color_probe.exe" /Fo"%OUT%\lmxxf_color_probe.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
@@ -89,7 +91,7 @@ rem Passing the weights folder itself would make it prefer the (possibly stale) 
 rem the weights over this checkout's modules.
 set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
 %CXX% /I"%RT_INC%" tests\lmxxf\lmxxf_nr_gpu.cpp /Fe"%OUT%\lmxxf_nr_gpu.exe" /Fo"%OUT%\lmxxf_nr_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
-for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--exposure" "--exposure-bad" "--ultrawide" "--subrect") do (
+for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--exposure" "--exposure-bad" "--ultrawide" "--subrect" "--temporal" "--temporal --subrect" "--temporal --ultrawide") do (
   echo --- lmxxf_nr_gpu %%~M
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )

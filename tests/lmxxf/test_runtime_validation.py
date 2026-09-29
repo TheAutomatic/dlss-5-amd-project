@@ -300,7 +300,7 @@ class RuntimeValidationTests(unittest.TestCase):
         rc = self.api.QueryCapabilities(ctypes.byref(caps))
         self.assertEqual(rc, 0)
         self.assertEqual(caps.abi_version, 1)
-        self.assertEqual(caps.history_supported, 0)
+        self.assertEqual(caps.history_supported, 1)
         self.assertEqual(caps.overlap_supported, 0)
         self.assertEqual(caps.graph_supported, 0)
         self.assertEqual(caps.gfx1201_target, 1)  # preserved deprecated v1 target

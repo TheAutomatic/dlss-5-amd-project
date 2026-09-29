@@ -52,6 +52,9 @@ class ConfigPriorityTests(unittest.TestCase):
                 "AllowEnhancedBarriers",
                 "EarlyExeWrap",
                 "Diagnostic",
+                # Product-only frame ABI controls, like AutoExposure; no env consumer.
+                "ModelHistory",
+                "OutputSmoothing",
                 "kSection",
                 "kDanielSection",
                 "ToneCurve",

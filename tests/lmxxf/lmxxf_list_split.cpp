@@ -332,7 +332,7 @@ int main()
         Check(device->CreateQueryHeap(&qhd, IID_PPV_ARGS(&qh)), "occlusion query heap");
         px->BeginQuery(qh, D3D12_QUERY_TYPE_OCCLUSION, 0);
         Require(px->IsSplitIneligible(), "open query blocks split");
-        Require(std::strcmp(px->SplitRejectionReason(), "open_query") == 0, "open query reason");
+        Require(std::strstr(px->SplitRejectionReason(), "|open_query|") != nullptr, "open query reason");
         Require(FAILED(px->SplitSegments()), "split refused during query");
         px->EndQuery(qh, D3D12_QUERY_TYPE_OCCLUSION, 0);
         Require(!px->IsSplitIneligible(), "completed query permits split");

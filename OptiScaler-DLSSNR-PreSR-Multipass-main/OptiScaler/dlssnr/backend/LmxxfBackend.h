@@ -12,6 +12,7 @@ namespace DlssNr::Backend
 // Last lmxxf colour job height seen in Record (0 = unknown). Menus use this to
 // gray NR% tiers that are taller than the current input.
 unsigned LastLmxxfColorHeight();
+std::string LastLmxxfTemporalStatus();
 
 // Full Host for lmxxf. Constructed only when ActiveKind==Lmxxf (requires LmxxfWired()).
 // Record: PrepareFrame → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
@@ -43,6 +44,8 @@ class LmxxfBackend final : public Host
     LmxxfProbe::StagingProbe stagingProbe;
     uint64_t probeEvaluateId = 0; // Host ordinal, NOT an engine frame ID or GPU completion.
     uint64_t evaluateSequence_ = 0; // Monotonic sequence across all Evaluate calls including bypassed.
+    std::atomic<bool> temporalResetPending { false };
+    struct TemporalLog { bool initialized=false, model=false, contract=false; float smooth=0; } temporalLog;
     uint64_t boundaryProxyHits = 0;
     uint64_t boundaryCuts = 0;
     uint64_t boundaryRejects = 0;

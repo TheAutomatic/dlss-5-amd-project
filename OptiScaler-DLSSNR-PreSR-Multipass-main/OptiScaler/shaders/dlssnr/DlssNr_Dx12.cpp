@@ -3031,6 +3031,7 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
 
     if (cmdList == nullptr || params == nullptr)
     {
+        if(beforeUpscale) DlssNr::AmdBridge::InvalidateHistory();
         ReportSkipOnce("no command list or no parameter block");
         return;
     }
@@ -3051,6 +3052,7 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
                                      cfg.RestoreGraphicSignature.value_or_default();
         if (restoreRequired && !D3D12Hooks::CanRestoreRootSignature(cmdList))
         {
+            DlssNr::AmdBridge::InvalidateHistory();
             ReportSkipOnce("AMD neural: the upscaler could not restore state this frame");
             return;
         }

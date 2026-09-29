@@ -59,7 +59,8 @@ int main(int argc, char **argv)
         else
             Require(caps.max_input_width == 1920 && caps.max_input_height == 1080, "max input");
     }
-    Require(caps.history_supported == 0 && caps.overlap_supported == 0, "history/overlap off");
+    Require(caps.history_supported == 1 && caps.overlap_supported == 0, "optional history, overlap off");
+    static_assert(offsetof(LmxxfNrFrameInfo,motion)==LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE);
     Require(caps.graph_supported == 0, "graph off");
     Require(caps.gfx1201_target == 1, "gfx1201 target");
 

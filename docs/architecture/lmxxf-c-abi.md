@@ -23,14 +23,15 @@
 
 `LMXXF_NR_ABI_VERSION`（当前 `1`）**只管函数表** `LmxxfNrApi` 的布局。结构体靠各自的 `struct_size` 分档协商，不升版本号。原因：版本号一升，老 runtime 直接拒绝 `GetApi`，NR 整个起不来；按 `struct_size` 分档，老宿主配新 runtime 只是少几个功能。
 
-`LmxxfNrFrameInfo` 在 d788963 有四档，runtime 的 `PrepareFrame` 接受其中任意一档：
+`LmxxfNrFrameInfo` 按以下尺寸协商，runtime 的 `PrepareFrame` 接受其中任意一档：
 
 | `struct_size` | 止于 | 含义 |
 |---|---|---|
 | `64` | `color_state` + `flags` | 最早的布局 |
 | `LMXXF_NR_FRAME_INFO_V1_SIZE` = 80 | `model_scale` | 力度、debug view、model scale |
 | `LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE` = 104 | `exposure_scale`（其后 4 字节原为尾部填充） | + `exposure` / `exposure_state` / `pre_exposure` / `exposure_scale` |
-| `sizeof(LmxxfNrFrameInfo)` | `paper_white` | + `reserved_after_exposure`（置 0）+ `paper_white`（缺省按 1） |
+| `LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE` = 112 | `paper_white` | + `reserved_after_exposure`（置 0）+ `paper_white`（缺省按 1） |
+| `sizeof(LmxxfNrFrameInfo)` = 176 | `evaluate_sequence` | 可选 motion/depth、资源状态、运动尺度、jitter、重置、模型历史开关和输出平滑；默认关闭 |
 
 其它结构（`LmxxfNrCapabilities`、`LmxxfNrCreateInfo`、`LmxxfNrJob`）目前要求 `struct_size` 精确相等。`LmxxfNrCreateInfo.flags` 的未知位会被拒绝。
 
@@ -38,12 +39,12 @@
 
 1. **只往结构体尾部加字段。** 超出宿主 `struct_size` 的字段一律视为未提供，runtime 用默认值。
 2. **尺寸常量用 `static_assert` 钉到 `offsetof`**（见 `LmxxfNrRuntime.cpp` 顶部），不留裸数字。
-3. **宿主要能降级。** 当前实现：`PrepareFrame` 因 `struct_size mismatch` 返回 `INVALID_ARGUMENT` 时，宿主改用 V1 尺寸（80）重试一次并关掉自动曝光标志（`LmxxfBackend` 的 `frameInfoV1`）；`Create` 因 flag 被拒时去掉 flag 重试（此时没有零输出回退）。宿主不会退到 104 这一档。
+3. **宿主要能降级。** 先查 `QueryCapabilities.history_supported`：不支持历史的 runtime 使用 112 字节帧，保留曝光；支持时才发送时序尾部。`PrepareFrame` 因 `struct_size mismatch` 返回 `INVALID_ARGUMENT` 时，宿主改用 V1 尺寸（80）重试一次并关掉自动曝光标志（`LmxxfBackend` 的 `frameInfoV1`）；`Create` 因 flag 被拒时去掉 flag 重试（此时没有零输出回退）。
 4. **输入契约违反返回 `INVALID_ARGUMENT`，不要 throw。** `GuardSession` 见到异常就把 session 标成 `failed`，之后每个调用都返回 `UNAVAILABLE`（「session is poisoned」）。RE9 当初就是这样：不支持的输入格式抛了异常，session 再也没恢复，日志也看不出原因。现在契约提前检查，报出具体属性（`fmt= … WxH … fitLarge=`），可重试。宿主对 `INVALID_ARGUMENT` 不重建 session，因为重建治不了不支持的纹理。
 
 ## 其它约定
 
-- **`hip_ready` 已从 `LmxxfNrCapabilities` 删除**（它一直是 0，宿主不读）。OptiScaler 宿主不调用 `QueryCapabilities`，所以游戏内无影响。但上游仓库存档分支的头文件里仍有这个字段：拿本仓库的 `tests/lmxxf/lmxxf_nr_gpu.cpp` 去测上游 runtime，`QueryCapabilities` 会因尺寸不符失败，需要用上游头文件重新编译测试。
+- **`hip_ready` 已从 `LmxxfNrCapabilities` 删除**。宿主现在用 `QueryCapabilities` 协商时序尾部；不可与其它布局的 runtime 混用。本仓库的测试应搭配本仓库头文件和 runtime。
 - `gfx1201_target` 字段已标 DEPRECATED，不反映实际架构；实际架构用 `GetStatus` 查询。
 - `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK`：HIP enqueue 或队列契约失败时，runtime 把私有输出清零后返回 OK，本帧显示原始 Color。宿主连续 10 次（`kMaxConsecutiveRecoveries`）恢复后关闭该 session 的 NR。其它队列上的读者要由调用方自己同步，契约写在头文件注释里。
 - Session 建立失败按 2、4、8… 次 Record 指数退避，上限 600 次（60 fps 下约 10 s）。
@@ -54,4 +55,5 @@
 
 - `tests/lmxxf/lmxxf_nr_abi.cpp`、`tests/lmxxf/lmxxf_zero_fallback_abi.c`（C 冒烟）：`tests/lmxxf/run.cmd`，CI 也跑。
 - `tests/lmxxf/lmxxf_nr_gpu.cpp --reject-formats` 会用 ABI v1 的 `struct_size` 跑一帧，证明老宿主还能用。
+- `--temporal` 验证四种实验模式、重置/跳帧/缺少 motion 的回退及旧版 80/104/112 字节帧；`tests/lmxxf/lmxxf_temporal.cpp` 用 WARP 验证映射、拒绝历史和零输出保护。
 - 无卡回归见 [tests/RELEASE-TESTS.md](../../tests/RELEASE-TESTS.md)。

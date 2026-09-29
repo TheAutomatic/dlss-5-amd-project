@@ -23,11 +23,13 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <vector>
 #include <chrono>
 #include "HighlightCapture.h"
+#include "TemporalHistory.h"
 
 namespace
 {
@@ -65,6 +67,8 @@ static_assert(offsetof(LmxxfNrFrameInfo, paper_white) == LMXXF_NR_FRAME_INFO_EXP
               "paper_white must start where the exposure-sized frame info ended");
 static_assert(sizeof(LmxxfNrFrameInfo) > LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,
               "paper_white must grow the frame info past the exposure-sized host");
+static_assert(offsetof(LmxxfNrFrameInfo, motion) == LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE,
+              "temporal fields must not consume legacy tail padding");
 
 // Bound each D3D12 queue wait during EnqueueHip recovery to limit stalls.
 // Teardown keeps its 30 s wait; HIP stream synchronization is not bounded here.
@@ -1280,6 +1284,10 @@ struct Job
      * Session::meter.value, which the codecs bind in place of a game exposure. */
     bool autoExposure = false;
     bool codec_passthrough = false;
+    ID3D12Resource *motion = nullptr, *depth = nullptr;
+    D3D12_RESOURCE_STATES motionState{}, depthState{};
+    LmxxfTemporal::Parameters temporalParams{};
+    bool temporalActive = false, modelHistory = false, temporalOutputs = false, zeroRecovered = false;
 };
 
 struct Session
@@ -1302,6 +1310,9 @@ struct Session
     NativeGameRgbInput *rgbInput = nullptr;
     NativeRgbTexture *rgbTex = nullptr;
     NativeGameCodec *decode = nullptr;
+    LmxxfTemporal::History *temporal = nullptr;
+    std::string temporalReason = "off";
+    std::atomic<bool> temporalResetRequested { false };
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
@@ -1418,6 +1429,8 @@ struct Session
         }
         delete decode;
         decode = nullptr;
+        delete temporal;
+        temporal = nullptr;
         delete rgbTex;
         rgbTex = nullptr;
         delete rgbInput;
@@ -1498,6 +1511,7 @@ struct Session
         bridge = nullptr;
         decodeDisplay = nullptr;
         decode = nullptr;
+        temporal = nullptr; // same fail-closed retention as the codec resources
         rgbTex = nullptr;
         rgbInput = nullptr;
         encode = nullptr;
@@ -1551,6 +1565,8 @@ struct Session
         // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
         delete bridge;
         bridge = nullptr;
+        delete temporal;
+        temporal = nullptr;
         if (decodeDisplay)
         {
             decodeDisplay->Release();
@@ -1684,7 +1700,7 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
             out->max_input_width = 1920;
             out->max_input_height = 1080;
         }
-        out->history_supported = 0;
+        out->history_supported = 1;
         out->overlap_supported = 0;
         out->graph_supported = 0;
         out->gfx1201_target = 1;
@@ -1785,6 +1801,85 @@ int32_t PrepareSession(void *context)
     });
 }
 
+void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
+{
+    auto &j=s->job;
+    const auto disable=[&](const char *reason) {s->temporalReason=reason; if(s->temporal) s->temporal->Reset();};
+    if(info->struct_size < offsetof(LmxxfNrFrameInfo,evaluate_sequence)+sizeof(uint64_t)) {disable("legacy-frame");return;}
+    const bool model=(info->temporal_flags & LMXXF_NR_TEMPORAL_MODEL_HISTORY)!=0;
+    const float smoothing=std::isfinite(info->output_smoothing)?std::clamp(info->output_smoothing,0.f,.5f):0.f;
+    if(!model && smoothing==0) {disable("off");return;}
+    if(j.codec_passthrough || j.debug_view) {disable("diagnostic-view");return;}
+    if(!(info->temporal_flags & LMXXF_NR_TEMPORAL_INPUTS_VALID)) {disable("unknown-motion-contract");return;}
+    auto *motion=static_cast<ID3D12Resource*>(info->motion), *depth=static_cast<ID3D12Resource*>(info->depth);
+    if(!motion || !depth || motion==depth || motion==j.color || depth==j.color) {disable("missing-guides");return;}
+    const auto md=motion->GetDesc(), dd=depth->GetDesc();
+    const auto texture=[](const D3D12_RESOURCE_DESC &d) {
+        return d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D && d.DepthOrArraySize==1 &&
+               d.MipLevels==1 && d.SampleDesc.Count==1 && !(d.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+    };
+    if(!texture(md)||!texture(dd)||LmxxfTemporal::MotionFormat(md.Format)==DXGI_FORMAT_UNKNOWN ||
+        LmxxfTemporal::DepthFormat(dd.Format)==DXGI_FORMAT_UNKNOWN) {disable("guide-format");return;}
+    const UINT mw=info->motion_width, mh=info->motion_height;
+    if(!mw||!mh||mw>md.Width||mh>md.Height||j.width>dd.Width||j.height>dd.Height) {disable("guide-extent");return;}
+    if(!std::isfinite(info->motion_scale_x)||!std::isfinite(info->motion_scale_y)||
+       !std::isfinite(info->jitter_x)||!std::isfinite(info->jitter_y)) {disable("invalid-motion-scalars");return;}
+    for(auto *r:{motion,depth}) {
+        ID3D12Device *owner=nullptr;
+        const HRESULT hr=r->GetDevice(IID_PPV_ARGS(&owner));
+        const bool same=SUCCEEDED(hr)&&owner&&NativeSameDevice(owner,s->device);
+        if(owner) owner->Release();
+        if(!same) {disable("guide-device");return;}
+    }
+    const auto ng=NativeCurrentNetworkGeometry();
+    if(!s->temporal) {
+        auto candidate=std::make_unique<LmxxfTemporal::History>();
+        candidate->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height);
+        s->temporal=candidate.release();
+    }
+    auto &h=*s->temporal;
+    if(h.NeedsEviction(motion,depth)) {
+        LmxxfTemporal::Check(s->DrainGpu(),"binding cache drain");
+        h.ClearBindings();
+    }
+    h.PrepareBinding(s->device,motion,depth);
+    const auto now=GetTickCount64();
+    const UINT stableFlags=info->temporal_flags & (LMXXF_NR_TEMPORAL_MODEL_HISTORY|LMXXF_NR_TEMPORAL_MV_JITTERED|LMXXF_NR_TEMPORAL_DEPTH_INVERTED);
+    const bool explicitReset=s->temporalResetRequested.exchange(false);
+    const bool discontinuity=explicitReset||(info->temporal_flags&LMXXF_NR_TEMPORAL_RESET)||!info->evaluate_sequence||
+        info->evaluate_sequence!=h.sequence+1||now-h.tick>500||h.motionWidth!=mw||h.motionHeight!=mh||
+        h.scaleX!=info->motion_scale_x||h.scaleY!=info->motion_scale_y||h.flags!=stableFlags||
+        h.smoothing!=smoothing||h.paperWhite!=j.paper_white||h.preExposure!=j.pre_exposure||h.exposureScale!=j.exposure_scale;
+    if(discontinuity) h.Reset();
+    auto &p=j.temporalParams;
+    const auto g=s->encode->Geometry();
+    p.width=ng.valid_width; p.height=ng.valid_height; p.processingHeight=ng.processing_height;
+    p.viewX=g.x; p.viewY=g.y; p.viewWidth=g.fit_width; p.viewHeight=g.fit_height;
+    p.renderWidth=j.width; p.renderHeight=j.height; p.motionWidth=mw; p.motionHeight=mh;
+    p.scaleX=info->motion_scale_x/float(mw); p.scaleY=info->motion_scale_y/float(mh);
+    // NGX/FFX: jittered vectors already contain previous-current jitter. Our
+    // history is a jittered render-grid image (not a stabilized SR output).
+    if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_MV_JITTERED)) {
+        p.jitterX=(h.jitterX-info->jitter_x)/float(j.width);
+        p.jitterY=(h.jitterY-info->jitter_y)/float(j.height);
+    }
+    p.useHistory=h.valid?1u:0u; p.smoothStrength=smoothing;
+    p.depthInverted=(info->temporal_flags&LMXXF_NR_TEMPORAL_DEPTH_INVERTED)?1u:0u;
+    j.temporalActive=true; j.modelHistory=model&&h.valid;
+    j.motion=motion; j.depth=depth;
+    j.motionState=static_cast<D3D12_RESOURCE_STATES>(info->motion_state);
+    j.depthState=static_cast<D3D12_RESOURCE_STATES>(info->depth_state);
+    s->temporalReason=h.valid?"active":"priming";
+    if(h.valid) ++h.used;
+    // Published as valid only after the consumer was submitted; cancellation
+    // and HIP zero-output recovery must not promote this pending provenance.
+    h.valid=false;
+    h.sequence=info->evaluate_sequence; h.tick=now; h.jitterX=info->jitter_x; h.jitterY=info->jitter_y;
+    h.motionWidth=mw; h.motionHeight=mh; h.scaleX=info->motion_scale_x; h.scaleY=info->motion_scale_y;
+    h.flags=stableFlags; h.smoothing=smoothing; h.paperWhite=j.paper_white;
+    h.preExposure=j.pre_exposure; h.exposureScale=j.exposure_scale;
+}
+
 int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *job)
 {
     auto *session = static_cast<Session *>(context);
@@ -1798,7 +1893,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         const uint32_t legacySize = 64;
         const uint32_t v1Size = LMXXF_NR_FRAME_INFO_V1_SIZE;
         const uint32_t exposureSize = LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE;
-        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != exposureSize &&
+        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE && info->struct_size != exposureSize &&
              info->struct_size != v1Size && info->struct_size != legacySize) ||
             job->struct_size != sizeof(LmxxfNrJob))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
@@ -2309,6 +2404,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
         session->job.seed = 1;
+        PrepareTemporal(session,info);
         session->job.state = LMXXF_NR_JOB_PREPARED;
         job->handle = &session->job;
         if (!session->decode)
@@ -2429,7 +2525,11 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             return static_cast<int32_t>(LMXXF_NR_OK);
         }
         session->rgbInput->Record(list, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        session->bridge->RecordInputCopy(list, session->rgbInput->PostBase(), nullptr);
+        if(j->temporalActive)
+            session->temporal->RecordInputs(list,session->rgbInput->PostBase(),session->bridge->Output(),
+                                           j->motion,j->depth,j->motionState,j->depthState,j->temporalParams);
+        session->bridge->RecordInputCopy(list, session->rgbInput->PostBase(),
+                                        j->modelHistory?session->temporal->Warped():nullptr);
         j->state = LMXXF_NR_JOB_PRODUCER_SUBMITTED;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2487,6 +2587,8 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             const bool cleared = session->bridge && session->bridge->ClearOutput(targetQueue);
             if (cleared)
             {
+                j->zeroRecovered=true;
+                if(session->temporal) session->temporal->Reset();
                 targetQueue->AddRef();
                 session->fallbackConsumerQueue = targetQueue;
                 if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
@@ -2504,7 +2606,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         QueueContract(session, targetQueue);
         try
         {
-            session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
+            session->bridge->EnqueueAfterProducer(targetQueue, j->seed, j->modelHistory);
             if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                 j->state = LMXXF_NR_JOB_NR_COMPLETE;
             SetError("");
@@ -2517,6 +2619,8 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             const bool cleared = session->bridge && session->bridge->ClearOutput(targetQueue);
             if (cleared)
             {
+                j->zeroRecovered=true;
+                if(session->temporal) session->temporal->Reset();
                 if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                     j->state = LMXXF_NR_JOB_NR_COMPLETE;
                 std::string msg = "EnqueueHip: enqueue failed (";
@@ -2558,6 +2662,11 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         if (!j->codec_passthrough)
         {
             session->bridge->RecordOutputReadable(list);
+            if(j->temporalActive) {
+                session->temporal->RecordOutputs(list,session->rgbInput->PostBase(),session->bridge->Output(),
+                                                j->depth,j->depthState,j->temporalParams);
+                j->temporalOutputs=true;
+            }
             session->rgbTex->Record(list);
         }
         if (!session->decode)
@@ -2634,6 +2743,7 @@ int32_t CancelUnsubmitted(void *context, void *job)
     return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
+        if(session->temporal) session->temporal->Reset();
         auto *j = static_cast<Job *>(job ? job : &session->job);
         if (j)
             j->state = LMXXF_NR_JOB_RETIRED;
@@ -2670,6 +2780,8 @@ int32_t Retire(void *context, void *job)
             j->state = LMXXF_NR_JOB_RETIRED;
         if (session->bridge)
             session->bridge->NotifyOutputSubmittedIfRecorded(session->queue);
+        if(session->temporal && j && j->temporalOutputs && !j->zeroRecovered)
+            session->temporal->valid=true;
 #ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
         session->highlights.Submitted(session->queue);
 #endif
@@ -2683,6 +2795,7 @@ int32_t ResetHistory(void *context)
     return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
+        session->temporalResetRequested.store(true);
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -2756,6 +2869,15 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
                               session->queueBound ? 1u : 0u,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
             }
+        }
+        if (session)
+        {
+            const size_t used = std::strlen(text);
+            std::snprintf(text + used, sizeof(text) - used,
+                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u",
+                          session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
+                          session->job.temporalParams.smoothStrength,
+                          session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u);
         }
         if (session)
         {

@@ -20,6 +20,8 @@ struct Frame
     UINT motionWidth = 0, motionHeight = 0;
     float preExposure = 1, exposureScale = 1;
     bool reset = false, depthInverted = false;
+    float jitterX = 0, jitterY = 0;
+    bool motionJittered = false, temporalInputsValid = false;
     D3D12_RESOURCE_STATES colourState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     D3D12_RESOURCE_STATES motionState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     D3D12_RESOURCE_STATES depthState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;

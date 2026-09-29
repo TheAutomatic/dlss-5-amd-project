@@ -16,11 +16,20 @@ namespace DlssNr::Backend
 struct LmxxfBackend::Api
 {
     LmxxfNrApi table {};
+    bool temporalSupported=false;
 };
 
 namespace
 {
 std::atomic<unsigned> g_lastColorH { 0 };
+std::mutex g_temporalStatusMutex;
+std::string g_temporalStatus="Waiting for lmxxf";
+}
+
+std::string LastLmxxfTemporalStatus()
+{
+    std::lock_guard lock(g_temporalStatusMutex);
+    return g_temporalStatus;
 }
 
 unsigned LastLmxxfColorHeight()
@@ -275,6 +284,9 @@ bool LmxxfBackend::EnsureRuntime()
         SetStatus("lmxxf: GetApi failed");
         return false;
     }
+    LmxxfNrCapabilities caps{}; caps.struct_size=sizeof(caps);
+    api->temporalSupported=api->table.QueryCapabilities &&
+        api->table.QueryCapabilities(&caps)==LMXXF_NR_OK && caps.history_supported!=0;
     return true;
 }
 
@@ -526,6 +538,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                                      const AmdPreSr::Settings &settings)
 {
     std::lock_guard recordLock(recordMutex);
+    ++evaluateSequence_;
     bool nrRecorded = false;
     // Runs before recordMutex is released and covers every early-return path.
     auto reportOutcome = [&] {
@@ -649,7 +662,8 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 
     D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
     LmxxfNrFrameInfo fi {};
-    fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
+    fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE :
+        api->temporalSupported ? sizeof(fi) : LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE;
     fi.frame_id = ++frameId;
     fi.command_list = cmd;
     fi.color_width = JobExtent(frame.width, desc.Width);
@@ -672,6 +686,33 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.exposure_state = static_cast<uint32_t>(frame.exposureState);
     fi.pre_exposure = frame.preExposure;
     fi.exposure_scale = frame.exposureScale;
+    fi.motion=frame.motion; fi.depth=frame.depth;
+    fi.motion_state=static_cast<uint32_t>(frame.motionState);
+    fi.depth_state=static_cast<uint32_t>(frame.depthState);
+    fi.motion_width=frame.motionWidth?frame.motionWidth:fi.color_width;
+    fi.motion_height=frame.motionHeight?frame.motionHeight:fi.color_height;
+    fi.motion_scale_x=frame.motionScaleX; fi.motion_scale_y=frame.motionScaleY;
+    fi.jitter_x=frame.jitterX; fi.jitter_y=frame.jitterY;
+    fi.evaluate_sequence=evaluateSequence_;
+    const bool modelHistory=Config::Instance()->LmxxfModelHistory.value_or_default();
+    const float smoothingSetting=Config::Instance()->LmxxfOutputSmoothing.value_or_default();
+    const float smoothing=std::isfinite(smoothingSetting)?std::clamp(smoothingSetting,0.f,.5f):0.f;
+    if(api->temporalSupported && !frameInfoV1) {
+        fi.temporal_flags=(modelHistory?LMXXF_NR_TEMPORAL_MODEL_HISTORY:0u)|
+            ((frame.reset||temporalResetPending.exchange(false))?LMXXF_NR_TEMPORAL_RESET:0u)|
+            (frame.motionJittered?LMXXF_NR_TEMPORAL_MV_JITTERED:0u)|
+            (frame.depthInverted?LMXXF_NR_TEMPORAL_DEPTH_INVERTED:0u)|
+            (frame.temporalInputsValid?LMXXF_NR_TEMPORAL_INPUTS_VALID:0u);
+        fi.output_smoothing=smoothing;
+    }
+    const bool temporalSettingsChanged=!temporalLog.initialized||temporalLog.model!=modelHistory||
+        temporalLog.smooth!=smoothing||temporalLog.contract!=frame.temporalInputsValid;
+    if(temporalSettingsChanged) {
+        LOG_INFO("lmxxf temporal settings: supported={} modelHistory={} smoothing={:.2f} contract={} motion={}x{} scale={},{} jittered={} jitter={},{} reset={} (requested settings; runtime snapshot reports active state)",
+                 api->temporalSupported,modelHistory,smoothing,frame.temporalInputsValid,fi.motion_width,fi.motion_height,
+                 frame.motionScaleX,frame.motionScaleY,frame.motionJittered,frame.jitterX,frame.jitterY,frame.reset);
+        temporalLog={true,modelHistory,frame.temporalInputsValid,smoothing};
+    }
 
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
@@ -695,6 +736,27 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             frameRc = api->table.PrepareFrame(session, &fi, &job);
         }
     }
+    const auto updateTemporalStatus=[&] {
+        if(!(temporalSettingsChanged||frameId<=3||frameId%120==0)) return;
+        char snapshot[2048]{};
+        api->table.GetStatus(session,snapshot,sizeof snapshot);
+        const char *reason=std::strstr(snapshot,"temporal=");
+        std::string display="Unavailable: update the matching runtime";
+        if(reason) {
+            reason+=9;
+            std::string token(reason,std::strcspn(reason," "));
+            if(token=="active") display="Active";
+            else if(token=="priming") display="Starting fresh history";
+            else if(token=="off") display="Off (baseline)";
+            else if(token=="missing-guides") display="Unavailable: motion or depth missing";
+            else if(token=="guide-format") display="Unavailable: motion/depth format";
+            else if(token=="guide-extent") display="Unavailable: motion/depth size";
+            else if(token=="unknown-motion-contract") display="Unavailable: motion metadata missing or subrect unsupported";
+            else display="Unavailable: "+token;
+        }
+        {std::lock_guard lock(g_temporalStatusMutex);g_temporalStatus=display;}
+        LOG_INFO("lmxxf temporal applied: {}",snapshot);
+    };
     if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
     {
         char err[256] {};
@@ -774,6 +836,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                 LOG_INFO("{}", noticeMsg);
             ++noticeLogs;
         }
+        updateTemporalStatus(); // GetLastError notice above must be consumed first.
         static bool loggedGeo = false;
         if (!loggedGeo && api->table.GetStatus)
         {
@@ -855,7 +918,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                                const AmdPreSr::Settings &settings)
 {
-    const auto seq = ++evaluateSequence_;
+    const auto seq = evaluateSequence_;
     const auto id = ++probeEvaluateId;
     const bool sampled = id <= 3 || id % 120 == 0;
     const auto d = frame.colour->GetDesc();
@@ -1251,22 +1314,8 @@ bool LmxxfBackend::Shutdown()
 
 void LmxxfBackend::InvalidateHistory()
 {
-    if (session && api && api->table.ResetHistory)
-    {
-        const int32_t resetRc = api->table.ResetHistory(session);
-        if (resetRc != LMXXF_NR_OK)
-        {
-            static std::atomic<uint32_t> resetFailures { 0 };
-            const uint32_t n = resetFailures.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (n <= 3 || n % 120 == 0)
-            {
-                char err[256] {};
-                if (api->table.GetLastError)
-                    api->table.GetLastError(err, sizeof err);
-                LOG_ERROR("lmxxf: ResetHistory rc={} err={} (fail#{})", resetRc, err, n);
-            }
-        }
-    }
+    // Menu/resource callbacks need not own recordMutex or a live session.
+    temporalResetPending.store(true);
     stagingProbe.InvalidateEpoch();
 }
 

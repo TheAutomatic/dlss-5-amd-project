@@ -50,6 +50,8 @@ $rtSources = @(
     (Join-Path $rtDir 'LmxxfNrRuntime.cpp'),
     (Join-Path $rtDir 'LmxxfNrApi.h'),
     (Join-Path $rtDir 'LmxxfProductionOptions.h'),
+    (Join-Path $rtDir 'TemporalHistory.h'),
+    (Join-Path $rtDir 'HighlightCapture.h'),
     (Join-Path $rtDir '../../../ConfigKeys.h')
 )
 Test-NotStale $dll $rtSources 'LmxxfNrRuntime.dll'

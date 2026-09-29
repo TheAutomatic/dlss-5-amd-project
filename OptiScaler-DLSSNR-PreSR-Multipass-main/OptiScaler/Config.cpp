@@ -328,6 +328,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
             LmxxfPaperWhite.set_from_config(readFloat("DlssNr", "LmxxfPaperWhite"));
             LmxxfAutoExposure.set_from_config(readBool("DlssNr", "LmxxfAutoExposure"));
+            LmxxfModelHistory.set_from_config(readBool(CfgKey::kSection, CfgKey::ModelHistory));
+            LmxxfOutputSmoothing.set_from_config(readFloat(CfgKey::kSection, CfgKey::OutputSmoothing));
             LmxxfAutoExposureScale.set_from_config(readFloat("DlssNr", "LmxxfAutoExposureScale"));
             LmxxfAllowEnhancedBarriers.set_from_config(readBool("DlssNr", "LmxxfAllowEnhancedBarriers"));
             LmxxfEarlyExeWrap.set_from_config(readBool("DlssNr", "LmxxfEarlyExeWrap"));
@@ -1541,6 +1543,10 @@ bool Config::SaveIni()
                  GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAutoExposure",
                  GetBoolValue(Instance()->LmxxfAutoExposure.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::ModelHistory,
+                 GetBoolValue(Instance()->LmxxfModelHistory.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::OutputSmoothing,
+                 GetFloatValue(Instance()->LmxxfOutputSmoothing.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAutoExposureScale",
                  GetFloatValue(Instance()->LmxxfAutoExposureScale.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAllowEnhancedBarriers",

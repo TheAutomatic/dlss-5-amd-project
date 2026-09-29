@@ -354,6 +354,8 @@ class Config
     // exposure keep using that texture and ignore this. Default on: the runtime meters the
     // colour and smooths it (LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE).
     CustomOptional<bool> LmxxfAutoExposure { true };
+    CustomOptional<bool> LmxxfModelHistory { false };
+    CustomOptional<float> LmxxfOutputSmoothing { 0.0f };
     // Manual white scale when exposure is missing AND LmxxfAutoExposure is off.
     // Unused when Auto exposure is on (runtime meter) or when the game sends exposure.
     CustomOptional<float> LmxxfAutoExposureScale { 8.0f };
