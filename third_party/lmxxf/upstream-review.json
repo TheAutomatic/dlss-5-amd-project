@@ -5,7 +5,7 @@
   "snapshot": "17220dba1ca35f53ff2aa2eeb8c6b1c4d29109b283e47c1870f399d1925cb95f",
   "reviewer": "MiMo (agent) per work/notes/2026-09-29-lmxxf-feature-coverage.md",
   "summary": "Integrate lmxxf 0.36 + 9/29 kernel/scheduling/C512-head-ViT into vendor and modules. Direct I/O and FRAME_STATS deferred as separate product batches. Experiments/docs excluded.",
-  "validation": "Sources staged to c0a6196; local patches apply; native_frame_stats.h in manifest. Dual-arch modules rebuilt (30+30) and bound via -ModulesPath. LmxxfNrRuntime rebuilt; tests/lmxxf/run.cmd abi PASS (22 unittest OK). FMA numerical baseline intentionally changed (328e1081). GPU goldens and in-game validation still outstanding.",
+  "validation": "Sources staged to c0a6196; local patches apply; native_frame_stats.h in manifest. Dual-arch modules rebuilt (30+30) and bound via -ModulesPath. LmxxfNrRuntime rebuilt; tests/lmxxf/run.cmd abi PASS (22 unittest OK). FMA/stack A/B recorded: work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123 on B highlights, PSNR 42.7 dB, alpha identical). GPU goldens must be re-baselined; in-game validation outstanding.",
   "decisions": [
     {
       "id": "integration",
@@ -2905,7 +2905,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:Development/HIP/validate-modules-960.ps1",
@@ -14895,7 +14895,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/SHA256SUMS",
@@ -14905,7 +14905,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/build-modules.ps1",
@@ -14915,7 +14915,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/c32_fast.hip",
@@ -14925,7 +14925,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/c32_fused_ffn_attention.hip",
@@ -14935,7 +14935,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/c512_head_group.inc",
@@ -14945,7 +14945,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/c512_qkv_attention_compact.inc",
@@ -14955,7 +14955,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/c512_qkv_attention_fused.inc",
@@ -14965,7 +14965,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/deep_fast.hip",
@@ -14975,7 +14975,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/multihead_fast.hip",
@@ -14985,7 +14985,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/multihead_fast_padded.hip",
@@ -14995,7 +14995,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/wave_owned_c32.inc",
@@ -15005,7 +15005,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:hip/wave_owned_mh.inc",
@@ -15015,7 +15015,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:scripts/CONFIGURATION.md",
@@ -15125,7 +15125,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:src/LmxxfNrRuntime.cpp",
@@ -15145,7 +15145,7 @@
       "reason": "Follow compile/link dependency into vendor so the staged tree builds (FRAME_STATS parser). Runtime Frame() is not enabled.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:src/native_game_frame.h",
@@ -15175,7 +15175,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:src/native_hip_env_options.h",
@@ -15185,7 +15185,7 @@
       "reason": "Follow compile/link dependency into vendor so the staged tree builds (FRAME_STATS parser). Runtime Frame() is not enabled.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:src/native_hip_network.h",
@@ -15195,7 +15195,7 @@
       "reason": "Production kernel/recipe update: 0.36 activation/FMA/fusion + 9/29 C512 compact, head group, ViT transposed score. 0.36 float FMA (328e1081) intentionally changes the numerical baseline. Upstream reports bit-stable for earlier opts, but FMA needs its own output-error record. Other 0.36/9-29 fusion and layout opts are compared against this FMA baseline.",
       "evidence": "Range 54e14de503431cd4536f8a7151b022af232178a9 -> c0a61968874e438ca3f887506f09c185ce378020; staged into third_party/lmxxf. Coverage doc 2026-09-29 sections 1-2. Local patches reapplied by sync.",
       "validation": "Patch apply + source stage by sync-lmxxf-upstream.ps1. Dual-arch module rebuild and golden/error tests are still required before this counts as runtime-verified.",
-      "next_step": "Rebuild gfx1200/gfx1201 modules from these sources; record FMA vs prior baseline separately; smoke ABI/WARP/GPU."
+      "next_step": "Dual-arch modules rebuilt and bound at c0a6196. FMA/stack A/B recorded in work/notes/2026-09-29-fma-baseline-ab.md (max abs 0.123, PSNR ~42.7 dB, alpha exact). Remaining: GPU golden update to the new baseline (tests/lmxxf/run.cmd gpu hashes will change) and in-game smoke."
     },
     {
       "id": "file:src/native_pre_upscale.h",

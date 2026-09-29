@@ -235,11 +235,88 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
     return hsh;
 }
 
+// FMA A/B accounting: write valid row bytes (no pitch padding) so two runs can be differenced.
+static void DumpTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12Resource *tex, const char *path)
+{
+    const D3D12_RESOURCE_DESC td = tex->GetDesc();
+    if (td.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        std::fprintf(stderr, "dump: output is not a texture; skipped\n");
+        return;
+    }
+    const UINT h = td.Height;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp {};
+    UINT numRows = 0;
+    UINT64 rowBytes = 0, total = 0;
+    device->GetCopyableFootprints(&td, 0, 1, 0, &fp, &numRows, &rowBytes, &total);
+    D3D12_HEAP_PROPERTIES rbh {};
+    rbh.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC bd {};
+    bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bd.Width = total;
+    bd.Height = 1;
+    bd.DepthOrArraySize = bd.MipLevels = 1;
+    bd.SampleDesc.Count = 1;
+    bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ID3D12Resource *rb = nullptr;
+    Check(device->CreateCommittedResource(&rbh, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_COPY_DEST,
+                                          nullptr, IID_PPV_ARGS(&rb)),
+          "dump readback");
+    ID3D12CommandAllocator *al = nullptr;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&al)), "dump alloc");
+    ID3D12GraphicsCommandList *cl = nullptr;
+    Check(device->CreateCommandList(1, D3D12_COMMAND_LIST_TYPE_DIRECT, al, nullptr, IID_PPV_ARGS(&cl)), "dump list");
+    D3D12_RESOURCE_BARRIER toCopy {};
+    toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toCopy.Transition = { tex, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE };
+    cl->ResourceBarrier(1, &toCopy);
+    D3D12_TEXTURE_COPY_LOCATION dstLoc {}, srcLoc {};
+    dstLoc.pResource = rb;
+    dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dstLoc.PlacedFootprint = fp;
+    srcLoc.pResource = tex;
+    srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    cl->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+    D3D12_RESOURCE_BARRIER toSrv = toCopy;
+    toSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    toSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    cl->ResourceBarrier(1, &toSrv);
+    Check(cl->Close(), "close dump list");
+    ID3D12CommandList *ls[] = { cl };
+    queue->ExecuteCommandLists(1, ls);
+    WaitQueue(device, queue);
+    FILE *f = nullptr;
+    if (fopen_s(&f, path, "wb") != 0 || !f)
+    {
+        std::fprintf(stderr, "dump: cannot open %s\n", path);
+    }
+    else
+    {
+        // header: width height rowBytes height (little-endian uint32 x4), then rows of rowBytes
+        const unsigned hdr[4] = { (unsigned)td.Width, h, (unsigned)rowBytes, h };
+        fwrite(hdr, 4, 4, f);
+        void *mapped = nullptr;
+        Check(rb->Map(0, nullptr, &mapped), "map dump");
+        const auto *base = static_cast<const unsigned char *>(mapped);
+        for (UINT y = 0; y < h; ++y)
+            fwrite(base + size_t(y) * fp.Footprint.RowPitch, 1, (size_t)rowBytes, f);
+        rb->Unmap(0, nullptr);
+        fclose(f);
+        std::printf("dump: %s %ux%u rowBytes=%llu\n", path, (unsigned)td.Width, h,
+                    static_cast<unsigned long long>(rowBytes));
+    }
+    cl->Release();
+    al->Release();
+    rb->Release();
+}
+
 int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false;
+    const char *dumpPath = nullptr;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -266,12 +343,17 @@ int main(int argc, char **argv)
             autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--scale16"))
             scale16 = outputHash = true;
+        else if (!std::strcmp(argv[i], "--dump") && i + 1 < argc)
+        {
+            dumpPath = argv[++i];
+            outputHash = true;
+        }
         else
         {
             std::fprintf(stderr,
                          "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
                          "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
-                         "[--exposure|--exposure-bad] [--subrect] [--auto-exposure] [--scale16]\n");
+                         "[--exposure|--exposure-bad] [--subrect] [--auto-exposure] [--scale16] [--dump path]\n");
             return 2;
         }
     }
@@ -676,6 +758,8 @@ int main(int argc, char **argv)
                                                                  static_cast<ID3D12Resource *>(job.private_output),
                                                                  scale16 ? 4u : 0u)),
                     frame.color_width, frame.color_height);
+    if (dumpPath && outs == LMXXF_NR_OK && job.private_output)
+        DumpTexture(device, submitQueue, static_cast<ID3D12Resource *>(job.private_output), dumpPath);
 
     if (useExposure && !badExposure)
     {
