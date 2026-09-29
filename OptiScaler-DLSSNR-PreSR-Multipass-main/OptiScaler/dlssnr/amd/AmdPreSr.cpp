@@ -187,8 +187,11 @@ std::string Layout(ID3D12Resource* resource)
 }
 // Persist only on Opti Save Settings (same contract as Config::SaveIni).
 // Runtime maps Async=0 -> configuredInline=1, Async=1 -> configuredInline=0.
-// Do not touch PreUpscale here: forcing it off would clobber the user's file;
-// async admission forces preUpscale=0 in memory for this session only.
+// Do not touch PreUpscale in SaveDanielSettings: forcing it off would clobber the
+// user's file. Host-driven Record owns the network pass; daniel's PreUpscale only
+// enables its own FSR-dispatch hook to call Record again (see analysis/daniel-050
+// dump_preupscale_paths). Keep it off in memory for this session (0.4.x default;
+// 0.5.0 ships PreUpscale=1). async also requires it off (pre-upscale needs inline).
 std::filesystem::path g_danielDir;
 
 const AmdLayout* IdentifyRuntime(const std::filesystem::path& file)
@@ -900,7 +903,8 @@ struct Backend::Impl
         const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
         g_danielDir = directory;
         At<uint8_t>(h, L->configuredInline) = wantInline ? 1 : 0;
-        if (L->preUpscale && !wantInline)
+        // Host Record is the only network pass; never let the FSR hook start another.
+        if (L->preUpscale)
             At<int>(h, L->preUpscale) = 0;
         At<uint8_t>(h, L->interop) = 1;
         At<uint8_t>(h, L->enabled) = 1;
@@ -1645,9 +1649,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             {
                 const bool wantInline = Config::Instance()->AmdInline.value_or_default() != 0;
                 At<uint8_t>(r, L->configuredInline) = wantInline ? 1 : 0;
-                if (L->preUpscale && !wantInline)
-                    At<int>(r, L->preUpscale) = 0;
             }
+            if (L->preUpscale)
+                At<int>(r, L->preUpscale) = 0;
             // The old shader ceiling expired at high render resolutions even
             // when inference finished well inside the original runtime's watchdog.
             // Scale the spin allowance with pixels, but retain a hard ceiling
