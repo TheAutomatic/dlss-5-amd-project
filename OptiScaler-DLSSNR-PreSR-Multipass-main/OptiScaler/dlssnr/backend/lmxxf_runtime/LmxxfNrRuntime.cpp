@@ -1854,7 +1854,10 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
     else if(h.motionWidth!=mw||h.motionHeight!=mh||h.scaleX!=info->motion_scale_x||h.scaleY!=info->motion_scale_y)
         s->temporalResetReason="motion-grid";
     else if(h.flags!=stableFlags||h.smoothing!=smoothing) s->temporalResetReason="mode";
-    else if(h.paperWhite!=j.paper_white||h.preExposure!=j.pre_exposure||h.exposureScale!=j.exposure_scale)
+    // Pre-exposure is already removed by the input codec. Its normal per-frame
+    // changes do not invalidate encoded history; the raw/depth guards compare
+    // the actual normalized pixels. User white-point/scale changes still reset.
+    else if(h.paperWhite!=j.paper_white||h.exposureScale!=j.exposure_scale)
         s->temporalResetReason="exposure-scalar";
     if(std::strcmp(s->temporalResetReason,"none")) h.Reset();
     auto &p=j.temporalParams;
@@ -1870,6 +1873,7 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
         p.jitterY=(h.jitterY-info->jitter_y)/float(j.height);
     }
     p.useHistory=h.valid?1u:0u; p.smoothStrength=smoothing;
+    p.stabilizeFeedback=model?1u:0u;
     p.depthInverted=(info->temporal_flags&LMXXF_NR_TEMPORAL_DEPTH_INVERTED)?1u:0u;
     j.temporalActive=true; j.modelHistory=model&&h.valid;
     j.motion=motion; j.depth=depth;

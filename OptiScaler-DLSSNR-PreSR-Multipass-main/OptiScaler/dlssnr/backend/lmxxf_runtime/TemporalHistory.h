@@ -32,7 +32,7 @@ cbuffer Params : register(b0) {
     uint viewX, viewY, viewWidth, viewHeight;
     uint renderWidth, renderHeight, motionWidth, motionHeight;
     float scaleX, scaleY, jitterX, jitterY;
-    float smoothStrength, rawThreshold; uint depthInverted, pad;
+    float smoothStrength, rawThreshold; uint depthInverted, stabilizeFeedback;
 };
 uint2 Mirror(uint index) {
     uint2 p = uint2(index % width, index / width);
@@ -107,7 +107,16 @@ void Finish(uint3 id : SV_DispatchThreadID) {
     float3 raw=Raw[i].rgb;
     float depth=InView(float2(p)) ? GetDepth(ViewUV(p)) : -1;
     RawOut[i]=float4(raw,depth);
-    ModelOut[i]=float4(value,good && all(isfinite(raw)) && InView(float2(p)) ? 1 : 0);
+    bool validHistory=good && all(isfinite(raw)) && InView(float2(p)) &&
+                      !(Max3(value)<.02 && Max3(raw)>.08);
+    float3 feedback=value;
+    // Full-strength recursive model output can oscillate even on a static scene.
+    // Relax only the feedback supplied to the NEXT inference, not this frame's
+    // network output or NR transfer strength. Reprojection/rejection still gates
+    // the old contribution, and invalid/black current output must never retain it.
+    if(stabilizeFeedback && validHistory && useHistory && previous.w>0)
+        feedback=lerp(previous.rgb,value,.5);
+    ModelOut[i]=float4(feedback,validHistory ? 1 : 0);
 }
 )hlsl";
 
@@ -118,7 +127,7 @@ struct Parameters
     UINT renderWidth{}, renderHeight{}, motionWidth{}, motionHeight{};
     float scaleX{}, scaleY{}, jitterX{}, jitterY{};
     float smoothStrength{}, rawThreshold{.08f};
-    UINT depthInverted{}, pad{};
+    UINT depthInverted{}, stabilizeFeedback{};
 };
 static_assert(sizeof(Parameters) == 80);
 
