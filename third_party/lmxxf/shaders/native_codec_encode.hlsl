@@ -53,11 +53,11 @@ float EffectivePaperWhite() {
  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
 #else
  // No game exposure texture. auto_white (Reserved.x bit 0x10000): estimate from image mean.
- // Otherwise prefer host pre-exposure; PaperWhiteScale is a fixed divisor (manual / legacy).
+ // Otherwise apply host pre-exposure continuously (undo factor); PaperWhiteScale is a fixed divisor (manual / legacy).
  if ((Reserved.x & 0x10000u) != 0)
      return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
  float pre=asfloat(Reserved.y);
- if (isfinite(pre)&&pre>0&&abs(pre-1.0)>1e-3)
+ if (isfinite(pre)&&pre>0)
      return PaperWhiteScale*pre;
  return PaperWhiteScale;
 #endif

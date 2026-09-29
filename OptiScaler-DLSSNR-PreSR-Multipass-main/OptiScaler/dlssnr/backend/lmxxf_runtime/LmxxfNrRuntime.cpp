@@ -1275,6 +1275,11 @@ struct Job
     uint32_t debug_view = 0;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
+    /* Host scalars before the meter path forces pre/scale to 1. job.pre_exposure may be
+       forced; these keep the raw NGX values for analysis. */
+    float pre_exposure_raw = 1.0f;
+    float exposure_scale_raw = 1.0f;
+    bool pre_exposure_host = false;
     float paper_white = 1.0f;
     /* The game's exposure texture and its state at RecordInputs: the source of the per-frame
      * copy into Session::exposureCopy. Not bound to any codec. */
@@ -1328,6 +1333,12 @@ struct Session
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
     uint32_t bridgeCreates = 0;
+    /* History object lifetime. Object-local used/resets vanish on delete, so these
+       session counters are the only honest record across codec rebuilds. */
+    uint32_t temporalCreates = 0;
+    uint32_t temporalDeletes = 0;
+    uint32_t historyActiveFrames = 0;
+    uint32_t historyPrimingFrames = 0;
     bool bridgeWarmed = false;
     CpuTiming prepareTiming, enqueueTiming, rebuildTiming, drainTiming;
     // Hardware & module selection diagnostics
@@ -1433,6 +1444,7 @@ struct Session
         decode = nullptr;
         delete temporal;
         temporal = nullptr;
+        ++temporalDeletes;
         delete rgbTex;
         rgbTex = nullptr;
         delete rgbInput;
@@ -1838,6 +1850,7 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
         auto candidate=std::make_unique<LmxxfTemporal::History>();
         candidate->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height);
         s->temporal=candidate.release();
+        ++s->temporalCreates;
     }
     auto &h=*s->temporal;
     if(h.NeedsEviction(motion,depth)) {
@@ -1880,7 +1893,8 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
     j.motionState=static_cast<D3D12_RESOURCE_STATES>(info->motion_state);
     j.depthState=static_cast<D3D12_RESOURCE_STATES>(info->depth_state);
     s->temporalReason=h.valid?"active":"priming";
-    if(h.valid) ++h.used;
+    if(h.valid) { ++h.used; ++s->historyActiveFrames; }
+    else ++s->historyPrimingFrames;
     // Published as valid only after the consumer was submitted; cancellation
     // and HIP zero-output recovery must not promote this pending provenance.
     h.valid=false;
@@ -2080,14 +2094,23 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         ID3D12Resource *frameExposure = nullptr;
         D3D12_RESOURCE_STATES frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         float framePreExposure = 1.0f, frameExposureScale = 1.0f;
+        float framePreRaw = 1.0f, frameScaleRaw = 1.0f;
+        bool framePreHost = false;
         if (info->struct_size >= LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE)
         {
             frameExposure = static_cast<ID3D12Resource *>(info->exposure);
             frameExposureState = static_cast<D3D12_RESOURCE_STATES>(info->exposure_state);
             if (info->pre_exposure > 0.0f && info->pre_exposure < 1.0e6f)
+            {
                 framePreExposure = info->pre_exposure;
+                framePreRaw = info->pre_exposure;
+                framePreHost = true;
+            }
             if (info->exposure_scale > 0.0f && info->exposure_scale < 1.0e6f)
+            {
                 frameExposureScale = info->exposure_scale;
+                frameScaleRaw = info->exposure_scale;
+            }
         }
         float framePaperWhite = 1.0f;
         if (info->struct_size >= offsetof(LmxxfNrFrameInfo, paper_white) + sizeof(float))
@@ -2407,6 +2430,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.debug_view = debug_view;
         session->job.pre_exposure = framePreExposure;
         session->job.exposure_scale = frameExposureScale;
+        session->job.pre_exposure_raw = framePreRaw;
+        session->job.exposure_scale_raw = frameScaleRaw;
+        session->job.pre_exposure_host = framePreHost;
         session->job.paper_white = framePaperWhite;
         session->job.sourceExposure = frameExposure;
         session->job.autoExposure = frameAutoExposure && bindExposure == session->meter.value;
@@ -2884,10 +2910,14 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u",
+                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f",
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
-                          session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u);
+                          session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u,
+                          session->temporalCreates,session->temporalDeletes,
+                          session->historyActiveFrames,session->historyPrimingFrames,
+                          double(session->job.pre_exposure_raw),session->job.pre_exposure_host?1u:0u,
+                          double(session->job.exposure_scale_raw));
             for(const auto &guide : {std::make_pair("motion", &session->temporalMotionDesc),
                                      std::make_pair("depth", &session->temporalDepthDesc)})
             {

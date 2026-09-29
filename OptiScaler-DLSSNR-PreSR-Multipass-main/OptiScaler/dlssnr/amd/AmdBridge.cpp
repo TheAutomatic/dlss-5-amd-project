@@ -529,7 +529,6 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // binds the actual queue before waking HIP. Engines that rotate command-list
     // objects may never submit the same object twice, so do not require a prior
     // observation here.
-    Message("");
     // The swapchain's present queue can change when FG is enabled. It is
     // only a bootstrap hint; Submitted identifies the queue executing our list.
     AmdPreSr::Frame f {};
@@ -537,8 +536,21 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     f.motion = Resource(params, NVSDK_NGX_Parameter_MotionVectors);
     f.depth = Resource(params, NVSDK_NGX_Parameter_Depth);
     f.exposure = Resource(params, NVSDK_NGX_Parameter_ExposureTexture);
-    params->Get(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, &f.preExposure);
-    params->Get(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, &f.exposureScale);
+    // Keep the raw NGX values and Get results. preExposure==1 is a legal game value and is
+    // not proof that the key was absent; the HR is the only availability signal.
+    const HRESULT preHr = params->Get(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, &f.preExposure);
+    const HRESULT scaleHr = params->Get(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, &f.exposureScale);
+    f.preExposureGetOk = (preHr == NVSDK_NGX_Result_Success);
+    f.exposureScaleGetOk = (scaleHr == NVSDK_NGX_Result_Success);
+    {
+        char expMsg[192];
+        std::snprintf(expMsg, sizeof expMsg,
+                      "AMD pre-SR: ngx pre=%.6f preGet=%d scale=%.6f scaleGet=%d exposureTex=%d",
+                      double(f.preExposure), f.preExposureGetOk ? 1 : 0,
+                      double(f.exposureScale), f.exposureScaleGetOk ? 1 : 0,
+                      f.exposure ? 1 : 0);
+        Message(expMsg);
+    }
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &f.width);
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &f.height);
     if (f.colour)

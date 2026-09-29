@@ -96,21 +96,21 @@ static bool IsUsableExposureTexture(void *res)
 }
 
 // Pointer alone is not enough (Palworld NGX ExposureTexture is the wrong shape and the
-// runtime drops it). Decide auto vs fixed from a usable texture. A host pre-exposure
-// (DLSS_Pre_Exposure != 1) is treated as the game's exposure and skips the meter.
-bool WantsAutoExposure(bool usableExposure, float preExposure = 1.0f)
+// runtime drops it). Source selection uses only the usable exposure texture and the user's
+// Auto setting. DLSS_Pre_Exposure is an undo factor for pre-exposure already baked into the
+// colour; it is not evidence that the game supplied an exposure resource, so it must not
+// flip meter on/off (that threshold made source 2/3 jump when pre drifted across 1.0).
+bool WantsAutoExposure(bool usableExposure)
 {
     if (usableExposure)
-        return false;
-    if (std::isfinite(preExposure) && preExposure > 0.0f && std::fabs(preExposure - 1.0f) > 1e-3f)
         return false;
     return Config::Instance()->LmxxfAutoExposure.value_or_default();
 }
 
 float EffectiveCodecPaperWhite(bool usableExposure)
 {
-    // Pre-exposure skips the meter but does not force the manual divisor: paper white
-    // follows Auto (codec trim) or Off (Exposure scale), same as with a game texture.
+    // Paper white follows Auto (codec trim) or Off (Exposure scale). pre-exposure is an
+    // undo factor in the codec, not a source selector, so it does not change this choice.
     if (usableExposure || Config::Instance()->LmxxfAutoExposure.value_or_default())
         return CodecPaperWhite();
     const float v = Config::Instance()->LmxxfAutoExposureScale.value_or_default();
@@ -678,7 +678,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
     fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
     // A runtime that predates the flag rejects it, so only ask when it takes the full struct.
-    if (!frameInfoV1 && WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
+    if (!frameInfoV1 && WantsAutoExposure(IsUsableExposureTexture(frame.exposure)))
         fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
     // AmdBridge already collects these from the NGX parameters (ExposureTexture,
     // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
@@ -976,7 +976,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
                 fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
                 fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
-                if (WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
+                if (WantsAutoExposure(IsUsableExposureTexture(frame.exposure)))
                     fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
                 fi.model_scale = settings.modelScale;
                 // Same frame contract as the normal path: without these, passthrough

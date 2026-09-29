@@ -19,6 +19,9 @@ struct Frame
     // Active display extent, excluding allocation padding; zero means render-resolution vectors.
     UINT motionWidth = 0, motionHeight = 0;
     float preExposure = 1, exposureScale = 1;
+    // NGX Parameter::Get success flags. preExposure==1 can be a real game value; without
+    // these bits "missing" and "provided as 1" are indistinguishable in later analysis.
+    bool preExposureGetOk = false, exposureScaleGetOk = false;
     bool reset = false, depthInverted = false;
     float jitterX = 0, jitterY = 0;
     bool motionJittered = false, temporalInputsValid = false;
