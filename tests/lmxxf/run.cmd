@@ -85,10 +85,11 @@ for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--ex
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )
 rem Output-hash baselines: fixed pattern, 1920x1080, seed 1 (RX 9070 XT, this weights set).
-call :Hash 5e30fd5e768d35bb --output-hash || goto fail
-call :Hash 9417d81940875916 --auto-exposure || goto fail
-call :Hash 9417d81940875916 --auto-exposure --scale16 || goto fail
-call :Hash ed30d52b0aa422fc --r10g10b10a2 || goto fail
+rem Re-baselined 2026-09-29 for c0a6196 FMA/fusion stack (see work/notes/2026-09-29-fma-baseline-ab.md).
+call :Hash fe40c904da05472e --output-hash || goto fail
+call :Hash 79233836b6257864 --auto-exposure || goto fail
+call :Hash 79233836b6257864 --auto-exposure --scale16 || goto fail
+call :Hash 8ba14ef2db0dddfe --r10g10b10a2 || goto fail
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_bridge_zero_gpu.cpp /Fe"%OUT%\lmxxf_bridge_zero_gpu.exe" /Fo"%OUT%\lmxxf_bridge_zero_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --probe-drain || goto fail
