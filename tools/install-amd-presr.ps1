@@ -114,21 +114,21 @@ function Get-PeSha256([string]$path) {
     $end = $bytes.Length
     try {
         if ($bytes.Length -ge 0x40 -and $bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) {
-            $e = [BitConverter]::ToInt32($bytes, 0x3C)
-            if ($e -gt 0 -and ($e + 24) -lt $bytes.Length -and $bytes[$e] -eq 0x50 -and $bytes[$e+1] -eq 0x45) {
+            $e = [int64][BitConverter]::ToUInt32($bytes, 0x3C)
+            if ($e -gt 0 -and ($e + 24) -lt [int64]$bytes.Length -and $bytes[$e] -eq 0x50 -and $bytes[$e+1] -eq 0x45) {
                 $nsec = [BitConverter]::ToUInt16($bytes, $e + 6)
                 $optsz = [BitConverter]::ToUInt16($bytes, $e + 20)
                 $sec = $e + 24 + $optsz
                 $last = [int64]0
                 for ($i = 0; $i -lt $nsec; $i++) {
                     $o = $sec + $i * 40
-                    if (($o + 24) -gt $bytes.Length) { break }
+                    if (($o + 24) -gt [int64]$bytes.Length) { break }
                     $rsz = [BitConverter]::ToUInt32($bytes, $o + 16)
                     $raw = [BitConverter]::ToUInt32($bytes, $o + 20)
                     $off = [int64]$raw + [int64]$rsz
-                    if ($off -gt $last) { $last = $off }
+                    if ($off -gt $last -and $off -le [int64]$bytes.Length) { $last = $off }
                 }
-                if ($last -gt 0 -and $last -le $bytes.Length) { $end = [int]$last }
+                if ($last -gt 0) { $end = [int]$last }
             }
         }
     } catch { }

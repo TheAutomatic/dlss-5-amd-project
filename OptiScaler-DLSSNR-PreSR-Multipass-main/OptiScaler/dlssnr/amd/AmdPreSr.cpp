@@ -202,24 +202,28 @@ static std::size_t PeImageEnd(const std::vector<unsigned char>& data)
 {
     if (data.size() < 0x40 || data[0] != 'M' || data[1] != 'Z')
         return data.size();
-    const auto e_lfanew = *reinterpret_cast<const std::uint32_t*>(data.data() + 0x3C);
+    const std::size_t e_lfanew = *reinterpret_cast<const std::uint32_t*>(data.data() + 0x3C);
     if (e_lfanew + 24 > data.size())
         return data.size();
     const auto* pe = data.data() + e_lfanew;
     if (!(pe[0] == 'P' && pe[1] == 'E' && pe[2] == 0 && pe[3] == 0))
         return data.size();
-    const auto nsec = *reinterpret_cast<const std::uint16_t*>(pe + 6);
-    const auto optsz = *reinterpret_cast<const std::uint16_t*>(pe + 20);
+    const std::size_t nsec = *reinterpret_cast<const std::uint16_t*>(pe + 6);
+    const std::size_t optsz = *reinterpret_cast<const std::uint16_t*>(pe + 20);
+    if (e_lfanew + 24 + optsz > data.size())
+        return data.size();
     const auto* sec = pe + 24 + optsz;
     std::size_t end = 0;
-    for (std::uint16_t i = 0; i < nsec; ++i)
+    for (std::size_t i = 0; i < nsec; ++i)
     {
         const auto* s = sec + i * 40;
         if (s + 40 > data.data() + data.size())
             break;
-        const auto rsz = *reinterpret_cast<const std::uint32_t*>(s + 16);
-        const auto raw = *reinterpret_cast<const std::uint32_t*>(s + 20);
-        end = (std::max)(end, static_cast<std::size_t>(raw) + rsz);
+        const std::size_t rsz = *reinterpret_cast<const std::uint32_t*>(s + 16);
+        const std::size_t raw = *reinterpret_cast<const std::uint32_t*>(s + 20);
+        if (raw > data.size() || rsz > data.size() - raw)
+            break;
+        end = (std::max)(end, raw + rsz);
     }
     return end ? end : data.size();
 }
