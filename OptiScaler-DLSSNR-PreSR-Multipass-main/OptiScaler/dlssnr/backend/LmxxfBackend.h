@@ -33,7 +33,8 @@ class LmxxfBackend final : public Host
         ID3D12CommandList *cmd = nullptr;
         unsigned stalledEvaluations = 0; // Reset with this job on submission/replacement.
     };
-    mutable std::mutex recordMutex; // The runtime session has one active job.
+    std::atomic<bool> releasePending { false };
+    ID3D12Fence* releaseFence = nullptr; // One-shot completion marker for live teardown.
     mutable std::mutex jobMutex;
     PendingJobInfo pendingJobInfo;
     LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;
@@ -85,6 +86,7 @@ class LmxxfBackend final : public Host
     // recoveryDisabled or unload the runtime DLL in convenience mode; pure mode
     // also FreeLibrary. A later Record rebuilds via EnsureSession/EnsureRuntime.
     void ReleaseSession() override;
+    bool PollRelease() override;
     void ResetGraphicsWaitState() override;
     void InvalidateHistory() override;
     std::string Status() const override;

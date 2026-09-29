@@ -8,8 +8,8 @@
 #include <mutex>
 
 // Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
-// Product call site is gated by SubmissionHooksWanted() (LmxxfWired() && NrBackend=lmxxf).
-// AmdBridge calls this every Evaluate; no-op unless SubmissionHooksWanted(). Harnesses can call helpers directly.
+// Submission hooks can also be prepared for a Daniel startup with hot switching.
+// Only lmxxf Record installs an enqueue job. Harnesses can call helpers directly.
 namespace DlssNr::Backend::LmxxfCut
 {
 using EnqueueHipFn = int32_t (*)(void *session, void *job, void *command_queue);
@@ -81,8 +81,17 @@ inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const 
     }
 }
 
+// Also held by host Record/Submitted/release. A copied callback cannot outlive
+// its session. Recursive because recording/submission can re-enter on this thread.
+inline std::recursive_mutex& LifecycleMutex()
+{
+    static std::recursive_mutex mutex;
+    return mutex;
+}
+
 inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, void * /*ctx*/)
 {
+    std::lock_guard lifetime(LifecycleMutex());
     auto &p = Pending();
     void *session;
     void *job;
@@ -221,6 +230,7 @@ inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThu
 
 inline void DisarmBetweenSlot()
 {
+    std::lock_guard lifetime(LifecycleMutex());
     DlssNr::Submission::Hooks::SetBetween(nullptr, nullptr);
     ClearPendingEnqueue();
 }

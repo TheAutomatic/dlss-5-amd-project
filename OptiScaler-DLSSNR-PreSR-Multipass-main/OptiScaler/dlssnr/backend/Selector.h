@@ -5,7 +5,7 @@ namespace DlssNr::Backend
 {
 Kind RequestedKind();
 Kind ActiveKindFromConfig();
-// True only when lmxxf is requested AND LmxxfWired(). Mutual exclusion vs graphics tracker.
+// Startup hook policy: lmxxf, or convenience with lmxxf installed.
 bool SubmissionHooksWanted();
 // ProxyWrap is required for lmxxf same-frame QI. NrConvenience pre-opens it so a
 // daniel-started session can later switch to lmxxf without a restart. Pure mode

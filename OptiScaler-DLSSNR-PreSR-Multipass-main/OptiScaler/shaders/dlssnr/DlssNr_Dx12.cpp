@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <dlssnr/submission/CommandListProxy.h>
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsRestoreDx12.h>
@@ -1466,7 +1467,7 @@ struct ScopedNrStateEnvelope
           invocation(reinterpret_cast<uint64_t>(c))
     {
         D3D12Hooks::SetRootSignatureTracking(false);
-        const auto listId = reinterpret_cast<uint64_t>(c);
+        const auto listId = reinterpret_cast<uint64_t>(DlssNr::Submission::GraphicsRecordingList(c));
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         auto& d = invocation.state;
         d.requested = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
@@ -3024,12 +3025,12 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
 
     // Release the AMD host session only on the off transition: Evaluate runs
     // every frame while disabled, and teardown must not repeat.
-    static bool s_nrWasEnabled = true;
+    DlssNr::AmdBridge::PollReleases();
+    static std::atomic<bool> s_nrWasEnabled { true };
     if (!cfg.DlssNrEnabled.value_or_default())
     {
-        if (s_nrWasEnabled)
+        if (s_nrWasEnabled.exchange(false))
         {
-            s_nrWasEnabled = false;
             DlssNr::AmdBridge::InvalidateHistory();
             DlssNr::AmdBridge::OnNrDisabled();
         }

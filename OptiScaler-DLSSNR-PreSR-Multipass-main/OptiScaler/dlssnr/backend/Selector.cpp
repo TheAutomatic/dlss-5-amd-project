@@ -98,19 +98,14 @@ bool SubmissionHooksWanted()
     // Must NOT depend on DlssNrEnabled: device hooks are installed once at
     // CreateDevice. If we skip ArmCreate when NR starts off, enabling NR
     // in-game has no submission path and the pass cannot start.
-    return LmxxfWired() && ActiveKindFromConfig() == Kind::Lmxxf;
+    return ProxyWrapWanted();
 }
 
 bool ProxyWrapWanted()
 {
     if (!LmxxfWired())
         return false;
-    // lmxxf same-frame QI requires wrapped lists. Convenience pre-opens wrap even
-    // while daniel runs so a later switch does not need a restart. Pure mode only
-    // wraps when lmxxf is selected; switching there from a daniel-started session
-    // then needs a restart because earlier lists stay raw.
-    if (Config::Instance()->NrConvenience.value_or_default() != 0)
-        return true;
-    return ActiveKindFromConfig() == Kind::Lmxxf;
+    return PrepareSubmissionAtStartup(ActiveKindFromConfig(),
+        Config::Instance()->NrConvenience.value_or_default() != 0, HasLmxxfInstalled());
 }
 } // namespace DlssNr::Backend

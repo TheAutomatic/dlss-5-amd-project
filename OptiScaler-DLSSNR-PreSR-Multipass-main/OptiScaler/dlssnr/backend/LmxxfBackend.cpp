@@ -525,7 +525,8 @@ static ID3D12CommandQueue *g_requeue = nullptr;
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
-    std::lock_guard recordLock(recordMutex);
+    std::lock_guard recordLock(LmxxfCut::LifecycleMutex());
+    if (!PollRelease()) return nullptr;
     if (!cmd || !frame.colour)
     {
         SetStatus("lmxxf: Record missing cmd/colour");
@@ -1094,6 +1095,7 @@ void LmxxfBackend::TraceBoundary(const std::string &) {}
 
 void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandList *const * lists)
 {
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     void *jobToRetire = nullptr;
     bool containsCmd = false;
     {
@@ -1202,6 +1204,7 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
 
 bool LmxxfBackend::Shutdown()
 {
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     LmxxfCut::DisarmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
@@ -1229,48 +1232,57 @@ bool LmxxfBackend::Shutdown()
 
 void LmxxfBackend::ReleaseSession()
 {
-    // User toggle-off: free the session's VRAM without poisoning the host.
-    // recoveryDisabled stays false so EnsureSession can rebuild on toggle-on.
-    std::lock_guard recordLock(recordMutex);
-    LmxxfCut::DisarmBetweenSlot();
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
+    if (session) releasePending = true;
+    PollRelease();
+}
+
+bool LmxxfBackend::PollRelease()
+{
+    if (!releasePending.load(std::memory_order_acquire)) return true;
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
+    if (!releasePending) return true;
+    // A recorded continuation already refers to the session's GPU resources.
+    // Keep its callback armed until real submission calls Submitted, even when
+    // NR is off. CPU cancellation is not cancellation of a game command list.
     {
         std::lock_guard lock(jobMutex);
-        if (pendingJobInfo.job && api && session)
-        {
-            // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
-            // the list was never submitted and cannot retire itself.
-            void *job = pendingJobInfo.job;
-            const bool enqueued = LmxxfCut::Pending().job != job;
-            pendingJobInfo = {};
-            if (enqueued && api->table.Retire)
-                api->table.Retire(session, job);
-            else if (!enqueued && api->table.CancelUnsubmitted)
-                api->table.CancelUnsubmitted(session, job);
-        }
-        else
-            pendingJobInfo = {};
+        if (pendingJobInfo.job) return false;
     }
+    if (session && !releaseFence)
+    {
+        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&releaseFence))))
+            return false;
+        if (FAILED(queue->Signal(releaseFence, 1)))
+        {
+            releaseFence->Release(); releaseFence = nullptr;
+            return false;
+        }
+    }
+    if (releaseFence)
+    {
+        const auto done = releaseFence->GetCompletedValue();
+        if (done == UINT64_MAX || done < 1) return false;
+    }
+    // No recorded job, no executing callback (lifetime lock), GPU marker reached.
+    LmxxfCut::DisarmBetweenSlot();
     if (session && api && api->table.Destroy)
     {
         api->table.Destroy(session);
         session = nullptr;
     }
+    if (releaseFence) { releaseFence->Release(); releaseFence = nullptr; }
     sessionReady = false;
-    sessionFailures = 0;
-    sessionRetryIn = 0;
-    // Pure mode also drops the runtime DLL so the process holds nothing extra.
-    // Convenience keeps it loaded for a faster same-backend re-enable.
+    sessionFailures = sessionRetryIn = 0;
     if (!Config::Instance()->NrConvenience.value_or_default())
     {
-        if (runtimeDll)
-        {
-            FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll));
-            runtimeDll = nullptr;
-        }
-        if (api)
-            api->table = {};
+        if (runtimeDll) FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll));
+        runtimeDll = nullptr;
+        if (api) api->table = {};
     }
+    releasePending = false;
     SetStatus("lmxxf: session released (NR off)");
+    return true;
 }
 
 void LmxxfBackend::ResetGraphicsWaitState()
@@ -1281,6 +1293,7 @@ void LmxxfBackend::ResetGraphicsWaitState()
 
 void LmxxfBackend::InvalidateHistory()
 {
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     if (session && api && api->table.ResetHistory)
     {
         const int32_t resetRc = api->table.ResetHistory(session);

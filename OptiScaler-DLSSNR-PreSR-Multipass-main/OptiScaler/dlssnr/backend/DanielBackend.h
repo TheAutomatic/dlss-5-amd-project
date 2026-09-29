@@ -17,6 +17,7 @@ class DanielBackend final : public Host
     void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) override;
     bool Shutdown() override;
     void ReleaseSession() override;
+    bool PollRelease() override;
     void ResetGraphicsWaitState() override;
     void InvalidateHistory() override;
     std::string Status() const override;

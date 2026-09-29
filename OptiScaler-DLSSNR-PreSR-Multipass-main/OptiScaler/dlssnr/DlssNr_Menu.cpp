@@ -244,11 +244,11 @@ void RenderMenu(Config* config, float menuResScale)
 
                 {
                     bool convenience = config->NrConvenience.value_or_default() != 0;
-                    if (ImGui::Checkbox("Convenience (hot switch + free on off)", &convenience))
+                    if (ImGui::Checkbox("Allow backend hot switching", &convenience))
                         config->NrConvenience = convenience ? 1 : 0;
-                    HelpMarker("On (default): daniel<->lmxxf hot-switch; turning NR off frees VRAM. Daniel-only pays a thin CPU proxy."
-                               "\nOff: no extra CPU when running daniel-only; off tears down harder (lmxxf unloads its DLL)."
-                               "\nOff: switching backends needs a game restart. Same-backend off->on is still attempted."
+                    HelpMarker("On (default): prepare hot switching when lmxxf is installed. Changes require restart."
+                               "\nOff: start with only the selected backend; changing backends requires restart."
+                               "\nNR off releases session buffers after submitted work completes; Daniel model cache stays loaded."
                                "\nWrap is decided at startup: restart the game after changing this.");
                 }
 
@@ -407,7 +407,7 @@ void RenderMenu(Config* config, float menuResScale)
                               "\nstart is staged for the next launch. Click Save Settings"
                               "\nto keep it in OptiScaler.ini. The line below always says"
                               "\nwhich case you are in."
-                              "\nTurn NR off with Enable NR above (frees VRAM)."
+                              "\nEnable NR off releases buffers after outstanding work completes."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
                               "\n\nInstalled here: %s",

@@ -1,5 +1,6 @@
 #pragma once
 #include "CommandListProxy.h"
+#include "../amd/GraphicsTracker.h"
 #include "SubmissionTls.h"
 #include <detours/detours.h>
 #include <atomic>
@@ -87,6 +88,7 @@ inline HRESULT WrapNewList(ID3D12Device *device, ID3D12CommandAllocator *alloc, 
 {
     if (!device || !alloc || !real || !out)
         return E_INVALIDARG;
+    AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(real), reinterpret_cast<uint64_t>(initial));
     CommandListProxy *proxy = nullptr;
     const HRESULT hr = CommandListProxy::Create(device, alloc, real, &proxy, initial);
     if (FAILED(hr))
@@ -100,6 +102,7 @@ inline HRESULT WrapClosedList(ID3D12Device *device, ID3D12GraphicsCommandList *r
 {
     if (!device || !real || !out)
         return E_INVALIDARG;
+    AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(real));
     CommandListProxy *proxy = nullptr;
     const HRESULT hr = CommandListProxy::CreateClosed(device, real, &proxy);
     if (FAILED(hr))

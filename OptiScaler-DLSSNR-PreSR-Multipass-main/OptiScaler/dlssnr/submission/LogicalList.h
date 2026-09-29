@@ -1,4 +1,5 @@
 #pragma once
+#include "../amd/GraphicsTracker.h"
 #include "SubmissionTls.h"
 #include <d3d12.h>
 #include <cstdint>
@@ -228,6 +229,7 @@ class LogicalList
             nextAlloc->Release();
             return hr;
         }
+        AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(nextList));
         contAlloc = nextAlloc;
         continuation = nextList;
         phase = Phase::RecordingContinuation;

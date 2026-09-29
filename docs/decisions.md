@@ -150,6 +150,15 @@
 - **原因**：本项目发行包本身分发 Intel 的 `libxess_fg.dll`（许可允许分发、禁止修改与逆向）；同一个包里再附上绕过它门禁的代码，与项目「不分发、不附带绕过」的版权取舍不一致。
 - **落在**：`README.md` 第 179 行附近；包里只有未修改的 `libxess_fg.dll`。
 
+## 2026-09-30 · NR 关闭与后端切换按提交生命周期释放
+
+- **决定**：关闭 NR 或切走后端时停止接收新 Record，保留已录制任务的提交回调；等实际提交及 GPU 完成后释放会话资源。关闭期间的 Evaluate 继续非阻塞轮询，不能只等下一次 Record。
+- **原因**：摘掉回调或取消 CPU job 不会撤销游戏已经录制的 GPU 命令。lmxxf 的 enqueue 回调与会话销毁使用同一生命周期锁；释放前另用队列 fence 确认完成。无法确认完成时保留资源。
+- **Daniel 边界**：保留已验证的模块句柄，避免重新加载被进程固定的 DLL。关闭时释放 host 缓冲和 native staging；模型缓存仍驻留，不承诺显存归零。再开复用模块并重建 staging，避免把单纯清除 new wait 标志当成资源重建。
+- **切换条件**：启用热切换且安装 lmxxf 时，Daniel 启动也预备 submission hooks；仅安装 Daniel 时不引入这条代理路径。graphics tracker 跟踪代理背后的 native list，continuation 有独立状态。启动时未安装 graphics hooks 的情况仍可能要求重启。
+- **落在**：`AmdPreSr`、`LmxxfBackend`、`LmxxfEvaluateCut`、`Selector`、`D3D12_Hooks` 和 `DlssNr_Dx12`。不改变 QueuePriority、preUpscale 或常规逐帧等待策略。
+- **验证范围**：Release 宿主编译与 `tests\\run-all.cmd --tier ci,device` 通过；新增回调/释放并发回归和 native list 身份断言。游戏内双向切换、长时间显存曲线与 low 帧仍需实机游戏验收，不能由这些测试推定。
+
 ## 约 09-16 以后 · 1.9.0.x 撤包
 
 - **决定**：1.9.0.x 全部撤包；本地遗留的 `v1.9.0` tag 与 `1.9.0.3` zip 不复用，版本号不再使用 1.9.0.x。

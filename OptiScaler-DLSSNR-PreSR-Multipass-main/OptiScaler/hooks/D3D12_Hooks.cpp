@@ -1622,6 +1622,8 @@ static void hkSetGraphicsRootUnorderedAccessViewLate(ID3D12GraphicsCommandList* 
 
 void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
 {
+    if (DlssNr::Submission::GraphicsRecordingList(commandList) != commandList)
+        return; // Native hooks observe the forwarded calls; do not detour our proxy.
     if (s_SetComputeRootSignature.o_lateHook || s_SetGraphicsRootSignature.o_lateHook)
         return;
 
@@ -1631,10 +1633,9 @@ void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
     const bool restoreComputeSignature = Config::Instance()->RestoreComputeSignature.value_or_default();
     const bool restoreGraphicSignature = Config::Instance()->RestoreGraphicSignature.value_or_default();
     const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-    // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
+    // Observe native calls even when submission uses a proxy, for Daniel hot-switch.
     const bool amdGraphicsTrackerWanted =
-        Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
-        !DlssNr::Backend::SubmissionHooksWanted();
+        Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
 
     s_SetPipelineState.o_lateHook = (PFN_SetPipelineState) pVTable[25];
     s_SetDescriptorHeaps.o_lateHook = (PFN_SetDescriptorHeaps) pVTable[28];
@@ -1806,6 +1807,7 @@ void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
 
 static void HookToCommandList(ID3D12Device* InDevice)
 {
+    DlssNr::Submission::SuppressProxyWrap nativeProbe;
     if (s_SetComputeRootSignature.o_earlyHook != nullptr || s_SetGraphicsRootSignature.o_earlyHook != nullptr)
         return;
 
@@ -1821,10 +1823,9 @@ static void HookToCommandList(ID3D12Device* InDevice)
             PVOID* pVTable = *(PVOID**) commandList;
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-            // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
+            // Observe native calls even when submission uses a proxy, for Daniel hot-switch.
             const bool amdGraphicsTrackerWanted =
-                Config::Instance()->AmdGraphicsWait.value_or_default() != 0 &&
-                !DlssNr::Backend::SubmissionHooksWanted();
+                Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
             const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
             LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 
@@ -3007,7 +3008,7 @@ static void HookToDevice(ID3D12Device* InDevice)
                 LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
             else
             {
-                LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
+                LOG_INFO("NR ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain");
                 // Whitelist: Unreal (session bind) and Forza (lists before swapchain).
                 // Other engines can crash with early ArmCreate + wrap (e.g. Yan Yun).
                 // LmxxfEarlyExeWrap=true/false forces the decision; missing keeps the whitelist.
