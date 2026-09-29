@@ -39,8 +39,15 @@ UINT64 IFGFeature::StartNewFrame()
 
     if (_lastDispatchedFrame == 0 || (_frameCount - _lastDispatchedFrame) > 2)
     {
-        LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
-                 _lastDispatchedFrame);
+        // A failed/inactive FG context may require this bookkeeping adjustment
+        // every other frame. Keep the adjustment, but bound logging overhead.
+        const auto now = GetTickCount64();
+        if (++_frameResyncCount <= 3 || now - _frameResyncLogAt >= 5000)
+        {
+            LOG_WARN("FG frame counter resynchronized: frame={} lastDispatch={} total={} active={}",
+                     _frameCount, _lastDispatchedFrame, _frameResyncCount, _isActive);
+            _frameResyncLogAt = now;
+        }
 
         _lastDispatchedFrame = _frameCount - 1;
     }

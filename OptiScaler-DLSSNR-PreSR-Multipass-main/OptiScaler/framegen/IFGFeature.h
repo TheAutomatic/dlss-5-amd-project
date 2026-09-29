@@ -70,6 +70,8 @@ class IFGFeature
     UINT64 _frameCount = 0;
     UINT64 _lastDispatchedFrame = 0;
     UINT64 _lastFGFrame = 0;
+    UINT64 _frameResyncCount = 0;
+    ULONGLONG _frameResyncLogAt = 0;
     bool _waitingNewFrameData = false;
     int _framesToInterpolate = -1;
     int _maxInterpolationCount = 1;

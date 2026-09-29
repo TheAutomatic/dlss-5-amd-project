@@ -23,6 +23,9 @@ struct ContinuationState
     bool hasTopology = false;
     D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 
+    ID3D12StateObject *stateObject = nullptr;
+    bool stateObjectLast = false;
+
     bool hasPso = false;
     ID3D12PipelineState *pso = nullptr;
 
@@ -95,6 +98,8 @@ struct ContinuationState
 
     void ReleaseRefs()
     {
+        if (stateObject) { stateObject->Release(); stateObject = nullptr; }
+        stateObjectLast = false;
         if (pso)
         {
             pso->Release();
@@ -210,12 +215,19 @@ struct ContinuationState
 
     void OnPso(ID3D12PipelineState *p)
     {
-        if (pso)
-            pso->Release();
+        if (p) p->AddRef();
+        if (pso) pso->Release();
         pso = p;
-        if (pso)
-            pso->AddRef();
+        stateObjectLast = false;
         hasPso = pso != nullptr;
+    }
+
+    void OnStateObject(ID3D12StateObject *p)
+    {
+        if (p) p->AddRef();
+        if (stateObject) stateObject->Release();
+        stateObject = p;
+        stateObjectLast = true;
     }
 
     void OnGfxRoot(ID3D12RootSignature *s)
@@ -461,8 +473,14 @@ struct ContinuationState
     {
         if (!list)
             return;
-        if (hasPso)
-            list->SetPipelineState(pso);
+        // Replay both pipeline APIs in their original last-write order. A later
+        // SetPipelineState must not be overwritten by an earlier raytracing bind.
+        ID3D12GraphicsCommandList4 *l4 = nullptr;
+        if (stateObject) list->QueryInterface(IID_PPV_ARGS(&l4));
+        if (l4 && !stateObjectLast) l4->SetPipelineState1(stateObject);
+        if (hasPso) list->SetPipelineState(pso);
+        if (l4 && stateObjectLast) l4->SetPipelineState1(stateObject);
+        if (l4) l4->Release();
         if (hasGfxRoot)
             list->SetGraphicsRootSignature(gfxRoot);
         if (hasComputeRoot)

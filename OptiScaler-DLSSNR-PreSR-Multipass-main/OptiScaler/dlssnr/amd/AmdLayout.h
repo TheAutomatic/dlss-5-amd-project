@@ -130,7 +130,20 @@ struct AmdLayout
     std::uint32_t preUpscale = 0;
     // 0.4.2+ [DlssNrOnAmd] Quality: 1 = fast (cheaper math), 0 = reference (NVIDIA-exact).
     std::uint32_t quality = 0;
+    // Worker publication shared by inline and asynchronous jobs; signed -1 means none.
+    // Zero RVA keeps the legacy inline-only contract for older pinned runtimes.
+    std::uint32_t workerDone = 0;
 };
+
+// Read through the caller's atomic accessor. The worker publication covers the
+// async fallback too; jobDone alone advances only on the inline path.
+template <class ReadWord>
+std::uint32_t ReadCompletedJob(const AmdLayout& layout, ReadWord read)
+{
+    if (!layout.workerDone) return read(layout.jobDone);
+    const auto done = static_cast<std::int32_t>(read(layout.workerDone));
+    return done < 0 ? 0u : static_cast<std::uint32_t>(done);
+}
 
 // 0.2.17 pass DLL, SHA256 bc97f3b0...
 inline constexpr AmdLayout kAmd0217 {
@@ -269,7 +282,7 @@ inline constexpr AmdLayout kAmd042 {
     0xaf624, 0xaf640, 0xaf598, 0x19540, 0x19c66,
     0x19730, 0x19ad0, 0x19b2a, 0x19c17,
     0xaf840, 0xaf844, 0xaf848, 0xaf84c,
-    0xaf62c, 0xaf36c, 0xaf84d
+    0xaf62c, 0xaf36c, 0xaf84d, 0xaf750
 };
 
 // 0.4.3: +20% Reference / +18% Fast vs 0.4.2; OverlayKey (daniel ini only).
@@ -288,7 +301,7 @@ inline constexpr AmdLayout kAmd043 {
     0xb179c, 0xb17b8, 0xb1710, 0x19cf0, 0x1a416,
     0x19ee0, 0x1a280, 0x1a2da, 0x1a3c7,
     0xb19b8, 0xb19bc, 0xb19c0, 0xb19c4,
-    0xb17a4, 0xb14e4, 0xb19c5
+    0xb17a4, 0xb14e4, 0xb19c5, 0xb18c8
 };
 
 // 0.5.0: RDNA3 register kernels are the only RDNA3 path (Rdna3RegKernels obsolete);
@@ -312,12 +325,11 @@ inline constexpr AmdLayout kAmd050 {
     0xb67d4, 0xb67f0, 0xb6748, 0x19b90, 0x1a2b6,
     0x19d80, 0x1a120, 0x1a17a, 0x1a267,
     0xb69f0, 0xb69f4, 0xb69f8, 0xb69fc,
-    0xb67dc, 0xb651c, 0xb69fd
+    0xb67dc, 0xb651c, 0xb69fd, 0xb6900
 };
 
 // 0.5.1 PE image. .data +0x3010 (device object) / +0x3098 (control); functions
 // mostly unmoved except init 0x29870->0x2a0c0. bootstrap start still 0x8ea0.
-// See analysis/daniel-051/.
 inline constexpr AmdLayout kAmd051 {
     "0.5.1",
     38569472,
@@ -331,7 +343,7 @@ inline constexpr AmdLayout kAmd051 {
     0xb986c, 0xb9888, 0xb97e0, 0x19b90, 0x1a2b6,
     0x19d80, 0x1a120, 0x1a17a, 0x1a267,
     0xb9a88, 0xb9a8c, 0xb9a90, 0xb9a94,
-    0xb9874, 0xb95b4, 0xb9a95
+    0xb9874, 0xb95b4, 0xb9a95, 0xb9998
 };
 
 inline constexpr const AmdLayout* kAmdLayouts[] = {

@@ -388,7 +388,7 @@ inline std::string FailureDetails(const Loading& context, HMODULE module, std::u
 inline unsigned int lastPathFailures = 0;
 inline unsigned int LastPathFailures() { return lastPathFailures; }
 
-// Call only after IdentifyRuntime has verified the file's full SHA/size against
+// Call only after IdentifyRuntime has verified the PE image SHA/size against
 // layout. A must not already be loaded. Its normal loader/CRT/HIP initializers
 // and DllMain settings run; only its verified native-hook bootstrap is blocked.
 // Patching A's IAT after LoadLibrary returns would race the bootstrap thread.

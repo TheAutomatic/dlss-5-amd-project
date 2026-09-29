@@ -26,10 +26,35 @@
 #include <mutex>
 #include <set>
 #include <vector>
+#include <chrono>
 
 namespace
 {
 thread_local char g_lastError[256] = {};
+
+// CPU wall time, including waits inside the call; not GPU kernel timestamps.
+struct CpuTiming
+{
+    std::atomic<double> lastMs {0}, maxMs {0}, peakMs {0};
+    void Record(double ms)
+    {
+        lastMs.store(ms);
+        double previous = maxMs.load();
+        while (previous < ms && !maxMs.compare_exchange_weak(previous, ms)) {}
+        previous = peakMs.load();
+        while (previous < ms && !peakMs.compare_exchange_weak(previous, ms)) {}
+    }
+    struct Scope
+    {
+        CpuTiming &timing;
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        explicit Scope(CpuTiming &value) : timing(value) {}
+        ~Scope()
+        {
+            timing.Record(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        }
+    };
+};
 
 // LMXXF_NR_FRAME_INFO_V1_SIZE is what an ABI v1 host sends as struct_size. It must equal the
 // offset where the exposure fields start, or an old host's frames are rejected outright.
@@ -1288,6 +1313,9 @@ struct Session
     bool vitByteStream = false;
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
+    uint32_t bridgeCreates = 0;
+    bool bridgeWarmed = false;
+    CpuTiming prepareTiming, enqueueTiming, rebuildTiming, drainTiming;
     // Hardware & module selection diagnostics
     std::string actualArch = "unknown";
     std::string selectedModulesDir;
@@ -1344,7 +1372,7 @@ struct Session
         return s;
     }
 
-    void TeardownCodecChain()
+    void TeardownCodecChain(bool retainBridge = false)
     {
         if (bridge)
         {
@@ -1364,15 +1392,21 @@ struct Session
                 throw std::runtime_error("TeardownCodecChain: bridge work did not complete");
             }
         }
-        delete bridge;
-        bridge = nullptr;
-        hipPrepared = false;
-        netW = 0;
-        netH = 0;
-        vitByteStream = false;
-        pdlRequested = false;
-        pdlEffective = false;
-        pdlReason.clear();
+        // Exposure bindings belong to the codecs. Keep the expensive model,
+        // weights and warmed kernels when only those bindings changed.
+        if (!retainBridge)
+        {
+            delete bridge;
+            bridge = nullptr;
+            hipPrepared = false;
+            bridgeWarmed = false;
+            netW = 0;
+            netH = 0;
+            vitByteStream = false;
+            pdlRequested = false;
+            pdlEffective = false;
+            pdlReason.clear();
+        }
         if (decodeDisplay)
         {
             decodeDisplay->Release();
@@ -1439,6 +1473,7 @@ struct Session
 
     HRESULT DrainGpu(DWORD timeoutMs = 30000)
     {
+        CpuTiming::Scope drainTime(drainTiming);
         const HRESULT sessionHr = DrainQueue(queue, timeoutMs);
         if (FAILED(sessionHr))
             return sessionHr;
@@ -1750,6 +1785,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (!session || !info || !job)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
         RequireSession(session);
+        CpuTiming::Scope prepareTime(session->prepareTiming);
         // Historical sizes: 64 ends at color_state/flags, V1 ends at model_scale, the exposure
         // size ends at exposure_scale. A host whose struct_size stops earlier has no later fields.
         const uint32_t legacySize = 64;
@@ -1864,6 +1900,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
             session->bridge = new hip_reference::D3D12Bridge();
             session->bridge->Create(session->queue, opt, {});
+            ++session->bridgeCreates;
             session->hipPrepared = true;
             session->vitByteStream = opt.vit_byte_stream;
             session->netW = geo.valid_width;
@@ -2085,6 +2122,12 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             exposureChanged || validChanged || formatChanged || allocChanged || tierChanged;
         const bool pointerChanged = session->encode && color != session->job.color;
 
+        // Geometry and kernel-option changes still require the full teardown.
+        const bool exposureOnly = exposureChanged && !validChanged && !formatChanged &&
+                                  !allocChanged && !tierChanged && !vitByteStreamChanged;
+        const bool rebuilding = (session->encode && geoChanged) || vitByteStreamChanged;
+        const auto rebuildStart = std::chrono::steady_clock::now();
+
         if ((session->encode && geoChanged) || vitByteStreamChanged)
         {
             ++session->codecRecreates;
@@ -2109,10 +2152,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             OutputDebugStringA("\n");
             SetError(msg);
             keepLastError = true;
-            if (FAILED(session->DrainGpu()))
+            const HRESULT drainResult = session->DrainGpu();
+            if (FAILED(drainResult))
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             "PrepareFrame: geometry or ViT option change; GPU drain failed (retry or rebuild session)");
-            session->TeardownCodecChain();
+            session->TeardownCodecChain(exposureOnly);
             session->job = {};
         }
         // Reached only after any drain above succeeded (a failed drain returns and leaks it,
@@ -2132,6 +2176,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                     return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
                 session->bridge = new hip_reference::D3D12Bridge();
                 session->bridge->Create(session->queue, opt, {});
+                ++session->bridgeCreates;
                 session->hipPrepared = true;
                 session->vitByteStream = opt.vit_byte_stream;
                 session->netW = geo.valid_width;
@@ -2150,8 +2195,12 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             // One warm-up dispatch before recording so lazy weight and module uploads cannot
             // land inside the producer-wait callback later (the author's RE9 host does the
             // same). Only reached after the colour contract passed, so a title we cannot
-            // serve never pays for it.
-            session->bridge->PrepareStagedKernels();
+            // serve never pays for it. Exposure-only changes retain this warm state.
+            if (!session->bridgeWarmed)
+            {
+                session->bridge->PrepareStagedKernels();
+                session->bridgeWarmed = true;
+            }
             NativeGameCodec *enc = nullptr;
             NativeGameRgbInput *rgbIn = nullptr;
             NativeRgbTexture *rgbOut = nullptr;
@@ -2231,6 +2280,11 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
         }
 
+        if (rebuilding)
+        {
+            session->rebuildTiming.Record(std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - rebuildStart).count());
+        }
         session->job = {};
         session->job.color = color;
         session->job.colorState = static_cast<D3D12_RESOURCE_STATES>(info->color_state);
@@ -2366,6 +2420,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         if (!session->hipPrepared)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip is not wired (HIP/codec next)");
         RequireSession(session);
+        CpuTiming::Scope enqueueTime(session->enqueueTiming);
         if (session->weightsDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE,
                         "EnqueueHip: weights not found (set LMXXF_WEIGHTS_DIR to tiled assets, not 0.24.2 HIP/)");
@@ -2613,7 +2668,7 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         if (!buf || buf_chars == 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetStatus: empty buffer");
         auto *session = static_cast<Session *>(context);
-        char text[256] {};
+        char text[768] {};
         if (!session)
             std::snprintf(text, sizeof text, "no session");
         else if (session->failed)
@@ -2662,6 +2717,19 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
                               session->queueBound ? 1u : 0u,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates);
             }
+        }
+        if (session)
+        {
+            const size_t used = std::strlen(text);
+            std::snprintf(text + used, sizeof(text) - used,
+                          " perf=v3 bridgeCreates=%u releaseMarks=%llu releaseMarkFailures=%llu cpuMs(last/peak/max) prepare=%.2f/%.2f/%.2f enqueue=%.2f/%.2f/%.2f rebuild=%.2f/%.2f/%.2f drain=%.2f/%.2f/%.2f",
+                          session->bridgeCreates,
+                          session->bridge ? session->bridge->ReleaseMarks() : 0ull,
+                          session->bridge ? session->bridge->ReleaseMarkFailures() : 0ull,
+                          session->prepareTiming.lastMs.load(), session->prepareTiming.peakMs.exchange(0), session->prepareTiming.maxMs.load(),
+                          session->enqueueTiming.lastMs.load(), session->enqueueTiming.peakMs.exchange(0), session->enqueueTiming.maxMs.load(),
+                          session->rebuildTiming.lastMs.load(), session->rebuildTiming.peakMs.exchange(0), session->rebuildTiming.maxMs.load(),
+                          session->drainTiming.lastMs.load(), session->drainTiming.peakMs.exchange(0), session->drainTiming.maxMs.load());
         }
         std::strncpy(buf, text, buf_chars - 1);
         buf[buf_chars - 1] = 0;
