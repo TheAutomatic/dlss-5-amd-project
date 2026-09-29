@@ -1104,7 +1104,19 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
     float target = clamp((encoded / (1.0 - encoded)) / mean, 1e-4, 100.0);
     float prev = Exposure[uint2(0, 0)];
     bool warm = prev > 0.0 && !isnan(prev) && !isinf(prev);
-    Exposure[uint2(0, 0)] = warm ? exp(lerp(log(prev), log(target), 0.25)) : target;
+    // Auto exposure was following the scene too fast (log-lerp 0.25/frame ~= 63% in 4
+    // frames). On camera motion the mean keeps moving, paper white jitters every frame
+    // and the encode shoulder turns that into highlight flicker. Follow slowly and cap
+    // the per-frame multiplicative step so a pan cannot make the scale jump.
+    if (!warm) {
+        Exposure[uint2(0, 0)] = target;
+    } else {
+        float lp = log(prev), lt = log(target);
+        float next = lp + (lt - lp) * 0.05;
+        const float kMaxLogStep = 0.02;
+        next = clamp(next, lp - kMaxLogStep, lp + kMaxLogStep);
+        Exposure[uint2(0, 0)] = exp(next);
+    }
 }
 )";
         ID3DBlob *code = nullptr, *errors = nullptr;
