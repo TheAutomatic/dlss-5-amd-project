@@ -194,20 +194,51 @@ std::string Layout(ID3D12Resource* resource)
 // 0.5.0 ships PreUpscale=1). async also requires it off (pre-upscale needs inline).
 std::filesystem::path g_danielDir;
 
+// 0.5.0+ may append a default [DlssNrOnAmd] ini after the PE. Game-folder copies
+// and some extractors drop that overlay, so whole-file SHA forks. Identify by the
+// PE image (headers + section raw bytes) instead; pre-0.5.0 files have no overlay
+// so the PE hash equals the old whole-file hash.
+static std::size_t PeImageEnd(const std::vector<unsigned char>& data)
+{
+    if (data.size() < 0x40 || data[0] != 'M' || data[1] != 'Z')
+        return data.size();
+    const auto e_lfanew = *reinterpret_cast<const std::uint32_t*>(data.data() + 0x3C);
+    if (e_lfanew + 24 > data.size())
+        return data.size();
+    const auto* pe = data.data() + e_lfanew;
+    if (!(pe[0] == 'P' && pe[1] == 'E' && pe[2] == 0 && pe[3] == 0))
+        return data.size();
+    const auto nsec = *reinterpret_cast<const std::uint16_t*>(pe + 6);
+    const auto optsz = *reinterpret_cast<const std::uint16_t*>(pe + 20);
+    const auto* sec = pe + 24 + optsz;
+    std::size_t end = 0;
+    for (std::uint16_t i = 0; i < nsec; ++i)
+    {
+        const auto* s = sec + i * 40;
+        if (s + 40 > data.data() + data.size())
+            break;
+        const auto rsz = *reinterpret_cast<const std::uint32_t*>(s + 16);
+        const auto raw = *reinterpret_cast<const std::uint32_t*>(s + 20);
+        end = (std::max)(end, static_cast<std::size_t>(raw) + rsz);
+    }
+    return end ? end : data.size();
+}
+
 const AmdLayout* IdentifyRuntime(const std::filesystem::path& file)
 {
     std::ifstream in(file, std::ios::binary);
     std::vector<unsigned char> data((std::istreambuf_iterator<char>(in)), {});
+    const std::size_t peBytes = PeImageEnd(data);
     BCRYPT_ALG_HANDLE alg {};
     unsigned char digest[32] {};
     if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0)
         return nullptr;
-    auto result = BCryptHash(alg, nullptr, 0, data.data(), static_cast<ULONG>(data.size()), digest, 32);
+    auto result = BCryptHash(alg, nullptr, 0, data.data(), static_cast<ULONG>(peBytes), digest, 32);
     BCryptCloseAlgorithmProvider(alg, 0);
     if (result < 0)
         return nullptr;
     for (auto layout : kAmdLayouts)
-        if (data.size() == layout->size && std::memcmp(digest, layout->sha256.bytes, 32) == 0)
+        if (peBytes == layout->size && std::memcmp(digest, layout->sha256.bytes, 32) == 0)
             return layout;
     return nullptr;
 }

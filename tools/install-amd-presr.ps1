@@ -2,7 +2,7 @@
 .SYNOPSIS
   Install this project's OptiScaler into a game folder.
   Double-click Setup.bat (no args) to pick the game folder, or pass -GameDir.
-  Copies danielblnc's 0.3.0–0.5.0 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
+  Copies danielblnc's 0.3.0–0.5.1 runtime (version.dll) to dlssnr_amd_pass1-3.dll,
   generates weights locally if needed, then installs OptiScaler as the chosen proxy.
 
 .DESCRIPTION
@@ -12,9 +12,9 @@
     OptiScaler.dll              this fork
     OptiScaler.ini              optional
     OptiScaler\                 FFX / XeSS / Agility deps
-    version.dll                 danielblnc AMD NR 0.3.0–0.5.0 (copied to pass1-3)
+    version.dll                 danielblnc AMD NR 0.3.0–0.5.1 (copied to pass1-3)
     nvngx_dlssnr.dll            optional, to generate weights with danielblnc setup
-    dlssnr_on_amd_setup.exe     optional, danielblnc 0.3.0–0.5.0 setup
+    dlssnr_on_amd_setup.exe     optional, danielblnc 0.3.0–0.5.1 setup
     dlssnr_on_amd_weights.bin   optional if you already have it
 
 .EXAMPLE
@@ -103,6 +103,38 @@ function Get-Sha256([string]$path) {
         $fs = [IO.File]::OpenRead($path)
         try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '') }
         finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
+# PE-image SHA256 (headers + section raw bytes). 0.5.0+ may append a default ini
+# after the PE; game-folder copies drop it, so whole-file hash forks. Pre-0.5.0
+# has no overlay and the PE hash equals the whole-file hash.
+function Get-PeSha256([string]$path) {
+    $bytes = [IO.File]::ReadAllBytes($path)
+    $end = $bytes.Length
+    try {
+        if ($bytes.Length -ge 0x40 -and $bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) {
+            $e = [BitConverter]::ToInt32($bytes, 0x3C)
+            if ($e -gt 0 -and ($e + 24) -lt $bytes.Length -and $bytes[$e] -eq 0x50 -and $bytes[$e+1] -eq 0x45) {
+                $nsec = [BitConverter]::ToUInt16($bytes, $e + 6)
+                $optsz = [BitConverter]::ToUInt16($bytes, $e + 20)
+                $sec = $e + 24 + $optsz
+                $last = [int64]0
+                for ($i = 0; $i -lt $nsec; $i++) {
+                    $o = $sec + $i * 40
+                    if (($o + 24) -gt $bytes.Length) { break }
+                    $rsz = [BitConverter]::ToUInt32($bytes, $o + 16)
+                    $raw = [BitConverter]::ToUInt32($bytes, $o + 20)
+                    $off = [int64]$raw + [int64]$rsz
+                    if ($off -gt $last) { $last = $off }
+                }
+                if ($last -gt 0 -and $last -le $bytes.Length) { $end = [int]$last }
+            }
+        }
+    } catch { }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($bytes, 0, $end))).Replace('-', '')
     } finally { $sha.Dispose() }
 }
 
@@ -483,8 +515,8 @@ $moduleHelperSrc = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
 
 # Hash: only known danielblnc runtimes are supported. The RVA layout is pinned to
 # each binary — a different build will not run correctly. Fail closed.
-# 0.3.0 = kAmd03; 0.3.1 = kAmd031; 0.3.2 = kAmd032; 0.3.3 = kAmd033;
-# 0.4.0 = kAmd040; 0.4.1 = kAmd041.
+# Identity is the PE image (Get-PeSha256); 0.5.0+ may append a default ini overlay.
+# 0.3.0 = kAmd03; ... 0.4.3 = kAmd043; 0.5.0 = kAmd050; 0.5.1 = kAmd051.
 $expectedA030 = '8321CAE728D28CB7632D0D58D3D913E91132BF7645C126505698FBE4CD5A0138'
 $expectedA031 = 'B108D6407EB7F094A4F9111EDD778EEE7B978B648D413A9FC7AEEDFDD914C154'
 $expectedA032 = 'B92F7481BC03FA41F443B1E1E54B502789DF2BBBCEFE48C680DF7BB02A33FC1E'
@@ -493,11 +525,10 @@ $expectedA040 = 'D62BE3D8B9FBB3C6C81982C4DDB3DFA00EB9662E3206925CBE5B7E1BC6798B8
 $expectedA041 = '823063EB4C76B1334FD1800C41798873AE61D4016AF0406F1F0B9DCE57B1D376'
 $expectedA042 = '8AA2DCC5B6596ACA97995DBFD4E0A9790D8C15108495E0ED154DD15DBB5B465A'
 $expectedA043 = 'D1E320862A8763AC39E7CE194536D4B6C55BA61BAE9E8A92753CEC32DF67A457'
-$expectedA050 = 'D4C2CB557DA9684ADEC67CA828872E6D46BAC25ABA4857E5FB55E077B6A57F14'
-# 0.5.0 PE image only (game-folder copy; trailing default-ini overlay stripped)
-$expectedA050Pe = 'CDDFB09E019347957BF7B96C95C0E900E8D3062DFAED697A8A96B0A039AEC31A'
+$expectedA050 = 'CDDFB09E019347957BF7B96C95C0E900E8D3062DFAED697A8A96B0A039AEC31A'
+$expectedA051 = '493B4A3B80A21F7255109172AB7BB01BA08D35F2941718F441768F1ABFC48ACD'
 $knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
-$expectedAuthor = @($expectedA030, $expectedA031, $expectedA032, $expectedA033, $expectedA040, $expectedA041, $expectedA042, $expectedA043, $expectedA050, $expectedA050Pe)
+$expectedAuthor = @($expectedA030, $expectedA031, $expectedA032, $expectedA033, $expectedA040, $expectedA041, $expectedA042, $expectedA043, $expectedA050, $expectedA051)
 
 # Walk every candidate and accept only a file whose SHA256 is a known runtime.
 # A game may have B installed as version.dll (README allows that); the first
@@ -514,7 +545,7 @@ function Find-AuthorRuntime {
     foreach ($c in $candidates) {
         if (-not $c -or !(Test-Path -LiteralPath $c -PathType Leaf)) { continue }
         try {
-            $h = Get-Sha256 $c
+            $h = Get-PeSha256 $c
         } catch { continue }
         if ($expectedAuthor -contains $h) { return $c }
     }
@@ -684,14 +715,14 @@ if ($installDaniel) {
     if (-not $srcA -or !(Test-Path -LiteralPath $srcA -PathType Leaf)) {
         Fail @"
 Still missing a known DLSS-NR-on-AMD runtime (version.dll) after danielblnc setup.
-Supported: 0.3.0–0.5.0.
+Supported: 0.3.0–0.5.1.
 1. Run dlssnr_on_amd_setup.exe yourself and finish its install
 2. Put the version.dll it produces next to Setup.bat (or leave it in the game folder)
 Download from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
     }
 
-    $hashA = Get-Sha256 $srcA
+    $hashA = Get-PeSha256 $srcA
     Write-Host ("danielblnc runtime SHA256: {0}" -f $hashA)
     if ($expectedAuthor -notcontains $hashA) {
         $what = 'unknown build'
@@ -700,8 +731,8 @@ Download from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 $srcA is not a supported DLSS-NR-on-AMD runtime ($what).
   file:     $srcA
   got:      $hashA
-  expected: $expectedA030 (0.3.0) .. $expectedA050 (0.5.0)
-Download 0.3.0–0.5.0 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
+  expected: $expectedA030 (0.3.0) .. $expectedA051 (0.5.1)
+Download 0.3.0–0.5.1 from https://github.com/danielblnc/DLSS-NR-on-AMD/releases
 "@
     }
 
@@ -844,7 +875,7 @@ foreach ($f in $found) {
     $isAuthorNative = $false
     if ($f.Name -ieq 'version.dll' -and -not $f.IsOptiScaler) {
         try {
-            $h = Get-Sha256 $f.Path
+            $h = Get-PeSha256 $f.Path
             if ($expectedAuthor -contains $h -or $h -eq $knownA0217) { $isAuthorNative = $true }
         } catch { }
     }

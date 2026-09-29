@@ -301,23 +301,6 @@ inline constexpr AmdLayout kAmd043 {
 // the RVA pins below apply to both. The extraction/installation mechanism is unverified.
 inline constexpr AmdLayout kAmd050 {
     "0.5.0",
-    39367841,
-    Sha256FromHex("d4c2cb557da9684adec67ca828872e6d46bac25aba4857e5fb55e077b6a57f14"),
-    0, 0x29870, 0x15640, 0xa000, 0x19340, 0xb6b88,
-    0xb5c18, 0xb5c20, 0xb5c30, 0xb5d78, 0xb5d80, 0xb60c8, 0xb60ca,
-    0xb65d0, 0xb6604, 0xb6608, 0xb6634, 0xb6828, 0xb6908, 0xb6914,
-    0xb69b8, 0xb69bc, 0xb69c4, 0xb69c5, 0xb69c6, 0xb69c7, 0xb69c8,
-    0xb69d8, 0xb69dc, 0xb69e0, 0xb69e8, 0xb69ec, 0xb6ae8,
-    0xb6ac0, 0xb6a48, 0xb68f4, 0xb6910, 0xb6920,
-    0xb67d4, 0xb67f0, 0xb6748, 0x19b90, 0x1a2b6,
-    0x19d80, 0x1a120, 0x1a17a, 0x1a267,
-    0xb69f0, 0xb69f4, 0xb69f8, 0xb69fc,
-    0xb67dc, 0xb651c, 0xb69fd
-};
-
-// 0.5.0 PE image only (game-folder copy / overlay stripped). Identical sections.
-inline constexpr AmdLayout kAmd050Pe {
-    "0.5.0-pe",
     38703616,
     Sha256FromHex("cddfb09e019347957bf7b96c95c0e900e8d3062dfaed697a8a96b0a039aec31a"),
     0, 0x29870, 0x15640, 0xa000, 0x19340, 0xb6b88,
@@ -332,9 +315,28 @@ inline constexpr AmdLayout kAmd050Pe {
     0xb67dc, 0xb651c, 0xb69fd
 };
 
+// 0.5.1 PE image. .data +0x3010 (device object) / +0x3098 (control); functions
+// mostly unmoved except init 0x29870->0x2a0c0. bootstrap start still 0x8ea0.
+// See analysis/daniel-051/.
+inline constexpr AmdLayout kAmd051 {
+    "0.5.1",
+    38569472,
+    Sha256FromHex("493b4a3b80a21f7255109172ab7bb01ba08d35f2941718f441768f1abfc48acd"),
+    0, 0x2a0c0, 0x15640, 0xa000, 0x19340, 0xb9c20,
+    0xb8c28, 0xb8c30, 0xb8c40, 0xb8d88, 0xb8d90, 0xb9160, 0xb9162,
+    0xb9668, 0xb969c, 0xb96a0, 0xb96cc, 0xb98c0, 0xb99a0, 0xb99ac,
+    0xb9a50, 0xb9a54, 0xb9a5c, 0xb9a5d, 0xb9a5e, 0xb9a5f, 0xb9a60,
+    0xb9a70, 0xb9a74, 0xb9a78, 0xb9a80, 0xb9a84, 0xb9b80,
+    0xb9b58, 0xb9ae0, 0xb998c, 0xb99a8, 0xb99b8,
+    0xb986c, 0xb9888, 0xb97e0, 0x19b90, 0x1a2b6,
+    0x19d80, 0x1a120, 0x1a17a, 0x1a267,
+    0xb9a88, 0xb9a8c, 0xb9a90, 0xb9a94,
+    0xb9874, 0xb95b4, 0xb9a95
+};
+
 inline constexpr const AmdLayout* kAmdLayouts[] = {
     &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043,
-    &kAmd050, &kAmd050Pe
+    &kAmd050, &kAmd051
 };
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
@@ -349,6 +351,6 @@ static_assert(kAmd040.sha256.bytes[0] == 0xd6 && kAmd040.sha256.bytes[31] == 0x8
 static_assert(kAmd041.sha256.bytes[0] == 0x82 && kAmd041.sha256.bytes[31] == 0x76);
 static_assert(kAmd042.sha256.bytes[0] == 0x8a && kAmd042.sha256.bytes[31] == 0x5a);
 static_assert(kAmd043.sha256.bytes[0] == 0xd1 && kAmd043.sha256.bytes[31] == 0x57);
-static_assert(kAmd050.sha256.bytes[0] == 0xd4 && kAmd050.sha256.bytes[31] == 0x14);
-static_assert(kAmd050Pe.sha256.bytes[0] == 0xcd && kAmd050Pe.sha256.bytes[31] == 0x1a);
+static_assert(kAmd050.sha256.bytes[0] == 0xcd && kAmd050.sha256.bytes[31] == 0x1a);
+static_assert(kAmd051.sha256.bytes[0] == 0x49 && kAmd051.sha256.bytes[31] == 0xcd);
 }
