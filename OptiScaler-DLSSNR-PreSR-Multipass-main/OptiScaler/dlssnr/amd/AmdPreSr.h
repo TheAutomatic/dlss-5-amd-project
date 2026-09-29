@@ -86,6 +86,9 @@ class Backend
     // User turned NR off: enabled=0, drain, runtime shutdown. Does not set the
     // failed latch. A later Record may InitPass again (weights reload).
     void ReleaseSession();
+    // Finish a release deferred by a busy GPU. Caller holds the backend lock.
+    // Returns false when still busy: skip NR and do not InitPass.
+    bool CompletePendingReleaseLocked();
     // Backend switch / re-enable: clear compute-first history so a fresh daniel
     // init may build its graphics PSO (new wait) instead of asking for a restart.
     void ResetGraphicsWaitState();

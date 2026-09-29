@@ -344,6 +344,9 @@ struct Backend::Impl
     std::string status = "AMD pre-SR: not initialized";
     std::atomic<bool> failed { false };
     std::atomic<bool> resetRequested { true };
+    // User toggled NR off while the GPU was still busy: enabled=0 is set, but the
+    // runtime shutdown waits. Record retries the release before re-init.
+    bool releasePending = false;
     Settings lastSettings {};
     bool haveSettings = false;
     // Latch failures that invalidate the shared completion timeline. Such work
@@ -1073,6 +1076,10 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
 #else
     p->RetireSubmission(true);
 #endif
+    // A user off that hit a busy GPU left a deferred release. Finish it before
+    // InitPass so a re-enable cannot run against a half-released runtime.
+    if (!CompletePendingReleaseLocked())
+        return nullptr;
     if (p->failed || !cmd || !f.colour || !f.motion || !f.depth)
         return nullptr;
     const auto listType = cmd->GetType();
@@ -2281,8 +2288,10 @@ void Backend::ReleaseSession()
         const auto completed = p->fence->GetCompletedValue();
         if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
         {
-            // Still busy: leave enabled=0 and retry on a later toggle/on record.
-            p->Log("ReleaseSession: GPU still busy; left disabled without shutdown");
+            // Still busy: keep enabled=0 and finish on the next Record so a
+            // re-enable cannot run against a half-released runtime.
+            p->releasePending = true;
+            p->Log("ReleaseSession: GPU still busy; release deferred to next Record");
             return;
         }
     }
@@ -2292,13 +2301,46 @@ void Backend::ReleaseSession()
             if (p->hipSet)
                 p->hipSet(p->hipDevice);
             reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(h) + L->shutdown)();
-            // Drop the handle so the next Record re-runs InitPass (weights reload).
-            // The module stays mapped (CRT/HIP kernels); no unsafe unloading.
         }
     for (auto &h : p->runtime)
         h = nullptr;
     p->L = nullptr;
+    p->releasePending = false;
     p->Log("AMD runtime session released (NR off)");
+}
+
+bool Backend::CompletePendingReleaseLocked()
+{
+    // Caller holds p->lock (Record). Returns false when the GPU is still busy
+    // and the caller must skip NR (and must not InitPass).
+    if (!p->releasePending)
+        return true;
+    const AmdLayout* L = p->L;
+    if (!L)
+    {
+        p->releasePending = false;
+        return true;
+    }
+    if (p->fence)
+    {
+        p->RetireSubmission(false, "CompletePendingRelease");
+        const auto completed = p->fence->GetCompletedValue();
+        if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
+            return false;
+    }
+    for (auto h : p->runtime)
+        if (h)
+        {
+            if (p->hipSet)
+                p->hipSet(p->hipDevice);
+            reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(h) + L->shutdown)();
+        }
+    for (auto &h : p->runtime)
+        h = nullptr;
+    p->L = nullptr;
+    p->releasePending = false;
+    p->Log("AMD runtime pending release completed");
+    return true;
 }
 
 void Backend::ResetGraphicsWaitState()

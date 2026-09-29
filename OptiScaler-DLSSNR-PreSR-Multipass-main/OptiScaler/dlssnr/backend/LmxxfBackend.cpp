@@ -1231,15 +1231,24 @@ void LmxxfBackend::ReleaseSession()
 {
     // User toggle-off: free the session's VRAM without poisoning the host.
     // recoveryDisabled stays false so EnsureSession can rebuild on toggle-on.
+    std::lock_guard recordLock(recordMutex);
     LmxxfCut::DisarmBetweenSlot();
     {
         std::lock_guard lock(jobMutex);
-        if (pendingJobInfo.job && api)
+        if (pendingJobInfo.job && api && session)
         {
-            if (session && api->table.CancelUnsubmitted)
-                api->table.CancelUnsubmitted(session, pendingJobInfo.job);
+            // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
+            // the list was never submitted and cannot retire itself.
+            void *job = pendingJobInfo.job;
+            const bool enqueued = LmxxfCut::Pending().job != job;
             pendingJobInfo = {};
+            if (enqueued && api->table.Retire)
+                api->table.Retire(session, job);
+            else if (!enqueued && api->table.CancelUnsubmitted)
+                api->table.CancelUnsubmitted(session, job);
         }
+        else
+            pendingJobInfo = {};
     }
     if (session && api && api->table.Destroy)
     {
