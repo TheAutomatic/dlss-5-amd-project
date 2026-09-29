@@ -16,6 +16,8 @@ class DanielBackend final : public Host
     void TraceBoundary(const std::string&) override;
     void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) override;
     bool Shutdown() override;
+    void ReleaseSession() override;
+    void ResetGraphicsWaitState() override;
     void InvalidateHistory() override;
     std::string Status() const override;
     bool GraphicsRestartNeeded(UINT activePasses) const override;

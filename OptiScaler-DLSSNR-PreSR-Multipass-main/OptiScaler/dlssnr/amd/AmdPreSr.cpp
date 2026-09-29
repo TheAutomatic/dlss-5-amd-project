@@ -2262,4 +2262,52 @@ bool Backend::Shutdown()
     p->Log("Workers stopped outside loader lock");
     return true;
 }
+
+void Backend::ReleaseSession()
+{
+    // User toggle-off. Unlike Shutdown() this must not set failed: a later Record
+    // is allowed to InitPass again. enabled=0 first so Record stops accepting work,
+    // then drain, then the runtime's real shutdown (hipFree + COM releases).
+    std::lock_guard guard(p->lock);
+    const AmdLayout* L = p->L;
+    if (!L)
+        return;
+    for (auto h : p->runtime)
+        if (h)
+            At<uint8_t>(h, L->enabled) = 0;
+    if (p->fence)
+    {
+        p->RetireSubmission(false, "ReleaseSession");
+        const auto completed = p->fence->GetCompletedValue();
+        if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
+        {
+            // Still busy: leave enabled=0 and retry on a later toggle/on record.
+            p->Log("ReleaseSession: GPU still busy; left disabled without shutdown");
+            return;
+        }
+    }
+    for (auto h : p->runtime)
+        if (h)
+        {
+            if (p->hipSet)
+                p->hipSet(p->hipDevice);
+            reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(h) + L->shutdown)();
+            // Drop the handle so the next Record re-runs InitPass (weights reload).
+            // The module stays mapped (CRT/HIP kernels); no unsafe unloading.
+        }
+    for (auto &h : p->runtime)
+        h = nullptr;
+    p->L = nullptr;
+    p->Log("AMD runtime session released (NR off)");
+}
+
+void Backend::ResetGraphicsWaitState()
+{
+    std::lock_guard guard(p->lock);
+    p->gfxRestart.Reset();
+    for (auto &gate : p->gfxStartup)
+        gate.Reset();
+    for (auto &flag : p->gfxStartupFallbackReported)
+        flag = false;
+}
 } // namespace AmdPreSr

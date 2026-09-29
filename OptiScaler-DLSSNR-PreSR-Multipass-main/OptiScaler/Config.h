@@ -328,6 +328,12 @@ class Config
     // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
+    // Convenience (1, default): ProxyWrap stays on so daniel<->lmxxf hot-switch works, and
+    // turning NR off tears down the session to free VRAM. Pure (0): no extra wrap CPU when
+    // running daniel-only, teardown is more thorough (lmxxf unloads its DLL), but switching
+    // backends needs a game restart. Wrap is decided at startup; restart after changing.
+    // Same-backend off->on is still attempted in both modes.
+    CustomOptional<int> NrConvenience { 1 };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
     // Explicit choice missing its files falls back to the other. Enable NR is the on/off.

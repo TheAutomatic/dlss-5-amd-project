@@ -3022,12 +3022,21 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
 {
     const Config& cfg = *Config::Instance();
 
+    // Release the AMD host session only on the off transition: Evaluate runs
+    // every frame while disabled, and teardown must not repeat.
+    static bool s_nrWasEnabled = true;
     if (!cfg.DlssNrEnabled.value_or_default())
     {
-        DlssNr::AmdBridge::InvalidateHistory();
+        if (s_nrWasEnabled)
+        {
+            s_nrWasEnabled = false;
+            DlssNr::AmdBridge::InvalidateHistory();
+            DlssNr::AmdBridge::OnNrDisabled();
+        }
         ReportSkipOnce("it is switched off");
         return;
     }
+    s_nrWasEnabled = true;
 
     if (cmdList == nullptr || params == nullptr)
     {

@@ -83,6 +83,12 @@ class Backend
     void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
     bool Ready();
     bool Shutdown(); // call before loader-lock teardown, after all submissions
+    // User turned NR off: enabled=0, drain, runtime shutdown. Does not set the
+    // failed latch. A later Record may InitPass again (weights reload).
+    void ReleaseSession();
+    // Backend switch / re-enable: clear compute-first history so a fresh daniel
+    // init may build its graphics PSO (new wait) instead of asking for a restart.
+    void ResetGraphicsWaitState();
     void InvalidateHistory(); // applied at the next safe recording boundary
     std::string Status() const;
     // Lock-free menu snapshot, restricted to the currently configured passes.

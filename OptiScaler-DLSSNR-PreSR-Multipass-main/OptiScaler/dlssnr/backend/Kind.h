@@ -51,8 +51,8 @@ inline Kind ParseKind(std::string_view raw)
     return ParseRequest(raw) == Request::Lmxxf ? Kind::Lmxxf : Kind::Daniel;
 }
 
-// First increment: no LmxxfNrRuntime. Everything else is Daniel.
-inline bool LmxxfWired() { return true; } // LOCAL E trial only — do not push/default
+// lmxxf is a shipped production backend alongside daniel.
+inline bool LmxxfWired() { return true; }
 
 // Pick the host that will actually run.
 // Explicit request wins when its files are on disk; otherwise fall back to the

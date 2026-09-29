@@ -454,7 +454,8 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
 
     // Enable proxies only when ECL can unwrap them, including submissions BEFORE the first Evaluate.
     // ArmCreate at HookToDevice keeps ProxyWrap off so Streamline/device boot stays unwrapped.
-    if (DlssNr::Backend::SubmissionHooksWanted() && DlssNr::Submission::Hooks::IsArmed() &&
+    // Convenience mode pre-opens wrap so a daniel-started session can later switch to lmxxf.
+    if (DlssNr::Backend::ProxyWrapWanted() && DlssNr::Submission::Hooks::IsArmed() &&
         !DlssNr::Submission::Hooks::ProxyWrapEnabled())
     {
         ID3D12CommandQueue* queue = nullptr;

@@ -34,6 +34,10 @@ void DanielBackend::Submitted(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* 
 
 bool DanielBackend::Shutdown() { return inner.Shutdown(); }
 
+void DanielBackend::ReleaseSession() { inner.ReleaseSession(); }
+
+void DanielBackend::ResetGraphicsWaitState() { inner.ResetGraphicsWaitState(); }
+
 void DanielBackend::InvalidateHistory() { inner.InvalidateHistory(); }
 
 std::string DanielBackend::Status() const { return inner.Status(); }

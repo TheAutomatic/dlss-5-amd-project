@@ -15,6 +15,9 @@ bool Before(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*, ID3D12CommandQueue
 void Restore(NVSDK_NGX_Parameter*);
 bool HasReplacement(NVSDK_NGX_Parameter*);
 void InvalidateHistory();
+// User turned NR off: release the active host session so VRAM is returned.
+// Does not tear down hooks or ProxyWrap; a later enable may rebuild.
+void OnNrDisabled();
 void TraceContextRelease(unsigned int handle, bool after);
 std::string Status();
 bool GraphicsRestartNeeded(UINT activePasses);

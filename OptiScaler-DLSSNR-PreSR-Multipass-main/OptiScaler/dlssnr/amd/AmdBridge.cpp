@@ -357,11 +357,16 @@ void SyncBackendWithConfig()
     // Sticky on: never clear ProxyWrap. Lists created while it was off stay raw
     // forever, so daniel -> lmxxf would fail the same-frame QI. Once wrapping is
     // on, leaving it on costs only a thin CPU proxy during daniel.
-    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::LmxxfWired() &&
-        selected == DlssNr::Backend::Kind::Lmxxf)
+    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::ProxyWrapWanted())
         DlssNr::Submission::Hooks::SetProxyWrap(true);
     if (auto b = ActiveHost())
+    {
         b->InvalidateHistory();
+        // A daniel host that was just selected (or re-enabled after lmxxf) must
+        // be allowed to build its graphics PSO instead of staying compute-first.
+        if (selected == DlssNr::Backend::Kind::Daniel)
+            b->ResetGraphicsWaitState();
+    }
     Message("AMD pre-SR: NR backend switched");
 }
 const char* RuntimeName()
@@ -493,9 +498,9 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (confirmedQ) confirmedQ->Release();
         return true;
     }
-    // Sticky on (see SyncBackendWithConfig): enable for lmxxf, never clear.
-    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::LmxxfWired() &&
-        active == DlssNr::Backend::Kind::Lmxxf)
+    // Sticky on (see SyncBackendWithConfig): never clear. Convenience mode wraps
+    // even for a daniel host so a later switch to lmxxf keeps the same-frame QI.
+    if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::ProxyWrapWanted())
         DlssNr::Submission::Hooks::SetProxyWrap(true);
     // Build only the selected host on first use. The other is built when it is
     // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
@@ -711,6 +716,17 @@ void InvalidateHistory()
 {
     if (auto b = ActiveHost())
         b->InvalidateHistory();
+}
+void OnNrDisabled()
+{
+    // Both hosts are released so the inactive one is not left holding VRAM either.
+    if (auto b = g_daniel.load(std::memory_order_acquire))
+    {
+        b->ReleaseSession();
+        b->ResetGraphicsWaitState();
+    }
+    if (auto b = g_lmxxf.load(std::memory_order_acquire))
+        b->ReleaseSession();
 }
 void TraceContextRelease(unsigned int handle, bool after)
 {

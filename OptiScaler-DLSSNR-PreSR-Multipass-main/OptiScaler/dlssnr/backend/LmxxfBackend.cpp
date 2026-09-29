@@ -1227,6 +1227,49 @@ bool LmxxfBackend::Shutdown()
     return true;
 }
 
+void LmxxfBackend::ReleaseSession()
+{
+    // User toggle-off: free the session's VRAM without poisoning the host.
+    // recoveryDisabled stays false so EnsureSession can rebuild on toggle-on.
+    LmxxfCut::DisarmBetweenSlot();
+    {
+        std::lock_guard lock(jobMutex);
+        if (pendingJobInfo.job && api)
+        {
+            if (session && api->table.CancelUnsubmitted)
+                api->table.CancelUnsubmitted(session, pendingJobInfo.job);
+            pendingJobInfo = {};
+        }
+    }
+    if (session && api && api->table.Destroy)
+    {
+        api->table.Destroy(session);
+        session = nullptr;
+    }
+    sessionReady = false;
+    sessionFailures = 0;
+    sessionRetryIn = 0;
+    // Pure mode also drops the runtime DLL so the process holds nothing extra.
+    // Convenience keeps it loaded for a faster same-backend re-enable.
+    if (!Config::Instance()->NrConvenience.value_or_default())
+    {
+        if (runtimeDll)
+        {
+            FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll));
+            runtimeDll = nullptr;
+        }
+        if (api)
+            api->table = {};
+    }
+    SetStatus("lmxxf: session released (NR off)");
+}
+
+void LmxxfBackend::ResetGraphicsWaitState()
+{
+    // lmxxf does not use daniel's graphics PSO wait. Keep the no-op explicit so
+    // Host callers can treat both backends the same on a switch.
+}
+
 void LmxxfBackend::InvalidateHistory()
 {
     if (session && api && api->table.ResetHistory)

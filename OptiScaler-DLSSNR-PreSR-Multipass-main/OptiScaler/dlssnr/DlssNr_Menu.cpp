@@ -242,6 +242,16 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::EndPopup();
                 }
 
+                {
+                    bool convenience = config->NrConvenience.value_or_default() != 0;
+                    if (ImGui::Checkbox("Convenience (hot switch + free on off)", &convenience))
+                        config->NrConvenience = convenience ? 1 : 0;
+                    HelpMarker("On (default): daniel<->lmxxf hot-switch; turning NR off frees VRAM. Daniel-only pays a thin CPU proxy."
+                               "\nOff: no extra CPU when running daniel-only; off tears down harder (lmxxf unloads its DLL)."
+                               "\nOff: switching backends needs a game restart. Same-backend off->on is still attempted."
+                               "\nWrap is decided at startup: restart the game after changing this.");
+                }
+
                 // daniel: wait / schedule at top; display + experimental/debug folded
                 // (same Ins density pattern as the lmxxf block above).
                 {
@@ -328,10 +338,15 @@ void RenderMenu(Config* config, float menuResScale)
             else
                 selected = (active == Kind::Lmxxf) ? 1 : 0;
             // lmxxf needs proxy hooks from startup. Without them, pick = next launch only.
-            const bool deferLmxxf = selected == 1 && active != Kind::Lmxxf && !hooksArmed && hasLmxxf;
+            // Pure mode (NrConvenience=0) does not pre-wrap, so switching away from the
+            // started backend also needs a restart.
+            const bool convenience = config->NrConvenience.value_or_default() != 0;
+            const bool deferLmxxf = selected == 1 && active != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf;
             auto itemLabel = [&](int i) -> const char* {
-                if (i == 1 && active != Kind::Lmxxf && !hooksArmed && hasLmxxf)
+                if (i == 1 && active != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf)
                     return "lmxxf (after restart)";
+                if (i == 0 && active == Kind::Lmxxf && !convenience)
+                    return "daniel (after restart)";
                 return i == 0 ? "daniel" : "lmxxf";
             };
             static const char* items[] = { "daniel", "lmxxf" };
@@ -351,7 +366,7 @@ void RenderMenu(Config* config, float menuResScale)
                     if (ImGui::Selectable(itemLabel(i), selected == i, flags))
                     {
                         selected = i;
-                        const bool live = hooksArmed || active == Kind::Lmxxf || i == 0;
+                        const bool live = convenience && (hooksArmed || active == Kind::Lmxxf || i == 0);
                         if (!live)
                         {
                             std::lock_guard nrBackendLock(config->NrBackendMutex);
@@ -383,21 +398,18 @@ void RenderMenu(Config* config, float menuResScale)
                     std::snprintf(installed, sizeof(installed), "lmxxf");
                 else
                     std::snprintf(installed, sizeof(installed), "none");
-                char tip[640] {};
+                char tip[768] {};
                 std::snprintf(tip, sizeof(tip),
                               "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
-                              "\nLive switch: when proxy hooks were armed at startup"
-                              "\n(lmxxf was active this session), the other host takes"
-                              "\nover immediately."
+                              "\nConvenience on (default): live switch when proxy hooks are armed."
+                              "\nConvenience off: switching backends needs a game restart."
                               "\nNeeds restart: first switch to lmxxf after a daniel-only"
                               "\nstart is staged for the next launch. Click Save Settings"
                               "\nto keep it in OptiScaler.ini. The line below always says"
                               "\nwhich case you are in."
-                              "\nTurn NR off with Enable NR above."
+                              "\nTurn NR off with Enable NR above (frees VRAM)."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
-                              "\n\nAfter a live switch, the previous host may keep some"
-                              "\nVRAM until the game exits (safe teardown)."
                               "\n\nInstalled here: %s",
                               installed);
                 HelpMarker(tip);

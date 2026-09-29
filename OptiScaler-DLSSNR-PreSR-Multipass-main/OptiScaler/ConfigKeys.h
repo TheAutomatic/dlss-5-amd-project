@@ -115,6 +115,7 @@ inline constexpr const char *const kKnown[] = {
     "AmdEveryFrame",
     "AmdSpinDraw",
     "AmdGraphicsWait",
+    "NrConvenience",
     "NrBackend",
     "SkinStructure",
     "AutoMask",

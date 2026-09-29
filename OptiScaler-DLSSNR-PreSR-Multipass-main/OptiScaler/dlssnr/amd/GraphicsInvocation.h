@@ -154,6 +154,9 @@ class GraphicsRestartState
         const auto activeMask = (std::uint32_t(1) << activePasses) - 1;
         return (missingPso_.load(std::memory_order_relaxed) & activeMask) != 0;
     }
+    // Backend switch / user re-enable: forget compute-first history so a fresh
+    // daniel init may create its graphics PSO instead of asking for a restart.
+    void Reset() { missingPso_.store(0, std::memory_order_relaxed); }
 };
 
 // Give graphics-first sessions a bounded opportunity before creating compute
@@ -177,5 +180,12 @@ class GraphicsStartupGate
     }
     void MarkRecorded() { recorded_ = true; }
     bool HasRecorded() const { return recorded_; }
+    // Backend switch / user re-enable: allow a new graphics-first window.
+    void Reset()
+    {
+        waiting_ = false;
+        recorded_ = false;
+        started_ = 0;
+    }
 };
 }
