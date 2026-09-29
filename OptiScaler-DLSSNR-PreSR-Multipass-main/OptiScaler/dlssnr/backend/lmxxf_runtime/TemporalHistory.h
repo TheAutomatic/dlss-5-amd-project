@@ -126,26 +126,43 @@ inline DXGI_FORMAT MotionFormat(DXGI_FORMAT f)
 {
     if (f == DXGI_FORMAT_R16G16_TYPELESS) return DXGI_FORMAT_R16G16_FLOAT;
     if (f == DXGI_FORMAT_R32G32_TYPELESS) return DXGI_FORMAT_R32G32_FLOAT;
-    return f == DXGI_FORMAT_R16G16_FLOAT || f == DXGI_FORMAT_R32G32_FLOAT ? f : DXGI_FORMAT_UNKNOWN;
+    if (f == DXGI_FORMAT_R16G16B16A16_TYPELESS) return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if (f == DXGI_FORMAT_R32G32B32A32_TYPELESS) return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    // The shader reads XY only; extra float channels do not change vector units.
+    return f == DXGI_FORMAT_R16G16_FLOAT || f == DXGI_FORMAT_R32G32_FLOAT ||
+           f == DXGI_FORMAT_R16G16B16A16_FLOAT || f == DXGI_FORMAT_R32G32B32A32_FLOAT ? f : DXGI_FORMAT_UNKNOWN;
 }
 inline DXGI_FORMAT DepthFormat(DXGI_FORMAT f)
 {
     if (f == DXGI_FORMAT_R32_TYPELESS) return DXGI_FORMAT_R32_FLOAT;
     if (f == DXGI_FORMAT_R16_TYPELESS) return DXGI_FORMAT_R16_UNORM;
     if (f == DXGI_FORMAT_R24G8_TYPELESS) return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    return f == DXGI_FORMAT_R32_FLOAT || f == DXGI_FORMAT_R16_FLOAT || f == DXGI_FORMAT_R16_UNORM ? f : DXGI_FORMAT_UNKNOWN;
+    if (f == DXGI_FORMAT_R32G8X24_TYPELESS) return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+    return f == DXGI_FORMAT_R32_FLOAT || f == DXGI_FORMAT_R16_FLOAT || f == DXGI_FORMAT_R16_UNORM ||
+           f == DXGI_FORMAT_R24_UNORM_X8_TYPELESS || f == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ? f : DXGI_FORMAT_UNKNOWN;
+}
+inline const char *TextureIssue(const D3D12_RESOURCE_DESC &d)
+{
+    if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) return "dimension";
+    if (d.DepthOrArraySize != 1) return "array";
+    if (d.SampleDesc.Count != 1) return "samples";
+    if (d.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) return "deny-srv";
+    // The SRV exposes mip zero only, even when the allocation has a mip chain.
+    if (!d.MipLevels) return "mips";
+    return nullptr;
 }
 inline void Check(HRESULT hr, const char *what)
 {
     if (FAILED(hr)) throw std::runtime_error(std::string("temporal: ") + what + " HRESULT=" + std::to_string(unsigned(hr)));
 }
 inline void Transition(ID3D12GraphicsCommandList *cmd, ID3D12Resource *r,
-                       D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b)
+                       D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b,
+                       UINT subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
 {
     if(a==b) return;
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,a,b};
+    barrier.Transition={r,subresource,a,b};
     cmd->ResourceBarrier(1,&barrier);
 }
 
@@ -262,22 +279,24 @@ public:
                       ID3D12Resource *motion,ID3D12Resource *depth,D3D12_RESOURCE_STATES ms,D3D12_RESOURCE_STATES ds,
                       const Parameters &p)
     {
-        Transition(cmd,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        // Only mip 0, array slice 0, plane 0 is exposed by these SRVs. Other
+        // mips and the stencil plane can be in different states in the game.
+        Transition(cmd,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
+        Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
         Transition(cmd,warped,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         Bind(cmd,raw,output,p); cmd->SetPipelineState(reproject); cmd->Dispatch((width*processingHeight+63)/64,1,1);
         Transition(cmd,warped,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        Transition(cmd,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ms);
-        Transition(cmd,depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ds);
+        Transition(cmd,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ms,0);
+        Transition(cmd,depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ds,0);
     }
     void RecordOutputs(ID3D12GraphicsCommandList *cmd,ID3D12Resource *raw,ID3D12Resource *output,
                        ID3D12Resource *depth,D3D12_RESOURCE_STATES ds,const Parameters &p)
     {
-        Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
         for(auto *r:{previousRaw,previousModel,output}) Transition(cmd,r,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         Bind(cmd,raw,output,p); cmd->SetPipelineState(finish); cmd->Dispatch((width*processingHeight+63)/64,1,1);
         for(auto *r:{previousRaw,previousModel,output}) Transition(cmd,r,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        Transition(cmd,depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ds);
+        Transition(cmd,depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ds,0);
     }
     ID3D12Resource *Warped() const { return warped; }
 };

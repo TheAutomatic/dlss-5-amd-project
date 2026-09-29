@@ -239,7 +239,8 @@ int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
-         useExposure = false, badExposure = false, ultrawide = false, subrect = false, temporalTest = false;
+         useExposure = false, badExposure = false, ultrawide = false, subrect = false, temporalTest = false,
+         temporalGuides = false;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -268,6 +269,8 @@ int main(int argc, char **argv)
             scale16 = outputHash = true;
         else if (!std::strcmp(argv[i], "--temporal"))
             temporalTest = outputHash = true;
+        else if (!std::strcmp(argv[i], "--temporal-guides"))
+            temporalGuides = temporalTest = outputHash = true;
         else
         {
             std::fprintf(stderr,
@@ -560,15 +563,30 @@ int main(int argc, char **argv)
     {
         ID3D12Resource *motion=nullptr,*depth=nullptr;
         auto gd=td;gd.Format=DXGI_FORMAT_R32G32_FLOAT;gd.Flags=D3D12_RESOURCE_FLAG_NONE;
+        if(temporalGuides) {gd.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;gd.MipLevels=2;}
         Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&gd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                               nullptr,IID_PPV_ARGS(&motion)),"temporal motion");
         gd.Format=DXGI_FORMAT_R32_FLOAT;
+        if(temporalGuides) {gd.Format=DXGI_FORMAT_R32G8X24_TYPELESS;gd.Flags=D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;}
         Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&gd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                               nullptr,IID_PPV_ARGS(&depth)),"temporal depth");
         frame.motion=motion;frame.depth=depth;
         frame.motion_width=frame.color_width;frame.motion_height=frame.color_height;
         frame.motion_scale_x=frame.motion_scale_y=1;
         frame.motion_state=frame.depth_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        if(temporalGuides) {
+            ID3D12DescriptorHeap *heap=nullptr;
+            D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_DSV;hd.NumDescriptors=1;
+            Check(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"temporal DSV heap");
+            D3D12_DEPTH_STENCIL_VIEW_DESC dv{};dv.Format=DXGI_FORMAT_D32_FLOAT_S8X24_UINT;dv.ViewDimension=D3D12_DSV_DIMENSION_TEXTURE2D;
+            const auto handle=heap->GetCPUDescriptorHandleForHeapStart();device->CreateDepthStencilView(depth,&dv,handle);
+            D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition={depth,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_DEPTH_WRITE};
+            list->ResourceBarrier(1,&b);list->ClearDepthStencilView(handle,D3D12_CLEAR_FLAG_DEPTH|D3D12_CLEAR_FLAG_STENCIL,.5f,173,0,nullptr);
+            b.Transition.StateBefore=D3D12_RESOURCE_STATE_DEPTH_WRITE;b.Transition.StateAfter=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            list->ResourceBarrier(1,&b);Check(list->Close(),"temporal depth close");
+            ID3D12CommandList *init[]={list};queue->ExecuteCommandLists(1,init);WaitQueue(device,queue);heap->Release();
+        }
         const UINT guides=LMXXF_NR_TEMPORAL_INPUTS_VALID|LMXXF_NR_TEMPORAL_DEPTH_INVERTED;
         frame.temporal_flags=guides;
         UINT run=0;
@@ -586,6 +604,10 @@ int main(int argc, char **argv)
             char state[2048]{};api.GetStatus(ctx,state,sizeof state);
             std::printf("temporal run=%u %s\n",run,state);
             Require(std::strstr(state,expected)!=nullptr,"temporal effective state");
+            if(temporalGuides && frame.struct_size==sizeof(frame) && frame.motion==motion && frame.depth==depth) {
+                Require(std::strstr(state,"/fmt2/dim3/array1/mips2/samples1/flags0")!=nullptr,"motion descriptor diagnostics");
+                Require(std::strstr(state,"/fmt19/dim3/array1/mips2/samples1/flags2")!=nullptr,"depth descriptor diagnostics");
+            }
             ok(api.RecordInputs(ctx,tj.handle,pc),"temporal inputs");Check(pc->Close(),"temporal producer close");
             // Same contract as the product: record the consumer before EnqueueHip.
             ok(api.RecordOutputs(ctx,tj.handle,cc),"temporal outputs");Check(cc->Close(),"temporal consumer close");
@@ -616,6 +638,21 @@ int main(int argc, char **argv)
         frame.evaluate_sequence+=3;execute("temporal=priming");execute("temporal=active modelHistory=1");
         frame.motion=nullptr;Require(execute("temporal=missing-guides")==baseline,"missing motion preserves baseline");
         frame.motion=motion;execute("temporal=priming");execute("temporal=active modelHistory=1");
+        if(temporalGuides) {
+            ID3D12Resource *badMotion=nullptr;
+            gd.Format=DXGI_FORMAT_R8G8_UNORM;gd.Flags=D3D12_RESOURCE_FLAG_NONE;
+            Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&gd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                 nullptr,IID_PPV_ARGS(&badMotion)),"unsupported temporal motion");
+            frame.motion=badMotion;
+            Require(execute("temporal=motion-format")==baseline,"unsupported motion reports reason and keeps baseline");
+            badMotion->Release();
+            gd.Format=DXGI_FORMAT_R32G32_FLOAT;gd.DepthOrArraySize=2;
+            Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&gd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                 nullptr,IID_PPV_ARGS(&badMotion)),"array temporal motion");
+            frame.motion=badMotion;
+            Require(execute("temporal=motion-array")==baseline,"unsupported texture array reports exact reason");
+            badMotion->Release();frame.motion=motion;execute("temporal=priming");execute("temporal=active modelHistory=1");
+        }
         for(UINT size:{LMXXF_NR_FRAME_INFO_V1_SIZE,LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,LMXXF_NR_FRAME_INFO_PAPER_WHITE_SIZE}) {
             frame.struct_size=size;Require(execute("temporal=legacy-frame")==baseline,"legacy frame ignores temporal tail");
         }

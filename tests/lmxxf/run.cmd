@@ -91,7 +91,7 @@ rem Passing the weights folder itself would make it prefer the (possibly stale) 
 rem the weights over this checkout's modules.
 set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
 %CXX% /I"%RT_INC%" tests\lmxxf\lmxxf_nr_gpu.cpp /Fe"%OUT%\lmxxf_nr_gpu.exe" /Fo"%OUT%\lmxxf_nr_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
-for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--exposure" "--exposure-bad" "--ultrawide" "--subrect" "--temporal" "--temporal --subrect" "--temporal --ultrawide") do (
+for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--exposure" "--exposure-bad" "--ultrawide" "--subrect" "--temporal" "--temporal --subrect" "--temporal --ultrawide" "--temporal-guides") do (
   echo --- lmxxf_nr_gpu %%~M
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )

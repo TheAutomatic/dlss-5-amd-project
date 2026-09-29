@@ -1312,6 +1312,8 @@ struct Session
     NativeGameCodec *decode = nullptr;
     LmxxfTemporal::History *temporal = nullptr;
     std::string temporalReason = "off";
+    D3D12_RESOURCE_DESC temporalMotionDesc {}, temporalDepthDesc {};
+    const char *temporalResetReason = "none";
     std::atomic<bool> temporalResetRequested { false };
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
@@ -1804,22 +1806,22 @@ int32_t PrepareSession(void *context)
 void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
 {
     auto &j=s->job;
-    const auto disable=[&](const char *reason) {s->temporalReason=reason; if(s->temporal) s->temporal->Reset();};
+    s->temporalMotionDesc={}; s->temporalDepthDesc={}; s->temporalResetReason="none";
+    const auto disable=[&](const std::string &reason) {s->temporalReason=reason; if(s->temporal) s->temporal->Reset();};
     if(info->struct_size < offsetof(LmxxfNrFrameInfo,evaluate_sequence)+sizeof(uint64_t)) {disable("legacy-frame");return;}
+    auto *motion=static_cast<ID3D12Resource*>(info->motion), *depth=static_cast<ID3D12Resource*>(info->depth);
+    const auto md=s->temporalMotionDesc=motion?motion->GetDesc():D3D12_RESOURCE_DESC{};
+    const auto dd=s->temporalDepthDesc=depth?depth->GetDesc():D3D12_RESOURCE_DESC{};
     const bool model=(info->temporal_flags & LMXXF_NR_TEMPORAL_MODEL_HISTORY)!=0;
     const float smoothing=std::isfinite(info->output_smoothing)?std::clamp(info->output_smoothing,0.f,.5f):0.f;
     if(!model && smoothing==0) {disable("off");return;}
     if(j.codec_passthrough || j.debug_view) {disable("diagnostic-view");return;}
     if(!(info->temporal_flags & LMXXF_NR_TEMPORAL_INPUTS_VALID)) {disable("unknown-motion-contract");return;}
-    auto *motion=static_cast<ID3D12Resource*>(info->motion), *depth=static_cast<ID3D12Resource*>(info->depth);
     if(!motion || !depth || motion==depth || motion==j.color || depth==j.color) {disable("missing-guides");return;}
-    const auto md=motion->GetDesc(), dd=depth->GetDesc();
-    const auto texture=[](const D3D12_RESOURCE_DESC &d) {
-        return d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D && d.DepthOrArraySize==1 &&
-               d.MipLevels==1 && d.SampleDesc.Count==1 && !(d.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
-    };
-    if(!texture(md)||!texture(dd)||LmxxfTemporal::MotionFormat(md.Format)==DXGI_FORMAT_UNKNOWN ||
-        LmxxfTemporal::DepthFormat(dd.Format)==DXGI_FORMAT_UNKNOWN) {disable("guide-format");return;}
+    if(const char *issue=LmxxfTemporal::TextureIssue(md)) {disable(std::string("motion-")+issue);return;}
+    if(const char *issue=LmxxfTemporal::TextureIssue(dd)) {disable(std::string("depth-")+issue);return;}
+    if(LmxxfTemporal::MotionFormat(md.Format)==DXGI_FORMAT_UNKNOWN) {disable("motion-format");return;}
+    if(LmxxfTemporal::DepthFormat(dd.Format)==DXGI_FORMAT_UNKNOWN) {disable("depth-format");return;}
     const UINT mw=info->motion_width, mh=info->motion_height;
     if(!mw||!mh||mw>md.Width||mh>md.Height||j.width>dd.Width||j.height>dd.Height) {disable("guide-extent");return;}
     if(!std::isfinite(info->motion_scale_x)||!std::isfinite(info->motion_scale_y)||
@@ -1846,11 +1848,15 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
     const auto now=GetTickCount64();
     const UINT stableFlags=info->temporal_flags & (LMXXF_NR_TEMPORAL_MODEL_HISTORY|LMXXF_NR_TEMPORAL_MV_JITTERED|LMXXF_NR_TEMPORAL_DEPTH_INVERTED);
     const bool explicitReset=s->temporalResetRequested.exchange(false);
-    const bool discontinuity=explicitReset||(info->temporal_flags&LMXXF_NR_TEMPORAL_RESET)||!info->evaluate_sequence||
-        info->evaluate_sequence!=h.sequence+1||now-h.tick>500||h.motionWidth!=mw||h.motionHeight!=mh||
-        h.scaleX!=info->motion_scale_x||h.scaleY!=info->motion_scale_y||h.flags!=stableFlags||
-        h.smoothing!=smoothing||h.paperWhite!=j.paper_white||h.preExposure!=j.pre_exposure||h.exposureScale!=j.exposure_scale;
-    if(discontinuity) h.Reset();
+    if(explicitReset||(info->temporal_flags&LMXXF_NR_TEMPORAL_RESET)) s->temporalResetReason="requested";
+    else if(!info->evaluate_sequence||info->evaluate_sequence!=h.sequence+1) s->temporalResetReason="sequence";
+    else if(now-h.tick>500) s->temporalResetReason="gap";
+    else if(h.motionWidth!=mw||h.motionHeight!=mh||h.scaleX!=info->motion_scale_x||h.scaleY!=info->motion_scale_y)
+        s->temporalResetReason="motion-grid";
+    else if(h.flags!=stableFlags||h.smoothing!=smoothing) s->temporalResetReason="mode";
+    else if(h.paperWhite!=j.paper_white||h.preExposure!=j.pre_exposure||h.exposureScale!=j.exposure_scale)
+        s->temporalResetReason="exposure-scalar";
+    if(std::strcmp(s->temporalResetReason,"none")) h.Reset();
     auto &p=j.temporalParams;
     const auto g=s->encode->Geometry();
     p.width=ng.valid_width; p.height=ng.valid_height; p.processingHeight=ng.processing_height;
@@ -2878,6 +2884,19 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
                           session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u);
+            for(const auto &guide : {std::make_pair("motion", &session->temporalMotionDesc),
+                                     std::make_pair("depth", &session->temporalDepthDesc)})
+            {
+                const auto &d=*guide.second;
+                const size_t offset=std::strlen(text);
+                std::snprintf(text+offset,sizeof(text)-offset,
+                              " %sDesc=%llux%u/fmt%u/dim%u/array%u/mips%u/samples%u/flags%u",
+                              guide.first,static_cast<unsigned long long>(d.Width),d.Height,
+                              unsigned(d.Format),unsigned(d.Dimension),unsigned(d.DepthOrArraySize),
+                              unsigned(d.MipLevels),d.SampleDesc.Count,unsigned(d.Flags));
+            }
+            const size_t offset=std::strlen(text);
+            std::snprintf(text+offset,sizeof(text)-offset," historyReset=%s",session->temporalResetReason);
         }
         if (session)
         {

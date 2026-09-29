@@ -57,12 +57,26 @@ struct Gpu
         auto state=heap==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:heap==D3D12_HEAP_TYPE_READBACK?D3D12_RESOURCE_STATE_COPY_DEST:ReadState;
         ComPtr<ID3D12Resource> r;Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&d,state,nullptr,IID_PPV_ARGS(&r)),"buffer");return r;
     }
-    ComPtr<ID3D12Resource> Texture(UINT w,UINT h,DXGI_FORMAT format)
+    ComPtr<ID3D12Resource> Texture(UINT w,UINT h,DXGI_FORMAT format,UINT16 mips=1,
+                                 D3D12_RESOURCE_FLAGS flags=D3D12_RESOURCE_FLAG_NONE)
     {
         D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;
-        d.DepthOrArraySize=d.MipLevels=1;d.SampleDesc.Count=1;d.Format=format;
+        d.DepthOrArraySize=1;d.MipLevels=mips;d.SampleDesc.Count=1;d.Format=format;d.Flags=flags;
         ComPtr<ID3D12Resource> r;Check(device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&d,ReadState,nullptr,IID_PPV_ARGS(&r)),"texture");return r;
+    }
+    void ClearDepth(ID3D12Resource *r,DXGI_FORMAT format,float value)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_DSV;hd.NumDescriptors=1;
+        ComPtr<ID3D12DescriptorHeap> heap;Check(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"depth heap");
+        auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_DEPTH_STENCIL_VIEW_DESC view{};view.Format=format;view.ViewDimension=D3D12_DSV_DIMENSION_TEXTURE2D;
+        device->CreateDepthStencilView(r,&view,cpu);
+        Run([&](auto *cmd){
+            LmxxfTemporal::Transition(cmd,r,ReadState,D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            cmd->ClearDepthStencilView(cpu,D3D12_CLEAR_FLAG_DEPTH|D3D12_CLEAR_FLAG_STENCIL,value,173,0,nullptr);
+            LmxxfTemporal::Transition(cmd,r,D3D12_RESOURCE_STATE_DEPTH_WRITE,ReadState);
+        });
     }
     void Upload(ID3D12Resource *r,const std::vector<float> &data)
     {
@@ -161,6 +175,53 @@ try
     // A fitted viewport has padding; never sample history from that padding.
     p.viewX=2;p.viewWidth=4;g.Upload(output.Get(),model);finish();p.useHistory=1;inputs();v=g.Read(history.Warped());
     Require(v[3]==0 && v[2*4+3]==1 && v[6*4+3]==0,"fitted viewport padding");
+    // Read actual game-style formats, including the depth plane of a depth/stencil
+    // resource. Extra motion channels and unused mips must not affect XY sampling.
+    p.viewX=0;p.viewWidth=w;p.smoothStrength=0;
+    g.Upload(raw.Get(),pixels);g.Upload(output.Get(),model);
+    for(auto mf:{DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R16G16B16A16_TYPELESS,
+                 DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32G32B32A32_TYPELESS})
+    for(auto df:{DXGI_FORMAT_R32G8X24_TYPELESS,DXGI_FORMAT_R24G8_TYPELESS})
+    {
+        auto mv=g.Texture(w,h,mf,2);
+        auto dz=g.Texture(w,h,df,2,D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        Require(!LmxxfTemporal::TextureIssue(mv->GetDesc())&&!LmxxfTemporal::TextureIssue(dz->GetDesc()),"mip-zero guide admission");
+        const bool half=mf==DXGI_FORMAT_R16G16B16A16_FLOAT||mf==DXGI_FORMAT_R16G16B16A16_TYPELESS;
+        std::vector<float> data(n*(half?2:4),0);
+        if(half) {
+            for(UINT i=0;i<n;++i) {
+                const UINT16 xyzw[]={0x3c00,0,0x7bff,0xfbff}; // 1, 0, large unused Z/W
+                std::memcpy(reinterpret_cast<char*>(data.data())+i*8,xyzw,sizeof(xyzw));
+            }
+        } else for(UINT i=0;i<n;++i) {
+            data[i*4]=1;data[i*4+2]=data[i*4+3]=std::numeric_limits<float>::quiet_NaN();
+        }
+        g.Upload(mv.Get(),data);
+        const auto dsv=df==DXGI_FORMAT_R32G8X24_TYPELESS?DXGI_FORMAT_D32_FLOAT_S8X24_UINT:DXGI_FORMAT_D24_UNORM_S8_UINT;
+        g.ClearDepth(dz.Get(),dsv,.5f);
+        const auto ms=D3D12_RESOURCE_STATE_COPY_SOURCE,ds=D3D12_RESOURCE_STATE_DEPTH_READ;
+        const auto guideStates=[&](bool enter){g.Run([&](auto *cmd){
+            LmxxfTemporal::Transition(cmd,mv.Get(),enter?ReadState:ms,enter?ms:ReadState,0);
+            LmxxfTemporal::Transition(cmd,dz.Get(),enter?ReadState:ds,enter?ds:ReadState,0);
+            // Mip 1 is deliberately in a different state and is never sampled.
+            for(auto *r:{mv.Get(),dz.Get()})
+                LmxxfTemporal::Transition(cmd,r,enter?ReadState:D3D12_RESOURCE_STATE_COPY_DEST,
+                                         enter?D3D12_RESOURCE_STATE_COPY_DEST:ReadState,1);
+        });};
+        guideStates(true);
+        LmxxfTemporal::History test;test.Create(g.device.Get(),w,h,h);test.PrepareBinding(g.device.Get(),mv.Get(),dz.Get());
+        p.useHistory=0;
+        const auto prepare=[&]{g.Run([&](auto *cmd){test.RecordInputs(cmd,raw.Get(),output.Get(),mv.Get(),dz.Get(),ms,ds,p);});};
+        prepare();
+        g.Run([&](auto *cmd){test.RecordOutputs(cmd,raw.Get(),output.Get(),dz.Get(),ds,p);});
+        p.useHistory=1;prepare();v=g.Read(test.Warped());
+        Require(v[3*4+3]==1 && std::abs(v[3*4]-model[4*3])<1e-6f,"RGBA XY and depth/stencil plane-zero reprojection");
+        Require(v[7*4+3]==0,"RGBA motion offscreen rejection");
+        guideStates(false);g.ClearDepth(dz.Get(),dsv,.9f);guideStates(true);prepare();v=g.Read(test.Warped());
+        Require(v[3*4+3]==0 && std::abs(v[3*4]-pixels[3*4])<1e-6f,"depth/stencil disocclusion rejection");
+        guideStates(false);
+        std::printf("temporal guide readback: motion=%u depth=%u mips=2 PASS\n",unsigned(mf),unsigned(df));
+    }
     g.NoErrors();std::puts("temporal WARP: PASS (identity, motion, display grid, jitter, depth/raw/black guards, smoothing, zero recovery, reset, fit viewport)");return 0;
 }
 catch(const std::exception &e){std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}
