@@ -238,7 +238,7 @@ NrBackend=lmxxf
 ; 1: pre-open command-list proxy so daniel <-> lmxxf can switch in-session.
 ; Hook/wrap policy is chosen at startup: restart the game after changing this.
 ; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
-NrConvenience=0
+NrConvenience=1
 
 ; danielblnc math quality (0.4.2+). Not a menu-under-Display fold; Ins shows Quality near the top.
 ; 0 = Reference (NVIDIA-exact arithmetic, default)

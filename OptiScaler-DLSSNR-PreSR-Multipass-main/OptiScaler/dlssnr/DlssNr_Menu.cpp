@@ -141,10 +141,10 @@ void RenderMenu(Config* config, float menuResScale)
             const Kind active = DlssNr::Backend::ActiveKindFromConfig();
             const bool isLmxxf = (active == Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
-            const char* ver = isLmxxf ? "lmxxf-nr" : DlssNr::AmdBridge::RuntimeName();
+            const char* ver = isLmxxf ? "lmxxf-0.37" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
-            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf-nr" : "pass1?"));
+            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf-0.37" : "pass1?"));
             HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
                                : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
@@ -236,10 +236,9 @@ void RenderMenu(Config* config, float menuResScale)
                     char tip[768] {};
                     std::snprintf(tip, sizeof(tip),
                                   "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
-                                  "\nHot switch (NrConvenience in OptiScaler.ini, default 0): set 1 to"
-                                  "\npre-open the proxy for live switch when hooks are armed."
-                                  "\nDefault 0 starts with only the selected backend; changing"
-                                  "\nbackends then needs a game restart."
+                                  "\nHot switch (Allow backend hot switching / NrConvenience, default on):"
+                                  "\nlive switch when proxy hooks are armed. Off: changing backends"
+                                  "\nneeds a game restart."
                                   "\nNeeds restart: first switch to lmxxf after a daniel-only"
                                   "\nstart is staged for the next launch. Click Save Settings"
                                   "\nto keep it in OptiScaler.ini. The line below always says"
@@ -261,21 +260,47 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
                                        "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
                 }
+                else if (request == Request::Lmxxf && !hasLmxxf)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                       "lmxxf not installed; running daniel.");
+                }
+                else if (request == Request::Daniel && !hasDaniel)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                       "daniel not installed; running lmxxf.");
+                }
                 else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
                          activeB == Kind::Daniel && hasLmxxf)
                 {
                     ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
                                        "Restart the game to use lmxxf; daniel remains active now.");
                 }
-                else if (request == Request::Lmxxf && activeB != Kind::Lmxxf)
+                else if (request == Request::Lmxxf && activeB != Kind::Lmxxf && hasLmxxf)
                 {
                     ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "lmxxf not installed; running daniel.");
+                                       "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
                 }
-                else if (request == Request::Daniel && activeB != Kind::Daniel)
+                else if (request == Request::Daniel && activeB != Kind::Daniel && hasDaniel)
                 {
                     ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "daniel not installed; running lmxxf.");
+                                       "daniel selected for next launch (Save Settings to keep). This session keeps using lmxxf.");
+                }
+
+                {
+                    bool convenience = config->NrConvenience.value_or_default() != 0;
+                    static bool convenienceDirty = false;
+                    if (ImGui::Checkbox("Allow backend hot switching", &convenience))
+                    {
+                        config->NrConvenience = convenience ? 1 : 0;
+                        convenienceDirty = true;
+                    }
+                    if (convenienceDirty)
+                        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                           "Restart the game to apply hot-switch setting.");
+                    HelpMarker("On (default): prepare hot switching when lmxxf is installed. Restart after changing."
+                               "\nOff: start with only the selected backend; changing backends needs a game restart."
+                               "\nAlso OptiScaler.ini [DlssNr] NrConvenience=0/1.");
                 }
             }
 

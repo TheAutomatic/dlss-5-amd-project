@@ -264,7 +264,7 @@ jobs:
             - Quality：默认 **Reference**（高画质，对齐 NVIDIA 计算）；可改为 **Fast**。Quality 在菜单外层，不必再进 Display 折叠。
 
             **软件本体**
-            - **双后端热切换**：`OptiScaler.ini` 的 `NrConvenience`（**默认 0**）设为 `1` 时，daniel ↔ lmxxf 可会话内切换；默认只启所选后端，换后端需重启。此开关仅 ini。
+            - **双后端热切换**：菜单 **Allow backend hot switching** / `OptiScaler.ini` 的 `NrConvenience`（**默认 1**）。开启时 daniel ↔ lmxxf 可会话内切换；关闭则换后端需重启游戏。改后重启生效。
             - **关闭 NR 更干净**：提交完成后释放会话缓冲。
             - **重开 NR 更快**：无需整段重新加载模型。
             - **菜单**：Backend 提到 Enable NR 下方；lmxxf 保持 Experimental / Debug 折叠，ViT 用分割线归组（不再套一层）。
@@ -293,7 +293,7 @@ jobs:
             - Quality: **Reference** by default (NVIDIA-exact); switch to **Fast** if needed. Quality is at the menu top level, not under Display.
 
             **App**
-            - **Dual-backend hot switching**: `NrConvenience` in `OptiScaler.ini` (**default 0**). Set `1` for in-session daniel <-> lmxxf switching; default starts only the selected backend (restart to switch). Ini-only control.
+            - **Dual-backend hot switching**: menu **Allow backend hot switching** / `NrConvenience` in `OptiScaler.ini` (**default 1**). On: in-session daniel <-> lmxxf switching; off: restart to switch backends. Restart after changing.
             - **Cleaner NR off**: session buffers released after submitted work finishes.
             - **Faster NR re-enable**: no full model reload.
             - **Menu**: Backend near Enable NR; lmxxf keeps Experimental / Debug folds; ViT grouped with separators (no extra nested fold).

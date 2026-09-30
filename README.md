@@ -317,7 +317,7 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `NrConvenience` | `0` | `1`：装了 lmxxf 时预开提交代理，daniel ↔ lmxxf 可会话内热切换；`0`：只启所选后端，换后端需重启游戏。改后重启生效。 |
+| `NrConvenience` | `1` | `1`：装了 lmxxf 时预开提交代理，daniel ↔ lmxxf 可会话内热切换；`0`：只启所选后端，换后端需重启游戏。改后重启生效。 |
 
 ---
 

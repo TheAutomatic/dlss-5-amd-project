@@ -328,12 +328,12 @@ class Config
     // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
-    // Convenience (1): prepare proxy submission when lmxxf is installed, allowing
-    // backend hot-switch. Pure (0, default): only the startup backend; restart to switch.
+    // Convenience (1, default): prepare proxy submission when lmxxf is installed, allowing
+    // backend hot-switch. Pure (0): only the startup backend; restart to switch.
     // Both release idle session buffers on NR off; Daniel retains its verified
     // module/model cache. lmxxf also unloads its runtime in pure mode.
     // Hook/wrap policy is chosen at startup; restart after changing.
-    CustomOptional<int> NrConvenience { 0 };
+    CustomOptional<int> NrConvenience { 1 };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
     // Explicit choice missing its files falls back to the other. Enable NR is the on/off.
