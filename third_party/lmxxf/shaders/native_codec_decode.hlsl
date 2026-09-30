@@ -145,7 +145,15 @@ float3 Upgrade(float3 original,float3 proxy,float3 neural) {
  if(!(ny<=1e-5)) {
   float ratio=0;
   if(oy<py)ratio=oy/max(py,1e-6);
-  else ratio=(ny+max(0,oy-py))/ny;
+  else {
+   // Luminance-match to the original. The (oy-py)/ny term is sharp in highlights:
+   // a small ny wobble flips ratio hard and the brightest pixels flicker frame to
+   // frame. Floor ny against the signal so the match stays smooth, then clamp the
+   // factor so a single frame cannot blow out. Average brightness intent is kept.
+   float denom=max(ny,0.25*max(oy-py,0.0)+0.05);
+   ratio=(ny+max(0,oy-py))/denom;
+   ratio=clamp(ratio,0.5,2.5);
+  }
   result=lerp(original,Hue(neural*ratio,neural),TransferStrength);
  }
  return result;
