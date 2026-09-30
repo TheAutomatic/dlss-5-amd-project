@@ -34,7 +34,7 @@ tests\run-all.cmd --tier ci
 按顺序；任一失败则 **不要发包**。
 
 ```powershell
-# 0) 模块数字契约（30/arch、60 dual 必须一致）
+# 0) 模块数字契约（以 check-module-contract.ps1 的 $PerArch/$Dual 为准）
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\check-module-contract.ps1
 
 # 1) Runtime 清单/路径/ABI 无卡
@@ -127,17 +127,20 @@ if ($LASTEXITCODE -ne 0) { throw 'lmxxf ABI regression failed' }
 
 ### 数字契约（改模块列表时必须同步）
 
-`30` = 每架构 hsaco 数；`60` = 双架构合计。**改列表时同时改下表全部位置**，再跑 `tools\release\check-module-contract.ps1`：
+**当前：31/arch、62 dual。** 权威数字在 `tools/release/check-module-contract.ps1` 的 `$PerArch` / `$Dual`，不要只改本表。追 lmxxf 增删 hsaco 时，同一次提交里改完下表再跑该脚本；步骤见 [docs/release.md](../docs/release.md)「模块数量契约」。
 
 | 文件 | 断言 |
 |---|---|
-| `LmxxfNrRuntime.cpp` | `kKnownModuleNames[30]` 与实际名字个数 |
-| `tests/_lib/lmxxf_fixtures.py` | `MODULE_NAMES` 30 个 |
-| `third_party/lmxxf/hip/build-modules.ps1` | `name = '...'` 30 行（含注释里的总数） |
-| `tools/release/check-release-freshness.ps1` | `$hs.Count -ne 30` |
-| `tools/lmxxf-module-package.ps1` | 30/60 与 manifest 字段 |
-| `tests/lmxxf/lmxxf_nr_abi.cpp` | `modules_ok=60` / `modules_ok=30` |
+| `tools/release/check-module-contract.ps1` | `$PerArch` / `$Dual`（先改这里） |
+| `LmxxfNrRuntime.cpp` | `kKnownModuleNames[$PerArch]` 与实际名字个数 |
+| `tests/_lib/lmxxf_fixtures.py` | `MODULE_NAMES` 个数 = `$PerArch` |
+| `third_party/lmxxf/hip/build-modules.ps1` | `name = '...'` 行数 = `$PerArch` |
+| `third_party/lmxxf/modules/gfx1200`、`gfx1201` | 各 `$PerArch` 个 hsaco + 清单（须提交） |
+| `tools/release/check-release-freshness.ps1` | `$hs.Count -ne $PerArch` |
+| `tools/lmxxf-module-package.ps1` | 期望计数与 manifest `module_count` / `module_count_per_arch` |
+| `tests/lmxxf/lmxxf_nr_abi.cpp` | `modules_ok=$Dual` / `modules_ok=$PerArch` |
 | `tests/lmxxf/test_runtime_validation.py` | 同上 |
+| `tests/install/test_module_packages.py`、`test_installer_exit.py` | zip/安装后 hsaco 断言 |
 
 漏改任一处 = 玩家包装了新模块但测试/CI 仍是旧数，或反过来。
 

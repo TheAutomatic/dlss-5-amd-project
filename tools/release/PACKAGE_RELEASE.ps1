@@ -233,7 +233,7 @@ RunBeforeSR=true
 ; If the chosen host is missing its files, the other installed host runs instead.
 NrBackend=lmxxf
 
-; Hot-switch preparation when both backends are installed (ini-only; no Ins checkbox).
+; Hot-switch preparation when both backends are installed (menu: Allow backend hot switching).
 ; 0 (default): start only the selected backend; changing backends needs a game restart.
 ; 1: pre-open command-list proxy so daniel <-> lmxxf can switch in-session.
 ; Hook/wrap policy is chosen at startup: restart the game after changing this.
@@ -291,7 +291,7 @@ DLSS5_HIP_SWIN_RUN=true
 ; Mutually exclusive with DLSS5_HIP_VIT_BYTE_STREAM. Applies on network rebuild.
 DLSS5_HIP_VIT_STREAM=3
 
-; ViT byte stream (experimental). Default 0. Only usable when VIT_STREAM=0.
+; ViT byte stream (experimental). Default 0. Only when VIT_STREAM is not an explicit non-zero value.
 ; 1 also turns off adaptive reuse. Applies on network rebuild.
 DLSS5_HIP_VIT_BYTE_STREAM=0
 

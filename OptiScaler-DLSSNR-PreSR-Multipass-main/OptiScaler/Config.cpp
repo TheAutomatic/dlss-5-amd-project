@@ -489,15 +489,26 @@ bool Config::Reload(std::filesystem::path iniPath)
                 CfgKey::PutEnvAlias(CfgKey::DecoderByte, dec);
                 const bool vb = readUnifiedBoolDefault(CfgKey::VitByteStream, false);
                 LmxxfVitByteStream.set_from_config(vb);
+                // Stream: only an explicit 0..3 overrides the product default. An older
+                // save may store auto/omit while the user chose byte stream (stream was 0).
                 int vstream = LmxxfVitStream.value_or_default();
+                bool vstreamExplicit = false;
                 if (auto vs = readInt(CfgKey::kSection, CfgKey::VitStream))
-                    vstream = (*vs >= 0 && *vs <= 3) ? *vs : vstream;
+                {
+                    if (*vs >= 0 && *vs <= 3)
+                    {
+                        vstream = *vs;
+                        vstreamExplicit = true;
+                    }
+                }
+                if (vb && !vstreamExplicit)
+                    vstream = 0;
                 LmxxfVitStream.set_from_config(vstream);
                 const bool adapt = readUnifiedBoolDefault(CfgKey::VitAdaptive, true);
                 LmxxfVitAdaptive.set_from_config(adapt);
                 // Match the menu's exclusions when an ini contains conflicting choices.
-                // A selected stream wins over byte stream; byte stream disables reuse.
-                if (LmxxfVitStream.value_or_default() != 0)
+                // An explicitly non-zero stream wins over byte stream; byte stream disables reuse.
+                if (vstreamExplicit && LmxxfVitStream.value_or_default() != 0)
                     LmxxfVitByteStream = false;
                 if (LmxxfVitByteStream.value_or_default())
                     LmxxfVitAdaptive = false;

@@ -22,7 +22,7 @@
 
 - **决定**：帕鲁的秒级卡顿已由 `a129c5f` 修复；保留 `[DlssNr] DLSS5_FIT_LARGE=true` 默认值，不再引用修复前耗时建议降分辨率或关闭 FitLarge。维护者确认目前未发现 FitLarge 仍有问题。
 - **原因**：旧测量发生在 allocation 与子矩形比较错误、每帧重建链路的时期，不能代表修复后的性能。公开兼容说明应分开写当前状态与已修复案例。
-- **落在**：三语 README、[Palworld](games/palworld.md)、[lmxxf 后端](backends/lmxxf.md)。当前 ini 键名为 `DLSS5_FIT_LARGE` / `DLSS5_HIP_PDL`，旧名仅用于迁移；模块契约以 [发布测试清单](../tests/RELEASE-TESTS.md#数字契约改模块列表时必须同步) 的 30/60 为准。
+- **落在**：三语 README、[Palworld](games/palworld.md)、[lmxxf 后端](backends/lmxxf.md)。当前 ini 键名为 `DLSS5_FIT_LARGE` / `DLSS5_HIP_PDL`，旧名仅用于迁移；模块数量以 [发布测试清单](../tests/RELEASE-TESTS.md#数字契约改模块列表时必须同步) 与 `check-module-contract.ps1` 为准。
 
 ## 09-28 · Matheus 仓库按 GPL-3.0 处理
 

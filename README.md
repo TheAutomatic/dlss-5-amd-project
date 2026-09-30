@@ -313,7 +313,7 @@ Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
 daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。  
 高级进程环境变量（无 Ins 开关）：`DLSSNR_NO_REG`、`DLSSNR_CHAIN`、`DLSSNR_NOBLEND`、`DLSSNR_NO_REPACK`、`DLSSNR_WBLOG`。
 
-**仅 ini、无菜单按钮**（改 `OptiScaler.ini` `[DlssNr]`）：
+**热切换**（菜单 **Allow backend hot switching**，或改 `OptiScaler.ini` `[DlssNr]`）：
 
 | 键 | 默认 | 说明 |
 |---|---|---|

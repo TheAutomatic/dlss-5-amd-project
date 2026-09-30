@@ -2968,10 +2968,13 @@ static void HookToDevice(ID3D12Device* InDevice)
 
         // lmxxf: ArmCreate after commit (ExpandEnabled). ProxyWrap stays OFF until swapchain
         // (wrapping every DIRECT list during Streamline/device boot crashes yysls).
-        // Graphics Create* hooks are mutually exclusive with ArmCreate Create* Detours.
+        // Graphics CreateCommandList* are mutually exclusive with ArmCreate Detours;
+        // CreateCommandSignature is not — keep its metadata hook so ExecuteIndirect
+        // lists stay eligible for new wait when the submission proxy is armed.
         if (DlssNr::Backend::SubmissionHooksWanted())
         {
-            // Skip AmdGraphicsWait CreateCommandList / CreateCommandList1 / CreateCommandSignature.
+            if (o_CreateCommandSignature != nullptr)
+                DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
         }
         else if (Config::Instance()->AmdGraphicsWait.value_or_default())
         {

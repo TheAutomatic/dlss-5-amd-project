@@ -20,6 +20,43 @@
 | modules | CI 与 `PACKAGE_RELEASE` 都只拷贝**已提交**的 `third_party/lmxxf/modules`，CI 不重编 HIP 内核。发版前确认 modules 与当前 `hip/` 源码一致（sync 负责重编，见 [tools/lmxxf-sync/README.md](../tools/lmxxf-sync/README.md)） |
 | shader-cache | `shader-cache/*.dxbc` 不进 git、不进包。runtime 首次运行时编译 4 条（编码、解码、RGB 输入、RGB 贴图），在开发机上约 30–45 ms；目录可写就缓存 |
 
+## 本地发版清单（与 CI 对齐）
+
+`PACKAGE_RELEASE.ps1` **不会**跑安装/ABI/sync 全套，只做新鲜度 + 模块契约。要尽量贴线上，发版前按顺序：
+
+1. `tests\run-all.cmd --tier ci`（至少；有卡再加 `device`）
+2. `tools\build\build-release-local.cmd`（完整：测试 + runtime + OptiScaler；不要用 `--fast` 充当发版构建）
+3. `powershell -File tools\release\check-module-contract.ps1`
+4. `powershell -File tools\release\PACKAGE_RELEASE.ps1`
+5. 打 `v<VERSION>` tag 推远程，**以 CI 上传的 zip 为准**（不要用本机 `dist/` 冒充）
+
+### 模块数量契约（追 lmxxf / 增删 hsaco 时最容易漏）
+
+**当前约定：每架构 31 / 双架构 62。**  
+唯一权威数字在 `tools/release/check-module-contract.ps1` 的 `$PerArch` / `$Dual`。追上游若 `hip/build-modules.ps1` 增删了 `name = '...'` 行，必须**同一次改动里**改完契约点，再跑该脚本；否则本地只重编 modules 会过，线上 install/ABI 仍按旧数断言。
+
+| 必须同步的位置 | 内容 |
+|---|---|
+| `tools/release/check-module-contract.ps1` | `$PerArch`、`$Dual` |
+| `third_party/lmxxf/hip/build-modules.ps1` | recipe 行数 = `$PerArch` |
+| `third_party/lmxxf/modules/gfx1200`、`gfx1201` | 各 `$PerArch` 个 `.hsaco` + `SHA256SUMS` + `modules.json`（**提交进 git**） |
+| `LmxxfNrRuntime.cpp` | `kKnownModuleNames[$PerArch]` 与名字列表 |
+| `tools/release/check-release-freshness.ps1` | `$hs.Count -ne $PerArch` |
+| `tools/lmxxf-module-package.ps1` | 期望计数与 manifest `module_count` / `module_count_per_arch` |
+| `tests/_lib/lmxxf_fixtures.py` | `MODULE_NAMES` 个数 |
+| `tests/lmxxf/lmxxf_nr_abi.cpp` | `modules_ok=$Dual` / `modules_ok=$PerArch` |
+| `tests/lmxxf/test_runtime_validation.py` | 同上 |
+| `tests/install/test_module_packages.py`、`test_installer_exit.py` | 安装后每架构 / zip 合计断言 |
+
+同步模块后还要：
+
+- **重编 runtime**（`build-lmxxf-runtime.cmd`），否则 freshness 会报 `STALE LmxxfNrRuntime.dll`
+- 若改了 `hip/*.hip` / `*.inc` 却没换 hsaco，freshness 会报 `STALE modules`
+- 跑 `check-module-contract.ps1`，必须输出 `Module contract OK`
+- 玩家包里是 **gfx1200+gfx1201 合计**，与 `runtime-manifest.json` 一致
+
+漏改任一处 = 本地打包能过、GitHub Actions 在 install/ABI/契约处红，或线上模块数与 runtime 名表不一致。
+
 ## 包内容
 
 `tools\release\PACKAGE_RELEASE.ps1` 输出 `dist/OptiScaler-AMD-PreSR-<版本>.zip`。`dist/` 只放发版产物，被 git 忽略。
@@ -29,7 +66,7 @@
 | 项 | 说明 |
 |---|---|
 | `OptiScaler.dll`、`OptiScaler.ini` | ini 的 `[DlssNr]` 段由打包脚本生成 |
-| `LmxxfNrRuntime.dll`、`lmxxf-modules/`（gfx1200 + gfx1201 各 30 个）、`shaders/`（只含顶层 `.hlsl`） | lmxxf 后端 |
+| `LmxxfNrRuntime.dll`、`lmxxf-modules/`（gfx1200 + gfx1201，数量见模块契约）、`shaders/`（只含顶层 `.hlsl`） | lmxxf 后端 |
 | `Setup.bat`、`Setup.ps1`、`lmxxf-module-package.ps1` | 安装器，见 [architecture/installer.md](architecture/installer.md) |
 | `Uninstall_OptiScaler_NR.bat`、`Uninstall_OptiScaler_NR.ps1` | 卸载器 |
 | `README.md`、`README.en.md`、`README.es.md` | 直接拷贝仓库根的 README，没有第二份副本 |

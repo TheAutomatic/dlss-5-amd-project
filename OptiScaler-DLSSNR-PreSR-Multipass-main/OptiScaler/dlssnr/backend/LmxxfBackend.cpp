@@ -563,23 +563,27 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
             if (++pendingJobInfo.stalledEvaluations >= 8)
             {
                 // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
-                // the list was never submitted and cannot retire itself.
+                // the list was never submitted. Do not cancel that job: the game may
+                // still submit the recorded producer/continuation later. Leave it for
+                // Submit/PollRelease. Only retire jobs HIP already accepted.
                 void *job = pendingJobInfo.job;
                 const bool enqueued = LmxxfCut::Pending().job != job;
-                pendingJobInfo = {};
-                if (session && api && job)
+                if (enqueued && session && api && job && api->table.Retire)
                 {
-                    if (enqueued && api->table.Retire)
-                        api->table.Retire(session, job);
-                    else if (!enqueued && api->table.CancelUnsubmitted)
-                        api->table.CancelUnsubmitted(session, job);
+                    pendingJobInfo = {};
+                    api->table.Retire(session, job);
+                    LmxxfCut::ClearPendingEnqueue();
+                    static unsigned recoveries = 0;
+                    if (++recoveries <= 5 || recoveries % 100 == 0)
+                        LOG_WARN("lmxxf: stalled job retired (recovery {})", recoveries);
+                    previousPending = false;
                 }
-                LmxxfCut::ClearPendingEnqueue();
-                static unsigned recoveries = 0;
-                if (++recoveries <= 5 || recoveries % 100 == 0)
-                    LOG_WARN("lmxxf: stalled job recovered ({}; recovery {})",
-                             enqueued ? "retired" : "cancelled", recoveries);
-                previousPending = false;
+                else if (!enqueued)
+                {
+                    // Reset the stall counter instead of cancelling an unsubmitted job.
+                    pendingJobInfo.stalledEvaluations = 0;
+                    LOG_WARN("lmxxf: stalled unsubmitted job kept for later submit (not cancelled)");
+                }
             }
         }
     }
