@@ -10,7 +10,7 @@ rem Check if MSVC cl.exe is available in PATH
 where cl.exe >nul 2>&1
 if %errorlevel%==0 (
   echo Building LmxxfNrRuntime.dll with MSVC...
-  cl /nologo /std:c++17 /O2 /LD /EHsc /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 /DLMXXF_NR_RUNTIME_EXPORTS ^
+  cl /nologo /std:c++17 /O2 /LD /EHsc /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 /DLMXXF_NR_RUNTIME_EXPORTS /DLMXXF_NR_HIGHLIGHT_DIAGNOSTICS ^
     /I "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime" ^
     /I "third_party\lmxxf\src" ^
     /I "third_party\lmxxf\Development\HIP" ^
@@ -33,7 +33,7 @@ if not exist "%LMXXF_GXX%" (
   exit /b 1
 )
 set "PATH=C:\msys64\ucrt64\bin;%PATH%"
-"%LMXXF_GXX%" -std=c++17 -O2 -shared -static -static-libgcc -static-libstdc++ -D_WIN32_WINNT=0x0A00 -DLMXXF_NR_RUNTIME_EXPORTS -I "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime" -I "third_party\lmxxf\src" -I "third_party\lmxxf\Development\HIP" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime\LmxxfNrRuntime.cpp" -o "%OUT%\LmxxfNrRuntime.dll" -Wl,--out-implib,"%OUT%\LmxxfNrRuntime.dll.a" -ld3d12 -ldxgi -ld3dcompiler -ldxguid
+"%LMXXF_GXX%" -std=c++17 -O2 -shared -static -static-libgcc -static-libstdc++ -D_WIN32_WINNT=0x0A00 -DLMXXF_NR_RUNTIME_EXPORTS -DLMXXF_NR_HIGHLIGHT_DIAGNOSTICS -I "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime" -I "third_party\lmxxf\src" -I "third_party\lmxxf\Development\HIP" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\dlssnr\backend\lmxxf_runtime\LmxxfNrRuntime.cpp" -o "%OUT%\LmxxfNrRuntime.dll" -Wl,--out-implib,"%OUT%\LmxxfNrRuntime.dll.a" -ld3d12 -ldxgi -ld3dcompiler -ldxguid
 
 :verify
 rem The exit code must be checked separately from "is the DLL there": a failed compile leaves a
