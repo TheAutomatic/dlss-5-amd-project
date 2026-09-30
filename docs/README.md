@@ -9,6 +9,7 @@
 | [architecture/overview.md](architecture/overview.md) | 管线、两个后端怎么加载与选择、代码归属与许可证、日志位置、如何查看 wilsjo2 上游 |
 | [architecture/lmxxf-c-abi.md](architecture/lmxxf-c-abi.md) | `LmxxfNrRuntime.dll` 的 C ABI：为什么有 DLL 边界、`struct_size` 分档、四条演进规则、资源查找 |
 | [architecture/installer.md](architecture/installer.md) | 安装器与卸载器：后端选择、升级流程、ini 与 flags 文件、双架构模块包校验、卸载范围 |
+| [lmxxf-037-consumer-review.md](lmxxf-037-consumer-review.md) | 0.37 消费者重审：实际宏、验证范围、pinned bridge 和暂缓项 |
 | [backends/lmxxf.md](backends/lmxxf.md) | lmxxf 后端专页 |
 | [games/](games/) | 各游戏的兼容说明、已修复案例和排查入口 |
 | [release.md](release.md) | 发版：版本号、构建、包内容与禁入文件、编码规则、双后端烟测、CI |

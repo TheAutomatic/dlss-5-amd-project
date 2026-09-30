@@ -35,13 +35,13 @@
 - 固定保留头文件现在只有 `hip_d3d12_bridge.h`（含产品 `Pdl*` 查询）。`native_rgb_reflect.h`、`native_input_geometry.h` 在 PR #9 合入后改为 FOLLOW。默认不覆盖 bridge，也不删除，并验证本地契约标记。
 - 本地 Runtime、模块构建输出及元数据属于各自流程，不属于头文件镜像。上游新依赖头文件需要审阅后加入闭包。
 
-产品 `[DlssNr] DLSS5_SKIP_BLOCKS` 与菜单的 Skipped residual blocks 共用一个键。默认 `42,43,46`；`none` 表示不跳块，`auto` 恢复编译默认。列表允许 `1..38`、`40..69`，会去重排序；非法值在 ini 读取时警告并回退默认，菜单拒绝提交。改动在下一次网络重建时生效。与上游一样，跳过 `5..22` 或 `48..65` 时须关闭 MH byte stream。Config 设置该键后优先于 flags / 外部环境；直接使用 Runtime 时未设置的键仍可由 flags / 环境补齐。
+产品 `[DlssNr] DLSS5_SKIP_BLOCKS` 与菜单的 Skipped residual blocks 共用一个键。默认 `42,43,46`；`none` 表示不跳块，`auto` 恢复编译默认。列表允许 `1..38`、`40..69`，会去重排序；非法值在 ini 读取时警告并回退默认，菜单拒绝提交。改动在下一次网络重建时生效。当前模块不能跳过 C32 链末尾的 `4` 或 `69`（Runtime 明确拒绝，避免 raw-chain 格式不匹配）；完整支持须有匹配模块。与上游一样，跳过 `5..22` 或 `48..65` 时须关闭 MH byte stream。Config 设置该键后优先于 flags / 外部环境；直接使用 Runtime 时未设置的键仍可由 flags / 环境补齐。
 
 ## 补丁维护
 
 `patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑；补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
 
-测试使用 `tests/sync/fixtures/lmxxf/` 中从同一固定提交 `54e14de503431cd4536f8a7151b022af232178a9` 提取的原始快照；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
+测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入来自 `c809efb0ea2960f148624730898da61b8fb55a45`，pinned bridge 来自 `54e14de503431cd4536f8a7151b022af232178a9`；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
 `manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
 
@@ -83,3 +83,5 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 ```
 
 `--report-only` 的成功仅表示证据收集成功。审计默认返回 0 表示当前审阅记录有效，3 表示待审阅，1 表示读取/解析错误；同步脚本将任何非零审计结果转换为失败。
+
+0.37 消费者复核、实际模块宏和验证范围见 [docs/lmxxf-037-consumer-review.md](../../docs/lmxxf-037-consumer-review.md)。不能只刷新 fingerprint 来接纳本地默认值变更。

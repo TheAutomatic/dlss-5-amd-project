@@ -1,5 +1,14 @@
 # 决策记录
 
+## 2026-09-30 · lmxxf 0.37 消费者重审与真实提交退役
+
+- **决定**：重新审阅 c0a6196 → c809efb0 的消费者、部署配置、实验和原始数据；逐项替换统一排除理由。WAVE_OWNED 是产品默认启用项，pinned bridge 保留是经契约审查的选择；ViT stream=3 和每模块宏绑定当前实际集成指纹。
+- **原因**：文件位于实验/文档目录或开关含 TEST 都不能证明生产不可达。外部包摘要也不能单独证明由当前源码生成；本次重建双架构 62 个模块并逐字节确认身份，再运行产品 GPU 黄金及 Swin 故障恢复验证。
+- **跳块补正**：当前 C32 FP8 raw-chain 不兼容只读 FP16 的链末尾收尾；Runtime 在分配/Record 前拒绝 skip 4/69，完整支持须有匹配模块和同配置黄金验证。默认 skip 列表不变。
+- **生命周期补正**：HIP enqueue 返回与 continuation 提交是两个事件，不能按 8 次 Evaluate 猜测安全。独立 pending lease 仅由匹配的 Submitted 消费；游戏永不提交时保留资源，未来须定义显式丢弃契约。
+- **边界**：16 个具体暂缓项保留可执行验收条件；gfx1200 硬件、游戏热切换/VRAM/low 帧与负载 ABBA 未由本次测试证明。Daniel 模型缓存仍保留，不宣称全释放。没有发布新包。
+- **落在**：[消费者重审](lmxxf-037-consumer-review.md)、`third_party/lmxxf/upstream-review.json`、`sync-state.json`、`LmxxfPendingSubmission` 和已接入 host/run.cmd 的回归测试。
+
 ## 09-30 · host Record 是唯一网络 pass，PreUpscale 强制关闭
 
 - **决定**：daniel 路径上由宿主驱动 Record；会话内将 `PreUpscale` 内存置 0（不写回用户 ini）。NR 开关只动 `enabled` 或 shutdown→init，不改变「每帧一次网络」。

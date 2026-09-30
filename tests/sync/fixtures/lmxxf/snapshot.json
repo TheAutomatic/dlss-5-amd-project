@@ -1,9 +1,9 @@
 {
   "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
   "commit": "c809efb0ea2960f148624730898da61b8fb55a45",
-  "note": "Raw FOLLOW patch inputs at 82119ab0. Bridge raw input remains at bridge_raw_commit; its product patch and pinned contents are unchanged.",
+  "note": "Raw FOLLOW patch inputs at c809efb0. Bridge raw input remains at bridge_raw_commit; its product patch and pinned contents are unchanged.",
   "bridge_raw_commit": "54e14de503431cd4536f8a7151b022af232178a9",
-  "follow_raw_commit": "82119ab040a2c72af3c9283e322d69804b2ababb",
+  "follow_raw_commit": "c809efb0ea2960f148624730898da61b8fb55a45",
   "files": [
     {
       "path": "Development/HIP/hip_d3d12_bridge.h",
