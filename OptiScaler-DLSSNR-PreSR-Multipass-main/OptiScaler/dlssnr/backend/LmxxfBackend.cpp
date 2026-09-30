@@ -509,13 +509,16 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
             probe)
         {
             const bool blocked = probe->IsSplitIneligible();
-            const char *why = probe->SplitRejectionReason();
+            // SplitRejectionReason points into the proxy; copy before Release.
+            char whyBuf[256] {};
+            if (const char *r = probe->SplitRejectionReason())
+                std::strncpy(whyBuf, r, sizeof(whyBuf) - 1);
             probe->Release();
             if (blocked)
             {
                 char status[384] {};
                 std::snprintf(status, sizeof status, "lmxxf: split blocked before record: %s (NO NR)",
-                              why ? why : "unknown");
+                              whyBuf[0] ? whyBuf : "unknown");
                 SetStatus(status);
                 api->table.CancelUnsubmitted(session, jobHandle);
                 return nullptr;
@@ -532,18 +535,22 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     if (FAILED(splitHr) || splitHr == S_FALSE)
     {
         api->table.CancelUnsubmitted(session, jobHandle);
-        const char *why = "not-our-proxy";
+        char whyBuf[256] {};
         DlssNr::Submission::ILogicalCommandList *probe = nullptr;
         if (SUCCEEDED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
                                                 reinterpret_cast<void **>(&probe))) &&
             probe)
         {
-            why = probe->SplitRejectionReason();
+            if (const char *r = probe->SplitRejectionReason())
+                std::strncpy(whyBuf, r, sizeof(whyBuf) - 1);
             probe->Release();
         }
+        if (!whyBuf[0])
+            std::strncpy(whyBuf, splitHr == S_FALSE ? "not-our-proxy" : "split-alloc-failed",
+                         sizeof(whyBuf) - 1);
         char status[384] {};
         std::snprintf(status, sizeof status, "lmxxf: Split failed hr=%08X reason=%s",
-                      static_cast<unsigned>(splitHr), why ? why : "unknown");
+                      static_cast<unsigned>(splitHr), whyBuf);
         SetStatus(status);
         return nullptr;
     }
