@@ -558,34 +558,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     {
         std::lock_guard lock(jobMutex);
         previousPending = pendingJobInfo.job != nullptr;
-        if (previousPending)
-        {
-            if (++pendingJobInfo.stalledEvaluations >= 8)
-            {
-                // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
-                // the list was never submitted. Do not cancel that job: the game may
-                // still submit the recorded producer/continuation later. Leave it for
-                // Submit/PollRelease. Only retire jobs HIP already accepted.
-                void *job = pendingJobInfo.job;
-                const bool enqueued = LmxxfCut::Pending().job != job;
-                if (enqueued && session && api && job && api->table.Retire)
-                {
-                    pendingJobInfo = {};
-                    api->table.Retire(session, job);
-                    LmxxfCut::ClearPendingEnqueue();
-                    static unsigned recoveries = 0;
-                    if (++recoveries <= 5 || recoveries % 100 == 0)
-                        LOG_WARN("lmxxf: stalled job retired (recovery {})", recoveries);
-                    previousPending = false;
-                }
-                else if (!enqueued)
-                {
-                    // Reset the stall counter instead of cancelling an unsubmitted job.
-                    pendingJobInfo.stalledEvaluations = 0;
-                    LOG_WARN("lmxxf: stalled unsubmitted job kept for later submit (not cancelled)");
-                }
-            }
-        }
     }
     if (previousPending)
     {
@@ -1104,17 +1076,7 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
     bool containsCmd = false;
     {
         std::lock_guard lock(jobMutex);
-        if (lists)
-        {
-            for (UINT i = 0; i < count; ++i)
-            {
-                if (pendingJobInfo.cmd && lists[i] == pendingJobInfo.cmd)
-                {
-                    containsCmd = true;
-                    break;
-                }
-            }
-        }
+        containsCmd = pendingJobInfo.Contains(count, lists);
         // Swapchain rebuild: the list may submit on a queue we did not bind at Record.
         // If HIP already ran there (lastQueue), follow that queue on the next Record.
         if (!containsCmd && q && this->queue && q != this->queue && pendingJobInfo.job)
@@ -1125,11 +1087,8 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
         }
         if (containsCmd)
         {
-            if (session && pendingJobInfo.job && api && api->table.Retire)
-            {
-                jobToRetire = pendingJobInfo.job;
-            }
-            pendingJobInfo = {};
+            void* submitted = pendingJobInfo.TakeSubmitted(count, lists);
+            if (session && api && api->table.Retire) jobToRetire = submitted;
         }
     }
     if (containsCmd && q && q != queue)

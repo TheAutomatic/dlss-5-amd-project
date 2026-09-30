@@ -7,6 +7,7 @@
 #include <iostream>
 #include <thread>
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfEvaluateCut.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfPendingSubmission.h"
 
 namespace Cut = DlssNr::Backend::LmxxfCut;
 using namespace DlssNr::Backend;
@@ -39,6 +40,29 @@ int main()
     assert(!PrepareSubmissionAtStartup(Kind::Daniel, true, false));
     assert(!PrepareSubmissionAtStartup(Kind::Daniel, false, true));
     assert(PrepareSubmissionAtStartup(Kind::Lmxxf, false, true));
+
+    // Reproduce the gap after HIP enqueue returns and before the game submits
+    // the continuation. Later Evaluate/off polls cannot treat enqueue as submit.
+    {
+        Session s;
+        s.finish = true;
+        auto* list = reinterpret_cast<ID3D12CommandList*>(uintptr_t(0x1234));
+        auto* unrelated = reinterpret_cast<ID3D12CommandList*>(uintptr_t(0x5678));
+        LmxxfPendingSubmission pending { &s, list };
+        Cut::SetPendingEnqueue(&s, &s, Enqueue, nullptr, list);
+        Cut::BetweenThunk(nullptr, list, nullptr);
+        assert(s.calls == 1 && !Cut::Pending().job);
+        for (unsigned evaluation = 0; evaluation < 100; ++evaluation)
+        {
+            assert(pending.job == &s); // Record and PollRelease must stay blocked.
+            assert(!pending.TakeSubmitted(1, &unrelated));
+            assert(!pending.TakeSubmitted(1, nullptr));
+        }
+        assert(pending.TakeSubmitted(1, &list) == &s);
+        assert(!pending.job && !pending.cmd);
+        assert(!pending.TakeSubmitted(1, &list)); // Retire once.
+        Cut::DisarmBetweenSlot();
+    }
 
     for (unsigned cycle = 0; cycle < 32; ++cycle)
     {
@@ -75,5 +99,5 @@ int main()
         Cut::BetweenThunk(nullptr, list, nullptr);
         assert(s.calls == 1);
     }
-    std::cout << "NR startup policy and in-flight/late callback teardown: PASS\n";
+    std::cout << "NR startup policy, enqueue/submit gap and callback teardown: PASS\n";
 }

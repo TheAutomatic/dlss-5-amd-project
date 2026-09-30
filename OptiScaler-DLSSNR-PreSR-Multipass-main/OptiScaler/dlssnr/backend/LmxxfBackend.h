@@ -1,6 +1,7 @@
 #pragma once
 #include "Host.h"
 #include "LmxxfEvaluateCut.h"
+#include "LmxxfPendingSubmission.h"
 #include "LmxxfColorProbe.h"
 #include "LmxxfStagingProbe.h"
 #include <filesystem>
@@ -27,16 +28,10 @@ class LmxxfBackend final : public Host
     // Function table copied from LmxxfNrGetApi (opaque here to keep header free of C ABI).
     struct Api;
     Api *api = nullptr;
-    struct PendingJobInfo
-    {
-        void *job = nullptr;
-        ID3D12CommandList *cmd = nullptr;
-        unsigned stalledEvaluations = 0; // Reset with this job on submission/replacement.
-    };
     std::atomic<bool> releasePending { false };
     ID3D12Fence* releaseFence = nullptr; // One-shot completion marker for live teardown.
     mutable std::mutex jobMutex;
-    PendingJobInfo pendingJobInfo;
+    LmxxfPendingSubmission pendingJobInfo;
     LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;
     LmxxfProbe::ColorCopy colorProbe;
     LmxxfProbe::StagingProbe stagingProbe;
