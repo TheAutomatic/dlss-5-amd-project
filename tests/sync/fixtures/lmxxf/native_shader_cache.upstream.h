@@ -29,27 +29,6 @@ struct NativeHalfInclude final:ID3DInclude {
  }
  HRESULT STDMETHODCALLTYPE Close(const void*)override{return S_OK;}
 };
-// Prefer System32 d3dcompiler (same policy as daniel private shaders). Game folders
-// often ship a 2013 D3DCompile that rejects cs_5_1 (X3506). Fall back to cs_5_0.
-inline HRESULT NativeCompileShaderBlob(const void*data,SIZE_T size,const char*name,const D3D_SHADER_MACRO*macros,ID3DInclude*include,const char*entry,ID3DBlob**code,ID3DBlob**errors){
- typedef HRESULT(WINAPI*PFN_D3DCompile)(const void*,SIZE_T,const char*,const D3D_SHADER_MACRO*,ID3DInclude*,const char*,const char*,UINT,UINT,ID3DBlob**,ID3DBlob**);
- static PFN_D3DCompile sysCompile=nullptr;static bool resolved=false;
- if(!resolved){
-  resolved=true;
-  if(HMODULE sys=LoadLibraryExW(L"d3dcompiler_47.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32))
-   sysCompile=reinterpret_cast<PFN_D3DCompile>(GetProcAddress(sys,"D3DCompile"));
-  if(!sysCompile)
-   if(HMODULE sys=LoadLibraryExW(L"d3dcompiler_43.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32))
-    sysCompile=reinterpret_cast<PFN_D3DCompile>(GetProcAddress(sys,"D3DCompile"));
- }
- auto compile=sysCompile?sysCompile:reinterpret_cast<PFN_D3DCompile>(&D3DCompile);
- HRESULT hr=compile(data,size,name,macros,include,entry,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);
- if(SUCCEEDED(hr))return hr;
- if(code&&*code){(*code)->Release();*code=nullptr;}
- if(errors&&*errors){(*errors)->Release();*errors=nullptr;}
- // Older fxc in the game process / System32 only knows up to cs_5_0.
- return compile(data,size,name,macros,include,entry,"cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);
-}
 inline HRESULT CompileNativeShader(const std::wstring&path,const D3D_SHADER_MACRO*macros,const char*entry,ID3DBlob**code,ID3DBlob**errors){
  if(!code||!entry)return E_INVALIDARG;*code=nullptr;if(errors)*errors=nullptr;
  std::ifstream file(path.c_str(),std::ios::binary);if(!file)return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
@@ -66,11 +45,7 @@ inline HRESULT CompileNativeShader(const std::wstring&path,const D3D_SHADER_MACR
  if(has_include&&!snapshot){
   const bool progress=_wgetenv(L"DLSS5_SHADER_PROGRESS")!=nullptr;auto started=std::chrono::steady_clock::now();
   if(progress){std::fprintf(stderr,"shader_compile_begin uncached_include=1 entry=%s path=%ls\n",entry,path.c_str());std::fflush(stderr);}
-  std::string name;
-  int n=WideCharToMultiByte(CP_UTF8,0,path.data(),int(path.size()),nullptr,0,nullptr,nullptr);
-  if(n>0){name.resize(n);WideCharToMultiByte(CP_UTF8,0,path.data(),int(path.size()),name.data(),n,nullptr,nullptr);}
-  std::ifstream in(path.c_str(),std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
-  HRESULT hr=NativeCompileShaderBlob(bytes.data(),bytes.size(),name.empty()?"native-file":name.c_str(),macros,D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,code,errors);
+  HRESULT hr=D3DCompileFromFile(path.c_str(),macros,D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);
   if(progress){auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count();std::fprintf(stderr,"shader_compile_end uncached_include=1 ms=%lld hr=0x%08x\n",(long long)ms,unsigned(hr));std::fflush(stderr);}
   return hr;
  }
@@ -99,11 +74,10 @@ inline HRESULT CompileNativeShader(const std::wstring&path,const D3D_SHADER_MACR
  const bool progress=_wgetenv(L"DLSS5_SHADER_PROGRESS")!=nullptr;
  auto started=std::chrono::steady_clock::now();
  if(progress){std::fprintf(stderr,"shader_compile_begin index=%zu entry=%s path=%ls\n",state.compiles+1,entry,path.c_str());std::fflush(stderr);}
- HRESULT hr=NativeCompileShaderBlob(source.data(),source.size(),snapshot?source_name.c_str():"native-standalone",macros,snapshot?&dependency:nullptr,entry,code,errors);state.compiles++;
+ HRESULT hr=D3DCompile(source.data(),source.size(),snapshot?source_name.c_str():"native-standalone",macros,snapshot?&dependency:nullptr,entry,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);state.compiles++;
  if(dependency.unknown){
   if(*code){(*code)->Release();*code=nullptr;}if(errors&&*errors){(*errors)->Release();*errors=nullptr;}
-  std::ifstream in(path.c_str(),std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
-  return NativeCompileShaderBlob(bytes.data(),bytes.size(),snapshot?source_name.c_str():"native-file",macros,D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,code,errors);
+  return D3DCompileFromFile(path.c_str(),macros,D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,code,errors);
  }
  if(progress){auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count();std::fprintf(stderr,"shader_compile_end index=%zu ms=%lld hr=0x%08x\n",state.compiles,(long long)ms,unsigned(hr));std::fflush(stderr);}
  if(SUCCEEDED(hr)){auto*begin=static_cast<const unsigned char*>((*code)->GetBufferPointer());std::vector<unsigned char>bytes(begin,begin+(*code)->GetBufferSize());

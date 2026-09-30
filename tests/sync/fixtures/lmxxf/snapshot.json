@@ -34,6 +34,11 @@
       "path": "shaders/native_codec_decode.hlsl",
       "fixture": "native_codec_decode.upstream.hlsl",
       "sha256": "3762d2f18c1485e2548b5d7734f357bd8f5819e5ef7b2b8b196e2634b2c4b07d"
+    },
+    {
+      "path": "src/native_shader_cache.h",
+      "fixture": "native_shader_cache.upstream.h",
+      "sha256": "2f6c0cb74c25b9471cc7364e15a41e891a06930c88706ad370213d1669445426"
     }
   ]
 }

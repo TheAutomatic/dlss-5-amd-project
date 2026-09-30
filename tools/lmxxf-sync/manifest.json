@@ -52,7 +52,8 @@
     "auto-white.patch",
     "r10g10b10a2.patch",
     "typeless-float16.patch",
-    "codec-hue-safe-preexp.patch"
+    "codec-hue-safe-preexp.patch",
+    "shader-compile-system32.patch"
   ],
   "hip_files": [
     "build-modules.ps1",
@@ -61,3 +62,4 @@
     "SHA256SUMS"
   ]
 }
+

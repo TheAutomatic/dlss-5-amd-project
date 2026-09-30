@@ -9,3 +9,6 @@ tools/lmxxf-sync/patches/*.patch text eol=lf
 
 # Frozen upstream fixtures: their raw SHA256 must survive a Windows checkout.
 tests/sync/fixtures/lmxxf/*.upstream.* text eol=lf
+
+# Vendor sources that local_patches apply to must match git-archive LF.
+third_party/lmxxf/** text eol=lf
