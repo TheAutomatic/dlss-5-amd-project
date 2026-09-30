@@ -72,6 +72,10 @@ if not defined ANY_TIER set "RUN_CI=1"
 for %%I in ("%OUT%") do set "OUT=%%~fI"
 if not exist "%OUT%" mkdir "%OUT%"
 set "SUMMARY=%OUT%\summary.txt"
+set "RUNTIME_HASH="
+rem Invalidate proof from an earlier run before any suite can fail.
+if exist "%OUT%\runtime-ci.sha256" del "%OUT%\runtime-ci.sha256"
+if exist "%OUT%\runtime-ci.sha256" exit /b 1
 type nul > "%SUMMARY%"
 set "FAILED="
 
@@ -88,6 +92,10 @@ call "%REPO%\tools\build\build-lmxxf-runtime.cmd" "%OUT%\runtime"
 call :Result "runtime build" || goto done
 set "LMXXF_TEST_RUNTIME=%OUT%\runtime\LmxxfNrRuntime.dll"
 :afterRuntime
+if not defined RUN_CI goto afterRuntimeHash
+for /f %%H in ('powershell -NoProfile -Command "$f=[IO.File]::OpenRead($env:LMXXF_TEST_RUNTIME); $s=[Security.Cryptography.SHA256]::Create(); try {[BitConverter]::ToString($s.ComputeHash($f)).Replace('-','')} finally {$f.Dispose(); $s.Dispose()}"') do set "RUNTIME_HASH=%%H"
+if not defined RUNTIME_HASH exit /b 1
+:afterRuntimeHash
 
 if not defined RUN_CI goto afterCi
 echo === ci: host ===
@@ -134,6 +142,15 @@ echo.
 echo ===== summary =====
 type "%SUMMARY%"
 if defined FAILED exit /b 1
+if not defined RUNTIME_HASH exit /b 0
+set "FINAL_RUNTIME_HASH="
+for /f %%H in ('powershell -NoProfile -Command "$f=[IO.File]::OpenRead($env:LMXXF_TEST_RUNTIME); $s=[Security.Cryptography.SHA256]::Create(); try {[BitConverter]::ToString($s.ComputeHash($f)).Replace('-','')} finally {$f.Dispose(); $s.Dispose()}"') do set "FINAL_RUNTIME_HASH=%%H"
+if not "%RUNTIME_HASH%"=="%FINAL_RUNTIME_HASH%" (
+  echo FAIL: tested runtime changed during regression suites
+  exit /b 1
+)
+if defined SKIP_SYNC exit /b 0
+>"%OUT%\runtime-ci.sha256" echo %RUNTIME_HASH%
 exit /b 0
 
 rem :Result <suite> - records the caller's errorlevel. Fails (exit 1) only when the run must stop.

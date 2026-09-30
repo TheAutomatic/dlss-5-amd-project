@@ -542,6 +542,34 @@ class AuditTests(Fixture):
 
 @unittest.skipUnless(PS and os.name == 'nt', 'PowerShell/Windows required')
 class ModuleTests(Fixture):
+    def test_release_freshness_covers_runtime_headers_and_lmxxf_host(self):
+        runtime = self.local / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
+        host = self.local / 'exports/release-local/OptiScaler.dll'
+        write(runtime, 'fixture runtime')
+        write(host, 'fixture host')
+        for path in (runtime, host):
+            os.utime(path, (2000000000, 2000000000))
+        git(self.local, 'init', '-q')
+        commit(self.local)
+        command = [PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                   str(ROOT / 'tools/release/check-release-freshness.ps1'), '-Root', str(self.local)]
+        result = subprocess.run(command, capture_output=True, text=True, errors='replace')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        paths = [
+            self.vendor / 'src/native_shader_cache.h',
+            self.vendor / 'src/native_game_codec.h',
+            self.local / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfBackend.cpp',
+            self.local / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfPendingSubmission.h',
+        ]
+        for path in paths:
+            with self.subTest(path=path.name):
+                write(path, '// changed source')
+                os.utime(path, (2100000000, 2100000000))
+                result = subprocess.run(command, capture_output=True, text=True, errors='replace')
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(path.name, result.stdout)
+                os.utime(path, (1000000000, 1000000000))
+
     def test_release_freshness_rejects_a_newer_local_include(self):
         write(self.local / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll', 'fixture runtime')
         for path in (self.vendor / 'hip').glob('*'):

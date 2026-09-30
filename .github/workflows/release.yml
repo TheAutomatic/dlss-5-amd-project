@@ -156,6 +156,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force exports/lmxxf-runtime | Out-Null
           Copy-Item -LiteralPath exports/release-ci/tests/runtime/LmxxfNrRuntime.dll -Destination exports/lmxxf-runtime/LmxxfNrRuntime.dll
+          Copy-Item -LiteralPath exports/release-ci/tests/runtime-ci.sha256 -Destination exports/lmxxf-runtime/runtime-ci.sha256
 
       - name: Build OptiScaler Release (default = multi-slot)
         shell: pwsh
@@ -193,6 +194,7 @@ jobs:
             -Version $ver `
             -OptiDll "$env:BUILD_OUT\OptiScaler.dll" `
             -OutDir dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path "dist\OptiScaler-AMD-PreSR-$ver.zip")) {
             throw "Package zip missing for $ver"
           }

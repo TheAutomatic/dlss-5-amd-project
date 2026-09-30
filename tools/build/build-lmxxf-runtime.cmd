@@ -18,7 +18,7 @@ if %errorlevel%==0 (
     /Fe:"%OUT%\LmxxfNrRuntime.dll" ^
     /Fo:"%OUT%\LmxxfNrRuntime.obj" ^
     d3d12.lib dxgi.lib d3dcompiler.lib dxguid.lib user32.lib
-  if not %errorlevel%==0 (
+  if errorlevel 1 (
     echo FAIL: MSVC compilation of LmxxfNrRuntime.dll failed
     exit /b 1
   )

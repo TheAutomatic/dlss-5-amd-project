@@ -13,7 +13,7 @@
 
 | 项 | 规则 |
 |---|---|
-| 入口 | `tools\build\build-release-local.cmd`：先跑 `tests\run-all.cmd --tier ci,device`，再编 runtime，最后 MSBuild，输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译本体时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
+| 入口 | `tools\build\build-release-local.cmd`：先编 runtime，通过 LMXXF_TEST_RUNTIME 让 `tests\run-all.cmd --tier ci,device` 验证同一 DLL，最后 MSBuild。输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译本体时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
 | 工具集 | 与 CI 一致：`PlatformToolset=v145`，MSVC 14.44（本地脚本钉 `VCToolsVersion=14.44.35207`；CI 取镜像里最新的 14.44.x，缺失时 preflight 报错） |
 | 宏 | 发行构建不定义诊断宏（`AMD_RETIRE_DIAGNOSTICS`、`AMD_TIMING_DIAGNOSTICS` 等）。诊断构建只用于取证，不能拿去打包或报数 |
 | 记录 | 打包前记下 `OptiScaler.dll` 的 SHA256；引用帧率时附构建脚本与这个 SHA（见 [measurement.md](measurement.md)） |
@@ -21,6 +21,14 @@
 | shader-cache | `shader-cache/*.dxbc` 不进 git、不进包。runtime 首次运行时编译 4 条（编码、解码、RGB 输入、RGB 贴图），在开发机上约 30–45 ms；目录可写就缓存 |
 
 ## 本地发版清单（与 CI 对齐）
+
+完整 CI 测试成功后，统一入口在输出目录生成 `runtime-ci.sha256`，同时检查
+runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证。
+本地完整构建和 Actions 将已测试 DLL 与凭证一起复制到 `exports/lmxxf-runtime/`。
+打包在替换 staging 之前检查两者匹配，并复核 staging DLL 与所选 host/runtime 字节一致；
+实际 zip 的逐文件校验继续执行。手动组合构建时也须复制同一次成功 CI 的 DLL 和凭证，
+不能在测试后重新编译 runtime 再沿用旧凭证。
+此哈希只绑定测试产物，不能替代源码审阅、GPU 或游戏验证。
 
 `PACKAGE_RELEASE.ps1` **不会**跑安装/ABI/sync 全套，只做新鲜度 + 模块契约。要尽量贴线上，发版前按顺序：
 

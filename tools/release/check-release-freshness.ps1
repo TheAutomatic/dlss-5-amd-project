@@ -53,11 +53,11 @@ $rtSources = @(
     (Join-Path $rtDir '../../../ConfigKeys.h')
 )
 Test-NotStale $dll $rtSources 'LmxxfNrRuntime.dll'
-# Pinned headers used by the runtime
-foreach ($h in @('hip_d3d12_bridge.h', 'hip_reference_network.h')) {
-    $p = Join-Path $Root "third_party/lmxxf/Development/HIP/$h"
-    if (Test-Path -LiteralPath $p -PathType Leaf) { Test-NotStale $dll @($p) "LmxxfNrRuntime.dll ($h)" }
-}
+# The sync manifest owns the complete runtime header closure, including compiler,
+# codec and geometry helpers. Do not maintain a smaller hand-picked release list.
+$manifest = Get-Content -LiteralPath (Join-Path $Root 'tools/lmxxf-sync/manifest.json') -Raw | ConvertFrom-Json
+$runtimeHeaders = @($manifest.headers | ForEach-Object { Join-Path $Root ("third_party/lmxxf/" + $_) })
+Test-NotStale $dll $runtimeHeaders 'LmxxfNrRuntime.dll (vendor header)'
 
 # 2) Dual-arch modules vs hip recipe/sources (modules must not be older than .hip/.inc)
 $modRoot = Join-Path $Root 'third_party/lmxxf/modules'
@@ -80,7 +80,6 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
     # Oldest hsaco vs newest .hip/.inc source under third_party/lmxxf/hip
     $hipSrc = Get-ChildItem -LiteralPath (Join-Path $Root 'third_party/lmxxf/hip') -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Extension -in @('.hip', '.inc') }
-    $manifest = Get-Content -LiteralPath (Join-Path $Root 'tools/lmxxf-sync/manifest.json') -Raw | ConvertFrom-Json
     $headerPaths = @($manifest.module_headers | ForEach-Object { 'third_party/lmxxf/' + $_ })
     foreach ($path in $headerPaths) { $hipSrc = @($hipSrc) + (Get-Item -LiteralPath (Join-Path $Root $path)) }
     $hsaco = Get-ChildItem -LiteralPath $modRoot -Recurse -Filter '*.hsaco' -File -ErrorAction SilentlyContinue
@@ -108,8 +107,7 @@ $optiSrcRoot = Join-Path $Root 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScale
 if (Test-Path -LiteralPath $optiDll -PathType Leaf) {
     $optiSources = Get-ChildItem -LiteralPath $optiSrcRoot -Recurse -Include '*.cpp', '*.h' -File -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.FullName -notmatch '\\(external|include\\imgui|dlssnr\\backend\\lmxxf_runtime)\\' -and
-            $_.Name -notlike 'Lmxxf*'
+            $_.FullName -notmatch '\\(external|include\\imgui|dlssnr\\backend\\lmxxf_runtime)\\'
         } |
         Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 20
     if ($optiSources) {

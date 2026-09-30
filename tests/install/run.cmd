@@ -12,6 +12,7 @@ set "PS51=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%AMD_TEST_PYTHON%" -B tests\install\test_module_packages.py --failfast || goto fail
 "%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\amd_uninstall.ps1 || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_release_upload.py || goto fail
+"%AMD_TEST_PYTHON%" -B tests\install\test_runtime_ci_proof.py || goto fail
 
 echo install: PASS
 exit /b 0

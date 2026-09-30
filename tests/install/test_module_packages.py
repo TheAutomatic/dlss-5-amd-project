@@ -1,5 +1,6 @@
 """Run the real packaging/staging entrypoints with tiny, non-executable inputs."""
 import os
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -53,6 +54,7 @@ class ModulePackageTests(unittest.TestCase):
         runtime = self.root / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
         runtime.parent.mkdir(parents=True)
         runtime.write_bytes(b'fixture runtime, not executable')
+        (runtime.parent / 'runtime-ci.sha256').write_text(hashlib.sha256(runtime.read_bytes()).hexdigest())
         self.modules = make_modules(self.root / 'third_party/lmxxf/modules')
         shaders = self.root / 'third_party/lmxxf/shaders'
         shaders.mkdir()
@@ -76,6 +78,21 @@ class ModulePackageTests(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertFalse(self.archive.exists(), out)
         return out
+
+    def test_runtime_changed_after_ci_is_rejected_before_staging(self):
+        runtime = self.root / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
+        runtime.write_bytes(b'different fresh runtime')
+        code, out = self.package()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn('Runtime differs', out)
+        self.assertFalse((self.root / 'dist/package').exists())
+
+    def test_runtime_without_ci_proof_is_rejected(self):
+        (self.root / 'exports/lmxxf-runtime/runtime-ci.sha256').unlink()
+        code, out = self.package()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn('Missing runtime-ci.sha256', out)
+        self.assertFalse(self.archive.exists())
 
     def test_valid_actual_archive_can_install(self):
         code, out = self.package()
