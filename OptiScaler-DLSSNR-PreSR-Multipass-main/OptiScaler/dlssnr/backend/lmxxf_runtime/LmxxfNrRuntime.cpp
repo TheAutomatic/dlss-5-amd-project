@@ -1065,6 +1065,12 @@ struct ExposureMeter
     UINT increment = 0;
     uint64_t frames = 0;
     bool failed = false;
+    /* Diagnostics only: sample the 1x1 meter every kSamplePeriod Record() calls.
+       One tiny copy+wait per N frames is cheaper than a per-frame GPU readback stall. */
+    ID3D12Resource *readback = nullptr;
+    uint64_t sampleFrames = 0;
+    float sampledValue = -1.0f;
+    static constexpr uint64_t kSamplePeriod = 60;
 
     bool Ready() const { return value && heap && root && pso; }
 
@@ -1245,16 +1251,107 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         list->ResourceBarrier(moveColour ? 3u : 2u, a);
     }
 
+    /* Read the current meter value at low frequency. Call after Record on the same list's
+       queue completion, or here on a private one-shot list. Not on the frame critical path
+       every frame — only every kSamplePeriod Record() calls. */
+    void Sample(ID3D12Device *device, ID3D12CommandQueue *queue)
+    {
+        if (!value || !device || !queue)
+            return;
+        if ((++sampleFrames % kSamplePeriod) != 0)
+            return;
+        if (!readback)
+        {
+            D3D12_HEAP_PROPERTIES hp {};
+            hp.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC bd {};
+            bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bd.Width = 256;
+            bd.Height = 1;
+            bd.DepthOrArraySize = bd.MipLevels = 1;
+            bd.SampleDesc.Count = 1;
+            bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
+                                                       D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                       IID_PPV_ARGS(&readback))))
+            {
+                readback = nullptr;
+                return;
+            }
+        }
+        ID3D12CommandAllocator *al = nullptr;
+        ID3D12GraphicsCommandList *cl = nullptr;
+        if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&al))) ||
+            FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, al, nullptr,
+                                             IID_PPV_ARGS(&cl))))
+        {
+            if (al)
+                al->Release();
+            return;
+        }
+        D3D12_RESOURCE_BARRIER toCopy {};
+        toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toCopy.Transition = { value, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                              D3D12_RESOURCE_STATE_COPY_SOURCE };
+        cl->ResourceBarrier(1, &toCopy);
+        D3D12_TEXTURE_COPY_LOCATION dst {}, src {};
+        dst.pResource = readback;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+        dst.PlacedFootprint.Footprint.Width = 1;
+        dst.PlacedFootprint.Footprint.Height = 1;
+        dst.PlacedFootprint.Footprint.Depth = 1;
+        dst.PlacedFootprint.Footprint.RowPitch = 256;
+        src.pResource = value;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.SubresourceIndex = 0;
+        cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        D3D12_RESOURCE_BARRIER toSrv = toCopy;
+        toSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        toSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        cl->ResourceBarrier(1, &toSrv);
+        cl->Close();
+        ID3D12CommandList *ls[] = { cl };
+        queue->ExecuteCommandLists(1, ls);
+        ID3D12Fence *fence = nullptr;
+        if (SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+        {
+            queue->Signal(fence, 1);
+            if (fence->GetCompletedValue() < 1)
+            {
+                HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                if (ev)
+                {
+                    fence->SetEventOnCompletion(1, ev);
+                    WaitForSingleObject(ev, 20);
+                    CloseHandle(ev);
+                }
+            }
+            fence->Release();
+        }
+        void *mapped = nullptr;
+        if (SUCCEEDED(readback->Map(0, nullptr, &mapped)) && mapped)
+        {
+            sampledValue = *static_cast<const float *>(mapped);
+            readback->Unmap(0, nullptr);
+        }
+        cl->Release();
+        al->Release();
+    }
+
     void Release()
     {
         for (IUnknown *p : {static_cast<IUnknown *>(value), static_cast<IUnknown *>(heap),
-                            static_cast<IUnknown *>(root), static_cast<IUnknown *>(pso)})
+                            static_cast<IUnknown *>(root), static_cast<IUnknown *>(pso),
+                            static_cast<IUnknown *>(readback)})
             if (p)
                 p->Release();
         value = nullptr;
         heap = nullptr;
         root = nullptr;
         pso = nullptr;
+        readback = nullptr;
     }
 
     // Fail-closed teardown: the GPU may still reference these, so drop them without Release.
@@ -2519,6 +2616,7 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             // The codecs set their own heap, root signature and PSO in Record, so the meter's
             // bindings do not leak into the encode that follows.
             session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
+            session->meter.Sample(session->device, session->queue);
         }
 
 #ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
@@ -2924,14 +3022,15 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f",
+                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f meterVal=%.6f",
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
                           session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u,
                           session->temporalCreates,session->temporalDeletes,
                           session->historyActiveFrames,session->historyPrimingFrames,
                           double(session->job.pre_exposure_raw),session->job.pre_exposure_host?1u:0u,
-                          double(session->job.exposure_scale_raw));
+                          double(session->job.exposure_scale_raw),
+                          double(session->job.pre_exposure),session->meter.sampledValue);
             for(const auto &guide : {std::make_pair("motion", &session->temporalMotionDesc),
                                      std::make_pair("depth", &session->temporalDepthDesc)})
             {
