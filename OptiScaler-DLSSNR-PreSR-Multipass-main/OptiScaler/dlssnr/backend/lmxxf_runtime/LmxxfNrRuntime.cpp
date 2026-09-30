@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <string>
@@ -1448,6 +1449,13 @@ struct Session
     uint32_t temporalDeletes = 0;
     uint32_t historyActiveFrames = 0;
     uint32_t historyPrimingFrames = 0;
+    /* A-side diagnosis: sample the neural output mean every kNeuralSamplePeriod Record
+       calls so one run can tell whether the model output itself is moving when History
+       is off. CPU-side last value; -1 until first sample. */
+    ID3D12Resource *neuralReadback = nullptr;
+    uint64_t neuralSampleFrames = 0;
+    float neuralSampleMean = -1.0f;
+    static constexpr uint64_t kNeuralSamplePeriod = 60;
     bool bridgeWarmed = false;
     CpuTiming prepareTiming, enqueueTiming, rebuildTiming, drainTiming;
     // Hardware & module selection diagnostics
@@ -1502,6 +1510,128 @@ struct Session
 
     // NativeGameCodec::Record wants one state per source plus one more for the exposure SRV.
     // RecordInputs always leaves the copy in NON_PIXEL_SHADER_RESOURCE.
+    /* A-side: sample neural output mean every kNeuralSamplePeriod calls. One tiny
+       region copy+wait per N frames. history-off runs use this to see whether the
+       model output itself is moving. */
+    void SampleNeural()
+    {
+        if (!bridge || !device || !queue)
+            return;
+        ID3D12Resource *out = bridge->Output();
+        if (!out)
+            return;
+        if ((++neuralSampleFrames % kNeuralSamplePeriod) != 0)
+            return;
+        const D3D12_RESOURCE_DESC td = out->GetDesc();
+        if (td.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+            return;
+        if (!neuralReadback)
+        {
+            D3D12_HEAP_PROPERTIES hp {};
+            hp.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC bd {};
+            bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bd.Width = 256 * 64;
+            bd.Height = 1;
+            bd.DepthOrArraySize = bd.MipLevels = 1;
+            bd.SampleDesc.Count = 1;
+            bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
+                                                       D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                       IID_PPV_ARGS(&neuralReadback))))
+            {
+                neuralReadback = nullptr;
+                return;
+            }
+        }
+        ID3D12CommandAllocator *al = nullptr;
+        ID3D12GraphicsCommandList *cl = nullptr;
+        if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&al))) ||
+            FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, al, nullptr,
+                                             IID_PPV_ARGS(&cl))))
+        {
+            if (al)
+                al->Release();
+            return;
+        }
+        D3D12_RESOURCE_BARRIER toCopy {};
+        toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toCopy.Transition = { out, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                              D3D12_RESOURCE_STATE_COPY_SOURCE };
+        cl->ResourceBarrier(1, &toCopy);
+        D3D12_TEXTURE_COPY_LOCATION dst {}, src {};
+        dst.pResource = neuralReadback;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dst.PlacedFootprint.Footprint.Format = td.Format;
+        dst.PlacedFootprint.Footprint.Width = 32;
+        dst.PlacedFootprint.Footprint.Height = 32;
+        dst.PlacedFootprint.Footprint.Depth = 1;
+        dst.PlacedFootprint.Footprint.RowPitch = 256 * 8;
+        src.pResource = out;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.SubresourceIndex = 0;
+        D3D12_BOX box { 0, 0, 0, 32, 32, 1 };
+        cl->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+        D3D12_RESOURCE_BARRIER toSrv = toCopy;
+        toSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        toSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        cl->ResourceBarrier(1, &toSrv);
+        cl->Close();
+        ID3D12CommandList *ls[] = { cl };
+        queue->ExecuteCommandLists(1, ls);
+        ID3D12Fence *fence = nullptr;
+        if (SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+        {
+            queue->Signal(fence, 1);
+            if (fence->GetCompletedValue() < 1)
+            {
+                HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                if (ev)
+                {
+                    fence->SetEventOnCompletion(1, ev);
+                    WaitForSingleObject(ev, 20);
+                    CloseHandle(ev);
+                }
+            }
+            fence->Release();
+        }
+        void *mapped = nullptr;
+        if (SUCCEEDED(neuralReadback->Map(0, nullptr, &mapped)) && mapped)
+        {
+            const auto *base = static_cast<const unsigned char *>(mapped);
+            double sum = 0.0;
+            unsigned n = 0;
+            for (UINT y = 0; y < 32; ++y)
+            {
+                const auto *row = reinterpret_cast<const uint16_t *>(base + size_t(y) * 256 * 8);
+                for (UINT x = 0; x < 32; ++x)
+                {
+                    const uint16_t h = row[x * 4];
+                    const uint32_t sign = (h >> 15) & 1u;
+                    const uint32_t exp = (h >> 10) & 0x1Fu;
+                    const uint32_t mant = h & 0x3FFu;
+                    float v;
+                    if (exp == 0)
+                        v = mant * 5.9604644775390625e-8f;
+                    else if (exp == 31)
+                        v = 65504.0f;
+                    else
+                        v = (1.0f + mant / 1024.0f) * std::ldexp(1.0f, int(exp) - 15);
+                    if (sign)
+                        v = -v;
+                    sum += v;
+                    ++n;
+                }
+            }
+            if (n)
+                neuralSampleMean = float(sum / n);
+            neuralReadback->Unmap(0, nullptr);
+        }
+        cl->Release();
+        al->Release();
+    }
+
     std::vector<D3D12_RESOURCE_STATES> CodecStates(std::vector<D3D12_RESOURCE_STATES> s) const
     {
         if (boundExposure)
@@ -2617,6 +2747,7 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             // bindings do not leak into the encode that follows.
             session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
             session->meter.Sample(session->device, session->queue);
+            session->SampleNeural();
         }
 
 #ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
@@ -3022,7 +3153,7 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f meterVal=%.6f",
+                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f meterVal=%.6f neuralMean=%.6f",
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
                           session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u,
@@ -3030,7 +3161,8 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
                           session->historyActiveFrames,session->historyPrimingFrames,
                           double(session->job.pre_exposure_raw),session->job.pre_exposure_host?1u:0u,
                           double(session->job.exposure_scale_raw),
-                          double(session->job.pre_exposure),session->meter.sampledValue);
+                          double(session->job.pre_exposure),session->meter.sampledValue,
+                          double(session->neuralSampleMean));
             for(const auto &guide : {std::make_pair("motion", &session->temporalMotionDesc),
                                      std::make_pair("depth", &session->temporalDepthDesc)})
             {

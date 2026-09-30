@@ -114,8 +114,13 @@ void Finish(uint3 id : SV_DispatchThreadID) {
     // Relax only the feedback supplied to the NEXT inference, not this frame's
     // network output or NR transfer strength. Reprojection/rejection still gates
     // the old contribution, and invalid/black current output must never retain it.
-    if(stabilizeFeedback && validHistory && useHistory && previous.w>0)
-        feedback=lerp(previous.rgb,value,.5);
+    // Weight is difference-gated like the display smoother: a big step must not
+    // drag the next inference, and a still scene must not sustain a 2-cycle.
+    if(stabilizeFeedback && validHistory && useHistory && previous.w>0) {
+        float fdiff=Max3(abs(value-previous.rgb));
+        float fweight=0.25*saturate(1-fdiff/(8.0/255.0));
+        feedback=lerp(previous.rgb,value,fweight);
+    }
     ModelOut[i]=float4(feedback,validHistory ? 1 : 0);
 }
 )hlsl";
