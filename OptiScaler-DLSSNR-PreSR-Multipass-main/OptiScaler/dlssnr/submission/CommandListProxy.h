@@ -27,9 +27,6 @@ MIDL_INTERFACE("b3c0e9a1-4d2f-4c77-9a18-6f2d8e1b4c01")
 ILogicalCommandList : public IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE SplitSegments(void) = 0;
-    // Pre-allocate continuation before any host RecordInputs. Fail-closed:
-    // refuse NR rather than dirty the game list if alloc cannot succeed.
-    virtual HRESULT STDMETHODCALLTYPE ReserveSplitSegments(void) = 0;
     virtual HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) = 0;
     // HIP / NR slot between producer and continuation Executes. Pass nullptr for no-op.
     virtual HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, BetweenCallback between,
@@ -260,12 +257,6 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         // post-Execute expectation (plan D / M3), not a wipe.
         resBook.ApplyExecuteDecay();
         return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE ReserveSplitSegments() override
-    {
-        if (IsSplitIneligible())
-            return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-        return logical.ReserveContinuation(contState.stateObject != nullptr);
     }
     HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
     HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, BetweenCallback between,

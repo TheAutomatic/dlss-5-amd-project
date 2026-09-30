@@ -210,59 +210,6 @@ int main()
     Require(unsplit == split, "split passthrough matches unsplit");
     Require(unsplit == proxied, "COM proxy split matches unsplit");
 
-    // Reserve-then-split: FinishRecord pre-allocates continuation before RecordInputs
-    // so a later alloc failure cannot leave the game list half-populated.
-    {
-        constexpr UINT64 kBytes = 256;
-        ID3D12Resource *upload = MakeBuffer(device, kBytes, D3D12_HEAP_TYPE_UPLOAD,
-                                            D3D12_RESOURCE_STATE_GENERIC_READ);
-        ID3D12Resource *gpu = MakeBuffer(device, kBytes, D3D12_HEAP_TYPE_DEFAULT,
-                                         D3D12_RESOURCE_STATE_COPY_DEST);
-        ID3D12Resource *readback = MakeBuffer(device, kBytes, D3D12_HEAP_TYPE_READBACK,
-                                              D3D12_RESOURCE_STATE_COPY_DEST);
-        void *mapped = nullptr;
-        Check(upload->Map(0, nullptr, &mapped), "reserve upload map");
-        std::memset(mapped, 0x3C, kBytes);
-        upload->Unmap(0, nullptr);
-        ID3D12CommandAllocator *alloc = nullptr;
-        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "reserve alloc");
-        ID3D12GraphicsCommandList *raw = nullptr;
-        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr,
-                                        IID_PPV_ARGS(&raw)), "reserve raw");
-        DlssNr::Submission::CommandListProxy *px = nullptr;
-        Check(DlssNr::Submission::CommandListProxy::Create(device, alloc, raw, &px), "reserve proxy");
-        DlssNr::Submission::ILogicalCommandList *logical = nullptr;
-        Check(px->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
-                                 reinterpret_cast<void **>(&logical)),
-              "reserve qi");
-        Check(logical->ReserveSplitSegments(), "reserve before record");
-        Check(logical->ReserveSplitSegments(), "reserve is idempotent");
-        px->CopyBufferRegion(gpu, 0, upload, 0, kBytes);
-        Check(logical->SplitSegments(), "split after reserve");
-        D3D12_RESOURCE_BARRIER b {};
-        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource = gpu;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-        b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        px->ResourceBarrier(1, &b);
-        px->CopyBufferRegion(readback, 0, gpu, 0, kBytes);
-        Check(px->ExecuteOn(queue), "reserve execute");
-        WaitIdle(device, queue);
-        Check(readback->Map(0, nullptr, &mapped), "reserve readback map");
-        const auto *bytes = static_cast<const uint8_t *>(mapped);
-        for (UINT i = 0; i < kBytes; ++i)
-            Require(bytes[i] == 0x3C, "reserve-split contents");
-        readback->Unmap(0, nullptr);
-        logical->Release();
-        px->Release();
-        raw->Release();
-        alloc->Release();
-        upload->Release();
-        gpu->Release();
-        readback->Release();
-    }
-
     // UE uses placed resources with aliasing barriers. The barrier and both
     // resource uses must keep their order when the list is cut afterward.
     {
