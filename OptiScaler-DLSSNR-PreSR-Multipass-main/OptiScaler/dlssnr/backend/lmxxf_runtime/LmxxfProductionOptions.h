@@ -24,6 +24,12 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     if (const char *value = std::getenv(CfgKey::SkipBlocks))
         CfgKey::NormalizeSkipBlocks(value, skipped);
     o.skip_blocks = hip_reference::ParseSkipBlocks(skipped == "none" ? "" : skipped);
+    // Current C32 raw-chain producers store FP8 bytes. Skipping the final block
+    // invokes SkipChainFinish/c32_finish_crop_half, which reads FP16 instead.
+    // Reject before allocating/recording the network; toggling wave-owned does
+    // not change this compile-time storage contract.
+    if (o.skip_blocks.count(4) || o.skip_blocks.count(69))
+        throw std::runtime_error("Skipping blocks 4 or 69 is unsupported by current modules; remove them from DLSS5_SKIP_BLOCKS");
     o.modules = modules;
     o.assets = assets;
     o.fast_c32 = o.fused_c32 = o.fused_ffn = o.fast_mh = o.fused_mh = o.mh_wave = o.fast_deep =

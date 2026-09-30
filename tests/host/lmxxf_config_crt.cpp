@@ -12,6 +12,18 @@ extern "C" __declspec(dllexport) bool RuntimeSwin(unsigned w, unsigned h)
 {
     return hip_reference::SwinRunCompatible(LmxxfProductionOptions(w, h, "modules", "assets"));
 }
+extern "C" __declspec(dllexport) bool RuntimeRejectsChainFinishSkip()
+{
+    try
+    {
+        LmxxfProductionOptions(1920, 1152, "modules", "assets");
+        return false;
+    }
+    catch (const std::runtime_error &e)
+    {
+        return std::strstr(e.what(), "Skipping blocks 4 or 69") != nullptr;
+    }
+}
 
 extern "C" __declspec(dllexport) const char *ReadRuntimeEnvironment(const char *key)
 {
@@ -49,7 +61,8 @@ int main(int argc, char **argv)
     const auto sync = reinterpret_cast<void (*)()>(GetProcAddress(dll, "SyncRuntimeEnvironment"));
     const auto skips = reinterpret_cast<bool (*)(const char *)>(GetProcAddress(dll, "RuntimeSkips"));
     const auto swin = reinterpret_cast<bool (*)(unsigned, unsigned)>(GetProcAddress(dll, "RuntimeSwin"));
-    Require(read && sync && skips && swin, "missing runtime fixture exports");
+    const auto rejects = reinterpret_cast<bool (*)()>(GetProcAddress(dll, "RuntimeRejectsChainFinishSkip"));
+    Require(read && sync && skips && swin && rejects, "missing runtime fixture exports");
     auto expect = [&](const char *key, const char *value) {
         const char *actual = read(key);
         if (!actual || std::strcmp(actual, value) != 0)
@@ -117,6 +130,16 @@ int main(int argc, char **argv)
     CfgKey::PutEnvString(CfgKey::SkipBlocks, "16");
     sync();
     Require(!swin(1920, 1152), "Swin ignored skipped internal block");
+    for (bool waveOwned : {false, true})
+    {
+        CfgKey::PutEnvAlias(CfgKey::WaveOwned, waveOwned);
+        for (const char *value : {"4", "69", "1,4", "42,43,46,69"})
+        {
+            CfgKey::PutEnvString(CfgKey::SkipBlocks, value);
+            sync();
+            Require(rejects(), "accepted FP8 raw chain with FP16-only skipped finish");
+        }
+    }
     // The full valid list exceeds the old PutEnvString fixed buffer once the key is added.
     std::string all;
     for (unsigned i = 1; i <= 69; ++i)
@@ -128,7 +151,10 @@ int main(int argc, char **argv)
     CfgKey::PutEnvString(CfgKey::SkipBlocks, all.c_str());
     sync();
     expect(CfgKey::SkipBlocks, all.c_str());
-    Require(skips(all.c_str()), "full skip block list was truncated");
+    Require(rejects(), "full list must retain 4/69 and reject the incompatible finish");
+    CfgKey::PutEnvString(CfgKey::SkipBlocks, "42,43,46");
+    sync();
+    Require(skips("42,43,46"), "default skips rejected after unsupported selection");
 
     FreeLibrary(dll);
     std::puts("LMXXF_CONFIG_CRT_OK");

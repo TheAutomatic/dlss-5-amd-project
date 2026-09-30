@@ -659,7 +659,8 @@ void RenderMenu(Config* config, float menuResScale)
                             ImGui::TextUnformatted("Use 1-38, 40-69 separated by commas, or none.");
                         HelpMarker("Press Enter to apply. Default: 42,43,46. Use none to run all blocks."
                                    "\nChanges quality and performance; applies on the next network rebuild."
-                                   "\nDisable MH byte stream before skipping blocks 5-22 or 48-65.");
+                                   "\nDisable MH byte stream before skipping blocks 5-22 or 48-65."
+                                   "\nBlocks 4 and 69 are unavailable with current modules; remove them if NR reports an error.");
                         auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
                             bool v = opt.value_or_default();
                             if (ImGui::Checkbox(label, &v))
