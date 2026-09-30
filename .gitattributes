@@ -11,4 +11,6 @@ tools/lmxxf-sync/patches/*.patch text eol=lf
 tests/sync/fixtures/lmxxf/*.upstream.* text eol=lf
 
 # Vendor sources that local_patches apply to must match git-archive LF.
-third_party/lmxxf/** text eol=lf
+third_party/lmxxf/** text=auto eol=lf
+# GPU modules are opaque binaries even when they happen to contain CRLF bytes.
+third_party/lmxxf/**/*.hsaco -text
