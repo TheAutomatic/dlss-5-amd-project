@@ -87,6 +87,9 @@ foreach ($localPatch in $manifest.local_patches) {
 foreach ($path in $manifest.headers) {
     if ($path -notmatch '^(src|Development/HIP)/[^/\\]+\.h$') { throw "Header outside owned closure: $path" }
 }
+foreach ($path in $manifest.module_headers) {
+    if ($path -notin $manifest.headers) { throw "Module header outside owned closure: $path" }
+}
 $pinned = @{}
 foreach ($spec in $manifest.pinned) {
     if ($spec.path -notin $manifest.headers -or -not $updates.ContainsKey($spec.switch)) { throw 'Invalid pinned manifest entry' }
@@ -205,7 +208,11 @@ try {
     $dstModules = Join-Path $vendorRoot 'modules'
     $hipFilters = @('*.hip', '*.inc', 'build-modules.ps1', 'rtc_compile.cpp')
     function Get-RecipeFingerprint {
-        (Get-TreeFingerprint $dstHip $hipFilters) + ':' + (Get-FileSha256Hex (Join-Path $configRoot 'module-defines.json'))
+        $fp = (Get-TreeFingerprint $dstHip $hipFilters) + ':' + (Get-FileSha256Hex (Join-Path $configRoot 'module-defines.json'))
+        foreach ($path in $manifest.module_headers) {
+            $fp += ':' + $path + ':' + (Get-FileSha256Hex (Join-Path $vendorRoot $path))
+        }
+        $fp
     }
     # Without a recorded baseline, existing binaries have no verified recipe provenance.
     $hipFpBefore = 'unverified'

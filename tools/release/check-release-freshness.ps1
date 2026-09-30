@@ -71,7 +71,7 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
             continue
         }
         $hs = @(Get-ChildItem -LiteralPath (Join-Path $modRoot $arch) -Filter '*.hsaco' -File -ErrorAction SilentlyContinue)
-        if ($hs.Count -ne 30) { $failures.Add("$arch has $($hs.Count) hsaco, expected 30") }
+        if ($hs.Count -ne 31) { $failures.Add("$arch has $($hs.Count) hsaco, expected 31") }
     }
     $rootSums = Join-Path $modRoot 'SHA256SUMS'
     if (!(Test-Path -LiteralPath $rootSums -PathType Leaf)) {
@@ -80,6 +80,9 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
     # Oldest hsaco vs newest .hip/.inc source under third_party/lmxxf/hip
     $hipSrc = Get-ChildItem -LiteralPath (Join-Path $Root 'third_party/lmxxf/hip') -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Extension -in @('.hip', '.inc') }
+    $manifest = Get-Content -LiteralPath (Join-Path $Root 'tools/lmxxf-sync/manifest.json') -Raw | ConvertFrom-Json
+    $headerPaths = @($manifest.module_headers | ForEach-Object { 'third_party/lmxxf/' + $_ })
+    foreach ($path in $headerPaths) { $hipSrc = @($hipSrc) + (Get-Item -LiteralPath (Join-Path $Root $path)) }
     $hsaco = Get-ChildItem -LiteralPath $modRoot -Recurse -Filter '*.hsaco' -File -ErrorAction SilentlyContinue
     # Committed .hip and .hsaco carry checkout-order timestamps, not build times: on a fresh CI
     # clone a .hip written a few ms after a .hsaco looked "newer" and failed the release. Sync
@@ -87,7 +90,7 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
     # local, uncommitted edits.
     $gitClean = $false
     if (Get-Command git -ErrorAction SilentlyContinue) {
-        $dirty = & git -C $Root status --porcelain -- 'third_party/lmxxf/hip' 'third_party/lmxxf/modules' 2>$null
+        $dirty = & git -C $Root status --porcelain -- 'third_party/lmxxf/hip' 'third_party/lmxxf/modules' @headerPaths 2>$null
         $gitClean = ($LASTEXITCODE -eq 0) -and -not $dirty
     }
     if ($hipSrc -and $hsaco -and -not $gitClean) {

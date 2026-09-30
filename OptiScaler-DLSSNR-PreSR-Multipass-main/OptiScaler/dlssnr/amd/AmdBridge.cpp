@@ -348,6 +348,9 @@ void SyncBackendWithConfig()
     // warm-up window so the new host does not inherit stability.
     DlssNr::Backend::InvalidateInstallProbe();
     const auto selected = DlssNr::Backend::ActiveKindFromConfig();
+    const auto previous = ActiveKindCached();
+    if (previous != selected)
+        if (auto old = ActiveHost()) old->ReleaseSession();
     g_activeKind.store(static_cast<int>(selected), std::memory_order_release);
     {
         std::lock_guard fl(frameMutex);
@@ -503,7 +506,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     if (DlssNr::Submission::Hooks::IsArmed() && DlssNr::Backend::ProxyWrapWanted())
         DlssNr::Submission::Hooks::SetProxyWrap(true);
     // Build only the selected host on first use. The other is built when it is
-    // first selected (switch). Neither is destroyed (Daniel HIP is process-lifetime).
+    // first selected (switch). Hosts persist; inactive sessions request release.
     if (active == DlssNr::Backend::Kind::Lmxxf)
     {
         if (!g_lmxxf.load(std::memory_order_acquire))
@@ -689,7 +692,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     s.skin = cfg.DlssNrSkinStructure.value_or_default();
     if (s.skin < 0)
         s.skin = s.structure;
-    // Evaluate cut: Split proxy + SetBetween(EnqueueHip). Live only when SubmissionHooksWanted() (Wired && NrBackend=lmxxf).
+    // Evaluate cut: Split proxy + SetBetween(EnqueueHip) is owned by lmxxf Record.
     DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
     if (auto replacement = b->Record(cmd, f, s))
     {
@@ -716,6 +719,11 @@ void InvalidateHistory()
 {
     if (auto b = ActiveHost())
         b->InvalidateHistory();
+}
+void PollReleases()
+{
+    if (auto b = g_daniel.load(std::memory_order_acquire)) b->PollRelease();
+    if (auto b = g_lmxxf.load(std::memory_order_acquire)) b->PollRelease();
 }
 void OnNrDisabled()
 {

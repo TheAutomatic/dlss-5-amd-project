@@ -469,6 +469,9 @@ bool Config::Reload(std::filesystem::path iniPath)
                 const bool v = readUnifiedBoolDefault(CfgKey::WaveOwned, true);
                 LmxxfWaveOwned.set_from_config(v);
                 CfgKey::PutEnvAlias(CfgKey::WaveOwned, v);
+                const bool swin = readUnifiedBoolDefault(CfgKey::SwinRun, true);
+                LmxxfSwinRun.set_from_config(swin);
+                CfgKey::PutEnvAlias(CfgKey::SwinRun, swin);
                 const bool c = readUnifiedBoolDefault(CfgKey::C512M32, true);
                 LmxxfC512M32.set_from_config(c);
                 CfgKey::PutEnvAlias(CfgKey::C512M32, c);
@@ -1525,6 +1528,7 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::SkipBlocks,
                  Instance()->LmxxfSkipBlocks.value_for_config_or(CfgKey::kDefaultSkipBlocks).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::WaveOwned, GetBoolValue(Instance()->LmxxfWaveOwned.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::SwinRun, GetBoolValue(Instance()->LmxxfSwinRun.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::C512M32, GetBoolValue(Instance()->LmxxfC512M32.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitProjN64, GetBoolValue(Instance()->LmxxfVitProjN64.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::SharedPool, GetBoolValue(Instance()->LmxxfSharedPool.value_for_config()).c_str());

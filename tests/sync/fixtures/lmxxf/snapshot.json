@@ -1,9 +1,9 @@
 {
   "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "commit": "c0a61968874e438ca3f887506f09c185ce378020",
-  "note": "Raw fixtures for local_patches targets. hip_d3d12_bridge.h stays at 54e14de503431cd4536f8a7151b022af232178a9 because bridge.patch is based on the pinned header and this pass did not -UpdateBridge; other targets are the c0a6196 sync inputs.",
+  "commit": "c809efb0ea2960f148624730898da61b8fb55a45",
+  "note": "Raw FOLLOW patch inputs at 82119ab0. Bridge raw input remains at bridge_raw_commit; its product patch and pinned contents are unchanged.",
   "bridge_raw_commit": "54e14de503431cd4536f8a7151b022af232178a9",
-  "follow_raw_commit": "c0a61968874e438ca3f887506f09c185ce378020",
+  "follow_raw_commit": "82119ab040a2c72af3c9283e322d69804b2ababb",
   "files": [
     {
       "path": "Development/HIP/hip_d3d12_bridge.h",
@@ -13,7 +13,7 @@
     {
       "path": "Development/HIP/hip_reference_network.h",
       "fixture": "hip_reference_network.upstream.h",
-      "sha256": "05ecb42cb434849b5df618f59c11fe1c558524214726d8691ca33fb6d688f904"
+      "sha256": "30744020bd1b5cf9e50fcfecfb4236219e84354d0b94055b78ba0276cbf4ef29"
     },
     {
       "path": "src/native_lab_paths.h",

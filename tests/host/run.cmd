@@ -34,6 +34,8 @@ exit /b 2
 :ci
 %CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail
 "%OUT%\nr_backend_selector.exe" || goto fail
+%CXX% /utf-8 /I"%INC%" tests\host\nr_session_lifecycle.cpp /Fe"%OUT%\nr_session_lifecycle.exe" /Fo"%OUT%\nr_session_lifecycle.obj" /link "%DETOURS%" dxguid.lib || goto fail
+"%OUT%\nr_session_lifecycle.exe" || goto fail
 %CXX% tests\host\amd_submission_state.cpp /Fe"%OUT%\amd_submission_state.exe" /Fo"%OUT%\amd_submission_state.obj" || goto fail
 "%OUT%\amd_submission_state.exe" || goto fail
 for %%T in (amd_graphics_snapshot amd_graphics_tracker amd_graphics_restore amd_graphics_restore_dx12 amd_graphics_invocation) do (

@@ -83,9 +83,10 @@ class Backend
     void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
     bool Ready();
     bool Shutdown(); // call before loader-lock teardown, after all submissions
-    // User turned NR off: enabled=0, drain, runtime shutdown. Does not set the
-    // failed latch. A later Record may InitPass again (weights reload).
+    // Request release; already recorded jobs must still submit/Notify. Poll while
+    // disabled. The verified module/model cache remains for same-process re-enable.
     void ReleaseSession();
+    bool PollRelease();
     // Finish a release deferred by a busy GPU. Caller holds the backend lock.
     // Returns false when still busy: skip NR and do not InitPass.
     bool CompletePendingReleaseLocked();

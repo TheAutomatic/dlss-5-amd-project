@@ -112,6 +112,7 @@ static std::vector<uint8_t> RunCopy(ID3D12Device *device, ID3D12CommandQueue *qu
     {
         Check(DlssNr::Submission::CommandListProxy::Create(device, alloc, list, &proxy), "proxy");
         rec = proxy;
+        Require(DlssNr::Submission::GraphicsRecordingList(proxy) == list, "proxy graphics identity uses native producer");
         Check(proxy->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
                                     reinterpret_cast<void **>(&logical)),
               "logical qi");
@@ -145,7 +146,11 @@ static std::vector<uint8_t> RunCopy(ID3D12Device *device, ID3D12CommandQueue *qu
     if (doSplit)
     {
         if (useProxy)
+        {
             Check(logical->SplitSegments(), "proxy split");
+            Require(DlssNr::Submission::GraphicsRecordingList(proxy) != list, "split graphics identity moves to continuation");
+            Require(DlssNr::Submission::GraphicsRecordingList(proxy) != nullptr, "continuation graphics identity available");
+        }
         else
         {
             Check(book.Split(), "split");
@@ -170,6 +175,7 @@ static std::vector<uint8_t> RunCopy(ID3D12Device *device, ID3D12CommandQueue *qu
     if (useProxy)
     {
         Check(proxy->Reset(alloc, nullptr), "proxy reset");
+        Require(DlssNr::Submission::GraphicsRecordingList(proxy) == list, "Reset restores producer graphics identity");
         logical->Release();
         proxy->Release();
     }

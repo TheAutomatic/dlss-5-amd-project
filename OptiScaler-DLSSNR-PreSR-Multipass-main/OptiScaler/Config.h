@@ -328,11 +328,11 @@ class Config
     // New wait (1) vs original wait (0). Default 1 since 1.8.4; still being tested.
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
-    // Convenience (1, default): ProxyWrap stays on so daniel<->lmxxf hot-switch works, and
-    // turning NR off tears down the session to free VRAM. Pure (0): no extra wrap CPU when
-    // running daniel-only, teardown is more thorough (lmxxf unloads its DLL), but switching
-    // backends needs a game restart. Wrap is decided at startup; restart after changing.
-    // Same-backend off->on is still attempted in both modes.
+    // Convenience (1): prepare proxy submission when lmxxf is installed, allowing
+    // backend hot-switch. Pure (0): only the startup backend; restart to switch.
+    // Both release idle session buffers on NR off; Daniel retains its verified
+    // module/model cache. lmxxf also unloads its runtime in pure mode.
+    // Hook/wrap policy is chosen at startup; restart after changing.
     CustomOptional<int> NrConvenience { 1 };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
@@ -377,6 +377,7 @@ class Config
     CustomOptional<std::string> LmxxfSkipBlocks { CfgKey::kDefaultSkipBlocks };
     // 0.31 kernels / shared pool (bit-exact per upstream). ini name == env name.
     CustomOptional<bool> LmxxfWaveOwned { true };
+    CustomOptional<bool> LmxxfSwinRun { true };
     CustomOptional<bool> LmxxfC512M32 { true };
     CustomOptional<bool> LmxxfVitProjN64 { true };
     CustomOptional<bool> LmxxfSharedPool { true };

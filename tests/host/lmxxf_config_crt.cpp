@@ -8,6 +8,10 @@ extern "C" __declspec(dllexport) bool RuntimeSkips(const char *expected)
     auto options = LmxxfProductionOptions(1920, 1152, "modules", "assets");
     return options.skip_blocks == hip_reference::ParseSkipBlocks(expected);
 }
+extern "C" __declspec(dllexport) bool RuntimeSwin(unsigned w, unsigned h)
+{
+    return hip_reference::SwinRunCompatible(LmxxfProductionOptions(w, h, "modules", "assets"));
+}
 
 extern "C" __declspec(dllexport) const char *ReadRuntimeEnvironment(const char *key)
 {
@@ -44,7 +48,8 @@ int main(int argc, char **argv)
         GetProcAddress(dll, "ReadRuntimeEnvironment"));
     const auto sync = reinterpret_cast<void (*)()>(GetProcAddress(dll, "SyncRuntimeEnvironment"));
     const auto skips = reinterpret_cast<bool (*)(const char *)>(GetProcAddress(dll, "RuntimeSkips"));
-    Require(read && sync && skips, "missing runtime fixture exports");
+    const auto swin = reinterpret_cast<bool (*)(unsigned, unsigned)>(GetProcAddress(dll, "RuntimeSwin"));
+    Require(read && sync && skips && swin, "missing runtime fixture exports");
     auto expect = [&](const char *key, const char *value) {
         const char *actual = read(key);
         if (!actual || std::strcmp(actual, value) != 0)
@@ -96,6 +101,22 @@ int main(int argc, char **argv)
                                std::strcmp(value, "none") == 0 ? "" : "42,43,46";
         Require(skips(expected), "Runtime did not use the host skip block selection");
     }
+    CfgKey::PutEnvString(CfgKey::SkipBlocks, "auto");
+    CfgKey::PutEnvAlias(CfgKey::SwinRun, true);
+    sync();
+    Require(swin(1600, 960) && swin(1920, 1152), "Swin did not admit supported production tiers");
+    Require(!swin(1280, 768), "Swin admitted unsupported tier");
+    CfgKey::PutEnvAlias(CfgKey::SwinRun, false);
+    sync();
+    Require(!swin(1920, 1152), "Runtime ignored menu Swin disable");
+    CfgKey::PutEnvAlias(CfgKey::SwinRun, true);
+    CfgKey::PutEnvAlias(CfgKey::WaveOwned, false);
+    sync();
+    Require(!swin(1920, 1152), "Swin ignored wave-owned prerequisite");
+    CfgKey::PutEnvAlias(CfgKey::WaveOwned, true);
+    CfgKey::PutEnvString(CfgKey::SkipBlocks, "16");
+    sync();
+    Require(!swin(1920, 1152), "Swin ignored skipped internal block");
     // The full valid list exceeds the old PutEnvString fixed buffer once the key is added.
     std::string all;
     for (unsigned i = 1; i <= 69; ++i)

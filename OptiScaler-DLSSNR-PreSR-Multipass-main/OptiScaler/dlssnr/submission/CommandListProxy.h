@@ -41,6 +41,7 @@ ILogicalCommandList : public IUnknown
     // Borrowed pointer, only for unsplit lists: preserve the caller's Execute batch.
     virtual ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList(void) = 0;
     virtual const char *STDMETHODCALLTYPE SplitRejectionReason(void) = 0;
+    virtual ID3D12GraphicsCommandList *STDMETHODCALLTYPE RecordingNativeList(void) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
@@ -89,6 +90,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
 
   public:
+    ID3D12GraphicsCommandList *STDMETHODCALLTYPE RecordingNativeList() override { return Cur(); }
     static HRESULT Create(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
                           CommandListProxy **out, ID3D12PipelineState *initial = nullptr)
     {
@@ -874,4 +876,15 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         }
     }
 };
+// Borrowed for the duration of recording. The caller owns the proxy/list.
+inline ID3D12GraphicsCommandList* GraphicsRecordingList(ID3D12GraphicsCommandList* list)
+{
+    if (!list) return nullptr;
+    ILogicalCommandList* logical = nullptr;
+    if (FAILED(list->QueryInterface(__uuidof(ILogicalCommandList), reinterpret_cast<void**>(&logical))))
+        return list;
+    auto* native = logical->RecordingNativeList();
+    logical->Release();
+    return native;
+}
 } // namespace DlssNr::Submission

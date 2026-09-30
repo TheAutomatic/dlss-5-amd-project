@@ -1,212 +1,219 @@
 [
-  {
-    "target": "gfx1201",
-    "module": "c32_prefix_reference",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_reference.hip+prefix_reference.hip",
-    "sha256": "7677F6C8FBE30DC8B65221731CFC80B2C3C1746AC469984E50532F9A8B2BC596"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-reference",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "multihead_reference.hip",
-    "sha256": "5D07D107CA0B9CA747480F712DE7C5B3BF0BF7CBD41C278862D2B745925745D9"
-  },
-  {
-    "target": "gfx1201",
-    "module": "deep_reference",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "deep_reference.hip",
-    "sha256": "068E95A68A165486AD90C429BBEBA0035FE27BCA2ADC859DBABC9E14D4A54BB9"
-  },
-  {
-    "target": "gfx1201",
-    "module": "boundary_reference",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "boundary_reference.hip",
-    "sha256": "6158F119BF9DB7CDF0ACF37F8B4FB73E5ECEBA9F1FD6B24A84367F7682AECD8B"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_wmma",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_wmma.hip",
-    "sha256": "E9EF0C1D31C1B2F12CDD2C86B5ED87251DF5D2A4F93380F6434B3C9B80039DE3"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-wmma",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "multihead_wmma.hip",
-    "sha256": "F5DE6B6119BABFDFB716613C415E4B900136A48645405C04ADF55456FB210353"
-  },
-  {
-    "target": "gfx1201",
-    "module": "deep_wmma",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "deep_wmma.hip",
-    "sha256": "D05DDDEE0672F9D8FF6677AFFFC8A75EFF9C8F2F9CAEEAF7143E61EA52F2CA3F"
-  },
-  {
-    "target": "gfx1201",
-    "module": "wave-pointwise",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_reference.hip+wave_pointwise.hip",
-    "sha256": "EAF51807C04267796DC470556EB042391C6A76305374C6CC05F941E27B4F3BC2"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_tiled",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_tiled.hip",
-    "sha256": "78E023640FF2AE96B42C7C1B1221BDA67C5A02550BB5EB4E4ED761B71238B09B"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-tiled",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "multihead_tiled.hip",
-    "sha256": "1B10513F44737DDC047B4D150167D71D9D522E99C94B48D6BA899FB8ED4661A7"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_fast",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_fast.hip",
-    "sha256": "D632F620A9C9FA84B6868D37932092F4C1745E0EF832CABA8FDD3801326DE131"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_fast_attention",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_fast_attention.hip",
-    "sha256": "A8AE4D4BA24E1DA282789EDDA469EE8B46A822CAC68E6E70CC2C1B7A3ED9A70D"
-  },
-  {
-    "target": "gfx1201",
-    "module": "boundary-fast",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_fast_attention.hip+boundary_fast.hip",
-    "sha256": "4E3D9D46E5B206A6DB1EAC92D1DD7AD18CEBBCB42819A356FAE9D0ED0A2189EA"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_fused_attention",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "c32_fused_attention_packed.hip",
-    "sha256": "C31D964F641693945E453863C740F6C9016E7EF6F503C7CB5D13D438D879C694"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_fused_ffn_attention",
-    "defines": "HIP_ISA_HALF 1; HIP_FP8_SAT_MODE 3",
-    "sources": "c32_fused_ffn_attention.hip",
-    "sha256": "6F043357B1342FE490D51E9F0AFC3C7A39557ED14A647F8B7E7D0895034E332F"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32_fused_ffn_attention-packed",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_C32_DIAG_WEIGHTS 1; HIP_FP8_SAT_MODE 3",
-    "sources": "c32_fused_ffn_attention.hip",
-    "sha256": "0E05CC3CFB5BA63EA439CAF273817553A4DD3055AE6915A3490366DAFC34F3AD"
-  },
-  {
-    "target": "gfx1201",
-    "module": "prefix_fast",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "prefix_fast.hip",
-    "sha256": "B0486956C61352345E15CD2B0C5685DC650739812318B75AC6FC2FCE42C39267"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-fast",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "multihead_fast.hip",
-    "sha256": "D3BCD5E230AC0EAB1722C8E6CBD52636B8EF901D34F66B7DD90CA2EE42156C7E"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-fast-padded-wave",
-    "defines": "HIP_ISA_HALF 1; HIP_FMED3_CLAMP 1",
-    "sources": "multihead_fast_padded.hip",
-    "sha256": "FCC21A9E7920F3EF874DE2CDCE2B91CE861A8DCD85C13E7C4D828C4B0A110DE9"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead_fused_attention",
-    "defines": "HIP_ISA_HALF 1; HIP_MH_RTZ_ISA 1",
-    "sources": "multihead_fused_attention.hip",
-    "sha256": "77E2C97485397310AD1A6A9AE839E6F47D2DB421D98688D4C619F724DB139F58"
-  },
-  {
-    "target": "gfx1201",
-    "module": "deep_fast",
-    "defines": "HIP_ISA_HALF 1",
-    "sources": "deep_fast.hip",
-    "sha256": "A2557C4FFE0429A494F99BD8138764370D349547FA7092BACE835B3CB620471F"
-  },
-  {
-    "target": "gfx1201",
-    "module": "deep_fast-packed",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_VIT_ATTN_TRANSPOSED_SCORE 1; HIP_BRANCHLESS_F 1",
-    "sources": "deep_fast.hip",
-    "sha256": "83E240E78AF6B4C187A92E410E7A21036CBB007D04973A9765BF0299F2453AB6"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-fast-packed",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1",
-    "sources": "multihead_fast.hip",
-    "sha256": "C2D37F1F0B2D60C22686D73D64F3CA69C4AF88635BFB003D8C43EDD18DABCF9A"
-  },
-  {
-    "target": "gfx1201",
-    "module": "multihead-fast-padded-wave-packed",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; C512_HEAD_GROUP 1; HIP_FFN_HOIST_RES 2; HIP_FFN_LINE_STORES 1; HIP_FMED3_CLAMP 1",
-    "sources": "multihead_fast_padded.hip+c512_head_group.inc",
-    "sha256": "D0EC5CC2436C454BC80B64C3862CA109D40F20DA54911EFCEBC839E5B16B96CE"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c32-wave1",
-    "defines": "HIP_ISA_HALF 1; CW_UP_FUSED 1; CW_ACT_FMED3 1; HIP_PREPACKED_WEIGHTS 1; CW_ROLL_HIDDEN 1; CW_ROLL_WINDOW 1; CW_VEC_INPUT 1; CW_PREFIX_SPLIT 1; CW_PACK8 1; HIP_FP8_SAT_MODE 3; CW_DIRECT_OUT 1; CW_RTZ_PAIR 1; CW_PACK_MODE_MASK 127; CW_PREFIX_DIRECT_OUT 1; CW_PREFIX_FULL_TILE 1; CW_FINISH_FULL_TILE 1",
-    "sources": "c32_fused_ffn_attention.hip+wave_owned_c32.inc",
-    "sha256": "4DE820A3B98E88A987A059523DCC9A9BF0D8AE31595FDC53C3CC6DCC301F6B8D"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c64-wave2",
-    "defines": "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 2; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1",
-    "sources": "multihead_fast_padded.hip+wave_owned_mh.inc+wave_owned_attention_setup.inc+@wave-owned-attention-body+wave_owned_attention_exports.inc",
-    "sha256": "D52C98C8CB954DC497D7D5B6CA55D75D1810DB8797AC6212CF6F35C0659127C8"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c512-m32-mh",
-    "defines": "HIP_ISA_HALF 1; C512_COMPACT_QKV_ATTN 1; C512_FUSED_QKV_ATTN 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; HIP_FMED3_CLAMP 1",
-    "sources": "multihead_fast_padded.hip+c512_m32_mh.inc+c512_qkv_attention_fused.inc+c512_qkv_attention_compact.inc",
-    "sha256": "EE800B5A5EE66CADA9C795A8F2B40716C9BC0BD7F40633629CAE93BCA85DFE27"
-  },
-  {
-    "target": "gfx1201",
-    "module": "c512-m32-deep",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1",
-    "sources": "deep_fast.hip+c512_m32_deep.inc",
-    "sha256": "3A90000E95E26629D8606B6D9A934C20DF1BF53536779964D183C2EACC4638CB"
-  },
-  {
-    "target": "gfx1201",
-    "module": "vit-stream",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1; HIP_VIT_STREAM_KERNELS 1",
-    "sources": "deep_fast.hip+vit_stream.inc",
-    "sha256": "F0D353487650CCD7AA6B57579C98B1FBE1997E62B1898795B396EED5D19B5FE5"
-  },
-  {
-    "target": "gfx1201",
-    "module": "vit-wide-deep",
-    "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1",
-    "sources": "deep_fast.hip+vit_wide_deep.inc",
-    "sha256": "7910F14ADE4AC3CBD1A2D680317CC330D9DE9D8A858D0998AB14A423B5B31837"
-  }
+    {
+        "target":  "gfx1201",
+        "module":  "c32_prefix_reference",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_reference.hip+prefix_reference.hip",
+        "sha256":  "7677F6C8FBE30DC8B65221731CFC80B2C3C1746AC469984E50532F9A8B2BC596"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-reference",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "multihead_reference.hip",
+        "sha256":  "5D07D107CA0B9CA747480F712DE7C5B3BF0BF7CBD41C278862D2B745925745D9"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "deep_reference",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "deep_reference.hip",
+        "sha256":  "068E95A68A165486AD90C429BBEBA0035FE27BCA2ADC859DBABC9E14D4A54BB9"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "boundary_reference",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "boundary_reference.hip",
+        "sha256":  "6158F119BF9DB7CDF0ACF37F8B4FB73E5ECEBA9F1FD6B24A84367F7682AECD8B"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_wmma",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_wmma.hip",
+        "sha256":  "E9EF0C1D31C1B2F12CDD2C86B5ED87251DF5D2A4F93380F6434B3C9B80039DE3"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-wmma",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "multihead_wmma.hip",
+        "sha256":  "F5DE6B6119BABFDFB716613C415E4B900136A48645405C04ADF55456FB210353"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "deep_wmma",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "deep_wmma.hip",
+        "sha256":  "D05DDDEE0672F9D8FF6677AFFFC8A75EFF9C8F2F9CAEEAF7143E61EA52F2CA3F"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "wave-pointwise",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_reference.hip+wave_pointwise.hip",
+        "sha256":  "EAF51807C04267796DC470556EB042391C6A76305374C6CC05F941E27B4F3BC2"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_tiled",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_tiled.hip",
+        "sha256":  "78E023640FF2AE96B42C7C1B1221BDA67C5A02550BB5EB4E4ED761B71238B09B"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-tiled",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "multihead_tiled.hip",
+        "sha256":  "1B10513F44737DDC047B4D150167D71D9D522E99C94B48D6BA899FB8ED4661A7"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_fast",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_fast.hip",
+        "sha256":  "D632F620A9C9FA84B6868D37932092F4C1745E0EF832CABA8FDD3801326DE131"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_fast_attention",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_fast_attention.hip",
+        "sha256":  "A8AE4D4BA24E1DA282789EDDA469EE8B46A822CAC68E6E70CC2C1B7A3ED9A70D"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "boundary-fast",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_fast_attention.hip+boundary_fast.hip",
+        "sha256":  "4E3D9D46E5B206A6DB1EAC92D1DD7AD18CEBBCB42819A356FAE9D0ED0A2189EA"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_fused_attention",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "c32_fused_attention_packed.hip",
+        "sha256":  "C31D964F641693945E453863C740F6C9016E7EF6F503C7CB5D13D438D879C694"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_fused_ffn_attention",
+        "defines":  "HIP_ISA_HALF 1; HIP_FP8_SAT_MODE 3",
+        "sources":  "c32_fused_ffn_attention.hip",
+        "sha256":  "6F043357B1342FE490D51E9F0AFC3C7A39557ED14A647F8B7E7D0895034E332F"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32_fused_ffn_attention-packed",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_C32_DIAG_WEIGHTS 1; HIP_FP8_SAT_MODE 3",
+        "sources":  "c32_fused_ffn_attention.hip",
+        "sha256":  "0E05CC3CFB5BA63EA439CAF273817553A4DD3055AE6915A3490366DAFC34F3AD"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "prefix_fast",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "prefix_fast.hip",
+        "sha256":  "B0486956C61352345E15CD2B0C5685DC650739812318B75AC6FC2FCE42C39267"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-fast",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "multihead_fast.hip",
+        "sha256":  "D3BCD5E230AC0EAB1722C8E6CBD52636B8EF901D34F66B7DD90CA2EE42156C7E"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-fast-padded-wave",
+        "defines":  "HIP_ISA_HALF 1; HIP_FMED3_CLAMP 1; HIP_FFN_LINE_STORES 1",
+        "sources":  "multihead_fast_padded.hip",
+        "sha256":  "8D1ABEE3B754298C070DB7566CABBD9DDBD7A8A38BEFEB25C8995559D3C15567"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead_fused_attention",
+        "defines":  "HIP_ISA_HALF 1; HIP_MH_RTZ_ISA 1",
+        "sources":  "multihead_fused_attention.hip",
+        "sha256":  "77E2C97485397310AD1A6A9AE839E6F47D2DB421D98688D4C619F724DB139F58"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "deep_fast",
+        "defines":  "HIP_ISA_HALF 1",
+        "sources":  "deep_fast.hip",
+        "sha256":  "7021C4235431B324BD95CA48E30D5A13423E45CEE7F2FC5FF31FD3C83917C267"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "deep_fast-packed",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_VIT_ATTN_NATIVE_HALF 1; HIP_VIT_ATTN_PROB_PAIR 1; HIP_VIT_ATTN_TRANSPOSED_AV 1; HIP_VIT_ATTN_TRANSPOSED_SCORE 1; HIP_BRANCHLESS_F 1",
+        "sources":  "deep_fast.hip",
+        "sha256":  "D8BFADA4684E4D103FC8ABE39F552C5D17B0CC7D2799873BCF921CA13F8A8924"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-fast-packed",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1",
+        "sources":  "multihead_fast.hip",
+        "sha256":  "C2D37F1F0B2D60C22686D73D64F3CA69C4AF88635BFB003D8C43EDD18DABCF9A"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "multihead-fast-padded-wave-packed",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; C512_HEAD_GROUP 1; HIP_FFN_HOIST_RES 2; HIP_FFN_LINE_STORES 1; HIP_FMED3_CLAMP 1",
+        "sources":  "multihead_fast_padded.hip+c512_head_group.inc",
+        "sha256":  "3E8E4CB8B1EC0E69A9A1B0E50E0289B88FD3994306588A5274950B342F68E206"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c32-wave1",
+        "defines":  "HIP_ISA_HALF 1; CW_UP_FUSED 1; CW_ACT_FMED3 1; HIP_PREPACKED_WEIGHTS 1; CW_ROLL_HIDDEN 1; CW_ROLL_WINDOW 1; CW_VEC_INPUT 1; CW_PREFIX_SPLIT 1; CW_PACK8 1; HIP_FP8_SAT_MODE 3; CW_DIRECT_OUT 1; CW_RTZ_PAIR 1; CW_PACK_MODE_MASK 127; CW_PREFIX_DIRECT_OUT 1; CW_PREFIX_FULL_TILE 1; CW_FINISH_FULL_TILE 1",
+        "sources":  "c32_fused_ffn_attention.hip+wave_owned_c32.inc",
+        "sha256":  "4DE820A3B98E88A987A059523DCC9A9BF0D8AE31595FDC53C3CC6DCC301F6B8D"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c64-wave2",
+        "defines":  "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 2; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1",
+        "sources":  "multihead_fast_padded.hip+wave_owned_mh.inc+wave_owned_attention_setup.inc+@wave-owned-attention-body+wave_owned_attention_exports.inc",
+        "sha256":  "1CCED95B1091C68749308DA97F6FE532C75B08DF7CED60E1E12960678D02846E"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c512-m32-mh",
+        "defines":  "HIP_ISA_HALF 1; C512_COMPACT_QKV_ATTN 1; C512_FUSED_QKV_ATTN 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; HIP_FMED3_CLAMP 1",
+        "sources":  "multihead_fast_padded.hip+c512_m32_mh.inc+c512_qkv_attention_fused.inc+c512_qkv_attention_compact.inc",
+        "sha256":  "F0B993CCAB06FDC1B23B27B37A14AB4B9544758A2130CA5F9A38F8E15ECEAD17"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "c512-m32-deep",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1",
+        "sources":  "deep_fast.hip+c512_m32_deep.inc",
+        "sha256":  "E946D198DB89EC3F47B6779A2514EF33F926D4592DC63AC4BE60A266F3E331C1"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "vit-stream",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1; HIP_VIT_STREAM_KERNELS 1; HIP_VIT_QKV_W5 1",
+        "sources":  "deep_fast.hip+vit_stream.inc",
+        "sha256":  "304B1624738F359A937B98F25C78BF883C81AD8D9A91F1E8E894230CD0182792"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "vit-wide-deep",
+        "defines":  "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1",
+        "sources":  "deep_fast.hip+vit_wide_deep.inc",
+        "sha256":  "33924C0C83470EFF773EE5FFC27578B447D9F71B28F56DD4D9C08A39CE65AF02"
+    },
+    {
+        "target":  "gfx1201",
+        "module":  "swin-persistent",
+        "defines":  "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 2; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1; W2_EXPLICIT_WINDOW 1; W2_NO_EXPORTS 1; HIP_SWIN_PERSISTENT_KERNELS 1",
+        "sources":  "multihead_fast_padded.hip+wave_owned_mh.inc+@swin-persistent-types+swin_persistent.inc",
+        "sha256":  "48D41FFC206E074C3E7B27542EAD5106245355E374DFB949F43D291DF429F048"
+    }
 ]

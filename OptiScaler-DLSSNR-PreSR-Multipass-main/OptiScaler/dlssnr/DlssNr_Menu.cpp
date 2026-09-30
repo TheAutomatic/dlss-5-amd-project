@@ -244,11 +244,11 @@ void RenderMenu(Config* config, float menuResScale)
 
                 {
                     bool convenience = config->NrConvenience.value_or_default() != 0;
-                    if (ImGui::Checkbox("Convenience (hot switch + free on off)", &convenience))
+                    if (ImGui::Checkbox("Allow backend hot switching", &convenience))
                         config->NrConvenience = convenience ? 1 : 0;
-                    HelpMarker("On (default): daniel<->lmxxf hot-switch; turning NR off frees VRAM. Daniel-only pays a thin CPU proxy."
-                               "\nOff: no extra CPU when running daniel-only; off tears down harder (lmxxf unloads its DLL)."
-                               "\nOff: switching backends needs a game restart. Same-backend off->on is still attempted."
+                    HelpMarker("On (default): prepare hot switching when lmxxf is installed. Changes require restart."
+                               "\nOff: start with only the selected backend; changing backends requires restart."
+                               "\nNR off releases session buffers after submitted work completes; Daniel model cache stays loaded."
                                "\nWrap is decided at startup: restart the game after changing this.");
                 }
 
@@ -407,7 +407,7 @@ void RenderMenu(Config* config, float menuResScale)
                               "\nstart is staged for the next launch. Click Save Settings"
                               "\nto keep it in OptiScaler.ini. The line below always says"
                               "\nwhich case you are in."
-                              "\nTurn NR off with Enable NR above (frees VRAM)."
+                              "\nEnable NR off releases buffers after outstanding work completes."
                               "\nIf the chosen host is missing its files, the other installed"
                               "\nhost runs instead."
                               "\n\nInstalled here: %s",
@@ -654,6 +654,9 @@ void RenderMenu(Config* config, float menuResScale)
                             }
                         };
                         kernelToggle("Wave-owned attention", config->LmxxfWaveOwned, CfgKey::WaveOwned);
+                        kernelToggle("C256 persistent queue", config->LmxxfSwinRun, CfgKey::SwinRun);
+                        HelpMarker("900/1080 tiers with wave-owned attention and pooled allocations. Applies on network rebuild."
+                                   "\nUses bounded GPU recovery if the queue times out; incompatible layouts use normal launches.");
                         kernelToggle("C512 M32", config->LmxxfC512M32, CfgKey::C512M32);
                         kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
                         kernelToggle("Shared buffer pool", config->LmxxfSharedPool, CfgKey::SharedPool);
@@ -855,6 +858,8 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::SkipBlocks, CfgKey::kDefaultSkipBlocks);
                     config->LmxxfWaveOwned = true;
                     CfgKey::PutEnvAlias(CfgKey::WaveOwned, true);
+                    config->LmxxfSwinRun = true;
+                    CfgKey::PutEnvAlias(CfgKey::SwinRun, true);
                     config->LmxxfC512M32 = true;
                     CfgKey::PutEnvAlias(CfgKey::C512M32, true);
                     config->LmxxfVitProjN64 = true;

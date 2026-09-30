@@ -172,6 +172,15 @@ WAVE void vit_attention_inverse_fast(const float*ex,float*out,uint tokens,const 
 // ByteInput: Q/K/V arrive as the E4M3 bytes vit_qkv_project_normalize_fused_f16compact_fp8 stores (byte_F of the same
 // F() values the f32 tensor holds, so pack() of the f32 value and the stored byte are identical): Q/K rows are one
 // 8-byte load per lane, V columns eight byte loads placed exactly as pack() places them.
+#ifndef HIP_VIT_ATTN_PROB_PAIR
+#define HIP_VIT_ATTN_PROB_PAIR 0
+#endif
+#ifndef HIP_VIT_ATTN_TRANSPOSED_AV
+#define HIP_VIT_ATTN_TRANSPOSED_AV 0
+#endif
+#ifndef HIP_VIT_ATTN_NATIVE_HALF
+#define HIP_VIT_ATTN_NATIVE_HALF 0
+#endif
 #ifndef HIP_VIT_ATTN_TRANSPOSED_SCORE
 #define HIP_VIT_ATTN_TRANSPOSED_SCORE 0
 #endif
@@ -189,17 +198,56 @@ DEV void vit_attention_transposed_score_body(const float*in,float*out,uint token
   // Swapping Q/K operands transposes the score output, directly matching
   // the A-fragment consumed by denominator and PV. Same K0 then K16 order.
   h8 x{};i2 xb{};
+#if HIP_VIT_ATTN_PROB_PAIR
+  f8 prob{};
+#endif
   for(uint e=0;e<8;e++){
    float af=clampf(a[e]*from_half(0x2dbb)+1.708984375f,1.439453125f,1.9775390625f);
    uint hb=(bits(af)>>13)-0x1c000u;unsigned short u=(unsigned short)(((hb<<4)+0x4000u)&65535u);
-   union{unsigned short u;_Float16 h;}cv;cv.u=u;x[e]=cv.h;pack(xb,e,from_half(u));
+   union{unsigned short u;_Float16 h;}cv;cv.u=u;x[e]=cv.h;
+#if HIP_VIT_ATTN_NATIVE_HALF
+   // Clamp/bit-map confines u to 0x1c20..0x3e90 (positive normal half).
+   // Exact widening; avoid the general software decoder's impossible cases.
+   float probability=float(cv.h);
+#else
+   float probability=from_half(u);
+#endif
+#if HIP_VIT_ATTN_PROB_PAIR
+   prob[e]=probability;
+#else
+   pack(xb,e,probability);
+#endif
   }
+#if HIP_VIT_ATTN_PROB_PAIR
+  // The same bounded half values encoded two at a time; no tensor repacking.
+  xb[0]=__builtin_amdgcn_cvt_pk_fp8_f32(prob[0],prob[1],0,false);
+  xb[0]=__builtin_amdgcn_cvt_pk_fp8_f32(prob[2],prob[3],xb[0],true);
+  xb[1]=__builtin_amdgcn_cvt_pk_fp8_f32(prob[4],prob[5],0,false);
+  xb[1]=__builtin_amdgcn_cvt_pk_fp8_f32(prob[6],prob[7],xb[1],true);
+#endif
+#if HIP_VIT_ATTN_TRANSPOSED_AV
+  sum=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(ones,x,sum);
+#else
   sum=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(x,ones,sum);
-  for(uint c=0;c<2;c++){i2 y{};for(uint e=0;e<8;e++){uint vkey=key+gr()*8+e;if constexpr(ByteInput){uint b=in8[(2*tokens+vkey)*1024+head*32+c*16+rc()];y[e/4]=int(uint(y[e/4])|(b<<(8*(e%4))));}else pack(y,e,in[(2*tokens+vkey)*1024+head*32+c*16+rc()]);}acc[c]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(xb,y,acc[c]);}
+#endif
+  for(uint c=0;c<2;c++){i2 y{};for(uint e=0;e<8;e++){uint vkey=key+gr()*8+e;if constexpr(ByteInput){uint b=in8[(2*tokens+vkey)*1024+head*32+c*16+rc()];y[e/4]=int(uint(y[e/4])|(b<<(8*(e%4))));}else pack(y,e,in[(2*tokens+vkey)*1024+head*32+c*16+rc()]);}
+#if HIP_VIT_ATTN_TRANSPOSED_AV
+  acc[c]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(y,xb,acc[c]);
+#else
+  acc[c]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(xb,y,acc[c]);
+#endif
+}
  }
+#if HIP_VIT_ATTN_TRANSPOSED_AV
+ // Query is now in the lane, feature in the accumulator element. All eight
+ // denominator rows are identical; keep the same K16 reduction, divide once.
+ float inv=1.f/sum[0];
+ for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+rc())*1024+head*32+c*16+gr()*8+e]=byte_F(Hrtz(acc[c][e]*inv));else out[(first+rc())*1024+head*32+c*16+gr()*8+e]=F(Hrtz(acc[c][e]*inv));}
+#else
  float inv[8];for(uint e=0;e<8;e++)inv[e]=1.f/sum[e];
 
  for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+gr()*8+e)*1024+head*32+c*16+rc()]=byte_F(Hrtz(acc[c][e]*inv[e]));else out[(first+gr()*8+e)*1024+head*32+c*16+rc()]=F(Hrtz(acc[c][e]*inv[e]));}
+#endif
 }
 #endif
 template<uint MAXT,bool ByteInput=false,bool ByteOut=false>

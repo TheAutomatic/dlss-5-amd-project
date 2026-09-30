@@ -182,10 +182,25 @@ DEV float w2_serial_norm(f8 lo,f8 hi){
 #endif
 // Exact deep_fast branchless F, including its signed-zero behavior.
 DEV float w2_up_F(float x){uint a=bits(x)&0x7fffffffu;float c=__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f);float r=__builtin_amdgcn_cvt_f32_fp8(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false),0);return a==0?0.f:r;}
-template<uint C,bool ByteIn,bool ByteOut,bool Up=false>
+#ifndef W2_EXPLICIT_WINDOW
+#define W2_EXPLICIT_WINDOW 0
+#endif
+template<uint C,bool ByteIn,bool ByteOut,bool Up=false
+#if W2_EXPLICIT_WINDOW
+ ,bool ExplicitWindow=false
+#endif
+ >
 DEV void swin_wave2_body(const float*in,const float*fw,const float*aw,void*out_any,
- uint width,uint height,uint workw,uint workh,uint sx,uint sy,uint post,const float*upw=nullptr,const float*skip=nullptr){
+ uint width,uint height,uint workw,uint workh,uint sx,uint sy,uint post,const float*upw=nullptr,const float*skip=nullptr
+#if W2_EXPLICIT_WINDOW
+ ,uint supplied_win=0
+#endif
+ ){
+#if W2_EXPLICIT_WINDOW
+ const uint win=ExplicitWindow?supplied_win:__builtin_amdgcn_workgroup_id_x(),head=__builtin_amdgcn_workitem_id_x()/32;
+#else
  const uint win=__builtin_amdgcn_workgroup_id_x(),head=__builtin_amdgcn_workitem_id_x()/32;
+#endif
  const uint rc=w2_rc(),gr=w2_gr();
  if(win>=(workw/8)*(workh/8))return;
  __attribute__((shared)) unsigned char plane0[64*C],plane1[64*C];
@@ -495,6 +510,7 @@ DEV void swin_wave2_body(const float*in,const float*fw,const float*aw,void*out_a
 #endif
 }
 #define W2_KERNEL(NAME,C,BI,BO) KERNEL __attribute__((amdgpu_flat_work_group_size(C,C))) void NAME(const float*in,const float*fw,const float*aw,void*out,uint w,uint h,uint ww,uint hh,uint sx,uint sy,uint post){swin_wave2_body<C,BI,BO>(in,fw,aw,out,w,h,ww,hh,sx,sy,post);}
+#if !defined(W2_NO_EXPORTS) || !W2_NO_EXPORTS
 W2_KERNEL(c64_wave2,64,false,false)
 W2_KERNEL(c64_wave2_bi,64,true,false)
 W2_KERNEL(c64_wave2_bo,64,false,true)
@@ -512,4 +528,5 @@ W2_KERNEL(c256_wave2_bi_bo,256,true,true)
 #define W2_UP_KERNEL(NAME,C) KERNEL __attribute__((amdgpu_flat_work_group_size(C,C))) void NAME(const float*in,const float*fw,const float*aw,void*out,uint w,uint h,uint ww,uint hh,uint sx,uint sy,uint post,const float*upw,const float*skip){swin_wave2_body<C,true,true,true>(in,fw,aw,out,w,h,ww,hh,sx,sy,post,upw,skip);}
 W2_UP_KERNEL(c64_wave2_up,64)
 W2_UP_KERNEL(c128_wave2_up,128)
+#endif
 #endif

@@ -54,6 +54,12 @@ inline Kind ParseKind(std::string_view raw)
 // lmxxf is a shipped production backend alongside daniel.
 inline bool LmxxfWired() { return true; }
 
+inline bool PrepareSubmissionAtStartup(Kind active, bool convenience, bool hasLmxxf)
+{
+    return active == Kind::Lmxxf || (convenience && hasLmxxf);
+}
+
+
 // Pick the host that will actually run.
 // Explicit request wins when its files are on disk; otherwise fall back to the
 // other installed host. Auto takes whichever is installed (lmxxf if it is alone).

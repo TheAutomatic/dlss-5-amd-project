@@ -36,6 +36,7 @@ inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
 inline constexpr const char *SkipBlocks = "DLSS5_SKIP_BLOCKS";
 inline constexpr char kDefaultSkipBlocks[] = "42,43,46";
 inline constexpr const char *WaveOwned = "DLSS5_HIP_WAVE_OWNED";
+inline constexpr const char *SwinRun = "DLSS5_HIP_SWIN_RUN";
 inline constexpr const char *C512M32 = "DLSS5_HIP_C512_M32";
 inline constexpr const char *VitProjN64 = "DLSS5_HIP_VIT_PROJ_N64";
 inline constexpr const char *SharedPool = "DLSS5_HIP_SHARED_POOL";
@@ -148,6 +149,7 @@ inline constexpr const char *const kKnown[] = {
     NetworkHeight,
     SkipBlocks,
     WaveOwned,
+    SwinRun,
     C512M32,
     VitProjN64,
     SharedPool,

@@ -18,6 +18,7 @@ void InvalidateHistory();
 // User turned NR off: release the active host session so VRAM is returned.
 // Does not tear down hooks or ProxyWrap; a later enable may rebuild.
 void OnNrDisabled();
+void PollReleases();
 void TraceContextRelease(unsigned int handle, bool after);
 std::string Status();
 bool GraphicsRestartNeeded(UINT activePasses);

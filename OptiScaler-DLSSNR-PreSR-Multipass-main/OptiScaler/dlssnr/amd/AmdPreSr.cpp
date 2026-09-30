@@ -344,9 +344,9 @@ struct Backend::Impl
     std::string status = "AMD pre-SR: not initialized";
     std::atomic<bool> failed { false };
     std::atomic<bool> resetRequested { true };
-    // User toggled NR off while the GPU was still busy: enabled=0 is set, but the
-    // runtime shutdown waits. Record retries the release before re-init.
-    bool releasePending = false;
+    // Stop host admission while recorded submissions finish. Every Evaluate
+    // polls release, including while NR is off; native Notify remains enabled.
+    std::atomic<bool> releasePending { false };
     Settings lastSettings {};
     bool haveSettings = false;
     // Latch failures that invalidate the shared completion timeline. Such work
@@ -887,7 +887,10 @@ struct Backend::Impl
     void InitPass(UINT i)
     {
         if (runtime[i])
+        {
+            At<uint8_t>(runtime[i], L->enabled) = 1;
             return;
+        }
         InitHip();
         auto path = directory / (L"dlssnr_amd_pass" + std::to_wstring(i + 1) + L".dll");
         auto identified = IdentifyRuntime(path);
@@ -1131,7 +1134,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
     } graphicsLog { logGraphics };
     // Dispatch/Copy are illegal inside (or between suspended/resuming) render
     // passes too. This must skip all NR commands, not just switch to compute.
-    if (GraphicsSnap::GraphicsTracker().IsRenderPassUnsafe(listId))
+    if (gfx == &noEnvelope ? GraphicsSnap::GraphicsTracker().IsRenderPassUnsafe(listId) : !gfx->renderPassIdle)
     {
         gfx->outcome = "render_pass_skip";
         return nullptr;
@@ -2272,80 +2275,68 @@ bool Backend::Shutdown()
 
 void Backend::ReleaseSession()
 {
-    // User toggle-off. Unlike Shutdown() this must not set failed: a later Record
-    // is allowed to InitPass again. enabled=0 first so Record stops accepting work,
-    // then drain, then the runtime's real shutdown (hipFree + COM releases).
     std::lock_guard guard(p->lock);
-    const AmdLayout* L = p->L;
-    if (!L)
-        return;
-    for (auto h : p->runtime)
-        if (h)
-            At<uint8_t>(h, L->enabled) = 0;
-    if (p->fence)
-    {
-        p->RetireSubmission(false, "ReleaseSession");
-        const auto completed = p->fence->GetCompletedValue();
-        if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
-        {
-            // Still busy: keep enabled=0 and finish on the next Record so a
-            // re-enable cannot run against a half-released runtime.
-            p->releasePending = true;
-            p->Log("ReleaseSession: GPU still busy; release deferred to next Record");
-            return;
-        }
-    }
-    for (auto h : p->runtime)
-        if (h)
-        {
-            if (p->hipSet)
-                p->hipSet(p->hipDevice);
-            reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(h) + L->shutdown)();
-        }
-    for (auto &h : p->runtime)
-        h = nullptr;
-    p->L = nullptr;
-    p->releasePending = false;
-    p->Log("AMD runtime session released (NR off)");
+    // Do not disable the native runtime while an already recorded job still
+    // needs Notify. Stop admission at the host and let its submission finish.
+    if (p->L) p->releasePending = true;
+    CompletePendingReleaseLocked();
+}
+
+bool Backend::PollRelease()
+{
+    if (!p->releasePending.load(std::memory_order_acquire)) return true;
+    std::lock_guard guard(p->lock);
+    return CompletePendingReleaseLocked();
 }
 
 bool Backend::CompletePendingReleaseLocked()
 {
-    // Caller holds p->lock (Record). Returns false when the GPU is still busy
-    // and the caller must skip NR (and must not InitPass).
-    if (!p->releasePending)
-        return true;
+    if (!p->releasePending) return true;
     const AmdLayout* L = p->L;
-    if (!L)
-    {
-        p->releasePending = false;
-        return true;
-    }
-    if (p->fence)
-    {
-        p->RetireSubmission(false, "CompletePendingRelease");
-        const auto completed = p->fence->GetCompletedValue();
-        if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
-            return false;
-    }
+    p->RetireSubmission(false, "ReleaseSession");
+    const auto completed = p->fence ? p->fence->GetCompletedValue() : 0;
+    if (p->AnySlotBusy() || completed == UINT64_MAX || completed < p->LatestCompletion())
+        return false;
     for (auto h : p->runtime)
         if (h)
         {
-            if (p->hipSet)
-                p->hipSet(p->hipDevice);
+            if (p->hipSet) p->hipSet(p->hipDevice);
+            At<uint8_t>(h, L->enabled) = 0;
             reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(h) + L->shutdown)();
         }
-    for (auto &h : p->runtime)
-        h = nullptr;
-    p->L = nullptr;
+    // Module and engine remain verified/pinned. InitPass re-enables that module;
+    // the next native Record rebuilds staging with the requested wait mode.
+    for (auto& sl : p->slots)
+    {
+        sl.colour.Reset(); sl.exposureCopy.Reset();
+        sl.decode.reset(); sl.encode.reset();
+    }
+    p->scaleBaseline.Reset(); p->scaleOutput.Reset();
+    p->motionCrop.Reset(); p->depthCrop.Reset(); p->lookColour.Reset();
+    p->rtgi.reset();
+    p->width = p->height = p->liveSlots = 0;
+    p->lastMotionWidth = p->lastMotionHeight = 0;
+    p->lastInputWidth = p->lastInputHeight = 0;
+    p->hadExposure = false;
+    p->haveSettings = false;
+    p->resetRequested = true;
+    p->gfxRestart.Reset();
+    for (auto& gate : p->gfxStartup) gate.Reset();
+    for (auto& flag : p->gfxStartupFallbackReported) flag = false;
     p->releasePending = false;
-    p->Log("AMD runtime pending release completed");
+    p->Log("AMD staging/session buffers released (verified module and model cache retained)");
     return true;
 }
 
 void Backend::ResetGraphicsWaitState()
 {
     std::lock_guard guard(p->lock);
+    if (p->gfxRestart.NeedsRestart(3))
+    {
+        p->releasePending = true;
+        CompletePendingReleaseLocked();
+        return;
+    }
     p->gfxRestart.Reset();
     for (auto &gate : p->gfxStartup)
         gate.Reset();
