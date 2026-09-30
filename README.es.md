@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.6.3
+# OptiScaler AMD pre-SR — 1.9.8.1
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
@@ -8,48 +8,9 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## Corrección 1.9.6.3
+## Registro de cambios
 
-- Corrige el crecimiento excesivo de `amd_bridge.log` por los mensajes `isolated neural command list` del backend Daniel. Ahora se registra una sola vez por proceso.
-- No cambia el renderizado, los ajustes NR ni el envío de comandos. Desde 1.9.6.2 basta con sustituir la DLL del host y conservar runtime, pesos y configuración.
-
-## Corrección 1.9.6.2
-
-- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
-
-- Acepta ambas variantes verificadas de `version.dll` de Daniel 0.5.0 en el instalador y el host, manteniendo la comprobación estricta del hash.
-- Validado con pruebas sin GPU; sin nuevas pruebas en juegos.
-
-## Novedades en 1.9.6.1
-
-- Añade el ajuste ini/menú `DLSS5_SKIP_BLOCKS` de lmxxf; el valor predeterminado sigue siendo `42,43,46`. Se aplica al reconstruir la red.
-- Incluye los fragmentos HIP `.inc` en la revisión de sincronización, las huellas de compilación de módulos y la comprobación de vigencia del paquete.
-- Reintenta la subida y verifica SHA-256 sin borrar el archivo publicado antes de completar la transferencia.
-
-## Novedades en 1.9.6 (primera versión estable desde 1.8.6)
-
-> Se agradecen informes de error con archivos `.log`.
-
-**Actualización del backend danielblnc**
-- Compatible con **danielblnc 0.3.0–0.5.0** (layout de archivos y aislamiento de inicio; descargue usted mismo los pesos de daniel).
-
-**Nuevo backend lmxxf** (pesos: [repositorio lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [nube](https://gofile.io/d/wRln0Pue))
-- **Sincronización upstream**: versión **0.35**.
-- **GPUs serie 9060**: faltan más pruebas en hardware real.
-- **Rendimiento**: mejoras importantes; porcentaje aún sin medir.
-- **Corrige destellos y parpadeos en algunos juegos** (p. ej. demo de Wo Long 2): usa primero la exposición del juego.
-- **Colour strength**: 0–1 conserva el color del juego; por encima de 1 se mezcla hacia el color de la red.
-- **NR%**: nueva función de resolución NR ajustable en tres niveles.
-- **Exposición automática**: si el juego no envía exposición, **Auto exposure** está activada; se puede apagar y usar **Exposure scale**.
-- **Alta resolución**: acepta entrada por encima de 1080p nativo (4K/2K con FSR Equilibrado o superior ya no da error).
-- **Compatibilidad y correcciones**: algunas sin verificar — gracias [@OUCO86](https://github.com/OUCO86)
-
-**Menú en el juego**
-- Menú reorganizado con interruptores lmxxf / daniel
-
-**Problemas conocidos**
-- Con danielblnc 0.4.3 / 0.5.0 como backend, la demo de Wo Long 2 puede cerrarse de forma inesperada; aún no se ha determinado si la causa está en este proyecto o en el backend upstream.
-- Baldur's Gate 3: (no está confirmado si está relacionado con DX11) a veces puede ser necesario alternar el nivel de DLSS del juego y el upscaler DX11-a-DX12 FSR 4.1.1 de la esquina superior izquierda del menú Ins hasta que el NR funcione.
+Consulte las notas de la release 1.9.8.1 para más detalles.
 
 ### Mapa de configuración lmxxf (ini / menú Ins)
 
@@ -322,8 +283,9 @@ Este proyecto introdujo la **planificación multi-ranura (Multi-Slot Scheduling)
   - `Debug view`: Visualización en tiempo real de entradas, salida de la red y búferes de diferencias.
 - **Específicos de `danielblnc`**:
   - `NR slots`, `Every-frame`, `New wait mode`, `Inline same-frame wait`;
-  - **Display**: `Tone curve` / `Tone lift` / `Quality`;
-  - **Experimental**: `HIP high-priority queue`;
+  - `Quality`: Reference (predeterminado, exacto como NVIDIA) / Fast;
+  - **Display**: `Tone curve` / `Tone lift`;
+  - **Queue (experimental)**: `HIP high-priority queue`;
   - **Debug / Advanced**: claves extra de `dlssnr_on_amd.ini`.
 
 **Prioridad:** sesión Ins > `OptiScaler.ini` `[DlssNr]` (con Guardar) > `dlssnr_on_amd.ini` / entorno > valores predeterminados.  

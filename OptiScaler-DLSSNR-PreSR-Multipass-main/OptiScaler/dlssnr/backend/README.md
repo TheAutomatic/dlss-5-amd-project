@@ -10,7 +10,7 @@ Contract only. Design notes: `docs/backends/lmxxf.md`, `docs/architecture/`. Pla
 | legacy `off` / `none` | Config load migrates the choice to `Enabled=false` and `NrBackend=daniel` |
 
 - `LmxxfWired()` (`Kind.h`) is compile-time. `SubmissionHooksWanted()` checks the resolved host.
-- Live vs restart: switching applies immediately only when the command-list proxy was armed at startup (session began on lmxxf). Starting on daniel leaves that proxy off; a pick of lmxxf is stored for the next launch and the menu says so. The combo labels that case `lmxxf (after restart)`. ProxyWrap is sticky-on once lmxxf enables it (daniel -> lmxxf hot switch stays live).
+- Live vs restart: switching applies immediately when `NrConvenience` (OptiScaler.ini, default 1) prepared the command-list proxy and hooks are armed. `NrConvenience=0` keeps only the startup backend; changing backends needs a restart. A first pick of lmxxf after a daniel-only start is stored for the next launch and the menu says so. ProxyWrap is sticky-on once lmxxf enables it (daniel -> lmxxf hot switch stays live).
 - lmxxf assets: `LmxxfNrRuntime.dll` (MinGW, `LmxxfNrApi.h` only) + `lmxxf-modules/` (or `LMXXF_MODULES_DIR`) + `LMXXF_WEIGHTS_DIR` = tiled assets, not `HIP/`.
 - `LmxxfBackend::Record`: PrepareFrame → require proxy → RecordInputs → Split → RecordOutputs → pending EnqueueHip in the Execute between slot. Fail → ordinary SR. No Record-time HIP.
 - Product Execute uses `ExecuteExpanded` when armed; `PendingListIndex` is -1 (Daniel-only).

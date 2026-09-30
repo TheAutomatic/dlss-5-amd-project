@@ -102,7 +102,7 @@ if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
     throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
 }
-# 30/arch, 60 dual must agree across runtime, tests, packager, and recipe.
+# 31/arch, 62 dual must agree across runtime, tests, packager, and recipe.
 $contract = Join-Path $PSScriptRoot 'check-module-contract.ps1'
 if (-not (Test-Path -LiteralPath $contract -PathType Leaf)) {
     throw "Module contract check is missing: $contract"
@@ -228,10 +228,23 @@ RunBeforeSR=true
 
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
-; daniel - danielblnc 0.3.0–0.5.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
+; daniel - danielblnc 0.3.0-0.5.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
 ; lmxxf or daniel only. Turn the pass off with Enabled=false, not with NrBackend.
 ; If the chosen host is missing its files, the other installed host runs instead.
 NrBackend=lmxxf
+
+; Hot-switch preparation when both backends are installed (ini-only; no Ins checkbox).
+; 0 (default): start only the selected backend; changing backends needs a game restart.
+; 1: pre-open command-list proxy so daniel <-> lmxxf can switch in-session.
+; Hook/wrap policy is chosen at startup: restart the game after changing this.
+; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
+NrConvenience=0
+
+; danielblnc math quality (0.4.2+). Not a menu-under-Display fold; Ins shows Quality near the top.
+; 0 = Reference (NVIDIA-exact arithmetic, default)
+; 1 = Fast (cheaper math; usually visually equivalent and faster)
+; RX 7000 always runs Reference inside the daniel runtime.
+Quality=0
 
 ; Diagnostic mode for lmxxf backend (most modes skip NR)
 ; off               - Normal neural rendering
@@ -249,12 +262,43 @@ LmxxfDiagnostic=off
 ; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). true/false - Default is true
 DLSS5_FIT_LARGE=true
 
+; Skip residual blocks (lmxxf). Default 42,43,46. Use none to run all blocks (higher quality, slower).
+; Comma list of 1..38,40..69. Cannot skip 5..22 or 48..65 while MH byte stream is on.
+; Applies on the next network rebuild.
+DLSS5_SKIP_BLOCKS=42,43,46
+
 ; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
 ; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
 DLSS5_HIP_PDL=true
 
-; Performance-oriented adaptive ViT reuse. F8 toggles reuse.
-; More conservative values: period=4, global=0.22, local=1, image=0.35.
+; Wave-owned attention kernels (C32/C64/C128 + C256 attention). Default true (official 0.31+ template).
+; false restores the older multi-wave path. Applies on network rebuild.
+DLSS5_HIP_WAVE_OWNED=true
+
+; C512 QKV/mix at 32 tokens per wave. Default true. false restores the previous C512 path.
+DLSS5_HIP_C512_M32=true
+
+; ViT projection 64 columns per wave. Default true. false restores fragment projection.
+DLSS5_HIP_VIT_PROJ_N64=true
+
+; C256 persistent queue (swin-persistent module, 0.37). Default true.
+; Active only on 1920x1152 or 1600x960 processing with wave-owned compatible options.
+; false or missing module falls back to normal launches. DLSS5_HIP_SWIN_RUN=0/1 overrides.
+DLSS5_HIP_SWIN_RUN=true
+
+; Exact typed ViT edges (official 0.35+ template default 3).
+; 0=off (old f32 ViT path), 1=AV FP8, 2=contract F16, 3=Both.
+; Mutually exclusive with DLSS5_HIP_VIT_BYTE_STREAM. Applies on network rebuild.
+DLSS5_HIP_VIT_STREAM=3
+
+; ViT byte stream (experimental). Default 0. Only usable when VIT_STREAM=0.
+; 1 also turns off adaptive reuse. Applies on network rebuild.
+DLSS5_HIP_VIT_BYTE_STREAM=0
+
+; Adaptive ViT reuse (lossy): when the picture is nearly still, reuse ViT across frames.
+; F8 toggles reuse/full when HOTKEY=1. Any motion falls back to full ViT.
+; Default below is performance-oriented (looser than upstream 4 / 0.22 / 1 / 0.35):
+; higher FPS when nearly still, more risk of stale detail / ghosting on subtle motion.
 DLSS5_VIT_ADAPTIVE=1
 DLSS5_VIT_REUSE_PERIOD=16
 DLSS5_VIT_REUSE_GLOBAL=1

@@ -489,9 +489,9 @@ bool Config::Reload(std::filesystem::path iniPath)
                 CfgKey::PutEnvAlias(CfgKey::DecoderByte, dec);
                 const bool vb = readUnifiedBoolDefault(CfgKey::VitByteStream, false);
                 LmxxfVitByteStream.set_from_config(vb);
-                int vstream = 0;
+                int vstream = LmxxfVitStream.value_or_default();
                 if (auto vs = readInt(CfgKey::kSection, CfgKey::VitStream))
-                    vstream = (*vs >= 0 && *vs <= 3) ? *vs : 0;
+                    vstream = (*vs >= 0 && *vs <= 3) ? *vs : vstream;
                 LmxxfVitStream.set_from_config(vstream);
                 const bool adapt = readUnifiedBoolDefault(CfgKey::VitAdaptive, true);
                 LmxxfVitAdaptive.set_from_config(adapt);

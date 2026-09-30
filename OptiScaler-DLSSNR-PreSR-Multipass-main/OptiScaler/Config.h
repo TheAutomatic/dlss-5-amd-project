@@ -289,9 +289,9 @@ class Config
     // 1 = daniel inline same-frame wait (historical default). 0 requests non-inline
     // admission when the runtime supports it. Writes configuredInline; see handoff.
     CustomOptional<int> AmdInline { 1 };
-    // 0.4.2+ daniel Quality: 1 = Fast (cheaper math, default), 0 = Reference
-    // (NVIDIA-exact arithmetic). RX 7000 always runs Reference inside the runtime.
-    CustomOptional<int> DlssNrQuality { 1 };
+    // 0.4.2+ daniel Quality: 0 = Reference (NVIDIA-exact, default), 1 = Fast
+    // (cheaper math). RX 7000 always runs Reference inside the runtime.
+    CustomOptional<int> DlssNrQuality { 0 };
     // Optional per-pass model profiles. Pass 1 uses Preset/Style above; an absent override inherits
     // pass 1. Keeping inheritance explicit preserves every existing configuration and lets changing
     // the base profile update the whole stack unless a later pass was deliberately specialised.
@@ -329,18 +329,21 @@ class Config
     // Live switching needs installed hooks and a ready 1-pixel-draw PSO; otherwise restart.
     CustomOptional<int> AmdGraphicsWait { 1 };
     // Convenience (1): prepare proxy submission when lmxxf is installed, allowing
-    // backend hot-switch. Pure (0): only the startup backend; restart to switch.
+    // backend hot-switch. Pure (0, default): only the startup backend; restart to switch.
     // Both release idle session buffers on NR off; Daniel retains its verified
     // module/model cache. lmxxf also unloads its runtime in pure mode.
     // Hook/wrap policy is chosen at startup; restart after changing.
-    CustomOptional<int> NrConvenience { 1 };
+    CustomOptional<int> NrConvenience { 0 };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
     // Explicit choice missing its files falls back to the other. Enable NR is the on/off.
     // Ins menu switches live when the required hooks are armed; a first switch
     // from a daniel-started session to lmxxf is saved for the next launch.
     mutable std::mutex NrBackendMutex;
-    CustomOptional<std::string> NrBackend { "daniel" };
+    // SoftDefault: an explicit pick (including "daniel") must survive Save and the
+    // backend combo. WithDefault hides values equal to the default, so choosing
+    // daniel looked like "no choice" and the menu snapped back to the running host.
+    CustomOptional<std::string, SoftDefault> NrBackend { "daniel" };
     // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
     // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
@@ -384,10 +387,13 @@ class Config
     CustomOptional<bool> LmxxfMHByteStream { true };
     CustomOptional<bool> LmxxfDecoderByte { true };
     CustomOptional<bool> LmxxfVitByteStream { false };
-    // 0=off; bit0 AV FP8, bit1 contract F16 (DLSS5_HIP_VIT_STREAM).
-    CustomOptional<int> LmxxfVitStream { 0 };
+    // bit0 AV FP8, bit1 contract F16 (DLSS5_HIP_VIT_STREAM). 0=off.
+    // Product default 3 = official 0.35+ hip-game-flags template (also magpie/re9).
+    CustomOptional<int> LmxxfVitStream { 3 };
     // Static-frame ViT reuse (tunable; not bit-exact).
     CustomOptional<bool> LmxxfVitAdaptive { true };
+    // Performance-oriented adaptive ViT reuse (user-tested). Looser than upstream
+    // hip-game-flags (4 / 0.22 / 1 / 0.35): higher FPS when nearly still, more lossy on subtle motion.
     CustomOptional<int> LmxxfVitReusePeriod { 16 };
     CustomOptional<float> LmxxfVitReuseGlobal { 1.0f };
     CustomOptional<float> LmxxfVitReuseLocal { 50.0f };

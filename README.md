@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.6.3
+# OptiScaler AMD pre-SR — 1.9.8.1
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -8,48 +8,9 @@
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
-## 1.9.6.3 修复
+## 更新日志
 
-- 修复 Daniel 后端逐帧向 `amd_bridge.log` 写入 `isolated neural command list` 导致日志暴涨的问题；该提示每次启动只记录一次。
-- 不改变渲染、NR 参数或命令列表提交行为。已有 1.9.6.2 用户可仅替换宿主 DLL，保留 runtime、权重和配置。
-
-## 1.9.6.2 修复
-
-- lmxxf adaptive ViT reuse: performance defaults `16 / 1 / 50 / 1` (period/global/local/image), F8 enabled. Conservative settings: `4 / 0.22 / 1 / 0.35`. Longer reuse can delay detail updates; existing explicit ini settings are retained when keeping the ini.
-
-- 修复 Daniel 0.5.0 部分 `version.dll` 因文件哈希不同而无法安装或识别的问题；兼容两种已核验文件，保留严格哈希校验。
-- 本次无 GPU 回归验证，不包含新的实机验证。
-
-## 1.9.6.1 修复
-
-- lmxxf 新增 `DLSS5_SKIP_BLOCKS` ini／菜单设置，默认仍为 `42,43,46`；修改在下一次网络重建时生效。
-- 修复 HIP `.inc` 片段未计入同步审阅、模块配方与发布新鲜度校验的问题。
-- 发布附件上传增加重试与 SHA-256 校验；上传失败不再先删除已有附件。
-
-## 1.9.6 主要更新（自 1.8.6 以来首个正式版）
-
-> 欢迎附 `.log` 文件反馈 bug。
-
-**danielblnc 后端支持更新**
-- 支持 **danielblnc 0.3.0–0.5.0**（文件布局与启动隔离；请自行下载 daniel 相关权重文件）。
-
-**lmxxf 后端支持**（权重文件：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)）
-- **对齐上游更新**：当前已同步至 **0.35** 版。
-- **9060 系列显卡支持**：待更多实机验证；9070 仍为正式路径。
-- **性能提升**：大量性能提升，暂未计算百分比。
-- **修复部分游戏高光泛白与闪屏**（如卧龙 2 demo）：优先用游戏曝光。
-- **Colour strength**：0–1 保留游戏原色；>1 才向网络色混合。
-- **NR%**：新增三档可调节 NR 分辨率功能。
-- **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
-- **High resolution**：支持超过原生 1080p 画面输入（4K/2K 使用 FSR 平衡或以上挡位不再报错）。
-- **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢 [@OUCO86](https://github.com/OUCO86)（[相关讨论](https://github.com/TheAutomatic/dlss-5-amd-project/issues/2#issuecomment-5836267901)）。
-
-**游戏内菜单**
-- 菜单布局优化，同步 lmxxf / daniel 功能开关
-
-**已知问题**
-- 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或上游原因。
-- 博德之门 3：（未证实是否与 DX11 有关）有时可能需要反复更改游戏内 DLSS 等级，和 Ins 菜单内左上角 DX11 转 DX12 FSR4.1.1 升频器，以使得 NR 功能生效。
+详情请看 release 1.9.8.1 更新日志。
 
 ### lmxxf 配置速查（ini / 菜单）
 
@@ -328,8 +289,9 @@
   - `Every-frame`：强制每帧执行 NR 开关；
   - `New wait mode`：0.3.1 状态冻结/恢复新等待模式开关；
   - `Inline same-frame wait`：同帧等待 / async；
-  - **Display**：`Tone curve` / `Tone lift` / `Quality`；
-  - **Experimental**：`HIP high-priority queue`；
+  - `Quality`：Reference（默认，高画质对齐 NVIDIA）/ Fast；
+  - **Display**：`Tone curve` / `Tone lift`；
+  - **Queue (experimental)**：`HIP high-priority queue`；
   - **Debug / Advanced**：`dlssnr_on_amd.ini` 额外键说明。
 
 #### daniel 配置键（与 `dlssnr_on_amd.ini` `[DlssNrOnAmd]` 对应）
@@ -344,12 +306,18 @@ Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
 | NR slots | `AmdSlots` | — | 3 |
 | Tone curve | `ToneCurve` | `ToneCurve` | reinhard |
 | Tone lift (black) | `ToneLift` | `ToneLift` | 0 |
-| Quality | `Quality` | `Quality` | Fast |
+| Quality | `Quality` | `Quality` | Reference |
 | HIP high-priority queue | `QueuePriority` | `QueuePriority` | 关 |
 | Style（Pass 1） | `Style` | `Style` | 0 Default |
 
 daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。  
 高级进程环境变量（无 Ins 开关）：`DLSSNR_NO_REG`、`DLSSNR_CHAIN`、`DLSSNR_NOBLEND`、`DLSSNR_NO_REPACK`、`DLSSNR_WBLOG`。
+
+**仅 ini、无菜单按钮**（改 `OptiScaler.ini` `[DlssNr]`）：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `NrConvenience` | `0` | `1`：装了 lmxxf 时预开提交代理，daniel ↔ lmxxf 可会话内热切换；`0`：只启所选后端，换后端需重启游戏。改后重启生效。 |
 
 ---
 

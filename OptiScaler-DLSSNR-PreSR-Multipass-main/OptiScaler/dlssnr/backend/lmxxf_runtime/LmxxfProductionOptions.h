@@ -75,6 +75,8 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.swin_run = true;
     o.c512_m32 = true;
     o.vit_proj_n64 = true;
+    /* 0.35+ official hip-game-flags template: DLSS5_HIP_VIT_STREAM=3 (AV FP8 + contract F16). */
+    o.vit_stream = 3;
     /* Same getenv parser as add-on / RE9; overrides the defaults above. */
     NativeApplyHipEnvironment(o, true);
     return o;

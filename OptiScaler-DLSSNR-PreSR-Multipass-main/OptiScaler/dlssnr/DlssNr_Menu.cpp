@@ -149,6 +149,136 @@ void RenderMenu(Config* config, float menuResScale)
                                : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
 
+            // Backend sits here (not at the bottom) so both hosts can switch near Enable NR.
+            {
+                using DlssNr::Backend::Kind;
+                using DlssNr::Backend::Request;
+                const Kind activeB = DlssNr::Backend::ActiveKindFromConfig();
+                Request request;
+                Request runningRequest;
+                {
+                    std::lock_guard nrBackendLock(config->NrBackendMutex);
+                    const auto rawBackend = config->NrBackend.value_for_config();
+                    request = rawBackend.has_value() ? DlssNr::Backend::ParseRequest(*rawBackend)
+                                                     : Request::Auto;
+                    runningRequest = config->NrBackend.has_value()
+                        ? DlssNr::Backend::ParseRequest(config->NrBackend.value())
+                        : Request::Auto;
+                }
+                const bool hooksArmed = DlssNr::Submission::Hooks::IsArmed();
+                const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
+                const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
+                int selected = 0;
+                if (request == Request::Lmxxf)
+                    selected = 1;
+                else if (request == Request::Daniel)
+                    selected = 0;
+                else
+                    selected = (activeB == Kind::Lmxxf) ? 1 : 0;
+                const bool convenience = config->NrConvenience.value_or_default() != 0;
+                const bool deferLmxxf = selected == 1 && activeB != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf;
+                auto itemLabel = [&](int i) -> const char* {
+                    if (i == 1 && activeB != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf)
+                        return "lmxxf (after restart)";
+                    if (i == 0 && activeB == Kind::Lmxxf && !convenience)
+                        return "daniel (after restart)";
+                    return i == 0 ? "daniel" : "lmxxf";
+                };
+                static const char* items[] = { "daniel", "lmxxf" };
+
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Backend");
+                HGap(0.15f);
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+                if (!hasDaniel && !hasLmxxf)
+                    ImGui::BeginDisabled();
+                if (ImGui::BeginCombo("##NrBackend", itemLabel(selected)))
+                {
+                    for (int i = 0; i < IM_ARRAYSIZE(items); ++i)
+                    {
+                        const bool installed = i == 0 ? hasDaniel : hasLmxxf;
+                        const auto flags = installed ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
+                        if (ImGui::Selectable(itemLabel(i), selected == i, flags))
+                        {
+                            selected = i;
+                            const bool live = convenience && (hooksArmed || activeB == Kind::Lmxxf || i == 0);
+                            if (!live)
+                            {
+                                std::lock_guard nrBackendLock(config->NrBackendMutex);
+                                config->NrBackend.set_for_next_launch(std::string(items[i]));
+                            }
+                            else
+                            {
+                                {
+                                    std::lock_guard nrBackendLock(config->NrBackendMutex);
+                                    config->NrBackend = items[i];
+                                }
+                                DlssNr::AmdBridge::SyncBackendWithConfig();
+                            }
+                        }
+                        if (selected == i)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                if (!hasDaniel && !hasLmxxf)
+                    ImGui::EndDisabled();
+                {
+                    char installed[64] {};
+                    if (hasDaniel && hasLmxxf)
+                        std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
+                    else if (hasDaniel)
+                        std::snprintf(installed, sizeof(installed), "daniel");
+                    else if (hasLmxxf)
+                        std::snprintf(installed, sizeof(installed), "lmxxf");
+                    else
+                        std::snprintf(installed, sizeof(installed), "none");
+                    char tip[768] {};
+                    std::snprintf(tip, sizeof(tip),
+                                  "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
+                                  "\nHot switch (NrConvenience in OptiScaler.ini, default 0): set 1 to"
+                                  "\npre-open the proxy for live switch when hooks are armed."
+                                  "\nDefault 0 starts with only the selected backend; changing"
+                                  "\nbackends then needs a game restart."
+                                  "\nNeeds restart: first switch to lmxxf after a daniel-only"
+                                  "\nstart is staged for the next launch. Click Save Settings"
+                                  "\nto keep it in OptiScaler.ini. The line below always says"
+                                  "\nwhich case you are in."
+                                  "\nEnable NR off releases buffers after outstanding work completes."
+                                  "\nIf the chosen host is missing its files, the other installed"
+                                  "\nhost runs instead."
+                                  "\n\nInstalled here: %s",
+                                  installed);
+                    HelpMarker(tip);
+                }
+                if (!hasDaniel && !hasLmxxf)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
+                                       "No NR runtime beside OptiScaler (need dlssnr_amd_pass1.dll or LmxxfNrRuntime.dll).");
+                }
+                else if (deferLmxxf)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                       "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
+                }
+                else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
+                         activeB == Kind::Daniel && hasLmxxf)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                       "Restart the game to use lmxxf; daniel remains active now.");
+                }
+                else if (request == Request::Lmxxf && activeB != Kind::Lmxxf)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                       "lmxxf not installed; running daniel.");
+                }
+                else if (request == Request::Daniel && activeB != Kind::Daniel)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                                       "daniel not installed; running lmxxf.");
+                }
+            }
+
             if (!isLmxxf)
             {
                 HGap(0.55f);
@@ -242,16 +372,6 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::EndPopup();
                 }
 
-                {
-                    bool convenience = config->NrConvenience.value_or_default() != 0;
-                    if (ImGui::Checkbox("Allow backend hot switching", &convenience))
-                        config->NrConvenience = convenience ? 1 : 0;
-                    HelpMarker("On (default): prepare hot switching when lmxxf is installed. Changes require restart."
-                               "\nOff: start with only the selected backend; changing backends requires restart."
-                               "\nNR off releases session buffers after submitted work completes; Daniel model cache stays loaded."
-                               "\nWrap is decided at startup: restart the game after changing this.");
-                }
-
                 // daniel: wait / schedule at top; display + experimental/debug folded
                 // (same Ins density pattern as the lmxxf block above).
                 {
@@ -261,6 +381,17 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("On (default): game waits for NR in the same frame (historical path)."
                                "\nOff: async (daniel Async=1); pre-upscale is forced off because it requires inline."
                                "\nSaved to dlssnr_on_amd.ini only with Save Settings. Restart may be required.");
+                }
+
+                // Quality sits at this level on purpose — not folded under Display.
+                {
+                    static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
+                    int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
+                        config->DlssNrQuality = quality ? 1 : 0;
+                    HelpMarker("Quality (0.4.2+). Reference keeps NVIDIA's exact arithmetic (default)."
+                               "\nFast is usually visually equivalent and faster."
+                               "\nRX 7000 always runs Reference.");
                 }
 
                 if (ImGui::TreeNode("Display (daniel 0.3.3+)"))
@@ -273,12 +404,6 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nReinhard usually has better colour; ACES if highlights oversaturate.");
                     DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.5f, 0.0f);
                     HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
-                    static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
-                    int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
-                    if (ImGui::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
-                        config->DlssNrQuality = quality ? 1 : 0;
-                    HelpMarker("Quality (0.4.2+). Fast is usually visually equivalent and faster."
-                               "\nReference keeps NVIDIA's exact arithmetic. RX 7000 always runs Reference.");
                     ImGui::TreePop();
                 }
 
@@ -304,141 +429,6 @@ void RenderMenu(Config* config, float menuResScale)
                         " DLSSNR_NOBLEND, DLSSNR_NO_REPACK, DLSSNR_WBLOG.");
                     ImGui::TreePop();
                 }
-            }
-        }
-
-        // NR host: daniel or lmxxf. A first switch to lmxxf needs restart when
-        // the game started without its command-list proxy hooks.
-        // Enable NR is the on/off switch — there is no separate "off" host.
-        {
-            using DlssNr::Backend::Kind;
-            using DlssNr::Backend::Request;
-            const Kind active = DlssNr::Backend::ActiveKindFromConfig();
-            Request request;
-            Request runningRequest;
-            {
-                std::lock_guard nrBackendLock(config->NrBackendMutex);
-                const auto rawBackend = config->NrBackend.value_for_config();
-                request = rawBackend.has_value() ? DlssNr::Backend::ParseRequest(*rawBackend)
-                                                 : Request::Auto;
-                runningRequest = config->NrBackend.has_value()
-                    ? DlssNr::Backend::ParseRequest(config->NrBackend.value())
-                    : Request::Auto;
-            }
-            const bool hooksArmed = DlssNr::Submission::Hooks::IsArmed();
-            const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
-            const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
-            // Show the explicit request when there is one, so a fallback (request
-            // lmxxf, running daniel) still lets the user re-assert "daniel".
-            int selected = 0;
-            if (request == Request::Lmxxf)
-                selected = 1;
-            else if (request == Request::Daniel)
-                selected = 0;
-            else
-                selected = (active == Kind::Lmxxf) ? 1 : 0;
-            // lmxxf needs proxy hooks from startup. Without them, pick = next launch only.
-            // Pure mode (NrConvenience=0) does not pre-wrap, so switching away from the
-            // started backend also needs a restart.
-            const bool convenience = config->NrConvenience.value_or_default() != 0;
-            const bool deferLmxxf = selected == 1 && active != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf;
-            auto itemLabel = [&](int i) -> const char* {
-                if (i == 1 && active != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf)
-                    return "lmxxf (after restart)";
-                if (i == 0 && active == Kind::Lmxxf && !convenience)
-                    return "daniel (after restart)";
-                return i == 0 ? "daniel" : "lmxxf";
-            };
-            static const char* items[] = { "daniel", "lmxxf" };
-
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted("Backend");
-            HGap(0.15f);
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
-            if (!hasDaniel && !hasLmxxf)
-                ImGui::BeginDisabled();
-            if (ImGui::BeginCombo("##NrBackend", itemLabel(selected)))
-            {
-                for (int i = 0; i < IM_ARRAYSIZE(items); ++i)
-                {
-                    const bool installed = i == 0 ? hasDaniel : hasLmxxf;
-                    const auto flags = installed ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
-                    if (ImGui::Selectable(itemLabel(i), selected == i, flags))
-                    {
-                        selected = i;
-                        const bool live = convenience && (hooksArmed || active == Kind::Lmxxf || i == 0);
-                        if (!live)
-                        {
-                            std::lock_guard nrBackendLock(config->NrBackendMutex);
-                            config->NrBackend.set_for_next_launch(std::string(items[i]));
-                        }
-                        else
-                        {
-                            {
-                                std::lock_guard nrBackendLock(config->NrBackendMutex);
-                                config->NrBackend = items[i];
-                            }
-                            DlssNr::AmdBridge::SyncBackendWithConfig();
-                        }
-                    }
-                    if (selected == i)
-                        ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            if (!hasDaniel && !hasLmxxf)
-                ImGui::EndDisabled();
-            {
-                char installed[64] {};
-                if (hasDaniel && hasLmxxf)
-                    std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
-                else if (hasDaniel)
-                    std::snprintf(installed, sizeof(installed), "daniel");
-                else if (hasLmxxf)
-                    std::snprintf(installed, sizeof(installed), "lmxxf");
-                else
-                    std::snprintf(installed, sizeof(installed), "none");
-                char tip[768] {};
-                std::snprintf(tip, sizeof(tip),
-                              "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
-                              "\nConvenience on (default): live switch when proxy hooks are armed."
-                              "\nConvenience off: switching backends needs a game restart."
-                              "\nNeeds restart: first switch to lmxxf after a daniel-only"
-                              "\nstart is staged for the next launch. Click Save Settings"
-                              "\nto keep it in OptiScaler.ini. The line below always says"
-                              "\nwhich case you are in."
-                              "\nEnable NR off releases buffers after outstanding work completes."
-                              "\nIf the chosen host is missing its files, the other installed"
-                              "\nhost runs instead."
-                              "\n\nInstalled here: %s",
-                              installed);
-                HelpMarker(tip);
-            }
-            if (!hasDaniel && !hasLmxxf)
-            {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
-                                   "No NR runtime beside OptiScaler (need dlssnr_amd_pass1.dll or LmxxfNrRuntime.dll).");
-            }
-            else if (deferLmxxf)
-            {
-                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                   "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
-            }
-            else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
-                     active == Kind::Daniel && hasLmxxf)
-            {
-                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                   "Restart the game to use lmxxf; daniel remains active now.");
-            }
-            else if (request == Request::Lmxxf && active != Kind::Lmxxf)
-            {
-                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                   "lmxxf not installed; running daniel.");
-            }
-            else if (request == Request::Daniel && active != Kind::Daniel)
-            {
-                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                   "daniel not installed; running lmxxf.");
             }
         }
 
@@ -617,7 +607,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nNot the HDR Paper White control further down."
                                "\nApplies on the next frame. No restart.");
 
-                    if (ImGui::TreeNode("Kernels"))
+                    ImGui::SeparatorText("Kernels");
                     {
                         static char skippedInput[256] {};
                         static std::string skippedLoaded;
@@ -658,15 +648,28 @@ void RenderMenu(Config* config, float menuResScale)
                         HelpMarker("900/1080 tiers with wave-owned attention and pooled allocations. Applies on network rebuild."
                                    "\nUses bounded GPU recovery if the queue times out; incompatible layouts use normal launches.");
                         kernelToggle("C512 M32", config->LmxxfC512M32, CfgKey::C512M32);
-                        kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
                         kernelToggle("Shared buffer pool", config->LmxxfSharedPool, CfgKey::SharedPool);
                         kernelToggle("MH byte stream", config->LmxxfMHByteStream, CfgKey::MHByteStream);
                         kernelToggle("Decoder byte", config->LmxxfDecoderByte, CfgKey::DecoderByte);
+                    }
+
+                    // ViT is one group inside Experimental — separator only, no nested fold.
+                    ImGui::SeparatorText("ViT / image reuse");
+                    {
+                        auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
+                            bool v = opt.value_or_default();
+                            if (ImGui::Checkbox(label, &v))
+                            {
+                                opt = v;
+                                CfgKey::PutEnvAlias(key, v);
+                            }
+                        };
+                        kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
 
                         // ViT stream (0..3) and ViT byte stream cannot both be active.
                         int vitStream = config->LmxxfVitStream.value_or_default();
                         if (vitStream < 0 || vitStream > 3)
-                            vitStream = 0;
+                            vitStream = 3;
                         bool vitByte = config->LmxxfVitByteStream.value_or_default();
                         if (ImGui::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
                         {
@@ -701,15 +704,12 @@ void RenderMenu(Config* config, float menuResScale)
                         }
                         if (vitStream != 0)
                             ImGui::EndDisabled();
-                        HelpMarker("Upstream production kernels. Off restores the previous path."
+                        HelpMarker("Upstream production kernels. Both (3) is the official 0.35+ template default."
+                                   "\nOff restores the previous f32 ViT path."
                                    "\nViT stream and ViT byte stream are mutually exclusive."
                                    "\nEnabling ViT byte stream turns off adaptive reuse."
                                    "\nApplies on the next network rebuild.");
-                        ImGui::TreePop();
-                    }
 
-                    if (ImGui::TreeNode("Image reuse"))
-                    {
                         bool adapt = config->LmxxfVitAdaptive.value_or_default();
                         if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
                         {
@@ -763,7 +763,6 @@ void RenderMenu(Config* config, float menuResScale)
                                    "\nEnabling adaptive reuse turns off ViT byte stream."
                                    "\nStrength sliders are tunable (not bit-exact)."
                                    "\nApplies on the next network rebuild.");
-                        ImGui::TreePop();
                     }
                     ImGui::TreePop();
                 }
@@ -872,8 +871,8 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvAlias(CfgKey::DecoderByte, true);
                     config->LmxxfVitByteStream = false;
                     CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
-                    config->LmxxfVitStream = 0;
-                    CfgKey::PutEnvString(CfgKey::VitStream, "0");
+                    config->LmxxfVitStream = 3;
+                    CfgKey::PutEnvString(CfgKey::VitStream, "3");
                     config->LmxxfVitAdaptive = true;
                     CfgKey::PutEnvAlias(CfgKey::VitAdaptive, true);
                     config->LmxxfVitReusePeriod = 16;
@@ -890,7 +889,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
                 HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
                            "\nPDL on, High resolution on, network tier auto,"
-                           "\n0.31 kernels / shared pool on, ViT byte off,"
+                           "\n0.31 kernels / shared pool on, ViT stream Both (3),"
                            "\nimage reuse on (period 16, global 1, local 50, image 1),"
                            "\nDebug view Off.");
             }

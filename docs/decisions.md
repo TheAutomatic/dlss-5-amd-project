@@ -1,5 +1,23 @@
 # 决策记录
 
+## 09-30 · host Record 是唯一网络 pass，PreUpscale 强制关闭
+
+- **决定**：daniel 路径上由宿主驱动 Record；会话内将 `PreUpscale` 内存置 0（不写回用户 ini）。NR 开关只动 `enabled` 或 shutdown→init，不改变「每帧一次网络」。
+- **原因**：`PreUpscale=1` 时 daniel 的 FSR 挂钩会再拼 Packet 调一次 Record，与 host Record 叠成双跑；`enabled=0` 只是 Record 早退，不释放资源，也不能当热切释放显存。同一帧仍由 `HasUnsubmitted` 限制只有一个未提交 job。
+- **落在**：`AmdPreSr.cpp`（init/Record 内存清 `preUpscale`）；菜单 NR 关闭说明。实现细节不在公开文档展开。
+
+## 09-30 · 热切后偶发 GPU 卡死列为已知问题，不阻塞发版
+
+- **决定**：lmxxf ↔ daniel 热切换路径本身可用（同代码路径连续 1900+ job 正常）；切换后偶发 inline wait 超时 / capture 未落地 / 崩溃，列为已知问题，不作为本次修复项，不阻塞发版。
+- **原因**：同机同包两次对照：一次切换后 1900+ job 正常收尾，一次在 job 9 卡死；崩溃侧先出现 GPU wait 超时，capture 未落地是果不是因。predication 日志两局都有，非触发器。根因未明，样本量不足以支撑定向修复。
+- **落在**：已知问题记录；游戏实测若多次复现再立项。对照日志仅作内部取证，不进 git。
+
+## 09-30 · daniel 模型缓存只能随进程释放
+
+- **决定**：daniel 关 NR 时释放 host 缓冲和 native staging（约 64 MiB + slot 缓冲），但引擎/模型缓存（约 1.4 GB 量级）保留在进程内，不承诺显存归零。同一局内可关闭后重新启用 NR；**要释放模型缓存只能退出游戏进程**，且退出后本局接不回来。
+- **原因**：已由独立调查确认，daniel 的关闭路径只释放 staging，模型分配不在释放路径内；运行库生命周期与进程一致，会话内无法安全卸载；重新初始化也不是幂等的。没有安全的模型释放入口。
+- **落在**：`AmdPreSr.cpp`（日志 `model cache retained`）；菜单 NR 关闭提示。lmxxf 侧不受此限（会话可完整销毁）。取代 09-29 前「关 NR 释放显存」中未区分模型缓存的表述。
+
 ## 09-28 · 已修复问题的旧测量不作为当前限制
 
 - **决定**：帕鲁的秒级卡顿已由 `a129c5f` 修复；保留 `[DlssNr] DLSS5_FIT_LARGE=true` 默认值，不再引用修复前耗时建议降分辨率或关闭 FitLarge。维护者确认目前未发现 FitLarge 仍有问题。

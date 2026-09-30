@@ -245,71 +245,70 @@ jobs:
           generate_release_notes: true
           body: |
             Bug reports with logs are welcome.
+            欢迎附带日志反馈问题。
 
-            ### 1.9.6.3
-            - 修复 Daniel 后端 `amd_bridge.log` 逐帧刷屏：隔离命令列表提示每次启动只记录一次，不改变渲染或提交行为。
-            - Fixes per-frame AMD bridge log spam; the routine batch-isolation message is logged once per process. Rendering and submission behavior are unchanged.
-            - 已有 1.9.6.2 用户只需替换宿主 DLL；runtime、权重及配置可保留。Existing 1.9.6.2 users only need to replace the host DLL.
+            ### 1.9.8.1（相比 1.9.6.3）
 
-            ### 1.9.6.2
-            - lmxxf 自适应复用采用偏性能默认值：period=16 / global=1 / local=50 / image=1，F8 开启。复用可能延迟细节更新；画质优先可改回 4 / 0.22 / 1 / 0.35。
-            - Performance-oriented adaptive reuse defaults: 16 / 1 / 50 / 1, F8 enabled. May delay detail updates; conservative alternative: 4 / 0.22 / 1 / 0.35. Existing explicit ini choices remain effective.
-            - 修复 Daniel 0.5.0 部分 version.dll 的安装和宿主识别失败；两种已核验文件均保留严格 SHA-256 校验。
-            - Accepts both verified Daniel 0.5.0 file variants in the installer and host. No GPU/game testing for this patch.
+            **游戏**
+            - 支持《巫师3》9 月 29 日重制版。
 
-            ### 1.9.6.1
-            - 新增 lmxxf `DLSS5_SKIP_BLOCKS` ini／菜单设置；默认行为不变。
-            - 修复 HIP `.inc` 构建／审阅指纹遗漏，以及 Release 上传中断时附件丢失的问题。
-            - Adds lmxxf skip-block configuration with unchanged defaults, tracks HIP include fragments, and verifies/retries release uploads without deleting published assets.
+            **lmxxf 后端**（权重文件：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)）
+            - **更新至上游 0.37**：多项帧数与性能增强；新增 C256 persistent queue（`DLSS5_HIP_SWIN_RUN`，默认开启，菜单可关）。
+            - **ViT stream 默认 3**（Both，对齐官方 0.35+ 模板；与 ViT byte stream 互斥，故 byte stream 在 stream≠Off 时为灰）。
+            - **自适应 ViT 复用默认 16 / 1 / 50 / 1**（偏性能；静止场景帧数更好，微动场景可能略糊。可在菜单调整；F8 切换复用/全量）。
+            - **一批 NR 稳定性修复并入**：会话释放、重开 NR、切换后端后的回收更干净（不再占用显存）。
 
-            ### 1.9.6 新增（自 1.8.6 以来首个正式版）
+            **danielblnc 后端**（权重 / 运行文件请自行下载：[danielblnc 发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)）
+            - 支持 **danielblnc 0.5.1**（文件布局与启动隔离）。
+            - 运行时识别更稳，安装与启动隔离加强。
+            - Quality：默认 **Reference**（高画质，对齐 NVIDIA 计算）；可改为 **Fast**。Quality 在菜单外层，不必再进 Display 折叠。
 
-            **danielblnc 后端支持更新**
-            - 支持 **danielblnc 0.3.0–0.5.0**（文件布局与启动隔离；请自行下载 daniel 相关权重文件）。
-
-            **新增lmxxf后端支持**（权重文件下载：[lmxxf原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)或[网盘链接](https://gofile.io/d/wRln0Pue)）
-            - **对齐上游更新**：当前已同步至 **0.35** 版。
-            - **9060系列显卡支持**：待更多实机验证。
-            - **性能提升**：大量性能提升，暂未计算百分比。
-            - **修复部分游戏高光泛白与闪屏**（如卧龙 2 demo）：优先用游戏曝光。
-            - **Colour strength**：0–1 保留游戏原色；>1 才向网络色混合。
-            - **NR%**：新增三档可调节 NR 分辨率功能。
-            - **自动曝光**：对帧内未检测到曝光传输的游戏，**Auto exposure** 默认开启；可关掉后使用 **Exposure scale** 手动档。
-            - **增强游戏兼容与 bug 修复**：部分修复兼容更新内容感谢[@OUCO86](https://github.com/OUCO86)
-            - **High resolution**：更新支持超过原生1080p画面输入（4K/2K画面支持使用FSR平衡或以上挡位不再报错）。
-
-            **游戏内菜单**
-            - 菜单布局优化，同步 lmxxf / daniel 功能开关
+            **软件本体**
+            - **双后端热切换**：`OptiScaler.ini` 的 `NrConvenience`（**默认 0**）设为 `1` 时，daniel ↔ lmxxf 可会话内切换；默认只启所选后端，换后端需重启。此开关仅 ini。
+            - **关闭 NR 更干净**：提交完成后释放会话缓冲。
+            - **重开 NR 更快**：无需整段重新加载模型。
+            - **菜单**：Backend 提到 Enable NR 下方；lmxxf 保持 Experimental / Debug 折叠，ViT 用分割线归组（不再套一层）。
+            - **打包 ini 注释补全**：`NrConvenience`、`Quality`、跳块、swin、ViT stream、复用参数等均有说明。
 
             **已知问题**
-            - 以 danielblnc 0.4.3 / 0.5.0 版作为后端时游玩卧龙 2 Demo 可能发生闪退，暂未查明是本侧或上游原因。
-            - 博德之门 3：（未证实是否与 DX11 有关）有时可能需要反复更改游戏内 DLSS 等级，和 Ins 菜单内左上角 DX11 转 DX12 FSR4.1.1 升频器，以使得 NR 功能生效。
+            - **Daniel 模型缓存（约 1.4 GB）** 关 NR 后不会在会话内释放，退出游戏才回收显存；低显存用户若用 Daniel 后端又需关 NR，请保存配置后重启游戏。
+            - 同后端关了再开一般即时生效；`OptiScaler.ini` 下 `NrConvenience=1` 时，跨后端首次切到 lmxxf 在 daniel-only 启动下会记为下次启动（菜单会标明）。`NrConvenience=0` 时无法在游戏中热切换后端。
+            - 热切换在极少数情况下可能触发 GPU 超时/设备移除；如遇到请附日志反馈。
+            - lmxxf 后端下 ViT 复用为有损加速（目前测试肉眼不明显）；要最高画质可把复用关掉或改回 4 / 0.22 / 1 / 0.35。
 
-            ### What's new in 1.9.6 (first stable release since 1.8.6)
+            ### 1.9.8.1 (compared to 1.9.6.3)
 
-            **danielblnc backend update**
-            - Supports **danielblnc 0.3.0–0.5.0** (file layout and startup isolation; please download the daniel weights/files yourself).
+            **Games**
+            - Adds support for The Witcher 3 September 29 remaster.
 
-            **New lmxxf backend** (weight files: [lmxxf upstream](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [cloud drive](https://gofile.io/d/wRln0Pue))
-            - **Upstream alignment**: currently synced to **0.35**.
-            - **9060-series GPU support**: more real-hardware testing still needed.
-            - **Performance**: major performance gains; exact percentage not measured yet.
-            - **Fixes blown highlights and flicker in some games** (e.g. Wo Long 2 demo): uses game exposure first.
-            - **Colour strength**: 0–1 keeps the game colour; above 1 mixes toward network colour.
-            - **NR%**: new three-level adjustable NR resolution.
-            - **Auto exposure**: when the game does not transmit exposure in-frame, **Auto exposure** is on by default; turn it off to use **Exposure scale**.
-            - **Better game compatibility & bug fixes**: some compatibility fixes unverified — thanks [@OUCO86](https://github.com/OUCO86)
-            - **High resolution**: now accepts color input above native 1080p (4K/2K with FSR Balanced or higher no longer errors).
+            **lmxxf backend** (weight files: [lmxxf upstream](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [cloud drive](https://gofile.io/d/wRln0Pue))
+            - **Synced to upstream 0.37**: framerate/perf improvements; new C256 persistent queue (`DLSS5_HIP_SWIN_RUN`, on by default, toggle in menu).
+            - **ViT stream defaults to 3** (Both, official 0.35+ template). Mutually exclusive with ViT byte stream (greyed while stream != Off).
+            - **Adaptive ViT reuse defaults to 16 / 1 / 50 / 1** (FPS-oriented; better on still scenes, slightly softer on subtle motion. Adjustable in menu; F8 toggles reuse/full).
+            - **A batch of NR stability fixes**: cleaner session release, NR re-enable, and teardown after backend switches (no longer holds VRAM).
 
-            **In-game menu**
-            - Menu layout cleanup with lmxxf / daniel feature toggles
+            **danielblnc backend** (download the daniel runtime/weights yourself: [danielblnc releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases))
+            - Supports **danielblnc 0.5.1** (file layout and startup isolation).
+            - More robust runtime identification; stronger install/startup isolation.
+            - Quality: **Reference** by default (NVIDIA-exact); switch to **Fast** if needed. Quality is at the menu top level, not under Display.
+
+            **App**
+            - **Dual-backend hot switching**: `NrConvenience` in `OptiScaler.ini` (**default 0**). Set `1` for in-session daniel <-> lmxxf switching; default starts only the selected backend (restart to switch). Ini-only control.
+            - **Cleaner NR off**: session buffers released after submitted work finishes.
+            - **Faster NR re-enable**: no full model reload.
+            - **Menu**: Backend near Enable NR; lmxxf keeps Experimental / Debug folds; ViT grouped with separators (no extra nested fold).
+            - **Packaged ini comments** cover `NrConvenience`, `Quality`, skip blocks, swin, ViT stream, reuse knobs.
 
             **Known issues**
-            - Using danielblnc 0.4.3 / 0.5.0 as the backend may crash in the Wo Long 2 Demo; not yet determined whether this project or the upstream backend is at fault.
-            - Baldur's Gate 3: (not confirmed whether this is DX11-related) you may sometimes need to toggle the in-game DLSS quality level and the Ins-menu top-left DX11-to-DX12 FSR 4.1.1 upscaler back and forth before NR takes effect.
+            - **The Daniel model cache (~1.4 GB)** is not released in-session when NR is off; VRAM is reclaimed only on game exit. On low-VRAM GPUs, if you use the Daniel backend and turn NR off, save settings and restart the game.
+            - Same-backend NR off->on is usually immediate; with `NrConvenience=1` in `OptiScaler.ini`, the first switch to lmxxf after a daniel-only start is staged for the next launch (the menu shows this). With `NrConvenience=0`, backends cannot be hot-switched in-game.
+            - Hot switching can very rarely cause a GPU timeout / device removed; please attach logs if you hit it.
+            - Adaptive ViT reuse on the lmxxf backend is a lossy speedup (visually minor in current tests); for maximum quality, turn reuse off or use 4 / 0.22 / 1 / 0.35.
 
+            本压缩包不含 NVIDIA 专有二进制、danielblnc 安装包或未授权模型权重。
             No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
 
+            说明见包内 README。
             See README inside the zip.
 
       - name: Upload release asset with verified retries

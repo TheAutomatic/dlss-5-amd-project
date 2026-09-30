@@ -268,7 +268,7 @@ inline constexpr AmdLayout kAmd041 {
     0xaa45c, 0xaa19c
 };
 
-// 0.4.2: Quality=fast|reference (default fast; RX 7000 runs reference). 15% Fast vs 0.4.1.
+// 0.4.2: Quality=fast|reference (product default reference; RX 7000 runs reference). 15% Fast vs 0.4.1.
 inline constexpr AmdLayout kAmd042 {
     "0.4.2",
     12981760,
