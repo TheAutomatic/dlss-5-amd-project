@@ -50,6 +50,7 @@
 - `r10g10b10a2.patch`：`src/native_lab_paths.h` 接受 R10G10B10A2 颜色输入（Horizon）。基于同一提交。
 - `typeless-float16.patch`：在前述格式补丁之后，为 `R16G16B16A16_TYPELESS` 增加产品可选的 FLOAT 解释，默认仍为上游的 UNORM。
 - `codec-hue-safe-preexp.patch`：在 `auto-white.patch` 之后，补齐编码/解码共用的主机 pre-exposure 回退，以及解码端保留游戏色相的 ColorStrength 混合。必须包含从原始快照到产品源码所需的完整改动，不能依赖未由前序补丁生成的中间版本。
+- `shader-compile-system32.patch`：私有加载绝对 System32 编译器并验证模块/符号来源；线程安全绑定供内存、文件和 blob 入口共用。缓存按编译器身份、目标及 flags 隔离；仅在明确 X3506 target 拒绝且宏组合通过生产着色器对照时降级到 cs_5_0。原始输入仍为 snapshot.json 中固定的 native_shader_cache.h，回归包含旧同名 DLL 预载、冷/热缓存、include、错误注入与 WARP 输出对照。
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
 

@@ -1104,8 +1104,8 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
 }
 )";
         ID3DBlob *code = nullptr, *errors = nullptr;
-        HRESULT hr = D3DCompile(kSource, sizeof kSource - 1, "lmxxf-exposure-meter", nullptr, nullptr, "main",
-                                "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
+        HRESULT hr = NativeCompileShaderBlob(kSource, sizeof kSource - 1, "lmxxf-exposure-meter", nullptr,
+                                             nullptr, "main", &code, &errors, "cs_5_0");
         if (errors)
             errors->Release();
         if (FAILED(hr) || !code)

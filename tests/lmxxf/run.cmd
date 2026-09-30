@@ -50,6 +50,7 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
+call tests\lmxxf\shader-compiler.cmd "%OUT%\shader-compiler" || goto fail
 %CXX% /I"%INC%" tests\lmxxf\lmxxf_same_frame_boundary.cpp /Fe"%OUT%\lmxxf_same_frame_boundary.exe" /Fo"%OUT%\lmxxf_same_frame_boundary.obj" /link %D3D% d3dcompiler.lib "%DETOURS%" || goto fail
 "%OUT%\lmxxf_same_frame_boundary.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_color_probe.cpp /Fe"%OUT%\lmxxf_color_probe.exe" /Fo"%OUT%\lmxxf_color_probe.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
