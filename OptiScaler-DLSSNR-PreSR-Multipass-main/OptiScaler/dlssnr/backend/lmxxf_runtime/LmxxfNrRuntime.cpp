@@ -2170,16 +2170,18 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             }
         }
-        // No usable game exposure: meter the colour ourselves when the host asks for it. The
-        // metered value already includes whatever pre-exposure the game baked into the colour,
-        // so the game scalars must not be applied on top of it.
+        // No usable game exposure: meter the colour ourselves when the host asks for it.
+        // Keep the host pre-exposure: the codec path is exposure = meter * scale / pre, so
+        // pre undoes the game's baked-in pre-immediately. Forcing pre=1 made the meter
+        // absorb it instead; when pre jumps (this title moves 1.0..2.7 per frame) a slow
+        // meter cannot keep up and the encode shoulder turns that into highlight flicker.
+        // scale stays 1 here (no game scale texture on this path).
         bool frameAutoExposure = false;
         if (!frameExposure && (info->flags & LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE))
         {
             frameAutoExposure = session->meter.Ensure(session->device);
             if (frameAutoExposure)
             {
-                framePreExposure = 1.0f;
                 frameExposureScale = 1.0f;
             }
             else
