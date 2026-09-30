@@ -377,6 +377,7 @@ class Config
     CustomOptional<std::string> LmxxfSkipBlocks { CfgKey::kDefaultSkipBlocks };
     // 0.31 kernels / shared pool (bit-exact per upstream). ini name == env name.
     CustomOptional<bool> LmxxfWaveOwned { true };
+    CustomOptional<bool> LmxxfSwinRun { true };
     CustomOptional<bool> LmxxfC512M32 { true };
     CustomOptional<bool> LmxxfVitProjN64 { true };
     CustomOptional<bool> LmxxfSharedPool { true };

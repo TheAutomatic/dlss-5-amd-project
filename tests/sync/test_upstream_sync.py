@@ -332,7 +332,7 @@ class SyncTests(Fixture):
         self.assert_failed(result)
         self.assertIn('HIP recipes/defines changed', result.stdout)
 
-    def test_include_change_requires_modules_after_a_verified_baseline(self):
+    def establish_verified_recipe_baseline(self):
         # Establish a synthetic baseline for the actual fingerprint implementation.
         baseline = self.sync()
         self.assertEqual(baseline.returncode, 0, baseline.stdout)
@@ -341,19 +341,35 @@ class SyncTests(Fixture):
         write(script, ". '" + str(self.config / 'Modules.ps1').replace("'", "''") + "'\n"
               + "(Get-TreeFingerprint '" + str(self.vendor / 'hip').replace("'", "''")
               + "' @('*.hip','*.inc','build-modules.ps1','rtc_compile.cpp')) + ':' + "
-              + "(Get-FileSha256Hex '" + str(self.config / 'module-defines.json').replace("'", "''") + "')\n")
+              + "(Get-FileSha256Hex '" + str(self.config / 'module-defines.json').replace("'", "''") + "')"
+              + ''.join(" + ':" + header + ":' + (Get-FileSha256Hex '"
+                        + str(self.vendor / header).replace("'", "''") + "')"
+                        for header in audit.read_json(self.config / 'manifest.json').get('module_headers', [])) + "\n")
         fp = subprocess.check_output([PS, '-NoProfile', '-File', str(script)], text=True).strip()
         state = audit.read_json(state_path)
         state['recipes_verified'] = fp
         write(state_path, json.dumps(state))
         self.assertEqual(self.sync(allow_stale=False).returncode, 0)
         self.pin_before = (self.vendor / 'UPSTREAM.md').read_bytes()
+
+    def test_include_change_requires_modules_after_a_verified_baseline(self):
+        self.establish_verified_recipe_baseline()
         write(self.up / 'hip/active.inc', '// changed include body\n')
         commit(self.up)
         result = self.sync(allow_stale=False)
         self.assert_failed(result)
         self.assertIn('HIP recipes/defines changed', result.stdout)
         self.assert_failed(self.sync(allow_stale=False))
+
+    def test_canonical_module_header_requires_rebuild(self):
+        self.establish_verified_recipe_baseline()
+        # Even with untouched HIP source files, the by-value host/device ABI is a recipe input.
+        path = self.up / 'Development/HIP/swin_persistent_types.h'
+        write(path, path.read_text(encoding='utf-8') + '\n// changed canonical ABI input\n')
+        commit(self.up)
+        result = self.sync(allow_stale=False)
+        self.assert_failed(result)
+        self.assertIn('HIP recipes/defines changed', result.stdout)
 
     def test_runtime_build_failure_does_not_complete(self):
         write(self.local / 'tools/build-lmxxf-runtime.cmd', '@exit /b 23\n')

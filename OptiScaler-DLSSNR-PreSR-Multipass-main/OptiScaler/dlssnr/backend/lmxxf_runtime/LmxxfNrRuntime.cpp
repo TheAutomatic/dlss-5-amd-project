@@ -390,7 +390,7 @@ bool CachedFileSha256(const std::wstring &path, std::string *outHex)
     return true;
 }
 
-static const char *const kKnownModuleNames[30] = {
+static const char *const kKnownModuleNames[31] = {
     "boundary-fast.hsaco",
     "boundary_reference.hsaco",
     "c32_fast.hsaco",
@@ -421,6 +421,7 @@ static const char *const kKnownModuleNames[30] = {
     "vit-wide-deep.hsaco",
     "wave-pointwise.hsaco",
     "vit-stream.hsaco",
+    "swin-persistent.hsaco",
 };
 
 bool IsKnownModuleName(const std::string &name)
@@ -854,10 +855,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
 
     if (isDualArch)
     {
-        if (count1200 != 30 || count1201 != 30 || rootMap.size() != 60)
+        if (count1200 != 31 || count1201 != 31 || rootMap.size() != 62)
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: dual-architecture SHA256SUMS incomplete (expected 30 gfx1200 and 30 gfx1201 entries)");
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 31 gfx1200 and 31 gfx1201 entries)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -967,7 +968,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
                                 ("Create: leaf SHA256SUMS mismatch with root for " + rootKey).c_str());
                 }
             }
-            if (leafMap.size() != 30)
+            if (leafMap.size() != 31)
             {
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             ("Create: leaf SHA256SUMS incomplete for " + std::string(arch)).c_str());
@@ -976,10 +977,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
     }
     else
     {
-        if (rootMap.size() != 30)
+        if (rootMap.size() != 31)
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: SHA256SUMS incomplete (expected 30 hsaco modules)");
+                        "Create: SHA256SUMS incomplete (expected 31 hsaco modules)");
         }
         for (const char *known : kKnownModuleNames)
         {

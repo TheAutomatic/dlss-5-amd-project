@@ -654,6 +654,9 @@ void RenderMenu(Config* config, float menuResScale)
                             }
                         };
                         kernelToggle("Wave-owned attention", config->LmxxfWaveOwned, CfgKey::WaveOwned);
+                        kernelToggle("C256 persistent queue", config->LmxxfSwinRun, CfgKey::SwinRun);
+                        HelpMarker("900/1080 tiers with wave-owned attention and pooled allocations. Applies on network rebuild."
+                                   "\nUses bounded GPU recovery if the queue times out; incompatible layouts use normal launches.");
                         kernelToggle("C512 M32", config->LmxxfC512M32, CfgKey::C512M32);
                         kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
                         kernelToggle("Shared buffer pool", config->LmxxfSharedPool, CfgKey::SharedPool);
@@ -855,6 +858,8 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::SkipBlocks, CfgKey::kDefaultSkipBlocks);
                     config->LmxxfWaveOwned = true;
                     CfgKey::PutEnvAlias(CfgKey::WaveOwned, true);
+                    config->LmxxfSwinRun = true;
+                    CfgKey::PutEnvAlias(CfgKey::SwinRun, true);
                     config->LmxxfC512M32 = true;
                     CfgKey::PutEnvAlias(CfgKey::C512M32, true);
                     config->LmxxfVitProjN64 = true;

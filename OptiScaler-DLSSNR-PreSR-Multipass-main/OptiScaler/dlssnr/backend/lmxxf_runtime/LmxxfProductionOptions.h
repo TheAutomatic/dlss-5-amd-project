@@ -72,6 +72,7 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.mh_feature_byte = o.mh_proj_diag_fb = o.mh_byte_stream = o.decoder_byte = o.mh_ffn_frag256 = true;
     /* 0.31 kernels (bit-exact). DLSS5_HIP_WAVE_OWNED / C512_M32 / VIT_PROJ_N64=0 turns each off. */
     o.wave_owned = true;
+    o.swin_run = true;
     o.c512_m32 = true;
     o.vit_proj_n64 = true;
     /* Same getenv parser as add-on / RE9; overrides the defaults above. */

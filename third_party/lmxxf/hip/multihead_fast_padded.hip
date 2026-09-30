@@ -425,6 +425,23 @@ FASTWAVE void mh_qkv_normalize_frag_c512(const unsigned char*in8,const float*w,u
 // (PackedMhWeightQkvFrag, region after the QKV rows), no LDS. Residual, epilogue (post 0 -> F(Hrtz), 3 -> Hrtz, 4 -> F)
 // and the crop mapping follow fast_dense<ByteInput,Crop> with matrix_residual=0 exactly.
 FASTWAVE void mh_attention_project_frag_c512(const unsigned char*av8,const float*feature,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){
+#if C512_PROJ_M32
+ // M32 weight sharing (default 0): same host grid (tokens/16*8 waves) and ABI; wave b handles token tiles 2*(b/8) and
+ // 2*(b/8)+1, so the upper half of the grid returns at once. Each K16 weight fragment feeds both tiles' WMMAs; every
+ // accumulator keeps the old init (Hrtz(feature*scale), scale read once per column), K order, operands and epilogue.
+ const uint C=512;uint l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4,block=__builtin_amdgcn_workgroup_id_x(),first=block/8*32,col=block%8*64;if(first>=tokens)return;
+ const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
+ f8 acc[2][4];
+ for(uint n=0;n<4;n++){uint c=col+n*16+rc;float scale=w[skip+c];
+  for(uint m=0;m<2;m++)for(uint e=0;e<8;e++){uint p=first+m*16+g*8+e;acc[m][n][e]=p<tokens?Hrtz(feature[p*C+c]*scale):0.f;}}
+ bool live0=first+rc<tokens,live1=first+16+rc<tokens;const unsigned char*arow0=av8+(first+rc)*C+g*8,*arow1=arow0+16*C;
+ for(uint k=0;k<C;k+=32){uint gs=k/32;
+  for(uint h=0;h<2;h++){i2 a0{},a1{};if(live0)__builtin_memcpy(&a0,arow0+k+h*16,8);if(live1)__builtin_memcpy(&a1,arow1+k+h*16,8);
+   for(uint n=0;n<4;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);
+    acc[0][n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a0,b,acc[0][n]);acc[1][n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a1,b,acc[1][n]);}}}
+ for(uint m=0;m<2;m++)for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+m*16+g*8+e,c=col+n*16+rc;if(p>=tokens)continue;float a=acc[m][n][e],v=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));uint dest=p*C+c;
+  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}out[dest]=v;}
+#else
  const uint C=512;uint l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4,block=__builtin_amdgcn_workgroup_id_x(),first=block/8*16,col=block%8*64;if(first>=tokens)return;
  const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
  f8 acc[4];
@@ -444,6 +461,7 @@ FASTWAVE void mh_attention_project_frag_c512(const unsigned char*av8,const float
    for(uint n=0;n<4;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[n]);}}}
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+n*16+rc;if(p>=tokens)continue;float a=acc[n][e],v=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));uint dest=p*C+c;
   if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}out[dest]=v;}
+#endif
 }
 
 // One wave per pixel/head. Read every channel coalesced, but preserve the
@@ -604,6 +622,9 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c
 KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c256_tiled_project_mapped_g128(const float*in,const float*w,unsigned char*out,uint tokens,uint width,uint height,uint workw,uint sx,uint sy){mh_ffn_fused_body<256,true,true,true,true>(in,w,out,tokens,width,height,workw,sx,sy);}
 
 // Byte result of q8(F(x)), preserving canonical zero and signed saturation.
+#ifndef C512_PROJ_M32
+#define C512_PROJ_M32 0 /* 2026-09-29 candidate: mh_attention_project_frag_c512 two token tiles share each weight fragment (same grid/ABI) */
+#endif
 #ifndef HIP_C512_HOIST_RES
 #define HIP_C512_HOIST_RES 0 /* 1: mh_attention_project_frag_c512 residual init loads hoisted out of the p<tokens condition */
 #endif

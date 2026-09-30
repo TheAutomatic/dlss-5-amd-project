@@ -5,6 +5,8 @@
     "Development/HIP/hip_d3d12_bridge.h",
     "Development/HIP/hip_device_properties.h",
     "Development/HIP/hip_reference_network.h",
+    "Development/HIP/swin_persistent_network.h",
+    "Development/HIP/swin_persistent_types.h",
     "Development/HIP/packed_weights.h",
     "src/native_device_identity.h",
     "src/native_game_codec.h",
@@ -21,6 +23,7 @@
     "src/native_hip_env_options.h",
     "src/native_frame_stats.h"
   ],
+  "module_headers": ["Development/HIP/swin_persistent_types.h"],
   "pinned": [
     {
       "path": "Development/HIP/hip_d3d12_bridge.h",

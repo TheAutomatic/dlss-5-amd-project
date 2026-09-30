@@ -1,8 +1,8 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `c0a61968874e438ca3f887506f09c185ce378020` (synced 2026-09-29)
-- **0.36 + 2026-09-29** dual-arch modules (30/30) rebuilt from `hip/build-modules.ps1` at this pin: FMA activations, C256/C512/ViT fusion, `C512_COMPACT_QKV_ATTN`/`C512_FUSED_QKV_ATTN`/`C512_HEAD_GROUP`, `HIP_VIT_ATTN_TRANSPOSED_SCORE`, `CW_UP_FUSED`/`W2_UP_FUSED`. FMA is an intentional numerical baseline change (328e1081). Direct I/O and FRAME_STATS sources follow for compile completeness; product wiring deferred.
+- Commit: `c809efb0ea2960f148624730898da61b8fb55a45` (synced 2026-09-30)
+- **0.37** dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin: 0.36 FMA/fusion stack plus ViT attention macros (`HIP_VIT_ATTN_NATIVE_HALF`/`PROB_PAIR`/`TRANSPOSED_AV`, `HIP_VIT_QKV_W5`) and the new `swin-persistent` module (`HIP_SWIN_PERSISTENT_KERNELS`). Contract is 31 per arch / 62 dual. SWIN_RUN is product-wired (default on; `DLSS5_HIP_SWIN_RUN` overrides; missing hsaco forces off). C128/C64 persistent and hand-off polling stay off (upstream negative). FMA remains an intentional numerical baseline change (328e1081). Direct I/O and FRAME_STATS still deferred.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
