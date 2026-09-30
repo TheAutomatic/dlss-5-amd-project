@@ -501,7 +501,8 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 {
     // RecordInputs writes into the game's command list. If the cut then fails we cannot
     // take those commands back, and the list ships half-populated (DEVICE_HUNG). Refuse
-    // before recording when the cut is already impossible.
+    // before recording when the cut is already impossible, and pre-allocate the
+    // continuation so alloc failure cannot land after RecordInputs.
     {
         DlssNr::Submission::ILogicalCommandList *probe = nullptr;
         if (SUCCEEDED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
@@ -513,12 +514,24 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
             char whyBuf[256] {};
             if (const char *r = probe->SplitRejectionReason())
                 std::strncpy(whyBuf, r, sizeof(whyBuf) - 1);
-            probe->Release();
             if (blocked)
             {
+                probe->Release();
                 char status[384] {};
                 std::snprintf(status, sizeof status, "lmxxf: split blocked before record: %s (NO NR)",
                               whyBuf[0] ? whyBuf : "unknown");
+                SetStatus(status);
+                api->table.CancelUnsubmitted(session, jobHandle);
+                return nullptr;
+            }
+            const HRESULT reserveHr = probe->ReserveSplitSegments();
+            probe->Release();
+            if (FAILED(reserveHr))
+            {
+                char status[384] {};
+                std::snprintf(status, sizeof status,
+                              "lmxxf: split reserve failed before record: hr=%08X %s (NO NR)",
+                              static_cast<unsigned>(reserveHr), whyBuf[0] ? whyBuf : "eligible");
                 SetStatus(status);
                 api->table.CancelUnsubmitted(session, jobHandle);
                 return nullptr;

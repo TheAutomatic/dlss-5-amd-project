@@ -190,17 +190,19 @@ class LogicalList
         return S_OK;
     }
 
-    HRESULT Split(bool needsList4 = false)
+    // Allocate continuation without closing the producer. Call before any host
+    // RecordInputs so a later alloc failure cannot leave a half-populated game list.
+    HRESULT ReserveContinuation(bool needsList4 = false)
     {
         if (phase != Phase::RecordingProducer || !device || !producer)
             return E_UNEXPECTED;
-        // Allocate before closing the producer: allocation failure must leave recording usable.
+        if (contAlloc || continuation)
+            return S_OK;
         ID3D12CommandAllocator *nextAlloc = nullptr;
         ID3D12GraphicsCommandList *nextList = nullptr;
         HRESULT hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&nextAlloc));
         if (FAILED(hr))
             return hr;
-        // Continuation must be a real list, not another proxy (hook re-entrancy).
         SuppressProxyWrap suppress;
         hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, nextAlloc, nullptr,
                                        IID_PPV_ARGS(&nextList));
@@ -209,27 +211,37 @@ class LogicalList
             nextAlloc->Release();
             return hr;
         }
-        // Check before closing the producer: failure must preserve a usable list.
         if (needsList4)
         {
             ID3D12GraphicsCommandList4 *l4 = nullptr;
             hr = nextList->QueryInterface(IID_PPV_ARGS(&l4));
             if (FAILED(hr) || !l4)
             {
-                nextList->Release(); nextAlloc->Release();
+                nextList->Release();
+                nextAlloc->Release();
                 return FAILED(hr) ? hr : E_NOINTERFACE;
             }
             l4->Release();
         }
-        hr = producer->Close();
-        if (FAILED(hr))
-        {
-            nextList->Release();
-            nextAlloc->Release();
-            return hr;
-        }
         contAlloc = nextAlloc;
         continuation = nextList;
+        return S_OK;
+    }
+
+    HRESULT Split(bool needsList4 = false)
+    {
+        if (phase != Phase::RecordingProducer || !device || !producer)
+            return E_UNEXPECTED;
+        // Prefer a pre-reserved continuation so Close is the only remaining failure.
+        const HRESULT reserveHr = ReserveContinuation(needsList4);
+        if (FAILED(reserveHr))
+            return reserveHr;
+        const HRESULT hr = producer->Close();
+        if (FAILED(hr))
+        {
+            // Keep reserved continuation for a retry; producer is still recording.
+            return hr;
+        }
         phase = Phase::RecordingContinuation;
         split = true;
         return S_OK;
