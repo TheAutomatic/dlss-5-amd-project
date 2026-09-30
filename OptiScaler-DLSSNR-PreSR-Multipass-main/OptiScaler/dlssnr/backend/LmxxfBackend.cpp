@@ -499,6 +499,29 @@ bool LmxxfBackend::NoteEnqueueRecoveries()
 ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle,
                                            void *privateOutput)
 {
+    // RecordInputs writes into the game's command list. If the cut then fails we cannot
+    // take those commands back, and the list ships half-populated (DEVICE_HUNG). Refuse
+    // before recording when the cut is already impossible.
+    {
+        DlssNr::Submission::ILogicalCommandList *probe = nullptr;
+        if (SUCCEEDED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                reinterpret_cast<void **>(&probe))) &&
+            probe)
+        {
+            const bool blocked = probe->IsSplitIneligible();
+            const char *why = probe->SplitRejectionReason();
+            probe->Release();
+            if (blocked)
+            {
+                char status[384] {};
+                std::snprintf(status, sizeof status, "lmxxf: split blocked before record: %s (NO NR)",
+                              why ? why : "unknown");
+                SetStatus(status);
+                api->table.CancelUnsubmitted(session, jobHandle);
+                return nullptr;
+            }
+        }
+    }
     if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
         api->table.CancelUnsubmitted(session, jobHandle);
@@ -509,7 +532,19 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     if (FAILED(splitHr) || splitHr == S_FALSE)
     {
         api->table.CancelUnsubmitted(session, jobHandle);
-        SetStatus(FAILED(splitHr) ? "lmxxf: Split failed" : "lmxxf: Split returned S_FALSE");
+        const char *why = "not-our-proxy";
+        DlssNr::Submission::ILogicalCommandList *probe = nullptr;
+        if (SUCCEEDED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                reinterpret_cast<void **>(&probe))) &&
+            probe)
+        {
+            why = probe->SplitRejectionReason();
+            probe->Release();
+        }
+        char status[384] {};
+        std::snprintf(status, sizeof status, "lmxxf: Split failed hr=%08X reason=%s",
+                      static_cast<unsigned>(splitHr), why ? why : "unknown");
+        SetStatus(status);
         return nullptr;
     }
     if (api->table.RecordOutputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)

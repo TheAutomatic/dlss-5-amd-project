@@ -740,7 +740,6 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT numPost,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post) override
     {
-        MarkSplitIneligible("rtas");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->BuildRaytracingAccelerationStructure(desc, numPost, post);
@@ -751,7 +750,6 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT numSrc,
         const D3D12_GPU_VIRTUAL_ADDRESS *src) override
     {
-        MarkSplitIneligible("rtas");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->EmitRaytracingAccelerationStructurePostbuildInfo(desc, numSrc, src);
@@ -762,7 +760,6 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                                                                D3D12_GPU_VIRTUAL_ADDRESS src,
                                                                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) override
     {
-        MarkSplitIneligible("rtas");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->CopyRaytracingAccelerationStructure(dst, src, mode);

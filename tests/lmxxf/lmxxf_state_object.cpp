@@ -180,7 +180,7 @@ int main(int argc, char **argv)
     snapshot.Reset(); Require(!snapshot.stateObject && !snapshot.pso, "reset releases pipelines");
     CommandListProxy guard;
     guard.BuildRaytracingAccelerationStructure(nullptr, 0, nullptr);
-    Require(guard.IsSplitIneligible() && std::strstr(guard.SplitRejectionReason(), "rtas"), "RTAS remains fail-closed");
+    Require(!guard.IsSplitIneligible(), "AS-build no longer blocks the cut (RT+NR coexist)");
     if (info)
     {
         for (UINT64 i = 0; i < info->GetNumStoredMessages(); ++i)
@@ -197,5 +197,5 @@ int main(int argc, char **argv)
         }
     }
     CloseHandle(event);
-    std::puts("lmxxf_state_object: PASS (8 DXR/compute cuts, both binding orders, Reset/ClearState, GPU readback, RTAS guard)");
+    std::puts("lmxxf_state_object: PASS (8 DXR/compute cuts, both binding orders, Reset/ClearState, GPU readback, AS-build split allowed)");
 }
