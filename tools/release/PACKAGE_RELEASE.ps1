@@ -1,8 +1,8 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.9.7
-    1.9.7  = this fork's product version
+  Default product: OptiScaler-AMD-PreSR-1.9.8
+    1.9.8  = this fork's product version
     0.3.0–0.5.0 = supported danielblnc runtime
     lmxxf  = supported lmxxf HIP neural rendering runtime
 
@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.9.7',
+    [string]$Version = '1.9.8',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',

@@ -23,10 +23,11 @@ class ModulePackageTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / 'tools/release').mkdir(parents=True)
+        (self.root / 'tools/lmxxf-sync').mkdir(parents=True)
         for name in ('release/PACKAGE_RELEASE.ps1', 'install-amd-presr.ps1', 'uninstall-amd-presr.ps1',
                      'lmxxf-module-package.ps1', 'stage-lmxxf-beside-optiscaler.cmd',
                      'stage-lmxxf-beside-optiscaler.ps1', 'release/check-module-contract.ps1',
-                     'release/check-release-freshness.ps1'):
+                     'release/check-release-freshness.ps1', 'lmxxf-sync/manifest.json'):
             shutil.copy2(REPO / 'tools' / name, self.root / 'tools' / name)
         # Both real gates run against this synthetic checkout. Carry their source inputs
         # along with the entrypoint instead of replacing a new gate with a success stub.
@@ -34,6 +35,8 @@ class ModulePackageTests(unittest.TestCase):
             'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrRuntime.cpp',
             'tests/lmxxf/lmxxf_nr_abi.cpp', 'tests/lmxxf/test_runtime_validation.py', 'tests/_lib/lmxxf_fixtures.py',
             'third_party/lmxxf/hip/build-modules.ps1',
+            # module_headers listed in tools/lmxxf-sync/manifest.json; freshness fingerprints them.
+            'third_party/lmxxf/Development/HIP/swin_persistent_types.h',
         ):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -80,7 +83,7 @@ class ModulePackageTests(unittest.TestCase):
         extracted = self.root / 'extracted'
         with zipfile.ZipFile(self.archive) as archive:
             entries = archive.namelist()
-            self.assertEqual(sum(p.endswith('.hsaco') for p in entries), 60)
+            self.assertEqual(sum(p.endswith('.hsaco') for p in entries), 62)
             self.assertIn('lmxxf-module-package.ps1', entries)
             archive.extractall(extracted)
         game = self.root / 'game'
