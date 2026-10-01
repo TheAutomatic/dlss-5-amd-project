@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AmdBridge.h"
+#include "../DiagnosticLog.h"
 #include "AwaitingListTracker.h"
 #include "../submission/SubmissionTls.h"
 #include "AmdPreSr.h"
@@ -68,10 +69,10 @@ std::unordered_set<ID3D12CommandList*> observedLists;
 void Message(const char* s)
 {
     std::lock_guard l(messageMutex);
-    if (*s && message != s)
+    if (*s && message != s && Config::Instance()->LogToFile.value_or_default())
     {
-        std::ofstream log(Util::DllPath().parent_path() / L"amd_bridge.log", std::ios::app);
-        log << GetTickCount64() << " thread=" << GetCurrentThreadId() << " " << s << '\n';
+        DlssNr::Diagnostics::Append(Util::DllPath().parent_path() / L"amd_bridge.log",
+            std::to_string(GetTickCount64()) + " thread=" + std::to_string(GetCurrentThreadId()) + " " + s);
     }
     message = s;
 }

@@ -1,4 +1,5 @@
 #include "AmdPreSr.h"
+#include "../DiagnosticLog.h"
 #include "AmdLayout.h"
 #ifdef AMD_RETIRE_DIAGNOSTICS
 #include "RetirementDiagnostics.h"
@@ -563,15 +564,22 @@ struct Backend::Impl
 #ifdef AMD_RETIRE_DIAGNOSTICS
     RetirementDiagnostics diagnostics;
 #endif
+    DlssNr::Diagnostics::RepeatGate historyLog, refusalLog;
     void LogDiagnostic(const std::string& s) const
     {
-        std::ofstream out(directory / L"amd_presr.log", std::ios::app);
-        out << GetTickCount64() << " " << s << '\n';
+        if (Config::Instance()->LogToFile.value_or_default())
+            DlssNr::Diagnostics::Append(directory / L"amd_presr.log", std::to_string(GetTickCount64()) + " " + s);
     }
     void Log(const std::string& s)
     {
         status = s;
         LogDiagnostic(s);
+    }
+    void LogRepeated(DlssNr::Diagnostics::RepeatGate& gate, const std::string& s, uint64_t key = 0)
+    {
+        status = s;
+        if (gate.Allow(GetTickCount64(), key))
+            LogDiagnostic(s + " suppressed=" + std::to_string(gate.TakeSuppressed()));
     }
     void TraceBoundary(const std::string& reason)
     {
@@ -1657,11 +1665,14 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         const bool gap = p->lastSubmitted && GetTickCount64() - p->lastSubmitted > 250;
         if (f.reset || resize || guideChange || passChange || p->resetAfterTimeout || settingsChanged || explicitReset || gap)
         {
-            p->Log("AMD history reset: frame=" + std::to_string(p->frames) +
+            p->LogRepeated(p->historyLog, "AMD history reset: frame=" + std::to_string(p->frames) +
                    " game=" + std::to_string(f.reset) + " resize=" + std::to_string(resize) +
                    " guides=" + std::to_string(guideChange) + " passes=" + std::to_string(passChange) +
                    " timeout=" + std::to_string(p->resetAfterTimeout) + " settings=" + std::to_string(settingsChanged) +
-                   " explicit=" + std::to_string(explicitReset) + " gap=" + std::to_string(gap));
+                   " explicit=" + std::to_string(explicitReset) + " gap=" + std::to_string(gap),
+                   uint64_t(bool(f.reset)) | (uint64_t(resize) << 1) | (uint64_t(guideChange) << 2) |
+                   (uint64_t(passChange) << 3) | (uint64_t(p->resetAfterTimeout) << 4) |
+                   (uint64_t(settingsChanged) << 5) | (uint64_t(explicitReset) << 6) | (uint64_t(gap) << 7));
         }
         for (UINT i = 0; i < p->activePasses; ++i)
         {
@@ -1895,7 +1906,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             {
                 // No matching pending list means we must not claim publication.
                 // Counters alone cannot establish why Record declined.
-                p->Log("AMD Record refused: jobBefore=" + std::to_string(jobBefore) +
+                p->LogRepeated(p->refusalLog, "AMD Record refused: jobBefore=" + std::to_string(jobBefore) +
                        " jobAfter=" + std::to_string(At<UINT>(r, L->jobId)) +
                        " doneBefore=" + std::to_string(doneBefore) +
                        " listBefore=" + std::to_string(reinterpret_cast<uintptr_t>(pendingBefore)) +
@@ -1925,6 +1936,11 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         Barrier(cmd, f.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.motionState);
         Barrier(cmd, f.depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.depthState);
         Barrier(cmd, exposureSource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, f.exposureState);
+        if (!p->failed && accepted == p->activePasses && p->refusalLog.Active())
+        {
+            p->LogDiagnostic("AMD Record resumed: suppressed=" + std::to_string(p->refusalLog.TakeSuppressed()));
+            p->refusalLog.Reset();
+        }
         p->activePasses = accepted;
         // Bind this slot's notify/retire pass count to what was actually recorded.
         sl->passCount = accepted;
@@ -2046,7 +2062,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         p->lastMotionWidth = f.motionWidth;
         p->lastMotionHeight = f.motionHeight;
         p->hadExposure = exposureSource != nullptr;
-        if (p->frames <= 120 || resize)
+        if (p->frames <= 3 || resize)
             p->Log("Recorded pre-SR " + std::to_string(w) + "x" + std::to_string(h) +
                    " passes=" + std::to_string(p->activePasses));
         if(convertEncoding) finalColour=sl->encode->Run(cmd,finalColour,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,inputW,inputH,cfg.encoding,true);

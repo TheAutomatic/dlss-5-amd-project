@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.9
+# OptiScaler AMD pre-SR — 1.9.9.1
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
@@ -10,7 +10,7 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 ## Registro de cambios
 
-Consulte las notas de la release 1.9.9 para más detalles.
+Consulte las notas de la release 1.9.9.1 para más detalles.
 
 ### Mapa de configuración lmxxf (ini / menú Ins)
 

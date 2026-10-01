@@ -260,6 +260,10 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           body: |
+            ### 1.9.9.1
+
+            - 修复日志重复刷屏及文件持续增长的问题，保留必要的错误诊断信息。
+
             ### 1.9.9（相比 1.9.8.1）
 
             欢迎附带日志反馈问题。
@@ -300,6 +304,10 @@ jobs:
             详细说明见包内 README。
 
             ---
+
+            ### 1.9.9.1
+
+            - Fixed excessive repeated logging and unbounded log growth while preserving essential error diagnostics.
 
             ### 1.9.9 (compared to 1.9.8.1)
 

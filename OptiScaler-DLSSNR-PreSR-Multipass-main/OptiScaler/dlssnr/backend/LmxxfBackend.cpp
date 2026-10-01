@@ -703,6 +703,25 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     auto &p = LmxxfCut::Pending();
     const auto lastRc = static_cast<unsigned>(p.lastEnqueueRc.load(std::memory_order_relaxed));
     const auto submitFails = DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed);
+    const bool newSubmitFailure = submitFails != loggedSubmissionFailures;
+    loggedSubmissionFailures = submitFails;
+    const bool enqueueError = lastRc != 0 && lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueSkipped) &&
+                              lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueQueueMismatch);
+
+    if (enqueueError || newSubmitFailure)
+    {
+        lastAnomalyTime = GetTickCount64();
+        const uint64_t key = enqueueError ? uint64_t(lastRc) : (uint64_t(1) << 32);
+        if (anomalyLog.Allow(lastAnomalyTime, key))
+            LOG_WARN("lmxxf nr anomaly: eval={} lastEnqueueRc={:X} submitFailures={} skippedHits={} suppressed={}",
+                     rEval, lastRc, submitFails, p.skippedHits.load(std::memory_order_relaxed),
+                     anomalyLog.TakeSuppressed());
+    }
+    else if (anomalyLog.Active() && GetTickCount64() - lastAnomalyTime >= 5000)
+    {
+        LOG_INFO("lmxxf nr: no new submission errors; eval={} suppressed={}", rEval, anomalyLog.TakeSuppressed());
+        anomalyLog.Reset();
+    }
 
     if (rEval <= 5)
     {
@@ -716,16 +735,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                  DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
                  DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
                  submitFails);
-    }
-    else if ((lastRc != 0 && lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueSkipped) &&
-              lastRc != static_cast<unsigned>(LmxxfCut::kEnqueueQueueMismatch)) || submitFails > 0)
-    {
-        static uint64_t warnCount = 0;
-        if (++warnCount <= 5 || (warnCount % 120 == 0))
-        {
-            LOG_WARN("lmxxf nr anomaly: eval={} lastEnqueueRc={:X} submitFailures={} skippedHits={}",
-                     rEval, lastRc, submitFails, p.skippedHits.load(std::memory_order_relaxed));
-        }
     }
     else if (rEval % 120 == 0)
     {

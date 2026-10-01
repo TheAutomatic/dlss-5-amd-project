@@ -1,5 +1,6 @@
 #pragma once
 #include "Host.h"
+#include "../DiagnosticLog.h"
 #include "LmxxfEvaluateCut.h"
 #include <memory>
 #include "LmxxfColorProbe.h"
@@ -52,6 +53,9 @@ class LmxxfBackend final : public Host
     // PrepareFrame failure accounting: first error is fully logged; later poison repeats are quiet.
     unsigned prepareFrameFailLogs = 0;
     unsigned prepareFramePoisonLogs = 0;
+    uint64_t loggedSubmissionFailures = 0;
+    uint64_t lastAnomalyTime = 0;
+    Diagnostics::RepeatGate anomalyLog;
     ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &,
                                      const AmdPreSr::Settings &);
 
