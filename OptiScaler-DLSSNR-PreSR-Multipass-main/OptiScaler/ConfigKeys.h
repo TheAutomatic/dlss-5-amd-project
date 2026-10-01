@@ -32,6 +32,9 @@ inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
 inline constexpr const char *NrTimingEnabled = "NrTimingEnabled";
 inline constexpr const char *NrTimingLog = "NrTimingLog";
+inline constexpr const char *NrStabilizerEnabled = "NrStabilizerEnabled";
+inline constexpr const char *NrStabilizerAlpha = "NrStabilizerAlpha";
+inline constexpr const char *NrStabilizerThreshold = "NrStabilizerThreshold";
 inline constexpr const char *NrOverallIntensity = "NrOverallIntensity";
 
 // Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
@@ -124,6 +127,9 @@ inline constexpr const char *const kKnown[] = {
     "NrConvenience",
     NrTimingEnabled,
     NrTimingLog,
+    NrStabilizerEnabled,
+    NrStabilizerAlpha,
+    NrStabilizerThreshold,
     NrOverallIntensity,
     "NrBackend",
     "SkinStructure",

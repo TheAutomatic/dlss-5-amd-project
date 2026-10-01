@@ -417,6 +417,11 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // A single backend consumes one SR stream even if the engine rotates worker threads.
     // Serialize shared settling/identity state; thread-local replacement ownership stays unchanged.
     std::lock_guard frameGuard(frameMutex);
+    bool effectRecorded = false;
+    struct EffectHistoryGuard {
+        bool& recorded;
+        ~EffectHistoryGuard() { if (!recorded) DlssNr::Effects::InvalidateHistory(); }
+    } effectHistoryGuard {effectRecorded};
     DlssNr::Backend::LmxxfProbe::CurrentEvidence() = {};
     if (!HasFiles())
         return false;
@@ -630,6 +635,9 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     f.depthInverted = (flags & NVSDK_NGX_DLSS_Feature_Flags_DepthInverted) != 0;
     params->Get(NVSDK_NGX_Parameter_Reset, &reset);
     f.reset = reset != 0;
+    params->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &f.jitterX);
+    params->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &f.jitterY);
+    f.motionJittered = (flags & NVSDK_NGX_DLSS_Feature_Flags_MVJittered) != 0;
     params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &f.motionScaleX);
     params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &f.motionScaleY);
     const auto& cfg = *Config::Instance();
@@ -703,12 +711,20 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     std::lock_guard effectsLifetime(DlssNr::Submission::RecordingMutex());
     if (auto replacement = b->Record(cmd, f, s))
     {
+        effectRecorded = true;
         replacement = DlssNr::Effects::Record(cmd, f.colour, replacement, f.colourState, f.width, f.height,
-            cfg.NrOverallIntensity.value_or_default(), cfg.NrTimingEnabled.value_or_default());
+            cfg.NrOverallIntensity.value_or_default(), cfg.NrTimingEnabled.value_or_default(),
+            {f.motion, f.depth, f.motionState, f.depthState,
+             f.motionWidth ? f.motionWidth : f.width, f.motionHeight ? f.motionHeight : f.height,
+             f.motionScaleX, f.motionScaleY, f.jitterX, f.jitterY, f.preExposure, f.exposureScale,
+             f.depthInverted, f.motionJittered, f.reset},
+            {cfg.NrStabilizerEnabled.value_or_default(), cfg.NrStabilizerAlpha.value_or_default(),
+             cfg.NrStabilizerThreshold.value_or_default()});
         originalColour = f.colour;
         replacedParams = params;
         params->Set(NVSDK_NGX_Parameter_Color, replacement);
     }
+    else DlssNr::Effects::InvalidateHistory();
     return true;
 }
 bool HasReplacement(NVSDK_NGX_Parameter* params)
@@ -726,6 +742,7 @@ void Restore(NVSDK_NGX_Parameter* params)
 }
 void InvalidateHistory()
 {
+    DlssNr::Effects::InvalidateHistory();
     if (auto b = ActiveHost())
         b->InvalidateHistory();
 }

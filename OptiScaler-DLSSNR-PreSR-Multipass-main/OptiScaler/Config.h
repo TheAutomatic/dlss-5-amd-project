@@ -338,6 +338,9 @@ class Config
     CustomOptional<int> NrConvenience { 1 };
     CustomOptional<bool> NrTimingEnabled { false };
     CustomOptional<bool> NrTimingLog { false };
+    CustomOptional<bool> NrStabilizerEnabled { false };
+    CustomOptional<float> NrStabilizerAlpha { .8f };
+    CustomOptional<float> NrStabilizerThreshold { 4.f };
     CustomOptional<float> NrOverallIntensity { 1.0f };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.

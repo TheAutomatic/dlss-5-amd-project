@@ -1079,6 +1079,22 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nA pure-backend session may require a restart to enable the shared effect recording path.");
             if (config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
                 ImGui::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
+            bool stabilizer = config->NrStabilizerEnabled.value_or_default();
+            if (ImGui::Checkbox("Residual Stabilizer", &stabilizer)) {
+                config->NrStabilizerEnabled = stabilizer;
+                DlssNr::AmdBridge::InvalidateHistory();
+            }
+            HelpMarker("Reduces temporal variation in the NR correction using motion and depth."
+                       "\nMay soften moving detail; disabled by default. Requires valid motion and depth inputs.");
+            if (stabilizer) {
+                float alpha = config->NrStabilizerAlpha.value_or_default();
+                float threshold = config->NrStabilizerThreshold.value_or_default();
+                if (ImGui::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
+                if (ImGui::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
+                HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
+                if (config->NrTimingEnabled.value_or_default())
+                    ImGui::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
+            }
             const auto effectsStatus = DlssNr::AmdBridge::EffectsStatus();
             if (!effectsStatus.empty()) ImGui::TextWrapped("%s", effectsStatus.c_str());
             ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());

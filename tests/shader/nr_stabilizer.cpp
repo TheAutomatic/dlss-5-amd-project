@@ -42,7 +42,7 @@ int main()
 {
     Ptr<ID3D12Debug> debug;if(SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))debug->EnableDebugLayer();
     Ptr<IDXGIFactory4> factory;Ptr<IDXGIAdapter> adapter;Ptr<ID3D12Device> d;Ptr<ID3D12CommandQueue> q;
-    Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory");Check(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)),"WARP");
+    Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory");SelectEffectsAdapter(factory.Get(), &adapter);
     Check(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&d)),"device");D3D12_COMMAND_QUEUE_DESC qd {};
     Check(d->CreateCommandQueue(&qd,IID_PPV_ARGS(&q)),"queue");
     constexpr UINT w=8,h=4;constexpr size_t n=w*h;

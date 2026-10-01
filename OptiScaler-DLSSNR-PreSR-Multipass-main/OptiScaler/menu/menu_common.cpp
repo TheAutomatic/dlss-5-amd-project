@@ -1979,6 +1979,8 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                                       " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
                     if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_BLEND].samples)
                         secondLine += " | Blend: " + DlssNr::TimingValueText(timing, NR_GPU_BLEND, now);
+                    if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_STABILIZER].samples)
+                        secondLine += " | Stabilizer+blend: " + DlssNr::TimingValueText(timing, NR_GPU_STABILIZER, now);
                 }
             }
 

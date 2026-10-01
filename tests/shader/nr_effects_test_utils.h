@@ -65,3 +65,20 @@ static void CheckPixels(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12R
     D3D12_RANGE written {0,0};readback->Unmap(0,&written);
 }
 static bool NoLeases() { std::lock_guard lock(Submission::RecordingMutex()); return Effects::Global().leases.empty(); }
+
+static void SelectEffectsAdapter(IDXGIFactory4* factory, IDXGIAdapter** out)
+{
+    char enabled[2] {};
+    if (GetEnvironmentVariableA("NR_EFFECTS_HARDWARE", enabled, 2) && enabled[0] == '1') {
+        for (UINT i = 0;; ++i) {
+            Ptr<IDXGIAdapter1> adapter;
+            if (factory->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND) break;
+            DXGI_ADAPTER_DESC1 desc {}; Check(adapter->GetDesc1(&desc), "adapter description");
+            if (desc.VendorId == 0x1002 && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) {
+                Check(adapter->QueryInterface(IID_PPV_ARGS(out)), "AMD adapter"); std::puts("NR effects adapter: AMD hardware"); return;
+            }
+        }
+        Require(false, "AMD hardware requested but unavailable");
+    }
+    Check(factory->EnumWarpAdapter(IID_PPV_ARGS(out)), "WARP");
+}
