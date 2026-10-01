@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.8.1
+# OptiScaler AMD pre-SR — 1.9.9
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -10,7 +10,7 @@
 
 ## 更新日志
 
-详情请看 release 1.9.8.1 更新日志。
+详情请看 release 1.9.9 更新日志。
 
 ### lmxxf 配置速查（ini / 菜单）
 

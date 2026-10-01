@@ -260,72 +260,85 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           body: |
-            Bug reports with logs are welcome.
+            ### 1.9.9（相比 1.9.8.1）
+
             欢迎附带日志反馈问题。
 
-            ### 1.9.8.1（相比 1.9.6.3）
+            **Daniel 后端**
 
-            **游戏**
-            - 支持《巫师3》9 月 29 日重制版。
+            运行文件与权重请自行下载：[Daniel 官方发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)。
 
-            **lmxxf 后端**（权重文件：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)）
-            - **更新至上游 0.37**：多项帧数与性能增强；新增 C256 persistent queue（`DLSS5_HIP_SWIN_RUN`，默认开启，菜单可关）。
-            - **ViT stream 默认 3**（Both，对齐官方 0.35+ 模板；与 ViT byte stream 互斥，故 byte stream 在 stream≠Off 时为灰）。
-            - **自适应 ViT 复用默认 16 / 1 / 50 / 1**（偏性能；静止场景帧数更好，微动场景可能略糊。可在菜单调整；F8 切换复用/全量）。
-            - **一批 NR 稳定性修复并入**：会话释放、重开 NR、切换后端后的回收更干净（已完成且不再被录制引用的会话资源可回收）。
+            - **新增 Daniel 0.6.0 支持**，保留旧版兼容。
+            - 将 `Lightning Strength` 更名为 **Tone intensity**，明确区分模型效果与 Appearance 滤镜。
+            - 修正 **ToneLift 的取值范围为 0～0.25**，补齐设置保存及切换画面参数后的历史重置。
+            - 完善新版本运行文件识别，兼容安装产物附加尾部数据的情况。
 
-            **danielblnc 后端**（权重 / 运行文件请自行下载：[danielblnc 发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)）
-            - 支持 **danielblnc 0.6.0**；RX 6000（RDNA2）需安装 AMD HIP 7.2 runtime。
-            - 运行时识别更稳，安装与启动隔离加强。
-            - Quality：默认 **Reference**（高画质，对齐 NVIDIA 计算）；可改为 **Fast**。Quality 在菜单外层，不必再进 Display 折叠。
+            **lmxxf 后端**
 
-            **软件本体**
-            - **双后端热切换**：菜单 **Allow backend hot switching** / `OptiScaler.ini` 的 `NrConvenience`（**默认 1**）。开启时 daniel ↔ lmxxf 可会话内切换；关闭则换后端需重启游戏。改后重启生效。
-            - **关闭 NR 更干净**：提交完成后释放会话缓冲。
-            - **重开 NR 更快**：无需整段重新加载模型。
-            - **菜单**：Backend 提到 Enable NR 下方；lmxxf 保持 Experimental / Debug 折叠，ViT 用分割线归组（不再套一层）。
-            - **打包 ini 注释补全**：`NrConvenience`、`Quality`、跳块、swin、ViT stream、复用参数等均有说明。
+            权重下载：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)。
 
-            **已知问题**
-            - **Daniel 模型缓存（约 1.4 GB）** 关 NR 后不会在会话内释放，退出游戏才回收显存；低显存用户若用 Daniel 后端又需关 NR，请保存配置后重启游戏。
-            - 同后端关了再开一般即时生效；`OptiScaler.ini` 下 `NrConvenience=1` 时，跨后端首次切到 lmxxf 在 daniel-only 启动下会记为下次启动（菜单会标明）。`NrConvenience=0` 时无法在游戏中热切换后端。
-            - 热切换在极少数情况下可能触发 GPU 超时/设备移除；如遇到请附日志反馈。
-            - lmxxf 后端下 ViT 复用为有损加速（目前测试肉眼不明显）；要最高画质可把复用关掉或改回 4 / 0.22 / 1 / 0.35。
+            - 本版继续使用 **上游 0.37**。
+            - 修复延迟执行、重复执行、关闭 NR 和切换后端时的资源生命周期问题，避免 GPU 仍在使用的资源被提前释放或替换。
+            - 加强曝光与图像处理资源的管理，改善复杂提交场景下的稳定性。
+            - 隔离着色器编译器，避免游戏目录中的旧版编译器干扰；完善缓存校验，减少不同环境下初始化失败或误用旧缓存的问题。
 
-            ### 1.9.8.1 (compared to 1.9.6.3)
+            **后端与发布流程**
 
-            **Games**
-            - Adds support for The Witcher 3 September 29 remaster.
+            - **修复纯 lmxxf 模式仍启用 Daniel 图形跟踪的问题**：关闭 `Allow backend hot switching`（`NrConvenience=0`）并使用 lmxxf 时，不再启用 Daniel 专用跟踪，也不会改写用户的 `AmdGraphicsWait` 设置。
+            - 统一 GitHub Actions 与本地的编译器、SDK 和测试环境。
+            - 修复 Git 同步可能改变 HIP 模块二进制内容的问题。
+            - 加强打包检查，确保运行时与通过测试的文件一致，并阻止旧产物混入新包。
 
-            **lmxxf backend** (weight files: [lmxxf upstream](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [cloud drive](https://gofile.io/d/wRln0Pue))
-            - **Synced to upstream 0.37**: framerate/perf improvements; new C256 persistent queue (`DLSS5_HIP_SWIN_RUN`, on by default, toggle in menu).
-            - **ViT stream defaults to 3** (Both, official 0.35+ template). Mutually exclusive with ViT byte stream (greyed while stream != Off).
-            - **Adaptive ViT reuse defaults to 16 / 1 / 50 / 1** (FPS-oriented; better on still scenes, slightly softer on subtle motion. Adjustable in menu; F8 toggles reuse/full).
-            - **A batch of NR stability fixes**: cleaner session release, NR re-enable, and teardown after backend switches (completed session resources are reclaimed once recordings release them).
+            **升级与说明**
 
-            **danielblnc backend** (download the daniel runtime/weights yourself: [danielblnc releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases))
-            - Supports **danielblnc 0.6.0**; RX 6000 (RDNA2) requires the AMD HIP 7.2 runtime.
-            - More robust runtime identification; stronger install/startup isolation.
-            - Quality: **Reference** by default (NVIDIA-exact); switch to **Fast** if needed. Quality is at the menu top level, not under Display.
+            - 建议使用完整安装包更新，避免混用不同版本的宿主与运行时 DLL。
+            - Daniel 模型缓存仍可能在关闭 NR 后保留，退出游戏后回收；关闭 NR 不代表显存占用立即归零。
+            - 本地 CI/device 九项测试及 RX 9070 XT 上的相关 GPU 验证已通过，实际游戏画质、性能和更多显卡兼容性仍需验证。
 
-            **App**
-            - **Dual-backend hot switching**: menu **Allow backend hot switching** / `NrConvenience` in `OptiScaler.ini` (**default 1**). On: in-session daniel <-> lmxxf switching; off: restart to switch backends. Restart after changing.
-            - **Cleaner NR off**: session buffers released after submitted work finishes.
-            - **Faster NR re-enable**: no full model reload.
-            - **Menu**: Backend near Enable NR; lmxxf keeps Experimental / Debug folds; ViT grouped with separators (no extra nested fold).
-            - **Packaged ini comments** cover `NrConvenience`, `Quality`, skip blocks, swin, ViT stream, reuse knobs.
+            **本压缩包不含 NVIDIA 专有二进制、danielblnc 安装包或未授权模型权重。**
 
-            **Known issues**
-            - **The Daniel model cache (~1.4 GB)** is not released in-session when NR is off; VRAM is reclaimed only on game exit. On low-VRAM GPUs, if you use the Daniel backend and turn NR off, save settings and restart the game.
-            - Same-backend NR off->on is usually immediate; with `NrConvenience=1` in `OptiScaler.ini`, the first switch to lmxxf after a daniel-only start is staged for the next launch (the menu shows this). With `NrConvenience=0`, backends cannot be hot-switched in-game.
-            - Hot switching can very rarely cause a GPU timeout / device removed; please attach logs if you hit it.
-            - Adaptive ViT reuse on the lmxxf backend is a lossy speedup (visually minor in current tests); for maximum quality, turn reuse off or use 4 / 0.22 / 1 / 0.35.
+            详细说明见包内 README。
 
-            本压缩包不含 NVIDIA 专有二进制、danielblnc 安装包或未授权模型权重。
-            No NVIDIA proprietary binaries, danielblnc setup, or unauthorized model weights in this zip.
+            ---
 
-            说明见包内 README。
-            See README inside the zip.
+            ### 1.9.9 (compared to 1.9.8.1)
+
+            Bug reports with logs are welcome.
+
+            **Daniel backend**
+
+            Download the runtime and weights separately from the [Daniel releases page](https://github.com/danielblnc/DLSS-NR-on-AMD/releases).
+
+            - **Added support for Daniel 0.6.0**, while retaining compatibility with previously supported versions.
+            - Renamed `Lightning Strength` to **Tone intensity** to distinguish the model response from the Appearance filter.
+            - Corrected the **ToneLift range to 0–0.25** and improved settings persistence and history resets when changing image controls.
+            - Updated runtime identification to handle installation files with appended data.
+
+            **lmxxf backend**
+
+            Weight files: [lmxxf upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
+
+            - This release continues to use **upstream 0.37**.
+            - Fixed resource lifetime issues involving delayed execution, command replay, NR shutdown, and backend switching, preventing resources still in use by the GPU from being released or replaced prematurely.
+            - Improved exposure and image-processing resource management for more reliable handling of complex command submissions.
+            - Isolated the shader compiler from older copies supplied by games and strengthened cache validation to reduce initialization failures and stale-cache reuse across environments.
+
+            **Backend handling and release process**
+
+            - **Fixed Daniel graphics tracking remaining active in pure lmxxf sessions**. With `Allow backend hot switching` disabled (`NrConvenience=0`) and lmxxf selected, Daniel-specific tracking is no longer enabled. The user's `AmdGraphicsWait` setting is preserved.
+            - Aligned compiler, SDK, and test environments between local builds and GitHub Actions.
+            - Fixed an issue where Git synchronization could alter HIP module binaries.
+            - Strengthened packaging checks to ensure the bundled runtime matches the tested artifact and to prevent stale build outputs from entering a new package.
+
+            **Updating and notes**
+
+            - Update using the complete package to avoid mixing host and runtime DLLs from different versions.
+            - Daniel model caches may remain allocated after NR is disabled and are reclaimed when the game exits. Disabling NR does not immediately release all VRAM.
+            - All nine local CI/device suites and relevant GPU checks on an RX 9070 XT passed. Real-game image quality, performance, and compatibility with additional GPUs still require validation.
+
+            **This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.**
+
+            See the README included in the package for details.
 
       - name: Upload release asset with verified retries
         if: startsWith(github.ref, 'refs/tags/')
