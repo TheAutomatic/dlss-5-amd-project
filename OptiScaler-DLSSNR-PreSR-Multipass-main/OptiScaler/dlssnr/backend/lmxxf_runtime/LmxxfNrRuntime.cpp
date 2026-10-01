@@ -1,4 +1,5 @@
 #include "LmxxfNrApi.h"
+#include "../../NrPerformanceStore.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -50,11 +51,16 @@ struct CpuTiming
     struct Scope
     {
         CpuTiming &timing;
+        DlssNr::PerformanceStore* metrics;
+        unsigned stage;
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-        explicit Scope(CpuTiming &value) : timing(value) {}
+        explicit Scope(CpuTiming &value, DlssNr::PerformanceStore* store = nullptr, unsigned kind = 0)
+            : timing(value), metrics(store), stage(kind) {}
         ~Scope()
         {
-            timing.Record(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+            const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            timing.Record(ms);
+            if (metrics) metrics->Record(stage, ms, GetTickCount64());
         }
     };
 };
@@ -1164,6 +1170,7 @@ struct Session
     uint32_t bridgeCreates = 0;
     bool bridgeWarmed = false;
     CpuTiming prepareTiming, enqueueTiming, rebuildTiming, drainTiming;
+    DlssNr::PerformanceStore performance;
     // Hardware & module selection diagnostics
     std::string actualArch = "unknown";
     std::string selectedModulesDir;
@@ -1320,7 +1327,7 @@ struct Session
 
     HRESULT DrainGpu(DWORD timeoutMs = 30000)
     {
-        CpuTiming::Scope drainTime(drainTiming);
+        CpuTiming::Scope drainTime(drainTiming, &performance, NR_CPU_DRAIN);
         const HRESULT sessionHr = DrainQueue(queue, timeoutMs);
         if (FAILED(sessionHr))
             return sessionHr;
@@ -1660,7 +1667,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (!session || !info || !job)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
         RequireSession(session);
-        CpuTiming::Scope prepareTime(session->prepareTiming);
+        CpuTiming::Scope prepareTime(session->prepareTiming, &session->performance, NR_CPU_PREPARE);
         // Historical sizes: 64 ends at color_state/flags, V1 ends at model_scale, the exposure
         // size ends at exposure_scale. A host whose struct_size stops earlier has no later fields.
         const uint32_t legacySize = 64;
@@ -2161,8 +2168,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
 
         if (rebuilding)
         {
-            session->rebuildTiming.Record(std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - rebuildStart).count());
+            const auto ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - rebuildStart).count();
+            session->rebuildTiming.Record(ms);
+            session->performance.Record(NR_CPU_REBUILD, ms, GetTickCount64(), info->frame_id);
         }
         session->job = {};
         session->job.color = color;
@@ -2326,7 +2335,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         if (!session->hipPrepared)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "EnqueueHip is not wired (HIP/codec next)");
         RequireSession(session);
-        CpuTiming::Scope enqueueTime(session->enqueueTiming);
+        CpuTiming::Scope enqueueTime(session->enqueueTiming, &session->performance, NR_CPU_ENQUEUE);
         if (session->weightsDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE,
                         "EnqueueHip: weights not found (set LMXXF_WEIGHTS_DIR to tiled assets, not 0.24.2 HIP/)");
@@ -2849,6 +2858,31 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
+}
+
+extern "C" int32_t LmxxfNrGetTimingApi(uint32_t version, LmxxfNrTimingApi* out)
+{
+    if (version != NR_TIMING_VERSION) return LMXXF_NR_UNSUPPORTED_ABI;
+    if (!out || out->struct_size != sizeof(*out)) return LMXXF_NR_INVALID_ARGUMENT;
+    *out = {};
+    out->struct_size = sizeof(*out);
+    out->version = NR_TIMING_VERSION;
+    out->SetEnabled = [](void* context, uint32_t enabled) -> int32_t {
+        if (!context || enabled > 1) return LMXXF_NR_INVALID_ARGUMENT;
+        return Guard([&] {
+            static_cast<Session*>(context)->performance.SetEnabled(enabled != 0);
+            return int32_t(LMXXF_NR_OK);
+        });
+    };
+    out->GetSnapshot = [](void* context, NrTimingSnapshot* result) -> int32_t {
+        if (!context || !result || result->struct_size != sizeof(*result))
+            return LMXXF_NR_INVALID_ARGUMENT;
+        return Guard([&] {
+            *result = static_cast<Session*>(context)->performance.Read();
+            return int32_t(LMXXF_NR_OK);
+        });
+    };
+    return LMXXF_NR_OK;
 }
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)

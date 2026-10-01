@@ -16,6 +16,7 @@ namespace DlssNr::Backend
 struct LmxxfBackend::Api
 {
     LmxxfNrApi table {};
+    LmxxfNrTimingApi timing {};
 };
 
 namespace
@@ -259,6 +260,7 @@ bool LmxxfBackend::EnsureRuntime()
     const auto dllPath = directory / L"LmxxfNrRuntime.dll";
     if (runtimeDll) { FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll)); runtimeDll = nullptr; }
     api->table = {};
+    api->timing = {};
     runtimeDll = reinterpret_cast<void *>(LoadLibraryW(dllPath.c_str()));
     if (!runtimeDll)
     {
@@ -280,7 +282,57 @@ bool LmxxfBackend::EnsureRuntime()
         SetStatus("lmxxf: runtime needs recording-lease ABI v2; update LmxxfNrRuntime.dll");
         return false;
     }
+    auto getTiming = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrTimingApi*)>(
+        GetProcAddress(reinterpret_cast<HMODULE>(runtimeDll), "LmxxfNrGetTimingApi"));
+    if (getTiming)
+    {
+        api->timing.struct_size = sizeof api->timing;
+        if (getTiming(NR_TIMING_VERSION, &api->timing) != LMXXF_NR_OK ||
+            api->timing.version != NR_TIMING_VERSION || !api->timing.SetEnabled || !api->timing.GetSnapshot)
+            api->timing = {};
+    }
     return true;
+}
+
+NrTimingSnapshot LmxxfBackend::Timing() const
+{
+    std::lock_guard lock(timingMutex);
+    return timingSnapshot;
+}
+
+void LmxxfBackend::UpdateTiming()
+{
+    if (!session || !api->timing.GetSnapshot) return;
+    const auto now = GetTickCount64();
+    const bool enabled = Config::Instance()->NrTimingEnabled.value_or_default();
+    const bool changed = !timingConfigured || enabled != timingEnabled;
+    if (changed)
+    {
+        if (api->timing.SetEnabled(session, enabled ? 1u : 0u) != LMXXF_NR_OK) return;
+        timingConfigured = true;
+        timingEnabled = enabled;
+        timingLogAt = 0;
+    }
+    if (!changed && (!enabled || now - timingReadAt < 500)) return;
+    NrTimingSnapshot next {};
+    next.struct_size = sizeof next;
+    if (api->timing.GetSnapshot(session, &next) != LMXXF_NR_OK) return;
+    timingReadAt = now;
+    {
+        std::lock_guard lock(timingMutex);
+        timingSnapshot = next;
+    }
+    if (enabled && Config::Instance()->NrTimingLog.value_or_default() &&
+        next.stages[NR_CPU_PREPARE].samples && (!timingLogAt || now - timingLogAt >= 5000))
+    {
+        timingLogAt = now;
+        LOG_INFO("lmxxf timing: CPU ms(mean/last) prepare={:.3f}/{:.3f} enqueue={:.3f}/{:.3f} rebuild={:.3f}/{:.3f} drain={:.3f}/{:.3f} samples={} GPU samples={} dropped={}",
+            next.stages[NR_CPU_PREPARE].mean_ms, next.stages[NR_CPU_PREPARE].last_ms,
+            next.stages[NR_CPU_ENQUEUE].mean_ms, next.stages[NR_CPU_ENQUEUE].last_ms,
+            next.stages[NR_CPU_REBUILD].mean_ms, next.stages[NR_CPU_REBUILD].last_ms,
+            next.stages[NR_CPU_DRAIN].mean_ms, next.stages[NR_CPU_DRAIN].last_ms,
+            next.stages[NR_CPU_PREPARE].samples, next.stages[NR_GPU_NETWORK].samples, next.dropped);
+    }
 }
 
 bool LmxxfBackend::EnsureSession()
@@ -431,6 +483,7 @@ bool LmxxfBackend::EnsureSession()
         return false;
     }
     session = ctx;
+    timingConfigured = false;
     sessionReady = true;
     sessionFailures = 0;
     SetStatus("lmxxf: session ready");
@@ -540,6 +593,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         return nullptr;
     if (!EnsureSession())
         return nullptr;
+    UpdateTiming();
 
     D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
     LmxxfNrFrameInfo fi {};
@@ -999,6 +1053,11 @@ bool LmxxfBackend::Shutdown()
 void LmxxfBackend::ReleaseSession()
 {
     std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
+    {
+        std::lock_guard lock(timingMutex);
+        timingSnapshot = {};
+    }
+    timingConfigured = false;
     // Existing recording observers retain their own session/module. New active
     // sessions can start immediately; old closed lists are still executable.
     sessionOwner.reset(); session = nullptr; sessionReady = false;

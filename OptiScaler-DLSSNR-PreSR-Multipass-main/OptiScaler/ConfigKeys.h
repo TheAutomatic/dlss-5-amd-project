@@ -30,6 +30,8 @@ inline constexpr const char *PaperWhite = "LmxxfPaperWhite";
 inline constexpr const char *AllowEnhancedBarriers = "LmxxfAllowEnhancedBarriers";
 inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
+inline constexpr const char *NrTimingEnabled = "NrTimingEnabled";
+inline constexpr const char *NrTimingLog = "NrTimingLog";
 
 // Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
 inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
@@ -119,6 +121,8 @@ inline constexpr const char *const kKnown[] = {
     "AmdSpinDraw",
     "AmdGraphicsWait",
     "NrConvenience",
+    NrTimingEnabled,
+    NrTimingLog,
     "NrBackend",
     "SkinStructure",
     "AutoMask",

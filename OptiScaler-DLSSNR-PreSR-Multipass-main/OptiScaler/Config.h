@@ -336,6 +336,8 @@ class Config
     // module/model cache. lmxxf also unloads its runtime in pure mode.
     // Hook/wrap policy is chosen at startup; restart after changing.
     CustomOptional<int> NrConvenience { 1 };
+    CustomOptional<bool> NrTimingEnabled { false };
+    CustomOptional<bool> NrTimingLog { false };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
     // Explicit choice missing its files falls back to the other. Enable NR is the on/off.

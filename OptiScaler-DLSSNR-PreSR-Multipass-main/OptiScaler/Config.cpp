@@ -396,6 +396,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             AmdSpinDraw.set_from_config(readInt("DlssNr", "AmdSpinDraw"));
             AmdGraphicsWait.set_from_config(readInt("DlssNr", "AmdGraphicsWait"));
             NrConvenience.set_from_config(readInt("DlssNr", "NrConvenience"));
+            NrTimingEnabled.set_from_config(readBool(CfgKey::kSection, CfgKey::NrTimingEnabled));
+            NrTimingLog.set_from_config(readBool(CfgKey::kSection, CfgKey::NrTimingLog));
             const auto nrBackendIni = readString("DlssNr", "NrBackend", true);
             const bool legacyNrOff = nrBackendIni.has_value() &&
                 (_stricmp(nrBackendIni->c_str(), "off") == 0 ||
@@ -1526,6 +1528,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "AmdSpinDraw", GetIntValue(Instance()->AmdSpinDraw.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AmdGraphicsWait", GetIntValue(Instance()->AmdGraphicsWait.value_for_config()).c_str());
     ini.SetValue("DlssNr", "NrConvenience", GetIntValue(Instance()->NrConvenience.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrTimingEnabled, GetBoolValue(Instance()->NrTimingEnabled.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrTimingLog, GetBoolValue(Instance()->NrTimingLog.value_for_config()).c_str());
     // Write the active menu choice even when it equals the default. Leaving an
     // older lmxxf key untouched would undo a switch back to daniel on restart.
     std::string nrBackend;

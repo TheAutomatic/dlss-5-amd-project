@@ -56,6 +56,11 @@ class LmxxfBackend final : public Host
     uint64_t loggedSubmissionFailures = 0;
     uint64_t lastAnomalyTime = 0;
     Diagnostics::RepeatGate anomalyLog;
+    mutable std::mutex timingMutex;
+    NrTimingSnapshot timingSnapshot {};
+    bool timingConfigured = false, timingEnabled = false;
+    uint64_t timingReadAt = 0, timingLogAt = 0;
+    void UpdateTiming();
     ID3D12Resource *RecordDiagnostic(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &,
                                      const AmdPreSr::Settings &);
 
@@ -86,6 +91,7 @@ class LmxxfBackend final : public Host
     void ResetGraphicsWaitState() override;
     void InvalidateHistory() override;
     std::string Status() const override;
+    NrTimingSnapshot Timing() const override;
     bool GraphicsRestartNeeded(UINT activePasses) const override;
 };
 } // namespace DlssNr::Backend

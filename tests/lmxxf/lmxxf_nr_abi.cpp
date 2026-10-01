@@ -35,6 +35,19 @@ int main(int argc, char **argv)
     auto getApi = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrApi *)>(
         GetProcAddress(dll, "LmxxfNrGetApi"));
     Require(getApi != nullptr, "GetProcAddress LmxxfNrGetApi");
+    auto getTiming = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrTimingApi*)>(
+        GetProcAddress(dll, "LmxxfNrGetTimingApi"));
+    Require(getTiming != nullptr, "timing extension export");
+    struct { LmxxfNrTimingApi api; uint64_t canary; } telemetry {};
+    telemetry.canary = 0x123456789abcdef0ull;
+    telemetry.api.struct_size = sizeof telemetry.api;
+    Require(getTiming(99, &telemetry.api) == LMXXF_NR_UNSUPPORTED_ABI, "unknown timing ABI");
+    --telemetry.api.struct_size;
+    Require(getTiming(NR_TIMING_VERSION, &telemetry.api) == LMXXF_NR_INVALID_ARGUMENT, "short timing table");
+    telemetry.api.struct_size = sizeof telemetry.api;
+    Require(getTiming(NR_TIMING_VERSION, &telemetry.api) == LMXXF_NR_OK, "timing negotiation");
+    Require(telemetry.canary == 0x123456789abcdef0ull, "timing table bounds");
+    Require(telemetry.api.SetEnabled(nullptr, 1) == LMXXF_NR_INVALID_ARGUMENT, "timing requires session");
 
     static_assert(offsetof(LmxxfNrApi, BeginRecordingExecution) == LMXXF_NR_API_V1_SIZE, "v1 prefix");
     alignas(LmxxfNrApi) unsigned char legacyBytes[LMXXF_NR_API_V1_SIZE + 32];
@@ -129,6 +142,14 @@ int main(int argc, char **argv)
         info.assets_directory = modules.c_str();
         Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create with dual-arch modules directory");
         Require(ctx != nullptr, "session handle with modules");
+        NrTimingSnapshot timing {}; timing.struct_size = sizeof timing;
+        Require(telemetry.api.GetSnapshot(ctx, &timing) == LMXXF_NR_OK && !timing.enabled, "timing defaults off");
+        Require(telemetry.api.SetEnabled(ctx, 1) == LMXXF_NR_OK, "enable telemetry without GPU");
+        Require(telemetry.api.GetSnapshot(ctx, &timing) == LMXXF_NR_OK && timing.enabled, "read enabled telemetry");
+        Require(!timing.stages[NR_GPU_NETWORK].samples, "no invented GPU duration");
+        --timing.struct_size;
+        Require(telemetry.api.GetSnapshot(ctx, &timing) == LMXXF_NR_INVALID_ARGUMENT, "short timing snapshot");
+        Require(telemetry.api.SetEnabled(ctx, 2) == LMXXF_NR_INVALID_ARGUMENT, "invalid timing switch");
 
         char status[256] {};
         Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "GetStatus modules");

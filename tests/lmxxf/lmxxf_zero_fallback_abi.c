@@ -19,6 +19,15 @@ int main(void)
     GetApiFn getApi = (GetApiFn)(void *)GetProcAddress(dll, "LmxxfNrGetApi");
     if (!getApi)
         return fail("LmxxfNrGetApi export missing");
+    {
+        typedef int32_t (*TimingFn)(uint32_t, LmxxfNrTimingApi *);
+        TimingFn timingFn = (TimingFn)(void *)GetProcAddress(dll, "LmxxfNrGetTimingApi");
+        LmxxfNrTimingApi timing = {0};
+        timing.struct_size = sizeof timing;
+        if (!timingFn || timingFn(NR_TIMING_VERSION, &timing) != LMXXF_NR_OK ||
+            !timing.SetEnabled || !timing.GetSnapshot)
+            return fail("timing C ABI unavailable");
+    }
 
     LmxxfNrApi api = {0};
     api.struct_size = sizeof api;

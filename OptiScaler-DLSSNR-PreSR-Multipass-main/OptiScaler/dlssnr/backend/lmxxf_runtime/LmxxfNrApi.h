@@ -5,6 +5,7 @@
  * CRT-allocated objects cross this boundary. x64 stdcall is the Windows default. */
 
 #include <stdint.h>
+#include "../../NrPerformance.h"
 #include <stddef.h> /* wchar_t in C hosts */
 
 #ifdef __cplusplus
@@ -177,6 +178,8 @@ typedef struct LmxxfNrApi
 
 /* Sole export. Caller sets out->struct_size = sizeof(LmxxfNrApi) before the call. */
 LMXXF_NR_EXPORT int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out);
+/* Optional telemetry extension; its absence does not invalidate the rendering ABI. */
+LMXXF_NR_EXPORT int32_t LmxxfNrGetTimingApi(uint32_t version, LmxxfNrTimingApi *out);
 
 #ifdef __cplusplus
 }

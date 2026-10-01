@@ -52,6 +52,8 @@ class ConfigPriorityTests(unittest.TestCase):
                 "AllowEnhancedBarriers",
                 "EarlyExeWrap",
                 "Diagnostic",
+                "NrTimingEnabled",  # Product telemetry, not an upstream kernel option.
+                "NrTimingLog",
                 "kSection",
                 "kDanielSection",
                 "ToneCurve",
