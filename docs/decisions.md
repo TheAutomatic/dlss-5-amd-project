@@ -1,5 +1,14 @@
 # 决策记录
 
+## 2026-10-01：固定 0.37 修复与录制所有权
+
+- 录制身份、资源有效期与实际 GPU 执行分别追踪。成功 Reset / 最终 Release 加所有提交完成凭证才允许回收；关闭 NR 不撤销游戏仍持有的闭合列表。
+- 产品宿主要求 runtime ABI v2；旧宿主仍可使用 v1 前缀。HIP 销毁移到固定模块寿命的后台回调，不在 submission 锁内等待 GPU。
+- 本地与 Actions 统一 MSVC 14.44.35207 / SDK 10.0.26100.0，打包保留对已测试 runtime 哈希的约束。历史 Actions 失败不笼统归因上游同步。
+- 继续保留 c809efb0 上游 pin、54e14de bridge pin 和 16 项明确暂缓。完成固定 0.37 回归后停下，0.38 接入另行启动；不重复旧 ini 与性能归因调查。
+- 契约与边界见 [录制生命周期](architecture/lmxxf-recording-lifecycle.md)、[构建一致性](release-build-parity.md)。
+
+
 ## 2026-09-30 · lmxxf 0.37 消费者重审与真实提交退役
 
 - **决定**：重新审阅 c0a6196 → c809efb0 的消费者、部署配置、实验和原始数据；逐项替换统一排除理由。WAVE_OWNED 是产品默认启用项，pinned bridge 保留是经契约审查的选择；ViT stream=3 和每模块宏绑定当前实际集成指纹。

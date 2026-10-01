@@ -1,5 +1,24 @@
 # lmxxf 0.37 消费者重审（2026-09-30）
 
+## 2026-10-01 fixed 0.37 repair delta
+
+Upstream remains c809efb0, bridge pin remains 54e14de. Only integration and pinned
+bridge fingerprints changed; 2513 unchanged decisions remain intact, including
+16 explicit deferrals. The ABI v2 recording owner, immutable resource pins, actual
+submission certificates and asynchronous collection are described in
+[recording lifecycle](architecture/lmxxf-recording-lifecycle.md). Private System32
+compiler/cache validation covers 136 shader/target variants with WARP output tests.
+
+Full CI/device and RX 9070 XT GPU regression passed. EXACT `fe40c904da05472e`,
+AE `79233836b6257864` and R10 `8ba14ef2db0dddfe` are unchanged. Runtime/proxy lease
+regression returns `9e99616bb5014312`; partial recording and failed tail Signal
+cases pass. MSVC/MinGW runtime and host Release compile. All 62 HSACO files match
+the prior independently rebuilt package; kernel recipes and module defines are
+unchanged. No gfx1200 hardware, full game matrix or new hosted Actions run was
+performed. 0.38 has not been integrated. See [build parity](release-build-parity.md)
+for independently identified historical Actions failures and current safeguards.
+
+
 ## 范围与结论
 
 固定上游范围：`c0a61968874e438ca3f887506f09c185ce378020` →

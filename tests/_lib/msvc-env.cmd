@@ -8,7 +8,7 @@ if not exist "%MSVC_ENV_VCVARS%" (
   echo FAIL: cl.exe is not on PATH and "%MSVC_ENV_VCVARS%" does not exist.
   exit /b 1
 )
-call "%MSVC_ENV_VCVARS%" x64 -vcvars_ver=14.44 >nul
+call "%MSVC_ENV_VCVARS%" x64 10.0.26100.0 -vcvars_ver=14.44.35207 >nul
 where cl.exe >nul 2>&1 || (
   echo FAIL: vcvarsall did not put cl.exe on PATH.
   exit /b 1

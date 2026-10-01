@@ -2,20 +2,20 @@
   "schema": 1,
   "from_commit": "c0a61968874e438ca3f887506f09c185ce378020",
   "to_commit": "c809efb0ea2960f148624730898da61b8fb55a45",
-  "snapshot": "0b85ce9194d130d9e1aac4c36112764e23aad261f4e124d4fd482682af84e135",
-  "reviewer": "Codex consumer re-review, 2026-09-30",
-  "summary": "Complete fixed-range consumer review after a27ec0b: concrete file evidence and per-module active/default values; retained pinned bridge contract; 62 rebuilt modules byte-identical; actual product GPU goldens/fault recovery verified. Recorded deferrals and skipped hardware/game/performance validation; not a claim that every upstream optimization executes or that a release/game regression is resolved.",
-  "validation": "2026-09-30: CI+device all PASS (sync 58); RX9070XT gpu suite PASS, fixed EXACT/AE/R10 hashes unchanged; 62 modules rebuilt, all bytes identical. After skip4/69 guard: host CI/cross-CRT compatibility tests, host rebuild, Runtime ABI PASS; final Runtime EXACT/AE baseline GPU hashes reconfirmed. Diagnostic product Runtime: 900/1080 EXACT/AE, off/normal/async-timeout/rollover hashes identical; fallback=errors=disabled=1 on fault and rollover>0. Author archived audits rerun; explicit scope/limits in docs/lmxxf-037-consumer-review.md. Final same-ref sync passed on 2026-09-30 without build/module/audit waivers; full package checksum contract and Runtime compilation PASS; state=reviewed with explicit deferrals (count reported by final audit).",
+  "snapshot": "dc50be8140a9cd7abde214a41269288ecc07c1ff94e3fa98b5c2417b4109b14c",
+  "reviewer": "Codex fixed 0.37 lifecycle/compiler delta review, 2026-10-01",
+  "summary": "Fixed upstream range retained. Re-reviewed only changed integration and pinned bridge evidence after compiler and recording-lifecycle repair; 2513 unchanged decisions retained verbatim. No 0.38 integration or new kernel enablement. Explicit existing deferrals remain; this is a local regression baseline, not game/performance or hosted-run certification.",
+  "validation": "2026-10-01: full tests/run-all.cmd --tier ci,device PASS including independent source patch replay and binary/fixture Git roundtrip; full RX9070XT gpu tier PASS with EXACT fe40c904da05472e, AE 79233836b6257864, R10 8ba14ef2db0dddfe unchanged. Actual runtime+proxy recording test baseline 9e99616bb5014312: delayed/replayed/cross-queue/geometry/exposure/off-on/pending Reset/background collection/partial recording/failing Signal PASS. MSVC and MinGW runtime builds and host Release build PASS. All 62 modules byte-identical to prior independently rebuilt package; HIP recipes/module macros unchanged. gfx1200 hardware, game matrix and new hosted Actions run not performed.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "d52de81b386dddb159901f02499826002a8231123a7a0186c1f205bd5f37f53b",
+      "fingerprint": "aff5b5b48c8a6a25027775eacbaf8e4eef5029f1bb654a8734f1b760f56fd50f",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Consumer review replaces generic exclusions. Accepted C256/ViT/W5 and baseline macros traced through local ABI/options/module selection; active WAVE_OWNED and retained pinned bridge classified correctly. Enqueue does not prove continuation submission; premature retirement removed.",
-      "evidence": "docs/lmxxf-037-consumer-review.md; upstream complete range/code/profiles/generators/experiments and raw data read; main a27ec0b reviewed; LmxxfPendingSubmission and nr_session_lifecycle regression. ",
-      "validation": "2026-09-30: CI+device all PASS (sync 58); RX9070XT gpu suite PASS, fixed EXACT/AE/R10 hashes unchanged; 62 modules rebuilt, all bytes identical. After skip4/69 guard: host CI/cross-CRT compatibility tests, host rebuild, Runtime ABI PASS; final Runtime EXACT/AE baseline GPU hashes reconfirmed. Diagnostic product Runtime: 900/1080 EXACT/AE, off/normal/async-timeout/rollover hashes identical; fallback=errors=disabled=1 on fault and rollover>0. Author raw group auditors rerun (Swin/small/ViT/half); limitations and deferred consumers recorded in docs/lmxxf-037-consumer-review.md.",
-      "next_step": "Run same GPU+fault+format tests on gfx1200 hardware; run concrete-game NR off/on, both backend switches/new wait, VRAM and load ABBA. Implement explicit discard/Reset lease cancellation contract before recovering never-submitted lists. Daniel model cache remains; no full VRAM-release or low-frame performance claim. DirectIO/graph/frame-stats and inactive macro candidates have individual actionable deferrals."
+      "reason": "ABI v2 makes recording identity, actual queue submission and resource ownership explicit. Immutable codec/exposure pins and original bridge chains survive Reset-delayed execution, replay and backend off/on. Collection requires invalidation plus every confirmed tail; failed Signal stays retained. Private System32 compiler/cache and exact tested-runtime packaging remove independent compiler/build-source ambiguity. Production options and selected module/kernel macros remain unchanged.",
+      "evidence": "docs/architecture/lmxxf-recording-lifecycle.md; docs/release-build-parity.md; backend/LmxxfRecordingOwner.h; lmxxf_runtime/LmxxfNrApi.h, LmxxfNrRuntime.cpp, LmxxfRecordingLease.h; submission/RecordingLifecycle.h; tests/lmxxf/lmxxf_recording_runtime_gpu.cpp; tests/lmxxf/shader-compiler.cmd; pinned bridge diff fully reviewed against c809efb0.",
+      "validation": "2026-10-01: full tests/run-all.cmd --tier ci,device PASS including independent source patch replay and binary/fixture Git roundtrip; full RX9070XT gpu tier PASS with EXACT fe40c904da05472e, AE 79233836b6257864, R10 8ba14ef2db0dddfe unchanged. Actual runtime+proxy recording test baseline 9e99616bb5014312: delayed/replayed/cross-queue/geometry/exposure/off-on/pending Reset/background collection/partial recording/failing Signal PASS. MSVC and MinGW runtime builds and host Release build PASS. All 62 modules byte-identical to prior independently rebuilt package; HIP recipes/module macros unchanged. gfx1200 hardware, game matrix and new hosted Actions run not performed.",
+      "next_step": "Validate gfx1200 on hardware and real-game off/on, both backend switches and VRAM behavior. Existing DirectIO/graph/frame-stats and inactive macro deferrals retain their individual next steps. Hosted Actions validation requires a subsequent authorized non-tag dispatch; do not claim all allocations vanish while closed recordings or Daniel model caches remain live."
     },
     {
       "id": "file:CHANGELOG.md",
@@ -25139,12 +25139,12 @@
     },
     {
       "id": "pinned:Development/HIP/hip_d3d12_bridge.h",
-      "fingerprint": "949b93b41bdc11b33430b55d29bfec00bea1d75d35c4a2e6cd3043594e7cd7ac",
+      "fingerprint": "d0c2a4bbd53fce9889a98145ccffbf1aad28dd6d7a4550cf5bad24bc2d9e8729",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Pinned bridge consumer reviewed: retain product Pdl queries/event lifetime at 54e14de + bridge.patch; author SwinRunActive log accessor unused. DirectInput differences are explicit deferred flag item, not erased by retention.",
-      "evidence": "docs/lmxxf-037-consumer-review.md pinned bridge section; pinned-headers diff vs c809efb0; product local Runtime owns bridge.Create, not native_hip_network.h.",
-      "validation": "2026-09-30: CI+device all PASS (sync 58); RX9070XT gpu suite PASS, fixed EXACT/AE/R10 hashes unchanged; 62 modules rebuilt, all bytes identical. After skip4/69 guard: host CI/cross-CRT compatibility tests, host rebuild, Runtime ABI PASS; final Runtime EXACT/AE baseline GPU hashes reconfirmed. bridge zero/probe-drain GPU tests and output golden hashes PASS.",
+      "reason": "Retain 54e14de bridge pin with formal bridge.patch: Pdl queries and event cleanup plus opt-in recording execution, COMMON sealing, actual-queue ordering and sticky unconfirmed failure. Background destruction selects the original HIP device. Default sync preserves this header; FOLLOW recording-leases.patch must not apply these bridge hunks again. Author DirectInput and SwinRunActive accessor remain separate prior deferrals/unused diagnostics, not implicitly enabled.",
+      "evidence": "docs/architecture/lmxxf-recording-lifecycle.md; tools/lmxxf-sync/patches/bridge.patch; tests/sync/fixtures/lmxxf/snapshot.json and SourcePatchTests; tests/lmxxf/lmxxf_bridge_recording_gpu.cpp; tests/lmxxf/lmxxf_recording_runtime_gpu.cpp; full pinned-headers diff vs c809efb0 reviewed.",
+      "validation": "2026-10-01: full tests/run-all.cmd --tier ci,device PASS including independent source patch replay and binary/fixture Git roundtrip; full RX9070XT gpu tier PASS with EXACT fe40c904da05472e, AE 79233836b6257864, R10 8ba14ef2db0dddfe unchanged. Actual runtime+proxy recording test baseline 9e99616bb5014312: delayed/replayed/cross-queue/geometry/exposure/off-on/pending Reset/background collection/partial recording/failing Signal PASS. MSVC and MinGW runtime builds and host Release build PASS. All 62 modules byte-identical to prior independently rebuilt package; HIP recipes/module macros unchanged. gfx1200 hardware, game matrix and new hosted Actions run not performed.",
       "next_step": ""
     },
     {

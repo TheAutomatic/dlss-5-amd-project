@@ -313,4 +313,3 @@ static void DumpTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12R
     al->Release();
     rb->Release();
 }
-

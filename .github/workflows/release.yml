@@ -37,10 +37,12 @@ permissions:
 env:
   PLATFORM_TOOLSET: v145
   # The MSVC toolchain the measured binaries were built with. The preflight picks
-  # the newest installed 14.44.x and the build pins VCToolsVersion to it, so CI
+  # the exact installed 14.44.35207 and the build pins VCToolsVersion to it, so CI
   # produces the same compiler as the local build instead of whatever the image
   # happens to default to.
   MSVC_PREFIX: '14.44'
+  MSVC_VERSION: '14.44.35207'
+  WINDOWS_SDK_VERSION: '10.0.26100.0'
   BUILD_OUT: exports/release-ci
 
 jobs:
@@ -94,9 +96,9 @@ jobs:
             Select-Object -ExpandProperty Name | Sort-Object)
           Write-Host "MSVC toolchains: $($have -join ', ')"
           # 14.44 is the toolchain the benchmarked binaries were built with.
-          $pick = $have | Where-Object { $_ -like "$env:MSVC_PREFIX.*" } | Select-Object -Last 1
+          $pick = $have | Where-Object { $_ -eq $env:MSVC_VERSION } | Select-Object -First 1
           if (-not $pick) {
-            throw "No MSVC $env:MSVC_PREFIX.x toolchain on this image (have: $($have -join ', '))."
+            throw "No MSVC $env:MSVC_VERSION toolchain on this image (have: $($have -join ', '))."
           }
           Write-Host "Using MSVC $pick (PlatformToolset=$env:PLATFORM_TOOLSET)"
           "msvc=$pick" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -138,6 +140,17 @@ jobs:
         uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
         with:
           arch: x64
+          toolset: ${{ steps.toolchain.outputs.msvc }}
+          sdk: ${{ env.WINDOWS_SDK_VERSION }}
+
+      - name: Verify compiler environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:VCToolsVersion.TrimEnd('\') -ne $env:MSVC_VERSION) { throw "Unexpected compiler: $env:VCToolsVersion" }
+          if ($env:WindowsSDKVersion.TrimEnd('\') -ne $env:WINDOWS_SDK_VERSION) { throw "Unexpected SDK: $env:WindowsSDKVersion" }
+          Write-Host "Runtime/tests/host: MSVC=$env:VCToolsVersion SDK=$env:WindowsSDKVersion"
+          Get-Command cl.exe | Select-Object -ExpandProperty Source
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
@@ -176,6 +189,7 @@ jobs:
             /m:4 /t:Build /p:Configuration=Release /p:Platform=x64 `
             /p:PlatformToolset=$env:PLATFORM_TOOLSET `
             /p:VCToolsVersion=${{ steps.toolchain.outputs.msvc }} `
+            /p:WindowsTargetPlatformVersion=$env:WINDOWS_SDK_VERSION `
             /p:PostBuildEventUseInBuild=false `
             /p:SolutionDir="$slnDir" `
             /p:OutDir="$outDir" `
@@ -258,7 +272,7 @@ jobs:
             - **更新至上游 0.37**：多项帧数与性能增强；新增 C256 persistent queue（`DLSS5_HIP_SWIN_RUN`，默认开启，菜单可关）。
             - **ViT stream 默认 3**（Both，对齐官方 0.35+ 模板；与 ViT byte stream 互斥，故 byte stream 在 stream≠Off 时为灰）。
             - **自适应 ViT 复用默认 16 / 1 / 50 / 1**（偏性能；静止场景帧数更好，微动场景可能略糊。可在菜单调整；F8 切换复用/全量）。
-            - **一批 NR 稳定性修复并入**：会话释放、重开 NR、切换后端后的回收更干净（不再占用显存）。
+            - **一批 NR 稳定性修复并入**：会话释放、重开 NR、切换后端后的回收更干净（已完成且不再被录制引用的会话资源可回收）。
 
             **danielblnc 后端**（权重 / 运行文件请自行下载：[danielblnc 发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)）
             - 支持 **danielblnc 0.5.1**（文件布局与启动隔离）。
@@ -287,7 +301,7 @@ jobs:
             - **Synced to upstream 0.37**: framerate/perf improvements; new C256 persistent queue (`DLSS5_HIP_SWIN_RUN`, on by default, toggle in menu).
             - **ViT stream defaults to 3** (Both, official 0.35+ template). Mutually exclusive with ViT byte stream (greyed while stream != Off).
             - **Adaptive ViT reuse defaults to 16 / 1 / 50 / 1** (FPS-oriented; better on still scenes, slightly softer on subtle motion. Adjustable in menu; F8 toggles reuse/full).
-            - **A batch of NR stability fixes**: cleaner session release, NR re-enable, and teardown after backend switches (no longer holds VRAM).
+            - **A batch of NR stability fixes**: cleaner session release, NR re-enable, and teardown after backend switches (completed session resources are reclaimed once recordings release them).
 
             **danielblnc backend** (download the daniel runtime/weights yourself: [danielblnc releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases))
             - Supports **danielblnc 0.5.1** (file layout and startup isolation).

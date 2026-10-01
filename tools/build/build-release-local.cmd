@@ -13,7 +13,7 @@ if not "%~1"=="" if not defined FAST (
   exit /b 2
 )
 if not exist "exports\release-local" mkdir "exports\release-local"
-call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44
+call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64 10.0.26100.0 -vcvars_ver=14.44.35207
 if errorlevel 1 exit /b 1
 set "LOGARGS="
 if defined FAST goto optiscaler
