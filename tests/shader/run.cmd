@@ -22,6 +22,8 @@ call :BuildAndRun shader_dx11_ownership
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun nr_output_effects
 if not "%errorlevel%"=="0" goto fail
+call :BuildAndRun nr_stabilizer
+if not "%errorlevel%"=="0" goto fail
 echo shader: PASS
 exit /b 0
 
