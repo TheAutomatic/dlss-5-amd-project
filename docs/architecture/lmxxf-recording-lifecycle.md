@@ -105,3 +105,22 @@ later switch; Daniel startup still honors AmdGraphicsWait. If capture was armed
 but new wait is turned off live, render-pass safety observations remain active.
 Changing NrConvenience in the menu saves the next-launch value without changing
 the running session's backend policy; restart is required.
+
+## Optional timing
+
+`LmxxfNrGetTimingApi` negotiates a separate versioned timing table. Missing timing
+support leaves rendering ABI v1/v2 intact. `NrTimingEnabled` and `NrTimingLog` both
+default to false. The host caches a non-consuming snapshot every 500 ms; explicit
+file summaries are limited to one per five seconds. Means and maxima cover the
+last 120 valid samples, counts are cumulative since the last enable change.
+
+The v2 execution path records HIP events after the input semaphore wait and around
+network enqueue, including its final output buffer copy. This is a GPU stream span,
+not isolated kernel busy time or end-to-end frame latency. Eight event pairs are
+reused only after the existing output fence proves completion; a full pool drops
+telemetry without waiting. Failed enqueue/signal leaves reserved events owned by
+the bridge until its existing safe teardown. Timing failures do not fail rendering.
+Enable epochs prevent older pending samples from repopulating a restarted window.
+Legacy v1, codec passthrough and unexecuted recordings have no network GPU sample.
+The standalone synchronous development probe remains separate and is not enabled
+by product telemetry. Game performance still requires an external off/on comparison.

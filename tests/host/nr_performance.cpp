@@ -25,7 +25,10 @@ int main()
     for (auto& t : workers) t.join();
     assert(store.Read().stages[NR_CPU_ENQUEUE].samples == 4000);
     store.SetEnabled(false);
+    const auto oldEpoch = store.Epoch();
     store.SetEnabled(true);
+    store.Record(NR_GPU_NETWORK, 3, 200, 5, 6, oldEpoch);
     assert(!store.Read().stages[0].samples && !store.Read().dropped);
+    assert(!store.Read().stages[NR_GPU_NETWORK].samples);
     std::cout << "nr performance: PASS\n";
 }

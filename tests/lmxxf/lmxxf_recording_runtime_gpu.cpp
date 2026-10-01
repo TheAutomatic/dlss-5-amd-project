@@ -23,6 +23,9 @@ int main(int argc, char** argv)
     auto getApi = reinterpret_cast<int32_t(*)(uint32_t, LmxxfNrApi*)>(GetProcAddress(dll, "LmxxfNrGetApi"));
     Require(getApi != nullptr, "runtime export"); LmxxfNrApi api {}; api.struct_size = sizeof api;
     Require(getApi(2, &api) == LMXXF_NR_OK && api.CollectRecording, "v2 table");
+    auto getTiming = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrTimingApi*)>(GetProcAddress(dll, "LmxxfNrGetTimingApi"));
+    LmxxfNrTimingApi timing {}; timing.struct_size = sizeof timing;
+    Require(getTiming && getTiming(NR_TIMING_VERSION, &timing) == LMXXF_NR_OK, "GPU timing extension");
     auto ok = [&](int32_t result, const char* step) {
         if (result != LMXXF_NR_OK) { char error[256] {}; api.GetLastError(error, sizeof error); std::fprintf(stderr, "%s rc=%d: %s\n", step, result, error); }
         Require(result == LMXXF_NR_OK, step);
@@ -51,6 +54,7 @@ int main(int argc, char** argv)
         ok(api.PrepareSession(context), "prepare session"); return context;
     };
     void* context = create();
+    Require(timing.SetEnabled(context, 1) == LMXXF_NR_OK, "enable GPU telemetry");
     auto makeColour = [&](UINT width, UINT height) {
         D3D12_HEAP_PROPERTIES hp {}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC rd {}; rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -127,6 +131,13 @@ int main(int argc, char** argv)
     discard(newContext, fresh); ok(api.Destroy(newContext), "destroy new session asynchronously");
     discard(context, resized); discard(context, metered); discard(context, passthrough);
     for (auto& frame : frames) discard(context, frame);
+    NrTimingSnapshot measured {}; measured.struct_size = sizeof measured;
+    ok(timing.GetSnapshot(context, &measured), "read completed GPU timing");
+    Require(measured.stages[NR_GPU_NETWORK].samples > 0 && measured.stages[NR_GPU_NETWORK].last_ms > 0,
+            "runtime exposes actual HIP durations");
+    std::printf("NR GPU samples=%llu mean_ms=%.3f last_ms=%.3f\n",
+                measured.stages[NR_GPU_NETWORK].samples, measured.stages[NR_GPU_NETWORK].mean_ms,
+                measured.stages[NR_GPU_NETWORK].last_ms);
     ok(api.Destroy(context), "destroy old session asynchronously");
     // Exercise the actual host owner + proxy contract, without a backend instance
     // that could keep the old context alive accidentally after NR off/switch.

@@ -326,12 +326,19 @@ void LmxxfBackend::UpdateTiming()
         next.stages[NR_CPU_PREPARE].samples && (!timingLogAt || now - timingLogAt >= 5000))
     {
         timingLogAt = now;
-        LOG_INFO("lmxxf timing: CPU ms(mean/last) prepare={:.3f}/{:.3f} enqueue={:.3f}/{:.3f} rebuild={:.3f}/{:.3f} drain={:.3f}/{:.3f} samples={} GPU samples={} dropped={}",
+        const auto& gpu = next.stages[NR_GPU_NETWORK];
+        char gpuText[160] = "N/A (no completed sample)";
+        if (gpu.samples)
+            std::snprintf(gpuText, sizeof gpuText, "%.3f/%.3f/%.3f samples=%llu ageMs=%llu",
+                gpu.mean_ms, gpu.last_ms, gpu.max_ms,
+                static_cast<unsigned long long>(gpu.samples),
+                static_cast<unsigned long long>(now - gpu.last_tick_ms));
+        LOG_INFO("lmxxf timing: CPU ms(mean/last) prepare={:.3f}/{:.3f} enqueue={:.3f}/{:.3f} rebuild={:.3f}/{:.3f} drain={:.3f}/{:.3f} samples={} GPU NR+copy ms(mean/last/max)={} dropped={}",
             next.stages[NR_CPU_PREPARE].mean_ms, next.stages[NR_CPU_PREPARE].last_ms,
             next.stages[NR_CPU_ENQUEUE].mean_ms, next.stages[NR_CPU_ENQUEUE].last_ms,
             next.stages[NR_CPU_REBUILD].mean_ms, next.stages[NR_CPU_REBUILD].last_ms,
             next.stages[NR_CPU_DRAIN].mean_ms, next.stages[NR_CPU_DRAIN].last_ms,
-            next.stages[NR_CPU_PREPARE].samples, next.stages[NR_GPU_NETWORK].samples, next.dropped);
+            next.stages[NR_CPU_PREPARE].samples, gpuText, next.dropped);
     }
 }
 

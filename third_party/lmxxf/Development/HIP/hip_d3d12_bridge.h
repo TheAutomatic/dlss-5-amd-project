@@ -1,5 +1,7 @@
 #pragma once
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <chrono>
 #include <cstring>
 #include <cstdio>
@@ -23,6 +25,7 @@ class D3D12Bridge {
 public:
  enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
  Phase CurrentPhase()const{return phase;}
+ struct ProductionTiming {float ms{};UINT64 frame{},execution{},epoch{};};
 private:
  Phase phase=Phase::Ready;bool recorded_temporal{};
  bool recording_leases{},recording_active{},recording_submission_unconfirmed{};UINT64 recording_completion{};
@@ -32,6 +35,22 @@ private:
  // synchronized through external semaphores. It adds no CPU wait or GPU dependency.
  Handle release_mark{};unsigned long long release_marks{},release_mark_failures{};
  Handle span_begin{},span_end{};bool span_probe{},span_pending{};double span_cpu{};
+ struct TimingSlot {
+  Handle begin{},end{};bool pending{},valid{};UINT64 completion{},serial{};ProductionTiming sample{};
+ };
+ std::array<TimingSlot,8> timing_slots{};
+ bool timing_enabled{};ProductionTiming timing_identity{};UINT64 timing_serial{},timing_dropped{};
+ TimingSlot* BeginProductionTiming()noexcept{
+  if(!timing_enabled)return nullptr;
+  auto&api=network->Runtime();
+  for(auto&s:timing_slots)if(!s.pending){
+   if(!s.begin&&api.hipEventCreate(&s.begin)!=0){s.begin=nullptr;++timing_dropped;return nullptr;}
+   if(!s.end&&api.hipEventCreate(&s.end)!=0){s.end=nullptr;++timing_dropped;return nullptr;}
+   s.pending=true;s.valid=api.hipEventRecord(s.begin,network->Stream())==0;
+   s.completion=UINT64_MAX;s.serial=++timing_serial;s.sample=timing_identity;return &s;
+  }
+  ++timing_dropped;return nullptr;
+ }
  static void Check(HRESULT h,const char*what){if(FAILED(h))throw std::runtime_error(std::string(what)+" HRESULT="+std::to_string(unsigned(h)));}
  static void Barrier(ID3D12GraphicsCommandList*c,ID3D12Resource*r,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after){if(before==after)return;D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};c->ResourceBarrier(1,&b);}
  /* 2026-09-26: the AMD HIP driver never returns a D3D12 buffer that was imported (hipImportExternalMemory) and mapped, even after
@@ -97,7 +116,7 @@ public:
   if(recording_leases&&network&&network->Runtime().hipSetDevice(hip_device)!=0)return;
   if(!WaitForSubmittedWork())return;
   if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
-  if(network){auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
+  if(network){auto&api=network->Runtime();for(auto&s:timing_slots){if(s.begin)api.hipEventDestroy(s.begin);if(s.end)api.hipEventDestroy(s.end);}for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
  void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
@@ -156,14 +175,42 @@ private:
   try{
    pending=true;Check(queue->Signal(fence,++value),"D3D input signal");hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
    if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
+   auto*timing=BeginProductionTiming();
    auto start=std::chrono::steady_clock::now();network->Enqueue(input.mapped,temporal?history.mapped:nullptr,output.mapped,seed);
+   if(timing)timing->valid=(api.hipEventRecord(timing->end,network->Stream())==0)&&timing->valid;
    if(span_probe){span_cpu=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();api.Check(api.hipEventRecord(span_end,network->Stream()),"span end");span_pending=true;}
    hip_probe::SignalParams signal{};signal.params.fence.value=++value;api.Check(api.hipSignalExternalSemaphoresAsync(&semaphore,&signal,1,network->Stream()),"HIP output signal");
+   if(timing)timing->completion=value;
    if(api.hipEventRecord(release_mark,network->Stream())==0)++release_marks;else ++release_mark_failures;
    Check(queue->Wait(fence,value),"D3D output wait");phase=output_recorded?Phase::OutputRecorded:Phase::HipQueued;
   }catch(...){failed=true;throw;}
  }
 public:
+ // Product telemetry is independent of the synchronous development span probe.
+ // Call under the same serialization as Enqueue. No waits or in-flight reuse.
+ void ConfigureProductionTiming(bool enabled,UINT64 frame,UINT64 execution,UINT64 epoch)noexcept{
+  timing_enabled=enabled;timing_identity={0,frame,execution,epoch};
+ }
+ bool TakeProductionTiming(ProductionTiming&out)noexcept{
+  if(!network||!fence)return false;
+  if(std::none_of(timing_slots.begin(),timing_slots.end(),[](const auto&s){return s.pending;}))return false;
+  const auto done=fence->GetCompletedValue();if(done==UINT64_MAX)return false;
+  for(;;){
+   TimingSlot*next=nullptr;
+   for(auto&s:timing_slots)if(s.pending&&s.completion!=UINT64_MAX&&done>=s.completion&&(!next||s.serial<next->serial))next=&s;
+   if(!next)return false;
+   auto&s=*next;float ms=-1;
+   const int status=s.valid?network->Runtime().hipEventElapsedTime(&ms,s.begin,s.end):-1;
+   // HIP host event bookkeeping can lag the external D3D fence (hipErrorNotReady).
+   // Keep the event pair reserved and retry on a future collection; never spin/wait.
+   if(status==600)return false;
+   const bool valid=status==0&&std::isfinite(ms)&&ms>=0;
+   s.pending=false;
+   if(!valid){++timing_dropped;continue;}
+   out=s.sample;out.ms=ms;return true;
+  }
+ }
+ UINT64 TakeProductionTimingDrops()noexcept{auto n=timing_dropped;timing_dropped=0;return n;}
  // Single host thread, one staged frame at a time; all lists use the queue passed to Create.
  // RecordInputCopy -> host submits producer -> EnqueueAfterProducer -> RecordOutputReadable
  // -> host records/submits consumers -> NotifyOutputSubmitted. Record* never closes/submits a list.

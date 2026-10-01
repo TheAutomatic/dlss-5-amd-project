@@ -19,23 +19,27 @@ class PerformanceStore
     };
     mutable std::mutex lock;
     std::atomic<bool> enabled {false};
+    std::atomic<uint64_t> epoch {1};
     std::array<Stage, NR_TIMING_STAGE_COUNT> stages {};
     uint64_t dropped = 0;
 public:
     bool Enabled() const { return enabled.load(std::memory_order_relaxed); }
+    uint64_t Epoch() const { return epoch.load(std::memory_order_relaxed); }
     void SetEnabled(bool value)
     {
         std::lock_guard guard(lock);
         if (enabled.load() == value) return;
         stages = {};
         dropped = 0;
+        ++epoch;
         enabled.store(value);
     }
-    void Record(unsigned stage, double ms, uint64_t tick, uint64_t frame = 0, uint64_t execution = 0)
+    void Record(unsigned stage, double ms, uint64_t tick, uint64_t frame = 0, uint64_t execution = 0, uint64_t sampleEpoch = 0)
     {
         if (!Enabled()) return;
         std::lock_guard guard(lock);
         if (!enabled.load()) return;
+        if (sampleEpoch && sampleEpoch != epoch.load()) return;
         if (stage >= stages.size() || !std::isfinite(ms) || ms < 0) { ++dropped; return; }
         auto& s = stages[stage];
         s.history[s.cursor] = ms;
@@ -46,6 +50,12 @@ public:
         s.value.last_tick_ms = tick;
         s.value.frame_id = frame;
         s.value.execution_id = execution;
+    }
+    void Drop(uint64_t count)
+    {
+        if (!count || !Enabled()) return;
+        std::lock_guard guard(lock);
+        if (enabled.load()) dropped += count;
     }
     NrTimingSnapshot Read() const
     {

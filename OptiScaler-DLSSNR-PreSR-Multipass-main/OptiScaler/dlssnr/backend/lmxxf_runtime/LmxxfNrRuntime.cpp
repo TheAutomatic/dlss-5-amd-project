@@ -1096,6 +1096,7 @@ struct RecordingChain
 
 struct RecordingJob : Job
 {
+    uint64_t frameId = 0, executionId = 0;
     LmxxfRuntime::RecordingPins pins;
     std::shared_ptr<RecordingChain> chain;
     std::shared_ptr<LmxxfRuntime::ExposureRecording> exposure;
@@ -1171,6 +1172,15 @@ struct Session
     bool bridgeWarmed = false;
     CpuTiming prepareTiming, enqueueTiming, rebuildTiming, drainTiming;
     DlssNr::PerformanceStore performance;
+    uint64_t timingExecution = 0;
+    void CollectTiming(hip_reference::D3D12Bridge* source)
+    {
+        if (!source) return;
+        hip_reference::D3D12Bridge::ProductionTiming sample;
+        while (source->TakeProductionTiming(sample))
+            performance.Record(NR_GPU_NETWORK, sample.ms, GetTickCount64(), sample.frame, sample.execution, sample.epoch);
+        performance.Drop(source->TakeProductionTimingDrops());
+    }
     // Hardware & module selection diagnostics
     std::string actualArch = "unknown";
     std::string selectedModulesDir;
@@ -1668,6 +1678,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: null argument");
         RequireSession(session);
         CpuTiming::Scope prepareTime(session->prepareTiming, &session->performance, NR_CPU_PREPARE);
+        session->CollectTiming(session->bridge);
         // Historical sizes: 64 ends at color_state/flags, V1 ends at model_scale, the exposure
         // size ends at exposure_scale. A host whose struct_size stops earlier has no later fields.
         const uint32_t legacySize = 64;
@@ -2196,6 +2207,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (session->recordingLeases)
         {
             auto lease = std::make_unique<RecordingJob>();
+            lease->frameId = info->frame_id;
             static_cast<Job&>(*lease) = session->job;
             lease->chain = session->recordingChain;
             // Capture dependencies before recording any command, including failure paths.
@@ -2351,7 +2363,13 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
                 !NativeSameDevice(static_cast<ID3D12CommandQueue*>(command_queue), lease->executionQueue))
                 return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: no recording execution");
             if (!j->codec_passthrough)
-                lease->chain->bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
+            {
+                auto* bridge = lease->chain->bridge.get();
+                session->CollectTiming(bridge);
+                bridge->ConfigureProductionTiming(session->performance.Enabled(), lease->frameId,
+                                                   lease->executionId, session->performance.Epoch());
+                bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
+            }
             SetError("");
             return static_cast<int32_t>(LMXXF_NR_OK);
         }
@@ -2617,6 +2635,7 @@ int32_t BeginRecordingExecution(void* context, void* job, void* actualQueue)
         }
         else if (!j->codec_passthrough) j->chain->bridge->BeginRecordedExecution(queue);
         j->started = true;
+        j->executionId = ++session->timingExecution;
         queue->AddRef();
         j->executionQueue = queue;
         j->executing = true;
@@ -2701,6 +2720,7 @@ int32_t CollectRecording(void* context, void* job)
         if (!removed && (j->unconfirmed || std::any_of(j->completions.begin(), j->completions.end(),
                                                      [](const auto& c) { return !c->Complete(); })))
             return static_cast<int32_t>(LMXXF_NR_UNAVAILABLE);
+        if (!removed) session->CollectTiming(j->chain->bridge.get());
         session->recordings.erase(job);
         SetError("");
         return static_cast<int32_t>(removed ? LMXXF_NR_DEVICE_LOST : LMXXF_NR_OK);
