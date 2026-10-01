@@ -54,6 +54,8 @@ inline constexpr const char *VitReuseHotkey = "DLSS5_VIT_REUSE_HOTKEY";
 // daniel [DlssNrOnAmd] channels. Same string in OptiScaler.ini when possible.
 inline constexpr const char *ToneCurve = "ToneCurve";
 inline constexpr const char *ToneLift = "ToneLift";
+inline constexpr const char *AmdUseGameExposure = "AmdUseGameExposure";
+inline constexpr const char *AmdToneChannels = "AmdToneChannels";
 inline constexpr const char *Quality = "Quality";
 inline constexpr const char *QueuePriority = "QueuePriority";
 inline constexpr const char *QueuePriorityLegacy = "AmdQueuePriority";
@@ -131,6 +133,8 @@ inline constexpr const char *const kKnown[] = {
     "HoldFrame",
     ToneCurve,
     ToneLift,
+    AmdUseGameExposure,
+    AmdToneChannels,
     Quality,
     QueuePriority,
     QueuePriorityLegacy,

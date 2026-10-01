@@ -374,6 +374,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrStyle.set_from_config(readUInt("DlssNr", "Style"));
             DlssNrToneCurve.set_from_config(readUInt(CfgKey::kSection, CfgKey::ToneCurve));
             DlssNrToneLift.set_from_config(readFloat(CfgKey::kSection, CfgKey::ToneLift));
+            AmdUseGameExposure.set_from_config(readBool(CfgKey::kSection, CfgKey::AmdUseGameExposure));
+            AmdToneChannels.set_from_config(readBool(CfgKey::kSection, CfgKey::AmdToneChannels));
             AmdQueuePriority.set_from_config(readInt("DlssNr", CfgKey::QueuePriority));
             if (!AmdQueuePriority.has_value())
                 AmdQueuePriority.set_from_config(readInt("DlssNr", CfgKey::QueuePriorityLegacy));
@@ -1499,6 +1501,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Style", GetIntValue(Instance()->DlssNrStyle.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::ToneCurve, GetIntValue(Instance()->DlssNrToneCurve.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::ToneLift, GetFloatValue(Instance()->DlssNrToneLift.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::AmdUseGameExposure, GetBoolValue(Instance()->AmdUseGameExposure.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::AmdToneChannels, GetBoolValue(Instance()->AmdToneChannels.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::QueuePriority, GetIntValue(Instance()->AmdQueuePriority.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::Inline, GetIntValue(Instance()->AmdInline.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::Quality, GetIntValue(Instance()->DlssNrQuality.value_for_config()).c_str());

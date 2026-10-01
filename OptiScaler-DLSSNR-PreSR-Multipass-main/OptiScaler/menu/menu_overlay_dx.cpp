@@ -274,8 +274,14 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
         if (AmdPresentExperimental::IsTarget() && Config::Instance()->DlssNrEnabled.value_or_default())
         {
             AmdPreSr::Settings settings;
-            settings.toneChannels=true;
-            settings.tone=Config::Instance()->AmdNeuralLightingStrength.value_or_default();
+            const auto* cfg = Config::Instance();
+            settings.toneChannels = cfg->AmdToneChannels.value_or(true);
+            settings.tone = cfg->AmdNeuralLightingStrength.value_or_default();
+            settings.autoMask = cfg->DlssNrAutoMask.value_or_default();
+            settings.useGameExposure = cfg->AmdUseGameExposure.value_or_default();
+            settings.style = (std::min)(cfg->DlssNrStyle.value_or_default(), 2u);
+            settings.toneCurve = cfg->DlssNrToneCurve.value_or_default() ? 1u : 0u;
+            settings.toneLift = AmdPreSr::BoundedToneLift(cfg->DlssNrToneLift.value_or_default());
             AmdPresentExperimental::Render(pSwapChain, (ID3D12CommandQueue*)currentSCCommandQueue, Util::DllPath().parent_path(), settings);
         }
 

@@ -284,6 +284,8 @@ class Config
     CustomOptional<uint32_t> DlssNrToneCurve { 0 };
     // Black lift on the display curve. 0 = none. 0.3.3+ ToneLift.
     CustomOptional<float> DlssNrToneLift { 0.0f };
+    CustomOptional<bool> AmdUseGameExposure { true };
+    CustomOptional<bool, NoDefault> AmdToneChannels;
     // 0 = null HIP stream, 1 = high-priority stream (0.4.1 QueuePriority). Heavy-load path.
     CustomOptional<int> AmdQueuePriority { 0 };
     // 1 = daniel inline same-frame wait (historical default). 0 requests non-inline

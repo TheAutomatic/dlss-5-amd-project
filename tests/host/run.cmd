@@ -32,6 +32,8 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% /utf-8 tests\host\amd_model_settings.cpp /Fe"%OUT%\amd_model_settings.exe" /Fo"%OUT%\amd_model_settings.obj" || goto fail
+"%OUT%\amd_model_settings.exe" || goto fail
 %CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail
 "%OUT%\nr_backend_selector.exe" || goto fail
 %CXX% /utf-8 /I"%INC%" tests\host\nr_session_lifecycle.cpp /Fe"%OUT%\nr_session_lifecycle.exe" /Fo"%OUT%\nr_session_lifecycle.obj" /link "%DETOURS%" dxguid.lib || goto fail

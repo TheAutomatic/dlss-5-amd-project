@@ -1,5 +1,7 @@
 #pragma once
 #include <d3d12.h>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
 
@@ -43,6 +45,10 @@ struct RtgiSettings {
     float contact = 0, saturation = 1, radius = 1;
     bool operator==(const RtgiSettings&) const = default;
 };
+inline float BoundedToneLift(float value)
+{
+    return std::isfinite(value) ? std::clamp(value, 0.0f, 0.25f) : 0.0f;
+}
 struct Settings
 {
     UINT encoding = 0; // Auto, Linear, sRGB, Gamma 2.2
@@ -55,6 +61,9 @@ struct Settings
     // See AmdPreSr.cpp for what the bound costs in memory.
     UINT slots = 3;
     bool toneChannels = false;
+    bool autoMask = true, useGameExposure = true;
+    UINT style = 0, toneCurve = 0;
+    float toneLift = 0;
     float modelScale = 1;
     UINT passes = 1;
     // Graphics preference from the bridge; each Record still requires admission.
@@ -62,6 +71,14 @@ struct Settings
     float tone = 0, structure = 1, skin = 1;
     LookSettings look;
     RtgiSettings rtgi;
+    bool SameHistorySettings(const Settings& other) const
+    {
+        return encoding == other.encoding && toneChannels == other.toneChannels &&
+               modelScale == other.modelScale && tone == other.tone && structure == other.structure &&
+               skin == other.skin && everyFrame == other.everyFrame && autoMask == other.autoMask &&
+               useGameExposure == other.useGameExposure && style == other.style &&
+               toneCurve == other.toneCurve && BoundedToneLift(toneLift) == BoundedToneLift(other.toneLift);
+    }
 };
 // Process lifetime owner: intentionally not destroyed/unloaded while HIP threads exist.
 class Backend

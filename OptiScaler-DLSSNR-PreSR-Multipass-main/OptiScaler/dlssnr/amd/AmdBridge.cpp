@@ -683,11 +683,14 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // AmdGraphicsWait=1 requests 0.3.1's 1-pixel draw wait (this project's New wait).
     // InitPass/Record still force SpinDraw=0 unless a freeze+restore plan armed.
     s.spinDraw = Config::Instance()->AmdGraphicsWait.value_or_default() ? 1 : 0;
-    // The pinned AMD binary explicitly disables the broad lighting/colour
-    // channels. Its embedded UI warns that nonzero tone mostly darkens frames.
     s.encoding=std::clamp(cfg.AmdEncoding.value_or_default(),0,3);
-    s.toneChannels=cfg.AmdNeuralLightingStrength.value_or_default()>0;
-    s.tone=s.toneChannels ? std::clamp(cfg.AmdNeuralLightingStrength.value_or_default(),0.f,1.f) : 0.f;
+    s.toneChannels = cfg.AmdToneChannels.value_or(cfg.AmdNeuralLightingStrength.value_or_default() > 0);
+    s.autoMask = cfg.DlssNrAutoMask.value_or_default();
+    s.useGameExposure = cfg.AmdUseGameExposure.value_or_default();
+    s.style = (std::min)(cfg.DlssNrStyle.value_or_default(), 2u);
+    s.toneCurve = cfg.DlssNrToneCurve.value_or_default() ? 1u : 0u;
+    s.toneLift = AmdPreSr::BoundedToneLift(cfg.DlssNrToneLift.value_or_default());
+    s.tone = std::clamp(cfg.AmdNeuralLightingStrength.value_or_default(), 0.f, 1.f);
     s.structure = cfg.DlssNrLocalStructure.value_or_default();
     s.skin = cfg.DlssNrSkinStructure.value_or_default();
     if (s.skin < 0)

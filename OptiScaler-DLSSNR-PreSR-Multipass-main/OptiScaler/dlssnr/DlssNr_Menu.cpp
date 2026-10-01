@@ -419,15 +419,26 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nRX 7000 always runs Reference.");
                 }
 
-                if (ImGui::TreeNode("Display (daniel 0.3.3+)"))
+                if (ImGui::TreeNode("Display (daniel)"))
                 {
+                    static const char* styles[] = { "Standard", "Natural", "Cinematic" };
+                    int style = static_cast<int>((std::min)(config->DlssNrStyle.value_or_default(), 2u));
+                    if (ImGui::Combo("Style##daniel", &style, styles, IM_ARRAYSIZE(styles)))
+                        config->DlssNrStyle = static_cast<uint32_t>(style);
+                    HelpMarker("Model appearance profile. Applies to all active passes.");
+                    int exposure = config->AmdUseGameExposure.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Exposure source", &exposure, "Auto\0Game (auto fallback)\0"))
+                        config->AmdUseGameExposure = exposure != 0;
+                    HelpMarker("Exposure used by the neural model. Auto estimates brightness from the image."
+                               "\nGame uses the game's exposure texture when available; otherwise it falls back to Auto."
+                               "\nSeparate from the appearance filter's Exposure (EV).");
                     static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
                     int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
                     if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
                         config->DlssNrToneCurve = (uint32_t) curve;
                     HelpMarker("Display curve the network sees (ToneCurve)."
                                "\nReinhard usually has better colour; ACES if highlights oversaturate.");
-                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.5f, 0.0f);
+                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.25f, 0.0f);
                     HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
                     ImGui::TreePop();
                 }
@@ -462,7 +473,7 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::TextWrapped("Experimental final-image neural: synthetic motion/depth, no temporal history. Includes game HUD.");
             ImGui::TextUnformatted("One pass, 100% image resolution. Restart after resizing the output.");
             float strength=config->AmdNeuralLightingStrength.value_or_default();
-            if(ImGui::SliderFloat("Lightning Strength",&strength,0.f,1.f)) config->AmdNeuralLightingStrength=strength;
+            if(ImGui::SliderFloat("Tone intensity",&strength,0.f,1.f)) config->AmdNeuralLightingStrength=strength;
             ImGui::TextWrapped("%s",AmdPresentExperimental::Status().c_str());
             return;
         }
@@ -504,9 +515,26 @@ void RenderMenu(Config* config, float menuResScale)
                 ImGui::SliderInt("AMD neural passes", &passes, 1, 3);
                 editingPasses=ImGui::IsItemActive();
                 if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
-                neuralSlider("Lightning Strength",config->AmdNeuralLightingStrength,0,1);
-                neuralSlider("AMD structure",config->DlssNrLocalStructure,0,2);
-                neuralSlider("AMD character structure",config->DlssNrSkinStructure,0,2);
+                neuralSlider("Tone intensity", config->AmdNeuralLightingStrength, 0, 1);
+                HelpMarker("Model lighting and colour response. Applied on the first pass."
+                           "\nSeparate from Tone strength in the appearance filter.");
+                bool toneChannels = config->AmdToneChannels.value_or(config->AmdNeuralLightingStrength.value_or_default() > 0);
+                if (ImGui::Checkbox("Broad structure channel", &toneChannels))
+                    config->AmdToneChannels = toneChannels;
+                HelpMarker("Enable the broad structure response in addition to the character channels.");
+                neuralSlider("AMD structure", config->DlssNrLocalStructure, 0, 2);
+                bool autoMask = config->DlssNrAutoMask.value_or_default();
+                if (ImGui::Checkbox("Model character mask", &autoMask))
+                    config->DlssNrAutoMask = autoMask;
+                HelpMarker("Enable the model's semantic character channels."
+                           "\nSeparate from Automatic skin mask in the appearance filter.");
+                ImGui::BeginDisabled(!autoMask);
+                bool skinAuto = config->DlssNrSkinStructure.value_or_default() < 0;
+                if (ImGui::Checkbox("Skin structure follows structure", &skinAuto))
+                    config->DlssNrSkinStructure = skinAuto ? -1.0f : config->DlssNrLocalStructure.value_or_default();
+                if (!skinAuto)
+                    neuralSlider("AMD character structure", config->DlssNrSkinStructure, 0, 2);
+                ImGui::EndDisabled();
             }
 
             if (isLmxxf)

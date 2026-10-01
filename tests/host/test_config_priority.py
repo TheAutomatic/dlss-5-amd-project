@@ -56,6 +56,8 @@ class ConfigPriorityTests(unittest.TestCase):
                 "kDanielSection",
                 "ToneCurve",
                 "ToneLift",
+                "AmdUseGameExposure",
+                "AmdToneChannels",
                 "Quality",
                 "QueuePriority",
                 "QueuePriorityLegacy",

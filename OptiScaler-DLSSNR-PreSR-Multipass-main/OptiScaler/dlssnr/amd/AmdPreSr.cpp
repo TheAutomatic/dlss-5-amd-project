@@ -293,7 +293,7 @@ void SaveDanielSettings()
     if (cfg->DlssNrStyle.has_value())
     {
         WritePrivateProfileStringW(L"DlssNrOnAmd", L"Style",
-                                   (std::to_wstring(cfg->DlssNrStyle.value_or_default() % 3u)).c_str(), ini.c_str());
+                                   (std::to_wstring((std::min)(cfg->DlssNrStyle.value_or_default(), 2u))).c_str(), ini.c_str());
     }
     if (cfg->DlssNrToneCurve.has_value())
     {
@@ -303,9 +303,30 @@ void SaveDanielSettings()
     if (cfg->DlssNrToneLift.has_value())
     {
         wchar_t lift[32] {};
-        swprintf_s(lift, L"%.4f", cfg->DlssNrToneLift.value_or_default());
+        swprintf_s(lift, L"%.4f", BoundedToneLift(cfg->DlssNrToneLift.value_or_default()));
         WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneLift", lift, ini.c_str());
     }
+    if (cfg->AmdUseGameExposure.has_value())
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"UseGameExposure",
+                                   cfg->AmdUseGameExposure.value_or_default() ? L"1" : L"0", ini.c_str());
+    if (cfg->DlssNrAutoMask.has_value())
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"UseAutoMask",
+                                   cfg->DlssNrAutoMask.value_or_default() ? L"1" : L"0", ini.c_str());
+    if (cfg->AmdToneChannels.has_value() || cfg->AmdNeuralLightingStrength.has_value())
+        WritePrivateProfileStringW(L"DlssNrOnAmd", L"ToneChannels",
+                                   cfg->AmdToneChannels.value_or(cfg->AmdNeuralLightingStrength.value_or_default() > 0)
+                                       ? L"1" : L"0", ini.c_str());
+    const auto saveFloat = [&](const wchar_t* key, float value) {
+        wchar_t text[32] {};
+        swprintf_s(text, L"%.4f", value);
+        WritePrivateProfileStringW(L"DlssNrOnAmd", key, text, ini.c_str());
+    };
+    if (cfg->AmdNeuralLightingStrength.has_value())
+        saveFloat(L"LocalTone", std::clamp(cfg->AmdNeuralLightingStrength.value_or_default(), 0.f, 1.f));
+    if (cfg->DlssNrLocalStructure.has_value())
+        saveFloat(L"LocalStructure", cfg->DlssNrLocalStructure.value_or_default());
+    if (cfg->DlssNrSkinStructure.has_value())
+        saveFloat(L"SkinStructure", cfg->DlssNrSkinStructure.value_or_default());
     if (cfg->AmdQueuePriority.has_value())
     {
         WritePrivateProfileStringW(L"DlssNrOnAmd", L"QueuePriority",
@@ -1318,7 +1339,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             motionDesc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT && motionDesc.Format != DXGI_FORMAT_R32G32B32A32_FLOAT)
             throw std::runtime_error("Unsupported display motion format: " + Layout(f.motion));
         ID3D12Resource* exposureSource = nullptr;
-        if (f.exposure)
+        if (cfg.useGameExposure && f.exposure)
         {
             const auto ed = f.exposure->GetDesc();
             if (ed.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && ed.SampleDesc.Count == 1 &&
@@ -1631,9 +1652,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         }
         UINT accepted = 0;
         if (scaled) copyGuide(sl->colour.Get(),p->scaleBaseline.Get());
-        const bool settingsChanged = cfg.encoding != p->lastSettings.encoding || cfg.toneChannels != p->lastSettings.toneChannels || cfg.modelScale != p->lastSettings.modelScale || !p->haveSettings || cfg.tone != p->lastSettings.tone ||
-                                     cfg.structure != p->lastSettings.structure || cfg.skin != p->lastSettings.skin ||
-                                     cfg.everyFrame != p->lastSettings.everyFrame;
+        const bool settingsChanged = !p->haveSettings || !cfg.SameHistorySettings(p->lastSettings);
         const bool explicitReset = p->resetRequested.exchange(false);
         const bool gap = p->lastSubmitted && GetTickCount64() - p->lastSubmitted > 250;
         if (f.reset || resize || guideChange || passChange || p->resetAfterTimeout || settingsChanged || explicitReset || gap)
@@ -1676,21 +1695,18 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             At<float>(r, L->structure) = cfg.structure;
             At<float>(r, L->skin) = cfg.skin;
             At<UINT>(r, L->toneChannels)=cfg.toneChannels?1u:0u;
-            At<UINT>(r, L->charMask) = 1; // Enable native semantic character-mask channel.
+            At<UINT>(r, L->charMask) = cfg.autoMask ? 1u : 0u;
             // 0.3.3 overlay channels. Prefer the game's FSR exposure when we have
             // a live texture; otherwise force auto (encoded mean → 0.5) so FP16
             // HDR frames without exposure (Wo Long) are not left at white-point 1.
             if (L->useGameExposure)
                 At<uint8_t>(r, L->useGameExposure) = exposureSource ? 1u : 0u; // a byte in 0.3.3/0.4.0 (setne byte)
             if (L->style)
-                At<UINT>(r, L->style) = (std::min)(Config::Instance()->DlssNrStyle.value_or_default(), 2u);
+                At<UINT>(r, L->style) = (std::min)(cfg.style, 2u);
             if (L->toneCurve)
-                At<UINT>(r, L->toneCurve) = Config::Instance()->DlssNrToneCurve.value_or_default() ? 1u : 0u;
+                At<UINT>(r, L->toneCurve) = cfg.toneCurve ? 1u : 0u;
             if (L->toneLift)
-            {
-                const float lift = Config::Instance()->DlssNrToneLift.value_or_default();
-                At<float>(r, L->toneLift) = lift > 0.0f ? lift : 0.0f;
-            }
+                At<float>(r, L->toneLift) = BoundedToneLift(cfg.toneLift);
             if (L->queuePriority)
                 At<UINT>(r, L->queuePriority) = Config::Instance()->AmdQueuePriority.value_or_default() ? 1u : 0u;
             if (L->quality)
