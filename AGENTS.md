@@ -19,6 +19,10 @@ Read [docs/workspace.md](docs/workspace.md) before creating any file outside pro
 
 ## Release tests (no GPU)
 
+Before release preparation, read [docs/release.md](docs/release.md), the single release workflow.
+Use explicit host/output paths for local trial packaging under `exports/`; preserve existing `dist/`.
+A standalone ABI pass or `--fast` build does not replace full CI or its runtime hash proof.
+
 After merging to `release/1.9.0` or touching installer/packaging/sync, run
 [tests/RELEASE-TESTS.md](tests/RELEASE-TESTS.md) (`tests\run-all.cmd --tier ci`).
 `tools/release/PACKAGE_RELEASE.ps1` does not run those suites; it only checks artifact freshness.

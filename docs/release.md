@@ -1,5 +1,7 @@
 # 发版
 
+本页是发版流程的唯一入口（2026-10-01 整理），统一维护构建、测试、试包、远端预验证、发布与故障处理。此前单独的构建一致性说明已合并到本页。
+
 无卡回归测试（安装、卸载、模块包、runtime 校验、sync）只写在 [tests/RELEASE-TESTS.md](../tests/RELEASE-TESTS.md)，这里不重复。本页是打包前后要核对的规则。`PACKAGE_RELEASE.ps1` 不跑那些测试，检查模块契约并做新鲜度门禁（`tools/release/check-release-freshness.ps1`：打包用的 DLL 或 `.hsaco` 比源码旧就中止）。
 
 ## 版本号
@@ -14,11 +16,11 @@
 | 项 | 规则 |
 |---|---|
 | 入口 | `tools\build\build-release-local.cmd`：先编 runtime，通过 LMXXF_TEST_RUNTIME 让 `tests\run-all.cmd --tier ci,device` 验证同一 DLL，最后 MSBuild。输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译本体时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
-| 工具集 | 与 CI 一致：`PlatformToolset=v145`，MSVC 14.44（本地脚本钉 `VCToolsVersion=14.44.35207`；CI 取镜像里最新的 14.44.x，缺失时 preflight 报错） |
+| 工具集 | 本地与 CI 均固定 `PlatformToolset=v145`、MSVC `14.44.35207`、Windows SDK `10.0.26100.0`。runtime、测试和宿主使用同一环境；Actions 检查实际环境，缺失就失败。升级时同时改本地构建入口、`tests/_lib/msvc-env.cmd` 和 workflow，再验证 |
 | 宏 | 发行构建不定义诊断宏（`AMD_RETIRE_DIAGNOSTICS`、`AMD_TIMING_DIAGNOSTICS` 等）。诊断构建只用于取证，不能拿去打包或报数 |
-| 记录 | 打包前记下 `OptiScaler.dll` 的 SHA256；引用帧率时附构建脚本与这个 SHA（见 [measurement.md](measurement.md)） |
-| modules | CI 与 `PACKAGE_RELEASE` 都只拷贝**已提交**的 `third_party/lmxxf/modules`，CI 不重编 HIP 内核。发版前确认 modules 与当前 `hip/` 源码一致（sync 负责重编，见 [tools/lmxxf-sync/README.md](../tools/lmxxf-sync/README.md)） |
-| shader-cache | `shader-cache/*.dxbc` 不进 git、不进包。runtime 首次运行时编译 4 条（编码、解码、RGB 输入、RGB 贴图），在开发机上约 30–45 ms；目录可写就缓存 |
+| 记录 | 记录源码 SHA、子模块状态、host/runtime/模块清单及最终 zip 的 SHA256、测试命令与结果；引用帧率时附构建脚本与 host SHA（见 [measurement.md](measurement.md)） |
+| modules | 流程要求使用**已提交**的 `third_party/lmxxf/modules`；打包器读取工作树，故本地必须先检查干净状态。CI 不重编 HIP 内核。发版前确认 modules 与当前 `hip/` 源码一致（sync 负责重编，见 [tools/lmxxf-sync/README.md](../tools/lmxxf-sync/README.md)） |
+| shader-cache | `shader-cache/*.dxbc` 不进 git、不进包。runtime 私有加载 System32 编译器；缓存身份包含编译器、目标、flags、源码及 include。冷/热编译和曝光等实际变体由 shader 回归验证，不从本机缓存复制预编译结果 |
 
 ## 本地发版清单（与 CI 对齐）
 
@@ -30,13 +32,40 @@ runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证
 不能在测试后重新编译 runtime 再沿用旧凭证。
 此哈希只绑定测试产物，不能替代源码审阅、GPU 或游戏验证。
 
-`PACKAGE_RELEASE.ps1` **不会**跑安装/ABI/sync 全套，只做新鲜度 + 模块契约。要尽量贴线上，发版前按顺序：
+### 执行顺序
 
-1. `tests\run-all.cmd --tier ci`（至少；有卡再加 `device`）
-2. `tools\build\build-release-local.cmd`（完整：测试 + runtime + OptiScaler；不要用 `--fast` 充当发版构建）
-3. `powershell -File tools\release\check-module-contract.ps1`
-4. `powershell -File tools\release\PACKAGE_RELEASE.ps1`
-5. 打 `v<VERSION>` tag 推远程，**以 CI 上传的 zip 为准**（不要用本机 `dist/` 冒充）
+1. **固定待发布源码。** 更新 `VERSION`、各语言 README 和 release workflow 的发布正文，确认描述与实际验证一致。修复和版本变更提交后记录完整 SHA；检查 `git status --short` 和 `git submodule status --recursive`。发布验证用干净检出及完整子模块，不继承旧 `exports`。修改源码后重新构建受影响产物，不能继续沿用旧验证结果。
+2. **完成上游接入再发版。** 涉及 lmxxf 同步时先按 [同步流程](../tools/lmxxf-sync/README.md) 审阅、补丁重放、模块来源与契约检查，确认 `sync-state.json` 为 reviewed 且审计针对当前接入内容有效。不能只看历史 reviewed 字样；pending、非零退出或仅 report-only 都不放行。发布 job 只使用提交的模块，不临时追移动的上游分支。
+3. **构建并测同一 runtime。** 有 D3D12 设备的本机运行下方完整构建命令，已包含 `ci,device`，不用在前面再重复跑一次 CI。无设备时在非 tag Actions 上跑完整 CI/构建，并如实记录 device/GPU SKIP。根据改动补充 GPU、双后端烟测；已有验证仅在源码、配置和产物身份适用时沿用。
+4. **本地试打包放 exports。** 使用下方显式 host 路径和输出路径。打包器自动校验 runtime-ci 凭证、源码新鲜度、模块契约、包内容及实际 zip 哈希。`--fast`、`--skip-sync`、`-AllowMissingDeps`、`-WarnOnly`、`-AllowStaleModules` 不能作为发版通过依据。构建后不要再同步模块或重编 runtime 然后沿用旧测试凭证。
+5. **先验证远端非 tag ref。** 推送待验证分支后，在该分支触发 release workflow 的 `workflow_dispatch`，核对 run 的 `head_sha`。这条路径构建并上传 Actions artifact，不创建 GitHub Release。检查完整 job 结果，下载该 run 的 artifact，核对 zip 与包内 SHA256SUMS；本地通过不能代替远端通过。若无法执行，明确记为待验证，不宣称两端一致。
+6. **确认发布后再创建 tag。** `v<VERSION>` 指向已验证的同一提交，推送后 tag workflow 会重新构建并发布。若又修改了版本或正文，应先把新的提交验证好。tag run 是新的构建，核对它的 commit、测试结果和产物，不假定 zip 字节与预验证 run 相同。
+7. **核验实际线上附件。** 以成功 tag run 的 zip 为准；核对 Release tag、run `head_sha`、版本与正文源码链接，并把下载附件的 SHA256 与该 run 产物对照。上传失败按已有暂存/哈希重试机制处理；不同内容的同名附件禁止覆盖，不强推旧 tag。记录最终 run URL、zip SHA 和跳过的实测项。
+
+在仓库根目录执行（PowerShell）：
+
+```powershell
+cmd /d /c tools\build\build-release-local.cmd
+if ($LASTEXITCODE -ne 0) { throw 'Release build or regression failed' }
+
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/PACKAGE_RELEASE.ps1 `
+    -OptiDll exports/release-local/OptiScaler.dll -OutDir exports/release-review
+if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
+```
+
+第二条命令默认读取 `VERSION`。现有 `dist/` 发布物不改动；脚本的历史默认 OutDir 仍是 dist，所以本地试包必须显式传入 `-OutDir`。Actions 在独立 runner 的 dist 中生成待发布附件，不会修改本机 dist。
+
+### 失败时怎样继续
+
+| 首个有效错误 | 处理规则 |
+|---|---|
+| 模块名/数量、arch、checksum、配方不一致 | 对照下方契约表、实际模块来源与同步审阅，修完消费者和产物再测；不只修改测试数字 |
+| fixture 缺脚本/依赖 | 补完整真实夹具并测试原失败分支；不以总是成功的 stub 绕过门禁 |
+| CI 与本地不同 | 先固定同一 SHA，核对子模块、MSVC/SDK、环境变量、构建顺序、缓存和选中的 DLL；日志保留首错、run URL、期待值与实际值 |
+| runtime-ci 缺失/不匹配或产物陈旧 | 从完整构建/测试入口重新生成对应产物；不手写凭证、不改时间戳 |
+| 上传断线 | 保留已构建产物，核对远端是否已接收，通过受控重试完成；不重新编一个不同 zip 覆盖同名附件 |
+
+机器门禁目前覆盖编译器环境、测试退出码、runtime 身份、模块契约、新鲜度与 zip 内容。源码审阅质量、实际游戏表现及发版结论仍需按证据核对；文档不能替代这些验证。
 
 ### 模块数量契约（追 lmxxf / 增删 hsaco 时最容易漏）
 
@@ -67,7 +96,7 @@ runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证
 
 ## 包内容
 
-`tools\release\PACKAGE_RELEASE.ps1` 输出 `dist/OptiScaler-AMD-PreSR-<版本>.zip`。`dist/` 只放发版产物，被 git 忽略。
+`PACKAGE_RELEASE.ps1 -OutDir exports/release-review` 在 `exports/release-review/` 生成试包目录和 zip；Actions 的正式打包路径为 runner 内的 `dist/OptiScaler-AMD-PreSR-<版本>.zip`。本机已有 `dist/` 发布物不改动。
 
 包根目录：
 
@@ -101,16 +130,31 @@ runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证
 | 切换 | ini 里改 `NrBackend` 后重启游戏，两边都能跑；卸载不误删两类权重 |
 | 退出 | 正常退出无崩溃、无 `DXGI_ERROR_DEVICE_REMOVED` |
 
-GPU 输出哈希、9060 实机等不在无卡清单里，见 RELEASE-TESTS.md 的 D 节。
+GPU 输出哈希和实机覆盖范围见 [测试入口说明](../tests/RELEASE-TESTS.md)。未安装的游戏或没有的硬件明确记录 SKIP，不将本地无卡 PASS 写成游戏验证通过。
 
 ## CI 与 GitHub Release
 
-- `.github/workflows/release.yml`：推 `v*` tag 或手动触发。依次跑安装/卸载回归、宿主契约回归、编 runtime、ABI 与 C 冒烟、编 OptiScaler、打包、专有文件绊线、上传。
+- `.github/workflows/release.yml`：推 `v*` tag 或手动触发。先检查工具链/依赖，再运行统一 CI（构建 runtime 并测试）、编宿主、打包、检查 zip、上传 artifact。创建 Release 和上传 Release 附件两步都有 tag 条件；手动触发时选择 tag 仍会发布，预验证必须选择非 tag 分支。
 - 核对线上资产用 **CI 产出的 zip**，不要用本机 `dist/` 冒充。
 - Release 的 tag、CI 构建的 commit（`head_sha`）、正文里的源码链接必须指向同一个提交。
 - 查 GitHub 状态用 REST（`gh api repos/TheAutomatic/dlss-5-amd-project/releases/tags/<tag>`），不要凭一次 GraphQL 失败下结论；`gh` 一律带 `-R TheAutomatic/dlss-5-amd-project`（见 [dev-environment.md](dev-environment.md)）。
 - 保留已发布的 tag；改动以新版本发布。附件先暂存上传，核验大小和 SHA-256 后改成正式名称；网络失败会重试。同名内容一致可重跑，不同内容会拒绝覆盖。
 - Release 正文写清用户需自备的文件：daniel 需要作者的 setup 与 `nvngx_dlssnr.dll`（或现成 `version.dll` + weights）；lmxxf 需要权重目录。
+
+## 已核实的 Actions 差异与历史失败
+
+2026-10-01 核对后，不能把所有红灯都归因上游同步：
+
+| run / 提交 | 首错与处理 |
+|---|---|
+| [36343700285](https://github.com/TheAutomatic/dlss-5-amd-project/actions/runs/36343700285) | 模块已增加，ABI 仍断言 `modules_ok=58`；`2b294be` 更新遗漏消费者 |
+| [36388171199](https://github.com/TheAutomatic/dlss-5-amd-project/actions/runs/36388171199) | 测试夹具漏带 `check-module-contract.ps1`，4 项在到达目标断言前失败；`da21b03` 补齐真实依赖 |
+| [36389642043](https://github.com/TheAutomatic/dlss-5-amd-project/actions/runs/36389642043) | 上传出现 `other side closed`；`4fef0c3` 增加暂存、哈希核验与重试 |
+| [36748883931](https://github.com/TheAutomatic/dlss-5-amd-project/actions/runs/36748883931) / `9afa534` | 1.9.8.1 成功；只证明该提交，不能替代后续修复分支的远端验证 |
+
+本轮另修正了两个实际流程缺口：`2263190` 将成功测试的 runtime 与打包 DLL 按哈希绑定；`8ed1b31` 将 Actions 的 runtime/测试编译器和 SDK 与宿主、本地入口统一。此前仅 MSBuild 选定编译器，setup-msvc-dev 仍可能采用 runner 默认值。
+
+固定 0.37 修复已完成本地 CI/device/GPU 与构建，尚未推送或运行该修复分支的 Actions。后续应走本页非 tag 预验证流程；这份本地结果不能替代它。仍有既有编译警告，不宣称零警告构建。
 
 ## 发版当天不要顺手修
 

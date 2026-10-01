@@ -15,7 +15,7 @@ regression returns `9e99616bb5014312`; partial recording and failed tail Signal
 cases pass. MSVC/MinGW runtime and host Release compile. All 62 HSACO files match
 the prior independently rebuilt package; kernel recipes and module defines are
 unchanged. No gfx1200 hardware, full game matrix or new hosted Actions run was
-performed. 0.38 has not been integrated. See [build parity](release-build-parity.md)
+performed. 0.38 has not been integrated. See [build parity](release.md)
 for independently identified historical Actions failures and current safeguards.
 
 
