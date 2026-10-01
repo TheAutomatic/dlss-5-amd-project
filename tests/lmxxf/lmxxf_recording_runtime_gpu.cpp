@@ -138,6 +138,9 @@ int main(int argc, char** argv)
     std::printf("NR GPU samples=%llu mean_ms=%.3f last_ms=%.3f\n",
                 measured.stages[NR_GPU_NETWORK].samples, measured.stages[NR_GPU_NETWORK].mean_ms,
                 measured.stages[NR_GPU_NETWORK].last_ms);
+    Require(measured.stages[NR_GPU_ENCODE].samples > 0 && measured.stages[NR_GPU_ENCODE].last_ms > 0 &&
+            measured.stages[NR_GPU_DECODE].samples > 0 && measured.stages[NR_GPU_DECODE].last_ms > 0,
+            "runtime exposes completed D3D encode and decode durations");
     ok(api.Destroy(context), "destroy old session asynchronously");
     // Exercise the actual host owner + proxy contract, without a backend instance
     // that could keep the old context alive accidentally after NR off/switch.

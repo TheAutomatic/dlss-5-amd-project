@@ -16,6 +16,7 @@
 #include "native_rgb_texture.h"
 #include "hip_d3d12_bridge.h"
 #include "LmxxfRecordingLease.h"
+#include "RecordingGpuTiming.h"
 
 #include <atomic>
 #include <cstdio>
@@ -1097,6 +1098,7 @@ struct RecordingChain
 struct RecordingJob : Job
 {
     uint64_t frameId = 0, executionId = 0;
+    std::shared_ptr<LmxxfRuntime::RecordingGpuTiming> gpuTiming;
     LmxxfRuntime::RecordingPins pins;
     std::shared_ptr<RecordingChain> chain;
     std::shared_ptr<LmxxfRuntime::ExposureRecording> exposure;
@@ -1172,6 +1174,7 @@ struct Session
     bool bridgeWarmed = false;
     CpuTiming prepareTiming, enqueueTiming, rebuildTiming, drainTiming;
     DlssNr::PerformanceStore performance;
+    LmxxfRuntime::RecordingGpuTimingPool gpuTimingPool;
     uint64_t timingExecution = 0;
     void CollectTiming(hip_reference::D3D12Bridge* source)
     {
@@ -1679,6 +1682,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         RequireSession(session);
         CpuTiming::Scope prepareTime(session->prepareTiming, &session->performance, NR_CPU_PREPARE);
         session->CollectTiming(session->bridge);
+        if (session->performance.Enabled())
+            for (auto& entry : session->recordings)
+                if (entry.second->gpuTiming) entry.second->gpuTiming->Collect(session->performance);
         // Historical sizes: 64 ends at color_state/flags, V1 ends at model_scale, the exposure
         // size ends at exposure_scale. A host whose struct_size stops earlier has no later fields.
         const uint32_t legacySize = 64;
@@ -2208,6 +2214,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         {
             auto lease = std::make_unique<RecordingJob>();
             lease->frameId = info->frame_id;
+            if (session->performance.Enabled()) {
+                lease->gpuTiming = session->gpuTimingPool.Acquire(session->device);
+                if (!lease->gpuTiming) session->performance.Drop(1);
+            }
             static_cast<Job&>(*lease) = session->job;
             lease->chain = session->recordingChain;
             // Capture dependencies before recording any command, including failure paths.
@@ -2257,6 +2267,8 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         if (session->recordingLeases && (session->preparing != j || static_cast<RecordingJob*>(j)->started))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "Record: job is not the current recording");
         ListContract(session, list);
+        auto* timing = session->recordingLeases ? static_cast<RecordingJob*>(j)->gpuTiming.get() : nullptr;
+        if (timing) timing->Begin(list, 0);
 
         // Refresh our stable exposure copy from the game's texture. Both textures share a format
         // (CopyTextureRegion requires it), and we leave the copy in NON_PIXEL_SHADER_RESOURCE so
@@ -2326,12 +2338,14 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             std::swap(barriers[0].Transition.StateBefore, barriers[0].Transition.StateAfter);
             std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
             list->ResourceBarrier(2, barriers);
+            if (timing) timing->End(list, 0);
             j->state = LMXXF_NR_JOB_PRODUCER_SUBMITTED;
             SetError("");
             return static_cast<int32_t>(LMXXF_NR_OK);
         }
         session->rgbInput->Record(list, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         session->bridge->RecordInputCopy(list, session->rgbInput->PostBase(), nullptr);
+        if (timing) timing->End(list, 0);
         j->state = LMXXF_NR_JOB_PRODUCER_SUBMITTED;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2475,6 +2489,8 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         if (session->recordingLeases && (session->preparing != j || static_cast<RecordingJob*>(j)->started))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "Record: job is not the current recording");
         ListContract(session, list);
+        auto* timing = session->recordingLeases ? static_cast<RecordingJob*>(j)->gpuTiming.get() : nullptr;
+        if (timing) timing->Begin(list, 1);
 
         if (!j->codec_passthrough)
         {
@@ -2531,6 +2547,7 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
             std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
             list->ResourceBarrier(2, barriers);
         }
+        if (timing) timing->End(list, 1);
         j->state = LMXXF_NR_JOB_CONSUMER_COMPLETE;
         if (session->recordingLeases)
         {
@@ -2634,6 +2651,7 @@ int32_t BeginRecordingExecution(void* context, void* job, void* actualQueue)
             j->chain->bridge->CancelUnsubmitted();
         }
         else if (!j->codec_passthrough) j->chain->bridge->BeginRecordedExecution(queue);
+        if (j->gpuTiming) j->gpuTiming->BeforeExecution(session->performance);
         j->started = true;
         j->executionId = ++session->timingExecution;
         queue->AddRef();
@@ -2679,6 +2697,8 @@ int32_t EndRecordingExecution(void* context, void* job, void* actualQueue,
             auto certificate = std::make_shared<LmxxfRuntime::RecordingCompletion>(fence, queue, value);
             j->completions.push_back(certificate);
             j->chain->completions.push_back(certificate);
+            if (j->gpuTiming && session->performance.Enabled())
+                j->gpuTiming->Submitted(certificate, consumer, j->frameId, j->executionId, session->performance.Epoch());
         }
         if (j->sealed && !j->codec_passthrough) j->chain->bridge->EndRecordedExecution(queue, producer, consumer);
         if (producer) j->unconfirmed = j->chain->unconfirmed = false;
@@ -2720,7 +2740,10 @@ int32_t CollectRecording(void* context, void* job)
         if (!removed && (j->unconfirmed || std::any_of(j->completions.begin(), j->completions.end(),
                                                      [](const auto& c) { return !c->Complete(); })))
             return static_cast<int32_t>(LMXXF_NR_UNAVAILABLE);
-        if (!removed) session->CollectTiming(j->chain->bridge.get());
+        if (!removed) {
+            session->CollectTiming(j->chain->bridge.get());
+            if (j->gpuTiming) j->gpuTiming->Collect(session->performance);
+        }
         session->recordings.erase(job);
         SetError("");
         return static_cast<int32_t>(removed ? LMXXF_NR_DEVICE_LOST : LMXXF_NR_OK);

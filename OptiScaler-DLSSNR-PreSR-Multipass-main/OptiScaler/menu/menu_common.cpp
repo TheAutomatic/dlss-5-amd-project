@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "../dlssnr/amd/AmdBridge.h"
+#include "../dlssnr/NrTimingDisplay.h"
 #include "menu_common.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/AmdPreSr.h>
@@ -1965,6 +1967,17 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
             {
                 thirdLine =
                     StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
+            }
+
+            if (overlayType != FpsOverlay_JustFPS && config->NrTimingEnabled.value_or_default()) {
+                const auto timing = DlssNr::AmdBridge::Timing();
+                if (timing.version == NR_TIMING_VERSION) {
+                    const auto now = GetTickCount64();
+                    firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
+                    if (overlayType >= FpsOverlay_Detailed)
+                        secondLine += " | Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
+                                      " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
+                }
             }
 
             ImVec2 plotSize;

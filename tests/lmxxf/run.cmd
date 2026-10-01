@@ -50,6 +50,8 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
+%CXX% tests\lmxxf\lmxxf_recording_timing.cpp /Fe"%OUT%\lmxxf_recording_timing.exe" /Fo"%OUT%\lmxxf_recording_timing.obj" /link %D3D% || goto fail
+"%OUT%\lmxxf_recording_timing.exe" || goto fail
 %CXX% /I"%REPO%\third_party\lmxxf\src" tests\lmxxf\lmxxf_exposure_recording.cpp /Fe"%OUT%\lmxxf_exposure_recording.exe" /Fo"%OUT%\lmxxf_exposure_recording.obj" /link %D3D% || goto fail
 "%OUT%\lmxxf_exposure_recording.exe" || goto fail
 call tests\lmxxf\shader-compiler.cmd "%OUT%\shader-compiler" || goto fail

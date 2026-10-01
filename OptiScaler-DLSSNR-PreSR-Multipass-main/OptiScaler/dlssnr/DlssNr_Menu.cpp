@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "NrTimingDisplay.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
@@ -1073,6 +1074,28 @@ void RenderMenu(Config* config, float menuResScale)
             if (isLmxxf)
             {
                 ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
+                bool timingEnabled = config->NrTimingEnabled.value_or_default();
+                if (ImGui::Checkbox("Measure NR performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
+                HelpMarker("Asynchronous GPU timing. Does not wait for the GPU. New recordings include encode/decode queries."
+                           "\nAverages and maxima use the last 120 samples. NR includes its output copy, not whole-frame latency."
+                           "\nClosed recordings keep their queries until Reset/Release, even after measurement is disabled.");
+                bool timingLog = config->NrTimingLog.value_or_default();
+                if (ImGui::Checkbox("Write timing summary to log", &timingLog)) config->NrTimingLog = timingLog;
+                HelpMarker("Requires measurement and file logging. At most one summary every five seconds.");
+                if (timingEnabled) {
+                    const auto snapshot = DlssNr::AmdBridge::Timing();
+                    const auto now = GetTickCount64();
+                    ImGui::TextWrapped("NR GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_NETWORK, now, true).c_str());
+                    ImGui::TextWrapped("Encode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_ENCODE, now, true).c_str());
+                    ImGui::TextWrapped("Decode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_DECODE, now, true).c_str());
+                    if (ImGui::TreeNode("CPU timing and sample diagnostics")) {
+                        const char* labels[] = {"Prepare", "Enqueue", "Rebuild", "Drain"};
+                        for (unsigned i = 0; i < 4; ++i)
+                            ImGui::TextWrapped("%s CPU: %s", labels[i], DlssNr::TimingValueText(snapshot, i, now, true).c_str());
+                        ImGui::Text("Dropped samples: %llu", static_cast<unsigned long long>(snapshot.dropped));
+                        ImGui::TreePop();
+                    }
+                }
             }
             else
             {

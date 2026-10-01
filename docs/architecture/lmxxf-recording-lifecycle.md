@@ -124,3 +124,21 @@ Enable epochs prevent older pending samples from repopulating a restarted window
 Legacy v1, codec passthrough and unexecuted recordings have no network GPU sample.
 The standalone synchronous development probe remains separate and is not enabled
 by product telemetry. Game performance still requires an external off/on comparison.
+
+D3D12 encode (including exposure/input copies) and decode (including output copies)
+use separate timestamp intervals on the actual execution queue. A session holds at
+most 16 query/readback pairs. Each pair stays owned by its recording until invalidation
+and completion; freed pairs are reused, avoiding per-frame committed allocations.
+Replay reuses its recording's queries under existing queue ordering. Before replay,
+a completed measurement may be collected; an unread pending measurement is dropped
+before another write can race the CPU. Only a successful submission certificate can
+publish results. Timing never extends a recording's GPU waits. Measurements from
+an older enable epoch are ignored. Recordings made while disabled have no queries;
+already closed recordings keep their queries until Reset/Release.
+
+The Ins panel and existing FPS overlay read the host's cached snapshot. Values older
+than two seconds are marked stale, unavailable stages show N/A, and disabling NR or
+switching away clears the displayed data. Just FPS retains its original layout.
+Other overlay styles show network time, with encode/decode in detailed styles.
+CPU and GPU stage durations are not summed into game frame latency. UI/game visual
+validation remains separate from automated timestamp/lifecycle tests.

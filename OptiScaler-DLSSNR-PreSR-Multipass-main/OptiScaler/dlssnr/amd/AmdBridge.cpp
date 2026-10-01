@@ -752,6 +752,16 @@ bool GraphicsRestartNeeded(UINT activePasses)
         return b->GraphicsRestartNeeded(activePasses);
     return false;
 }
+NrTimingSnapshot Timing()
+{
+    // This read must not discover files or instantiate a backend from the UI.
+    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+        !Config::Instance()->NrTimingEnabled.value_or_default()) return {};
+    const int kind = g_activeKind.load(std::memory_order_acquire);
+    if (kind < 0) return {};
+    if (auto* host = HostForKind(static_cast<DlssNr::Backend::Kind>(kind))) return host->Timing();
+    return {};
+}
 std::string Status()
 {
     if(AmdPresentExperimental::IsTarget()) return AmdPresentExperimental::Status();

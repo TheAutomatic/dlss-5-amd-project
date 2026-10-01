@@ -1,4 +1,5 @@
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformanceStore.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrTimingDisplay.h"
 #include <cassert>
 #include <limits>
 #include <thread>
@@ -30,5 +31,14 @@ int main()
     store.Record(NR_GPU_NETWORK, 3, 200, 5, 6, oldEpoch);
     assert(!store.Read().stages[0].samples && !store.Read().dropped);
     assert(!store.Read().stages[NR_GPU_NETWORK].samples);
+    store.Record(NR_GPU_NETWORK, 2.5, 500, 42, 8);
+    const auto display = store.Read();
+    assert(DlssNr::TimingValueText(display, NR_GPU_NETWORK, 600) == "2.50 ms");
+    assert(DlssNr::TimingValueText(display, NR_GPU_NETWORK, 2600) == "N/A (stale)");
+    assert(DlssNr::TimingValueText(display, NR_GPU_NETWORK, 499) == "N/A (stale)");
+    assert(DlssNr::TimingValueText(display, NR_GPU_ENCODE, 600) == "N/A (waiting)");
+    assert(DlssNr::TimingValueText({}, NR_GPU_NETWORK, 600) == "N/A");
+    store.SetEnabled(false);
+    assert(DlssNr::TimingValueText(store.Read(), NR_GPU_NETWORK, 600) == "disabled");
     std::cout << "nr performance: PASS\n";
 }
