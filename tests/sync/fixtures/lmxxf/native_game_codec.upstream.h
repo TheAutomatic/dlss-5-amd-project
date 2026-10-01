@@ -1,6 +1,8 @@
 #pragma once
 #include "native_pso.h"
 #include "native_lab_paths.h"
+#include "native_format_fallback.h"
+#include "native_hot_flags.h"
 #include "native_pinned_resource.h"
 #include "native_device_identity.h"
 #include "native_shader_cache.h"
@@ -28,6 +30,8 @@ class NativeGameCodec {
  void ClearBindings(){for(auto&b:bindings){b.heap->Release();for(auto*r:b.sources)if(r)r->Release();}bindings.clear();}
  UINT count{};bool recorded{};NativeInputGeometry geometry{};UINT out_width{},out_height{},row_pitch{};
  bool private_float_output{};
+ /* DLSS5_IO_FUSE=1 (decode only): the network's f32 RGB output buffer, read directly by the decoder instead of the neural texture */
+ ID3D12Resource*neural_buffer{};
  bool unorm_out{},unorm8_out{},r11_out{};DXGI_FORMAT out_format{};
  static void step(ID3D12Device*d,const char*what){if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=codec_step detail=%s removed=%08x\n",GetCurrentProcessId(),GetTickCount64(),what,unsigned(d->GetDeviceRemovedReason()));fclose(f);}}
  static void check(HRESULT hr,const char*what="?"){if(FAILED(hr))throw std::runtime_error(std::string("codec ")+what+" HRESULT="+std::to_string(unsigned(hr)));}
@@ -41,7 +45,9 @@ class NativeGameCodec {
  }
 public:
  NativeGameCodec()=default;NativeGameCodec(const NativeGameCodec&)=delete;
- ~NativeGameCodec(){NativeUntrackResource(output);if(exposure_texture)exposure_texture->Release();ClearBindings();for(auto*r:source)if(r)r->Release();if(output)output->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+ ~NativeGameCodec(){if(neural_buffer)neural_buffer->Release();NativeUntrackResource(output);if(exposure_texture)exposure_texture->Release();ClearBindings();for(auto*r:source)if(r)r->Release();if(output)output->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+ /* SRV format of a codec input: the old mapping for every format accepted before 0.38; fallback-table formats (private FP16 output only) use their table view. */
+ static DXGI_FORMAT SourceView(DXGI_FORMAT f){return NativeIsGameColor(f)||f==DXGI_FORMAT_R9G9B9E5_SHAREDEXP||f==DXGI_FORMAT_R16G16B16A16_FLOAT?NativeViewFormat(f):NativeFallbackColorView(f)!=DXGI_FORMAT_UNKNOWN?NativeFallbackColorView(f):NativeViewFormat(f);}
  // Encode: {linear original}. Decode: {encoded proxy, encoded neural, linear original}.
  void Create(ID3D12Device*d,const std::vector<ID3D12Resource*>&inputs,const std::wstring&dir,bool privateFloatOutput=false,ID3D12Resource*exposure=nullptr){
   private_float_output=privateFloatOutput;
@@ -55,7 +61,7 @@ public:
   const auto network=NativeCurrentNetworkGeometry();
   for(size_t i=0;i<inputs.size();i++){
    auto*r=inputs[i];if(!r)throw std::runtime_error("codec null input");auto desc=r->GetDesc();
-   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||!NativeInputGeometry::Supported(desc.Width,desc.Height,NativeFitLargeInput())||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||!(NativeIsGameColor(desc.Format)||(private_float_output&&desc.Format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP))||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error("codec unverified input format/geometry");
+   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||!NativeInputGeometry::Supported(desc.Width,desc.Height,NativeFitLargeInput())||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||!(NativeIsGameColor(desc.Format)||(private_float_output&&(desc.Format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP||NativeFallbackColor(desc.Format)!=DXGI_FORMAT_UNKNOWN)))||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error(std::string("codec unverified input format/geometry (")+NativeDxgiFormatName(desc.Format)+" "+std::to_string(unsigned(desc.Format))+")");
    if(inputs.size()==3&&i<2&&(desc.Width!=network.valid_width||desc.Height!=network.valid_height))throw std::runtime_error("codec network surface geometry");
    for(size_t j=0;j<i;j++)if(inputs[j]==r)throw std::runtime_error("codec aliased inputs");
    ID3D12Device*owner=nullptr;check(r->GetDevice(IID_PPV_ARGS(&owner)),"input-getdevice");bool same=NativeSameDevice(owner,d);owner->Release();if(!same)throw std::runtime_error("codec device mismatch");
@@ -77,16 +83,17 @@ public:
   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,count+1+(exposure_texture?1u:0u),D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"heap");
   UINT stride=d->GetDescriptorHandleIncrementSize(hd.Type);auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=NativeViewFormat(desc.Format);sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;
-  for(UINT i=0;i<count;i++){sv.Format=NativeViewFormat(source[i]->GetDesc().Format);/* per input: the game texture may be typeless, the intermediates are FP16 */d->CreateShaderResourceView(source[i],&sv,cpu);cpu.ptr+=stride;}step(d,"srvs");
+  for(UINT i=0;i<count;i++){sv.Format=SourceView(source[i]->GetDesc().Format);/* per input: the game texture may be typeless, the intermediates are FP16 */d->CreateShaderResourceView(source[i],&sv,cpu);cpu.ptr+=stride;}step(d,"srvs");
   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{};if(unorm_out||unorm8_out||r11_out){uv.Format=DXGI_FORMAT_R32_TYPELESS;uv.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;uv.Buffer.NumElements=row_pitch*out_height/4;uv.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;}else{uv.Format=NativeViewFormat(desc.Format);uv.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;}d->CreateUnorderedAccessView(output,nullptr,&uv,cpu);step(d,"uav");
   WriteExposureView(d,heap);
   D3D12_DESCRIPTOR_RANGE ranges[3]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,count,count==3?1u:0u,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,count},{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,4,0,count+1}};
-  D3D12_ROOT_PARAMETER params[2]{};params[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;params[0].DescriptorTable={exposure_texture?3u:2u,ranges};params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;params[1].Constants={0,0,20};
-  D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=2;rd.pParameters=params;ID3DBlob*b=nullptr,*err=nullptr;auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&b,&err);if(err)err->Release();check(hr,"rootsig-serialize");step(d,"rootsig-serialized");check(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)),"rootsig");step(d,"rootsig");b->Release();b=nullptr;err=nullptr;
+  D3D12_ROOT_PARAMETER params[3]{};params[2].ParameterType=D3D12_ROOT_PARAMETER_TYPE_SRV;params[2].Descriptor.ShaderRegister=5;params[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;params[0].DescriptorTable={exposure_texture?3u:2u,ranges};params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;params[1].Constants={0,0,20};
+  D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=neural_buffer?3u:2u;rd.pParameters=params;ID3DBlob*b=nullptr,*err=nullptr;auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&b,&err);if(err)err->Release();check(hr,"rootsig-serialize");step(d,"rootsig-serialized");check(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)),"rootsig");step(d,"rootsig");b->Release();b=nullptr;err=nullptr;
   /* DLSS5_CODEC_SRGB=1 (Magpie): the host texture is a display-referred sRGB picture: the encoder passes it through, the decoder linearizes and re-encodes. */
   const char*srgb_io=(_wgetenv(L"DLSS5_CODEC_SRGB")&&!wcscmp(_wgetenv(L"DLSS5_CODEC_SRGB"),L"1"))?"1":"0";
   const char*fit=geometry.Adapted()?"1":"0";
-  const D3D_SHADER_MACRO uint_out[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UINT_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},unorm8[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UNORM8_OUT","1"},{"NATIVE_CODEC_BGRA",(out_format==DXGI_FORMAT_B8G8R8A8_UNORM||out_format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)?"1":"0"},{"NATIVE_CODEC_DEBUG_TINT",(_wgetenv(L"DLSS5_DEBUG_TINT")&&!wcscmp(_wgetenv(L"DLSS5_DEBUG_TINT"),L"1"))?"1":"0"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},plain[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},r11[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_R11_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}}; /* DLSS5_DEBUG_TINT=1 (diagnostic): the UNORM8 path writes a magenta-tinted picture so the write-back is visible */hr=CompileNativeShader(dir+(count==3?L"\\native_codec_decode.hlsl":L"\\native_codec_encode.hlsl"),unorm8_out?unorm8:r11_out?r11:unorm_out?uint_out:plain,"main",&b,&err);if(FAILED(hr)){std::string message=count==3?"codec decode compile failed: ":"codec encode compile failed: ";if(err)message.append(static_cast<const char*>(err->GetBufferPointer()),err->GetBufferSize());if(err)err->Release();if(b)b->Release();throw std::runtime_error(message+" HRESULT="+std::to_string(unsigned(hr)));}if(err)err->Release();step(d,"compiled");
+  const D3D_SHADER_MACRO uint_out[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UINT_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},unorm8[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UNORM8_OUT","1"},{"NATIVE_CODEC_BGRA",(out_format==DXGI_FORMAT_B8G8R8A8_UNORM||out_format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)?"1":"0"},{"NATIVE_CODEC_DEBUG_TINT",(_wgetenv(L"DLSS5_DEBUG_TINT")&&!wcscmp(_wgetenv(L"DLSS5_DEBUG_TINT"),L"1"))?"1":"0"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},plain[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},r11[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_R11_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}}; /* DLSS5_DEBUG_TINT=1 (diagnostic): the UNORM8 path writes a magenta-tinted picture so the write-back is visible */std::vector<D3D_SHADER_MACRO>macros;for(const D3D_SHADER_MACRO*m=unorm8_out?unorm8:r11_out?r11:unorm_out?uint_out:plain;m->Name;m++)macros.push_back(*m);if(neural_buffer)macros.push_back({"NATIVE_CODEC_NEURAL_BUFFER","1"});macros.push_back({nullptr,nullptr});
+  hr=CompileNativeShader(dir+(count==3?L"\\native_codec_decode.hlsl":L"\\native_codec_encode.hlsl"),macros.data(),"main",&b,&err);if(FAILED(hr)){std::string message=count==3?"codec decode compile failed: ":"codec encode compile failed: ";if(err)message.append(static_cast<const char*>(err->GetBufferPointer()),err->GetBufferSize());if(err)err->Release();if(b)b->Release();throw std::runtime_error(message+" HRESULT="+std::to_string(unsigned(hr)));}if(err)err->Release();step(d,"compiled");
   D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={b->GetBufferPointer(),b->GetBufferSize()};hr=NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso));b->Release();check(hr,"pso");
  }
  // Cached heaps are immutable and retain their resources. A full cache requires
@@ -117,9 +124,9 @@ public:
   heap->Release();heap=next;
   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;
   auto cursor=heap->GetCPUDescriptorHandleForHeapStart();const UINT stride=d->GetDescriptorHandleIncrementSize(hd.Type);
-  for(UINT i=0;i<count;i++){auto*r=i==index?replacement:source[i];sv.Format=NativeViewFormat(r->GetDesc().Format);d->CreateShaderResourceView(r,&sv,cursor);cursor.ptr+=stride;}
+  for(UINT i=0;i<count;i++){auto*r=i==index?replacement:source[i];sv.Format=SourceView(r->GetDesc().Format);d->CreateShaderResourceView(r,&sv,cursor);cursor.ptr+=stride;}
   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{};if(unorm_out||unorm8_out||r11_out){uv.Format=DXGI_FORMAT_R32_TYPELESS;uv.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;uv.Buffer.NumElements=row_pitch*out_height/4;uv.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;}else{uv.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;uv.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;}d->CreateUnorderedAccessView(output,nullptr,&uv,cursor);WriteExposureView(d,heap);
-  sv.Format=NativeViewFormat(desc.Format);
+  sv.Format=SourceView(desc.Format);
   auto cpu=heap->GetCPUDescriptorHandleForHeapStart();cpu.ptr+=SIZE_T(index)*d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
   replacement->AddRef();d->CreateShaderResourceView(replacement,&sv,cpu);d->Release();source[index]->Release();source[index]=replacement;
   Binding fresh{heap,{source[0],source[1],source[2]}};fresh.heap->AddRef();for(auto*r:fresh.sources)if(r)r->AddRef();bindings.push_back(fresh);
@@ -138,6 +145,8 @@ public:
     for(const auto&t:table)if(!_wcsicmp(base,t.exe)){v[0]=t.transfer;v[1]=t.color;hit=t.exe;}
     if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=strength detail=auto exe=%ls -> %g,%g%s\n",GetCurrentProcessId(),GetTickCount64(),base,v[0],v[1],hit?" (quirk)":"");fclose(f);}}
    return v;}();
+  /* 0.38 hot reload (native_hot_flags.h): an edited DLSS5_STRENGTH=a,b in the flags file overrides from the next frame; unedited = start value */
+  const auto hot=NativeHotFlags::Instance().Get();if(hot.strength)return {hot.transfer,hot.color,NativeCodecDebugView::Final};
   return {strength[0],strength[1],NativeCodecDebugView::Final};
  }
  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f){Record(c,before,paper_white,LegacyParameters());}
@@ -148,10 +157,13 @@ public:
   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
   const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
-  c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
+  c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);if(neural_buffer)c->SetComputeRootShaderResourceView(2,neural_buffer->GetGPUVirtualAddress());c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;
  }
+ /* before Create (decoder only): read the network output buffer (f32 RGB, NON_PIXEL_SHADER_RESOURCE throughout) instead of the neural texture */
+ void UseNeuralBuffer(ID3D12Resource*rgb){if(count||neural_buffer||!rgb||rgb->GetDesc().Dimension!=D3D12_RESOURCE_DIMENSION_BUFFER)throw std::runtime_error("codec neural buffer contract");neural_buffer=rgb;neural_buffer->AddRef();}
+ bool NeuralBuffer()const{return neural_buffer!=nullptr;}
  const NativeInputGeometry&Geometry()const{return geometry;}
  ID3D12Resource*Output()const{return output;}bool BufferOutput()const{return unorm_out||unorm8_out||r11_out;}
  /* footprint of the raw output buffer for CopyTextureRegion into the game texture */

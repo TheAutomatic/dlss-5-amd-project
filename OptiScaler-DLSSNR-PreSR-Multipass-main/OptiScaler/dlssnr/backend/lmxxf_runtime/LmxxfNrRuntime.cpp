@@ -573,7 +573,8 @@ const char *ColorInputProblem(const D3D12_RESOURCE_DESC &desc)
         return "MipLevels != 1";
     if (desc.SampleDesc.Count != 1)
         return "SampleDesc.Count != 1";
-    if (!(NativeIsGameColor(desc.Format) || desc.Format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP))
+    if (!(NativeIsGameColor(desc.Format) || desc.Format == DXGI_FORMAT_R9G9B9E5_SHAREDEXP ||
+          NativeFallbackColor(desc.Format) != DXGI_FORMAT_UNKNOWN))
         return "unsupported DXGI format";
     if (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
         return "DENY_SHADER_RESOURCE";
@@ -1161,10 +1162,14 @@ struct Session
         bridge = nullptr;
     }
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT checkedFallbackView = DXGI_FORMAT_UNKNOWN;
+    bool fallbackViewSupported = false;
     /* Network tier baked into the live HIP chain (DLSS5_NETWORK_HEIGHT). A menu/ini change
        must rebuild, or mid-game 720/900/1080/auto switches keep the old surface. */
     unsigned netW = 0;
     unsigned netH = 0;
+    unsigned netProcessingH = 0;
+    float networkStyle = -1.f;
     // Adaptive reuse reads live env, but byte stream is baked into the network.
     // Rebuild when byte stream changes before allowing reuse on the next frame.
     bool vitByteStream = false;
@@ -1269,6 +1274,8 @@ struct Session
             bridgeWarmed = false;
             netW = 0;
             netH = 0;
+            netProcessingH = 0;
+            networkStyle = -1.f;
             vitByteStream = false;
             pdlRequested = false;
             pdlEffective = false;
@@ -1787,6 +1794,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
         }
         auto resolvedGeo = NativeResolveNetworkGeometry(info->color_width, info->color_height);
+        const char* styleValue = std::getenv(CfgKey::LmxxfStyle);
+        // Match the upstream fallback without printing an invalid external value every frame.
+        const float requestedStyle = styleValue && std::strcmp(styleValue, "0") == 0 ? 0.f :
+            styleValue && std::strcmp(styleValue, "2") == 0 ? 2.f / 128.f : -1.f;
         // Set when PrepareFrame deliberately leaves a notice in the error slot for the host to
         // log. Declared here, before the first HIP lazy-Create block, because BOTH of those
         // blocks must skip SetError when a notice is already pending - otherwise the recreate
@@ -1807,6 +1818,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->vitByteStream = opt.vit_byte_stream;
             session->netW = geo.valid_width;
             session->netH = geo.valid_height;
+            session->netProcessingH = geo.processing_height;
+            session->networkStyle = requestedStyle;
             session->CaptureBridgeDiagnostics();
             char geoMsg[192] {};
             std::snprintf(geoMsg, sizeof geoMsg,
@@ -1838,6 +1851,26 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                           unsigned(cdesc.MipLevels), unsigned(cdesc.SampleDesc.Count), unsigned(cdesc.Flags),
                           NativeFitLargeInput() ? 1 : 0);
             return Fail(LMXXF_NR_INVALID_ARGUMENT, msg);
+        }
+
+        // Some fallback formats have optional Texture2D/SRV support. Check once per
+        // view change, before either the meter or codec creates a descriptor.
+        const DXGI_FORMAT fallbackView = NativeFallbackColor(cfmt);
+        if (fallbackView != DXGI_FORMAT_UNKNOWN)
+        {
+            if (session->checkedFallbackView != fallbackView)
+            {
+                D3D12_FEATURE_DATA_FORMAT_SUPPORT support {};
+                support.Format = fallbackView;
+                const auto required = D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_SHADER_LOAD;
+                session->fallbackViewSupported =
+                    SUCCEEDED(session->device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support,
+                                                                  sizeof support)) &&
+                    (support.Support1 & required) == required;
+                session->checkedFallbackView = fallbackView;
+            }
+            if (!session->fallbackViewSupported)
+                return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: fallback colour view lacks Texture2D shader-load support");
         }
 
         // R16G16B16A16_TYPELESS: Wo Long HDR uses FLOAT views (daniel/FFX agree); Ronin LDR
@@ -2016,17 +2049,19 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                                    (session->allocHeight && ch != session->allocHeight));
         const bool tierChanged = session->encode &&
                                  (session->netW != resolvedGeo.valid_width ||
-                                  session->netH != resolvedGeo.valid_height);
+                                  session->netH != resolvedGeo.valid_height ||
+                                  session->netProcessingH != resolvedGeo.processing_height);
+        const bool styleChanged = session->hipPrepared && session->networkStyle != requestedStyle;
         const char *vitByte = std::getenv(CfgKey::VitByteStream);
         const bool vitByteStreamChanged = session->hipPrepared &&
             session->vitByteStream != (vitByte && std::strcmp(vitByte, "1") == 0);
         const bool geoChanged =
-            exposureChanged || validChanged || formatChanged || allocChanged || tierChanged;
+            exposureChanged || validChanged || formatChanged || allocChanged || tierChanged || styleChanged;
         const bool pointerChanged = session->encode && color != session->job.color;
 
         // Geometry and kernel-option changes still require the full teardown.
         const bool exposureOnly = exposureChanged && !validChanged && !formatChanged &&
-                                  !allocChanged && !tierChanged && !vitByteStreamChanged;
+                                  !allocChanged && !tierChanged && !vitByteStreamChanged && !styleChanged;
         const bool rebuilding = (session->encode && geoChanged) || vitByteStreamChanged;
         const auto rebuildStart = std::chrono::steady_clock::now();
 
@@ -2034,10 +2069,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         {
             ++session->codecRecreates;
             char reason[96] {};
-            std::snprintf(reason, sizeof reason, "%s%s%s%s%s%s", exposureChanged ? "exposure+" : "",
+            std::snprintf(reason, sizeof reason, "%s%s%s%s%s%s%s", exposureChanged ? "exposure+" : "",
                           validChanged ? "valid+" : "", formatChanged ? "format+" : "",
                           tierChanged ? "tier+" : "", allocChanged ? "alloc+" : "",
-                          vitByteStreamChanged ? "vit-byte-stream" : "");
+                          styleChanged ? "style+" : "", vitByteStreamChanged ? "vit-byte-stream" : "");
             // Trim the trailing '+' left when "alloc" is not the last trigger.
             size_t rlen = std::strlen(reason);
             if (rlen && reason[rlen - 1] == '+')
@@ -2084,6 +2119,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->vitByteStream = opt.vit_byte_stream;
                 session->netW = geo.valid_width;
                 session->netH = geo.valid_height;
+                session->netProcessingH = geo.processing_height;
+                session->networkStyle = requestedStyle;
                 session->CaptureBridgeDiagnostics();
                 char geoMsg[192] {};
                 std::snprintf(geoMsg, sizeof geoMsg,
@@ -2116,7 +2153,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 // read. Driven by the input format rather than game identity, so every title
                 // gets the same rule. Other formats keep the existing output routes (writing
                 // the game's format, or the UNORM8/R11G11B10 raw-buffer copies).
-                const bool privateFloatOutput = (cfmt == DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
+                const bool privateFloatOutput = (cfmt == DXGI_FORMAT_R9G9B9E5_SHAREDEXP) ||
+                                                NativeFallbackColor(cfmt) != DXGI_FORMAT_UNKNOWN;
                 session->boundExposure = bindExposure;
                 session->allocWidth = cw;
                 session->allocHeight = ch;

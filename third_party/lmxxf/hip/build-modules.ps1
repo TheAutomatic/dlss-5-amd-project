@@ -4,6 +4,8 @@
     [string]$SourceDir = $PSScriptRoot,
     [string]$Only = '',
     [string[]]$ExtraDefines = @(),
+    [string]$ExtraOpts = '',
+    [switch]$RowOpts,
     [ValidateSet('gfx1200','gfx1201')][string[]]$Targets = @('gfx1200','gfx1201')
 )
 # Builds 31 modules per target (24 legacy, two opt-in wave-owned modules, two opt-in C512 32-token modules, one opt-in ViT
@@ -18,6 +20,10 @@
 # 2026-09-17 (0.20); they coincide with the sources' defaults and are spelled out so the recipe does not depend on them.
 # -ExtraDefines 'CW_PACK8 1',...: prepended to every module (experiments; macros a module does not use are inert); a macro
 # the recipe also defines takes the -ExtraDefines value.
+# Compiler options (2026-10-01 compiler sweep): a row may carry opts = '-mllvm=-...' (passed to rtc_compile via RTC_EXTRA_OPTS for
+# that module only; use the joined -mllvm=X form, a separate -mllvm swallows -nogpulib in COMGR). Row opts apply only with -RowOpts
+# (default off: the default build is unchanged). -ExtraOpts is appended to every module (experiments). Without -RowOpts and
+# -ExtraOpts every module compiles with RTC_EXTRA_OPTS cleared, exactly as before. Development/results/compiler-sweep-20261001.
 # Compiler: rtc_compile.exe built from rtc_compile.cpp (see README.md); it uses the driver's amd_comgr_3.dll, no SDK needed.
 $ErrorActionPreference = 'Stop'
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
@@ -45,16 +51,16 @@ $modules = @(
     @{ name = 'multihead-fast-padded-wave';         defines = @('HIP_FMED3_CLAMP 1');                        sources = @('multihead_fast_padded.hip') },
     @{ name = 'multihead_fused_attention';          defines = @('HIP_MH_RTZ_ISA 1');      sources = @('multihead_fused_attention.hip') },
     @{ name = 'deep_fast';                          defines = @();                        sources = @('deep_fast.hip') },
-    @{ name = 'deep_fast-packed';                   defines = @('HIP_VIT_ATTN_NATIVE_HALF 1','HIP_VIT_ATTN_PROB_PAIR 1','HIP_VIT_ATTN_TRANSPOSED_AV 1','HIP_VIT_ATTN_TRANSPOSED_SCORE 1','HIP_BRANCHLESS_F 1');    sources = @('deep_fast.hip') },
+    @{ name = 'deep_fast-packed';                   defines = @('HIP_DEC_WIDE 1','HIP_VIT_ATTN_NATIVE_HALF 1','HIP_VIT_ATTN_PROB_PAIR 1','HIP_VIT_ATTN_TRANSPOSED_AV 1','HIP_VIT_ATTN_TRANSPOSED_SCORE 1','HIP_BRANCHLESS_F 1','C512_F_MASK 1','C512_T8_TAIL_VEC 1','HIP_BYTE_F_ADD0 1','HIP_VIT_ATTN_RCP 1');    sources = @('deep_fast.hip') },
     @{ name = 'multihead-fast-packed';              defines = @();                        sources = @('multihead_fast.hip') },
-    @{ name = 'multihead-fast-padded-wave-packed';  defines = @('C512_HEAD_GROUP 1','HIP_FFN_HOIST_RES 2','HIP_FFN_LINE_STORES 1','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','c512_head_group.inc') },
-    @{ name = 'c32-wave1'; defines = @('CW_UP_FUSED 1','CW_ACT_FMED3 1','HIP_PREPACKED_WEIGHTS 1','CW_ROLL_HIDDEN 1','CW_ROLL_WINDOW 1','CW_VEC_INPUT 1','CW_PREFIX_SPLIT 1','CW_PACK8 1','HIP_FP8_SAT_MODE 3','CW_DIRECT_OUT 1','CW_RTZ_PAIR 1','CW_PACK_MODE_MASK 127','CW_PREFIX_DIRECT_OUT 1','CW_PREFIX_FULL_TILE 1','CW_FINISH_FULL_TILE 1'); sources = @('c32_fused_ffn_attention.hip','wave_owned_c32.inc') },
-    @{ name = 'c64-wave2'; defines = @('W2_UP_FUSED 1','W2_FFN_QT_SMALL_MASK 3','W2_FFN_QT_BATCH 2','W2_BOUNDED_RCP 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1','W2_BYTE_INPUT_LOADS 1','W2_RTZ_PAIR 1','W2_DIRECT_COORDS 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','wave_owned_attention_setup.inc','@wave-owned-attention-body','wave_owned_attention_exports.inc') },
-    @{ name = 'c512-m32-mh'; defines = @('C512_COMPACT_QKV_ATTN 1','C512_FUSED_QKV_ATTN 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','HIP_FMED3_CLAMP 1'); sources = @('multihead_fast_padded.hip','c512_m32_mh.inc','c512_qkv_attention_fused.inc','c512_qkv_attention_compact.inc') },
-    @{ name = 'c512-m32-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1'); sources = @('deep_fast.hip','c512_m32_deep.inc') },
-    @{ name = 'vit-stream'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1','HIP_VIT_STREAM_KERNELS 1','HIP_VIT_QKV_W5 1'); sources = @('deep_fast.hip','vit_stream.inc') },
+    @{ name = 'multihead-fast-padded-wave-packed';  defines = @('MH_POOL_HALF_IN 1','C512_HEAD_GROUP 1','HIP_C512_HOIST_RES 1','HIP_FFN_HOIST_RES 2','HIP_FFN_LINE_STORES 1','HIP_FMED3_CLAMP 1','HIP_POOL32_B8 1'); sources = @('multihead_fast_padded.hip','c512_head_group.inc') },
+    @{ name = 'c32-wave1'; defines = @('CW_UP_FUSED 1','CW_ACT_FMED3 1','HIP_PREPACKED_WEIGHTS 1','CW_ROLL_HIDDEN 1','CW_ROLL_WINDOW 1','CW_VEC_INPUT 1','CW_PREFIX_SPLIT 1','CW_PACK8 1','HIP_FP8_SAT_MODE 3','CW_DIRECT_OUT 1','CW_RTZ_PAIR 1','CW_PACK_MODE_MASK 127','CW_PREFIX_DIRECT_OUT 1','CW_PREFIX_FULL_TILE 1','CW_FINISH_FULL_TILE 1','CW_SKIP_BYTE 1','CW_DIAG_ONLY 1','CW_INPUT_HALF 7','CW_PREFIX_HALF_SOURCE 1','CW_PREPOST_BYTE 1','CW_PREFIX_TAIL_VEC 1','CW_FINISH_TAIL_VEC 1','CW_HOIST_UP 3'); sources = @('c32_fused_ffn_attention.hip','wave_owned_c32.inc'); opts = '-mllvm=-enable-post-misched=0 -mllvm=-amdgpu-sched-strategy=max-ilp' },
+    @{ name = 'c64-wave2'; defines = @('W2_UP_FUSED 1','W2_FFN_QT_SMALL_MASK 3','W2_FFN_QT_BATCH 4','W2_BOUNDED_RCP 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1','W2_BYTE_INPUT_LOADS 1','W2_RTZ_PAIR 1','W2_DIRECT_COORDS 1','W2_Q8_MASK 1','W2_FFN_W16 1','W2_HOIST_LOADS 15','W2_UP_LOW_BYTES 1','W2_DOWN_HALF 1','W2_UP_VEC 1','W2_QKV_FUSE 3'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','wave_owned_attention_setup.inc','@wave-owned-attention-body','wave_owned_attention_exports.inc') },
+    @{ name = 'c512-m32-mh'; defines = @('C512_COMPACT_QKV_ATTN 1','C512_FUSED_QKV_ATTN 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','HIP_FMED3_CLAMP 1','C512_COMPACT_NOF 1','C512_COMPACT_RCP 1','C512_COMPACT_FUSEQKV 1','C512_COMPACT_QKV_DEEP 4','C512_COMPACT_QKV_SCHED 1'); sources = @('multihead_fast_padded.hip','c512_m32_mh.inc','c512_qkv_attention_fused.inc','c512_qkv_attention_compact.inc') },
+    @{ name = 'c512-m32-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1','C512_MIX_OCC_LDS 4096','C512_F_MASK 1','HIP_BYTE_F_ADD0 1','C512_FFN_ONE 2','C512_FFN_F8W 1'); sources = @('deep_fast.hip','c512_m32_deep.inc'); opts = '-mllvm=-amdgpu-sched-strategy=max-ilp' },
+    @{ name = 'vit-stream'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1','HIP_VIT_STREAM_KERNELS 1','HIP_VIT_QKV_W5 1','VIT_CONTRACT_OCC_LDS 4096','VIT_QKV_F8W 1'); sources = @('deep_fast.hip','vit_stream.inc') },
     @{ name = 'vit-wide-deep'; defines = @('HIP_PREPACKED_WEIGHTS 1','HIP_BRANCHLESS_F 1'); sources = @('deep_fast.hip','vit_wide_deep.inc') },
-    @{ name = 'swin-persistent'; defines = @('W2_UP_FUSED 1','W2_FFN_QT_SMALL_MASK 3','W2_FFN_QT_BATCH 2','W2_BOUNDED_RCP 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1','W2_BYTE_INPUT_LOADS 1','W2_RTZ_PAIR 1','W2_DIRECT_COORDS 1','W2_EXPLICIT_WINDOW 1','W2_NO_EXPORTS 1','HIP_SWIN_PERSISTENT_KERNELS 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','@swin-persistent-types','swin_persistent.inc') }
+    @{ name = 'swin-persistent'; defines = @('W2_UP_FUSED 1','W2_FFN_QT_SMALL_MASK 3','W2_FFN_QT_BATCH 2','W2_BOUNDED_RCP 1','HIP_PREPACKED_WEIGHTS 1','HIP_FFN_HOIST_RES 2','HIP_PDL_KERNELS 0','W2_FRAGMENT_WEIGHTS 1','W2_LAUNDER_QKV 1','W2_SCHED_FENCE 1','W2_ROLL_QUERY 1','W2_HIDDEN_TILES 2','W2_PACK8 6','HIP_FMED3_CLAMP 1','W2_BYTE_INPUT_LOADS 1','W2_RTZ_PAIR 1','W2_DIRECT_COORDS 1','W2_Q8_MASK 1','W2_FFN_W16 1','W2_EXPLICIT_WINDOW 1','W2_NO_EXPORTS 1','HIP_SWIN_PERSISTENT_KERNELS 1'); sources = @('multihead_fast_padded.hip','wave_owned_mh.inc','@swin-persistent-types','swin_persistent.inc') }
 )
 $outputRoot=$OutputDir
 foreach($target in $Targets){
@@ -85,9 +91,12 @@ foreach ($m in $modules) {
     $generated = Join-Path $OutputDir ($m.name + '.generated.hip')
     $hsaco = Join-Path $OutputDir ($m.name + '.hsaco')
     [IO.File]::WriteAllText($generated, $text, $utf8)
+    $opts = (@($(if ($RowOpts) { $m.opts }), $ExtraOpts) | Where-Object { $_ }) -join ' '
+    $env:RTC_EXTRA_OPTS = $opts
     & $Compiler $hsaco $generated comgr $target | Out-Null
+    Remove-Item Env:RTC_EXTRA_OPTS -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -ne 0) { throw "COMGR failed: $($m.name)" }
-    $manifest += [pscustomobject]@{ target = $target; module = $m.name; defines = (@('HIP_ISA_HALF 1') + $(if ($m.name -like '*-packed') { @('HIP_PREPACKED_WEIGHTS 1') } else { @() }) + @($ExtraDefines) + $recipe) -join '; '; sources = $m.sources -join '+'; sha256 = (Get-FileHash $hsaco).Hash }
+    $manifest += [pscustomobject]@{ target = $target; module = $m.name; defines = (@('HIP_ISA_HALF 1') + $(if ($m.name -like '*-packed') { @('HIP_PREPACKED_WEIGHTS 1') } else { @() }) + @($ExtraDefines) + $recipe) -join '; '; sources = $m.sources -join '+'; opts = $opts; sha256 = (Get-FileHash $hsaco).Hash }
     Write-Output ("{0} {1,-40} {2}" -f $target,$m.name, $manifest[-1].sha256)
 }
 [IO.File]::WriteAllText((Join-Path $OutputDir 'modules.json'), ($manifest | ConvertTo-Json -Depth 3), $utf8)

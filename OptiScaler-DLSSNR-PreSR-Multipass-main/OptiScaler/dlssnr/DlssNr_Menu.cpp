@@ -576,6 +576,33 @@ void RenderMenu(Config* config, float menuResScale)
 
                 {
                     const std::string net = config->LmxxfNetworkHeight.value_or_default();
+                    int style = static_cast<int>(config->LmxxfStyle.value_or_default());
+                    if (ImGui::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
+                    {
+                        config->LmxxfStyle = static_cast<uint32_t>(style);
+                        CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(style).c_str());
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("Network style 0 / 1 / 2. Default 1 preserves earlier lmxxf output."
+                               "\nChanging style rebuilds the network on the next frame.");
+                    bool compact = config->LmxxfNetwork1080Rows.value_or_default() == 1088;
+                    if (ImGui::Checkbox("Compact 1080 network", &compact))
+                    {
+                        config->LmxxfNetwork1080Rows = compact ? 1088u : 1152u;
+                        CfgKey::PutEnvString(CfgKey::Network1080Rows, compact ? "1088" : "1152");
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("Off (default): 1152 processing rows. On: 1088 rows."
+                               "\nMay reduce NR time but changes the image, especially near the bottom edge."
+                               "\nOnly affects the 1080 tier; rebuilds on the next frame.");
+                    bool fallback = config->LmxxfFormatFallback.value_or_default();
+                    if (ImGui::Checkbox("Additional colour formats", &fallback))
+                    {
+                        config->LmxxfFormatFallback = fallback;
+                        CfgKey::PutEnvAlias(CfgKey::FormatFallback, fallback);
+                    }
+                    HelpMarker("Allow supported additional game colour formats through a private FP16 output."
+                               "\nRestart the game after changing this setting.");
                     const bool isAuto = net.empty() || net == "auto";
                     static std::string lastFixed = "1080";
                     if (!isAuto && (net == "720" || net == "900" || net == "1080"))
@@ -909,6 +936,12 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvAlias(CfgKey::Pdl, true);
                     config->LmxxfNetworkHeight = "auto";
                     CfgKey::PutEnvString(CfgKey::NetworkHeight, "auto");
+                    config->LmxxfNetwork1080Rows = 1152u;
+                    CfgKey::PutEnvString(CfgKey::Network1080Rows, "1152");
+                    config->LmxxfStyle = 1u;
+                    CfgKey::PutEnvString(CfgKey::LmxxfStyle, "1");
+                    config->LmxxfFormatFallback = true;
+                    CfgKey::PutEnvAlias(CfgKey::FormatFallback, true);
                     config->LmxxfSkipBlocks = CfgKey::kDefaultSkipBlocks;
                     CfgKey::PutEnvString(CfgKey::SkipBlocks, CfgKey::kDefaultSkipBlocks);
                     config->LmxxfWaveOwned = true;

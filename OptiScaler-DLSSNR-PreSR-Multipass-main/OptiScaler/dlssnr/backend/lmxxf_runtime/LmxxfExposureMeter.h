@@ -5,6 +5,7 @@
 #include <memory>
 #include <stdexcept>
 #include "native_lab_paths.h"
+#include "native_format_fallback.h"
 #include "native_shader_cache.h"
 
 namespace LmxxfRuntime
@@ -193,7 +194,9 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         cpu.ptr += SIZE_T(slot) * increment;
         const D3D12_RESOURCE_DESC cd = colour->GetDesc();
         D3D12_SHADER_RESOURCE_VIEW_DESC sd {};
-        sd.Format = NativeViewFormat(cd.Format);
+        sd.Format = NativeIsGameColor(cd.Format) ? NativeViewFormat(cd.Format) :
+            NativeFallbackColorView(cd.Format) != DXGI_FORMAT_UNKNOWN ? NativeFallbackColorView(cd.Format) :
+            NativeViewFormat(cd.Format);
         sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         sd.Texture2D.MipLevels = 1;

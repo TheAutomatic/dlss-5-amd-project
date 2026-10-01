@@ -66,6 +66,11 @@ static void FillRow(unsigned char *dst, UINT y, UINT w, DXGI_FORMAT format)
             const UINT word = mR | (mG << 9) | (mB << 18) | (15u << 27);
             std::memcpy(dst + size_t(x) * 4, &word, 4);
         }
+        else if (format == DXGI_FORMAT_R32G32B32A32_FLOAT)
+        {
+            const float rgba[] = {mR / 512.f, mG / 512.f, mB / 512.f, 1.f};
+            std::memcpy(dst + size_t(x) * sizeof rgba, rgba, sizeof rgba);
+        }
         else if (r10g10b10a2)
         {
             // 4 bytes per pixel: 10-bit R, G, B and a 2-bit alpha of 3 (opaque).

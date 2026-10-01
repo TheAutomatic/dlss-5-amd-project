@@ -56,6 +56,21 @@ def commit(directory):
     return git(directory, 'rev-parse', 'HEAD')
 
 
+class RecipeParserTests(unittest.TestCase):
+    def test_optional_compiler_options_are_review_evidence(self):
+        row = "@{ name = 'c32-wave1'; defines = @('CW_PACK8 1'); sources = @('c32.hip','body.inc'); opts = '-mllvm=-enable-post-misched=0' }"
+        parsed = audit.parse_recipe(row)['c32-wave1']
+        self.assertEqual(parsed['opts'], '-mllvm=-enable-post-misched=0')
+        self.assertEqual(parsed['sources'], ['c32.hip', 'body.inc'])
+        self.assertEqual(parsed['defines'], ['CW_PACK8 1'])
+        self.assertNotIn('opts', audit.parse_recipe(row.replace("; opts = '-mllvm=-enable-post-misched=0'", ''))['c32-wave1'])
+
+    def test_unknown_or_duplicate_recipe_fields_fail_closed(self):
+        for extra in ("; other = 'x'", "; opts = 'a'; opts = 'b'", '; opts = $dynamic'):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                audit.parse_recipe("@{ name = 'module'; defines = @(); sources = @('a.hip')" + extra + ' }')
+
+
 class SourcePatchTests(unittest.TestCase):
     def setUp(self):
         config = ROOT / audit.CONFIG

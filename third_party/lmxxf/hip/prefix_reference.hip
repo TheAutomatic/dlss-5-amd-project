@@ -1,6 +1,12 @@
 // Append after c32_reference.hip: uses its SDKless DEV/KERNEL, H(), bits/value helpers.
 // Exact noise-table prefix from preblock_input_mix.hlsl, LIVE_PROFILE=1, NATIVE_FAST_PREFIX=0.
 // block256; pixels are 8x8 tile-major RGBA. History is processing-grid raster RGBA.
+// DLSS5_STYLE (2026-10-01): NGX Style control as preprocess feature 6 = Style/128. Default 1/128 (Style=1, the value captured
+// from the original runtime on 09-06); the host overwrites it per module with hipModuleGetGlobal when DLSS5_STYLE is set.
+#ifndef DLSS5_STYLE_FEATURE_DEFINED
+#define DLSS5_STYLE_FEATURE_DEFINED 1
+__attribute__((constant)) float dlss5_style_feature=.0078125f;
+#endif
 DEV uint prefix_pcg(uint s){uint w=((s>>((s>>28)+4))^s)*0x108ef2d9u;return (w>>22)^w;}
 DEV uint prefix_uniform_index(uint s){uint w=((s>>((s>>28)+4))^s)*0x108ef2d9u;return (w>>30)^(w>>8);}
 DEV uint prefix_round_shift(uint m,int shift){
@@ -24,7 +30,7 @@ KERNEL void dlss5_prefix_reference(const float*rgba_tiles,const float*history_ra
  uint ic=prefix_uniform_index(h*0x83232c31u+0x3463e0acu),id=prefix_uniform_index(h*0xfa6dc5f9u+0x4712a88eu);
  float g0=H(noise[ia*3]*noise[ic*3+1]),g1=H(noise[ib*3]*noise[id*3+1]),g2=H(noise[ib*3]*noise[id*3+2]);
  float r=H(H(H(rgba_tiles[p*4])-.5f)*.125f),g=H(H(H(rgba_tiles[p*4+1])-.5f)*.125f),b=H(H(H(rgba_tiles[p*4+2])-.5f)*.125f);
- float f[16]={g1,g2,g,b,g0,1,.0078125f,1,r,g,1,1,b,r,1,0};
+ float f[16]={g1,g2,g,b,g0,1,dlss5_style_feature,1,r,g,1,1,b,r,1,0};
  if(temporal){uint q=(y*width+x)*4;f[13]=H(H(H(history_raster[q])-.5f)*.125f);f[2]=H(H(H(history_raster[q+1])-.5f)*.125f);f[3]=H(H(H(history_raster[q+2])-.5f)*.125f);}
  if(debug_features)for(uint i=0;i<32;i++)debug_features[p*32+i]=i<16?f[i]:0;
  for(uint c=0;c<32;c++){

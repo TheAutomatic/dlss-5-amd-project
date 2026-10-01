@@ -73,6 +73,8 @@ for %%T in (lmxxf_list1_wrap lmxxf_create_execute lmxxf_evaluate_cut) do (
 goto pass
 
 :gpu
+cl /nologo /std:c++17 /EHsc /W4 /utf-8 tests\lmxxf\lmxxf_module_load_gpu.cpp /Fe"%OUT%\lmxxf_module_load_gpu.exe" /Fo"%OUT%\lmxxf_module_load_gpu.obj" || goto fail
+"%OUT%\lmxxf_module_load_gpu.exe" tests\lmxxf\lmxxf_module_load_gpu.cpp || goto fail
 if not defined LMXXF_ASSETS (
   echo FAIL: set LMXXF_ASSETS to the lmxxf weights folder ^(native-game-tiled-assets^).
   goto fail
@@ -87,7 +89,7 @@ rem Passing the weights folder itself would make it prefer the (possibly stale) 
 rem the weights over this checkout's modules.
 set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
 %CXX% /I"%RT_INC%" tests\lmxxf\lmxxf_nr_gpu.cpp /Fe"%OUT%\lmxxf_nr_gpu.exe" /Fo"%OUT%\lmxxf_nr_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
-for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--exposure" "--exposure-bad" "--ultrawide" "--subrect") do (
+for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--exposure" "--exposure-bad" "--ultrawide" "--subrect" "--rgba32" "--upstream-controls") do (
   echo --- lmxxf_nr_gpu %%~M
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )

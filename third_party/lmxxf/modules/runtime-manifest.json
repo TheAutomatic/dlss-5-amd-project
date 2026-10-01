@@ -1,36 +1,36 @@
 {
-    "schema":  2,
-    "runtime_abi":  1,
-    "upstream_repo":  "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-    "modules_dir":  "third_party/lmxxf/modules",
-    "recipe":  "third_party/lmxxf/hip/build-modules.ps1",
-    "compiler":  "System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK)",
-    "target_isas":  [
-                        "amdgcn-amd-amdhsa--gfx1200",
-                        "amdgcn-amd-amdhsa--gfx1201"
-                    ],
-    "history":  false,
-    "overlap":  false,
-    "graph":  false,
-    "color_abi":  {
-                      "input":  "linear FP16",
-                      "paper_white":  1.0,
-                      "strength":  [
-                                       1.0,
-                                       1.0
-                                   ],
-                      "codec_srgb":  0
-                  },
-    "notes":  [
-                  "Dual architecture modules tree: gfx1200 (Radeon 9060 series) and gfx1201 (Radeon 9070 series).",
-                  "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
-                  "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir."
-              ],
-    "module_count":  62,
-    "module_count_per_arch":  31,
-    "targets":  [
-                    "gfx1200",
-                    "gfx1201"
-                ],
-    "upstream_commit":  "c809efb0ea2960f148624730898da61b8fb55a45"
+  "schema": 2,
+  "runtime_abi": 1,
+  "upstream_repo": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
+  "modules_dir": "third_party/lmxxf/modules",
+  "recipe": "third_party/lmxxf/hip/build-modules.ps1",
+  "compiler": "System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK)",
+  "target_isas": [
+    "amdgcn-amd-amdhsa--gfx1200",
+    "amdgcn-amd-amdhsa--gfx1201"
+  ],
+  "history": false,
+  "overlap": false,
+  "graph": false,
+  "color_abi": {
+    "input": "linear FP16",
+    "paper_white": 1.0,
+    "strength": [
+      1.0,
+      1.0
+    ],
+    "codec_srgb": 0
+  },
+  "notes": [
+    "Dual architecture modules tree: gfx1200 (Radeon 9060 series) and gfx1201 (Radeon 9070 series).",
+    "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
+    "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir."
+  ],
+  "module_count": 62,
+  "module_count_per_arch": 31,
+  "targets": [
+    "gfx1200",
+    "gfx1201"
+  ],
+  "upstream_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11"
 }

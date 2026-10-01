@@ -95,10 +95,20 @@ typedef unsigned uint;
 #ifndef HIP_C32_CU_MODE
 #define HIP_C32_CU_MODE 1 /* 2026-09-22: 128-thread C32 workgroups run faster with all four waves on one CU (-0.13/-0.17ms whole network on top of the fence change, bit-exact); larger MH/deep workgroups get slower in CU mode, so this is C32-only */
 #endif
-#if HIP_C32_CU_MODE
-#define KERNEL extern "C" __attribute__((global)) __attribute__((target("cumode")))
+#ifndef HIP_KERNEL_WPE
+#define HIP_KERNEL_WPE 0 /* 2026-10-01 compiler sweep (diagnostic, default 0 = no attribute): amdgpu_waves_per_eu lower bound applied to every kernel of the module */
+#endif
+#ifndef HIP_KERNEL_ATTR
+#if HIP_KERNEL_WPE
+#define HIP_KERNEL_ATTR __attribute__((amdgpu_waves_per_eu(HIP_KERNEL_WPE)))
 #else
-#define KERNEL extern "C" __attribute__((global))
+#define HIP_KERNEL_ATTR
+#endif
+#endif
+#if HIP_C32_CU_MODE
+#define KERNEL extern "C" __attribute__((global)) __attribute__((target("cumode"))) HIP_KERNEL_ATTR
+#else
+#define KERNEL extern "C" __attribute__((global)) HIP_KERNEL_ATTR
 #endif
 #if HIP_C32_TRANSPOSED_TAIL && !(HIP_C32_FOLDED_FFN && HIP_C32_REGISTER_FFN)
 #error "HIP_C32_TRANSPOSED_TAIL needs HIP_C32_FOLDED_FFN and HIP_C32_REGISTER_FFN"
@@ -108,6 +118,12 @@ typedef unsigned uint;
 #define C32_WMMA_ACC(a,b,c) __builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,c)
 #else
 #define C32_WMMA_ACC(a,b,c) __builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,c)
+#endif
+// DLSS5_STYLE (2026-10-01): NGX Style control as preprocess feature 6 = Style/128. Default 1/128 (Style=1, the value captured
+// from the original runtime on 09-06); the host overwrites it per module with hipModuleGetGlobal when DLSS5_STYLE is set.
+#ifndef DLSS5_STYLE_FEATURE_DEFINED
+#define DLSS5_STYLE_FEATURE_DEFINED 1
+__attribute__((constant)) float dlss5_style_feature=.0078125f;
 #endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
@@ -184,7 +200,14 @@ DEV uint bid(){return __builtin_amdgcn_workgroup_id_x();}
 #ifndef HIP_C32_RTZ_ISA
 #define HIP_C32_RTZ_ISA 1
 #endif
-#if HIP_C32_RTZ_ISA
+// FAST TIER (lossy, 2026-10-01 fast-tier): CW_FAST_NUM bit0 = f32 activation path (Hrtz is the identity: no RTZ
+// round trip to half between f32 ops; half stores still convert), bit1 = softmax 1/sum as a single rcp (no Newton steps).
+#ifndef CW_FAST_NUM
+#define CW_FAST_NUM 0
+#endif
+#if CW_FAST_NUM&1
+DEV float Hrtz(float x){return x;}
+#elif HIP_C32_RTZ_ISA
 DEV float Hrtz(float x){uint h;float result;
  asm("v_cvt_pkrtz_f16_f32 %0, %1, %1" : "=v"(h) : "v"(x));
  asm("v_cvt_f32_f16 %0, %1" : "=v"(result) : "v"(h));
@@ -213,6 +236,9 @@ DEV uint fp8(float f){return uint(__builtin_amdgcn_cvt_pk_fp8_f32(clampf(f,-448.
 // gfx1201 exhaustive test: all 144441345 float divisors in this interval
 // match the original 1.f/x bit-for-bit (2026-09-19).
 DEV float norm_inverse(float x){float r=__builtin_amdgcn_rcpf(x);
+#if CW_FAST_NUM&2
+ return r;
+#endif
  r=__builtin_fmaf(r,__builtin_fmaf(-x,r,1.f),r);
  return __builtin_fmaf(r,__builtin_fmaf(-x,r,1.f),r);
 }
@@ -268,7 +294,7 @@ DEV void fused_prefix_values(const float*rgba,const float*history,uint p,uint wi
  float ct=(6.283185482025146f*c)*.15915494309189535f,dt=(6.283185482025146f*d)*.15915494309189535f;
  float g0=Hrtz(r0*__builtin_amdgcn_cosf(ct)),g1=Hrtz(r1*__builtin_amdgcn_cosf(dt)),g2=Hrtz(r1*__builtin_amdgcn_sinf(dt));
  float red=Hrtz(Hrtz(Hrtz(rgba[rgbp*4])-.5f)*.125f),green=Hrtz(Hrtz(Hrtz(rgba[rgbp*4+1])-.5f)*.125f),blue=Hrtz(Hrtz(Hrtz(rgba[rgbp*4+2])-.5f)*.125f);
- float values[16]={g1,g2,green,blue,g0,1,.0078125f,1,red,green,1,1,blue,red,1,0};
+ float values[16]={g1,g2,green,blue,g0,1,dlss5_style_feature,1,red,green,1,1,blue,red,1,0};
  if(temporal){uint q=(y*width+x)*4;values[13]=Hrtz(Hrtz(Hrtz(history[q])-.5f)*.125f);values[2]=Hrtz(Hrtz(Hrtz(history[q+1])-.5f)*.125f);values[3]=Hrtz(Hrtz(Hrtz(history[q+2])-.5f)*.125f);}
  for(uint i=0;i<16;i++)f[i]=values[i];
 }

@@ -4,7 +4,8 @@ int main(int argc, char **argv)
 {
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
-         useExposure = false, badExposure = false, ultrawide = false, subrect = false;
+         useExposure = false, badExposure = false, ultrawide = false, subrect = false,
+         upstreamControls = false, rgba32 = false;
     const char *dumpPath = nullptr;
     for (int i = 3; i < argc; ++i)
     {
@@ -18,6 +19,10 @@ int main(int argc, char **argv)
             r10g10b10a2 = outputHash = true;
         else if (!std::strcmp(argv[i], "--output-hash"))
             outputHash = true;
+        else if (!std::strcmp(argv[i], "--upstream-controls"))
+            upstreamControls = outputHash = true;
+        else if (!std::strcmp(argv[i], "--rgba32"))
+            rgba32 = autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--reject-formats"))
             rejectFormats = true;
         else if (!std::strcmp(argv[i], "--exposure"))
@@ -42,7 +47,7 @@ int main(int argc, char **argv)
             std::fprintf(stderr,
                          "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
                          "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
-                         "[--exposure|--exposure-bad] [--subrect] [--auto-exposure] [--scale16] [--dump path]\n");
+                         "[--exposure|--exposure-bad] [--subrect] [--rgba32] [--upstream-controls] [--auto-exposure] [--scale16] [--dump path]\n");
             return 2;
         }
     }
@@ -51,7 +56,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr,
                      "usage: lmxxf_nr_gpu.exe <LmxxfNrRuntime.dll> <assets_dir> "
                      "[--queue-mismatch|--resize] [--rgb9e5|--r10g10b10a2] [--output-hash] [--reject-formats] [--ultrawide] "
-                         "[--exposure|--exposure-bad] [--subrect] [--auto-exposure] [--scale16]\n");
+                         "[--exposure|--exposure-bad] [--subrect] [--rgba32] [--upstream-controls] [--auto-exposure] [--scale16]\n");
         return 2;
     }
 
@@ -128,6 +133,7 @@ int main(int argc, char **argv)
     td.Format = rgb9e5        ? DXGI_FORMAT_R9G9B9E5_SHAREDEXP
                 : r10g10b10a2 ? DXGI_FORMAT_R10G10B10A2_UNORM
                               : DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if (rgba32) td.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     td.SampleDesc.Count = 1;
     // RE9's scene colour is RGB9E5 and is only ever read (SRV), so do not request a UAV.
     td.Flags = rgb9e5 ? D3D12_RESOURCE_FLAG_NONE : D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -183,7 +189,7 @@ int main(int argc, char **argv)
     {
         // R10G10B10A2 left this list when the runtime started accepting it (Horizon); --r10g10b10a2
         // runs it end to end instead. R8G8 stands in as a 4-byte format the codec cannot read.
-        const DXGI_FORMAT kBadFormats[] = {DXGI_FORMAT_R32G32B32A32_FLOAT,
+        const DXGI_FORMAT kBadFormats[] = {DXGI_FORMAT_R32G32B32A32_UINT,
                                            DXGI_FORMAT_R8G8_UNORM,
                                            DXGI_FORMAT_R32_FLOAT};
         for (DXGI_FORMAT fmt : kBadFormats)
@@ -449,6 +455,55 @@ int main(int argc, char **argv)
                     frame.color_width, frame.color_height);
     if (dumpPath && outs == LMXXF_NR_OK && job.private_output)
         DumpTexture(device, submitQueue, static_cast<ID3D12Resource *>(job.private_output), dumpPath);
+
+    if (upstreamControls)
+    {
+        Require(outs == LMXXF_NR_OK, "baseline outputs");
+        const auto baseline = HashTexture(device, submitQueue, static_cast<ID3D12Resource*>(job.private_output));
+        auto count = [&]() {
+            char status[1024] {};
+            Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "control status");
+            const char* p = std::strstr(status, "recreates=");
+            Require(p != nullptr, "control recreate count");
+            return std::strtol(p + 10, nullptr, 10);
+        };
+        const struct { const char* style; const char* rows; bool sameBaseline; } cases[] = {
+            {"0", "1152", false}, {"2", "1152", false}, {"1", "1152", true},
+            {"1", "1088", false}, {"1", "1152", true}};
+        for (const auto& c : cases)
+        {
+            SetEnvironmentVariableA("DLSS5_STYLE", c.style);
+            SetEnvironmentVariableA("DLSS5_NETWORK_1080_ROWS", c.rows);
+            const long before = count();
+            uint64_t first = 0;
+            for (int repeat = 0; repeat < 2; ++repeat)
+            {
+                WaitQueue(device, submitQueue);
+                Check(alloc->Reset(), "control allocator");
+                Check(list->Reset(alloc, nullptr), "control input list");
+                LmxxfNrJob next {}; next.struct_size = sizeof next;
+                Require(api.PrepareFrame(ctx, &frame, &next) == LMXXF_NR_OK, "control prepare");
+                Require(count() == before + 1, "control rebuilds exactly once");
+                Require(api.RecordInputs(ctx, next.handle, list) == LMXXF_NR_OK, "control inputs");
+                Check(list->Close(), "control input close");
+                submitQueue->ExecuteCommandLists(1, lists);
+                Require(api.EnqueueHip(ctx, next.handle, submitQueue) == LMXXF_NR_OK, "control HIP");
+                WaitQueue(device, submitQueue);
+                Check(outAlloc->Reset(), "control output allocator");
+                Check(list->Reset(outAlloc, nullptr), "control output list");
+                Require(api.RecordOutputs(ctx, next.handle, list) == LMXXF_NR_OK, "control outputs");
+                Check(list->Close(), "control output close");
+                submitQueue->ExecuteCommandLists(1, lists);
+                Require(api.Retire(ctx, next.handle) == LMXXF_NR_OK, "control retire");
+                const auto hash = HashTexture(device, submitQueue, static_cast<ID3D12Resource*>(next.private_output));
+                if (!repeat) first = hash;
+                Require(hash == first, "unchanged control output is stable");
+                Require((hash == baseline) == c.sameBaseline, "control reaches network; default restored exactly");
+                std::printf("controls style=%s rows=%s repeat=%d hash=%016llx\n", c.style, c.rows, repeat,
+                            static_cast<unsigned long long>(hash));
+            }
+        }
+    }
 
     if (useExposure && !badExposure)
     {

@@ -12,17 +12,21 @@ struct NativeNetworkGeometry {
   if(height==900)return {1600,900,1600,960}; /* 2026-09-17: the 900 tier pads to 960 rows (60 reflected rows + one zero token row, as the 1080 tier pads 30x18 -> 32x20 tokens); 1024 rows (124 reflected rows) was the 0.20/0.21 layout, -0.9 ms (6%) for the same kernels */
   if(height==1024)return {1600,900,1600,1024}; /* "900w": the 0.21 layout, kept for the bench whose bit-exact goldens were recorded on it */
   if(height==1080)return {1920,1080,1920,1152};
+  if(height==1088)return {1920,1080,1920,1088}; /* 2026-09-30 compact 1080 tier (opt-in, LOSSY, not NVIDIA's geometry): 1080 rows + 8 reflected rows = 1088 (2^6*17, as Daniel/mochizuki);
+                                                   the ViT head keeps the 32x20 token grid with 30x17 valid tokens (1152 has 30x18) */
   throw std::runtime_error("unsupported network height");
  }
  /* DLSS5_NETWORK_HEIGHT=auto (2026-09-17): the smallest tier the input fits in — <=1280x720 -> 720, <=1600x900 -> 900, else 1080 (inputs beyond 1920x1080 are rejected before this).
     2026-09-26: an input at most 10% beyond a tier on both axes is fitted DOWN into it instead of UP into the next one. 2K quality
     (1707x961) went to 1080 = bilinear upscale into 1920x1152, 35% more pixels than the input carries; fitted into 900 (1599x900) it
     costs a 6% downscale and the Stellar Blade frame went 49-50 -> 60 (capped). 1080 inputs still take 1080. */
+ /* DLSS5_NETWORK_1080_ROWS=1088 (default 1152): the 1080 tier -- fixed or chosen by auto -- runs on 1920x1088 instead of NVIDIA's 1920x1152. */
+ static bool Compact1080(){const char*v=std::getenv("DLSS5_NETWORK_1080_ROWS");if(!v||!*v||!std::strcmp(v,"1152"))return false;if(!std::strcmp(v,"1088"))return true;throw std::runtime_error("DLSS5_NETWORK_1080_ROWS must be 1152 or 1088");}
  static bool Near(unsigned width,unsigned height,unsigned tw,unsigned th){return width*10u<=tw*11u&&height*10u<=th*11u;}
  static NativeNetworkGeometry ForInput(unsigned width,unsigned height){
   if(Near(width,height,1280,720))return FromHeight(720);
   if(Near(width,height,1600,900))return FromHeight(900);
-  return FromHeight(1080);
+  return FromHeight(Compact1080()?1088u:1080u);
  }
 };
 /* The geometry selected for the current frame set-up: written by NativeResolveNetworkGeometry (frame Create, once the input size is
@@ -37,8 +41,8 @@ inline bool&NativeNetworkGeometryResolved(){static bool resolved=false;return re
 inline int NativeNetworkHeightFlag(){ /* 720/900/1080 (1024 = "900w", the 0.21 layout of the 900 tier; "900s" is an alias of 900), 0 = auto, -1 = unset. Narrow getenv on every platform: the bench's flag loader
  only refreshes the narrow CRT environment, and every other DLSS5_HIP_* flag is read the same way. */
  if(const char*height=std::getenv("DLSS5_NETWORK_HEIGHT")){
-  if(!std::strcmp(height,"720"))return 720;if(!std::strcmp(height,"900"))return 900;if(!std::strcmp(height,"1080"))return 1080;if(!std::strcmp(height,"900s"))return 900;if(!std::strcmp(height,"900w"))return 1024;if(!std::strcmp(height,"auto"))return 0;
-  throw std::runtime_error("DLSS5_NETWORK_HEIGHT must be 720, 900, 1080 or auto");
+  if(!std::strcmp(height,"720"))return 720;if(!std::strcmp(height,"900"))return 900;if(!std::strcmp(height,"1080"))return NativeNetworkGeometry::Compact1080()?1088:1080;if(!std::strcmp(height,"1088"))return 1088;if(!std::strcmp(height,"900s"))return 900;if(!std::strcmp(height,"900w"))return 1024;if(!std::strcmp(height,"auto"))return 0;
+  throw std::runtime_error("DLSS5_NETWORK_HEIGHT must be 720, 900, 1080, 1088 or auto");
  }
  const char*value=std::getenv("DLSS5_NETWORK_720P");
  if(value&&!(value[0]=='0'&&!value[1])&&!(value[0]=='1'&&!value[1]))throw std::runtime_error("invalid DLSS5_NETWORK_720P flag");
@@ -46,12 +50,12 @@ inline int NativeNetworkHeightFlag(){ /* 720/900/1080 (1024 = "900w", the 0.21 l
 }
 inline NativeNetworkGeometry NativeResolveNetworkGeometry(unsigned input_width,unsigned input_height){
  int flag=NativeNetworkHeightFlag();
- *NativeNetworkGeometrySlot()=flag==0?NativeNetworkGeometry::ForInput(input_width,input_height):NativeNetworkGeometry::FromHeight(flag<0?1080u:unsigned(flag));
+ *NativeNetworkGeometrySlot()=flag==0?NativeNetworkGeometry::ForInput(input_width,input_height):NativeNetworkGeometry::FromHeight(flag<0?(NativeNetworkGeometry::Compact1080()?1088u:1080u):unsigned(flag));
  NativeNetworkGeometryResolved()=true;return *NativeNetworkGeometrySlot();
 }
 inline NativeNetworkGeometry NativeCurrentNetworkGeometry(){
  if(NativeNetworkGeometryResolved())return *NativeNetworkGeometrySlot();
  int flag=NativeNetworkHeightFlag();
  if(flag==0)throw std::runtime_error("DLSS5_NETWORK_HEIGHT=auto needs the input size first (NativeResolveNetworkGeometry)");
- return NativeNetworkGeometry::FromHeight(flag<0?1080u:unsigned(flag));
+ return NativeNetworkGeometry::FromHeight(flag<0?(NativeNetworkGeometry::Compact1080()?1088u:1080u):unsigned(flag));
 }

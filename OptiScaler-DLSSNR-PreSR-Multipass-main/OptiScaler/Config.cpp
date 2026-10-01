@@ -458,6 +458,27 @@ bool Config::Reload(std::filesystem::path iniPath)
                 CfgKey::PutEnvString(CfgKey::NetworkHeight, net.c_str());
             }
             {
+                auto rows = readUInt(CfgKey::kSection, CfgKey::Network1080Rows).value_or(1152);
+                if (rows != 1152 && rows != 1088)
+                {
+                    LOG_WARN("DlssNr.{} must be 1152 or 1088; using 1152", CfgKey::Network1080Rows);
+                    rows = 1152;
+                }
+                LmxxfNetwork1080Rows.set_from_config(rows);
+                CfgKey::PutEnvString(CfgKey::Network1080Rows, std::to_string(rows).c_str());
+                auto style = readUInt(CfgKey::kSection, CfgKey::LmxxfStyle).value_or(1);
+                if (style > 2)
+                {
+                    LOG_WARN("DlssNr.{} must be 0, 1 or 2; using 1", CfgKey::LmxxfStyle);
+                    style = 1;
+                }
+                LmxxfStyle.set_from_config(style);
+                CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(style).c_str());
+                const bool fallback = readBool(CfgKey::kSection, CfgKey::FormatFallback).value_or(true);
+                LmxxfFormatFallback.set_from_config(fallback);
+                CfgKey::PutEnvAlias(CfgKey::FormatFallback, fallback);
+            }
+            {
                 const auto raw = readString(CfgKey::kSection, CfgKey::SkipBlocks, true);
                 std::string blocks = CfgKey::kDefaultSkipBlocks;
                 if (raw && !raw->empty() && !CfgKey::NormalizeSkipBlocks(*raw, blocks))
@@ -1552,6 +1573,12 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::Pdl, GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NetworkHeight,
                  Instance()->LmxxfNetworkHeight.value_for_config_or("auto").c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::Network1080Rows,
+                 GetIntValue(Instance()->LmxxfNetwork1080Rows.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::LmxxfStyle,
+                 GetIntValue(Instance()->LmxxfStyle.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::FormatFallback,
+                 GetBoolValue(Instance()->LmxxfFormatFallback.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::SkipBlocks,
                  Instance()->LmxxfSkipBlocks.value_for_config_or(CfgKey::kDefaultSkipBlocks).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::WaveOwned, GetBoolValue(Instance()->LmxxfWaveOwned.value_for_config()).c_str());

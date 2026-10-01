@@ -108,7 +108,7 @@ def assignments(text):
 
 def parse_recipe(text):
     rows = {}
-    pattern = r"@\{\s*name\s*=\s*'([^']+)'\s*;\s*defines\s*=\s*@\(([^)]*)\)\s*;\s*sources\s*=\s*@\(([^)]*)\)\s*\}"
+    pattern = r"@\{\s*name\s*=\s*'([^']+)'\s*;\s*defines\s*=\s*@\(([^)]*)\)\s*;\s*sources\s*=\s*@\(([^)]*)\)\s*(?:;\s*opts\s*=\s*'([^']*)'\s*)?\}"
     for match in re.finditer(pattern, text):
         name = match[1]
         if name in rows:
@@ -120,6 +120,8 @@ def parse_recipe(text):
         ):
             raise ValueError(f'Unrecognized sources in module {name}; update audit parser')
         rows[name] = {'sources': sources, 'defines': re.findall(r"'([^']+)'", match[2])}
+        if match[4] is not None:
+            rows[name]['opts'] = match[4]
     # Do not silently drop a row when upstream changes its recipe syntax.
     if not rows or len(rows) != len(re.findall(r'@\{\s*name\s*=', text)):
         raise ValueError('Unrecognized build recipe rows; update the audit parser before reviewing')
@@ -228,6 +230,11 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
                                                    'blob': tree[path]['blob']})
     gates = {}
     for module, row in sorted(recipe.items()):
+        if 'opts' in row:
+            item('compiler:' + module, 'module-compiler-options', {
+                'module': module, 'opts': row['opts'],
+                'recipe_blob': tree['hip/build-modules.ps1']['blob'],
+                'note': 'Trace RowOpts/ExtraOpts and RTC_EXTRA_OPTS through the actual build invocation; a declared option is not necessarily enabled.'})
         defs = row['defines'] + overrides.get(module, [])
         for source in row['sources']:
             # @name tokens are inline recipe fragments (not hip/ files), e.g. @wave-owned-attention-body.

@@ -21,7 +21,21 @@ KERNEL void sp_init(SpParams p){
  if(i<3*p.total)p.state[4+i]=0;
  if(i==0){p.state[0]=p.base;p.state[1]=p.base+p.first;p.state[2]=0;p.state[3]=0;}
 }
-template<uint C> DEV void sp_run_body(SpParams p){
+// SP_INIT_PAIR (2026-10-01 bitexact-pm): one launch initializes this stage's queue state AND the other C256 stage's
+// (encoder -> decoder): the decoder's state is a separate buffer whose last user is the previous frame, so its init has
+// no data dependency on anything this frame and the decoder's own sp_init dispatch goes away. Same values as two sp_init.
+#ifndef SP_INIT_PAIR
+#define SP_INIT_PAIR 0
+#endif
+#if SP_INIT_PAIR
+KERNEL void sp_init_pair(SpParams p,uint*state2,uint total2,uint base2,uint first2){
+ uint i=__builtin_amdgcn_workgroup_id_x()*256+__builtin_amdgcn_workitem_id_x();
+ if(i<3*p.total)p.state[4+i]=0;
+ if(i<3*total2)state2[4+i]=0;
+ if(i==0){p.state[0]=p.base;p.state[1]=p.base+p.first;p.state[2]=0;p.state[3]=0;state2[0]=base2;state2[1]=base2+first2;state2[2]=0;state2[3]=0;}
+}
+#endif
+template<uint C,bool W16=false> DEV void sp_run_body(SpParams p){
  const uint tid=__builtin_amdgcn_workitem_id_x(),group=__builtin_amdgcn_workgroup_id_x();
  uint *counts=p.state+4,*queue=counts+p.total,*broadcast=queue+p.total;
  if(tid==0){
@@ -63,7 +77,7 @@ template<uint C> DEV void sp_run_body(SpParams p){
  SpLayer layer=p.layers[layer_index];
  // This function is generated verbatim from the production body except for
  // supplying the window ID rather than reading workgroup_id_x.
- swin_wave2_body<C,true,true,false,true>(static_cast<const float*>(layer.in),
+ swin_wave2_body<C,true,true,false,true,W16>(static_cast<const float*>(layer.in),
    static_cast<const float*>(layer.fw),static_cast<const float*>(layer.aw),
    layer.out,layer.w,layer.h,layer.ww,layer.hh,layer.sx,layer.sy,layer.post,nullptr,nullptr,window);
  // Every wave publishes all its output before the leader publishes readiness.
@@ -90,16 +104,19 @@ template<uint C> DEV void sp_run_body(SpParams p){
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void sp_run64(SpParams p){sp_run_body<64>(p);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(128,128))) void sp_run128(SpParams p){sp_run_body<128>(p);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void sp_run256(SpParams p){sp_run_body<256>(p);}
+#if W2_FFN_W16
+KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void sp_run256_w16(SpParams p){sp_run_body<256,true>(p);}
+#endif
 
 // One workgroup, no polling and no inter-workgroup dependency. Normally it
 // exits immediately. After an aborted queue it replays layer-major from the
 // untouched input, preserving every operation in the production window body.
-template<uint C> DEV void sp_recover_body(SpParams p){
+template<uint C,bool W16=false> DEV void sp_recover_body(SpParams p){
  if(!sp_load(p.state+2))return;
  for(uint li=0;li<p.layers_count;li++){
   SpLayer layer=p.layers[li];uint windows=(layer.ww/8)*(layer.hh/8);
   for(uint win=0;win<windows;win++){
-   swin_wave2_body<C,true,true,false,true>(static_cast<const float*>(layer.in),
+   swin_wave2_body<C,true,true,false,true,W16>(static_cast<const float*>(layer.in),
     static_cast<const float*>(layer.fw),static_cast<const float*>(layer.aw),
     layer.out,layer.w,layer.h,layer.ww,layer.hh,layer.sx,layer.sy,layer.post,nullptr,nullptr,win);
    sp_global_group_sync();
@@ -110,5 +127,8 @@ template<uint C> DEV void sp_recover_body(SpParams p){
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void sp_recover64(SpParams p){sp_recover_body<64>(p);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(128,128))) void sp_recover128(SpParams p){sp_recover_body<128>(p);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void sp_recover256(SpParams p){sp_recover_body<256>(p);}
+#if W2_FFN_W16
+KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void sp_recover256_w16(SpParams p){sp_recover_body<256,true>(p);}
+#endif
 
 #endif

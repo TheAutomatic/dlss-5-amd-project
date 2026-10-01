@@ -123,6 +123,15 @@ float3 Upgrade(float3 original,float3 proxy,float3 neural) {
  }
  return result;
 }
+#ifndef NATIVE_CODEC_NEURAL_BUFFER
+#define NATIVE_CODEC_NEURAL_BUFFER 0
+#endif
+#if NATIVE_CODEC_NEURAL_BUFFER
+/* DLSS5_IO_FUSE=1 (2026-10-01, input-slim): read the network's f32 RGB output directly instead of the RGBA16F texture the neural pass
+   used to fill; each value takes the same f32 -> f16 round trip the texture store did. Row stride = network surface width (ProxySize.x). */
+StructuredBuffer<float> NeuralRgb : register(t5);
+float3 NeuralAt(uint2 q){uint i=(q.y*ProxySize.x+q.x)*3;return f16tof32(f32tof16(float3(NeuralRgb[i],NeuralRgb[i+1],NeuralRgb[i+2])));}
+#endif
 #if NATIVE_CODEC_FIT
 float3 ReadFitted(Texture2D<float4> image,float2 p) {
  p=clamp(p,Padding.xy,Padding.xy+Padding.zw-1);
@@ -130,6 +139,22 @@ float3 ReadFitted(Texture2D<float4> image,float2 p) {
  return lerp(lerp(image.Load(int3(lo,0)).rgb,image.Load(int3(hi.x,lo.y,0)).rgb,f.x),
              lerp(image.Load(int3(lo.x,hi.y,0)).rgb,image.Load(int3(hi,0)).rgb,f.x),f.y);
 }
+#if NATIVE_CODEC_NEURAL_BUFFER
+float3 ReadFittedNeural(float2 p) {
+ p=clamp(p,Padding.xy,Padding.xy+Padding.zw-1);
+ uint2 lo=uint2(floor(p)),hi=min(lo+1,uint2(Padding.xy+Padding.zw-1));float2 f=p-lo;
+ return lerp(lerp(NeuralAt(lo),NeuralAt(uint2(hi.x,lo.y)),f.x),
+             lerp(NeuralAt(uint2(lo.x,hi.y)),NeuralAt(hi),f.x),f.y);
+}
+#define NEURAL_FITTED(q) ReadFittedNeural(q)
+#else
+#define NEURAL_FITTED(q) ReadFitted(Neural,q)
+#endif
+#endif
+#if NATIVE_CODEC_NEURAL_BUFFER
+#define NEURAL_AT(q) NeuralAt(q)
+#else
+#define NEURAL_AT(q) Neural.Load(int3(q,0)).rgb
 #endif
 [numthreads(16,16,1)]
 void main(uint3 id:SV_DispatchThreadID) {
@@ -146,9 +171,9 @@ void main(uint3 id:SV_DispatchThreadID) {
 #endif
  #if NATIVE_CODEC_FIT
  float2 network_p=Padding.xy+(float2(id.xy)+.5)*Padding.zw/float2(Size)-.5;
- float3 upgraded=Upgrade(original,Decode(ReadFitted(Proxy,network_p)),Decode(ReadFitted(Neural,network_p)));
+ float3 upgraded=Upgrade(original,Decode(ReadFitted(Proxy,network_p)),Decode(NEURAL_FITTED(network_p)));
 #else
- float3 upgraded=Upgrade(original,Decode(Proxy.Load(int3(p,0)).rgb),Decode(Neural.Load(int3(id.xy,0)).rgb));
+ float3 upgraded=Upgrade(original,Decode(Proxy.Load(int3(p,0)).rgb),Decode(NEURAL_AT(id.xy)));
 #endif
  float oy=Luminance(original),uy=Luminance(upgraded);
  float ratio=oy==0?1:clamp(uy/oy,0,4);
@@ -156,9 +181,9 @@ void main(uint3 id:SV_DispatchThreadID) {
  // Optional per-dispatch views; view 0 preserves the captured composition exactly.
  if(Reserved.x==1||Reserved.x==2){
 #if NATIVE_CODEC_FIT
-  result=Reserved.x==1?Decode(ReadFitted(Proxy,network_p)):Decode(ReadFitted(Neural,network_p));
+  result=Reserved.x==1?Decode(ReadFitted(Proxy,network_p)):Decode(NEURAL_FITTED(network_p));
 #else
-  result=Reserved.x==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(Neural.Load(int3(id.xy,0)).rgb);
+  result=Reserved.x==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(NEURAL_AT(id.xy));
 #endif
  }else if(Reserved.x==3)result=saturate(0.5+(upgraded-original)*20.0);
  else if(Reserved.x==4)result*=float3(1.2,0.3,1.2);

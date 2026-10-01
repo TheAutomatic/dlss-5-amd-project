@@ -67,6 +67,13 @@ inline void FragmentPackedMatrix(std::vector<float>&v,size_t start,size_t rows,s
  auto*dst=reinterpret_cast<uint8_t*>(v.data()+start);std::vector<uint8_t>src(dst,dst+rows*columns);
  for(size_t n=0;n<rows;n++)for(size_t k=0;k<columns;k++)dst[((n/16)*(columns/32)+k/32)*512+(((k%32)/16*2+(k%16)/8)*16+n%16)*8+k%8]=src[n*columns+k];
 }
+// Wide fragment tiles (W2_FFN_W16 modules, key @ffn-frag-w16): same 512-byte tiles, bytes ordered [lane half gr][row%16]
+// [k/16 within tile][8 k], so one 16-byte load per lane covers both K16 steps of a 32-k tile. Pure permutation.
+inline void FragmentPackedMatrixW16(std::vector<float>&v,size_t start,size_t rows,size_t columns){
+ if(rows%16||columns%32||start>v.size()||rows*columns>(v.size()-start)*4)throw std::runtime_error("packed fragment shape");
+ auto*dst=reinterpret_cast<uint8_t*>(v.data()+start);std::vector<uint8_t>src(dst,dst+rows*columns);
+ for(size_t n=0;n<rows;n++)for(size_t k=0;k<columns;k++)dst[((n/16)*(columns/32)+k/32)*512+((((k%16)/8)*16+n%16)*2+(k%32)/16)*8+k%8]=src[n*columns+k];
+}
 inline void TilePackedMatrix(std::vector<float>&v,size_t start,size_t rows,size_t columns){
  if(rows%16||columns%32||start>v.size()||rows*columns>(v.size()-start)*4)throw std::runtime_error("packed tile shape");
  auto*dst=reinterpret_cast<uint8_t*>(v.data()+start);std::vector<uint8_t>src(dst,dst+rows*columns);

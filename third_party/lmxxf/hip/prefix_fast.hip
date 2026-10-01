@@ -4,6 +4,12 @@
 typedef unsigned uint;
 #define DEV __attribute__((device)) __attribute__((always_inline))
 #define KERNEL extern "C" __attribute__((global))
+// DLSS5_STYLE (2026-10-01): NGX Style control as preprocess feature 6 = Style/128. Default 1/128 (Style=1, the value captured
+// from the original runtime on 09-06); the host overwrites it per module with hipModuleGetGlobal when DLSS5_STYLE is set.
+#ifndef DLSS5_STYLE_FEATURE_DEFINED
+#define DLSS5_STYLE_FEATURE_DEFINED 1
+__attribute__((constant)) float dlss5_style_feature=.0078125f;
+#endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
 DEV float absf(float x){return value(bits(x)&0x7fffffffu);}
@@ -57,7 +63,7 @@ KERNEL void dlss5_prefix_fast_features(const float*rgba,const float*history,floa
  float ct=(6.283185482025146f*c)*.15915494309189535f,dt=(6.283185482025146f*d)*.15915494309189535f;
  float g0=Hrtz(r0*__builtin_amdgcn_cosf(ct)),g1=Hrtz(r1*__builtin_amdgcn_cosf(dt)),g2=Hrtz(r1*__builtin_amdgcn_sinf(dt));
  float red=Hrtz(Hrtz(Hrtz(rgba[p*4])-.5f)*.125f),green=Hrtz(Hrtz(Hrtz(rgba[p*4+1])-.5f)*.125f),blue=Hrtz(Hrtz(Hrtz(rgba[p*4+2])-.5f)*.125f);
- float f[16]={g1,g2,green,blue,g0,1,.0078125f,1,red,green,1,1,blue,red,1,0};
+ float f[16]={g1,g2,green,blue,g0,1,dlss5_style_feature,1,red,green,1,1,blue,red,1,0};
  if(temporal){uint q=(y*width+x)*4;f[13]=Hrtz(Hrtz(Hrtz(history[q])-.5f)*.125f);f[2]=Hrtz(Hrtz(Hrtz(history[q+1])-.5f)*.125f);f[3]=Hrtz(Hrtz(Hrtz(history[q+2])-.5f)*.125f);}
  for(uint i=0;i<32;i++)features[p*32+i]=i<16?f[i]:0.f;
 }
@@ -85,7 +91,7 @@ DEV void fused_prefix_values(const float*rgba,const float*history,uint p,uint wi
  float ct=(6.283185482025146f*c)*.15915494309189535f,dt=(6.283185482025146f*d)*.15915494309189535f;
  float g0=Hrtz(r0*__builtin_amdgcn_cosf(ct)),g1=Hrtz(r1*__builtin_amdgcn_cosf(dt)),g2=Hrtz(r1*__builtin_amdgcn_sinf(dt));
  float red=Hrtz(Hrtz(Hrtz(rgba[rgbp*4])-.5f)*.125f),green=Hrtz(Hrtz(Hrtz(rgba[rgbp*4+1])-.5f)*.125f),blue=Hrtz(Hrtz(Hrtz(rgba[rgbp*4+2])-.5f)*.125f);
- float values[16]={g1,g2,green,blue,g0,1,.0078125f,1,red,green,1,1,blue,red,1,0};
+ float values[16]={g1,g2,green,blue,g0,1,dlss5_style_feature,1,red,green,1,1,blue,red,1,0};
  if(temporal){uint q=(y*width+x)*4;values[13]=Hrtz(Hrtz(Hrtz(history[q])-.5f)*.125f);values[2]=Hrtz(Hrtz(Hrtz(history[q+1])-.5f)*.125f);values[3]=Hrtz(Hrtz(Hrtz(history[q+2])-.5f)*.125f);}
  for(uint i=0;i<16;i++)f[i]=values[i];
 }

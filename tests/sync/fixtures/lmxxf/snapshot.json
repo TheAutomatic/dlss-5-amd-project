@@ -1,9 +1,9 @@
 {
   "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "commit": "c809efb0ea2960f148624730898da61b8fb55a45",
-  "note": "Raw FOLLOW patch inputs at c809efb0. Bridge raw input remains at bridge_raw_commit; its product patch and pinned contents are unchanged.",
+  "commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
+  "note": "Raw FOLLOW patch inputs at 82ce821f; pinned bridge raw input remains at bridge_raw_commit.",
   "bridge_raw_commit": "54e14de503431cd4536f8a7151b022af232178a9",
-  "follow_raw_commit": "c809efb0ea2960f148624730898da61b8fb55a45",
+  "follow_raw_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
   "files": [
     {
       "path": "Development/HIP/hip_d3d12_bridge.h",
@@ -13,7 +13,7 @@
     {
       "path": "Development/HIP/hip_reference_network.h",
       "fixture": "hip_reference_network.upstream.h",
-      "sha256": "30744020bd1b5cf9e50fcfecfb4236219e84354d0b94055b78ba0276cbf4ef29"
+      "sha256": "5c36098e0934b4a47e65280ef090252bd0f049c660df31872a6a9e49da1ae4cc"
     },
     {
       "path": "src/native_lab_paths.h",
@@ -23,7 +23,7 @@
     {
       "path": "src/native_game_codec.h",
       "fixture": "native_game_codec.upstream.h",
-      "sha256": "b6fdbe327e2bf756848f8b5a47874e1b45b988458c129fc49a7bfb42bd0c2353"
+      "sha256": "acb6ebc88ebaf1425745fb2f1bfebc2eb3c7929f39df0627a67652e9d83fa7fd"
     },
     {
       "path": "shaders/native_codec_encode.hlsl",
@@ -33,7 +33,7 @@
     {
       "path": "shaders/native_codec_decode.hlsl",
       "fixture": "native_codec_decode.upstream.hlsl",
-      "sha256": "3762d2f18c1485e2548b5d7734f357bd8f5819e5ef7b2b8b196e2634b2c4b07d"
+      "sha256": "a70789a1449765a027edd735fac077360f1ba53045c2349377016568df9de437"
     },
     {
       "path": "src/native_shader_cache.h",
@@ -49,6 +49,11 @@
       "path": "src/native_rgb_texture.h",
       "fixture": "native_rgb_texture.upstream.h",
       "sha256": "168ff0061ecc6bbafb351344eddc49ba518a0f2ee747b8d12658b0621ffabfe0"
+    },
+    {
+      "path": "Development/HIP/hip_api.h",
+      "fixture": "hip_api.upstream.h",
+      "sha256": "45c46c8ed6633c0094817f6392049bbf01eb355d55c9fd8c3d11fdff90e9b519"
     }
   ]
 }

@@ -21,7 +21,17 @@
 #pragma clang fp reassociate(off)
 typedef unsigned uint;
 #define DEV __attribute__((device)) __attribute__((always_inline))
-#define KERNEL extern "C" __attribute__((global))
+#ifndef HIP_KERNEL_WPE
+#define HIP_KERNEL_WPE 0 /* 2026-10-01 compiler sweep (diagnostic, default 0 = no attribute): amdgpu_waves_per_eu lower bound applied to every kernel of the module */
+#endif
+#ifndef HIP_KERNEL_ATTR
+#if HIP_KERNEL_WPE
+#define HIP_KERNEL_ATTR __attribute__((amdgpu_waves_per_eu(HIP_KERNEL_WPE)))
+#else
+#define HIP_KERNEL_ATTR
+#endif
+#endif
+#define KERNEL extern "C" __attribute__((global)) HIP_KERNEL_ATTR
 #ifndef HIP_FFN_WAVE_NORM
 #define HIP_FFN_WAVE_NORM 0 /* 2026-09-23 (NOT bit-exact, default off): parts 0/1 of the QKV are computed one head (32 columns) per
  wave so the normalisation's sum of squares is 16 in-lane terms + one ds_bpermute add, with rsqrt/scale/norm bytes in registers -- no
@@ -35,6 +45,9 @@ typedef unsigned uint;
  lines (lane = row). Here the out bytes are written from the qfeature LDS copy after the existing barrier (one wave = one row = 256
  contiguous bytes at C=256), and the three norm parts are staged in LDS (parts 0/1 share a buffer, part 2 its own) and written row-wise:
  part 0 flushed after part 1's first barrier, parts 1/2 after one extra barrier at the end. Same bytes, same addresses: bit-exact. */
+#endif
+#ifndef MH_PAD_ZERO_VEC
+#define MH_PAD_ZERO_VEC 0 /* 1: mapped-padding zero tiles of the FFN+QKV kernels stored as 8-byte words instead of bytes; same zeros (results/deep-tail2-20260930) */
 #endif
 #ifndef HIP_FFN_TRANSPOSED_TAIL
 #define HIP_FFN_TRANSPOSED_TAIL 1 /* 2026-09-23: projection and QKV WMMAs take swapped operands so each lane holds one token row and
@@ -78,7 +91,14 @@ DEV uint half_bits(float x){uint b=bits(x),a=b&0x7fffffffu,s=(b>>16)&0x8000u;int
  uint h=((a+0xfffu+((a>>13)&1u))>>13)-0x1c000u;return s|(h>=0x7c00u?0x7c00u:h);
 }
 DEV float from_half(uint h){uint s=(h&0x8000u)<<16,e=(h>>10)&31u,m=h&1023u;if(e==31)return value(s|0x7f800000u|(m<<13));if(!e){if(!m)return value(s);float f=float(m)*5.9604644775390625e-8f;return s?-f:f;}return value(s|((e+112)<<23)|(m<<13));}
-#ifdef HIP_ISA_HALF
+// FAST TIER (lossy, 2026-10-01 fast-tier): W2_FAST_NUM bit0 = H()/Hrtz() are the identity (f32 activation/normalisation
+// path, no half round trip between f32 ops; explicit half stores still convert), bit1 = w2_inverse is a bare rcp.
+#ifndef W2_FAST_NUM
+#define W2_FAST_NUM 0
+#endif
+#if W2_FAST_NUM&1
+DEV float H(float x){return x;}
+#elif defined(HIP_ISA_HALF)
 // Keep f32 expression evaluation and both rounding boundaries opaque to fusion.
 DEV float H(float x){uint h;float result;asm("v_cvt_f16_f32 %0, %1" : "=v"(h) : "v"(x));asm("v_cvt_f32_f16 %0, %1" : "=v"(result) : "v"(h));return result;}
 #else
@@ -133,7 +153,11 @@ DEV uint q8(float x){return uint(__builtin_amdgcn_cvt_pk_fp8_f32(x,x,0,false))&2
 DEV void pack(i2&v,uint e,float x){v[e/4]=int(uint(v[e/4])|(q8(x)<<(8*(e%4))));}
 // Diagnostic production HLSL f32tof16 path: explicit RTZ, distinct from
 // Cast<F16> / ISA_HALF RNE. Keep both exported contracts until measured.
+#if W2_FAST_NUM&1
+DEV float Hrtz(float x){return x;}
+#else
 DEV float Hrtz(float x){uint h;float out;asm("v_cvt_pkrtz_f16_f32 %0, %1, %1" : "=v"(h) : "v"(x));asm("v_cvt_f32_f16 %0, %1" : "=v"(out) : "v"(h));return out;}
+#endif
 //64x64 output tile,16 waves. Each thread stages one packed4-byte A row word
 // and one B column word; each packed operand is reused by four waves.
 DEV uint pack4(float a,float b,float c,float d){uint lo=uint(__builtin_amdgcn_cvt_pk_fp8_f32(a,b,0,false));uint hi=uint(__builtin_amdgcn_cvt_pk_fp8_f32(c,d,0,false));return (lo&65535u)|((hi&65535u)<<16);}
@@ -326,6 +350,21 @@ FASTWAVE void mh_pool_project_production_h16w(const float* pooled,const float* w
  for(uint e=0;e<8;e++){uint p=first+g*8+e;if(p<M)output[p*N+col+rc]=(valid_width&&(p%width>=valid_width||p/width>=valid_height))?0.f:F(acc[e]);}
 }
 
+#ifndef HIP_POOL32_B8
+#define HIP_POOL32_B8 0
+#endif
+#if HIP_POOL32_B8
+// C32 twin of the h16w kernel whose pooled input is already E4M3 bytes (c32_wave1_finish_dcrop_b8d stores fp8(F(v))).
+// F(v) is E4M3-exact and never -0, so the byte equals pack()'s q8 of the f32 value: identical A fragment, 1/4 of the reads.
+FASTWAVE void mh_pool_project_c32_b8(const unsigned char* pooled,const float* weights,float* output,uint width,uint height,uint valid_width,uint valid_height,uint channels){
+ uint M=width*height,N=64,tile=__builtin_amdgcn_workgroup_id_x(),nt=4;
+ if(channels!=32||tile>=((M+15)/16)*nt)return;uint first=tile/nt*16,col=tile%nt*16,l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4;f8 acc{},sum{};
+ for(uint half=0;half<2;half++){i2 a{},b;uint p=first+rc;if(p<M)__builtin_memcpy(&a,pooled+p*32+half*16+g*8,8);__builtin_memcpy(&b,reinterpret_cast<const unsigned char*>(weights)+(col+rc)*32+half*16+g*8,8);sum=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,sum);}
+ for(uint e=0;e<8;e++)acc[e]=Hrtz(acc[e]+sum[e]);
+ for(uint e=0;e<8;e++){uint p=first+g*8+e;if(p<M)output[p*N+col+rc]=(valid_width&&(p%width>=valid_width||p/width>=valid_height))?0.f:F(acc[e]);}
+}
+#endif
+
 // Fused 2x2 pool + channel-doubling projection (host option pool_project_fused, C=64/128/256): one wave produces 16
 // pooled tokens x 64 output columns; the pooled A fragments are computed once from raw (same H/F chain as mh_pool) and
 // reused across the four column tiles, weights arrive prepacked as F16 rows (one 16-byte load per B fragment). The
@@ -349,12 +388,16 @@ DEV void mh_pool_project_fused_body(const float*raw,const float*w,float*output,u
 // F()-quantized), then each wave produces its 64 output columns with A fragments from LDS and B fragments from the
 // prepacked 16x16 f16 tile layout (PackedDsWeightFrag: one contiguous 512-byte load per fragment). Same per-32-chunk
 // sum, H(acc+sum) chaining and F(acc) store as mh_pool_project_production.
-template<uint C>
+// Gout (head Down C512 only, results/gap-fusion-20260930): store straight into the ViT gather order (host Gather(...,false):
+// out[t][c] = in[raster(t)][ch(c)]), so the separate vit_gather launch disappears; values unchanged, only addresses.
+DEV uint pg_tinv(uint r){return (r&~15u)|((r&7u)<<1)|((r>>3)&1u);}
+DEV uint pg_cinv(uint k){return (k&~31u)|((k>>1)&1u)|((k&1u)<<1)|((k>>4)&1u)<<2|((k>>2)&1u)<<3|((k>>3)&1u)<<4;}
+template<uint C,bool Gout=false,bool HalfIn=false>
 DEV void mh_pool_project_group_body(const float*raw,const float*wf,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){
  const uint M=width*height,N=2*C,S=C+8;uint tile=__builtin_amdgcn_workgroup_id_x();if(tile>=(M+15)/16)return;
  uint first=tile*16,t=__builtin_amdgcn_workitem_id_x(),wave=t/32,l=t%32,rc=l&15,g=l>>4,colg=wave*64;
  __attribute__((shared)) _Float16 pooled[16*S];
- for(uint k=0;k<16;k++){uint p=first+k,c=t;float v=0.f;if(p<M&&!(valid_width&&(p%width>=valid_width||p/width>=valid_height))){uint base=((p/width)*2*source_width+(p%width)*2)*C;float top=H(raw[base+c]+raw[base+C+c]),bottom=H(raw[base+source_width*C+c]+raw[base+(source_width+1)*C+c]);v=F(H(H(top+bottom)*.25f));}pooled[k*S+c]=(_Float16)v;}
+ for(uint k=0;k<16;k++){uint p=first+k,c=t;float v=0.f;if(p<M&&!(valid_width&&(p%width>=valid_width||p/width>=valid_height))){uint base=((p/width)*2*source_width+(p%width)*2)*C;auto rd=[&](uint i)->float{if constexpr(HalfIn)return float(reinterpret_cast<const _Float16*>(raw)[i]);else return raw[i];};float top=H(rd(base+c)+rd(base+C+c)),bottom=H(rd(base+source_width*C+c)+rd(base+(source_width+1)*C+c));v=F(H(H(top+bottom)*.25f));}pooled[k*S+c]=(_Float16)v;}
  WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
  const _Float16*w16=reinterpret_cast<const _Float16*>(wf);
  f8 acc[4]{};
@@ -363,11 +406,19 @@ DEV void mh_pool_project_group_body(const float*raw,const float*wf,float*output,
    for(uint j=0;j<4;j++){h8 b;uint nt=colg/16+j;__builtin_memcpy(&b,w16+(nt*(C/16)+sidx)*256+(g*16+rc)*8,16);sum[j]=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(a,b,sum[j]);}}
   for(uint j=0;j<4;j++)for(uint e=0;e<8;e++)acc[j][e]=H(acc[j][e]+sum[j][e]);
  }
- for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint q=first+g*8+e;if(q<M)output[q*N+colg+j*16+rc]=(valid_width&&(q%width>=valid_width||q/width>=valid_height))?0.f:F(acc[j][e]);}
+ for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint q=first+g*8+e;if(q<M)output[Gout?pg_tinv(q)*N+pg_cinv(colg+j*16+rc):q*N+colg+j*16+rc]=(valid_width&&(q%width>=valid_width||q/width>=valid_height))?0.f:F(acc[j][e]);}
 }
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void mh_pool_project_group_c64(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_group_body<64>(raw,w,output,width,height,source_width,valid_width,valid_height);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(128,128))) void mh_pool_project_group_c128(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_group_body<128>(raw,w,output,width,height,source_width,valid_width,valid_height);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void mh_pool_project_group_c256(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_group_body<256>(raw,w,output,width,height,source_width,valid_width,valid_height);}
+/* MH_POOL_HALF_IN (2026-10-01, swin-body-gap): the encoder tail stored as f16 (Hrtz, f16-exact); read back as f16 -> same float. New exports only. */
+#ifndef MH_POOL_HALF_IN
+#define MH_POOL_HALF_IN 0
+#endif
+#if MH_POOL_HALF_IN
+KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void mh_pool_project_group_c64_hin(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_group_body<64,false,true>(raw,w,output,width,height,source_width,valid_width,valid_height);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(128,128))) void mh_pool_project_group_c128_hin(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_group_body<128,false,true>(raw,w,output,width,height,source_width,valid_width,valid_height);}
+#endif
 FASTWAVE void mh_pool_project_fused_c64(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_fused_body<64>(raw,w,output,width,height,source_width,valid_width,valid_height);}
 FASTWAVE void mh_pool_project_fused_c128(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_fused_body<128>(raw,w,output,width,height,source_width,valid_width,valid_height);}
 FASTWAVE void mh_pool_project_fused_c256(const float*raw,const float*w,float*output,uint width,uint height,uint source_width,uint valid_width,uint valid_height){mh_pool_project_fused_body<256>(raw,w,output,width,height,source_width,valid_width,valid_height);}
@@ -419,6 +470,13 @@ FASTWAVE void mh_qkv_normalize_frag_c512(const unsigned char*in8,const float*w,u
  WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint row=g*8+e,p=first+row,c=col+n*16+rc;if(p<tokens)out[p*N+c]=static_cast<unsigned char>(q8(F(acc[n][e]*raw[16*65+(n/2)*16+row])));}
 }
+#ifndef C512_PROJ_DEEP
+#define C512_PROJ_DEEP 0 /* 2026-10-01 gap-map-evening: mh_attention_project_frag_c512 K loop unrolled with a D-deep operand ring over the 32 (k32,half) steps, D=2..8; 0 = loop */
+#endif
+#ifndef C512_PROJ_ABLATE
+#define C512_PROJ_ABLATE 0 /* 2026-10-01 night (diagnostic only, output WRONG when !=0): mh_attention_project_frag_c512 default path, bit 1 = residual init 0
+   (no feature/scale reads), bit 2 = no K loop (no AV/weight loads, no WMMA), bit 4 = output store only when post==99 (never). results/night-20261001 */
+#endif
 
 // C512 attention projection in the same shape (host option c512_proj_frag): one wave = 16 tokens x 64 output columns,
 // A = the attention's E4M3 AV bytes (8 contiguous bytes per lane per K16), B = fragment-tiled E4M3 projection weights
@@ -445,7 +503,9 @@ FASTWAVE void mh_attention_project_frag_c512(const unsigned char*av8,const float
  const uint C=512;uint l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4,block=__builtin_amdgcn_workgroup_id_x(),first=block/8*16,col=block%8*64;if(first>=tokens)return;
  const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
  f8 acc[4];
-#if HIP_C512_HOIST_RES
+#if C512_PROJ_ABLATE&1
+ for(uint n=0;n<4;n++)for(uint e=0;e<8;e++)acc[n][e]=0.f;
+#elif HIP_C512_HOIST_RES
  // Residual init with the loads outside the per-element condition: the 4 column scales once per lane, the 32 feature
  // values with a clamped row (row `first` is always < tokens), then the select. ISA of the conditional form: every
  // element re-read w[skip+c] and waited (32 global_load + s_wait_loadcnt 0 pairs per wave).
@@ -455,14 +515,128 @@ FASTWAVE void mh_attention_project_frag_c512(const unsigned char*av8,const float
 #else
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+n*16+rc;acc[n][e]=p<tokens?Hrtz(feature[p*C+c]*w[skip+c]):0.f;}
 #endif
- bool live=first+rc<tokens;const unsigned char*arow=av8+(first+rc)*C+g*8;
+ bool live=first+rc<tokens;
+#if C512_PROJ_DEEP
+ // C512_PROJ_DEEP=D (gap-map-evening-20261001), same operands and per-accumulator order as the loop. Mirrors C512_COMPACT_QKV_DEEP + SCHED: 32 (gs,h) steps unrolled, a C512_PROJ_DEEP-deep register ring, every
+ // address = one of 1+4 base pointers + an immediate, dead rows read row `first` and are zeroed at the consuming step,
+ // sched_barrier around each step's WMMAs. NOT TAKEN: LLVM still hoists the B loads and chains acc[0] over all 32 steps,
+ // 255 VGPR + scratch spills; first ring form (d4) 19 SAME but +0.22ms both tiers (results/gap-map-evening-20261001).
+ {constexpr uint D=C512_PROJ_DEEP;const unsigned char*ap=av8+(live?first+rc:first)*C+g*8;const unsigned char*bp[4];
+  _Pragma("unroll") for(uint n=0;n<4;n++){uint n0=col+n*16+rc;bp[n]=wb+(n0/16)*16*512+(g*16+n0%16)*8;}
+  i2 ra[D],rb[D][4];
+  auto ld=[&](uint st){const uint gs=st/2,h=st%2,k=st%D;__builtin_memcpy(&ra[k],ap+gs*32+h*16,8);
+   _Pragma("unroll") for(uint n=0;n<4;n++)__builtin_memcpy(&rb[k][n],bp[n]+gs*512+h*256,8);};
+  _Pragma("unroll") for(uint st=0;st<D;st++)ld(st);
+  _Pragma("unroll") for(uint st=0;st<32;st++){
+   const uint k=st%D;i2 ca=live?ra[k]:i2{},cb[4];
+   _Pragma("unroll") for(uint n=0;n<4;n++)cb[n]=rb[k][n];
+   if(st+D<32)ld(st+D);
+   __asm__ volatile("" ::: "memory");__builtin_amdgcn_sched_barrier(0);
+   _Pragma("unroll") for(uint n=0;n<4;n++)acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(ca,cb[n],acc[n]);
+   __builtin_amdgcn_sched_barrier(0);
+  }}
+#elif C512_PROJ_ABLATE&2
+#else
+ const unsigned char*arow=av8+(first+rc)*C+g*8;
  for(uint k=0;k<C;k+=32){uint gs=k/32;
   for(uint h=0;h<2;h++){i2 a{};if(live)__builtin_memcpy(&a,arow+k+h*16,8);
    for(uint n=0;n<4;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[n]);}}}
+#endif
  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+n*16+rc;if(p>=tokens)continue;float a=acc[n][e],v=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));uint dest=p*C+c;
-  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}out[dest]=v;}
+  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}
+#if C512_PROJ_ABLATE&4
+  if(post==99)
+#endif
+  out[dest]=v;}
 #endif
 }
+
+// C512_PROJ_WN4 (2026-10-01, results/gap-map-evening-20261001): mh_attention_project_frag_c512 reorganised like mochizuki's
+// Proj (WN=4): a 128-thread workgroup = the same 16 tokens x 64 columns, each wave one 16-column slice (one accumulator,
+// 32 WMMA in the same (k32, half) order). Same grid as the 1-wave form, so 4x the waves and a 4x shorter serial chain; the
+// four waves read the same A bytes (L0-shared) and disjoint weight fragments. Init, operands, K order and epilogue per
+// output element are those of the HIP_C512_HOIST_RES path. 0 = no export (host falls back to the 1-wave kernel).
+#ifndef C512_PROJ_WN4
+#define C512_PROJ_WN4 0
+#endif
+#if C512_PROJ_WN4
+KERNEL __attribute__((amdgpu_flat_work_group_size(128,128))) void mh_attention_project_frag_c512_wn4(const unsigned char*av8,const float*feature,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){
+ const uint C=512;uint t=__builtin_amdgcn_workitem_id_x(),l=t&31,n=t>>5,rc=l&15,g=l>>4,block=__builtin_amdgcn_workgroup_id_x(),first=block/8*16,col=block%8*64+n*16;if(first>=tokens)return;
+ const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
+ f8 acc;
+ {float ws=w[skip+col+rc];float fv[8];for(uint e=0;e<8;e++){uint p=first+g*8+e;uint pp=p<tokens?p:first;fv[e]=feature[pp*C+col+rc];}
+  for(uint e=0;e<8;e++){uint p=first+g*8+e;acc[e]=p<tokens?Hrtz(fv[e]*ws):0.f;}}
+ const bool live=first+rc<tokens;const unsigned char*ap=av8+(live?first+rc:first)*C+g*8;
+ const uint n0=col+rc;const unsigned char*bp=wb+(n0/16)*16*512+(g*16+n0%16)*8;
+#if C512_PROJ_WN4>=2
+ _Pragma("unroll")
+#else
+ _Pragma("unroll 4")
+#endif
+ for(uint st=0;st<32;st++){const uint gs=st/2,h=st%2;i2 a,b;__builtin_memcpy(&a,ap+gs*32+h*16,8);__builtin_memcpy(&b,bp+gs*512+h*256,8);if(!live)a=i2{};acc=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc);}
+ for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+rc;if(p>=tokens)continue;float a=acc[e],v=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));uint dest=p*C+c;
+  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}out[dest]=v;}
+}
+#endif
+
+// C512_PROJ_FB8 (2026-10-01, results/mochizuki-gap-20261001): mh_attention_project_frag_c512 (HIP_C512_HOIST_RES form)
+// with the residual feature read from split_projection_frag's E4M3 tiles instead of its f32 copy.
+// C512_PROJ_FB8 2 (results/c512-qkv-pipeline-20261001): residual scale and output as 16-byte vector accesses. That f32 value is
+// F(H(acc)), an E4M3 value (+-0 included), so decode(byte) == the float bit for bit. 0 = no export.
+#ifndef C512_PROJ_FB8
+#define C512_PROJ_FB8 0
+#endif
+#if C512_PROJ_FB8
+FASTWAVE void mh_attention_project_frag_c512_fb8(const unsigned char*av8,const unsigned char*feat8,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){
+ // Transposed WMMA (weights as A): lane = token, the 8 accumulator elements = 8 consecutive columns, so the residual is
+ // one 8-byte load from the E4M3 tile and the result 8 consecutive floats. Same products and K order per output.
+ const uint C=512;uint l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4,block=__builtin_amdgcn_workgroup_id_x(),first=block/8*16,col=block%8*64;if(first>=tokens)return;
+ const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
+ const uint p=first+rc;const bool live=p<tokens;const uint pp=live?p:first;
+ f8 acc[4];
+ for(uint n=0;n<4;n++){uint c0=col+n*16+g*8;i2 fb;__builtin_memcpy(&fb,feat8+((pp/16)*16+c0/32)*512+(pp%16)*32+c0%32,8);
+#if C512_PROJ_FB8>=2
+  float wv[8];__builtin_memcpy(wv,__builtin_assume_aligned(w+skip+c0,16),32);
+  for(uint e=0;e<8;e++){float fv=__builtin_amdgcn_cvt_f32_fp8(int((uint(fb[e/4])>>(8*(e%4)))&255u),0);acc[n][e]=live?Hrtz(fv*wv[e]):0.f;}}
+#else
+  for(uint e=0;e<8;e++){float fv=__builtin_amdgcn_cvt_f32_fp8(int((uint(fb[e/4])>>(8*(e%4)))&255u),0);acc[n][e]=live?Hrtz(fv*w[skip+c0+e]):0.f;}}
+#endif
+ const unsigned char*arow=av8+(first+rc)*C+g*8;
+ for(uint k=0;k<C;k+=32){uint gs=k/32;
+  for(uint h=0;h<2;h++){i2 a{};if(live)__builtin_memcpy(&a,arow+k+h*16,8);
+   for(uint n=0;n<4;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,acc[n]);}}}
+ if(!live)return;
+ for(uint n=0;n<4;n++){uint c0=col+n*16+g*8;uint dest=p*C+c0;
+  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c0;}
+#if C512_PROJ_FB8>=2
+  // v3: 8 consecutive floats as two 16-byte stores (dest is a multiple of 8 floats) instead of 8 dword stores.
+  float v[8];for(uint e=0;e<8;e++){float a=acc[n][e];v[e]=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));}
+  __builtin_memcpy(__builtin_assume_aligned(out+dest,16),v,32);}
+#else
+  for(uint e=0;e<8;e++){float a=acc[n][e];out[dest+e]=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));}}
+#endif
+}
+#endif
+
+#ifndef C512_SPLIT_N
+#define C512_SPLIT_N 0 /* 1: add exports mh_attention_project_frag_c512_n2 (block 64, same grid) and _n2g (block 32, grid x2): each wave 16 tokens x 32 columns, per-output init/K order/epilogue as the default path. results/fill-cu-20260930. */
+#endif
+#if C512_SPLIT_N
+template<bool WG64> DEV void c512_proj_n2_body(const unsigned char*av8,const float*feature,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){
+ const uint C=512;uint t=__builtin_amdgcn_workitem_id_x(),l=t&31,rc=l&15,g=l>>4,half=WG64?(t>>5):(__builtin_amdgcn_workgroup_id_x()&1u),block=WG64?__builtin_amdgcn_workgroup_id_x():(__builtin_amdgcn_workgroup_id_x()>>1),first=block/8*16,col=block%8*64+half*32;if(first>=tokens)return;
+ const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
+ f8 acc[2];
+ for(uint n=0;n<2;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+n*16+rc;acc[n][e]=p<tokens?Hrtz(feature[p*C+c]*w[skip+c]):0.f;}
+ bool live=first+rc<tokens;const unsigned char*arow=av8+(first+rc)*C+g*8;
+ for(uint k=0;k<C;k+=32){uint gs=k/32;
+  for(uint h=0;h<2;h++){i2 a{};if(live)__builtin_memcpy(&a,arow+k+h*16,8);
+   for(uint n=0;n<2;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[n]);}}}
+ for(uint n=0;n<2;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+n*16+rc;if(p>=tokens)continue;float a=acc[n][e],v=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));uint dest=p*C+c;
+  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}out[dest]=v;}
+}
+KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void mh_attention_project_frag_c512_n2(const unsigned char*av8,const float*feature,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){c512_proj_n2_body<true>(av8,feature,w,out,tokens,post,cropw,croph,workw,sx,sy);}
+FASTWAVE void mh_attention_project_frag_c512_n2g(const unsigned char*av8,const float*feature,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){c512_proj_n2_body<false>(av8,feature,w,out,tokens,post,cropw,croph,workw,sx,sy);}
+#endif
 
 // One wave per pixel/head. Read every channel coalesced, but preserve the
 // production sequential FP32 addition order with scalar-lane extraction.
@@ -632,7 +806,18 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(512,512))) void mh_ffn_fused_c
 #define HIP_BRANCHLESS_Q8 1 /* 2026-09-17: with HIP_MH_RTZ_ISA -0.16ms, bit-exact. q8_fused_round as clamp+cvt+select (ISA: every call was a divergent branch pair, 64 per FFN+QKV kernel); same byte for every non-NaN input */
 #endif
 #if HIP_BRANCHLESS_Q8
+// f-sweep 2026-09-30: HIP_Q8_ADD0 1 -> q8(clamp(x+0)): the +0 add turns -0 into +0 exactly like the a==0 select;
+// GPU exhaustive over all 2^32 x (results/f-sweep-20260930). The add stays apart from any producer mul.
+#ifndef HIP_Q8_ADD0
+#define HIP_Q8_ADD0 0
+#endif
+#if HIP_Q8_ADD0
+DEV uint q8_fused_round(float x){
+#pragma clang fp contract(off)
+ return q8(HIP_FP8_CLAMP(x+0.f));}
+#else
 DEV uint q8_fused_round(float x){uint a=bits(x)&0x7fffffffu;uint q=q8(HIP_FP8_CLAMP(x));return a==0?0u:q;}
+#endif
 #else
 DEV uint q8_fused_round(float x){uint b=bits(x),a=b&0x7fffffffu;if(!a)return 0;if(a>=0x43e00000u)return ((b>>24)&128u)|126u;return q8(x);}
 #endif
@@ -671,8 +856,14 @@ DEV void mh_ffn_qkv_body(const float*in,const float*w,unsigned char*out,uint tok
  // bias-free FFN and normalized QKV outputs. The test is workgroup-uniform.
  if constexpr((C==128||C==256)&&Mapped){
   if(first+15<sy*workw||first>=(sy+height)*workw){
+#if MH_PAD_ZERO_VEC
+   if constexpr(ByteFeature){for(uint i=tid*8;i<16*C;i+=2*C*8){unsigned long long z=0;__builtin_memcpy(__builtin_assume_aligned(out+first*C+i,8),&z,8);}}
+   else for(uint i=tid;i<16*C;i+=2*C)reinterpret_cast<float*>(out)[first*C+i]=0.f;
+   for(uint i=tid*8;i<16*3*C;i+=2*C*8){unsigned long long z=0;__builtin_memcpy(__builtin_assume_aligned(norm+first*3*C+i,8),&z,8);}
+#else
    for(uint i=tid;i<16*C;i+=2*C){if constexpr(ByteFeature)out[first*C+i]=0;else reinterpret_cast<float*>(out)[first*C+i]=0.f;}
    for(uint i=tid;i<16*3*C;i+=2*C)norm[first*3*C+i]=0;
+#endif
    return;
   }
  }
