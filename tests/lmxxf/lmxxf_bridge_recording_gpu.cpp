@@ -11,6 +11,16 @@
 #include <thread>
 #include <cmath>
 
+namespace hip_reference {
+struct BridgeTimingTest {
+    static auto& Elapsed(D3D12Bridge& bridge) { return bridge.network->Runtime().hipEventElapsedTime; }
+    static unsigned Quarantined(const D3D12Bridge& bridge) {
+        return unsigned(std::count_if(bridge.timing_slots.begin(), bridge.timing_slots.end(),
+            [](const auto& slot) { return slot.pending && slot.completion == UINT64_MAX; }));
+    }
+};
+}
+
 static void Require(bool ok, const char *what)
 {
     if (!ok)
@@ -207,6 +217,28 @@ int main(int argc, char** argv)
             std::printf("timing ABBA batch=%u enabled=%u wall_ms=%.4f enqueue_cpu_ms=%.4f n=%u\n",
                         batch, unsigned(enabled), wallMs / (iterations - 8), enqueueMs / (iterations - 8), iterations - 8);
         }
+        // Real GPU submissions with a failing telemetry API must continue to
+        // render, permanently quarantining the failed event pairs until teardown.
+        auto& elapsed = hip_reference::BridgeTimingTest::Elapsed(bridge);
+        const auto realElapsed = elapsed;
+        elapsed = [](float*, hip_probe::Handle, hip_probe::Handle) -> int { return 999; };
+        for (unsigned i = 0; i < 9; ++i) {
+            bridge.BeginRecordedExecution(actual);
+            bridge.ConfigureProductionTiming(true, 99, i + 1, 9);
+            ID3D12CommandList* first[] = {producer}; actual->ExecuteCommandLists(1, first);
+            bridge.EnqueueAfterProducer(actual, 1);
+            ID3D12CommandList* second[] = {consumer}; actual->ExecuteCommandLists(1, second);
+            bridge.EndRecordedExecution(actual, true, true); WaitQueue(device, actual);
+            Require(!bridge.TakeProductionTiming(timing), "failed telemetry never publishes a sample");
+            Require(hip_reference::BridgeTimingTest::Quarantined(bridge) == (std::min)(i + 1, 8u),
+                    "failed HIP events never return to reusable pool");
+        }
+        elapsed = realElapsed;
+        void* finalData = nullptr; D3D12_RANGE finalRange {0, SIZE_T(bytes)};
+        Check(readback->Map(0, &finalRange, &finalData), "failed telemetry readback");
+        Require(std::memcmp(baseline.data(), finalData, SIZE_T(bytes)) == 0, "telemetry failures preserve neural output bytes");
+        readback->Unmap(0, nullptr);
+        Require(bridge.TakeProductionTimingDrops() == 9, "errors and exhausted event pool only drop statistics");
         producer->Release(); consumer->Release(); pa->Release(); ca->Release(); input->Release(); readback->Release();
     } catch (const std::exception& e) { std::fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }
     ID3D12InfoQueue* info = nullptr;

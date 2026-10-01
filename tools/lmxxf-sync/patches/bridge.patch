@@ -8,7 +8,15 @@
  #include <chrono>
  #include <cstring>
  #include <cstdio>
-@@ -23,12 +25,32 @@
+@@ -15,6 +17,7 @@
+ // Experimental single-GPU bridge. Callers serialize frames and preserve SRV states.
+ // No Agility or experimental DirectX feature enabling is used here.
+ class D3D12Bridge {
++ friend struct BridgeTimingTest; // Fault injection fixture; no production hook or runtime branch.
+  struct Shared {ID3D12Resource*resource{};HANDLE handle{};Handle imported{};void*mapped{};};
+  Network*network{};ID3D12Device*device{};ID3D12CommandQueue*queue{};ID3D12Fence*fence{};
+  HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
+@@ -23,12 +26,32 @@
  public:
   enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
   Phase CurrentPhase()const{return phase;}
@@ -42,7 +50,7 @@
   static void Check(HRESULT h,const char*what){if(FAILED(h))throw std::runtime_error(std::string(what)+" HRESULT="+std::to_string(unsigned(h)));}
   static void Barrier(ID3D12GraphicsCommandList*c,ID3D12Resource*r,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after){if(before==after)return;D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};c->ResourceBarrier(1,&b);}
   /* 2026-09-26: the AMD HIP driver never returns a D3D12 buffer that was imported (hipImportExternalMemory) and mapped, even after
-@@ -82,16 +104,19 @@
+@@ -82,16 +105,19 @@
   // False means resources may still be referenced by unsubmitted/failed work.
   // This also lets wrappers retain their input references until consumers retire.
   bool WaitForSubmittedWork()noexcept{
@@ -64,7 +72,7 @@
    if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
   }
   void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
-@@ -113,11 +138,16 @@
+@@ -113,11 +139,16 @@
    }
    module_directory=options.modules;
    network=new Network(std::move(options));auto&api=network->Runtime();
@@ -83,7 +91,7 @@
  #ifdef DLSS5_BENCH_BRIDGE_ISOLATE
   Network& DiagnosticNetwork(){return *network;}
  #endif
-@@ -145,12 +175,42 @@
+@@ -145,12 +176,44 @@
    try{
     pending=true;Check(queue->Signal(fence,++value),"D3D input signal");hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
     if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
@@ -118,8 +126,10 @@
 +   // Keep the event pair reserved and retry on a future collection; never spin/wait.
 +   if(status==600)return false;
 +   const bool valid=status==0&&std::isfinite(ms)&&ms>=0;
++   // Only a successful elapsed-time read proves both events reusable.
++   // Quarantine errors until bridge destruction; the fence alone is insufficient.
++   if(!valid){s.completion=UINT64_MAX;++timing_dropped;continue;}
 +   s.pending=false;
-+   if(!valid){++timing_dropped;continue;}
 +   out=s.sample;out.ms=ms;return true;
 +  }
 + }
@@ -127,7 +137,7 @@
   // Single host thread, one staged frame at a time; all lists use the queue passed to Create.
   // RecordInputCopy -> host submits producer -> EnqueueAfterProducer -> RecordOutputReadable
   // -> host records/submits consumers -> NotifyOutputSubmitted. Record* never closes/submits a list.
-@@ -166,6 +226,51 @@
+@@ -166,6 +229,51 @@
    auto&api=network->Runtime();
    try{api.Check(api.hipMemsetAsync(input.mapped,0,pixels*16,network->Stream()),"prepare input");network->Enqueue(input.mapped,nullptr,output.mapped,1);network->Synchronize();}
    catch(...){failed=true;throw;}

@@ -17,6 +17,7 @@ namespace hip_reference {
 // Experimental single-GPU bridge. Callers serialize frames and preserve SRV states.
 // No Agility or experimental DirectX feature enabling is used here.
 class D3D12Bridge {
+ friend struct BridgeTimingTest; // Fault injection fixture; no production hook or runtime branch.
  struct Shared {ID3D12Resource*resource{};HANDLE handle{};Handle imported{};void*mapped{};};
  Network*network{};ID3D12Device*device{};ID3D12CommandQueue*queue{};ID3D12Fence*fence{};
  HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
@@ -205,8 +206,10 @@ public:
    // Keep the event pair reserved and retry on a future collection; never spin/wait.
    if(status==600)return false;
    const bool valid=status==0&&std::isfinite(ms)&&ms>=0;
+   // Only a successful elapsed-time read proves both events reusable.
+   // Quarantine errors until bridge destruction; the fence alone is insufficient.
+   if(!valid){s.completion=UINT64_MAX;++timing_dropped;continue;}
    s.pending=false;
-   if(!valid){++timing_dropped;continue;}
    out=s.sample;out.ms=ms;return true;
   }
  }
