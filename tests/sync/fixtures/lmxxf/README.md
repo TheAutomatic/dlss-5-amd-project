@@ -2,12 +2,14 @@
 
 The `*.upstream.*` files are unmodified source bytes from
 [lmxxf/dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)
-at commit `54e14de503431cd4536f8a7151b022af232178a9`, the current product pin.
+at the immutable commits recorded in `snapshot.json`: FOLLOW inputs at
+`c809efb0ea2960f148624730898da61b8fb55a45`, and the separately pinned bridge at
+`54e14de503431cd4536f8a7151b022af232178a9`.
 `snapshot.json` records each upstream path, fixture filename and raw SHA256.
 The snapshots were extracted with `git show <commit>:<path>`; `.gitattributes`
 preserves their LF line endings on Windows.
 
-`SourcePatchTests` in `tests/lmxxf_upstream_sync.py` validates the hashes and
+`SourcePatchTests` in `tests/sync/test_upstream_sync.py` validates the hashes and
 coverage of every active patch target in `tools/lmxxf-sync/manifest.json`.
 It then checks and applies the bridge patch followed by every `local_patches`
 entry, in order, in a temporary source tree. The result must equal the current

@@ -33,7 +33,6 @@ inline std::atomic<bool> g_proxyWrap { false };
 inline std::atomic<bool> g_earlyExeWrap { false };
 inline std::atomic<uint32_t> g_earlyWrappedLists { 0 };
 inline std::atomic<bool> g_wrapOpenLists { false };
-inline std::mutex g_executeMu;
 inline BetweenFn g_between = nullptr;
 inline void *g_betweenCtx = nullptr;
 
@@ -186,7 +185,7 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
         return;
     // Keep all ordinary/unsplit lists in their original contiguous batch. Splitting
     // every unsplit proxy into separate Executes would itself change resource decay.
-    std::lock_guard<std::mutex> submitLock(g_executeMu);
+    std::lock_guard<std::recursive_mutex> submitLock(RecordingMutex());
     std::vector<ID3D12CommandList *> run;
     run.reserve(num);
     const auto flush = [&]() {

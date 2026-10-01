@@ -1,6 +1,7 @@
 #pragma once
 #include "../amd/GraphicsTracker.h"
 #include "SubmissionTls.h"
+#include "RecordingLifecycle.h"
 #include <d3d12.h>
 #include <cstdint>
 #include <vector>
@@ -42,6 +43,8 @@ class LogicalList
     Phase phase = Phase::Idle;
     bool split = false;
     bool executed = false;
+    bool unconfirmedSubmission = false;
+    ID3D12CommandQueue* lastQueue = nullptr;
 
     static void ReleaseIf(IUnknown *&p)
     {
@@ -66,20 +69,24 @@ class LogicalList
         if (!retireFence)
             return;
         UINT64 done = retireFence->GetCompletedValue();
+        if (done == UINT64_MAX || unconfirmedSubmission)
+            return; // Device removal/failed Signal is not an ordinary completion.
         if (waitAll && retireFenceValue > done)
         {
             HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
             if (ev)
             {
-                if (SUCCEEDED(retireFence->SetEventOnCompletion(retireFenceValue, ev)))
-                {
-                    const DWORD wr = WaitForSingleObject(ev, 30000);
-                    (void)wr; // success or not: always re-read completed value below
-                }
-                CloseHandle(ev);
+                const HRESULT armed = retireFence->SetEventOnCompletion(retireFenceValue, ev);
+                if (FAILED(armed) || WaitForSingleObject(ev, 30000) == WAIT_OBJECT_0)
+                    CloseHandle(ev);
+                // A timeout/failed wait does not cancel SetEventOnCompletion.
+                // Retain an armed handle rather than letting a later GPU signal
+                // target a closed (possibly recycled) Windows handle.
             }
             // Never treat the target fence value as done unless GetCompletedValue says so.
             done = retireFence->GetCompletedValue();
+            if (done == UINT64_MAX)
+                return;
         }
         size_t w = 0;
         for (size_t i = 0; i < retired.size(); ++i)
@@ -118,7 +125,8 @@ class LogicalList
     {
         if (!retireFence || retireFenceValue == 0)
             return false;
-        return retireFence->GetCompletedValue() < retireFenceValue;
+        const auto done = retireFence->GetCompletedValue();
+        return unconfirmedSubmission || done == UINT64_MAX || done < retireFenceValue;
     }
 
     void RetireCurrentContinuation(UINT64 fenceValue)
@@ -254,7 +262,8 @@ class LogicalList
     using BetweenCallback = void (*)(ID3D12CommandQueue *queue, void *ctx);
 
     // Closed lists may be re-submitted after prior GPU work (D3D12 allows multiple Execute).
-    HRESULT Execute(ID3D12CommandQueue *queue, BetweenCallback between = nullptr, void *betweenCtx = nullptr)
+    HRESULT Execute(ID3D12CommandQueue *queue, BetweenCallback between = nullptr, void *betweenCtx = nullptr,
+                    RecordingExecution* facts = nullptr, RecordingObserver* observer = nullptr)
     {
         if (!queue || !producer)
             return E_INVALIDARG;
@@ -270,6 +279,20 @@ class LogicalList
         HRESULT hr = EnsureRetireFence();
         if (FAILED(hr))
             return hr;
+        // Never let a later signal from another queue falsely complete an older
+        // submission. Cross-queue executions of the same list are GPU-ordered.
+        if (unconfirmedSubmission)
+            return E_FAIL;
+        if (lastQueue && lastQueue != queue && retireFenceValue)
+        {
+            hr = queue->Wait(retireFence, retireFenceValue);
+            if (FAILED(hr)) return hr;
+        }
+        if (observer && facts)
+        {
+            hr = observer->BeforeExecute(*facts);
+            if (FAILED(hr)) return hr;
+        }
 
         // Bypass Detoured ECL (AmdBridge Submitted / expand). Internal producer submit
         // must not ClearPendingEnqueue before the HIP between-slot runs.
@@ -279,10 +302,17 @@ class LogicalList
             g_rawExecuteCommandLists(queue, 1, &first);
         else
             queue->ExecuteCommandLists(1, &first);
+        if (facts)
+        {
+            facts->producerSubmitted = true;
+            if (observer) observer->ProducerSubmitted(*facts);
+        }
         if (split)
             g_splitSubmissions.fetch_add(1, std::memory_order_relaxed);
         if (split && between)
             between(queue, betweenCtx);
+        if (split && observer && facts)
+            observer->Between(*facts);
         if (split && continuation)
         {
             ID3D12CommandList *second = continuation;
@@ -291,14 +321,29 @@ class LogicalList
             else
                 queue->ExecuteCommandLists(1, &second);
             g_continuationSubmissions.fetch_add(1, std::memory_order_relaxed);
+            if (facts) facts->continuationSubmitted = true;
         }
         // Completion credential for deferred continuation allocator recycle.
         const UINT64 v = ++retireFenceValue;
         hr = queue->Signal(retireFence, v);
         executed = true;
+        if (lastQueue != queue)
+        {
+            queue->AddRef();
+            if (lastQueue) lastQueue->Release();
+            lastQueue = queue;
+        }
+        if (facts)
+        {
+            facts->fence = retireFence;
+            facts->fenceValue = v;
+        }
         // Signal failure: GPU work is already submitted; keep resources (fence never reaches v).
         if (FAILED(hr))
+        {
+            unconfirmedSubmission = true;
             return hr;
+        }
         return S_OK;
     }
 
@@ -345,11 +390,18 @@ class LogicalList
 
     void Release()
     {
-        FlushRetired(true);
+        const bool deviceLost = device && FAILED(device->GetDeviceRemovedReason());
+        if (deviceLost)
+        {
+            // Removed-device teardown is separate from normal fence completion.
+            for (auto& r : retired) { if (r.list) r.list->Release(); if (r.alloc) r.alloc->Release(); }
+            retired.clear();
+        }
+        else FlushRetired(true);
         // If wait failed or GPU still busy, park current continuation then abandon unfinished refs.
-        if ((continuation || contAlloc) && ContinuationStillInFlight())
+        if (!deviceLost && (continuation || contAlloc) && ContinuationStillInFlight())
             RetireCurrentContinuation(retireFenceValue);
-        const bool abandon = !retired.empty() || ContinuationStillInFlight();
+        const bool abandon = !deviceLost && (!retired.empty() || ContinuationStillInFlight());
         if (abandon)
         {
             AbandonUnfinishedRetired();
@@ -360,10 +412,12 @@ class LogicalList
             producerAlloc = nullptr;
             device = nullptr;
             retireFence = nullptr;
+            lastQueue = nullptr;
             phase = Phase::Idle;
             split = false;
             executed = false;
             retireFenceValue = 0;
+            unconfirmedSubmission = false;
             return;
         }
         IUnknown *cont = continuation;
@@ -372,22 +426,26 @@ class LogicalList
         IUnknown *pa = producerAlloc;
         IUnknown *dev = device;
         IUnknown *ff = retireFence;
+        IUnknown *q = lastQueue;
         continuation = nullptr;
         contAlloc = nullptr;
         producer = nullptr;
         producerAlloc = nullptr;
         device = nullptr;
         retireFence = nullptr;
+        lastQueue = nullptr;
         ReleaseIf(cont);
         ReleaseIf(ca);
         ReleaseIf(prod);
         ReleaseIf(pa);
         ReleaseIf(ff);
         ReleaseIf(dev);
+        ReleaseIf(q);
         phase = Phase::Idle;
         split = false;
         executed = false;
         retireFenceValue = 0;
+        unconfirmedSubmission = false;
     }
 };
 } // namespace DlssNr::Submission

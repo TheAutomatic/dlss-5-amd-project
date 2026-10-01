@@ -25,6 +25,7 @@ public:
  Phase CurrentPhase()const{return phase;}
 private:
  Phase phase=Phase::Ready;bool recorded_temporal{};
+ bool recording_leases{},recording_active{},recording_submission_unconfirmed{};UINT64 recording_completion{};
  /* DLSS5_HIP_SPAN_PROBE=1 (diagnostic): hipEvents recorded after the input wait and before the output signal give the
     GPU span of one network enqueue; the previous frame's span and its CPU enqueue time are printed at the next Run. */
  // A reusable completion marker lets HIP retire launch bookkeeping on streams
@@ -84,7 +85,7 @@ public:
  // False means resources may still be referenced by unsubmitted/failed work.
  // This also lets wrappers retain their input references until consumers retire.
  bool WaitForSubmittedWork()noexcept{
-  if(phase!=Phase::Ready||clear_submission_unconfirmed)return false;
+  if(phase!=Phase::Ready||clear_submission_unconfirmed||recording_submission_unconfirmed)return false;
   if(network&&network->Runtime().hipStreamSynchronize(network->Stream()))return false;
   if(pending&&queue&&fence){auto target=++value;if(FAILED(queue->Signal(fence,target))||FAILED(fence->SetEventOnCompletion(target,event))||WaitForSingleObject(event,30000)!=WAIT_OBJECT_0||fence->GetCompletedValue()<target)return false;}
   if(device&&FAILED(device->GetDeviceRemovedReason()))return false;
@@ -175,6 +176,51 @@ public:
   auto&api=network->Runtime();
   try{api.Check(api.hipMemsetAsync(input.mapped,0,pixels*16,network->Stream()),"prepare input");network->Enqueue(input.mapped,nullptr,output.mapped,1);network->Synchronize();}
   catch(...){failed=true;throw;}
+ }
+ // Product recording leases: the caller owns every recorded resource until Reset/Release
+ // and completion, and serializes these methods. Legacy staged callers remain unchanged.
+ void EnableRecordingLeases(){
+  Require(Phase::Ready);
+  if(pending||value||readable||network->GraphEnabled())throw std::runtime_error("recording leases require fresh graph-off bridge");
+  recording_leases=true;
+ }
+ // Call after the last output reader was recorded. Both shared-buffer boundaries
+ // are COMMON, so discard and replay do not depend on CPU-only readable state.
+ void SealRecordedOutput(ID3D12GraphicsCommandList*c){
+  if(!recording_leases||recording_active)throw std::runtime_error("not a recording lease");
+  Require(Phase::OutputRecordedPendingHip);ListContract(c);
+  Barrier(c,output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
+  readable=false;phase=Phase::Ready;
+ }
+ // BEFORE submitting the producer, order it after the previous actual consumer,
+ // including executions on another same-device queue. Never wait on the CPU here.
+ void BeginRecordedExecution(ID3D12CommandQueue*actual,bool temporal=false){
+  if(!recording_leases||recording_active||recording_submission_unconfirmed)throw std::runtime_error("recording execution unavailable");
+  Require(Phase::Ready);
+  if(!actual||actual->GetDesc().Type!=queue->GetDesc().Type)throw std::runtime_error("recording queue type mismatch");
+  ID3D12Device*owner{};Check(actual->GetDevice(IID_PPV_ARGS(&owner)),"recording queue device");
+  bool same=NativeSameDevice(owner,device);owner->Release();if(!same)throw std::runtime_error("recording queue device mismatch");
+  if(actual!=queue){
+   if(recording_completion)Check(actual->Wait(fence,recording_completion),"previous recorded consumer wait");
+   actual->AddRef();queue->Release();queue=actual;
+  }
+  recorded_temporal=temporal;recording_active=true;phase=Phase::OutputRecordedPendingHip;
+ }
+ // Called for each execution, with submission facts rather than recording state.
+ // A missing consumer is a discard of that execution, not retirement of the lease.
+ void EndRecordedExecution(ID3D12CommandQueue*actual,bool producer_submitted,bool consumer_submitted){
+  if(!recording_leases||!recording_active)throw std::runtime_error("no recording execution");
+  QueueContract(actual);
+  if(consumer_submitted&&!producer_submitted)throw std::runtime_error("consumer without producer");
+  if(producer_submitted){
+   // A failed enqueue cannot be certified by a later successful queue signal.
+   if(failed||phase!=Phase::OutputRecorded){recording_submission_unconfirmed=true;throw std::runtime_error("recorded HIP execution incomplete");}
+   pending=true;const UINT64 target=++value;
+   HRESULT hr=actual->Signal(fence,target);
+   if(FAILED(hr)){recording_submission_unconfirmed=true;Check(hr,"recorded consumer signal");}
+   recording_completion=target;
+  }
+  recording_active=false;readable=false;phase=Phase::Ready;
  }
  void RecordInputCopy(ID3D12GraphicsCommandList*c,ID3D12Resource*rgba,ID3D12Resource*temporal=nullptr){RecordInput(c,rgba,temporal,true);}
  void EnqueueAfterProducer(ID3D12CommandQueue*producer,U seed,bool temporal=false){Enqueue(producer,seed,temporal,true);}

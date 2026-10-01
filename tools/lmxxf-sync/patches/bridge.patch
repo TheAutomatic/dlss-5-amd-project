@@ -1,12 +1,13 @@
 --- a/Development/HIP/hip_d3d12_bridge.h
 +++ b/Development/HIP/hip_d3d12_bridge.h
-@@ -23,11 +23,13 @@
+@@ -23,11 +23,14 @@
  public:
   enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
   Phase CurrentPhase()const{return phase;}
 - bool PdlActive()const{return network&&network->PdlCalls()!=0;}
  private:
   Phase phase=Phase::Ready;bool recorded_temporal{};
++ bool recording_leases{},recording_active{},recording_submission_unconfirmed{};UINT64 recording_completion{};
   /* DLSS5_HIP_SPAN_PROBE=1 (diagnostic): hipEvents recorded after the input wait and before the output signal give the
      GPU span of one network enqueue; the previous frame's span and its CPU enqueue time are printed at the next Run. */
 + // A reusable completion marker lets HIP retire launch bookkeeping on streams
@@ -15,7 +16,16 @@
   Handle span_begin{},span_end{};bool span_probe{},span_pending{};double span_cpu{};
   static void Check(HRESULT h,const char*what){if(FAILED(h))throw std::runtime_error(std::string(what)+" HRESULT="+std::to_string(unsigned(h)));}
   static void Barrier(ID3D12GraphicsCommandList*c,ID3D12Resource*r,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after){if(before==after)return;D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};c->ResourceBarrier(1,&b);}
-@@ -91,7 +93,7 @@
+@@ -82,7 +85,7 @@
+  // False means resources may still be referenced by unsubmitted/failed work.
+  // This also lets wrappers retain their input references until consumers retire.
+  bool WaitForSubmittedWork()noexcept{
+-  if(phase!=Phase::Ready||clear_submission_unconfirmed)return false;
++  if(phase!=Phase::Ready||clear_submission_unconfirmed||recording_submission_unconfirmed)return false;
+   if(network&&network->Runtime().hipStreamSynchronize(network->Stream()))return false;
+   if(pending&&queue&&fence){auto target=++value;if(FAILED(queue->Signal(fence,target))||FAILED(fence->SetEventOnCompletion(target,event))||WaitForSingleObject(event,30000)!=WAIT_OBJECT_0||fence->GetCompletedValue()<target)return false;}
+   if(device&&FAILED(device->GetDeviceRemovedReason()))return false;
+@@ -91,7 +94,7 @@
   ~D3D12Bridge(){
    if(!WaitForSubmittedWork())return;
    if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
@@ -24,7 +34,7 @@
    if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
   }
   void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
-@@ -113,11 +115,16 @@
+@@ -113,11 +116,16 @@
    }
    module_directory=options.modules;
    network=new Network(std::move(options));auto&api=network->Runtime();
@@ -43,7 +53,7 @@
  #ifdef DLSS5_BENCH_BRIDGE_ISOLATE
   Network& DiagnosticNetwork(){return *network;}
  #endif
-@@ -147,7 +154,9 @@
+@@ -147,7 +155,9 @@
     if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
     auto start=std::chrono::steady_clock::now();network->Enqueue(input.mapped,temporal?history.mapped:nullptr,output.mapped,seed);
     if(span_probe){span_cpu=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();api.Check(api.hipEventRecord(span_end,network->Stream()),"span end");span_pending=true;}
@@ -54,3 +64,55 @@
    }catch(...){failed=true;throw;}
   }
  public:
+@@ -166,6 +176,51 @@
+   auto&api=network->Runtime();
+   try{api.Check(api.hipMemsetAsync(input.mapped,0,pixels*16,network->Stream()),"prepare input");network->Enqueue(input.mapped,nullptr,output.mapped,1);network->Synchronize();}
+   catch(...){failed=true;throw;}
++ }
++ // Product recording leases: the caller owns every recorded resource until Reset/Release
++ // and completion, and serializes these methods. Legacy staged callers remain unchanged.
++ void EnableRecordingLeases(){
++  Require(Phase::Ready);
++  if(pending||value||readable||network->GraphEnabled())throw std::runtime_error("recording leases require fresh graph-off bridge");
++  recording_leases=true;
++ }
++ // Call after the last output reader was recorded. Both shared-buffer boundaries
++ // are COMMON, so discard and replay do not depend on CPU-only readable state.
++ void SealRecordedOutput(ID3D12GraphicsCommandList*c){
++  if(!recording_leases||recording_active)throw std::runtime_error("not a recording lease");
++  Require(Phase::OutputRecordedPendingHip);ListContract(c);
++  Barrier(c,output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
++  readable=false;phase=Phase::Ready;
++ }
++ // BEFORE submitting the producer, order it after the previous actual consumer,
++ // including executions on another same-device queue. Never wait on the CPU here.
++ void BeginRecordedExecution(ID3D12CommandQueue*actual,bool temporal=false){
++  if(!recording_leases||recording_active||recording_submission_unconfirmed)throw std::runtime_error("recording execution unavailable");
++  Require(Phase::Ready);
++  if(!actual||actual->GetDesc().Type!=queue->GetDesc().Type)throw std::runtime_error("recording queue type mismatch");
++  ID3D12Device*owner{};Check(actual->GetDevice(IID_PPV_ARGS(&owner)),"recording queue device");
++  bool same=NativeSameDevice(owner,device);owner->Release();if(!same)throw std::runtime_error("recording queue device mismatch");
++  if(actual!=queue){
++   if(recording_completion)Check(actual->Wait(fence,recording_completion),"previous recorded consumer wait");
++   actual->AddRef();queue->Release();queue=actual;
++  }
++  recorded_temporal=temporal;recording_active=true;phase=Phase::OutputRecordedPendingHip;
++ }
++ // Called for each execution, with submission facts rather than recording state.
++ // A missing consumer is a discard of that execution, not retirement of the lease.
++ void EndRecordedExecution(ID3D12CommandQueue*actual,bool producer_submitted,bool consumer_submitted){
++  if(!recording_leases||!recording_active)throw std::runtime_error("no recording execution");
++  QueueContract(actual);
++  if(consumer_submitted&&!producer_submitted)throw std::runtime_error("consumer without producer");
++  if(producer_submitted){
++   // A failed enqueue cannot be certified by a later successful queue signal.
++   if(failed||phase!=Phase::OutputRecorded){recording_submission_unconfirmed=true;throw std::runtime_error("recorded HIP execution incomplete");}
++   pending=true;const UINT64 target=++value;
++   HRESULT hr=actual->Signal(fence,target);
++   if(FAILED(hr)){recording_submission_unconfirmed=true;Check(hr,"recorded consumer signal");}
++   recording_completion=target;
++  }
++  recording_active=false;readable=false;phase=Phase::Ready;
+  }
+  void RecordInputCopy(ID3D12GraphicsCommandList*c,ID3D12Resource*rgba,ID3D12Resource*temporal=nullptr){RecordInput(c,rgba,temporal,true);}
+  void EnqueueAfterProducer(ID3D12CommandQueue*producer,U seed,bool temporal=false){Enqueue(producer,seed,temporal,true);}

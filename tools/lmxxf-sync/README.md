@@ -39,7 +39,7 @@
 
 ## 补丁维护
 
-`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑；补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
+`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑；补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
 
 测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入来自 `c809efb0ea2960f148624730898da61b8fb55a45`，pinned bridge 来自 `54e14de503431cd4536f8a7151b022af232178a9`；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
@@ -51,6 +51,8 @@
 - `typeless-float16.patch`：在前述格式补丁之后，为 `R16G16B16A16_TYPELESS` 增加产品可选的 FLOAT 解释，默认仍为上游的 UNORM。
 - `codec-hue-safe-preexp.patch`：在 `auto-white.patch` 之后，补齐编码/解码共用的主机 pre-exposure 回退，以及解码端保留游戏色相的 ColorStrength 混合。必须包含从原始快照到产品源码所需的完整改动，不能依赖未由前序补丁生成的中间版本。
 - `shader-compile-system32.patch`：私有加载绝对 System32 编译器并验证模块/符号来源；线程安全绑定供内存、文件和 blob 入口共用。缓存按编译器身份、目标及 flags 隔离；仅在明确 X3506 target 拒绝且宏组合通过生产着色器对照时降级到 cs_5_0。原始输入仍为 snapshot.json 中固定的 native_shader_cache.h，回归包含旧同名 DLL 预载、冷/热缓存、include、错误注入与 WARP 输出对照。
+
+- `recording-leases.patch`：codec/RGB 私有输出采用固定 NSR→UAV→NSR 录制状态，并提供精确资源/heap/root/PSO pin；仅包含 FOLLOW 头。
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
 

@@ -4,6 +4,7 @@
 #include "ResourceStateBook.h"
 #include "QueryStateBook.h"
 #include <atomic>
+#include <memory>
 // Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
 // Fail-closed default: split state does not model layout/access, so leave those lists off NR.
 inline std::atomic<bool> g_allowEnhancedBarriers { false };
@@ -42,11 +43,17 @@ ILogicalCommandList : public IUnknown
     virtual ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList(void) = 0;
     virtual const char *STDMETHODCALLTYPE SplitRejectionReason(void) = 0;
     virtual ID3D12GraphicsCommandList *STDMETHODCALLTYPE RecordingNativeList(void) = 0;
+    virtual RecordingIdentity STDMETHODCALLTYPE Identity(void) = 0;
+    virtual HRESULT STDMETHODCALLTYPE ObserveRecording(std::shared_ptr<RecordingObserver> observer) = 0;
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
 {
     std::atomic<ULONG> refs { 1 };
+    inline static std::atomic<uint64_t> nextIdentity { 0 };
+    const uint64_t stableIdentity = ++nextIdentity;
+    uint64_t executionSerial = 0;
+    std::shared_ptr<RecordingObserver> recordingObserver;
     LogicalList logical;
     ContinuationState contState;
     ResourceStateBook resBook;
@@ -90,6 +97,14 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
 
   public:
+    RecordingIdentity STDMETHODCALLTYPE Identity() override { return {stableIdentity, logical.Generation()}; }
+    HRESULT STDMETHODCALLTYPE ObserveRecording(std::shared_ptr<RecordingObserver> observer) override
+    {
+        std::lock_guard lifetime(RecordingMutex());
+        if (!observer || recordingObserver) return E_UNEXPECTED;
+        recordingObserver = std::move(observer);
+        return S_OK;
+    }
     ID3D12GraphicsCommandList *STDMETHODCALLTYPE RecordingNativeList() override { return Cur(); }
     static HRESULT Create(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
                           CommandListProxy **out, ID3D12PipelineState *initial = nullptr)
@@ -187,9 +202,15 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     ULONG STDMETHODCALLTYPE AddRef() override { return refs.fetch_add(1, std::memory_order_relaxed) + 1; }
     ULONG STDMETHODCALLTYPE Release() override
     {
+        std::unique_lock lifetime(RecordingMutex());
         const ULONG n = refs.fetch_sub(1, std::memory_order_acq_rel) - 1;
         if (!n)
+        {
+            if (recordingObserver) recordingObserver->Invalidated(Identity());
+            recordingObserver.reset();
+            lifetime.unlock(); // LogicalList destruction may wait; never hold the submission lock.
             delete this;
+        }
         return n;
     }
 
@@ -218,9 +239,13 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     HRESULT STDMETHODCALLTYPE Close() override { return logical.Close(); }
     HRESULT STDMETHODCALLTYPE Reset(ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial) override
     {
+        std::lock_guard lifetime(RecordingMutex());
+        const auto oldIdentity = Identity();
         const HRESULT hr = logical.Reset(alloc, initial);
         if (FAILED(hr))
             return hr;
+        if (recordingObserver) recordingObserver->Invalidated(oldIdentity);
+        recordingObserver.reset();
         contState.Reset();
         resBook.Reset();
         queryBook.Reset();
@@ -251,11 +276,17 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         resBook.ApplyExecuteDecay();
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
+    HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return ExecuteOnWithBetween(queue, nullptr, nullptr); }
     HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, BetweenCallback between,
                                                    void *betweenCtx) override
     {
-        return logical.Execute(queue, between, betweenCtx);
+        std::lock_guard lifetime(RecordingMutex());
+        RecordingExecution facts {Identity(), ++executionSerial, queue};
+        const auto observer = recordingObserver;
+        const HRESULT hr = logical.Execute(queue, between, betweenCtx, &facts, observer.get());
+        facts.status = hr;
+        if (observer) observer->Executed(facts);
+        return hr;
     }
     bool STDMETHODCALLTYPE IsSplitIneligible() override
     {
@@ -264,7 +295,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
     ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList() override
     {
-        return logical.WasSplit() ? nullptr : logical.Current();
+        return logical.WasSplit() || recordingObserver ? nullptr : logical.Current();
     }
     const char *STDMETHODCALLTYPE SplitRejectionReason() override
     {

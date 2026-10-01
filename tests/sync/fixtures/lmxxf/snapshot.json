@@ -39,6 +39,16 @@
       "path": "src/native_shader_cache.h",
       "fixture": "native_shader_cache.upstream.h",
       "sha256": "2f6c0cb74c25b9471cc7364e15a41e891a06930c88706ad370213d1669445426"
+    },
+    {
+      "path": "src/native_game_rgb_input.h",
+      "fixture": "native_game_rgb_input.upstream.h",
+      "sha256": "9ab241e1e1f23debbc89604465e7bfb0199a33a9e9fd2b8ced978de820f151a7"
+    },
+    {
+      "path": "src/native_rgb_texture.h",
+      "fixture": "native_rgb_texture.upstream.h",
+      "sha256": "168ff0061ecc6bbafb351344eddc49ba518a0f2ee747b8d12658b0621ffabfe0"
     }
   ]
 }

@@ -18,6 +18,15 @@ class BinaryAttributesTests(unittest.TestCase):
     def test_shipping_modules_round_trip(self):
         modules = sorted((ROOT / 'third_party/lmxxf/modules').rglob('*.hsaco'))
         self.assertTrue(modules, 'No shipping modules found')
+        self.round_trip(modules)
+
+    def test_raw_patch_evidence_round_trip(self):
+        files = sorted((ROOT / 'tests/sync/fixtures/lmxxf').glob('*.upstream.*'))
+        files += sorted((ROOT / 'tools/lmxxf-sync/patches').glob('*.patch'))
+        self.assertTrue(files)
+        self.round_trip(files)
+
+    def round_trip(self, files):
         scratch = ROOT / 'work/scratch'
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='module-git-', dir=scratch) as temp:
@@ -28,7 +37,7 @@ class BinaryAttributesTests(unittest.TestCase):
             git(tree, 'config', 'core.autocrlf', 'true')
             shutil.copyfile(ROOT / '.gitattributes', tree / '.gitattributes')
             expected = {}
-            for source in modules:
+            for source in files:
                 relative = source.relative_to(ROOT)
                 target = tree / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -37,12 +46,12 @@ class BinaryAttributesTests(unittest.TestCase):
                 raw = git(tree, 'hash-object', '--no-filters', relative.as_posix())
                 filtered = git(tree, 'hash-object', '--path=' + relative.as_posix(), relative.as_posix())
                 self.assertEqual(raw, filtered, f'Git changes binary bytes: {relative}')
-            git(tree, 'add', '.gitattributes', 'third_party/lmxxf/modules')
+            git(tree, 'add', '-A')
             git(tree, '-c', 'user.name=Module test', '-c', 'user.email=test@example.invalid',
                 '-c', 'core.hooksPath=', 'commit', '-qm', 'binary fixture')
             for relative in expected:
                 (tree / relative).unlink()
-            git(tree, 'checkout', '--', 'third_party/lmxxf/modules')
+            git(tree, 'checkout', '--', '.')
             for relative, digest in expected.items():
                 self.assertEqual(hashlib.sha256((tree / relative).read_bytes()).digest(), digest,
                                  f'Checkout changed module: {relative}')

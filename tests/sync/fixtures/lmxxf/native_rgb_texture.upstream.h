@@ -1,5 +1,4 @@
 #pragma once
-#include <vector>
 #include "native_pso.h"
 #include "native_pinned_resource.h"
 #include "native_device_identity.h"
@@ -20,7 +19,7 @@ public:
   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_BUFFER||desc.Width<UINT64(geometry.processing_width)*geometry.processing_height*12)throw std::runtime_error("RGB texture input capacity");
   ID3D12Device*owner=nullptr;check(rgb->GetDevice(IID_PPV_ARGS(&owner)));bool same=NativeSameDevice(owner,d);owner->Release();if(!same)throw std::runtime_error("RGB texture device mismatch");input=rgb;input->AddRef();
   D3D12_RESOURCE_DESC td{};td.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;td.Width=geometry.valid_width;td.Height=geometry.valid_height;td.DepthOrArraySize=td.MipLevels=1;td.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;td.SampleDesc.Count=1;td.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&td,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(&output)));
+  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&td,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&output)));
   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)));
   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{};uv.Format=td.Format;uv.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;d->CreateUnorderedAccessView(output,nullptr,&uv,heap->GetCPUDescriptorHandleForHeapStart());
   D3D12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,0};D3D12_ROOT_PARAMETER p[2]{};p[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_SRV;p[0].Descriptor.ShaderRegister=0;p[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;p[1].DescriptorTable={1,&range};
@@ -30,13 +29,9 @@ public:
  // Input is the network output in NON_PIXEL_SHADER_RESOURCE throughout.
  // Consumers must restore Output to NON_PIXEL_SHADER_RESOURCE after use.
  void Record(ID3D12GraphicsCommandList*c){
-  if(!c||!pso)throw std::runtime_error("RGB texture unavailable");transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+  if(!c||!pso)throw std::runtime_error("RGB texture unavailable");if(recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootShaderResourceView(0,input->GetGPUVirtualAddress());c->SetComputeRootDescriptorTable(1,heap->GetGPUDescriptorHandleForHeapStart());c->Dispatch((geometry.valid_width+15)/16,(geometry.valid_height+15)/16,1);
   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);recorded=true;
  }
  ID3D12Resource*Output()const{return output;}
- void PinRecording(std::vector<IUnknown*>&pins)const{
-  IUnknown*objects[]={heap,root,pso,input,output};
-  for(auto*p:objects)if(p){pins.push_back(p);p->AddRef();}
- }
 };

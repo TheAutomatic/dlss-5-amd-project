@@ -1,5 +1,4 @@
 #pragma once
-#include <vector>
 #include "native_pso.h"
 #include "native_lab_paths.h"
 #include "native_pinned_resource.h"
@@ -34,7 +33,7 @@ public:
   D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;D3D12_RESOURCE_DESC bd{};
   bd.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;bd.Width=UINT64(geometry.processing_width)*geometry.processing_height*16;bd.Height=1;bd.DepthOrArraySize=bd.MipLevels=1;bd.SampleDesc.Count=1;bd.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;bd.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   no_tiles=!tiles_needed;
-  for(auto**r:{&tiles,&color})if(!(no_tiles&&r==&tiles))ck(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&bd,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(r)));
+  for(auto**r:{&tiles,&color})if(!(no_tiles&&r==&tiles))ck(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&bd,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(r)));
   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};ck(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)));
   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=NativeViewFormat(desc.Format);sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;d->CreateShaderResourceView(source,&sv,heap->GetCPUDescriptorHandleForHeapStart());
   D3D12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,0,0,0};D3D12_ROOT_PARAMETER p[3]{};
@@ -51,7 +50,7 @@ public:
   /* external (direct input): the shared network input rests in COMMON between frames (HIP reads it after the bridge fence) */
   ID3D12Resource*out=external?external:color;const D3D12_RESOURCE_STATES rest=external?D3D12_RESOURCE_STATE_COMMON:D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
   if(external)transition(c,out,rest,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-  for(auto*r:{tiles,color})if(r&&!(external&&r==color))transition(c,r,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+  if(recorded)for(auto*r:{tiles,color})if(r&&!(external&&r==color))transition(c,r,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   transition(c,source,before,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);
   c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());
@@ -68,9 +67,5 @@ public:
   external=shared;external->AddRef();
  }
  ID3D12Resource*Tiles()const{return tiles;}
- void PinRecording(std::vector<IUnknown*>&pins)const{
-  IUnknown*objects[]={heap,root,pso,source,tiles,color,external};
-  for(auto*p:objects)if(p){pins.push_back(p);p->AddRef();}
- }
  ID3D12Resource*PostBase()const{return external?external:color;}
 };

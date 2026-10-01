@@ -76,7 +76,7 @@ public:
   desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
   if(unorm8_out||r11_out){desc={};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=UINT64(row_pitch)*out_height;desc.Height=1;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;}
   else if(unorm_out){desc={};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=UINT64(row_pitch)*out_height;desc.Height=1;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;} /* UNORM bits in a raw buffer (this driver device-removes on non-float RGBA16 typed UAVs); the frame copies it into the game texture */ /* UNORM bits are written through a UINT UAV (the driver device-removes on a UNORM typed UAV) */
-  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&output)),"output");step(d,"output-created");
+  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(&output)),"output");step(d,"output-created");
   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,count+1+(exposure_texture?1u:0u),D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"heap");
   UINT stride=d->GetDescriptorHandleIncrementSize(hd.Type);auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=NativeViewFormat(desc.Format);sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;
@@ -146,7 +146,8 @@ public:
  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f){Record(c,before,paper_white,LegacyParameters());}
  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white,const NativeCodecParameters&parameters){
   if(!c||!pso||before.size()!=count+(exposure_texture?1u:0u)||!(paper_white>0.f&&paper_white<=64.f&&paper_white==paper_white) /* 2026-09-24: any finite positive scale (DLSS5_PAPER_WHITE); was {0.5,1,2} */||!parameters.Valid())throw std::runtime_error("codec unverified record contract");
-  if(recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+  // Identical first/repeated recording barriers: CPU recording may be discarded.
+  transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   for(UINT i=0;i<count;i++)transition(c,source[i],before[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
@@ -156,6 +157,10 @@ public:
   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;
  }
  const NativeInputGeometry&Geometry()const{return geometry;}
+ void PinRecording(std::vector<IUnknown*>&pins)const{
+  IUnknown*objects[]={heap,root,pso,output,exposure_texture,source[0],source[1],source[2]};
+  for(auto*p:objects)if(p){pins.push_back(p);p->AddRef();}
+ }
  ID3D12Resource*Output()const{return output;}bool BufferOutput()const{return unorm_out||unorm8_out||r11_out;}
  /* footprint of the raw output buffer for CopyTextureRegion into the game texture */
  D3D12_SUBRESOURCE_FOOTPRINT BufferFootprint()const{return (unorm8_out||r11_out)?D3D12_SUBRESOURCE_FOOTPRINT{out_format,out_width,out_height,1,row_pitch}:D3D12_SUBRESOURCE_FOOTPRINT{DXGI_FORMAT_R16G16B16A16_UNORM,out_width,out_height,1,row_pitch};}

@@ -85,8 +85,7 @@ inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const 
 // its session. Recursive because recording/submission can re-enter on this thread.
 inline std::recursive_mutex& LifecycleMutex()
 {
-    static std::recursive_mutex mutex;
-    return mutex;
+    return DlssNr::Submission::RecordingMutex();
 }
 
 inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, void * /*ctx*/)
