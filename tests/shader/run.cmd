@@ -20,6 +20,8 @@ call :BuildAndRun shader_dx12_srv
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun shader_dx11_ownership
 if not "%errorlevel%"=="0" goto fail
+call :BuildAndRun nr_output_effects
+if not "%errorlevel%"=="0" goto fail
 echo shader: PASS
 exit /b 0
 
@@ -40,7 +42,7 @@ cl /nologo /std:c++20 /EHsc /W4 /utf-8 /MD /O2 /Gy ^
  /I"%SHADER_EXTERNAL%\fakenvapi" /I"%SHADER_EXTERNAL%\magic_enum\include\magic_enum" ^
  /I"%SHADER_EXTERNAL%\AntiLag2-SDK" /I"%SHADER_EXTERNAL%\latencyflex" ^
  "tests\shader\%~1.cpp" /Fe"%SHADER_TEST_OUT%\%~1.exe" /Fo"%SHADER_TEST_OUT%\%~1.obj" ^
- /link /OPT:REF d3d11.lib d3d12.lib d3dcompiler.lib
+ /link /OPT:REF d3d11.lib d3d12.lib d3dcompiler.lib dxgi.lib dxguid.lib user32.lib "%SHADER_PROJECT%\library\detours\detours.lib"
 if not "%errorlevel%"=="0" exit /b 1
 "%SHADER_TEST_OUT%\%~1.exe"
 exit /b %errorlevel%

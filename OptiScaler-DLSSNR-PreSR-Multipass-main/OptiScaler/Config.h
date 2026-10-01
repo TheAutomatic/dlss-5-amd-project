@@ -338,6 +338,7 @@ class Config
     CustomOptional<int> NrConvenience { 1 };
     CustomOptional<bool> NrTimingEnabled { false };
     CustomOptional<bool> NrTimingLog { false };
+    CustomOptional<float> NrOverallIntensity { 1.0f };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
     // Explicit choice missing its files falls back to the other. Enable NR is the on/off.

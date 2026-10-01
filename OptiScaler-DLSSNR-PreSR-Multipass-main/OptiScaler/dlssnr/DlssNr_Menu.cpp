@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "NrTimingDisplay.h"
+#include "NrEffectsSettings.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
@@ -1070,6 +1071,16 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::TreePop();
                 }
             }
+            float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
+            if (ImGui::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
+                config->NrOverallIntensity = overallIntensity;
+            HelpMarker("Blends the final NR correction for either backend. 0 = original, 1 = full effect, above 1 amplifies it."
+                       "\nThis does not reduce model computation. Disable NR to save that work."
+                       "\nA pure-backend session may require a restart to enable the shared effect recording path.");
+            if (config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
+                ImGui::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
+            const auto effectsStatus = DlssNr::AmdBridge::EffectsStatus();
+            if (!effectsStatus.empty()) ImGui::TextWrapped("%s", effectsStatus.c_str());
             ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
             if (isLmxxf)
             {

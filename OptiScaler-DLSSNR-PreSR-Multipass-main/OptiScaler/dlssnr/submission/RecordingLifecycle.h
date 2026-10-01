@@ -2,6 +2,8 @@
 #include <d3d12.h>
 #include <cstdint>
 #include <mutex>
+#include <memory>
+#include <vector>
 
 namespace DlssNr::Submission
 {
@@ -45,5 +47,26 @@ struct RecordingObserver
     virtual void Between(const RecordingExecution&) noexcept {}
     virtual void Executed(const RecordingExecution&) noexcept {}
     virtual void Invalidated(RecordingIdentity) noexcept = 0;
+};
+// One NR job remains exclusive. Independent post-processing owners share its
+// submission facts without replacing that job or owning the proxy itself.
+struct RecordingObservers final : RecordingObserver
+{
+    std::shared_ptr<RecordingObserver> job;
+    std::vector<std::shared_ptr<RecordingObserver>> resources;
+    HRESULT BeforeExecute(const RecordingExecution& e) noexcept override
+    {
+        if (job) { const auto hr = job->BeforeExecute(e); if (FAILED(hr)) return hr; }
+        for (auto& r : resources) { const auto hr = r->BeforeExecute(e); if (FAILED(hr)) return hr; }
+        return S_OK;
+    }
+    void ProducerSubmitted(const RecordingExecution& e) noexcept override
+    { if (job) job->ProducerSubmitted(e); for (auto& r : resources) r->ProducerSubmitted(e); }
+    void Between(const RecordingExecution& e) noexcept override
+    { if (job) job->Between(e); for (auto& r : resources) r->Between(e); }
+    void Executed(const RecordingExecution& e) noexcept override
+    { if (job) job->Executed(e); for (auto& r : resources) r->Executed(e); }
+    void Invalidated(RecordingIdentity id) noexcept override
+    { if (job) job->Invalidated(id); for (auto& r : resources) r->Invalidated(id); }
 };
 } // namespace DlssNr::Submission

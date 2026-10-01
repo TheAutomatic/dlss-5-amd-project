@@ -54,6 +54,7 @@ class ConfigPriorityTests(unittest.TestCase):
                 "Diagnostic",
                 "NrTimingEnabled",  # Product telemetry, not an upstream kernel option.
                 "NrTimingLog",
+                "NrOverallIntensity",  # Shared final-output blend, no runtime environment alias.
                 "kSection",
                 "kDanielSection",
                 "ToneCurve",

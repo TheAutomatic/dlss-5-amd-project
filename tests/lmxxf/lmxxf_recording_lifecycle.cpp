@@ -63,15 +63,20 @@ int main(){
  Check(DlssNr::Submission::CommandListProxy::Create(device.Get(),alloc.Get(),native.Get(),&proxy),"proxy");
  auto first=std::make_shared<Observer>();auto identity=proxy->Identity();
  Check(proxy->ObserveRecording(first),"observe first generation");
+ auto resourceOwner=std::make_shared<Observer>();
+ Check(proxy->ObserveResources(resourceOwner),"attach independent resources");
+ Require(FAILED(proxy->ObserveRecording(std::make_shared<Observer>())),"second NR job still rejected");
  Require(FAILED(proxy->Reset(alloc.Get(),nullptr)),"Reset while open fails");
  Require(first->invalidations==0,"failed Reset retains recording");
  Check(proxy->Close(),"close");
  Require(first->invalidations==0,"Close does not invalidate");
  Check(proxy->Reset(alloc.Get(),nullptr),"successful Reset");
  Require(first->invalidations==1&&first->invalidated==identity,"successful real proxy Reset invalidates exact old identity");
+ Require(resourceOwner->invalidations==1&&resourceOwner->invalidated==identity,"resource owner invalidates with same generation");
  Require(proxy->Identity().list==identity.list&&proxy->Identity().generation!=identity.generation,"stable list ID with new generation");
  auto second=std::make_shared<Observer>();identity=proxy->Identity();
  Check(proxy->ObserveRecording(second),"observe second generation");
+ auto shared=std::make_shared<Observer>();Check(proxy->ObserveResources(shared),"observe shared output resources");
  Check(proxy->SplitSegments(),"split second generation");Check(proxy->Close(),"close second generation");
  Ptr<ID3D12CommandQueue> queue,otherQueue;D3D12_COMMAND_QUEUE_DESC desc{};
  Check(device->CreateCommandQueue(&desc,IID_PPV_ARGS(&queue)),"queue");
@@ -86,6 +91,7 @@ int main(){
  Check(proxy->ExecuteOn(queue.Get()),"same generation re-execute");
  WaitIdle(device.Get(),queue.Get());
  Require(second->producers==3&&second->between==3&&second->continuations==3,"every real replay reports all actual stages");
+ Require(shared->producers==3&&shared->between==3&&shared->continuations==3&&shared->executions.size()==second->executions.size(),"independent owners receive the same actual execution facts");
  Require(second->invalidations==0,"submission does not invalidate live recording");
  for(size_t i=1;i<second->executions.size();++i){
   const auto& e=second->executions[i];
@@ -121,6 +127,7 @@ int main(){
  Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,alloc.Get(),nullptr,IID_PPV_ARGS(&faultNative)),"fault native");
  Check(Submission::CommandListProxy::Create(device.Get(),alloc.Get(),faultNative.Get(),&proxy),"fault proxy");
  auto fault=std::make_shared<Observer>();Check(proxy->ObserveRecording(fault),"fault observer");
+ auto faultResources=std::make_shared<Observer>();Check(proxy->ObserveResources(faultResources),"fault resources");
  Check(proxy->SplitSegments(),"fault split");Check(proxy->Close(),"fault close");
  auto* failingQueue=new SignalFailQueue(queue.Get());
  Require(FAILED(proxy->ExecuteOn(failingQueue)),"Signal failure returned");
@@ -129,5 +136,6 @@ int main(){
  Require(fault->executions.size()==2&&!fault->executions[1].producerSubmitted,"no false later execution");
  WaitIdle(device.Get(),queue.Get());proxy->Release();failingQueue->Release();
  Require(fault->invalidations==1,"failed-signal recording still invalidates exactly once");
+ Require(faultResources->invalidations==1&&faultResources->executions.size()==2&&FAILED(faultResources->executions[0].status),"failed Signal delivered to independent resource owner");
  std::puts("recording lifecycle: PASS");
 }

@@ -47,18 +47,27 @@ ILogicalCommandList : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE ObserveRecording(std::shared_ptr<RecordingObserver> observer) = 0;
 };
 
-class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
+MIDL_INTERFACE("8e54c39a-4a7e-4c2e-9c8f-63fa758a610e")
+IRecordingResources : public IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE ObserveResources(std::shared_ptr<RecordingObserver> observer) = 0;
+    virtual bool STDMETHODCALLTYPE InContinuation() = 0;
+    virtual bool STDMETHODCALLTYPE CanAppendCompute() = 0;
+};
+
+class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList, public IRecordingResources
 {
     std::atomic<ULONG> refs { 1 };
     inline static std::atomic<uint64_t> nextIdentity { 0 };
     const uint64_t stableIdentity = ++nextIdentity;
     uint64_t executionSerial = 0;
-    std::shared_ptr<RecordingObserver> recordingObserver;
+    std::shared_ptr<RecordingObservers> recordingObserver;
     LogicalList logical;
     ContinuationState contState;
     ResourceStateBook resBook;
     QueryStateBook queryBook;
     bool splitIneligible = false;
+    bool renderPassActive = false, enhancedBarriersSeen = false;
     std::atomic<bool> rawInterfaceEscaped { false }; // Lifetime-wide; an alias can outlive Reset.
     const char *splitIneligibleReason = nullptr;
 
@@ -101,9 +110,24 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     HRESULT STDMETHODCALLTYPE ObserveRecording(std::shared_ptr<RecordingObserver> observer) override
     {
         std::lock_guard lifetime(RecordingMutex());
-        if (!observer || recordingObserver) return E_UNEXPECTED;
-        recordingObserver = std::move(observer);
-        return S_OK;
+        if (!observer || (recordingObserver && recordingObserver->job)) return E_UNEXPECTED;
+        try {
+            if (!recordingObserver) recordingObserver = std::make_shared<RecordingObservers>();
+            recordingObserver->job = std::move(observer);
+            return S_OK;
+        } catch (...) { return E_OUTOFMEMORY; }
+    }
+    bool STDMETHODCALLTYPE CanAppendCompute() override { return !rawInterfaceEscaped && !renderPassActive && !enhancedBarriersSeen; }
+    bool STDMETHODCALLTYPE InContinuation() override { return logical.WasSplit(); }
+    HRESULT STDMETHODCALLTYPE ObserveResources(std::shared_ptr<RecordingObserver> observer) override
+    {
+        std::lock_guard lifetime(RecordingMutex());
+        if (!observer) return E_INVALIDARG;
+        try {
+            if (!recordingObserver) recordingObserver = std::make_shared<RecordingObservers>();
+            recordingObserver->resources.push_back(std::move(observer));
+            return S_OK;
+        } catch (...) { return E_OUTOFMEMORY; }
     }
     ID3D12GraphicsCommandList *STDMETHODCALLTYPE RecordingNativeList() override { return Cur(); }
     static HRESULT Create(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
@@ -160,6 +184,12 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
                 return E_NOINTERFACE;
             supported->Release();
             *ppv = static_cast<ID3D12GraphicsCommandList10 *>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (riid == __uuidof(IRecordingResources))
+        {
+            *ppv = static_cast<IRecordingResources *>(this);
             AddRef();
             return S_OK;
         }
@@ -250,6 +280,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         resBook.Reset();
         queryBook.Reset();
         splitIneligible = false;
+        renderPassActive = enhancedBarriersSeen = false;
         splitIneligibleReason = nullptr;
         if (initial)
             contState.OnPso(initial);
@@ -730,6 +761,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         MarkSplitIneligible("render_pass");
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
+            renderPassActive = true;
             c->BeginRenderPass(numRTs, rts, ds, flags);
             c->Release();
         }
@@ -739,6 +771,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         if (auto *c = CurAs<ID3D12GraphicsCommandList4>())
         {
             c->EndRenderPass();
+            renderPassActive = false;
             c->Release();
         }
     }
@@ -855,6 +888,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             MarkSplitIneligible("enhanced_barrier");
         if (auto *c = CurAs<ID3D12GraphicsCommandList7>())
         {
+            enhancedBarriersSeen = true;
             c->Barrier(numGroups, groups);
             c->Release();
         }

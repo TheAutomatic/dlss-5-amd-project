@@ -18,13 +18,15 @@ class RecordingGpuTiming
     ID3D12Resource* readback = nullptr;
     std::shared_ptr<RecordingCompletion> completion;
     unsigned recorded = 0, submitted = 0;
+    unsigned stages[2] {NR_GPU_ENCODE, NR_GPU_DECODE};
     uint64_t frame = 0, execution = 0, epoch = 0, frequency = 0;
 public:
     ~RecordingGpuTiming() { if (readback) readback->Release(); if (queries) queries->Release(); }
-    static std::shared_ptr<RecordingGpuTiming> Create(ID3D12Device* device) noexcept
+    static std::shared_ptr<RecordingGpuTiming> Create(ID3D12Device* device, unsigned first = NR_GPU_ENCODE, unsigned second = NR_GPU_DECODE) noexcept
     {
         try {
             auto out = std::make_shared<RecordingGpuTiming>();
+            out->stages[0] = first; out->stages[1] = second;
             D3D12_QUERY_HEAP_DESC query {};
             query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
             query.Count = 4;
@@ -61,7 +63,7 @@ public:
             D3D12_RANGE written {0, 0}; readback->Unmap(0, &written);
             for (unsigned i = 0; i < 2; ++i) if (submitted & (1u << i)) {
                 if (ticks[i*2+1] >= ticks[i*2])
-                    store.Record(i ? NR_GPU_DECODE : NR_GPU_ENCODE,
+                    store.Record(stages[i],
                         double(ticks[i*2+1] - ticks[i*2]) * 1000.0 / double(frequency),
                         GetTickCount64(), frame, execution, epoch);
                 else store.Drop(1);

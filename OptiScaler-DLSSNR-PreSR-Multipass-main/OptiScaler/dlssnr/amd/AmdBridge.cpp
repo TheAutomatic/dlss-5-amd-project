@@ -6,6 +6,7 @@
 #include "AmdPreSr.h"
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
+#include "../effects/NrOutputEffects.h"
 #include "../backend/LmxxfBackend.h"
 #include "../backend/Selector.h"
 #include "../backend/LmxxfEvaluateCut.h"
@@ -345,6 +346,7 @@ bool HasFiles()
 }
 void SyncBackendWithConfig()
 {
+    DlssNr::Effects::Reset();
     // Hot switch: both hosts stay alive. Drop temporal history and force the
     // warm-up window so the new host does not inherit stability.
     DlssNr::Backend::InvalidateInstallProbe();
@@ -698,8 +700,11 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         s.skin = s.structure;
     // Evaluate cut: Split proxy + SetBetween(EnqueueHip) is owned by lmxxf Record.
     DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
+    std::lock_guard effectsLifetime(DlssNr::Submission::RecordingMutex());
     if (auto replacement = b->Record(cmd, f, s))
     {
+        replacement = DlssNr::Effects::Record(cmd, f.colour, replacement, f.colourState, f.width, f.height,
+            cfg.NrOverallIntensity.value_or_default(), cfg.NrTimingEnabled.value_or_default());
         originalColour = f.colour;
         replacedParams = params;
         params->Set(NVSDK_NGX_Parameter_Color, replacement);
@@ -726,11 +731,13 @@ void InvalidateHistory()
 }
 void PollReleases()
 {
+    DlssNr::Effects::Poll();
     if (auto b = g_daniel.load(std::memory_order_acquire)) b->PollRelease();
     if (auto b = g_lmxxf.load(std::memory_order_acquire)) b->PollRelease();
 }
 void OnNrDisabled()
 {
+    DlssNr::Effects::Reset();
     // Both hosts are released so the inactive one is not left holding VRAM either.
     if (auto b = g_daniel.load(std::memory_order_acquire))
     {
@@ -759,9 +766,20 @@ NrTimingSnapshot Timing()
         !Config::Instance()->NrTimingEnabled.value_or_default()) return {};
     const int kind = g_activeKind.load(std::memory_order_acquire);
     if (kind < 0) return {};
-    if (auto* host = HostForKind(static_cast<DlssNr::Backend::Kind>(kind))) return host->Timing();
-    return {};
+    NrTimingSnapshot snapshot {};
+    if (auto* host = HostForKind(static_cast<DlssNr::Backend::Kind>(kind))) snapshot = host->Timing();
+    const auto effects = DlssNr::Effects::Timing();
+    if (effects.enabled) {
+        if (snapshot.version != NR_TIMING_VERSION) {
+            snapshot.struct_size = sizeof snapshot; snapshot.version = NR_TIMING_VERSION; snapshot.enabled = 1;
+        }
+        snapshot.stages[NR_GPU_BLEND] = effects.stages[NR_GPU_BLEND];
+        snapshot.stages[NR_GPU_STABILIZER] = effects.stages[NR_GPU_STABILIZER];
+        snapshot.dropped += effects.dropped;
+    }
+    return snapshot;
 }
+std::string EffectsStatus() { return DlssNr::Effects::Status(); }
 std::string Status()
 {
     if(AmdPresentExperimental::IsTarget()) return AmdPresentExperimental::Status();

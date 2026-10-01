@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Selector.h"
+#include "../NrEffectsSettings.h"
 #include <Config.h>
 #include <Util.h>
 #include <filesystem>
@@ -111,6 +112,10 @@ bool DanielGraphicsHooksWanted()
 
 bool ProxyWrapWanted()
 {
+    // Common effects need recording lifetime callbacks even with a single backend.
+    // This requests only the proxy; it never instantiates the inactive backend.
+    if (DlssNr::OverallIntensity(Config::Instance()->NrOverallIntensity.value_or_default()) != 1.0f)
+        return true;
     if (!LmxxfWired())
         return false;
     return PrepareSubmissionAtStartup(ActiveKindFromConfig(),
