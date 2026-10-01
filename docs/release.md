@@ -37,7 +37,7 @@ runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证
 1. **固定待发布源码。** 更新 `VERSION`、各语言 README 和 release workflow 的发布正文，确认描述与实际验证一致。修复和版本变更提交后记录完整 SHA；检查 `git status --short` 和 `git submodule status --recursive`。发布验证用干净检出及完整子模块，不继承旧 `exports`。修改源码后重新构建受影响产物，不能继续沿用旧验证结果。
 2. **完成上游接入再发版。** 涉及 lmxxf 同步时先按 [同步流程](../tools/lmxxf-sync/README.md) 审阅、补丁重放、模块来源与契约检查，确认 `sync-state.json` 为 reviewed 且审计针对当前接入内容有效。不能只看历史 reviewed 字样；pending、非零退出或仅 report-only 都不放行。发布 job 只使用提交的模块，不临时追移动的上游分支。
 3. **构建并测同一 runtime。** 有 D3D12 设备的本机运行下方完整构建命令，已包含 `ci,device`，不用在前面再重复跑一次 CI。无设备时在非 tag Actions 上跑完整 CI/构建，并如实记录 device/GPU SKIP。根据改动补充 GPU、双后端烟测；已有验证仅在源码、配置和产物身份适用时沿用。
-4. **本地试打包放 exports。** 使用下方显式 host 路径和输出路径。打包器自动校验 runtime-ci 凭证、源码新鲜度、模块契约、包内容及实际 zip 哈希。`--fast`、`--skip-sync`、`-AllowMissingDeps`、`-WarnOnly`、`-AllowStaleModules` 不能作为发版通过依据。构建后不要再同步模块或重编 runtime 然后沿用旧测试凭证。
+4. **本地试包与正式安装包统一放 dist。** 使用下方显式 host 路径和输出路径。打包器自动校验 runtime-ci 凭证、源码新鲜度、模块契约、包内容及实际 zip 哈希。`--fast`、`--skip-sync`、`-AllowMissingDeps`、`-WarnOnly`、`-AllowStaleModules` 不能作为发版通过依据。构建后不要再同步模块或重编 runtime 然后沿用旧测试凭证。
 5. **先验证远端非 tag ref。** 推送待验证分支后，在该分支触发 release workflow 的 `workflow_dispatch`，核对 run 的 `head_sha`。这条路径构建并上传 Actions artifact，不创建 GitHub Release。检查完整 job 结果，下载该 run 的 artifact，核对 zip 与包内 SHA256SUMS；本地通过不能代替远端通过。若无法执行，明确记为待验证，不宣称两端一致。
 6. **确认发布后再创建 tag。** `v<VERSION>` 指向已验证的同一提交，推送后 tag workflow 会重新构建并发布。若又修改了版本或正文，应先把新的提交验证好。tag run 是新的构建，核对它的 commit、测试结果和产物，不假定 zip 字节与预验证 run 相同。
 7. **核验实际线上附件。** 以成功 tag run 的 zip 为准；核对 Release tag、run `head_sha`、版本与正文源码链接，并把下载附件的 SHA256 与该 run 产物对照。上传失败按已有暂存/哈希重试机制处理；不同内容的同名附件禁止覆盖，不强推旧 tag。记录最终 run URL、zip SHA 和跳过的实测项。
@@ -49,11 +49,11 @@ cmd /d /c tools\build\build-release-local.cmd
 if ($LASTEXITCODE -ne 0) { throw 'Release build or regression failed' }
 
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/PACKAGE_RELEASE.ps1 `
-    -OptiDll exports/release-local/OptiScaler.dll -OutDir exports/release-review
+    -OptiDll exports/release-local/OptiScaler.dll -OutDir dist
 if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 ```
 
-第二条命令默认读取 `VERSION`。现有 `dist/` 发布物不改动；脚本的历史默认 OutDir 仍是 dist，所以本地试包必须显式传入 `-OutDir`。Actions 在独立 runner 的 dist 中生成待发布附件，不会修改本机 dist。
+第二条命令默认读取 `VERSION`，输出目录与脚本默认值一致，均为 `dist/`。编译和测试仍在 `exports/`；交付用户测试或发布的打包目录与 zip 统一放 `dist/`。保护其他版本、第三方安装器和权重；重新打同版本包前核对目标及已保留的校验记录。已有同版本目录若含用户配置、权重或第三方 runtime，不得将其作为临时 staging 清空；在独立检出打包后只交付 zip。独立检出生成的包交付时也放到主工作区的 `dist/` 并复核哈希。目录不表示发布状态：本地试包须注明待游戏测试或待 Actions 验证。
 
 ### 失败时怎样继续
 
@@ -96,7 +96,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 
 ## 包内容
 
-`PACKAGE_RELEASE.ps1 -OutDir exports/release-review` 在 `exports/release-review/` 生成试包目录和 zip；Actions 的正式打包路径为 runner 内的 `dist/OptiScaler-AMD-PreSR-<版本>.zip`。本机已有 `dist/` 发布物不改动。
+`PACKAGE_RELEASE.ps1 -OutDir dist` 在 `dist/` 生成 `OptiScaler-AMD-PreSR-<版本>/` 打包目录和同名 `.zip`，本地测试与正式发布统一使用这一位置。Actions 在独立 runner 的 `dist/` 生成附件；线上发布仍须使用通过远端验证的产物。
 
 包根目录：
 

@@ -11,7 +11,8 @@ Read [docs/workspace.md](docs/workspace.md) before creating any file outside pro
 - Game/user logs: `work/logs/<game>/<date>/`. Anything that must not be public: `work/private/`.
 - Handoff: `work/handoff/HANDOFF.md`, at most ~80 lines; sections older than 7 days move to
   `work/handoff/archive/`.
-- Build output only in `exports/`. `dist/` holds releases and is never touched.
+- Intermediate build/test output goes in `exports/`. All local test packages and release packages
+  (staging directories and zip files) go in `dist/`. Preserve other versions and third-party inputs.
 - New tools go in a `tools/<group>/` folder; new tests go in `tests/<area>/` and must be wired
   into that area's `run.cmd`.
 - Tracked files must not depend on files under `work/`. `analysis/`, `.analysis-tools/` and
@@ -20,7 +21,8 @@ Read [docs/workspace.md](docs/workspace.md) before creating any file outside pro
 ## Release tests (no GPU)
 
 Before release preparation, read [docs/release.md](docs/release.md), the single release workflow.
-Use explicit host/output paths for local trial packaging under `exports/`; preserve existing `dist/`.
+Use an explicit host path and `-OutDir dist` for local packaging, matching the packager default.
+A local package in `dist/` is not a published release; record its validation status separately.
 A standalone ABI pass or `--fast` build does not replace full CI or its runtime hash proof.
 
 After merging to `release/1.9.0` or touching installer/packaging/sync, run
