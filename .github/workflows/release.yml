@@ -275,7 +275,7 @@ jobs:
             - **一批 NR 稳定性修复并入**：会话释放、重开 NR、切换后端后的回收更干净（已完成且不再被录制引用的会话资源可回收）。
 
             **danielblnc 后端**（权重 / 运行文件请自行下载：[danielblnc 发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)）
-            - 支持 **danielblnc 0.5.1**（文件布局与启动隔离）。
+            - 支持 **danielblnc 0.6.0**；RX 6000（RDNA2）需安装 AMD HIP 7.2 runtime。
             - 运行时识别更稳，安装与启动隔离加强。
             - Quality：默认 **Reference**（高画质，对齐 NVIDIA 计算）；可改为 **Fast**。Quality 在菜单外层，不必再进 Display 折叠。
 
@@ -304,7 +304,7 @@ jobs:
             - **A batch of NR stability fixes**: cleaner session release, NR re-enable, and teardown after backend switches (completed session resources are reclaimed once recordings release them).
 
             **danielblnc backend** (download the daniel runtime/weights yourself: [danielblnc releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases))
-            - Supports **danielblnc 0.5.1** (file layout and startup isolation).
+            - Supports **danielblnc 0.6.0**; RX 6000 (RDNA2) requires the AMD HIP 7.2 runtime.
             - More robust runtime identification; stronger install/startup isolation.
             - Quality: **Reference** by default (NVIDIA-exact); switch to **Fast** if needed. Quality is at the menu top level, not under Display.
 

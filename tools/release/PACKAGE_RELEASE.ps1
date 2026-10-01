@@ -238,7 +238,7 @@ RunBeforeSR=true
 
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
-; daniel - danielblnc 0.3.0-0.5.1 runtime (using dlssnr_amd_pass*.dll + weights.bin)
+; daniel - danielblnc 0.3.0-0.6.0 runtime (using dlssnr_amd_pass*.dll + weights.bin)
 ; lmxxf or daniel only. Turn the pass off with Enabled=false, not with NrBackend.
 ; If the chosen host is missing its files, the other installed host runs instead.
 NrBackend=lmxxf

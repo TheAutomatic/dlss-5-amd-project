@@ -346,9 +346,25 @@ inline constexpr AmdLayout kAmd051 {
     0xb9874, 0xb95b4, 0xb9a95, 0xb9998
 };
 
+inline constexpr AmdLayout kAmd060 {
+    "0.6.0",
+    56677888,
+    Sha256FromHex("195c4a891b6eac4c1cb7671e10ff62bbbe2b17f1dfae1344dc5a6714e4775721"),
+    0x0, 0x2cfb0, 0x17680, 0xb4a0, 0x1b420, 0xbed08,
+    0xbdc88, 0xbdc90, 0xbdca0, 0xbde10, 0xbde18, 0xbe1e8,
+    0xbe1ea, 0xbe6f0, 0xbe724, 0xbe728, 0xbe754, 0xbe948,
+    0xbea28, 0xbea34, 0xbead8, 0xbeadc, 0xbeaed, 0xbeaee,
+    0xbeaef, 0xbeaf0, 0xbeaf4, 0xbeb04, 0xbeb08, 0xbeb0c,
+    0xbeb14, 0xbeb18, 0xbec30, 0xbec08, 0xbeb70, 0xbea14,
+    0xbea30, 0xbea40, 0xbe8f4, 0xbe910, 0xbe868, 0x1be00,
+    0x1c526, 0x1bff0, 0x1c390, 0x1c3ea, 0x1c4d7, 0xbeb1c,
+    0xbeb20, 0xbeb24, 0xbeb28, 0xbe8fc, 0xbe63c, 0xbeb29,
+    0xbea20
+};
+
 inline constexpr const AmdLayout* kAmdLayouts[] = {
     &kAmd0217, &kAmd03, &kAmd031, &kAmd032, &kAmd033, &kAmd040, &kAmd041, &kAmd042, &kAmd043,
-    &kAmd050, &kAmd051
+    &kAmd050, &kAmd051, &kAmd060
 };
 
 // Compile-time sanity: the hex helper must land on the first/last digest byte
@@ -364,5 +380,6 @@ static_assert(kAmd041.sha256.bytes[0] == 0x82 && kAmd041.sha256.bytes[31] == 0x7
 static_assert(kAmd042.sha256.bytes[0] == 0x8a && kAmd042.sha256.bytes[31] == 0x5a);
 static_assert(kAmd043.sha256.bytes[0] == 0xd1 && kAmd043.sha256.bytes[31] == 0x57);
 static_assert(kAmd050.sha256.bytes[0] == 0xcd && kAmd050.sha256.bytes[31] == 0x1a);
+static_assert(kAmd060.sha256.bytes[0] == 0x19 && kAmd060.sha256.bytes[31] == 0x21);
 static_assert(kAmd051.sha256.bytes[0] == 0x49 && kAmd051.sha256.bytes[31] == 0xcd);
 }
