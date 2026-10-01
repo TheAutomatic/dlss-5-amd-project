@@ -46,12 +46,12 @@ function Test-NotStale([string]$artifact, [string[]]$sources, [string]$label) {
 # 1) LmxxfNrRuntime.dll vs C++ sources
 $dll = Join-Path $Root 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
 $rtDir = Join-Path $Root 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime'
-$rtSources = @(
-    (Join-Path $rtDir 'LmxxfNrRuntime.cpp'),
-    (Join-Path $rtDir 'LmxxfNrApi.h'),
-    (Join-Path $rtDir 'LmxxfProductionOptions.h'),
-    (Join-Path $rtDir '../../../ConfigKeys.h')
-)
+# Include local runtime helpers as well as the entrypoint. A hand-maintained
+# list missed the exposure and recording-lease headers when they were extracted.
+$rtSources = @(Get-ChildItem -LiteralPath $rtDir -Recurse -File |
+    Where-Object { $_.Extension -in @('.cpp', '.h', '.hpp', '.inl') } |
+    ForEach-Object { $_.FullName })
+$rtSources += Join-Path $rtDir '../../../ConfigKeys.h'
 Test-NotStale $dll $rtSources 'LmxxfNrRuntime.dll'
 # The sync manifest owns the complete runtime header closure, including compiler,
 # codec and geometry helpers. Do not maintain a smaller hand-picked release list.

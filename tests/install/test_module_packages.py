@@ -87,6 +87,22 @@ class ModulePackageTests(unittest.TestCase):
         self.assertIn('Runtime differs', out)
         self.assertFalse((self.root / 'dist/package').exists())
 
+    def test_runtime_local_headers_invalidate_old_dll(self):
+        runtime = self.root / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
+        source_dir = self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime'
+        for name in ('LmxxfExposureMeter.h', 'LmxxfRecordingLease.h', 'future/RuntimeHelper.h'):
+            with self.subTest(header=name):
+                header = source_dir / name
+                header.parent.mkdir(parents=True, exist_ok=True)
+                header.write_text('// modified runtime dependency\n', encoding='utf-8')
+                newer = runtime.stat().st_mtime + 10
+                os.utime(header, (newer, newer))
+                code, out = self.package()
+                self.assertNotEqual(code, 0, out)
+                self.assertIn('STALE LmxxfNrRuntime.dll', out)
+                self.assertIn(header.name, out)
+                header.unlink()
+
     def test_runtime_without_ci_proof_is_rejected(self):
         (self.root / 'exports/lmxxf-runtime/runtime-ci.sha256').unlink()
         code, out = self.package()
