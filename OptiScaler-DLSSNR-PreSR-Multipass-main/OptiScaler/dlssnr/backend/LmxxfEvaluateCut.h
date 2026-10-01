@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <wrl/client.h>
 
 // Evaluate-time cut for lmxxf: Split the recording proxy, then HIP in the Execute between slot.
 // Submission hooks can also be prepared for a Daniel startup with hot switching.
@@ -29,7 +30,7 @@ struct PendingHip
     ID3D12CommandList *targetList = nullptr; // Identity only; the backend owns the pending job.
     ID3D12CommandQueue *expectedQueue = nullptr;
     std::array<char, 256> lastEnqueueError {};
-    ID3D12CommandQueue *lastEnqueueQueue = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> lastEnqueueQueue;
     std::atomic<int> betweenHits { 0 };
     std::atomic<int> enqueueCalls { 0 };
     std::atomic<int> skippedHits { 0 };
@@ -222,7 +223,7 @@ inline EnqueueDiagnostic LastEnqueueDiagnostic()
 {
     auto &p = Pending();
     std::lock_guard lock(p.mutex);
-    return { p.lastEnqueueRc.load(std::memory_order_relaxed), p.lastEnqueueError, p.lastEnqueueQueue };
+    return { p.lastEnqueueRc.load(std::memory_order_relaxed), p.lastEnqueueError, p.lastEnqueueQueue.Get() };
 }
 
 inline void ArmBetweenSlot() { DlssNr::Submission::Hooks::SetBetween(&BetweenThunk, nullptr); }

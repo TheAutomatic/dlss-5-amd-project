@@ -89,6 +89,8 @@ for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--ex
   echo --- lmxxf_nr_gpu %%~M
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )
+%CXX% /I"%RT_INC%" /I"OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include" tests\lmxxf\lmxxf_recording_runtime_gpu.cpp /Fe"%OUT%\lmxxf_recording_runtime_gpu.exe" /Fo"%OUT%\lmxxf_recording_runtime_gpu.obj" /link d3d12.lib dxgi.lib dxguid.lib "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib" || goto fail
+"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
 rem Output-hash baselines: fixed pattern, 1920x1080, seed 1 (RX 9070 XT, this weights set).
 rem Re-baselined 2026-09-29 for c0a6196 FMA/fusion stack (see work/notes/2026-09-29-fma-baseline-ab.md).
 call :Hash fe40c904da05472e --output-hash || goto fail

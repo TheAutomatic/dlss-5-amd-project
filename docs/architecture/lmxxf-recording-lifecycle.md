@@ -1,8 +1,10 @@
-# lmxxf recording lifecycle foundations
+# lmxxf recording lifecycle
 
-This is infrastructure for recording leases. The product backend still uses the legacy
-single pending job; it does not yet consume the recording observers or enable bridge leases.
-These changes alone do not fix session teardown or replay in the shipped backend.
+The product backend negotiates ABI v2 and attaches a recording lease before appending
+private commands. Each lease owns its immutable bindings and session independently of
+the active backend. NR off or backend shutdown drops the active owner; closed game
+recordings remain executable until successful Reset or final Release invalidates them.
+ABI v1 retains its original 136-byte function-table prefix and legacy serial behavior.
 
 ## Submission events
 
@@ -13,8 +15,8 @@ The recording owns its observer; the observer must not retain the proxy COM obje
 
 Record/Execute/Reset/invalidation use `RecordingMutex`. Observers may transfer ownership
 under that lock, but must not wait for GPU completion. Final proxy destruction unlocks
-before the logical-list destructor can wait. Runtime/session destruction needs separate
-asynchronous ownership when the backend is connected.
+before the logical-list destructor can wait. Runtime/session destruction runs on a Windows threadpool callback with the DLL pinned
+until callback return; HIP destruction selects the original adapter on that thread.
 
 Each execution reports actual producer and continuation submission separately from the
 Signal HRESULT. Fence pointers in callbacks are borrowed; retained credentials require
@@ -35,7 +37,7 @@ cache replaces a heap.
 `ExposureMeter::Record` accepts an optional `ExposureRecording` lease. This path allocates
 an immutable descriptor pair and retains the colour, exposure value, root and PSO.
 An occupied lease cannot be overwritten. Legacy callers retain their original ring path;
-the runtime Job must supply and own the lease when the v2 contract is connected.
+the v2 runtime Job supplies and owns this immutable lease.
 
 ## Explicit bridge mode
 
@@ -51,7 +53,25 @@ submitted consumer is an execution discard; it does not invalidate the recording
 An unconfirmed consumer Signal or failed enqueue prevents reuse and ordinary reclamation.
 The legacy staged API retains its original serial, non-replay contract.
 
-## Validation and remaining integration
+## Runtime ownership and failures
+
+Jobs use monotonic opaque tokens; stale tokens are looked up, never dereferenced.
+Token exhaustion fails permanently instead of wrapping. Prepare publishes the token only
+after ownership transfer succeeds. Each job retains its original bridge across geometry
+changes and pins exact codec resources rather than a mutable binding-cache slot.
+
+Begin/End surround each actual proxy execution. The actual DIRECT queue must belong to
+the session device. Completion certificates retain their queue and fence; collection
+requires both invalidation and confirmed completion of every execution. Missing/failed
+Signal proof remains unconfirmed even after another fence completes. Confirmed device
+removal has a distinct result. Unconfirmed resources are intentionally retained.
+
+Partial failed recordings retain their observer and private pins. They may execute the
+already-recorded commands without HIP; the failed active owner is retired from new work.
+A threadpool timer collects invalidated completed leases even when no backend is active.
+The registry and observers never own a COM reference back to the proxy.
+
+## Validation
 
 The WARP tier exercises real proxy Reset/Release, failed Reset, delayed recordings,
 replay, cross-queue ordering, Signal failure and concurrent Execute/Reset. The exposure
@@ -63,7 +83,10 @@ post-HIP consumer discard and cross-queue replay with byte-identical nonzero out
 Formal patches reproduce the independent upstream fixtures; the Git roundtrip suite
 checks both all shipping HIP binaries and raw patch/fixture evidence.
 
-Still required: stable runtime Job storage, ABI v2 negotiation, per-recording immutable
-pin snapshots, backend session owners, completion-aware invalidation/collection, and
-runtime destruction outside the submission lock. Joint certification and the upstream
-0.38 integration remain subsequent steps.
+The runtime GPU test covers ten delayed bindings, stale handles, replay across queues,
+geometry changes, exposure, passthrough/HIP ordering, and another live session. Real
+SessionOwner + CommandListProxy tests cover NR off/on, Reset while GPU work is blocked,
+background collection, and partial recordings without HIP. Fault tests reject the wrong
+execution queue and retain work with failed Signal proof. ABI tests cover old prefix
+bounds and v1/v2 negotiation. GPU coverage is RX 9070 XT (gfx1201); gfx1200 hardware,
+real-game hot switching, and forced physical device removal remain untested.

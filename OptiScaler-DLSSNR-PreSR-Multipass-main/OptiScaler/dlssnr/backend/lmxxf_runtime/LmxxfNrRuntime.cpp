@@ -14,6 +14,7 @@
 #include "native_network_geometry.h"
 #include "native_rgb_texture.h"
 #include "hip_d3d12_bridge.h"
+#include "LmxxfRecordingLease.h"
 
 #include <atomic>
 #include <cstdio>
@@ -31,6 +32,7 @@
 
 namespace
 {
+static_assert(offsetof(LmxxfNrApi, BeginRecordingExecution) == LMXXF_NR_API_V1_SIZE, "ABI v1 prefix must not move");
 thread_local char g_lastError[256] = {};
 
 // CPU wall time, including waits inside the call; not GPU kernel timestamps.
@@ -1077,6 +1079,26 @@ struct Job
     bool codec_passthrough = false;
 };
 
+struct RecordingChain
+{
+    std::shared_ptr<hip_reference::D3D12Bridge> bridge;
+    std::vector<std::shared_ptr<LmxxfRuntime::RecordingCompletion>> completions;
+    bool unconfirmed = false;
+    explicit RecordingChain(hip_reference::D3D12Bridge* p)
+        : bridge(p, LmxxfRuntime::DeferredDelete<hip_reference::D3D12Bridge>) {}
+};
+
+struct RecordingJob : Job
+{
+    LmxxfRuntime::RecordingPins pins;
+    std::shared_ptr<RecordingChain> chain;
+    std::shared_ptr<LmxxfRuntime::ExposureRecording> exposure;
+    std::vector<std::shared_ptr<LmxxfRuntime::RecordingCompletion>> completions;
+    bool valid = true, sealed = false, executing = false, unconfirmed = false, started = false;
+    ID3D12CommandQueue* executionQueue = nullptr;
+    ~RecordingJob() { if (executionQueue) executionQueue->Release(); }
+};
+
 struct Session
 {
     ID3D12Device *device = nullptr;
@@ -1099,6 +1121,36 @@ struct Session
     NativeGameCodec *decode = nullptr;
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
+    bool recordingLeases = false;
+    Job* preparing = nullptr;
+    std::map<void*, std::unique_ptr<RecordingJob>> recordings;
+    std::shared_ptr<RecordingChain> recordingChain;
+
+    Job* FindJob(void* handle)
+    {
+        if (!recordingLeases) return (!handle || handle == &job) ? &job : nullptr;
+        const auto it = recordings.find(handle);
+        return it == recordings.end() ? nullptr : it->second.get();
+    }
+    void InstallBridge(hip_reference::D3D12Bridge* next)
+    {
+        if (recordingLeases)
+        {
+            // Hold the raw allocation even if the shared control block cannot be allocated.
+            std::unique_ptr<hip_reference::D3D12Bridge> pending(next);
+            auto chain = std::make_shared<RecordingChain>(nullptr);
+            chain->bridge = std::shared_ptr<hip_reference::D3D12Bridge>(
+                pending.release(), LmxxfRuntime::DeferredDelete<hip_reference::D3D12Bridge>);
+            recordingChain = std::move(chain);
+        }
+        bridge = next;
+    }
+    void ReleaseBridge()
+    {
+        if (recordingLeases) recordingChain.reset();
+        else delete bridge;
+        bridge = nullptr;
+    }
     DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
     /* Network tier baked into the live HIP chain (DLSS5_NETWORK_HEIGHT). A menu/ini change
        must rebuild, or mid-game 720/900/1080/auto switches keep the old surface. */
@@ -1170,7 +1222,7 @@ struct Session
 
     void TeardownCodecChain(bool retainBridge = false)
     {
-        if (bridge)
+        if (bridge && !recordingLeases)
         {
             try
             {
@@ -1192,8 +1244,7 @@ struct Session
         // weights and warmed kernels when only those bindings changed.
         if (!retainBridge)
         {
-            delete bridge;
-            bridge = nullptr;
+            ReleaseBridge();
             hipPrepared = false;
             bridgeWarmed = false;
             netW = 0;
@@ -1288,6 +1339,7 @@ struct Session
     {
         // Fail-closed intentional leak: GPU may still reference the whole chain.
         bridge = nullptr;
+        recordingChain.reset();
         decodeDisplay = nullptr;
         decode = nullptr;
         rgbTex = nullptr;
@@ -1317,12 +1369,12 @@ struct Session
         // Fail-closed safe teardown:
         // If already poisoned or GPU drain fails or device lost, intentionally leak rather
         // than freeing memory still touched by GPU (prevents hard crash/BSOD).
-        if (failed || FAILED(DrainGpu()))
+        if (!recordingLeases && (failed || FAILED(DrainGpu())))
         {
             AbandonSessionResources();
             return;
         }
-        if (bridge)
+        if (bridge && !recordingLeases)
         {
             try
             {
@@ -1341,8 +1393,7 @@ struct Session
             }
         }
         // Bridge dtor also synchronizes HIP / pending fence, then frees shared buffers.
-        delete bridge;
-        bridge = nullptr;
+        ReleaseBridge();
         if (decodeDisplay)
         {
             decodeDisplay->Release();
@@ -1482,6 +1533,13 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
     });
 }
 
+int32_t QueryCapabilitiesV1(LmxxfNrCapabilities* out)
+{
+    const int32_t result = QueryCapabilities(out);
+    if (result == LMXXF_NR_OK) out->abi_version = 1;
+    return result;
+}
+
 int32_t Create(const LmxxfNrCreateInfo *info, void **context)
 {
     return Guard([&] {
@@ -1490,8 +1548,11 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
         *context = nullptr;
         if (info->struct_size != sizeof(LmxxfNrCreateInfo))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "Create: struct_size mismatch");
-        if (info->flags & ~LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK)
+        if (info->flags & ~(LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK | LMXXF_NR_CREATE_FLAG_RECORDING_LEASES))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "Create: unknown flags");
+        if ((info->flags & LMXXF_NR_CREATE_FLAG_RECORDING_LEASES) &&
+            (info->flags & LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK))
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "Create: recording leases cannot use legacy blocking recovery");
         if (!info->device || !info->queue)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "Create: device and queue required");
         if (!info->assets_directory || !info->assets_directory[0])
@@ -1512,6 +1573,7 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
             return st;
 
         auto *session = new Session;
+        session->recordingLeases = (info->flags & LMXXF_NR_CREATE_FLAG_RECORDING_LEASES) != 0;
         session->zeroOutputFallback = (info->flags & LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK) != 0;
         session->assetsDir = assets;
         session->modulesDir = modulesDir;
@@ -1545,10 +1607,27 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
     });
 }
 
+int32_t CreateV1(const LmxxfNrCreateInfo* info, void** context)
+{
+    if (info && (info->flags & LMXXF_NR_CREATE_FLAG_RECORDING_LEASES))
+    {
+        if (context) *context = nullptr;
+        return Fail(LMXXF_NR_INVALID_ARGUMENT, "Create: recording leases require ABI v2");
+    }
+    return Create(info, context);
+}
+
 int32_t Destroy(void *context)
 {
     return Guard([&] {
-        delete static_cast<Session *>(context);
+        auto* session = static_cast<Session*>(context);
+        if (session && session->recordingLeases)
+        {
+            if (!session->recordings.empty())
+                return Fail(LMXXF_NR_UNAVAILABLE, "Destroy: recording leases still live");
+            LmxxfRuntime::DeferredDelete(session);
+        }
+        else delete session;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -1602,7 +1681,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "PrepareFrame: call PrepareSession with a live D3D12 queue first");
         if (!info->color || !info->color_width || !info->color_height)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: color resource and size required");
-        if (session->bridge && session->bridge->CurrentPhase() != hip_reference::D3D12Bridge::Phase::Ready)
+        if (session->recordingLeases && session->preparing)
+            return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: another job is still recording");
+        if (!session->recordingLeases && session->bridge && session->bridge->CurrentPhase() != hip_reference::D3D12Bridge::Phase::Ready)
         {
             session->bridge->CancelUnsubmitted();
             if (session->bridge->CurrentPhase() == hip_reference::D3D12Bridge::Phase::OutputRecorded)
@@ -1694,8 +1775,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                                               Utf8(session->modulesDir), Utf8(session->weightsDir));
             if (opt.graph)
                 return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
-            session->bridge = new hip_reference::D3D12Bridge();
+            session->InstallBridge(new hip_reference::D3D12Bridge());
             session->bridge->Create(session->queue, opt, {});
+            if (session->recordingLeases) session->bridge->EnableRecordingLeases();
             ++session->bridgeCreates;
             session->hipPrepared = true;
             session->vitByteStream = opt.vit_byte_stream;
@@ -1948,7 +2030,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             OutputDebugStringA("\n");
             SetError(msg);
             keepLastError = true;
-            const HRESULT drainResult = session->DrainGpu();
+            const HRESULT drainResult = session->recordingLeases ? S_OK : session->DrainGpu();
             if (FAILED(drainResult))
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             "PrepareFrame: geometry or ViT option change; GPU drain failed (retry or rebuild session)");
@@ -1970,8 +2052,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                                                   Utf8(session->modulesDir), Utf8(session->weightsDir));
                 if (opt.graph)
                     return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
-                session->bridge = new hip_reference::D3D12Bridge();
+                session->InstallBridge(new hip_reference::D3D12Bridge());
                 session->bridge->Create(session->queue, opt, {});
+                if (session->recordingLeases) session->bridge->EnableRecordingLeases();
                 ++session->bridgeCreates;
                 session->hipPrepared = true;
                 session->vitByteStream = opt.vit_byte_stream;
@@ -2055,7 +2138,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         {
             const bool needDrain = session->encode->RebindNeedsCompletion(0, color) ||
                                    (session->decode && session->decode->RebindNeedsCompletion(2, color));
-            if (needDrain && FAILED(session->DrainGpu()))
+            if (!session->recordingLeases && needDrain && FAILED(session->DrainGpu()))
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             "PrepareFrame: color rebind needs GPU completion (drain failed; host rebuild)");
             try
@@ -2067,7 +2150,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             catch (const std::exception &ex)
             {
                 SetError(ex.what());
-                if (FAILED(session->DrainGpu()))
+                if (!session->recordingLeases && FAILED(session->DrainGpu()))
                     return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: rebind threw; GPU drain failed");
                 session->TeardownCodecChain();
                 session->job = {};
@@ -2099,9 +2182,33 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->colorFormat = cfmt;
         session->job.seed = 1;
         session->job.state = LMXXF_NR_JOB_PREPARED;
-        job->handle = &session->job;
         if (!session->decode)
             return Fail(LMXXF_NR_FAILED, "PrepareFrame: decode missing");
+        if (session->recordingLeases)
+        {
+            auto lease = std::make_unique<RecordingJob>();
+            static_cast<Job&>(*lease) = session->job;
+            lease->chain = session->recordingChain;
+            // Capture dependencies before recording any command, including failure paths.
+            session->encode->PinRecording(lease->pins.objects);
+            session->rgbInput->PinRecording(lease->pins.objects);
+            session->rgbTex->PinRecording(lease->pins.objects);
+            session->decode->PinRecording(lease->pins.objects);
+            lease->pins.Add(color); lease->pins.Add(frameExposure);
+            lease->pins.Add(session->exposureCopy); lease->pins.Add(session->decodeDisplay);
+            static std::atomic<uintptr_t> nextHandle {0};
+            uintptr_t previous = nextHandle.load(std::memory_order_relaxed);
+            do {
+                if (previous == UINTPTR_MAX)
+                    return Fail(LMXXF_NR_FAILED, "PrepareFrame: job identity exhausted");
+            } while (!nextHandle.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed));
+            void* token = reinterpret_cast<void*>(previous + 1);
+            auto* preparing = lease.get();
+            session->recordings.emplace(token, std::move(lease));
+            session->preparing = preparing;
+            job->handle = token; // Publish only after ownership transfer succeeded.
+        }
+        else job->handle = &session->job;
         job->private_output = session->decode->BufferOutput()
                                    ? static_cast<void *>(session->decodeDisplay)
                                    : static_cast<void *>(session->decode->Output());
@@ -2121,11 +2228,13 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "RecordInputs is not wired (HIP/codec next)");
         RequireSession(session);
         auto *list = static_cast<ID3D12GraphicsCommandList *>(command_list);
-        auto *j = static_cast<Job *>(job ? job : &session->job);
+        auto *j = session->FindJob(job);
         if (!list || !j)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: need job and command list");
         if (j->state != LMXXF_NR_JOB_PREPARED)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordInputs: job not in PREPARED state");
+        if (session->recordingLeases && (session->preparing != j || static_cast<RecordingJob*>(j)->started))
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "Record: job is not the current recording");
         ListContract(session, list);
 
         // Refresh our stable exposure copy from the game's texture. Both textures share a format
@@ -2161,7 +2270,8 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         {
             // The codecs set their own heap, root signature and PSO in Record, so the meter's
             // bindings do not leak into the encode that follows.
-            session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
+            session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height,
+                                  session->recordingLeases ? &static_cast<RecordingJob*>(j)->exposure : nullptr);
         }
 
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
@@ -2220,11 +2330,22 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         if (session->weightsDir.empty())
             return Fail(LMXXF_NR_UNAVAILABLE,
                         "EnqueueHip: weights not found (set LMXXF_WEIGHTS_DIR to tiled assets, not 0.24.2 HIP/)");
-        auto *j = static_cast<Job *>(job ? job : &session->job);
+        auto *j = session->FindJob(job);
         if (!j)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: null job");
         if (j->state != LMXXF_NR_JOB_PRODUCER_SUBMITTED && j->state != LMXXF_NR_JOB_CONSUMER_COMPLETE)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: job not in PRODUCER_SUBMITTED or CONSUMER_COMPLETE state");
+        if (session->recordingLeases)
+        {
+            auto* lease = static_cast<RecordingJob*>(j);
+            if (!lease->executing || !command_queue ||
+                !NativeSameDevice(static_cast<ID3D12CommandQueue*>(command_queue), lease->executionQueue))
+                return Fail(LMXXF_NR_INVALID_ARGUMENT, "EnqueueHip: no recording execution");
+            if (!j->codec_passthrough)
+                lease->chain->bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
+            SetError("");
+            return static_cast<int32_t>(LMXXF_NR_OK);
+        }
         if (j->codec_passthrough)
         {
             if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
@@ -2319,17 +2440,20 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
             return Fail(LMXXF_NR_NOT_IMPLEMENTED, "RecordOutputs is not wired (HIP/codec next)");
         RequireSession(session);
         auto *list = static_cast<ID3D12GraphicsCommandList *>(command_list);
-        auto *j = static_cast<Job *>(job ? job : &session->job);
+        auto *j = session->FindJob(job);
         if (!list || !j)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordOutputs: need job and command list");
         if (j->state != LMXXF_NR_JOB_NR_COMPLETE && j->state != LMXXF_NR_JOB_PRODUCER_SUBMITTED)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "RecordOutputs: job not in NR_COMPLETE or PRODUCER_SUBMITTED state");
+        if (session->recordingLeases && (session->preparing != j || static_cast<RecordingJob*>(j)->started))
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "Record: job is not the current recording");
         ListContract(session, list);
 
         if (!j->codec_passthrough)
         {
             session->bridge->RecordOutputReadable(list);
             session->rgbTex->Record(list);
+            if (session->recordingLeases) session->bridge->SealRecordedOutput(list);
         }
         if (!session->decode)
             return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode missing");
@@ -2381,6 +2505,11 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
             list->ResourceBarrier(2, barriers);
         }
         j->state = LMXXF_NR_JOB_CONSUMER_COMPLETE;
+        if (session->recordingLeases)
+        {
+            static_cast<RecordingJob*>(j)->sealed = true;
+            session->preparing = nullptr;
+        }
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -2397,7 +2526,9 @@ int32_t CancelUnsubmitted(void *context, void *job)
     return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
-        auto *j = static_cast<Job *>(job ? job : &session->job);
+        if (session->recordingLeases)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "Use recording invalidation and collection in lease mode");
+        auto *j = session->FindJob(job);
         if (j)
             j->state = LMXXF_NR_JOB_RETIRED;
         if (session->bridge)
@@ -2412,9 +2543,9 @@ int32_t Poll(void *context, void *job, uint32_t *state)
         auto *session = static_cast<Session *>(context);
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
-        auto *j = static_cast<Job *>(job ? job : &session->job);
-        if (state)
-            *state = j ? j->state : LMXXF_NR_JOB_NONE;
+        auto *j = session->FindJob(job);
+        if (!j) return Fail(LMXXF_NR_INVALID_ARGUMENT, "Poll: unknown job");
+        if (state) *state = j->state;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -2425,7 +2556,9 @@ int32_t Retire(void *context, void *job)
     return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
-        auto *j = static_cast<Job *>(job ? job : &session->job);
+        if (session->recordingLeases)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "Use recording invalidation and collection in lease mode");
+        auto *j = session->FindJob(job);
         if (j)
             j->state = LMXXF_NR_JOB_RETIRED;
         if (session->bridge)
@@ -2434,6 +2567,137 @@ int32_t Retire(void *context, void *job)
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
 }
+int32_t BeginRecordingExecution(void* context, void* job, void* actualQueue)
+{
+    auto* session = static_cast<Session*>(context);
+    return Guard([&] {
+        if (!session || !session->recordingLeases)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "BeginRecordingExecution: lease session required");
+        auto* j = static_cast<RecordingJob*>(session->FindJob(job));
+        auto* queue = static_cast<ID3D12CommandQueue*>(actualQueue);
+        if (!j || !j->valid || j->executing || !queue)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "BeginRecordingExecution: invalid recording");
+        if (j->sealed && session->failed)
+            return Fail(LMXXF_NR_UNAVAILABLE, "BeginRecordingExecution: session poisoned");
+        if (j->unconfirmed || j->chain->unconfirmed)
+            return Fail(LMXXF_NR_UNAVAILABLE, "BeginRecordingExecution: prior submission unconfirmed");
+        ID3D12Device* owner = nullptr;
+        const HRESULT queried = queue->GetDevice(IID_PPV_ARGS(&owner));
+        const bool same = SUCCEEDED(queried) && owner && NativeSameDevice(owner, session->device);
+        if (owner) owner->Release();
+        if (!same || queue->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "BeginRecordingExecution: queue device/type mismatch");
+        auto prune = [](auto& certificates) {
+            certificates.erase(std::remove_if(certificates.begin(), certificates.end(),
+                                [](const auto& c) { return c->Complete(); }), certificates.end());
+        };
+        prune(j->chain->completions); prune(j->completions);
+        for (const auto& c : j->chain->completions)
+        {
+            if (c->fence->GetCompletedValue() == UINT64_MAX)
+                return Fail(LMXXF_NR_UNAVAILABLE, "BeginRecordingExecution: removed/unknown fence");
+            if (c->queue != queue && FAILED(queue->Wait(c->fence, c->value)))
+                return Fail(LMXXF_NR_FAILED, "BeginRecordingExecution: previous consumer wait failed");
+        }
+        if (!j->sealed)
+        {
+            // A failed Record may have appended private commands to a live game
+            // list. Let that list execute while retaining its pins, without HIP.
+            // Bridge input copies and a sealed output both end in COMMON.
+            j->chain->bridge->CancelUnsubmitted();
+        }
+        else if (!j->codec_passthrough) j->chain->bridge->BeginRecordedExecution(queue);
+        j->started = true;
+        queue->AddRef();
+        j->executionQueue = queue;
+        j->executing = true;
+        SetError("");
+        return static_cast<int32_t>(LMXXF_NR_OK);
+    });
+}
+
+int32_t EndRecordingExecution(void* context, void* job, void* actualQueue,
+                              uint32_t flags, void* actualFence, uint64_t value, int32_t signalStatus)
+{
+    // Record actual submission facts even when EnqueueHip poisoned the session.
+    return Guard([&] {
+        auto* session = static_cast<Session*>(context);
+        if (!session || !session->recordingLeases)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "EndRecordingExecution: lease session required");
+        auto* j = static_cast<RecordingJob*>(session->FindJob(job));
+        auto* queue = static_cast<ID3D12CommandQueue*>(actualQueue);
+        const bool producer = (flags & LMXXF_NR_SUBMITTED_PRODUCER) != 0;
+        const bool consumer = (flags & LMXXF_NR_SUBMITTED_CONSUMER) != 0;
+        if (!j || !j->executing || !queue || !NativeSameDevice(queue, j->executionQueue) ||
+            (flags & ~3u) || (consumer && !producer))
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "EndRecordingExecution: invalid event");
+        j->executing = false;
+        j->executionQueue->Release(); j->executionQueue = nullptr;
+        if (producer)
+        {
+            // Fail closed if allocation or bridge acknowledgement throws halfway.
+            j->unconfirmed = j->chain->unconfirmed = true;
+            auto* fence = static_cast<ID3D12Fence*>(actualFence);
+            if (FAILED(signalStatus) || !fence || !value || value == UINT64_MAX)
+            {
+                session->failed = true;
+                return Fail(LMXXF_NR_UNAVAILABLE, "EndRecordingExecution: submitted work lacks completion proof");
+            }
+            ID3D12Device* owner = nullptr;
+            const HRESULT queried = fence->GetDevice(IID_PPV_ARGS(&owner));
+            const bool same = SUCCEEDED(queried) && owner && NativeSameDevice(owner, session->device);
+            if (owner) owner->Release();
+            if (!same) return Fail(LMXXF_NR_INVALID_ARGUMENT, "EndRecordingExecution: fence device mismatch");
+            auto certificate = std::make_shared<LmxxfRuntime::RecordingCompletion>(fence, queue, value);
+            j->completions.push_back(certificate);
+            j->chain->completions.push_back(certificate);
+        }
+        if (j->sealed && !j->codec_passthrough) j->chain->bridge->EndRecordedExecution(queue, producer, consumer);
+        if (producer) j->unconfirmed = j->chain->unconfirmed = false;
+        SetError("");
+        return static_cast<int32_t>(LMXXF_NR_OK);
+    });
+}
+
+int32_t InvalidateRecording(void* context, void* job)
+{
+    return Guard([&] {
+        auto* session = static_cast<Session*>(context);
+        if (!session || !session->recordingLeases)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "InvalidateRecording: lease session required");
+        auto* j = static_cast<RecordingJob*>(session->FindJob(job));
+        if (!j) return Fail(LMXXF_NR_INVALID_ARGUMENT, "InvalidateRecording: unknown job");
+        j->valid = false;
+        if (session->preparing == j)
+        {
+            j->chain->bridge->CancelUnsubmitted();
+            session->preparing = nullptr;
+        }
+        SetError("");
+        return static_cast<int32_t>(LMXXF_NR_OK);
+    });
+}
+
+int32_t CollectRecording(void* context, void* job)
+{
+    return Guard([&] {
+        auto* session = static_cast<Session*>(context);
+        if (!session || !session->recordingLeases)
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "CollectRecording: lease session required");
+        auto* j = static_cast<RecordingJob*>(session->FindJob(job));
+        if (!j) return Fail(LMXXF_NR_INVALID_ARGUMENT, "CollectRecording: unknown job");
+        if (j->valid || j->executing)
+            return static_cast<int32_t>(LMXXF_NR_UNAVAILABLE);
+        const bool removed = session->device && FAILED(session->device->GetDeviceRemovedReason());
+        if (!removed && (j->unconfirmed || std::any_of(j->completions.begin(), j->completions.end(),
+                                                     [](const auto& c) { return !c->Complete(); })))
+            return static_cast<int32_t>(LMXXF_NR_UNAVAILABLE);
+        session->recordings.erase(job);
+        SetError("");
+        return static_cast<int32_t>(removed ? LMXXF_NR_DEVICE_LOST : LMXXF_NR_OK);
+    });
+}
+
 int32_t ResetHistory(void *context)
 {
     auto *session = static_cast<Session *>(context);
@@ -2551,15 +2815,16 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
     return Guard([&] {
         if (!out)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetApi: null out");
-        if (out->struct_size != sizeof(LmxxfNrApi))
-            return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetApi: struct_size mismatch");
-        if (abi_version != LMXXF_NR_ABI_VERSION)
+        if (abi_version != 1 && abi_version != LMXXF_NR_ABI_VERSION)
             return Fail(LMXXF_NR_UNSUPPORTED_ABI, "GetApi: unsupported abi_version");
-        std::memset(out, 0, sizeof(*out));
-        out->struct_size = sizeof(LmxxfNrApi);
-        out->abi_version = LMXXF_NR_ABI_VERSION;
-        out->QueryCapabilities = QueryCapabilities;
-        out->Create = Create;
+        const uint32_t bytes = abi_version == 1 ? LMXXF_NR_API_V1_SIZE : sizeof(LmxxfNrApi);
+        if (out->struct_size != bytes && !(abi_version == 1 && out->struct_size == sizeof(LmxxfNrApi)))
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetApi: struct_size mismatch");
+        std::memset(out, 0, bytes);
+        out->struct_size = bytes;
+        out->abi_version = abi_version;
+        out->QueryCapabilities = abi_version == 1 ? QueryCapabilitiesV1 : QueryCapabilities;
+        out->Create = abi_version == 1 ? CreateV1 : Create;
         out->Destroy = Destroy;
         out->PrepareSession = PrepareSession;
         out->PrepareFrame = PrepareFrame;
@@ -2574,6 +2839,13 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
         out->Drain = Drain;
         out->GetStatus = GetStatus;
         out->GetLastError = GetLastError;
+        if (abi_version >= 2)
+        {
+            out->BeginRecordingExecution = BeginRecordingExecution;
+            out->EndRecordingExecution = EndRecordingExecution;
+            out->InvalidateRecording = InvalidateRecording;
+            out->CollectRecording = CollectRecording;
+        }
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });

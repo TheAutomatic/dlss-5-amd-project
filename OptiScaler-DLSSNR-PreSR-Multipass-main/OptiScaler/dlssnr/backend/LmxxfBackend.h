@@ -1,7 +1,7 @@
 #pragma once
 #include "Host.h"
 #include "LmxxfEvaluateCut.h"
-#include "LmxxfPendingSubmission.h"
+#include <memory>
 #include "LmxxfColorProbe.h"
 #include "LmxxfStagingProbe.h"
 #include <filesystem>
@@ -9,12 +9,13 @@
 
 namespace DlssNr::Backend
 {
+namespace LmxxfRecording { struct SessionOwner; }
 // Last lmxxf colour job height seen in Record (0 = unknown). Menus use this to
 // gray NR% tiers that are taller than the current input.
 unsigned LastLmxxfColorHeight();
 
 // Full Host for lmxxf. Constructed only when ActiveKind==Lmxxf (requires LmxxfWired()).
-// Record: PrepareFrame → RecordInputs → Split → RecordOutputs → SetPendingEnqueue(EnqueueHip).
+// Record: PrepareFrame -> recording observer -> Inputs -> Split -> Outputs.
 class LmxxfBackend final : public Host
 {
     ID3D12Device *device = nullptr;
@@ -22,16 +23,13 @@ class LmxxfBackend final : public Host
     std::filesystem::path directory;
     void *runtimeDll = nullptr; // HMODULE
     void *session = nullptr;
+    std::shared_ptr<LmxxfRecording::SessionOwner> sessionOwner;
     bool sessionReady = false;
     uint64_t frameId = 0;
     std::string status { "lmxxf: idle" };
     // Function table copied from LmxxfNrGetApi (opaque here to keep header free of C ABI).
     struct Api;
     Api *api = nullptr;
-    std::atomic<bool> releasePending { false };
-    ID3D12Fence* releaseFence = nullptr; // One-shot completion marker for live teardown.
-    mutable std::mutex jobMutex;
-    LmxxfPendingSubmission pendingJobInfo;
     LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;
     LmxxfProbe::ColorCopy colorProbe;
     LmxxfProbe::StagingProbe stagingProbe;
@@ -77,9 +75,8 @@ class LmxxfBackend final : public Host
     void TraceBoundary(const std::string &) override;
     void Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) override;
     bool Shutdown() override;
-    // User turned NR off: Destroy the session so VRAM is returned. Does not set
-    // recoveryDisabled or unload the runtime DLL in convenience mode; pure mode
-    // also FreeLibrary. A later Record rebuilds via EnsureSession/EnsureRuntime.
+    // NR off drops the active owner. Old closed recordings retain their own
+    // sessions until invalidation and actual GPU completion.
     void ReleaseSession() override;
     bool PollRelease() override;
     void ResetGraphicsWaitState() override;

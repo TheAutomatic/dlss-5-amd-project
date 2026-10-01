@@ -11,7 +11,8 @@
 extern "C" {
 #endif
 
-#define LMXXF_NR_ABI_VERSION 1u
+#define LMXXF_NR_ABI_VERSION 2u
+#define LMXXF_NR_API_V1_SIZE 136u
 /* sizeof() of an ABI v1 LmxxfNrFrameInfo: it stopped at model_scale, before the exposure
  * fields. A host talking to a runtime that predates them sends this as struct_size. */
 #define LMXXF_NR_FRAME_INFO_V1_SIZE 80u
@@ -29,6 +30,12 @@ extern "C" {
  * synchronize those queues themselves before reuse or destruction. A failed or
  * uncertain clear returns FAILED and the session must be rebuilt. */
 #define LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK (1u << 0)
+/* v2: stable recording jobs. The caller serializes recording/execution calls across sessions and keeps
+ * each job until recording invalidation AND CollectRecording confirms completion.
+ * This mode does not support the blocking legacy zero-output recovery path. */
+#define LMXXF_NR_CREATE_FLAG_RECORDING_LEASES (1u << 1)
+#define LMXXF_NR_SUBMITTED_PRODUCER (1u << 0)
+#define LMXXF_NR_SUBMITTED_CONSUMER (1u << 1)
 
 enum LmxxfNrStatus
 {
@@ -37,7 +44,8 @@ enum LmxxfNrStatus
     LMXXF_NR_INVALID_ARGUMENT = 2,
     LMXXF_NR_NOT_IMPLEMENTED = 3,
     LMXXF_NR_UNAVAILABLE = 4,
-    LMXXF_NR_FAILED = 5
+    LMXXF_NR_FAILED = 5,
+    LMXXF_NR_DEVICE_LOST = 6 /* Collect released an invalidated job after confirmed device removal */
 };
 
 enum LmxxfNrJobState
@@ -143,6 +151,18 @@ typedef struct LmxxfNrApi
     int32_t (*Drain)(void *context);
     int32_t (*GetStatus)(void *context, char *buf, uint32_t buf_chars);
     int32_t (*GetLastError)(char *buf, uint32_t buf_chars);
+    /* ABI v2 append-only extension. Begin runs BEFORE producer submission; End
+     * runs exactly once afterward, including failure/no-submission outcomes.
+     * fence is borrowed by End (the runtime AddRefs it); signal_status is the
+     * actual tail Signal HRESULT, not the HIP result or a guessed completion. */
+    int32_t (*BeginRecordingExecution)(void *context, void *job, void *actual_queue);
+    int32_t (*EndRecordingExecution)(void *context, void *job, void *actual_queue,
+                                    uint32_t submitted_flags, void *fence, uint64_t value,
+                                    int32_t signal_status);
+    int32_t (*InvalidateRecording)(void *context, void *job);
+    /* UNAVAILABLE means retain and retry; OK or DEVICE_LOST consumes the handle.
+     * Unknown/stale handles return INVALID_ARGUMENT without dereferencing them. */
+    int32_t (*CollectRecording)(void *context, void *job);
 } LmxxfNrApi;
 
 #ifdef _WIN32

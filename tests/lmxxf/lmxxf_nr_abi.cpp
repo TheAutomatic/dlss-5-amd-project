@@ -36,6 +36,25 @@ int main(int argc, char **argv)
         GetProcAddress(dll, "LmxxfNrGetApi"));
     Require(getApi != nullptr, "GetProcAddress LmxxfNrGetApi");
 
+    static_assert(offsetof(LmxxfNrApi, BeginRecordingExecution) == LMXXF_NR_API_V1_SIZE, "v1 prefix");
+    alignas(LmxxfNrApi) unsigned char legacyBytes[LMXXF_NR_API_V1_SIZE + 32];
+    std::memset(legacyBytes, 0xa5, sizeof legacyBytes);
+    auto* legacy = reinterpret_cast<LmxxfNrApi*>(legacyBytes);
+    legacy->struct_size = LMXXF_NR_API_V1_SIZE;
+    Require(getApi(1, legacy) == LMXXF_NR_OK && legacy->abi_version == 1, "v1 table negotiation");
+    for (size_t i = LMXXF_NR_API_V1_SIZE; i < sizeof legacyBytes; ++i)
+        Require(legacyBytes[i] == 0xa5, "v1 table cannot write extension bytes");
+    LmxxfNrCapabilities legacyCaps {}; legacyCaps.struct_size = sizeof legacyCaps;
+    Require(legacy->QueryCapabilities(&legacyCaps) == LMXXF_NR_OK && legacyCaps.abi_version == 1,
+            "v1 capabilities remain v1");
+    legacy->struct_size = LMXXF_NR_API_V1_SIZE - 1;
+    Require(getApi(1, legacy) == LMXXF_NR_INVALID_ARGUMENT, "undersized v1 table rejected");
+    LmxxfNrCreateInfo leaseInfo {}; leaseInfo.struct_size = sizeof leaseInfo;
+    leaseInfo.flags = LMXXF_NR_CREATE_FLAG_RECORDING_LEASES;
+    void* legacyContext = reinterpret_cast<void*>(1);
+    Require(legacy->Create(&leaseInfo, &legacyContext) == LMXXF_NR_INVALID_ARGUMENT && !legacyContext,
+            "v1 cannot opt into unavailable lease extension");
+
     LmxxfNrApi api {};
     api.struct_size = sizeof(api);
     Require(getApi(99, &api) == LMXXF_NR_UNSUPPORTED_ABI, "unsupported abi");
@@ -47,6 +66,8 @@ int main(int argc, char **argv)
     Require(api.QueryCapabilities && api.Create && api.Destroy, "required pointers");
     Require(api.RecordInputs && api.EnqueueHip && api.RecordOutputs, "record/enqueue pointers");
     Require(api.GetLastError && api.GetStatus, "error pointers");
+    Require(api.BeginRecordingExecution && api.EndRecordingExecution &&
+            api.InvalidateRecording && api.CollectRecording, "v2 recording pointers");
 
     LmxxfNrCapabilities caps {};
     caps.struct_size = sizeof(caps);

@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "LmxxfBackend.h"
-#include "LmxxfQueueDrain.h"
+#include "LmxxfRecordingOwner.h"
 #include <cstring>
 #include "../submission/SubmissionTls.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
@@ -254,9 +254,11 @@ LmxxfBackend::~LmxxfBackend()
 
 bool LmxxfBackend::EnsureRuntime()
 {
-    if (runtimeDll && api && api->table.EnqueueHip)
+    if (runtimeDll && api && api->table.BeginRecordingExecution && api->table.CollectRecording)
         return true;
     const auto dllPath = directory / L"LmxxfNrRuntime.dll";
+    if (runtimeDll) { FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll)); runtimeDll = nullptr; }
+    api->table = {};
     runtimeDll = reinterpret_cast<void *>(LoadLibraryW(dllPath.c_str()));
     if (!runtimeDll)
     {
@@ -270,9 +272,12 @@ bool LmxxfBackend::EnsureRuntime()
         return false;
     }
     api->table.struct_size = sizeof(LmxxfNrApi);
-    if (getApi(LMXXF_NR_ABI_VERSION, &api->table) != LMXXF_NR_OK)
+    if (getApi(LMXXF_NR_ABI_VERSION, &api->table) != LMXXF_NR_OK ||
+        api->table.abi_version < 2 || !api->table.BeginRecordingExecution || !api->table.EndRecordingExecution ||
+        !api->table.InvalidateRecording || !api->table.CollectRecording)
     {
-        SetStatus("lmxxf: GetApi failed");
+        api->table = {};
+        SetStatus("lmxxf: runtime needs recording-lease ABI v2; update LmxxfNrRuntime.dll");
         return false;
     }
     return true;
@@ -387,23 +392,9 @@ bool LmxxfBackend::EnsureSession()
     info.device = device;
     info.queue = queue;
     info.assets_directory = modulesW.c_str();
-    info.flags = LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK;
+    info.flags = LMXXF_NR_CREATE_FLAG_RECORDING_LEASES;
     void *ctx = nullptr;
     int32_t createRc = api->table.Create(&info, &ctx);
-    if (createRc == LMXXF_NR_INVALID_ARGUMENT && !ctx)
-    {
-        char err[256] {};
-        if (api->table.GetLastError)
-            api->table.GetLastError(err, sizeof err);
-        // Runtimes that predate the recovery flag accept only flags == 0.
-        if (std::strstr(err, "flags"))
-        {
-            LOG_WARN("lmxxf: runtime rejected Create flags ({}); older LmxxfNrRuntime.dll? continuing without zero-output recovery",
-                     err);
-            info.flags = 0;
-            createRc = api->table.Create(&info, &ctx);
-        }
-    }
     if (createRc != LMXXF_NR_OK || !ctx)
     {
         char err[256] {};
@@ -432,6 +423,13 @@ bool LmxxfBackend::EnsureSession()
         NoteSessionFailure();
         return false;
     }
+    sessionOwner = LmxxfRecording::SessionOwner::Create(api->table, ctx);
+    if (!sessionOwner)
+    {
+        api->table.Destroy(ctx);
+        SetStatus("lmxxf: cannot retain runtime for recording leases");
+        return false;
+    }
     session = ctx;
     sessionReady = true;
     sessionFailures = 0;
@@ -446,81 +444,55 @@ void LmxxfBackend::NoteSessionFailure()
     sessionRetryIn = std::min<uint32_t>(600u, 1u << std::min<uint32_t>(sessionFailures, 10u));
 }
 
-// EnqueueHip returns OK after a zero-output recovery, so the frame showed original Color
-// without an error code. Log it, and turn NR off for this session when recoveries repeat.
+// Execution errors belong to the session owner, which can outlive this backend.
 bool LmxxfBackend::NoteEnqueueRecoveries()
 {
-    if (recoveryDisabled)
-        return false;
-    auto &p = LmxxfCut::Pending();
-    const uint64_t calls = static_cast<uint64_t>(p.enqueueCalls.load(std::memory_order_relaxed));
-    const uint64_t recovered = p.recoveredEnqueues.load(std::memory_order_relaxed);
-    if (recovered != seenRecoveries)
-    {
-        consecutiveRecoveries += static_cast<uint32_t>(recovered - seenRecoveries);
-        if (recovered <= 5 || recovered % 100 == 0)
-            LOG_WARN("lmxxf nr recovered: {} (consecutive {}, total {})",
-                     LmxxfCut::LastEnqueueDiagnostic().error.data(), consecutiveRecoveries, recovered);
-    }
-    else if (calls != seenEnqueueCalls)
-    {
-        consecutiveRecoveries = 0;
-    }
-    seenRecoveries = recovered;
-    seenEnqueueCalls = calls;
-    if (consecutiveRecoveries < kMaxConsecutiveRecoveries)
-        return true;
-    LOG_ERROR("lmxxf: {} zero-output recoveries in a row; NR off for this session (original Color). Last: {}",
-              consecutiveRecoveries, LmxxfCut::LastEnqueueDiagnostic().error.data());
+    if (recoveryDisabled) return false;
+    if (!sessionOwner || !sessionOwner->failed) return true;
     recoveryDisabled = true;
-    // Each recovery completed its clear, so the session is not poisoned; free its VRAM.
-    if (session && api && api->table.Destroy)
-        api->table.Destroy(session);
-    session = nullptr;
-    sessionReady = false;
-    SetStatus("lmxxf: HIP enqueue keeps failing; NR off (original Color)");
+    sessionOwner.reset(); session = nullptr; sessionReady = false;
+    SetStatus("lmxxf: recording execution failed; NR off (see log)");
     return false;
 }
-
-
 
 ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd, void *jobHandle,
                                            void *privateOutput)
 {
+    DlssNr::Submission::ILogicalCommandList* logical = nullptr;
+    if (FAILED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                         reinterpret_cast<void**>(&logical))) || !logical)
+    {
+        api->table.InvalidateRecording(session, jobHandle);
+        api->table.CollectRecording(session, jobHandle);
+        SetStatus("lmxxf: recording proxy unavailable");
+        return nullptr;
+    }
+    auto lease = LmxxfRecording::Attach(sessionOwner, jobHandle, logical);
+    logical->Release();
+    if (!lease) { SetStatus("lmxxf: this recording already owns an NR job"); return nullptr; }
     if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
-        api->table.CancelUnsubmitted(session, jobHandle);
+        sessionOwner->failed = true;
         SetStatus("lmxxf: RecordInputs failed");
         return nullptr;
     }
     const HRESULT splitHr = LmxxfCut::TrySplitAtEvaluate(recordCmd);
-    if (FAILED(splitHr) || splitHr == S_FALSE)
+    if (splitHr != S_OK)
     {
-        api->table.CancelUnsubmitted(session, jobHandle);
-        SetStatus(FAILED(splitHr) ? "lmxxf: Split failed" : "lmxxf: Split returned S_FALSE");
+        sessionOwner->failed = true;
+        SetStatus("lmxxf: Split failed");
         return nullptr;
     }
     if (api->table.RecordOutputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
-        api->table.CancelUnsubmitted(session, jobHandle);
+        sessionOwner->failed = true;
         SetStatus("lmxxf: RecordOutputs failed");
         return nullptr;
     }
-    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip,
-                               api->table.GetLastError, recordCmd, queue);
-    LmxxfCut::ArmBetweenSlot();
-    {
-        std::lock_guard lock(jobMutex);
-        pendingJobInfo = {jobHandle, recordCmd};
-    }
-    SetStatus("lmxxf: Record ok (pending EnqueueHip)");
+    lease->ready = true;
+    SetStatus("lmxxf: recording ready");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
 }
-
-
-// Set by Submitted when the split list ran on a queue other than the session's
-// (e.g. after a swapchain rebuild). Record rebuilds the session there.
-static ID3D12CommandQueue *g_requeue = nullptr;
 
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
@@ -530,40 +502,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     if (!cmd || !frame.colour)
     {
         SetStatus("lmxxf: Record missing cmd/colour");
-        return nullptr;
-    }
-    // Swapchain rebuild can move the game to another queue (Onimusha/RE9).
-    {
-        std::lock_guard lock(jobMutex);
-        if (g_requeue && !pendingJobInfo.job)
-        {
-            if (g_requeue != queue)
-            {
-                if (session && api && api->table.Destroy)
-                    api->table.Destroy(session);
-                session = nullptr;
-                sessionReady = false;
-                g_requeue->AddRef();
-                if (queue)
-                    queue->Release();
-                queue = g_requeue;
-                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(queue);
-                LOG_INFO("lmxxf: game submits on a new queue {:p}; session rebuilt there",
-                         reinterpret_cast<void *>(queue));
-            }
-            g_requeue = nullptr;
-        }
-    }
-    bool previousPending = false;
-    {
-        std::lock_guard lock(jobMutex);
-        previousPending = pendingJobInfo.job != nullptr;
-    }
-    if (previousPending)
-    {
-        // The previous Evaluate already returned its output to SR. Cancelling its
-        // job here would leave that recorded continuation consuming invalid data.
-        SetStatus("lmxxf: previous frame not submitted (original Color; NO NR)");
         return nullptr;
     }
     // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,
@@ -704,8 +642,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
         {
             LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
-            if (session && api && api->table.Destroy)
-                api->table.Destroy(session);
+            sessionOwner.reset();
             session = nullptr;
             sessionReady = false;
             SetStatus("lmxxf: session rebuild after PrepareFrame fail");
@@ -897,49 +834,11 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                     ++boundaryRejects;
                     SetStatus((std::string("lmxxf diagnostic: codec-passthrough PrepareFrame failed: ") + err).c_str());
                 }
-                else if (api->table.RecordInputs(session, job.handle, cmd) != LMXXF_NR_OK)
-                {
-                    char err[256] {};
-                    if (api->table.GetLastError)
-                        api->table.GetLastError(err, sizeof err);
-                    LOG_ERROR("lmxxf diagnostic: codec-passthrough RecordInputs failed: {}", err);
-                    reason = "record_inputs_failed";
-                    ++boundaryRejects;
-                    SetStatus("lmxxf diagnostic: codec-passthrough RecordInputs failed");
-                }
                 else
                 {
-                    const HRESULT cutHr = logical->SplitSegments();
-                    if (cutHr != S_OK)
-                    {
-                        char err[256] {};
-                        if (api->table.GetLastError)
-                            api->table.GetLastError(err, sizeof err);
-                        LOG_ERROR("lmxxf diagnostic: codec-passthrough Split failed: hr={:X} err='{}'", static_cast<unsigned>(cutHr), err);
-                        reason = "boundary_split_failed";
-                        ++boundaryRejects;
-                        SetStatus("lmxxf diagnostic: codec-passthrough Split failed");
-                    }
-                    else
-                    {
-                        ++boundaryCuts;
-                        if (api->table.RecordOutputs(session, job.handle, cmd) != LMXXF_NR_OK)
-                        {
-                            char err[256] {};
-                            if (api->table.GetLastError)
-                                api->table.GetLastError(err, sizeof err);
-                            LOG_ERROR("lmxxf diagnostic: codec-passthrough RecordOutputs failed: {}", err);
-                            reason = "record_outputs_failed";
-                            ++boundaryRejects;
-                            SetStatus("lmxxf diagnostic: codec-passthrough RecordOutputs failed");
-                        }
-                        else
-                        {
-                            output = reinterpret_cast<ID3D12Resource *>(job.private_output);
-                            reason = "codec_passthrough_recorded";
-                            SetStatus("lmxxf diagnostic: codec-passthrough (NO HIP; encode->decode passthrough)");
-                        }
-                    }
+                    output = FinishRecord(cmd, job.handle, job.private_output);
+                    reason = output ? "codec_passthrough_recorded" : "codec_passthrough_record_failed";
+                    if (output) ++boundaryCuts; else ++boundaryRejects;
                 }
             }
         }
@@ -1069,126 +968,21 @@ void LmxxfBackend::Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *con
 
 void LmxxfBackend::TraceBoundary(const std::string &) {}
 
-void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandList *const * lists)
+void LmxxfBackend::Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *)
 {
-    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
-    void *jobToRetire = nullptr;
-    bool containsCmd = false;
-    {
-        std::lock_guard lock(jobMutex);
-        containsCmd = pendingJobInfo.Contains(count, lists);
-        // Swapchain rebuild: the list may submit on a queue we did not bind at Record.
-        // If HIP already ran there (lastQueue), follow that queue on the next Record.
-        if (!containsCmd && q && this->queue && q != this->queue && pendingJobInfo.job)
-        {
-            const auto last = LmxxfCut::Pending().lastQueue.load(std::memory_order_relaxed);
-            if (last && last == q)
-                g_requeue = q;
-        }
-        if (containsCmd)
-        {
-            void* submitted = pendingJobInfo.TakeSubmitted(count, lists);
-            if (session && api && api->table.Retire) jobToRetire = submitted;
-        }
-    }
-    if (containsCmd && q && q != queue)
-    {
-        bool sameQueue = (this->queue == q);
-        if (!sameQueue && this->queue && q)
-        {
-            IUnknown* id1 = nullptr;
-            IUnknown* id2 = nullptr;
-            this->queue->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id1));
-            q->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&id2));
-            sameQueue = (id1 && id2 && id1 == id2);
-            if (id1) id1->Release();
-            if (id2) id2->Release();
-        }
-        if (!sameQueue)
-        {
-            LOG_WARN("lmxxf: queue transition detected (current={:p}, actual={:p}); draining actual queue and old session before migration",
-                     reinterpret_cast<void*>(this->queue), reinterpret_cast<void*>(q));
-            // 1. Drain the actual queue q that just executed producer and continuation:
-            const bool actualDrained = DrainQueue(this->device, q);
-
-            // 2. Drain the old session queue:
-            const bool sessionDrained = !session || ((api && api->table.Drain)
-                                            ? (api->table.Drain(session) == LMXXF_NR_OK)
-                                            : false);
-
-            if (actualDrained && sessionDrained)
-            {
-                if (session && api && api->table.Destroy)
-                    api->table.Destroy(session);
-                session = nullptr;
-                sessionReady = false;
-                q->AddRef();
-                if (this->queue) this->queue->Release();
-                this->queue = q;
-                jobToRetire = nullptr;
-                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
-                SetStatus("lmxxf: session migrated to new render queue");
-                LOG_INFO("lmxxf: session cleanly destroyed after verified dual queue drain; queue updated to {:p}",
-                         reinterpret_cast<void*>(q));
-            }
-            else
-            {
-                LOG_ERROR("lmxxf: GPU drain failed during queue transition (actualDrained={}, sessionDrained={}); abandoning old session without Destroy to prevent GPU UAF",
-                          actualDrained, sessionDrained);
-                // CRITICAL SAFETY: If either queue failed to drain, GPU may still be referencing
-                // old session resources. We MUST NOT call Destroy(session) to avoid GPU Use-After-Free.
-                session = nullptr;
-                sessionReady = false;
-                jobToRetire = nullptr;
-                q->AddRef();
-                if (this->queue) this->queue->Release();
-                this->queue = q;
-                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(q);
-                SetStatus("lmxxf: queue migration completed with abandoned undrained session (GPU safety fallback)");
-            }
-        }
-    }
-    if (jobToRetire)
-    {
-        const int32_t retireRc = api->table.Retire(session, jobToRetire);
-        if (retireRc != LMXXF_NR_OK)
-        {
-            char err[256] {};
-            if (api->table.GetLastError)
-                api->table.GetLastError(err, sizeof err);
-            LOG_ERROR("lmxxf: Retire rc={} err={} submitQ={:p} sessQ={:p}",
-                      retireRc, err, reinterpret_cast<void *>(q), reinterpret_cast<void *>(queue));
-        }
-    }
-    // Other UE/FG lists may submit before the list containing this Evaluate.
-    // Only that list can retire the pending HIP slot.
-    LmxxfCut::ClearPendingEnqueueIfSubmitted(count, lists);
+    // Original batches do not establish execution or invalidate closed recordings.
+    // Recording observers report the actual producer/consumer and tail Signal.
+    LmxxfRecording::Collect();
 }
 
 bool LmxxfBackend::Shutdown()
 {
     std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     LmxxfCut::DisarmBetweenSlot();
-    {
-        std::lock_guard lock(jobMutex);
-        pendingJobInfo = {};
-    }
-    if (prepareFrameFailLogs)
-        LOG_WARN("lmxxf: session end — PrepareFrame failed {} times ({} poisoned); those frames used original Color (no NR)",
-                 prepareFrameFailLogs, prepareFramePoisonLogs);
-    if (session && api && api->table.Destroy)
-    {
-        api->table.Destroy(session);
-        session = nullptr;
-    }
-    sessionReady = false;
-    if (runtimeDll)
-    {
-        FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll));
-        runtimeDll = nullptr;
-    }
-    if (api)
-        api->table = {};
+    sessionOwner.reset(); session = nullptr; sessionReady = false;
+    LmxxfRecording::Collect();
+    if (runtimeDll) { FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll)); runtimeDll = nullptr; }
+    if (api) api->table = {};
     SetStatus("lmxxf: shutdown");
     return true;
 }
@@ -1196,55 +990,23 @@ bool LmxxfBackend::Shutdown()
 void LmxxfBackend::ReleaseSession()
 {
     std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
-    if (session) releasePending = true;
-    PollRelease();
-}
-
-bool LmxxfBackend::PollRelease()
-{
-    if (!releasePending.load(std::memory_order_acquire)) return true;
-    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
-    if (!releasePending) return true;
-    // A recorded continuation already refers to the session's GPU resources.
-    // Keep its callback armed until real submission calls Submitted, even when
-    // NR is off. CPU cancellation is not cancellation of a game command list.
-    {
-        std::lock_guard lock(jobMutex);
-        if (pendingJobInfo.job) return false;
-    }
-    if (session && !releaseFence)
-    {
-        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&releaseFence))))
-            return false;
-        if (FAILED(queue->Signal(releaseFence, 1)))
-        {
-            releaseFence->Release(); releaseFence = nullptr;
-            return false;
-        }
-    }
-    if (releaseFence)
-    {
-        const auto done = releaseFence->GetCompletedValue();
-        if (done == UINT64_MAX || done < 1) return false;
-    }
-    // No recorded job, no executing callback (lifetime lock), GPU marker reached.
-    LmxxfCut::DisarmBetweenSlot();
-    if (session && api && api->table.Destroy)
-    {
-        api->table.Destroy(session);
-        session = nullptr;
-    }
-    if (releaseFence) { releaseFence->Release(); releaseFence = nullptr; }
-    sessionReady = false;
-    sessionFailures = sessionRetryIn = 0;
+    // Existing recording observers retain their own session/module. New active
+    // sessions can start immediately; old closed lists are still executable.
+    sessionOwner.reset(); session = nullptr; sessionReady = false;
+    sessionFailures = sessionRetryIn = 0; recoveryDisabled = false;
+    LmxxfRecording::Collect();
     if (!Config::Instance()->NrConvenience.value_or_default())
     {
         if (runtimeDll) FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll));
         runtimeDll = nullptr;
         if (api) api->table = {};
     }
-    releasePending = false;
-    SetStatus("lmxxf: session released (NR off)");
+    SetStatus("lmxxf: NR off (live recordings retain their resources)");
+}
+
+bool LmxxfBackend::PollRelease()
+{
+    LmxxfRecording::Collect();
     return true;
 }
 

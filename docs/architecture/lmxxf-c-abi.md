@@ -21,7 +21,9 @@
 
 ## 版本协商
 
-`LMXXF_NR_ABI_VERSION`（当前 `1`）**只管函数表** `LmxxfNrApi` 的布局。结构体靠各自的 `struct_size` 分档协商，不升版本号。原因：版本号一升，老 runtime 直接拒绝 `GetApi`，NR 整个起不来；按 `struct_size` 分档，老宿主配新 runtime 只是少几个功能。
+`LMXXF_NR_ABI_VERSION`（当前 `2`）**只管函数表** `LmxxfNrApi` 的布局。结构体靠各自的 `struct_size` 分档协商，不升版本号。原因：版本号一升，老 runtime 直接拒绝 `GetApi`，NR 整个起不来；按 `struct_size` 分档，老宿主配新 runtime 只是少几个功能。
+
+本次 v2 在原 136 字节函数表后追加 BeginRecordingExecution / EndRecordingExecution / InvalidateRecording / CollectRecording。新 runtime 仍接受 v1 GetApi，只写 v1 前缀；新宿主必须拿到完整 v2 才启用录制租约，不能降级到不安全的旧单 Job 路径。v1 Create 拒绝录制租约标志。
 
 `LmxxfNrFrameInfo` 在 d788963 有四档，runtime 的 `PrepareFrame` 接受其中任意一档：
 
@@ -38,16 +40,16 @@
 
 1. **只往结构体尾部加字段。** 超出宿主 `struct_size` 的字段一律视为未提供，runtime 用默认值。
 2. **尺寸常量用 `static_assert` 钉到 `offsetof`**（见 `LmxxfNrRuntime.cpp` 顶部），不留裸数字。
-3. **宿主要能降级。** 当前实现：`PrepareFrame` 因 `struct_size mismatch` 返回 `INVALID_ARGUMENT` 时，宿主改用 V1 尺寸（80）重试一次并关掉自动曝光标志（`LmxxfBackend` 的 `frameInfoV1`）；`Create` 因 flag 被拒时去掉 flag 重试（此时没有零输出回退）。宿主不会退到 104 这一档。
+3. **可选字段可以降级，所有权契约不能降级。** 帧结构仍支持历史尺寸；产品宿主现在要求录制租约 v2，不能通过去掉 Create 的录制标志绕过版本拒绝。旧宿主使用新 runtime 的 v1 前缀时保留原串行行为。
 4. **输入契约违反返回 `INVALID_ARGUMENT`，不要 throw。** `GuardSession` 见到异常就把 session 标成 `failed`，之后每个调用都返回 `UNAVAILABLE`（「session is poisoned」）。RE9 当初就是这样：不支持的输入格式抛了异常，session 再也没恢复，日志也看不出原因。现在契约提前检查，报出具体属性（`fmt= … WxH … fitLarge=`），可重试。宿主对 `INVALID_ARGUMENT` 不重建 session，因为重建治不了不支持的纹理。
 
 ## 其它约定
 
 - **`hip_ready` 已从 `LmxxfNrCapabilities` 删除**（它一直是 0，宿主不读）。OptiScaler 宿主不调用 `QueryCapabilities`，所以游戏内无影响。但上游仓库存档分支的头文件里仍有这个字段：拿本仓库的 `tests/lmxxf/lmxxf_nr_gpu.cpp` 去测上游 runtime，`QueryCapabilities` 会因尺寸不符失败，需要用上游头文件重新编译测试。
 - `gfx1201_target` 字段已标 DEPRECATED，不反映实际架构；实际架构用 `GetStatus` 查询。
-- `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK`：HIP enqueue 或队列契约失败时，runtime 把私有输出清零后返回 OK，本帧显示原始 Color。宿主连续 10 次（`kMaxConsecutiveRecoveries`）恢复后关闭该 session 的 NR。其它队列上的读者要由调用方自己同步，契约写在头文件注释里。
+- `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK` 仅供旧串行调用者使用；与 `LMXXF_NR_CREATE_FLAG_RECORDING_LEASES` 互斥。产品宿主采用录制租约模式，执行错误会停止新 NR 录制，已提交资源继续保留到可证明安全。
 - Session 建立失败按 2、4、8… 次 Record 指数退避，上限 600 次（60 fps 下约 10 s）。
-- 帧状态机见头文件 `LmxxfNrJobState`；游戏丢弃未提交的 command list 时，宿主调用 `CancelUnsubmitted` 把 job 退回，避免 bridge 卡在「已录未提交」而触发重建和显存泄漏（燕云切档 21.6 GB 显存的根因）。
+- 录制的有效期由成功 Reset / 最终 Release 结束，GPU 完成与录制失效分别追踪；提交一次不会销毁可重放录制。见 [录制生命周期](lmxxf-recording-lifecycle.md)。v2 不使用旧 CancelUnsubmitted / Retire 接口回收。
 - `LmxxfNrRuntime.cpp` / `LmxxfNrApi.h` / `LmxxfProductionOptions.h` 不在 sync 清单里，从上游到本仓库、从本仓库到上游都不会自动同步；上游若改了它们，我们不会自动知道。
 
 ## 改 ABI 时的验证

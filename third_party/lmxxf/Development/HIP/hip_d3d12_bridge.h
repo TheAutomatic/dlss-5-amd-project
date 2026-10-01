@@ -92,6 +92,9 @@ public:
   pending=false;return true;
  }
  ~D3D12Bridge(){
+  // Lease owners may destroy this bridge on a Windows threadpool thread. HIP
+  // device selection is thread-local; release on the adapter used at Create.
+  if(recording_leases&&network&&network->Runtime().hipSetDevice(hip_device)!=0)return;
   if(!WaitForSubmittedWork())return;
   if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
   if(network){auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
