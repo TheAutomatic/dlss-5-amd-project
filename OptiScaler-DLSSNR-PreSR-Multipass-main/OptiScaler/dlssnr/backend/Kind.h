@@ -60,6 +60,13 @@ inline bool PrepareSubmissionAtStartup(Kind active, bool convenience, bool hasLm
 }
 
 
+// Daniel-only state capture is useful for the active Daniel backend or a
+// possible hot switch. Pure lmxxf must not pay for it even when new wait is on.
+inline bool PrepareDanielGraphicsAtStartup(Kind active, bool convenience, bool hasDaniel, bool graphicsWait)
+{
+    return graphicsWait && (active == Kind::Daniel || (convenience && hasDaniel));
+}
+
 // Pick the host that will actually run.
 // Explicit request wins when its files are on disk; otherwise fall back to the
 // other installed host. Auto takes whichever is installed (lmxxf if it is alone).

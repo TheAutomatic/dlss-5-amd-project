@@ -4,6 +4,19 @@
 
 int main()
 {
+    using namespace DlssNr::Backend;
+    // Even with both runtimes installed and new wait configured on, pure lmxxf
+    // retains its submission proxy but does not prepare Daniel graphics.
+    for (bool convenience : {false, true})
+        for (bool hasDaniel : {false, true})
+            for (bool wait : {false, true})
+            {
+                assert(PrepareSubmissionAtStartup(Kind::Lmxxf, convenience, true));
+                assert(PrepareDanielGraphicsAtStartup(Kind::Lmxxf, convenience, hasDaniel, wait)
+                       == (convenience && hasDaniel && wait));
+                assert(PrepareDanielGraphicsAtStartup(Kind::Daniel, convenience, hasDaniel, wait) == wait);
+            }
+
     using DlssNr::Backend::Kind;
     using DlssNr::Backend::LmxxfWired;
     using DlssNr::Backend::ParseKind;

@@ -1,6 +1,7 @@
 #pragma once
 #include "GraphicsSnapshot.h"
 #include <mutex>
+#include <atomic>
 #include <shared_mutex>
 #include <unordered_map>
 
@@ -24,12 +25,14 @@ class Tracker
 
     bool IsEnabled() const
     {
-        std::shared_lock lock(mutex_);
-        return enabled_;
+        return enabled_.load(std::memory_order_relaxed);
     }
 
     void OnCreate(uint64_t listId, uint64_t initialPso = 0)
     {
+        // Submission proxies also call this in pure lmxxf mode. Avoid taking a
+        // Daniel tracker lock when startup policy did not enable capture.
+        if (!IsEnabled()) return;
         std::unique_lock lock(mutex_);
         if (!enabled_)
             return;
@@ -237,7 +240,7 @@ class Tracker
         fn(t); // Mutation and descriptor-owner replacement stay under the lock.
     }
     mutable std::shared_mutex mutex_;
-    bool enabled_ = false;
+    std::atomic<bool> enabled_ {false};
     std::unordered_map<uint64_t, ListTracker> trackers_;
     std::unordered_map<uint64_t, uint32_t> suppress_;
 };

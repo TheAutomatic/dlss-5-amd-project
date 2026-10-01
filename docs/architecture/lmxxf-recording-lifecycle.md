@@ -90,3 +90,18 @@ background collection, and partial recordings without HIP. Fault tests reject th
 execution queue and retain work with failed Signal proof. ABI tests cover old prefix
 bounds and v1/v2 negotiation. GPU coverage is RX 9070 XT (gfx1201); gfx1200 hardware,
 real-game hot switching, and forced physical device removal remain untested.
+
+## Pure-backend startup policy
+
+With NrConvenience=0 and lmxxf selected, AmdGraphicsWait does not install Daniel
+state-tracking or CreateCommandSignature metadata hooks. Early and late hook
+installation use the same latched startup policy. The lmxxf proxy/split/fence
+path remains enabled. Disabled tracker OnCreate notifications return without
+locking, and the NR envelope skips Daniel snapshot/pin/replay preparation while
+retaining generic compute restoration. Daniel is still created only when selected.
+
+With convenience enabled and Daniel installed, capture can be prepared for a
+later switch; Daniel startup still honors AmdGraphicsWait. If capture was armed
+but new wait is turned off live, render-pass safety observations remain active.
+Changing NrConvenience in the menu saves the next-launch value without changing
+the running session's backend policy; restart is required.

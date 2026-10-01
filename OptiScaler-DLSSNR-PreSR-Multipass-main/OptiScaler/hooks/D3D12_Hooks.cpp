@@ -218,7 +218,7 @@ static RootRestoreHook<PFN_SetGraphicsRootConstantBufferView> s_SetGraphicsRootC
 static RootRestoreHook<PFN_SetGraphicsRootShaderResourceView> s_SetGraphicsRootShaderResourceView {};
 static RootRestoreHook<PFN_SetGraphicsRootUnorderedAccessView> s_SetGraphicsRootUnorderedAccessView {};
 
-// Tracker-only; startup AmdGraphicsWait controls attachment, not later UI toggles.
+// Tracker-only; latched backend/convenience/new-wait policy controls attachment.
 static RootRestoreHook<PFN_RSSetViewports> s_RSSetViewports {};
 static RootRestoreHook<PFN_RSSetScissorRects> s_RSSetScissorRects {};
 static RootRestoreHook<PFN_IASetPrimitiveTopology> s_IASetPrimitiveTopology {};
@@ -1633,9 +1633,9 @@ void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
     const bool restoreComputeSignature = Config::Instance()->RestoreComputeSignature.value_or_default();
     const bool restoreGraphicSignature = Config::Instance()->RestoreGraphicSignature.value_or_default();
     const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-    // Observe native calls even when submission uses a proxy, for Daniel hot-switch.
+    // Capture Daniel state only when startup backend/convenience policy needs it.
     const bool amdGraphicsTrackerWanted =
-        Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+        DlssNr::Backend::DanielGraphicsHooksWanted();
 
     s_SetPipelineState.o_lateHook = (PFN_SetPipelineState) pVTable[25];
     s_SetDescriptorHeaps.o_lateHook = (PFN_SetDescriptorHeaps) pVTable[28];
@@ -1823,9 +1823,9 @@ static void HookToCommandList(ID3D12Device* InDevice)
             PVOID* pVTable = *(PVOID**) commandList;
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-            // Observe native calls even when submission uses a proxy, for Daniel hot-switch.
+            // Capture Daniel state only when startup backend/convenience policy needs it.
             const bool amdGraphicsTrackerWanted =
-                Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+                DlssNr::Backend::DanielGraphicsHooksWanted();
             const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
             LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 
@@ -2973,10 +2973,10 @@ static void HookToDevice(ID3D12Device* InDevice)
         // lists stay eligible for new wait when the submission proxy is armed.
         if (DlssNr::Backend::SubmissionHooksWanted())
         {
-            if (o_CreateCommandSignature != nullptr)
+            if (DlssNr::Backend::DanielGraphicsHooksWanted() && o_CreateCommandSignature != nullptr)
                 DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
         }
-        else if (Config::Instance()->AmdGraphicsWait.value_or_default())
+        else if (DlssNr::Backend::DanielGraphicsHooksWanted())
         {
             if (o_CreateCommandList != nullptr)
                 DetourAttach(&(PVOID&) o_CreateCommandList, hkCreateCommandList);

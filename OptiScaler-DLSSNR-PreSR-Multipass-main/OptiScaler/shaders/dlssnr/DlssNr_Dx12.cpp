@@ -1468,9 +1468,16 @@ struct ScopedNrStateEnvelope
     {
         D3D12Hooks::SetRootSignatureTracking(false);
         const auto listId = reinterpret_cast<uint64_t>(DlssNr::Submission::GraphicsRecordingList(c));
-        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         auto& d = invocation.state;
-        d.requested = Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+        const bool trackerArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
+        d.requested = trackerArmed && Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
+        if (!trackerArmed)
+        {
+            d.reason = "graphics_tracking_disabled";
+            AmdPreSr::GraphicsSnap::g_restoreArmed = false;
+            return; // Keep the generic compute envelope; no Daniel capture/locks/pins.
+        }
+        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         d.listType = static_cast<uint32_t>(c->GetType());
         AmdPreSr::GraphicsSnap::GraphicsSnapshot candidate {};
         tracker.CopyState(listId, candidate, d.generation, d.generationKnown);

@@ -101,6 +101,14 @@ bool SubmissionHooksWanted()
     return ProxyWrapWanted();
 }
 
+bool DanielGraphicsHooksWanted()
+{
+    static const bool wanted = PrepareDanielGraphicsAtStartup(ActiveKindFromConfig(),
+        Config::Instance()->NrConvenience.value_or_default() != 0, HasDanielInstalled(),
+        Config::Instance()->AmdGraphicsWait.value_or_default() != 0);
+    return wanted;
+}
+
 bool ProxyWrapWanted()
 {
     if (!LmxxfWired())

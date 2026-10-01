@@ -288,11 +288,11 @@ void RenderMenu(Config* config, float menuResScale)
                 }
 
                 {
-                    bool convenience = config->NrConvenience.value_or_default() != 0;
+                    bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
                     static bool convenienceDirty = false;
                     if (ImGui::Checkbox("Allow backend hot switching", &convenience))
                     {
-                        config->NrConvenience = convenience ? 1 : 0;
+                        config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
                         convenienceDirty = true;
                     }
                     if (convenienceDirty)
