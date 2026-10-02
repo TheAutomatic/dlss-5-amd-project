@@ -54,10 +54,29 @@ Style、compact 1088、RGBA32F/typeless float 解释已接入产品配置；模�
 
 ## 保留与暂缓
 
+### 输入直写本地增量
+
+2026-10-02：在原 pin/模块上定向移植 shared-input UAV 接口；首次创建及重建都先 RequestDirectInput，RGB Create 关闭 tiles，并在首次录制前 RedirectOutput。共享输入仅在同一资源直写时免拷贝，COMMON→UAV→COMMON 边界不依赖录制次数；RecordingChain 持有 bridge，实际执行的队列完成凭证继续保护重放、重建和池复用。非直写的独立 bridge 调用者仍用原拷贝路径。
+
+该路径不读取上游 `DLSS5_DIRECT_IO` bitmask，不增加产品开关或旧 ABI 兼容。FP16 输出原本就直接返回 private_output；非 FP16 的必要格式转换保留。整体强度和稳定器继续消费原解码结果。关闭 tiles 在 1920×1152 processing 尺寸下每条链减少 33.75 MiB 分配及每帧重复写入；RedirectOutput 保留原 color 分配，不能把它也计作显存节省。
+
+验证：MSVC 两个候选运行库编译成功；旧版/仅关闭 tiles/完整直写在 720、900、1080 各 12 帧输出哈希逐帧一致（分别为 `9e99616bb5014312`、`799c164a4a0daf6c`、`fe40c904da05472e`）。现有 runtime recording GPU 专项在 PDL=1/0 均通过，覆盖跨队列、丢弃/重放、曝光与尺寸重建、NR off 后旧录制、新旧 session 并存、失败 Signal 保留资源，D3D12 debug 无错误。SourcePatchTests 两项通过，补丁由独立原始快照重放匹配。
+
+本机 RX 9070 XT，复用录制的顺序为旧版→仅关 tiles→直写→直写→仅关 tiles→旧版，每次 600 帧弃前 100，表内每项合并 1000 个样本。口径为 producer 提交至 consumer 完成的 CPU 墙钟，包含 CPU/GPU 交接及等待，不是游戏帧时长或单纯 NR GPU 时间。
+
+| 网络档 | 旧版 avg / p99 (ms) | 仅关闭 tiles | 完整直写 |
+|---|---:|---:|---:|
+| 900 | 8.915791 / 12.6723 | 8.905803 / 12.6279 | 8.888980 / 12.5973 |
+| 1080 | 12.204966 / 15.5093 | 12.215411 / 15.5301 | 12.151442 / 15.4883 |
+
+完整改动本批平均省约 0.027/0.054 ms，合并 p99 略降；单轮仍有波动。先前每帧重建录制/上传输入的对照波动更大（例如 1080 旧版两轮 avg 21.03 与 19.44 ms），不用于量化提速。结论是保留此分支内接入供游戏验证，不宣称稳定游戏帧数收益。未运行全量 CI、gfx1200 实机、游戏后端切换/效果菜单组合；发布前另做最终验证。没有更改模块配方、shader 算法、输入轮询或 IO fusion。
+
+### 剩余保留项
+
 | 项目 | 决定与再次评估的验收条件 |
 |---|---|
 | Bridge 更新 / 输入轮询 | 保留 `54e14de` bridge 及产品补丁。新轮询缺少稳定整帧收益；移植前须适配 recording lease、watchdog、重放/丢弃、跨队列与设备丢失，再测精确输出及真实游戏 mean/p99 |
-| 直接共享输入 | 上游 `DIRECT_IO` 与 HIP prefix direct-input 不同；先移植共享输入 API 的所有权和完成凭证，验证重建与资源复用，不能仅开一个 flags 值 |
+| 直接共享输入 | 已作本地定向接入，见下文“输入直写本地增量”；上游 `DIRECT_IO` bitmask 不作为产品配置，游戏性能验收仍待完成 |
 | IO fusion | 当前产品没有 UseNeuralBuffer 消费者；需要匹配 compose shader、资源 pin 和录制生命周期，独立验证输出及 mean/p99 后再考虑启用 |
 | Gather fold / projection FB8 | 主机与模块配对开关均保持关闭；前者已有变慢证据，后者改变残差存储。后续必须验证配对布局、精确/AE 输出和整帧收益 |
 | 老实验 Options | 如 sparse VMM、旧 ViT stream、window fused、替代 FFN；记录中逐项说明依赖/冲突。VMM 须先解决多 chunk 驱动正确性，不能仅凭减少分配量启用 |

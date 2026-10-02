@@ -23,6 +23,8 @@ class D3D12Bridge {
  HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
  ID3D12Resource* zero_upload{};ID3D12CommandAllocator* clear_alloc{};ID3D12GraphicsCommandList* clear_cmd{};
  size_t zero_upload_bytes{};bool clear_submission_unconfirmed{};
+ // Producer writes the shared UAV and leaves it COMMON before HIP reads it.
+ bool direct_input{};
 public:
  enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
  Phase CurrentPhase()const{return phase;}
@@ -188,11 +190,13 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   }
   module_directory=options.modules;
   network=new Network(std::move(options));auto&api=network->Runtime();
-  Share(input,pixels*16);Share(history,pixels*16);Share(output,pixels*12,true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);
+  Share(input,pixels*16,direct_input);Share(history,pixels*16);Share(output,pixels*12,true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);
  }
  unsigned long long ReleaseMarks()const{return release_marks;}
  unsigned long long ReleaseMarkFailures()const{return release_mark_failures;}
  ID3D12Resource*Output()const{return output.resource;}
+ void RequestDirectInput(){if(network||queue)throw std::runtime_error("direct input must be requested before Create");direct_input=true;}
+ ID3D12Resource*DirectInput()const{return direct_input?input.resource:nullptr;}
  size_t free_at_create{};int hip_device=-1;/* HIP device index chosen for the D3D12 adapter */
  void MemoryReport(FILE*f){if(!network)return;network->Runtime().hipStreamSynchronize(network->Stream());std::fprintf(f,"hip_memory device_free_before_network_MiB=%.1f shared input_MiB=%.1f history_MiB=%.1f output_MiB=%.1f\n",free_at_create/1048576.,pixels*16/1048576.,pixels*16/1048576.,pixels*12/1048576.);network->MemoryReport(f);}
 bool PdlRequested()const{return network?network->PdlRequested():false;}
@@ -213,7 +217,7 @@ private:
   phase=Phase::InputRecorded;recorded_temporal=temporal!=nullptr;
   try{
    auto copy=[&](ID3D12Resource*src,Shared&dst){Barrier(c,src,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);Barrier(c,dst.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);c->CopyBufferRegion(dst.resource,0,src,0,pixels*16);Barrier(c,dst.resource,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);Barrier(c,src,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);};
-   copy(rgba,input);if(temporal)copy(temporal,history);if(readable)Barrier(c,output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);readable=false;
+   if(!(direct_input&&rgba==input.resource))copy(rgba,input);if(temporal)copy(temporal,history);if(readable)Barrier(c,output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);readable=false;
   }catch(...){failed=true;throw;}
  }
  void Enqueue(ID3D12CommandQueue*producer,U seed,bool temporal,bool external){

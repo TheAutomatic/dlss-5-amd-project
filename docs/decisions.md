@@ -1,5 +1,12 @@
 # 决策记录
 
+## 2026-10-02 · lmxxf 输入直写与无用 tile 副本
+
+- **决定**：HIP 输入不再生成无消费者的 tile 副本；RGB pass 直接写入可 UAV 的 HIP 共享输入，并省去私有 PostBase 到共享输入的拷贝。输入轮询与 IO fusion 仍暂缓，FP16 输出直交沿用现有实现。
+- **边界**：这是运行库内部的数据搬运优化，不新增菜单、环境变量控制或 ABI。保留 fence、录制租约、跨队列完成凭证和计时修复；COMMON→UAV→COMMON 由 RGB producer 保证，旧录制继续持有原 bridge。保留 RedirectOutput 的旧 color 分配，不宣传它也释放了显存。
+- **收益口径**：1080 档每条 RGB 链少分配 33.75 MiB tile 缓冲并免相应写入；速度收益须以产品测量为准，不能套用上游数据或以 NR GPU 时长代替总耗时。这是分支内接入，游戏验收及发布验证另行完成。
+- **落在**：`LmxxfNrRuntime.cpp` 两处 bridge 创建及 RGB 初始化；固定 bridge 与 `tools/lmxxf-sync/patches/bridge.patch`。验证及适用范围见 [0.39 消费者审阅](lmxxf-039-consumer-review.md#输入直写本地增量)。
+
 ## 2026-10-02 · 暂缓 lmxxf 输入轮询与 IO 融合
 
 - **决定**：当前接入保持 `DLSS5_HIP_INPUT_POLL` / `DLSS5_IO_FUSE` 不启用，不添加无实际消费者的菜单或 ini 键。

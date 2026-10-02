@@ -133,6 +133,8 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 
 ### 输入轮询与 IO 融合：暂缓接入
 
+输入直写已独立接入：RGB pass 写入 HIP 共享 UAV，省去中间拷贝，并关闭无消费者的 tile 副本。无需添加 `DLSS5_DIRECT_IO`；该上游 bitmask 不控制本产品。FP16 解码输出原本就直接交给后续处理，其他格式必要的 buffer→texture 转换保留。验证边界见 [消费者审阅](../lmxxf-039-consumer-review.md#输入直写本地增量)。
+
 这两项均为上游默认关闭的实验路径，目前没有产品菜单或 ini 绑定。
 
 - `DLSS5_HIP_INPUT_POLL`：上游 `Development/results/handoff-gpu-20260930` 中，输入交接微测约省 0.05 ms，但整帧两档测试反而慢约 0.01–0.04 ms。产品固定的桥接版本承担录制、重放、取消及异步计时契约，不能只打开宏；需移植标记提交、等待、超时回退和资源退役，验证丢弃录制、跨队列重放与长时间运行。收益不足以支持现在改动同步路径。

@@ -2,7 +2,7 @@
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
 - Commit: `82ce821f0ea1a12925d04c353cb2d1b9ee006c11` (synced 2026-10-02)
-- **0.39 + six commits**: dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin, with the two maintained LINE_STORES overrides and no RowOpts/ExtraOpts. Full upstream review, actual per-module selections, product preset differences, validation and explicit deferrals are recorded in [the 0.39 consumer review](../../docs/lmxxf-039-consumer-review.md). Pinned bridge and product recording/timing contracts remain; input polling, direct shared input and IO fusion are not enabled. Product bounded timing is independent of upstream FRAME_STATS. This source/module review is not release or game acceptance.
+- **0.39 + six commits**: dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin, with the two maintained LINE_STORES overrides and no RowOpts/ExtraOpts. Full upstream review, actual per-module selections, product preset differences, validation and explicit deferrals are recorded in [the 0.39 consumer review](../../docs/lmxxf-039-consumer-review.md). Pinned bridge and product recording/timing contracts remain; input polling and IO fusion are not enabled. Direct shared input was integrated in the subsequent local transport update described below. Product bounded timing is independent of upstream FRAME_STATS. This source/module review is not release or game acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
@@ -28,6 +28,8 @@ Only after review and requested verification succeed does the completed commit a
 `-SkipEnablementAudit` is a source-staging-only escape hatch; it leaves the sync pending.
 
 ## OURS (do not follow upstream on sync)
+
+Local input transport update (2026-10-02): the product runtime requests the shared input UAV before Create and redirects the RGB producer into it, with unused tile output disabled. This is maintained in bridge.patch; it does not enable input polling or IO fusion. The earlier synchronization summary describes that sync's state, not this subsequent local change. See the input transport section of the [consumer review](../../docs/lmxxf-039-consumer-review.md#输入直写本地增量).
 
 Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves** the vendor file below by default; pass the named switch only when intentionally refreshing from upstream and re-applying local patches (fail-closed). After PR #9 merged upstream, reflect / input-geometry no longer need pinning.
 

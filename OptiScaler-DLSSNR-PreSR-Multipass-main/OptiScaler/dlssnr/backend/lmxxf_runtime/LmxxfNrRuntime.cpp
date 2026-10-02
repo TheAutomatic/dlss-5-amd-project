@@ -1794,6 +1794,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (opt.graph)
                 return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
             session->InstallBridge(new hip_reference::D3D12Bridge());
+            session->bridge->RequestDirectInput();
             session->bridge->Create(session->queue, opt, {});
             if (session->recordingLeases) session->bridge->EnableRecordingLeases();
             ++session->bridgeCreates;
@@ -2092,6 +2093,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 if (opt.graph)
                     return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
                 session->InstallBridge(new hip_reference::D3D12Bridge());
+                session->bridge->RequestDirectInput();
                 session->bridge->Create(session->queue, opt, {});
                 if (session->recordingLeases) session->bridge->EnableRecordingLeases();
                 ++session->bridgeCreates;
@@ -2141,7 +2143,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 enc = new NativeGameCodec();
                 enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, bindExposure);
                 rgbIn = new NativeGameRgbInput();
-                rgbIn->Create(session->device, enc->Output(), session->shaderDir);
+                // HIP consumes PostBase only; the tile-ordered duplicate has no reader.
+                rgbIn->Create(session->device, enc->Output(), session->shaderDir, false);
+                rgbIn->RedirectOutput(session->bridge->DirectInput());
                 rgbOut = new NativeRgbTexture();
                 rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
                 dec = new NativeGameCodec();
