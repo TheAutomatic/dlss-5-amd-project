@@ -1,0 +1,19 @@
+#version 460
+// A game's depth buffer into the temporal path's R32F depth image, when the
+// buffer is a depth/stencil format (D32S8, D24S8 - under vkd3d-proton, AMD's
+// D24S8 is D32S8). A blit cannot do this: Vulkan allows blitting a depth/stencil
+// image only to one of the same format. So the depth aspect is sampled through
+// its own view instead, texel for texel what a NEAREST blit of the same
+// rectangles picks: source texel floor((x + 0.5) * src / dst), offset by the
+// region's base (the game's depth subrect).
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D src;                // the depth aspect
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D dst;
+layout(push_constant) uniform Push { uint dw, dh, sw, sh, sx, sy; } pc;
+void main() {
+    const uvec2 xy = gl_GlobalInvocationID.xy;
+    if (xy.x >= pc.dw || xy.y >= pc.dh) return;
+    const vec2 s = floor((vec2(xy) + 0.5) * vec2(pc.sw, pc.sh) / vec2(pc.dw, pc.dh));
+    const ivec2 t = min(ivec2(s), ivec2(pc.sw, pc.sh) - 1);
+    imageStore(dst, ivec2(xy), vec4(texelFetch(src, t + ivec2(pc.sx, pc.sy), 0).r, 0.0, 0.0, 0.0));
+}

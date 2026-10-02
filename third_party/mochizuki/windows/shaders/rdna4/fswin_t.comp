@@ -1,0 +1,3452 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#ifndef NR_HALF_RTZ
+#define NR_HALF_RTZ 0
+#endif
+#if NR_HALF_RTZ
+// Experiment (off by default): changes all half arithmetic in this entry point,
+// including reductions. Requires shaderRoundingModeRTZFloat16; accumulation
+// remains FP32. This is not a per-conversion or NVIDIA-equivalent mode.
+#extension GL_EXT_spirv_intrinsics : require
+spirv_execution_mode(capabilities = [4468], 4463, 16);
+#endif
+#ifndef NR_POST_NO_OUT1
+#define NR_POST_NO_OUT1 0
+#endif
+#ifndef NR_OUT0_NOFORMAT
+#define NR_OUT0_NOFORMAT 0
+#endif
+#ifndef NR_HALF_RTE
+#define NR_HALF_RTE 0
+#endif
+#if NR_HALF_RTE
+// The pre block's input rounds to nearest even, as the original's
+// cvt.rn.f16.f32 does. linux/ gets there with the RTE float-controls execution
+// mode, which keeps RADV from folding f16vec3(textureLod(..)) into a 16-bit
+// texture return (d16: truncated for a 32-bit float texel). LLPC folds it into
+// d16 with the mode too, and the mode cost the image pre pipeline ~1070
+// instructions (amdllpc). Its fptrunc already rounds to nearest, so here the
+// sample only has to stay f32: image_input.glsl passes it through
+// max(x, -FLT_MAX), which the fold cannot see through (no `ninf` in LLPC's
+// fast-math flags). The same f16 value for every finite input and for -inf.
+// NR_HALF_RTE_MODE=1 adds linux/'s execution mode as well, for checking on RADV
+// (whose undecorated vector conversion is v_cvt_pk_rtz) that the frame is
+// linux/'s byte for byte; not shipped.
+#ifndef NR_HALF_RTE_MODE
+#define NR_HALF_RTE_MODE 0
+#endif
+#if NR_HALF_RTE_MODE
+#extension GL_EXT_spirv_intrinsics : require
+spirv_execution_mode(extensions = ["SPV_KHR_float_controls"], capabilities = [4467], 4462, 16);
+#endif
+#endif
+// NR_F16_RTE_MODE=1 (checks only): the same execution mode on any fswin_t pipeline, so that RADV's
+// undecorated f32->f16 vector conversions round to nearest like LLPC's - for comparing two
+// spellings that are equal under round-to-nearest (NR_PROB_PK) on RADV.
+#ifndef NR_F16_RTE_MODE
+#define NR_F16_RTE_MODE 0
+#endif
+#if NR_F16_RTE_MODE && !(NR_HALF_RTE && NR_HALF_RTE_MODE)
+#extension GL_EXT_spirv_intrinsics : require
+spirv_execution_mode(extensions = ["SPV_KHR_float_controls"], capabilities = [4467], 4462, 16);
+#endif
+#ifndef NR_IO_DOT2
+#define NR_IO_DOT2 0
+#endif
+#if NR_IO_DOT2
+// The RGB output projection's channel pairs as one mixed dot product,
+// f16 x f16 pairs into an f32 accumulator (VK_VALVE_shader_mixed_float_dot_product,
+// V_DOT2_F32_F16) instead of two fma_mix. The products of two halves are exact
+// in f32; the native projection accumulates in f16.
+#extension GL_EXT_spirv_intrinsics : require
+#endif
+#ifndef NR_PERSIST
+#define NR_PERSIST 0
+#endif
+// A persistent run whose last layer is the level's fused downsample
+// (the fswindsp body behind a wave-uniform branch). Host: NR_PERSIST_DS_MASK.
+#ifndef NR_PERSIST_DS
+#define NR_PERSIST_DS 0
+#endif
+// A persistent run whose first layer is the level's fused upsample
+// (fswinfusedup's prologue and blend-staging behind a wave-uniform branch).
+#ifndef NR_PERSIST_UPS
+#define NR_PERSIST_UPS 0
+#endif
+#if NR_PERSIST_UPS && (!NR_PERSIST || NR_PERSIST_DS || !defined(NR_FUSED_UPS_BLEND) || \
+    !defined(NR_WIDE_UPS_PROJECT) || !NR_HWAVES)
+#error "NR_PERSIST_UPS: persistent head-split body with the wide fused upsample, not with NR_PERSIST_DS"
+#endif
+#if NR_PERSIST_DS && !NR_PERSIST
+#error "NR_PERSIST_DS needs NR_PERSIST"
+#endif
+#if NR_PERSIST
+// The claimed item arrives in a VGPR - it is the return of a global atomic -
+// and every window coordinate derived from it would follow it into vector
+// registers. `subgroupBroadcastFirst` is the one operation that tells ACO the
+// value is wave-uniform, which is what keeps the addressing scalar; it needs
+// the ballot extension, and `subgroupElect` the basic one, so both are
+// required here and nowhere else (NR_PERSIST=0 SPIR-V is unchanged).
+#extension GL_KHR_shader_subgroup_basic  : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#endif
+// NR_WAVE_UNIFORM: tid/32 is one value per wave (a wave is 32
+// consecutive invocations), but NIR sees a divergent value and keeps every
+// quantity derived from it in VGPRs. Reading it through readfirstlane makes
+// the same value scalar.
+#ifndef NR_WAVE_UNIFORM
+#define NR_WAVE_UNIFORM 0
+#endif
+#if NR_WAVE_UNIFORM
+#extension GL_KHR_shader_subgroup_ballot : require
+#define NR_WAVE_OF(t) subgroupBroadcastFirst((t) / 32u)
+#else
+#define NR_WAVE_OF(t) ((t) / 32u)
+#endif
+
+// e4m3 quantisation straight from f32, one rounding instead of two. Set here
+// rather than in coopmm.glsl because it is a decision about *this* kernel: the
+// f32 entry point removes 415 instructions at C=32 - the f16 narrowing that
+// every f32 call site was paying on the way into a clamp it then did in f16 -
+// and this shader has already given up bit-agreement with NVIDIA's f16
+// accumulator (NR_ACC_F16 below), so the second rounding buys nothing here. It
+// still buys agreement in `attn.comp`, which keeps mode 1.
+//
+//   mode 1 (was)  191.7 us at C=32, 3253 instructions, gold 90.8%
+//   mode 0        178.6 us,         2896 instructions, gold **91.2%**
+//
+// The clamp itself stays. `NR_QUANT_MODE=3` drops it and is 5.5% faster with a
+// bit-identical score on this corpus - and the corpus is not the network: NVIDIA's
+// own 1080p capture has **2.38 M bytes at exactly 0x7E**, e4m3's largest finite
+// value, 18% of `b031l2_o2` and of `b032l0`. Saturation happens, the guard is
+// load-bearing, and the only reason that is known is that the capture was
+// searched for it instead of the comment being believed.
+//
+// **Mode 4 is the default and it is safe on any driver.** It spells the clamp as
+// SPV_EXT_float8's saturating conversion, which RADV 26+ lowers to a bare
+// `v_cvt_pk_fp8_f32` with the MODE register FP16_OVFL bit - no VALU per value -
+// and which RADV 25.2.8 lowers to *byte-identical ISA to the hand-written
+// clamp*. Measured both ways, so there is nothing to detect at build time:
+//
+//   Mesa 26.2.2   mode 0: 6683 instructions, 768 clamps,   0 s_setreg
+//                 mode 4: 4828 instructions,   0 clamps, 363 s_setreg
+//
+// **Those three numbers were once 2930/440/0 and 2681/128/143, and none of
+// them was ever real.** Counted from the ISA on the shipping
+// C=32 shape (`NR_FWAVES=1`, `NR_K_REGS=1`, `NR_NORM_F32=1`, `NR_IMAGE=1`); the
+// old row came off RADV's own listing, which desynchronises on the 8-byte
+// converts and loses 13.7% of this shader's instructions. Two of the errors are
+// not shape drift and could not be:
+//
+//   * **mode 4 cannot have any clamps.** The whole point of the mode is that
+//     the clamp becomes the saturating conversion, and `v_maxmin_num_f32` is
+//     0 in it, not 128 - the same correction as in `coopmm.glsl`.
+//   * 143 `s_setreg` against 363 is the disassembler's near-halving signature,
+//     exactly as "163 MODE writes for 182 converts" turned out to be 343 for
+//     384.
+//
+// The Mesa 25.2.8 row ("2892 instructions, 448 clamps, identical") is removed
+// rather than corrected: that driver is not installed and the claim cannot be
+// re-counted, so it would be an uncheckable number sitting beside two checked
+// ones. The *behaviour* it recorded - 25.2.8 lowering mode 4 to the same ISA as
+// the hand-written clamp - is not disturbed by this and is left in the prose.
+//
+// and on 26.2.2 that is 178.0 -> 166.3 us at C=32, 122.6 -> 111.3 at C=64,
+// 100.4 -> 93.8 at C=128, and a wash at C=256 - **3.3% off the family with the
+// gold byte-identical at all four widths**. The clocks were if anything lower
+// on the faster side, so the win is understated.
+#ifndef NR_QUANT_MODE
+#define NR_QUANT_MODE 4
+#endif
+#include "coopmm.glsl"
+#include "swin_math.glsl"
+#if NR_IO_DOT2
+spirv_instruction(extensions = ["SPV_VALVE_mixed_float_dot_product"], capabilities = [6912], id = 6916)
+float nr_fdot2mix(f16vec2 a, f16vec2 b, float acc);
+#endif
+
+// The fused Swin block, carried **transposed**: every matrix is
+// [feature][token], weights are the A operand and activations are B.
+//
+// Why the orientation matters more than anything else here: `coopmm.glsl`
+// records the measured fragment layout on this target, and an Accumulator's
+// components *are* a B operand's and are a transposed A operand's. So an
+// intermediate becomes the next matmul's operand by assigning its components
+// across - no memory, no barrier - **provided the accumulator's row index is
+// the next contraction index**. In the natural [token][feature] orientation it
+// never is, and the untransposed `fswin.comp` pays for that with seven LDS round trips.
+// Transposed, every hop lines up:
+//
+//     expand -> (grouped middle) -> contract -> QKV -> logits -> ctx -> out
+//
+// and the only arrays left are K and V, which are shared across waves and so
+// have to be in LDS regardless. 6144 B at C=32 against 20992.
+//
+// Two more things fall out of the layout rather than being arranged:
+//   * the residuals are element-wise adds - `rs[n]` is per accumulator *row*,
+//     so it is per component, and `x` loads as a B fragment carrying the
+//     accumulator's own map. `fswin.comp` needs a diagonal matrix and two extra
+//     MMAs for the same thing.
+//   * L2-normalising Q and K is a *column* reduction: eight components inside
+//     one lane plus a single shuffle. So is the softmax denominator, because
+//     the logits are computed transposed as S^T = K.Q^T.
+//
+// The pinned native-FP8 PTX quantizes normalized Q (after head scale), K and V
+// to e4m3 before their products. The old CPU reference omitted Q/K conversion
+// and is not an independent specification.
+
+#ifndef NR_C
+#define NR_C 32
+#endif
+#ifndef NR_HEADS
+#define NR_HEADS 1
+#endif
+#define NR_H    (4 * NR_C)
+#define NR_HD   (NR_C / NR_HEADS)       // head dim
+#define NR_WIN  64
+// Waves a workgroup, and through NR_MF the register-blocking factor. LDS is
+// 6144 B at every width, so this is purely a register trade.
+//
+// **Re-measured at the window count each width actually has at 1080p**, because
+// the previous choice was made at a flat 1024 windows for all four and the real
+// counts are 8160 / 2040 / 510 / 135. Three of the four were right anyway; C=64
+// was not:
+//
+//     C=32  win 8160   fw1 293.4   **fw2 245.8**   fw4 256.2
+//     C=64  win 2040                 **fw2 189.3**   fw4 208.9   <- was 4
+//     C=128 win  510                   fw2 167.9   **fw4 162.5**
+//     C=256 win  135                   fw2 439.4   **fw4 312.0**
+//
+// Gold is identical at every setting - this is a work split, not arithmetic.
+// The old note's reason for four at the wider widths ("at two the QKV
+// projection spills") still holds at C=128 and C=256 and evidently does not at
+// C=64, where two waves win by 1.10x.
+//
+// The same mistake in `attn.comp` was worth 2.83x, so **choose a wave count at
+// the launch size the layer really has**, not at whatever saturates the GPU.
+// Re-swept once NR_ACC_F16 and NR_QUANT_MODE changed the instruction mix, and
+// **C=128 had the wrong value**: two waves is 94.0 us against four's 112.9,
+// 1.20x, worth 0.23 ms over its twelve layers. The other three were right.
+//
+//   NR_FWAVES        1        2        4
+//   C=32          188.7  **180.5**   192.5
+//   C=64          170.9  **125.3**   129.5
+//   C=128         120.4   **94.0**   112.9   <- was 4
+//   C=256         422.5    145.6  **111.4**
+//
+// The pattern is not "more waves is more parallelism": four waves at C=128 has
+// twice the waves and 13.7 instructions per WMMA against two waves' 11.9, and
+// the denser one wins. Only C=256, where a wave's share of the window is small
+// enough that four still fills it, prefers four. Gold is identical in all
+// twelve cells - this is a work split.
+// **Two, at every width, and the exception at C=256 was a property of the old
+// driver.** Re-swept on RADV 26.2.2 - which is what the deployment machine runs
+// - at a budget that saturates the clock:
+//
+//   NR_FWAVES     1       2        4
+//   C=32       173.9  **166.9**  174.8
+//   C=64       182.6  **112.6**  117.7
+//   C=128      110.6   **89.8**   97.7
+//   C=256      590.6  **159.4**  194.3   <- was 4, on RADV 25.2.8
+//
+// On 25.2.8 C=256 preferred four (111.4 against two waves' 145.6) and here it
+// prefers two by 16%. **The ranking inverted with the driver**, which is the
+// same lesson as every other re-sweep in this file: a knob measured under one
+// configuration is a fact about that configuration. Gold is identical in all
+// twelve cells either way - this is a work split, not arithmetic.
+//
+// Worth 0.56 ms over the family's 44 layers.
+#ifndef NR_FWAVES
+#define NR_FWAVES 2
+#endif
+// **One wave per head, and the whole window per wave.** NVIDIA's own
+// `cc_tinlayout_fused_swin_8h_256_8_fp8` launches 32x8 with 16384 B of shared:
+// a warp per head, each owning all 64 tokens. NR_FWAVES splits the *tokens*
+// instead, so every wave computes every head, and at C=256 the level has 135
+// windows - 540 waves on 256 SIMDs, which is where its 1.61x efficiency gap
+// between 1080p and 4K comes from. Splitting by head gives NR_HEADS waves a
+// window and NR_MF = 4, so one weight fragment serves four MMAs.
+//
+// The cost is that x, the middle output and the context can no longer live in
+// registers: each is produced by the wave that owns those rows and consumed by
+// every wave. Two NR_WIN*NR_C e4m3 exchange buffers carry them, in the arena's
+// own tile-blocked layout so a fragment round trip is one store and one load.
+//
+// **Measured at C=256 and it does not pay. Default 0 at every width.** The
+// output is byte-identical - the whole frame's PNG cmps equal at both extents,
+// and the fswin benchmark scores 68.1% at C=256 and 76.5% at C=128 either way - so
+// this is a work split and nothing else, and it is 25% slower:
+//
+//   fswin256, 15 dispatches, 1080p   115.9 us  ->  144.5 us   (+24.7%)
+//                            4K      290.8 us  ->  410.9 us   (+41.3%)
+//   frame, clock-normalised  1080p     9.13 ms ->    9.79 ms
+//                            4K       31.62 ms->   34.13 ms
+//
+// Occupancy was not the bound. The split doubles the waves a window to 8 and
+// puts all 1080 of the level's waves resident at once, which is what it was
+// for; what it costs is register reuse. In the token split the expand stage
+// reads x sixty-four times out of *registers* (1024 MMAs off 16 fragments);
+// here every one of its 512 MMAs takes an `ds_load_b64`, and the contract, the
+// QKV and the output projection reload their operands too - 52 static LDS
+// instructions become 288, and four barriers a window instead of sixteen buys
+// back nothing like that. VGPRs 240 -> 256 (2 spilled), LDS 20480 -> 32768,
+// subgroups a SIMD 6 -> 5.
+//
+// Two things inside it were worth having found, and both are general: a
+// coopmat array indexed by anything ACO cannot fold lands in scratch (385
+// spilled VGPRs), and a weight load that does not depend on the token block
+// gets hoisted out of an unrolled m loop (96 live fragments, 207 spilled) -
+// the fix for the second is the k-outer nest every other stage already has.
+//
+// **The restructure meant to fix the registers did not, and the reason
+// is worth keeping.** Three arithmetic-preserving changes, in this order: the
+// QKV projection in three passes of 8 accumulators where one pass held 24
+// (192 VGPRs live); the logits and softmax one query fragment at a time, so
+// `pq2`'s 64 VGPRs are born and die inside the iteration and only `pb`
+// survives; the expand taking two weight rows a k step so each B fragment
+// feeds two MMAs. C=256, shipping defines, `NR_HWAVES=1`:
+//
+//                     VGPRs spill   LDS  subgrp  Instr  VALU  wmma  ds_load
+//   base, NR_HWAVES=0   240     0 20480       6   7375  4525   768       32
+//   NR_HWAVES before    256     2 32768       5   6740  5012   917      268
+//   after QKV split     256    15 32768       5   7547  5486  1277      328
+//   + softmax m-outer   256    15 32768       5   7558  5488  1277      328
+//   + paired expand     256    15 32768       5   7543  5494  1279      328
+//   + opaque LDS offsets 192     0 32768       8   8230  5545  1278      776
+//   + y not held        192     0 32768       8   7824  5232  1216      716
+//
+// **C=128 too, once the mode carried its norm.** C=128 shipped NR_NORM_F32=0,
+// the packed-f16 Q/K reduction; the three-pass QKV above splits Q and K into
+// passes whose accumulators are never live together, so the packed pair is
+// taken one half at a time - exact, because a packed f16 op rounds its halves
+// independently, so the pair was always two scalar chains. C=128, shipping
+// defines:
+//
+// **...and C=128 was then flipped to NR_NORM_F32=1, because the head split is what
+// the old verdict was measured without.** The NF table came from NR_HWAVES=0
+// builds and blamed occupancy: the f32 form's single cross-lane exchange has
+// nothing to hide it at five subgroups a SIMD. The mode below takes C=128 to
+// eight, and the sign inverts - `t_c128`, 510 windows, interleaved, in cycles
+// because the harness's clock ranged over 2828..3021 MHz in the same session:
+//
+//     NR_HWAVES=0   nf0 247.5 kcyc   nf1 296.2 kcyc     nf1 **+19.7%**
+//     NR_HWAVES=1   nf0 267.2 kcyc   nf1 238.9 kcyc     nf1 **-10.6%**
+//
+// `kernel/gold` is 76.5% in all four and `kernel/host` 71.9 -> 72.0, so unlike
+// the other three widths C=128 does not even pay the two tenths. The reading
+// was right and it expired when the shape it was measured on changed.
+//
+//                     VGPRs spill   LDS  subgrp  Instr  VALU  wmma  ds_load
+//   base, NR_HWAVES=0   256     7 12288       5   6162  4061   540       32
+//   NR_HWAVES=1         192     0 16384       8   6617  4390   672      394
+//
+// and the 7 spilled VGPRs are 1024 bytes of scratch the head split has none
+// of. Both ship (`NR_HW128`, `NR_HW256`).
+//
+// **The LDS loads were never one per MMA.** Per barrier region after the
+// first three: the expand and middle issued **64 `ds_load` for 575 `v_wmma`**
+// (a per-barrier-region static count on a kernel that no longer exists -
+// the shipping C=32 build has 16 `ds_load_b64` and 256 `v_wmma` in total - and
+// it is not re-derivable, so read the *ratio*, not the numbers) - NIR
+// has already CSE'd each (m, k) B fragment into one load, no store to `lds_x`
+// intervening, so every one of them feeds all eight h rows. Pairing h
+// therefore changed the `ds_load` count by exactly zero.
+//
+// **And that CSE *is* the register pressure.** Sixty-four CSE'd fragments are
+// 128 VGPRs live across a stage. The fused QKV was safe from it only by
+// accident: 24 live accumulators kept its k loop rolled - 88 static `v_wmma`
+// in the whole QKV/attention region. Dropping to 8 let NIR unroll all three
+// passes (448 static `v_wmma`, 128 `ds_load` in that region), and the
+// unrolled body's CSE'd x fragments take ACO's pre-schedule demand from 258
+// to 271, past the 256 cap; it spills the 16 VGPRs of `yq`, which live from
+// stage 2 to the output projection - 15 `scratch_store` in the QKV region and
+// 15 `scratch_load` in the projection. **Fewer accumulators bought more
+// pressure.** The three passes also read `lds_x` twice more than the fused
+// one did.
+//
+// So the lever was not a loop nesting: it was keeping the staged B fragments
+// out of the CSE's reach. **Both.** A distinct multiple of an opaque zero -
+// `gl_WorkGroupID.z`, which `nr_graph` always dispatches as 1 deep - in each
+// load site's offset makes the loads un-mergeable, and re-reading `lds_x`
+// where it is used instead of holding it takes ACO's pre-schedule demand from
+// 271 to 159 and the allocation from 256-with-15-spilled to 192: **8
+// subgroups per SIMD, up from 5**. The `ds_load` count is what the shape
+// always implied - per barrier region, 256 loads for 576 MMAs in the expand
+// and middle (64 a pair, 4 pairs), 136 for 128 in the contract, 256 for 448
+// in QKV and attention, 68 for 64 in the output projection.
+//
+// The second half is `yq`: seeding the output projection's `ars` residual by
+// reloading the wave's own rows from `lds_x`, where stage 2 already wrote
+// them, instead of carrying four fragments through the attention. Those were
+// exactly the 15 VGPRs that spilled. 406 fewer instructions than the opaque
+// offsets alone, because the scratch traffic goes with them.
+//
+// In the frame (three runs an extent, --spv-dir):
+// **1080p 9.145 -> 8.780 ms, 4K 31.606 -> 31.014**, both PNGs byte-identical
+// to the token split's. fswin256 is 116.3 -> 91.3 us a dispatch at 1080p and
+// 289.4 -> 253.6 at 4K; standalone t_c256 114.9 us @ 3093 MHz -> 87.55 @ 3010.
+// **A wave owning more than one head is priced out, not unbuilt.**
+// `nrhw_h = int(wave)` below is one head a wave by construction, so the shape
+// between this and the one-wave one is a rewrite; it is also dead before the
+// rewrite starts. Occupancy here is LDS bytes per *wave* and `lds_x`/`lds_y`
+// are sized by the window, so halving a window's waves doubles its LDS a wave
+// and halves its subgroups a SIMD, one for one: C=256 on four waves is 32768 B
+// over four, 8192 a wave, **four** subgroups against today's eight. Every
+// shipping fswin pipeline is at 4096 B a wave, which is the measured knee exactly.
+#ifndef NR_HWAVES
+#define NR_HWAVES 0
+#endif
+#if NR_HWAVES
+#if NR_HEADS < 2
+#error "NR_HWAVES splits the window by head; NR_HEADS must be at least 2"
+#endif
+#if defined(NR_FUSED_IMAGE_INPUT) || defined(NR_FUSED_IMAGE_OUTPUT) \
+ || defined(NR_INPUT_F16) || defined(NR_FUSED_POST_BLEND) || defined(NR_FINAL_F16)
+#error "NR_HWAVES does not support the fused image / post variants"
+#endif
+#define NR_THREADS (32 * NR_HEADS)
+#define NR_MTOK NR_WIN                  // one wave owns the whole window
+#else
+#define NR_THREADS (NR_FWAVES * 32)
+#define NR_MTOK (NR_WIN / NR_FWAVES)    // tokens a wave owns
+#endif
+
+// Every count is a plain division: nothing here is a magic literal, and the
+// guards below fail the build rather than the score if a width does not tile.
+#define NR_MF  (NR_MTOK / 16)           // token fragments a wave owns
+#define NR_CF  (NR_C / 16)              // fragments across C
+#define NR_HF  (NR_H / 16)              // ... across the hidden
+#ifndef NR_STREAM_MLP
+#define NR_STREAM_MLP 0
+#endif
+#define NR_STREAM_C32 (NR_STREAM_MLP && NR_C == 32)
+#ifndef NR_PACK_C32
+#define NR_PACK_C32 0
+#endif
+#define NR_PACK_C32_ACTIVE (NR_PACK_C32 && NR_C == 32)
+#define NR_QF  (3 * NR_C / 16)          // ... across the 3C QKV rows
+#define NR_DF  (NR_HD / 16)             // ... across one head's dim
+#define NR_JF  (NR_WIN / 16)            // ... across the window's key tokens
+#if NR_HEADS > 1
+// The middle convolution is block diagonal over heads: output group g reduces
+// only hidden group g, and the stored tensor is one group's [C][H/heads].
+#define NR_HG  (NR_H / NR_HEADS)
+#define NR_HGF (NR_HG / 16)
+#define NR_KCF NR_CF                    // the contract then reduces C
+#else
+#define NR_KCF NR_HF                    // ... or the hidden directly
+#endif
+#if NR_MF * 16 != NR_MTOK || NR_MF > 4
+#error "NR_FWAVES must divide the window into whole 16-token fragments"
+#endif
+#if NR_DF * 16 != NR_HD || NR_CF * 16 != NR_C
+#error "C and C/heads must both be multiples of 16"
+#endif
+#if NR_HWAVES && (NR_DF * NR_HEADS != NR_CF || NR_MF != NR_JF)
+#error "NR_HWAVES needs the channel fragments to partition across heads"
+#endif
+
+// The register-blocking knob is NR_FWAVES, through NR_MF: at 6144 B of LDS and
+// ~144 VGPRs there is room to widen M, and each weight fragment then serves
+// NR_MF token blocks instead of one. Measured at C=32, 1024 windows: four waves
+// 27.55 us, two waves 26.10, one wave 68.86 and spilling.
+
+// Emulating NVIDIA's blocked f16 accumulator, at the k-step interval given.
+// gfx1201 has no f16 accumulator for FP8 operands, so every rounding is
+// software - and at C=32 the emulation is **30% of the kernel's instructions**:
+// 828 `v_cvt` and 576 `v_pk_*` against 128 `v_wmma` in a 4601-instruction
+// shader. **0 turns it off and is the default.**
+//
+// **Those four counts are per *wave* at `NR_FWAVES=2`, not per window**, and
+// the shipping C=32 kernel is now `NR_FW32=1` - one wave owning the
+// whole window, 256 `v_wmma` and 4752 instructions with the emulation off. So
+// the ratio may still be about right and the absolutes are a launch shape that
+// is gone; they were not re-derivable here and are left labelled rather than
+// replaced. See the `count-per-window-not-per-wave` note.
+//
+// Measured at 1080p window counts, timed and scored in the same run:
+//
+//   NR_ACC_F16      2      3      4      8     16    **0**
+//   C=32  us      246.2  205.3  203.6  195.9  191.4  **191.7**
+//         gold     91.3   91.2   91.4   91.2   90.8    90.8
+//   C=256 us      310.0  305.5  297.4  290.0  286.4  **115.0**
+//         gold     70.8   67.9   67.9   68.2   68.6    68.4
+//
+// **1.28x at C=32 and 2.63x at C=256**, for 0.5 and 2.4 points of gold. Over
+// the 44 layers the family goes 10.30 ms -> 5.81.
+//
+// Two things that look like the reason and are not. It is **not the number of
+// roundings**: at C=256 the k loop is 16 steps, so NR_ACC_F16=16 rounds once
+// and still costs 286 us. And it is **not occupancy**: C=256 goes from 143
+// VGPRs to 223 when the rounding is removed, i.e. it gets *worse*, and is 2.7x
+// faster anyway. What is left is that touching accumulator components
+// individually forces ACO to materialise the accumulator out of its packed
+// WMMA form, and the whole k loop then runs unpacked.
+//
+// **What the score column does and does not say.** `kernel/gold` is agreement
+// with NVIDIA's own output, which was produced *with* their rounding, so
+// removing ours must lower it and that is not an accuracy statement. The test
+// is `kernel/host`, against our FP32 reference - and it does not move either
+// (89.7 -> 89.2 at C=32, 71.9 -> 71.1 at C=256). All three metrics are bit
+// agreement dominated by e4m3's 3-bit mantissa, where one ulp is 6-12%
+// relative; neither setting is meaningfully more correct than the other.
+// Matching NVIDIA is verification, not quality. Set 2 to do the verification.
+#ifndef NR_PTX_ACC
+#define NR_PTX_ACC 1
+#endif
+#ifndef NR_ACC_F16
+// Residual placement and accumulator precision are independent. Keep FP32
+// default; explicit FP16 rounding is selected by the build/user policy.
+#define NR_ACC_F16 0
+#endif
+#ifndef NR_NATIVE_RESIDUAL
+// User accepted the native half residual path's full-image differences for
+// its measured speedup. Keep the explicit-rounding policy on its prior path.
+#define NR_NATIVE_RESIDUAL (NR_ACC_F16 == 0)
+#endif
+// r9: paired scalar math and a compact FP8 context staging path. Keep the
+// explicit accumulator-rounding policy unchanged. See the r9 performance audit.
+#ifndef NR_PACKED_SWIN_MATH
+#define NR_PACKED_SWIN_MATH (NR_ACC_F16 == 0)
+#endif
+#ifndef NR_CONTEXT_LDS
+#define NR_CONTEXT_LDS (NR_ACC_F16 == 0 && NR_C >= 128 && !NR_HWAVES)
+#endif
+#ifndef NR_SWIN_BIAS_F16
+// Standalone callers retain the original FP32 weight-buffer contract.
+#define NR_SWIN_BIAS_F16 0
+#endif
+
+#ifndef NR_DUMP
+#define NR_DUMP 0
+#endif
+#if NR_HWAVES && NR_DUMP
+#error "NR_HWAVES has no per-wave copy of the whole block to dump"
+#endif
+// Evaluate the activation in f32 straight from the accumulator and convert
+// once. Removes the f16 round trip the hardware forces on every quantisation
+// (see nr_quant_pair32); changes the image, because NVIDIA's activation rounds
+// in half. Off by default - this is a fidelity/speed choice, not a free win.
+#ifndef NR_ACT_F32
+#define NR_ACT_F32 0
+#endif
+// Three more instruction-budget ablations, diagnostic only, wrong output. See
+// the block at the top of swin_math.glsl. These close the last of the C=32
+// budget: the activation, exponential, probability sum and e4m3 clamp together
+// account for 1260 of 3289 instructions and the rest was unattributed.
+// Reduce a lane's own rows before the cross-lane exchange, so the half-wave
+// boundary is crossed once rather than eight times. Changes the summation
+// order, so it is a knob and not a cleanup.
+// **K as A operands in registers, never through LDS.**
+//
+// NVIDIA's own C=32 fused Swin has `bar.sync` **zero** and 32 `movmatrix`: one
+// warp owns the whole 64-token window, so K and V stay in registers and the
+// transpose the logit product needs is a register instruction. We stage both
+// through LDS - 32 `ds_store_b8`, a barrier, and the loads back - purely
+// because `NR_FWAVES=2` splits the window across two waves that have to share.
+//
+// At one wave there is nobody to share with, and the transpose is free here
+// too: an Accumulator's components **are** a transposed A operand on this
+// hardware, measured ([[fragment-layouts-make-the-round-trip-optional]]). The
+// K accumulator is [dim][token]; its transpose is [token][dim], which is
+// exactly what `lds_k` held. With NR_FWAVES=1, NR_MF == NR_JF, so the register
+// index is the logit loop's key-tile index unchanged.
+//
+// V is left in LDS: its accumulator is [dim][token] and the context product
+// wants A = [dim][token], which is the *untransposed* orientation, and
+// Accumulator -> A only gives the transpose.
+//
+// **Measured, and it does not pay. Default off.** At C=32, NR_FWAVES=1:
+// 4673 instructions with K in LDS, **4771 with K in registers**. The transpose
+// itself is free as advertised, but the component copy that performs it is
+// not: a coopmat's elements are individually addressed, so `kreg[m][d][c] =
+// kf[c]` is 64 scalar moves across the eight fragments where the LDS route is
+// eight `ds_store_b8` and one `ds_load_b64`. Register pressure did not move
+// either - 192 VGPRs and 8 waves both ways.
+//
+// And the wave count it needs is itself a loss: NR_FWAVES=1 is 4673
+// instructions a wave against two waves' 3214, better per MMA (21.4 against
+// 25.7) but at 8 subgroups a SIMD instead of 10, and measured 4% slower in
+// the frame. So NVIDIA's zero-barrier one-warp design does not port: their
+// `movmatrix` is one instruction and our equivalent is sixty-four.
+//
+// **Both halves of that are now stale, and the second one twice over.**
+// `NR_FWAVES=1` shipped as `NR_FW32=1`, so the wave count is no longer
+// a cost of this knob - it is the shipping shape. And re-priced against that
+// shape the register form is not +98 instructions and it does move the
+// registers: at C=32, NR_FWAVES=1, the shipping defines,
+//
+//     K in LDS        4752 instrs  3743 VALU  192 VGPR  4096 B LDS  8 waves
+//     K in registers  4757 instrs  3753 VALU  168 VGPR  2048 B LDS  9 waves
+//
+// +5 instructions, -24 VGPRs, half the LDS and a ninth subgroup a SIMD, at
+// `kernel/gold` 94.2% unchanged - the arithmetic is identical, only the staging
+// moves. Two interleaved standalone runs put it at 146.9 us @ 2668 MHz against
+// 147.2 @ 2679, i.e. **-0.6% in cycles, consistently but marginally**. That is
+// under the bar for a default change on one standalone layer; it wants an A/B
+// in the frame at both extents before anyone moves it.
+//
+// **Measured: the answer is no.** Applied to the pipelines that may
+// legally take it - the guard below is the other half of this change - the
+// 1080p and 4K PNGs are `cmp`-identical to the shipping build's, which settles
+// "only the staging moves", and the time is a wash:
+//
+//     1080p   A 21.69 Mcyc / 8.085 ms      K_REGS 21.69 / 8.080   **+0.0%**
+//     4K      A 77.50     / 30.181        K_REGS 77.48 / 30.175   **-0.03%**
+//
+// two interleaved passes each, clocks 2679..2686 and 2567..2568 MHz. The -0.6%
+// the standalone layer shows does not reach the frame: the ninth subgroup buys
+// nothing where the frame's C=32 dispatches are not occupancy-bound, and the
+// 64 scalar component moves it costs are paid either way. Default stays off,
+// and the knob is `NR_K_REGS=1` in a pipeline's defines, which attaches
+// it per pipeline rather than globally - for the reason immediately below.
+#ifndef NR_K_REGS
+// Under NR_HWAVES a wave owns all 64 tokens, so NR_MF == NR_JF and the register
+// index of a K fragment *is* the logit loop's key-tile index: the LDS staging
+// the token split needed has nobody left to share with.
+#define NR_K_REGS NR_HWAVES
+#endif
+#if NR_HWAVES && !NR_K_REGS
+#error "NR_HWAVES keeps K in registers"
+#endif
+// **The precondition the comment above states and nothing enforced.**
+// `kreg` is declared `[NR_MF][NR_DF]` and the logit loop reads `kreg[j][d]`
+// over `j < NR_JF`, so the register form needs `NR_MF >= NR_JF`: one wave
+// owning the whole window. At `NR_FWAVES=2` a wave owns 32 of the 64 tokens,
+// NR_MF is 2 against NR_JF's 4, and `kreg[2]`/`kreg[3]` are off the end of the
+// array - half the keys are whatever was next in the register file. A frame
+// built with `-DNR_K_REGS=1` passed globally therefore ran four *wrong*
+// C=32 adapters (`fswinimagepreds32`, `fswinimagepost32`, `fswinpost32`,
+// `fswinblendpost32`, all NR_FWAVES=2) and came back 0.6% faster for it. The
+// standalone harness cannot catch this: it builds NR_FWAVES=1 and scores
+// 94.2% either way.
+// NR_V_SWAP: the head-split body's V projection multiplies X . Wv^T so V
+// stays in registers as the context product's A operand (no lds_y round trip).
+#ifndef NR_V_SWAP
+#define NR_V_SWAP 0
+#endif
+// One wave owns the window: V never leaves registers. Otherwise (NR_FWAVES=2)
+// the swapped V goes to lds_v as before, stored ColumnMajor - the same
+// addresses, but a lane's eight bytes are now contiguous (one ds_store_b64).
+#define NR_V_REGS (NR_V_SWAP && (NR_HWAVES || NR_MF == NR_JF))
+// Windows (LLPC) NR_V_LDS_ROW: the head-split V tiles in lds_y stored RowMajor and read back
+// as a RowMajor A operand. ColumnMajor both ways puts element (r, c) at c*16 + r either way,
+// RowMajor at r*16 + c: the same element reaches the same A position. But a ColumnMajor A load
+// gathers a lane's eight bytes 16 apart - LLPC issues eight ds_load_u8 and reassembles them in
+// front of the WMMA - where RowMajor reads them as one 8-byte word; the scattered bytes move to
+// the stores, which nothing waits on.
+// Windows diagnostic (NR_PROF builds of persistent runs only): an item's time to each stage
+// boundary, tag 0x80000000 | stage << 28 | sync_off (stage 0 is the item's end record).
+#if NR_PERSIST && defined(NR_PROF_OFF) && defined(NR_PROF_STAGES)
+#define NR_PROF_STAGE(s) NR_PROF_REC(0x80000000u | (uint(s) << 28u) | pcp.sync_off, nr_item, nr_prof_tm, nr_prof_cm)
+// Inside the head loop: the last head only (4 = logits, 5 = context product).
+#define NR_PROF_STAGE_LAST(s) if (hh == NR_HEADS - 1) { NR_PROF_STAGE(s) }
+#else
+#define NR_PROF_STAGE(s)
+#define NR_PROF_STAGE_LAST(s)
+#endif
+// Windows (LLPC) NR_KFENCE_MASK: a wave-scope shared-memory barrier at the end of each k step of
+// the selected GEMM loops (8 QK pass, 16 V pass), so LLVM cannot hoist every k step's LDS
+// fragment loads ahead of the first WMMA (the register peak of the head-split bodies). Changes
+// no value.
+#ifndef NR_ESPLIT
+#define NR_ESPLIT 0
+#endif
+#ifndef NR_VPASS_SPLIT
+#define NR_VPASS_SPLIT 0
+#endif
+#ifndef NR_KFENCE_MASK
+#define NR_KFENCE_MASK 0
+#endif
+#define NR_KFENCE(bit) NR_KFENCE_##bit
+#if (NR_KFENCE_MASK) & 1
+#define NR_KFENCE_1 subgroupMemoryBarrierShared();
+#else
+#define NR_KFENCE_1
+#endif
+#if (NR_KFENCE_MASK) & 2
+#define NR_KFENCE_2 subgroupMemoryBarrierShared();
+#else
+#define NR_KFENCE_2
+#endif
+#if (NR_KFENCE_MASK) & 4
+#define NR_KFENCE_4 subgroupMemoryBarrierShared();
+#else
+#define NR_KFENCE_4
+#endif
+#if (NR_KFENCE_MASK) & 8
+#define NR_KFENCE_8 subgroupMemoryBarrierShared();
+#else
+#define NR_KFENCE_8
+#endif
+#if (NR_KFENCE_MASK) & 16
+#define NR_KFENCE_16 subgroupMemoryBarrierShared();
+#else
+#define NR_KFENCE_16
+#endif
+#if (NR_KFENCE_MASK) & 32
+#define NR_KFENCE_32 subgroupMemoryBarrierShared();
+#else
+#define NR_KFENCE_32
+#endif
+#ifndef NR_V_LDS_ROW
+#define NR_V_LDS_ROW 0
+#endif
+#if NR_V_LDS_ROW
+#define NR_V_LDS_STORE(frag, arr, off, stride) NR_STORE_ACC(frag, arr, off, stride)
+#define NR_V_LDS_LOAD(frag, arr, off, stride)  NR_LOAD_A(frag, arr, off, stride)
+#else
+#define NR_V_LDS_STORE(frag, arr, off, stride) NR_STORE_ACC_COL(frag, arr, off, stride)
+#define NR_V_LDS_LOAD(frag, arr, off, stride)  NR_LOAD_A_COL(frag, arr, off, stride)
+#endif
+#if NR_K_REGS && (NR_MF < NR_JF)
+#error "NR_K_REGS needs one wave per window (NR_MF >= NR_JF): NR_FWAVES=1 or NR_HWAVES=1"
+#endif
+// Square and reduce the Q/K norm in f32 rather than packed f16. Changes the
+// reduction's arithmetic - see the comment at the site.
+#ifndef NR_NORM_F32
+#define NR_NORM_F32 0
+#endif
+#ifndef NR_NORM_LATE_SHUFFLE
+#define NR_NORM_LATE_SHUFFLE 0
+#endif
+#ifndef NR_ABLATE_OOB
+#define NR_ABLATE_OOB 0
+#endif
+#ifndef NR_ABLATE_NORM
+#define NR_ABLATE_NORM 0    // Q/K normalisation: the squares, the reduction, the rsqrt
+#endif
+#ifndef NR_ABLATE_BIAS
+#define NR_ABLATE_BIAS 0    // the Swin position bias load and add
+#endif
+#ifndef NR_ABLATE_RESID
+#define NR_ABLATE_RESID 0   // the scaled residual seeded into the stage-2 accumulator
+#endif
+#ifndef NR_ACT_PACKED
+#define NR_ACT_PACKED 1
+#endif
+#ifndef NR_POOL_VECTOR_STORE
+#define NR_POOL_VECTOR_STORE 0
+#endif
+#ifndef NR_BLEND_VECTOR_LOAD
+#define NR_BLEND_VECTOR_LOAD 0
+#endif
+// The fused image output's register epilogue. Documented at the
+// `image_features` declaration; here so that passing it to a pipeline that has
+// no fused image output is a build error rather than a silent no-op, which is
+// the trap `NR_K_REGS` was caught in.
+#ifndef NR_IMGOUT_REGS
+#define NR_IMGOUT_REGS 0
+#endif
+#if NR_IMGOUT_REGS && !defined(NR_FUSED_IMAGE_OUTPUT)
+#error "NR_IMGOUT_REGS is the fused image output's epilogue: NR_FUSED_IMAGE_OUTPUT only"
+#endif
+
+// ---- NR_F16_MMA: f16 x f16 -> f16 cooperative matrices --------------------
+//
+// The C=32-class kernels issue ~20 instructions per MMA against NVIDIA's ~10,
+// and ~27% of the count is the f32 accumulator: every value leaving it is
+// narrowed (`v_cvt_f16_f32`), every quantisation widens it back
+// (`v_cvt_f32_f16`), and no epilogue can use packed-f16 math on accumulator
+// components. `v_wmma_f16_16x16x16_f16` has an f16 accumulator, so under this
+// define the operands become f16 and the epilogues become packed - at half the
+// matrix rate (207 against 399 TFLOP/s measured), which at C=32's 29% of the
+// FP8 peak leaves the f16 matrix floor well under the measured time.
+//
+// **The arithmetic the network specifies is unchanged.** Every e4m3 value is
+// exact in f16 and the product of two is exact in f16 (8 significant bits <=
+// 11), so an f16 WMMA fed with e4m3-valued halves computes the same products.
+// Every quantisation point still rounds to the e4m3 grid - through
+// `nr_requant_pair` in coopmm.glsl - the value simply continues as an f16
+// instead of an e4m3 byte. The **final store** to the activation arena is
+// still e4m3: the arena's format is the interface between layers.
+//
+// What moves: the weights come from the f16 arena (binding 4, tile-blocked the
+// same way, 2 bytes an element, so the push offsets are half-indices), K and V
+// stage through LDS as f16 (8192 B at C=32 against 4096), and the k-step
+// accumulation rounds in f16 rather than f32.
+//
+// Default off, and the NR_F16_MMA=0 SPIR-V is byte-identical.
+#ifndef NR_F16_MMA
+#define NR_F16_MMA 0
+#endif
+#if NR_F16_MMA
+#if NR_HEADS != 1
+#error "NR_F16_MMA is the one-head path only (NR_HEADS=1)"
+#endif
+#if NR_HWAVES || NR_PERSIST || NR_ACC_F16 != 0 || NR_DUMP || NR_K_REGS
+#error "NR_F16_MMA needs NR_HWAVES=0, NR_PERSIST=0, NR_ACC_F16=0, NR_DUMP=0"
+#endif
+#if defined(NR_INPUT_F16) || defined(NR_POOL_F16) || defined(NR_FINAL_F16) \
+ || defined(NR_FUSED_IMAGE_INPUT) || defined(NR_FUSED_IMAGE_OUTPUT) \
+ || defined(NR_FUSED_POST_BLEND)
+#error "NR_F16_MMA does not support the fused image / post variants"
+#endif
+#if NR_NORM_F32
+// The whole point of the f16 accumulator in the Q/K norm is that
+// `f16vec2(qkv[d][c], qkv[NR_DF+d][c])` is a free pack rather than two
+// `v_cvt_f16_f32`; the f32 reduction squares out of an accumulator that no
+// longer holds f32. Build with NR_NORM_F32=0.
+#error "NR_F16_MMA needs the packed-half Q/K norm: build with NR_NORM_F32=0"
+#endif
+#if !NR_QUANT_PAIRED
+#error "NR_F16_MMA needs the paired quantiser: NR_QUANT_MODE 4 or 5"
+#endif
+#if NR_ACT_F32
+#error "NR_F16_MMA has no f32 accumulator for NR_ACT_F32's f32 activation"
+#endif
+#if !NR_PTX_ACC || !NR_NATIVE_RESIDUAL || !NR_PACKED_SWIN_MATH || !NR_ACT_PACKED
+#error "NR_F16_MMA implements the shipping packed paths only"
+#endif
+#endif
+
+// The operand, accumulator and staging types the body is written against. At
+// NR_F16_MMA=0 every one of these expands to exactly the token it replaced.
+#if NR_F16_MMA
+#define NR_OPA         NR_FRAG_A16
+#define NR_OPB         NR_FRAG_B16
+#define NR_ACCF        NR_FRAG_ACC16
+#define NR_ACCZERO     NR_FRAG_ACC16(0.0hf)
+#define NR_ACC_SCALAR  NR_F16
+#define NR_WARENA      wgt_f16
+#define NR_STAGE_T     NR_F16
+#define NR_STAGE_FRAG  NR_FRAG_ACC16
+#define NR_QPAIR_T     f16vec2
+#define NR_QPAIR(v)    nr_requant_pair(v)
+// Two accumulator components into a half pair. With an f16 accumulator this is
+// the free pack; with an f32 one it is the widening pair the shipping code
+// spells, kept verbatim so its SPIR-V does not move.
+#define NR_ACC2(x, y)  f16vec2((x), (y))
+// The other spelling the body uses for the same pack. Kept distinct so that
+// each NR_F16_MMA=0 expansion is the exact token sequence it replaced -
+// `f16vec2(vec2(a, b))` and `f16vec2(NR_F16(a), NR_F16(b))` are the same
+// number and different SPIR-V, and the byte-identity gate is on the SPIR-V.
+#define NR_ACCP(x, y)  f16vec2((x), (y))
+#else
+#define NR_OPA         NR_FRAG_A
+#define NR_OPB         NR_FRAG_B
+#define NR_ACCF        NR_FRAG_ACC
+#define NR_ACCZERO     NR_ACC_ZERO
+#define NR_ACC_SCALAR  float
+#define NR_WARENA      wgt_e4m3
+#define NR_STAGE_T     NR_E4M3
+#define NR_STAGE_FRAG  NR_FRAG_E4M3
+#define NR_QPAIR_T     fe4m3vec2
+#define NR_QPAIR(v)    nr_quant_pair(v)
+#define NR_ACC2(x, y)  f16vec2(vec2((x), (y)))
+#define NR_ACCP(x, y)  f16vec2(NR_F16(x), NR_F16(y))
+#endif
+
+// ---- NR_PKN: one-instruction f32 -> f16 pair narrowing --------------------
+//
+// gfx1201 has no packed round-to-nearest-even narrowing - `v_cvt_pk_f16_f32`
+// is gfx1250-only and `llvm-mc -mcpu=gfx1201` rejects it - so building an
+// `f16vec2` out of two f32 accumulator components costs **two**
+// `v_cvt_f16_f32`, and the whole shader is written around that price. It is
+// why NR_NORM_F32 exists: see the long comment at the Q/K norm.
+//
+// It has a **round-toward-zero** sibling that this part does have:
+//
+//     v_cvt_pk_rtz_f16_f32 v0, v1, v2   ; encoding: [0x01,0x05,0x00,0x5e]
+//
+// and on RADV the GLSL spelling `packHalf2x16(vec2(a, b))` with **f32**
+// arguments lowers straight to it - one instruction for the pair. Verified in
+// the ISA; both `f16vec2(NR_F16(a), NR_F16(b))` and `f16vec2(vec2(a, b))`
+// give two `v_cvt_f16_f32_e32 vN.l/.h` where `packHalf2x16` gives one
+// `v_cvt_pk_rtz_f16_f32_e32`.
+//
+// A previous session recorded "packHalf2x16(f16vec2) - ACO folds it" as a dead
+// end. That fed it values that were already f16, so nothing was left to
+// convert. Feeding it two f32 accumulator components is a different thing.
+//
+// **RTZ is not NVIDIA's rounding**, and unlike a one-off difference it is a
+// systematic bias toward zero, so the sites are classified and switched
+// separately rather than globally:
+//
+//   low          the narrowed value reaches an e4m3 quantisation almost at
+//                once. e4m3 has three mantissa bits against f16's ten, so an
+//                RTZ/RNE disagreement in the last f16 bit survives to the
+//                e4m3 grid only when the value sits within 2^-11 of a
+//                midpoint. Q, K, V, P, ctx.
+//   exact        the source is an e4m3 value widened to f32. Every e4m3 is
+//                exactly representable in f16, so RTZ and RNE agree bit for
+//                bit and this class is free. xb.
+//   mid          the narrowing feeds packed f16 arithmetic (the SiLU) before
+//                the quantisation. eq, yq.
+//   reduction    the narrowed value is summed - the Q/K norm's f32 sums and
+//                the exp whose result the probability sum accumulates. A
+//                downward bias accumulates here; these stay on RNE unless a
+//                measurement says otherwise.
+//
+// Default 0, and the NR_PKN=0 expansion of every macro below is the exact
+// token sequence it replaced, so the shipping SPIR-V does not move
+// (`cmp`-verified against the previous SPV).
+//
+// ## What each site is worth, C=32 at the shipping defines
+//
+// Per 64-token window, one wave. `cycles = (instrs - wmma) + 8 * wmma`; the
+// measured column is `us * MHz` from two to three interleaved fswin benchmark
+// rows at 8160 windows, quoted in kilocycles because the harness's clock moved
+// 2669..2755 MHz inside one session.
+//
+//   bit  site  instrs  cvt16  pkrtz  cycles  predicted  measured   gold   host
+//    -   none    4752    549      0    6544      -          -      94.2%  91.2%
+//    1   xb      4706    485     32    6498    -0.70%     -1.1%    94.2%  91.2%
+//    8   Q       4715    485     32    6507    -0.57%       -      94.2%  91.2%
+//   16   K       4721    485     32    6513    -0.47%       -      94.1%  91.2%
+//    2   eq      4622    296    128    6414    -1.99%     -2.3%    92.4%  90.5%
+//    4   yq      4776    485     32    6568    +0.37%       -      94.2%  91.2%
+//   32   V       4876    549     32    6668    +1.89%       -        -      -
+//   64   P       4900    549      0    6692    +2.26%       -        -      -
+//  128   ctx     4855    549     32    6647    +1.57%       -        -      -
+//  256   norm    4758    549      0    6550    +0.09%       -        -      -
+//    9   xb|Q    4688    421     64    6480    -0.98%     -1.2%    94.2%  91.2%
+//   25   +K      4642    357     96    6434    -1.68%     -1.9%    94.1%  91.2%
+//   27   +eq     4491    103    224    6283    -3.99%     -4.2%    92.2%  90.7%
+//
+// **V, P and ctx are the surprise and they say something about the shipping
+// kernel, not about RTZ.** Those three sites cost +1.6 to +2.3% instead of
+// saving, and their `cvt16` column does not move at all: the baseline has *no*
+// narrowing there. `nr_quant_pair(f16vec2 v)` widens the pair straight back
+// with `vec2(v)`, and ACO deletes an f32 -> f16 -> f32 round trip - the thing
+// `nr_round_f16` in coopmm.glsl exists to work around. So **256 of the ~800
+// narrowings this source asks for are already gone** (V 64, P 128, ctx 64):
+// those three go f32 -> e4m3 in one rounding where NVIDIA's PTX rounds twice.
+// Spelling them with `v_cvt_pk_rtz` makes the f16 step real again and then has
+// to pay two `v_cvt_f32_f16` to undo it, which is the whole regression.
+// Whether restoring NVIDIA's second rounding *there* buys `kernel/gold` is a
+// separate question not measured here; it is the one worth asking next.
+//
+// `xb` and `Q` are byte-identical on the standalone C=32 layer - gold
+// 1929/2048, host 1868/2048, the same ulp histogram - so `NR_PKN32=9` ships.
+// **They are not byte-identical in the frame**: the 1080p PNG differs from the
+// previous build's, because a hundred C=32 layers of real data find the ties one
+// standalone layer and one input do not. `xb` alone is exact by construction
+// and that half does hold everywhere.
+//
+// ## The cleaner spelling, which exists and is not usable per site
+//
+// `spirv_execution_mode(4463, 16)` - SPIR-V's `RoundingModeRTZ` for 16-bit -
+// makes ACO pair two ordinary `float16_t(x)` narrowings into one
+// `v_cvt_pk_rtz_f16_f32` **with no source change at all**; verified in the ISA.
+// It is rejected here only because it is per *entry point*: it would put the
+// Q/K norm's sums and the exp on RTZ too, which are the reduction sites this
+// classification exists to keep on RNE. It also wants the `RoundingModeRTZ`
+// capability and `shaderRoundingModeRTZFloat16`, neither of which this project
+// declares or checks.
+#define NR_PKN_XB    1
+#define NR_PKN_EQ    2
+#define NR_PKN_YQ    4
+#define NR_PKN_Q     8
+#define NR_PKN_K    16
+#define NR_PKN_V    32
+#define NR_PKN_P    64
+#define NR_PKN_CTX 128
+#define NR_PKN_NORM 256
+// The packed-half Q/K norm's own pair, i.e. the NR_NORM_F32=0 site. Not in
+// NR_PKN_ALL: it is dead at NR_NORM_F32=1 and it is what phase 3 re-prices.
+#define NR_PKN_NSQ  512
+#define NR_PKN_LOW  (NR_PKN_Q | NR_PKN_K | NR_PKN_V | NR_PKN_P | NR_PKN_CTX)
+#define NR_PKN_MID  (NR_PKN_XB | NR_PKN_EQ | NR_PKN_YQ)
+#define NR_PKN_ALL  (NR_PKN_LOW | NR_PKN_MID | NR_PKN_NORM)
+// The shipping set: the three sites whose narrowing is real and whose value
+// reaches an e4m3 grid or an exact e4m3 source. See the numbers above.
+#define NR_PKN_SHIP (NR_PKN_XB | NR_PKN_Q | NR_PKN_K)
+#ifndef NR_PKN
+#define NR_PKN 0
+#endif
+#if NR_PKN && (NR_F16_MMA || !NR_QUANT_PAIRED || !NR_PACKED_SWIN_MATH)
+// With an f16 accumulator there is nothing to narrow; the unpaired quantiser
+// and the unpacked Swin math spell these sites per component.
+#error "NR_PKN prices the shipping packed, paired, f32-accumulator path"
+#endif
+// One `v_cvt_pk_rtz_f16_f32`. The `unpackFloat2x16` is a bitcast, not an op.
+#define NR_RTZ2(x, y)  unpackFloat2x16(packHalf2x16(vec2((x), (y))))
+
+// ---- NR_R2: put NVIDIA's *second* rounding back at V, P and ctx -----------
+//
+// The ledger above found that those three sites have no narrowing at all in
+// the shipping kernel: the `f16vec2` is widened straight back by
+// `nr_quant_pair`'s `vec2(v)` and ACO deletes the round trip, so 256 of the
+// ~800 narrowings this source asks for never happen and the value goes f32 ->
+// e4m3 in **one** rounding where NVIDIA's PTX rounds f32 -> f16 -> e4m3 in two.
+// `NR_PKN` could not answer whether that costs agreement, because its spelling
+// of the site is round-toward-zero, i.e. a second question on top of the first.
+//
+// This knob restores the second rounding and nothing else, by rounding **in
+// f32** with `nr_round_f16_e4m3` - three integer instructions a component that
+// the optimiser cannot delete, and exactly RNE f16 on the reachable domain
+// (the result is quantised to e4m3 immediately at all three sites, which is
+// the precondition that function's comment states). The bits are NR_PKN's, so
+// the two knobs name the same sites; `NR_PKN` wins a site it also selects.
+#define NR_RNE2(x, y)  f16vec2(nr_round_f16_e4m3(x), nr_round_f16_e4m3(y))
+#ifndef NR_R2
+#define NR_R2 0
+#endif
+#if NR_R2 && (NR_F16_MMA || !NR_QUANT_PAIRED || !NR_PACKED_SWIN_MATH)
+#error "NR_R2 prices the shipping packed, paired, f32-accumulator path"
+#endif
+
+#if (NR_PKN) & NR_PKN_Q
+#define NR_N2_Q(x, y)   NR_RTZ2(x, y)
+#else
+#define NR_N2_Q(x, y)   NR_ACC2(x, y)
+#endif
+#if (NR_PKN) & NR_PKN_K
+#define NR_N2_K(x, y)   NR_RTZ2(x, y)
+#else
+#define NR_N2_K(x, y)   NR_ACC2(x, y)
+#endif
+#if (NR_PKN) & NR_PKN_V
+#define NR_N2_V(x, y)   NR_RTZ2(x, y)
+#elif (NR_R2) & NR_PKN_V
+#define NR_N2_V(x, y)   NR_RNE2(x, y)
+#else
+#define NR_N2_V(x, y)   NR_ACCP(x, y)
+#endif
+#if (NR_PKN) & NR_PKN_CTX
+#define NR_N2_CTX(x, y) NR_RTZ2(x, y)
+#elif (NR_R2) & NR_PKN_CTX
+#define NR_N2_CTX(x, y) NR_RNE2(x, y)
+#else
+#define NR_N2_CTX(x, y) NR_ACCP(x, y)
+#endif
+#if (NR_PKN) & NR_PKN_P
+#define NR_N2_P(x, y)   NR_RTZ2(x, y)
+#elif (NR_R2) & NR_PKN_P
+#define NR_N2_P(x, y)   NR_RNE2(x, y)
+#else
+#define NR_N2_P(x, y)   f16vec2(NR_F16(x), NR_F16(y))
+#endif
+#if (NR_PKN) & NR_PKN_XB
+#define NR_N2_XB(x, y)  NR_RTZ2(x, y)
+#else
+#define NR_N2_XB(x, y)  f16vec2(NR_F16(x),NR_F16(y))
+#endif
+#if (NR_PKN) & NR_PKN_EQ
+#define NR_N2_EQ(x, y)  NR_RTZ2(x, y)
+#else
+#define NR_N2_EQ(x, y)  f16vec2(NR_F16(x), NR_F16(y))
+#endif
+#if (NR_PKN) & NR_PKN_NORM
+#define NR_N2_NORM(x, y) NR_RTZ2(x, y)
+#else
+#define NR_N2_NORM(x, y) f16vec2(vec2((x), (y)))
+#endif
+#if (NR_PKN) & NR_PKN_NSQ
+#define NR_N2_NSQ(x, y)  NR_RTZ2(x, y)
+#else
+#define NR_N2_NSQ(x, y)  f16vec2((x),(y))
+#endif
+
+// Experiments (off by default). Mode 1 combines half scales; mode 2 scales in FP32
+// before FP8; mode 3 also removes the half norm and its overflow-to-zero.
+// Modes 4/5 are the baseline/mode-2 arithmetic with bounded Q/K conversions.
+// A weight audit establishes abs(head scale)<20, and normalized Q/K are
+// bounded near unity, far below FP8's 448 limit. Do not deploy those two modes
+// for another model without checking the scale bound. No model term is removed.
+#ifndef NR_QK_SCALE_FAST
+#define NR_QK_SCALE_FAST 0
+#endif
+#if NR_QK_SCALE_FAST
+#if NR_ACC_F16 != 0 || !NR_QUANT_PAIRED || NR_ATT_F16
+#error "fast Q/K scaling requires FP32 accumulation and paired FP8 attention"
+#endif
+#if NR_QK_SCALE_FAST >= 3 && !NR_NORM_F32
+#error "these Q/K experiments require the FP32 square reduction"
+#endif
+// NR_QK_SAT: mode 5's products through the saturating convert. The values are
+// bounded (|q| <= ~1 * |scale| < 20, far below 448), so the result is the same
+// bytes; the point is the MODE register - a bare convert needs FP16_OVFL clear,
+// so Q/K interleaved with saturating V/P converts made ACO toggle it.
+#ifndef NR_QK_SAT
+#define NR_QK_SAT 0
+#endif
+fe4m3vec2 nr_qscale_fast(vec2 value, float norm, float16_t scale) {
+#if NR_QK_SCALE_FAST == 5 && NR_QK_SAT
+    return nr_quant_pair32(value * (norm * float(scale)));
+#elif NR_QK_SCALE_FAST == 1
+    return nr_quant_pair(f16vec2(value) * f16vec2(float16_t(norm) * scale));
+#elif NR_QK_SCALE_FAST == 4
+    return fe4m3vec2((f16vec2(value) * f16vec2(float16_t(norm))) * f16vec2(scale));
+#elif NR_QK_SCALE_FAST == 5
+    return fe4m3vec2(value * (norm * float(scale)));
+#else
+    return nr_quant_pair32(value * (float(norm) * float(scale)));
+#endif
+}
+fe4m3vec2 nr_kscale_fast(vec2 value, float norm) {
+#if NR_QK_SCALE_FAST == 5 && NR_QK_SAT
+    return nr_quant_pair32(value * norm);
+#elif NR_QK_SCALE_FAST == 1
+    return nr_quant_pair(f16vec2(value) * f16vec2(norm));
+#elif NR_QK_SCALE_FAST == 4
+    return fe4m3vec2(f16vec2(value) * f16vec2(float16_t(norm)));
+#elif NR_QK_SCALE_FAST == 5
+    return fe4m3vec2(value * norm);
+#else
+    return nr_quant_pair32(value * float(norm));
+#endif
+}
+// Two pairs as one conversion (windows/build/quad_quant_glsl.py passes both calls' arguments):
+// element for element the pair functions above.
+fe4m3vec4 nr_qscale_fast4(vec2 va, float na, float16_t sa, vec2 vb, float nb, float16_t sb) {
+#if NR_QK_SCALE_FAST == 5 && NR_QK_SAT && NR_QUANT_EXPLICIT
+    return nr_quant_quad32(va * (na * float(sa)), vb * (nb * float(sb)));
+#elif NR_QK_SCALE_FAST == 5 && !NR_QK_SAT
+    return NR_CVT4(vec4(va * (na * float(sa)), vb * (nb * float(sb))));
+#else
+    const fe4m3vec2 p = nr_qscale_fast(va, na, sa), q = nr_qscale_fast(vb, nb, sb);
+    return fe4m3vec4(p.x, p.y, q.x, q.y);
+#endif
+}
+fe4m3vec4 nr_kscale_fast4(vec2 va, float na, vec2 vb, float nb) {
+#if NR_QK_SCALE_FAST == 5 && NR_QK_SAT && NR_QUANT_EXPLICIT
+    return nr_quant_quad32(va * na, vb * nb);
+#elif NR_QK_SCALE_FAST == 5 && !NR_QK_SAT
+    return NR_CVT4(vec4(va * na, vb * nb));
+#else
+    const fe4m3vec2 p = nr_kscale_fast(va, na), q = nr_kscale_fast(vb, nb);
+    return fe4m3vec4(p.x, p.y, q.x, q.y);
+#endif
+}
+#endif
+
+// Experiment (off by default): use the half reciprocal-square-root instruction directly.
+// Preserve the existing half reduction, clamping and overflow-to-zero.
+#ifndef NR_HALF_RSQ
+#define NR_HALF_RSQ 0
+#endif
+#if NR_HALF_RSQ
+#define nr_norm_rsq(value) inversesqrt(max((value), NR_F16(0.000062)))
+#else
+#define nr_norm_rsq(value) NR_F16(inversesqrt(float(max((value), NR_F16(0.000062)))))
+#endif
+
+// ---- NR_ATT_F16: the two activation x activation products in f16 ----------
+//
+// `NR_F16_MMA` above puts the **whole** kernel on f16 operands and measured
+// 1.5x slower, because all eight e4m3 quantisation points survived it and each
+// gained conversions rather than losing them. This is the opposite change and
+// must not be confused with it: the *weights* stay e4m3, and only the two
+// products whose **both** operands are activations move to f16.
+//
+//     Q . K^T   the logit product      NR_ATT_F16 & 1
+//     P . V     the context product    NR_ATT_F16 & 2
+//
+// Q, K, P and V are rounded onto the e4m3 grid for one reason: the FP8 WMMA
+// takes FP8 operands. Nothing downstream wants them as bytes - K and V are
+// staged in LDS purely to be read back as fragments, and Q and P never leave
+// registers. So under this define four of the eight quantisation points are
+// deleted outright, along with the f16 -> f32 widening each needs to reach
+// `v_cvt_pk_fp8_f32` and the MODE-register writes its saturation costs.
+//
+// **The MMA count does not change.** `v_wmma_f32_16x16x16_fp8_fp8` and
+// `v_wmma_f32_16x16x16_f16` are both K=16 on gfx1201 - all twenty cooperative
+// matrix configurations this part reports are M=N=K=16, and `llvm-mc
+// -mcpu=gfx1201` rejects every 16x16x32 dense spelling. What changes is the
+// *rate*: 409 TFLOP/s of FP8 against 206 of f16 on the user's own sweep, i.e.
+// the same instruction at twice the cycles. At C=32 the two products are 64 of
+// the window's 256 WMMAs.
+//
+// The accumulator stays f32, so the logit epilogue (bias, exponential, the
+// probability sum) and the context epilogue are unchanged instruction for
+// instruction, and `ctx` still quantises to e4m3 because the output projection
+// it feeds has a weight on the other side.
+//
+// **The fidelity direction.** Not rounding Q/K/P/V is a deviation from NVIDIA's
+// arithmetic in the direction of *higher* precision - e4m3 has 3 mantissa bits
+// and f16 has 10 - so `kernel/gold` byte agreement falls even though no value
+// is less accurate. That is a cost, because the goal is to be indistinguishable
+// from their frame, and it is reported as what it is.
+//
+// The trap is LDS. K and V stage at two bytes an element instead of one, which
+// at C=32 takes the window from 4096 B to 8192 and halves occupancy from 8
+// subgroups a SIMD to 4. `NR_K_REGS=1` removes `lds_k` entirely - it is legal
+// whenever NR_MF >= NR_JF, i.e. one wave owns the whole window - which leaves
+// an f16 `lds_v` at 4096 B, back on the measured knee.
+//
+// **Measured, and it loses. Default off; do not re-try it.**
+//
+// Five builds, interleaved twice in one session, the fswin benchmark C=32 at the
+// shipping defines (NR_FWAVES=1, NR_NORM_F32=1), 8160 windows a dispatch:
+//
+//   config                      instrs  VALU  LDS  wv   us    MHz  kernel/gold
+//   shipping                      4752  3743 4096   8  147.2  2679    94.2%
+//   NR_K_REGS=1 alone             4757  3753 2048   9  146.9  2668    94.2%
+//   NR_ATT_F16=1 (Q,K) +K_REGS    4505  3558 2048   8  147.0  2680    93.7%
+//   NR_ATT_F16=2 (P,V) +K_REGS    4632  3620 4096   8  150.1  2677    87.0%
+//   NR_ATT_F16=3      +K_REGS     4342  3435 4096   8  150.9  2658    87.0%
+//
+// -410 instructions and -308 VALU a window, at the same 192 VGPRs, the same
+// 4096 B of LDS and the same 8 subgroups a SIMD - and **1.6% slower in cycles**.
+//
+// The reason is the one line of the premise that was wrong. The MMA count does
+// not rise by 32: both spellings are K=16, so it does not move at all, and the
+// `v_wmma` column is 256 in every build above. What moves is the **rate**, and
+// a WMMA throughput benchmark measures it directly - FP8 402.6 TFLOP/s against FP16 201.1,
+// exactly 2.00x - which at 128 SIMDs and 8192 FLOP an instruction is **8 issue
+// cycles for an FP8 WMMA and 16 for an f16 one**. So the window's cost is
+//
+//     cycles ~= (instructions - wmma) + 8 * wmma_fp8 + 16 * wmma_f16
+//
+// and that model reproduces all five rows above to within 0.3%: 6544, 6549,
+// 6553, 6680, 6646. The 64 activation x activation MMAs buy +512 cycles for
+// -410 instructions. It is close, and it is a loss.
+//
+// **"Time tracks VALU one for one" is a local calibration, not a law.**
+// It held across configurations that kept the WMMA mix fixed. A WMMA is eight
+// instructions' worth of issue on this part - 2048 of C=32's ~6544 cycles a
+// window, 31% - and any change that moves the matrix mix has to be priced in
+// cycles, not in VALU.
+//
+// The fidelity side, which would have mattered if the time had gone the other
+// way: the whole 7.2-point `kernel/gold` drop is **P and V**, not Q and K.
+// Leaving Q and K in f16 costs 0.5 points of agreement with NVIDIA and *gains*
+// 0.5 against our own f32 reference - it is more accurate and less like them,
+// exactly as the trade predicts. Leaving P and V in f16 costs 7.2, which is
+// what a 3-mantissa-bit probability grid is worth to the context product.
+//
+// The NR_ATT_F16=0 SPIR-V is byte-identical; all 64 graph SPVs were checked.
+#ifndef NR_ATT_F16
+#define NR_ATT_F16 0
+#endif
+#define NR_ATT_F16_QK ((NR_ATT_F16) & 1)
+#define NR_ATT_F16_PV ((NR_ATT_F16) & 2)
+#if NR_ATT_F16
+#if NR_F16_MMA
+#error "NR_ATT_F16 is the FP8-weight kernel; NR_F16_MMA already moves everything"
+#endif
+#if NR_HWAVES
+// The head split stages V in `lds_y`, which is also the middle output and the
+// context in e4m3. Widening V there would widen both.
+#error "NR_ATT_F16 is the token-split path only (NR_HWAVES=0)"
+#endif
+// NR_QBATCH_ON is defined further down, after this block; the knob that turns
+// it on is not.
+#if !NR_QUANT_PAIRED || (defined(NR_QBATCH) && NR_QBATCH) || NR_ACC_F16 != 0
+#error "NR_ATT_F16 implements the shipping paired-quantiser path only"
+#endif
+#endif
+#if NR_ATT_F16_QK
+#define NR_QK_OPA        NR_FRAG_A16
+#define NR_QK_OPB        NR_FRAG_B16
+#define NR_QK_STAGE_T    NR_F16
+#define NR_QK_STAGE_FRAG NR_FRAG_ACC16
+#define NR_QK_QT         f16vec2
+#define NR_QK_Q(v)       (v)
+#else
+#define NR_QK_OPA        NR_OPA
+#define NR_QK_OPB        NR_OPB
+#define NR_QK_STAGE_T    NR_STAGE_T
+#define NR_QK_STAGE_FRAG NR_STAGE_FRAG
+#define NR_QK_QT         NR_QPAIR_T
+#define NR_QK_Q(v)       NR_QPAIR(v)
+#endif
+#if NR_ATT_F16_PV
+#define NR_PV_OPA        NR_FRAG_A16
+#define NR_PV_OPB        NR_FRAG_B16
+#define NR_PV_STAGE_T    NR_F16
+#define NR_PV_STAGE_FRAG NR_FRAG_ACC16
+#define NR_PV_QT         f16vec2
+#define NR_PV_Q(v)       (v)
+#else
+#define NR_PV_OPA        NR_OPA
+#define NR_PV_OPB        NR_OPB
+#define NR_PV_STAGE_T    NR_STAGE_T
+#define NR_PV_STAGE_FRAG NR_STAGE_FRAG
+#define NR_PV_QT         NR_QPAIR_T
+#define NR_PV_Q(v)       NR_QPAIR(v)
+#endif
+
+// ---- NR_ABLATE_QSITE: the per-site quantisation ledger --------------------
+//
+// **Diagnostic only, wrong output on purpose.** A bitmask over the eight places
+// this kernel rounds a value onto the e4m3 grid. Where a bit is set the site
+// keeps its conversion but loses its *saturation* - the `isinf` select and the
+// MODE-register writes around `v_cvt_pk_fp8_f32` - which is the part of a
+// requantisation that can be ablated without changing any operand's type.
+//
+// The eight sites, with their pairs per 64-token window at C=32:
+//
+//     xb    32   the window's x, staged for stage 1
+//     eq   128   the MLP's hidden activation
+//     yq    32   the MLP output plus the residual, staged for QKV
+//     Q     32   normalised, head-scaled query
+//     K     32   normalised key
+//     V     32   value
+//     P     64   the normalised probabilities
+//     ctx   32   the attention context, staged for the output projection
+//
+// 384 pairs, and the shipping C=32 kernel issues **exactly 384**
+// `v_cvt_pk_fp8_f32`. One packed convert per pair, nothing else in the shader
+// produces an e4m3 value, and no site was missed - which is what licenses
+// reading the ledger's deltas as per-site costs.
+#define NR_QS_XB    1
+#define NR_QS_EQ    2
+#define NR_QS_YQ    4
+#define NR_QS_Q     8
+#define NR_QS_K    16
+#define NR_QS_V    32
+#define NR_QS_P    64
+#define NR_QS_CTX 128
+#ifndef NR_ABLATE_QSITE
+#define NR_ABLATE_QSITE 0
+#endif
+#if NR_ABLATE_QSITE && (NR_F16_MMA || NR_ATT_F16 || !NR_QUANT_PAIRED)
+#error "NR_ABLATE_QSITE prices the paired e4m3 quantiser"
+#endif
+#if NR_ABLATE_QSITE && NR_HWAVES
+// The head split has its own `eqg` and `lds_y` sites, which these macros do not
+// cover; an ablation that silently misses a site is worse than none.
+#error "NR_ABLATE_QSITE is the token-split path only (NR_HWAVES=0)"
+#endif
+// One macro a site, spelled by the preprocessor rather than by a `?:` on a
+// constant, so an ablated site cannot leave its own instructions behind.
+#if (NR_ABLATE_QSITE) & NR_QS_XB
+#define NR_QP_XB(v)  nr_quant_pair_bare(v)
+#elif NR_XB_QH == 1
+// Probe: the Inf select taken on the half pair, then widened.
+fe4m3vec2 nr_quant_pair_h(f16vec2 v) {
+    const f16vec2 w = mix(v, unpackFloat2x16(0x7E007E00u), isinf(v));
+    fe4m3vec2 r;
+    saturatedConvertEXT(r, vec2(w));
+    return r;
+}
+#define NR_QP_XB(v)  nr_quant_pair_h(v)
+#elif NR_XB_QH == 2
+// Probe: the Inf test on the half bits (exponent all ones, mantissa 0).
+fe4m3vec2 nr_quant_pair_h(f16vec2 v) {
+    vec2 x = vec2(v);
+    const uint b = packFloat2x16(v) & 0x7FFF7FFFu;
+    const bvec2 inf = bvec2((b & 0xFFFFu) == 0x7C00u, (b >> 16u) == 0x7C00u);
+    fe4m3vec2 r;
+    saturatedConvertEXT(r, mix(x, vec2(uintBitsToFloat(0x7FC00000u)), inf));
+    return r;
+}
+#define NR_QP_XB(v)  nr_quant_pair_h(v)
+#else
+#define NR_QP_XB(v)  nr_quant_pair(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_EQ
+#define NR_QP_EQ(v)  nr_quant_pair_bare(v)
+#else
+#define NR_QP_EQ(v)  NR_QPAIR(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_YQ
+#define NR_QP_YQ(v)  nr_quant_pair_bare(v)
+#else
+#define NR_QP_YQ(v)  NR_QPAIR(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_Q
+#define NR_QP_Q(v)   nr_quant_pair_bare(v)
+#else
+#define NR_QP_Q(v)   NR_QK_Q(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_K
+#define NR_QP_K(v)   nr_quant_pair_bare(v)
+#else
+#define NR_QP_K(v)   NR_QK_Q(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_V
+#define NR_QP_V(v)   nr_quant_pair_bare(v)
+#else
+#define NR_QP_V(v)   NR_PV_Q(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_P
+#define NR_QP_P(v)   nr_quant_pair_bare(v)
+#else
+#define NR_QP_P(v)   NR_PV_Q(v)
+#endif
+#if (NR_ABLATE_QSITE) & NR_QS_CTX
+#define NR_QP_CTX(v) nr_quant_pair_bare(v)
+#else
+#define NR_QP_CTX(v) NR_QPAIR(v)
+#endif
+
+// ---- NR_WPF: software prefetch of the weight fragments --------------------
+//
+// Every weight-fed MMA in this kernel loads its A fragment immediately before
+// the product that consumes it: the ISA at C=32 is 76 `buffer_load` in 43 VMEM
+// clauses, i.e. load, wait, use, load. Under `NR_WPF >= d` each weight-loading
+// loop nest becomes a rotating register pipeline `d` iterations deep: the load
+// for flat iteration `i + d` is issued at the top of iteration `i`, before that
+// iteration's MMAs and before its epilogue, into one of `d + 1` slots. The
+// extra slot is what makes the overlap legal without a copy - iteration `i`'s
+// fragment lives in slot `i % (d+1)` and the load being issued targets slot
+// `(i + d) % (d+1) == (i - 1) % (d+1)`, which iteration `i - 1` has vacated.
+//
+// The address of every load, every MMA and every epilogue instruction is the
+// one the NR_WPF=0 source spells; only the *issue order* of the loads moves,
+// so the arithmetic is identical by construction. Each slot is one A fragment:
+// 8 e4m3 bytes a lane, 2 VGPRs.
+//
+// The flat sequence spans the whole nest, so a prefetch crosses the outer
+// loop's epilogue (stage 1's activation and quantisation, stage 2's residual
+// and requantisation) - which is where most of the compute a wait could hide
+// behind actually is.
+//
+// **Measured, and it does not pay. Default 0.** The transform does what it
+// says - at C=32, frame shape, the ISA's first weight run goes from 18 to 20
+// consecutive `buffer_load` and the later runs from 1-4 to 5-12, and
+// `s_wait_loadcnt` falls 67 -> 66 / 59 / 58 / 57 at depth 1/2/3/4 - at no cost
+// at all: 144 VGPRs, 0 spilled, 10 subgroups a SIMD, 4096 B of LDS, 0 scratch
+// and 76 VMEM at every depth, with instructions 2552 / 2561 / 2570 / 2564 /
+// 2543. The **time does not move**. Standalone t_c32, 8160 windows, each depth
+// paired against its own NR_WPF=0 runs and normalised us*MHz/2700:
+//
+//   depth        0      1      2      3      4
+//   us       150.6  150.4  150.1  150.5  149.9
+//   norm     147.7  147.2  146.9  147.0  147.0
+//   vs 0        -   1.003x 1.005x 1.005x 1.005x
+//
+// and t_c64 (2040 windows, where only the contract, QKV and output projection
+// are pipelined - the heads>1 expand and middle are a different nest) 102.35
+// -> 101.65 normalised, 1.007x.
+//
+// So the 24-cycle issue interval a wave shows here is **not** exposed weight
+// load latency: with ten waves a SIMD the loads another wave issues already
+// cover this one's, and moving our own earlier buys 0.5%. The knob is kept
+// because it is free and because it settles that question with a number.
+//
+// Default 0, and the NR_WPF=0 SPIR-V is byte-identical.
+#ifndef NR_WPF
+#define NR_WPF 0
+#endif
+#if NR_WPF
+#if NR_HWAVES
+#error "NR_WPF rewrites the token-split loops; the head-split ones (NR_HWAVES) have their own structure"
+#endif
+#define NR_WPF_SLOTS (NR_WPF + 1)
+// `ADDR` is a macro name taking the flat iteration index; the rescan after
+// parameter substitution expands it at the call site.
+#define NR_WPF_PRIME(pipe, ntot, ADDR)                                        \
+    for (int wpfp_ = 0; wpfp_ < NR_WPF; ++wpfp_)                              \
+        if (wpfp_ < (ntot))                                                   \
+            NR_LOAD_WA(pipe[wpfp_ % NR_WPF_SLOTS], ADDR(wpfp_), 16u);
+#define NR_WPF_STEP(pipe, i, ntot, ADDR)                                      \
+    if ((i) + NR_WPF < (ntot))                                                \
+        NR_LOAD_WA(pipe[((i) + NR_WPF) % NR_WPF_SLOTS],             \
+                  ADDR((i) + NR_WPF), 16u);
+#define NR_WPF_AT(pipe, i) pipe[(i) % NR_WPF_SLOTS]
+#endif
+
+#if (defined(NR_PACKED_EXPAND) || defined(NR_PACKED_QKV) || NR_PACKED_DENSE) && NR_C >= 64 && !NR_HWAVES
+#error "paired weights require the head-split path at C >= 64"
+#endif
+#if NR_PACKED_DENSE < 0 || NR_PACKED_DENSE > 7
+#error "NR_PACKED_DENSE must be a three-bit stage mask"
+#endif
+
+#ifndef NR_PBATCH
+#define NR_PBATCH 1
+#endif
+#if NR_PBATCH > 1
+// NR_PBATCH: one workgroup runs NR_PBATCH persistent items side by side,
+// NR_THREADS invocations each - see the claim below. The idea: the second
+// workgroup on a CU runs its items ~2.5x slower than the first (oldest-first
+// arbitration) and those items form the C=256 critical chain; two items in one
+// 16-wave workgroup share barriers and so cannot drift apart.
+// **Measured and rejected** (C=256, 64 workgroups): byte-identical, but a
+// pair takes 45.7 us (p50) - 22.9 us an item, exactly one 8-wave workgroup
+// alone on a CU. The barriers serialise the halves: the older half waits at
+// each one while the younger runs at four waves a SIMD, so the 18% throughput
+// the second workgroup adds when free-running is gone. C256 0.822..0.837 ms
+// against 0.809..0.831.
+layout(local_size_x = NR_THREADS * NR_PBATCH) in;
+#else
+layout(local_size_x = NR_THREADS) in;
+#endif
+
+#if NR_PERSIST
+// **The acquire is a decoration, not a barrier.** A persistent workgroup waits
+// on a producer flag once per window and then reads that producer's tiles; the
+// blunt way to make that read safe is `memoryBarrierBuffer()` after the poll,
+// which is a statement about every buffer the shader touches. Declaring the
+// activation arena `coherent` says the same thing about this buffer only, and
+// the barrier goes away.
+//
+// Read from the ISA on gfx1201 / Mesa 26.2.2, because the mechanism is not the
+// one the textbook describes: RADV emits **no cache-invalidate instruction at
+// all** for `memoryBarrierBuffer()` here (`global_inv`, `buffer_gl0_inv`:
+// zero, before and after this change). What it does instead is put
+// `scope:SCOPE_DEV` on the loads, and the eight `buffer_load_b64` that
+// `coopMatLoad` lowers to for the x tiles carry it either way. So the change
+// is not "an invalidate removed"; it is the same load bits, reached from the
+// buffer's own declaration, with a whole-buffer fence deleted. What that fence
+// still costs is a scheduling boundary and a `s_waitcnt` per item.
+layout(set = 0, binding = 0, std430) coherent buffer ActE4M3 { NR_E4M3 act_e4m3[]; };
+#else
+layout(set = 0, binding = 0, std430) NR_COH    buffer ActE4M3 { NR_E4M3 act_e4m3[]; };
+#endif
+// Windows (LLPC): the same activation bytes as 32-bit words (an e4m3 vector type is still
+// loaded a byte per element). LLPC cannot prove the
+// alignment of act_e4m3[base + j] and loads it one byte at a time; read through this view
+// the eight bytes of a fragment row are two dword loads. Same bytes, same order.
+#if NR_PERSIST
+layout(set = 0, binding = 0, std430) coherent buffer ActE4M3v { uint act_v4[]; };
+#else
+layout(set = 0, binding = 0, std430) NR_COH    buffer ActE4M3v { uint act_v4[]; };
+#endif
+// Byte j (0..7) of the 8-byte run starting at `base`, which is 8-aligned by construction.
+#define NR_ACT_B8(base, j) uintBitsToFloate4m3EXT(unpack8(act_v4[(base) / 4u + uint(j) / 4u])[(j) % 4])
+// A B fragment of activations through the same view: with the byte-typed (and, in a
+// persistent run, coherent) array LLPC lowers the load to single bytes.
+#if NR_PERSIST
+// In a persistent run the array is coherent and LLPC turns coopMatLoad into one atomic byte
+// load per element. Lane l of a ColumnMajor B fragment holds column l%16, k 8*(l/16)..+7 -
+// eight contiguous bytes - so two coherent dword loads fill it (the order NR_ATTN_KOFF
+// already relies on in attn.comp).
+#define NR_LOAD_B_ACT(frag, off, stride) do { \
+    const uint nr_la = ((off) + (gl_SubgroupInvocationID % 16u) * (stride) + (gl_SubgroupInvocationID / 16u) * 8u) / 4u; \
+    const u8vec4 nr_b0 = unpack8(act_v4[nr_la]), nr_b1 = unpack8(act_v4[nr_la + 1u]); \
+    for (int nr_i = 0; nr_i < 4; ++nr_i) { \
+        frag[nr_i] = uintBitsToFloate4m3EXT(nr_b0[nr_i]); frag[nr_i + 4] = uintBitsToFloate4m3EXT(nr_b1[nr_i]); } } while (false)
+#else
+#define NR_LOAD_B_ACT(frag, off, stride) \
+    coopMatLoad(frag, act_v4, (off) / 4u, (stride) / 4u, gl_CooperativeMatrixLayoutColumnMajor)
+#endif
+// Windows (LLPC) NR_WIN_ST8: in a persistent run the arena is coherent and LLPC stores an e4m3
+// fragment (or vector) one atomic byte at a time (325 buffer_store_b8 in fswinpds*). The same
+// eight bytes a lane through a coherent uvec2 view are one store: an e4m3 Accumulator stored
+// ColumnMajor puts lane l's components at column l%16, rows 8*(l/16)..+7, i.e. eight contiguous
+// bytes at off + (l%16)*stride + 8*(l/16) (the layout NR_LOAD_B_ACT reads). Same bytes, same order.
+#ifndef NR_WIN_ST8
+#define NR_WIN_ST8 0
+#endif
+#if NR_WIN_ST8 && !NR_PERSIST
+#error "NR_WIN_ST8: persistent runs only"
+#endif
+// Windows (LLPC): elements c, c+1 of an e4m3 fragment (c even) as f32, through the four-wide
+// conversion of their dword. LLPC turns each scalar e4m3 -> f32 conversion into a byte extract
+// and a v_cvt_f32_fp8 (a pair into a byte repack); four in order are two v_cvt_pk_f32_fp8.
+// Exact either way. The two calls of a dword share the conversion after unrolling.
+vec2 nr_e4f2_pick(vec4 v, int c) { return (c & 2) != 0 ? v.zw : v.xy; }
+#define NR_E4F2(frag, c) nr_e4f2_pick(vec4(fe4m3vec4((frag)[(c) & ~3], (frag)[((c) & ~3) + 1], \
+    (frag)[((c) & ~3) + 2], (frag)[((c) & ~3) + 3])), (c))
+uint nr_e4m3x4_bits(fe4m3vec4 v) {
+    return pack32(u8vec4(floate4m3BitsToUintEXT(v.x), floate4m3BitsToUintEXT(v.y),
+                         floate4m3BitsToUintEXT(v.z), floate4m3BitsToUintEXT(v.w)));
+}
+#if NR_WIN_ST8
+layout(set = 0, binding = 0, std430) coherent buffer ActE4M3v8 { uvec2 act_v8[]; };
+#define NR_STORE_ACT_COL(frag, off, stride) do { \
+    const uint nr_sa = ((off) + (gl_SubgroupInvocationID % 16u) * (stride) + (gl_SubgroupInvocationID / 16u) * 8u) / 8u; \
+    act_v8[nr_sa] = uvec2(nr_e4m3x4_bits(fe4m3vec4(frag[0], frag[1], frag[2], frag[3])), \
+                          nr_e4m3x4_bits(fe4m3vec4(frag[4], frag[5], frag[6], frag[7]))); } while (false)
+#else
+#define NR_STORE_ACT_COL(frag, off, stride) NR_STORE_ACC_COL(frag, act_e4m3, off, stride)
+#endif
+layout(set = 0, binding = 1, std430) NR_COH    buffer ActF16  { NR_F16  act_f16[]; };
+layout(set = 0, binding = 2, std430) readonly buffer WgtE4M3 { NR_E4M3 wgt_e4m3[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WgtF32  { float   wgt_f32[]; };
+// Windows (LLPC): an e4m3 fragment filled from one 8-byte word (element i = byte i). In this
+// shader LLPC builds a fragment loaded from e4m3 data - coopMatLoad or element by element -
+// out of byte shuffles, and one per fragment survives as an identity
+// `v_perm_b32 vX, vX, vX, 0x3020104`, which also pulls the load's wait forward. From one
+// uvec2 through unpack8 the fragment is the loaded registers (from two separate dwords the
+// second is still assembled byte by byte). Same bytes, same order.
+#define NR_FRAG_Q(frag, v) { const uvec2 nr_fv = (v); \
+    const u8vec4 nr_f0 = unpack8(nr_fv.x), nr_f1 = unpack8(nr_fv.y); \
+    for (int nr_z = 0; nr_z < 4; ++nr_z) { \
+        (frag)[nr_z] = uintBitsToFloate4m3EXT(nr_f0[nr_z]); \
+        (frag)[nr_z + 4] = uintBitsToFloate4m3EXT(nr_f1[nr_z]); } }
+#ifndef NR_WLOAD_U32
+#define NR_WLOAD_U32 0
+#endif
+#if NR_WLOAD_U32 && NR_F16_MMA
+#error "NR_WLOAD_U32: e4m3 weights only"
+#endif
+// NR_WLOAD_U32: the RowMajor e4m3 weight fragments (NR_LOAD_WA) through NR_FRAG_Q.
+#if NR_WLOAD_U32
+// A RowMajor A fragment: lane l holds row l%16, k 8*(l/16)..+7 - eight contiguous bytes at
+// off + (l%16)*stride + 8*(l/16) (8-aligned: tile offsets and 16-byte rows). One uvec2 load,
+// unpacked in place (NR_FRAG_Q); a coopMatLoad from this view is assembled byte by byte too.
+layout(set = 0, binding = 2, std430) readonly buffer WgtE4M3w { uvec2 wgt_w8[]; };
+#define NR_LOAD_WA(frag, off, stride) NR_FRAG_Q(frag, wgt_w8[((off) + \
+    (gl_SubgroupInvocationID % 16u) * (stride) + (gl_SubgroupInvocationID / 16u) * 8u) / 8u])
+#else
+#define NR_LOAD_WA(frag, off, stride) NR_LOAD_A(frag, NR_WARENA, off, stride)
+#endif
+layout(set = 0, binding = 4, std430) readonly buffer WgtF16  { NR_F16  wgt_f16[]; };
+// **The same bytes, read 32 bits at a time.** The fused RGB projection's 128
+// weights are wave-uniform - the index is a push constant plus an unrolled
+// loop constant - so they belong in scalar registers, and a 16-bit SSBO load
+// cannot go there: a scalar load wants four-byte alignment. An aliased uint
+// view of the same binding can. `unpackFloat2x16` is a reinterpretation of the
+// two halves that were going to be read anyway, so no value changes.
+layout(set = 0, binding = 4, std430) readonly buffer WgtU32  { uint    wgt_u32[]; };
+#ifndef NR_RESIDUAL_HALF
+#define NR_RESIDUAL_HALF 0
+#endif
+#if NR_RESIDUAL_HALF && (!NR_NATIVE_RESIDUAL || !NR_PTX_ACC || NR_ACC_F16 != 0 || NR_F16_MMA)
+#error "half residual storage requires the default native residual FP32 path"
+#endif
+// Optionally retain the residual product in FP32 before FP32 MMA.
+// This removes the native half-product rounding; it is an approximation.
+// Windows (NR_Q32_STAGE): stage the MLP output and the projection output in f32 instead of an
+// f16 array widened again at every use; see yh in include/fswin_body.glsl. Default on (=0: off).
+#ifndef NR_Q32_STAGE
+#define NR_Q32_STAGE 1
+#endif
+#ifndef NR_Q32_POOL
+#define NR_Q32_POOL 0
+#endif
+#ifndef NR_RESIDUAL_F32
+#define NR_RESIDUAL_F32 0
+#endif
+#if NR_RESIDUAL_F32 && (!NR_NATIVE_RESIDUAL || !NR_PTX_ACC || NR_ACC_F16 != 0 || NR_F16_MMA || NR_RESIDUAL_HALF || NR_STREAM_MLP || NR_ABLATE_RESID)
+#error "FP32 residual experiment requires ordinary FP32 native residuals"
+#endif
+f16vec2 nr_residual_scale(uint off) {
+#if NR_RESIDUAL_HALF
+    return unpackFloat2x16(wgt_u32[off>>1u]);
+#else
+    return f16vec2(wgt_f32[off],wgt_f32[off+1u]);
+#endif
+}
+#if NR_ACTIVATION_LUT
+layout(set=0,binding=4,std430) readonly buffer ActLut4 { fe4m3vec4 act_lut4[]; };
+#endif
+#if ((defined(NR_PACKED_EXPAND) || defined(NR_PACKED_QKV) || NR_PACKED_DENSE) && NR_HWAVES) || NR_PACK_C32_ACTIVE
+layout(set = 0, binding = 4, std430) readonly buffer WExpandPair4 { fe4m3vec4 wexpand_pair4[]; };
+#endif
+// Windows (LLPC) NR_WPAIR_U32: the paired weight records read as 8-byte words. Assigned from
+// the fe4m3vec4 view, LLPC builds every A fragment byte by byte (eight shuffles) and leaves one
+// identity `v_perm_b32 vX, vX, vX, 0x3020104` a fragment behind; from a uvec2 through unpack8
+// the fragment is the loaded registers. Same bytes, same order.
+#ifndef NR_WPAIR_U32
+#define NR_WPAIR_U32 0
+#endif
+#if NR_WPAIR_U32
+layout(set = 0, binding = 4, std430) readonly buffer WExpandPairU { uvec2 wexpand_u2[]; };
+#endif
+// NR_WPAIR_MASK: which head-split stages fill their paired weight fragments through the uvec2
+// view (bit 1 expand, 2 middle, 4 contract, 8 QKV, 16 V, 32 output projection; the C=32
+// weights follow NR_WPAIR_U32). Per stage, because the byte-built fragments cost an identity
+// v_perm each while the uvec2 fills can lengthen live ranges past a wave threshold.
+#ifndef NR_WPAIR_MASK
+#if NR_WPAIR_U32
+#define NR_WPAIR_MASK 63
+#else
+#define NR_WPAIR_MASK 0
+#endif
+#endif
+#if NR_WPAIR_MASK && !NR_WPAIR_U32
+#error "NR_WPAIR_MASK needs NR_WPAIR_U32=1 (the uvec2 view)"
+#endif
+#define NR_WPAIR_FILL_B(frag,q) { \
+    const fe4m3vec4 lo=wexpand_pair4[q],hi=wexpand_pair4[(q)+1u]; \
+    for(int z=0;z<4;++z){(frag)[z]=lo[z];(frag)[z+4]=hi[z];} }
+#define NR_WPAIR_FILL2_B(wf0,wf1,q) { \
+    const fe4m3vec4 w0=wexpand_pair4[q],w1=wexpand_pair4[(q)+1u]; \
+    const fe4m3vec4 w2=wexpand_pair4[(q)+2u],w3=wexpand_pair4[(q)+3u]; \
+    for(int v=0;v<4;++v) { \
+        wf0[v]=w0[v]; wf0[v+4]=w1[v]; \
+        wf1[v]=w2[v]; wf1[v+4]=w3[v]; \
+    } }
+#if NR_WPAIR_U32
+// q is a dword index and even (records are 8-byte aligned).
+#define NR_WPAIR_FILL(frag,q) NR_FRAG_Q(frag, wexpand_u2[(q)/2u])
+#define NR_WPAIR_FILL2_U(wf0,wf1,q) NR_WPAIR_FILL(wf0,q) NR_WPAIR_FILL(wf1,(q)+2u)
+// Chosen by the preprocessor, one macro a stage bit (the call sites pass the literal).
+#define NR_WPAIR_FILL2S(wf0,wf1,q,bit) NR_WPAIR_F2_##bit(wf0,wf1,q)
+#if (NR_WPAIR_MASK) & 1
+#define NR_WPAIR_F2_1(wf0,wf1,q) NR_WPAIR_FILL2_U(wf0,wf1,q)
+#else
+#define NR_WPAIR_F2_1(wf0,wf1,q) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#if (NR_WPAIR_MASK) & 2
+#define NR_WPAIR_F2_2(wf0,wf1,q) NR_WPAIR_FILL2_U(wf0,wf1,q)
+#else
+#define NR_WPAIR_F2_2(wf0,wf1,q) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#if (NR_WPAIR_MASK) & 4
+#define NR_WPAIR_F2_4(wf0,wf1,q) NR_WPAIR_FILL2_U(wf0,wf1,q)
+#else
+#define NR_WPAIR_F2_4(wf0,wf1,q) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#if (NR_WPAIR_MASK) & 8
+#define NR_WPAIR_F2_8(wf0,wf1,q) NR_WPAIR_FILL2_U(wf0,wf1,q)
+#else
+#define NR_WPAIR_F2_8(wf0,wf1,q) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#if (NR_WPAIR_MASK) & 16
+#define NR_WPAIR_F2_16(wf0,wf1,q) NR_WPAIR_FILL2_U(wf0,wf1,q)
+#else
+#define NR_WPAIR_F2_16(wf0,wf1,q) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#if (NR_WPAIR_MASK) & 32
+#define NR_WPAIR_F2_32(wf0,wf1,q) NR_WPAIR_FILL2_U(wf0,wf1,q)
+#else
+#define NR_WPAIR_F2_32(wf0,wf1,q) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#else
+#define NR_WPAIR_FILL(frag,q) NR_WPAIR_FILL_B(frag,q)
+#define NR_WPAIR_FILL2S(wf0,wf1,q,bit) NR_WPAIR_FILL2_B(wf0,wf1,q)
+#endif
+#if defined(NR_POOL_F16) && NR_POOL_VECTOR_STORE
+layout(set = 0, binding = 5, std430) NR_COH buffer ActE4M3x4 { fe4m3vec4 act_e4m3x4[]; };
+#endif
+
+// NR_BLEND_G32: the packed blends read each f16 gain pair as one u32
+// (blend_g_off is 16-byte aligned by put_f16, channel pairs are even).
+#ifndef NR_BLEND_G32
+#define NR_BLEND_G32 0
+#endif
+// NR_DS_QPAIR: the fused DS projection's output conversion in pairs
+// (mode 4's nr_quant_pair is the scalar nr_quant_e4m3 per component).
+#ifndef NR_DS_QPAIR
+#define NR_DS_QPAIR 0
+#endif
+#if NR_DS_QPAIR && !(NR_QUANT_MODE == 4 && NR_QUANT_PAIRED)
+#error "NR_DS_QPAIR: mode-4 paired quantiser only"
+#endif
+// NR_UPS_BLEND_PK: the fused upsample's skip blend two channels an
+// instruction, the post blend's spelling (below, at the blend itself).
+#ifndef NR_UPS_BLEND_PK
+#define NR_UPS_BLEND_PK 0
+#endif
+#if (defined(NR_FUSED_POST_BLEND) && NR_BLEND_VECTOR_LOAD) || (defined(NR_FUSED_UPS_BLEND) && NR_UPS_BLEND_PK)
+layout(set = 0, binding = 0, std430) NR_COH readonly buffer BlendE4M3x4 {
+    fe4m3vec4 blend_e4m3x4[];
+};
+// Windows (LLPC): in a persistent run the buffer is coherent and LLPC loads an e4m3 vector of it
+// one atomic byte at a time (320 buffer_load_u8 in fswinpup*); the same dword through a uint view
+// is one load. Same bytes, same order.
+#if NR_PERSIST
+layout(set = 0, binding = 0, std430) NR_COH readonly buffer BlendU32 { uint blend_u32[]; };
+fe4m3vec4 nr_blend_x4(uint i) {
+    const u8vec4 b = unpack8(blend_u32[i]);
+    return fe4m3vec4(uintBitsToFloate4m3EXT(b.x), uintBitsToFloate4m3EXT(b.y),
+                     uintBitsToFloate4m3EXT(b.z), uintBitsToFloate4m3EXT(b.w));
+}
+#define NR_BLEND_X4(i) nr_blend_x4(i)
+#else
+#define NR_BLEND_X4(i) blend_e4m3x4[i]
+#endif
+#endif
+
+#ifdef NR_FUSED_IMAGE_OUTPUT
+#if !defined(NR_FUSED_POST_BLEND)
+#error NR_FUSED_IMAGE_OUTPUT requires fused post blend
+#endif
+#ifdef NR_TEMPORAL_HISTORY
+// The temporal post variant. The original's post block does not end at the
+// residual: its PTX (cc_tinlayout_fused_post_block_swin_1h_32, the tail before
+// the `sust.p.2d` store) reprojects the previous output through the motion
+// texture, reconstructs it with the same five-tap Catmull-Rom the pre block
+// uses, and blends it in under a weight the network itself emits:
+//
+//     w   = clamp( sigmoid(net channel 3) * clamp(param, 0, 1), 0, 1 )
+//     rgb = lerp( clamp(0.25 * net.rgb + input), history5tap(uv + mv), w )
+//
+// where `param` is a device scalar at +104: the model's blend_scale weight
+// (0.7397; 1.0 only when absent), which the host puts into [0].w times the
+// user's history strength. It is the same shape as the external-mask variant: the scalars travel in the
+// buffer at binding 5, and the images move up by one. Production binaries are
+// built without this define and are byte-identical to the validated ones.
+//
+//   [0] = (history and motion are usable, mv scale x, mv scale y, history strength)
+//   [1] = (history width, history height, depth present, depth inverted)
+layout(set=0,binding=5,std430) readonly buffer NrTemporal { vec4 nr_temporal[3]; };
+#if NR_OUT0_NOFORMAT
+// The answer image's format comes from its view: the runtime hands the post
+// block an image in the frame's own format when the store converts exactly as
+// the write-back blit would (the write-back is then a copy); RGBA32F behaves
+// as before. Formatless storage writes: Vulkan 1.3 allows them for a format
+// with STORAGE_WRITE_WITHOUT_FORMAT, and the runtime checks that bit.
+layout(set=0,binding=6) uniform writeonly image2D nr_out0;
+#else
+layout(set=0,binding=6,rgba32f) uniform writeonly image2D nr_out0;
+#endif
+layout(set=0,binding=7,rgba32f) uniform writeonly image2D nr_out1;
+layout(set=0,binding=8) uniform sampler2D nr_src;
+layout(set=0,binding=9) uniform sampler2D nr_motion;
+layout(set=0,binding=10) uniform sampler2D nr_history;
+#include "temporal_history.glsl"
+#else
+#if NR_OUT0_NOFORMAT
+// The answer image's format comes from its view: the runtime hands the post
+// block an image in the frame's own format when the store converts exactly as
+// the write-back blit would (the write-back is then a copy); RGBA32F behaves
+// as before. Formatless storage writes: Vulkan 1.3 allows them for a format
+// with STORAGE_WRITE_WITHOUT_FORMAT, and the runtime checks that bit.
+layout(set=0,binding=5) uniform writeonly image2D nr_out0;
+#else
+layout(set=0,binding=5,rgba32f) uniform writeonly image2D nr_out0;
+#endif
+layout(set=0,binding=6,rgba32f) uniform writeonly image2D nr_out1;
+layout(set=0,binding=7) uniform sampler2D nr_src;
+#endif
+// ---- NR_IMGOUT_REGS: the RGB projection out of the accumulator -------------
+//
+// **`image_features` is the whole reason this adapter cannot take the one-wave
+// shape**, and it does not have to exist. The array is 64 tokens x 32 channels
+// of `NR_F16` = **4096 B**, on top of `lds_k` (2048) and `lds_v` (2048), which
+// is the measured 8192 B; at one wave that is 8192 B a *wave* and four
+// subgroups a SIMD, against the eight the shipping two-wave shape gets. Delete
+// it and one wave is 4096 B a wave - the knee - and the window keeps the -13.5%
+// VALU that the token split costs.
+//
+// It can go because **a token never crosses a wave**. The accumulator's map is
+// already relied on twice in this file (the `_ds` pooling epilogue's `px/py`,
+// and the fused blend's `slot`): component `c` of lane `l` of the stage-6
+// fragment (m, n) is
+//
+//     token   = tok0 + m*16 + (l % 16)          channel = n*16 + 8*(l/16) + c
+//
+// so the 32 channels of one token live in exactly two lanes, `l` and `l ^ 16`,
+// across the two n fragments. One `v_permlanex16` per component hands a lane
+// the eight channels it is missing, and the projection is then a per-lane loop
+// over channels 0..31 **in the original's order**, so every f32 sum is the same
+// sum in the same sequence. Byte-identical is the acceptance test, not a hope.
+//
+// Two fragments are paired so no lane computes a token twice: the even `m`
+// feeds the low half-wave and the odd `m` the high one, and
+// `token = tok0 + 2p*16 + lane` is that pairing for both halves at once. The
+// tail is accumulated *inside* the n loop - channels 0..15 when n=0 and 16..31
+// when n=1 - which is why the only value carried across is `vec3 o` per pair
+// and one f16 accumulator fragment, rather than the whole 64x32 block.
+//
+// **The pair must travel packed.** Widening the two channels to f32 before the
+// select and the shuffle is the same arithmetic on paper and not the same ISA:
+// ACO contracts `float(f16) * float(f16)` pairs and stops contracting when the
+// sources stop being halves. The picture moved by one code on 0.4% of channel
+// samples - `cmp` caught it, a mean would not have. Packed in a uint it is
+// byte-identical, and the exchange is one instruction for two channels.
+//
+// **Measured, and it does not pay. Default off.**
+//
+//   config                    LDS  VGPR  wv  ins/win  cyc/win   us 1080p  us 4K
+//   ship            fw2      8192   192   8     6940     8690      693.0   2839
+//   NR_IMGOUT_REGS  fw2      4096   144  10     6406     8184      685.9   2795
+//   NR_IMGOUT_REGS  fw1      4096   192   8     5928     7720      692.9   2799
+//
+// The one-wave shape is reached exactly where the occupancy law puts it - 4096
+// B on one wave, 192 VGPRs, eight subgroups a SIMD - and both extents are
+// `cmp`-identical to the shipping build. **-11.2% of modelled cycles is -1.4%
+// of the dispatch at 4K and 0.0% at 1080p**, and the two-wave variant, which
+// keeps the instruction count and only drops the LDS round trip and one
+// barrier, measures the same -1.5%. This dispatch is not paying for its
+// instructions: `fswin32` matches the WMMA-rate cycle model to 3% and `imagepost32`
+// already beats it by 15% at the shipping shape, so cutting instructions only
+// takes up slack. Frame A/B, two interleaved passes an extent, byte-identical:
+// a wash at both. Do not rebuild this to chase the instruction count - the open
+// question is what the ~690 us floor is.
+#if NR_IMGOUT_REGS && (NR_MF % 2) != 0
+#error "NR_IMGOUT_REGS pairs token fragments: NR_MF must be even (NR_FWAVES 1 or 2)"
+#endif
+#if !NR_IMGOUT_REGS
+// Keep the final half features inside the workgroup instead of writing and
+// rereading a complete C32 image. Every token/channel is initialized below.
+shared NR_F16 image_features[64*32];
+#endif
+#endif
+
+// Where the block's 64 tokens come from.
+//
+//   0  **window-major**: workgroup i reads bytes [i*64*C, (i+1)*64*C). The host
+//      gathers the windows, applies the shift, and gathers again for the next
+//      layer. This is what every gold score in the corpus was produced with and
+//      it is kept because those scores are the only external check there is.
+//
+//   1  **the kernel addresses the image.** A window is 2x2 tiles of 4x4 pixels
+//      and the shift is exactly *one tile*, so window (wx, wy) owns global tiles
+//      `(2*wx + sh + q%2, 2*wy + sh + q/2)` for q in 0..3 - no straddling, no
+//      per-pixel gather. The output goes back to the tile it came from, which is
+//      the cyclic shift's reverse, and since the grid is `ceil(W/8)` and decision
+//      1 pads W to a multiple of 16, every tile belongs to exactly one window and
+//      nothing is written twice.
+//
+// **Mode 1 is what a graph runner needs and mode 0 cannot be made into one.**
+// Consecutive layers alternate the shift and `_ds` layers halve the resolution,
+// so a window-major arena would have to be re-gathered on the host between every
+// pair of layers - which is the whole frame's worth of memory traffic, on the
+// CPU, 152 times.
+#ifndef NR_IMAGE
+#define NR_IMAGE 0
+#endif
+
+#ifdef NR_FUSED_POST_BLEND
+#if !NR_IMAGE || !defined(NR_INPUT_F16) || !defined(NR_FINAL_F16) || NR_C != 32
+#error NR_FUSED_POST_BLEND requires the C32 image post kernel
+#endif
+#endif
+// ---- NR_PERSIST: one dispatch for a run of consecutive blocks -------------
+//
+// **The barrier between two fused-Swin layers of one level is a whole-device
+// drain, and the dependency it enforces is not whole-device.** A window reads
+// the four tiles it owns, shifted by one tile, so layer i+1's window (wx, wy)
+// depends on at most four of layer i's windows and on nothing else. Under
+// NR_PERSIST a run of such layers is one dispatch over items `(layer, window)`
+// numbered layer-major, **claimed off one atomic counter**, and a consumer
+// spins on the four producer flags it actually needs.
+//
+// Nothing about the arithmetic moves. The body below is the same body, run
+// once per claimed item, with `pc` coming out of the weight arena instead of
+// the push block and the window coordinate coming out of the item instead of
+// `gl_WorkGroupID`.
+//
+// **It cannot deadlock, and it does not need every workgroup to be resident.**
+// Every producer of item n has an index below n, and if the counter has
+// reached n then every item below n has already been claimed - by a workgroup
+// that is, by definition of having claimed it, running. So a producer is
+// either finished or being worked on right now, whatever else the device is
+// doing with its WGPs: a compositor or the game's own shaders can hold half
+// the machine and the only cost is throughput. (The earlier revision dealt
+// item i to workgroup `i % gridDim` statically, which is correct only while
+// all of them are launched at once - exactly the assumption a shared GPU
+// breaks.) The budget below stays as the last line of defence for a wiring
+// bug: a whole-dispatch poll budget per workgroup, so the worst case is one
+// timeout's wall time and not one per item - past it every wait returns
+// immediately, the error word carries the layer, and the host prints it. A
+// wrong picture, bounded in time - never a hang.
+//
+// The claim is broadcast **through global memory, not LDS**: one `shared uint`
+// costs a kilobyte of LDS at the 1 KB allocation granularity, which at C=256
+// is 32768 -> 33792 bytes and a workgroup per WGP. Word `[4 + total_windows +
+// workgroup]` of the sync region is that broadcast slot, and it costs one
+// round trip to L2 per item against a window body of tens of microseconds.
+#if NR_PERSIST
+#if !NR_IMAGE || NR_DUMP || (defined(NR_POOL_F16) && !NR_PERSIST_DS) || defined(NR_INPUT_F16) \
+ || defined(NR_FINAL_F16) || defined(NR_FUSED_POST_BLEND) \
+ || defined(NR_FUSED_IMAGE_INPUT) || defined(NR_FUSED_IMAGE_OUTPUT)
+#error NR_PERSIST applies to the plain image-mode block only
+#endif
+#if !NR_COHERENT_ACT
+// **The one place in this project that still needs `coherent` on the arena.**
+// A persistent dispatch consumes what another *workgroup of the same dispatch*
+// produced, so there is no barrier between the two and no invalidate: the only
+// statement that reaches is device scope on the access itself.
+// `NR_COHERENT_ACT` is off by default for every other kernel - the boundary
+// invalidates instead - which would have left this one reading its own L0.
+// Build it with `NR_COHERENT_ACT=1`.
+#error NR_PERSIST needs NR_COHERENT_ACT=1; a persistent dispatch has no boundary to invalidate at
+#endif
+// **Re-priced with the boundary invalidate, and it is still a win.** The -2.79% this
+// was taken at was measured when every kernel was coherent and device scope on
+// these four cost nothing extra. It is not free now - `g_fswinp<C>` are the
+// only `scope:SCOPE_DEV` left in the graph and they are ~31% of the frame - and
+// it still pays. Two interleaved passes an extent, default against
+// `NR_NO_PERSIST=1`:
+//
+//   1080p   on  7.823 / 7.828 ms @ 2715/2719 MHz   21.24 / 21.28 Mcyc   2.673 J
+//           off 8.032 / 8.035    @ 2750/2749       22.09 / 22.09        2.735 J
+//   4K      on 28.940 / 28.965   @ 2605/2605       75.39 / 75.44        9.855 J
+//           off 29.291 / 29.285  @ 2625/2626       76.89 / 76.90        9.973 J
+//
+// **-2.6% of time and -2.3% of energy at 1080p, -1.1% and -1.2% at 4K.** Read
+// the clock column before the cycle column: the non-persistent graph boosts
+// 35 MHz higher at 1080p because its extra barriers leave the card idle, so its
+// cycle count overstates the gap by a third. Energy a frame is the invariant
+// and it says the same thing.
+//
+// **The spin's flag load is inside the loop** - the hoisting hazard does not reach
+// here. ACO lowers `atomicAdd(nr_sync[idx], 0u)` to a plain
+// `buffer_load_b32 ... scope:SCOPE_DEV` (which is the right lowering: the scope
+// is what the construct was for), and in `g_fswinp256` that load is the first
+// instruction of the loop's own basic block, with both back edges - the budget
+// path and the poll path - targeting it. A hoist is impossible here because the
+// loop's exit condition is the comparison against its result; the synthetic
+// probe that was hoisted had nothing else in the loop to keep it honest.
+// Laid out exactly as `PushFSwin` in windows/src/core/nr_graph.cpp - twenty uints,
+// two of them read as signed - because the host uploads that struct verbatim.
+struct FSwinParams {
+    uint x_off, o_off, e_off, ct_off, qkv_off, op_off, b_off,
+         rs_off, ars_off, s_off, rsd_off, ard_off, mid_off;
+    uint tiles_x, tiles_y;
+    int  shift, shift_y;
+    uint pool_off, pool_tiles_x, pool_tiles_y;
+#ifdef NR_DS_PROJECT
+    // NR_PERSIST_DS: the run's last layer may be the level's downsample,
+    // whose eleven projection fields come from a table at pcp.ds_off.
+    uint ds_w_off, ds_o_off, ds_otx, ds_raster, ds_crow, ds_rows, ds_mode, ds_writer_rows, ds_n;
+    uint ds_clear_x, ds_clear_y;
+#endif
+#ifdef NR_FUSED_UPS_BLEND
+    // NR_PERSIST_UPS: PushUps then the projection weights, from pcp.ds_off.
+    uint blend_p_off, blend_s_off, blend_o_off, blend_g_off;
+    uint blend_tiles_x, blend_tiles_y, blend_itiles_x, blend_itiles_y;
+    uint blend_mode, blend_stiles_x;
+    uint ups_weight_off;
+#endif
+};
+// Four more the host appends per layer, because **consecutive layers of one
+// level do not share a window grid**: the grid is padded per axis for the
+// shift, so at C=256 and 1080p it alternates 16x9 and 15x9 every two layers.
+// [20] gx, [21] gy, [22] windows, [23] the layer's base in the flag array.
+#define NR_PARAM_WORDS 24u
+FSwinParams pc;
+layout(push_constant) uniform PushPersist {
+    uint layers_off;    // u32 index into the weight arena of the record array
+    uint sync_off;      // u32 index into the activation arena of the sync region
+    uint n_layers, spin_limit;
+    uint total_windows; // the item count: the sum of the run's window counts
+    uint df_off, df_n0; // NR_PERSIST_DF: dependency tables, ready-at-start count
+#if NR_PERSIST_DS || NR_PERSIST_UPS
+    uint ds_off;        // u32 index of the DS (last) or UPS (first) layer's 11 fields, 0 = none
+#endif
+} pcp;
+#ifndef NR_PERSIST_DF
+#define NR_PERSIST_DF 0
+#endif
+// [0] the item counter, [1] finished, [2] epoch, [3] error,
+// [4 .. 4 + total_windows) the flags, then one broadcast slot per workgroup.
+layout(set = 0, binding = 5, std430) coherent buffer Sync { uint nr_sync[]; };
+uint nr_wx, nr_wy;
+#else
+#define nr_wx (gl_WorkGroupID.x)
+#define nr_wy (gl_WorkGroupID.y)
+layout(push_constant) uniform Push {
+    uint x_off, o_off, e_off, ct_off, qkv_off, op_off, b_off,
+         rs_off, ars_off, s_off, rsd_off, ard_off,
+         mid_off;               // the grouped middle convolution, heads > 1
+#if NR_IMAGE
+    uint tiles_x, tiles_y;      // the image in 4x4-pixel tiles
+    int shift, shift_y;        // signed offsets, in 4-pixel tiles
+#if defined(NR_POOL_F16) || defined(NR_FUSED_POST_BLEND) || defined(NR_FUSED_UPS_BLEND)
+    uint pool_off, pool_tiles_x, pool_tiles_y;
+#endif
+#endif
+#ifdef NR_DS_PROJECT
+    // The learned [2C][C] downsample projection, fused after the pool.
+    // Same fields as gemmds's shear epilogue (gemm1x1.comp, NR_DS_SHEAR).
+    uint ds_w_off, ds_o_off, ds_otx, ds_raster, ds_crow, ds_rows, ds_mode, ds_writer_rows, ds_n;
+    uint ds_clear_x, ds_clear_y;  // C>=64 real pooled extent; zero outside (gemmds clear_x/y)
+#endif
+#if defined(NR_FUSED_POST_BLEND) || defined(NR_FUSED_UPS_BLEND)
+    uint blend_p_off, blend_s_off, blend_o_off, blend_g_off;
+    uint blend_tiles_x, blend_tiles_y, blend_itiles_x, blend_itiles_y;
+    uint blend_mode, blend_stiles_x;
+#endif
+#if defined(NR_FUSED_UPS_PROJECT) || defined(NR_WIDE_UPS_PROJECT)
+    uint ups_weight_off;
+#endif
+#ifdef NR_FUSED_IMAGE_OUTPUT
+    uint image_w_off;       // NR_POST_ALPHA: bit 31 restore alpha, bit 30 8-bit rounding
+    float image_intensity;
+#endif
+#ifdef NR_FUSED_IMAGE_INPUT
+    uint image_lift_off,image_source_W,image_source_H,image_seed;
+    float image_style,image_tone,image_structure,image_skin,image_other,image_noise,image_constant;
+#if NR_NOISE_FIELD
+    uint image_noise_off;   // u32 index of the precomputed noise features, 0: none
+#endif
+#endif
+} pc;
+#endif
+
+// The host pads the window grid for negative per-axis shifts. The PTX
+// zero-fills out-of-range input tiles and suppresses their output stores.
+// NR_PRE_FULL - CLOSED, keep 0 (no time). A poisoning diagnostic (bit 16) proved
+// no out-of-range tile ever occurs in the fused pre-block (3 extents + 5 NVIDIA
+// controls). Bit 2 alone moved the controls by up to -1.37 dB only because, with
+// the tile branch gone, NIR folded f2f32(f2f16(lift)) and dropped the lift's
+// native f16 rounding; bit 64 keeps an opaque branch there and 1|2|4|64 (=71) is
+// byte-identical, -574 static instructions - but all scalar/branch: pre 540 us
+// either way. The -24 us bit 2 showed was the removed rounding itself. Contract:
+// the fused image pre-block's contract. The host selects
+// fswinimagepreds32 only for W%8 == H%8 == 0, zero shifts, tiles = extent/4 and
+// a W/8 x H/8 window grid (nr_graph.cpp, imgin16wmma fold), and checks
+// pool_tiles*2 >= tiles there, so every tile and every pooled pixel is in range:
+// the clamps are identities and the out-of-range tests constant false.
+#ifndef NR_PRE_FULL
+#define NR_PRE_FULL 0
+#endif
+#if NR_IMAGE
+uint nr_tile_base(uint q) {
+#if NR_PRE_FULL & 1
+    const uint tx=2u*nr_wx+(q&1u), ty=2u*nr_wy+(q>>1);
+    return (ty*pc.tiles_x+tx)*uint(NR_C/16)*256u;
+#else
+    int tx=2*int(nr_wx)+pc.shift+int(q&1u);
+    int ty=2*int(nr_wy)+pc.shift_y+int(q>>1);
+    tx=clamp(tx,0,int(pc.tiles_x)-1);ty=clamp(ty,0,int(pc.tiles_y)-1);
+    return (uint(ty)*pc.tiles_x+uint(tx))*uint(NR_C/16)*256u;
+#endif
+}
+bool nr_tile_oob(uint q) {
+#if NR_PRE_FULL & 2
+    return false;
+#elif NR_ABLATE_OOB
+    // Diagnostic only, wrong output at the padded edge of the window grid.
+    // Prices the whole out-of-bounds path: the per-component zeroing of the
+    // input fragments and the suppressed output stores.
+    return false;
+#else
+    int tx=2*int(nr_wx)+pc.shift+int(q&1u);
+    int ty=2*int(nr_wy)+pc.shift_y+int(q>>1);
+    return tx<0 || ty<0 || tx>=int(pc.tiles_x) || ty>=int(pc.tiles_y);
+#endif
+}
+#endif
+
+// NR_OOB_SKIP: per-tile skip of out-of-image query tiles in the persistent
+// head-split bodies. `nr_mlive[m]` is wave-uniform (it follows the claimed
+// item), so every guard is a scalar branch. NR_OOB_SKIP=1 is the guard-cost
+// DIAGNOSTIC (wrong output: out-of-image K/V are left uncomputed); 2 is the
+// exact path (out-of-image K/V from the layer's cached constant fragments).
+#ifndef NR_OOB_SKIP
+#define NR_OOB_SKIP 0
+#endif
+#if NR_OOB_SKIP
+#if !(NR_PERSIST && NR_HWAVES && NR_IMAGE)
+#error "NR_OOB_SKIP: persistent head-split image bodies only"
+#endif
+bool nr_mlive[NR_WIN / 16];
+#define NR_MG(m) [[dont_flatten]] if (nr_mlive[m])
+#else
+#define NR_MG(m)
+#endif
+// NR_OOB_SKIP=3 guards stages 1-2 (the MLP) only; NR_MGA is the guard of the
+// attention/projection sites, active only under the diagnostic NR_OOB_SKIP=1.
+// NR_MGK marks the K/V epilogues, which that diagnostic also skipped (stale
+// LDS K/V, a wrong output); they always run otherwise.
+#ifndef NR_EDGE_BODIES
+#define NR_EDGE_BODIES 0
+#endif
+#if NR_EDGE_BODIES && (NR_OOB_SKIP || !NR_IMAGE || NR_WIN != 64 || (!NR_PERSIST && NR_HWAVES) || defined(NR_FUSED_IMAGE_OUTPUT) \
+    || (!NR_HWAVES && (NR_HEADS != 1 || NR_FWAVES != 1)))
+#error "NR_EDGE_BODIES: persistent head-split or one-wave C=32 image bodies without the fused image output, NR_OOB_SKIP off"
+#endif
+#if NR_OOB_SKIP == 1
+#define NR_MGA(m) NR_MG(m)
+#define NR_MGK(m) NR_MG(m)
+#define NR_MGJ(j)
+#elif NR_EDGE_BODIES
+#undef NR_MG
+#define NR_MG(m) if ((((NR_LIVE) >> (m)) & 1) != 0)
+#define NR_MGA(m) NR_MG(m)
+#define NR_MGK(m)
+// Key side: an out-of-image key tile's K and V are zero, so its logit MMAs
+// leave the zero start and its P.V MMAs add nothing. Measured a tie,
+// so off: the skip would also keep a -0.0 context where the MMA makes +0.0.
+#ifndef NR_EDGE_KEYS
+#define NR_EDGE_KEYS 0
+#endif
+#if NR_EDGE_KEYS
+#define NR_MGJ(j) NR_MG(j)
+#else
+#define NR_MGJ(j)
+#endif
+#else
+#define NR_MGA(m)
+#define NR_MGK(m)
+#define NR_MGJ(j)
+#endif
+
+#ifdef NR_FUSED_UPS_BLEND
+#if !NR_IMAGE || NR_ACC_F16 != 0
+#error upsample fusion requires FP32 image path
+#endif
+#if NR_C == 32
+#if NR_HWAVES || !defined(NR_INPUT_F16) || NR_FWAVES != 1
+#error C32 upsample fusion requires one wave and FP16 input
+#endif
+#elif !NR_HWAVES
+#error wide upsample fusion requires one wave per head
+#endif
+#endif
+#ifndef NR_UPS_ALIAS
+#define NR_UPS_ALIAS 0
+#endif
+#ifndef NR_UPS_KOUTER
+#define NR_UPS_KOUTER 0
+#endif
+#if NR_UPS_ALIAS && !((NR_HWAVES && defined(NR_WIDE_UPS_PROJECT)) || \
+    (!NR_HWAVES && defined(NR_FUSED_UPS_PROJECT) && !NR_K_REGS && !NR_ACTIVATION_LUT && !NR_CONTEXT_LDS))
+#error "NR_UPS_ALIAS: head-split wide or one-wave C=32 upsample bodies"
+#endif
+#ifndef NR_UPS_U32
+#define NR_UPS_U32 0
+#endif
+#if (defined(NR_FUSED_UPS_PROJECT) || defined(NR_WIDE_UPS_PROJECT)) && !NR_UPS_ALIAS
+#if NR_UPS_U32
+// Windows (LLPC) NR_UPS_U32: the projected pixels as f16 pairs, so the blend reads a pair with
+// one ds_load_b32 instead of two ds_load_u16; the fragments are stored in u32 units. Same bytes.
+shared uint ups_u32[NR_C*8];
+#else
+shared NR_F16 ups_projected[NR_C*16];
+#endif
+#endif
+#if NR_UPS_U32
+#define NR_UPS_PAIR(pb) unpackFloat2x16(ups_u32[(pb) >> 1u])
+#define NR_UPS_ONE(i) unpackFloat2x16(ups_u32[(i) >> 1u])[(i) & 1u]
+#if NR_UPS_ALIAS
+#define NR_UPS_STORE(frag, off) NR_STORE_ACC_COL(frag, ups_projected, off, 16u)
+#else
+#define NR_UPS_STORE(frag, off) NR_STORE_ACC_COL(frag, ups_u32, (off) / 2u, 8u)
+#endif
+#else
+#define NR_UPS_PAIR(pb) f16vec2(ups_projected[pb], ups_projected[(pb) + 1u])
+#define NR_UPS_ONE(i) ups_projected[i]
+#define NR_UPS_STORE(frag, off) NR_STORE_ACC_COL(frag, ups_projected, off, 16u)
+#endif
+
+// K as [head][token][dim] so the logit product reads it as a plain RowMajor A,
+// and V as [head][dim][token] so the context product does the same. Both are
+// written straight from the QKV accumulators, each in the layout its consumer
+// wants, with one store apiece.
+// **One head at a time**, now 4096 B at every width - the attention is
+// independent per head, and staging all of them at once would want 48 KB at
+// C=256 and blow decision 12's 32 KB ceiling. The cost is a workgroup barrier
+// per head; the QKV projection for a head is computed just before its own
+// attention, which also caps the live accumulators at 3*NR_DF rather than 3C/16.
+#ifndef NR_ACTIVATION_LUT
+#define NR_ACTIVATION_LUT 0
+#endif
+// Fast profile: four low half-input bits are replaced by their midpoint.
+// The 4 KiB FP8 table is embedded in the host and addressed by rsd_off.
+#ifndef NR_ACTIVATION_LUT_SHIFT
+#define NR_ACTIVATION_LUT_SHIFT 4
+#endif
+#define NR_ACTIVATION_LUT_SIZE (1u << (16u-NR_ACTIVATION_LUT_SHIFT))
+#if NR_HWAVES
+// Two exchange buffers, both [token tile][channel fragment][256 B] - the arena's
+// own tile-blocked layout, so a fragment is one NR_STORE_ACC_COL out and one
+// NR_LOAD_B back, at the same addresses the register form used.
+//   lds_x: the window's x, staged once; overwritten in place by stage 2's yq.
+//   lds_y: the middle output, then this wave's V, then this wave's context.
+// 16 KB each at C=256, and four barriers a window where the token split needs
+// sixteen.
+#if NR_UPS_ALIAS
+// The projected half-resolution pixels are dead once the blend has
+// written lds_x (barrier), and lds_y's first write is the middle output two
+// barriers later - so they share bytes. At C=256 that is 40960 -> 32768 B of
+// LDS, two workgroups a CU instead of one (4 -> 8 waves a SIMD: the 135
+// windows fit one pass instead of 2.1). Shared blocks alias at offset 0.
+#extension GL_EXT_shared_memory_block : require
+shared NrLdsYX { NR_E4M3 lds_y[NR_WIN * NR_C]; NR_E4M3 lds_x[NR_WIN * NR_C]; };
+shared NrUpsProj { NR_F16 ups_projected[NR_C * 16]; };
+#if NR_UPS_U32
+shared NrUpsProjU { uint ups_u32[NR_C * 8]; };   // the same bytes (blocks alias at 0)
+#endif
+#else
+#if NR_PBATCH > 1
+shared NR_E4M3 lds_x[NR_PBATCH * NR_WIN * NR_C];
+shared NR_E4M3 lds_y[NR_PBATCH * NR_WIN * NR_C];
+#else
+shared NR_E4M3 lds_x[NR_WIN * NR_C];
+shared NR_E4M3 lds_y[NR_WIN * NR_C];
+#endif
+#endif
+#if NR_ACTIVATION_LUT
+#define nr_act_lds lds_y
+#endif
+#else
+#if NR_ACTIVATION_LUT && NR_C == 32
+#if NR_K_REGS || NR_ATT_F16 || NR_F16_MMA || NR_ACC_F16 != 0
+#error "C32 lookup requires the FP32/FP8 shared-memory layout"
+#endif
+shared NR_E4M3 nr_act_lds[NR_ACTIVATION_LUT_SIZE];
+#define lds_k nr_act_lds
+#define lds_v nr_act_lds
+#define NR_V_LDS_OFFSET 2048u
+#else
+#define NR_V_LDS_OFFSET 0u
+#if NR_UPS_ALIAS
+// C=32 one-wave body - the projected pixels (1 KB) die at the blend,
+// long before the QKV stage first writes K; one wave, so program order is the
+// only ordering LDS needs. 5120 -> 4096 B: six waves a SIMD back to eight.
+#extension GL_EXT_shared_memory_block : require
+shared NrLdsKV { NR_QK_STAGE_T lds_k[NR_WIN * NR_HD]; NR_PV_STAGE_T lds_v[NR_HD * NR_WIN]; };
+shared NrUpsProj { NR_F16 ups_projected[NR_C * 16]; };
+#if NR_UPS_U32
+shared NrUpsProjU { uint ups_u32[NR_C * 8]; };   // the same bytes (blocks alias at 0)
+#endif
+#else
+#if !NR_K_REGS
+// NR_STAGE_T is NR_E4M3, or NR_F16 under NR_F16_MMA - twice the bytes, because
+// the operand the logit and context products want is then an f16 fragment. At
+// C=32 that is 4096 B here and 4096 in lds_v, 8192 against 4096.
+shared NR_QK_STAGE_T lds_k[NR_WIN * NR_HD];
+#endif
+shared NR_PV_STAGE_T lds_v[NR_HD * NR_WIN];
+#endif
+#endif
+#if NR_CONTEXT_LDS
+shared NR_STAGE_T lds_context[NR_WIN * NR_C];
+#endif
+#endif
+
+// ---- NR_LDS_PAD: an occupancy knob, diagnostic only ----------------------
+//
+// **Correct output, wrong performance, on purpose.** LDS is allocated per
+// workgroup and rounded to the hardware granule, so padding it evicts
+// workgroups from the WGP and lowers waves per SIMD without touching a single
+// instruction. That is the only way to ask this kernel the question the thread
+// trace left open: it issues 76% of cycles across all ports but only ~60% on
+// the VALU and ~62% on the matrix pipe, i.e. nothing is saturated and the
+// waves are waiting on each other's dependencies. If time is flat as waves per
+// SIMD fall, latency hiding is not the limiter and hunting VGPRs down to 128
+// for a twelfth wave is worth nothing; if it climbs, the slope prices that
+// hunt before anyone starts it.
+//
+// `spv_stats` prints the resulting Subgroups per SIMD, so the knob's effect is
+// checked with no dispatch: NR_LDS_PAD is **bytes**, and only the ones that
+// cross a granule do anything.
+#ifndef NR_LDS_PAD
+#define NR_LDS_PAD 0
+#endif
+#if NR_LDS_PAD > 0
+shared uint nr_lds_pad[NR_LDS_PAD / 4];
+#endif
+
+#define NR_TILE(base, row, k, kdim) ((base) + ((row) / 16u) * ((kdim) / 16u) * 256u \
+                                   + ((k) / 16u) * 256u)
+
+#if NR_PACK_C32_ACTIVE
+#if NR_ACC_F16 != 0 || NR_F16_MMA || NR_WPF
+#error "packed C32 weights require FP32 FP8 operands and ordinary loads"
+#endif
+// Adjacent matrix rows occupy the two halves of one lane's 16-byte record.
+// Keeping row selection constant lets the driver combine adjacent reads.
+#define NR_C32_WEIGHT(frag,base,row,k,kf) { \
+    const uint q=(base)/4u+((row)/2u)*(kf)*128u+(k)*128u+lane*4u+((row)&1u)*2u; \
+    NR_WPAIR_FILL(frag,q) }
+#else
+#define NR_C32_WEIGHT(frag,base,row,k,kf) \
+    NR_LOAD_WA(frag,NR_TILE(base,(row)*16u,(k)*16u,(kf)*16u),16u)
+#endif
+
+// Adjacent N fragments share one 16-byte lane read. `row` and `k`
+// count 16-element fragments; each result keeps its original ascending K
+// reduction. The host repacks only weights, before merging persistent runs.
+#if (defined(NR_PACKED_QKV) || NR_PACKED_DENSE) && NR_HWAVES
+#define NR_WEIGHT_PAIR_S(wf0,wf1,base,row,k,kfrags,bit) { \
+    const uint q=(base)/4u + ((row)/2u)*(kfrags)*128u + (k)*128u + lane*4u; \
+    NR_WPAIR_FILL2S(wf0,wf1,q,bit) }
+#endif
+
+// Full FP32 activation arithmetic, no truncated input table.
+#ifndef NR_ACT_HORNER
+#define NR_ACT_HORNER 0
+#endif
+#ifndef NR_POOL_PACKED
+#define NR_POOL_PACKED 0
+#endif
+#ifndef NR_DIAG_POSTSTORE
+#define NR_DIAG_POSTSTORE 0
+#endif
+#ifndef NR_DS_IDENTITY_FAST
+#define NR_DS_IDENTITY_FAST 0
+#endif
+#ifndef NR_OOB_BRANCH
+#define NR_OOB_BRANCH 0
+#endif
+#if NR_OOB_BRANCH
+#extension GL_EXT_control_flow_attributes : require
+#endif
+#ifndef NR_XB_QH
+#define NR_XB_QH 0
+#endif
+#ifndef NR_POOL_ADDR_UNIFORM
+#define NR_POOL_ADDR_UNIFORM 0
+#endif
+#ifndef NR_POOL_DPP16
+#define NR_POOL_DPP16 0
+#endif
+#if NR_POOL_DPP16 && (NR_POOL_PACKED || !NR_QUANT_PAIRED || !NR_POOL_VECTOR_STORE)
+#error "NR_POOL_DPP16 replaces the scalar paired vector-store pool chain only"
+#endif
+#if NR_POOL_DPP16 >= 6 && !NR_POOL_ADDR_UNIFORM
+#error "NR_POOL_DPP16=6: the uniform-address pool store only"
+#endif
+#if NR_POOL_DPP16
+#extension GL_EXT_shader_subgroup_extended_types_float16 : require
+#endif
+#ifndef NR_POST_BLEND_PK
+#define NR_POST_BLEND_PK 0
+#endif
+#ifdef NR_DS_PROJECT
+#if !defined(NR_POOL_F16) || !NR_POOL_VECTOR_STORE || !NR_QUANT_PAIRED || \
+    !((NR_HWAVES == 0 && NR_FWAVES == 1 && NR_C == 32) || (NR_HWAVES && NR_DF == 2))
+#error "NR_DS_PROJECT: the one-wave C=32 body or a head-split body with 32 channels a head"
+#endif
+#if NR_PERSIST && !NR_PERSIST_DS
+#error "NR_DS_PROJECT in a persistent body needs NR_PERSIST_DS"
+#endif
+// The one-wave C=32 body stages them in lds_v, dead after the context
+// product, [pixel][channel] - no array of its own.
+// Head-split bodies stage the pooled pixels in lds_x instead: tile
+// (m=0, n) of a wave's own channel fragment n has been read back into yqr
+// before its pool runs, only that wave ever reads it, and its tile-blocked
+// [token][16 channels] layout is exactly [pixel][16 channels].
+#endif
+#if NR_PERSIST_DS && !(defined(NR_DS_PROJECT) && NR_HWAVES && NR_PERSIST_DF)
+#error "NR_PERSIST_DS: head-split dependency-driven persistent body with NR_DS_PROJECT"
+#endif
+#if NR_ACT_HORNER
+float nr_act_horner(float x) {
+    const float t=clamp(x,-4.0,4.0);
+    const float u=fma(-0.055908203125,abs(t),0.447265625);
+    return x*fma(t,u,0.89453125);
+}
+#define nr_mp_cubic_silu nr_act_horner
+// NR_ACT_ALT: the second value of each pair spells the same Horner steps
+// with the multiplicands swapped (bit-identical: IEEE fma/mul commute), so the
+// register allocator sees different killed operands for adjacent values and
+// can meet VOPD's even/odd destination rule more often. 1 both, 2 mul, 3 fma.
+#ifndef NR_ACT_ALT
+#define NR_ACT_ALT 0
+#endif
+// Modes 1-3 as before; 4..11 are the bit set (mode-4): bit0 swaps u's fma,
+// bit1 w's fma, bit2 the final mul (4 = none, 11 = all).
+#if NR_ACT_ALT >= 4
+#define NR_ALT_U (((NR_ACT_ALT - 4) & 1) != 0)
+#define NR_ALT_W (((NR_ACT_ALT - 4) & 2) != 0)
+#define NR_ALT_M (((NR_ACT_ALT - 4) & 4) != 0)
+#else
+#define NR_ALT_U (NR_ACT_ALT == 1 || NR_ACT_ALT == 3)
+#define NR_ALT_W (NR_ACT_ALT == 1 || NR_ACT_ALT == 3)
+#define NR_ALT_M (NR_ACT_ALT == 1 || NR_ACT_ALT == 2)
+#endif
+float nr_act_horner_b(float x) {
+    const float t=clamp(x,-4.0,4.0);
+#if NR_ALT_U
+    const float u=fma(abs(t),-0.055908203125,0.447265625);
+#else
+    const float u=fma(-0.055908203125,abs(t),0.447265625);
+#endif
+#if NR_ALT_W
+    const float w=fma(u,t,0.89453125);
+#else
+    const float w=fma(t,u,0.89453125);
+#endif
+#if NR_ALT_M
+    return w*x;
+#else
+    return x*w;
+#endif
+}
+#if NR_ACT_ALT
+#define nr_mp_cubic_silu_b nr_act_horner_b
+#else
+#define nr_mp_cubic_silu_b nr_act_horner
+#endif
+#if NR_ACT_PAT
+#if defined(NR_ABLATE_ACT) && NR_ABLATE_ACT
+// Diagnostic (wrong output): the activation priced by leaving it out.
+#define NR_ACTP(x, c)   (x)
+#define NR_ACTP_B(x, c) (x)
+#else
+#define NR_ACTP(x, c)   nr_act_pick(x, c)
+#define NR_ACTP_B(x, c) nr_act_pick(x, c)
+#endif
+#else
+#define NR_ACTP(x, c)   nr_mp_cubic_silu(x)
+#define NR_ACTP_B(x, c) nr_mp_cubic_silu_b(x)
+#endif
+// NR_ACT_PAT: which values of a component run take the _b spelling -
+// parity of (component index & mask). 0 keeps the pairwise call sites
+// (second of each pair). Constant after unrolling, so one call survives.
+#ifndef NR_ACT_PAT
+#define NR_ACT_PAT 0
+#endif
+float nr_act_pick(float x, int c) {
+    return (bitCount(uint(c) & uint(NR_ACT_PAT)) & 1) != 0 ? nr_act_horner_b(x) : nr_act_horner(x);
+}
+#endif
+// MpCubicSiluActivation, recovered from 1936 call sites.
+float nr_act(float x) {
+    return nr_swin_act(x);
+}
+
+// Adjacent components can use the original packed half FMA sequence directly.
+f16vec2 nr_act2(f16vec2 x) {
+    return nr_swin_act2(x);
+}
+
+#if NR_ACTIVATION_LUT
+fe4m3vec2 nr_act_lookup(f16vec2 x) {
+    const uint bits=packFloat2x16(x);
+    return fe4m3vec2(nr_act_lds[(bits&65535u)>>NR_ACTIVATION_LUT_SHIFT],nr_act_lds[bits>>(16u+NR_ACTIVATION_LUT_SHIFT)]);
+}
+#endif
+
+// ---- NR_QBATCH: one MODE window for a whole fragment ----------------------
+//
+// Mode 4's saturating convert needs `MODE.FP16_OVFL` set, and ACO brackets
+// **each run of adjacent converts** with an `s_setreg` pair - not each convert.
+// At C=32 the shipping kernel has 187 converts and 163 setregs, i.e. runs of
+// 2.3, because the source interleaves `activation -> convert -> store` per
+// channel pair and the scheduler keeps that order.
+//
+// The 2026-09-17 thread trace priced those 163 setregs at **9.97% of the
+// dispatch** against 7.5% for the 187 converts they guard: the toggle, not the
+// conversion, is the cost, and it is the one stall ten waves a SIMD cannot
+// hide because it drains the pipe. "Batch the conversions" was once rejected on an
+// instruction count (3289 -> 3277) - the right metric was never instructions.
+//
+// So: stage all four activated pairs of a fragment, convert the four back to
+// back, then store. Same operations on the same values in the same order per
+// element, so the output is bit-identical; only the run length changes.
+#ifndef NR_QBATCH
+#define NR_QBATCH 0
+#endif
+// Mode 4 only: mode 5's `nr_quant_pair32` clamps in f32 before narrowing, which
+// is a different function from its `nr_quant_pair`, so the f32 staging below
+// would not be bit-identical there.
+#if NR_QBATCH && NR_QUANT_PAIRED && NR_QUANT_MODE == 4
+#define NR_QBATCH_ON 1
+#else
+#define NR_QBATCH_ON 0
+#endif
+#if NR_QBATCH_ON
+// The generic form: PAIR(c) is a macro giving the half pair for channels c and
+// c+1, already in the spelling that reaches the free converter. **Do not
+// rewrite the expression while batching it** - the `f2e4m3fn_satfn` match is
+// on the operand's provenance, and losing it costs more MODE writes than
+// batching saves (see the packed-multiply note at the softmax).
+// **Stage the widened f32, not the half pair.** `nr_quant_pair(f16vec2 v)` is
+// `vec2 x = vec2(v)` followed by the saturating convert, so at mode 4 it is
+// `nr_quant_pair32(vec2(v))` instruction for instruction. Batching the half
+// pairs alone left the two `v_cvt_f32_f16` of each pair inside the run, and
+// ACO sank each convert to its own widening - runs of one, which is what the
+// shipping kernel already had. Hoisting the widenings is what makes the run.
+#define NR_QRUN8(DST, PAIR) {                                                 \
+        const vec2 nrr_x0 = vec2(PAIR(0));                                    \
+        const vec2 nrr_x1 = vec2(PAIR(2));                                    \
+        const vec2 nrr_x2 = vec2(PAIR(4));                                    \
+        const vec2 nrr_x3 = vec2(PAIR(6));                                    \
+        const NR_QPAIR_T nrr_q0 = nr_quant_pair32(nrr_x0);                    \
+        const NR_QPAIR_T nrr_q1 = nr_quant_pair32(nrr_x1);                    \
+        const NR_QPAIR_T nrr_q2 = nr_quant_pair32(nrr_x2);                    \
+        const NR_QPAIR_T nrr_q3 = nr_quant_pair32(nrr_x3);                    \
+        DST[0] = nrr_q0.x; DST[1] = nrr_q0.y;                                 \
+        DST[2] = nrr_q1.x; DST[3] = nrr_q1.y;                                 \
+        DST[4] = nrr_q2.x; DST[5] = nrr_q2.y;                                 \
+        DST[6] = nrr_q3.x; DST[7] = nrr_q3.y; }
+#define NR_QBLOCK8(DST, A) {                                                  \
+        const f16vec2 nrq_v0 = nr_act2(NR_N2_EQ(A[0], A[1]));                 \
+        const f16vec2 nrq_v1 = nr_act2(NR_N2_EQ(A[2], A[3]));                 \
+        const f16vec2 nrq_v2 = nr_act2(NR_N2_EQ(A[4], A[5]));                 \
+        const f16vec2 nrq_v3 = nr_act2(NR_N2_EQ(A[6], A[7]));                 \
+        const vec2 nrq_x0 = vec2(nrq_v0);                                     \
+        const vec2 nrq_x1 = vec2(nrq_v1);                                     \
+        const vec2 nrq_x2 = vec2(nrq_v2);                                     \
+        const vec2 nrq_x3 = vec2(nrq_v3);                                     \
+        const NR_QPAIR_T nrq_q0 = nr_quant_pair32(nrq_x0);                    \
+        const NR_QPAIR_T nrq_q1 = nr_quant_pair32(nrq_x1);                    \
+        const NR_QPAIR_T nrq_q2 = nr_quant_pair32(nrq_x2);                    \
+        const NR_QPAIR_T nrq_q3 = nr_quant_pair32(nrq_x3);                    \
+        DST[0] = nrq_q0.x; DST[1] = nrq_q0.y;                                 \
+        DST[2] = nrq_q1.x; DST[3] = nrq_q1.y;                                 \
+        DST[4] = nrq_q2.x; DST[5] = nrq_q2.y;                                 \
+        DST[6] = nrq_q3.x; DST[7] = nrq_q3.y; }
+#endif
+
+// NR_PROB_PK (Windows, default on): the bounded probabilities as one packed f16 multiply,
+// pq2 * f16vec2(NR_F16(inv)). The same number as the f32 spelling (the product of two f16 values
+// is exact in f32, so rounding it to f16 and the f16 RNE multiply agree - see the note below), which
+// is ACO-shaped; LLPC shrank the f32 form into two scalar v_mul_f16 plus a shift per pair.
+// Windows NR_PROB_PK=2: the normalised probability multiplied in f32 (vec2(p) * inv) and
+// converted to e4m3 from there - one rounding where PROB_PK=1 rounds the f16 product first
+// (NVIDIA's spelling). Changes the picture; measured against Linux / the 5090.
+#ifndef NR_PROB_PK
+#define NR_PROB_PK 1
+#endif
+#define NR_EXP_A 0.044910375
+#define NR_EXP_B 1.300894618
+#define NR_EXP_LO 1.03125
+#define NR_EXP_HI 1.569335938
+#define NR_LOGIT_LO float((NR_EXP_LO - NR_EXP_B) / NR_EXP_A)
+#define NR_LOGIT_HI float((NR_EXP_HI - NR_EXP_B) / NR_EXP_A)
+#define NR_SUM_FLOOR 6.103515625e-05
+
+// exp() as a linear ramp in the **f16** bit pattern. The affine map lands the
+// clamped logit in [1.03125, 1.5693], which is exactly where an f16's exponent
+// field advances one step per unit, so shifting that pattern into f32's
+// exponent position *is* an exponential - slope 1.437132 against log2(e)'s
+// 1.442695. The mask and the bias are measured, not derived.
+float nr_fast_exp(float x) {
+    return nr_swin_exp(x);
+}
+
+// Which of the two f16 roundings the emulated accumulator uses. This is a
+// 26-instruction function against a 3-instruction one, applied after every
+// NR_ACC_F16 k-steps of every stage, so it is not a detail: at C=32 the exact
+// version is most of why this kernel issues 10119 instructions where
+// `fswin.comp` - which has defaulted to the cheap one since it was written -
+// issues 2636, and most of why its code is 58804 bytes against 23152, well
+// past the instruction cache.
+//
+// The cheap one is exact on the reachable domain wherever the accumulator is
+// on its way to an e4m3 quantisation, which is the argument written out at
+// `nr_round_f16_e4m3` in `windows/shaders/rdna4/include/coopmm.glsl`. Every NR_RND site here
+// but the final projection is such a place. Keep 0 available: the claim that
+// it is free is a claim about a gold score, so the fswin benchmark measures
+// both rather than asserting it.
+#ifndef NR_ACC_F16_CHEAP
+#define NR_ACC_F16_CHEAP (1-NR_PTX_ACC)
+#endif
+#if NR_ACC_F16 > 0
+#if !NR_ACC_F16_CHEAP
+#define NR_RND1(x) nr_round_f16(x)
+#elif NR_ROUND_MODE == 1
+#define NR_RND1(x) nr_round_f16_hw(x)
+#elif NR_ROUND_MODE == 2
+#define NR_RND1(x) nr_round_f16(x)
+#else
+#define NR_RND1(x) nr_round_f16_e4m3(x)
+#endif
+#if NR_ROUND_MODE == 3
+// The whole fragment at once: f32 Accumulator -> f16 Accumulator -> back. The
+// f16 form packs two components per VGPR, so this is a packed narrowing where
+// the per-component paths are scalar ones. Whether it survives ACO is the
+// question - `NR_ROUND_MODE=1`'s scalar round trip did not.
+#define NR_RND(a) { (a) = NR_FRAG_ACC(NR_FRAG_ACC16(a)); }
+#else
+#define NR_RND(a) { for (int c = 0; c < (a).length(); ++c) (a)[c] = NR_RND1((a)[c]); }
+#endif
+#else
+#define NR_RND(a) {}
+#endif
+
+#ifndef NR_NOISE_FIELD
+#define NR_NOISE_FIELD 0
+#endif
+// NR_POST_ALPHA: the runtime's alpha pass folded into the post block's store
+// (native compose: the answer is written once, not written, read and written
+// again). Flags in image_w_off's top bits, set by the runtime: bit 31 takes the
+// source's alpha instead of 1, bit 30 applies the alpha pass's 8-bit rounding.
+#ifndef NR_POST_ALPHA
+#define NR_POST_ALPHA 0
+#endif
+#if NR_POST_ALPHA
+#define NR_IMG_WOFF (pc.image_w_off & 0x3FFFFFFFu)
+#else
+#define NR_IMG_WOFF pc.image_w_off
+#endif
+#ifdef NR_FUSED_IMAGE_INPUT
+#include "image_input.glsl"
+#endif
+
+#ifndef NR_BIAS_SEED
+#define NR_BIAS_SEED 0
+#endif
+#if NR_BIAS_SEED
+#if NR_BAKED_EXP_BIAS || NR_ACC_F16 != 0 || NR_F16_MMA || !NR_PACKED_SWIN_MATH || NR_ABLATE_BIAS
+#error "bias seeding requires untransformed bias and packed FP32 attention"
+#endif
+NR_FRAG_ACC nr_swin_bias_seed(uint head, uint query, uint key, uint tok0) {
+    const uint off=pc.b_off+head*uint(NR_WIN*NR_WIN)
+        +(tok0+query*16u)*uint(NR_WIN)+key*16u;
+#if NR_SWIN_BIAS_F16
+    NR_FRAG_ACC16 half_bias;
+    NR_LOAD_ACC_COL(half_bias,wgt_f16,off,uint(NR_WIN));
+    return NR_FRAG_ACC(half_bias);
+#else
+    NR_FRAG_ACC bias;
+    NR_LOAD_ACC_COL(bias,wgt_f32,off,uint(NR_WIN));
+    return bias;
+#endif
+}
+#endif
+
+#if NR_PBATCH > 1
+#if !NR_PERSIST || !NR_PERSIST_DF || !NR_HWAVES || NR_UPS_ALIAS || NR_PBATCH > 2 || \
+    (defined(NR_YOUNG_THR) && NR_YOUNG_THR) || (defined(NR_FAIR) && NR_FAIR) || \
+    (defined(NR_YX_PCT) && NR_YX_PCT < 100) || defined(NR_DIAG_SKIP_EDGE) || NR_ACTIVATION_LUT
+#error "NR_PBATCH: dependency-driven persistent head-split bodies, two items a workgroup"
+#endif
+// This slot's share of lds_x / lds_y. The slot index is read through
+// readfirstlane, so the base is scalar and joins the scalar part every LDS
+// address already has (NR_OPQ) - no VALU.
+#define NR_LXB_ nr_lxb +
+#else
+#define NR_LXB_
+#endif
+#include "nr_prof.glsl"
+void main() {
+#if NR_LDS_PAD > 0
+    // Same never-taken shape the coherent-access keep-alive uses - but a store
+    // alone is not enough: an LDS array that is never *read* is dead and the
+    // allocation goes with it (`LDS size: 4096` either way, measured). The read
+    // has to reach a global store, so the padding feeds an index.
+    if (NR_COH_NEVER) {
+        nr_lds_pad[gl_LocalInvocationID.x] = gl_LocalInvocationID.x;
+        barrier();
+        act_e4m3[0] = act_e4m3[nr_lds_pad[gl_LocalInvocationID.x ^ 1u]];
+    }
+#endif
+#if NR_COHERENT_ACT
+    // Keep every activation view both read and written; see coherent_act.glsl.
+    if (NR_COH_NEVER) {
+        act_e4m3[0] = act_e4m3[1];
+        act_f16[0]  = act_f16[1];
+#if defined(NR_POOL_F16) && NR_POOL_VECTOR_STORE
+        act_e4m3x4[0] = act_e4m3x4[1];
+#endif
+    }
+#endif
+
+    NR_PROF_BEGIN()
+#ifdef NR_FUSED_IMAGE_INPUT
+    nr_prepare_features();
+#endif
+#if NR_PBATCH > 1
+    const uint nr_lslot = subgroupBroadcastFirst(gl_LocalInvocationID.x / uint(NR_THREADS));
+    const uint nr_lxb = nr_lslot * uint(NR_WIN * NR_C);
+    const uint tid = gl_LocalInvocationID.x % uint(NR_THREADS), wave = NR_WAVE_OF(tid), lane = tid % 32u;
+#else
+    const uint tid = gl_LocalInvocationID.x, wave = NR_WAVE_OF(tid), lane = tid % 32u;
+#endif
+#if NR_PERSIST
+    uint nr_budget = pcp.spin_limit;    // polls, for the whole dispatch
+    // The value every flag of this frame settles at. The previous dispatch of
+    // this segment left the epoch behind and the arena was zero-filled once at
+    // build, so frame f waits for f+1 and never for a stale one.
+    const uint nr_epoch = nr_sync[pcp.sync_off + 2u] + 1u;
+    const uint nr_slot = pcp.sync_off + 4u + pcp.total_windows + gl_WorkGroupID.x;
+    // Items are numbered layer-major and claimed in increasing order, so a
+    // workgroup's own layer only ever moves forward: the scan is a walk, not a
+    // search, and costs `n_layers` scalar loads over the whole dispatch.
+    uint nr_layer = 0u;
+#if NR_PERSIST_DF
+    // Dependency-driven claims. Position h < df_n0 is a producer-free
+    // item from the static table; later positions are the ready queue, filled
+    // by whichever producer completes a consumer's last dependency. A claimed
+    // item is ready by construction, so no workgroup holds a slot while it
+    // waits on a producer - it can only wait for the queue itself to grow,
+    // and then no other item is ready either.
+    const uint nr_qbase = pcp.sync_off + 4u + pcp.total_windows + gl_NumWorkGroups.x;
+    const uint nr_tail = nr_qbase + pcp.total_windows;
+    const uint nr_tag = (nr_epoch & 0xFFFFu) << 16u;
+#if NR_STRAG
+    // straggler queue: an item whose ready-rank in its layer (per frame:
+    // a monotonic per-layer counter modulo the layer's queued-item count) is
+    // at or above the layer's threshold goes to a second queue that only the
+    // oldest workgroup of each CU claims (old: that queue first, then the
+    // normal one; younger: normal only). Such items finish their layer late,
+    // so they are the run's critical chain; oldest-first arbitration makes a
+    // younger workgroup run them ~2.5x slower. Tables after the DF init list:
+    // df_off + 6*TW item -> layer, df_off + 7*TW (queued, threshold) a layer.
+    // Sync words after the tail: crit head, crit tail, 16 rank counters, queue.
+    const uint nr_chead = nr_tail + 1u, nr_ctail = nr_tail + 2u;
+    const uint nr_rank = nr_tail + 3u, nr_cq = nr_tail + 19u;
+#define NR_ENQUEUE(c) { \
+        const uint nr_k = wgt_u32[pcp.df_off + 6u * pcp.total_windows + (c)]; \
+        const uint nr_q = wgt_u32[pcp.df_off + 7u * pcp.total_windows + 2u * nr_k]; \
+        const uint nr_t = wgt_u32[pcp.df_off + 7u * pcp.total_windows + 2u * nr_k + 1u]; \
+        const uint nr_r = atomicAdd(nr_sync[nr_rank + nr_k], 1u) % max(nr_q, 1u); \
+        if (nr_r >= nr_t) { const uint pos = atomicAdd(nr_sync[nr_ctail], 1u); \
+                            atomicExchange(nr_sync[nr_cq + pos], nr_tag | (c)); } \
+        else { const uint pos = atomicAdd(nr_sync[nr_tail], 1u); \
+               atomicExchange(nr_sync[nr_qbase + pos], nr_tag | (c)); } }
+#else
+#define NR_ENQUEUE(c) { const uint pos = atomicAdd(nr_sync[nr_tail], 1u); \
+                        atomicExchange(nr_sync[nr_qbase + pos], nr_tag | (c)); }
+#endif
+#endif
+#ifndef NR_STRAG
+#define NR_STRAG 0
+#endif
+#ifndef NR_YX_PCT
+#define NR_YX_PCT 100
+#endif
+#ifndef NR_YOUNG_THR
+#define NR_YOUNG_THR 0
+#endif
+#ifndef NR_YOUNG_CUS
+#define NR_YOUNG_CUS 64
+#endif
+#ifndef NR_YOUNG_POLLS
+#define NR_YOUNG_POLLS 4096
+#endif
+#ifndef NR_YX_ITEMS
+#define NR_YX_ITEMS 1
+#endif
+#ifndef NR_FAIR
+#define NR_FAIR 0
+#endif
+#if NR_YX_PCT < 100
+    uint nr_yx_done = 0u;
+#endif
+#if NR_FAIR
+    uint nr_fair_done = 0u;
+#endif
+#ifndef NR_STRAG_ESC
+#define NR_STRAG_ESC 0
+#endif
+#ifndef NR_PERSIST_ONE
+#define NR_PERSIST_ONE 0
+#endif
+#if NR_PERSIST_ONE && (NR_STRAG == 1 || !NR_PERSIST_DF || NR_PBATCH > 1)
+#error "NR_PERSIST_ONE: dependency-driven single-item claims (a blocking straggler queue at most)"
+#endif
+#if NR_STRAG_ESC
+    // A normal-queue reservation an old workgroup set aside to run a straggler
+    // (see the wait loop below); taken up again at the next claim.
+    uint nr_held = 0xFFFFFFFFu;
+#endif
+    while (true) {
+        // Claim, then broadcast through the slot. `atomicExchange` of the
+        // counter's return, and `atomicAdd(slot, 0)` to read it back, because
+        // an atomic is the load that cannot be stale; one lane does the read
+        // and `subgroupBroadcastFirst` puts the result in a scalar register.
+#if NR_PERSIST_DF
+#if NR_PBATCH > 1
+        if (gl_LocalInvocationID.x == 0u) {
+#else
+        if (tid == 0u) {
+#endif
+#if NR_YOUNG_THR
+            // Oldest-first wave arbitration makes a workgroup that shares
+            // its CU with older ones run an item ~2.5x slower (C=256 1080p: 66
+            // against 26 us), and with four producers per consumer such items
+            // form the whole critical chain of the run. A younger workgroup
+            // therefore claims only while the ready queue is long - more than
+            // rank * NR_YOUNG_THR unclaimed items - and otherwise leaves the item
+            // to an older one. Which items run is unchanged; only who runs them.
+            // The wait is bounded and never touches `nr_budget`.
+            // **Measured and rejected**: T = 8 / 24 / 48 all tie at 1080p
+            // (C256 0.803..0.833 ms against 0.806..0.815). The chain still runs
+            // through young workgroups - every item has four consumers, so a
+            // queue-length rule cannot tell a critical item from any other.
+            const uint nr_rank = gl_WorkGroupID.x / uint(NR_YOUNG_CUS);
+            if (nr_rank > 0u) {
+                for (uint nr_p = 0u; nr_p < uint(NR_YOUNG_POLLS); ++nr_p) {
+                    const uint hh = atomicAdd(nr_sync[pcp.sync_off + 0u], 0u);
+                    if (hh >= pcp.total_windows) break;
+                    const uint avail = pcp.df_n0 + atomicAdd(nr_sync[nr_tail], 0u);
+                    if (avail > hh + nr_rank * uint(NR_YOUNG_THR)) break;
+                }
+            }
+#endif
+#if NR_STRAG == 2
+#if NR_PBATCH > 1 || NR_YOUNG_THR
+#error "NR_STRAG: single-item claims only"
+#endif
+            // Blocking reservations, as the plain DF queue: each queue's per-frame
+            // total is fixed (a layer sends exactly queued - threshold items to
+            // the straggler queue), so every reserved position is eventually
+            // filled. Young workgroups use the normal queue only and leave when it
+            // is exhausted; old ones take a straggler when one is waiting, else a
+            // normal item, else the stragglers left.
+            uint it = pcp.total_windows;
+            const bool nr_old = gl_WorkGroupID.x < uint(NR_YOUNG_CUS);
+            const uint nr_ntot = wgt_u32[pcp.df_off + 7u * pcp.total_windows + 32u];
+            const uint nr_ctot = wgt_u32[pcp.df_off + 7u * pcp.total_windows + 33u];
+            uint qa = 0xFFFFFFFFu;
+            bool nr_take_c = false;
+#if NR_STRAG_ESC
+            bool nr_qn = false;         // qa is a normal-queue position
+            if (nr_held != 0xFFFFFFFFu) { qa = nr_held; nr_held = 0xFFFFFFFFu; nr_qn = true; nr_take_c = true; }
+            if (nr_old && qa == 0xFFFFFFFFu) {
+#else
+            if (nr_old) {
+#endif
+                const uint ch = atomicAdd(nr_sync[nr_chead], 0u);
+                nr_take_c = ch < nr_ctot && ch < atomicAdd(nr_sync[nr_ctail], 0u);
+            }
+#if NR_STRAG_ESC
+            if (nr_take_c && qa == 0xFFFFFFFFu) {
+#else
+            if (nr_take_c) {
+#endif
+                const uint pos = atomicAdd(nr_sync[nr_chead], 1u);
+                if (pos < nr_ctot) qa = nr_cq + pos;
+            }
+            if (qa == 0xFFFFFFFFu) {
+                const uint pos = atomicAdd(nr_sync[pcp.sync_off + 0u], 1u);
+                if (pos < nr_ntot) {
+                    if (pos < pcp.df_n0) it = wgt_u32[pcp.df_off + 5u * pcp.total_windows + pos];
+                    else qa = nr_qbase + (pos - pcp.df_n0);
+#if NR_STRAG_ESC
+                    nr_qn = qa != 0xFFFFFFFFu;
+#endif
+                } else if (nr_old) {
+                    const uint cp = atomicAdd(nr_sync[nr_chead], 1u);
+                    if (cp < nr_ctot) qa = nr_cq + cp;
+                }
+            }
+            if (qa != 0xFFFFFFFFu) {
+                uint e = atomicAdd(nr_sync[qa], 0u);
+#if NR_STRAG_ESC
+                uint nr_poll = 0u;
+#endif
+                while ((e & 0xFFFF0000u) != nr_tag) {
+                    if (nr_budget == 0u) { atomicMax(nr_sync[pcp.sync_off + 3u], 1u); break; }
+                    --nr_budget;
+#if NR_STRAG_ESC
+                    // Never sit on a normal reservation while a straggler waits:
+                    // only old workgroups take stragglers, so with every old one
+                    // parked here and a young one enqueueing the last stragglers
+                    // the run could stall until the spin budget ran out. Take an
+                    // enqueued one (CAS, no second reservation) and come back to
+                    // this position at the next claim.
+                    if (nr_old && nr_qn && ((++nr_poll) & 31u) == 0u) {
+                        const uint ch = atomicAdd(nr_sync[nr_chead], 0u);
+                        if (ch < nr_ctot && ch < atomicAdd(nr_sync[nr_ctail], 0u) &&
+                            atomicCompSwap(nr_sync[nr_chead], ch, ch + 1u) == ch) {
+                            nr_held = qa; qa = nr_cq + ch; nr_qn = false;
+                        }
+                    }
+#endif
+                    e = atomicAdd(nr_sync[qa], 0u);
+                }
+                if ((e & 0xFFFF0000u) == nr_tag) it = e & 0xFFFFu;
+            }
+#elif NR_STRAG
+#if NR_PBATCH > 1 || NR_YOUNG_THR
+#error "NR_STRAG: single-item claims only"
+#endif
+            // Non-blocking: a reservation would wait on the other queue forever.
+            uint it = pcp.total_windows;
+            const bool nr_old = gl_WorkGroupID.x < uint(NR_YOUNG_CUS);
+            for (;;) {
+                const uint nh = atomicAdd(nr_sync[pcp.sync_off + 0u], 0u);
+                const uint ch = atomicAdd(nr_sync[nr_chead], 0u);
+                if (nh + ch >= pcp.total_windows) break;
+                uint qa = 0xFFFFFFFFu;
+                if (nr_old && ch < atomicAdd(nr_sync[nr_ctail], 0u)) {
+                    if (atomicCompSwap(nr_sync[nr_chead], ch, ch + 1u) == ch) qa = nr_cq + ch;
+                    else continue;
+                } else if (nh < pcp.df_n0 + atomicAdd(nr_sync[nr_tail], 0u)) {
+                    if (atomicCompSwap(nr_sync[pcp.sync_off + 0u], nh, nh + 1u) != nh) continue;
+                    if (nh < pcp.df_n0) { it = wgt_u32[pcp.df_off + 5u * pcp.total_windows + nh]; break; }
+                    qa = nr_qbase + (nh - pcp.df_n0);
+                }
+                if (qa != 0xFFFFFFFFu) {
+                    uint e = atomicAdd(nr_sync[qa], 0u);
+                    while ((e & 0xFFFF0000u) != nr_tag) {
+                        if (nr_budget == 0u) { atomicMax(nr_sync[pcp.sync_off + 3u], 1u); break; }
+                        --nr_budget;
+                        e = atomicAdd(nr_sync[qa], 0u);
+                    }
+                    if ((e & 0xFFFF0000u) == nr_tag) it = e & 0xFFFFu;
+                    break;
+                }
+                if (nr_budget == 0u) { atomicMax(nr_sync[pcp.sync_off + 3u], 1u); break; }
+                --nr_budget;
+            }
+#else
+            const uint h = atomicAdd(nr_sync[pcp.sync_off + 0u], 1u);
+            uint it = pcp.total_windows;
+            if (h < pcp.df_n0) {
+                it = wgt_u32[pcp.df_off + 5u * pcp.total_windows + h];
+            } else if (h < pcp.total_windows) {
+                const uint qa = nr_qbase + (h - pcp.df_n0);
+                uint e = atomicAdd(nr_sync[qa], 0u);
+                while ((e & 0xFFFF0000u) != nr_tag) {
+                    if (nr_budget == 0u) {
+                        atomicMax(nr_sync[pcp.sync_off + 3u], 1u);
+                        break;
+                    }
+                    --nr_budget;
+                    e = atomicAdd(nr_sync[qa], 0u);
+                }
+                if ((e & 0xFFFF0000u) == nr_tag) it = e & 0xFFFFu;
+            }
+#endif
+#if NR_PBATCH > 1
+            // A second item only if one is ready right now - waiting for
+            // it would hold the first, which is the critical path. Without one
+            // the second slot repeats the first item: the same inputs, so the
+            // same bytes to the same addresses, and it signals nothing.
+            if (it < pcp.total_windows) {
+                const uint hh = atomicAdd(nr_sync[pcp.sync_off + 0u], 0u);
+                const uint avail = pcp.df_n0 + atomicAdd(nr_sync[nr_tail], 0u);
+                if (avail > hh) {
+                    const uint h1 = atomicAdd(nr_sync[pcp.sync_off + 0u], 1u);
+                    uint it1 = pcp.total_windows;
+                    if (h1 < pcp.df_n0) {
+                        it1 = wgt_u32[pcp.df_off + 5u * pcp.total_windows + h1];
+                    } else if (h1 < pcp.total_windows) {
+                        const uint qa1 = nr_qbase + (h1 - pcp.df_n0);
+                        uint e1 = atomicAdd(nr_sync[qa1], 0u);
+                        while ((e1 & 0xFFFF0000u) != nr_tag) {
+                            if (nr_budget == 0u) {
+                                atomicMax(nr_sync[pcp.sync_off + 3u], 1u);
+                                break;
+                            }
+                            --nr_budget;
+                            e1 = atomicAdd(nr_sync[qa1], 0u);
+                        }
+                        if ((e1 & 0xFFFF0000u) == nr_tag) it1 = e1 & 0xFFFFu;
+                    }
+                    if (it1 < pcp.total_windows) it |= it1 << 16u;
+                    else it |= it << 16u;
+                } else it |= it << 16u;
+            }
+#endif
+            atomicExchange(nr_sync[nr_slot], it);
+        }
+#else
+        if (tid == 0u)
+            atomicExchange(nr_sync[nr_slot],
+                           atomicAdd(nr_sync[pcp.sync_off + 0u], 1u));
+#endif
+        // `barrier()` orders *shared* memory and nothing else, so the slot
+        // write has to be retired before it: without this, another wave's read
+        // of the slot can overtake thread 0's store and the workgroup splits
+        // across two items.
+        memoryBarrierBuffer();
+        barrier();
+        uint nr_claim = 0u;
+        if (subgroupElect()) nr_claim = atomicAdd(nr_sync[nr_slot], 0u);
+#if NR_PBATCH > 1
+        const uint nr_pair = subgroupBroadcastFirst(nr_claim);
+        barrier();                  // nobody writes the slot again until here
+        if ((nr_pair & 0xFFFFu) >= pcp.total_windows) break;
+        const uint nr_item = nr_lslot == 0u ? (nr_pair & 0xFFFFu) : (nr_pair >> 16u);
+        const bool nr_shadow = nr_lslot != 0u && nr_item == (nr_pair & 0xFFFFu);
+#else
+        const uint nr_item = subgroupBroadcastFirst(nr_claim);
+        barrier();                  // nobody writes the slot again until here
+        if (nr_item >= pcp.total_windows) break;
+#endif
+        NR_PROF_ITEM_START()
+#if NR_PERSIST_DF
+        nr_layer = 0u;          // queue order is not layer order
+#endif
+        while (nr_layer + 1u < pcp.n_layers &&
+               wgt_u32[pcp.layers_off + (nr_layer + 1u) * NR_PARAM_WORDS + 23u]
+                   <= nr_item)
+            ++nr_layer;
+        const uint pb = pcp.layers_off + nr_layer * NR_PARAM_WORDS;
+        pc.x_off   = wgt_u32[pb +  0u]; pc.o_off   = wgt_u32[pb +  1u];
+        pc.e_off   = wgt_u32[pb +  2u]; pc.ct_off  = wgt_u32[pb +  3u];
+        pc.qkv_off = wgt_u32[pb +  4u]; pc.op_off  = wgt_u32[pb +  5u];
+        pc.b_off   = wgt_u32[pb +  6u]; pc.rs_off  = wgt_u32[pb +  7u];
+        pc.ars_off = wgt_u32[pb +  8u]; pc.s_off   = wgt_u32[pb +  9u];
+        pc.rsd_off = wgt_u32[pb + 10u]; pc.ard_off = wgt_u32[pb + 11u];
+        pc.mid_off = wgt_u32[pb + 12u];
+        pc.tiles_x = wgt_u32[pb + 13u]; pc.tiles_y = wgt_u32[pb + 14u];
+        pc.shift   = int(wgt_u32[pb + 15u]); pc.shift_y = int(wgt_u32[pb + 16u]);
+        pc.pool_off = wgt_u32[pb + 17u];
+        pc.pool_tiles_x = wgt_u32[pb + 18u]; pc.pool_tiles_y = wgt_u32[pb + 19u];
+        const uint nr_gx = wgt_u32[pb + 20u];
+        const uint nr_flag = pcp.sync_off + 4u + wgt_u32[pb + 23u];
+        const uint nr_w = nr_item - wgt_u32[pb + 23u];
+        nr_wx = nr_w % nr_gx;
+        nr_wy = nr_w / nr_gx;
+#if NR_PERSIST_DS
+        const bool nr_ds_layer = pcp.ds_off != 0u && nr_layer + 1u == pcp.n_layers;
+        if (nr_ds_layer) {
+            pc.ds_w_off = wgt_u32[pcp.ds_off + 0u]; pc.ds_o_off = wgt_u32[pcp.ds_off + 1u];
+            pc.ds_otx = wgt_u32[pcp.ds_off + 2u]; pc.ds_raster = wgt_u32[pcp.ds_off + 3u];
+            pc.ds_crow = wgt_u32[pcp.ds_off + 4u]; pc.ds_rows = wgt_u32[pcp.ds_off + 5u];
+            pc.ds_mode = wgt_u32[pcp.ds_off + 6u]; pc.ds_writer_rows = wgt_u32[pcp.ds_off + 7u];
+            pc.ds_n = wgt_u32[pcp.ds_off + 8u]; pc.ds_clear_x = wgt_u32[pcp.ds_off + 9u];
+            pc.ds_clear_y = wgt_u32[pcp.ds_off + 10u];
+        }
+#endif
+#if NR_PERSIST_UPS
+        const bool nr_ups_layer = pcp.ds_off != 0u && nr_layer == 0u;
+        if (nr_ups_layer) {
+            pc.blend_p_off = wgt_u32[pcp.ds_off + 0u]; pc.blend_s_off = wgt_u32[pcp.ds_off + 1u];
+            pc.blend_o_off = wgt_u32[pcp.ds_off + 2u]; pc.blend_g_off = wgt_u32[pcp.ds_off + 3u];
+            pc.blend_tiles_x = wgt_u32[pcp.ds_off + 4u]; pc.blend_tiles_y = wgt_u32[pcp.ds_off + 5u];
+            pc.blend_itiles_x = wgt_u32[pcp.ds_off + 6u]; pc.blend_itiles_y = wgt_u32[pcp.ds_off + 7u];
+            pc.blend_mode = wgt_u32[pcp.ds_off + 8u]; pc.blend_stiles_x = wgt_u32[pcp.ds_off + 9u];
+            pc.ups_weight_off = wgt_u32[pcp.ds_off + 10u];
+        }
+#endif
+#if NR_OOB_SKIP
+        for (uint q = 0u; q < uint(NR_WIN / 16); ++q) nr_mlive[q] = !nr_tile_oob(q);
+#endif
+        if (NR_PERSIST_DF == 0 && nr_layer > 0u) {
+            // The four tiles this window owns, and the previous layer's window
+            // that owns each of them. `nr_tile_base`'s map, inverted: tile
+            // (tx, ty) belongs to window (floor((tx - shift)/2), floor((ty -
+            // shift_y)/2)) of that layer. Out-of-range tiles are zero-filled by
+            // `nr_tile_oob` and nobody writes them, so they have no producer.
+            if (tid < 4u) {
+                const int tx = 2 * int(nr_wx) + pc.shift   + int(tid & 1u);
+                const int ty = 2 * int(nr_wy) + pc.shift_y + int(tid >> 1u);
+                if (tx >= 0 && ty >= 0 && tx < int(pc.tiles_x) && ty < int(pc.tiles_y)) {
+                    const uint qb = pb - NR_PARAM_WORDS;
+                    const int  ax = tx - int(wgt_u32[qb + 15u]);
+                    const int  ay = ty - int(wgt_u32[qb + 16u]);
+                    // Floor division by two, spelled out: `>>` on a negative
+                    // signed value is implementation-defined in GLSL.
+                    const int  px = ax >= 0 ? ax / 2 : -((1 - ax) / 2);
+                    const int  py = ay >= 0 ? ay / 2 : -((1 - ay) / 2);
+                    if (px >= 0 && py >= 0 && px < int(wgt_u32[qb + 20u])
+                                           && py < int(wgt_u32[qb + 21u])) {
+                        const uint idx = pcp.sync_off + 4u + wgt_u32[qb + 23u]
+                                       + uint(py) * wgt_u32[qb + 20u] + uint(px);
+                        // `atomicAdd(x, 0)` is the load that cannot be cached.
+                        while (atomicAdd(nr_sync[idx], 0u) != nr_epoch) {
+                            if (nr_budget == 0u) {
+                                atomicMax(nr_sync[pcp.sync_off + 3u], 1u + nr_layer);
+                                break;
+                            }
+                            --nr_budget;
+                        }
+                    }
+                }
+            }
+            // Everyone waits for the four pollers. No `memoryBarrierBuffer`
+            // here: the four atomics complete before this branch, the barrier
+            // orders the other waves behind them, and `act_e4m3` is `coherent`
+            // under NR_PERSIST, so its loads are device-scope by declaration
+            // rather than by fence. See the buffer's own comment for what the
+            // ISA says about that.
+            barrier();
+            NR_PROF_ITEM_WAITED(pcp.sync_off | 0xC0000000u, nr_item)
+        }
+#endif
+#if defined(NR_DIAG_SKIP_EDGE) && NR_PERSIST && NR_PERSIST_DF
+    // Diagnostic, WRONG OUTPUT: an item whose window has any out-of-image
+    // tile releases its consumers and skips the body - the upper bound of
+    // skipping out-of-image work. 1080p: C256 -90 us, C128 -45, C64 -27 for
+    // skipping 28% / 17% / 8% of the items whole; the out-of-image tiles are
+    // about a third of those windows' tokens (C256 9.0%, C128 4.1%, C64 2.5%
+    // of all tiles), so an exact per-fragment skip is worth ~40-60 us.
+    {
+        bool nr_edge = false;
+        for (uint q = 0u; q < 4u; ++q) nr_edge = nr_edge || nr_tile_oob(q);
+        if (nr_edge) {
+            memoryBarrierBuffer();
+            barrier();
+            if (tid < 4u) {
+                const uint c = wgt_u32[pcp.df_off + pcp.total_windows + nr_item * 4u + tid];
+                if (c != 0xFFFFFFFFu) {
+                    const uint need = wgt_u32[pcp.df_off + c];
+                    const uint old = atomicAdd(nr_sync[pcp.sync_off + 4u + c], 1u);
+                    if (old + 1u == need * nr_epoch) NR_ENQUEUE(c)
+                }
+            }
+            barrier();
+            continue;
+        }
+    }
+#endif
+#if NR_EDGE_BODIES
+    // Edge windows of the shifted grid. An out-of-image tile's input is
+    // zero, so its MLP output, its K and its V are exactly zero (verified: the
+    // MLP skip leaves every byte unchanged); only its K/V staging has to run.
+    // Each common pattern gets its own instantiation of the body with the mask
+    // as a compile-time constant, so the skipped MMAs leave no phi behind
+    // (runtime guards took the body from 192 to 256 VGPRs). Corners take the
+    // half-body that contains their live tile; that body computes the other,
+    // out-of-image tile as before, which is exact too.
+    {
+    uint nr_live = 0u;
+    for (uint q = 0u; q < 4u; ++q) if (!nr_tile_oob(q)) nr_live |= 1u << q;
+    const uint nr_body = nr_live == 15u ? 15u
+        : ((nr_live & 3u) == 0u ? 12u : (nr_live & 12u) == 0u ? 3u
+        : (nr_live & 5u) == 0u ? 10u : (nr_live & 10u) == 0u ? 5u : 15u);
+    [[dont_flatten]] if (nr_body == 15u) {
+#define NR_LIVE 15
+#include "fswin_body.glsl"
+#undef NR_LIVE
+    } else [[dont_flatten]] if (nr_body == 12u) {
+#define NR_LIVE 12
+#include "fswin_body.glsl"
+#undef NR_LIVE
+    } else [[dont_flatten]] if (nr_body == 3u) {
+#define NR_LIVE 3
+#include "fswin_body.glsl"
+#undef NR_LIVE
+    } else [[dont_flatten]] if (nr_body == 10u) {
+#define NR_LIVE 10
+#include "fswin_body.glsl"
+#undef NR_LIVE
+    } else {
+#define NR_LIVE 5
+#include "fswin_body.glsl"
+#undef NR_LIVE
+    }
+    }
+#else
+#define NR_LIVE 15
+#include "fswin_body.glsl"
+#undef NR_LIVE
+#endif
+#if NR_PERSIST
+        memoryBarrierBuffer();      // release: this window's tiles reach L2
+        barrier();
+#if NR_PERSIST_DF
+        // The flag slots are the consumers' producer counters here: each run
+        // adds `need` per frame, so a consumer is ready at need * epoch.
+#if NR_PBATCH > 1
+        if (tid < 4u && !nr_shadow) {
+#else
+        if (tid < 4u) {
+#endif
+            const uint c = wgt_u32[pcp.df_off + pcp.total_windows + nr_item * 4u + tid];
+            if (c != 0xFFFFFFFFu) {
+                const uint need = wgt_u32[pcp.df_off + c];
+                const uint old = atomicAdd(nr_sync[pcp.sync_off + 4u + c], 1u);
+                if (old + 1u == need * nr_epoch) NR_ENQUEUE(c)
+            }
+        }
+#else
+        if (tid == 0u) atomicExchange(nr_sync[nr_flag + nr_w], nr_epoch);
+#endif
+        NR_PROF_ITEM_END(pcp.sync_off | 0x80000000u, nr_item)
+#if NR_PERSIST_ONE
+        // One workgroup per item when the host launches one per item (small
+        // C=256 grids): launch order is then claim order, so oldest-first wave
+        // arbitration runs the earliest-claimed - most upstream - items first.
+        // A persistent workgroup keeps its age for the whole run, and one that
+        // launched last on its CU runs whatever it claims several times slower,
+        // on the run's critical chain (C=128 at 1080p: layer-0 items ending
+        // after 330 us against ~20).
+        if (gl_NumWorkGroups.x >= pcp.total_windows) break;
+#endif
+        barrier();                  // the next window reuses every LDS array
+#ifndef NR_FAIR
+#define NR_FAIR 0
+#endif
+#if NR_FAIR
+        // Experiment: oldest-first wave arbitration makes the first
+        // launched workgroups run items several times faster than the last
+        // (in-kernel clocks), and an item held by a starved one blocks its
+        // dependents. A workgroup more than NR_FAIR items ahead of the average
+        // waits on the claim counter (a memory poll issues almost nothing), so
+        // the younger waves on its SIMDs get the issue slots.
+        ++nr_fair_done;
+        if (tid == 0u) {
+            for (uint nr_p = 0u; nr_p < 4096u; ++nr_p) {
+                const uint nr_h = atomicAdd(nr_sync[pcp.sync_off + 0u], 0u);
+                if (nr_fair_done * gl_NumWorkGroups.x <= nr_h + uint(NR_FAIR) * gl_NumWorkGroups.x ||
+                    nr_h >= pcp.total_windows) break;
+            }
+        }
+        barrier();
+#endif
+#if NR_YX_PCT < 100
+        // Diagnostic: wave arbitration is oldest-first, so the last
+        // launched persistent workgroups run their items several times slower
+        // (in-kernel clocks: C=64 workgroup 0 at 6.9 us an item, the last
+        // sixty-four at 126) and an item they hold stalls its dependents. The
+        // young ones leave after NR_YX_ITEMS items; the older waves keep the
+        // SIMD busy.
+        ++nr_yx_done;
+        if (gl_WorkGroupID.x >= (gl_NumWorkGroups.x * uint(NR_YX_PCT)) / 100u &&
+            nr_yx_done >= uint(NR_YX_ITEMS)) break;
+#endif
+    }
+    // The last workgroup out arms the region for the next frame. Every other
+    // workgroup has read the epoch already - it does that before its first
+    // item - and `finished` counts all of them, so nothing can still be
+    // looking at the value this moves.
+#if NR_PBATCH > 1
+    if (gl_LocalInvocationID.x == 0u) {
+#else
+    if (tid == 0u) {
+#endif
+        const uint fin = atomicAdd(nr_sync[pcp.sync_off + 1u], 1u);
+        if (fin + 1u == gl_NumWorkGroups.x) {
+            atomicExchange(nr_sync[pcp.sync_off + 0u], 0u);   // the counter
+            atomicExchange(nr_sync[pcp.sync_off + 1u], 0u);
+#if NR_PERSIST_DF
+            atomicExchange(nr_sync[nr_tail], 0u);
+#if NR_STRAG
+            atomicExchange(nr_sync[nr_chead], 0u);
+            atomicExchange(nr_sync[nr_ctail], 0u);
+#endif
+#endif
+            atomicExchange(nr_sync[pcp.sync_off + 2u], nr_epoch);
+        }
+    }
+#endif
+#ifdef NR_FUSED_IMAGE_OUTPUT
+#if NR_IMGOUT_REGS
+    // No barrier and no reread: every lane already holds the projection of the
+    // one token it owns per fragment pair. `tok0 + 2p*16 + lane` is the low
+    // half's even fragment and the high half's odd one at the same time, so the
+    // pair covers 32 tokens a wave and the wave count covers all 64.
+    for(int nr_io_p=0;nr_io_p<NR_MF/2;++nr_io_p) {
+    const uint token=tok0+uint(nr_io_p)*32u+lane;
+    const vec3 o=nr_io_o[nr_io_p];
+#ifdef NR_TEMPORAL_HISTORY
+    const float ow=nr_io_ow[nr_io_p];
+#endif
+    const uint q=token/16u,slot=token%16u;
+#else
+    barrier();
+    // Cover all 64 tokens for every supported wave count. Bounds are tested
+    // after the barrier, including negative shifts and cropped source edges.
+    for(uint token=tid;token<64u;token+=uint(NR_THREADS)) {
+    const uint q=token/16u,slot=token%16u;
+#endif
+    const int tx=2*int(nr_wx)+pc.shift+int(q&1u);
+    const int ty=2*int(nr_wy)+pc.shift_y+int(q>>1u);
+    const ivec2 pixel=ivec2(tx*4+int(slot%4u),ty*4+int(slot/4u));
+    const ivec2 extent=imageSize(nr_out0);
+    if(any(lessThan(pixel,ivec2(0))) || any(greaterThanEqual(pixel,extent)))continue;
+    // **Priced and rejected: there is no packed f32 on this part.** The
+    // three projection rows are three independent accumulator chains over the
+    // same 32 features, so writing them as `vec2` pairs changes nothing about
+    // the order any one of them sums in - it is the same f32 arithmetic asked
+    // for two lanes at a time, which is what `v_pk_fma_f32` exists for. ACO
+    // scalarises it straight back: **+2 instructions, VALU unchanged, and
+    // `v_pk_fma_f32`, `v_pk_mul_f32` and `v_pk_add_f32` all appear exactly zero
+    // times** in the emitted ISA. gfx1201 packs f16, not f32. Every "pair the
+    // f32 arithmetic" idea in this project is dead on that measurement, here
+    // and anywhere else.
+#if !NR_IMGOUT_REGS
+    vec3 o=vec3(0.0);
+#ifdef NR_TEMPORAL_HISTORY
+    // Row 3 of the same projection: the channel the original passes through a
+    // sigmoid to weight its history blend. Rows 0..2 are the residual.
+    float ow=0.0;
+#endif
+    // Two channels a step, with the four weight rows read as uints. The
+    // accumulation order is unchanged - each product is still added to its own
+    // `o` component in channel order - so this is the same arithmetic; only
+    // where the weights live changes. See the WgtU32 alias above.
+    const uint wpair=NR_IMG_WOFF>>1u;
+    for(uint c=0u;c<32u;c+=2u) {
+        const float a=float(image_features[token*32u+c]);
+        const float a1=float(image_features[token*32u+c+1u]);
+        const f16vec2 wx=unpackFloat2x16(wgt_u32[wpair+(c>>1u)]);
+        const f16vec2 wy=unpackFloat2x16(wgt_u32[wpair+16u+(c>>1u)]);
+        const f16vec2 wz=unpackFloat2x16(wgt_u32[wpair+32u+(c>>1u)]);
+        o.x+=a*float(wx.x); o.x+=a1*float(wx.y);
+        o.y+=a*float(wy.x); o.y+=a1*float(wy.y);
+        o.z+=a*float(wz.x); o.z+=a1*float(wz.y);
+#ifdef NR_TEMPORAL_HISTORY
+        const f16vec2 ww=unpackFloat2x16(wgt_u32[wpair+48u+(c>>1u)]);
+        ow+=a*float(ww.x); ow+=a1*float(ww.y);
+#endif
+        // Preserve the current FP32 output: ACO folds both narrowing casts in
+        // img_out.comp. Keep the accumulation explicitly FP32 here, verified
+        // against that original shader and an independent CPU oracle.
+    }
+#endif
+    const vec2 uv=(vec2(pixel)+0.5)/vec2(textureSize(nr_src,0));
+#if NR_POST_ALPHA
+    // One fetch for the base colour and, when the alpha is restored, its alpha:
+    // uv is the texel centre, so this is the texel texelFetch would return.
+    const vec4 nr_base4=textureLod(nr_src,uv,0.0);
+    const vec3 base=nr_base4.rgb;
+#else
+    const vec3 base=textureLod(nr_src,uv,0.0).rgb;
+#endif
+    vec3 rgb=clamp(base+o*0.25,vec3(0.0),vec3(1.0));
+#ifdef NR_TEMPORAL_HISTORY
+    // The original's temporal blend, gated by the same host-resolved term the
+    // pre block uses: with the gate closed this is exactly the production
+    // arithmetic, which is what lets the first frame stay byte-identical.
+    float w=0.0;
+    if(nr_temporal[0].x!=0.0) {
+        const vec2 mv=textureLod(nr_motion,uv*nr_temporal[2].xy+nr_temporal[2].zw,0.0).xy*nr_temporal[0].yz;
+        const vec2 extent=nr_temporal[1].xy;
+        const vec3 hist=nr_history_5tap(nr_history,(uv+mv)*extent,vec2(0.5),
+                                        extent-0.5,1.0/extent);
+        // ex2(x * -log2 e) then rcp(1 + that): the original's sigmoid, verbatim.
+        w=clamp(1.0/(1.0+exp(-ow))*clamp(nr_temporal[0].w,0.0,1.0),0.0,1.0);
+        rgb=mix(rgb,hist,w);
+    }
+    // The network's own image - the blended one the original stores - before
+    // the application strength. This distinction is read out of the original's
+    // Evaluate: history is a copy of the buffer the *model* wrote, while the
+    // composition that produces the application output is a separate pass. Its
+    // alpha carries the blend weight so a test can look at what the network
+    // asked for; nothing downstream reads the history's alpha.
+    const vec4 network=vec4(rgb,w);
+#endif
+    // **Unconditional, because the DLL's is.** The blend variant's epilogue is
+    // `out2 = sat(src + sat(Intensity) * (nr - src))` (artifacts/ptx/000df0e0.ptx,
+    // read 2026-09-16) - the saturate is part of the compose, not something that
+    // only happens when the lerp is not the identity. Skipping it at the default
+    // Intensity of 1 shipped the network's overshoot out of range, and that is
+    // what breaks the picture when the host chains passes: OptiScaler's
+    // ClampProxy between passes is a PER-CHANNEL saturate, so an edge texel that
+    // undershoots below zero in one channel only has its hue permanently moved
+    // before the next pass sees it, and the next pass sharpens the moved colour
+    // and undershoots again. Measured on a game frame with the passes harness:
+    // texels with some channel below zero ran 0.151% / 0.419% / 0.735% at one,
+    // two and three passes, 97% of them the hue-changing kind. At Intensity 1 the
+    // lerp below is the identity, so this is exactly `sat(rgb)`.
+    //
+    // **Above 1 the lerp is not the answer.** Extrapolating `base + k(nr-base)`
+    // in RGB spreads the channels apart faster than luminance moves, which is
+    // the doubled colour shift that made skin red at k=2. NVIDIA's
+    // own control does reach 2 - the DLL copies Intensity out of its settings
+    // *unsaturated* into the structure it hands on (settings+0xE0 at
+    // 18001cf07), the DLSS 5 Toolkit documents the range as 0..2, and forks
+    // measure 1.0 and 1.5 apart - so clamping it to 1 here was wrong, and it is
+    // what made the slider inert on the OptiScaler route.
+    //
+    // 0..1 stays the DLL's own lerp. Past it the luminance *ratio* is raised to
+    // the strength and the picture rescaled to sit at it, which is the same
+    // form `windows/shaders/passes/runtime_transfer.comp` already uses on the other route and
+    // the same one OptiScaler's resolve calls "where detail strength above 1
+    // goes". One scalar from luminance applied to the whole triple, so the hue
+    // is kept; bounded by the same guard of 2. At exactly 1 `pow(ratio,1)/ratio`
+    // is one, so this is bit-identical to what shipped.
+    rgb=clamp(fma(vec3(min(pc.image_intensity,1.0)),rgb-base,base),vec3(0.0),vec3(1.0));
+    if(pc.image_intensity>1.0){
+        const float fl=1.0/512.0, guard=2.0;
+        const vec3 luma_w=vec3(0.2126,0.7152,0.0722);
+        const float ratio=(dot(rgb,luma_w)+fl)/(dot(base,luma_w)+fl);
+        const float amp=clamp(pow(max(ratio,1e-6),pc.image_intensity),1.0/guard,guard);
+        rgb=clamp(rgb*(amp/max(ratio,1e-6)),vec3(0.0),vec3(1.0));
+    }
+#if NR_DIAG_POSTSTORE == 3
+    if (rgb.x == pc.image_intensity * 1234.5)   // diagnostic: never true at runtime
+#endif
+#if NR_DIAG_POSTSTORE != 2
+#if NR_POST_ALPHA
+    {
+        // linux/shaders/passes/runtime_alpha.comp's arithmetic. Its rounding is
+        // floor(p + 0.5) / 255 with p = clamp(x) * 255 rounded on its own, which
+        // it keeps unfused with `precise`. Here `precise` would propagate back
+        // into the whole projection and unfuse ACO's v_fma_mix (a different
+        // picture), so the same number is spelled without an add after the
+        // multiply: p <= 255, so p + 0.5 is exact and its floor is
+        // floor(p) + (fract(p) >= 0.5).
+        vec4 nr_o0=vec4(rgb,1.0);
+        if((pc.image_w_off&0x80000000u)!=0u) {
+            vec3 nr_r=rgb;
+            if((pc.image_w_off&0x40000000u)!=0u) {
+                const vec3 nr_p=clamp(nr_r,vec3(0),vec3(1))*255.0;
+                nr_r=(floor(nr_p)+step(vec3(0.5),fract(nr_p)))/255.0;
+            }
+            nr_o0=vec4(nr_r,nr_base4.a);
+        }
+        imageStore(nr_out0,pixel,nr_o0);
+    }
+#else
+    imageStore(nr_out0,pixel,vec4(rgb,1.0));
+#endif
+#endif
+#ifdef NR_TEMPORAL_HISTORY
+    imageStore(nr_out1,pixel,network);
+#elif NR_DIAG_POSTSTORE == 0 && !NR_POST_NO_OUT1
+    // NR_POST_NO_OUT1: nothing reads this copy of the answer - every consumer
+    // takes surf0, and the temporal variant writes its own history above.
+    imageStore(nr_out1,pixel,vec4(rgb,1.0));
+#endif
+    }
+#endif
+
+#if NR_LDS_PAD > 0
+    // A second never-taken read at the end, so the padding is live across
+    // the whole shader - with only the first, NIR overlaps it with the real
+    // arrays and the allocation does not grow (LDS size 32768 at any pad).
+    if (NR_COH_NEVER) act_e4m3[1] = act_e4m3[nr_lds_pad[gl_LocalInvocationID.x ^ 3u]];
+#endif
+#if NR_IMAGE && (NR_PRE_FULL & 16)
+    // diagnostic (poisons the output): a window with any out-of-range tile
+    // writes e4m3 NaN over its first output byte after its own stores.
+    {
+        bool nr_any = false;
+        for (uint q = 0u; q < 4u; ++q) nr_any = nr_any || nr_tile_oob(q);
+#if NR_PRE_FULL & 32
+        nr_any = nr_any || (nr_wx == 7u && nr_wy == 5u);   // proves the poison reaches the picture
+#endif
+        barrier();
+        if (nr_any && gl_LocalInvocationIndex == 0u)
+            act_e4m3[pc.o_off + nr_tile_base(0u)] = NR_E4M3(uintBitsToFloat(0x7fc00000u));
+    }
+#endif
+#ifdef NR_PROF_OFF
+#if NR_PERSIST
+    NR_PROF_END(pcp.sync_off)
+#else
+    NR_PROF_END(pc.o_off)
+#endif
+#endif
+}

@@ -1,0 +1,53 @@
+#version 450
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+// The activation arena's coherence qualifier, spelled out rather than included
+// from windows/shaders/rdna4/include/coherent_act.glsl: this is the one shader in the graph
+// with no `#include` at all, and enabling GL_GOOGLE_include_directive puts an
+// `OpSourceExtension` in the module, which would make the NR_COHERENT_ACT=0
+// build differ from its predecessor by 72 bytes for no change in code.
+#ifndef NR_COHERENT_ACT
+#define NR_COHERENT_ACT 0
+#endif
+#if NR_COHERENT_ACT
+#define NR_COH coherent
+#else
+#define NR_COH
+#endif
+
+// Semantic equivalent of cc_vit_1d_repack_{2d_to_1d,1d_to_2d}_fp8.
+// The arena already decodes NVIDIA's channel swizzle, so only token order moves.
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0, std430) NR_COH buffer Act { uint8_t data[]; };
+// One invocation per 16-channel run of one token (see upsample_view.comp).
+#ifndef NR_REPACK_VEC
+#define NR_REPACK_VEC 0
+#endif
+layout(set = 0, binding = 0, std430) NR_COH buffer Act4 { uvec4 data4[]; };
+layout(push_constant) uniform Push {
+    uint src, dst, W, H, C, inverse;
+} pc;
+uint at(uint token, uint channel) {
+    return ((token / 16u) * (pc.C / 16u) + channel / 16u) * 256u
+           + (token % 16u) * 16u + channel % 16u;
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+#if NR_REPACK_VEC
+    if (i >= pc.W * pc.H * (pc.C / 16u)) return;
+    uint raster = i / (pc.C / 16u), c = (i % (pc.C / 16u)) * 16u;
+#else
+    if (i >= pc.W * pc.H * pc.C) return;
+    uint raster = i / pc.C, c = i % pc.C;
+#endif
+    uint x = raster % pc.W, y = raster / pc.W;
+    uint tile = ((y / 4u) * (pc.W / 4u) + x / 4u) * 16u
+                + (y % 4u) * 4u + x % 4u;
+    uint a = pc.inverse == 0u ? tile : raster;
+    uint b = pc.inverse == 0u ? raster : tile;
+#if NR_REPACK_VEC
+    data4[(pc.dst + at(b, c)) / 16u] = data4[(pc.src + at(a, c)) / 16u];
+#else
+    data[pc.dst + at(b, c)] = data[pc.src + at(a, c)];
+#endif
+}

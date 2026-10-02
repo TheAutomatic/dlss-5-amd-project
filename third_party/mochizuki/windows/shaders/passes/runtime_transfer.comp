@@ -1,0 +1,200 @@
+#version 460
+// The model's answer onto the frame: the composition OptiScaler DLSS-NR's
+// resolve performs (OptiScaler-DLSSNR-PreSR-Multipass, shaders/dlssnr/
+// precompile/dlssnr.hlsl, mode 1) at its default settings - Transfer 1
+// (matched residual when the model ran smaller than the frame), reversible
+// mode 0, no skin/environment split, no compare view - written for this
+// runtime. The controls are its Detail strength, Colour strength and
+// Highlight guard.
+//
+// An SDR frame is composed in its own encoded values, as OptiScaler does
+// (Passthrough); a linear-light frame is divided by the white point, composed,
+// and multiplied back. With several passes `result` is the last pass's answer
+// and `shown` what the first pass was shown.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba32f) uniform image2D result;       // the model's answer, model-sized
+layout(set = 0, binding = 1) uniform sampler2D shown;               // what the first pass was shown, model-sized
+layout(set = 0, binding = 2) uniform sampler2D keep;                // the frame, frame-sized
+layout(set = 0, binding = 3, rgba32f) uniform image2D result_full;  // the answer, frame-sized
+layout(push_constant) uniform Push {
+    uint width, height;       // the frame
+    uint model_w, model_h;    // `result` and `shown`
+    uint passthrough;         // 1: an SDR frame; 0: linear light over `white`
+    float detail;             // Detail strength, 0..2
+    float colour;             // Colour strength, 0..4
+    float max_ratio;          // Highlight guard, 1..8
+    float white;              // linear light's white point
+} pc;
+
+const vec3 kLuma = vec3(0.2126, 0.7152, 0.0722);
+
+vec3 finite3(vec3 v, vec3 fallback) {
+    return vec3(isnan(v.x) || isinf(v.x) ? fallback.x : v.x,
+                isnan(v.y) || isinf(v.y) ? fallback.y : v.y,
+                isnan(v.z) || isinf(v.z) ? fallback.z : v.z);
+}
+
+vec3 srgb_to_linear(vec3 v) {
+    v = clamp(v, 0.0, 1.0);
+    return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), v));
+}
+
+vec3 soft_knee(vec3 display) {
+    const float l = dot(display, kLuma);
+    if (l > 0.75) display *= (0.75 + 0.25 * (1.0 - exp(-(l - 0.75) / 0.25))) / l;
+    return display;
+}
+
+// Matrices are written row by row; `v * M` with M built from those rows is the
+// row-times-vector product.
+vec3 lms_to_bt709(vec3 c) {
+    return c * mat3(5.62059812, -4.57145756, 0.15577924,
+                    -1.15555585, 2.25800438, -0.15415806,
+                    0.03059913, -0.19018011, 1.06820532);
+}
+vec3 bt709_to_lms(vec3 c) {
+    return c * mat3(0.30569589, 0.62271286, 0.04528636,
+                    0.15776262, 0.76968599, 0.08807030,
+                    0.01933082, 0.11919478, 0.95053215);
+}
+vec3 d65_neutral(vec3 adaptive, float luminance) {
+    const vec3 d65 = lms_to_bt709(max(adaptive, vec3(1e-8)));
+    return d65 * (luminance / max(dot(d65, kLuma), 1e-8));
+}
+
+// Out-of-gamut (negative) channels are pulled toward the neutral of the same
+// luminance by one scalar, rather than clipped per channel.
+vec3 clamp_ap1(vec3 color) {
+    const vec3 adaptive = bt709_to_lms(vec3(0.18));
+    vec3 c = finite3(color, vec3(0.0));
+    const float y = dot(c, kLuma);
+    if (!(y > 1e-8)) return color;
+    const vec3 neutral = d65_neutral(adaptive, y);
+    float scale = 1.0;
+    for (int i = 0; i < 3; ++i)
+        if (c[i] < 0.0 && neutral[i] > c[i]) {
+            const float d = neutral[i] - c[i];
+            scale = min(scale, abs(d) > 1e-8 ? neutral[i] / d : 1.0);
+        }
+    scale = isnan(scale) || isinf(scale) ? 1.0 : clamp(scale, 0.0, 1.0);
+    if (scale >= 1.0) return color;
+    const vec3 around = d65_neutral(adaptive, dot(color, kLuma));
+    return finite3(around + (color - around) * scale, max(around, vec3(0.0)));
+}
+
+vec3 cbrt_signed(vec3 v) { return sign(v) * pow(abs(v), vec3(1.0 / 3.0)); }
+vec3 to_oklab(vec3 c) {
+    const vec3 lms = c * mat3(0.4122214708, 0.5363325363, 0.0514459929,
+                              0.2119034982, 0.6806995451, 0.1073969566,
+                              0.0883024619, 0.2817188376, 0.6299787005);
+    return cbrt_signed(lms) * mat3(0.2104542553, 0.7936177850, -0.0040720468,
+                                   1.9779984951, -2.4285922050, 0.4505937099,
+                                   0.0259040371, 0.7827717662, -0.8086757660);
+}
+vec3 from_oklab(vec3 lab) {
+    const vec3 lms = lab * mat3(1.0, 0.3963377774, 0.2158037573,
+                                1.0, -0.1055613458, -0.0638541728,
+                                1.0, -0.0894841775, -1.2914855480);
+    return (lms * lms * lms) * mat3(4.0767416621, -3.3077115913, 0.2309699292,
+                                    -1.2684380046, 2.6097574011, -0.3413193965,
+                                    -0.0041960863, -0.7034186147, 1.7076147010);
+}
+// `incorrect`'s lightness and chroma with `correct`'s hue.
+vec3 hue_oklab(vec3 incorrect, vec3 correct) {
+    vec3 a = to_oklab(incorrect);
+    const vec3 b = to_oklab(correct);
+    const float ac = length(a.yz), bc = length(b.yz);
+    a.yz = (bc > 1e-5 ? b.yz / bc : vec2(0.0)) * ac;
+    return clamp_ap1(from_oklab(a));
+}
+
+// Move from P toward T no further than the unit cube allows.
+vec3 cube_scale_residual(vec3 P, vec3 T) {
+    if (pc.passthrough != 0u) return T;
+    const vec3 d = T - P;
+    float alpha = 1.0;
+    for (int i = 0; i < 3; ++i) {
+        if (d[i] > 1e-6) alpha = min(alpha, (1.0 - P[i]) / d[i]);
+        else if (d[i] < -1e-6) alpha = min(alpha, (0.0 - P[i]) / d[i]);
+    }
+    return P + clamp(alpha, 0.0, 1.0) * d;
+}
+
+// The model-sized pair at a frame pixel. Same extent: this pixel only, decided
+// on the integers - `result` and `result_full` are then the same image, and
+// reading a neighbour another invocation is writing would be a race (the float
+// ratio 1080/1080 is not exactly 1 on this hardware). Below that, bilinear on
+// texel centres, as a linear sampler at the pixel's uv.
+void model_pair(ivec2 xy, out vec3 m, out vec3 s) {
+    if (pc.model_w == pc.width && pc.model_h == pc.height) {
+        m = imageLoad(result, xy).rgb;
+        s = texelFetch(shown, xy, 0).rgb;
+        return;
+    }
+    const vec2 p = (vec2(xy) + 0.5) * (vec2(pc.model_w, pc.model_h) / vec2(pc.width, pc.height)) - 0.5;
+    const vec2 f0 = floor(p), f = p - f0;
+    const ivec2 hi = ivec2(pc.model_w, pc.model_h) - 1;
+    const ivec2 i0 = clamp(ivec2(f0), ivec2(0), hi), i1 = clamp(ivec2(f0) + 1, ivec2(0), hi);
+    const vec4 w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    m = w.x * imageLoad(result, i0).rgb + w.y * imageLoad(result, ivec2(i1.x, i0.y)).rgb
+      + w.z * imageLoad(result, ivec2(i0.x, i1.y)).rgb + w.w * imageLoad(result, i1).rgb;
+    s = w.x * texelFetch(shown, i0, 0).rgb + w.y * texelFetch(shown, ivec2(i1.x, i0.y), 0).rgb
+      + w.z * texelFetch(shown, ivec2(i0.x, i1.y), 0).rgb + w.w * texelFetch(shown, i1, 0).rgb;
+}
+
+void main() {
+    const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= int(pc.width) || xy.y >= int(pc.height)) return;
+    const bool pass_through = pc.passthrough != 0u;
+
+    vec3 model_s, proxy_s;
+    model_pair(xy, model_s, proxy_s);
+    const vec4 original_s = texelFetch(keep, xy, 0);
+    const float norm = pass_through ? 1.0 : max(pc.white, 1e-4);
+    vec3 proxy = pass_through ? proxy_s : srgb_to_linear(proxy_s);
+    vec3 model = pass_through ? model_s : srgb_to_linear(model_s);
+    const vec3 original = original_s.rgb / norm;
+    const float original_luma = dot(original, kLuma);
+    float proxy_luma = dot(proxy, kLuma);
+
+    // Matched residual: below the frame's extent, the edit rides on the
+    // frame's own proxy instead of the model's smaller picture.
+    if (pc.model_w != pc.width || pc.model_h != pc.height) {
+        const vec3 edit = model - proxy;
+        const vec3 full = pass_through ? clamp(original, 0.0, 1.0) : clamp(soft_knee(original), 0.0, 1.0);
+        proxy = full;
+        proxy_luma = dot(proxy, kLuma);
+        model = cube_scale_residual(full, full + edit);
+    }
+
+    // The model's answer is a picture in its own right, rescaled to sit where
+    // the frame's luminance says; above what the proxy could show, the frame's
+    // headroom is carried on top.
+    const float model_luma = dot(model, kLuma);
+    vec3 upgraded;
+    if (model_luma <= 1e-5) {
+        upgraded = original;
+    } else {
+        const float ratio = original_luma < proxy_luma
+            ? original_luma / max(proxy_luma, 1e-6)
+            : (model_luma + max(0.0, original_luma - proxy_luma)) / model_luma;
+        upgraded = mix(original, hue_oklab(model * ratio, model), clamp(pc.detail, 0.0, 1.0));
+    }
+
+    // Detail strength above 1 is a power on the luminance ratio; the guard
+    // bounds the result both ways, by one scalar.
+    const float floor_ = 1.0 / 512.0;
+    const float luma_ratio = (dot(upgraded, kLuma) + floor_) / (original_luma + floor_);
+    const float amplified = pow(max(luma_ratio, 1e-6), 1.0 + max(pc.detail - 1.0, 0.0));
+    const float guard = max(pc.max_ratio, 1.0);
+    const float bounded = clamp(amplified, 1.0 / guard, guard);
+    upgraded *= bounded / max(luma_ratio, 1e-6);
+
+    // Colour strength: 0 the frame's colour at the new luminance, 1 the
+    // model's; above 1, OkLab chroma is scaled up and brought back into gamut.
+    vec3 answer = mix(original * bounded, upgraded, min(pc.colour, 1.0));
+    if (pc.colour > 1.0)
+        answer = clamp_ap1(from_oklab(vec3(1.0, pc.colour, pc.colour) * to_oklab(max(answer, vec3(0.0)))));
+
+    imageStore(result_full, xy, vec4(max(answer * norm, vec3(0.0)), original_s.a));
+}

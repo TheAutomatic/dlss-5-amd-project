@@ -1,0 +1,18 @@
+#version 460
+// Multi-pass, step 2 of 3: a box blur of the log ratio along one axis; run
+// twice (dir 0 then 1) for the separable low-pass. The mean over a window of
+// `radius` on each side is the local tone the next pass must not inherit.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, r32f) uniform image2D src;
+layout(set = 0, binding = 1, r32f) uniform image2D dst;
+layout(push_constant) uniform Push { uint width, height; int radius; uint dir; } pc;
+void main() {
+    const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= int(pc.width) || xy.y >= int(pc.height)) return;
+    const ivec2 step_ = pc.dir == 0u ? ivec2(1, 0) : ivec2(0, 1);
+    const ivec2 hi = ivec2(pc.width, pc.height) - 1;
+    float sum = 0.0;
+    for (int i = -pc.radius; i <= pc.radius; ++i)
+        sum += imageLoad(src, clamp(xy + i * step_, ivec2(0), hi)).r;
+    imageStore(dst, xy, vec4(sum / float(2 * pc.radius + 1), 0.0, 0.0, 0.0));
+}

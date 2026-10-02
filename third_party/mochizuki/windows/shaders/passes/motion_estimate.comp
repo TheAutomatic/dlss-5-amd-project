@@ -1,0 +1,184 @@
+#version 460
+// Screen-space backward motion estimation, one pyramid level per dispatch.
+//
+// **Scope.** This is the fallback provider, for a game that gives us no engine
+// motion vectors. A game that exposes them through an upscaler/FSR integration
+// must use those instead: the consumer takes motion from a source, and an
+// estimate never impersonates engine data.
+//
+// Why any of this is needed: the original temporal gate, as read out of
+// CG2RNetworkManager::Evaluate and out of the pre block's own PTX. History is
+// consumed only when the motion handle is non-null - the host checks it, and the
+// GPU checks it again with `or.pred` - so with no motion vectors the original
+// itself never reprojects, and neither can we.
+//
+// The contract to satisfy (from
+// cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8.ptx :393-440):
+//
+//     prev_uv = uv + mv * MVecScale     /* the vector points BACK one frame */
+//     history = CatmullRom5(history, prev_uv)
+//
+// The last pass writes normalized units, so the consumer's MVecScale is 1.0.
+//
+// Domain: the network-space image, i.e. the transposed one present_in.comp
+// writes and img_in.comp samples. Estimating in frame space and swapping
+// components afterwards would also work; estimating in the consumer's own
+// domain means there is no component swap left to get wrong.
+//
+// Confidence: where the match cannot be justified we write exactly zero, which
+// makes prev_uv == uv, which makes the history sample this pixel's own colour.
+// That is the colour-only behaviour the original itself was shown to fall back
+// to - the degradation target is a verified state, not a guess.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Both luma images are this level's extent; flow_in is the next coarser level.
+layout(set = 0, binding = 0, r32f)  uniform readonly  image2D luma_curr;
+layout(set = 0, binding = 1, r32f)  uniform readonly  image2D luma_prev;
+layout(set = 0, binding = 2, rg32f) uniform readonly  image2D flow_in;
+layout(set = 0, binding = 3, rg32f) uniform writeonly image2D flow_out;
+
+layout(push_constant) uniform Push {
+    uint  level_w, level_h;   // this level's extent, in this level's texels
+    uint  coarse_w, coarse_h; // flow_in's extent; ignored when first != 0
+    int   radius;             // integer search radius, in this level's texels
+    uint  first;              // 1: no coarser level, search around zero
+    uint  last;               // 1: emit normalized units and apply the gate
+    float reject;             // keep only a SAD below this fraction of the
+                              // current patch's own contrast
+} pc;
+
+// 5x5 patch. Everything is an explicit fetch, so the estimator's result does
+// not depend on any sampler state.
+const int kPatch = 2;
+const float kPatchNorm = 1.0 / 25.0;
+
+float luma_at(bool prev, ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(pc.level_w, pc.level_h) - 1);
+    return prev ? imageLoad(luma_prev, p).r : imageLoad(luma_curr, p).r;
+}
+
+// Disqualified, not merely expensive. A candidate whose patch leaves the
+// previous frame has no correspondence to score, and clamping its taps to the
+// border would invent one: a run of identical edge texels matches any flat
+// patch with a near-zero SAD, which is a *better* score than the correct
+// vector earns. That was measured, not feared - it produced 879-pixel "perfect"
+// matches and then spread them inward through neighbour propagation.
+const float kInvalid = 3.0e38;
+
+float patch_sad(ivec2 base, ivec2 offset) {
+    const ivec2 lo = base + offset - kPatch, hi = base + offset + kPatch;
+    if (lo.x < 0 || lo.y < 0 || hi.x >= int(pc.level_w) || hi.y >= int(pc.level_h))
+        return kInvalid;
+    float sad = 0.0;
+    for (int dy = -kPatch; dy <= kPatch; ++dy)
+        for (int dx = -kPatch; dx <= kPatch; ++dx) {
+            const ivec2 t = ivec2(dx, dy);
+            // The current-frame patch may still hang over the edge; every
+            // candidate pays that identically, so it cannot bias the choice.
+            sad += abs(luma_at(false, base + t) - luma_at(true, base + t + offset));
+        }
+    return sad * kPatchNorm;
+}
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.level_w) || p.y >= int(pc.level_h)) return;
+
+    // Candidates, in this level's texels. The coarser level's vectors are in
+    // its own texels and this level has twice its resolution, hence the 2.
+    // Propagating the four neighbours is what lets one good match spread across
+    // a flat region instead of every cell having to solve it alone.
+    ivec2 cand[6];
+    int n = 0;
+    cand[n++] = ivec2(0);
+    if (pc.first == 0u) {
+        const ivec2 c = p / 2;
+        const ivec2 hi = ivec2(pc.coarse_w, pc.coarse_h) - 1;
+        cand[n++] = ivec2(round(imageLoad(flow_in, clamp(c,                 ivec2(0), hi)).xy * 2.0));
+        cand[n++] = ivec2(round(imageLoad(flow_in, clamp(c + ivec2(-1, 0), ivec2(0), hi)).xy * 2.0));
+        cand[n++] = ivec2(round(imageLoad(flow_in, clamp(c + ivec2( 1, 0), ivec2(0), hi)).xy * 2.0));
+        cand[n++] = ivec2(round(imageLoad(flow_in, clamp(c + ivec2( 0,-1), ivec2(0), hi)).xy * 2.0));
+        cand[n++] = ivec2(round(imageLoad(flow_in, clamp(c + ivec2( 0, 1), ivec2(0), hi)).xy * 2.0));
+    }
+
+    // Seeded at kInvalid with a strict `<`, so a disqualified candidate can
+    // never win and a cell with no valid candidate at all keeps zero.
+    ivec2 best = ivec2(0);
+    float best_sad = kInvalid;
+    for (int i = 0; i < n; ++i) {
+        const float s = patch_sad(p, cand[i]);
+        if (s < best_sad) { best_sad = s; best = cand[i]; }
+    }
+
+    // Integer search around the winner. The candidate stage has already put us
+    // in the right basin, so this radius stays small at every level except the
+    // first, where there is nothing to inherit.
+    for (int dy = -pc.radius; dy <= pc.radius; ++dy)
+        for (int dx = -pc.radius; dx <= pc.radius; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            const ivec2 o = best + ivec2(dx, dy);
+            const float s = patch_sad(p, o);
+            if (s < best_sad) { best_sad = s; best = o; }
+        }
+
+    vec2 result = vec2(best);
+    if (pc.last != 0u) {
+        // Subpixel: fit a parabola to the SAD along each axis at +/-1 texel.
+        // A non-convex fit leaves the integer result alone.
+        //
+        // So does an exact match. With c == 0 the vertex formula below still
+        // returns 0.5 * (xm - xp) / (xm + xp), which is nonzero whenever the
+        // two neighbours differ - i.e. on any textured content - so a
+        // perfectly static picture was being assigned a sub-texel motion of up
+        // to a full texel, the history was reconstructed off-centre, and the
+        // blended output drifted a little every frame. Measured on a static
+        // 960x640 sequence: the frame-to-frame floor was 0.0022 rms with this
+        // refinement applied to exact matches. A zero SAD is the minimum of
+        // anything; there is nothing to refine.
+        const float c  = best_sad;
+        const bool exact = c == 0.0;
+        const float xm = patch_sad(p, best + ivec2(-1, 0));
+        const float xp = patch_sad(p, best + ivec2( 1, 0));
+        const float ym = patch_sad(p, best + ivec2( 0,-1));
+        const float yp = patch_sad(p, best + ivec2( 0, 1));
+        const float dxx = xm + xp - 2.0 * c;
+        const float dyy = ym + yp - 2.0 * c;
+        if (!exact && xm < kInvalid && xp < kInvalid && dxx > 1e-6)
+            result.x += clamp(0.5 * (xm - xp) / dxx, -1.0, 1.0);
+        if (!exact && ym < kInvalid && yp < kInvalid && dyy > 1e-6)
+            result.y += clamp(0.5 * (ym - yp) / dyy, -1.0, 1.0);
+
+        // Rejection is relative to what this patch could possibly tell us. A
+        // patch with no contrast carries no motion information at all, and a
+        // search free to try dozens of candidates will always find some
+        // absolute SAD small enough to look convincing - scoring against a
+        // fixed threshold rewards exactly that. Scoring against the patch's own
+        // mean absolute deviation asks the honest question: is this match good
+        // *for content with this much structure in it*?
+        float mean = 0.0;
+        for (int dy = -kPatch; dy <= kPatch; ++dy)
+            for (int dx = -kPatch; dx <= kPatch; ++dx)
+                mean += luma_at(false, p + ivec2(dx, dy));
+        mean *= kPatchNorm;
+        float contrast = 0.0;
+        for (int dy = -kPatch; dy <= kPatch; ++dy)
+            for (int dx = -kPatch; dx <= kPatch; ++dx)
+                contrast += abs(luma_at(false, p + ivec2(dx, dy)) - mean);
+        contrast *= kPatchNorm;
+
+        // There is deliberately no "did it beat staying put" test. Zero is
+        // already one of the candidates and ties keep it, so that comparison
+        // adds nothing - and it actively hurts, because a genuinely small
+        // motion improves on staying put by only a little. Measured: it
+        // rejected 29% of a correct 7-pixel shift.
+        const bool no_information = contrast < 0.01;
+        const bool unconvincing   = best_sad > pc.reject * contrast;
+        if (best_sad >= kInvalid || no_information || unconvincing) result = vec2(0.0);
+
+        // Normalized backward motion: this level's texels over this level's
+        // extent is the same fraction of the frame as mip-0 texels over mip 0.
+        result /= vec2(pc.level_w, pc.level_h);
+    }
+    imageStore(flow_out, p, vec4(result, 0.0, 0.0));
+}

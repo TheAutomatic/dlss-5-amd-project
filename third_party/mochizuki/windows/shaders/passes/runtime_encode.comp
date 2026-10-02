@@ -1,0 +1,40 @@
+#version 460
+// Linear light in, the network's domain out.
+//
+// The pre-upscale colour buffer an upscaler consumes is scene-referred linear
+// light: tone mapping happens after the upscale, so values run past 1.0 and the
+// distribution is nothing like the finished sRGB frames the network was trained
+// on. Fed raw, two things happen, both seen in Dying Light The Beast: the
+// picture goes dark (linear 0.05 is sRGB 0.24), and every light source saturates
+// the pre block's features for its whole window, which comes out as a solid
+// coloured block. This pass makes the proxy the network sees and keeps the
+// original untouched for runtime_decode.comp to transfer the edit back onto.
+//
+// The proxy: divide by a white point, roll everything above the knee into
+// [knee, 1) with one scalar on the peak channel so hue cannot bend, then the
+// sRGB transfer function. Standard colour science, nothing else.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba32f) uniform image2D proxy;      // tex_in: read linear, written encoded
+layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D keep;  // the untouched linear frame
+layout(push_constant) uniform Push { uint width, height; float white, knee; } pc;
+
+float srgb_encode(float x) {
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
+}
+
+void main() {
+    const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= int(pc.width) || xy.y >= int(pc.height)) return;
+    const vec4 src = imageLoad(proxy, xy);
+    imageStore(keep, xy, src);
+    // OptiScaler DLSS-NR's encode: the frame over the white point, a soft knee
+    // on luminance from `knee` (0.75) to 1, then sRGB.
+    vec3 n = max(src.rgb, vec3(0.0)) / max(pc.white, 1e-4);
+    const float luma = dot(n, vec3(0.2126, 0.7152, 0.0722));
+    if (luma > pc.knee) {
+        const float span = 1.0 - pc.knee;
+        n *= (pc.knee + span * (1.0 - exp(-(luma - pc.knee) / span))) / luma;
+    }
+    n = clamp(n, vec3(0.0), vec3(1.0));
+    imageStore(proxy, xy, vec4(srgb_encode(n.r), srgb_encode(n.g), srgb_encode(n.b), src.a));
+}

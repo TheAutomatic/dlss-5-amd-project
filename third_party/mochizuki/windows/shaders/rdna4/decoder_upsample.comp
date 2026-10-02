@@ -1,0 +1,78 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "coopmm.glsl"
+
+// cc_dec_input_upsample_1024_512_fp8: nearest 2x of the FP16 projection,
+// then a separately rounded FP16 skip multiply and add, then FP8 conversion.
+layout(local_size_x=64) in;
+layout(set=0,binding=0,std430) NR_COH readonly buffer Raw { NR_F16 projected[]; };
+layout(set=0,binding=1,std430) NR_COH buffer Act { NR_E4M3 data[]; };
+layout(set=0,binding=2,std430) readonly buffer Weight { NR_F16 gain[]; };
+layout(push_constant) uniform Push { uint src, skip, dst, gain_off, IW, OW, OH; } pc;
+uint token(uint x,uint y,uint w) { return ((y/4u)*(w/4u)+x/4u)*16u+(y%4u)*4u+x%4u; }
+uint at(uint t,uint c) { return ((t/16u)*32u+c/16u)*256u+(t%16u)*16u+c%16u; }
+#ifndef NR_DECUPS_VEC
+#define NR_DECUPS_VEC 1
+#endif
+#if NR_DECUPS_VEC == 16
+// One invocation per half-row of an output tile - token t%16 = lane%16,
+// channels c%16 in [8*(lane/16), +8) - so a wave covers one 256-byte tile of
+// the tile-blocked arena exactly, and every load and store is 8 or 16
+// contiguous bytes. Each element's arithmetic is the scalar expression below,
+// unchanged. Arena offsets are 256-aligned, so every view index is exact.
+layout(set=0,binding=1,std430) NR_COH buffer Act4 { fe4m3vec4 data4[]; };
+layout(set=0,binding=0,std430) NR_COH readonly buffer Raw4 { f16vec4 projected4[]; };
+#endif
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+#if NR_DECUPS_VEC == 16
+    if((pc.OW%4u)!=0u || (pc.OH%4u)!=0u) {
+        // Partial token tiles: the original per-element grid (host sizes it the same way).
+        if(i>=pc.OW*pc.OH*512u)return;
+        uint c=i%512u, pixel=i/512u, x=pixel%pc.OW,y=pixel/pc.OW;
+        uint t=token(x,y,pc.OW), it=token(x/2u,y/2u,pc.IW);
+        NR_F16 residual=NR_F16(NR_F16(data[pc.skip+at(t,c)])*gain[pc.gain_off+c]);
+        NR_F16 value=NR_F16(projected[pc.src+it*512u+c]+residual);
+        data[pc.dst+at(t,c)]=nr_quant_e4m3(value);
+        return;
+    }
+    if(i>=(pc.OW*pc.OH/16u)*1024u)return;
+    const uint T=i/32u, l=i%32u;
+    const uint t=(T/32u)*16u+l%16u, c0=(T%32u)*16u+(l/16u)*8u;
+    const uint tw=pc.OW/4u, x=((t/16u)%tw)*4u+t%4u, y=((t/16u)/tw)*4u+(t%16u)/4u;
+    const uint it=token(x/2u,y/2u,pc.IW);
+    const uint so=(pc.skip+at(t,c0))/4u, dq=(pc.dst+at(t,c0))/4u, pq=(pc.src+it*512u+c0)/4u;
+    const fe4m3vec4 s0=data4[so], s1=data4[so+1u];
+    const f16vec4 p0=projected4[pq], p1=projected4[pq+1u];
+    NR_E4M3 q[8];
+    for(uint cc=0u;cc<8u;++cc) {
+        const uint c=c0+cc;
+        const NR_E4M3 sk=cc<4u?s0[cc]:s1[cc-4u];
+        const NR_F16 pr=cc<4u?p0[cc]:p1[cc-4u];
+        NR_F16 residual=NR_F16(NR_F16(sk)*gain[pc.gain_off+c]);
+        NR_F16 value=NR_F16(pr+residual);
+        q[cc]=nr_quant_e4m3(value);
+    }
+    data4[dq]=fe4m3vec4(q[0],q[1],q[2],q[3]);
+    data4[dq+1u]=fe4m3vec4(q[4],q[5],q[6],q[7]);
+#elif NR_DECUPS_VEC > 1
+    // NR_DECUPS_VEC consecutive channels per invocation; each element's
+    // arithmetic is the scalar expression below, unchanged.
+    if(i>=pc.OW*pc.OH*(512u/NR_DECUPS_VEC))return;
+    uint c0=(i%(512u/NR_DECUPS_VEC))*NR_DECUPS_VEC, pixel=i/(512u/NR_DECUPS_VEC), x=pixel%pc.OW,y=pixel/pc.OW;
+    uint t=token(x,y,pc.OW), it=token(x/2u,y/2u,pc.IW);
+    for(uint cc=0u;cc<NR_DECUPS_VEC;++cc) {
+        const uint c=c0+cc;
+        NR_F16 residual=NR_F16(NR_F16(data[pc.skip+at(t,c)])*gain[pc.gain_off+c]);
+        NR_F16 value=NR_F16(projected[pc.src+it*512u+c]+residual);
+        data[pc.dst+at(t,c)]=nr_quant_e4m3(value);
+    }
+#else
+    if(i>=pc.OW*pc.OH*512u)return;
+    uint c=i%512u, pixel=i/512u, x=pixel%pc.OW,y=pixel/pc.OW;
+    uint t=token(x,y,pc.OW), it=token(x/2u,y/2u,pc.IW);
+    NR_F16 residual=NR_F16(NR_F16(data[pc.skip+at(t,c)])*gain[pc.gain_off+c]);
+    NR_F16 value=NR_F16(projected[pc.src+it*512u+c]+residual);
+    data[pc.dst+at(t,c)]=nr_quant_e4m3(value);
+#endif
+}

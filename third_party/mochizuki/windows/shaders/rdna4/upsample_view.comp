@@ -1,0 +1,67 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "coopmm.glsl"
+
+// Reproduce the wider upsample kernels' view read before their projection.
+// The outview producer stores W*H pixels per 16-channel plane; the C>=64
+// consumer reads ceil4(W)*ceil4(H). This is a reinterpretation of the same
+// bytes, including crossings into the next channel plane, not spatial padding.
+// Both sides of this adapter remain in our tile-blocked arena.
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0, std430) NR_COH buffer Act { NR_E4M3 act[]; };
+// One invocation moves one token's 16-channel run. Both ends are 16
+// contiguous, 16-byte-aligned bytes (ch % 16 = 0..15 at one token and one
+// channel group), and every bound below is uniform over the run, so this is
+// the per-byte kernel's exact result with 1/16 of the address arithmetic.
+// One invocation moves one token's 16-channel run. Both ends are 16
+// contiguous, 16-byte-aligned bytes (ch % 16 = 0..15 at one token and one
+// channel group), and every bound is uniform over the run, so this is the
+// per-byte kernel's exact result with 1/16 of the address arithmetic.
+#ifndef NR_UPSVIEW_VEC
+#define NR_UPSVIEW_VEC 0
+#endif
+layout(set = 0, binding = 0, std430) NR_COH buffer Act4 { uvec4 act4[]; };
+layout(push_constant) uniform Push {
+    uint x_off, o_off, M, C, W, H, RW, RH;
+} pc;
+
+uint at(uint token, uint ch) {
+    return (token / 16u * (pc.C / 16u) + ch / 16u) * 256u
+         + token % 16u * 16u + ch % 16u;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+#if NR_UPSVIEW_VEC
+    if (i >= pc.M * (pc.C / 16u)) return;
+    uint t = i / (pc.C / 16u), c = (i % (pc.C / 16u)) * 16u;
+#else
+    if (i >= pc.M * pc.C) return;
+    uint t = i / pc.C, c = i % pc.C;
+#endif
+    uint rw=pc.RW!=0u?pc.RW:(pc.W+3u)/4u*4u;
+    uint rh=pc.RH!=0u?pc.RH:(pc.H+3u)/4u*4u;
+    uint tw=rw/4u;
+    uint x = (t / 16u % tw) * 4u + t % 4u;
+    uint y = (t / 16u / tw) * 4u + t % 16u / 4u;
+    uint p = (c / 16u) * rw * rh + y * rw + x;
+    uint sc = p / (pc.W * pc.H) * 16u + c % 16u;
+    uint pixel = p % (pc.W * pc.H);
+    uint sx = pixel % pc.W, sy = pixel / pc.W;
+    uint st = (sy / 4u * (pc.W/4u) + sx / 4u) * 16u + sy % 4u * 4u + sx % 4u;
+    // Preserve the arena's existing crop of incomplete tile columns. The
+    // b047l3 capture has zeros there and in its allocation tail; the cropped
+    // columns of b055 are nonzero and remain a limitation of the arena format.
+#if NR_UPSVIEW_VEC
+    // e4m3 zero is the all-zero byte, so the out-of-range fill is uvec4(0).
+    uvec4 v = uvec4(0u);
+    if (y < rh && sc < pc.C && sx < (pc.W/4u)*4u)
+        v = act4[(pc.x_off + at(st, sc)) / 16u];
+    act4[(pc.o_off + at(t, c)) / 16u] = v;
+#else
+    NR_E4M3 v = nr_quant_e4m3(NR_F16(0.0));
+    if (y < rh && sc < pc.C && sx < (pc.W/4u)*4u)
+        v = act[pc.x_off + at(st, sc)];
+    act[pc.o_off + at(t, c)] = v;
+#endif
+}
