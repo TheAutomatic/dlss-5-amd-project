@@ -7106,14 +7106,17 @@ void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
     ImGui::Separator();
     ImGui::Spacing();
 
-    if (ImGui::BeginTable("plots", 2, ImGuiTableFlags_SizingStretchSame))
+    const int columns = currentFeature && !currentFeature->IsFrozen() &&
+        ImGui::GetContentRegionAvail().x >= 600.0f * ctx.menuResScale ? 2 : 1;
+    if (ImGui::BeginTable("plots", columns, ImGuiTableFlags_SizingStretchSame))
     {
         ImGui::TableNextColumn();
         ImGui::Text("FrameTime");
         auto ft = StrFmt("%7.2f ms / %6.1f fps", frameTime, frameRate);
         ImGui::PlotLines(
-            ft.c_str(), [](void* rb, int idx) -> float
-            { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gFrameTimes, plotWidth);
+            "##frame_time_plot", [](void* rb, int idx) -> float
+            { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gFrameTimes, plotWidth,
+            0, ft.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, 48.0f * ctx.menuResScale});
 
         if (currentFeature != nullptr && !currentFeature->IsFrozen())
         {
@@ -7189,8 +7192,9 @@ void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
 
             auto ups = StrFmt("%7.2f ms", state.upscaleTimes.back());
             ImGui::PlotLines(
-                ups.c_str(), [](void* rb, int idx) -> float
-                { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gUpscalerTimes, plotWidth);
+                "##upscaler_time_plot", [](void* rb, int idx) -> float
+                { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gUpscalerTimes, plotWidth,
+                0, ups.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, 48.0f * ctx.menuResScale});
         }
 
         ImGui::EndTable();
@@ -7640,23 +7644,15 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
     if (visible)
     {
         const float availableHeight = ImGui::GetContentRegionAvail().y;
-        float rows = ImGui::GetWindowWidth() >= 600.0f * menuResScale ? 2.0f : 3.0f;
-        float rowWidth = 0;
-        for (const char* label : {"Save Settings", "Close", "Reset window layout", "Wiki"})
-        {
-            const float width = ImGui::CalcTextSize(label).x + 2 * ImGui::GetStyle().FramePadding.x;
-            if (rowWidth > 0 && rowWidth + width > ImGui::GetContentRegionAvail().x)
-            { ++rows; rowWidth = 0; }
-            rowWidth += width + ImGui::GetStyle().ItemSpacing.x;
-        }
-        const float footerHeight = std::min(rows * ImGui::GetFrameHeightWithSpacing() +
-            2.0f * ImGui::GetStyle().WindowPadding.y + ImGui::GetStyle().ScrollbarSize, availableHeight * .45f);
+        // Reuse the measured content height, not guessed button rows plus scrollbar padding.
+        // Store logical pixels so a UI scale change does not retain the old physical height.
+        static float footerLogicalHeight = 150.0f;
+        const float footerHeight = std::min(footerLogicalHeight * menuResScale, availableHeight * .45f);
         if (ImGui::BeginChild("##menu_body", {0, std::max(1.0f, availableHeight - footerHeight - ImGui::GetStyle().ItemSpacing.y)},
                               false, ImGuiWindowFlags_HorizontalScrollbar))
         {
             RenderMainMenuHeaderMessages(ctx);
             RenderMainMenuTable(ctx);
-            RenderMainMenuGraphs(ctx);
             if (state.nvngxIniDetected)
                 ImGui::TextWrapped("nvngx.ini detected: use OptiScaler.ini and remove the old config.");
             if (ctx.currentFeature && !ctx.currentFeature->IsFrozen())
@@ -7665,8 +7661,15 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
                     ctx.currentFeature->TargetHeight(), static_cast<unsigned long long>(ctx.currentFeature->FrameCount()));
         }
         ImGui::EndChild();
-        if (ImGui::BeginChild("##menu_footer", {0, 0}, false, ImGuiWindowFlags_HorizontalScrollbar))
+        if (ImGui::BeginChild("##menu_footer", {0, 0}, false))
+        {
+            RenderMainMenuGraphs(ctx);
+            ImGui::Spacing();
             RenderMainMenuBottomBar(ctx);
+            // GetCursorPosY already compensates for scrolling in window-local coordinates.
+            footerLogicalHeight = (ImGui::GetCursorPosY() -
+                ImGui::GetStyle().ItemSpacing.y + ImGui::GetStyle().WindowPadding.y) / menuResScale;
+        }
         ImGui::EndChild();
     }
     ImGui::End();
