@@ -1451,6 +1451,7 @@ std::mutex g_nrMutex;
 struct ScopedNrStateEnvelope
 {
     ID3D12GraphicsCommandList* cmd;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> stateSource;
     ScopedSkipHeapCapture skipHeap;
     const bool previousTracking;
     const bool previousArmed;
@@ -1462,7 +1463,8 @@ struct ScopedNrStateEnvelope
     AmdPreSr::GraphicsSnap::RestorePlan restorePlan {};
 
     explicit ScopedNrStateEnvelope(ID3D12GraphicsCommandList* c, bool replayOnlyIfRecorded = false)
-        : cmd(c), previousTracking(D3D12Hooks::IsRootSignatureTrackingEnabled()),
+        : cmd(c), stateSource(DlssNr::Submission::GraphicsRecordingList(c)),
+          previousTracking(D3D12Hooks::IsRootSignatureTrackingEnabled()),
           previousArmed(AmdPreSr::GraphicsSnap::RestoreArmed()), conditionalReplay(replayOnlyIfRecorded),
           invocation(reinterpret_cast<uint64_t>(c))
     {
@@ -1529,6 +1531,9 @@ struct ScopedNrStateEnvelope
     {
         const bool replay = !conditionalReplay || invocation.state.commandsRecorded;
         const bool restoredGraphics = replay && froze && restorePlan.count;
+        // Preserve the pre-NR native state even when the proxy now records into a continuation.
+        if (replay)
+            D3D12Hooks::TransferRootState(stateSource.Get(), cmd);
         if (restoredGraphics)
             AmdPreSr::GraphicsSnap::ApplyRestorePlan(cmd, frozen, restorePlan);
         AmdPreSr::GraphicsSnap::g_restoreArmed = previousArmed;

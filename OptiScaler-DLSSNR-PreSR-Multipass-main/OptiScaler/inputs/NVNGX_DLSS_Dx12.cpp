@@ -1007,7 +1007,11 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
 
         if (!D3D12Hooks::CanRestoreRootSignature(InCmdList))
         {
-            LOG_DEBUG("Skipping upscaling because can't restore root signature");
+            static std::atomic<bool> reportedMissingRoot { false };
+            if (!reportedMissingRoot.exchange(true, std::memory_order_relaxed))
+                LOG_WARN("SR skipped: no captured root signature for command list {:p}; "
+                         "state restoration is required. Further occurrences are suppressed.",
+                         static_cast<void*>(InCmdList));
             return NVSDK_NGX_Result_Success;
         }
     }

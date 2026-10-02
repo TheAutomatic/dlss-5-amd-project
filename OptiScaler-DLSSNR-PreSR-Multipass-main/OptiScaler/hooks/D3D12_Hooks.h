@@ -25,5 +25,6 @@ class D3D12Hooks
     static bool IsAmdGraphicsTrackerArmed();
     static bool CanRestoreRootSignature(ID3D12GraphicsCommandList* cmdList);
     static void HookToCommandListLate(ID3D12GraphicsCommandList* commandList);
+    static void TransferRootState(ID3D12GraphicsCommandList* source, ID3D12GraphicsCommandList* destination);
     static void RestoreRoot(ID3D12GraphicsCommandList* cmdList);
 };
