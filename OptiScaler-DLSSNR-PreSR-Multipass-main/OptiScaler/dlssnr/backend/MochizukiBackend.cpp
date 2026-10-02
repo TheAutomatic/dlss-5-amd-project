@@ -120,8 +120,9 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
     LmxxfRecording::Collect();
     if (!cmd || !input.colour) return nullptr;
     Microsoft::WRL::ComPtr<Submission::ILogicalCommandList> logical;
+    Microsoft::WRL::ComPtr<Submission::IRecordingResources> resources;
     if (FAILED(cmd->QueryInterface(IID_PPV_ARGS(&logical))) || logical->IsSplitIneligible() ||
-        !logical->CanAppendCompute())
+        FAILED(cmd->QueryInterface(IID_PPV_ARGS(&resources))) || !resources->CanAppendCompute())
     { p->Status("mochizuki: recording boundary unavailable; original frame"); return nullptr; }
     if (!p->Ensure()) return nullptr;
     auto* cfg = Config::Instance();
