@@ -163,3 +163,8 @@ GPU 输出哈希和实机覆盖范围见 [测试入口说明](../tests/RELEASE-T
 - daniel 多槽的 abandon / 多 list 记账（已定案不做，见 [decisions.md](decisions.md)）。
 - 测量专用开关与诊断宏。
 - 改写 git 历史或强推已发布的 tag。
+
+
+## 本地快速试包
+
+用户明确要求快速试包时，可只编译改动的宿主/runtime，使用 `PACKAGE_RELEASE.ps1 -LocalTest -OptiDll <绝对路径> -OutDir dist`。此模式跳过完整 runtime CI 凭证要求，保留源码新鲜度、模块契约、实际 ZIP 和哈希检查，并写入 `LOCAL-TEST.txt` 标记未做完整发版验证。普通打包和 Actions 不传此参数，仍须匹配完整 CI 凭证；本地模式不能作为正式发布通过依据。

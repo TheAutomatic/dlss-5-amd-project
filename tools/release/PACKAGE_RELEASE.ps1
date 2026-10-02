@@ -17,6 +17,8 @@ param(
     [string]$Name = '',
     [string]$OptiDll = '',
     [string]$DepsRoot = '',
+    # Local smoke package only: does not certify full release validation.
+    [switch]$LocalTest,
     [switch]$AllowMissingDeps
 )
 $ErrorActionPreference = 'Stop'
@@ -67,13 +69,18 @@ if (!(Test-Path -LiteralPath $OptiDll)) {
 # Fail on an invalid source before replacing any existing staged package.
 $lmxxfDllSrc = Join-Path $root 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
 $runtimeProof = Join-Path $root 'exports/lmxxf-runtime/runtime-ci.sha256'
-if (-not (Test-Path -LiteralPath $runtimeProof -PathType Leaf)) {
-    throw 'Missing runtime-ci.sha256. Run the full local release build, or stage the runtime and proof from a successful tests/run-all.cmd --tier ci run.'
+if ($LocalTest) {
+    Write-Warning 'LOCAL TEST PACKAGE: full runtime CI proof is not required; this is not release validation.'
+} else {
+    if (-not (Test-Path -LiteralPath $runtimeProof -PathType Leaf)) {
+        throw 'Missing runtime-ci.sha256. Run the full local release build, or stage the runtime and proof from a successful tests/run-all.cmd --tier ci run.'
+    }
+    $testedRuntimeHash = ([IO.File]::ReadAllText($runtimeProof)).Trim()
+    if ($testedRuntimeHash -notmatch '^[0-9a-fA-F]{64}$' -or $testedRuntimeHash -ne (Get-Sha256 $lmxxfDllSrc)) {
+        throw 'Runtime differs from the DLL that passed CI suites. Re-test and stage the matching runtime-ci.sha256.'
+    }
 }
-$testedRuntimeHash = ([IO.File]::ReadAllText($runtimeProof)).Trim()
-if ($testedRuntimeHash -notmatch '^[0-9a-fA-F]{64}$' -or $testedRuntimeHash -ne (Get-Sha256 $lmxxfDllSrc)) {
-    throw 'Runtime differs from the DLL that passed CI suites. Re-test and stage the matching runtime-ci.sha256.'
-}
+$sourceRuntimeHash = Get-Sha256 $lmxxfDllSrc
 $hostHash = Get-Sha256 $OptiDll
 $lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
 Assert-LmxxfModulePackage $lmxxfModSrc
@@ -498,9 +505,9 @@ if (!(Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf)) {
     throw "Required LmxxfNrRuntime.dll not found at $lmxxfDllSrc! Build it first with tools\build\build-lmxxf-runtime.cmd."
 }
 Copy-Item -LiteralPath $lmxxfDllSrc -Destination (Join-Path $stage 'LmxxfNrRuntime.dll') -Force
-if ((Get-Sha256 (Join-Path $stage 'LmxxfNrRuntime.dll')) -ne $testedRuntimeHash -or
+if ((Get-Sha256 (Join-Path $stage 'LmxxfNrRuntime.dll')) -ne $sourceRuntimeHash -or
     (Get-Sha256 (Join-Path $stage 'OptiScaler.dll')) -ne $hostHash) {
-    throw 'Staged binaries differ from the selected host or tested runtime.'
+    throw 'Staged binaries differ from the selected host or runtime.'
 }
 
 $lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
@@ -592,6 +599,11 @@ if ($badAll) {
 # Check the copied tree, including actual hashes and parent/leaf metadata.
 Assert-LmxxfModulePackage (Join-Path $stage 'lmxxf-modules')
 
+if ($LocalTest) {
+    [IO.File]::WriteAllText((Join-Path $stage 'LOCAL-TEST.txt'),
+        "Local test package $Version. Full release tests were not run for this package. Pending game validation and release validation.`n",
+        [Text.UTF8Encoding]::new($false))
+}
 $expectedEntries = @{}
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
