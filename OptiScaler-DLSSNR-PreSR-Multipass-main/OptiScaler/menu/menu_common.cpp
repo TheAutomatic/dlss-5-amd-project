@@ -7116,7 +7116,7 @@ void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
         ImGui::PlotLines(
             "##frame_time_plot", [](void* rb, int idx) -> float
             { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gFrameTimes, plotWidth,
-            0, ft.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, 48.0f * ctx.menuResScale});
+            0, ft.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()});
 
         if (currentFeature != nullptr && !currentFeature->IsFrozen())
         {
@@ -7194,7 +7194,7 @@ void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
             ImGui::PlotLines(
                 "##upscaler_time_plot", [](void* rb, int idx) -> float
                 { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gUpscalerTimes, plotWidth,
-                0, ups.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, 48.0f * ctx.menuResScale});
+                0, ups.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()});
         }
 
         ImGui::EndTable();
@@ -7209,54 +7209,38 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     auto& currentFeature = ctx.currentFeature;
     auto& menuResScale = ctx.menuResScale;
 
-    auto sameLineIfFits = [&](const char* label) {
-        const float width = ImGui::CalcTextSize(label).x + 2 * ImGui::GetStyle().FramePadding.x;
-        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <=
-            ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x)
-            ImGui::SameLine();
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    auto buttonWidth = [&](const char* label) {
+        return ImGui::CalcTextSize(label).x + 2 * ImGui::GetStyle().FramePadding.x;
     };
-    if (ImGui::Button("Save Settings"))
-    {
-        config->SaveIni();
-        // Sync Ins-exposed daniel keys; only on explicit save (same contract as SaveIni).
-        AmdPreSr::SaveDanielSettings();
-    }
-
-    sameLineIfFits("Close");
-    if (ImGui::Button("Close"))
-    {
-        _isVisible = false;
-        hasGamepad = (io.BackendFlags | ImGuiBackendFlags_HasGamepad) > 0;
-        io.BackendFlags &= 30;
-        io.ConfigFlags = ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NoKeyboard;
-
-        _showMipmapCalcWindow = false;
-        _showHudlessWindow = false;
-        io.MouseDrawCursor = false;
-        io.WantCaptureKeyboard = false;
-        io.WantCaptureMouse = false;
-    }
-
-    sameLineIfFits("Reset window layout");
-    if (ImGui::Button("Reset window layout"))
-    {
-        config->MenuWindowWidth.reset();
-        config->MenuWindowHeight.reset();
-        config->MenuWindowAnchor = 0;
-        resetMenuWindow = true;
-    }
-    sameLineIfFits("Wiki");
-    if (ImGui::Button("Wiki"))
-        ImGui::GetPlatformIO().Platform_OpenInShellFn(ImGui::GetCurrentContext(), "https://github.com/optiscaler/OptiScaler/wiki");
-
+    auto nextGroup = [&](float width, bool alignRight) {
+        if (ImGui::GetItemRectMax().x + spacing + width <= rowRight)
+            ImGui::SameLine();
+        if (alignRight && width <= ImGui::GetContentRegionAvail().x)
+            ImGui::SetCursorScreenPos({rowRight - width, ImGui::GetCursorScreenPos().y});
+    };
+    ImGui::BeginGroup();
+    ImGui::AlignTextToFramePadding();
+    if (currentFeature && !currentFeature->IsFrozen())
+        ImGui::Text("%ux%u -> %ux%u | frame %llu", currentFeature->RenderWidth(),
+            currentFeature->RenderHeight(), currentFeature->TargetWidth(), currentFeature->TargetHeight(),
+            static_cast<unsigned long long>(currentFeature->FrameCount()));
+    else
+        ImGui::TextDisabled("No active upscaler");
+    ImGui::EndGroup();
+    const float controlsWidth = 200.0f * menuResScale + ImGui::CalcTextSize("Window").x +
+        ImGui::CalcTextSize("Menu Scale").x + 2 * ImGui::GetStyle().ItemInnerSpacing.x + spacing;
+    nextGroup(controlsWidth, false);
+    ImGui::BeginGroup();
     int anchor = config->MenuWindowAnchor.value_or_default();
     const char* anchors[] = {"Free", "Top left", "Top right", "Bottom left", "Bottom right"};
-    ImGui::SetNextItemWidth(150.0f * menuResScale);
+    ImGui::SetNextItemWidth(110.0f * menuResScale);
     if (ImGui::Combo("Window", &anchor, anchors, 5))
         config->MenuWindowAnchor = anchor;
-    if (ImGui::GetWindowWidth() >= 600.0f * menuResScale)
+    if (controlsWidth <= ImGui::GetContentRegionAvail().x)
         ImGui::SameLine();
-    ImGui::PushItemWidth(100.0f * menuResScale);
+    ImGui::PushItemWidth(90.0f * menuResScale);
 
     auto autoText = config->MenuScale.has_value() ? "Auto" : StrFmt("Auto (%3.1f)", menuResScale);
     // clang-format off
@@ -7285,6 +7269,50 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     }
 
     ImGui::PopItemWidth();
+    ImGui::EndGroup();
+    const float actionsWidth = buttonWidth("Save Settings") + buttonWidth("Close") + buttonWidth("...") + 2 * spacing;
+    nextGroup(actionsWidth, true);
+    ImGui::BeginGroup();
+    if (ImGui::Button("Save Settings"))
+    {
+        config->SaveIni();
+        // Sync Ins-exposed daniel keys; only on explicit save (same contract as SaveIni).
+        AmdPreSr::SaveDanielSettings();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Close"))
+    {
+        _isVisible = false;
+        hasGamepad = (io.BackendFlags | ImGuiBackendFlags_HasGamepad) > 0;
+        io.BackendFlags &= 30;
+        io.ConfigFlags = ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NoKeyboard;
+
+        _showMipmapCalcWindow = false;
+        _showHudlessWindow = false;
+        io.MouseDrawCursor = false;
+        io.WantCaptureKeyboard = false;
+        io.WantCaptureMouse = false;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("...")) ImGui::OpenPopup("Window actions");
+    if (ImGui::BeginPopup("Window actions"))
+    {
+        if (ImGui::Button("Reset window layout"))
+        {
+            config->MenuWindowWidth.reset();
+            config->MenuWindowHeight.reset();
+            config->MenuWindowAnchor = 0;
+            resetMenuWindow = true;
+        }
+
+        if (ImGui::Button("Wiki"))
+            ImGui::GetPlatformIO().Platform_OpenInShellFn(ImGui::GetCurrentContext(), "https://github.com/optiscaler/OptiScaler/wiki");
+
+        ImGui::EndPopup();
+    }
+    ImGui::EndGroup();
 
 }
 
@@ -7655,10 +7683,6 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
             RenderMainMenuTable(ctx);
             if (state.nvngxIniDetected)
                 ImGui::TextWrapped("nvngx.ini detected: use OptiScaler.ini and remove the old config.");
-            if (ctx.currentFeature && !ctx.currentFeature->IsFrozen())
-                ImGui::TextWrapped("%ux%u -> %ux%u | frame %llu", ctx.currentFeature->RenderWidth(),
-                    ctx.currentFeature->RenderHeight(), ctx.currentFeature->TargetWidth(),
-                    ctx.currentFeature->TargetHeight(), static_cast<unsigned long long>(ctx.currentFeature->FrameCount()));
         }
         ImGui::EndChild();
         if (ImGui::BeginChild("##menu_footer", {0, 0}, false))
