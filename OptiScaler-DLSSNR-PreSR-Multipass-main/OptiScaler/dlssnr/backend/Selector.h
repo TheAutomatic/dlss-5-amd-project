@@ -17,4 +17,5 @@ bool DanielGraphicsHooksWanted();
 void InvalidateInstallProbe();
 bool HasDanielInstalled();
 bool HasLmxxfInstalled();
+bool HasMochizukiInstalled();
 } // namespace DlssNr::Backend

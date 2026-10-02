@@ -80,6 +80,15 @@ if ($LocalTest) {
         throw 'Runtime differs from the DLL that passed CI suites. Re-test and stage the matching runtime-ci.sha256.'
     }
 }
+$mochizukiBuild = Join-Path $root 'exports/mochizuki-runtime'
+& python -X utf8 (Join-Path $root 'tools/build/mochizuki-manifest.py') $mochizukiBuild
+if ($LASTEXITCODE -ne 0) { throw 'Mochizuki runtime/shader build is missing or stale.' }
+if (-not $LocalTest) {
+    $proof = Join-Path $mochizukiBuild 'abi-ci.sha256'
+    if (-not (Test-Path $proof) -or ([IO.File]::ReadAllText($proof)).Trim() -ne (Get-Sha256 (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll'))) {
+        throw 'Mochizuki ABI proof missing or does not match the runtime.'
+    }
+}
 $sourceRuntimeHash = Get-Sha256 $lmxxfDllSrc
 $hostHash = Get-Sha256 $OptiDll
 $lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
@@ -225,6 +234,8 @@ foreach ($pair in @(
 $iniSrc = Join-Path $source 'OptiScaler.ini'
 if (!(Test-Path $iniSrc)) { throw "Missing $iniSrc" }
 $ini = Get-Content -LiteralPath $iniSrc -Raw
+$mochizukiDefaults = ([regex]::Matches($ini, '(?m)^Mochizuki\w+=[^\r\n]*') | ForEach-Object { $_.Value }) -join "`n"
+if (-not $mochizukiDefaults) { throw 'Mochizuki defaults missing from the source ini template.' }
 $ini = $ini -replace '(?m)^Dx12Upscaler=.*$', 'Dx12Upscaler=ffx'
 $ini = $ini -replace '(?m)^LogToFile=.*$', 'LogToFile=true'
 $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
@@ -246,13 +257,17 @@ RunBeforeSR=true
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
 ; daniel - danielblnc 0.3.0-0.6.0 runtime (using dlssnr_amd_pass*.dll + weights.bin)
-; lmxxf or daniel only. Turn the pass off with Enabled=false, not with NrBackend.
+; mochizuki - Native D3D12 / Vulkan bridge, RDNA4; see docs/mochizuki.md.
+; lmxxf, daniel or mochizuki. Turn the pass off with Enabled=false.
 ; If the chosen host is missing its files, the other installed host runs instead.
 NrBackend=lmxxf
 
-; Hot-switch preparation when both backends are installed (menu: Allow backend hot switching).
+; Independent Mochizuki controls (copied from the source template).
+$mochizukiDefaults
+
+; Hot-switch preparation (menu: Allow backend hot switching).
 ; 0: start only the selected backend; changing backends needs a game restart.
-; 1 (package default): prepare command-list proxy so daniel <-> lmxxf can switch in-session.
+; 1 (package default): prepare command-list proxy so installed backends can switch in-session.
 ; Hook/wrap policy is chosen at startup: restart the game after changing this.
 ; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
 NrConvenience=1
@@ -500,6 +515,31 @@ if (Test-Path $rtgiSrc) {
     Get-ChildItem -LiteralPath $rtgiSrc -Filter '*.cso' -File | Copy-Item -Destination $rtgiDst -Force
 }
 
+# Explicit allowlist: never copy dlssnr.bin, the unpacked model or a local pipeline cache.
+Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll') -Destination $stage
+$mzAssets = Join-Path $stage 'dlssnr-amd'
+New-Item -ItemType Directory -Force $mzAssets | Out-Null
+Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'dlssnr-amd/shaders') -Destination $mzAssets -Recurse
+Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt')
+Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/UPSTREAM.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_SOURCES.md')
+New-Item -ItemType Directory -Force (Join-Path $stage 'model-tools'), (Join-Path $stage 'docs') | Out-Null
+Get-ChildItem (Join-Path $root 'third_party/mochizuki/linux/package/model-tools') -File | Where-Object { $_.Extension -in @('.py','.json','.txt','.sha256') } | Copy-Item -Destination (Join-Path $stage 'model-tools')
+Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-model.py') -Destination $stage
+$mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
+$mzDoc = $mzDoc.Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
+[IO.File]::WriteAllText((Join-Path $stage 'docs/mochizuki.md'), $mzDoc, [Text.UTF8Encoding]::new($false))
+@'
+@echo off
+setlocal
+set "SOURCE=%~1"
+if not defined SOURCE set "SOURCE=%~dp0nvngx_dlssnr.dll"
+python -X utf8 "%~dp0mochizuki-model.py" "%SOURCE%" "%~dp0dlssnr-amd/dlssnr.bin"
+set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" echo Model extraction failed. Requires Python 3.10+ and nvngx_dlssnr.dll 310.8.0. See docs/mochizuki.md.
+pause
+exit /b %RC%
+'@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
+
 # Bundled open-source lmxxf runtime binaries, modules, and shaders
 if (!(Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf)) {
     throw "Required LmxxfNrRuntime.dll not found at $lmxxfDllSrc! Build it first with tools\build\build-lmxxf-runtime.cmd."
@@ -589,7 +629,7 @@ if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
 # danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
 # Keep this filename-only and case-insensitive: the same expression validates the
 # staged tree and every entry in the finished archive.
-$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe|.*\.generated\.hip|.*\.hsaco\.s)$'
+$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr\.bin|version\.dll|dlssnr_on_amd_setup\.exe|.*\.generated\.hip|.*\.hsaco\.s)$'
 $badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match $forbidden }
 if ($badAll) {
@@ -604,6 +644,7 @@ if ($LocalTest) {
         "Local test package $Version. Full release tests were not run for this package. Pending game validation and release validation.`n",
         [Text.UTF8Encoding]::new($false))
 }
+if (Test-Path (Join-Path $stage 'dlssnr-amd/dlssnr.bin')) { throw 'User model must never be packaged.' }
 $expectedEntries = @{}
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
@@ -653,7 +694,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'lmxxf-module-package.ps1') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'lmxxf-module-package.ps1') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {

@@ -116,6 +116,8 @@ VALIDATE_HOOK(hkvkCreateInstance, PFN_vkCreateInstance)
 static VkResult hkvkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator,
                                    VkInstance* pInstance)
 {
+    if (State::Instance().vulkanSkipHooks) return o_vkCreateInstance(pCreateInfo, pAllocator, pInstance);
+
     LOG_FUNC();
 
     VkInstanceCreateInfo localCreateInfo {};
@@ -158,6 +160,8 @@ VALIDATE_HOOK(hkvkCreateDevice, PFN_vkCreateDevice)
 static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo,
                                  const VkAllocationCallbacks* pAllocator, VkDevice* pDevice)
 {
+    if (State::Instance().vulkanSkipHooks) return o_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+
     LOG_FUNC();
 
     VkDeviceCreateInfo localCreteInfo {};

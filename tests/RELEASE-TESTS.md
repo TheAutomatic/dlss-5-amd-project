@@ -12,9 +12,9 @@ tests\run-all.cmd --tier ci
 
 | tier | 覆盖 | 运行条件 |
 |---|---|---|
-| `ci` | host/config、shader、lmxxf ABI/C 冒烟/WARP、安装卸载、模块打包、上传回归、同步工具及 Git 二进制往返 | 无独立 GPU 要求；Windows/MSVC/WARP |
+| `ci` | host/config、shader、mochizuki ABI、lmxxf ABI/C 冒烟/WARP、安装卸载、模块打包、上传回归、同步工具及 Git 二进制往返 | 无独立 GPU 要求；Windows/MSVC/WARP |
 | `device` | host graphics 与实际 D3D12 列表/proxy 测试 | D3D12 硬件 |
-| `gpu` | lmxxf 实际 HIP、格式/曝光、输出黄金哈希、录制租约、bridge 与故障回归 | AMD GPU，`LMXXF_ASSETS` 指向有效权重目录 |
+| `gpu` | mochizuki Vulkan 输出/重放/跨队列/分辨率/取消（自备模型）、lmxxf 实际 HIP、格式/曝光、输出黄金哈希、录制租约、bridge 与故障回归 | AMD GPU，`LMXXF_ASSETS` 指向有效权重目录 |
 | `all` | 上述全部 | 满足全部依赖 |
 
 可组合 `--tier ci,device`，可用 `--out exports/test-run` 指定结果目录。
@@ -46,6 +46,8 @@ tests\lmxxf\run.cmd device
 tests\lmxxf\run.cmd gpu
 tests\install\run.cmd
 tests\sync\run.cmd
+tests\mochizuki\run.cmd abi
+tests\mochizuki\run.cmd gpu
 ```
 
 ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数表边界、旧 ABI 拒绝与模块状态。

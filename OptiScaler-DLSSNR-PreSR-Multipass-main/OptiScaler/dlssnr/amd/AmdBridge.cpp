@@ -8,6 +8,7 @@
 #include "../backend/DanielBackend.h"
 #include "../effects/NrOutputEffects.h"
 #include "../backend/LmxxfBackend.h"
+#include "../backend/MochizukiBackend.h"
 #include "../backend/Selector.h"
 #include "../backend/LmxxfEvaluateCut.h"
 #include "../backend/LmxxfGenerationObserver.h"
@@ -31,9 +32,11 @@ namespace
 // Switching only changes which one Record/Submit uses.
 std::atomic<DlssNr::Backend::Host*> g_daniel { nullptr };
 std::atomic<DlssNr::Backend::Host*> g_lmxxf { nullptr };
+std::atomic<DlssNr::Backend::Host*> g_mochizuki { nullptr };
 
 DlssNr::Backend::Host* HostForKind(DlssNr::Backend::Kind k)
 {
+    if (k == DlssNr::Backend::Kind::Mochizuki) return g_mochizuki.load(std::memory_order_acquire);
     if (k == DlssNr::Backend::Kind::Lmxxf)
         return g_lmxxf.load(std::memory_order_acquire);
     return g_daniel.load(std::memory_order_acquire);
@@ -173,6 +176,7 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         daniel->Submitting(q, n, c);
     if (lmxxf)
         lmxxf->Submitting(q, n, c);
+    if (auto b = g_mochizuki.load()) b->Submitting(q, n, c);
     // Execute every game list exactly once. Private runtime Notify callbacks
     // publish HIP jobs afterwards and have their internal ECL call neutralized.
     // When lmxxf submission expand is armed, unwrap CommandListProxy (between = HIP slot).
@@ -196,6 +200,7 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         daniel->Submitted(q, n, c);
     if (lmxxf)
         lmxxf->Submitted(q, n, c);
+    if (auto b = g_mochizuki.load()) b->Submitted(q, n, c);
 }
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
@@ -228,6 +233,8 @@ void NTAPI Exit(LONG code)
     if (auto b = g_daniel.load())
         b->Shutdown();
     if (auto b = g_lmxxf.load())
+        b->Shutdown();
+    if (auto b = g_mochizuki.load())
         b->Shutdown();
     exitOriginal(code);
 }
@@ -333,6 +340,7 @@ bool HasFiles()
     // choice to follow a later successful probe at the real package path.
     auto active = ActiveKindCached();
     auto installed = [](DlssNr::Backend::Kind kind) {
+        if (kind == DlssNr::Backend::Kind::Mochizuki) return DlssNr::Backend::HasMochizukiInstalled();
         return kind == DlssNr::Backend::Kind::Lmxxf ? HasLmxxfRuntime() : HasDanielRuntime();
     };
     if (installed(active))
@@ -515,7 +523,12 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         DlssNr::Submission::Hooks::SetProxyWrap(true);
     // Build only the selected host on first use. The other is built when it is
     // first selected (switch). Hosts persist; inactive sessions request release.
-    if (active == DlssNr::Backend::Kind::Lmxxf)
+    if (active == DlssNr::Backend::Kind::Mochizuki)
+    {
+        if (!g_mochizuki.load(std::memory_order_acquire))
+            g_mochizuki.store(new DlssNr::Backend::MochizukiBackend(device, q, Directory()), std::memory_order_release);
+    }
+    else if (active == DlssNr::Backend::Kind::Lmxxf)
     {
         if (!g_lmxxf.load(std::memory_order_acquire))
             g_lmxxf.store(new DlssNr::Backend::LmxxfBackend(device, q, Directory()),
@@ -751,6 +764,7 @@ void PollReleases()
     DlssNr::Effects::Poll();
     if (auto b = g_daniel.load(std::memory_order_acquire)) b->PollRelease();
     if (auto b = g_lmxxf.load(std::memory_order_acquire)) b->PollRelease();
+    if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->PollRelease();
 }
 void OnNrDisabled()
 {
@@ -763,6 +777,7 @@ void OnNrDisabled()
     }
     if (auto b = g_lmxxf.load(std::memory_order_acquire))
         b->ReleaseSession();
+    if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->ReleaseSession();
 }
 void TraceContextRelease(unsigned int handle, bool after)
 {

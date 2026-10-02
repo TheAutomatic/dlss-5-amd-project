@@ -312,6 +312,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\backend\Selector.cpp" />
     <ClCompile Include="dlssnr\backend\DanielBackend.cpp" />
     <ClCompile Include="dlssnr\backend\LmxxfBackend.cpp" />
+    <ClCompile Include="dlssnr\backend\MochizukiBackend.cpp" />
     <ClInclude Include="dlssnr\backend\Kind.h" />
     <ClInclude Include="dlssnr\backend\Host.h" />
     <ClInclude Include="dlssnr\backend\Selector.h" />

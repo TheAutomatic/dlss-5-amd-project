@@ -1,5 +1,8 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
+Esta rama de desarrollo incorpora mochizuki para Windows / RDNA4. Consulte [instalación, modelo, controles y validación](docs/mochizuki.md). No se incluyen DLL de NVIDIA ni pesos del modelo. Falta la validación en juegos.
+
+
 # OptiScaler AMD pre-SR — 1.9.10.2
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.

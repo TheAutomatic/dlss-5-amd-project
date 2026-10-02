@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "../dlssnr/amd/AmdBridge.h"
 #include "../dlssnr/NrTimingDisplay.h"
+#include "../dlssnr/backend/Selector.h"
 #include "menu_common.h"
 #include "UpscalerRouteDiagnostic.h"
 #include "MenuWindowLayout.h"
@@ -1985,12 +1986,15 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
             }
 
             std::string codecTimingLine, effectsTimingLine;
+            if (overlayType != FpsOverlay_JustFPS && config->DlssNrEnabled.value_or_default())
+                firstLine += std::string(" | NR: ") + DlssNr::Backend::Name(DlssNr::Backend::ActiveKindFromConfig());
             if (overlayType != FpsOverlay_JustFPS && config->NrTimingEnabled.value_or_default()) {
                 const auto timing = DlssNr::AmdBridge::Timing();
                 if (timing.version == NR_TIMING_VERSION) {
                     const auto now = GetTickCount64();
                     firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
-                    if (overlayType >= FpsOverlay_Detailed)
+                    if (overlayType >= FpsOverlay_Detailed &&
+                        (timing.stages[NR_GPU_ENCODE].samples || timing.stages[NR_GPU_DECODE].samples))
                         codecTimingLine = "Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
                                       " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
                     if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_BLEND].samples)
