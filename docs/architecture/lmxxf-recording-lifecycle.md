@@ -125,16 +125,17 @@ three samples, the displayed network value is a median of the most recent five;
 raw last/max and sample count remain separately labelled. Collapsed event spans
 below 0.01 ms (observed repeatedly at ~0.001 ms) are counted as dropped samples;
 GetTimings itself retains the upstream raw payload. No invented replacement value
-is inserted. This rejection also prevents consecutive corrupt spans from dominating
-the median on the PDL-off path.
+is inserted. This rejection is a defensive display check, not a substitute for valid raw timestamps.
 
-On the current gfx1201 production PDL path, the upstream interval repeatedly reports
-about 0.001 ms despite real inference. PDL-off testing produces normal spans with
-occasional short samples. The product therefore returns valid=0 / N/A (PDL) while
-PDL is effective, does not allocate these events, and never changes PDL to obtain a
-number. Resolving this upstream timing limitation remains deferred. Codec/effects
-queries remain independent. GetStatus reports net_gpu_ms=off/n/a/unavailable-pdl
-or a completed raw value; normal logging remains bounded and opt-in.
+After recording the end event, the bridge immediately calls hipEventQuery once,
+before enqueueing the external output signal and completion marker. On the tested
+Windows HIP runtime, deferring this first query until a later frame produced collapsed
+intervals with PDL both on and off. The immediate non-blocking query makes the pending
+timestamp batch observable before subsequent submissions; both success and not-ready
+are accepted. Unexpected errors disable instrumentation for the bridge. There is no
+polling loop, CPU wait, new GPU dependency or change to PDL. The completion marker
+remains in place. Timing is available with PDL; GetStatus reports off/n/a or a raw
+completed value. Normal logging remains bounded and opt-in.
 
 D3D12 encode (including exposure/input copies) and decode (including output copies)
 use separate timestamp intervals on the actual execution queue. A session holds at

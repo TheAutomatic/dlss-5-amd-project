@@ -1194,7 +1194,7 @@ struct Session
     {
         source->SetTimingEpoch(performance.Epoch());
         source->SetTimingTag(frame);
-        if (networkTimingRequested && !source->PdlEffective()) source->EnableNetworkTiming();
+        if (networkTimingRequested) source->EnableNetworkTiming();
         else source->PauseNetworkTiming();
     }
     // Hardware & module selection diagnostics
@@ -2856,7 +2856,7 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             const auto t = session->bridge ? session->bridge->PollNetworkTiming() : hip_reference::D3D12Bridge::NetworkTiming{};
             const size_t offset = std::strlen(text);
             if (t.valid) std::snprintf(text + offset, sizeof(text) - offset, " net_gpu_ms=%.3f (frame %llu)", t.ms, t.tag);
-            else std::snprintf(text + offset, sizeof(text) - offset, " net_gpu_ms=%s", !session->networkTimingRequested ? "off" : session->bridge && session->bridge->PdlEffective() ? "unavailable-pdl" : "n/a");
+            else std::snprintf(text + offset, sizeof(text) - offset, " net_gpu_ms=%s", !session->networkTimingRequested ? "off" : "n/a");
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
                           " perf=v3 bridgeCreates=%u releaseMarks=%llu releaseMarkFailures=%llu cpuMs(last/peak/max) prepare=%.2f/%.2f/%.2f enqueue=%.2f/%.2f/%.2f rebuild=%.2f/%.2f/%.2f drain=%.2f/%.2f/%.2f",
@@ -2884,7 +2884,6 @@ int32_t GetTimings(void* context, LmxxfNrTimings* out)
         auto* session = static_cast<Session*>(context);
         session->networkTimingRequested = true;
         if (session->failed || !session->hipPrepared || !session->bridge) return int32_t(LMXXF_NR_OK);
-        if (session->bridge->PdlEffective()) return int32_t(LMXXF_NR_OK);
         session->ConfigureNetworkTiming(session->bridge, session->job.frameId);
         const auto sample = session->bridge->PollNetworkTiming();
         if (sample.valid) { out->valid = 1; out->network_ms = sample.ms; out->frame_id = sample.tag; }
@@ -2977,7 +2976,6 @@ extern "C" int32_t LmxxfNrGetTimingApi(uint32_t version, LmxxfNrTimingApi* out)
         return Guard([&] {
             auto* session = static_cast<Session*>(context);
             *result = session->performance.Read();
-            if (session->bridge && session->bridge->PdlEffective()) result->reserved |= 2u;
             return int32_t(LMXXF_NR_OK);
         });
     };

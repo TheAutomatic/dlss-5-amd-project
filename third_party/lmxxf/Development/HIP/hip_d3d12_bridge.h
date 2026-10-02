@@ -61,6 +61,10 @@ private:
  void TimingEnd(){ // before the output signal
   if(!timing_on)return;const unsigned k=timing_next;
   if(network->Runtime().hipEventRecord(timing_end[k],network->Stream())){TimingOff();return;}
+  // Submit the timestamp batch before the external signal/completion marker. On
+  // Windows HIP, deferring this query until a later frame can collapse the span.
+  // Query is non-blocking: success and not-ready both leave harvesting to the ring.
+  const int q=timing_query(timing_end[k]);if(q!=0&&q!=600/*hipErrorNotReady*/){TimingOff();return;}
   timing_slot_epoch[k]=timing_epoch;timing_slot_tag[k]=timing_tag;timing_busy[k]=true;timing_next=(k+1)%kTimingSlots;
  }
  void DestroyTiming(){if(!network)return;auto&api=network->Runtime();for(unsigned k=0;k<kTimingSlots;k++){if(timing_begin[k])api.hipEventDestroy(timing_begin[k]);if(timing_end[k])api.hipEventDestroy(timing_end[k]);timing_begin[k]=timing_end[k]=nullptr;}TimingOff();}

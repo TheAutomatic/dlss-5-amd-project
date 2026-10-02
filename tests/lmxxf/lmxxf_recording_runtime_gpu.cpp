@@ -124,7 +124,6 @@ int main(int argc, char** argv)
     ok(api.GetTimings(context, &net), "lazy network timing request");
     Require(!net.valid, "first request cannot fabricate a sample");
     char netStatus[1024] {}; ok(api.GetStatus(context, netStatus, sizeof netStatus), "timing availability");
-    const bool blockedPdl = std::strstr(netStatus, "unavailable-pdl") != nullptr;
     const auto baseline = run(context, *frames.front(), other.Get());
     run(context, *frames.back(), queue.Get());
     Require(run(context, *frames.front(), other.Get()) == baseline, "old immutable binding survives ten rebinds and replay");
@@ -136,7 +135,7 @@ int main(int argc, char** argv)
     for (unsigned i = 0; i < 8; ++i) {
         auto next = record(context, 1920, 1080); run(context, *next, other.Get());
         ok(api.GetTimings(context, &net), "rebuilt network timing");
-        Require(blockedPdl ? !net.valid : net.valid && net.frame_id == nextFrame && net.network_ms > 0, "PDL is explicit unavailable; supported network reports current frame");
+        Require(net.valid && net.frame_id == nextFrame && net.network_ms >= 0.01f, "network reports non-collapsed current frame with PDL on or off");
         std::printf("runtime network frame=%llu ms=%.3f\n", net.frame_id, net.network_ms);
         discard(context, next);
     }
@@ -148,7 +147,7 @@ int main(int argc, char** argv)
     for (auto& frame : frames) discard(context, frame);
     NrTimingSnapshot measured {}; measured.struct_size = sizeof measured;
     ok(timing.GetSnapshot(context, &measured), "read completed GPU timing");
-    Require(blockedPdl ? !measured.stages[NR_GPU_NETWORK].samples && (measured.reserved & 2u) : measured.stages[NR_GPU_NETWORK].samples > 0 && measured.stages[NR_GPU_NETWORK].last_ms > 0,
+    Require(measured.stages[NR_GPU_NETWORK].samples > 0 && measured.stages[NR_GPU_NETWORK].last_ms > 0,
             "runtime exposes actual HIP durations");
     std::printf("NR GPU samples=%llu median_ms=%.3f last_ms=%.3f\n",
                 measured.stages[NR_GPU_NETWORK].samples, measured.stages[NR_GPU_NETWORK].mean_ms,

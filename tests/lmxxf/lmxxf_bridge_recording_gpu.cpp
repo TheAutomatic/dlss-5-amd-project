@@ -248,10 +248,10 @@ int main(int argc, char** argv)
         bridge.PauseNetworkTiming(); bridge.SetTimingEpoch(11);
         Require(!bridge.PollNetworkTiming().valid, "disabled samples hidden");
         Require(bridge.EnableNetworkTiming() && !bridge.PollNetworkTiming().valid, "old epoch cannot reappear");
-        executeTimed(10);
         auto& query = hip_reference::BridgeTimingTest::Query(bridge);
         const auto realQuery = query; query = [](hip_probe::Handle) -> int { return 999; };
-        Require(!bridge.PollNetworkTiming().valid && !bridge.EnableNetworkTiming(), "event error disables timing permanently for bridge");
+        executeTimed(10); // fail the immediate non-blocking end-event query
+        Require(!bridge.PollNetworkTiming().valid && !bridge.EnableNetworkTiming(), "end-event query error disables timing permanently for bridge");
         query = realQuery;
         executeTimed(11); // rendering survives the latched instrumentation failure
         void* timedData = nullptr; D3D12_RANGE timedRange {0, SIZE_T(bytes)};

@@ -16,7 +16,7 @@
   struct Shared {ID3D12Resource*resource{};HANDLE handle{};Handle imported{};void*mapped{};};
   Network*network{};ID3D12Device*device{};ID3D12CommandQueue*queue{};ID3D12Fence*fence{};
   HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
-@@ -23,12 +26,77 @@
+@@ -23,12 +26,81 @@
  public:
   enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
   Phase CurrentPhase()const{return phase;}
@@ -56,6 +56,10 @@
 + void TimingEnd(){ // before the output signal
 +  if(!timing_on)return;const unsigned k=timing_next;
 +  if(network->Runtime().hipEventRecord(timing_end[k],network->Stream())){TimingOff();return;}
++  // Submit the timestamp batch before the external signal/completion marker. On
++  // Windows HIP, deferring this query until a later frame can collapse the span.
++  // Query is non-blocking: success and not-ready both leave harvesting to the ring.
++  const int q=timing_query(timing_end[k]);if(q!=0&&q!=600/*hipErrorNotReady*/){TimingOff();return;}
 +  timing_slot_epoch[k]=timing_epoch;timing_slot_tag[k]=timing_tag;timing_busy[k]=true;timing_next=(k+1)%kTimingSlots;
 + }
 + void DestroyTiming(){if(!network)return;auto&api=network->Runtime();for(unsigned k=0;k<kTimingSlots;k++){if(timing_begin[k])api.hipEventDestroy(timing_begin[k]);if(timing_end[k])api.hipEventDestroy(timing_end[k]);timing_begin[k]=timing_end[k]=nullptr;}TimingOff();}
@@ -95,7 +99,7 @@
   static void Check(HRESULT h,const char*what){if(FAILED(h))throw std::runtime_error(std::string(what)+" HRESULT="+std::to_string(unsigned(h)));}
   static void Barrier(ID3D12GraphicsCommandList*c,ID3D12Resource*r,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after){if(before==after)return;D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};c->ResourceBarrier(1,&b);}
   /* 2026-09-26: the AMD HIP driver never returns a D3D12 buffer that was imported (hipImportExternalMemory) and mapped, even after
-@@ -82,16 +150,19 @@
+@@ -82,16 +154,19 @@
   // False means resources may still be referenced by unsubmitted/failed work.
   // This also lets wrappers retain their input references until consumers retire.
   bool WaitForSubmittedWork()noexcept{
@@ -117,7 +121,7 @@
    if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
   }
   void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
-@@ -113,11 +184,16 @@
+@@ -113,11 +188,16 @@
    }
    module_directory=options.modules;
    network=new Network(std::move(options));auto&api=network->Runtime();
@@ -136,7 +140,7 @@
  #ifdef DLSS5_BENCH_BRIDGE_ISOLATE
   Network& DiagnosticNetwork(){return *network;}
  #endif
-@@ -145,12 +221,46 @@
+@@ -145,12 +225,46 @@
    try{
     pending=true;Check(queue->Signal(fence,++value),"D3D input signal");hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
     if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
@@ -184,7 +188,7 @@
   // Single host thread, one staged frame at a time; all lists use the queue passed to Create.
   // RecordInputCopy -> host submits producer -> EnqueueAfterProducer -> RecordOutputReadable
   // -> host records/submits consumers -> NotifyOutputSubmitted. Record* never closes/submits a list.
-@@ -166,6 +276,51 @@
+@@ -166,6 +280,51 @@
    auto&api=network->Runtime();
    try{api.Check(api.hipMemsetAsync(input.mapped,0,pixels*16,network->Stream()),"prepare input");network->Enqueue(input.mapped,nullptr,output.mapped,1);network->Synchronize();}
    catch(...){failed=true;throw;}

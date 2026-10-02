@@ -48,8 +48,7 @@ int main()
     auto median = store.Read();
     assert(median.stages[NR_GPU_NETWORK].mean_ms == 9.1 && (median.reserved & 1u));
     assert(DlssNr::TimingValueText(median, NR_GPU_NETWORK, 1001, true).find("median") == 0);
-    median.reserved |= 2u;
-    assert(DlssNr::TimingValueText(median, NR_GPU_NETWORK, 1001) == "N/A (PDL)");
+    assert(DlssNr::TimingValueText(median, NR_GPU_NETWORK, 1001) == "9.10 ms");
     store.ResetStage(NR_GPU_NETWORK);
     assert(!store.Read().stages[NR_GPU_NETWORK].samples);
     std::cout << "nr performance: PASS\n";

@@ -1152,7 +1152,7 @@ void RenderMenu(Config* config, float menuResScale)
                 if (isLmxxf)
                 {
                     ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
-                    ImGui::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Network timing is unavailable with PDL; measurement never changes PDL.");
+                    ImGui::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Measurement uses non-blocking HIP events and leaves PDL unchanged.");
                     bool timingEnabled = config->NrTimingEnabled.value_or_default();
                     if (ImGui::Checkbox("Measure NR performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
                     HelpMarker("Asynchronous GPU timing. Does not wait for the GPU. New recordings include encode/decode queries."

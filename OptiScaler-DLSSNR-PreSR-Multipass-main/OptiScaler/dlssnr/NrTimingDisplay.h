@@ -8,7 +8,6 @@ namespace DlssNr
 inline std::string TimingValueText(const NrTimingSnapshot& snapshot, unsigned stage, uint64_t now, bool detailed = false)
 {
     if (snapshot.version != NR_TIMING_VERSION || snapshot.struct_size != sizeof snapshot) return "N/A";
-    if (stage == NR_GPU_NETWORK && (snapshot.reserved & 2u)) return "N/A (PDL)";
     if (!snapshot.enabled) return "disabled";
     if (stage >= NR_TIMING_STAGE_COUNT) return "N/A";
     const auto& v = snapshot.stages[stage];
