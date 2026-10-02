@@ -51,8 +51,8 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
-%CXX% /I"%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler" tests\lmxxf\lmxxf_root_restore_identity.cpp /Fe"%OUT%\lmxxf_root_restore_identity.exe" /Fo"%OUT%\lmxxf_root_restore_identity.obj" /link %D3D% || goto fail
-"%OUT%\lmxxf_root_restore_identity.exe" || goto fail
+%CXX% /I"%INC%" tests\lmxxf\lmxxf_legacy_root_capture.cpp /Fe"%OUT%\lmxxf_legacy_root_capture.exe" /Fo"%OUT%\lmxxf_legacy_root_capture.obj" /link %D3D% "%DETOURS%" || goto fail
+"%OUT%\lmxxf_legacy_root_capture.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_recording_timing.cpp /Fe"%OUT%\lmxxf_recording_timing.exe" /Fo"%OUT%\lmxxf_recording_timing.obj" /link %D3D% || goto fail
 "%OUT%\lmxxf_recording_timing.exe" || goto fail
 %CXX% /I"%REPO%\third_party\lmxxf\src" tests\lmxxf\lmxxf_exposure_recording.cpp /Fe"%OUT%\lmxxf_exposure_recording.exe" /Fo"%OUT%\lmxxf_exposure_recording.obj" /link %D3D% || goto fail

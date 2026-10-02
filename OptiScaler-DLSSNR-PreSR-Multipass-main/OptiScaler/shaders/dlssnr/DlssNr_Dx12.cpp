@@ -1,5 +1,4 @@
 #include "pch.h"
-#include <dlssnr/submission/CommandListProxy.h>
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsRestoreDx12.h>
@@ -23,7 +22,6 @@
 
 #include <proxies/NVNGX_Proxy.h>
 #include <hooks/D3D12_Hooks.h>
-#include <hooks/RootRestoreIdentity.h>
 #include <gpu_time/GpuTime_Dx12.h>
 
 #include <mutex>
@@ -1452,7 +1450,6 @@ std::mutex g_nrMutex;
 struct ScopedNrStateEnvelope
 {
     ID3D12GraphicsCommandList* cmd;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> stateSource;
     ScopedSkipHeapCapture skipHeap;
     const bool previousTracking;
     const bool previousArmed;
@@ -1464,13 +1461,12 @@ struct ScopedNrStateEnvelope
     AmdPreSr::GraphicsSnap::RestorePlan restorePlan {};
 
     explicit ScopedNrStateEnvelope(ID3D12GraphicsCommandList* c, bool replayOnlyIfRecorded = false)
-        : cmd(c), stateSource(DlssNr::Submission::GraphicsRecordingList(c)),
-          previousTracking(D3D12Hooks::IsRootSignatureTrackingEnabled()),
+        : cmd(c), previousTracking(D3D12Hooks::IsRootSignatureTrackingEnabled()),
           previousArmed(AmdPreSr::GraphicsSnap::RestoreArmed()), conditionalReplay(replayOnlyIfRecorded),
           invocation(reinterpret_cast<uint64_t>(c))
     {
         D3D12Hooks::SetRootSignatureTracking(false);
-        const auto listId = reinterpret_cast<uint64_t>(DlssNr::Submission::GraphicsRecordingList(c));
+        const auto listId = reinterpret_cast<uint64_t>(c);
         auto& d = invocation.state;
         const bool trackerArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
         d.requested = trackerArmed && Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
@@ -1478,7 +1474,7 @@ struct ScopedNrStateEnvelope
         {
             d.reason = "graphics_tracking_disabled";
             AmdPreSr::GraphicsSnap::g_restoreArmed = false;
-            return; // Keep the generic compute envelope; no Daniel capture/locks/pins.
+            return;
         }
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         d.listType = static_cast<uint32_t>(c->GetType());
@@ -1530,12 +1526,10 @@ struct ScopedNrStateEnvelope
 
     ~ScopedNrStateEnvelope()
     {
-        const bool replay = RootRestoreIdentity::NeedsReplay(stateSource.Get(), cmd, conditionalReplay,
-                                                             invocation.state.commandsRecorded);
+        // Legacy comparison: no producer-to-continuation migration or extra
+        // lmxxf post-record replay; SR keeps its normal caller-keyed envelope.
+        const bool replay = !conditionalReplay || invocation.state.commandsRecorded;
         const bool restoredGraphics = replay && froze && restorePlan.count;
-        // Preserve the pre-NR native state even when the proxy now records into a continuation.
-        if (replay)
-            D3D12Hooks::TransferRootState(stateSource.Get(), cmd);
         if (restoredGraphics)
             AmdPreSr::GraphicsSnap::ApplyRestorePlan(cmd, frozen, restorePlan);
         AmdPreSr::GraphicsSnap::g_restoreArmed = previousArmed;

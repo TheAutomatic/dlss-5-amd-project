@@ -1,6 +1,5 @@
 #include "pch.h"
 #include "D3D12_Hooks.h"
-#include "RootRestoreIdentity.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsInvocation.h>
@@ -219,7 +218,7 @@ static RootRestoreHook<PFN_SetGraphicsRootConstantBufferView> s_SetGraphicsRootC
 static RootRestoreHook<PFN_SetGraphicsRootShaderResourceView> s_SetGraphicsRootShaderResourceView {};
 static RootRestoreHook<PFN_SetGraphicsRootUnorderedAccessView> s_SetGraphicsRootUnorderedAccessView {};
 
-// Tracker-only; latched backend/convenience/new-wait policy controls attachment.
+// Tracker-only; startup AmdGraphicsWait controls attachment, not later UI toggles.
 static RootRestoreHook<PFN_RSSetViewports> s_RSSetViewports {};
 static RootRestoreHook<PFN_RSSetScissorRects> s_RSSetScissorRects {};
 static RootRestoreHook<PFN_IASetPrimitiveTopology> s_IASetPrimitiveTopology {};
@@ -1623,20 +1622,22 @@ static void hkSetGraphicsRootUnorderedAccessViewLate(ID3D12GraphicsCommandList* 
 
 void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
 {
-    if (DlssNr::Submission::GraphicsRecordingList(commandList) != commandList)
-        return; // Native hooks observe the forwarded calls; do not detour our proxy.
     if (s_SetComputeRootSignature.o_lateHook || s_SetGraphicsRootSignature.o_lateHook)
         return;
 
+    // Legacy comparison: late hooks capture the caller object (including our proxy).
+    // RestoreRoot must use that same object and the matching late trampoline.
+    LOG_INFO("NR state path: legacy 1.9.6.3 caller identity (no native state migration)");
     // Get the vtable pointer
     PVOID* pVTable = *(PVOID**) commandList;
 
     const bool restoreComputeSignature = Config::Instance()->RestoreComputeSignature.value_or_default();
     const bool restoreGraphicSignature = Config::Instance()->RestoreGraphicSignature.value_or_default();
     const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-    // Capture Daniel state only when startup backend/convenience policy needs it.
+    // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
     const bool amdGraphicsTrackerWanted =
-        DlssNr::Backend::DanielGraphicsHooksWanted();
+        DlssNr::Backend::DanielGraphicsHooksWanted() &&
+        !DlssNr::Backend::SubmissionHooksWanted();
 
     s_SetPipelineState.o_lateHook = (PFN_SetPipelineState) pVTable[25];
     s_SetDescriptorHeaps.o_lateHook = (PFN_SetDescriptorHeaps) pVTable[28];
@@ -1808,7 +1809,6 @@ void D3D12Hooks::HookToCommandListLate(ID3D12GraphicsCommandList* commandList)
 
 static void HookToCommandList(ID3D12Device* InDevice)
 {
-    DlssNr::Submission::SuppressProxyWrap nativeProbe;
     if (s_SetComputeRootSignature.o_earlyHook != nullptr || s_SetGraphicsRootSignature.o_earlyHook != nullptr)
         return;
 
@@ -1824,9 +1824,10 @@ static void HookToCommandList(ID3D12Device* InDevice)
             PVOID* pVTable = *(PVOID**) commandList;
 
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
-            // Capture Daniel state only when startup backend/convenience policy needs it.
+            // Mutual exclusion: lmxxf submission proxy path never installs graphics tracker hooks.
             const bool amdGraphicsTrackerWanted =
-                DlssNr::Backend::DanielGraphicsHooksWanted();
+                DlssNr::Backend::DanielGraphicsHooksWanted() &&
+                !DlssNr::Backend::SubmissionHooksWanted();
             const auto nativeDrawTarget = reinterpret_cast<uintptr_t>(pVTable[12]);
             LONG nativeDrawAttach = ERROR_INVALID_FUNCTION;
 
@@ -2969,13 +2970,10 @@ static void HookToDevice(ID3D12Device* InDevice)
 
         // lmxxf: ArmCreate after commit (ExpandEnabled). ProxyWrap stays OFF until swapchain
         // (wrapping every DIRECT list during Streamline/device boot crashes yysls).
-        // Graphics CreateCommandList* are mutually exclusive with ArmCreate Detours;
-        // CreateCommandSignature is not — keep its metadata hook so ExecuteIndirect
-        // lists stay eligible for new wait when the submission proxy is armed.
+        // Graphics Create* hooks are mutually exclusive with ArmCreate Create* Detours.
         if (DlssNr::Backend::SubmissionHooksWanted())
         {
-            if (DlssNr::Backend::DanielGraphicsHooksWanted() && o_CreateCommandSignature != nullptr)
-                DetourAttach(&(PVOID&) o_CreateCommandSignature, hkCreateCommandSignature);
+            // Skip AmdGraphicsWait CreateCommandList / CreateCommandList1 / CreateCommandSignature.
         }
         else if (DlssNr::Backend::DanielGraphicsHooksWanted())
         {
@@ -3012,7 +3010,7 @@ static void HookToDevice(ID3D12Device* InDevice)
                 LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
             else
             {
-                LOG_INFO("NR ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain");
+                LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
                 // Whitelist: Unreal (session bind) and Forza (lists before swapchain).
                 // Other engines can crash with early ArmCreate + wrap (e.g. Yan Yun).
                 // LmxxfEarlyExeWrap=true/false forces the decision; missing keeps the whitelist.
@@ -3209,55 +3207,29 @@ bool D3D12Hooks::IsAmdGraphicsTrackerArmed()
     return s_amdGraphicsTrackerHooks;
 }
 
-void D3D12Hooks::TransferRootState(ID3D12GraphicsCommandList* source, ID3D12GraphicsCommandList* destination)
-{
-    const auto target = RootRestoreIdentity::Key(destination);
-    if (source == target)
-        return;
-    // Source is the retained native producer, never re-resolve it through a proxy.
-    {
-        std::unique_lock<std::shared_mutex> lock(rootSignatureMutex);
-        RootRestoreIdentity::Transfer(signatures, source, target);
-    }
-    {
-        std::unique_lock<std::shared_mutex> lock(descriptorHeapsMutex);
-        RootRestoreIdentity::Transfer(descriptorHeaps, source, target);
-    }
-    {
-        std::unique_lock<std::shared_mutex> lock(pipelineStatesMutex);
-        RootRestoreIdentity::Transfer(pipelineStates, source, target);
-    }
-    {
-        std::unique_lock<std::shared_mutex> lock(rootStatesMutex);
-        RootRestoreIdentity::Transfer(rootStates, source, target);
-    }
-}
-
 bool D3D12Hooks::CanRestoreRootSignature(ID3D12GraphicsCommandList* cmdList)
 {
     std::unique_lock<std::shared_mutex> lock(rootSignatureMutex);
-    return signatures.contains(RootRestoreIdentity::Key(cmdList));
+    return signatures.contains(cmdList);
 }
 
 bool D3D12Hooks::RestoreDescriptorHeaps(ID3D12GraphicsCommandList* cmdList)
 {
-    const auto key = RootRestoreIdentity::Key(cmdList);
     std::unique_lock<std::shared_mutex> lock(descriptorHeapsMutex);
-    if (descriptorHeaps.contains(key))
+    if (descriptorHeaps.contains(cmdList))
     {
-        auto& heaps = descriptorHeaps[key];
+        auto& heaps = descriptorHeaps[cmdList];
 
         if (heaps.NumDescriptorHeaps > 0 && heaps.Heaps[0] != nullptr)
         {
             if (auto hook = s_SetDescriptorHeaps.GetHook())
             {
-                RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetDescriptorHeaps,
-                                            heaps.NumDescriptorHeaps, heaps.Heaps);
+                hook(cmdList, heaps.NumDescriptorHeaps, heaps.Heaps);
                 if (AmdGfxTrackerOn())
                 {
                     uint64_t handles[2] { reinterpret_cast<uint64_t>(heaps.Heaps[0]),
                                           reinterpret_cast<uint64_t>(heaps.Heaps[1]) };
-                    AmdPreSr::GraphicsSnap::GraphicsTracker().ReportHeaps(AmdListId(key),
+                    AmdPreSr::GraphicsSnap::GraphicsTracker().ReportHeaps(AmdListId(cmdList),
                         heaps.NumDescriptorHeaps, handles, true);
                 }
             }
@@ -3276,18 +3248,17 @@ bool D3D12Hooks::RestoreDescriptorHeaps(ID3D12GraphicsCommandList* cmdList)
 
 bool D3D12Hooks::RestorePipelineState(ID3D12GraphicsCommandList* cmdList)
 {
-    const auto key = RootRestoreIdentity::Key(cmdList);
     std::unique_lock<std::shared_mutex> lock(pipelineStatesMutex);
-    if (pipelineStates.contains(key))
+    if (pipelineStates.contains(cmdList))
     {
-        auto& pipelineState = pipelineStates[key];
+        auto& pipelineState = pipelineStates[cmdList];
 
         if (auto hook = s_SetPipelineState.GetHook())
         {
-            RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetPipelineState, pipelineState);
+            hook(cmdList, pipelineState);
             if (AmdGfxTrackerOn())
                 AmdPreSr::GraphicsSnap::GraphicsTracker().ReportPso(
-                    AmdListId(key), reinterpret_cast<uint64_t>(pipelineState), /*fromRestore=*/true);
+                    AmdListId(cmdList), reinterpret_cast<uint64_t>(pipelineState), /*fromRestore=*/true);
         }
         else
         {
@@ -3303,14 +3274,13 @@ bool D3D12Hooks::RestorePipelineState(ID3D12GraphicsCommandList* cmdList)
 
 bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
 {
-    const auto key = RootRestoreIdentity::Key(cmdList);
     std::unique_lock<std::shared_mutex> lock(rootStatesMutex);
-    if (rootStates.contains(key))
+    if (rootStates.contains(cmdList))
     {
-        auto& table = rootStates[key];
+        auto& table = rootStates[cmdList];
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         const bool trackerOn = AmdGfxTrackerOn();
-        const uint64_t listId = AmdListId(key);
+        const uint64_t listId = AmdListId(cmdList);
 
         for (uint32_t i = 0; i < table.size(); i++)
         {
@@ -3318,8 +3288,7 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetComputeRootDescriptorTable.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRootDescriptorTable,
-                                                i, table[i].rootDescriptorTable);
+                    hook(cmdList, i, table[i].rootDescriptorTable);
                     if (trackerOn)
                         tracker.ReportRootTable(listId, false, i, table[i].rootDescriptorTable.ptr, true);
                 }
@@ -3330,8 +3299,7 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetComputeRoot32BitConstant.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRoot32BitConstant,
-                                                i, table[i].Data[0], table[i].DestOffset);
+                    hook(cmdList, i, table[i].Data[0], table[i].DestOffset);
                     if (trackerOn)
                         tracker.ReportRootConstant(listId, false, i, table[i].Data[0], table[i].DestOffset, true);
                 }
@@ -3342,8 +3310,7 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetComputeRoot32BitConstants.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRoot32BitConstants,
-                                                i, table[i].Num32BitValues, table[i].Data.data(), table[i].DestOffset);
+                    hook(cmdList, i, table[i].Num32BitValues, table[i].Data.data(), table[i].DestOffset);
                     if (trackerOn)
                         tracker.ReportRootConstants(listId, false, i, table[i].Data.data(), table[i].Num32BitValues,
                                                     table[i].DestOffset, true);
@@ -3357,8 +3324,7 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetComputeRootConstantBufferView.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRootConstantBufferView,
-                                                i, table[i].bufferLocation);
+                    hook(cmdList, i, table[i].bufferLocation);
                     if (trackerOn)
                         tracker.ReportRootGpuVa(listId, false, i, AmdPreSr::GraphicsSnap::RootEntryType::CBV,
                                                 table[i].bufferLocation, true);
@@ -3370,8 +3336,7 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetComputeRootShaderResourceView.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRootShaderResourceView,
-                                                i, table[i].bufferLocation);
+                    hook(cmdList, i, table[i].bufferLocation);
                     if (trackerOn)
                         tracker.ReportRootGpuVa(listId, false, i, AmdPreSr::GraphicsSnap::RootEntryType::SRV,
                                                 table[i].bufferLocation, true);
@@ -3383,8 +3348,7 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetComputeRootUnorderedAccessView.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRootUnorderedAccessView,
-                                                i, table[i].bufferLocation);
+                    hook(cmdList, i, table[i].bufferLocation);
                     if (trackerOn)
                         tracker.ReportRootGpuVa(listId, false, i, AmdPreSr::GraphicsSnap::RootEntryType::UAV,
                                                 table[i].bufferLocation, true);
@@ -3406,14 +3370,13 @@ bool D3D12Hooks::RestoreComputeRootState(ID3D12GraphicsCommandList* cmdList)
 
 bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
 {
-    const auto key = RootRestoreIdentity::Key(cmdList);
     std::unique_lock<std::shared_mutex> lock(rootStatesMutex);
-    if (rootStates.contains(key))
+    if (rootStates.contains(cmdList))
     {
-        auto& table = rootStates[key];
+        auto& table = rootStates[cmdList];
         auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
         const bool trackerOn = AmdGfxTrackerOn();
-        const uint64_t listId = AmdListId(key);
+        const uint64_t listId = AmdListId(cmdList);
 
         for (uint32_t i = 0; i < table.size(); i++)
         {
@@ -3421,8 +3384,7 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetGraphicsRootDescriptorTable.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable,
-                                                i, table[i].rootDescriptorTable);
+                    hook(cmdList, i, table[i].rootDescriptorTable);
                     if (trackerOn)
                         tracker.ReportRootTable(listId, true, i, table[i].rootDescriptorTable.ptr, true);
                 }
@@ -3436,8 +3398,7 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetGraphicsRoot32BitConstant.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRoot32BitConstant,
-                                                i, table[i].Data[0], table[i].DestOffset);
+                    hook(cmdList, i, table[i].Data[0], table[i].DestOffset);
                     if (trackerOn)
                         tracker.ReportRootConstant(listId, true, i, table[i].Data[0], table[i].DestOffset, true);
                 }
@@ -3448,8 +3409,7 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetGraphicsRoot32BitConstants.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRoot32BitConstants,
-                                                i, table[i].Num32BitValues, table[i].Data.data(), table[i].DestOffset);
+                    hook(cmdList, i, table[i].Num32BitValues, table[i].Data.data(), table[i].DestOffset);
                     if (trackerOn)
                         tracker.ReportRootConstants(listId, true, i, table[i].Data.data(), table[i].Num32BitValues,
                                                     table[i].DestOffset, true);
@@ -3461,8 +3421,7 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetGraphicsRootConstantBufferView.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRootConstantBufferView,
-                                                i, table[i].bufferLocation);
+                    hook(cmdList, i, table[i].bufferLocation);
                     if (trackerOn)
                         tracker.ReportRootGpuVa(listId, true, i, AmdPreSr::GraphicsSnap::RootEntryType::CBV,
                                                 table[i].bufferLocation, true);
@@ -3474,8 +3433,7 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetGraphicsRootShaderResourceView.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRootShaderResourceView,
-                                                i, table[i].bufferLocation);
+                    hook(cmdList, i, table[i].bufferLocation);
                     if (trackerOn)
                         tracker.ReportRootGpuVa(listId, true, i, AmdPreSr::GraphicsSnap::RootEntryType::SRV,
                                                 table[i].bufferLocation, true);
@@ -3487,8 +3445,7 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
             {
                 if (auto hook = s_SetGraphicsRootUnorderedAccessView.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRootUnorderedAccessView,
-                                                i, table[i].bufferLocation);
+                    hook(cmdList, i, table[i].bufferLocation);
                     if (trackerOn)
                         tracker.ReportRootGpuVa(listId, true, i, AmdPreSr::GraphicsSnap::RootEntryType::UAV,
                                                 table[i].bufferLocation, true);
@@ -3510,13 +3467,6 @@ bool D3D12Hooks::RestoreGraphicsRootState(ID3D12GraphicsCommandList* cmdList)
 
 void D3D12Hooks::RestoreRoot(ID3D12GraphicsCommandList* cmdList)
 {
-    const auto key = RootRestoreIdentity::Key(cmdList);
-    struct TrackingGuard
-    {
-        bool previous = isUpscalerActive;
-        TrackingGuard() { isUpscalerActive = true; }
-        ~TrackingGuard() { isUpscalerActive = previous; }
-    } trackingGuard;
     const bool restoreComputeSignature = Config::Instance()->RestoreComputeSignature.value_or_default();
     const bool restoreGraphicSignature = Config::Instance()->RestoreGraphicSignature.value_or_default();
 
@@ -3524,13 +3474,13 @@ void D3D12Hooks::RestoreRoot(ID3D12GraphicsCommandList* cmdList)
     {
         std::unique_lock<std::shared_mutex> lock(rootSignatureMutex);
 
-        if (signatures.contains(key))
+        if (signatures.contains(cmdList))
         {
-            auto& signature = signatures[key];
+            auto& signature = signatures[cmdList];
             const bool extendedRestoreSignature = Config::Instance()->ExtendedStateRestore.value_or_default();
             auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
             const bool trackerOn = AmdGfxTrackerOn();
-            const uint64_t listId = AmdListId(key);
+            const uint64_t listId = AmdListId(cmdList);
 
             if (extendedRestoreSignature)
             {
@@ -3546,8 +3496,7 @@ void D3D12Hooks::RestoreRoot(ID3D12GraphicsCommandList* cmdList)
 
                 if (auto hook = s_SetComputeRootSignature.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetComputeRootSignature,
-                                                signature.ptr);
+                    hook(cmdList, signature.ptr);
                     if (trackerOn)
                         tracker.ReportComputeRootSignature(listId, reinterpret_cast<uint64_t>(signature.ptr), true);
                 }
@@ -3560,8 +3509,7 @@ void D3D12Hooks::RestoreRoot(ID3D12GraphicsCommandList* cmdList)
 
                 if (auto hook = s_SetGraphicsRootSignature.GetHook())
                 {
-                    RootRestoreIdentity::Replay(cmdList, hook, &ID3D12GraphicsCommandList::SetGraphicsRootSignature,
-                                                signature.ptr);
+                    hook(cmdList, signature.ptr);
                     if (trackerOn)
                         tracker.ReportGraphicsRootSignature(listId, reinterpret_cast<uint64_t>(signature.ptr), true);
                 }
