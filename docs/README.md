@@ -12,6 +12,7 @@
 | [architecture/nr-output-effects.md](architecture/nr-output-effects.md) | 双后端整体强度、残差稳定器、历史/资源归属及验证范围 |
 | [architecture/installer.md](architecture/installer.md) | 安装器与卸载器：后端选择、升级流程、ini 与 flags 文件、双架构模块包校验、卸载范围 |
 | [lmxxf-037-consumer-review.md](lmxxf-037-consumer-review.md) | 0.37 消费者重审：实际宏、验证范围、pinned bridge 和暂缓项 |
+| [lmxxf-039-consumer-review.md](lmxxf-039-consumer-review.md) | 0.39 完整上游审阅：实际生成配方、配置差异、验证范围和暂缓项 |
 | [backends/lmxxf.md](backends/lmxxf.md) | lmxxf 后端专页 |
 | [games/](games/) | 各游戏的兼容说明、已修复案例和排查入口 |
 | [release.md](release.md) | 发版唯一入口：构建、测试产物、试包、Actions 预验证、发布核验与故障处理 |

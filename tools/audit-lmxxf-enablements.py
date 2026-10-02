@@ -84,7 +84,7 @@ class Git:
 
     def grep(self, commit, *paths):
         # Exit 1 means no matches; errors (missing refs, permissions, etc.) remain fatal.
-        body = self.run('grep', '-n', '-I', '-E', '(DLSS5_|HIP_)[A-Z0-9_]+', commit,
+        body = self.run('grep', '-n', '-I', '-E', r'\b[A-Z][A-Z0-9_]*\b', commit,
                         '--', *paths, allowed=(0, 1))
         rows = []
         for line in body.splitlines():
@@ -207,8 +207,8 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
         if '/experiments/' in path or path.endswith(('.md', '.patch', '.json')):
             continue
         for name in set(re.findall(r'\bDLSS5_[A-Z0-9_]+', line)):
-            if name in flags:
-                consumers.setdefault(name, {})[path] = tree[path]['blob']
+            flags.setdefault(name, [])
+            consumers.setdefault(name, {})[path] = tree[path]['blob']
     # This is only a navigation aid. It never declares a flag integrated or safe to enable.
     mappings = {}
     segments = re.split(r'(?=(?:std::)?getenv\(")', net)
@@ -225,7 +225,7 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
 
     deployment = {}
     for path, number, line in git.grep(commit, 'Development/deployments', 'Development/HIP/experiments'):
-        for name in set(re.findall(r'\bHIP_[A-Z0-9_]+', line)):
+        for name in set(re.findall(r'\b[A-Z][A-Z0-9_]*\b', line)):
             deployment.setdefault(name, []).append({'path': path, 'line': number, 'text': line.strip(),
                                                    'blob': tree[path]['blob']})
     gates = {}
@@ -243,10 +243,21 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
             path = 'hip/' + source
             body = git.read(commit, path)  # Missing recipe input is an audit failure, not noise.
             names = set()
-            for directive in re.findall(r'^\s*#\s*(?:if|ifdef|ifndef|elif|define)\b[^\n]*', body, re.M):
-                names.update(re.findall(r'\bHIP_[A-Z0-9_]+', directive))
+            # Gate families are not limited to HIP_: production recipes also use
+            # CW_*, W2_*, C512_*, SP_* and VIT_*. Keep unknown families visible.
+            code = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', body, flags=re.S)
+            code = re.sub(r'\\\r?\n', ' ', code)
+            for directive, expression in re.findall(
+                    r'^\s*#\s*(if|ifdef|ifndef|elif|define)\b([^\n]*)', code, re.M):
+                if directive == 'define':
+                    defined = re.match(r'\s*([A-Z][A-Z0-9_]*)\b', expression)
+                    if defined:
+                        names.add(defined[1])
+                else:
+                    names.update(re.findall(r'\b[A-Z][A-Z0-9_]*\b', expression))
             for name in sorted(names):
-                defaults = re.findall(r'^\s*#\s*define\s+' + re.escape(name) + r'\s+([^\n]+)', body, re.M)
+                defaults = [value.strip() for value in re.findall(
+                    r'^[ \t]*#[ \t]*define[ \t]+' + re.escape(name) + r'\b([^\n]*)', code, re.M)]
                 gates.setdefault(name, []).append({'module': module, 'source': path, 'blob': tree[path]['blob'],
                     'recipe_and_local_defines': [d for d in defs if d.split()[0] == name],
                     'source_definitions': defaults,

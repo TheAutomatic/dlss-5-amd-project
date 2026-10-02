@@ -1,8 +1,8 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `c809efb0ea2960f148624730898da61b8fb55a45` (synced 2026-10-01)
-- **0.37** dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin: 0.36 FMA/fusion stack plus ViT attention macros (`HIP_VIT_ATTN_NATIVE_HALF`/`PROB_PAIR`/`TRANSPOSED_AV`, `HIP_VIT_QKV_W5`) and the new `swin-persistent` module (`HIP_SWIN_PERSISTENT_KERNELS`). Contract is 31 per arch / 62 dual. SWIN_RUN is product-wired (default on; `DLSS5_HIP_SWIN_RUN` overrides; missing hsaco forces off). C128/C64 persistent and hand-off polling stay off (upstream negative). FMA remains an intentional numerical baseline change (328e1081). Direct I/O and FRAME_STATS still deferred.
+- Commit: `82ce821f0ea1a12925d04c353cb2d1b9ee006c11` (synced 2026-10-02)
+- **0.39 + six commits**: dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin, with the two maintained LINE_STORES overrides and no RowOpts/ExtraOpts. Full upstream review, actual per-module selections, product preset differences, validation and explicit deferrals are recorded in [the 0.39 consumer review](../../docs/lmxxf-039-consumer-review.md). Pinned bridge and product recording/timing contracts remain; input polling, direct shared input and IO fusion are not enabled. Product bounded timing is independent of upstream FRAME_STATS. This source/module review is not release or game acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 

@@ -436,6 +436,34 @@ class AuditTests(Fixture):
         self.assertEqual(by_module['multihead-fast-padded-wave'], [])
         self.assertEqual(by_module['multihead-fast-padded-wave-packed'], ['HIP_FFN_LINE_STORES 1'])
 
+    def test_source_only_flags_and_non_hip_gate_families_are_reviewed(self):
+        # Neither switch occurs in a deployment profile or native_hip_network.h.
+        write(self.up / 'src/extra_codec.h',
+              'auto io = getenv("DLSS5_IO_FUSE");\n')
+        write(self.up / 'Development/HIP/new_bridge.h',
+              'auto poll = getenv("DLSS5_HIP_INPUT_POLL");\n')
+        path = self.up / 'hip/active.hip'
+        write(path, path.read_text(encoding='utf-8') +
+              '\n#define W2_QKV_FUSE 0\n#if W2_QKV_FUSE || FUTURE_GATE\n#endif\n'
+              '#define C512_MODE 2\n// #define COMMENT_ONLY 1\n'
+              '#define EMPTY_GATE\n#ifdef EMPTY_GATE\n#endif\n'
+              '#define HELPER(x) ((x) + 1)\n')
+        write(self.up / 'Development/HIP/experiments/new/build.ps1',
+              "$defs = @('W2_QKV_FUSE 3', 'C512_MODE 2')\n")
+        commit(self.up)
+        items = {item['id']: item for item in self.collect()['items']}
+        for key, path in [('DLSS5_IO_FUSE', 'src/extra_codec.h'),
+                          ('DLSS5_HIP_INPUT_POLL', 'Development/HIP/new_bridge.h')]:
+            evidence = items['flag:' + key]['evidence']
+            self.assertEqual(evidence['profiles'], [])
+            self.assertIn(path, evidence['consumer_blobs'])
+        for key in ('W2_QKV_FUSE', 'C512_MODE', 'FUTURE_GATE'):
+            self.assertIn('kernel:' + key, items)
+        self.assertNotIn('kernel:COMMENT_ONLY', items)
+        self.assertEqual(items['kernel:EMPTY_GATE']['evidence']['per_module'][0]['source_definitions'], [''])
+        self.assertEqual(items['kernel:HELPER']['evidence']['per_module'][0]['source_definitions'], ['(x) ((x) + 1)'])
+        self.assertTrue(items['kernel:W2_QKV_FUSE']['evidence']['experiment_evidence'])
+
     def test_missing_profile_and_recipe_source_are_errors(self):
         (self.up / audit.PROFILES[0]).unlink()
         commit(self.up)

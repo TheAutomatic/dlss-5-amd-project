@@ -41,7 +41,7 @@
 
 `patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑；补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询和分配失败清理。
 
-测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入来自 `82ce821f0ea1a12925d04c353cb2d1b9ee006c11`（当前待审阅快照，完成 pin 仍以 UPSTREAM.md 为准），pinned bridge 来自 `54e14de503431cd4536f8a7151b022af232178a9`；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
+测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入来自 `82ce821f0ea1a12925d04c353cb2d1b9ee006c11`（0.39 已审阅快照，完成 pin 以 UPSTREAM.md 为准），pinned bridge 来自 `54e14de503431cd4536f8a7151b022af232178a9`；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
 `manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
 
@@ -89,3 +89,5 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 `--report-only` 的成功仅表示证据收集成功。审计默认返回 0 表示当前审阅记录有效，3 表示待审阅，1 表示读取/解析错误；同步脚本将任何非零审计结果转换为失败。
 
 0.37 消费者复核、实际模块宏和验证范围见 [docs/lmxxf-037-consumer-review.md](../../docs/lmxxf-037-consumer-review.md)。不能只刷新 fingerprint 来接纳本地默认值变更。
+
+0.39 完整上游审阅、实际生成配方和保留项见 [docs/lmxxf-039-consumer-review.md](../../docs/lmxxf-039-consumer-review.md)。
