@@ -893,6 +893,18 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <None Include="Source.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="WriteNrProductVersion" BeforeTargets="PrepareForBuild">
+    <ReadLinesFromFile File="$(ProjectDir)..\..\VERSION">
+      <Output TaskParameter="Lines" ItemName="NrProductVersionLine" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <NrProductVersion>@(NrProductVersionLine)</NrProductVersion>
+    </PropertyGroup>
+    <Error Condition="'$(NrProductVersion)' == ''" Text="Repository VERSION must not be empty." />
+    <WriteLinesToFile File="$(ProjectDir)resource_build_product.h"
+                      Lines="#define NR_PRODUCT_VERSION &quot;$(NrProductVersion)&quot;"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+  </Target>
   <Target Name="WriteAmdGraphicsSourceIdentity" BeforeTargets="ClCompile">
     <Exec WorkingDirectory="$(ProjectDir)" Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\tools\build\write-amd-graphics-source-id.ps1&quot; -ProjectDirectory &quot;$(ProjectDir).&quot; -OutputPath &quot;$(IntDir)amd_graphics_source_id.h&quot;" />
   </Target>
