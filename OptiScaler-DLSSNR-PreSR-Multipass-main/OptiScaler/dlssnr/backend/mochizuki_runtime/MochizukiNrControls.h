@@ -1,17 +1,10 @@
 #pragma once
 
-/* MochizukiNrRuntime.dll's own C exports, beside LmxxfNrGetApi (LmxxfNrApi.h, which this header leaves untouched, so
- * the lmxxf runtime and hosts that know only that ABI are unaffected). A host resolves each export with
- * GetProcAddress; a missing one means an older runtime.
+/* MochizukiNrRuntime.dll's controls beside MochizukiNrGetApi. LmxxfNrApi.h is shared for the recording
+ * lifecycle types; the two runtimes are loaded independently. Every export is required by the host.
  *
- * Versioning: every struct starts with struct_size, which the caller sets to the size of the struct it knows. A
- * reader uses a field only when struct_size >= offsetof(field) + sizeof(field), so a shorter struct (an older caller)
- * leaves the later fields at their defaults and a longer one (a newer caller) is accepted. Fields are only ever
- * appended, and no struct has implicit padding before its last field (explicit reserved fields fill any gap). A
- * function that fills a struct writes the whole fields that fit into the caller's struct_size, leaves anything past
- * them untouched (zero-initialise it) and sets struct_size to the end of the last field it wrote, never to its own
- * sizeof: tail padding (MochizukiNrInfo has 4 bytes after network_dispatches) is where the next field goes, so a
- * newer host must not take it for a field an older runtime wrote.
+ * Host and runtime ship together. Callers zero-initialise structs and set struct_size to sizeof the current
+ * definition. A different size is rejected; update the complete package on an ABI mismatch.
  *
  * LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK, for this runtime: when the network fails on a frame, the frame's
  * original colour is passed through to Super Resolution; the output is never zeros. */
@@ -102,7 +95,7 @@ extern "C"
         float white_point; /* the white point the last frame used, the game's exposure applied (linear colour) */
         float gpu_ms_last, gpu_ms_mean, gpu_ms_max;
         uint64_t gpu_samples, gpu_tick;
-        /* The fields end at byte 332 (struct_size as the runtime fills it); sizeof is 336 (tail padding). */
+        /* struct_size includes the current definition's tail padding. */
     } MochizukiNrInfo;
 
     /* All but GetFeatures return an LmxxfNrStatus. SetControls takes effect on the next PrepareFrame; call it on the

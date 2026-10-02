@@ -89,7 +89,8 @@ artifact hashes. The packager runs this same check.
 `tests/mochizuki/run.cmd abi` validates the current package contract without a GPU.
 `tests/mochizuki/run.cmd gpu` requires an AMD GPU and the user's extracted model
 under `exports/mochizuki-runtime/dlssnr-amd/`. It exercises output, replay, cross-queue
-ordering, geometry retention, delayed collection and cancellation. Both are wired
+ordering, geometry retention, delayed collection, cancellation, execution-order
+history/reset, RGB9E5/sRGB outputs and changing DRS subrects. Both are wired
 into the corresponding `tests/run-all.cmd` tiers. Local and Actions use the same
 builder and ABI test; a local package is still pending actual game acceptance.
 

@@ -584,17 +584,23 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (!f.motionWidth) f.motionWidth = static_cast<UINT>(f.motion->GetDesc().Width);
         if (!f.motionHeight) f.motionHeight = f.motion->GetDesc().Height;
     }
-    // Let SR finish its reconfiguration before rebuilding the private HIP model.
+    // Mochizuki's DRS buckets must see every render subrect, including changing
+    // extents. Its runtime owns rebuilds and history invalidation for these.
+    const bool runtimeDrs = active == DlssNr::Backend::Kind::Mochizuki &&
+        Config::Instance()->MochizukiDynamicResolution.value_or_default() != 0;
+    // Otherwise let SR finish reconfiguration before rebuilding the model.
     // Do not retain or replay the old image while input sizes are settling.
     static UINT settlingWidth=0, settlingHeight=0;
     static float settlingScale=1.f;
     static ULONGLONG settlingSince=0;
-    const float sessionScale=Config::Instance()->AmdNrScale.value_or_default();
+    const float sessionScale = active == DlssNr::Backend::Kind::Mochizuki ?
+        Config::Instance()->MochizukiModelScale.value_or_default() :
+        Config::Instance()->AmdNrScale.value_or_default();
     const float requestedScale=sessionScale;
     const auto now=GetTickCount64();
     const bool firstProbe = (settlingWidth == 0 && settlingHeight == 0);
     if(settlingWidth!=f.width || settlingHeight!=f.height || settlingScale!=requestedScale) {
-        if (!firstProbe)
+        if (!firstProbe && !runtimeDrs)
         {
             // Real change after we already had a size: keep the settle window.
             b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
@@ -615,6 +621,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         // Leave settlingSince at 0 so we do not skip the first stable frames.
         settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;
     }
+    if (runtimeDrs) settlingSince = 0;
     if(settlingSince != 0 && now-settlingSince<300) {
         // Once per settle window, not every 250 ms: Message() also lands in amd_bridge.log.
         static ULONGLONG loggedWindow = 0;
@@ -630,8 +637,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     const FrameIdentity current { f.colour, f.motion, f.depth, f.width, f.height };
     // Resource addresses rotate in Unreal's frame buffers. Only an extent
     // change requires warm-up; pointer equality can suppress every frame.
-    const bool sameFrame = current.width == lastFrame.width &&
-                           current.height == lastFrame.height;
+    const bool sameFrame = runtimeDrs || (current.width == lastFrame.width &&
+                                         current.height == lastFrame.height);
     if (!sameFrame)
     {
         lastFrame = current;
@@ -640,6 +647,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         Message("AMD pre-SR: warming up after an upscaler/resource change");
         return true;
     }
+    lastFrame = current;
+    if (runtimeDrs) stableFrames = 2;
     if (stableFrames < 2 && ++stableFrames < 2)
     {
         Message("AMD pre-SR: warming up after an upscaler/resource change");

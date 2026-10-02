@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 #include <cmath>
+#include <cstring>
+#include <memory>
 #include "dlssnr/backend/mochizuki_runtime/MochizukiNrApi.h"
 using Microsoft::WRL::ComPtr;
 void Require(bool yes, const char* text) { if (!yes) throw std::runtime_error(text); }
@@ -44,20 +46,28 @@ struct Frame {
     ComPtr<ID3D12Resource> color, upload, readback;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint {};
     UINT width, height;
-    Frame(ID3D12Device* d, UINT w, UINT h):width(w),height(h) {
+    DXGI_FORMAT format;
+    Frame(ID3D12Device* d, UINT w, UINT h, DXGI_FORMAT fmt=DXGI_FORMAT_R16G16B16A16_FLOAT):width(w),height(h),format(fmt) {
         D3D12_HEAP_PROPERTIES hp {};hp.Type=D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC desc {};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=w;desc.Height=h;
-        desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+        desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=fmt;
         Hr(d->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&color)));
         UINT64 bytes; d->GetCopyableFootprints(&desc,0,1,0,&footprint,nullptr,nullptr,&bytes);
         upload=Buffer(d,bytes,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
         readback=Buffer(d,bytes,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);
         void* data;Hr(upload->Map(0,nullptr,&data));
         for(UINT y=0;y<h;y++)for(UINT x=0;x<w;x++) {
-            auto* p=reinterpret_cast<uint16_t*>(static_cast<char*>(data)+footprint.Footprint.RowPitch*y)+x*4;
             float base=.05f+.7f*float(x)/w + ((x/8+y/8)%2)*.08f;
-            for(int k=0;k<3;k++)p[k]=DirectX::PackedVector::XMConvertFloatToHalf(base*(1.f-.2f*k));
-            p[3]=0x3c00;
+            auto* row=static_cast<char*>(data)+footprint.Footprint.RowPitch*y;
+            if(fmt==DXGI_FORMAT_R9G9B9E5_SHAREDEXP)
+                reinterpret_cast<DirectX::PackedVector::XMFLOAT3SE*>(row)[x]=DirectX::PackedVector::XMFLOAT3SE(base,base*.8f,base*.6f);
+            else if(fmt==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
+                auto* p=reinterpret_cast<uint8_t*>(row)+x*4;
+                for(int k=0;k<3;k++)p[k]=uint8_t(std::round(base*(1.f-.2f*k)*255));p[3]=255;
+            } else {
+                auto* p=reinterpret_cast<uint16_t*>(row)+x*4;
+                for(int k=0;k<3;k++)p[k]=DirectX::PackedVector::XMConvertFloatToHalf(base*(1.f-.2f*k));p[3]=0x3c00;
+            }
         }
         upload->Unmap(0,nullptr);
     }
@@ -74,18 +84,23 @@ struct Frame {
         c->CopyTextureRegion(&a,0,0,0,&b,nullptr);
         Barrier(c,output,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
-    void Check() {
+    void Check(UINT validWidth=0, UINT validHeight=0) {
+        if(!validWidth)validWidth=width;if(!validHeight)validHeight=height;
         void* data;Hr(readback->Map(0,nullptr,&data));double sum=0,diff=0;
-        for(UINT y=0;y<height;y++)for(UINT x=0;x<width;x++) {
-            auto* p=reinterpret_cast<uint16_t*>(static_cast<char*>(data)+footprint.Footprint.RowPitch*y)+x*4;
-            float v=DirectX::PackedVector::XMConvertHalfToFloat(p[0]);
+        for(UINT y=0;y<validHeight;y++)for(UINT x=0;x<validWidth;x++) {
+            auto* row=static_cast<char*>(data)+footprint.Footprint.RowPitch*y;
+            float v;
+            if(format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP)
+                v=DirectX::XMVectorGetX(DirectX::PackedVector::XMLoadFloat3SE(reinterpret_cast<DirectX::PackedVector::XMFLOAT3SE*>(row)+x));
+            else if(format==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) v=reinterpret_cast<uint8_t*>(row)[x*4]/255.f;
+            else v=DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<uint16_t*>(row)[x*4]);
             Require(std::isfinite(v)&&std::abs(v)<100,"non-finite or excessive output");sum+=v;
             float expected=.05f+.7f*float(x)/width+((x/8+y/8)%2)*.08f;diff+=std::abs(v-expected);
         }
         readback->Unmap(0,nullptr);
-        printf("OUTPUT %ux%u mean=%f mean_abs_correction=%f\n",width,height,sum/(width*height),diff/(width*height));
-        Require(sum/(width*height)>.01,"black output");
-        Require(diff/(width*height)>.0001,"network made no observable correction");
+        printf("OUTPUT %ux%u format=%u mean=%f mean_abs_correction=%f\n",validWidth,validHeight,unsigned(format),sum/(validWidth*validHeight),diff/(validWidth*validHeight));
+        Require(sum/(validWidth*validHeight)>.01,"black output");
+        Require(diff/(validWidth*validHeight)>.0001,"network made no observable correction");
     }
 };
 int wmain(int argc,wchar_t**argv) try {
@@ -123,11 +138,11 @@ int wmain(int argc,wchar_t**argv) try {
     LmxxfNrCreateInfo ci {sizeof ci,device.Get(),q[0].Get(),argv[2],LMXXF_NR_CREATE_FLAG_RECORDING_LEASES};
     Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
     Frame frame(device.Get(),256,256);List upload(device.Get());frame.Upload(upload.cmd.Get());Hr(upload.cmd->Close());Submit(q[0].Get(),upload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
-    auto make=[&](Frame& f) {
-        MochizukiNrFrameInfo info {};info.struct_size=sizeof info;info.color=f.color.Get();info.color_width=f.width;info.color_height=f.height;
+    auto make=[&](Frame& f,UINT validWidth=0) {
+        MochizukiNrFrameInfo info {};info.struct_size=sizeof info;info.color=f.color.Get();info.color_width=validWidth?validWidth:f.width;info.color_height=f.height;
         info.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;info.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;info.transfer_strength=info.color_strength=info.model_scale=1;info.passes=1;
         LmxxfNrJob job {sizeof job};const auto deadline=GetTickCount64()+300000;
-        for(;;) {int rc=prepare(context,&info,&job);if(!rc)break; if(GetTickCount64()>deadline)Rc(rc);Sleep(100);}
+        for(;;) {int rc=prepare(context,&info,&job);if(!rc)break; if(rc!=LMXXF_NR_UNAVAILABLE||GetTickCount64()>deadline)Rc(rc);Sleep(100);}
         return job;
     };
     auto job=make(frame);List inputs(device.Get()),outputs(device.Get());Rc(api.RecordInputs(context,job.handle,inputs.cmd.Get()));Rc(api.RecordOutputs(context,job.handle,outputs.cmd.Get()));frame.Read(outputs.cmd.Get(),static_cast<ID3D12Resource*>(job.private_output));Hr(inputs.cmd->Close());Hr(outputs.cmd->Close());
@@ -165,6 +180,75 @@ int wmain(int argc,wchar_t**argv) try {
     Rc(api.EndRecordingExecution(context,job.handle,q[0].Get(),3,tail.Get(),value,hr));Rc(api.InvalidateRecording(context,job.handle));
     Require(api.CollectRecording(context,job.handle)==LMXXF_NR_UNAVAILABLE,"pending recording collected early");
     Hr(gate->Signal(1));Wait(tail.Get(),value);Rc(api.CollectRecording(context,job.handle));Rc(api.Destroy(context));
+    // SR consumes a copied texture. RGB9E5 and sRGB must not require UAV support.
+    for(auto format:{DXGI_FORMAT_R9G9B9E5_SHAREDEXP,DXGI_FORMAT_R8G8B8A8_UNORM_SRGB}) {
+        context=nullptr;Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
+        Frame packed(device.Get(),256,256,format);List up(device.Get());packed.Upload(up.cmd.Get());Hr(up.cmd->Close());
+        Submit(q[0].Get(),up);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+        auto packedJob=make(packed);List in(device.Get()),out(device.Get());
+        Rc(api.RecordInputs(context,packedJob.handle,in.cmd.Get()));Rc(api.RecordOutputs(context,packedJob.handle,out.cmd.Get()));
+        packed.Read(out.cmd.Get(),static_cast<ID3D12Resource*>(packedJob.private_output));Hr(in.cmd->Close());Hr(out.cmd->Close());
+        Rc(api.BeginRecordingExecution(context,packedJob.handle,q[0].Get()));Submit(q[0].Get(),in);
+        Rc(api.EnqueueHip(context,packedJob.handle,q[0].Get()));Submit(q[0].Get(),out);auto signal=q[0]->Signal(tail.Get(),++value);
+        Rc(api.EndRecordingExecution(context,packedJob.handle,q[0].Get(),3,tail.Get(),value,signal));Wait(tail.Get(),value);
+        packed.Check();Rc(api.InvalidateRecording(context,packedJob.handle));Rc(api.CollectRecording(context,packedJob.handle));Rc(api.Destroy(context));
+    }
+    // The same allocation may change its render subrect every frame. The DRS
+    // bucket keeps serving it without waiting for a stable input extent.
+    context=nullptr;Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));
+    controls.drs_mode=1;Rc(set(context,&controls));
+    for(UINT width:{304u,288u,320u,304u}) {
+        auto drsJob=make(resized,width);List in(device.Get()),out(device.Get());
+        Rc(api.RecordInputs(context,drsJob.handle,in.cmd.Get()));Rc(api.RecordOutputs(context,drsJob.handle,out.cmd.Get()));
+        resized.Read(out.cmd.Get(),static_cast<ID3D12Resource*>(drsJob.private_output));Hr(in.cmd->Close());Hr(out.cmd->Close());
+        Rc(api.BeginRecordingExecution(context,drsJob.handle,q[0].Get()));Submit(q[0].Get(),in);
+        Rc(api.EnqueueHip(context,drsJob.handle,q[0].Get()));Submit(q[0].Get(),out);auto signal=q[0]->Signal(tail.Get(),++value);
+        Rc(api.EndRecordingExecution(context,drsJob.handle,q[0].Get(),3,tail.Get(),value,signal));Wait(tail.Get(),value);
+        resized.Check(width);Rc(api.InvalidateRecording(context,drsJob.handle));Rc(api.CollectRecording(context,drsJob.handle));
+    }
+    Rc(api.Destroy(context));controls.drs_mode=0;
+    // Prepare order is not execution order. A discarded or late recording must
+    // not make history continuous, and ResetHistory also applies to closed lists.
+    context=nullptr;Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
+    Frame motion(device.Get(),256,256);void* motionData=nullptr;Hr(motion.upload->Map(0,nullptr,&motionData));
+    std::memset(motionData,0,size_t(motion.footprint.Footprint.RowPitch)*motion.height);motion.upload->Unmap(0,nullptr);
+    List motionUpload(device.Get());motion.Upload(motionUpload.cmd.Get());Hr(motionUpload.cmd->Close());
+    Submit(q[0].Get(),motionUpload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+    struct TemporalRecording {
+        LmxxfNrJob job {sizeof job};List input,output;
+        TemporalRecording(ID3D12Device* d):input(d),output(d) {}
+    };
+    auto temporal=[&](uint64_t id) {
+        auto r=std::make_unique<TemporalRecording>(device.Get());
+        MochizukiNrFrameInfo f {};f.struct_size=sizeof f;f.frame_id=id;
+        f.color=frame.color.Get();f.color_width=frame.width;f.color_height=frame.height;
+        f.color_state=f.motion_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        f.motion=motion.color.Get();f.motion_width=motion.width;f.motion_height=motion.height;
+        f.motion_scale_x=f.motion_scale_y=1;f.flags=LMXXF_NR_FRAME_FLAG_STRENGTH|MOCHIZUKI_NR_FRAME_FLAG_TEMPORAL;
+        f.transfer_strength=f.color_strength=f.model_scale=1;f.passes=1;
+        const auto deadline=GetTickCount64()+300000;
+        for(;;) {int rc=prepare(context,&f,&r->job);if(!rc)break;if(GetTickCount64()>deadline)Rc(rc);Sleep(10);}
+        Rc(api.RecordInputs(context,r->job.handle,r->input.cmd.Get()));Rc(api.RecordOutputs(context,r->job.handle,r->output.cmd.Get()));
+        Hr(r->input.cmd->Close());Hr(r->output.cmd->Close());return r;
+    };
+    uint32_t temporalFrames=0,consumedFrames=0;
+    auto executeTemporal=[&](TemporalRecording& r,bool consume) {
+        auto token=r.job.handle;Rc(api.BeginRecordingExecution(context,token,q[0].Get()));Submit(q[0].Get(),r.input);
+        Rc(api.EnqueueHip(context,token,q[0].Get()));Submit(q[0].Get(),r.output);auto signal=q[0]->Signal(tail.Get(),++value);
+        Rc(api.EndRecordingExecution(context,token,q[0].Get(),3,tail.Get(),value,signal));Wait(tail.Get(),value);
+        ++temporalFrames;consumedFrames+=consume;MochizukiNrInfo info {sizeof info};Rc(getInfo(context,&info));
+        printf("HISTORY frame=%u consumed_pct=%u expected=%u\n",temporalFrames,info.history_consumed_pct,consumedFrames*100/temporalFrames);
+        Require(info.history_consumed_pct==consumedFrames*100/temporalFrames,"history did not follow execution/reset order");
+    };
+    auto releaseTemporal=[&](TemporalRecording& r) {Rc(api.InvalidateRecording(context,r.job.handle));Rc(api.CollectRecording(context,r.job.handle));};
+    auto t1=temporal(1);executeTemporal(*t1,false);releaseTemporal(*t1);
+    auto t2=temporal(2);executeTemporal(*t2,true);releaseTemporal(*t2);
+    auto discarded=temporal(3);auto t4=temporal(4);releaseTemporal(*discarded);executeTemporal(*t4,false);releaseTemporal(*t4);
+    auto t5=temporal(5);Rc(api.ResetHistory(context));executeTemporal(*t5,false);releaseTemporal(*t5);
+    auto t6=temporal(6);auto t7=temporal(7);executeTemporal(*t7,false);executeTemporal(*t6,false);releaseTemporal(*t7);releaseTemporal(*t6);
+    auto t8=temporal(8);executeTemporal(*t8,false);releaseTemporal(*t8);
+    auto t9=temporal(9);executeTemporal(*t9,true);executeTemporal(*t9,false);releaseTemporal(*t9);
+    Rc(api.Destroy(context));
     // Cancellation must not return an unloadable DLL while its builder still runs.
     context=nullptr;Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));
     MochizukiNrFrameInfo cold {};cold.struct_size=sizeof cold;cold.color=resized.color.Get();cold.color_width=320;cold.color_height=256;
@@ -177,5 +261,5 @@ int wmain(int argc,wchar_t**argv) try {
     }
     if(coldRc==LMXXF_NR_OK) {Rc(api.InvalidateRecording(context,coldJob.handle));Rc(api.CollectRecording(context,coldJob.handle));}
     Rc(api.Destroy(context));
-    FreeLibrary(dll);puts("MOCHIZUKI_GPU_OK replay=14 queues=2 resize=passed delayed_collection=passed build_cancel=passed");return 0;
+    FreeLibrary(dll);puts("MOCHIZUKI_GPU_OK replay=14 queues=2 resize=passed delayed_collection=passed build_cancel=passed history_order=passed formats=passed drs=passed");return 0;
 } catch(const std::exception& e) {fprintf(stderr,"FAIL %s\n",e.what());return 1;}

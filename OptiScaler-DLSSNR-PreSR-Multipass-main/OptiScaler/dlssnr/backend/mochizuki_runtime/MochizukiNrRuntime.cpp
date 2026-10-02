@@ -1296,7 +1296,8 @@ struct NetworkKey
     bool operator==(const NetworkKey&) const = default;
 };
 
-// Super Resolution's texture for a frame whose colour is `colour`: its extent and format, one mip, UAV.
+// Super Resolution reads this texture after CopyTextureRegion fills it. It does
+// not need UAV access; avoid imposing typed UAV support on RGB9E5/sRGB inputs.
 D3D12_RESOURCE_DESC ResultDesc(ID3D12Resource* colour)
 {
     D3D12_RESOURCE_DESC td = colour->GetDesc();
@@ -1304,7 +1305,7 @@ D3D12_RESOURCE_DESC ResultDesc(ID3D12Resource* colour)
     td.DepthOrArraySize = 1;
     td.SampleDesc = { 1, 0 };
     td.Alignment = 0;
-    td.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    td.Flags = D3D12_RESOURCE_FLAG_NONE;
     return td;
 }
 
@@ -1450,6 +1451,7 @@ template <class Key> struct Hold
 struct Recording
 {
     Job job;
+    uint64_t frameId = 0;
     FrameBuffers buffers;
     std::shared_ptr<nr::Runtime> network;
     NetworkKey net;
@@ -1469,6 +1471,12 @@ struct Session
     uint64_t previousTailValue = 0;
     void* executing = nullptr;
     bool uncertainExecution = false;
+    // History belongs to actual execution order, not PrepareFrame order.
+    std::weak_ptr<nr::Runtime> historyNetwork;
+    uint64_t historyFrame = 0, historyTick = 0;
+    UINT historyWidth = 0, historyHeight = 0;
+    int historyPasses = 0;
+    bool historyMotion = false;
     ID3D12Device* device {};
     ID3D12CommandQueue* queue {};
     Vulkan vk;
@@ -3850,7 +3858,9 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
                         next.motionScaleY *= float(h) / float(g.height);
                     }
                 }
-                next.reset = s->resetPending.exchange(false) || info->reset || !continuous;
+                // Consume the session reset at execution: this recording may be
+                // discarded, reordered, or already closed when ResetHistory runs.
+                next.reset = info->reset || !continuous;
             }
             else
                 s->resetPending = true; // record() neither updates the history nor consumes a reset

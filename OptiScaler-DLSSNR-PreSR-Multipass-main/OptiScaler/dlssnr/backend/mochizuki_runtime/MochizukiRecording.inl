@@ -50,6 +50,7 @@ int32_t PrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfNrJob
     return Guard(s, [&] {
         auto r = std::make_unique<Recording>();
         r->job = s->job;
+        r->frameId = info->frame_id;
         r->colour = s->job.colour;
         r->motion = s->job.motion;
         r->network = s->runtime;
@@ -116,7 +117,31 @@ int32_t EnqueueHip(void* context, void* token, void* queue)
     auto* r = FindRecording(s, token);
     if (!r || s->executing != token || r->executingQueue.Get() != queue)
         return Fail(LMXXF_NR_INVALID_ARGUMENT, "Enqueue: Begin on this queue is required");
-    return WithRecording(context, token, [queue](Session* s, void* j) { return CoreEnqueueHip(s, j, queue); });
+    if (r->job.enqueued) return LMXXF_NR_OK;
+    const auto now = GetTickCount64();
+    const bool continuous = s->historyMotion && s->historyNetwork.lock() == r->network &&
+        r->frameId == s->historyFrame + 1 && now - s->historyTick < 250 &&
+        r->job.width == s->historyWidth && r->job.height == s->historyHeight &&
+        r->job.controls.passes == s->historyPasses;
+    const bool reset = s->resetPending.exchange(false);
+    r->job.reset = r->job.reset || reset || !continuous;
+    const int32_t rc = WithRecording(context, token, [queue](Session* s, void* j) { return CoreEnqueueHip(s, j, queue); });
+    if (rc == LMXXF_NR_OK)
+    {
+        s->historyNetwork = r->network;
+        s->historyFrame = r->frameId;
+        s->historyTick = now;
+        s->historyWidth = r->job.width;
+        s->historyHeight = r->job.height;
+        s->historyPasses = r->job.controls.passes;
+        s->historyMotion = r->job.motion != nullptr;
+    }
+    else
+    {
+        s->historyNetwork.reset();
+        s->resetPending = true;
+    }
+    return rc;
 }
 
 int32_t EndRecordingExecution(void* context, void* token, void* queue, uint32_t submitted,

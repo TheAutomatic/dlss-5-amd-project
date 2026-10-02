@@ -59,6 +59,9 @@ struct MochizukiBackend::Impl
                 !api.BeginRecordingExecution || !api.EndRecordingExecution || !api.InvalidateRecording ||
                 !api.CollectRecording || !api.GetStatus || !api.GetLastError || !api.ResetHistory)
             {
+                // A later NR off/on clears failed. Do not let it reuse an
+                // unvalidated function table or missing required exports.
+                FreeLibrary(module); module = nullptr; api = {};
                 failed = true;
                 Status("mochizuki: host/runtime mismatch; overwrite with the complete current package");
                 return false;
@@ -118,6 +121,9 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
 {
     std::lock_guard lifetime(Submission::RecordingMutex());
     LmxxfRecording::Collect();
+    // Include frames rejected before PrepareFrame (for example an active render
+    // pass), so the next accepted frame cannot consume history across that gap.
+    const auto frameId = ++p->frameId;
     if (!cmd || !input.colour) return nullptr;
     Microsoft::WRL::ComPtr<Submission::ILogicalCommandList> logical;
     Microsoft::WRL::ComPtr<Submission::IRecordingResources> resources;
@@ -139,7 +145,7 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
 #undef MZ_U
 #undef MZ_B
     frame.struct_size = sizeof frame;
-    frame.frame_id = ++p->frameId;
+    frame.frame_id = frameId;
     frame.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | (temporal ? MOCHIZUKI_NR_FRAME_FLAG_TEMPORAL : 0);
     const auto desc = input.colour->GetDesc();
     frame.color = input.colour;
