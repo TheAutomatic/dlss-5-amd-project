@@ -236,3 +236,9 @@
 - **决定**：发行包和仓库都不含 NVIDIA DLL、daniel 的 runtime / weights / setup；这些由用户自备。`dist/` 只放发版产物并被忽略；每次发版重新打包，不复用 `dist/` 里已有的 zip 或 staging。
 - **原因**：保持仓库与发行物版权干净；作者二进制曾进过历史，已通过改写与重建清除。
 - **落在**：`tools/release/PACKAGE_RELEASE.ps1` 与 `.github/workflows/release.yml` 两道禁入绊线；`.gitignore` 的 `dist/`。
+
+## 2026-10-02：整包交付与按风险验证
+
+宿主和 runtime 由安装器整包覆盖，移除旧 ABI/FrameInfo 尺寸及宿主降级重试；不为局部替换维持兼容。
+日常以最终 diff 审查为主，高风险行为做直接相关专项，完整测试集中在发版前且不重复执行。
+执行位置：AGENTS.md、docs/release.md、docs/architecture/lmxxf-c-abi.md。

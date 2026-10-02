@@ -544,9 +544,6 @@ bool Config::Reload(std::filesystem::path iniPath)
                 CfgKey::PutEnvAlias(CfgKey::VitAdaptive, LmxxfVitAdaptive.value_or_default());
                 CfgKey::PutEnvAlias(CfgKey::VitByteStream, LmxxfVitByteStream.value_or_default());
                 CfgKey::PutEnvString(CfgKey::VitStream, std::to_string(LmxxfVitStream.value_or_default()).c_str());
-                const bool hot = readUnifiedBoolDefault(CfgKey::VitReuseHotkey, true);
-                LmxxfVitReuseHotkey.set_from_config(hot);
-                CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
             }
             {
                 auto period = readInt(CfgKey::kSection, CfgKey::VitReusePeriod);
@@ -1596,7 +1593,6 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::VitReuseGlobal, GetFloatValue(Instance()->LmxxfVitReuseGlobal.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReuseLocal, GetFloatValue(Instance()->LmxxfVitReuseLocal.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReuseImage, GetFloatValue(Instance()->LmxxfVitReuseImage.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::VitReuseHotkey, GetBoolValue(Instance()->LmxxfVitReuseHotkey.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfPaperWhite",
                  GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAutoExposure",

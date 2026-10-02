@@ -13,14 +13,7 @@ extern "C" {
 #endif
 
 #define LMXXF_NR_ABI_VERSION 2u
-#define LMXXF_NR_API_V1_SIZE 136u
-/* sizeof() of an ABI v1 LmxxfNrFrameInfo: it stopped at model_scale, before the exposure
- * fields. A host talking to a runtime that predates them sends this as struct_size. */
-#define LMXXF_NR_FRAME_INFO_V1_SIZE 80u
-/* sizeof of the frame info that grew through the exposure fields and stopped there.
- * The 4 bytes after exposure_scale were tail padding. paper_white starts at this size,
- * so a host that still sends 104 does not supply it and the runtime uses 1. */
-#define LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE 104u
+
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
  * On recovery, EnqueueHip returns OK only after the private neural output was fully zeroed;
@@ -105,15 +98,12 @@ typedef struct LmxxfNrFrameInfo
     uint32_t color_height;
     void *color; /* ID3D12Resource*; required for RecordInputs */
     uint32_t color_state; /* D3D12_RESOURCE_STATES at RecordInputs */
-    uint32_t flags; /* LMXXF_NR_FRAME_FLAG_* (0 in legacy ABI v1) */
+    uint32_t flags; /* LMXXF_NR_FRAME_FLAG_* */
     float transfer_strength; /* Detail strength: 0..3, default 1. Above 1 extrapolates past the network result. */
     float color_strength;    /* Colour strength: 0..3, default 1. 0 keeps hue. Above 1 extrapolates. */
     uint32_t debug_view;     /* 0=normal, 1=proxy, 2=neural solo, 3=diff 20x, 4=tint */
     float model_scale;       /* 0.25..1.0, default 1.0 */
-    /* Optional exposure (ABI growth; LMXXF_NR_ABI_VERSION is unchanged because the function
-     * table is not). struct_size negotiates this: a host whose struct_size stops before these
-     * fields simply does not supply them, and the runtime falls back to no exposure and the
-     * scalars below at their defaults. */
+    /* Optional texture; all fields belong to the current package ABI. */
     void *exposure;    /* ID3D12Resource* 1x1 R16_FLOAT/R32_FLOAT, shader-readable; NULL = none */
     uint32_t exposure_state; /* D3D12_RESOURCE_STATES of exposure at RecordInputs */
     float pre_exposure;   /* game pre-exposure; finite and > 0, default 1 */
@@ -121,7 +111,7 @@ typedef struct LmxxfNrFrameInfo
     /* Occupies the tail padding of the 104-byte exposure struct. Leave 0. */
     uint32_t reserved_after_exposure;
     /* Codec paper white passed to encode and decode Record. Finite and in (0, 64], default 1.
-     * Not the HDR Paper White anchor. Absent when struct_size stops at EXPOSURE_SIZE. */
+     * Not the HDR Paper White anchor. Required in the current package ABI. */
     float paper_white;
 } LmxxfNrFrameInfo;
 
@@ -131,6 +121,16 @@ typedef struct LmxxfNrJob
     void *handle;
     void *private_output; /* ID3D12Resource* for SR; null until PrepareFrame succeeds */
 } LmxxfNrJob;
+
+/* Upstream fe4d1d73 timing payload. Non-blocking, latest completed frame.
+ * First call enables measurement; serialize with frame calls. */
+typedef struct LmxxfNrTimings
+{
+    uint32_t struct_size, valid;
+    float network_ms;
+    uint32_t reserved;
+    uint64_t frame_id;
+} LmxxfNrTimings;
 
 typedef struct LmxxfNrApi
 {
@@ -164,6 +164,9 @@ typedef struct LmxxfNrApi
     /* UNAVAILABLE means retain and retry; OK or DEVICE_LOST consumes the handle.
      * Unknown/stale handles return INVALID_ARGUMENT without dereferencing them. */
     int32_t (*CollectRecording)(void *context, void *job);
+    /* Product v2 has recording extensions at upstream's append offset.
+     * Timing is appended after them; never reinterpret the upstream v1 table. */
+    int32_t (*GetTimings)(void *context, LmxxfNrTimings *out);
 } LmxxfNrApi;
 
 #ifdef _WIN32

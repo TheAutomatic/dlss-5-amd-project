@@ -34,7 +34,7 @@
 
 namespace
 {
-static_assert(offsetof(LmxxfNrApi, BeginRecordingExecution) == LMXXF_NR_API_V1_SIZE, "ABI v1 prefix must not move");
+static_assert(sizeof(LmxxfNrApi) == 176, "package API layout");
 thread_local char g_lastError[256] = {};
 
 // CPU wall time, including waits inside the call; not GPU kernel timestamps.
@@ -66,14 +66,7 @@ struct CpuTiming
     };
 };
 
-// LMXXF_NR_FRAME_INFO_V1_SIZE is what an ABI v1 host sends as struct_size. It must equal the
-// offset where the exposure fields start, or an old host's frames are rejected outright.
-static_assert(offsetof(LmxxfNrFrameInfo, exposure) == LMXXF_NR_FRAME_INFO_V1_SIZE,
-              "LMXXF_NR_FRAME_INFO_V1_SIZE must match the ABI v1 LmxxfNrFrameInfo size");
-static_assert(offsetof(LmxxfNrFrameInfo, paper_white) == LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,
-              "paper_white must start where the exposure-sized frame info ended");
-static_assert(sizeof(LmxxfNrFrameInfo) > LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE,
-              "paper_white must grow the frame info past the exposure-sized host");
+static_assert(sizeof(LmxxfNrFrameInfo) == 112, "package frame layout");
 
 // Bound each D3D12 queue wait during EnqueueHip recovery to limit stalls.
 // Teardown keeps its 30 s wait; HIP stream synchronization is not bounded here.
@@ -1085,6 +1078,7 @@ struct Job
      * Session::meter.value, which the codecs bind in place of a game exposure. */
     bool autoExposure = false;
     bool codec_passthrough = false;
+    uint64_t frameId = 0;
 };
 
 struct RecordingChain
@@ -1098,7 +1092,7 @@ struct RecordingChain
 
 struct RecordingJob : Job
 {
-    uint64_t frameId = 0, executionId = 0;
+    uint64_t executionId = 0;
     std::shared_ptr<LmxxfRuntime::RecordingGpuTiming> gpuTiming;
     LmxxfRuntime::RecordingPins pins;
     std::shared_ptr<RecordingChain> chain;
@@ -1154,6 +1148,8 @@ struct Session
             recordingChain = std::move(chain);
         }
         bridge = next;
+        networkTimingSeen = false;
+        performance.ResetStage(NR_GPU_NETWORK);
     }
     void ReleaseBridge()
     {
@@ -1181,13 +1177,25 @@ struct Session
     DlssNr::PerformanceStore performance;
     LmxxfRuntime::RecordingGpuTimingPool gpuTimingPool;
     uint64_t timingExecution = 0;
+    bool networkTimingRequested = false, networkTimingSeen = false;
+    uint64_t networkTimingTag = 0;
     void CollectTiming(hip_reference::D3D12Bridge* source)
     {
-        if (!NR_NETWORK_TIMING_AVAILABLE || !source) return;
-        hip_reference::D3D12Bridge::ProductionTiming sample;
-        while (source->TakeProductionTiming(sample))
-            performance.Record(NR_GPU_NETWORK, sample.ms, GetTickCount64(), sample.frame, sample.execution, sample.epoch);
-        performance.Drop(source->TakeProductionTimingDrops());
+        if (!networkTimingRequested || !source || source != bridge) return;
+        const auto sample = source->PollNetworkTiming();
+        if (!sample.valid || (networkTimingSeen && sample.tag == networkTimingTag)) return;
+        const bool first = !networkTimingSeen;
+        networkTimingSeen = true;
+        networkTimingTag = sample.tag;
+        // Upstream reports a frequently short first sample after bridge creation.
+        if (!first) performance.Record(NR_GPU_NETWORK, sample.ms, GetTickCount64(), sample.tag);
+    }
+    void ConfigureNetworkTiming(hip_reference::D3D12Bridge* source, uint64_t frame)
+    {
+        source->SetTimingEpoch(performance.Epoch());
+        source->SetTimingTag(frame);
+        if (networkTimingRequested && !source->PdlEffective()) source->EnableNetworkTiming();
+        else source->PauseNetworkTiming();
     }
     // Hardware & module selection diagnostics
     std::string actualArch = "unknown";
@@ -1560,13 +1568,6 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
     });
 }
 
-int32_t QueryCapabilitiesV1(LmxxfNrCapabilities* out)
-{
-    const int32_t result = QueryCapabilities(out);
-    if (result == LMXXF_NR_OK) out->abi_version = 1;
-    return result;
-}
-
 int32_t Create(const LmxxfNrCreateInfo *info, void **context)
 {
     return Guard([&] {
@@ -1634,16 +1635,6 @@ int32_t Create(const LmxxfNrCreateInfo *info, void **context)
     });
 }
 
-int32_t CreateV1(const LmxxfNrCreateInfo* info, void** context)
-{
-    if (info && (info->flags & LMXXF_NR_CREATE_FLAG_RECORDING_LEASES))
-    {
-        if (context) *context = nullptr;
-        return Fail(LMXXF_NR_INVALID_ARGUMENT, "Create: recording leases require ABI v2");
-    }
-    return Create(info, context);
-}
-
 int32_t Destroy(void *context)
 {
     return Guard([&] {
@@ -1692,13 +1683,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if (session->performance.Enabled())
             for (auto& entry : session->recordings)
                 if (entry.second->gpuTiming) entry.second->gpuTiming->Collect(session->performance);
-        // Historical sizes: 64 ends at color_state/flags, V1 ends at model_scale, the exposure
-        // size ends at exposure_scale. A host whose struct_size stops earlier has no later fields.
-        const uint32_t legacySize = 64;
-        const uint32_t v1Size = LMXXF_NR_FRAME_INFO_V1_SIZE;
-        const uint32_t exposureSize = LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE;
-        if ((info->struct_size != sizeof(LmxxfNrFrameInfo) && info->struct_size != exposureSize &&
-             info->struct_size != v1Size && info->struct_size != legacySize) ||
+        if (info->struct_size != sizeof(LmxxfNrFrameInfo) ||
             job->struct_size != sizeof(LmxxfNrJob))
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
         job->handle = nullptr;
@@ -1738,8 +1723,6 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         float color_strength = 1.0f;
         uint32_t debug_view = 0;
         float model_scale = 1.0f;
-        // These three fields are inside the 80-byte v1 frame. Exposure starts at 104.
-        if (info->struct_size >= LMXXF_NR_FRAME_INFO_V1_SIZE)
         {
             if (info->flags & LMXXF_NR_FRAME_FLAG_STRENGTH)
             {
@@ -1896,14 +1879,12 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
         }
 
-        // Exposure is optional and sits after model_scale, so only a host whose struct_size
-        // covers it supplies one. The scalars are clamped rather than trusted: a NaN or an
+        // Exposure texture is optional. Clamp scalars: a NaN or an
         // infinity here would otherwise fail NativeCodecParameters::Valid() at Record time,
         // which throws and poisons the session.
         ID3D12Resource *frameExposure = nullptr;
         D3D12_RESOURCE_STATES frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         float framePreExposure = 1.0f, frameExposureScale = 1.0f;
-        if (info->struct_size >= LMXXF_NR_FRAME_INFO_EXPOSURE_SIZE)
         {
             frameExposure = static_cast<ID3D12Resource *>(info->exposure);
             frameExposureState = static_cast<D3D12_RESOURCE_STATES>(info->exposure_state);
@@ -1913,7 +1894,6 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 frameExposureScale = info->exposure_scale;
         }
         float framePaperWhite = 1.0f;
-        if (info->struct_size >= offsetof(LmxxfNrFrameInfo, paper_white) + sizeof(float))
         {
             framePaperWhite = info->paper_white;
             if (!(framePaperWhite > 0.0f && framePaperWhite <= 64.0f && framePaperWhite == framePaperWhite))
@@ -2244,6 +2224,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.sourceExposureState = frameExposureState;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
+        session->job.frameId = info->frame_id;
         session->job.seed = 1;
         session->job.state = LMXXF_NR_JOB_PREPARED;
         if (!session->decode)
@@ -2418,8 +2399,9 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             {
                 auto* bridge = lease->chain->bridge.get();
                 session->CollectTiming(bridge);
-                bridge->ConfigureProductionTiming(NR_NETWORK_TIMING_AVAILABLE && session->performance.Enabled(), lease->frameId,
+                bridge->ConfigureProductionTiming(false, lease->frameId,
                                                    lease->executionId, session->performance.Epoch());
+                session->ConfigureNetworkTiming(bridge, j->frameId);
                 bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
             }
             SetError("");
@@ -2475,6 +2457,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         QueueContract(session, targetQueue);
         try
         {
+            session->ConfigureNetworkTiming(session->bridge, j->frameId);
             session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
             if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                 j->state = LMXXF_NR_JOB_NR_COMPLETE;
@@ -2870,6 +2853,10 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         }
         if (session)
         {
+            const auto t = session->bridge ? session->bridge->PollNetworkTiming() : hip_reference::D3D12Bridge::NetworkTiming{};
+            const size_t offset = std::strlen(text);
+            if (t.valid) std::snprintf(text + offset, sizeof(text) - offset, " net_gpu_ms=%.3f (frame %llu)", t.ms, t.tag);
+            else std::snprintf(text + offset, sizeof(text) - offset, " net_gpu_ms=%s", !session->networkTimingRequested ? "off" : session->bridge && session->bridge->PdlEffective() ? "unavailable-pdl" : "n/a");
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
                           " perf=v3 bridgeCreates=%u releaseMarks=%llu releaseMarkFailures=%llu cpuMs(last/peak/max) prepare=%.2f/%.2f/%.2f enqueue=%.2f/%.2f/%.2f rebuild=%.2f/%.2f/%.2f drain=%.2f/%.2f/%.2f",
@@ -2885,6 +2872,24 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         buf[buf_chars - 1] = 0;
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
+    });
+}
+
+int32_t GetTimings(void* context, LmxxfNrTimings* out)
+{
+    return Guard([&] {
+        if (!context || !out || out->struct_size != sizeof(*out))
+            return int32_t(LMXXF_NR_INVALID_ARGUMENT);
+        *out = {}; out->struct_size = sizeof(*out);
+        auto* session = static_cast<Session*>(context);
+        session->networkTimingRequested = true;
+        if (session->failed || !session->hipPrepared || !session->bridge) return int32_t(LMXXF_NR_OK);
+        if (session->bridge->PdlEffective()) return int32_t(LMXXF_NR_OK);
+        session->ConfigureNetworkTiming(session->bridge, session->job.frameId);
+        const auto sample = session->bridge->PollNetworkTiming();
+        if (sample.valid) { out->valid = 1; out->network_ms = sample.ms; out->frame_id = sample.tag; }
+        session->CollectTiming(session->bridge);
+        return int32_t(LMXXF_NR_OK);
     });
 }
 
@@ -2905,16 +2910,16 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
     return Guard([&] {
         if (!out)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetApi: null out");
-        if (abi_version != 1 && abi_version != LMXXF_NR_ABI_VERSION)
+        if (abi_version != LMXXF_NR_ABI_VERSION)
             return Fail(LMXXF_NR_UNSUPPORTED_ABI, "GetApi: unsupported abi_version");
-        const uint32_t bytes = abi_version == 1 ? LMXXF_NR_API_V1_SIZE : sizeof(LmxxfNrApi);
-        if (out->struct_size != bytes && !(abi_version == 1 && out->struct_size == sizeof(LmxxfNrApi)))
+        const uint32_t bytes = sizeof(LmxxfNrApi);
+        if (out->struct_size != bytes)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "GetApi: struct_size mismatch");
         std::memset(out, 0, bytes);
         out->struct_size = bytes;
         out->abi_version = abi_version;
-        out->QueryCapabilities = abi_version == 1 ? QueryCapabilitiesV1 : QueryCapabilities;
-        out->Create = abi_version == 1 ? CreateV1 : Create;
+        out->QueryCapabilities = QueryCapabilities;
+        out->Create = Create;
         out->Destroy = Destroy;
         out->PrepareSession = PrepareSession;
         out->PrepareFrame = PrepareFrame;
@@ -2929,12 +2934,12 @@ extern "C" int32_t LmxxfNrGetApi(uint32_t abi_version, LmxxfNrApi *out)
         out->Drain = Drain;
         out->GetStatus = GetStatus;
         out->GetLastError = GetLastError;
-        if (abi_version >= 2)
         {
             out->BeginRecordingExecution = BeginRecordingExecution;
             out->EndRecordingExecution = EndRecordingExecution;
             out->InvalidateRecording = InvalidateRecording;
             out->CollectRecording = CollectRecording;
+            out->GetTimings = GetTimings;
         }
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2951,7 +2956,18 @@ extern "C" int32_t LmxxfNrGetTimingApi(uint32_t version, LmxxfNrTimingApi* out)
     out->SetEnabled = [](void* context, uint32_t enabled) -> int32_t {
         if (!context || enabled > 1) return LMXXF_NR_INVALID_ARGUMENT;
         return Guard([&] {
-            static_cast<Session*>(context)->performance.SetEnabled(enabled != 0);
+            auto* session = static_cast<Session*>(context);
+            const bool changed = session->performance.Enabled() != (enabled != 0);
+            session->performance.SetEnabled(enabled != 0);
+            if (changed) {
+                session->networkTimingSeen = false;
+                session->networkTimingRequested = false;
+                if (session->bridge) { session->bridge->PauseNetworkTiming(); session->bridge->SetTimingEpoch(session->performance.Epoch()); }
+                for (auto& entry : session->recordings) if (entry.second->chain) {
+                    auto* bridge = entry.second->chain->bridge.get();
+                    bridge->PauseNetworkTiming(); bridge->SetTimingEpoch(session->performance.Epoch());
+                }
+            }
             return int32_t(LMXXF_NR_OK);
         });
     };
@@ -2959,7 +2975,9 @@ extern "C" int32_t LmxxfNrGetTimingApi(uint32_t version, LmxxfNrTimingApi* out)
         if (!context || !result || result->struct_size != sizeof(*result))
             return LMXXF_NR_INVALID_ARGUMENT;
         return Guard([&] {
-            *result = static_cast<Session*>(context)->performance.Read();
+            auto* session = static_cast<Session*>(context);
+            *result = session->performance.Read();
+            if (session->bridge && session->bridge->PdlEffective()) result->reserved |= 2u;
             return int32_t(LMXXF_NR_OK);
         });
     };

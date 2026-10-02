@@ -49,25 +49,11 @@ int main(int argc, char **argv)
     Require(telemetry.canary == 0x123456789abcdef0ull, "timing table bounds");
     Require(telemetry.api.SetEnabled(nullptr, 1) == LMXXF_NR_INVALID_ARGUMENT, "timing requires session");
 
-    static_assert(offsetof(LmxxfNrApi, BeginRecordingExecution) == LMXXF_NR_API_V1_SIZE, "v1 prefix");
-    alignas(LmxxfNrApi) unsigned char legacyBytes[LMXXF_NR_API_V1_SIZE + 32];
-    std::memset(legacyBytes, 0xa5, sizeof legacyBytes);
-    auto* legacy = reinterpret_cast<LmxxfNrApi*>(legacyBytes);
-    legacy->struct_size = LMXXF_NR_API_V1_SIZE;
-    Require(getApi(1, legacy) == LMXXF_NR_OK && legacy->abi_version == 1, "v1 table negotiation");
-    for (size_t i = LMXXF_NR_API_V1_SIZE; i < sizeof legacyBytes; ++i)
-        Require(legacyBytes[i] == 0xa5, "v1 table cannot write extension bytes");
-    LmxxfNrCapabilities legacyCaps {}; legacyCaps.struct_size = sizeof legacyCaps;
-    Require(legacy->QueryCapabilities(&legacyCaps) == LMXXF_NR_OK && legacyCaps.abi_version == 1,
-            "v1 capabilities remain v1");
-    legacy->struct_size = LMXXF_NR_API_V1_SIZE - 1;
-    Require(getApi(1, legacy) == LMXXF_NR_INVALID_ARGUMENT, "undersized v1 table rejected");
-    LmxxfNrCreateInfo leaseInfo {}; leaseInfo.struct_size = sizeof leaseInfo;
-    leaseInfo.flags = LMXXF_NR_CREATE_FLAG_RECORDING_LEASES;
-    void* legacyContext = reinterpret_cast<void*>(1);
-    Require(legacy->Create(&leaseInfo, &legacyContext) == LMXXF_NR_INVALID_ARGUMENT && !legacyContext,
-            "v1 cannot opt into unavailable lease extension");
-
+    LmxxfNrApi rejected {}; rejected.struct_size = sizeof rejected;
+    Require(getApi(1, &rejected) == LMXXF_NR_UNSUPPORTED_ABI, "old ABI rejected; install complete package");
+    rejected.struct_size = 168;
+    Require(getApi(2, &rejected) == LMXXF_NR_INVALID_ARGUMENT, "old package table rejected");
+    static_assert(sizeof(LmxxfNrTimings) == 24);
     LmxxfNrApi api {};
     api.struct_size = sizeof(api);
     Require(getApi(99, &api) == LMXXF_NR_UNSUPPORTED_ABI, "unsupported abi");
@@ -78,7 +64,7 @@ int main(int argc, char **argv)
     Require(api.abi_version == LMXXF_NR_ABI_VERSION, "abi_version");
     Require(api.QueryCapabilities && api.Create && api.Destroy, "required pointers");
     Require(api.RecordInputs && api.EnqueueHip && api.RecordOutputs, "record/enqueue pointers");
-    Require(api.GetLastError && api.GetStatus, "error pointers");
+    Require(api.GetLastError && api.GetStatus && api.GetTimings, "error and network timing pointers");
     Require(api.BeginRecordingExecution && api.EndRecordingExecution &&
             api.InvalidateRecording && api.CollectRecording, "v2 recording pointers");
 
@@ -142,6 +128,10 @@ int main(int argc, char **argv)
         info.assets_directory = modules.c_str();
         Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create with dual-arch modules directory");
         Require(ctx != nullptr, "session handle with modules");
+        LmxxfNrTimings net {}; net.struct_size = sizeof net;
+        Require(api.GetTimings(ctx, &net) == LMXXF_NR_OK && !net.valid, "network unavailable without HIP");
+        --net.struct_size;
+        Require(api.GetTimings(ctx, &net) == LMXXF_NR_INVALID_ARGUMENT, "short network timing payload");
         NrTimingSnapshot timing {}; timing.struct_size = sizeof timing;
         Require(telemetry.api.GetSnapshot(ctx, &timing) == LMXXF_NR_OK && !timing.enabled, "timing defaults off");
         Require(telemetry.api.SetEnabled(ctx, 1) == LMXXF_NR_OK, "enable telemetry without GPU");

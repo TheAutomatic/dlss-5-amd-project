@@ -244,17 +244,10 @@ int main(int argc, char **argv)
             bigTex->Release();
         }
 
-        // A host built against ABI v1 sends the smaller struct and has no exposure fields.
-        // That must still run: the exposure fields are an ABI growth, not a new requirement.
-        LmxxfNrFrameInfo v1Frame = frame;
-        v1Frame.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
-        v1Frame.exposure = nullptr;
-        LmxxfNrJob v1Job {};
-        v1Job.struct_size = sizeof(v1Job);
-        const int32_t v1Rc = api.PrepareFrame(ctx, &v1Frame, &v1Job);
-        std::printf("v1 frame struct_size=%u rc=%d\n", unsigned(LMXXF_NR_FRAME_INFO_V1_SIZE), v1Rc);
-        Require(v1Rc == LMXXF_NR_OK && v1Job.handle != nullptr, "ABI v1 struct_size still runs");
-        Require(api.CancelUnsubmitted(ctx, v1Job.handle) == LMXXF_NR_OK, "cancel v1 frame");
+        LmxxfNrFrameInfo oldFrame = frame; oldFrame.struct_size = 80;
+        LmxxfNrJob oldJob {}; oldJob.struct_size = sizeof oldJob;
+        Require(api.PrepareFrame(ctx, &oldFrame, &oldJob) == LMXXF_NR_INVALID_ARGUMENT,
+                "old frame layout rejected");
     }
 
     // Exposure reaches the codec through a 1x1 scale texture plus two scalars. The output hash

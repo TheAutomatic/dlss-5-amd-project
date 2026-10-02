@@ -145,7 +145,7 @@ class ModulePackageTests(unittest.TestCase):
                 self.assertEqual(parsed['DlssNr'][key], value, f'{path}: {key}')
         for key, value in {'DLSS5_VIT_ADAPTIVE': '1', 'DLSS5_VIT_REUSE_PERIOD': '16',
                            'DLSS5_VIT_REUSE_GLOBAL': '1', 'DLSS5_VIT_REUSE_LOCAL': '50',
-                           'DLSS5_VIT_REUSE_IMAGE': '1', 'DLSS5_VIT_REUSE_HOTKEY': '1'}.items():
+                           'DLSS5_VIT_REUSE_IMAGE': '1'}.items():
             self.assertIn(key + '=' + value, installed_ini)
 
         self.assertEqual(snapshot_files(game / 'lmxxf-modules'), snapshot_files(self.modules))

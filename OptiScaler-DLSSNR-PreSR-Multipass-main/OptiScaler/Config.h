@@ -275,7 +275,7 @@ class Config
     CustomOptional<float> DlssNrRRWorkingScale { 0.5f };
     // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
     // than one that does nothing.
-    CustomOptional<int> DlssNrToggleKey { UnboundKey };
+    CustomOptional<int> DlssNrToggleKey { VK_END };
     CustomOptional<uint32_t> DlssNrPreset { 0 };
     CustomOptional<float> DlssNrIntensity { 1.0f };
     // 0 default (standard), 1 natural, 2 cinematic -- the model's own processing profiles.
@@ -409,7 +409,6 @@ class Config
     CustomOptional<float> LmxxfVitReuseGlobal { 1.0f };
     CustomOptional<float> LmxxfVitReuseLocal { 50.0f };
     CustomOptional<float> LmxxfVitReuseImage { 1.0f };
-    CustomOptional<bool> LmxxfVitReuseHotkey { true };
     // Experimental dirty insert: request SpinDraw=1 even when freeze/admission fails.
     // No complete D3D12 graphics-state restore — risk matches the danielblnc runtime. Default 0.
     CustomOptional<int> AmdGraphicsUnsafe { 0 };
@@ -798,7 +797,7 @@ class Config
     CustomOptional<bool> DisableSplash { false };
     CustomOptional<float> FontSize { 14.0f };
     CustomOptional<std::wstring, NoDefault> TTFFontPath;
-    CustomOptional<int> FGShortcutKey { VK_END };
+    CustomOptional<int> FGShortcutKey { UnboundKey };
     CustomOptional<bool> LightTheme { false };
     CustomOptional<bool> OverlaysUseTheme { false };
     CustomOptional<float> MenuAccentColorR { 0.00f };

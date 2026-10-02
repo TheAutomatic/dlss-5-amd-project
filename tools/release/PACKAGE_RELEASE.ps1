@@ -250,8 +250,8 @@ NrBackend=lmxxf
 ; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
 NrConvenience=1
 
-; Optional asynchronous codec/effects measurement; default off. NR network timing is paused.
-; Ins: Measure codec / effects performance. Page Up opens the FPS overlay; Page Down changes detail.
+; Optional asynchronous NR/codec/effects measurement; default off.
+; Ins: Measure NR performance. Page Up opens the FPS overlay; Page Down changes detail.
 ; Logging also needs measurement and file logging; at most one summary per five seconds.
 NrTimingEnabled=false
 NrTimingLog=false
@@ -337,7 +337,7 @@ DLSS5_HIP_VIT_STREAM=3
 DLSS5_HIP_VIT_BYTE_STREAM=0
 
 ; Adaptive ViT reuse (lossy): when the picture is nearly still, reuse ViT across frames.
-; F8 toggles reuse/full when HOTKEY=1. Motion exceeding the thresholds returns to full ViT.
+; Configure reuse in the Ins menu. No F8 polling; motion returns to full ViT.
 ; Default below is performance-oriented (looser than upstream 4 / 0.22 / 1 / 0.35):
 ; higher FPS when nearly still, more risk of stale detail / ghosting on subtle motion.
 DLSS5_VIT_ADAPTIVE=1
@@ -345,7 +345,6 @@ DLSS5_VIT_REUSE_PERIOD=16
 DLSS5_VIT_REUSE_GLOBAL=1
 DLSS5_VIT_REUSE_LOCAL=50
 DLSS5_VIT_REUSE_IMAGE=1
-DLSS5_VIT_REUSE_HOTKEY=1
 
 ; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
 ; Not the HDR Paper White anchor.

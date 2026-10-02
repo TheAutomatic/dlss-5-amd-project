@@ -277,10 +277,10 @@ bool LmxxfBackend::EnsureRuntime()
     api->table.struct_size = sizeof(LmxxfNrApi);
     if (getApi(LMXXF_NR_ABI_VERSION, &api->table) != LMXXF_NR_OK ||
         api->table.abi_version < 2 || !api->table.BeginRecordingExecution || !api->table.EndRecordingExecution ||
-        !api->table.InvalidateRecording || !api->table.CollectRecording)
+        !api->table.InvalidateRecording || !api->table.CollectRecording || !api->table.GetTimings)
     {
         api->table = {};
-        SetStatus("lmxxf: runtime needs recording-lease ABI v2; update LmxxfNrRuntime.dll");
+        SetStatus("lmxxf: runtime mismatch; replace the complete OptiScaler package");
         return false;
     }
     auto getTiming = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrTimingApi*)>(
@@ -313,6 +313,10 @@ void LmxxfBackend::UpdateTiming()
         timingConfigured = true;
         timingEnabled = enabled;
         timingLogAt = 0;
+    }
+    if (enabled && api->table.GetTimings) {
+        LmxxfNrTimings network {}; network.struct_size = sizeof network;
+        api->table.GetTimings(session, &network); // render thread; never queried by the UI
     }
     if (!changed && (!enabled || now - timingReadAt < 500)) return;
     NrTimingSnapshot next {};
@@ -600,7 +604,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 
     D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
     LmxxfNrFrameInfo fi {};
-    fi.struct_size = frameInfoV1 ? LMXXF_NR_FRAME_INFO_V1_SIZE : sizeof(fi);
+    fi.struct_size = sizeof(fi);
     fi.frame_id = ++frameId;
     fi.command_list = cmd;
     fi.color_width = JobExtent(frame.width, desc.Width);
@@ -614,8 +618,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.model_scale = settings.modelScale;
     fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
     fi.debug_view = CodecDebugViewBits(IsUsableExposureTexture(frame.exposure));
-    // A runtime that predates the flag rejects it, so only ask when it takes the full struct.
-    if (!frameInfoV1 && WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
+    if (WantsAutoExposure(IsUsableExposureTexture(frame.exposure), frame.preExposure))
         fi.flags |= LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
     // AmdBridge already collects these from the NGX parameters (ExposureTexture,
     // DLSS_Pre_Exposure, DLSS_Exposure_Scale); they only needed to cross the C ABI.
@@ -627,25 +630,6 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
     int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
-    if (frameRc == LMXXF_NR_INVALID_ARGUMENT && !frameInfoV1)
-    {
-        char sizeErr[256] {};
-        if (api->table.GetLastError)
-            api->table.GetLastError(sizeErr, sizeof sizeErr);
-        // A runtime built before the exposure fields rejects the larger struct. Fall back to
-        // the ABI v1 size once and keep going without exposure, the way we drop the Create
-        // flags for a runtime that predates them.
-        if (std::strstr(sizeErr, "struct_size mismatch"))
-        {
-            LOG_WARN("lmxxf: runtime predates the exposure fields ({}); continuing without exposure", sizeErr);
-            frameInfoV1 = true;
-            fi.struct_size = LMXXF_NR_FRAME_INFO_V1_SIZE;
-            fi.flags &= ~LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
-            job = {};
-            job.struct_size = sizeof(job);
-            frameRc = api->table.PrepareFrame(session, &fi, &job);
-        }
-    }
     if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
     {
         char err[256] {};

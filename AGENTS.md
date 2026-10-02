@@ -25,9 +25,20 @@ Use an explicit host path and `-OutDir dist` for local packaging, matching the p
 A local package in `dist/` is not a published release; record its validation status separately.
 A standalone ABI pass or `--fast` build does not replace full CI or its runtime hash proof.
 
-After merging to `release/1.9.0` or touching installer/packaging/sync, run
-[tests/RELEASE-TESTS.md](tests/RELEASE-TESTS.md) (`tests\run-all.cmd --tier ci`).
-`tools/release/PACKAGE_RELEASE.ps1` does not run those suites; it only checks artifact freshness.
+Routine changes start with code review. Do not run the full suite merely because a file
+under installer/packaging/sync changed. Use focused tests for concrete ABI, GPU ordering,
+resource lifetime, installer or packaging risks. Text and simple menu edits need no full run.
+Before a release, run [tests/RELEASE-TESTS.md](tests/RELEASE-TESTS.md) once against the final
+artifacts (`tests\run-all.cmd --tier ci`, plus applicable device/GPU checks). Reuse valid
+results when the relevant source and artifacts are unchanged; never run duplicate suites
+just to follow multiple entry points. The packager checks freshness; it does not run tests.
+
+## Package compatibility
+
+Users install and overwrite the complete package. Host and runtime must match the current
+package ABI; reject mismatches with a clear full-package update message. Do not add old
+runtime/ABI fallbacks or partial-install compatibility without an explicit product need.
+This does not authorize overwriting a user's explicit menu/INI preferences.
 
 ## Synchronizing lmxxf upstream
 

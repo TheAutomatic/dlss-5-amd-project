@@ -67,6 +67,7 @@ int main(int argc, char** argv)
         UploadColorPattern(device.Get(), queue.Get(), colour.Get());
         return colour;
     };
+    uint64_t nextFrame = 0;
     auto record = [&](void* owner, UINT width, UINT height, bool passthrough = false, bool exposure = false) {
         auto result = std::make_unique<RecordedFrame>();
         Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&result->producerAllocator)), "producer allocator");
@@ -78,6 +79,7 @@ int main(int argc, char** argv)
         Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&result->fence)), "tail fence");
         auto colour = makeColour(width, height);
         LmxxfNrFrameInfo frame {}; frame.struct_size = sizeof frame;
+        frame.frame_id = ++nextFrame;
         frame.command_list = result->producer.Get(); frame.color = colour.Get(); frame.color_width = width; frame.color_height = height;
         frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         frame.paper_white = frame.pre_exposure = frame.exposure_scale = frame.model_scale = 1;
@@ -115,8 +117,14 @@ int main(int argc, char** argv)
         const HRESULT signal = target->Signal(frame.fence.Get(), ++frame.value);
         ok(api.EndRecordingExecution(owner, frame.token, target, 3, frame.fence.Get(), frame.value, signal), "end execution");
         WaitQueue(device.Get(), target);
+        if (owner == context) { LmxxfNrTimings net {}; net.struct_size = sizeof net; ok(api.GetTimings(owner, &net), "completed network timing"); }
         return HashTexture(device.Get(), target, frame.output);
     };
+    LmxxfNrTimings net {}; net.struct_size = sizeof net;
+    ok(api.GetTimings(context, &net), "lazy network timing request");
+    Require(!net.valid, "first request cannot fabricate a sample");
+    char netStatus[1024] {}; ok(api.GetStatus(context, netStatus, sizeof netStatus), "timing availability");
+    const bool blockedPdl = std::strstr(netStatus, "unavailable-pdl") != nullptr;
     const auto baseline = run(context, *frames.front(), other.Get());
     run(context, *frames.back(), queue.Get());
     Require(run(context, *frames.front(), other.Get()) == baseline, "old immutable binding survives ten rebinds and replay");
@@ -125,6 +133,13 @@ int main(int argc, char** argv)
     Require(run(context, *frames.front(), other.Get()) == baseline, "HIP replay after passthrough shared-resource use");
     auto metered = record(context, 1280, 720, false, true); run(context, *metered, queue.Get());
     auto resized = record(context, 1920, 1080); run(context, *resized, other.Get());
+    for (unsigned i = 0; i < 8; ++i) {
+        auto next = record(context, 1920, 1080); run(context, *next, other.Get());
+        ok(api.GetTimings(context, &net), "rebuilt network timing");
+        Require(blockedPdl ? !net.valid : net.valid && net.frame_id == nextFrame && net.network_ms > 0, "PDL is explicit unavailable; supported network reports current frame");
+        std::printf("runtime network frame=%llu ms=%.3f\n", net.frame_id, net.network_ms);
+        discard(context, next);
+    }
     Require(run(context, *frames.front(), queue.Get()) == baseline, "old bridge/codec recording survives geometry replacement");
     void* newContext = create(); auto fresh = record(newContext, 1280, 720); run(newContext, *fresh, other.Get());
     Require(run(context, *frames.front(), queue.Get()) == baseline, "old recording survives another session");
@@ -133,9 +148,9 @@ int main(int argc, char** argv)
     for (auto& frame : frames) discard(context, frame);
     NrTimingSnapshot measured {}; measured.struct_size = sizeof measured;
     ok(timing.GetSnapshot(context, &measured), "read completed GPU timing");
-    Require(measured.stages[NR_GPU_NETWORK].samples > 0 && measured.stages[NR_GPU_NETWORK].last_ms > 0,
+    Require(blockedPdl ? !measured.stages[NR_GPU_NETWORK].samples && (measured.reserved & 2u) : measured.stages[NR_GPU_NETWORK].samples > 0 && measured.stages[NR_GPU_NETWORK].last_ms > 0,
             "runtime exposes actual HIP durations");
-    std::printf("NR GPU samples=%llu mean_ms=%.3f last_ms=%.3f\n",
+    std::printf("NR GPU samples=%llu median_ms=%.3f last_ms=%.3f\n",
                 measured.stages[NR_GPU_NETWORK].samples, measured.stages[NR_GPU_NETWORK].mean_ms,
                 measured.stages[NR_GPU_NETWORK].last_ms);
     Require(measured.stages[NR_GPU_ENCODE].samples > 0 && measured.stages[NR_GPU_ENCODE].last_ms > 0 &&

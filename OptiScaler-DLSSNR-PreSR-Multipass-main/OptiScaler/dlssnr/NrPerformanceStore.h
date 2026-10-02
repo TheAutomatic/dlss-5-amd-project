@@ -41,6 +41,10 @@ public:
         if (!enabled.load()) return;
         if (sampleEpoch && sampleEpoch != epoch.load()) return;
         if (stage >= stages.size() || !std::isfinite(ms) || ms < 0) { ++dropped; return; }
+        // Observed collapsed HIP event spans are ~0.001 ms, even after rebuild.
+        // These cannot represent the supported full NR networks. Drop them rather
+        // than feeding a run of bogus spans into the display median.
+        if (stage == NR_GPU_NETWORK && ms < .01) { ++dropped; return; }
         auto& s = stages[stage];
         s.history[s.cursor] = ms;
         s.cursor = (s.cursor + 1) % kWindow;
@@ -50,6 +54,11 @@ public:
         s.value.last_tick_ms = tick;
         s.value.frame_id = frame;
         s.value.execution_id = execution;
+    }
+    void ResetStage(unsigned stage)
+    {
+        std::lock_guard guard(lock);
+        if (stage < stages.size()) stages[stage] = {};
     }
     void Drop(uint64_t count)
     {
@@ -73,6 +82,14 @@ public:
             for (size_t j = 0; j < s.size; ++j) { sum += s.history[j]; peak = (std::max)(peak, s.history[j]); }
             out.stages[i].mean_ms = s.size ? sum / s.size : 0;
             out.stages[i].max_ms = peak;
+            if (i == NR_GPU_NETWORK && s.size) {
+                std::array<double, 5> recent {};
+                const size_t count = (std::min)(s.size, recent.size());
+                for (size_t j = 0; j < count; ++j) recent[j] = s.history[(s.cursor + kWindow - 1 - j) % kWindow];
+                std::sort(recent.begin(), recent.begin() + count);
+                out.stages[i].mean_ms = count % 2 ? recent[count / 2] : (recent[count / 2 - 1] + recent[count / 2]) / 2;
+                out.reserved |= 1u; // network mean field contains the display median
+            }
         }
         return out;
     }

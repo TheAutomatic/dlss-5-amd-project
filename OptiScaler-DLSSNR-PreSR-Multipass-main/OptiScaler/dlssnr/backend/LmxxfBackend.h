@@ -47,9 +47,6 @@ class LmxxfBackend final : public Host
     // Record calls to skip before retrying a failed Create/PrepareSession.
     uint32_t sessionFailures = 0;
     uint32_t sessionRetryIn = 0;
-    // Set once a runtime has rejected the current LmxxfNrFrameInfo size: it predates the
-    // exposure fields, so send the ABI v1 size and run without exposure.
-    bool frameInfoV1 = false;
     // PrepareFrame failure accounting: first error is fully logged; later poison repeats are quiet.
     unsigned prepareFrameFailLogs = 0;
     unsigned prepareFramePoisonLogs = 0;

@@ -13,6 +13,8 @@
 
 namespace hip_reference {
 struct BridgeTimingTest {
+    static auto& Query(D3D12Bridge& bridge) { return bridge.timing_query; }
+    static bool NewEventsAllocated(const D3D12Bridge& bridge) { return bridge.timing_begin[0] != nullptr; }
     static auto& Elapsed(D3D12Bridge& bridge) { return bridge.network->Runtime().hipEventElapsedTime; }
     static unsigned Quarantined(const D3D12Bridge& bridge) {
         return unsigned(std::count_if(bridge.timing_slots.begin(), bridge.timing_slots.end(),
@@ -217,6 +219,45 @@ int main(int argc, char** argv)
             std::printf("timing ABBA batch=%u enabled=%u wall_ms=%.4f enqueue_cpu_ms=%.4f n=%u\n",
                         batch, unsigned(enabled), wallMs / (iterations - 8), enqueueMs / (iterations - 8), iterations - 8);
         }
+        // Official fe4d1d73 event-query path: lazy enable, frame tags, disable/re-enable,
+        // epoch rejection and failure quarantine. Compare actual output bytes as well.
+        Require(!bridge.NetworkTimingEnabled() && !hip_reference::BridgeTimingTest::NewEventsAllocated(bridge),
+                "official timing has no events before first request");
+        bridge.ConfigureProductionTiming(false, 0, 0, 0);
+        bridge.SetTimingEpoch(10);
+        Require(bridge.EnableNetworkTiming() && !bridge.PollNetworkTiming().valid, "first request has no sample");
+        auto executeTimed = [&](unsigned tag) {
+            bridge.SetTimingTag(tag); bridge.BeginRecordedExecution(actual);
+            ID3D12CommandList* first[] = {producer}; actual->ExecuteCommandLists(1, first);
+            bridge.EnqueueAfterProducer(actual, 1);
+            ID3D12CommandList* second[] = {consumer}; actual->ExecuteCommandLists(1, second);
+            bridge.EndRecordedExecution(actual, true, true); WaitQueue(device, actual);
+        };
+        for (unsigned frame = 1; frame <= 8; ++frame) {
+            executeTimed(frame);
+            auto sample = bridge.PollNetworkTiming();
+            const auto deadline = GetTickCount64() + 1000;
+            while ((!sample.valid || sample.tag != frame) && GetTickCount64() < deadline) {
+                Sleep(1); sample = bridge.PollNetworkTiming(); // harness-only wait
+            }
+            Require(sample.valid && sample.tag == frame && std::isfinite(sample.ms) && sample.ms > 0,
+                    "official completed network span and tag");
+            std::printf("official timing frame=%u net_gpu_ms=%.3f\n", frame, sample.ms);
+        }
+        executeTimed(9); // leave a completed but unread old-epoch event
+        bridge.PauseNetworkTiming(); bridge.SetTimingEpoch(11);
+        Require(!bridge.PollNetworkTiming().valid, "disabled samples hidden");
+        Require(bridge.EnableNetworkTiming() && !bridge.PollNetworkTiming().valid, "old epoch cannot reappear");
+        executeTimed(10);
+        auto& query = hip_reference::BridgeTimingTest::Query(bridge);
+        const auto realQuery = query; query = [](hip_probe::Handle) -> int { return 999; };
+        Require(!bridge.PollNetworkTiming().valid && !bridge.EnableNetworkTiming(), "event error disables timing permanently for bridge");
+        query = realQuery;
+        executeTimed(11); // rendering survives the latched instrumentation failure
+        void* timedData = nullptr; D3D12_RANGE timedRange {0, SIZE_T(bytes)};
+        Check(readback->Map(0, &timedRange, &timedData), "official timing readback");
+        Require(std::memcmp(baseline.data(), timedData, SIZE_T(bytes)) == 0, "official timing preserves output bytes");
+        readback->Unmap(0, nullptr);
         // Real GPU submissions with a failing telemetry API must continue to
         // render, permanently quarantining the failed event pairs until teardown.
         auto& elapsed = hip_reference::BridgeTimingTest::Elapsed(bridge);

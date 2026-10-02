@@ -1,6 +1,6 @@
 --- a/Development/HIP/hip_reference_network.h
 +++ b/Development/HIP/hip_reference_network.h
-@@ -61,6 +61,7 @@
+@@ -119,6 +119,7 @@
      and cumulative targets stay exact; cleared only after a full drain before uint32 rollover. The last blocks' tensors are held so the pool cannot recycle a buffer
      an in-flight launch still reads. Correctness audit and remaining acquire/scheduling conditions: results/pdl-audit-20260927. */
   unsigned pdl_mode=0,pdl_calls=0;unsigned*pdl_flags=nullptr;bool pdl_anyorder=false;std::deque<Tensor>pdl_keep;
@@ -8,7 +8,7 @@
   struct PdlPrev{unsigned*flags=nullptr;unsigned epoch=0,ww=0,sx=0,sy=0;}pdl_prev;unsigned*pdl_ffn_flags=nullptr;unsigned pdl_ffn_epoch=0;
   int(*ext_launch)(Handle,unsigned,unsigned,unsigned,unsigned,unsigned,unsigned,size_t,Handle,void**,void**,Handle,Handle,unsigned)=nullptr;
   static constexpr unsigned PDL_SLOTS=16384,PDL_RING=64;
-@@ -75,7 +76,50 @@
+@@ -133,7 +134,50 @@
    }
    pdl_total[s]+=waves;pdl_last_target=pdl_total[s];return pdl_flags+size_t(s)*PDL_SLOTS;}
   static bool PdlChainHead(U block){return block==5||block==9||block==15||block==23||block==40||block==48||block==56||block==62;}
@@ -60,7 +60,21 @@
  #ifdef DLSS5_LAYER_BENCH
   friend struct LayerBenchmark;
   unsigned diagnostic_kernel_repeats=1;
-@@ -439,7 +483,7 @@
+@@ -519,12 +563,10 @@
+  static long long AdaptiveIdleMs(){static const long long ms=[]{const char*v=std::getenv("DLSS5_VIT_ADAPTIVE_IDLE_MS");if(!v||!*v)return 500LL;char*e=nullptr;long long x=std::strtoll(v,&e,10);return (e&&!*e&&x>=0)?x:500LL;}();return ms;}
+  Tensor adaptive_image_anchor,adaptive_image_signature,adaptive_image_delta;void*adaptive_image=nullptr;
+  void*adaptive_prev_history=nullptr;void*adaptive_prev_input=nullptr;U adaptive_prev_seed=0;
+- bool adaptive_dirty=false,adaptive_key_down=false,adaptive_user_disabled=false;U adaptive_last_mode=0,adaptive_frame=0;
++ bool adaptive_dirty=false;U adaptive_last_mode=0,adaptive_frame=0;
+  bool adaptive_active=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
+  Tensor AdaptiveVitGroup(Tensor input,U n){
+   const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=mode_s?U(std::stoul(mode_s)):0;
+-  const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
+-  if(hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
+   AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
+   if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
+   if(mode>3||opt.graph||!opt.fast_deep||!opt.pooled||opt.vit_byte_stream||std::any_of(opt.skip_blocks.begin(),opt.skip_blocks.end(),[](U b){return b>=31&&b<=38;}))throw std::runtime_error("adaptive ViT requires fast pooled graph-off non-byte-stream unskipped network, mode1..3");
+@@ -608,7 +650,7 @@
  if(opt.mh_window_fused){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/c64-window-fused.hsaco").c_str()),"C64 window fused module");modules["mh_window"]=m;}
  if(opt.fast_deep){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+(opt.packed_weights?"/deep_fast-packed.hsaco":"/deep_fast.hsaco")).c_str()),"deep fast module");modules["deep_fast"]=m;}
  if(opt.fast_mh){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+(opt.packed_weights?(opt.mh_wave?"/multihead-fast-padded-wave-packed.hsaco":"/multihead-fast-packed.hsaco"):(opt.mh_wave?"/multihead-fast-padded-wave.hsaco":"/multihead-fast.hsaco"))).c_str()),"MH fast module");modules["mh_fast"]=m;}

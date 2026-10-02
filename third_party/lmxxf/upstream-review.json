@@ -2,20 +2,20 @@
   "schema": 1,
   "from_commit": "c809efb0ea2960f148624730898da61b8fb55a45",
   "to_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
-  "snapshot": "5425dcd6e7bed3e3a12c1e9bb136c2b06fa3a21960943d39fb7a2a3a8d62846d",
+  "snapshot": "5dde176abf605166f8a0462ec5007bcbb6c3fb80e476aa5767b18f4d421f86cd",
   "reviewer": "Codex",
-  "summary": "Complete0.37 to82ce821f (0.39 plus six commits) upstream integration review: all changed paths, deployment/generator evidence, pinned bridge diff and discovered consumers reviewed individually. Production recipe integrated with explicit deferrals; not game/release acceptance. Local effects/reset/overlay fixes and paused network telemetry reviewed by feature against the final local diff; upstream and module recipes unchanged.",
-  "validation": "2026-10-02: normal31x2 module build using rtc_compile.cpp/driver COMGR and module-defines.json passed, all62 supplied binary hashes and5 metadata hashes rechecked. Full tests/run-all.cmd --tier ci passed after scanner changes; final staged MSVC host/runtime, MinGW runtime, device and RX9070XT GPU suites passed after module-load cleanup and typed-view checks. EXACT fe40c904da05472e; AE/scale16 79233836b6257864; R10 8ba14ef2db0dddfe; recording 9e99616bb5014312; Style0 b9d51f33f1cea174, Style2 cb30fe1e72358339 and Style1 exact restore; compact1088 6215e046d94a7eb0 and1152 exact restore; RGBA32F+AE baea37576a56eeb3. Raw module-load fault reproduction fails, patched test passes. No gfx1200 hardware, game matrix, hosted Actions or new package acceptance. 2026-10-02 local effects/timing delta: full tests/run-all.cmd --tier ci passed (host, exposure-varying stabilizer shader/lifecycle regressions, ABI/WARP, installer/package and sync suites). Final MSVC host build passed separately. No new hardware GPU, game visual/menu or package acceptance. See docs/lmxxf-039-consumer-review.md, local effects/timing review; earlier GPU results apply only to unchanged upstream paths.",
+  "summary": "Upstream pin remains82ce821f. Targeted timing port from fe4d1d73 into pinned product bridge, strict whole-package ABI, removal of F8 polling and NR default End reviewed by final feature diff. New PDL timing limitation is documented; original26 upstream deferrals retained. Not release acceptance.",
+  "validation": "2026-10-02 targeted checks: MSVC host/runtime builds; ABI/C smoke and22 runtime tests; NR median/collapsed-span/PDL display unit test; SourcePatchTests; actual package-template/install case; real HIP bridge timing/replay/epoch/failure test; runtime GPU recording test with default PDL unavailable and PDL-off valid samples. Output9e99616bb5014312 unchanged. No full CI, gfx1200, game menu/hotkey or release acceptance this turn. See docs/lmxxf-039-consumer-review.md targeted GetTimings section. Final bridge comment-only correction reused applicable build/GPU results and reran patch replay.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "69f0b99f52c5de57125aa6907e5e3b4cb65f6ebc0a606eaecc97883f085825c1",
+      "fingerprint": "ea617991030a8bacde11524ad6b540772ae1f8f19ffcabe738669be277f11063",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Unchanged upstream and module evidence retained. Reviewed the local delta: normalized residual history must survive preExposure adaptation; explicit resets/ownership remain intact; shared settings reset to declared defaults; auxiliary overlay lines no longer widen the frame-time line; runtime network event enable/collection are gated off pending upstream API. Review workflow now groups evidence by feature without removing coverage checks.",
-      "evidence": "docs/lmxxf-039-consumer-review.md: 2026-10-02 local effects/timing review; NrOutputEffects.h, NrStabilizerShader.h, DlssNr_Menu.cpp, menu_common.cpp, NrPerformance.h, LmxxfNrRuntime.cpp, NrTimingDisplay.h; tools/lmxxf-sync/README.md",
-      "validation": "2026-10-02 local effects/timing delta: full tests/run-all.cmd --tier ci passed (host, exposure-varying stabilizer shader/lifecycle regressions, ABI/WARP, installer/package and sync suites). Final MSVC host build passed separately. No new hardware GPU, game visual/menu or package acceptance. See docs/lmxxf-039-consumer-review.md, local effects/timing review; earlier GPU results apply only to unchanged upstream paths.",
-      "next_step": ""
+      "reason": "Reviewed strict package API and frame sizes, lazy GetTimings adaptation, PDL unavailable guard, non-PDL median/collapsed-span filtering, shared key defaults and retired F8 polling. Module recipes/binaries unchanged; unrelated LLVM23 update not integrated. Existing upstream evidence retained only where unchanged.",
+      "evidence": "docs/lmxxf-039-consumer-review.md: targeted GetTimings section; docs/architecture/lmxxf-c-abi.md; docs/architecture/lmxxf-recording-lifecycle.md; product runtime/backend/config and maintained bridge/reference-network patches",
+      "validation": "2026-10-02 targeted checks: MSVC host/runtime builds; ABI/C smoke and22 runtime tests; NR median/collapsed-span/PDL display unit test; SourcePatchTests; actual package-template/install case; real HIP bridge timing/replay/epoch/failure test; runtime GPU recording test with default PDL unavailable and PDL-off valid samples. Output9e99616bb5014312 unchanged. No full CI, gfx1200, game menu/hotkey or release acceptance this turn. See docs/lmxxf-039-consumer-review.md targeted GetTimings section. Final bridge comment-only correction reused applicable build/GPU results and reran patch replay.",
+      "next_step": "Resolve default-PDL network timing with upstream; demonstrate trustworthy spans without disabling PDL or adding serialization, then rerun targeted image/lifecycle/performance checks before removing N/A (PDL)."
     },
     {
       "id": "file:CHANGELOG.md",
@@ -11141,10 +11141,10 @@
       "id": "flag:DLSS5_VIT_REUSE_HOTKEY",
       "fingerprint": "079cc6ea654b94470d64623d5cdeea8e46021c7c6a0d9a3730d9b13ceddc0fcd",
       "classification": "production",
-      "decision": "integrated",
-      "reason": "Network env absent disables hotkey; product retains Config hotkey=true. Alias wins over external defaults; add-on AE status text is outside host UI.",
-      "evidence": "Development/HIP/hip_reference_network.h AdaptiveVit/AdaptiveIdleMs; src/native_actual_network70.h/native_vit_linear.h/native_vit_block.h/native_pso.h and d3d12_native_network70_test.cpp; product ConfigKeys.h/Config/menu and LmxxfBackend.cpp aliases; Exact upstream consumer paths: Development/HIP/hip_reference_network.h, src/native_game_frame.h, src/native_pre_upscale.h",
-      "validation": "Consumer/default and alias inspection; existing full CI and RX9070XT exact/AE/restore smoke passed. Explicit diagnostic log/gain/hotkey variants not separately GPU validated.",
+      "decision": "excluded",
+      "reason": "User requested removal of F8 to avoid game key conflicts. Removed control/config read-write and actual GetAsyncKeyState polling; adaptive reuse remains menu-configurable.",
+      "evidence": "tools/lmxxf-sync/patches/reference-network.patch; Config.cpp; DlssNr_Menu.cpp; README.md",
+      "validation": "SourcePatchTests and MSVC host/runtime compile passed.",
       "next_step": ""
     },
     {
@@ -13619,13 +13619,13 @@
     },
     {
       "id": "pinned:Development/HIP/hip_d3d12_bridge.h",
-      "fingerprint": "e03d4a8098fd38a21dbf4c81d9ede5f858ee228368573e13d5ef35cc7e5d7fd4",
+      "fingerprint": "0070241313d7b11847b170b1b74df47fdc73d1922ff734b950ff4caa451f6e73",
       "classification": "production",
       "decision": "deferred",
-      "reason": "Pinned bridge retained intentionally. Complete diff checked: local completion/timing/error quarantine and recorded-execution contracts must survive; upstream direct-input API and marker polling cannot replace recorded producer/consumer facts.",
-      "evidence": "tools/lmxxf-sync/manifest.json and patches/bridge.patch; D3D12Bridge::BeginRecordedExecution/EndRecordedExecution/TakeProductionTiming; upstream SetupPoll/Enqueue",
-      "validation": "",
-      "next_step": "If revisiting bridge update: port direct-input and polling as separate opt-ins onto recording leases; bound/validate watchdog failure and slot reuse, discard/replay/cross-queue/rebuild/device-loss paths; require exact/AE tests and repeated real-game mean/p99 gain before enabling. Current default fence path remains."
+      "reason": "Keep pinned recording bridge; port only fe4d1d73 event-query timing block, with product pause/epoch and permanent failure latch so pending events cannot be reused on error. Current PDL timing proven unreliable and gated unavailable. Preserve existing submission ownership; do not port unrelated input-poll/direct-input/IO-fusion changes.",
+      "evidence": "tools/lmxxf-sync/patches/bridge.patch; upstream fe4d1d73 Development/HIP/hip_d3d12_bridge.h; tests/lmxxf/lmxxf_bridge_recording_gpu.cpp; docs/lmxxf-039-consumer-review.md targeted GetTimings section",
+      "validation": "2026-10-02 targeted checks: MSVC host/runtime builds; ABI/C smoke and22 runtime tests; NR median/collapsed-span/PDL display unit test; SourcePatchTests; actual package-template/install case; real HIP bridge timing/replay/epoch/failure test; runtime GPU recording test with default PDL unavailable and PDL-off valid samples. Output9e99616bb5014312 unchanged. No full CI, gfx1200, game menu/hotkey or release acceptance this turn. See docs/lmxxf-039-consumer-review.md targeted GetTimings section. Final bridge comment-only correction reused applicable build/GPU results and reran patch replay.",
+      "next_step": "Default PDL timing remains unavailable pending upstream correction and no-regression validation. Direct-input and polling remain deferred: port separately onto recording leases; validate watchdog failure, slot reuse, discard/replay/cross-queue/rebuild/device-loss, exact/AE output and real-game mean/p99 gains before enabling."
     },
     {
       "id": "modules:external",

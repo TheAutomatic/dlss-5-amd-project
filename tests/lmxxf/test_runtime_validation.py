@@ -51,6 +51,11 @@ LmxxfNrApi._fields_ = [
     ('Drain', ctypes.c_void_p),
     ('GetStatus', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32)),
     ('GetLastError', ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_char_p, ctypes.c_uint32)),
+    ('BeginRecordingExecution', ctypes.c_void_p),
+    ('EndRecordingExecution', ctypes.c_void_p),
+    ('InvalidateRecording', ctypes.c_void_p),
+    ('CollectRecording', ctypes.c_void_p),
+    ('GetTimings', ctypes.c_void_p),
 ]
 
 class RuntimeConfigTests(unittest.TestCase):
@@ -74,7 +79,7 @@ class RuntimeConfigTests(unittest.TestCase):
                 api = LmxxfNrApi()
                 api.struct_size = ctypes.sizeof(api)
                 dll.LmxxfNrGetApi.argtypes = [ctypes.c_uint32, ctypes.POINTER(LmxxfNrApi)]
-                assert dll.LmxxfNrGetApi(1, ctypes.byref(api)) == 0
+                assert dll.LmxxfNrGetApi(2, ctypes.byref(api)) == 0
                 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
                 kernel.SetEnvironmentVariableW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
                 kernel.GetEnvironmentVariableW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
@@ -135,7 +140,7 @@ class RuntimeValidationTests(unittest.TestCase):
 
         cls.api = LmxxfNrApi()
         cls.api.struct_size = ctypes.sizeof(LmxxfNrApi)
-        rc = cls.get_api(1, ctypes.byref(cls.api))
+        rc = cls.get_api(2, ctypes.byref(cls.api))
         assert rc == 0, f"GetApi failed: {rc}"
 
         cls.resolve_arch = cls.dll.LmxxfNrResolveArchModules
@@ -294,12 +299,12 @@ class RuntimeValidationTests(unittest.TestCase):
                 finally:
                     path.unlink()
 
-    def test_v1_abi_capabilities_and_pdl_status(self):
+    def test_package_abi_capabilities_and_pdl_status(self):
         caps = LmxxfNrCapabilities()
         caps.struct_size = ctypes.sizeof(LmxxfNrCapabilities)
         rc = self.api.QueryCapabilities(ctypes.byref(caps))
         self.assertEqual(rc, 0)
-        self.assertEqual(caps.abi_version, 1)
+        self.assertEqual(caps.abi_version, 2)
         self.assertEqual(caps.history_supported, 0)
         self.assertEqual(caps.overlap_supported, 0)
         self.assertEqual(caps.graph_supported, 0)

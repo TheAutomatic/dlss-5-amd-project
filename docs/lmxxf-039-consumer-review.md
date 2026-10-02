@@ -106,3 +106,35 @@ Style 1、1152 rows 恢复 EXACT；每次设置变化只重建一次，重复帧
 安装/打包、同步测试。tools/build/build-release-local.cmd --fast 宿主编译通过，
 该编译独立于上述完整 CI，不作为替代。无新增 GPU 硬件测试、游戏画质/菜单实测或发布包验收；
 上面的历史 GPU 结果只保留为未变化上游算法的既有证据。
+
+## 2026-10-02：定向接入 GetTimings、移除快捷键与旧 ABI
+
+本次定向移植 upstream `fe4d1d734aa6e5aaa1e940229f11803bfe7e190f` 的计时功能，
+来源为 include/LmxxfNrApi.h、src/LmxxfNrRuntime.cpp 和 Development/HIP/hip_d3d12_bridge.h。
+完整上游 pin 仍为 82ce821f；没有接入同期 LLVM23/RowOpts/PrebuiltDir 编译实验，
+也没有改变模块配方或现有 62 个模块。当前 pinned bridge 的录制所有权补丁继续保留。
+
+- 接口：24 字节 LmxxfNrTimings 载荷沿用上游，GetTimings 接在本产品录制函数之后。
+  整包交付只接受当前函数表及 FrameInfo，移除 ABI v1、历史尺寸和宿主降级重试。
+- 事件：移植四槽异步 HIP event-query 采样。产品补充关闭采集、启用 epoch，
+  错误后不复用未完成事件。默认不分配事件；UI 读缓存，不直接调用 HIP。
+- PDL 限制：gfx1201 实际录制测试中，PDL 开启连续 8 帧均约 0.001 ms；关闭 PDL 后
+  出现正常约 15–18 ms 的测试场景读数，但仍混入短事件区间。该数值不代表游戏性能。
+  当前 PDL 下返回 valid=0 / N/A (PDL)，不自动关闭 PDL。非 PDL 显示统计丢弃低于
+  0.01 ms 的坍缩区间及重建后首样本，至少 3 个样本后取最近 5 个中位数。
+  原始 GetTimings 载荷保留，正常日志默认关闭且仍限频。
+- 快捷键：移除 ViT F8 控件、配置读写及上游轮询，保存在 reference-network.patch。
+  NR 默认 End，FG 默认未绑定，避免新安装默认重复触发；用户显式配置保持有效。
+- 流程：日常按最终 diff 审阅和具体风险做专项验证；完整测试集中在发版前。
+
+本轮验证：MSVC runtime/host 编译；lmxxf ABI/C 冒烟/22 项 runtime 验证；
+NR 统计中位数/异常区间与 PDL 状态单测；SourcePatchTests 原始夹具重放；
+安装包模板/实际解包安装专项；实际 HIP bridge 录制/重放/关闭/epoch/错误测试；
+runtime 录制 GPU 测试分别验证默认 PDL 不发布错误样本及 PDL-off 的网络样本。
+最后非 PDL 场景 8 帧中 1 个坍缩区间被丢弃，7 个有效样本，输出 baseline
+仍为 9e99616bb5014312。未重跑完整 CI、gfx1200 实机、游戏菜单/快捷键或性能矩阵；未打包发布。
+
+后续：向上游提供默认 PDL 与 PDL-off 对照、GetTimings 原始值和输出一致性结果，
+确认事件边界与 PDL 调度的关系。只有默认生产 PDL 下能得到可信整网时间、关闭采集零事件、
+重建/重放/错误测试通过且无画面变化，才解除 N/A (PDL) 限制。不要以关闭 PDL 或
+CPU/GPU 额外同步来伪装原模式的计时。这个限制是新增待解决项，原上游 26 项暂缓仍保留。

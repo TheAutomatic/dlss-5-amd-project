@@ -847,12 +847,6 @@ void RenderMenu(Config* config, float menuResScale)
                             snprintf(buf, sizeof buf, "%g", im);
                             CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
                         }
-                        bool hot = config->LmxxfVitReuseHotkey.value_or_default();
-                        if (ImGui::Checkbox("Hotkey F8", &hot))
-                        {
-                            config->LmxxfVitReuseHotkey = hot;
-                            CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, hot);
-                        }
                         HelpMarker("Static frames reuse ViT; motion returns to full cost."
                                    "\nEnabling adaptive reuse turns off ViT byte stream."
                                    "\nStrength sliders are tunable (not bit-exact)."
@@ -984,8 +978,6 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitReuseLocal, "50");
                     config->LmxxfVitReuseImage = 1.0f;
                     CfgKey::PutEnvString(CfgKey::VitReuseImage, "1");
-                    config->LmxxfVitReuseHotkey = true;
-                    CfgKey::PutEnvAlias(CfgKey::VitReuseHotkey, true);
                     DlssNr::AmdBridge::InvalidateHistory();
                 }
                 HelpMarker("Detail=1, Colour=1, paper white=1, auto exposure on (scale 8),"
@@ -1148,9 +1140,9 @@ void RenderMenu(Config* config, float menuResScale)
             if (isLmxxf)
             {
                 ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
-                ImGui::TextWrapped("NR network timing is paused pending an upstream interface. Codec and effects timings remain available.");
+                ImGui::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Network timing is unavailable with PDL; measurement never changes PDL.");
                 bool timingEnabled = config->NrTimingEnabled.value_or_default();
-                if (ImGui::Checkbox("Measure codec / effects performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
+                if (ImGui::Checkbox("Measure NR performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
                 HelpMarker("Asynchronous GPU timing. Does not wait for the GPU. New recordings include encode/decode queries."
                            "\nAverages and maxima use the last 120 samples. These are not whole-frame latency."
                            "\nClosed recordings keep their queries until Reset/Release, even after measurement is disabled.");

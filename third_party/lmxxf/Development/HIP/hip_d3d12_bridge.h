@@ -36,6 +36,51 @@ private:
  // synchronized through external semaphores. It adds no CPU wait or GPU dependency.
  Handle release_mark{};unsigned long long release_marks{},release_mark_failures{};
  Handle span_begin{},span_end{};bool span_probe{},span_pending{};double span_cpu{};
+ /* Network GPU timing (2026-10-02, results/net-timing-20261002; read by LmxxfNrApi GetTimings/GetStatus): kTimingSlots
+    begin/end hipEvent pairs recorded on the network stream at the SPAN_PROBE points, so a span is the HIP network only
+    (no D3D12 input copy/codec pass, no handoff wait). Harvested at the next Enqueue / PollNetworkTiming with hipEventQuery
+    only, never a synchronize; if the next slot's end has not completed yet that frame is simply not timed. Off until
+    EnableNetworkTiming(); the product does not wire an independent environment toggle. Event allocation/record/query
+    errors disable timing for this bridge without failing rendering; failed elapsed reads are discarded. Bytes unchanged. */
+ static constexpr unsigned kTimingSlots=4;
+ Handle timing_begin[kTimingSlots]{},timing_end[kTimingSlots]{};unsigned long long timing_slot_tag[kTimingSlots]{};bool timing_busy[kTimingSlots]{};
+ bool timing_on{},timing_requested{},timing_faulted{};unsigned long long timing_epoch{},timing_slot_epoch[kTimingSlots]{};unsigned timing_next{},timing_oldest{};unsigned long long timing_tag{},timing_last_tag{};float timing_last_ms{};bool timing_valid{};
+ using EventQueryFn=int(*)(Handle);EventQueryFn timing_query{};
+ void TimingOff(){timing_on=false;timing_valid=false;timing_faulted=true;}
+ void HarvestTiming(){
+  if(!timing_on)return;auto&api=network->Runtime();
+  for(unsigned n=0;n<kTimingSlots;n++){const unsigned k=timing_oldest;if(!timing_busy[k])return;
+   const int q=timing_query(timing_end[k]);if(q==600/*hipErrorNotReady*/)return;if(q!=0){TimingOff();return;}
+   float ms=-1;if(api.hipEventElapsedTime(&ms,timing_begin[k],timing_end[k])==0&&ms>=0&&ms<1e6f&&timing_slot_epoch[k]==timing_epoch){timing_last_ms=ms;timing_last_tag=timing_slot_tag[k];timing_valid=true;}
+   timing_busy[k]=false;timing_oldest=(k+1)%kTimingSlots;}
+ }
+ bool TimingBegin(){ // after the input wait; returns true when this frame is being timed
+  if(!timing_on||!timing_requested)return false;HarvestTiming();if(!timing_on||timing_busy[timing_next])return false;
+  if(network->Runtime().hipEventRecord(timing_begin[timing_next],network->Stream())){TimingOff();return false;}return true;
+ }
+ void TimingEnd(){ // before the output signal
+  if(!timing_on)return;const unsigned k=timing_next;
+  if(network->Runtime().hipEventRecord(timing_end[k],network->Stream())){TimingOff();return;}
+  timing_slot_epoch[k]=timing_epoch;timing_slot_tag[k]=timing_tag;timing_busy[k]=true;timing_next=(k+1)%kTimingSlots;
+ }
+ void DestroyTiming(){if(!network)return;auto&api=network->Runtime();for(unsigned k=0;k<kTimingSlots;k++){if(timing_begin[k])api.hipEventDestroy(timing_begin[k]);if(timing_end[k])api.hipEventDestroy(timing_end[k]);timing_begin[k]=timing_end[k]=nullptr;}TimingOff();}
+public:
+ /* Starts network timing (idempotent). false = unavailable (no hipEventQuery export or event creation failed); frames are unaffected. */
+ bool EnableNetworkTiming(){
+  timing_requested=true;if(timing_faulted)return false;if(timing_on)return true;if(!network||failed)return false;auto&api=network->Runtime();
+  if(!timing_query)timing_query=reinterpret_cast<EventQueryFn>(GetProcAddress(api.dll,"hipEventQuery"));if(!timing_query)return false;
+  for(unsigned k=0;k<kTimingSlots;k++){if(!timing_begin[k]&&api.hipEventCreate(&timing_begin[k])){DestroyTiming();return false;}if(!timing_end[k]&&api.hipEventCreate(&timing_end[k])){DestroyTiming();return false;}}
+  timing_next=timing_oldest=0;timing_on=true;return true;
+ }
+ bool NetworkTimingEnabled()const{return timing_on&&timing_requested;}
+ void PauseNetworkTiming(){timing_requested=false;timing_valid=false;}
+ void SetTimingEpoch(unsigned long long epoch){if(epoch!=timing_epoch){timing_epoch=epoch;timing_valid=false;}}
+ /* Tag stored with the next timed enqueue (the RE9 runtime passes LmxxfNrFrameInfo::frame_id). */
+ void SetTimingTag(unsigned long long tag){timing_tag=tag;}
+ /* Non-blocking: collects every completed span, then returns the most recent one. valid=false until one has completed. */
+ struct NetworkTiming{bool valid;float ms;unsigned long long tag;};
+ NetworkTiming PollNetworkTiming(){if(network&&!failed&&timing_requested)HarvestTiming();return {timing_requested&&timing_valid&&!failed,timing_last_ms,timing_last_tag};}
+private:
  struct TimingSlot {
   Handle begin{},end{};bool pending{},valid{};UINT64 completion{},serial{};ProductionTiming sample{};
  };
@@ -117,7 +162,7 @@ public:
   if(recording_leases&&network&&network->Runtime().hipSetDevice(hip_device)!=0)return;
   if(!WaitForSubmittedWork())return;
   if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
-  if(network){auto&api=network->Runtime();for(auto&s:timing_slots){if(s.begin)api.hipEventDestroy(s.begin);if(s.end)api.hipEventDestroy(s.end);}for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
+  if(network){DestroyTiming();auto&api=network->Runtime();for(auto&s:timing_slots){if(s.begin)api.hipEventDestroy(s.begin);if(s.end)api.hipEventDestroy(s.end);}for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
  void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
@@ -176,8 +221,10 @@ private:
   try{
    pending=true;Check(queue->Signal(fence,++value),"D3D input signal");hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
    if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
+   const bool upstreamTimed=TimingBegin();
    auto*timing=BeginProductionTiming();
    auto start=std::chrono::steady_clock::now();network->Enqueue(input.mapped,temporal?history.mapped:nullptr,output.mapped,seed);
+   if(upstreamTimed)TimingEnd();
    if(timing)timing->valid=(api.hipEventRecord(timing->end,network->Stream())==0)&&timing->valid;
    if(span_probe){span_cpu=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();api.Check(api.hipEventRecord(span_end,network->Stream()),"span end");span_pending=true;}
    hip_probe::SignalParams signal{};signal.params.fence.value=++value;api.Check(api.hipSignalExternalSemaphoresAsync(&semaphore,&signal,1,network->Stream()),"HIP output signal");

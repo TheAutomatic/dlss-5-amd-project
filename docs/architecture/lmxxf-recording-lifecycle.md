@@ -4,7 +4,7 @@ The product backend negotiates ABI v2 and attaches a recording lease before appe
 private commands. Each lease owns its immutable bindings and session independently of
 the active backend. NR off or backend shutdown drops the active owner; closed game
 recordings remain executable until successful Reset or final Release invalidates them.
-ABI v1 retains its original 136-byte function-table prefix and legacy serial behavior.
+Only the current whole-package ABI is accepted; old table/frame sizes and ABI v1 are rejected.
 
 ## Submission events
 
@@ -88,7 +88,7 @@ geometry changes, exposure, passthrough/HIP ordering, and another live session. 
 SessionOwner + CommandListProxy tests cover NR off/on, Reset while GPU work is blocked,
 background collection, and partial recordings without HIP. Fault tests reject the wrong
 execution queue and retain work with failed Signal proof. ABI tests cover old prefix
-bounds and v1/v2 negotiation. GPU coverage is RX 9070 XT (gfx1201); gfx1200 hardware,
+bounds and rejection of old ABI layouts. GPU coverage is RX 9070 XT (gfx1201); gfx1200 hardware,
 real-game hot switching, and forced physical device removal remain untested.
 
 ## Pure-backend startup policy
@@ -109,26 +109,32 @@ the running session's backend policy; restart is required.
 ## Optional timing
 
 `LmxxfNrGetTimingApi` negotiates a separate versioned timing table. Missing timing
-support leaves rendering ABI v1/v2 intact. `NrTimingEnabled` and `NrTimingLog` both
+support is part of the current package contract. `NrTimingEnabled` and `NrTimingLog` both
 default to false. The host caches a non-consuming snapshot every 500 ms; explicit
 file summaries are limited to one per five seconds. Means and maxima cover the
 last 120 valid samples, counts are cumulative since the last enable change.
 
-Network timing is currently disabled internally (`NR_NETWORK_TIMING_AVAILABLE=0`)
-pending an upstream interface. Neither ini nor the timing ABI enable switch can
-activate it. Network samples are not collected and the UI displays N/A (paused);
-codec/effects and CPU measurements remain opt-in.
+Network timing uses the event-query path from upstream fe4d1d73, ported in
+bridge.patch onto the pinned product bridge. GetTimings returns the latest completed
+frame without waiting and is called only by the rendering thread while measurement
+is enabled. Four event pairs are allocated lazily. Toggle-off stops new event records;
+old pending pairs stay owned until completion, and enable epochs reject old samples.
+Event-query/record failures latch timing off for that bridge, without failing rendering.
+The first completed sample after recreation is omitted from display statistics. After
+three samples, the displayed network value is a median of the most recent five;
+raw last/max and sample count remain separately labelled. Collapsed event spans
+below 0.01 ms (observed repeatedly at ~0.001 ms) are counted as dropped samples;
+GetTimings itself retains the upstream raw payload. No invented replacement value
+is inserted. This rejection also prevents consecutive corrupt spans from dominating
+the median on the PDL-off path.
 
-The retained, inactive v2 implementation records HIP events after the input semaphore wait and around
-network enqueue, including its final output buffer copy. This is a GPU stream span,
-not isolated kernel busy time or end-to-end frame latency. Eight event pairs are
-reused only after the existing output fence proves completion; a full pool drops
-telemetry without waiting. Failed enqueue/signal leaves reserved events owned by
-the bridge until its existing safe teardown. Timing failures do not fail rendering.
-Enable epochs prevent older pending samples from repopulating a restarted window.
-Legacy v1, codec passthrough and unexecuted recordings have no network GPU sample.
-The standalone synchronous development probe remains separate and is not enabled
-by product telemetry. Game performance still requires an external off/on comparison.
+On the current gfx1201 production PDL path, the upstream interval repeatedly reports
+about 0.001 ms despite real inference. PDL-off testing produces normal spans with
+occasional short samples. The product therefore returns valid=0 / N/A (PDL) while
+PDL is effective, does not allocate these events, and never changes PDL to obtain a
+number. Resolving this upstream timing limitation remains deferred. Codec/effects
+queries remain independent. GetStatus reports net_gpu_ms=off/n/a/unavailable-pdl
+or a completed raw value; normal logging remains bounded and opt-in.
 
 D3D12 encode (including exposure/input copies) and decode (including output copies)
 use separate timestamp intervals on the actual execution queue. A session holds at

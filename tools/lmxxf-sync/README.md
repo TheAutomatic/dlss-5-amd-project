@@ -91,3 +91,7 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 0.37 消费者复核、实际模块宏和验证范围见 [docs/lmxxf-037-consumer-review.md](../../docs/lmxxf-037-consumer-review.md)。不能只刷新 fingerprint 来接纳本地默认值变更。
 
 0.39 完整上游审阅、实际生成配方和保留项见 [docs/lmxxf-039-consumer-review.md](../../docs/lmxxf-039-consumer-review.md)。
+
+## 本地增量修正
+
+上游 pin 不变、仅调整产品接入或本地补丁时，复核本地最终 diff、重放受影响补丁并重新执行审计即可；不必为此重拷 vendor 或重编未变的模块。功能结论引用同一文档，沿用未变证据。实际追更新 pin 仍走上面的 staged 流程。日常只做风险相关专项测试，完整测试集中在发版前；验证范围与未测项目如实记录。
