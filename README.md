@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.9.1
+# OptiScaler AMD pre-SR — 1.9.10.1
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -10,7 +10,7 @@
 
 ## 更新日志
 
-详情请看 release 1.9.9.1 更新日志。
+详情请看 release 1.9.10.1 更新日志。
 
 ### lmxxf 配置速查（ini / 菜单）
 
@@ -26,9 +26,9 @@
 | ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
 | Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`、增强屏障、early wrap / Debug view | 兼容设置与诊断画面分别归组 |
 
-### 本分支新增控制（尚未发布）
+### 1.9.10.1 新增控制
 
-以下选项位于 `OptiScaler.ini` 的 `[DlssNr]`，在 Ins 菜单调节后点 **Save Settings** 保存。这里描述开发分支，不代表上面的 1.9.9.1 已包含这些功能。
+以下选项位于 `OptiScaler.ini` 的 `[DlssNr]`，在 Ins 菜单调节后点 **Save Settings** 保存。发布状态以 GitHub Releases 为准。
 
 | 菜单 | 配置键与默认值 | 用法 |
 |---|---|---|
@@ -38,14 +38,14 @@
 | Overall Intensity | `NrOverallIntensity=1.0` | 双后端共用，0–2；0 显示原图，1 保留完整结果，>1 增强修正。0 仍运行 NR，省算力应关闭 NR |
 | Residual Stabilizer | `NrStabilizerEnabled=false` | 双后端共用，利用运动与深度减少修正量闪烁；可能软化运动细节或拖影，增加 GPU 工作与显存 |
 | History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | 范围分别 0–0.95 / 0–16；任一为 0 时旁路稳定器。先用默认值，拖影时降低 |
-| Measure NR performance | `NrTimingEnabled=false` | 按需测量 HIP 网络、Encode、Decode 和输出效果；PDL 生效时网络计时显示 `N/A (PDL)`，不会自动关闭 PDL |
+| Measure NR performance | `NrTimingEnabled=false` | 按需测量 HIP 网络、Encode、Decode 和输出效果；网络计时使用非阻塞 HIP 事件，不改变 PDL 设置 |
 | Write timing summary to log | `NrTimingLog=false` | 同时启用计时和文件日志后，最多每 5 秒一条摘要，不逐帧刷屏 |
 
 菜单顶部保留启用、后端、Overall Intensity 和 Residual Stabilizer；其余按 Image、Quality & Performance、ViT / image reuse（lmxxf）、Additional Effects（daniel）、Compatibility & Scheduling、Advanced Kernels（lmxxf）、Diagnostics 排列。High resolution 默认开启，收在 Compatibility & Scheduling；保留 NR% 命名，当前 lmxxf 仍选择分辨率档位。
 
 **Reset shared effects** 只恢复整体强度和稳定器；**Reset diagnostics** 恢复计时与调试显示。各分组 Reset 只作用于对应设置；ViT 分组统一管理执行路径、复用及互斥设置。底部 **Reset NR settings** 重置当前后端和共享 NR 控件，不改另一个后端、后端选择、热切换偏好或快捷键。Lighting / Appearance 的 Reset 不再修改模型次数、结构等分组外设置。
 
-**Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。编解码/效果数值是最近 120 个有效样本的统计；网络数值是最近 5 个样本的中位数，重建后跳过首样本、丢弃已观察到的不足 0.01 ms 异常事件区间，至少积累 3 个再显示；`N/A` 表示无可用样本，`stale` 表示过期。上游 `fe4d1d73` 的网络计时在当前 PDL 路径会持续低报，故该模式显示 `N/A (PDL)`；编解码与输出效果各自换行显示，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
+**Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。编解码/效果数值是最近 120 个有效样本的统计；网络数值是最近 5 个样本的中位数，重建后跳过首样本、丢弃已观察到的不足 0.01 ms 异常事件区间，至少积累 3 个再显示；`N/A` 表示无可用样本，`stale` 表示过期。编解码与输出效果各自换行显示，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
 
 稳定器需要有效运动/深度，无法安全执行时旁路并在 Ins 显示状态。纯后端模式首次开启共享输出效果可能需要保存并重启。整体强度作用于最终输出，不等同于模型的 `Intensity`、Detail 或 Colour。
 
@@ -53,11 +53,11 @@ NR 快速开关默认 **End**，帧生成默认未绑定；可在快捷键菜单
 
 ViT 复用仍采用本项目的性能取向默认值 **16 / 1 / 50 / 1**（period/global/local/image），不是上游 **4 / 0.22 / 1 / 0.35**；更宽松的阈值可能留下旧细节或拖影。`DLSS5_HIP_INPUT_POLL` 与 `DLSS5_IO_FUSE` 尚未接入产品路径，不能通过添加 ini 键启用。
 
-### Ins 窗口布局（开发分支，未发布）
+### Ins 窗口布局
 
 可拖动窗口边缘调整大小；窄窗口改为单栏，内容滚动，底部操作独立保留。
 底部 **Window** 可选择自由移动或四角停靠；拖动标题栏解除停靠。窗口随游戏显示区域变化保持在边界内。
-**Menu Scale** 仍控制字体/控件大小，和窗口尺寸分开。**Reset window layout** 只恢复窗口尺寸、居中和自由模式，不改 NR 或缩放设置。
+**Menu Scale** 仍控制字体/控件大小，和窗口尺寸分开。**… → Reset window layout** 只恢复窗口尺寸、居中和自由模式，不改 NR 或缩放设置。
 **Save Settings** 保存 `[Menu] WindowWidth/WindowHeight`（缩放前逻辑像素，`auto` 为自动）和 `WindowAnchor`（0=自由，1/2=左上/右上，3/4=左下/右下）。自由位置仅在当前会话保留。
 Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置。
 
@@ -330,7 +330,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
   - `Quality`：Reference（默认，高画质对齐 NVIDIA）/ Fast；
   - **Display**：`Tone curve` / `Tone lift`；
   - **Queue (experimental)**：`HIP high-priority queue`；
-  - **Debug / Advanced**：`dlssnr_on_amd.ini` 额外键说明。
+  - **Compatibility & Scheduling / Diagnostics**：`dlssnr_on_amd.ini` 额外键说明。
 
 #### daniel 配置键（与 `dlssnr_on_amd.ini` `[DlssNrOnAmd]` 对应）
 

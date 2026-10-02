@@ -129,7 +129,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 |---|---|
 | daniel | Ins 菜单 Status 显示识别到的 runtime 版本（来自布局表，不是写死的字符串）；`amd_presr.log` 与作者的 `dlssnr_on_amd.log` 正常；无设备移除 |
 | lmxxf | Status 显示 lmxxf；Detail / Colour strength 与 Debug view 可调；`OptiScaler.log` 的 `lmxxf:` 行无错误 |
-| 切换 | ini 里改 `NrBackend` 后重启游戏，两边都能跑；卸载不误删两类权重 |
+| 切换 | 开启热切换时验证菜单双向切换；`NrConvenience=0` 时分别重启验证所选后端；卸载不误删两类权重 |
 | 退出 | 正常退出无崩溃、无 `DXGI_ERROR_DEVICE_REMOVED` |
 
 GPU 输出哈希和实机覆盖范围见 [测试入口说明](../tests/RELEASE-TESTS.md)。未安装的游戏或没有的硬件明确记录 SKIP，不将本地无卡 PASS 写成游戏验证通过。
@@ -156,7 +156,7 @@ GPU 输出哈希和实机覆盖范围见 [测试入口说明](../tests/RELEASE-T
 
 本轮另修正了两个实际流程缺口：`2263190` 将成功测试的 runtime 与打包 DLL 按哈希绑定；`8ed1b31` 将 Actions 的 runtime/测试编译器和 SDK 与宿主、本地入口统一。此前仅 MSBuild 选定编译器，setup-msvc-dev 仍可能采用 runner 默认值。
 
-固定 0.37 修复已完成本地 CI/device/GPU 与构建，尚未推送或运行该修复分支的 Actions。后续应走本页非 tag 预验证流程；这份本地结果不能替代它。仍有既有编译警告，不宣称零警告构建。
+上述记录为 2026-10-01 的历史状态，不代表当前待发布版本已经通过验证。每次发布按具体提交和产物记录本地及远端结果；既有结果不能替代不同提交的验证。
 
 ## 发版当天不要顺手修
 

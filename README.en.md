@@ -1,6 +1,6 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.9.1
+# OptiScaler AMD pre-SR — 1.9.10.1
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
@@ -10,7 +10,7 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ## Changelog
 
-See the release 1.9.9.1 notes for details.
+See the release 1.9.10.1 notes for details.
 
 ### lmxxf config map (ini / Ins menu)
 
@@ -18,17 +18,17 @@ Cross-layer keys use the same `DLSS5_*` names as upstream. **Ins labels are neve
 
 | Menu location | Key | Notes |
 |---|---|---|
-| Top | `TransferStrength` / `ColourStrength` | Detail / colour mix (Colour 0–1 keeps game colour) |
-| Top | `DLSS5_FIT_LARGE` | High resolution; fit large Color into the network (incl. >1080p) |
-| Top | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (default) or 720 / 900 / 1080 |
-| Experimental | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
-| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Kernels / shared pool / byte stream |
-| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
-| Debug / Advanced | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
+| Image | `TransferStrength` / `ColourStrength` | Detail / colour mix (Colour 0–1 keeps game colour) |
+| Compatibility & Scheduling | `DLSS5_FIT_LARGE` | High resolution; fit large Color into the network (incl. >1080p) |
+| Quality & Performance | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (default) or 720 / 900 / 1080 |
+| Image | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
+| Advanced Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Kernels / shared pool / byte stream |
+| ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
+| Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
 
-### New controls on this branch (unreleased)
+### New controls in 1.9.10.1
 
-These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings** after changing them in Ins. This section describes the development branch, not the published 1.9.9.1 release.
+These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings** after changing them in Ins. See GitHub Releases for publication status.
 
 | Menu | Key and default | Behaviour |
 |---|---|---|
@@ -41,17 +41,19 @@ These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings**
 | Measure NR performance | `NrTimingEnabled=false` | Asynchronous lmxxf NR GPU, Encode and Decode measurements; Ins also exposes CPU stages and dropped samples |
 | Write timing summary to log | `NrTimingLog=false` | Requires measurement and file logging; at most one summary every five seconds |
 
-**Page Up** opens the FPS overlay; **Page Down** changes detail. Just FPS omits NR timings; other styles show NR GPU, while detailed styles add encode/decode and output-effect times when samples exist. Statistics cover the last 120 valid samples; `N/A` means unavailable and `stale` means outdated. NR GPU includes the network output copy. Do not add stages together as whole-frame latency. Measurement adds no GPU waits, but has some overhead that still needs game testing. Daniel's internal network timing is not integrated into this panel.
+**Page Up** opens the FPS overlay; **Page Down** changes detail. Just FPS omits NR timings; other styles show NR GPU, while detailed styles add encode/decode and output-effect times when samples exist. Codec/effect statistics cover the last 120 valid samples; NR GPU uses a five-sample median after warm-up and does not change PDL. `N/A` means unavailable and `stale` means outdated. NR GPU includes the network output copy. Do not add stages together as whole-frame latency. Measurement adds no GPU waits, but has some overhead that still needs game testing. Daniel's internal network timing is not integrated into this panel.
 
 The stabilizer needs valid motion/depth; unsafe paths bypass it and show an Ins status. Enabling shared output effects for the first time in a pure-backend session may require saving and restarting. Overall Intensity blends the final output; it is separate from model `Intensity`, Detail and Colour.
 
 ViT reuse retains this product's performance-oriented **16 / 1 / 50 / 1** defaults (period/global/local/image), compared with upstream **4 / 0.22 / 1 / 0.35**. Looser thresholds can retain stale detail or trails. `DLSS5_HIP_INPUT_POLL` and `DLSS5_IO_FUSE` are not integrated into the product path; adding ini keys does not enable them.
 
-### Ins window layout (development branch, unreleased)
+NR toggle defaults to **End**; ViT reuse has no F8 shortcut. Reset controls affect their own group; Reset NR settings preserves the other backend, backend selection, hot-switch preference and keybinds. Install the complete package with matching host and runtime.
+
+### Ins window layout
 
 Drag an edge to resize. Narrow windows use one column; content scrolls independently of the footer.
 **Window** selects Free or a screen corner. Dragging the title bar releases the anchor; viewport changes keep the window within the game display area.
-**Menu Scale** controls text/control scale separately. **Reset window layout** restores automatic size, centering and Free mode without resetting NR or UI scale.
+**Menu Scale** controls text/control scale separately. **… → Reset window layout** restores automatic size, centering and Free mode without resetting NR or UI scale.
 **Save Settings** persists `[Menu] WindowWidth/WindowHeight` (logical pixels before scale; `auto` chooses the size) and `WindowAnchor` (0=Free, 1/2=top left/right, 3/4=bottom left/right). Free position is retained for this session only.
 Both backends share this layout. The Page Up overlay keeps its independent position setting.
 
@@ -319,7 +321,7 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
   - `Quality`: Reference (default, NVIDIA-exact) / Fast;
   - **Display**: `Tone curve` / `Tone lift`;
   - **Queue (experimental)**: `HIP high-priority queue`;
-  - **Debug / Advanced**: extra `dlssnr_on_amd.ini` keys.
+  - **Compatibility & Scheduling / Diagnostics**: extra `dlssnr_on_amd.ini` keys.
 
 **Priority:** Ins session > `OptiScaler.ini` `[DlssNr]` (after Save) > `dlssnr_on_amd.ini` / env > defaults.  
 Ins labels are not written to ini; **Save Settings** persists menu values to both inis.  

@@ -260,93 +260,34 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           body: |
-            ### 1.9.9.1
+            ### 1.9.10.1 (compared to 1.9.9.1)
 
-            - 修复日志重复刷屏及文件持续增长的问题，保留必要的错误诊断信息。
-
-            ### 1.9.9（相比 1.9.8.1）
-
-            欢迎附带日志反馈问题。
-
-            **Daniel 后端**
-
-            运行文件与权重请自行下载：[Daniel 官方发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)。
-
-            - **新增 Daniel 0.6.0 支持**，保留旧版兼容。
-            - 将 `Lightning Strength` 更名为 **Tone intensity**，明确区分模型效果与 Appearance 滤镜。
-            - 修正 **ToneLift 的取值范围为 0～0.25**，补齐设置保存及切换画面参数后的历史重置。
-            - 完善新版本运行文件识别，兼容安装产物附加尾部数据的情况。
-
-            **lmxxf 后端**
-
-            权重下载：[lmxxf 原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [网盘链接](https://gofile.io/d/wRln0Pue)。
-
-            - 本版继续使用 **上游 0.37**。
-            - 修复延迟执行、重复执行、关闭 NR 和切换后端时的资源生命周期问题，避免 GPU 仍在使用的资源被提前释放或替换。
-            - 加强曝光与图像处理资源的管理，改善复杂提交场景下的稳定性。
-            - 隔离着色器编译器，避免游戏目录中的旧版编译器干扰；完善缓存校验，减少不同环境下初始化失败或误用旧缓存的问题。
-
-            **后端与发布流程**
-
-            - **修复纯 lmxxf 模式仍启用 Daniel 图形跟踪的问题**：关闭 `Allow backend hot switching`（`NrConvenience=0`）并使用 lmxxf 时，不再启用 Daniel 专用跟踪，也不会改写用户的 `AmdGraphicsWait` 设置。
-            - 统一 GitHub Actions 与本地的编译器、SDK 和测试环境。
-            - 修复 Git 同步可能改变 HIP 模块二进制内容的问题。
-            - 加强打包检查，确保运行时与通过测试的文件一致，并阻止旧产物混入新包。
-
-            **升级与说明**
-
-            - 建议使用完整安装包更新，避免混用不同版本的宿主与运行时 DLL。
-            - Daniel 模型缓存仍可能在关闭 NR 后保留，退出游戏后回收；关闭 NR 不代表显存占用立即归零。
-            - 本地 CI/device 九项测试及 RX 9070 XT 上的相关 GPU 验证已通过，实际游戏画质、性能和更多显卡兼容性仍需验证。
-
-            **本压缩包不含 NVIDIA 专有二进制、danielblnc 安装包或未授权模型权重。**
-
-            详细说明见包内 README。
-
-            ---
-
-            ### 1.9.9.1
-
-            - Fixed excessive repeated logging and unbounded log growth while preserving essential error diagnostics.
-
-            ### 1.9.9 (compared to 1.9.8.1)
-
-            Bug reports with logs are welcome.
+            - Updated the lmxxf integration to the pinned 0.39-generation source (82ce821f), with style, compact 1080 network and additional colour-format controls.
+            - Added Overall Intensity and Residual Stabilizer for both AMD backends. Stabilization requires valid motion/depth and is off by default.
+            - Added optional asynchronous lmxxf NR GPU, encode/decode and output-effect timings in Ins and the Page Up/Page Down overlay. Measurement and timing logs are off by default; summaries are rate-limited.
+            - Reorganized NR settings and corrected reset scope. NR toggle now defaults to End; removed the F8 ViT shortcut.
+            - Added a resizable, screen-bounded Ins window with corner anchoring, a fixed compact graph/footer area, and persistent window size.
+            - Removed a redundant lmxxf input copy through shared input storage and disabled unused tile generation. These changes do not imply a fixed FPS improvement in every game.
+            - Added a bounded startup log diagnostic when no supported upscaler route reaches OptiScaler.
 
             **Daniel backend**
 
-            Download the runtime and weights separately from the [Daniel releases page](https://github.com/danielblnc/DLSS-NR-on-AMD/releases).
-
-            - **Added support for Daniel 0.6.0**, while retaining compatibility with previously supported versions.
-            - Renamed `Lightning Strength` to **Tone intensity** to distinguish the model response from the Appearance filter.
-            - Corrected the **ToneLift range to 0–0.25** and improved settings persistence and history resets when changing image controls.
-            - Updated runtime identification to handle installation files with appended data.
+            Download the runtime and weights separately from the [Daniel releases page](https://github.com/danielblnc/DLSS-NR-on-AMD/releases). Daniel 0.6.0 remains supported.
 
             **lmxxf backend**
 
             Weight files: [lmxxf upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
 
-            - This release continues to use **upstream 0.37**.
-            - Fixed resource lifetime issues involving delayed execution, command replay, NR shutdown, and backend switching, preventing resources still in use by the GPU from being released or replaced prematurely.
-            - Improved exposure and image-processing resource management for more reliable handling of complex command submissions.
-            - Isolated the shader compiler from older copies supplied by games and strengthened cache validation to reduce initialization failures and stale-cache reuse across environments.
-
-            **Backend handling and release process**
-
-            - **Fixed Daniel graphics tracking remaining active in pure lmxxf sessions**. With `Allow backend hot switching` disabled (`NrConvenience=0`) and lmxxf selected, Daniel-specific tracking is no longer enabled. The user's `AmdGraphicsWait` setting is preserved.
-            - Aligned compiler, SDK, and test environments between local builds and GitHub Actions.
-            - Fixed an issue where Git synchronization could alter HIP module binaries.
-            - Strengthened packaging checks to ensure the bundled runtime matches the tested artifact and to prevent stale build outputs from entering a new package.
-
             **Updating and notes**
 
-            - Update using the complete package to avoid mixing host and runtime DLLs from different versions.
-            - Daniel model caches may remain allocated after NR is disabled and are reclaimed when the game exits. Disabling NR does not immediately release all VRAM.
-            - All nine local CI/device suites and relevant GPU checks on an RX 9070 XT passed. Real-game image quality, performance, and compatibility with additional GPUs still require validation.
+            - Install and overwrite the complete package; host and runtime must match. Old lmxxf ABI fallback is not supported.
+            - Overall Intensity at 0 shows the original image but still runs NR; disable NR to save model computation.
+            - NR GPU timing is not whole-frame latency. Stabilization and measurement add work; actual game performance and image quality depend on the scene and settings.
+            - Daniel model caches may remain allocated after NR is disabled until the game exits.
 
             **This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.**
 
-            See the README included in the package for details.
+            See the included README for configuration details. Bug reports with logs are welcome.
 
       - name: Upload release asset with verified retries
         if: startsWith(github.ref, 'refs/tags/')

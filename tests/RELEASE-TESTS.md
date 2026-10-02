@@ -27,15 +27,15 @@ tests\run-all.cmd --tier ci
 
 ## 何时必须跑
 
-- 修改安装、打包、同步或模块契约，以及合入发布分支后：完整 `--tier ci`。
-- 修改 runtime/宿主 GPU 行为：完整 CI，加受影响的 device/GPU 测试。
-- 增删模块：先跑 `tools/release/check-module-contract.ps1`，更新主流程列出的全部消费者，再跑完整 CI。
+- 日常修改先审最终 diff，按实际风险运行受影响领域的专项；不因目录或文件名触发全套。
+- 发版前对最终产物完整运行一次 `--tier ci`，加适用的 device/GPU 验证；完整构建入口已包含 ci,device，不重复执行。
+- 增删模块：先核对模块契约及消费者，运行相关专项；发版时纳入完整 CI。
 - 仅文档/注释变化：可跳过编译和运行回归，检查命令、路径及链接。
 - 游戏、显卡不可用时明确记 SKIP；不把模拟、WARP 或别的型号测试等同该游戏/硬件实测。
 
 ## 分项定位失败
 
-每个领域的 `run.cmd` 是该领域入口。修复后回到统一入口验证；不要删除断言或跳过失败的领域。
+每个领域的 `run.cmd` 是该领域入口。修复后先重跑受影响专项；最终发版仍需完整 CI 凭证绑定实际 runtime。不要删除断言或跳过失败的领域。
 
 ```cmd
 tests\host\run.cmd ci
@@ -48,7 +48,7 @@ tests\install\run.cmd
 tests\sync\run.cmd
 ```
 
-ABI 入口包含 C++、C 和 Python runtime 校验，覆盖 v1/v2 函数表边界与模块状态。
+ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数表边界、旧 ABI 拒绝与模块状态。
 同步入口使用临时仓库和测试模块，验证补丁、完整性、失败退出与字节往返；
 它不等于已经完成真实上游集成审阅。后者仍按
 [同步说明](../tools/lmxxf-sync/README.md) 执行。

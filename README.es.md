@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptiScaler AMD pre-SR — 1.9.9.1
+# OptiScaler AMD pre-SR — 1.9.10.1
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
@@ -10,7 +10,7 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 ## Registro de cambios
 
-Consulte las notas de la release 1.9.9.1 para más detalles.
+Consulte las notas de la release 1.9.10.1 para más detalles.
 
 ### Mapa de configuración lmxxf (ini / menú Ins)
 
@@ -18,17 +18,17 @@ Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las
 
 | Ubicación en el menú | Clave | Notas |
 |---|---|---|
-| Superior | `TransferStrength` / `ColourStrength` | Detalle / color (Colour 0–1 conserva el color del juego) |
-| Superior | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red (incl. >1080p) |
-| Superior | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (predeterminado) o 720 / 900 / 1080 |
-| Experimental | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
-| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos / pool / byte stream |
-| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
-| Debug / Advanced | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
+| Image | `TransferStrength` / `ColourStrength` | Detalle / color (Colour 0–1 conserva el color del juego) |
+| Compatibility & Scheduling | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red (incl. >1080p) |
+| Quality & Performance | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (predeterminado) o 720 / 900 / 1080 |
+| Image | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
+| Advanced Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos / pool / byte stream |
+| ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
+| Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
 
-### Controles nuevos de esta rama (sin publicar)
+### Controles nuevos en 1.9.10.1
 
-Estas opciones pertenecen a `[DlssNr]` en `OptiScaler.ini`. Pulse **Save Settings** tras ajustarlas en Ins. Esta sección describe la rama de desarrollo, no la versión publicada 1.9.9.1.
+Estas opciones pertenecen a `[DlssNr]` en `OptiScaler.ini`. Pulse **Save Settings** tras ajustarlas en Ins. Consulte GitHub Releases para el estado de publicación.
 
 | Menú | Clave y valor predeterminado | Comportamiento |
 |---|---|---|
@@ -41,11 +41,15 @@ Estas opciones pertenecen a `[DlssNr]` en `OptiScaler.ini`. Pulse **Save Setting
 | Measure NR performance | `NrTimingEnabled=false` | Medición asíncrona de NR GPU, Encode y Decode de lmxxf; Ins también muestra etapas CPU y muestras descartadas |
 | Write timing summary to log | `NrTimingLog=false` | Requiere medición y registro en archivo; como máximo un resumen cada cinco segundos |
 
-**Page Up** abre el panel FPS; **Page Down** cambia el detalle. Just FPS no muestra tiempos NR; otros estilos muestran NR GPU y los detallados añaden encode/decode y efectos de salida cuando hay muestras. Las estadísticas cubren las últimas 120 muestras válidas; `N/A` indica ausencia y `stale`, datos antiguos. NR GPU incluye la copia de salida. No sume etapas como latencia total del fotograma. La medición no añade esperas GPU, pero tiene cierto coste pendiente de medir en juegos. El tiempo interno de la red de Daniel no está integrado en este panel.
+**Page Up** abre el panel FPS; **Page Down** cambia el detalle. Just FPS no muestra tiempos NR; otros estilos muestran NR GPU y los detallados añaden encode/decode y efectos de salida cuando hay muestras. Las estadísticas de codec/efectos cubren las últimas 120 muestras válidas; NR GPU usa la mediana de cinco muestras tras el calentamiento, sin cambiar PDL. `N/A` indica ausencia y `stale`, datos antiguos. NR GPU incluye la copia de salida. No sume etapas como latencia total del fotograma. La medición no añade esperas GPU, pero tiene cierto coste pendiente de medir en juegos. El tiempo interno de la red de Daniel no está integrado en este panel.
 
 El estabilizador requiere movimiento/profundidad válidos; si no puede ejecutarse con seguridad, se omite y muestra el estado en Ins. Activar efectos compartidos por primera vez en una sesión de un solo backend puede requerir guardar y reiniciar. Overall Intensity mezcla la salida final; es independiente de `Intensity`, Detail y Colour del modelo.
 
 La reutilización ViT conserva los valores del producto **16 / 1 / 50 / 1** (period/global/local/image), frente a **4 / 0.22 / 1 / 0.35** de upstream. Los umbrales más permisivos pueden conservar detalles antiguos o estelas. `DLSS5_HIP_INPUT_POLL` y `DLSS5_IO_FUSE` no están integrados en la ruta del producto; añadir claves al ini no los activa.
+
+### Ventana Ins
+
+Arrastre los bordes para ajustar el tamaño; el contenido se desplaza separado del pie fijo con gráficas y botones. **Window** permite posición libre o una esquina; **Menu Scale** ajusta la escala. **… → Reset window layout** restaura tamaño y posición sin cambiar NR. **Save Settings** guarda tamaño y anclaje. **End** activa/desactiva NR por defecto; ViT ya no usa F8. Los botones Reset solo restauran su grupo; Reset NR settings conserva el otro backend, la selección, las teclas y la preferencia de cambio en caliente. Actualice el paquete completo.
 
 ---
 
@@ -309,7 +313,7 @@ Este proyecto introdujo la **planificación multi-ranura (Multi-Slot Scheduling)
   - `Quality`: Reference (predeterminado, exacto como NVIDIA) / Fast;
   - **Display**: `Tone curve` / `Tone lift`;
   - **Queue (experimental)**: `HIP high-priority queue`;
-  - **Debug / Advanced**: claves extra de `dlssnr_on_amd.ini`.
+  - **Compatibility & Scheduling / Diagnostics**: claves extra de `dlssnr_on_amd.ini`.
 
 **Prioridad:** sesión Ins > `OptiScaler.ini` `[DlssNr]` (con Guardar) > `dlssnr_on_amd.ini` / entorno > valores predeterminados.  
 Las etiquetas Ins no se escriben al ini; **Guardar** sincroniza ambos ini.  

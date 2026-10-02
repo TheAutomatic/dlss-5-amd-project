@@ -5,9 +5,10 @@ rem   abi    : lmxxf_nr_abi, lmxxf_zero_fallback_abi.c, test_runtime_validation.
 rem   warp   : lmxxf_same_frame_boundary, lmxxf_color_probe (D3D12 WARP; no GPU)
 rem   device : lmxxf_list_split, lmxxf_list1_wrap, lmxxf_create_execute, lmxxf_evaluate_cut
 rem            (hardware D3D12 adapter)
-rem   gpu    : lmxxf_nr_gpu (13 modes, 3 output hashes checked), lmxxf_bridge_zero_gpu (/std:c++17;
-rem            fails under C++20 on hip_d3d12_bridge.h char8_t). Needs an AMD GPU and LMXXF_ASSETS =
-rem            the weights folder (native-game-tiled-assets). Modules come from third_party\lmxxf\modules.
+rem   gpu    : runtime formats/exposure/output hashes, recording lifecycle and bridge regressions.
+rem            Bridge fixtures use /std:c++17 for upstream header compatibility.
+rem            Needs AMD GPU and LMXXF_ASSETS = native-game-tiled-assets weights folder.
+rem            Modules come from third_party\lmxxf\modules.
 rem abi and gpu use LMXXF_TEST_RUNTIME when it names a built LmxxfNrRuntime.dll; otherwise they build
 rem one into <out-dir>\runtime with tools\build\build-lmxxf-runtime.cmd.
 setlocal EnableExtensions
@@ -96,7 +97,7 @@ for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--ex
 %CXX% /I"%RT_INC%" /I"OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include" tests\lmxxf\lmxxf_recording_runtime_gpu.cpp /Fe"%OUT%\lmxxf_recording_runtime_gpu.exe" /Fo"%OUT%\lmxxf_recording_runtime_gpu.obj" /link d3d12.lib dxgi.lib dxguid.lib "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib" || goto fail
 "%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
 rem Output-hash baselines: fixed pattern, 1920x1080, seed 1 (RX 9070 XT, this weights set).
-rem Re-baselined 2026-09-29 for c0a6196 FMA/fusion stack (see work/notes/2026-09-29-fma-baseline-ab.md).
+rem Re-baselined 2026-09-29 for c0a6196 FMA/fusion stack (see docs/lmxxf-039-consumer-review.md).
 call :Hash fe40c904da05472e --output-hash || goto fail
 call :Hash 79233836b6257864 --auto-exposure || goto fail
 call :Hash 79233836b6257864 --auto-exposure --scale16 || goto fail
