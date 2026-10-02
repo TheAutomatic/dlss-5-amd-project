@@ -61,6 +61,12 @@ lmxxf 后端细节见 [backends/lmxxf.md](../backends/lmxxf.md)。
 
 商店（XGP）版游戏装在可写的 `Content\` 一类目录，不装进 `WindowsApps`（见 [installer.md](installer.md)）。
 
+`OptiScaler.log` 的 `NR input diagnostic` 是启动阶段的输入路径观察：NR 开启、累计
+30 秒持续 Present（且至少 120 帧）仍未观察到超分 feature 时，最多写一条 WARN；
+超过 1 秒的停帧间隔不计入时间，关闭 NR 清零尚未完成的观察。之后首次观察到 feature，
+最多补一条 INFO。它不证明 DLSS 不受支持，也不证明 NR 已成功初始化；加载界面、原生渲染
+或绕过 OptiScaler 的路线也可能触发。提示仅进日志，不新增弹窗，不改变游戏或后端设置。
+
 ## 查看 wilsjo2 上游而不 fork
 
 ```sh

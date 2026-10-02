@@ -2,6 +2,7 @@
 #include "../dlssnr/amd/AmdBridge.h"
 #include "../dlssnr/NrTimingDisplay.h"
 #include "menu_common.h"
+#include "UpscalerRouteDiagnostic.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/AmdPreSr.h>
 
@@ -1192,6 +1193,19 @@ void MenuCommon::Present()
         lastFrameTime = now - lastTime;
 
     lastTime = now;
+
+    static UpscalerRouteDiagnostic routeDiagnostic;
+    const auto routeEvent = routeDiagnostic.Observe(GetTickCount64(),
+        Config::Instance()->DlssNrEnabled.value_or_default(), State::Instance().currentFeature != nullptr);
+    if (routeEvent == UpscalerRouteDiagnostic::Event::MissingRoute)
+        LOG_WARN("NR input diagnostic: no upscaler feature observed by OptiScaler after 30 s of active presents "
+                 "with NR enabled. NR needs a supported upscaler route. If already in gameplay, select DLSS "
+                 "or a supported FSR/XeSS route in the game settings; some games require a restart. Loading "
+                 "screens, native rendering, or a route that bypasses OptiScaler can also explain this. "
+                 "This does not establish that DLSS is unsupported. Reported once per process.");
+    else if (routeEvent == UpscalerRouteDiagnostic::Event::RouteObserved)
+        LOG_INFO("NR input diagnostic: an upscaler feature has now reached OptiScaler; the earlier missing-route "
+                 "observation no longer applies. This alone does not confirm successful NR initialization.");
 
     if (_handle != nullptr)
         UpdateManualInput(_handle);
