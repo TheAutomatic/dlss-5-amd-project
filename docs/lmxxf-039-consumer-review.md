@@ -156,3 +156,10 @@ runtime 录制 GPU 测试分别验证默认 PDL 不发布错误样本及 PDL-off
 2026-10-02 补充：旧的 PDL-only 归因和禁用策略已撤回。修复通过最终 runtime 的
 1080p PDL 开／关各 1000 帧及 720p、900p、SPAN_PROBE、codec/debug 定向采样，
 并验证录制生命周期。此项不改变原上游 26 项暂缓清单，也不代替游戏验收。
+
+
+## 2026-10-02：清理被替代的计时路径
+
+最终本地 diff 仅删除产品始终禁用的 ConfigureProductionTiming/TakeProductionTiming 八槽实现及其旧测试；保留正在使用的四槽 EnableNetworkTiming/PollNetworkTiming、立即非阻塞 end query、完成标记、epoch 与错误停采。上游 pin、模块、direct input、队列依赖与公开 ABI 不变。bridge.patch 从原始 pinned 夹具重新生成，避免同步复活废弃代码。
+
+验证：配置专项6项、SourcePatchTests2项通过；runtime编译通过；bridge真实GPU测试通过（丢弃/跨队列重放、输出字节、当前计时启停/epoch/错误停采和D3D12 debug检查）。完整发版和游戏验证不在本次清理范围；已有1.9.10.1本地包仍对应清理前的bf4f6c9a。

@@ -55,12 +55,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Release upload regression
-        shell: pwsh
-        run: |
-          python -B tests/install/test_release_upload.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Resolve version
         id: ver
         shell: pwsh

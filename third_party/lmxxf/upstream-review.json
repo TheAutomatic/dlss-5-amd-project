@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "c809efb0ea2960f148624730898da61b8fb55a45",
   "to_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
-  "snapshot": "a2869e1a80799edc7464b1a9e66ec4a4a99d4766d97e59a8f7339f7e2c030cf6",
+  "snapshot": "32ff9263227a4d217a4ea7f7bc76844208d9a492494530c92acc826051fcb823",
   "reviewer": "Codex",
-  "summary": "Local input-transport integration on unchanged82ce821f pin/modules: no unused tile copy, shared-input UAV redirect, existing FP16 output handoff. Polling and IO fusion remain deferred. No release acceptance.",
-  "validation": "2026-10-02: MSVC tiles-only and direct-input runtime builds; baseline/tiles/direct output hashes identical for 12 frames at each 720/900/1080; runtime recording GPU fixture passed with PDL=1 and 0, including replay, discard, cross-queue, geometry/AE rebuild, NR off and failed completion, no D3D12 debug errors; SourcePatchTests 2/2. Serial and replay wall-time comparisons recorded in docs/lmxxf-039-consumer-review.md. No full CI, gfx1200, live-game/effects UI or release acceptance.",
+  "summary": "Remove obsolete disabled timing implementation and associated tests; retain current network timing and unchanged upstream/transport integration. Only two changed local evidence groups re-reviewed.",
+  "validation": "2026-10-02 cleanup: config contract 6 tests and SourcePatchTests 2 tests passed; runtime MSVC build and real GPU bridge recording/timing/replay/output-byte/debug checks passed. No new full release run, game acceptance or package. See docs/lmxxf-039-consumer-review.md cleanup section; earlier unchanged transport evidence retained there.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "6bf74e67c02e7aa2e32069828ab7a66a7cce0aeb860a3395d36be538faa8372d",
+      "fingerprint": "13179b118eeaa8c285cf9bb856112e5812f03f420a0871bef562ebd320a298f2",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Local transport delta only: disable unused tile allocation/writes and redirect RGB producer into shared input. Existing completion/recording contracts retained; upstream pin and modules unchanged.",
-      "evidence": "docs/lmxxf-039-consumer-review.md input transport section; LmxxfNrRuntime.cpp both Create paths and RGB initialization; bridge.patch",
-      "validation": "2026-10-02: MSVC tiles-only and direct-input runtime builds; baseline/tiles/direct output hashes identical for 12 frames at each 720/900/1080; runtime recording GPU fixture passed with PDL=1 and 0, including replay, discard, cross-queue, geometry/AE rebuild, NR off and failed completion, no D3D12 debug errors; SourcePatchTests 2/2. Serial and replay wall-time comparisons recorded in docs/lmxxf-039-consumer-review.md. No full CI, gfx1200, live-game/effects UI or release acceptance.",
+      "reason": "Reviewed local deletion of always-disabled eight-slot ProductionTiming and its caller/tests. Active four-slot network event timing, completion marker, recording leases and direct input unchanged; upstream pin/modules unchanged.",
+      "evidence": "docs/lmxxf-039-consumer-review.md cleanup section; hip_d3d12_bridge.h, LmxxfNrRuntime.cpp, maintained bridge.patch and lmxxf_bridge_recording_gpu.cpp final diff.",
+      "validation": "2026-10-02 cleanup: config contract 6 tests and SourcePatchTests 2 tests passed; runtime MSVC build and real GPU bridge recording/timing/replay/output-byte/debug checks passed. No new full release run, game acceptance or package. See docs/lmxxf-039-consumer-review.md cleanup section; earlier unchanged transport evidence retained there.",
       "next_step": ""
     },
     {
@@ -13619,12 +13619,12 @@
     },
     {
       "id": "pinned:Development/HIP/hip_d3d12_bridge.h",
-      "fingerprint": "7c8507d89d4d43ccd65340092f97044864ba8526fc8d1f50a3a2a256c943fa3d",
+      "fingerprint": "5bd7c7748c780e08b8c1e32d6142ca101e5d24fb8b27cb4ab117c4a51ef7a665",
       "classification": "production",
       "decision": "deferred",
-      "reason": "Keep pinned product bridge; selectively integrated direct shared input and prior nonblocking timing-query fix. Full bridge replacement and polling remain deferred; current recording leases/queue completion retained.",
-      "evidence": "docs/lmxxf-039-consumer-review.md; bridge.patch; LmxxfNrRuntime.cpp",
-      "validation": "2026-10-02: MSVC tiles-only and direct-input runtime builds; baseline/tiles/direct output hashes identical for 12 frames at each 720/900/1080; runtime recording GPU fixture passed with PDL=1 and 0, including replay, discard, cross-queue, geometry/AE rebuild, NR off and failed completion, no D3D12 debug errors; SourcePatchTests 2/2. Serial and replay wall-time comparisons recorded in docs/lmxxf-039-consumer-review.md. No full CI, gfx1200, live-game/effects UI or release acceptance.",
+      "reason": "Reviewed local deletion of always-disabled eight-slot ProductionTiming and its caller/tests. Active four-slot network event timing, completion marker, recording leases and direct input unchanged; upstream pin/modules unchanged.",
+      "evidence": "docs/lmxxf-039-consumer-review.md cleanup section; hip_d3d12_bridge.h, LmxxfNrRuntime.cpp, maintained bridge.patch and lmxxf_bridge_recording_gpu.cpp final diff.",
+      "validation": "2026-10-02 cleanup: config contract 6 tests and SourcePatchTests 2 tests passed; runtime MSVC build and real GPU bridge recording/timing/replay/output-byte/debug checks passed. No new full release run, game acceptance or package. See docs/lmxxf-039-consumer-review.md cleanup section; earlier unchanged transport evidence retained there.",
       "next_step": "Only revisit input polling with end-to-end benefit evidence; design execution-owned markers, watchdog and replay/cross-queue/device-loss safety. Full upstream bridge replacement is not required for direct input."
     },
     {

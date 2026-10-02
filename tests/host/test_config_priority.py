@@ -98,16 +98,6 @@ class ConfigPriorityTests(unittest.TestCase):
             self.assertNotIn(f'"{label}"', CONFIG)
             self.assertNotIn(f'"{label}"', KEYS)
 
-    def test_priority_simulation_ini_beats_txt(self):
-        # Same rule as ApplyFlagsFileFallback: fill only missing keys.
-        env = {"DLSS5_FIT_LARGE": "1"}  # ini/menu already wrote this
-        flags = {"DLSS5_FIT_LARGE": "0", "DLSS5_HIP_WAVE_OWNED": "1"}
-        for key, value in flags.items():
-            if key in env:
-                continue
-            env[key] = value
-        self.assertEqual(env["DLSS5_FIT_LARGE"], "1")
-        self.assertEqual(env["DLSS5_HIP_WAVE_OWNED"], "1")
 
 
 if __name__ == "__main__":

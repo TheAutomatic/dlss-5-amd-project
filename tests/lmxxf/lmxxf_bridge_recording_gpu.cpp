@@ -15,11 +15,7 @@ namespace hip_reference {
 struct BridgeTimingTest {
     static auto& Query(D3D12Bridge& bridge) { return bridge.timing_query; }
     static bool NewEventsAllocated(const D3D12Bridge& bridge) { return bridge.timing_begin[0] != nullptr; }
-    static auto& Elapsed(D3D12Bridge& bridge) { return bridge.network->Runtime().hipEventElapsedTime; }
-    static unsigned Quarantined(const D3D12Bridge& bridge) {
-        return unsigned(std::count_if(bridge.timing_slots.begin(), bridge.timing_slots.end(),
-            [](const auto& slot) { return slot.pending && slot.completion == UINT64_MAX; }));
-    }
+
 };
 }
 
@@ -146,12 +142,9 @@ int main(int argc, char** argv)
         // A refused/unsubmitted execution leaves the same lease replayable.
         bridge.BeginRecordedExecution(actual); bridge.EndRecordedExecution(actual, false, false);
         std::vector<unsigned char> baseline;
-        hip_reference::D3D12Bridge::ProductionTiming timing;
-        Require(!bridge.TakeProductionTiming(timing), "no GPU time before execution");
         for (unsigned pass = 0; pass < 11; ++pass) {
             ID3D12CommandQueue* q = pass % 2 ? creation : actual;
             bridge.BeginRecordedExecution(q);
-            bridge.ConfigureProductionTiming(pass != 0, 42, pass, 7);
             ID3D12CommandList* first[] = {producer}; q->ExecuteCommandLists(1, first);
             bridge.EnqueueAfterProducer(q, 1);
             // Discard one actual execution after HIP, without submitting consumer.
@@ -169,61 +162,10 @@ int main(int argc, char** argv)
             readback->Unmap(0, nullptr);
         }
         Require(bridge.WaitForSubmittedWork(), "drain actual last execution queue");
-        unsigned samples = 0;
-        while (bridge.TakeProductionTiming(timing)) {
-            Require(std::isfinite(timing.ms) && timing.ms > 0, "completed finite HIP duration");
-            Require(timing.frame == 42 && timing.execution > 0 && timing.execution <= 8 && timing.epoch == 7,
-                    "timing execution identity");
-            ++samples;
-        }
-        Require(samples == 8 && bridge.TakeProductionTimingDrops() == 2, "full event pool drops samples without reusing in-flight storage");
-        // ABBA wall-clock measurement includes queue submission and completion, independent
-        // of the HIP duration under test. It is diagnostic, not a noisy performance gate.
-        for (unsigned batch = 0; batch < 4; ++batch) {
-            const bool enabled = batch == 1 || batch == 2;
-            double wallMs = 0, enqueueMs = 0;
-            constexpr unsigned iterations = 40;
-            unsigned collected = 0;
-            auto collect = [&] {
-                while (bridge.TakeProductionTiming(timing)) {
-                    Require(enabled, "disabled timing does not produce samples");
-                    Require(timing.epoch == 8 && timing.frame == 43 + batch && timing.execution == collected + 1,
-                            "reused timing identity and collection order");
-                    ++collected;
-                }
-            };
-            for (unsigned i = 0; i < iterations; ++i) {
-                const auto start = std::chrono::steady_clock::now();
-                bridge.BeginRecordedExecution(actual);
-                bridge.ConfigureProductionTiming(enabled, 43 + batch, i + 1, 8);
-                ID3D12CommandList* first[] = {producer}; actual->ExecuteCommandLists(1, first);
-                const auto enqueueStart = std::chrono::steady_clock::now();
-                bridge.EnqueueAfterProducer(actual, 1);
-                const auto enqueueEnd = std::chrono::steady_clock::now();
-                ID3D12CommandList* second[] = {consumer}; actual->ExecuteCommandLists(1, second);
-                bridge.EndRecordedExecution(actual, true, true);
-                WaitQueue(device, actual);
-                const auto end = std::chrono::steady_clock::now();
-                if (i >= 8) {
-                    wallMs += std::chrono::duration<double, std::milli>(end - start).count();
-                    enqueueMs += std::chrono::duration<double, std::milli>(enqueueEnd - enqueueStart).count();
-                }
-                collect();
-            }
-            // The driver may publish event bookkeeping after the external queue completes.
-            // Only this harness waits for statistics; production returns to rendering.
-            const auto deadline = GetTickCount64() + 1000;
-            while (enabled && collected != iterations && GetTickCount64() < deadline) { Sleep(1); collect(); }
-            Require(collected == (enabled ? iterations : 0) && bridge.TakeProductionTimingDrops() == 0,
-                    "all ABBA samples eventually readable without event reuse races");
-            std::printf("timing ABBA batch=%u enabled=%u wall_ms=%.4f enqueue_cpu_ms=%.4f n=%u\n",
-                        batch, unsigned(enabled), wallMs / (iterations - 8), enqueueMs / (iterations - 8), iterations - 8);
-        }
         // Official fe4d1d73 event-query path: lazy enable, frame tags, disable/re-enable,
         // epoch rejection and failure quarantine. Compare actual output bytes as well.
         Require(!bridge.NetworkTimingEnabled() && !hip_reference::BridgeTimingTest::NewEventsAllocated(bridge),
                 "official timing has no events before first request");
-        bridge.ConfigureProductionTiming(false, 0, 0, 0);
         bridge.SetTimingEpoch(10);
         Require(bridge.EnableNetworkTiming() && !bridge.PollNetworkTiming().valid, "first request has no sample");
         auto executeTimed = [&](unsigned tag) {
@@ -258,28 +200,6 @@ int main(int argc, char** argv)
         Check(readback->Map(0, &timedRange, &timedData), "official timing readback");
         Require(std::memcmp(baseline.data(), timedData, SIZE_T(bytes)) == 0, "official timing preserves output bytes");
         readback->Unmap(0, nullptr);
-        // Real GPU submissions with a failing telemetry API must continue to
-        // render, permanently quarantining the failed event pairs until teardown.
-        auto& elapsed = hip_reference::BridgeTimingTest::Elapsed(bridge);
-        const auto realElapsed = elapsed;
-        elapsed = [](float*, hip_probe::Handle, hip_probe::Handle) -> int { return 999; };
-        for (unsigned i = 0; i < 9; ++i) {
-            bridge.BeginRecordedExecution(actual);
-            bridge.ConfigureProductionTiming(true, 99, i + 1, 9);
-            ID3D12CommandList* first[] = {producer}; actual->ExecuteCommandLists(1, first);
-            bridge.EnqueueAfterProducer(actual, 1);
-            ID3D12CommandList* second[] = {consumer}; actual->ExecuteCommandLists(1, second);
-            bridge.EndRecordedExecution(actual, true, true); WaitQueue(device, actual);
-            Require(!bridge.TakeProductionTiming(timing), "failed telemetry never publishes a sample");
-            Require(hip_reference::BridgeTimingTest::Quarantined(bridge) == (std::min)(i + 1, 8u),
-                    "failed HIP events never return to reusable pool");
-        }
-        elapsed = realElapsed;
-        void* finalData = nullptr; D3D12_RANGE finalRange {0, SIZE_T(bytes)};
-        Check(readback->Map(0, &finalRange, &finalData), "failed telemetry readback");
-        Require(std::memcmp(baseline.data(), finalData, SIZE_T(bytes)) == 0, "telemetry failures preserve neural output bytes");
-        readback->Unmap(0, nullptr);
-        Require(bridge.TakeProductionTimingDrops() == 9, "errors and exhausted event pool only drop statistics");
         producer->Release(); consumer->Release(); pa->Release(); ca->Release(); input->Release(); readback->Release();
     } catch (const std::exception& e) { std::fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }
     ID3D12InfoQueue* info = nullptr;

@@ -2403,8 +2403,6 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             {
                 auto* bridge = lease->chain->bridge.get();
                 session->CollectTiming(bridge);
-                bridge->ConfigureProductionTiming(false, lease->frameId,
-                                                   lease->executionId, session->performance.Epoch());
                 session->ConfigureNetworkTiming(bridge, j->frameId);
                 bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
             }

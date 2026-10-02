@@ -249,3 +249,12 @@
 宿主和 runtime 由安装器整包覆盖，移除旧 ABI/FrameInfo 尺寸及宿主降级重试；不为局部替换维持兼容。
 日常以最终 diff 审查为主，高风险行为做直接相关专项，完整测试集中在发版前且不重复执行。
 执行位置：AGENTS.md、docs/release.md、docs/architecture/lmxxf-c-abi.md。
+
+
+## 2026-10-02：本地与 Actions 共用精简后的测试入口
+
+删除只在 Python 内重写配置优先级的模拟测试；保留实际跨 CRT 的 C++ 行为验证和配置命名/写入契约。删除产品始终禁用的八槽 ProductionTiming 实现、调用和旧 GPU 专项（含160帧 ABBA 开销测量）；当前四槽 NetworkTiming 的默认关闭、启用/epoch、错误停采、重放和输出一致性验证保留。
+
+Actions 删除独立 Release upload regression 步骤，该测试仍由 tests/run-all.cmd → tests/install/run.cmd 执行一次，与本地完整入口一致。GPU 专项由本地 GPU tier 执行；无 AMD GPU 的 Actions 仍不运行该 tier，不宣称远端已验证 GPU。
+
+本次只做相关验证：配置测试6项、原始夹具补丁重放2项、runtime编译、bridge真实GPU录制/计时/错误回归通过；更新受影响的两项接入审阅证据。没有重跑完整发版测试或重打包。dist 内 bf4f6c9a 的1.9.10.1测试包及其验证记录保持原身份；下次正式发包需构建并验证新提交。
