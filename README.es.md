@@ -26,6 +26,27 @@ Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
 | Debug / Advanced | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
 
+### Controles nuevos de esta rama (sin publicar)
+
+Estas opciones pertenecen a `[DlssNr]` en `OptiScaler.ini`. Pulse **Save Settings** tras ajustarlas en Ins. Esta sección describe la rama de desarrollo, no la versión publicada 1.9.9.1.
+
+| Menú | Clave y valor predeterminado | Comportamiento |
+|---|---|---|
+| lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2; independiente de `Style` de Daniel. Reconstruye la red en el siguiente fotograma; puede causar una pausa breve |
+| Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | Activado usa 1088, solo en el nivel 1080. Puede acelerar pero cambia la imagen, especialmente el borde inferior; reconstruye la red |
+| Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | Acepta formatos adicionales compatibles con la GPU mediante salida FP16 privada; guarde y reinicie |
+| Overall Intensity | `NrOverallIntensity=1.0` | Ambos backends, 0–2. 0 muestra el original, 1 conserva el resultado completo, >1 amplifica la corrección. En 0 sigue ejecutándose NR; desactive NR para ahorrar cálculo |
+| Residual Stabilizer | `NrStabilizerEnabled=false` | Ambos backends; usa movimiento y profundidad para reducir parpadeos. Puede suavizar detalles en movimiento o dejar estelas; consume GPU y memoria |
+| History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | Rangos 0–0.95 / 0–16. Cero en cualquiera omite la estabilización. Reduzca si aparecen estelas |
+| Measure NR performance | `NrTimingEnabled=false` | Medición asíncrona de NR GPU, Encode y Decode de lmxxf; Ins también muestra etapas CPU y muestras descartadas |
+| Write timing summary to log | `NrTimingLog=false` | Requiere medición y registro en archivo; como máximo un resumen cada cinco segundos |
+
+**Page Up** abre el panel FPS; **Page Down** cambia el detalle. Just FPS no muestra tiempos NR; otros estilos muestran NR GPU y los detallados añaden encode/decode y efectos de salida cuando hay muestras. Las estadísticas cubren las últimas 120 muestras válidas; `N/A` indica ausencia y `stale`, datos antiguos. NR GPU incluye la copia de salida. No sume etapas como latencia total del fotograma. La medición no añade esperas GPU, pero tiene cierto coste pendiente de medir en juegos. El tiempo interno de la red de Daniel no está integrado en este panel.
+
+El estabilizador requiere movimiento/profundidad válidos; si no puede ejecutarse con seguridad, se omite y muestra el estado en Ins. Activar efectos compartidos por primera vez en una sesión de un solo backend puede requerir guardar y reiniciar. Overall Intensity mezcla la salida final; es independiente de `Intensity`, Detail y Colour del modelo.
+
+La reutilización ViT conserva los valores del producto **16 / 1 / 50 / 1** (period/global/local/image), frente a **4 / 0.22 / 1 / 0.35** de upstream. Los umbrales más permisivos pueden conservar detalles antiguos o estelas. `DLSS5_HIP_INPUT_POLL` y `DLSS5_IO_FUSE` no están integrados en la ruta del producto; añadir claves al ini no los activa.
+
 ---
 
 ## Índice

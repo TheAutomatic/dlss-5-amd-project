@@ -26,6 +26,27 @@ Cross-layer keys use the same `DLSS5_*` names as upstream. **Ins labels are neve
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
 | Debug / Advanced | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
 
+### New controls on this branch (unreleased)
+
+These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings** after changing them in Ins. This section describes the development branch, not the published 1.9.9.1 release.
+
+| Menu | Key and default | Behaviour |
+|---|---|---|
+| lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2; independent of Daniel's `Style`. Rebuilds the network on the next frame and may briefly stall |
+| Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | On selects 1088, only for the 1080 tier. May run faster but changes the image, especially the bottom edge; rebuilds the network |
+| Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | Accepts additional GPU-supported colour formats through private FP16 output; save and restart the game |
+| Overall Intensity | `NrOverallIntensity=1.0` | Both backends, 0–2. 0 shows the original, 1 keeps the full result, >1 amplifies the correction. NR still runs at 0; disable NR to save model work |
+| Residual Stabilizer | `NrStabilizerEnabled=false` | Both backends; uses motion and depth to reduce correction flicker. May soften moving detail or cause trails; adds GPU work and memory |
+| History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | Ranges 0–0.95 / 0–16. Either zero bypasses stabilization. Start with defaults; reduce if trailing appears |
+| Measure NR performance | `NrTimingEnabled=false` | Asynchronous lmxxf NR GPU, Encode and Decode measurements; Ins also exposes CPU stages and dropped samples |
+| Write timing summary to log | `NrTimingLog=false` | Requires measurement and file logging; at most one summary every five seconds |
+
+**Page Up** opens the FPS overlay; **Page Down** changes detail. Just FPS omits NR timings; other styles show NR GPU, while detailed styles add encode/decode and output-effect times when samples exist. Statistics cover the last 120 valid samples; `N/A` means unavailable and `stale` means outdated. NR GPU includes the network output copy. Do not add stages together as whole-frame latency. Measurement adds no GPU waits, but has some overhead that still needs game testing. Daniel's internal network timing is not integrated into this panel.
+
+The stabilizer needs valid motion/depth; unsafe paths bypass it and show an Ins status. Enabling shared output effects for the first time in a pure-backend session may require saving and restarting. Overall Intensity blends the final output; it is separate from model `Intensity`, Detail and Colour.
+
+ViT reuse retains this product's performance-oriented **16 / 1 / 50 / 1** defaults (period/global/local/image), compared with upstream **4 / 0.22 / 1 / 0.35**. Looser thresholds can retain stale detail or trails. `DLSS5_HIP_INPUT_POLL` and `DLSS5_IO_FUSE` are not integrated into the product path; adding ini keys does not enable them.
+
 ---
 
 ## Table of Contents

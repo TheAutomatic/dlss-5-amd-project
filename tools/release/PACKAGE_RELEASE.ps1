@@ -244,11 +244,42 @@ RunBeforeSR=true
 NrBackend=lmxxf
 
 ; Hot-switch preparation when both backends are installed (menu: Allow backend hot switching).
-; 0 (default): start only the selected backend; changing backends needs a game restart.
-; 1: pre-open command-list proxy so daniel <-> lmxxf can switch in-session.
+; 0: start only the selected backend; changing backends needs a game restart.
+; 1 (package default): prepare command-list proxy so daniel <-> lmxxf can switch in-session.
 ; Hook/wrap policy is chosen at startup: restart the game after changing this.
 ; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
 NrConvenience=1
+
+; Optional asynchronous NR measurement (lmxxf network/encode/decode); default off.
+; Ins: Measure NR performance. Page Up opens the FPS overlay; Page Down changes detail.
+; Logging also needs measurement and file logging; at most one summary per five seconds.
+NrTimingEnabled=false
+NrTimingLog=false
+; Shared final-output blend for either AMD backend. 0..2, default 1.
+; 0 shows the original but still runs NR; disable NR to save model computation.
+NrOverallIntensity=1.0
+; Shared temporal residual filtering; requires motion/depth. Off by default.
+; May soften moving detail or trail; adds GPU work and history memory.
+; Alpha 0..0.95; threshold 0..16 (compressed-colour units of 1/255). Either zero bypasses it.
+NrStabilizerEnabled=false
+NrStabilizerAlpha=0.8
+NrStabilizerThreshold=4.0
+
+; lmxxf network style: 0 / 1 / 2. Default 1 preserves earlier lmxxf output.
+; Separate from Daniel Style and shared NrOverallIntensity. Live change rebuilds the network.
+DLSS5_STYLE=1
+; 1080-tier processing rows: 1152 (default), or 1088 (Compact 1080 network).
+; 1088 changes the image, especially near the bottom edge. Live change rebuilds the network.
+DLSS5_NETWORK_1080_ROWS=1152
+; Additional supported colour formats use private FP16 output. Default true.
+; Save Settings and restart the game after changing this.
+DLSS5_FORMAT_FALLBACK=true
+; NR% auto, or a fixed 720 / 900 / 1080 tier.
+DLSS5_NETWORK_HEIGHT=auto
+; Shared allocation / byte-stream paths; defaults match the product runtime.
+DLSS5_HIP_SHARED_POOL=true
+DLSS5_HIP_MH_BYTE_STREAM=true
+DLSS5_HIP_DECODER_BYTE=true
 
 ; danielblnc math quality (0.4.2+). Not a menu-under-Display fold; Ins shows Quality near the top.
 ; 0 = Reference (NVIDIA-exact arithmetic, default)
@@ -306,7 +337,7 @@ DLSS5_HIP_VIT_STREAM=3
 DLSS5_HIP_VIT_BYTE_STREAM=0
 
 ; Adaptive ViT reuse (lossy): when the picture is nearly still, reuse ViT across frames.
-; F8 toggles reuse/full when HOTKEY=1. Any motion falls back to full ViT.
+; F8 toggles reuse/full when HOTKEY=1. Motion exceeding the thresholds returns to full ViT.
 ; Default below is performance-oriented (looser than upstream 4 / 0.22 / 1 / 0.35):
 ; higher FPS when nearly still, more risk of stale detail / ghosting on subtle motion.
 DLSS5_VIT_ADAPTIVE=1

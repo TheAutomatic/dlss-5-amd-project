@@ -1,5 +1,6 @@
 """Run the real packaging/staging entrypoints with tiny, non-executable inputs."""
 import os
+import configparser
 import hashlib
 from pathlib import Path
 import shutil
@@ -125,6 +126,23 @@ class ModulePackageTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn('Install SUCCEEDED', out)
         installed_ini = (game / 'OptiScaler.ini').read_text(encoding='utf-8-sig')
+        # Check the installed artifact: the packager replaces the source DlssNr section.
+        # A source-template-only addition used to disappear from the shipped ini.
+        expected = {
+            'NrTimingEnabled': 'false', 'NrTimingLog': 'false',
+            'NrOverallIntensity': '1.0', 'NrStabilizerEnabled': 'false',
+            'NrStabilizerAlpha': '0.8', 'NrStabilizerThreshold': '4.0',
+            'DLSS5_STYLE': '1', 'DLSS5_NETWORK_1080_ROWS': '1152',
+            'DLSS5_FORMAT_FALLBACK': 'true', 'DLSS5_NETWORK_HEIGHT': 'auto',
+            'DLSS5_HIP_SHARED_POOL': 'true', 'DLSS5_HIP_MH_BYTE_STREAM': 'true',
+            'DLSS5_HIP_DECODER_BYTE': 'true',
+        }
+        for path in (game / 'OptiScaler.ini', extracted / 'OptiScaler.ini',
+                     REPO / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler.ini'):
+            parsed = configparser.ConfigParser(interpolation=None, strict=True)
+            parsed.read_string(path.read_text(encoding='utf-8-sig'))
+            for key, value in expected.items():
+                self.assertEqual(parsed['DlssNr'][key], value, f'{path}: {key}')
         for key, value in {'DLSS5_VIT_ADAPTIVE': '1', 'DLSS5_VIT_REUSE_PERIOD': '16',
                            'DLSS5_VIT_REUSE_GLOBAL': '1', 'DLSS5_VIT_REUSE_LOCAL': '50',
                            'DLSS5_VIT_REUSE_IMAGE': '1', 'DLSS5_VIT_REUSE_HOTKEY': '1'}.items():

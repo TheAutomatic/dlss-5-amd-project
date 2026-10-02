@@ -24,7 +24,7 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 | 项 | 规则 |
 |---|---|
 | 维度 | 必须是 TEXTURE2D，array=1、mip=1、单采样，不能带 `DENY_SHADER_RESOURCE` |
-| 格式 | RGBA16F、RGBA8 UNORM、R11G11B10、R10G10B10A2（`d831b0b`），外加 RGB9E5。只有 RGB9E5 会切到私有 FP16 输出，其他格式的输出路径不变 |
+| 格式 | RGBA16F、RGBA8 UNORM、R11G11B10、R10G10B10A2（`d831b0b`），外加 RGB9E5。RGB9E5 使用私有 FP16 输出；`DLSS5_FORMAT_FALLBACK=true` 还允许支持的额外 typed SRV 格式（如 RGBA32F），并使用私有 FP16 输出。须通过设备 TEXTURE2D / SHADER_LOAD 能力检查；改变此开关需重启 |
 | 几何（FitLarge 关） | `w ≤ 2560 && h ≤ 1080 && w*h ≤ 1920*1080`，也就是水平方向最多缩 25%。21:9 和 32:9 都在范围内，例如 Townfall 的 2024×848 → 1920×804 |
 | 几何（FitLarge 开） | 最大 16384×16384，缩放到 1080 网络 |
 | 作业尺寸 | 用 NGX 渲染子矩形；子矩形缺失或比纹理还大时，退回到纹理分配尺寸（`c1e5595`）。子矩形原点不为 0 的一律拒绝 |
@@ -37,6 +37,10 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 正式配置键为 `[DlssNr] DLSS5_FIT_LARGE`，默认 **true**；旧名 `LmxxfFitLarge` 仅用于读取旧配置。菜单 / ini 优先，flags 只补宿主未设置的键，具体见 [安装器与配置](../architecture/installer.md#dlss5-amdnative-game-flagstxt)。
 
 帕鲁曾出现的秒级卡顿由 allocation 与渲染子矩形比较错误造成，已在 `a129c5f` 修复。截至 2026-09-28，维护者未发现修复后 FitLarge 仍有问题；旧耗时不能作为现行性能结论，也不构成关闭 FitLarge 或限制分辨率的建议。修复经验与回归依据见 [Palworld](../games/palworld.md)，默认值变更历史见 [决策记录](../decisions.md)。
+
+## 用户控制
+
+样式、1080 紧凑几何、格式兼容、共享整体强度、稳定器和计时的默认值与操作见 [用户说明](../../README.md#本分支新增控制尚未发布)。源码模板与打包器生成的 `[DlssNr]` 段均需维护；打包器会替换整个段，不能只修改源码 ini。
 
 ## 曝光
 
@@ -126,3 +130,12 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 - 产品维护 `LmxxfNrApi.h`、`LmxxfNrRuntime.cpp`、`LmxxfProductionOptions.h`；vendor 中的 codec 等文件也携带本地补丁。文件归属与完成 pin 以 [UPSTREAM.md](../../third_party/lmxxf/UPSTREAM.md) 为准，生效补丁以 manifest 和 [补丁维护说明](../../tools/lmxxf-sync/README.md#补丁维护) 为准；同步时应逐项核对上游是否已吸收对应契约。
 - `d788963` 之后，PR #9（零输出回退）已并入上游。我们随之把 `native_rgb_reflect.h` 和 `native_input_geometry.h` 改回跟上游，只剩 `hip_d3d12_bridge.h` 还 pin 着。
 - 当前源码 pin 和同步状态分别读取 [UPSTREAM.md](../../third_party/lmxxf/UPSTREAM.md) 与 [sync-state.json](../../third_party/lmxxf/sync-state.json)，本页不维护第二份提交号。2026-09-28 文档核对时，状态为 `reviewed`，但记录了 `SkipBuild` 和 `AllowStaleModules`；这些是该次同步的验证例外，不能据此宣称完成构建或 GPU 验证。
+
+### 输入轮询与 IO 融合：暂缓接入
+
+这两项均为上游默认关闭的实验路径，目前没有产品菜单或 ini 绑定。
+
+- `DLSS5_HIP_INPUT_POLL`：上游 `Development/results/handoff-gpu-20260930` 中，输入交接微测约省 0.05 ms，但整帧两档测试反而慢约 0.01–0.04 ms。产品固定的桥接版本承担录制、重放、取消及异步计时契约，不能只打开宏；需移植标记提交、等待、超时回退和资源退役，验证丢弃录制、跨队列重放与长时间运行。收益不足以支持现在改动同步路径。
+- `DLSS5_IO_FUSE`：上游普通 NativeGameFrame 路径让解码直接读取网络缓冲，省去中间输出步骤；本产品不走该入口。`Development/results/input-slim-20261001` 的收益约 0.004–0.035 ms；`bitexact-pm-20261001` 的组合复测中 900p p99 从 7.508/7.520 ms 升至 7.565/7.578 ms。需先设计输出缓冲的录制所有权、重放和重建退役，再做逐位与产品端平均值/p99 对照，才考虑启用。
+
+以上数字是上游实验结果，不是本产品实测。重新评估条件：上游提供稳定端到端收益，或本产品分析确认相关交接/拷贝是瓶颈。完整同步审阅仍以 pending 状态和逐项审阅记录为准。

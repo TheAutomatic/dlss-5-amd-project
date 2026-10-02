@@ -26,6 +26,27 @@
 | Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
 | Debug / Advanced | `DLSS5_HIP_PDL`、Debug view、增强屏障、early wrap | 排错与兼容开关 |
 
+### 本分支新增控制（尚未发布）
+
+以下选项位于 `OptiScaler.ini` 的 `[DlssNr]`，在 Ins 菜单调节后点 **Save Settings** 保存。这里描述开发分支，不代表上面的 1.9.9.1 已包含这些功能。
+
+| 菜单 | 配置键与默认值 | 用法 |
+|---|---|---|
+| lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2；与 Daniel 的 `Style` 独立。改变后下一帧重建网络，可能短暂卡顿 |
+| Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | 打开改为 1088，仅影响 1080 档；可能更快但会改变画面，尤其底边。改变后重建网络 |
+| Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | 接受显卡支持的额外色彩格式，使用私有 FP16 输出；保存后重启游戏 |
+| Overall Intensity | `NrOverallIntensity=1.0` | 双后端共用，0–2；0 显示原图，1 保留完整结果，>1 增强修正。0 仍运行 NR，省算力应关闭 NR |
+| Residual Stabilizer | `NrStabilizerEnabled=false` | 双后端共用，利用运动与深度减少修正量闪烁；可能软化运动细节或拖影，增加 GPU 工作与显存 |
+| History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | 范围分别 0–0.95 / 0–16；任一为 0 时旁路稳定器。先用默认值，拖影时降低 |
+| Measure NR performance | `NrTimingEnabled=false` | lmxxf 异步计时：NR GPU、Encode、Decode；Ins 还可展开 CPU 耗时与丢弃样本 |
+| Write timing summary to log | `NrTimingLog=false` | 同时启用计时和文件日志后，最多每 5 秒一条摘要，不逐帧刷屏 |
+
+**Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。数值是最近 120 个有效样本的统计；`N/A` 表示无可用样本，`stale` 表示过期。NR GPU 包含网络输出拷贝，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
+
+稳定器需要有效运动/深度，无法安全执行时旁路并在 Ins 显示状态。纯后端模式首次开启共享输出效果可能需要保存并重启。整体强度作用于最终输出，不等同于模型的 `Intensity`、Detail 或 Colour。
+
+ViT 复用仍采用本项目的性能取向默认值 **16 / 1 / 50 / 1**（period/global/local/image），不是上游 **4 / 0.22 / 1 / 0.35**；更宽松的阈值可能留下旧细节或拖影。`DLSS5_HIP_INPUT_POLL` 与 `DLSS5_IO_FUSE` 尚未接入产品路径，不能通过添加 ini 键启用。
+
 ---
 
 ## 目录
