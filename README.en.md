@@ -1,6 +1,6 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptiScaler AMD pre-SR — 1.9.10.1
+# OptiScaler AMD pre-SR — 1.9.10.2
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
