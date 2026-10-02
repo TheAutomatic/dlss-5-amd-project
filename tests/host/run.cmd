@@ -36,6 +36,8 @@ exit /b 2
 "%OUT%\nr_performance.exe" || goto fail
 %CXX% /utf-8 tests\host\upscaler_route_diagnostic.cpp /Fe"%OUT%\upscaler_route_diagnostic.exe" /Fo"%OUT%\upscaler_route_diagnostic.obj" || goto fail
 "%OUT%\upscaler_route_diagnostic.exe" || goto fail
+%CXX% /utf-8 tests\host\menu_window_layout.cpp /Fe"%OUT%\menu_window_layout.exe" /Fo"%OUT%\menu_window_layout.obj" || goto fail
+"%OUT%\menu_window_layout.exe" || goto fail
 %CXX% /utf-8 tests\host\nr_diagnostic_log.cpp /Fe"%OUT%\nr_diagnostic_log.exe" /Fo"%OUT%\nr_diagnostic_log.obj" || goto fail
 "%OUT%\nr_diagnostic_log.exe" "%OUT%\diagnostic-log" || goto fail
 %CXX% /utf-8 tests\host\amd_model_settings.cpp /Fe"%OUT%\amd_model_settings.exe" /Fo"%OUT%\amd_model_settings.obj" || goto fail

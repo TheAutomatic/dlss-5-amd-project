@@ -14,6 +14,10 @@
 
 namespace CfgKey
 {
+inline constexpr const char *kMenuSection = "Menu";
+inline constexpr const char *MenuWindowWidth = "WindowWidth";
+inline constexpr const char *MenuWindowHeight = "WindowHeight";
+inline constexpr const char *MenuWindowAnchor = "WindowAnchor";
 inline constexpr const char *kSection = "DlssNr";
 inline constexpr const char *kDanielSection = "DlssNrOnAmd";
 
@@ -72,9 +76,10 @@ inline constexpr const char *QueuePriorityLegacy = "AmdQueuePriority";
 inline constexpr const char *Inline = "AmdInline";
 inline constexpr const char *Async = "Async";
 
-// Known DlssNr ini keys (save path). Adding a menu control requires adding its key here
-// first; labels stay in DlssNr_Menu.cpp only.
+// Known product ini keys; [Menu] keys are explicitly identified below. Adding a control
+// requires registering its key here first; display labels remain UI-only.
 inline constexpr const char *const kKnown[] = {
+    MenuWindowWidth, MenuWindowHeight, MenuWindowAnchor, // [Menu], no runtime env aliases
     "Enabled",
     "RunBeforeSR",
     "ApplyAfterRR",

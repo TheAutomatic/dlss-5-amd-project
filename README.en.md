@@ -47,6 +47,15 @@ The stabilizer needs valid motion/depth; unsafe paths bypass it and show an Ins 
 
 ViT reuse retains this product's performance-oriented **16 / 1 / 50 / 1** defaults (period/global/local/image), compared with upstream **4 / 0.22 / 1 / 0.35**. Looser thresholds can retain stale detail or trails. `DLSS5_HIP_INPUT_POLL` and `DLSS5_IO_FUSE` are not integrated into the product path; adding ini keys does not enable them.
 
+### Ins window layout (development branch, unreleased)
+
+Drag an edge to resize. Narrow windows use one column; content scrolls independently of the footer.
+**Window** selects Free or a screen corner. Dragging the title bar releases the anchor; viewport changes keep the window within the game display area.
+**Menu Scale** controls text/control scale separately. **Reset window layout** restores automatic size, centering and Free mode without resetting NR or UI scale.
+**Save Settings** persists `[Menu] WindowWidth/WindowHeight` (logical pixels before scale; `auto` chooses the size) and `WindowAnchor` (0=Free, 1/2=top left/right, 3/4=bottom left/right). Free position is retained for this session only.
+Both backends share this layout. The Page Up overlay keeps its independent position setting.
+
+
 ---
 
 ## Table of Contents
