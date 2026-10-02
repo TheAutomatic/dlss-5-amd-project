@@ -239,6 +239,24 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 public static class AmdFolderPick {
+    // Scope the change to this UI thread; leave the PowerShell host's process DPI alone.
+    sealed class DpiScope : IDisposable {
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+        IntPtr previous;
+        public DpiScope() {
+            previous = SetThreadDpiAwarenessContext(new IntPtr(-4)); // Per-monitor v2.
+            if (previous == IntPtr.Zero)
+                previous = SetThreadDpiAwarenessContext(new IntPtr(-3)); // Per-monitor.
+        }
+        public void Dispose() {
+            if (previous != IntPtr.Zero) {
+                SetThreadDpiAwarenessContext(previous);
+                previous = IntPtr.Zero;
+            }
+        }
+    }
+    public static IDisposable BeginDpiScope() { return new DpiScope(); }
     [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialogRCW { }
     [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     interface IFileDialog {
@@ -296,6 +314,9 @@ public static class AmdFolderPick {
         return hr == 0 ? item : IntPtr.Zero;
     }
     public static string PickFolder(string title, string initialPath) {
+        using (BeginDpiScope()) { return PickFolderCore(title, initialPath); }
+    }
+    static string PickFolderCore(string title, string initialPath) {
         var dlg = (IFileDialog)new FileOpenDialogRCW();
         uint opts;
         dlg.GetOptions(out opts);
@@ -353,12 +374,20 @@ public static class AmdFolderPick {
         return $null
     } catch {
         Add-Type -AssemblyName System.Windows.Forms
-        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = 'Select the game folder that contains the game .exe'
-        $dlg.ShowNewFolderButton = $false
-        if ($initial) { $dlg.SelectedPath = $initial }
-        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
-        return $null
+        $dpiScope = $null
+        $dlg = $null
+        try {
+            if ('AmdFolderPick' -as [type]) { $dpiScope = [AmdFolderPick]::BeginDpiScope() }
+            $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dlg.Description = 'Select the game folder that contains the game .exe'
+            $dlg.ShowNewFolderButton = $false
+            if ($initial) { $dlg.SelectedPath = $initial }
+            if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
+            return $null
+        } finally {
+            if ($dlg) { $dlg.Dispose() }
+            if ($dpiScope) { $dpiScope.Dispose() }
+        }
     }
 }
 

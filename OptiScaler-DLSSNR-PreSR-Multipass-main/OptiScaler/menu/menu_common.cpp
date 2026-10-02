@@ -7108,39 +7108,51 @@ void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
 
     const int columns = currentFeature && !currentFeature->IsFrozen() &&
         ImGui::GetContentRegionAvail().x >= 600.0f * ctx.menuResScale ? 2 : 1;
-    if (ImGui::BeginTable("plots", columns, ImGuiTableFlags_SizingStretchSame))
-    {
-        ImGui::TableNextColumn();
-        ImGui::Text("FrameTime");
-        auto ft = StrFmt("%7.2f ms / %6.1f fps", frameTime, frameRate);
-        ImGui::PlotLines(
-            "##frame_time_plot", [](void* rb, int idx) -> float
-            { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gFrameTimes, plotWidth,
-            0, ft.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()});
+    auto upscalerHeader = [&] {
+        ImGui::Text("Upscaler");
 
-        if (currentFeature != nullptr && !currentFeature->IsFrozen())
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !state.detailedGpuTimes.empty())
         {
-            ImGui::TableNextColumn();
-            ImGui::Text("Upscaler");
+            ImGui::BeginTooltip();
 
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !state.detailedGpuTimes.empty())
+            ImGui::TextDisabled("Per shader breakdown:");
+            if (ImGui::BeginTable("ShaderTimes", 2, ImGuiTableFlags_SizingStretchProp))
             {
-                ImGui::BeginTooltip();
+                bool hasExtra = false;
 
-                ImGui::TextDisabled("Per shader breakdown:");
-                if (ImGui::BeginTable("ShaderTimes", 2, ImGuiTableFlags_SizingStretchProp))
+                for (auto& [name, time, includedInUpscalerTime] : state.detailedGpuTimes)
                 {
-                    bool hasExtra = false;
+                    if (!includedInUpscalerTime)
+                    {
+                        hasExtra = true;
+                        continue;
+                    }
 
+                    auto formattedTime = StrFmt("%7.2f ms", time);
+
+                    ImGui::TableNextColumn();
+                    ImGui::Text(name.c_str());
+
+                    ImGui::TableNextColumn();
+                    ImGui::Text(formattedTime.c_str());
+                }
+
+                std::optional<double> nrTime {};
+                nrTime = DlssNr::LastGpuTime();
+                if (hasExtra || nrTime.has_value())
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("Extra shaders:");
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("");
                     for (auto& [name, time, includedInUpscalerTime] : state.detailedGpuTimes)
                     {
-                        if (!includedInUpscalerTime)
-                        {
-                            hasExtra = true;
+                        if (includedInUpscalerTime)
                             continue;
-                        }
 
                         auto formattedTime = StrFmt("%7.2f ms", time);
 
@@ -7151,52 +7163,60 @@ void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
                         ImGui::Text(formattedTime.c_str());
                     }
 
-                    std::optional<double> nrTime {};
-                    nrTime = DlssNr::LastGpuTime();
-                    if (hasExtra || nrTime.has_value())
+                    if (nrTime.has_value())
                     {
-                        ImGui::TableNextRow();
-                        ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        ImGui::TextDisabled("Extra shaders:");
+                        ImGui::Text("Neural Rendering");
                         ImGui::TableNextColumn();
-                        ImGui::TextDisabled("");
-                        for (auto& [name, time, includedInUpscalerTime] : state.detailedGpuTimes)
-                        {
-                            if (includedInUpscalerTime)
-                                continue;
-
-                            auto formattedTime = StrFmt("%7.2f ms", time);
-
-                            ImGui::TableNextColumn();
-                            ImGui::Text(name.c_str());
-
-                            ImGui::TableNextColumn();
-                            ImGui::Text(formattedTime.c_str());
-                        }
-
-                        if (nrTime.has_value())
-                        {
-                            ImGui::TableNextColumn();
-                            ImGui::Text("Neural Rendering");
-                            ImGui::TableNextColumn();
-                            ImGui::Text(StrFmt("%.2f ms", nrTime.value()).c_str());
-                        }
+                        ImGui::Text(StrFmt("%.2f ms", nrTime.value()).c_str());
                     }
-
-                    ImGui::EndTable();
                 }
 
-                ImGui::EndTooltip();
+                ImGui::EndTable();
             }
 
-            auto ups = StrFmt("%7.2f ms", state.upscaleTimes.back());
-            ImGui::PlotLines(
-                "##upscaler_time_plot", [](void* rb, int idx) -> float
-                { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gUpscalerTimes, plotWidth,
-                0, ups.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()});
+            ImGui::EndTooltip();
         }
 
+    };
+    auto framePlot = [&] {
+        auto ft = StrFmt("%7.2f ms / %6.1f fps", frameTime, frameRate);
+        ImGui::PlotLines(
+            "##frame_time_plot", [](void* rb, int idx) -> float
+            { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gFrameTimes, plotWidth,
+            0, ft.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()});
+    };
+    auto upscalerPlot = [&] {
+        auto ups = StrFmt("%7.2f ms", state.upscaleTimes.back());
+        ImGui::PlotLines(
+            "##upscaler_time_plot", [](void* rb, int idx) -> float
+            { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); }, &gUpscalerTimes, plotWidth,
+            0, ups.c_str(), FLT_MAX, FLT_MAX, {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()});
+    };
+    if (ImGui::BeginTable("plots", columns, ImGuiTableFlags_SizingStretchSame))
+    {
+        ImGui::TableNextColumn();
+        ImGui::Text("FrameTime");
+        if (columns == 2)
+        {
+            ImGui::TableNextColumn();
+            upscalerHeader();
+            // Headers share one row; both plots start on the next row at the same Y.
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); framePlot();
+            ImGui::TableNextColumn(); upscalerPlot();
+        }
+        else
+        {
+            framePlot();
+            if (currentFeature && !currentFeature->IsFrozen())
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                upscalerHeader();
+                upscalerPlot();
+            }
+        }
         ImGui::EndTable();
     }
 }
