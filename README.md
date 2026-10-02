@@ -18,13 +18,13 @@
 
 | 菜单位置 | 键 | 说明 |
 |---|---|---|
-| 顶层 | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
-| 顶层 | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
-| 顶层 | `DLSS5_NETWORK_HEIGHT` | **NR%** auto（默认）或 720 / 900 / 1080 |
-| Experimental | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
-| Experimental → Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 内核 / 显存池 / 字节流 |
-| Experimental → Image reuse | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
-| Debug / Advanced | `DLSS5_HIP_PDL`、Debug view、增强屏障、early wrap | 排错与兼容开关 |
+| Image | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
+| Compatibility & Scheduling | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
+| Quality & Performance | `DLSS5_NETWORK_HEIGHT` | **NR%** auto（默认）或 720 / 900 / 1080 |
+| Image | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
+| Advanced Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 内核 / 显存池 / 字节流 |
+| Quality & Performance → Reuse tuning | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
+| Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`、增强屏障、early wrap / Debug view | 兼容设置与诊断画面分别归组 |
 
 ### 本分支新增控制（尚未发布）
 
@@ -41,7 +41,9 @@
 | Measure NR performance | `NrTimingEnabled=false` | 按需测量 HIP 网络、Encode、Decode 和输出效果；PDL 生效时网络计时显示 `N/A (PDL)`，不会自动关闭 PDL |
 | Write timing summary to log | `NrTimingLog=false` | 同时启用计时和文件日志后，最多每 5 秒一条摘要，不逐帧刷屏 |
 
-共享控制前的 **Reset shared defaults** 恢复整体强度、稳定器及计时开关的默认值；lmxxf 的整体 Reset 也覆盖这些项。Lighting / Appearance 子面板的 Reset 仍只重置其对应效果。
+菜单顶部保留启用、后端、Overall Intensity 和 Residual Stabilizer；其余按 Image、Quality & Performance、Additional Effects（daniel）、Compatibility & Scheduling、Advanced Kernels（lmxxf）、Diagnostics 排列。High resolution 默认开启，收在 Compatibility & Scheduling；保留 NR% 命名，当前 lmxxf 仍选择分辨率档位。
+
+**Reset shared effects** 只恢复整体强度和稳定器；**Reset diagnostics** 恢复计时与调试显示。各分组 Reset 只作用于对应设置；Quality 重置会同时关闭与默认自适应复用互斥的 ViT byte stream。底部 **Reset NR settings** 重置当前后端和共享 NR 控件，不改另一个后端、后端选择、热切换偏好或快捷键。Lighting / Appearance 的 Reset 不再修改模型次数、结构等分组外设置。
 
 **Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。编解码/效果数值是最近 120 个有效样本的统计；网络数值是最近 5 个样本的中位数，重建后跳过首样本、丢弃已观察到的不足 0.01 ms 异常事件区间，至少积累 3 个再显示；`N/A` 表示无可用样本，`stale` 表示过期。上游 `fe4d1d73` 的网络计时在当前 PDL 路径会持续低报，故该模式显示 `N/A (PDL)`；编解码与输出效果各自换行显示，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
 
