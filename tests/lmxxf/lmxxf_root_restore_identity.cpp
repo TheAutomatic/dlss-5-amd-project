@@ -57,12 +57,18 @@ int main()
     Require(!states.contains(proxy.Get()), "old proxy lookup reproduces missing state");
     Require(states.contains(RootRestoreIdentity::Key(proxy.Get())), "native identity admits proxy");
     Require(RootRestoreIdentity::Key(native.Get()) == native.Get(), "native identity unchanged");
+    Require(!RootRestoreIdentity::NeedsReplay(native.Get(), proxy.Get(), true, false),
+            "untouched conditional pass does not replay");
+    Require(RootRestoreIdentity::NeedsReplay(native.Get(), proxy.Get(), true, true),
+            "partial recording before a failed split still restores state");
 
     RootRestoreIdentity::Replay(native.Get(), NativeRoot, &ID3D12GraphicsCommandList::SetGraphicsRootSignature, root.Get());
     Require(trampolineTarget == native.Get(), "native trampoline receives native this");
     Require(SUCCEEDED(raw->SplitSegments()), "split");
     auto* continuation = RootRestoreIdentity::Key(proxy.Get());
     Require(continuation != native.Get(), "destination changes after split");
+    Require(RootRestoreIdentity::NeedsReplay(native.Get(), proxy.Get(), true, false),
+            "lmxxf split must replay without a Daniel recording marker");
     Require(!states.contains(continuation), "continuation has no producer capture yet");
     RootRestoreIdentity::Transfer(states, native.Get(), continuation);
     Require(states.at(continuation) == root.Get(), "producer capture follows continuation");

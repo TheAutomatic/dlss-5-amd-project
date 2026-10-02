@@ -23,6 +23,7 @@
 
 #include <proxies/NVNGX_Proxy.h>
 #include <hooks/D3D12_Hooks.h>
+#include <hooks/RootRestoreIdentity.h>
 #include <gpu_time/GpuTime_Dx12.h>
 
 #include <mutex>
@@ -1529,7 +1530,8 @@ struct ScopedNrStateEnvelope
 
     ~ScopedNrStateEnvelope()
     {
-        const bool replay = !conditionalReplay || invocation.state.commandsRecorded;
+        const bool replay = RootRestoreIdentity::NeedsReplay(stateSource.Get(), cmd, conditionalReplay,
+                                                             invocation.state.commandsRecorded);
         const bool restoredGraphics = replay && froze && restorePlan.count;
         // Preserve the pre-NR native state even when the proxy now records into a continuation.
         if (replay)

@@ -6,6 +6,7 @@
 #include "../submission/SubmissionTls.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
 #include "../amd/AmdBridge.h"
+#include "../amd/GraphicsInvocation.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -530,6 +531,14 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     auto lease = LmxxfRecording::Attach(sessionOwner, jobHandle, logical);
     logical->Release();
     if (!lease) { SetStatus("lmxxf: this recording already owns an NR job"); return nullptr; }
+    // RecordInputs may bind state before reporting an error. Arm restoration
+    // before calling it, including failures where no split has happened yet.
+    auto* invocation = AmdPreSr::GraphicsSnap::GraphicsInvocationFor(reinterpret_cast<uint64_t>(recordCmd));
+    if (invocation)
+    {
+        invocation->commandsRecorded = true;
+        invocation->outcome = "recording_attempted";
+    }
     if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
         sessionOwner->failed = true;
@@ -550,6 +559,8 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         return nullptr;
     }
     lease->ready = true;
+    if (invocation)
+        invocation->outcome = "recorded";
     SetStatus("lmxxf: recording ready");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
 }

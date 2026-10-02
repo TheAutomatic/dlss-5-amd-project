@@ -8,6 +8,14 @@ inline ID3D12GraphicsCommandList* Key(ID3D12GraphicsCommandList* list)
     return DlssNr::Submission::GraphicsRecordingList(list);
 }
 
+inline bool NeedsReplay(ID3D12GraphicsCommandList* source, ID3D12GraphicsCommandList* list,
+                        bool conditional, bool commandsRecorded)
+{
+    // A split itself needs state migration, including diagnostic splits and
+    // failures after closing the producer. Do not rely on backend telemetry.
+    return !conditional || commandsRecorded || source != Key(list);
+}
+
 // The native hooks own the keys. A split changes the recording destination, but
 // the state to restore still belongs to the producer from before the NR pass.
 // Caller holds the map's lock. Copy before insertion (which may rehash).
