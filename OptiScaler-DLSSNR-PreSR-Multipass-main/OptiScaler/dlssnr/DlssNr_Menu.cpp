@@ -160,10 +160,10 @@ void RenderMenu(Config* config, float menuResScale)
             const Kind active = DlssNr::Backend::ActiveKindFromConfig();
             const bool isLmxxf = (active == Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
-            const char* ver = isLmxxf ? "lmxxf" : DlssNr::AmdBridge::RuntimeName();
+            const char* ver = isLmxxf ? "lmxxf 0.39" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
-            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf" : "pass1?"));
+            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf 0.39" : "pass1?"));
             HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
                                : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
@@ -356,18 +356,7 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::NetworkHeight, config->LmxxfNetworkHeight.value_or_default().c_str());
                     resetOption(config->LmxxfNetwork1080Rows);
                     CfgKey::PutEnvString(CfgKey::Network1080Rows, std::to_string(config->LmxxfNetwork1080Rows.value_or_default()).c_str());
-                    resetOption(config->LmxxfVitAdaptive);
-                    CfgKey::PutEnvAlias(CfgKey::VitAdaptive, config->LmxxfVitAdaptive.value_or_default());
-                    resetOption(config->LmxxfVitReusePeriod);
-                    CfgKey::PutEnvString(CfgKey::VitReusePeriod, std::to_string(config->LmxxfVitReusePeriod.value_or_default()).c_str());
-                    resetOption(config->LmxxfVitReuseGlobal);
-                    CfgKey::PutEnvString(CfgKey::VitReuseGlobal, std::to_string(config->LmxxfVitReuseGlobal.value_or_default()).c_str());
-                    resetOption(config->LmxxfVitReuseLocal);
-                    CfgKey::PutEnvString(CfgKey::VitReuseLocal, std::to_string(config->LmxxfVitReuseLocal.value_or_default()).c_str());
-                    resetOption(config->LmxxfVitReuseImage);
-                    CfgKey::PutEnvString(CfgKey::VitReuseImage, std::to_string(config->LmxxfVitReuseImage.value_or_default()).c_str());
-                    resetOption(config->LmxxfVitByteStream);
-                    CfgKey::PutEnvAlias(CfgKey::VitByteStream, config->LmxxfVitByteStream.value_or_default());
+
                 }
                 else {
                     resetOption(config->DlssNrQuality);
@@ -412,12 +401,25 @@ void RenderMenu(Config* config, float menuResScale)
                 CfgKey::PutEnvAlias(CfgKey::MHByteStream, config->LmxxfMHByteStream.value_or_default());
                 resetOption(config->LmxxfDecoderByte);
                 CfgKey::PutEnvAlias(CfgKey::DecoderByte, config->LmxxfDecoderByte.value_or_default());
+                AmdBridge::InvalidateHistory();
+            };
+            auto resetVit = [&]() {
                 resetOption(config->LmxxfVitProjN64);
                 CfgKey::PutEnvAlias(CfgKey::VitProjN64, config->LmxxfVitProjN64.value_or_default());
                 resetOption(config->LmxxfVitStream);
                 CfgKey::PutEnvString(CfgKey::VitStream, std::to_string(config->LmxxfVitStream.value_or_default()).c_str());
                 resetOption(config->LmxxfVitByteStream);
                 CfgKey::PutEnvAlias(CfgKey::VitByteStream, config->LmxxfVitByteStream.value_or_default());
+                resetOption(config->LmxxfVitAdaptive);
+                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, config->LmxxfVitAdaptive.value_or_default());
+                resetOption(config->LmxxfVitReusePeriod);
+                CfgKey::PutEnvString(CfgKey::VitReusePeriod, std::to_string(config->LmxxfVitReusePeriod.value_or_default()).c_str());
+                resetOption(config->LmxxfVitReuseGlobal);
+                CfgKey::PutEnvString(CfgKey::VitReuseGlobal, std::to_string(config->LmxxfVitReuseGlobal.value_or_default()).c_str());
+                resetOption(config->LmxxfVitReuseLocal);
+                CfgKey::PutEnvString(CfgKey::VitReuseLocal, std::to_string(config->LmxxfVitReuseLocal.value_or_default()).c_str());
+                resetOption(config->LmxxfVitReuseImage);
+                CfgKey::PutEnvString(CfgKey::VitReuseImage, std::to_string(config->LmxxfVitReuseImage.value_or_default()).c_str());
                 AmdBridge::InvalidateHistory();
             };
             auto resetLighting = [&]() {
@@ -666,56 +668,7 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("Off (default): 1152 processing rows. On: 1088 rows."
                                "\nMay reduce NR time but changes the image, especially near the bottom edge."
                                "\nOnly affects the 1080 tier; rebuilds on the next frame.");
-                    bool adapt = config->LmxxfVitAdaptive.value_or_default();
-                        if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
-                        {
-                            if (adapt)
-                            {
-                                config->LmxxfVitByteStream = false;
-                                CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
-                            }
-                            config->LmxxfVitAdaptive = adapt;
-                            CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
-                        }
-                        if (ImGui::TreeNode("Reuse tuning")) {
-                        int period = config->LmxxfVitReusePeriod.value_or_default();
-                            if (ImGui::SliderInt("Reuse period", &period, 1, 16))
-                            {
-                                config->LmxxfVitReusePeriod = period;
-                                char buf[32];
-                                snprintf(buf, sizeof buf, "%d", period);
-                                CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
-                            }
-                            float gl = config->LmxxfVitReuseGlobal.value_or_default();
-                            if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
-                            {
-                                config->LmxxfVitReuseGlobal = gl;
-                                char buf[32];
-                                snprintf(buf, sizeof buf, "%g", gl);
-                                CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
-                            }
-                            float lo = config->LmxxfVitReuseLocal.value_or_default();
-                            if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
-                            {
-                                config->LmxxfVitReuseLocal = lo;
-                                char buf[32];
-                                snprintf(buf, sizeof buf, "%g", lo);
-                                CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
-                            }
-                            float im = config->LmxxfVitReuseImage.value_or_default();
-                            if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
-                            {
-                                config->LmxxfVitReuseImage = im;
-                                char buf[32];
-                                snprintf(buf, sizeof buf, "%g", im);
-                                CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
-                            }
-                            HelpMarker("Static frames reuse ViT; motion returns to full cost."
-                                       "\nEnabling adaptive reuse turns off ViT byte stream."
-                                       "\nStrength sliders are tunable (not bit-exact)."
-                                       "\nApplies on the next network rebuild.");
-                        ImGui::TreePop();
-                    }
+
                 }
                 else {
                     {
@@ -742,6 +695,116 @@ void RenderMenu(Config* config, float menuResScale)
                     if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
                 }
                 if (ImGui::Button("Reset this group##Quality & Performance")) resetQuality();
+                ImGui::TreePop();
+            }
+            if (isLmxxf && ImGui::TreeNode("ViT / image reuse"))
+            {
+                {
+                    auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
+                        bool v = opt.value_or_default();
+                        if (ImGui::Checkbox(label, &v))
+                        {
+                            opt = v;
+                            CfgKey::PutEnvAlias(key, v);
+                        }
+                    };
+                    kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
+
+                    // ViT stream (0..3) and ViT byte stream cannot both be active.
+                    int vitStream = config->LmxxfVitStream.value_or_default();
+                    if (vitStream < 0 || vitStream > 3)
+                        vitStream = 3;
+                    bool vitByte = config->LmxxfVitByteStream.value_or_default();
+                    if (ImGui::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
+                    {
+                        config->LmxxfVitStream = vitStream;
+                        char buf[8];
+                        snprintf(buf, sizeof buf, "%d", vitStream);
+                        CfgKey::PutEnvString(CfgKey::VitStream, buf);
+                        if (vitStream != 0 && vitByte)
+                        {
+                            vitByte = false;
+                            config->LmxxfVitByteStream = false;
+                            CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                        }
+                    }
+                    if (vitStream != 0)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Checkbox("ViT byte stream (exp)", &vitByte))
+                    {
+                        if (vitByte)
+                        {
+                            config->LmxxfVitAdaptive = false;
+                            CfgKey::PutEnvAlias(CfgKey::VitAdaptive, false);
+                        }
+                        config->LmxxfVitByteStream = vitByte;
+                        CfgKey::PutEnvAlias(CfgKey::VitByteStream, vitByte);
+                        if (vitByte && vitStream != 0)
+                        {
+                            vitStream = 0;
+                            config->LmxxfVitStream = 0;
+                            CfgKey::PutEnvString(CfgKey::VitStream, "0");
+                        }
+                    }
+                    if (vitStream != 0)
+                        ImGui::EndDisabled();
+                    HelpMarker("Upstream production kernels. Both (3) is the official 0.35+ template default."
+                               "\nOff restores the previous f32 ViT path."
+                               "\nViT stream and ViT byte stream are mutually exclusive."
+                               "\nEnabling ViT byte stream turns off adaptive reuse."
+                               "\nApplies on the next network rebuild.");
+                }
+                bool adapt = config->LmxxfVitAdaptive.value_or_default();
+                    if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                    {
+                        if (adapt)
+                        {
+                            config->LmxxfVitByteStream = false;
+                            CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
+                        }
+                        config->LmxxfVitAdaptive = adapt;
+                        CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
+                    }
+                    if (ImGui::TreeNode("Reuse tuning")) {
+                    int period = config->LmxxfVitReusePeriod.value_or_default();
+                        if (ImGui::SliderInt("Reuse period", &period, 1, 16))
+                        {
+                            config->LmxxfVitReusePeriod = period;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%d", period);
+                            CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
+                        }
+                        float gl = config->LmxxfVitReuseGlobal.value_or_default();
+                        if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseGlobal = gl;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", gl);
+                            CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
+                        }
+                        float lo = config->LmxxfVitReuseLocal.value_or_default();
+                        if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseLocal = lo;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", lo);
+                            CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
+                        }
+                        float im = config->LmxxfVitReuseImage.value_or_default();
+                        if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
+                        {
+                            config->LmxxfVitReuseImage = im;
+                            char buf[32];
+                            snprintf(buf, sizeof buf, "%g", im);
+                            CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
+                        }
+                        HelpMarker("Static frames reuse ViT; motion returns to full cost."
+                                   "\nEnabling adaptive reuse turns off ViT byte stream."
+                                   "\nStrength sliders are tunable (not bit-exact)."
+                                   "\nApplies on the next network rebuild.");
+                    ImGui::TreePop();
+                }
+                if (ImGui::Button("Reset this group##Vit")) resetVit();
                 ImGui::TreePop();
             }
             if (!isLmxxf) {
@@ -1078,62 +1141,6 @@ void RenderMenu(Config* config, float menuResScale)
                         kernelToggle("Decoder byte", config->LmxxfDecoderByte, CfgKey::DecoderByte);
                     }
 
-                    ImGui::SeparatorText("ViT / image reuse");
-                    {
-                        auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
-                            bool v = opt.value_or_default();
-                            if (ImGui::Checkbox(label, &v))
-                            {
-                                opt = v;
-                                CfgKey::PutEnvAlias(key, v);
-                            }
-                        };
-                        kernelToggle("ViT proj N64", config->LmxxfVitProjN64, CfgKey::VitProjN64);
-
-                        // ViT stream (0..3) and ViT byte stream cannot both be active.
-                        int vitStream = config->LmxxfVitStream.value_or_default();
-                        if (vitStream < 0 || vitStream > 3)
-                            vitStream = 3;
-                        bool vitByte = config->LmxxfVitByteStream.value_or_default();
-                        if (ImGui::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
-                        {
-                            config->LmxxfVitStream = vitStream;
-                            char buf[8];
-                            snprintf(buf, sizeof buf, "%d", vitStream);
-                            CfgKey::PutEnvString(CfgKey::VitStream, buf);
-                            if (vitStream != 0 && vitByte)
-                            {
-                                vitByte = false;
-                                config->LmxxfVitByteStream = false;
-                                CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
-                            }
-                        }
-                        if (vitStream != 0)
-                            ImGui::BeginDisabled();
-                        if (ImGui::Checkbox("ViT byte stream (exp)", &vitByte))
-                        {
-                            if (vitByte)
-                            {
-                                config->LmxxfVitAdaptive = false;
-                                CfgKey::PutEnvAlias(CfgKey::VitAdaptive, false);
-                            }
-                            config->LmxxfVitByteStream = vitByte;
-                            CfgKey::PutEnvAlias(CfgKey::VitByteStream, vitByte);
-                            if (vitByte && vitStream != 0)
-                            {
-                                vitStream = 0;
-                                config->LmxxfVitStream = 0;
-                                CfgKey::PutEnvString(CfgKey::VitStream, "0");
-                            }
-                        }
-                        if (vitStream != 0)
-                            ImGui::EndDisabled();
-                        HelpMarker("Upstream production kernels. Both (3) is the official 0.35+ template default."
-                                   "\nOff restores the previous f32 ViT path."
-                                   "\nViT stream and ViT byte stream are mutually exclusive."
-                                   "\nEnabling ViT byte stream turns off adaptive reuse."
-                                   "\nApplies on the next network rebuild.");
-                    }
                     if (ImGui::Button("Reset this group##Advanced Kernels")) resetKernels();
                     ImGui::TreePop();
                 }
@@ -1207,7 +1214,7 @@ void RenderMenu(Config* config, float menuResScale)
                 resetImage();
                 resetQuality();
                 resetScheduling();
-                if (isLmxxf) { resetKernels(); resetOption(config->DlssNrDebugView); }
+                if (isLmxxf) { resetKernels(); resetVit(); resetOption(config->DlssNrDebugView); }
                 else { resetLighting(); resetAppearance(); }
             }
             HelpMarker("Resets this backend and shared NR controls. Keeps backend selection, hot-switch preference, keybinds and the other backend settings.");
