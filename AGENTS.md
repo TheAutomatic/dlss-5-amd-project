@@ -35,9 +35,13 @@ Before changing or running `tools/sync-lmxxf-upstream.ps1`, read
 `tools/lmxxf-sync/README.md` and follow its staged integration workflow.
 
 - Work in an isolated worktree for upstream integration.
-- Read the complete upstream diff, including deployment profiles, generators and experiments
-  outside the vendor closure. Trace relevant options through this product's runtime, module
-  selection, compile definitions and kernel consumers. Inspect the pinned bridge header diff.
+- Review the final diff from the last integrated pin to the target, grouped by feature.
+  Inventory all changed paths, including deployment profiles, generators and experiments
+  outside the vendor closure. Deeply trace experiments only when they affect production
+  reachability, defaults, ABI, layouts, module selection or kernel consumers. Inspect the
+  pinned bridge header diff. Inspect intermediate commits only to resolve specific ambiguity.
+- Use the per-item inventory for coverage, not repeated long-form approval. Related items
+  may reference one feature review with concrete evidence, validation and deferrals.
 - Classify each new/changed switch using evidence. Do not enable or exclude a switch merely
   because of its name. Never bulk-fill the generated review template to get a passing exit.
 - Integrate incrementally. Record concrete reasons, source locations, actual validation and

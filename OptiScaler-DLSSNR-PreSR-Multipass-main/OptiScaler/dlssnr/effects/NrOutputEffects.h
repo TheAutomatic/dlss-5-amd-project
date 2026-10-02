@@ -352,7 +352,8 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
     if (!temporal || guides.reset || !s.history ||
         s.history->width != width || s.history->height != height ||
         s.historyGuides.inverted != guides.inverted || s.historyGuides.jittered != guides.jittered ||
-        std::abs(s.historyGuides.preExposure - guides.preExposure) > guides.preExposure * .0001f ||
+        // History is stored after dividing by each frame's preExposure.
+        // Normal exposure adaptation therefore does not invalidate its colour domain.
         s.historyGuides.exposureScale != guides.exposureScale ||
         GetTickCount64() - s.historyTick > 1000) s.ClearHistory();
     s.performance.SetEnabled(timingEnabled && intensity != 0 && (intensity != 1 || temporal) && original != result);
@@ -464,7 +465,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
         }
         if (timingEnabled && storage->timing) storage->timing->End(cmd, temporal ? 1 : 0);
         recorded = true;
-        s.Status(temporal ? "Stabilizer active (includes overall intensity)" : requestedTemporal ? "Overall Intensity active; stabilizer bypassed: unsupported guides" : "Overall Intensity active"); return storage->output.Get();
+        s.Status(temporal ? (lease->previous ? "Stabilizer: history available (pixel rejection still applies)" : "Stabilizer: building history") : requestedTemporal ? "Overall Intensity active; stabilizer bypassed: unsupported guides" : "Overall Intensity active"); return storage->output.Get();
     } catch (...) { s.Status("Overall Intensity bypassed: preparation failed"); return result; }
 }
 }

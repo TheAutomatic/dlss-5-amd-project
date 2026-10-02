@@ -114,7 +114,12 @@ default to false. The host caches a non-consuming snapshot every 500 ms; explici
 file summaries are limited to one per five seconds. Means and maxima cover the
 last 120 valid samples, counts are cumulative since the last enable change.
 
-The v2 execution path records HIP events after the input semaphore wait and around
+Network timing is currently disabled internally (`NR_NETWORK_TIMING_AVAILABLE=0`)
+pending an upstream interface. Neither ini nor the timing ABI enable switch can
+activate it. Network samples are not collected and the UI displays N/A (paused);
+codec/effects and CPU measurements remain opt-in.
+
+The retained, inactive v2 implementation records HIP events after the input semaphore wait and around
 network enqueue, including its final output buffer copy. This is a GPU stream span,
 not isolated kernel busy time or end-to-end frame latency. Eight event pairs are
 reused only after the existing output fence proves completion; a full pool drops

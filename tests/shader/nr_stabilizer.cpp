@@ -87,8 +87,8 @@ int main()
     c.jitterX=0;c.flags=3;for(auto& v:depth)v[0]=.5f;guides();auto reversed=run();c.flags=1;Require(run()==reversed,"reversed depth convention");
     // Static alternating correction: cumulative history reduces variation.
     for(auto& v:history)v={0,0,0,.5f};c.flags=0;float prev=0,variation=0,unfiltered=0;
-    for(unsigned frame=0;frame<20;++frame){float value=frame%2?.42f:.4f;for(auto& v:result)v={value,value,value,.9f};Transfer(d.Get(),q.Get(),textures[1].Get(),&result);guides();auto out=run();if(frame>5){variation+=std::abs(out[0][0]-prev);unfiltered+=.02f;}prev=out[0][0];history=Transfer(d.Get(),q.Get(),textures[6].Get());c.flags=1;}
-    Require(variation<unfiltered*.65f,"static flicker reduction");
+    for(unsigned frame=0;frame<20;++frame){c.preExposure=.2f+frame*.002f;for(auto& v:base)v={.2f*c.preExposure,.2f*c.preExposure,.2f*c.preExposure,.37f};Transfer(d.Get(),q.Get(),textures[0].Get(),&base);float value=(frame%2?.42f:.4f)*c.preExposure;for(auto& v:result)v={value,value,value,.9f};Transfer(d.Get(),q.Get(),textures[1].Get(),&result);guides();auto out=run();if(frame>5){variation+=std::abs(out[0][0]/c.preExposure-prev);unfiltered+=.02f;}prev=out[0][0]/c.preExposure;history=Transfer(d.Get(),q.Get(),textures[6].Get());c.flags=1;}
+    Require(variation<unfiltered*.65f,"flicker reduction survives continuously changing pre-exposure");
     Ptr<ID3D12InfoQueue> info;if(SUCCEEDED(d.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;info->GetMessage(i,nullptr,&bytes);std::vector<char> storage(bytes);auto* m=reinterpret_cast<D3D12_MESSAGE*>(storage.data());Check(info->GetMessage(i,m,&bytes),"debug message");if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)std::fprintf(stderr,"%s\n",m->pDescription);Require(m->Severity>D3D12_MESSAGE_SEVERITY_ERROR,"debug validation");}
     std::puts("NR stabilizer shader: PASS (flicker, motion/jitter, depth, invalid guides, intensity)");
 }

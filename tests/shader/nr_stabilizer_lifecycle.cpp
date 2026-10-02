@@ -28,6 +28,7 @@ int main()
     {auto discarded=record();Require(discarded.output!=result.Get(),"stabilizer active");Require(!state.history,"Record must not publish history");}
     Effects::Poll();Require(NoLeases(),"discarded recording collected");
     auto first=record();auto firstLease=state.leases.back();Check(first.proxy->ExecuteOn(q.Get()),"first submit");Require(state.history==firstLease->storage,"submit publishes history");WaitQueue(d.Get(),q.Get());CheckPixels(d.Get(),q.Get(),first.output,1.f);
+    guides.preExposure=1.002f;
     auto second=record();auto secondLease=state.leases.back();Require(secondLease->previous==firstLease->storage,"captures submitted history");
     auto third=record();auto thirdLease=state.leases.back();Require(thirdLease->previous==firstLease->storage,"unsubmitted second cannot advance history");
     Ptr<ID3D12Fence> gate;Check(d->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"gate");
@@ -41,8 +42,9 @@ int main()
     auto oldEpoch=record();auto oldLease=state.leases.back();Effects::InvalidateHistory();
     Check(oldEpoch.proxy->ExecuteOn(q.Get()),"old epoch submit");Require(!state.history,"old epoch cannot resurrect reset history");WaitQueue(d.Get(),q.Get());
     auto fresh=record();Require(!state.leases.back()->previous,"reset starts without history");Check(fresh.proxy->ExecuteOn(q.Get()),"fresh");WaitQueue(d.Get(),q.Get());
-    guides.preExposure=2;auto exposed=record();Require(!state.leases.back()->previous,"exposure jump rejects history");guides.preExposure=1;
-    guides.reset=true;auto reset=record();Require(!state.leases.back()->previous,"scene reset rejects history");guides.reset=false;
+    guides.preExposure=2;auto exposed=record();Require(bool(state.leases.back()->previous),"normalized history survives pre-exposure change");
+    Require(Effects::Status().find("history available")!=std::string::npos,"status identifies available history");guides.preExposure=1;
+    guides.reset=true;auto reset=record();Require(!state.leases.back()->previous,"scene reset rejects history");Require(Effects::Status().find("building history")!=std::string::npos,"status identifies history initialization");guides.reset=false;
     guides.depth=nullptr;auto missing=record();Require(missing.output==result.Get()&&!state.history,"missing depth identity bypass");
     auto blend=record(.5f);Require(blend.output!=result.Get(),"invalid guides still permit intensity");Check(blend.proxy->ExecuteOn(q.Get()),"fallback blend");WaitQueue(d.Get(),q.Get());CheckPixels(d.Get(),q.Get(),blend.output,.5f);guides.depth=depth.Get();
     auto zero=record(0);Require(zero.output==original.Get()&&!state.history,"zero intensity resets history");

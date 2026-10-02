@@ -84,3 +84,25 @@ Texture2D/SHADER_LOAD 支持；重建时正确清理 geometry/Style 状态。
 Style 1、1152 rows 恢复 EXACT；每次设置变化只重建一次，重复帧稳定。
 未进行 gfx1200 实机、完整游戏矩阵、新 Actions 或新测试包验收。
 正式发版仍须遵守 [release.md](release.md)。
+
+## 2026-10-02 本地效果与计时修正复核
+
+上游范围、模块配方和 26 项暂缓不变；本次只复核本地最终 diff，沿用未变化的上游证据。
+审阅组织按 tools/lmxxf-sync/README.md 改为功能分组，逐项清单只负责覆盖；生成器、
+部署配置与 pinned bridge 仍在覆盖范围，生产无关的实验不再要求重复展开原始记录。
+
+- 稳定器：shader 在保存残差前除以每帧 preExposure，外层因此不再因正常 preExposure
+  变化清空历史；保留 reset、无效输入、尺寸、exposureScale、深度/抖动约定和超时保护。
+  状态区分建立历史和可用历史，不宣称每个像素都通过重投影。
+- 菜单：共享 Reset 恢复 Config 声明的默认值并失效历史，lmxxf 整体 Reset 同样覆盖；
+  Lighting / Appearance 局部 Reset 保持原范围。整体强度计算未变。
+  Page Up 保留第一行 NR 字段，编解码与输出效果独立换行，宽度计算随之更新。
+- 计时：NR_NETWORK_TIMING_AVAILABLE=0 同时阻断生产桥接事件启用和样本收集；
+  网络字段显示 N/A (paused)。保留 ABI、配置键及独立的 CPU/codec/effects 测量，
+  日志仍默认关闭且摘要限频。待上游正式网络计时接口可用后再接入。
+
+验证：tests/run-all.cmd --tier ci --out exports/nr-fixes-tests 全部通过；包含连续曝光
+变化下的残差滤波、提交历史保留、显式场景重置和状态回归，以及 host、ABI、WARP、
+安装/打包、同步测试。tools/build/build-release-local.cmd --fast 宿主编译通过，
+该编译独立于上述完整 CI，不作为替代。无新增 GPU 硬件测试、游戏画质/菜单实测或发布包验收；
+上面的历史 GPU 结果只保留为未变化上游算法的既有证据。

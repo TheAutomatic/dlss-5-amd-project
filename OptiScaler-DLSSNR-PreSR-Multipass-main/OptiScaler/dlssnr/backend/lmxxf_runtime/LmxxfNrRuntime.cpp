@@ -1183,7 +1183,7 @@ struct Session
     uint64_t timingExecution = 0;
     void CollectTiming(hip_reference::D3D12Bridge* source)
     {
-        if (!source) return;
+        if (!NR_NETWORK_TIMING_AVAILABLE || !source) return;
         hip_reference::D3D12Bridge::ProductionTiming sample;
         while (source->TakeProductionTiming(sample))
             performance.Record(NR_GPU_NETWORK, sample.ms, GetTickCount64(), sample.frame, sample.execution, sample.epoch);
@@ -2418,7 +2418,7 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
             {
                 auto* bridge = lease->chain->bridge.get();
                 session->CollectTiming(bridge);
-                bridge->ConfigureProductionTiming(session->performance.Enabled(), lease->frameId,
+                bridge->ConfigureProductionTiming(NR_NETWORK_TIMING_AVAILABLE && session->performance.Enabled(), lease->frameId,
                                                    lease->executionId, session->performance.Epoch());
                 bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
             }

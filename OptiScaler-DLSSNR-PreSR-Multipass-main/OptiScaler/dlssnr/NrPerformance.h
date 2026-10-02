@@ -4,6 +4,8 @@
 /* Independent telemetry ABI. Durations are milliseconds; timestamps use GetTickCount64.
  * GPU fields stay invalid (samples == 0) until actual completion is confirmed.
  * CPU and GPU durations are different measurements, not additive frame time. */
+// Pending the upstream network timing interface; independent codec/effects queries remain available.
+#define NR_NETWORK_TIMING_AVAILABLE 0
 #define NR_TIMING_VERSION 1u
 #define NR_TIMING_STAGE_COUNT 9u
 enum NrTimingStage

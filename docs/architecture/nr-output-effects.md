@@ -74,6 +74,11 @@ Local shader changes add depth-weighted bilinear history sampling, invalid-guide
 and composition with Overall Intensity. The product implements its own shared-backend pass,
 recording ownership, history publication, configuration and menu controls.
 
+The product's history management retains history across ordinary preExposure changes,
+since each frame removes its own preExposure before storing residuals. This fixes a local
+integration bug that repeatedly discarded usable history as exposure changed. The fix
+changes history invalidation and status reporting; it does not replace the filtering algorithm.
+
 Only successful actual submissions publish history. Recording or discarding a
 list does not publish it. A recording freezes its previous history binding and
 scalar settings; replay uses those frozen bindings, and never republishes an
@@ -84,10 +89,14 @@ leaves that chain unconfirmed and disallows its replay. New recordings start an
 independent generation without reading the unconfirmed resources.
 
 History is invalidated by backend/session reset, NR off, skipped NR evaluation,
-unsupported inputs, colour extent changes, exposure changes, depth/jitter
+unsupported inputs, colour extent changes, exposure-scale changes, depth/jitter
 convention changes, or a submission gap exceeding one second. Epoch checks stop
 late old submissions from repopulating reset history. Old recordings still own
 the resources their frozen bindings need until invalidation and completion.
+Each frame removes its own preExposure before storing the residual, so ordinary
+preExposure changes retain history. Scene discontinuities still use the reset flag.
+Status distinguishes building history from available history; individual pixels
+can still reject reprojection/depth even when history is available.
 
 Each temporal storage set contains two RGBA16F textures (output and next
 residual/depth), about 16 bytes per pixel before allocation alignment. Keeping

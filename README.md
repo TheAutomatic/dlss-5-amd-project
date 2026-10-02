@@ -38,10 +38,12 @@
 | Overall Intensity | `NrOverallIntensity=1.0` | 双后端共用，0–2；0 显示原图，1 保留完整结果，>1 增强修正。0 仍运行 NR，省算力应关闭 NR |
 | Residual Stabilizer | `NrStabilizerEnabled=false` | 双后端共用，利用运动与深度减少修正量闪烁；可能软化运动细节或拖影，增加 GPU 工作与显存 |
 | History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | 范围分别 0–0.95 / 0–16；任一为 0 时旁路稳定器。先用默认值，拖影时降低 |
-| Measure NR performance | `NrTimingEnabled=false` | lmxxf 异步计时：NR GPU、Encode、Decode；Ins 还可展开 CPU 耗时与丢弃样本 |
+| Measure codec / effects performance | `NrTimingEnabled=false` | 异步测量 Encode、Decode 和输出效果；Ins 还可展开 CPU 耗时与丢弃样本。NR 网络计时暂停，等待上游接口 |
 | Write timing summary to log | `NrTimingLog=false` | 同时启用计时和文件日志后，最多每 5 秒一条摘要，不逐帧刷屏 |
 
-**Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。数值是最近 120 个有效样本的统计；`N/A` 表示无可用样本，`stale` 表示过期。NR GPU 包含网络输出拷贝，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
+共享控制前的 **Reset shared defaults** 恢复整体强度、稳定器及计时开关的默认值；lmxxf 的整体 Reset 也覆盖这些项。Lighting / Appearance 子面板的 Reset 仍只重置其对应效果。
+
+**Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。数值是最近 120 个有效样本的统计；`N/A` 表示无可用样本，`stale` 表示过期。当前 NR GPU 固定显示 `N/A (paused)`，旧 INI 也无法开启网络事件采集；编解码与输出效果各自换行显示，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
 
 稳定器需要有效运动/深度，无法安全执行时旁路并在 Ins 显示状态。纯后端模式首次开启共享输出效果可能需要保存并重启。整体强度作用于最终输出，不等同于模型的 `Intensity`、Detail 或 Colour。
 

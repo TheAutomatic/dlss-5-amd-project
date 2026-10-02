@@ -374,7 +374,9 @@ def write_reports(directory, report, review_template, diff, pinned_diff):
     (directory / 'pinned-headers.diff').write_text(pinned_diff, encoding='utf-8')
     rows = ['# Upstream integration review', '',
             f"Range: `{report['from_commit']}` -> `{report['to_commit']}`", '',
-            'Read `upstream.diff`, `pinned-headers.diff` and the evidence in `report.json`.',
+            'Review the final `upstream.diff` by feature; use the item inventory for coverage.',
+            'Inspect `pinned-headers.diff`; deeply trace experiments only when they affect production.',
+            'Related items may briefly reference a tracked feature review section for shared evidence and validation.',
             'This is a text inventory, not proof that a branch executes or an optimization is enabled.',
             'Classify test/production paths from consumers, then trace runtime -> module -> kernel.',
             'Do not bulk-approve or enable test flags. Record staged work and actual validation.', '',

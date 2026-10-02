@@ -250,8 +250,8 @@ NrBackend=lmxxf
 ; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
 NrConvenience=1
 
-; Optional asynchronous NR measurement (lmxxf network/encode/decode); default off.
-; Ins: Measure NR performance. Page Up opens the FPS overlay; Page Down changes detail.
+; Optional asynchronous codec/effects measurement; default off. NR network timing is paused.
+; Ins: Measure codec / effects performance. Page Up opens the FPS overlay; Page Down changes detail.
 ; Logging also needs measurement and file logging; at most one summary per five seconds.
 NrTimingEnabled=false
 NrTimingLog=false

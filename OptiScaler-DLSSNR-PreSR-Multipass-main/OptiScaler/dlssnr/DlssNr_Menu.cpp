@@ -27,6 +27,17 @@
 namespace DlssNr
 {
 
+static void ResetSharedNrDefaults(Config* config)
+{
+    config->NrOverallIntensity = std::optional<float>{};
+    config->NrStabilizerEnabled = std::optional<bool>{};
+    config->NrStabilizerAlpha = std::optional<float>{};
+    config->NrStabilizerThreshold = std::optional<float>{};
+    config->NrTimingEnabled = std::optional<bool>{};
+    config->NrTimingLog = std::optional<bool>{};
+    AmdBridge::InvalidateHistory();
+}
+
 // The "(?)" marker every control carries, matching the rest of the menu.
 static void HelpMarker(const char* tip)
 {
@@ -924,6 +935,7 @@ void RenderMenu(Config* config, float menuResScale)
 
                 if (ImGui::Button("Reset to defaults##lmxxf"))
                 {
+                    ResetSharedNrDefaults(config);
                     config->DlssNrTransferStrength = 1.0f;
                     config->DlssNrColourStrength = 1.0f;
                     config->LmxxfPaperWhite = 1.0f;
@@ -980,7 +992,7 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nPDL on, High resolution on, network tier auto,"
                            "\n0.31 kernels / shared pool on, ViT stream Both (3),"
                            "\nimage reuse on (period 16, global 1, local 50, image 1),"
-                           "\nDebug view Off.");
+                           "\nDebug view Off. Shared intensity, stabilizer and measurement settings also reset.");
             }
 
             if (!isLmxxf)
@@ -1104,6 +1116,8 @@ void RenderMenu(Config* config, float menuResScale)
                     ImGui::TreePop();
                 }
             }
+            if (ImGui::Button("Reset shared defaults##sharedNr")) ResetSharedNrDefaults(config);
+            HelpMarker("Resets Overall Intensity, Residual Stabilizer and performance measurement settings.");
             float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
             if (ImGui::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
                 config->NrOverallIntensity = overallIntensity;
@@ -1134,10 +1148,11 @@ void RenderMenu(Config* config, float menuResScale)
             if (isLmxxf)
             {
                 ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
+                ImGui::TextWrapped("NR network timing is paused pending an upstream interface. Codec and effects timings remain available.");
                 bool timingEnabled = config->NrTimingEnabled.value_or_default();
-                if (ImGui::Checkbox("Measure NR performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
+                if (ImGui::Checkbox("Measure codec / effects performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
                 HelpMarker("Asynchronous GPU timing. Does not wait for the GPU. New recordings include encode/decode queries."
-                           "\nAverages and maxima use the last 120 samples. NR includes its output copy, not whole-frame latency."
+                           "\nAverages and maxima use the last 120 samples. These are not whole-frame latency."
                            "\nClosed recordings keep their queries until Reset/Release, even after measurement is disabled.");
                 bool timingLog = config->NrTimingLog.value_or_default();
                 if (ImGui::Checkbox("Write timing summary to log", &timingLog)) config->NrTimingLog = timingLog;

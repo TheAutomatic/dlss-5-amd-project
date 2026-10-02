@@ -1969,18 +1969,19 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                     StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
             }
 
+            std::string codecTimingLine, effectsTimingLine;
             if (overlayType != FpsOverlay_JustFPS && config->NrTimingEnabled.value_or_default()) {
                 const auto timing = DlssNr::AmdBridge::Timing();
                 if (timing.version == NR_TIMING_VERSION) {
                     const auto now = GetTickCount64();
                     firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
                     if (overlayType >= FpsOverlay_Detailed)
-                        secondLine += " | Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
+                        codecTimingLine = "Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
                                       " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
                     if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_BLEND].samples)
-                        secondLine += " | Blend: " + DlssNr::TimingValueText(timing, NR_GPU_BLEND, now);
+                        effectsTimingLine = "Blend: " + DlssNr::TimingValueText(timing, NR_GPU_BLEND, now);
                     if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_STABILIZER].samples)
-                        secondLine += " | Stabilizer+blend: " + DlssNr::TimingValueText(timing, NR_GPU_STABILIZER, now);
+                        effectsTimingLine += (effectsTimingLine.empty() ? "" : "\n") + std::string("Stabilizer+blend: ") + DlssNr::TimingValueText(timing, NR_GPU_STABILIZER, now);
                 }
             }
 
@@ -2002,6 +2003,8 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                 else
                     textWidth = secondSize.x > thirdSize.x ? secondSize.x : thirdSize.x;
 
+                textWidth = (std::max)(textWidth, ImGui::CalcTextSize(codecTimingLine.c_str()).x);
+                textWidth = (std::max)(textWidth, ImGui::CalcTextSize(effectsTimingLine.c_str()).x);
                 auto minWidth = fpsScale * 300.0f;
                 auto plotWidth = textWidth < minWidth ? minWidth : textWidth;
 
@@ -2066,6 +2069,9 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                     [](void* rb, int idx) -> float { return static_cast<RingBuffer<float, plotWidth>*>(rb)->At(idx); },
                     &gUpscalerTimes, plotWidth, 0, nullptr, 0.0f, 20.0f, plotSize);
             }
+
+            if (!codecTimingLine.empty()) ImGui::TextUnformatted(codecTimingLine.c_str());
+            if (!effectsTimingLine.empty()) ImGui::TextUnformatted(effectsTimingLine.c_str());
 
             if (config->FpsOverlayType.value_or_default() >= FpsOverlay_ReflexTimings)
             {
