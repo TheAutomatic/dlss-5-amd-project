@@ -58,6 +58,8 @@ class ConfigPriorityTests(unittest.TestCase):
                 "NrOverallIntensity",  # Shared final-output blend, no runtime environment alias.
                 "kSection",
                 "kDanielSection",
+                "kMenuSection",  # Host window settings do not cross the runtime boundary.
+                "MenuWindowWidth", "MenuWindowHeight", "MenuWindowAnchor",
                 "ToneCurve",
                 "ToneLift",
                 "AmdUseGameExposure",
