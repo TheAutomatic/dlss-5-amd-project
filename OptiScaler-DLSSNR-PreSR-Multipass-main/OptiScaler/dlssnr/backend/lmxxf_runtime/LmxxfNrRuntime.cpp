@@ -1287,8 +1287,8 @@ struct Job
     uint32_t debug_view = 0;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
-    /* Host scalars before the meter path forces pre/scale to 1. job.pre_exposure may be
-       forced; these keep the raw NGX values for analysis. */
+    /* Host NGX scalars. The meter path keeps pre and forces scale to 1; pre_exposure
+       is what the codec actually received (preCodec in GetStatus). */
     float pre_exposure_raw = 1.0f;
     float exposure_scale_raw = 1.0f;
     bool pre_exposure_host = false;
@@ -2170,16 +2170,18 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 frameExposureState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             }
         }
-        // No usable game exposure: meter the colour ourselves when the host asks for it. The
-        // metered value already includes whatever pre-exposure the game baked into the colour,
-        // so the game scalars must not be applied on top of it.
+        // No usable game exposure: meter the colour ourselves when the host asks for it.
+        // Keep the host pre-exposure: the codec path is exposure = meter * scale / pre, so
+        // pre undoes the game's baked-in pre-immediately. Forcing pre=1 made the meter
+        // absorb it instead; when pre jumps (this title moves 1.0..2.7 per frame) a slow
+        // meter cannot keep up and the encode shoulder turns that into highlight flicker.
+        // scale stays 1 here (no game scale texture on this path).
         bool frameAutoExposure = false;
         if (!frameExposure && (info->flags & LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE))
         {
             frameAutoExposure = session->meter.Ensure(session->device);
             if (frameAutoExposure)
             {
-                framePreExposure = 1.0f;
                 frameExposureScale = 1.0f;
             }
             else
@@ -2922,14 +2924,14 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f",
+                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f",
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
                           session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u,
                           session->temporalCreates,session->temporalDeletes,
                           session->historyActiveFrames,session->historyPrimingFrames,
                           double(session->job.pre_exposure_raw),session->job.pre_exposure_host?1u:0u,
-                          double(session->job.exposure_scale_raw));
+                          double(session->job.exposure_scale_raw),double(session->job.pre_exposure));
             for(const auto &guide : {std::make_pair("motion", &session->temporalMotionDesc),
                                      std::make_pair("depth", &session->temporalDepthDesc)})
             {
