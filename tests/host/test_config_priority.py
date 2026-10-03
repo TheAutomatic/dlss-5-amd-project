@@ -42,6 +42,12 @@ class ConfigPriorityTests(unittest.TestCase):
 
     def test_cross_layer_keys_use_upstream_dlss5_names(self):
         for name, ini_key in re.findall(r'inline constexpr const char \*(\w+) = "([^"]+)"', KEYS):
+            if name.startswith("Mochizuki"):
+                # Independent C-struct controls, not HIP environment variables.
+                self.assertEqual(name, ini_key)
+                self.assertIn(f"CfgKey::{name}", CONFIG)
+                self.assertIn(f"    {name},", KEYS)
+                continue
             if name.endswith("Legacy"):
                 self.assertFalse(ini_key.startswith("DLSS5_"), name)
                 continue

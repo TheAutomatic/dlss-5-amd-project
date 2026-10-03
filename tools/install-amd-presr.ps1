@@ -31,6 +31,8 @@ param(
     [string]$Proxy = 'dxgi.dll',
     [string]$Root,
     [string]$AuthorDll,
+    [ValidateSet("auto", "daniel", "lmxxf", "mochizuki", "all")]
+    [string]$Backend = "auto",
     [switch]$NonInteractive,
     # Explicit opt-in for unattended clean reinstall. Otherwise unattended setup overwrites.
     [switch]$UninstallExisting,
@@ -642,6 +644,10 @@ $weights = Find-FirstFile @(
 )
 $srcA = Find-AuthorRuntime
 
+$mochizukiRuntime = Find-FirstFile @((Join-Path $release 'MochizukiNrRuntime.dll'), (Join-Path $Root 'exports/mochizuki-runtime/MochizukiNrRuntime.dll'))
+$mochizukiAssets = if ($mochizukiRuntime) { Join-Path (Split-Path -Parent $mochizukiRuntime) 'dlssnr-amd' } else { $null }
+$canMochizuki = [bool]($mochizukiRuntime -and (Test-Path -LiteralPath (Join-Path $mochizukiAssets 'shaders') -PathType Container))
+$installMochizuki = $false
 $canLmxxf  = [bool]($lmxxfRuntime -and $lmxxfMods)
 $canDaniel = [bool]($srcA -or (Test-Path -LiteralPath $setup -PathType Leaf) -or $weights)
 
@@ -649,7 +655,31 @@ $installLmxxf  = $false
 $installDaniel = $false
 $activeBackend = 'lmxxf'
 
-if ($canLmxxf -and $canDaniel) {
+if ($canMochizuki -or $Backend -ne 'auto') {
+    if ($Backend -eq 'auto' -and -not $NonInteractive) {
+        $choices = @('Install all available backends')
+        $kinds = @('all')
+        if ($canLmxxf) { $choices += 'Install lmxxf only'; $kinds += 'lmxxf' }
+        if ($canDaniel) { $choices += 'Install daniel only'; $kinds += 'daniel' }
+        if ($canMochizuki) { $choices += 'Install mochizuki only (Vulkan / RDNA4)'; $kinds += 'mochizuki' }
+        $choice = Ask-Choice 'Choose NR backends to install:' $choices
+        $Backend = $kinds[$choice - 1]
+    }
+    if ($Backend -eq 'auto') { $Backend = 'all' }
+    if (($Backend -eq 'mochizuki' -and -not $canMochizuki) -or
+        ($Backend -eq 'lmxxf' -and -not $canLmxxf) -or ($Backend -eq 'daniel' -and -not $canDaniel)) {
+        Fail "Requested backend is not present in the package: $Backend"
+    }
+    $installMochizuki = $canMochizuki -and $Backend -in @('all','mochizuki')
+    $installLmxxf = $canLmxxf -and $Backend -in @('all','lmxxf')
+    $installDaniel = $canDaniel -and $Backend -in @('all','daniel')
+    if (-not ($installMochizuki -or $installLmxxf -or $installDaniel)) { Fail 'No requested backend is available.' }
+    $activeBackend = if ($installLmxxf) { 'lmxxf' } elseif ($installDaniel) { 'daniel' } else { 'mochizuki' }
+    if ($Backend -eq 'all' -and -not $NonInteractive) {
+        $defaults = @(); if ($installLmxxf) { $defaults += 'lmxxf' }; if ($installDaniel) { $defaults += 'daniel' }; if ($installMochizuki) { $defaults += 'mochizuki' }
+        if ($defaults.Count -gt 1) { $activeBackend = $defaults[(Ask-Choice 'Choose the active backend:' $defaults) - 1] }
+    }
+} elseif ($canLmxxf -and $canDaniel) {
     if ($NonInteractive) {
         $installLmxxf  = $true
         $installDaniel = $true
@@ -702,6 +732,16 @@ if ($installLmxxf) {
     $gameModsDir = Join-Path $game 'lmxxf-modules'
     try { $lmxxfStage = New-LmxxfModuleStage $lmxxfMods $gameModsDir -Upgrade }
     catch { Fail $_.Exception.Message }
+}
+
+if ($installMochizuki) {
+    try {
+        $null = @(Get-LmxxfUnlinkedFiles $mochizukiAssets)
+        $null = Assert-LmxxfUnlinkedPath (Join-Path $game 'dlssnr-amd')
+        if (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd')) {
+            $null = @(Get-LmxxfUnlinkedFiles (Join-Path $game 'dlssnr-amd'))
+        }
+    } catch { Fail $_.Exception.Message }
 }
 
 # --- process danielblnc runtime if selected ---
@@ -840,6 +880,10 @@ if ($uninstallFirst) {
         if ($installLmxxf) {
             $lmxxfRuntime = Save-ReinstallSource $lmxxfRuntime
             $lmxxfShaders = Save-ReinstallSource $lmxxfShaders
+        }
+        if ($installMochizuki) {
+            $mochizukiRuntime = Save-ReinstallSource $mochizukiRuntime
+            $mochizukiAssets = Save-ReinstallSource $mochizukiAssets
         }
         if ($installDaniel) { $srcA = Save-ReinstallSource $srcA }
         $ps1Src = Save-ReinstallSource $ps1Src
@@ -994,7 +1038,7 @@ function Install-One([string]$src, [string]$rel) {
     # They are not original game files and must never bloat backup directories.
     $isWeight = ($rel -ieq 'dlssnr_on_amd_weights.bin') -or
                 ($rel -ilike 'native-game-tiled-assets\*') -or
-                ($rel -ilike 'native-game-tiled-assets/*')
+                ($rel -ilike 'native-game-tiled-assets/*') -or ($rel -ieq 'dlssnr-amd/dlssnr.bin')
 
     try {
         if (Test-Path -LiteralPath $dest) {
@@ -1181,6 +1225,20 @@ if ($installLmxxf) {
 }
 
 # --- Configure OptiScaler.ini [DlssNr] ---
+if ($installMochizuki) {
+    Install-One $mochizukiRuntime 'MochizukiNrRuntime.dll'
+    $shaderRoot = Join-Path $mochizukiAssets 'shaders'
+    foreach ($file in @(Get-LmxxfUnlinkedFiles $shaderRoot)) {
+        $relative = $file.FullName.Substring($shaderRoot.Length).TrimStart('\','/')
+        Install-One $file.FullName (Join-Path 'dlssnr-amd/shaders' $relative)
+    }
+    $model = Join-Path $mochizukiAssets 'dlssnr.bin'
+    if (Test-Path -LiteralPath $model -PathType Leaf) { Install-One $model 'dlssnr-amd/dlssnr.bin' }
+    if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin'))) {
+        Write-Host 'Mochizuki model not installed. Run Mochizuki-Model.bat beside Setup.bat with your nvngx_dlssnr.dll, then run Setup again.' -ForegroundColor Yellow
+    }
+}
+
 # Runs after a package overwrite as well. These keys are this install's choices, so the
 # copied template cannot leave NrBackend (or Enabled / RunBeforeSR) on the package placeholder.
 # Preference keys are only added when missing, so a kept ini retains model scale, every-frame,
@@ -1316,28 +1374,32 @@ if (Test-Path -LiteralPath $backup) {
     Write-Host "  Backup:         $backup"
 }
 Write-Host "  Active Backend: $activeBackend" -ForegroundColor Cyan
-if ($installDaniel -and $installLmxxf) {
-    Write-Host "  Installed:      Both backends (lmxxf + danielblnc) coexisting" -ForegroundColor Green
-    Write-Host "  Tip:            To switch backend, edit OptiScaler.ini ([DlssNr] NrBackend=lmxxf or daniel) or re-run Setup.bat." -ForegroundColor Yellow
-} elseif ($installLmxxf) {
+if ($installLmxxf) {
     Write-Host "  Installed:      OptiScaler + lmxxf runtime (LmxxfNrRuntime.dll, modules, shaders)" -ForegroundColor Green
-} else {
+}
+if ($installDaniel) {
     Write-Host "  Installed:      OptiScaler + danielblnc runtime (dlssnr_amd_pass1-3.dll + weights)" -ForegroundColor Green
 }
-if ($keptA -or $keptW) {
-    Write-Host "  Package keeps:  $keptA"
-    if ($keptW) { Write-Host "                  $keptW" }
-} else {
-    Write-Host '  Package keeps:  (nothing — the package folder is the game folder)'
+if ($installMochizuki) {
+    Write-Host "  Installed:      OptiScaler + mochizuki runtime (MochizukiNrRuntime.dll, shaders)" -ForegroundColor Green
+}
+if ($installDaniel) {
+    if ($keptA -or $keptW) {
+        Write-Host "  Package keeps:  $keptA"
+        if ($keptW) { Write-Host "                  $keptW" }
+    } else {
+        Write-Host '  Package keeps:  (nothing — the package folder is the game folder)'
+    }
 }
 Write-Host ''
 Write-Host 'Next (in game):' -ForegroundColor Yellow
 Write-Host '  1. Launch the game'
 Write-Host '  2. Press Insert (Ins) to open the OptiScaler menu'
 Write-Host '  3. Ensure DLSSNR is enabled'
-if ($installDaniel -and $installLmxxf) {
-    Write-Host "  4. Switch backends anytime in OptiScaler.ini ([DlssNr] NrBackend=$activeBackend) or by re-running Setup.bat"
+if (@($installDaniel, $installLmxxf, $installMochizuki | Where-Object { $_ }).Count -gt 1) {
+    Write-Host '  4. Select the backend in Ins; with hot switching disabled, save and restart the game.'
 }
 Write-Host ''
+if ($installMochizuki) { Write-Host "Mochizuki runtime and shaders installed; model is supplied separately." }
 Write-Host 'Install SUCCEEDED.' -ForegroundColor Green
 Pause-Exit 0

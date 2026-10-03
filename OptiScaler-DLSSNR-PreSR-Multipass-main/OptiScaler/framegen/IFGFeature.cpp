@@ -44,7 +44,7 @@ UINT64 IFGFeature::StartNewFrame()
         const auto now = GetTickCount64();
         if (++_frameResyncCount <= 3 || now - _frameResyncLogAt >= 5000)
         {
-            LOG_WARN("FG frame counter resynchronized: frame={} lastDispatch={} total={} active={}",
+            LOG_DEBUG("FG frame counter resynchronized: frame={} lastDispatch={} total={} active={}",
                      _frameCount, _lastDispatchedFrame, _frameResyncCount, _isActive);
             _frameResyncLogAt = now;
         }

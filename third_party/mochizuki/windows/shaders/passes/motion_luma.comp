@@ -1,0 +1,44 @@
+#version 460
+// Luma pyramid for the motion estimator. Two modes in one shader: mode 0 takes
+// the network-space colour image down to the pyramid's base by a 4x4 box, mode 1
+// halves one level into the next by a 2x2 box.
+//
+// Plain storage images and imageLoad throughout. `nrvk.hpp` creates single-mip
+// images with a NEAREST, MIRRORED_REPEAT sampler because that is what the
+// shipping kernel's addressing turned out to be; that is a production file and
+// the estimator has no business changing it. Fetching explicitly also makes the
+// estimator independent of any filtering behaviour, which is what we want from
+// something whose output is compared against a known translation.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D colour;   // mode 0; fetched, never filtered
+layout(set = 0, binding = 1, r32f)    uniform readonly  image2D src;     // mode 1
+layout(set = 0, binding = 2, r32f)    uniform writeonly image2D dst;
+
+layout(push_constant) uniform Push {
+    uint dst_w, dst_h;
+    uint src_w, src_h;
+    uint mode;        // 0: colour -> base (4x4 box), 1: level -> level (2x2 box)
+} pc;
+
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.dst_w) || p.y >= int(pc.dst_h)) return;
+    const ivec2 hi = ivec2(pc.src_w, pc.src_h) - 1;
+    float sum = 0.0;
+    if (pc.mode == 0u) {
+        for (int dy = 0; dy < 4; ++dy)
+            for (int dx = 0; dx < 4; ++dx)
+                sum += luma(texelFetch(colour, clamp(p * 4 + ivec2(dx, dy), ivec2(0), hi), 0).rgb);
+        sum *= 1.0 / 16.0;
+    } else {
+        for (int dy = 0; dy < 2; ++dy)
+            for (int dx = 0; dx < 2; ++dx)
+                sum += imageLoad(src, clamp(p * 2 + ivec2(dx, dy), ivec2(0), hi)).r;
+        sum *= 0.25;
+    }
+    imageStore(dst, p, vec4(sum, 0.0, 0.0, 0.0));
+}

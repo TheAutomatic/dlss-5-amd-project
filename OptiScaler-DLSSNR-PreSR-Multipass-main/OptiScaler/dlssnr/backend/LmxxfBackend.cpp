@@ -29,7 +29,7 @@ thread_local uint64_t reTraceId = 0;
 void ReTrace(uint64_t id, const char* phase, const void* object, int32_t result) noexcept
 {
     if (!id) return;
-    try { LOG_INFO("RE NR phase: sample={} phase={} object={:p} result={}", id, phase, object, result); }
+    try { LOG_DEBUG("RE NR phase: sample={} phase={} object={:p} result={}", id, phase, object, result); }
     catch (...) {}
 }
 struct ReTraceFrame
@@ -38,6 +38,7 @@ struct ReTraceFrame
     ReTraceFrame(UINT width, UINT height, DXGI_FORMAT format)
     {
         reTraceId = 0;
+        if (!spdlog::should_log(spdlog::level::debug)) return;
         const auto& exe = State::Instance().gameExe;
         if (_stricmp(exe.c_str(), "re9.exe") && _stricmp(exe.c_str(), "OnimushaWotS.exe")) return;
         // Record holds LifecycleMutex: these counters are serialized.
@@ -764,14 +765,14 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         {
             static unsigned colorDiagN = 0;
             ++colorDiagN;
-            if (colorDiagN <= 8 || (colorDiagN % 300) == 0)
+            if (spdlog::should_log(spdlog::level::debug) && (colorDiagN <= 8 || (colorDiagN % 300) == 0))
             {
                 wchar_t srgbEnv[8] {};
                 const DWORD n = GetEnvironmentVariableW(L"DLSS5_CODEC_SRGB", srgbEnv, 8);
                 char srgbVal[8] {};
                 if (n > 0 && n < 8)
                     WideCharToMultiByte(CP_UTF8, 0, srgbEnv, -1, srgbVal, sizeof(srgbVal), nullptr, nullptr);
-                LOG_INFO("lmxxf color: fmt={} {}x{} alloc={}x{} exposure={} expState={} preExposure={:.6g} "
+                LOG_DEBUG("lmxxf color: fmt={} {}x{} alloc={}x{} exposure={} expState={} preExposure={:.6g} "
                          "exposureScale={:.6g} paperWhite={:.6g} transfer={:.3f} colour={:.3f} srgbEnv={}",
                          static_cast<unsigned>(desc.Format), fi.color_width, fi.color_height,
                          static_cast<unsigned>(desc.Width), static_cast<unsigned>(desc.Height),

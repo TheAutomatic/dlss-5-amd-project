@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -19,7 +20,7 @@ class RuntimeProofTests(unittest.TestCase):
         (self.root / 'tests/_lib').mkdir(parents=True)
         shutil.copy2(ROOT / 'tests/run-all.cmd', self.root / 'tests/run-all.cmd')
         (self.root / 'tests/_lib/msvc-env.cmd').write_text('@exit /b 0\n')
-        for area in ('host', 'shader', 'lmxxf', 'install', 'sync'):
+        for area in ('host', 'shader', 'lmxxf', 'mochizuki', 'install', 'sync'):
             (self.root / 'tests' / area).mkdir()
             (self.root / 'tests' / area / 'run.cmd').write_text('@exit /b 0\n')
         self.runtime = self.root / 'fixture runtime.dll'
@@ -30,6 +31,24 @@ class RuntimeProofTests(unittest.TestCase):
         self.proof.write_text('old proof')
         self.env = {key.upper(): value for key, value in os.environ.items()}
         self.env['LMXXF_TEST_RUNTIME'] = str(self.runtime)
+        # Exercise the real source/artifact gate. Only suite execution is stubbed;
+        # this fixture tests the entrypoint's proof orchestration, not GPU code.
+        for directory in ('third_party/mochizuki/windows',
+                          'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime'):
+            shutil.copytree(ROOT / directory, self.root / directory,
+                            ignore=shutil.ignore_patterns('__pycache__'))
+        for name in ('tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
+                     'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
+                     'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
+                     'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, target)
+        self.mochizuki = self.root / 'exports/mochizuki-runtime'
+        (self.mochizuki / 'dlssnr-amd/shaders').mkdir(parents=True)
+        (self.mochizuki / 'MochizukiNrRuntime.dll').write_bytes(b'non-executable Mochizuki fixture')
+        (self.mochizuki / 'dlssnr-amd/shaders/test.spv').write_bytes(b'non-executable shader fixture')
+        runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))['write'](self.mochizuki)
 
     def run_entrypoint(self, *args):
         return subprocess.run(
@@ -47,6 +66,13 @@ class RuntimeProofTests(unittest.TestCase):
         (self.root / 'tests/sync/run.cmd').write_text('@exit /b 7\n')
         result = self.run_entrypoint()
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.proof.exists())
+
+    def test_mochizuki_mismatch_invalidates_previous_proof(self):
+        (self.mochizuki / 'MochizukiNrRuntime.dll').write_bytes(b'changed fixture')
+        result = self.run_entrypoint()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(b'Mochizuki source/artifact mismatch', result.stdout + result.stderr)
         self.assertFalse(self.proof.exists())
 
     def test_skip_sync_cannot_produce_release_proof(self):

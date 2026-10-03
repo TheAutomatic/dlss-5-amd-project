@@ -40,6 +40,45 @@ inline constexpr const char *NrStabilizerEnabled = "NrStabilizerEnabled";
 inline constexpr const char *NrStabilizerAlpha = "NrStabilizerAlpha";
 inline constexpr const char *NrStabilizerThreshold = "NrStabilizerThreshold";
 inline constexpr const char *NrOverallIntensity = "NrOverallIntensity";
+inline constexpr const char *MochizukiIntensity = "MochizukiIntensity";
+inline constexpr const char *MochizukiStyle = "MochizukiStyle";
+inline constexpr const char *MochizukiLocalTone = "MochizukiLocalTone";
+inline constexpr const char *MochizukiLocalStructure = "MochizukiLocalStructure";
+inline constexpr const char *MochizukiSkinStructure = "MochizukiSkinStructure";
+inline constexpr const char *MochizukiAutomaticMask = "MochizukiAutomaticMask";
+inline constexpr const char *MochizukiDetailStrength = "MochizukiDetailStrength";
+inline constexpr const char *MochizukiColourStrength = "MochizukiColourStrength";
+inline constexpr const char *MochizukiMaxRatio = "MochizukiMaxRatio";
+inline constexpr const char *MochizukiWhitePoint = "MochizukiWhitePoint";
+inline constexpr const char *MochizukiModelScale = "MochizukiModelScale";
+inline constexpr const char *MochizukiPasses = "MochizukiPasses";
+inline constexpr const char *MochizukiTemporal = "MochizukiTemporal";
+inline constexpr const char *MochizukiHistoryStrength = "MochizukiHistoryStrength";
+inline constexpr const char *MochizukiPreprocess = "MochizukiPreprocess";
+inline constexpr const char *MochizukiPreprocessExposure = "MochizukiPreprocessExposure";
+inline constexpr const char *MochizukiPreprocessBiasEv = "MochizukiPreprocessBiasEv";
+inline constexpr const char *MochizukiPreprocessCurve = "MochizukiPreprocessCurve";
+inline constexpr const char *MochizukiPreprocessContrast = "MochizukiPreprocessContrast";
+inline constexpr const char *MochizukiPreprocessSaturation = "MochizukiPreprocessSaturation";
+inline constexpr const char *MochizukiApplyModel = "MochizukiApplyModel";
+inline constexpr const char *MochizukiLinearInput = "MochizukiLinearInput";
+inline constexpr const char *MochizukiMaxPasses = "MochizukiMaxPasses";
+inline constexpr const char *MochizukiDynamicResolution = "MochizukiDynamicResolution";
+inline constexpr const char *MochizukiPass2Override = "MochizukiPass2Override";
+inline constexpr const char *MochizukiPass2Style = "MochizukiPass2Style";
+inline constexpr const char *MochizukiPass2Intensity = "MochizukiPass2Intensity";
+inline constexpr const char *MochizukiPass2LocalTone = "MochizukiPass2LocalTone";
+inline constexpr const char *MochizukiPass2LocalStructure = "MochizukiPass2LocalStructure";
+inline constexpr const char *MochizukiPass2SkinStructure = "MochizukiPass2SkinStructure";
+inline constexpr const char *MochizukiPass2AutomaticMask = "MochizukiPass2AutomaticMask";
+inline constexpr const char *MochizukiPass3Override = "MochizukiPass3Override";
+inline constexpr const char *MochizukiPass3Style = "MochizukiPass3Style";
+inline constexpr const char *MochizukiPass3Intensity = "MochizukiPass3Intensity";
+inline constexpr const char *MochizukiPass3LocalTone = "MochizukiPass3LocalTone";
+inline constexpr const char *MochizukiPass3LocalStructure = "MochizukiPass3LocalStructure";
+inline constexpr const char *MochizukiPass3SkinStructure = "MochizukiPass3SkinStructure";
+inline constexpr const char *MochizukiPass3AutomaticMask = "MochizukiPass3AutomaticMask";
+
 
 // Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
 inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
@@ -139,6 +178,45 @@ inline constexpr const char *const kKnown[] = {
     NrStabilizerAlpha,
     NrStabilizerThreshold,
     NrOverallIntensity,
+    MochizukiIntensity,
+    MochizukiStyle,
+    MochizukiLocalTone,
+    MochizukiLocalStructure,
+    MochizukiSkinStructure,
+    MochizukiAutomaticMask,
+    MochizukiDetailStrength,
+    MochizukiColourStrength,
+    MochizukiMaxRatio,
+    MochizukiWhitePoint,
+    MochizukiModelScale,
+    MochizukiPasses,
+    MochizukiTemporal,
+    MochizukiHistoryStrength,
+    MochizukiPreprocess,
+    MochizukiPreprocessExposure,
+    MochizukiPreprocessBiasEv,
+    MochizukiPreprocessCurve,
+    MochizukiPreprocessContrast,
+    MochizukiPreprocessSaturation,
+    MochizukiApplyModel,
+    MochizukiLinearInput,
+    MochizukiMaxPasses,
+    MochizukiDynamicResolution,
+    MochizukiPass2Override,
+    MochizukiPass2Style,
+    MochizukiPass2Intensity,
+    MochizukiPass2LocalTone,
+    MochizukiPass2LocalStructure,
+    MochizukiPass2SkinStructure,
+    MochizukiPass2AutomaticMask,
+    MochizukiPass3Override,
+    MochizukiPass3Style,
+    MochizukiPass3Intensity,
+    MochizukiPass3LocalTone,
+    MochizukiPass3LocalStructure,
+    MochizukiPass3SkinStructure,
+    MochizukiPass3AutomaticMask,
+
     "NrBackend",
     "SkinStructure",
     "AutoMask",

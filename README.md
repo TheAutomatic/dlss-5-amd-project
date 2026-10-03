@@ -1,5 +1,8 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
+第三后端 mochizuki（Windows / RDNA4）已接入此开发分支，安装、模型来源、独立菜单和验证范围见 [mochizuki 说明](docs/mochizuki.md)。不附带 NVIDIA DLL 或模型；游戏表现待本地验收。
+
+
 # OptiScaler AMD pre-SR — 1.9.10.2
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。

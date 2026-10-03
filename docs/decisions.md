@@ -1,3 +1,23 @@
+## 2026-10-03 — Combine RE repairs with the mochizuki backend
+
+Merge the tested mochizuki branch into the RE repair branch. Preserve caller-state
+rollback, atomic FG resource readiness, asynchronous adaptive-history reset and
+stop-before-drain ordering. Keep submission hooks mutually exclusive with the
+new graphics-wait tracker. Backend selection remains available; new wait is
+unavailable while submission hooks are armed, without rewriting its stored setting.
+
+RE cold start and SR switching improved in user tests, but activated FSR FG
+switching still hangs. The latest trace enters stop and never returns; it does not
+identify which Deactivate operation blocks. Investigation is paused by the user.
+A future investigation needs a full hung-process dump. Neither 1.9.6.3 nor the RE
+special package establishes a proven baseline for this exact FG transition.
+
+RE/FG phase traces and periodic colour/input diagnostics are DEBUG-only. Missing
+FG depth/velocity warns once per instance, then logs at DEBUG. Default INFO and
+actual failure reporting remain enabled. Mochizuki timing is opt-in and build
+progress remains bounded. Review the merge intersections and compile the host;
+no broad regression suite or new in-game validation is claimed for this merge.
+
 ## 2026-10-03 — Stop FG before swapchain drain/recreation
 
 The FG hooks previously waited on the application queue before calling Deactivate.
@@ -50,6 +70,58 @@ ABI change, wait, kernel toggle or submission-order change is introduced. Keep t
 legacy-state comparison baseline until game evidence selects the next fix.
 
 # 决策记录
+
+## 2026-10-03：mochizuki 首次编译进度与边界 shader 去重复
+
+参考 MatheusFerreiraS 的编译配方，在八个 shader 上使用 NR_EDGE_BODIES=0，并通过本地
+冷编译与输出对照验证。该设置减少按图像边缘 mask 复制的计算主体和驱动编译量，保留
+NR 边缘处理。构建阶段回调与右下角进度显示由本项目接入，具体来源见 third_party/mochizuki/UPSTREAM.md。
+
+RX 9070 XT、1920×1080 R11G11B10、无本地预热清单/缓存、不同全新测试程序名对照：
+原配方构建 133.7 秒（其中主网络 pipeline 130.81 秒），新配方 48.6 秒（pipeline 42.92 秒）；
+固定测试图的完整输出字节一致。旧测试程序缓存命中为 2.2 秒。这不是多轮性能基准，也不代表
+所有游戏均只需 48.6 秒；游戏内是否还有额外阻塞需复测，不用原版“约一分钟”替代实测。
+
+右下角构建提示不依赖 Ins/FPS 浮层，显示真实阶段、已完成 shader 数和已耗时。没有分母的
+阶段只显示循环活动条；主 shader 数不能冒充整个构建的时间百分比。30 秒无阶段进展显示
+停留时间，不武断判死锁。完成或关闭 NR 后隐藏；日志约每 10 秒一条，模型/缓存仍由用户保留。
+构建 telemetry 是当前整包必需导出；不为旧 runtime 加载增加回退。此轮为定向修复与本地试测，
+不重复完整发版测试，不改 dist，产物放 exports。
+
+## 2026-10-03：第三后端审查后的执行历史与 DRS 边界
+
+时序历史按实际执行的录制、网络、有效尺寸和 pass 数判断连续性；丢弃、中途跳过、乱序与重放
+均不能沿用不相邻帧的历史。ResetHistory 在执行时消费，使已录制命令也能收到 reset。
+动态分辨率 Auto/Always 模式由 mochizuki runtime 的 bucket 管理，不进入宿主通用的 300 ms
+尺寸等待与稳定帧门禁；Exact 及其他后端保留原处理。第三后端不使用 Daniel 的 scale 配置。
+
+ABI 校验失败立即卸载被拒绝模块，避免 NR 关开后复用未验证函数表。输出只要求 copy/SRV 权限，
+不额外要求 UAV。RX 9070 XT 上新旧权限的 RGB9E5/sRGB 都能运行，后者属于减少无用约束，
+不宣称本机复现了格式创建故障。
+
+实际 GPU 回归覆盖断帧、取消录制、延迟 reset、乱序/重放、RGB9E5/sRGB 和逐帧 DRS subrect；
+宿主门禁与加载失败恢复通过代码审查及编译验证，游戏表现仍须用户验收。
+
+## 2026-10-03：mochizuki 作为独立第三后端
+
+从 `61e6618b` 分支接入官方 v0.0.3 对应 pin，网络核心与 shaders 来自 mochizuki 官方。
+原生 D3D12/Vulkan 桥接、流水线预热和构建取消补丁复用并适配 MatheusFerreiraS 的实现；
+宿主选择、配置菜单、安装打包和录制所有权由本项目接入。八个 shader 使用已做本地对照
+验证的 NR_EDGE_BODIES=0 配方，详见本页编译进度条目及 `third_party/mochizuki/UPSTREAM.md`。
+
+参考实现的单一当前帧接口不符合本产品可重放录制契约，因此宿主独立实现，runtime 适配当前
+v2 录制租约：旧命令保留对应网络与几何资源；在 producer 前等待真实 consumer 尾 fence；
+失效且确认完成后才回收，不凭后续帧猜测完成。ABI 必须整包匹配，不加入旧 ABI 回退。
+
+第三后端使用独立 Mochizuki 配置、分组 reset 和用户自备模型；共享整体强度和稳定器。
+默认 Auto DRS 采用参考桥接的 bucket 策略减少动态分辨率重建，保留 Exact 选项。
+GPU 计时来自完成的 Vulkan query；核心仅增加完成序号，防止菜单轮询重复计样。
+输入曝光纹理读取暂不接入：本后端使用手动 white point 或自身预处理测光，不借用其他后端开关。
+
+本地 RX 9070 XT 已验证真实输出、14 次录制执行、双队列、尺寸切换后旧录制重放、延迟回收与
+编译取消。此证据不是游戏兼容性或 FPS 结论；游戏验收和远端 Actions 均单独记录。
+构建、打包、安装和使用细节见 [mochizuki.md](mochizuki.md)。
+
 
 ## 2026-10-02 · lmxxf 输入直写与无用 tile 副本
 

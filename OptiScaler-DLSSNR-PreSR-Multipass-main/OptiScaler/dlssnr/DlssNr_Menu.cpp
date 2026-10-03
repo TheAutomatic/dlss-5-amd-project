@@ -140,6 +140,137 @@ static bool InheritedProfileCombo(const char* label, CustomOptional<uint32_t, No
     return true;
 }
 
+static void ResetMochizuki(Config* config, int selectedGroup = -1)
+{
+#define MZ_F(name, def, low, high, group, label, target) if (selectedGroup < 0 || selectedGroup == group) config->name = std::optional<float>{};
+#define MZ_U(name, def, low, high, group, label, target) if (selectedGroup < 0 || selectedGroup == group) config->name = std::optional<uint32_t>{};
+#define MZ_B(name, def, low, high, group, label, target) if (selectedGroup < 0 || selectedGroup == group) config->name = std::optional<bool>{};
+#include "backend/MochizukiOptions.inc"
+#undef MZ_F
+#undef MZ_U
+#undef MZ_B
+    AmdBridge::InvalidateHistory();
+}
+
+static bool MochizukiChoice(const char* label, std::string_view key, int* value, int low, int high)
+{
+    if (key == CfgKey::MochizukiStyle || key == CfgKey::MochizukiPass2Style || key == CfgKey::MochizukiPass3Style)
+        return ImGui::Combo(label, value, "Standard\0Natural\0Cinematic\0");
+    if (key == CfgKey::MochizukiPreprocessExposure)
+        return ImGui::Combo(label, value, "Off\0Auto\0Fixed\0");
+    if (key == CfgKey::MochizukiPreprocessCurve)
+        return ImGui::Combo(label, value, "None\0Neutral\0Reinhard\0Filmic\0GT\0ACES\0AgX\0");
+    if (key == CfgKey::MochizukiLinearInput)
+        return ImGui::Combo(label, value, "Auto\0Linear\0Encoded\0");
+    if (key == CfgKey::MochizukiDynamicResolution)
+        return ImGui::Combo(label, value, "Exact\0Auto bucket\0Always bucket\0");
+    return ImGui::SliderInt(label, value, low, high);
+}
+
+// Keep rebuild-triggering edits local until mouse, keyboard or text editing finishes.
+static bool MochizukiRebuildSlider(const char* label, float* value, float low, float high, bool integer)
+{
+    ImGui::PushID(label);
+    auto* storage = ImGui::GetStateStorage();
+    const auto pendingId = ImGui::GetID("pending");
+    const auto activeId = ImGui::GetID("editing");
+    const auto frameId = ImGui::GetID("last-frame");
+    const int frame = ImGui::GetFrameCount();
+    float pending = storage->GetBool(activeId) && storage->GetInt(frameId, -2) == frame - 1
+        ? storage->GetFloat(pendingId, *value) : *value;
+    if (integer) {
+        int v = static_cast<int>(pending);
+        ImGui::SliderInt(label, &v, static_cast<int>(low), static_cast<int>(high), "%d", ImGuiSliderFlags_AlwaysClamp);
+        pending = static_cast<float>(v);
+    } else {
+        ImGui::SliderFloat(label, &pending, low, high, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);
+    }
+    const bool commit = ImGui::IsItemDeactivatedAfterEdit() && pending != *value;
+    storage->SetFloat(pendingId, pending);
+    storage->SetBool(activeId, ImGui::IsItemActive());
+    storage->SetInt(frameId, frame);
+    if (commit) *value = pending;
+    ImGui::PopID();
+    return commit;
+}
+
+static bool MochizukiIntegerControl(const char* label, std::string_view key, int* value, int low, int high)
+{
+    if (key == CfgKey::MochizukiPasses || key == CfgKey::MochizukiMaxPasses) {
+        float pending = static_cast<float>(*value);
+        if (!MochizukiRebuildSlider(label, &pending, static_cast<float>(low), static_cast<float>(high), true)) return false;
+        *value = static_cast<int>(pending);
+        return true;
+    }
+    return MochizukiChoice(label, key, value, low, high);
+}
+
+static bool MochizukiFloatControl(const char* label, std::string_view key, float* value, float low, float high)
+{
+    if (key == CfgKey::MochizukiModelScale) {
+        float percent = *value * 100.f;
+        if (!MochizukiRebuildSlider("Model resolution", &percent, low * 100.f, high * 100.f, false)) return false;
+        *value = percent / 100.f;
+        return true;
+    }
+    return ImGui::SliderFloat(label, value, low, high, "%.2f");
+}
+
+static void RenderMochizukiMenu(Config* config)
+{
+    ImGui::TextWrapped("%s", AmdBridge::Status().c_str());
+    bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
+    if (ImGui::Checkbox("Allow backend hot switching (restart)", &convenience))
+        config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
+    HelpMarker("Save and restart to change startup hook preparation. Off loads only the active backend.");
+    bool timing = config->NrTimingEnabled.value_or_default();
+    if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
+    if (timing) ImGui::TextWrapped("NR GPU: %s", TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64(), true).c_str());
+    static const char* groups[] = {"Pass 1", "Quality", "Temporal history", "Preprocessing", "Advanced", "Pass 2", "Pass 3", "Output adjustment"};
+    static constexpr int order[] = {1, 0, 5, 6, 7, 2, 3, 4};
+    for (int g : order)
+    {
+        const auto passes = config->MochizukiPasses.value_or_default();
+        if ((g == 5 && passes < 2) || (g == 6 && passes < 3)) continue;
+        ImGui::PushID(g);
+        if (ImGui::TreeNodeEx(groups[g], (g == 0 || g == 1 || g == 5 || g == 6) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+        {
+            bool changed = false;
+#define MZ_F(name, def, low, high, group, label, target) if (g == group) { float v = config->name.value_or_default(); if (MochizukiFloatControl(label, CfgKey::name, &v, low, high)) { config->name = v; changed = true; } }
+#define MZ_U(name, def, low, high, group, label, target) if (g == group) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiIntegerControl(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
+#define MZ_B(name, def, low, high, group, label, target) if (g == group) { bool v = config->name.value_or_default(); if (ImGui::Checkbox(label, &v)) { config->name = v; changed = true; } }
+#include "backend/MochizukiOptions.inc"
+#undef MZ_F
+#undef MZ_U
+#undef MZ_B
+            if (changed) AmdBridge::InvalidateHistory();
+            if (g == 0 || g == 5 || g == 6) ImGui::TextWrapped("Skin structure -1 follows Structure.");
+            if (g == 1) ImGui::TextWrapped("Resolution and pass edits apply when editing finishes. 50% halves width and height. More passes increase GPU cost and memory.");
+            if (g == 2) ImGui::TextWrapped("History needs unjittered motion vectors. The separate Residual Stabilizer filters the final correction.");
+            if (g == 3) ImGui::TextWrapped("Preprocessing changes what the model sees and reverses that transform from its answer.");
+            if (g == 4) ImGui::TextWrapped("DRS buckets reduce rebuilds when the render size changes. Prebuild passes 0 follows the current pass count. White point controls linear-input brightness.");
+            if (g == 7) ImGui::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
+            if (g == 5 || g == 6) ImGui::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
+            if (ImGui::Button("Reset this group")) ResetMochizuki(config, g);
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::TreeNode("Diagnostics"))
+    {
+        ImGui::TextWrapped("Vulkan network timing uses completed timestamp queries. Median and p95 cover up to 120 samples; copies and whole-frame latency are separate.");
+        bool logging = config->NrTimingLog.value_or_default();
+        if (ImGui::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
+        ImGui::TextWrapped("%s", AmdBridge::EffectsStatus().c_str());
+        if (ImGui::Button("Reset diagnostics")) {
+            config->NrTimingEnabled = std::optional<bool>{}; config->NrTimingLog = std::optional<bool>{};
+        }
+        ImGui::TreePop();
+    }
+    if (ImGui::Button("Reset NR settings")) { ResetMochizuki(config); ResetSharedNrDefaults(config); }
+    HelpMarker("Resets mochizuki and shared NR controls. Keeps other backends, selection and hotkeys.");
+}
+
 void RenderMenu(Config* config, float menuResScale)
 {
 
@@ -160,152 +291,51 @@ void RenderMenu(Config* config, float menuResScale)
             const Kind active = DlssNr::Backend::ActiveKindFromConfig();
             const bool isLmxxf = (active == Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
-            const char* ver = isLmxxf ? "lmxxf 0.39" : DlssNr::AmdBridge::RuntimeName();
+            const char* ver = active == Kind::Mochizuki ? "mochizuki v0.0.3" : isLmxxf ? "lmxxf 0.39" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
             ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf 0.39" : "pass1?"));
-            HelpMarker(isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
+            HelpMarker(active == Kind::Mochizuki ? "AMD NR runtime: mochizuki (native D3D12 / Vulkan bridge)." : isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
                                : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
 
-            // Backend sits here (not at the bottom) so both hosts can switch near Enable NR.
             {
-                using DlssNr::Backend::Kind;
-                using DlssNr::Backend::Request;
-                const Kind activeB = DlssNr::Backend::ActiveKindFromConfig();
-                Request request;
-                Request runningRequest;
+                using namespace DlssNr::Backend;
+                static const char* names[] = {"daniel", "lmxxf", "mochizuki"};
+                const bool installed[] = {HasDanielInstalled(), HasLmxxfInstalled(), HasMochizukiInstalled()};
+                int selected = static_cast<int>(active);
                 {
-                    std::lock_guard nrBackendLock(config->NrBackendMutex);
-                    const auto rawBackend = config->NrBackend.value_for_config();
-                    request = rawBackend.has_value() ? DlssNr::Backend::ParseRequest(*rawBackend)
-                                                     : Request::Auto;
-                    runningRequest = config->NrBackend.has_value()
-                        ? DlssNr::Backend::ParseRequest(config->NrBackend.value())
-                        : Request::Auto;
+                    std::lock_guard lock(config->NrBackendMutex);
+                    if (auto raw = config->NrBackend.value_for_config()) selected = static_cast<int>(ParseKind(*raw));
                 }
-                const bool hooksArmed = DlssNr::Submission::Hooks::IsArmed();
-                const bool hasDaniel = DlssNr::AmdBridge::HasDanielRuntime();
-                const bool hasLmxxf = DlssNr::AmdBridge::HasLmxxfRuntime();
-                int selected = 0;
-                if (request == Request::Lmxxf)
-                    selected = 1;
-                else if (request == Request::Daniel)
-                    selected = 0;
-                else
-                    selected = (activeB == Kind::Lmxxf) ? 1 : 0;
-                const bool convenience = config->NrConvenience.value_or_default() != 0;
-                const bool deferLmxxf = selected == 1 && activeB != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf;
-                auto itemLabel = [&](int i) -> const char* {
-                    if (i == 1 && activeB != Kind::Lmxxf && (!hooksArmed || !convenience) && hasLmxxf)
-                        return "lmxxf (after restart)";
-                    if (i == 0 && activeB == Kind::Lmxxf && !convenience)
-                        return "daniel (after restart)";
-                    return i == 0 ? "daniel" : "lmxxf";
-                };
-                static const char* items[] = { "daniel", "lmxxf" };
-
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted("Backend");
-                HGap(0.15f);
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
-                if (!hasDaniel && !hasLmxxf)
-                    ImGui::BeginDisabled();
-                if (ImGui::BeginCombo("##NrBackend", itemLabel(selected)))
+                if (ImGui::BeginCombo("Backend", names[selected]))
                 {
-                    for (int i = 0; i < IM_ARRAYSIZE(items); ++i)
+                    for (int i = 0; i < IM_ARRAYSIZE(names); ++i)
                     {
-                        const bool installed = i == 0 ? hasDaniel : hasLmxxf;
-                        const auto flags = installed ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
-                        if (ImGui::Selectable(itemLabel(i), selected == i, flags))
+                        const auto flags = installed[i] ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
+                        if (ImGui::Selectable(names[i], selected == i, flags))
                         {
                             selected = i;
-                            const bool live = convenience && (hooksArmed || activeB == Kind::Lmxxf || i == 0);
-                            if (!live)
+                            const bool live = config->NrConvenience.value_or_default() &&
+                                (selected == 0 || Submission::Hooks::IsArmed());
                             {
-                                std::lock_guard nrBackendLock(config->NrBackendMutex);
-                                config->NrBackend.set_for_next_launch(std::string(items[i]));
+                                std::lock_guard lock(config->NrBackendMutex);
+                                if (live) config->NrBackend = names[selected];
+                                else config->NrBackend.set_for_next_launch(std::string(names[selected]));
                             }
-                            else
-                            {
-                                {
-                                    std::lock_guard nrBackendLock(config->NrBackendMutex);
-                                    config->NrBackend = items[i];
-                                }
-                                DlssNr::AmdBridge::SyncBackendWithConfig();
-                            }
+                            if (live) AmdBridge::SyncBackendWithConfig();
                         }
-                        if (selected == i)
-                            ImGui::SetItemDefaultFocus();
+                        if (selected == i) ImGui::SetItemDefaultFocus();
                     }
                     ImGui::EndCombo();
                 }
-                if (!hasDaniel && !hasLmxxf)
-                    ImGui::EndDisabled();
-                {
-                    char installed[64] {};
-                    if (hasDaniel && hasLmxxf)
-                        std::snprintf(installed, sizeof(installed), "daniel + lmxxf");
-                    else if (hasDaniel)
-                        std::snprintf(installed, sizeof(installed), "daniel");
-                    else if (hasLmxxf)
-                        std::snprintf(installed, sizeof(installed), "lmxxf");
-                    else
-                        std::snprintf(installed, sizeof(installed), "none");
-                    char tip[768] {};
-                    std::snprintf(tip, sizeof(tip),
-                                  "NR host. daniel = danielblnc pass1; lmxxf = same-frame HIP runtime."
-                                  "\nHot switch (Allow backend hot switching / NrConvenience, default on):"
-                                  "\nlive switch when proxy hooks are armed. Off: changing backends"
-                                  "\nneeds a game restart."
-                                  "\nNeeds restart: first switch to lmxxf after a daniel-only"
-                                  "\nstart is staged for the next launch. Click Save Settings"
-                                  "\nto keep it in OptiScaler.ini. The line below always says"
-                                  "\nwhich case you are in."
-                                  "\nEnable NR off releases buffers after outstanding work completes."
-                                  "\nIf the chosen host is missing its files, the other installed"
-                                  "\nhost runs instead."
-                                  "\n\nInstalled here: %s",
-                                  installed);
-                    HelpMarker(tip);
-                }
-                if (!hasDaniel && !hasLmxxf)
-                {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f),
-                                       "No NR runtime beside OptiScaler (need dlssnr_amd_pass1.dll or LmxxfNrRuntime.dll).");
-                }
-                else if (deferLmxxf)
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
-                }
-                else if (request == Request::Lmxxf && !hasLmxxf)
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "lmxxf not installed; running daniel.");
-                }
-                else if (request == Request::Daniel && !hasDaniel)
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "daniel not installed; running lmxxf.");
-                }
-                else if (request == Request::Lmxxf && runningRequest != Request::Lmxxf &&
-                         activeB == Kind::Daniel && hasLmxxf)
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "Restart the game to use lmxxf; daniel remains active now.");
-                }
-                else if (request == Request::Lmxxf && activeB != Kind::Lmxxf && hasLmxxf)
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "lmxxf selected for next launch (Save Settings to keep). This session keeps using daniel.");
-                }
-                else if (request == Request::Daniel && activeB != Kind::Daniel && hasDaniel)
-                {
-                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                                       "daniel selected for next launch (Save Settings to keep). This session keeps using lmxxf.");
-                }
-
+                ImGui::TextDisabled("Active: %s", Name(active));
+                if (!installed[selected]) ImGui::TextWrapped("Selected runtime is not installed. Use the package installer.");
+                else if (selected != static_cast<int>(active))
+                    ImGui::TextWrapped("Save Settings, then restart the game to use %s.", names[selected]);
+                HelpMarker("Hot switching requires NrConvenience and command-list hooks armed at startup."
+                           "\nWith hot switching off, only the selected backend loads."
+                           "\nClosed GPU recordings retain their resources until Reset/Release and completion.");
             }
 
         }
@@ -468,7 +498,7 @@ void RenderMenu(Config* config, float menuResScale)
             float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
             if (ImGui::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
                 config->NrOverallIntensity = overallIntensity;
-            HelpMarker("Blends the final NR correction for either backend. 0 = original, 1 = full effect, above 1 amplifies it."
+            HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
                        "\nThis does not reduce model computation. Disable NR to save that work."
                        "\nA pure-backend session may require a restart to enable the shared effect recording path.");
             if (config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
@@ -491,6 +521,11 @@ void RenderMenu(Config* config, float menuResScale)
             }
             if (ImGui::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
             HelpMarker("Resets Overall Intensity and Residual Stabilizer only.");
+            if (Backend::ActiveKindFromConfig() == Backend::Kind::Mochizuki)
+            {
+                RenderMochizukiMenu(config);
+                return;
+            }
             if (ImGui::TreeNode("Image")) {
                 if (isLmxxf) {
                     int style = static_cast<int>(config->LmxxfStyle.value_or_default());
@@ -1053,16 +1088,21 @@ void RenderMenu(Config* config, float menuResScale)
                     }
 
                     bool newWait = config->AmdGraphicsWait.value_or_default() != 0;
+                    const bool submissionActive = Submission::Hooks::IsArmed();
                     const bool hooksArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
                     const bool restartToTryNewWait = !hooksArmed || DlssNr::AmdBridge::GraphicsRestartNeeded(
                         std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
-                    const bool restartNeeded = newWait && restartToTryNewWait;
+                    const bool restartNeeded = !submissionActive && newWait && restartToTryNewWait;
+                    ImGui::BeginDisabled(submissionActive);
                     if (ImGui::Checkbox(restartNeeded ? "New wait mode (restart)" : "New wait mode", &newWait))
                     {
                         config->AmdGraphicsWait = newWait ? 1 : 0;
                         if (newWait && restartToTryNewWait)
                             ImGui::OpenPopup("New wait restart");
                     }
+                    ImGui::EndDisabled();
+                    if (submissionActive)
+                        ImGui::TextDisabled("Original wait is active while NR submission hooks are enabled.");
                     HelpMarker("On: New wait mode (0.3.1 1-pixel draw). Still being tested."
                                "\nOff: Original wait mode (switches immediately)."
                                "\nRestart if prompted: hooks or a pass may not be ready for new wait mode."

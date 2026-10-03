@@ -387,6 +387,46 @@ class Config
     CustomOptional<std::string> LmxxfNetworkHeight { "auto" };
     CustomOptional<uint32_t> LmxxfNetwork1080Rows { 1152 };
     CustomOptional<uint32_t> LmxxfStyle { 1 };
+    // Mochizuki owns independent settings; reset never changes another backend.
+    CustomOptional<float> MochizukiIntensity { 1.f };
+    CustomOptional<uint32_t> MochizukiStyle { 0u };
+    CustomOptional<float> MochizukiLocalTone { 1.f };
+    CustomOptional<float> MochizukiLocalStructure { 1.f };
+    CustomOptional<float> MochizukiSkinStructure { -1.f };
+    CustomOptional<bool> MochizukiAutomaticMask { true };
+    CustomOptional<float> MochizukiDetailStrength { 1.f };
+    CustomOptional<float> MochizukiColourStrength { 1.f };
+    CustomOptional<float> MochizukiMaxRatio { 2.f };
+    CustomOptional<float> MochizukiWhitePoint { 1.f };
+    CustomOptional<float> MochizukiModelScale { 1.f };
+    CustomOptional<uint32_t> MochizukiPasses { 1u };
+    CustomOptional<bool> MochizukiTemporal { true };
+    CustomOptional<float> MochizukiHistoryStrength { 1.f };
+    CustomOptional<bool> MochizukiPreprocess { false };
+    CustomOptional<uint32_t> MochizukiPreprocessExposure { 1u };
+    CustomOptional<float> MochizukiPreprocessBiasEv { 0.f };
+    CustomOptional<uint32_t> MochizukiPreprocessCurve { 3u };
+    CustomOptional<float> MochizukiPreprocessContrast { 1.f };
+    CustomOptional<float> MochizukiPreprocessSaturation { 1.f };
+    CustomOptional<bool> MochizukiApplyModel { true };
+    CustomOptional<uint32_t> MochizukiLinearInput { 0u };
+    CustomOptional<uint32_t> MochizukiMaxPasses { 0u };
+    CustomOptional<uint32_t> MochizukiDynamicResolution { 1u };
+    CustomOptional<bool> MochizukiPass2Override { false };
+    CustomOptional<uint32_t> MochizukiPass2Style { 0u };
+    CustomOptional<float> MochizukiPass2Intensity { 1.f };
+    CustomOptional<float> MochizukiPass2LocalTone { 0.f };
+    CustomOptional<float> MochizukiPass2LocalStructure { 1.f };
+    CustomOptional<float> MochizukiPass2SkinStructure { -1.f };
+    CustomOptional<bool> MochizukiPass2AutomaticMask { true };
+    CustomOptional<bool> MochizukiPass3Override { false };
+    CustomOptional<uint32_t> MochizukiPass3Style { 0u };
+    CustomOptional<float> MochizukiPass3Intensity { 1.f };
+    CustomOptional<float> MochizukiPass3LocalTone { 0.f };
+    CustomOptional<float> MochizukiPass3LocalStructure { 1.f };
+    CustomOptional<float> MochizukiPass3SkinStructure { -1.f };
+    CustomOptional<bool> MochizukiPass3AutomaticMask { true };
+
     CustomOptional<bool> LmxxfFormatFallback { true };
     CustomOptional<std::string> LmxxfSkipBlocks { CfgKey::kDefaultSkipBlocks };
     // 0.31 kernels / shared pool (bit-exact per upstream). ini name == env name.

@@ -32,14 +32,14 @@ class FGResizeTrace
     inline static std::atomic<unsigned> nextId { 0 };
     unsigned id;
 public:
-    explicit FGResizeTrace(const char* entry) : id(nextId.fetch_add(1, std::memory_order_relaxed) + 1)
+    explicit FGResizeTrace(const char* entry) : id(spdlog::should_log(spdlog::level::debug) ? nextId.fetch_add(1, std::memory_order_relaxed) + 1 : 0)
     {
         Step(entry);
     }
     void Step(const char* phase, HRESULT result = S_OK) const
     {
-        if (id <= 24)
-            LOG_INFO("FG resize: sample={} phase={} tid={} result={:X}", id, phase, GetCurrentThreadId(), (UINT)result);
+        if (id && id <= 24)
+            LOG_DEBUG("FG resize: sample={} phase={} tid={} result={:X}", id, phase, GetCurrentThreadId(), (UINT)result);
     }
     void Stop(IFGFeature* fg) const
     {

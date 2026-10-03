@@ -1,0 +1,20 @@
+#version 460
+// Multi-pass, step 1 of 3: the log luminance ratio of this pass's answer to
+// what the FIRST pass was shown, per model pixel. Both are the sRGB proxy the
+// network works in; the ratio is taken in linear light with the same floor
+// the transfer pass uses.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba32f) uniform image2D answer;   // surf0
+layout(set = 0, binding = 1) uniform sampler2D shown;           // shown_keep
+layout(set = 0, binding = 2, r32f) uniform image2D lograt;
+layout(push_constant) uniform Push { uint width, height; float floor_; } pc;
+float srgb_decode(float x) { return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4); }
+vec3 decode3(vec3 c) { c = clamp(c, vec3(0.0), vec3(1.0)); return vec3(srgb_decode(c.r), srgb_decode(c.g), srgb_decode(c.b)); }
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+void main() {
+    const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= int(pc.width) || xy.y >= int(pc.height)) return;
+    const float m = luma(decode3(imageLoad(answer, xy).rgb));
+    const float s = luma(decode3(texelFetch(shown, xy, 0).rgb));
+    imageStore(lograt, xy, vec4(log((m + pc.floor_) / (s + pc.floor_)), 0.0, 0.0, 0.0));
+}

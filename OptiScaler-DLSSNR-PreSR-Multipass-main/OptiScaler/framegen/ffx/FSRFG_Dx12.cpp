@@ -347,7 +347,10 @@ bool FSRFG_Dx12::Dispatch()
     if (!_resourceReady[fIndex].ContainsMask((1u << FG_ResourceType::Depth) |
                                               (1u << FG_ResourceType::Velocity)))
     {
-        LOG_WARN("Depth or Velocity is not ready, skipping");
+        if (!_missingInputsLogged.exchange(true, std::memory_order_relaxed))
+            LOG_WARN("Depth or Velocity is not ready, skipping; repeats are logged at DEBUG for this FG instance");
+        else
+            LOG_DEBUG("Depth or Velocity is not ready, skipping");
         return false;
     }
 
@@ -625,7 +628,7 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     // check for status
     if (!Config::Instance()->FGEnabled.value_or_default() || _fgContext == nullptr || state.scChanged)
     {
-        LOG_WARN("Cancel async dispatch");
+        LOG_DEBUG("Cancel async dispatch");
         params->numGeneratedFrames = 0;
     }
 
@@ -633,14 +636,14 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     if ((state.currentFeature == nullptr && state.activeFgInput == FGInput::Upscaler) || state.fgChanged ||
         fIndex < 0 || !IsActive() || (state.currentFeature && state.currentFeature->FrameCount() == 0))
     {
-        LOG_WARN("Upscaling paused! frameID: {}", params->frameID);
+        LOG_DEBUG("Upscaling paused! frameID: {}", params->frameID);
         params->numGeneratedFrames = 0;
     }
 
     static UINT64 _lastFrameId = 0;
     if (params->frameID == _lastFrameId)
     {
-        LOG_WARN("Dispatched with the same frame id! frameID: {}", params->frameID);
+        LOG_DEBUG("Dispatched with the same frame id! frameID: {}", params->frameID);
         params->numGeneratedFrames = 0;
         return FFX_API_RETURN_OK;
     }

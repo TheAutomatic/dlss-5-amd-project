@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "../dlssnr/amd/AmdBridge.h"
 #include "../dlssnr/NrTimingDisplay.h"
+#include "../dlssnr/backend/Selector.h"
 #include "menu_common.h"
 #include "UpscalerRouteDiagnostic.h"
 #include "MenuWindowLayout.h"
@@ -1496,6 +1497,7 @@ void MenuCommon::BeginMenuFrameIfNeeded(RenderMenuContext& ctx)
 
     if ((!config->DisableSplash.value_or_default() && now > splashStart && now < splashLimit) ||
         config->ShowFps.value_or_default() || _isVisible || ImGui::notifications.size() > 0 || scanIndicator ||
+        DlssNr::AmdBridge::BuildProgress().active ||
         (config->DlssNrCompare.value_or_default() != 0 && config->DlssNrCompareTags.value_or_default()))
     {
         if (!_isUWP)
@@ -1985,12 +1987,15 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
             }
 
             std::string codecTimingLine, effectsTimingLine;
+            if (overlayType != FpsOverlay_JustFPS && config->DlssNrEnabled.value_or_default())
+                firstLine += std::string(" | NR: ") + DlssNr::Backend::Name(DlssNr::Backend::ActiveKindFromConfig());
             if (overlayType != FpsOverlay_JustFPS && config->NrTimingEnabled.value_or_default()) {
                 const auto timing = DlssNr::AmdBridge::Timing();
                 if (timing.version == NR_TIMING_VERSION) {
                     const auto now = GetTickCount64();
                     firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
-                    if (overlayType >= FpsOverlay_Detailed)
+                    if (overlayType >= FpsOverlay_Detailed &&
+                        (timing.stages[NR_GPU_ENCODE].samples || timing.stages[NR_GPU_DECODE].samples))
                         codecTimingLine = "Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
                                       " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
                     if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_BLEND].samples)
@@ -7823,6 +7828,52 @@ void RenderExposureScanIndicator(float alpha)
     ImGui::End();
 }
 
+static void RenderMochizukiBuildProgress()
+{
+    const auto p = DlssNr::AmdBridge::BuildProgress();
+    if (!p.active) return;
+    const auto* viewport = ImGui::GetMainViewport();
+    const float scale = ImGui::GetFontSize() / 13.0f;
+    const float margin = 12.0f * scale;
+    const float width = std::min(380.0f * scale, viewport->WorkSize.x - 2 * margin);
+    if (width < 80 || viewport->WorkSize.y < 140 * scale) return;
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - margin,
+                                 viewport->WorkPos.y + viewport->WorkSize.y - margin),
+                            ImGuiCond_Always, ImVec2(1, 1));
+    ImGui::SetNextWindowSize(ImVec2(width, 0));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    constexpr auto flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav;
+    if (ImGui::Begin("##MochizukiBuild", nullptr, flags)) {
+        ImGui::TextUnformatted("Mochizuki NR - preparing");
+        ImGui::TextWrapped("%s", p.stage);
+        if (p.total) {
+            char label[64]; std::snprintf(label, sizeof label, "Shaders %u / %u", p.completed, p.total);
+            ImGui::ProgressBar(float(p.completed) / p.total, ImVec2(-1, 0), label);
+        } else {
+            // An indeterminate moving segment, not a fabricated percentage.
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x, h = 6 * scale;
+            auto* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), IM_COL32(70, 70, 70, 220), 3 * scale);
+            const float x = float(std::fmod(ImGui::GetTime() * 0.5, 1.0)) * w;
+            draw->PushClipRect(pos, ImVec2(pos.x + w, pos.y + h), true);
+            for (float offset : {x, x - w})
+                draw->AddRectFilled(ImVec2(pos.x + offset, pos.y), ImVec2(pos.x + offset + w * 0.25f, pos.y + h),
+                                    IM_COL32(90, 175, 245, 255), 3 * scale);
+            draw->PopClipRect(); ImGui::Dummy(ImVec2(w, h));
+        }
+        const auto now = GetTickCount64();
+        ImGui::Text("Elapsed %.0f s", double(now >= p.start_tick ? now - p.start_tick : 0) / 1000);
+        ImGui::TextWrapped("First use can take longer. NR starts when ready.");
+        if (now >= p.update_tick && now - p.update_tick >= 30000)
+            ImGui::TextWrapped("This step has not completed for %.0f s. See mochizuki_nr.log if it persists.",
+                               double(now - p.update_tick) / 1000);
+    }
+    ImGui::End();
+}
+
 bool MenuCommon::RenderMenu()
 {
     if (!_isInited)
@@ -7849,6 +7900,7 @@ bool MenuCommon::RenderMenu()
     UpdateFrameTimeAverages(ctx);
     RenderPerformanceOverlay(ctx);
     RenderExposureScanIndicator(ctx.config->FpsOverlayAlpha.value_or_default());
+    if (ctx.newFrame) RenderMochizukiBuildProgress();
 
     // 4) Draw the full settings menu last so popups and child windows keep their existing behavior.
     RenderMainMenuWindow(ctx);

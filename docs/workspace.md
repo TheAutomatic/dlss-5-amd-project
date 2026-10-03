@@ -17,7 +17,7 @@
 
 | 目录 | 放什么 |
 |---|---|
-| `OptiScaler-DLSSNR-PreSR-Multipass-main/` | 产品代码（宿主、菜单、两个后端、lmxxf runtime） |
+| `OptiScaler-DLSSNR-PreSR-Multipass-main/` | 产品代码（宿主、菜单、三个后端及 runtime） |
 | `third_party/` | vendored 上游代码，规则见 `third_party/lmxxf/UPSTREAM.md` |
 | `docs/` | 仍然成立的文档，索引见 `docs/README.md` |
 | `tools/build/` `tools/release/` `tools/install/` `tools/lmxxf-sync/` `tools/diag/` `tools/dev/` | 在用的脚本，按用途分组。`tools/` 根目录不放新文件 |

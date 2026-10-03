@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import runpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / '_lib'))
 from lmxxf_fixtures import damage_modules, make_modules, snapshot_files
@@ -63,6 +64,32 @@ class ModulePackageTests(unittest.TestCase):
         self.env = {k.upper(): v for k, v in os.environ.items()}
         self.env.pop('PSMODULEPATH', None)
         self.archive = self.root / 'dist/package.zip'
+        # Real Mochizuki source/hash gate, with explicitly non-executable fixture artifacts.
+        for directory in ('third_party/mochizuki',
+                          'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime'):
+            shutil.copytree(REPO / directory, self.root / directory, ignore=shutil.ignore_patterns('__pycache__'))
+        for name in ('tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
+                     'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
+                     'tools/install/mochizuki-model.py', 'docs/mochizuki.md',
+                     'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
+                     'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / name, target)
+        mz = self.root / 'exports/mochizuki-runtime'
+        (mz / 'dlssnr-amd/shaders').mkdir(parents=True)
+        (mz / 'MochizukiNrRuntime.dll').write_bytes(b'fixture Vulkan runtime, not executable')
+        (mz / 'dlssnr-amd/shaders/test.spv').write_bytes(b'fixture SPIR-V, not executable')
+        runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))['write'](mz)
+        (mz / 'abi-ci.sha256').write_text(hashlib.sha256((mz / 'MochizukiNrRuntime.dll').read_bytes()).hexdigest())
+
+    def test_mochizuki_runtime_changed_after_abi_is_rejected(self):
+        runtime = self.root / 'exports/mochizuki-runtime/MochizukiNrRuntime.dll'
+        runtime.write_bytes(b'changed fixture')
+        code, out = self.package()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn('Mochizuki source/artifact mismatch', out)
+        self.assertFalse(self.archive.exists())
 
     def run_ps(self, args, env=None):
         result = subprocess.run([PS, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', *args],
@@ -132,6 +159,9 @@ class ModulePackageTests(unittest.TestCase):
             'NrTimingEnabled': 'false', 'NrTimingLog': 'false',
             'NrOverallIntensity': '1.0', 'NrStabilizerEnabled': 'false',
             'NrStabilizerAlpha': '0.8', 'NrStabilizerThreshold': '4.0',
+            'MochizukiStyle': '0', 'MochizukiModelScale': '1.0',
+            'MochizukiTemporal': 'true', 'MochizukiPreprocess': 'false',
+            'MochizukiDynamicResolution': '1', 'MochizukiPass2Override': 'false',
             'DLSS5_STYLE': '1', 'DLSS5_NETWORK_1080_ROWS': '1152',
             'DLSS5_FORMAT_FALLBACK': 'true', 'DLSS5_NETWORK_HEIGHT': 'auto',
             'DLSS5_HIP_SHARED_POOL': 'true', 'DLSS5_HIP_MH_BYTE_STREAM': 'true',
@@ -149,12 +179,39 @@ class ModulePackageTests(unittest.TestCase):
             self.assertIn(key + '=' + value, installed_ini)
 
         self.assertEqual(snapshot_files(game / 'lmxxf-modules'), snapshot_files(self.modules))
+
         code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game),
                                  '-NonInteractive', '-UninstallExisting'])
         self.assertEqual(code, 0, out)
         self.assertIn('Uninstall SUCCEEDED', out)
         self.assertIn('Install SUCCEEDED', out)
         self.assertEqual(snapshot_files(game / 'lmxxf-modules'), snapshot_files(self.modules))
+
+    def test_mochizuki_only_install_preserves_model_on_uninstall(self):
+        code, out = self.package()
+        self.assertEqual(code, 0, out)
+        extracted = self.root / 'extracted'
+        with zipfile.ZipFile(self.archive) as archive:
+            self.assertIn('MochizukiNrRuntime.dll', archive.namelist())
+            self.assertNotIn('dlssnr-amd/dlssnr.bin', archive.namelist())
+            archive.extractall(extracted)
+        model = extracted / 'dlssnr-amd/dlssnr.bin'
+        model.write_bytes(b'user-owned model fixture')
+        game = self.root / 'mochizuki game'
+        game.mkdir()
+        code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game),
+                                '-Backend', 'mochizuki', '-NonInteractive'])
+        self.assertEqual(code, 0, out)
+        self.assertTrue((game / 'MochizukiNrRuntime.dll').is_file())
+        self.assertFalse((game / 'LmxxfNrRuntime.dll').exists())
+        self.assertFalse((game / 'dlssnr_amd_pass1.dll').exists())
+        parsed = configparser.ConfigParser()
+        parsed.read(game / 'OptiScaler.ini', encoding='utf-8-sig')
+        self.assertEqual(parsed['DlssNr']['NrBackend'], 'mochizuki')
+        code, out = self.run_ps(['-File', str(extracted / 'Uninstall_OptiScaler_NR.ps1'), '-GameDir', str(game), '-NonInteractive'])
+        self.assertEqual(code, 0, out)
+        self.assertFalse((game / 'MochizukiNrRuntime.dll').exists())
+        self.assertEqual((game / 'dlssnr-amd/dlssnr.bin').read_bytes(), model.read_bytes())
 
     def test_corrupt_module_never_produces_zip(self):
         self.assertIn('checksum mismatch', self.assert_rejected('corrupt'))

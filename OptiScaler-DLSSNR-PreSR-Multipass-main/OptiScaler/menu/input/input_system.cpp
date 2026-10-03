@@ -281,7 +281,7 @@ void LogInputHealthSnapshotLocked(const char* origin)
         frameIndex - lastNoSubclassWarnFrame >= 600)
     {
         lastNoSubclassWarnFrame = frameIndex;
-        LOG_WARN(
+        LOG_DEBUG(
             "InputHwnd is set but WndProc is not subclassed: input:{} inputPid:{} useSubclass:{} externalTarget:{}",
             static_cast<void*>(_state.InputHwnd), _state.InputProcessId, YesNo(_state.UseWndProcSubclass),
             YesNo(_state.ExternalTargetProcess));
@@ -291,7 +291,7 @@ void LogInputHealthSnapshotLocked(const char* origin)
         frameIndex - lastNoInputWarnFrame >= 600)
     {
         lastNoInputWarnFrame = frameIndex;
-        LOG_WARN("menu is visible but no window/queue/raw input was received this frame. input:{} foreground:{} "
+        LOG_DEBUG("menu is visible but no window/queue/raw input was received this frame. input:{} foreground:{} "
                  "focused:{} subclassed:{}. Check that InputHwnd is the real overlay/menu HWND and that its message "
                  "pump runs.",
                  static_cast<void*>(_state.InputHwnd), static_cast<void*>(foregroundHwnd), YesNo(_state.Focused),

@@ -97,6 +97,17 @@ for /f %%H in ('powershell -NoProfile -Command "$f=[IO.File]::OpenRead($env:LMXX
 if not defined RUNTIME_HASH exit /b 1
 :afterRuntimeHash
 
+if not defined RUN_CI goto afterMochizuki
+if not exist exports\mochizuki-runtime\build-manifest.json (
+  call tools\build\build-mochizuki-runtime.cmd
+  if errorlevel 1 exit /b 1
+)
+python -X utf8 tools\build\mochizuki-manifest.py exports\mochizuki-runtime
+if errorlevel 1 exit /b 1
+call tests\mochizuki\run.cmd abi
+call :Result "mochizuki abi" || goto done
+:afterMochizuki
+
 if not defined RUN_CI goto afterCi
 echo === ci: host ===
 call "%REPO%\tests\host\run.cmd" ci "%OUT%\host"
@@ -132,6 +143,8 @@ call :Result "lmxxf device" || goto done
 :afterDevice
 
 if not defined RUN_GPU goto afterGpu
+call tests\mochizuki\run.cmd gpu
+call :Result "mochizuki gpu" || goto done
 echo === gpu: lmxxf ===
 call "%REPO%\tests\lmxxf\run.cmd" gpu "%OUT%\lmxxf"
 call :Result "lmxxf gpu" || goto done

@@ -17,6 +17,7 @@ struct InstallProbe
     std::mutex mu;
     bool hasDaniel = false;
     bool hasLmxxf = false;
+    bool hasMochizuki = false;
     bool valid = false;
     unsigned long long tick = 0;
 };
@@ -28,6 +29,7 @@ void RefreshProbeLocked(InstallProbe& p)
     const auto dir = Util::DllPath().parent_path();
     p.hasDaniel = std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
     p.hasLmxxf = std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
+    p.hasMochizuki = std::filesystem::exists(dir / L"MochizukiNrRuntime.dll", ec);
     p.valid = true;
     p.tick = GetTickCount64();
 }
@@ -38,7 +40,7 @@ void EnsureProbe(InstallProbe& p)
     if (p.valid)
     {
         // Still missing both: the proxy path may appear late, so retry more often.
-        const unsigned long long ttl = (p.hasDaniel || p.hasLmxxf) ? 1000ull : 100ull;
+        const unsigned long long ttl = (p.hasDaniel || p.hasLmxxf || p.hasMochizuki) ? 1000ull : 100ull;
         if (now - p.tick < ttl)
             return;
     }
@@ -66,6 +68,13 @@ bool HasLmxxfInstalled()
     return g_probe.hasLmxxf;
 }
 
+bool HasMochizukiInstalled()
+{
+    std::lock_guard lock(g_probe.mu);
+    EnsureProbe(g_probe);
+    return g_probe.hasMochizuki;
+}
+
 Kind RequestedKind()
 {
     const auto& cfg = *Config::Instance();
@@ -84,14 +93,15 @@ Kind ActiveKindFromConfig()
         const auto& raw = cfg.NrBackend;
         request = raw.has_value() ? ParseRequest(raw.value()) : Request::Auto;
     }
-    bool hasDaniel = false, hasLmxxf = false;
+    bool hasDaniel = false, hasLmxxf = false, hasMochizuki = false;
     {
         std::lock_guard lock(g_probe.mu);
         EnsureProbe(g_probe);
         hasDaniel = g_probe.hasDaniel;
         hasLmxxf = g_probe.hasLmxxf;
+        hasMochizuki = g_probe.hasMochizuki;
     }
-    return ResolveInstalled(request, hasDaniel, hasLmxxf, LmxxfWired());
+    return ResolveInstalled(request, hasDaniel, hasLmxxf, LmxxfWired(), hasMochizuki);
 }
 
 bool SubmissionHooksWanted()
@@ -120,6 +130,6 @@ bool ProxyWrapWanted()
     if (!LmxxfWired())
         return false;
     return PrepareSubmissionAtStartup(ActiveKindFromConfig(),
-        Config::Instance()->NrConvenience.value_or_default() != 0, HasLmxxfInstalled());
+        Config::Instance()->NrConvenience.value_or_default() != 0, HasLmxxfInstalled() || HasMochizukiInstalled());
 }
 } // namespace DlssNr::Backend

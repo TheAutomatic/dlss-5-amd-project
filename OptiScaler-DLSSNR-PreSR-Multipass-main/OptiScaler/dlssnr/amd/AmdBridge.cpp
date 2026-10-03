@@ -8,6 +8,7 @@
 #include "../backend/DanielBackend.h"
 #include "../effects/NrOutputEffects.h"
 #include "../backend/LmxxfBackend.h"
+#include "../backend/MochizukiBackend.h"
 #include "../backend/Selector.h"
 #include "../backend/LmxxfEvaluateCut.h"
 #include "../backend/LmxxfGenerationObserver.h"
@@ -31,9 +32,11 @@ namespace
 // Switching only changes which one Record/Submit uses.
 std::atomic<DlssNr::Backend::Host*> g_daniel { nullptr };
 std::atomic<DlssNr::Backend::Host*> g_lmxxf { nullptr };
+std::atomic<DlssNr::Backend::MochizukiBackend*> g_mochizuki { nullptr };
 
 DlssNr::Backend::Host* HostForKind(DlssNr::Backend::Kind k)
 {
+    if (k == DlssNr::Backend::Kind::Mochizuki) return g_mochizuki.load(std::memory_order_acquire);
     if (k == DlssNr::Backend::Kind::Lmxxf)
         return g_lmxxf.load(std::memory_order_acquire);
     return g_daniel.load(std::memory_order_acquire);
@@ -173,6 +176,7 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         daniel->Submitting(q, n, c);
     if (lmxxf)
         lmxxf->Submitting(q, n, c);
+    if (auto b = g_mochizuki.load()) b->Submitting(q, n, c);
     // Execute every game list exactly once. Private runtime Notify callbacks
     // publish HIP jobs afterwards and have their internal ECL call neutralized.
     // When lmxxf submission expand is armed, unwrap CommandListProxy (between = HIP slot).
@@ -196,6 +200,7 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         daniel->Submitted(q, n, c);
     if (lmxxf)
         lmxxf->Submitted(q, n, c);
+    if (auto b = g_mochizuki.load()) b->Submitted(q, n, c);
 }
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
@@ -228,6 +233,8 @@ void NTAPI Exit(LONG code)
     if (auto b = g_daniel.load())
         b->Shutdown();
     if (auto b = g_lmxxf.load())
+        b->Shutdown();
+    if (auto b = g_mochizuki.load())
         b->Shutdown();
     exitOriginal(code);
 }
@@ -333,6 +340,7 @@ bool HasFiles()
     // choice to follow a later successful probe at the real package path.
     auto active = ActiveKindCached();
     auto installed = [](DlssNr::Backend::Kind kind) {
+        if (kind == DlssNr::Backend::Kind::Mochizuki) return DlssNr::Backend::HasMochizukiInstalled();
         return kind == DlssNr::Backend::Kind::Lmxxf ? HasLmxxfRuntime() : HasDanielRuntime();
     };
     if (installed(active))
@@ -515,7 +523,12 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         DlssNr::Submission::Hooks::SetProxyWrap(true);
     // Build only the selected host on first use. The other is built when it is
     // first selected (switch). Hosts persist; inactive sessions request release.
-    if (active == DlssNr::Backend::Kind::Lmxxf)
+    if (active == DlssNr::Backend::Kind::Mochizuki)
+    {
+        if (!g_mochizuki.load(std::memory_order_acquire))
+            g_mochizuki.store(new DlssNr::Backend::MochizukiBackend(device, q, Directory()), std::memory_order_release);
+    }
+    else if (active == DlssNr::Backend::Kind::Lmxxf)
     {
         if (!g_lmxxf.load(std::memory_order_acquire))
             g_lmxxf.store(new DlssNr::Backend::LmxxfBackend(device, q, Directory()),
@@ -571,17 +584,23 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (!f.motionWidth) f.motionWidth = static_cast<UINT>(f.motion->GetDesc().Width);
         if (!f.motionHeight) f.motionHeight = f.motion->GetDesc().Height;
     }
-    // Let SR finish its reconfiguration before rebuilding the private HIP model.
+    // Mochizuki's DRS buckets must see every render subrect, including changing
+    // extents. Its runtime owns rebuilds and history invalidation for these.
+    const bool runtimeDrs = active == DlssNr::Backend::Kind::Mochizuki &&
+        Config::Instance()->MochizukiDynamicResolution.value_or_default() != 0;
+    // Otherwise let SR finish reconfiguration before rebuilding the model.
     // Do not retain or replay the old image while input sizes are settling.
     static UINT settlingWidth=0, settlingHeight=0;
     static float settlingScale=1.f;
     static ULONGLONG settlingSince=0;
-    const float sessionScale=Config::Instance()->AmdNrScale.value_or_default();
+    const float sessionScale = active == DlssNr::Backend::Kind::Mochizuki ?
+        Config::Instance()->MochizukiModelScale.value_or_default() :
+        Config::Instance()->AmdNrScale.value_or_default();
     const float requestedScale=sessionScale;
     const auto now=GetTickCount64();
     const bool firstProbe = (settlingWidth == 0 && settlingHeight == 0);
     if(settlingWidth!=f.width || settlingHeight!=f.height || settlingScale!=requestedScale) {
-        if (!firstProbe)
+        if (!firstProbe && !runtimeDrs)
         {
             // Real change after we already had a size: keep the settle window.
             b->TraceBoundary("settings change: input " + std::to_string(settlingWidth) + "x" +
@@ -602,6 +621,7 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         // Leave settlingSince at 0 so we do not skip the first stable frames.
         settlingWidth=f.width;settlingHeight=f.height;settlingScale=requestedScale;
     }
+    if (runtimeDrs) settlingSince = 0;
     if(settlingSince != 0 && now-settlingSince<300) {
         // Once per settle window, not every 250 ms: Message() also lands in amd_bridge.log.
         static ULONGLONG loggedWindow = 0;
@@ -617,8 +637,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     const FrameIdentity current { f.colour, f.motion, f.depth, f.width, f.height };
     // Resource addresses rotate in Unreal's frame buffers. Only an extent
     // change requires warm-up; pointer equality can suppress every frame.
-    const bool sameFrame = current.width == lastFrame.width &&
-                           current.height == lastFrame.height;
+    const bool sameFrame = runtimeDrs || (current.width == lastFrame.width &&
+                                         current.height == lastFrame.height);
     if (!sameFrame)
     {
         lastFrame = current;
@@ -627,6 +647,8 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         Message("AMD pre-SR: warming up after an upscaler/resource change");
         return true;
     }
+    lastFrame = current;
+    if (runtimeDrs) stableFrames = 2;
     if (stableFrames < 2 && ++stableFrames < 2)
     {
         Message("AMD pre-SR: warming up after an upscaler/resource change");
@@ -751,6 +773,7 @@ void PollReleases()
     DlssNr::Effects::Poll();
     if (auto b = g_daniel.load(std::memory_order_acquire)) b->PollRelease();
     if (auto b = g_lmxxf.load(std::memory_order_acquire)) b->PollRelease();
+    if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->PollRelease();
 }
 void OnNrDisabled()
 {
@@ -763,6 +786,7 @@ void OnNrDisabled()
     }
     if (auto b = g_lmxxf.load(std::memory_order_acquire))
         b->ReleaseSession();
+    if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->ReleaseSession();
 }
 void TraceContextRelease(unsigned int handle, bool after)
 {
@@ -795,6 +819,13 @@ NrTimingSnapshot Timing()
         snapshot.dropped += effects.dropped;
     }
     return snapshot;
+}
+MochizukiNrBuildProgress BuildProgress()
+{
+    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+        g_activeKind.load(std::memory_order_acquire) != int(DlssNr::Backend::Kind::Mochizuki)) return {};
+    if (auto* host = g_mochizuki.load(std::memory_order_acquire)) return host->BuildProgress();
+    return {};
 }
 std::string EffectsStatus() { return DlssNr::Effects::Status(); }
 std::string Status()

@@ -1,0 +1,394 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+// NR_WAVE_UNIFORM: tid/32 is one value per wave (a wave is 32
+// consecutive invocations), but NIR sees a divergent value and keeps every
+// quantity derived from it in VGPRs. Reading it through readfirstlane makes
+// the same value scalar.
+#ifndef NR_WAVE_UNIFORM
+#define NR_WAVE_UNIFORM 0
+#endif
+#if NR_WAVE_UNIFORM
+#extension GL_KHR_shader_subgroup_ballot : require
+#define NR_WAVE_OF(t) subgroupBroadcastFirst((t) / 32u)
+#else
+#define NR_WAVE_OF(t) ((t) / 32u)
+#endif
+#include "coopmm.glsl"
+#include "swin_math.glsl"
+// FP32 CCSplitSwin16HFfwd, carried as [feature][token]. Weights are A
+// operands and activations are B. On the measured fragment layout documented
+// in coopmm.glsl, accumulator components map directly to the next B operand.
+// Both intermediate FP8 conversions and the native half activation remain;
+// no shared-memory staging or subgroup barriers are needed between stages.
+//
+// One subgroup owns one of eight groups and one 16-token tile. All groups
+// run independently. The host supplies C=512 and a whole number of tiles.
+#ifndef NR_ACC_F16
+#define NR_ACC_F16 0
+#endif
+#if NR_ACC_F16 != 0
+#error The transposed FFWD pipeline supports FP32 accumulation only
+#endif
+// Waves per workgroup. Each subgroup still owns one group and one
+// 16-token tile; only how many groups share a workgroup changes, so small
+// launches spread evenly over the WGPs. The host multiplies gx by 8/NR_FFWD_WGW.
+#ifndef NR_FFWD_WGW
+#define NR_FFWD_WGW 8
+#endif
+#if NR_FFWD_WGW != 1 && NR_FFWD_WGW != 2 && NR_FFWD_WGW != 4 && NR_FFWD_WGW != 8
+#error "NR_FFWD_WGW must divide the eight groups"
+#endif
+layout(local_size_x = 32 * NR_FFWD_WGW) in;
+layout(binding = 0, std430) NR_COH buffer ActF16 {
+    NR_F16 act_f16[];
+};
+layout(binding = 1, std430) NR_COH buffer ActE4M3 {
+    NR_E4M3 act_e4m3[];
+};
+layout(binding = 2, std430) NR_COH buffer ActF32 {
+    float act_f32[];
+};
+layout(binding = 3, std430) readonly buffer WgtE4M3 {
+    NR_E4M3 wgt_e4m3[];
+};
+#if NR_FFWD_PACK
+layout(binding=3,std430) readonly buffer WPair4 {fe4m3vec4 wpair4[];};
+#endif
+layout(binding = 4, std430) readonly buffer WgtF16 {
+    NR_F16 wgt_f16[];
+};
+layout(binding = 5, std430) NR_COH buffer ActE4M3x4 {
+    fe4m3vec4 act_e4m3x4[];
+};
+#include "nr_chain.glsl"
+#include "occ_pad.glsl"
+layout(push_constant) uniform Push {
+    uint x_off, o_off, a_off, q0_off, q2_off, M, C;
+    NR_CHAIN_FIELDS
+}
+pc;
+#define TILE(base, row, k, K) ((base) + ((row) / 16u) * ((K) / 16u) * 256u + ((k) / 16u) * 256u)
+#if NR_FFWD_PACK
+#define NR_FFWD_LOAD2(w0,w1,base,row,k,K) { \
+    const uint ix=(base)/4u + ((row)/32u)*((K)/16u)*128u + ((k)/16u)*128u + (gl_LocalInvocationID.x%32u)*4u; \
+    const fe4m3vec4 v0=wpair4[ix],v1=wpair4[ix+1u],v2=wpair4[ix+2u],v3=wpair4[ix+3u]; \
+    for(int c=0;c<4;++c) {w0[c]=v0[c];w0[c+4]=v1[c];w1[c]=v2[c];w1[c+4]=v3[c];} }
+#define S1_N(n) { \
+    NR_FRAG_A w0,w1; \
+    NR_FFWD_LOAD2(w0,w1,agrp,uint(n)*32u,k,pc.C) \
+    NR_MMA(acc1[2*(n)],w0,x);NR_MMA(acc1[2*(n)+1],w1,x); }
+#define NR_S1_ROWS 2
+#else
+#define S1_N(n)                                                                                    \
+    {                                                                                              \
+        NR_FRAG_A w;                                                                               \
+        NR_LOAD_A(w, wgt_e4m3, TILE(agrp, uint(n) * 16u, k, pc.C), 16u);                           \
+        NR_MMA(acc1[n], w, x);                                                                     \
+    }
+#define NR_S1_ROWS 4
+#endif
+#ifndef NR_FFWD_KOFF
+#define NR_FFWD_KOFF 0
+#endif
+#if NR_FFWD_KOFF && NR_FFWD_PACK
+// Stage 1 with the lane term and the chunk base hoisted, so each unrolled
+// k step is a literal in the load's immediate offset. Same fragments, same
+// order: x is coopMatLoad(ColumnMajor, stride 16)'s eight contiguous bytes at
+// (l%16)*16 + (l/16)*8, and the weight pair index is the one below with
+// (k0 + 16i)/16 split as k0/16 + i.
+#define S1_K(i)                                                                                    \
+    {                                                                                              \
+        NR_FRAG_B x;                                                                               \
+        { const uint nrq = (xl4 + k04) + uint(i) * 64u;                                            \
+          const fe4m3vec4 r0 = act_e4m3x4[nrq], r1 = act_e4m3x4[nrq + 1u];                         \
+          for (int v = 0; v < 4; ++v) { x[v] = r0[v]; x[v + 4] = r1[v]; } }                        \
+        for (int n = 0; n < 2; ++n) {                                                              \
+            const uint ix = (aw4[n] + kw4) + uint(i) * 128u;                                       \
+            const fe4m3vec4 v0=wpair4[ix],v1=wpair4[ix+1u],v2=wpair4[ix+2u],v3=wpair4[ix+3u];      \
+            NR_FRAG_A w0, w1;                                                                      \
+            for(int c=0;c<4;++c) {w0[c]=v0[c];w0[c+4]=v1[c];w1[c]=v2[c];w1[c+4]=v3[c];}            \
+            NR_MMA(acc1[2*n],w0,x); NR_MMA(acc1[2*n+1],w1,x);                                      \
+        }                                                                                          \
+    }
+#else
+#define S1_K(i)                                                                                    \
+    {                                                                                              \
+        uint k = k0 + uint(i) * 16u;                                                               \
+        NR_FRAG_B x;                                                                               \
+        NR_LOAD_B(x, act_e4m3, xbase + k * 16u, 16u);                                              \
+        NR_FOR_J(NR_S1_ROWS, S1_N)                                                                          \
+    }
+#endif
+// NR_FFWD_F32: the fused Swin family's arithmetic (NR_ACT_F32 with
+// NR_ACT_HORNER, NR_QUANT_MODE 4's pair32): the cubic activation in f32 on the
+// f32 accumulator and every e4m3 quantisation straight from f32, one rounding
+// instead of the f16 hop's two. Not byte-identical; no lower-precision step.
+#ifndef NR_FFWD_F32
+#define NR_FFWD_F32 0
+#endif
+#if NR_FFWD_F32
+float nr_ffwd_act32(float x) {
+    const float t = clamp(x, -4.0, 4.0);
+    const float u = fma(-0.055908203125, abs(t), 0.447265625);
+    return x * fma(t, u, 0.89453125);
+}
+#endif
+#if NR_FFWD_PAIR
+fe4m3vec2 nr_ffwd_quant(f16vec2 v) {
+#if NR_QUANT_MODE == 4
+    return nr_quant_pair(v);
+#else
+    return fe4m3vec2(clamp(v,f16vec2(-448.0hf),f16vec2(448.0hf)));
+#endif
+}
+// Two pairs as one conversion (windows/build/quad_quant_glsl.py), element for element the same.
+fe4m3vec4 nr_ffwd_quant4(f16vec2 a, f16vec2 b) {
+#if NR_QUANT_MODE == 4
+    const fe4m3vec2 p = nr_quant_pair(a), q = nr_quant_pair(b);
+    return fe4m3vec4(p.x, p.y, q.x, q.y);
+#else
+    return fe4m3vec4(clamp(f16vec4(a, b), f16vec4(-448.0hf), f16vec4(448.0hf)));
+#endif
+}
+#endif
+#include "nr_prof.glsl"
+// NR_FFWD_GMAJOR: group-major workgroups. The NR_FFWD_WGW subgroups of a
+// workgroup share ONE weight group and take consecutive token tiles, so a
+// group's 64 KB of weights is fetched once into the CU's L0 for all of them
+// instead of once per subgroup from L2 (the group-per-subgroup form made every
+// subgroup of a workgroup read a different group). Same products, same k order
+// per output; subgroups past the last tile return (no barriers here).
+#ifndef NR_FFWD_GMAJOR
+#define NR_FFWD_GMAJOR 0
+#endif
+#if NR_FFWD_GMAJOR
+#define NR_FFWD_MAP(TT) \
+    uint group = gl_WorkGroupID.x % 8u, \
+         tok = ((gl_WorkGroupID.x / 8u) * NR_FFWD_WGW + NR_WAVE_OF(gl_LocalInvocationID.x)) * (TT); \
+    if (tok >= pc.M) return;
+#else
+#define NR_FFWD_MAP(TT) \
+    uint group = (gl_WorkGroupID.x % (8u / NR_FFWD_WGW)) * NR_FFWD_WGW + NR_WAVE_OF(gl_LocalInvocationID.x), \
+         tok = (gl_WorkGroupID.x / (8u / NR_FFWD_WGW)) * (TT);
+#endif
+// NR_FFWD_FM=2: one subgroup owns one group and TWO 16-token tiles, so every
+// weight fragment feeds two MMAs instead of one (the layer loads 64 KB of
+// weights a group and tile, and those loads' VGPR write-back costs SIMD
+// cycles). Per output the same products in the same k order; the host
+// launches half the tiles. An odd tile count leaves the last subgroup's second
+// tile outside the tensor: it is computed from whatever lies there and not
+// stored.
+#ifndef NR_FFWD_FM
+#define NR_FFWD_FM 1
+#endif
+#if NR_FFWD_FM == 2
+#if !(NR_FFWD_KOFF && NR_FFWD_PACK && NR_FFWD_PAIR) || NR_FFWD_F32
+#error "NR_FFWD_FM=2: the packed, paired, k-offset path only"
+#endif
+#define S1_K2(i)                                                                                   \
+    {                                                                                              \
+        NR_FRAG_B x[2];                                                                            \
+        for (int m = 0; m < 2; ++m) {                                                              \
+          const uint nrq = (xl4 + uint(m) * xm4 + k04) + uint(i) * 64u;                            \
+          const fe4m3vec4 r0 = act_e4m3x4[nrq], r1 = act_e4m3x4[nrq + 1u];                         \
+          for (int v = 0; v < 4; ++v) { x[m][v] = r0[v]; x[m][v + 4] = r1[v]; } }                  \
+        for (int n = 0; n < 2; ++n) {                                                              \
+            const uint ix = (aw4[n] + kw4) + uint(i) * 128u;                                       \
+            const fe4m3vec4 v0=wpair4[ix],v1=wpair4[ix+1u],v2=wpair4[ix+2u],v3=wpair4[ix+3u];      \
+            NR_FRAG_A w0, w1;                                                                      \
+            for(int c=0;c<4;++c) {w0[c]=v0[c];w0[c+4]=v1[c];w1[c]=v2[c];w1[c+4]=v3[c];}            \
+            for (int m = 0; m < 2; ++m) { NR_MMA(acc1[2*n][m],w0,x[m]); NR_MMA(acc1[2*n+1][m],w1,x[m]); } \
+        }                                                                                          \
+    }
+void main() {
+    NR_PROF_BEGIN()
+    nr_chain_wait()
+    NR_FFWD_MAP(32u)
+    const bool second = tok + 16u < pc.M;   // wave-uniform
+    uint xbase = pc.x_off + (tok / 16u) * (pc.C / 16u) * 256u;
+    uint agrp = pc.a_off + group * 64u * 512u, q0grp = pc.q0_off + group * 256u * 64u,
+         q2grp = pc.q2_off + group * 64u * 256u;
+    NR_FRAG_ACC acc1[4][2], acc3[4][2];
+    for (int n = 0; n < 4; ++n) for (int m = 0; m < 2; ++m) {
+        acc1[n][m] = NR_ACC_ZERO;
+        acc3[n][m] = NR_ACC_ZERO;
+    }
+    const uint xl4 = (xbase + (gl_LocalInvocationID.x % 16u) * 16u
+                      + ((gl_LocalInvocationID.x % 32u) / 16u) * 8u) / 4u;
+    const uint xm4 = (pc.C / 16u) * 64u;     // one 16-token tile, in fe4m3vec4
+    uint aw4[2];
+    for (int n = 0; n < 2; ++n)
+        aw4[n] = agrp / 4u + uint(n) * (pc.C / 16u) * 128u + (gl_LocalInvocationID.x % 32u) * 4u;
+    for (uint k0 = 0u; k0 < pc.C; k0 += 128u) {
+        const uint k04 = k0 * 4u, kw4 = (k0 / 16u) * 128u;
+        NR_FOR_K(8, S1_K2)
+    }
+    NR_FRAG_B r[4][2];
+    for (int n = 0; n < 4; ++n) for (int m = 0; m < 2; ++m)
+        for(int c=0;c<8;c+=2) {
+            fe4m3vec2 q=nr_ffwd_quant(f16vec2(acc1[n][m][c],acc1[n][m][c+1]));
+            r[n][m][c]=q.x;r[n][m][c+1]=q.y;
+        }
+    for (uint chunk = 0u; chunk < 4u; ++chunk) {
+        uint jbase = chunk * 64u;
+        NR_FRAG_ACC acc2[4][2];
+        for (int n = 0; n < 4; ++n) for (int m = 0; m < 2; ++m) acc2[n][m] = NR_ACC_ZERO;
+        for (uint k = 0u; k < 4u; ++k)
+            for(uint n=0u;n<4u;n+=2u) {
+                NR_FRAG_A w0,w1;
+                NR_FFWD_LOAD2(w0,w1,q0grp,jbase+n*16u,k*16u,64u)
+                for (int m = 0; m < 2; ++m) { NR_MMA(acc2[n][m],w0,r[k][m]);NR_MMA(acc2[n+1u][m],w1,r[k][m]); }
+            }
+        NR_FRAG_B h[4][2];
+        for (int n = 0; n < 4; ++n) for (int m = 0; m < 2; ++m)
+            for(int c=0;c<8;c+=2) {
+                fe4m3vec2 q=nr_ffwd_quant(nr_swin_act2(f16vec2(acc2[n][m][c],acc2[n][m][c+1])));
+                h[n][m][c]=q.x;h[n][m][c+1]=q.y;
+            }
+        for (uint k = 0u; k < 4u; ++k)
+            for(uint n=0u;n<4u;n+=2u) {
+                NR_FRAG_A w0,w1;
+                NR_FFWD_LOAD2(w0,w1,q2grp,n*16u,jbase+k*16u,256u)
+                for (int m = 0; m < 2; ++m) { NR_MMA(acc3[n][m],w0,h[k][m]);NR_MMA(acc3[n+1u][m],w1,h[k][m]); }
+            }
+    }
+    for (int m = 0; m < 2; ++m) {
+        if (m == 1 && !second) break;
+        for (uint n = 0u; n < 4u; ++n) {
+            NR_FRAG_E4M3 outv;
+            for(int c=0;c<8;c+=2) {
+                fe4m3vec2 q=nr_ffwd_quant(f16vec2(acc3[n][m][c],acc3[n][m][c+1]));
+                outv[c]=q.x;outv[c+1]=q.y;
+            }
+            NR_STORE_ACC_COL(outv, act_e4m3,
+                             pc.o_off + (tok / 16u + uint(m)) * (pc.C / 16u) * 256u + (group * 4u + n) * 256u,
+                             16u);
+        }
+    }
+    NR_OCC_USE(pc.C == 0u, act_f32[0] = 0.0)
+    nr_chain_signal()
+    NR_PROF_END(pc.o_off)
+}
+#else
+void main() {
+    NR_PROF_BEGIN()
+    nr_chain_wait()
+    NR_FFWD_MAP(16u)
+    uint xbase = pc.x_off + (tok / 16u) * (pc.C / 16u) * 256u;
+    uint agrp = pc.a_off + group * 64u * 512u, q0grp = pc.q0_off + group * 256u * 64u,
+         q2grp = pc.q2_off + group * 64u * 256u;
+    // A_g projects 512 channels to 64; the reduction order is unchanged.
+    NR_FRAG_ACC acc1[4], acc3[4];
+    for (int n = 0; n < 4; ++n) {
+        acc1[n] = NR_ACC_ZERO;
+        acc3[n] = NR_ACC_ZERO;
+    }
+#if NR_FFWD_KOFF && NR_FFWD_PACK
+    const uint xl4 = (xbase + (gl_LocalInvocationID.x % 16u) * 16u
+                      + ((gl_LocalInvocationID.x % 32u) / 16u) * 8u) / 4u;
+    uint aw4[2];
+    for (int n = 0; n < 2; ++n)
+        aw4[n] = agrp / 4u + uint(n) * (pc.C / 16u) * 128u + (gl_LocalInvocationID.x % 32u) * 4u;
+#endif
+    for (uint k0 = 0u; k0 < pc.C; k0 += 128u) {
+#if NR_FFWD_KOFF && NR_FFWD_PACK
+        const uint k04 = k0 * 4u, kw4 = (k0 / 16u) * 128u;
+#endif
+        NR_FOR_K(8, S1_K)
+    }
+    // The old half-staged projection was clamped/quantized before Q0.
+    NR_FRAG_B r[4];
+    for (int n = 0; n < 4; ++n)
+#if NR_FFWD_F32
+        for(int c=0;c<8;c+=2) {
+            fe4m3vec2 q=nr_quant_pair32(vec2(acc1[n][c],acc1[n][c+1]));
+            r[n][c]=q.x;r[n][c+1]=q.y;
+        }
+#elif NR_FFWD_PAIR
+        for(int c=0;c<8;c+=2) {
+            fe4m3vec2 q=nr_ffwd_quant(f16vec2(acc1[n][c],acc1[n][c+1]));
+            r[n][c]=q.x;r[n][c+1]=q.y;
+        }
+#else
+        for (int c = 0; c < 8; ++c)
+            r[n][c] = nr_quant_e4m3(NR_F16(acc1[n][c]));
+#endif
+    // Q0 expands each 64-channel group to 256. Process four 64-row chunks
+    // and immediately accumulate Q2, retaining its original K order.
+    for (uint chunk = 0u; chunk < 4u; ++chunk) {
+        uint jbase = chunk * 64u;
+        NR_FRAG_ACC acc2[4];
+        for (int n = 0; n < 4; ++n)
+            acc2[n] = NR_ACC_ZERO;
+        for (uint k = 0u; k < 4u; ++k)
+#if NR_FFWD_PACK
+            for(uint n=0u;n<4u;n+=2u) {
+                NR_FRAG_A w0,w1;
+                NR_FFWD_LOAD2(w0,w1,q0grp,jbase+n*16u,k*16u,64u)
+                NR_MMA(acc2[n],w0,r[k]);NR_MMA(acc2[n+1u],w1,r[k]);
+            }
+#else
+            for (uint n = 0u; n < 4u; ++n) {
+                NR_FRAG_A w;
+                NR_LOAD_A(w, wgt_e4m3, TILE(q0grp, jbase + n * 16u, k * 16u, 64u), 16u);
+                NR_MMA(acc2[n], w, r[k]);
+            }
+#endif
+        NR_FRAG_B h[4];
+        for (int n = 0; n < 4; ++n)
+#if NR_FFWD_F32
+            for(int c=0;c<8;c+=2) {
+                fe4m3vec2 q=nr_quant_pair32(vec2(nr_ffwd_act32(acc2[n][c]),nr_ffwd_act32(acc2[n][c+1])));
+                h[n][c]=q.x;h[n][c+1]=q.y;
+            }
+#elif NR_FFWD_PAIR
+            for(int c=0;c<8;c+=2) {
+                fe4m3vec2 q=nr_ffwd_quant(nr_swin_act2(f16vec2(acc2[n][c],acc2[n][c+1])));
+                h[n][c]=q.x;h[n][c+1]=q.y;
+            }
+#else
+            for (int c = 0; c < 8; ++c)
+                h[n][c] = nr_quant_e4m3(NR_F16(nr_swin_act(acc2[n][c])));
+#endif
+        for (uint k = 0u; k < 4u; ++k)
+#if NR_FFWD_PACK
+            for(uint n=0u;n<4u;n+=2u) {
+                NR_FRAG_A w0,w1;
+                NR_FFWD_LOAD2(w0,w1,q2grp,n*16u,jbase+k*16u,256u)
+                NR_MMA(acc3[n],w0,h[k]);NR_MMA(acc3[n+1u],w1,h[k]);
+            }
+#else
+            for (uint n = 0u; n < 4u; ++n) {
+                NR_FRAG_A w;
+                NR_LOAD_A(w, wgt_e4m3, TILE(q2grp, n * 16u, jbase + k * 16u, 256u), 16u);
+                NR_MMA(acc3[n], w, h[k]);
+            }
+#endif
+    }
+    // Column-major [feature][token] stores are the canonical tile-blocked
+    // [token][feature] arena used by the next graph dispatch.
+    for (uint n = 0u; n < 4u; ++n) {
+        NR_FRAG_E4M3 outv;
+#if NR_FFWD_F32
+        for(int c=0;c<8;c+=2) {
+            fe4m3vec2 q=nr_quant_pair32(vec2(acc3[n][c],acc3[n][c+1]));
+            outv[c]=q.x;outv[c+1]=q.y;
+        }
+#elif NR_FFWD_PAIR
+        for(int c=0;c<8;c+=2) {
+            fe4m3vec2 q=nr_ffwd_quant(f16vec2(acc3[n][c],acc3[n][c+1]));
+            outv[c]=q.x;outv[c+1]=q.y;
+        }
+#else
+        for (int c = 0; c < 8; ++c)
+            outv[c] = nr_quant_e4m3(NR_F16(acc3[n][c]));
+#endif
+        NR_STORE_ACC_COL(outv, act_e4m3,
+                         pc.o_off + (tok / 16u) * (pc.C / 16u) * 256u + (group * 4u + n) * 256u,
+                         16u);
+    }
+    NR_OCC_USE(pc.C == 0u, act_f32[0] = 0.0)
+    nr_chain_signal()
+    NR_PROF_END(pc.o_off)
+}
+#endif

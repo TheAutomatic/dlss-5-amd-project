@@ -18,6 +18,9 @@ if errorlevel 1 exit /b 1
 set "LOGARGS="
 if defined FAST goto optiscaler
 
+call tools\build\build-mochizuki-runtime.cmd
+if errorlevel 1 exit /b 1
+
 echo === Release build: LmxxfNrRuntime.dll ===
 call tools\build\build-lmxxf-runtime.cmd exports\release-local
 if errorlevel 1 exit /b 1

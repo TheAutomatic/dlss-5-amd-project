@@ -746,7 +746,10 @@ bool XeFG_Dx12::Dispatch()
     if (!_resourceReady[fIndex].ContainsMask((1u << FG_ResourceType::Depth) |
                                               (1u << FG_ResourceType::Velocity)))
     {
-        LOG_WARN("Depth or Velocity is not ready, skipping");
+        if (!_missingInputsLogged.exchange(true, std::memory_order_relaxed))
+            LOG_WARN("Depth or Velocity is not ready, skipping; repeats are logged at DEBUG for this FG instance");
+        else
+            LOG_DEBUG("Depth or Velocity is not ready, skipping");
         return false;
     }
 

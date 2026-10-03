@@ -1,0 +1,18 @@
+#version 460
+// Preserve caller alpha. Float output keeps NR RGB; 8-bit output uses the same
+// explicit rounding as the reference frame writer before the driver's format-converting blit.
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0,rgba32f) uniform image2D result;
+layout(set=0,binding=1) uniform sampler2D original;
+layout(push_constant) uniform Push { uint width, height, encode_u8; } pc;
+void main() {
+    ivec2 xy=ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x>=pc.width || xy.y>=pc.height) return;
+    vec3 rgb=imageLoad(result,xy).rgb;
+    if(pc.encode_u8!=0u) {
+        precise vec3 scaled=clamp(rgb,vec3(0),vec3(1))*255.0;
+        precise vec3 shifted=scaled+0.5;
+        rgb=floor(shifted)/255.0;
+    }
+    imageStore(result,xy,vec4(rgb,texelFetch(original,xy,0).a));
+}

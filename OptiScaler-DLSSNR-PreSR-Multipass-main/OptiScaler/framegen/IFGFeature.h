@@ -2,6 +2,7 @@
 #include "SysUtils.h"
 #include "FrameResourceReadiness.h"
 #include <OwnedMutex.h>
+#include <atomic>
 #include <dxgi1_6.h>
 #include <flag-set-cpp/flag_set.hpp>
 
@@ -71,6 +72,7 @@ class IFGFeature
     UINT64 _frameCount = 0;
     UINT64 _lastDispatchedFrame = 0;
     UINT64 _lastFGFrame = 0;
+    std::atomic<bool> _missingInputsLogged { false };
     UINT64 _frameResyncCount = 0;
     ULONGLONG _frameResyncLogAt = 0;
     bool _waitingNewFrameData = false;

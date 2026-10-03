@@ -4,12 +4,13 @@
 
 ## 后端选择
 
-安装器检测两类文件，没有唯一的发行默认后端（见 [decisions.md](../decisions.md) 09-24 F 门）：
+安装器检测三类文件，交互时选择本次安装的后端（见 [decisions.md](../decisions.md)）：
 
 | 可装 | 判据 |
 |---|---|
 | lmxxf | 找到 `LmxxfNrRuntime.dll` 和 `lmxxf-modules/`（权重 `native-game-tiled-assets/` 另外查找） |
 | daniel | 找到 SHA256 在白名单内的作者 runtime（`version.dll` 或 `dlssnr_amd_pass1.dll`），或 `dlssnr_on_amd_setup.exe`，或 `dlssnr_on_amd_weights.bin` |
+| mochizuki | 找到 `MochizukiNrRuntime.dll` 和 `dlssnr-amd/shaders/`；用户模型 `dlssnr-amd/dlssnr.bin` 缺失时明确提示另行提取 |
 
 | 情况 | 行为 |
 |---|---|
@@ -17,6 +18,11 @@
 | 两边都在，交互 | 三选一：只装 lmxxf / 只装 daniel / 都装（再选默认后端） |
 | 两边都在，`-NonInteractive` | 两套都装，`NrBackend=lmxxf`，之后可改 ini |
 | 都没有 | 报错退出 |
+
+存在 mochizuki 时可选全部可用后端或其中一个；全部安装后再选活动后端。
+`-Backend daniel|lmxxf|mochizuki|all` 可显式指定安装范围，默认 `auto` 保留交互选择。
+非交互 `auto/all` 安装全部可用后端，活动后端按 lmxxf、daniel、mochizuki 的顺序选取。
+mochizuki 使用独立配置，模型提取和首次编译见 [mochizuki.md](../mochizuki.md)。
 
 daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0.4.2 / 0.4.3 / 0.5.0 的完整 SHA256（`$expectedAuthor`），与 `AmdLayout.h` 的 `kAmd*` 行对应；未知 SHA 一律拒绝（fail closed）。加新版本时两处一起改，并验证「同尺寸改 1 字节」的文件会被拒。
 
@@ -54,7 +60,7 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 包内 `lmxxf-modules/` 必须是双架构布局，`tools/lmxxf-module-package.ps1` 在改动游戏目录**之前**完成全部校验：
 
 - 恰好 `gfx1200/` 与 `gfx1201/` 两个架构目录，不允许其它 `gfx*`；根目录不允许旧的 `modules.json`。
-- 每个架构恰好 30 个已知模块（共 60）；根 `SHA256SUMS` 与各叶子 `SHA256SUMS` 一致，且与实际文件哈希一致；`modules.json` 与 `runtime-manifest.json`（schema、ABI、targets、计数）一致。修改模块列表时，按 [数字契约](../../tests/RELEASE-TESTS.md#数字契约改模块列表时必须同步) 同步各处断言。
+- 每个架构包含契约规定的已知模块；数量以 [发版模块契约](../release.md#模块数量契约追-lmxxf--增删-hsaco-时最容易漏) 为准。根 `SHA256SUMS` 与各叶子 `SHA256SUMS` 一致，且与实际文件哈希一致；`modules.json` 与 `runtime-manifest.json`（schema、ABI、targets、计数）一致。
 - 覆盖升级时先生成并验证候选目录，再把旧目录整体移入 `backup-amd-presr-*/lmxxf-modules`，最后切换；切换失败恢复旧目录。这只保证模块目录不留混合布局，不代表整套卸载加安装具备事务回滚。用户额外放的 `.hsaco` 留在备份里。
 - runtime 自身在读清单和模块前也检查根目录与每级路径的 reparse 属性，拒绝 junction 和 symlink。
 
@@ -64,6 +70,7 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 - 先问是否保留 `backup-amd-presr-*`（`-RemoveBackups` 可在非交互时删除），再列出计划删除的文件，Y/N 确认。
 - 只删明确依赖：识别为 OptiScaler 的代理、本项目的 pass/配置/日志、清单记录的依赖、受控名称的模块。不按扩展名清扫，不递归删整个 OptiScaler 目录。
 - 保留：`nvngx_dlssnr.dll`、两类权重、作者的 setup 与日志、其它代理、用户插件和未知文件。`_storage_`（商店版游戏的作者日志位置）按同样规则处理。
+- mochizuki 只移除 runtime、日志和已知 shader 文件；保留用户的 `dlssnr-amd/dlssnr.bin` 和本机 pipeline cache。
 
 ## 其它规则
 

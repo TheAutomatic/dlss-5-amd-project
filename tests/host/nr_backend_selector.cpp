@@ -31,6 +31,15 @@ int main()
     assert(ParseKind("DANIEL") == Kind::Daniel);
     assert(ParseKind("lmxxf") == Kind::Lmxxf);
     assert(ParseKind("LMXXF") == Kind::Lmxxf);
+    assert(ParseKind("MOCHIZUKI") == Kind::Mochizuki);
+    for (bool daniel : {false, true}) for (bool lmxxf : {false, true}) {
+        assert(ResolveInstalled(Request::Mochizuki, daniel, lmxxf, true, true) == Kind::Mochizuki);
+        assert(PrepareSubmissionAtStartup(Kind::Mochizuki, false, false));
+        assert(!PrepareDanielGraphicsAtStartup(Kind::Mochizuki, false, daniel, true));
+    }
+    assert(ResolveInstalled(Request::Auto, false, false, true, true) == Kind::Mochizuki);
+    assert(ResolveInstalled(Request::Mochizuki, false, false, true, false) == Kind::Mochizuki);
+    assert(ResolveInstalled(Request::Lmxxf, false, false, true, true) == Kind::Mochizuki);
     // Legacy "off"/"none"/unknown are Auto, not a third host.
     assert(ParseRequest("off") == Request::Auto);
     assert(ParseRequest("Off") == Request::Auto);

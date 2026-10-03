@@ -1,5 +1,8 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
+This development branch adds the mochizuki backend for Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Game acceptance is pending.
+
+
 # OptiScaler AMD pre-SR — 1.9.10.2
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.

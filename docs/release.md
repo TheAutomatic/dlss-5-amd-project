@@ -126,6 +126,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 |---|---|
 | `OptiScaler.dll`、`OptiScaler.ini` | ini 的 `[DlssNr]` 段由打包脚本生成 |
 | `LmxxfNrRuntime.dll`、`lmxxf-modules/`（gfx1200 + gfx1201，数量见模块契约）、`shaders/`（只含顶层 `.hlsl`） | lmxxf 后端 |
+| `MochizukiNrRuntime.dll`、`dlssnr-amd/shaders/`、`Mochizuki-Model.bat`、`mochizuki-model.py`、`model-tools/` | mochizuki 后端及用户模型提取工具；不含 `dlssnr.bin` |
 | `Setup.bat`、`Setup.ps1`、`lmxxf-module-package.ps1` | 安装器，见 [architecture/installer.md](architecture/installer.md) |
 | `Uninstall_OptiScaler_NR.bat`、`Uninstall_OptiScaler_NR.ps1` | 卸载器 |
 | `README.md`、`README.en.md`、`README.es.md` | 直接拷贝仓库根的 README，没有第二份副本 |
@@ -143,12 +144,13 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 | 含中文的 `.ps1` | UTF-8 **带 BOM** + CRLF | Windows PowerShell 5.1 按 GBK 读无 BOM 的脚本，中文字面量乱码甚至解析失败；`.githooks/pre-commit` 会拦 |
 | 生成的 `OptiScaler.ini` | UTF-8 无 BOM | |
 
-## 实机烟测（双后端都要测）
+## 实机烟测（所有交付后端）
 
 | 后端 | 通过条件 |
 |---|---|
 | daniel | Ins 菜单 Status 显示识别到的 runtime 版本（来自布局表，不是写死的字符串）；`amd_presr.log` 与作者的 `dlssnr_on_amd.log` 正常；无设备移除 |
 | lmxxf | Status 显示 lmxxf；Detail / Colour strength 与 Debug view 可调；`OptiScaler.log` 的 `lmxxf:` 行无错误 |
+| mochizuki | 首次编译完成后 Status 显示正在运行；画面控制、整体强度、分组 reset 可用，计时来自完成的 Vulkan query；切换分辨率和退出无设备移除 |
 | 切换 | 开启热切换时验证菜单双向切换；`NrConvenience=0` 时分别重启验证所选后端；卸载不误删两类权重 |
 | 退出 | 正常退出无崩溃、无 `DXGI_ERROR_DEVICE_REMOVED` |
 
@@ -188,3 +190,12 @@ GPU 输出哈希和实机覆盖范围见 [测试入口说明](../tests/RELEASE-T
 ## 本地快速试包
 
 用户明确要求快速试包时，可只编译改动的宿主/runtime，使用 `PACKAGE_RELEASE.ps1 -LocalTest -OptiDll <绝对路径> -OutDir dist`。此模式跳过完整 runtime CI 凭证要求，保留源码新鲜度、模块契约、实际 ZIP 和哈希检查，并写入 `LOCAL-TEST.txt` 标记未做完整发版验证。普通打包和 Actions 不传此参数，仍须匹配完整 CI 凭证；本地模式不能作为正式发布通过依据。
+
+## 第三后端构建与打包
+
+mochizuki 的本地完整构建与 Actions CI 共用 `tools/build/build-mochizuki-runtime.cmd`。
+`tests/run-all.cmd --tier ci` 在缺少构建清单时构建它，校验源码/产物清单后执行
+`tests/mochizuki/run.cmd abi`。`--tier gpu` 另需本机自备的 `dlssnr-amd/dlssnr.bin`。
+打包器核对 `exports/mochizuki-runtime/build-manifest.json` 与 ABI 产物哈希；没有模型也能
+进行无 GPU 构建及打包。公开包仅带 runtime、shaders、模型提取工具和许可，不带模型或本机 cache。
+安装、独立配置和首次编译说明见 [mochizuki.md](mochizuki.md)。

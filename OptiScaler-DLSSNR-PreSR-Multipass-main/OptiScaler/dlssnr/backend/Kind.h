@@ -7,6 +7,7 @@ enum class Kind
 {
     Daniel,
     Lmxxf,
+    Mochizuki,
 };
 
 // What the ini asked for. Config load migrates legacy "off"/"none" to
@@ -16,6 +17,7 @@ enum class Request
     Auto,
     Daniel,
     Lmxxf,
+    Mochizuki,
 };
 
 inline bool KindEq(std::string_view a, std::string_view b)
@@ -37,6 +39,7 @@ inline bool KindEq(std::string_view a, std::string_view b)
 
 inline Request ParseRequest(std::string_view raw)
 {
+    if (KindEq(raw, "mochizuki")) return Request::Mochizuki;
     if (KindEq(raw, "lmxxf"))
         return Request::Lmxxf;
     if (KindEq(raw, "daniel"))
@@ -48,6 +51,7 @@ inline Request ParseRequest(std::string_view raw)
 // that can actually run.
 inline Kind ParseKind(std::string_view raw)
 {
+    if (ParseRequest(raw) == Request::Mochizuki) return Kind::Mochizuki;
     return ParseRequest(raw) == Request::Lmxxf ? Kind::Lmxxf : Kind::Daniel;
 }
 
@@ -56,7 +60,7 @@ inline bool LmxxfWired() { return true; }
 
 inline bool PrepareSubmissionAtStartup(Kind active, bool convenience, bool hasLmxxf)
 {
-    return active == Kind::Lmxxf || (convenience && hasLmxxf);
+    return active == Kind::Lmxxf || active == Kind::Mochizuki || (convenience && hasLmxxf);
 }
 
 
@@ -72,32 +76,20 @@ inline bool PrepareDanielGraphicsAtStartup(Kind active, bool convenience, bool h
 // other installed host. Auto takes whichever is installed (lmxxf if it is alone).
 // When neither runtime is present the result is still a Kind so callers can name
 // the missing file — HasFiles() stays false and the error is visible.
-inline Kind ResolveInstalled(Request request, bool hasDaniel, bool hasLmxxf, bool lmxxfWired)
+inline const char* Name(Kind kind)
+{
+    switch (kind) { case Kind::Lmxxf: return "lmxxf"; case Kind::Mochizuki: return "mochizuki"; default: return "daniel"; }
+}
+inline Kind ResolveInstalled(Request request, bool hasDaniel, bool hasLmxxf, bool lmxxfWired,
+                             bool hasMochizuki = false)
 {
     const bool canLmxxf = hasLmxxf && lmxxfWired;
-    if (request == Request::Auto)
-    {
-        if (canLmxxf && !hasDaniel)
-            return Kind::Lmxxf;
-        if (hasDaniel)
-            return Kind::Daniel;
-        if (canLmxxf)
-            return Kind::Lmxxf;
-        return Kind::Daniel;
-    }
-    if (request == Request::Lmxxf)
-    {
-        if (canLmxxf)
-            return Kind::Lmxxf;
-        if (hasDaniel)
-            return Kind::Daniel;
-        return Kind::Lmxxf;
-    }
-    // Request::Daniel
-    if (hasDaniel)
-        return Kind::Daniel;
-    if (canLmxxf)
-        return Kind::Lmxxf;
-    return Kind::Daniel;
+    if (request == Request::Mochizuki && hasMochizuki) return Kind::Mochizuki;
+    if (request == Request::Lmxxf && canLmxxf) return Kind::Lmxxf;
+    if (hasDaniel) return Kind::Daniel;
+    if (canLmxxf) return Kind::Lmxxf;
+    if (hasMochizuki) return Kind::Mochizuki;
+    if (request == Request::Mochizuki) return Kind::Mochizuki;
+    return request == Request::Lmxxf ? Kind::Lmxxf : Kind::Daniel;
 }
 } // namespace DlssNr::Backend

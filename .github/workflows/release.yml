@@ -214,7 +214,7 @@ jobs:
           # Independent CI tripwire: inspect the exact archive that Release uploads.
           $ver = '${{ steps.ver.outputs.version }}'
           $zipPath = "dist\OptiScaler-AMD-PreSR-$ver.zip"
-          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath))
           try {
@@ -229,7 +229,7 @@ jobs:
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
-          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
+          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat')
           foreach ($r in $required) {
             if ($entryNames -notcontains $r) {
               throw "REQUIRED COMPONENT MISSING IN ZIP: $r"

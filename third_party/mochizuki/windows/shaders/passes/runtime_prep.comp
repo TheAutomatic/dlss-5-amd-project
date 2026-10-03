@@ -1,0 +1,288 @@
+#version 460
+// Preprocess ([Preprocess] in dlssnr-amd.ini): change what the network is shown, then take every
+// change back out of its answer. Opt-in and off by default; with it off nothing here is recorded.
+//
+// The frame the network gets (P, in tex_in) is display-encoded: OptiScaler's proxy, or the game's own
+// SDR frame. The preprocess works on the light behind it:
+//
+//   p = dec(P), with the proxy's soft knee undone when the frame was linear light (UNKNEE)
+//   x = T(p)       exposure gain, contrast about mid grey, saturation, then a display curve
+//   network sees enc(x)
+//   answer:  d = T^-1(dec(Nout)) - T^-1(dec(Nin)),  M = P + E(p + d) - E(p)
+//
+// where E re-encodes as the frame was encoded. When the network changes nothing, Nout == Nin and M is
+// P bit for bit; what cannot be undone (a clipped channel, the knee's peak division) cancels in the
+// difference instead of coming back as an error. d is limited to CAP times what a plain gain would
+// hand back for the same display change, so a curve's steep inverse near white cannot turn a small
+// network change into a blown highlight.
+//
+// Mode 0 meters the frame (one workgroup): see meter(). Mode 1 writes the network's input in place and
+// keeps P. Mode 2 turns the answer back into the frame's own domain.
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0, std430) buffer State { float s[4]; } st;   // smoothed log2 gain, valid, gain, target
+layout(set = 0, binding = 1, rgba32f) uniform image2D a;   // meter/forward: tex_in. back: the network's input
+layout(set = 0, binding = 2, rgba32f) uniform image2D b;   // P, the frame as it came in
+layout(set = 0, binding = 3, rgba32f) uniform image2D c;   // back: the network's answer (surf0)
+layout(push_constant) uniform Push {
+    uint width, height, mode, flags, curve;
+    float bias, contrast, saturation, k, cap;
+    float dt;   // seconds since the last metered frame, for the adaptation
+} pc;
+
+const uint AUTO = 1u, UNKNEE = 2u, RESTORE = 4u, RESET = 8u;
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+// ---- the frame's encoding (OptiScaler-NR's Encode, ReversibleMode 0) -----------------------------
+vec3 enc(vec3 v) {
+    v = clamp(v, 0.0, 1.0);
+    return mix(v * 12.92, 1.055 * pow(max(v, vec3(1e-8)), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, v));
+}
+vec3 dec(vec3 v) {
+    v = clamp(v, 0.0, 1.0);
+    return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)), step(0.04045, v));
+}
+vec3 knee(vec3 d) {
+    const float l = dot(d, LUMA);
+    if (l > 0.75) d *= (0.75 + 0.25 * (1.0 - exp(-(l - 0.75) / 0.25))) / l;
+    const float peak = max(d.r, max(d.g, d.b));
+    if (peak > 1.0) d /= peak;
+    return d;
+}
+vec3 knee_inv(vec3 d) {
+    const float l = dot(d, LUMA);
+    if (l <= 0.75) return d;
+    const float lc = min(l, 0.75 + 0.25 * (1.0 - 1e-6));
+    return d * ((0.75 - 0.25 * log(1.0 - (lc - 0.75) / 0.25)) / l);
+}
+bool unknee() { return (pc.flags & UNKNEE) != 0u; }
+vec3 light(vec3 P) { return unknee() ? knee_inv(dec(P)) : dec(P); }
+vec3 reencode(vec3 v) { return unknee() ? enc(knee(v)) : enc(v); }
+
+// ---- the curves, scene-linear -> display-linear, and their inverses ------------------------------
+// 1 neutral (Khronos PBR Neutral's highlight half; its toe is left out, see the probe), 2 reinhard,
+// 3 filmic (Hable), 4 gt (Uchimura), 5 aces (Narkowicz), 6 agx. 0 none: OptiScaler's own knee on a
+// linear frame, nothing on an SDR one.
+vec3 neutral(vec3 c) {
+    const float start = 0.76, d = 0.24, desat = 0.15;
+    const float peak = max(c.r, max(c.g, c.b));
+    if (peak < start) return c;
+    const float np = 1.0 - d * d / (peak + d - start);
+    c *= np / peak;
+    const float g = 1.0 - 1.0 / (desat * (peak - np) + 1.0);
+    return mix(c, vec3(np), g);
+}
+vec3 neutral_inv(vec3 y) {
+    const float start = 0.76, d = 0.24, desat = 0.15;
+    const float np = max(y.r, max(y.g, y.b));
+    if (np < start) return y;
+    const float peak = d * d / max(1.0 - np, 1e-6) - d + start;
+    const float g = 1.0 - 1.0 / (desat * (peak - np) + 1.0);
+    return (y - g * np) / (1.0 - g) * (peak / np);
+}
+vec3 reinhard(vec3 x) { return x / (1.0 + x); }
+vec3 reinhard_inv(vec3 y) { y = min(y, vec3(0.9999)); return y / (1.0 - y); }
+
+const float HA = 0.15, HB = 0.50, HC = 0.10, HD = 0.20, HE = 0.02, HF = 0.30;
+float hable1(float x) { return ((x * (HA * x + HC * HB) + HD * HE) / (x * (HA * x + HB) + HD * HF)) - HE / HF; }
+vec3 hable(vec3 x) {
+    const float w = hable1(11.2);
+    return vec3(hable1(x.r), hable1(x.g), hable1(x.b)) / w;
+}
+float hable_inv1(float y) {
+    const float t = min(y * hable1(11.2) + HE / HF, 0.999);
+    const float qa = HA * (1.0 - t), qb = HC * HB - HB * t, qc = HD * HE - HD * HF * t;
+    return max((-qb + sqrt(max(qb * qb - 4.0 * qa * qc, 0.0))) / (2.0 * qa), 0.0);
+}
+vec3 hable_inv(vec3 y) { return vec3(hable_inv1(y.r), hable_inv1(y.g), hable_inv1(y.b)); }
+
+float gt1(float x) {
+    const float P = 1.0, a = 1.0, m = 0.22, l = 0.4, c = 1.33, b = 0.0;
+    const float l0 = ((P - m) * l) / a, S0 = m + l0, S1 = m + a * l0;
+    const float C2 = (a * P) / (P - S1), CP = -C2 / P;
+    const float w0 = 1.0 - smoothstep(0.0, m, x);
+    const float w2 = step(m + l0, x);
+    const float w1 = 1.0 - w0 - w2;
+    const float T = m * pow(max(x, 0.0) / m, c) + b;
+    const float S = P - (P - S1) * exp(CP * (x - S0));
+    const float L = m + a * (x - m);
+    return T * w0 + L * w1 + S * w2;
+}
+vec3 gt(vec3 x) { return vec3(gt1(x.r), gt1(x.g), gt1(x.b)); }
+float gt_inv1(float y) {
+    float lo = 0.0, hi = 64.0;
+    if (y >= gt1(hi)) return hi;
+    for (int i = 0; i < 32; ++i) {
+        const float mid = 0.5 * (lo + hi);
+        if (gt1(mid) < y) lo = mid; else hi = mid;
+    }
+    return 0.5 * (lo + hi);
+}
+vec3 gt_inv(vec3 y) { return vec3(gt_inv1(y.r), gt_inv1(y.g), gt_inv1(y.b)); }
+
+vec3 aces(vec3 x) { return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14); }
+vec3 aces_inv(vec3 y) {
+    y = min(y, vec3(0.9999));
+    const vec3 qa = 2.51 - 2.43 * y, qb = 0.03 - 0.59 * y, qc = -0.14 * y;
+    return max((-qb + sqrt(max(qb * qb - 4.0 * qa * qc, 0.0))) / (2.0 * qa), 0.0);
+}
+
+const mat3 AGX_IN = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+                         0.0784335999999992, 0.878468636469772, 0.0784336,
+                         0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+const mat3 AGX_OUT = mat3(1.19687900512017, -0.0528968517574562, -0.0529716355144438,
+                          -0.0980208811401368, 1.15190312990417, -0.0980434501171241,
+                          -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+const float AGX_MIN = -12.47393, AGX_MAX = 4.026069;
+float agx_sig(float x) {
+    const float x2 = x * x, x4 = x2 * x2;
+    return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+float agx_sig_inv(float y) {
+    y = clamp(y, agx_sig(0.0), agx_sig(1.0));
+    float lo = 0.0, hi = 1.0;
+    for (int i = 0; i < 28; ++i) {
+        const float mid = 0.5 * (lo + hi);
+        if (agx_sig(mid) < y) lo = mid; else hi = mid;
+    }
+    return 0.5 * (lo + hi);
+}
+vec3 agx(vec3 c) {
+    vec3 v = AGX_IN * c;
+    v = clamp(log2(max(v, vec3(1e-10))), AGX_MIN, AGX_MAX);
+    v = (v - AGX_MIN) / (AGX_MAX - AGX_MIN);
+    v = vec3(agx_sig(v.r), agx_sig(v.g), agx_sig(v.b));
+    return pow(max(AGX_OUT * v, vec3(0.0)), vec3(2.2));
+}
+vec3 agx_inv(vec3 y) {
+    vec3 v = inverse(AGX_OUT) * pow(max(y, vec3(0.0)), vec3(1.0 / 2.2));
+    v = vec3(agx_sig_inv(v.r), agx_sig_inv(v.g), agx_sig_inv(v.b));
+    v = exp2(v * (AGX_MAX - AGX_MIN) + AGX_MIN);
+    return inverse(AGX_IN) * v;
+}
+
+vec3 curve(vec3 x) {
+    switch (pc.curve) {
+    case 1u: return neutral(x * pc.k);
+    case 2u: return reinhard(x * pc.k);
+    case 3u: return hable(x * pc.k);
+    case 4u: return gt(x * pc.k);
+    case 5u: return aces(x * pc.k);
+    case 6u: return agx(x * pc.k);
+    default: return unknee() ? knee(x) : x;
+    }
+}
+vec3 curve_inv(vec3 y) {
+    switch (pc.curve) {
+    case 1u: return neutral_inv(y) / pc.k;
+    case 2u: return reinhard_inv(y) / pc.k;
+    case 3u: return hable_inv(y) / pc.k;
+    case 4u: return gt_inv(y) / pc.k;
+    case 5u: return aces_inv(y) / pc.k;
+    case 6u: return agx_inv(y) / pc.k;
+    default: return unknee() ? knee_inv(y) : y;
+    }
+}
+
+// auto: the meter's gain (bias included); otherwise the bias alone, 0 when exposure is off.
+float gain() { return (pc.flags & AUTO) != 0u ? st.s[2] : exp2(pc.bias); }
+
+vec3 forward(vec3 x) {
+    x *= gain();
+    if (pc.contrast != 1.0) x = 0.18 * pow(max(x, vec3(0.0)) / 0.18, vec3(pc.contrast));
+    if (pc.saturation != 1.0) {
+        const float l = dot(x, LUMA);
+        x = max(l + pc.saturation * (x - l), vec3(0.0));
+    }
+    return curve(x);
+}
+vec3 backward(vec3 y) {
+    vec3 x = curve_inv(y);
+    if (pc.saturation != 1.0) {
+        const float l = dot(x, LUMA);
+        x = l + (x - l) / pc.saturation;
+    }
+    if (pc.contrast != 1.0) x = 0.18 * pow(max(x, vec3(0.0)) / 0.18, vec3(1.0 / pc.contrast));
+    return x / gain();
+}
+
+bool finite(vec3 v) { return !any(isnan(v)) && !any(isinf(v)); }
+
+// The meter is a histogram auto exposure after Unreal Engine's design, with its defaults for the
+// percentile window and the adaptation speeds: a histogram of log2 luminance (about 14000 samples,
+// 1/6.4 stop bins from 2^-16), the average of the part between the 10th and the 90th percentile -
+// the sun, the sky and the lamps above, black corners below, left out - brought to 18% grey, clamped
+// to kMinGain..kMaxGain, and adapted exponentially in real time: 3 stops a second when the scene gets
+// brighter, 1 when it gets darker. The histogram range and the gain limits are this project's, wide
+// enough for 007 First Light, which computes its exposure and does not hand it over.
+const float kLog2Key = -2.4739;    // log2(0.18)
+const float kLow = 0.10, kHigh = 0.90;
+const float kMinGain = -4.0, kMaxGain = 8.0;
+const float kSpeedBrighter = 3.0, kSpeedDarker = 1.0;   // per second, scene getting brighter / darker
+const uint kBins = 128u;
+shared uint hist[128];
+
+void meter() {
+    const uint t = gl_LocalInvocationIndex;
+    if (t < kBins) hist[t] = 0u;
+    barrier();
+    const uint sx = max(1u, pc.width / 160u), sy = max(1u, pc.height / 90u);
+    const uint nx = (pc.width + sx - 1u) / sx, ny = (pc.height + sy - 1u) / sy;
+    for (uint i = t; i < nx * ny; i += 256u) {
+        const ivec2 xy = ivec2((i % nx) * sx, (i / nx) * sy);
+        const vec3 P = imageLoad(a, xy).rgb;
+        if (!finite(P)) continue;
+        const float l = max(dot(light(P), LUMA), 1.5e-5);
+        atomicAdd(hist[uint(clamp((log2(l) + 16.0) * 6.4, 0.0, 127.0))], 1u);
+    }
+    barrier();
+    if (t != 0u) return;
+    uint n = 0u;
+    for (uint b = 0u; b < kBins; ++b) n += hist[b];
+    const bool valid = st.s[1] == 1.0 && (pc.flags & RESET) == 0u;
+    float s = valid ? st.s[0] : 0.0;
+    if (n >= 64u) {
+        // The mean of log2 luminance over the samples ranked kLow..kHigh, bins cut where the window
+        // cuts them.
+        const float lo = kLow * float(n), hi = kHigh * float(n);
+        float below = 0.0, sum = 0.0, weight = 0.0;
+        for (uint b = 0u; b < kBins; ++b) {
+            const float c = float(hist[b]);
+            const float from = max(below, lo), to = min(below + c, hi);
+            if (to > from) { sum += (to - from) * ((float(b) + 0.5) / 6.4 - 16.0); weight += to - from; }
+            below += c;
+        }
+        const float target = clamp(kLog2Key - sum / max(weight, 1.0), kMinGain, kMaxGain);
+        st.s[3] = target;
+        // Gain falling = the scene got brighter.
+        const float speed = target < s ? kSpeedBrighter : kSpeedDarker;
+        s = valid ? s + (target - s) * (1.0 - exp(-clamp(pc.dt, 0.0, 0.25) * speed)) : target;
+    }
+    s = clamp(s, kMinGain, kMaxGain);
+    st.s[0] = s; st.s[1] = 1.0; st.s[2] = exp2(s + pc.bias);
+}
+
+void main() {
+    if (pc.mode == 0u) { meter(); return; }
+    const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= int(pc.width) || xy.y >= int(pc.height)) return;
+    if (pc.mode == 1u) {
+        const vec4 P = imageLoad(a, xy);
+        imageStore(b, xy, P);
+        if (!finite(P.rgb)) return;
+        imageStore(a, xy, vec4(enc(forward(light(P.rgb))), P.a));
+        return;
+    }
+    const vec4 nin = imageLoad(a, xy), nout = imageLoad(c, xy), P = imageLoad(b, xy);
+    vec3 M = P.rgb;
+    if (nout.rgb != nin.rgb && finite(nout.rgb) && finite(P.rgb)) {
+        const vec3 din = dec(nin.rgb), dout = dec(nout.rgb);
+        vec3 d = backward(dout) - backward(din);
+        const vec3 lim = pc.cap * abs(dout - din) / gain();
+        d = clamp(d, -lim, lim);
+        const vec3 p = light(P.rgb);
+        M = max(P.rgb + reencode(max(p + d, vec3(0.0))) - reencode(p), vec3(0.0));
+        if (!finite(M)) M = P.rgb;
+    }
+    imageStore(c, xy, vec4(M, nout.a));
+    if ((pc.flags & RESTORE) != 0u) imageStore(a, xy, P);
+}
