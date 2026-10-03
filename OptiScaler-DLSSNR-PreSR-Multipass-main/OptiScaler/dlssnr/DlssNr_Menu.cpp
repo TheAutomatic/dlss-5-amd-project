@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "NrTimingDisplay.h"
+#include "DlssNr_PipelineUi.h"
 #include "NrEffectsSettings.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
@@ -140,11 +141,27 @@ static bool InheritedProfileCombo(const char* label, CustomOptional<uint32_t, No
     return true;
 }
 
-static void ResetMochizuki(Config* config, int selectedGroup = -1)
+static bool MochizukiOptionOnPage(std::string_view key, PipelineUi::Section page)
 {
-#define MZ_F(name, def, low, high, group, label, target) if (selectedGroup < 0 || selectedGroup == group) config->name = std::optional<float>{};
-#define MZ_U(name, def, low, high, group, label, target) if (selectedGroup < 0 || selectedGroup == group) config->name = std::optional<uint32_t>{};
-#define MZ_B(name, def, low, high, group, label, target) if (selectedGroup < 0 || selectedGroup == group) config->name = std::optional<bool>{};
+    using PipelineUi::Section;
+    if (key == CfgKey::MochizukiModelScale || key == CfgKey::MochizukiWhitePoint ||
+        key == CfgKey::MochizukiLinearInput || key == CfgKey::MochizukiDynamicResolution ||
+        key == CfgKey::MochizukiPreprocess || key == CfgKey::MochizukiPreprocessExposure ||
+        key == CfgKey::MochizukiPreprocessBiasEv || key == CfgKey::MochizukiPreprocessCurve ||
+        key == CfgKey::MochizukiPreprocessContrast || key == CfgKey::MochizukiPreprocessSaturation)
+        return page == Section::Input;
+    if (key == CfgKey::MochizukiDetailStrength || key == CfgKey::MochizukiColourStrength ||
+        key == CfgKey::MochizukiMaxRatio || key == CfgKey::MochizukiApplyModel)
+        return page == Section::Output;
+    return page == Section::Model;
+}
+
+static void ResetMochizuki(Config* config, int selectedGroup = -1,
+    std::optional<PipelineUi::Section> page = std::nullopt)
+{
+#define MZ_F(name, def, low, high, group, label, target) if ((selectedGroup < 0 || selectedGroup == group) && (!page || MochizukiOptionOnPage(CfgKey::name, *page))) config->name = std::optional<float>{};
+#define MZ_U(name, def, low, high, group, label, target) if ((selectedGroup < 0 || selectedGroup == group) && (!page || MochizukiOptionOnPage(CfgKey::name, *page))) config->name = std::optional<uint32_t>{};
+#define MZ_B(name, def, low, high, group, label, target) if ((selectedGroup < 0 || selectedGroup == group) && (!page || MochizukiOptionOnPage(CfgKey::name, *page))) config->name = std::optional<bool>{};
 #include "backend/MochizukiOptions.inc"
 #undef MZ_F
 #undef MZ_U
@@ -216,42 +233,75 @@ static bool MochizukiFloatControl(const char* label, std::string_view key, float
     return ImGui::SliderFloat(label, value, low, high, "%.2f");
 }
 
-static void RenderMochizukiMenu(Config* config)
+
+static void RenderSharedOutputEffects(Config* config)
 {
-    ImGui::TextWrapped("%s", AmdBridge::Status().c_str());
-    bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
-    if (ImGui::Checkbox("Allow backend hot switching (restart)", &convenience))
-        config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
-    HelpMarker("Save and restart to change startup hook preparation. Off loads only the active backend.");
-    bool timing = config->NrTimingEnabled.value_or_default();
-    if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
-    if (timing) ImGui::TextWrapped("NR GPU: %s", TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64(), true).c_str());
+            float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
+            if (ImGui::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
+                config->NrOverallIntensity = overallIntensity;
+            HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
+                       "\nThis does not reduce model computation. Disable NR to save that work."
+                       "\nA pure-backend session may require a restart to enable the shared effect recording path.");
+            if (config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
+                ImGui::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
+            bool stabilizer = config->NrStabilizerEnabled.value_or_default();
+            if (ImGui::Checkbox("Residual Stabilizer", &stabilizer)) {
+                config->NrStabilizerEnabled = stabilizer;
+                DlssNr::AmdBridge::InvalidateHistory();
+            }
+            HelpMarker("Reduces temporal variation in the NR correction using motion and depth."
+                       "\nMay soften moving detail; disabled by default. Requires valid motion and depth inputs.");
+            if (stabilizer) {
+                float alpha = config->NrStabilizerAlpha.value_or_default();
+                float threshold = config->NrStabilizerThreshold.value_or_default();
+                if (ImGui::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
+                if (ImGui::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
+                HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
+                if (config->NrTimingEnabled.value_or_default())
+                    ImGui::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
+            }
+            if (ImGui::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
+            HelpMarker("Resets Overall Intensity and Residual Stabilizer only.");
+
+}
+
+static void RenderMochizukiMenu(Config* config, PipelineUi::Section page)
+{
     static const char* groups[] = {"Pass 1", "Quality", "Temporal history", "Preprocessing", "Advanced", "Pass 2", "Pass 3", "Output adjustment"};
     static constexpr int order[] = {1, 0, 5, 6, 7, 2, 3, 4};
     for (int g : order)
     {
+        const bool shown = page == PipelineUi::Section::Input ? (g == 1 || g == 3 || g == 4) :
+            page == PipelineUi::Section::Model ? (g == 1 || g == 0 || g == 5 || g == 6 || g == 2 || g == 4) : g == 7;
+        if (!shown) continue;
         const auto passes = config->MochizukiPasses.value_or_default();
         if ((g == 5 && passes < 2) || (g == 6 && passes < 3)) continue;
         ImGui::PushID(g);
-        if (ImGui::TreeNodeEx(groups[g], (g == 0 || g == 1 || g == 5 || g == 6) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+        const char* label = g == 1 ? (page == PipelineUi::Section::Input ? "Resolution" : "Model passes") :
+            g == 4 ? (page == PipelineUi::Section::Input ? "Advanced input" : "Prebuild capacity") : groups[g];
+        if (ImGui::TreeNodeEx(label, (g == 0 || g == 1 || g == 5 || g == 6) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
         {
             bool changed = false;
-#define MZ_F(name, def, low, high, group, label, target) if (g == group) { float v = config->name.value_or_default(); if (MochizukiFloatControl(label, CfgKey::name, &v, low, high)) { config->name = v; changed = true; } }
-#define MZ_U(name, def, low, high, group, label, target) if (g == group) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiIntegerControl(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
-#define MZ_B(name, def, low, high, group, label, target) if (g == group) { bool v = config->name.value_or_default(); if (ImGui::Checkbox(label, &v)) { config->name = v; changed = true; } }
+#define MZ_F(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { float v = config->name.value_or_default(); if (MochizukiFloatControl(label, CfgKey::name, &v, low, high)) { config->name = v; changed = true; } }
+#define MZ_U(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiIntegerControl(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
+#define MZ_B(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { bool v = config->name.value_or_default(); if (ImGui::Checkbox(label, &v)) { config->name = v; changed = true; } }
 #include "backend/MochizukiOptions.inc"
 #undef MZ_F
 #undef MZ_U
 #undef MZ_B
             if (changed) AmdBridge::InvalidateHistory();
             if (g == 0 || g == 5 || g == 6) ImGui::TextWrapped("Skin structure -1 follows Structure.");
-            if (g == 1) ImGui::TextWrapped("Resolution and pass edits apply when editing finishes. 50% halves width and height. More passes increase GPU cost and memory.");
+            if (g == 1) ImGui::TextWrapped(page == PipelineUi::Section::Input ?
+                "Resolution edits apply when editing finishes. 50% halves width and height." :
+                "Pass edits apply when editing finishes. More passes increase GPU cost and memory.");
             if (g == 2) ImGui::TextWrapped("History needs unjittered motion vectors. The separate Residual Stabilizer filters the final correction.");
             if (g == 3) ImGui::TextWrapped("Preprocessing changes what the model sees and reverses that transform from its answer.");
-            if (g == 4) ImGui::TextWrapped("DRS buckets reduce rebuilds when the render size changes. Prebuild passes 0 follows the current pass count. White point controls linear-input brightness.");
+            if (g == 4) ImGui::TextWrapped(page == PipelineUi::Section::Input ?
+                "DRS buckets reduce rebuilds when the render size changes. White point controls linear-input brightness." :
+                "Automatic prebuild capacity grows as needed and is retained on pass reduction. Capacity is not the active pass count.");
             if (g == 7) ImGui::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
             if (g == 5 || g == 6) ImGui::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
-            if (ImGui::Button("Reset this group")) ResetMochizuki(config, g);
+            if (ImGui::Button("Reset this group")) ResetMochizuki(config, g, page);
             ImGui::TreePop();
         }
         ImGui::PopID();
@@ -267,6 +317,8 @@ static void RenderMochizukiMenu(Config* config)
         }
         ImGui::TreePop();
     }
+    if (ImGui::Button("Reset this page")) ResetMochizuki(config, -1, page);
+    HelpMarker("Resets this page's mochizuki controls, including hidden later-pass overrides on the model page. Keeps shared effects and other backends.");
     if (ImGui::Button("Reset NR settings")) { ResetMochizuki(config); ResetSharedNrDefaults(config); }
     HelpMarker("Resets mochizuki and shared NR controls. Keeps other backends, selection and hotkeys.");
 }
@@ -352,53 +404,90 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (DlssNr::AmdBridge::HasFiles())
         {
-            ImGui::Spacing();
-            const bool isLmxxf = (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Lmxxf);
-            ImGui::TextUnformatted(isLmxxf ? "AMD processing: lmxxf (before Super Resolution)"
-                                           : "AMD processing: before Super Resolution");
+            const auto kind = Backend::ActiveKindFromConfig();
+            const bool isLmxxf = kind == Backend::Kind::Lmxxf;
+            ImGui::PushID(static_cast<int>(kind));
+            static PipelineUi::Section pages[3] {PipelineUi::Section::Model, PipelineUi::Section::Model, PipelineUi::Section::Model};
+            auto& page = pages[static_cast<int>(kind)];
+            PipelineUi::View view;
+            view.backend = Backend::Name(kind);
+            view.enabled = config->DlssNrEnabled.value_or_default();
+            if (isLmxxf) {
+                view.input = "Network tier: " + config->LmxxfNetworkHeight.value_or_default();
+                view.model = "Style " + std::to_string(config->LmxxfStyle.value_or_default()) +
+                    (config->LmxxfVitAdaptive.value_or_default() ? " / adaptive reuse on" : " / adaptive reuse off");
+            } else if (kind == Backend::Kind::Mochizuki) {
+                view.input = "Model resolution: " + std::to_string(int(std::lround(config->MochizukiModelScale.value_or_default() * 100))) + "%";
+                view.model = std::to_string(config->MochizukiPasses.value_or_default()) + " pass(es) requested";
+            } else {
+                view.input = "Model resolution: " + std::to_string(int(std::lround(config->AmdNrScale.value_or_default() * 100))) + "%";
+                view.model = std::to_string(config->DlssNrPasses.value_or_default()) + " pass(es) configured";
+            }
+            view.output = config->NrStabilizerEnabled.value_or_default() ? "Strength / residual stabilization" : "Strength / colour";
+            if ((kind == Backend::Kind::Mochizuki && !config->MochizukiApplyModel.value_or_default()) ||
+                OverallIntensity(config->NrOverallIntensity.value_or_default()) == 0)
+                view.output = "Correction hidden; network still runs";
+            bool timing = config->NrTimingEnabled.value_or_default();
+            if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
+            if (ImGui::CollapsingHeader("NR flow", ImGuiTreeNodeFlags_DefaultOpen)) PipelineUi::Draw(view, page);
+            else PipelineUi::Navigation(page);
+            if (!view.enabled) ImGui::TextDisabled("NR is off. These nodes describe the configured path.");
+            else ImGui::TextWrapped("%s", AmdBridge::Status().c_str());
+            if (State::Instance().currentFeature && State::Instance().currentFeature->GetUpscalerType() == Upscaler::DLSSD)
+                ImGui::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
+            if (timing) {
+                if (kind == Backend::Kind::Daniel) ImGui::TextDisabled("Network GPU timing is unavailable for Daniel.");
+                else ImGui::TextWrapped("Network GPU: %s (not whole NR/frame latency)",
+                    TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64()).c_str());
+            }
+            ImGui::SeparatorText(PipelineUi::SectionName(page));
+            if (page == PipelineUi::Section::Output) RenderSharedOutputEffects(config);
+            if (kind == Backend::Kind::Mochizuki) {
+                RenderMochizukiMenu(config, page);
+                if (ImGui::TreeNode("Compatibility & Scheduling")) {
+                    bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
+                    if (ImGui::Checkbox("Allow backend hot switching (restart)", &convenience))
+                        config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
+                    HelpMarker("Save and restart to change startup hook preparation. Off loads only the active backend.");
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+                return;
+            }
             auto resetOption = [](auto& option) { option = std::optional<typename std::remove_reference_t<decltype(option)>::value_type>{}; };
-            auto resetImage = [&]() {
+            auto resetInput = [&]() {
                 if (isLmxxf) {
-                    resetOption(config->LmxxfStyle);
-                    CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(config->LmxxfStyle.value_or_default()).c_str());
-                    resetOption(config->DlssNrTransferStrength);
-                    resetOption(config->DlssNrColourStrength);
-                    resetOption(config->LmxxfAutoExposure);
-                    resetOption(config->LmxxfAutoExposureScale);
-                    resetOption(config->LmxxfPaperWhite);
-                }
-                else {
-                    resetOption(config->DlssNrStyle);
-                    resetOption(config->AmdUseGameExposure);
-                    resetOption(config->DlssNrToneCurve);
-                    resetOption(config->DlssNrToneLift);
-                    resetOption(config->AmdNeuralLightingStrength);
-                    resetOption(config->AmdToneChannels);
-                    resetOption(config->DlssNrLocalStructure);
-                    resetOption(config->DlssNrAutoMask);
-                    resetOption(config->DlssNrSkinStructure);
-                }
-                AmdBridge::InvalidateHistory();
-            };
-            auto resetQuality = [&]() {
-                if (isLmxxf) {
-                    resetOption(config->LmxxfNetworkHeight);
+                    resetOption(config->LmxxfAutoExposure); resetOption(config->LmxxfAutoExposureScale);
+                    resetOption(config->LmxxfPaperWhite); resetOption(config->LmxxfNetworkHeight);
                     CfgKey::PutEnvString(CfgKey::NetworkHeight, config->LmxxfNetworkHeight.value_or_default().c_str());
                     resetOption(config->LmxxfNetwork1080Rows);
                     CfgKey::PutEnvString(CfgKey::Network1080Rows, std::to_string(config->LmxxfNetwork1080Rows.value_or_default()).c_str());
-
-                }
-                else {
-                    resetOption(config->DlssNrQuality);
-                    resetOption(config->AmdNrScale);
-                    resetOption(config->DlssNrPasses);
+                } else {
+                    resetOption(config->AmdNrScale); resetOption(config->AmdUseGameExposure);
+                    resetOption(config->DlssNrToneCurve); resetOption(config->DlssNrToneLift); resetOption(config->AmdEncoding);
                 }
                 AmdBridge::InvalidateHistory();
             };
+            auto resetModel = [&]() {
+                if (isLmxxf) {
+                    resetOption(config->LmxxfStyle);
+                    CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(config->LmxxfStyle.value_or_default()).c_str());
+                } else {
+                    resetOption(config->DlssNrQuality); resetOption(config->DlssNrPasses);
+                    resetOption(config->DlssNrStyle); resetOption(config->AmdNeuralLightingStrength);
+                    resetOption(config->AmdToneChannels); resetOption(config->DlssNrLocalStructure);
+                    resetOption(config->DlssNrAutoMask); resetOption(config->DlssNrSkinStructure);
+                }
+                AmdBridge::InvalidateHistory();
+            };
+            auto resetOutput = [&]() {
+                if (isLmxxf) {
+                    resetOption(config->DlssNrTransferStrength); resetOption(config->DlssNrColourStrength);
+                    AmdBridge::InvalidateHistory();
+                }
+            };
             auto resetScheduling = [&]() {
                 if (isLmxxf) {
-                    resetOption(config->LmxxfFitLarge);
-                    CfgKey::PutEnvAlias(CfgKey::FitLarge, config->LmxxfFitLarge.value_or_default());
                     resetOption(config->LmxxfFormatFallback);
                     CfgKey::PutEnvAlias(CfgKey::FormatFallback, config->LmxxfFormatFallback.value_or_default());
                     resetOption(config->LmxxfPdl);
@@ -407,7 +496,6 @@ void RenderMenu(Config* config, float menuResScale)
                     resetOption(config->LmxxfEarlyExeWrap);
                 }
                 else {
-                    resetOption(config->AmdEncoding);
                     resetOption(config->AmdEveryFrame);
                     resetOption(config->AmdSlots);
                     resetOption(config->AmdGraphicsWait);
@@ -417,6 +505,8 @@ void RenderMenu(Config* config, float menuResScale)
                 AmdBridge::InvalidateHistory();
             };
             auto resetKernels = [&]() {
+                resetOption(config->LmxxfFitLarge);
+                CfgKey::PutEnvAlias(CfgKey::FitLarge, config->LmxxfFitLarge.value_or_default());
                 resetOption(config->LmxxfSkipBlocks);
                 CfgKey::PutEnvString(CfgKey::SkipBlocks, config->LmxxfSkipBlocks.value_or_default().c_str());
                 resetOption(config->LmxxfWaveOwned);
@@ -495,156 +585,7 @@ void RenderMenu(Config* config, float menuResScale)
                 resetOption(config->AmdLookHighlightCompression);
                 AmdBridge::InvalidateHistory();
             };
-            float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
-            if (ImGui::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
-                config->NrOverallIntensity = overallIntensity;
-            HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
-                       "\nThis does not reduce model computation. Disable NR to save that work."
-                       "\nA pure-backend session may require a restart to enable the shared effect recording path.");
-            if (config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
-                ImGui::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
-            bool stabilizer = config->NrStabilizerEnabled.value_or_default();
-            if (ImGui::Checkbox("Residual Stabilizer", &stabilizer)) {
-                config->NrStabilizerEnabled = stabilizer;
-                DlssNr::AmdBridge::InvalidateHistory();
-            }
-            HelpMarker("Reduces temporal variation in the NR correction using motion and depth."
-                       "\nMay soften moving detail; disabled by default. Requires valid motion and depth inputs.");
-            if (stabilizer) {
-                float alpha = config->NrStabilizerAlpha.value_or_default();
-                float threshold = config->NrStabilizerThreshold.value_or_default();
-                if (ImGui::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
-                if (ImGui::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
-                HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
-                if (config->NrTimingEnabled.value_or_default())
-                    ImGui::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
-            }
-            if (ImGui::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
-            HelpMarker("Resets Overall Intensity and Residual Stabilizer only.");
-            if (Backend::ActiveKindFromConfig() == Backend::Kind::Mochizuki)
-            {
-                RenderMochizukiMenu(config);
-                return;
-            }
-            if (ImGui::TreeNode("Image")) {
-                if (isLmxxf) {
-                    int style = static_cast<int>(config->LmxxfStyle.value_or_default());
-                    if (ImGui::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
-                    {
-                        config->LmxxfStyle = static_cast<uint32_t>(style);
-                        CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(style).c_str());
-                        DlssNr::AmdBridge::InvalidateHistory();
-                    }
-                    HelpMarker("Network style 0 / 1 / 2. Default 1 preserves earlier lmxxf output."
-                               "\nChanging style rebuilds the network on the next frame.");
-                    float transfer = config->DlssNrTransferStrength.value_or_default();
-                    if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
-                        config->DlssNrTransferStrength = transfer;
-                    HelpMarker("How much of the network's detail replaces the upscaler picture."
-                               "\n0 is the upscaler picture. 1 is the network result."
-                               "\nAbove 1 pushes past that result, up to 3."
-                               "\nApplies on the next frame. No restart.");
-
-                    float colour = config->DlssNrColourStrength.value_or_default();
-                    if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
-                        config->DlssNrColourStrength = colour;
-                    HelpMarker("How much of the network's colour replaces the game's hue."
-                               "\n0: game image as-is (except brightness from Transfer)."
-                               "\n1: network brightness, game colour (safest for saturated scenes)."
-                               "\nAbove 1 blends toward the full network colour (toy; can tint)."
-                               "\nApplies on the next frame. No restart.");
-                    bool autoExposure = config->LmxxfAutoExposure.value_or_default();
-                    if (ImGui::Checkbox("Auto exposure", &autoExposure))
-                        config->LmxxfAutoExposure = autoExposure;
-                    HelpMarker("When the game does not send a usable exposure texture,"
-                               "\nmeasure the frame's mean brightness once per frame and"
-                               "\nsmooth it over time so highlights do not jump."
-                               "\nIgnores Exposure scale."
-                               "\nGames that already pass exposure are unchanged."
-                               "\nApplies on the next frame. No restart.");
-                    if (!autoExposure)
-                    {
-                        float expScale = config->LmxxfAutoExposureScale.value_or_default();
-                        if (ImGui::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
-                                               ImGuiSliderFlags_Logarithmic))
-                            config->LmxxfAutoExposureScale = expScale;
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Reset##autoexp"))
-                            config->LmxxfAutoExposureScale = 8.0f;
-                        HelpMarker("Manual paper white when Auto exposure is off"
-                                   "\n(including when the game sends pre-exposure)."
-                                   "\nHigher darkens the network input and weakens"
-                                   "\nhighlight rolloff. Default 8.");
-                    }
-
-                    float paper = config->LmxxfPaperWhite.value_or_default();
-                    if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
-                                           ImGuiSliderFlags_Logarithmic))
-                        config->LmxxfPaperWhite = paper;
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Reset##paper"))
-                        config->LmxxfPaperWhite = 1.0f;
-                    HelpMarker("White level used by encode and decode. Default 1."
-                               "\nLog slider, so 1 is easy to land on. Reset returns to 1."
-                               "\nNot the HDR Paper White control further down."
-                               "\nApplies on the next frame. No restart.");
-                }
-                else {
-                    static const char* styles[] = { "Standard", "Natural", "Cinematic" };
-                    int style = static_cast<int>((std::min)(config->DlssNrStyle.value_or_default(), 2u));
-                    if (ImGui::Combo("Style##daniel", &style, styles, IM_ARRAYSIZE(styles)))
-                        config->DlssNrStyle = static_cast<uint32_t>(style);
-                    HelpMarker("Model appearance profile. Applies to all active passes.");
-                    int exposure = config->AmdUseGameExposure.value_or_default() ? 1 : 0;
-                    if (ImGui::Combo("Exposure source", &exposure, "Auto\0Game (auto fallback)\0"))
-                        config->AmdUseGameExposure = exposure != 0;
-                    HelpMarker("Exposure used by the neural model. Auto estimates brightness from the image."
-                               "\nGame uses the game's exposure texture when available; otherwise it falls back to Auto."
-                               "\nSeparate from the appearance filter's Exposure (EV).");
-                    static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
-                    int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
-                    if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
-                        config->DlssNrToneCurve = (uint32_t) curve;
-                    HelpMarker("Display curve the network sees (ToneCurve)."
-                               "\nReinhard usually has better colour; ACES if highlights oversaturate.");
-                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.25f, 0.0f);
-                    HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
-                    auto neuralSlider = [](const char* label, auto& option, float lo, float hi) {
-                        auto storage=ImGui::GetStateStorage();
-                        const ImGuiID id=ImGui::GetID(label);
-                        const ImGuiID activeId=id ^ 0x6e72534cu;
-                        float value=storage->GetBool(activeId,false)?storage->GetFloat(id):option.value_or_default();
-                        ImGui::SliderFloat(label,&value,lo,hi);
-                        const bool active=ImGui::IsItemActive();
-                        const bool commit=ImGui::IsItemDeactivatedAfterEdit();
-                        storage->SetFloat(id,value);storage->SetBool(activeId,active);
-                        if(commit)option=value;
-                    };
-                    neuralSlider("Tone intensity", config->AmdNeuralLightingStrength, 0, 1);
-                    HelpMarker("Model lighting and colour response. Applied on the first pass."
-                               "\nSeparate from Tone strength in the appearance filter.");
-                    bool toneChannels = config->AmdToneChannels.value_or(config->AmdNeuralLightingStrength.value_or_default() > 0);
-                    if (ImGui::Checkbox("Broad structure channel", &toneChannels))
-                        config->AmdToneChannels = toneChannels;
-                    HelpMarker("Enable the broad structure response in addition to the character channels.");
-                    neuralSlider("AMD structure", config->DlssNrLocalStructure, 0, 2);
-                    bool autoMask = config->DlssNrAutoMask.value_or_default();
-                    if (ImGui::Checkbox("Model character mask", &autoMask))
-                        config->DlssNrAutoMask = autoMask;
-                    HelpMarker("Enable the model's semantic character channels."
-                               "\nSeparate from Automatic skin mask in the appearance filter.");
-                    ImGui::BeginDisabled(!autoMask);
-                    bool skinAuto = config->DlssNrSkinStructure.value_or_default() < 0;
-                    if (ImGui::Checkbox("Skin structure follows structure", &skinAuto))
-                        config->DlssNrSkinStructure = skinAuto ? -1.0f : config->DlssNrLocalStructure.value_or_default();
-                    if (!skinAuto)
-                        neuralSlider("AMD character structure", config->DlssNrSkinStructure, 0, 2);
-                    ImGui::EndDisabled();
-                }
-                if (ImGui::Button("Reset this group##Image")) resetImage();
-                ImGui::TreePop();
-            }
-            if (ImGui::TreeNode("Quality & Performance")) {
+            auto renderInput = [&]() {
                 if (isLmxxf) {
                     const std::string net = config->LmxxfNetworkHeight.value_or_default();
                     const bool isAuto = net.empty() || net == "auto";
@@ -693,6 +634,7 @@ void RenderMenu(Config* config, float menuResScale)
                             ImGui::EndCombo();
                         }
                     }
+                    if (ImGui::TreeNode("Advanced resolution")) {
                     bool compact = config->LmxxfNetwork1080Rows.value_or_default() == 1088;
                     if (ImGui::Checkbox("Compact 1080 network", &compact))
                     {
@@ -703,9 +645,92 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("Off (default): 1152 processing rows. On: 1088 rows."
                                "\nMay reduce NR time but changes the image, especially near the bottom edge."
                                "\nOnly affects the 1080 tier; rebuilds on the next frame.");
+                    ImGui::TreePop();
+                    }
 
+                    bool autoExposure = config->LmxxfAutoExposure.value_or_default();
+                    if (ImGui::Checkbox("Auto exposure", &autoExposure))
+                        config->LmxxfAutoExposure = autoExposure;
+                    HelpMarker("When the game does not send a usable exposure texture,"
+                               "\nmeasure the frame's mean brightness once per frame and"
+                               "\nsmooth it over time so highlights do not jump."
+                               "\nIgnores Exposure scale."
+                               "\nGames that already pass exposure are unchanged."
+                               "\nApplies on the next frame. No restart.");
+                    if (!autoExposure)
+                    {
+                        float expScale = config->LmxxfAutoExposureScale.value_or_default();
+                        if (ImGui::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
+                                               ImGuiSliderFlags_Logarithmic))
+                            config->LmxxfAutoExposureScale = expScale;
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Reset##autoexp"))
+                            config->LmxxfAutoExposureScale = 8.0f;
+                        HelpMarker("Manual paper white when Auto exposure is off"
+                                   "\n(including when the game sends pre-exposure)."
+                                   "\nHigher darkens the network input and weakens"
+                                   "\nhighlight rolloff. Default 8.");
+                    }
+
+                    float paper = config->LmxxfPaperWhite.value_or_default();
+                    if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
+                                           ImGuiSliderFlags_Logarithmic))
+                        config->LmxxfPaperWhite = paper;
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Reset##paper"))
+                        config->LmxxfPaperWhite = 1.0f;
+                    HelpMarker("White level used by encode and decode. Default 1."
+                               "\nLog slider, so 1 is easy to land on. Reset returns to 1."
+                               "\nNot the HDR Paper White control further down."
+                               "\nApplies on the next frame. No restart.");
+                } else {
+                    static float scale = 100.f;
+                    static bool editingScale = false;
+                    if (!editingScale) scale = config->AmdNrScale.value_or_default()*100.f;
+                    ImGui::SliderFloat("NR resolution (%)",&scale,25,100,"%.0f%%");
+                    editingScale = ImGui::IsItemActive();
+                    // Commit once after dragging or text entry, not one model rebuild per mouse move.
+                    if(ImGui::IsItemDeactivatedAfterEdit()) config->AmdNrScale=scale/100.f;
+                    int exposure = config->AmdUseGameExposure.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Exposure source", &exposure, "Auto\0Game (auto fallback)\0"))
+                        config->AmdUseGameExposure = exposure != 0;
+                    HelpMarker("Exposure used by the neural model. Auto estimates brightness from the image."
+                               "\nGame uses the game's exposure texture when available; otherwise it falls back to Auto."
+                               "\nSeparate from the appearance filter's Exposure (EV).");
+                    static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
+                    int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
+                    if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
+                        config->DlssNrToneCurve = (uint32_t) curve;
+                    HelpMarker("Display curve the network sees (ToneCurve)."
+                               "\nReinhard usually has better colour; ACES if highlights oversaturate.");
+                    DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.25f, 0.0f);
+                    HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
+                    if (ImGui::TreeNode("Advanced input")) {
+                    int encoding=std::clamp(config->AmdEncoding.value_or_default(),0,3);
+                    if(ImGui::Combo("Encoding",&encoding,"Auto (existing)\0Linear\0sRGB\0Gamma 2.2\0")) config->AmdEncoding=encoding;
+                        ImGui::TreePop();
+                    }
                 }
-                else {
+                if (ImGui::Button("Reset this page##input")) resetInput();
+            };
+            auto renderModel = [&]() {
+                if (isLmxxf) {
+                    int style = static_cast<int>(config->LmxxfStyle.value_or_default());
+                    if (ImGui::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
+                    {
+                        config->LmxxfStyle = static_cast<uint32_t>(style);
+                        CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(style).c_str());
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("Network style 0 / 1 / 2. Default 1 preserves earlier lmxxf output."
+                               "\nChanging style rebuilds the network on the next frame.");
+                } else {
+                    static int passes = 1;
+                    static bool editingPasses = false;
+                    if(!editingPasses)passes=int(config->DlssNrPasses.value_or_default());
+                    ImGui::SliderInt("AMD neural passes", &passes, 1, 3);
+                    editingPasses=ImGui::IsItemActive();
+                    if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
                     {
                         static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
                         int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
@@ -715,23 +740,43 @@ void RenderMenu(Config* config, float menuResScale)
                                    "\nFast is usually visually equivalent and faster."
                                    "\nRX 7000 always runs Reference.");
                     }
-                    static float scale = 100.f;
-                    static bool editingScale = false;
-                    if (!editingScale) scale = config->AmdNrScale.value_or_default()*100.f;
-                    ImGui::SliderFloat("NR resolution (%)",&scale,25,100,"%.0f%%");
-                    editingScale = ImGui::IsItemActive();
-                    // Commit once after dragging or text entry, not one model rebuild per mouse move.
-                    if(ImGui::IsItemDeactivatedAfterEdit()) config->AmdNrScale=scale/100.f;
-                    static int passes = 1;
-                    static bool editingPasses = false;
-                    if(!editingPasses)passes=int(config->DlssNrPasses.value_or_default());
-                    ImGui::SliderInt("AMD neural passes", &passes, 1, 3);
-                    editingPasses=ImGui::IsItemActive();
-                    if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
+                    static const char* styles[] = { "Standard", "Natural", "Cinematic" };
+                    int style = static_cast<int>((std::min)(config->DlssNrStyle.value_or_default(), 2u));
+                    if (ImGui::Combo("Style##daniel", &style, styles, IM_ARRAYSIZE(styles)))
+                        config->DlssNrStyle = static_cast<uint32_t>(style);
+                    HelpMarker("Model appearance profile. Applies to all active passes.");
+                    auto neuralSlider = [](const char* label, auto& option, float lo, float hi) {
+                        auto storage=ImGui::GetStateStorage();
+                        const ImGuiID id=ImGui::GetID(label);
+                        const ImGuiID activeId=id ^ 0x6e72534cu;
+                        float value=storage->GetBool(activeId,false)?storage->GetFloat(id):option.value_or_default();
+                        ImGui::SliderFloat(label,&value,lo,hi);
+                        const bool active=ImGui::IsItemActive();
+                        const bool commit=ImGui::IsItemDeactivatedAfterEdit();
+                        storage->SetFloat(id,value);storage->SetBool(activeId,active);
+                        if(commit)option=value;
+                    };
+                    neuralSlider("Tone intensity", config->AmdNeuralLightingStrength, 0, 1);
+                    HelpMarker("Model lighting and colour response. Applied on the first pass."
+                               "\nSeparate from Tone strength in the appearance filter.");
+                    bool toneChannels = config->AmdToneChannels.value_or(config->AmdNeuralLightingStrength.value_or_default() > 0);
+                    if (ImGui::Checkbox("Broad structure channel", &toneChannels))
+                        config->AmdToneChannels = toneChannels;
+                    HelpMarker("Enable the broad structure response in addition to the character channels.");
+                    neuralSlider("AMD structure", config->DlssNrLocalStructure, 0, 2);
+                    bool autoMask = config->DlssNrAutoMask.value_or_default();
+                    if (ImGui::Checkbox("Model character mask", &autoMask))
+                        config->DlssNrAutoMask = autoMask;
+                    HelpMarker("Enable the model's semantic character channels."
+                               "\nSeparate from Automatic skin mask in the appearance filter.");
+                    ImGui::BeginDisabled(!autoMask);
+                    bool skinAuto = config->DlssNrSkinStructure.value_or_default() < 0;
+                    if (ImGui::Checkbox("Skin structure follows structure", &skinAuto))
+                        config->DlssNrSkinStructure = skinAuto ? -1.0f : config->DlssNrLocalStructure.value_or_default();
+                    if (!skinAuto)
+                        neuralSlider("AMD character structure", config->DlssNrSkinStructure, 0, 2);
+                    ImGui::EndDisabled();
                 }
-                if (ImGui::Button("Reset this group##Quality & Performance")) resetQuality();
-                ImGui::TreePop();
-            }
             if (isLmxxf && ImGui::TreeNode("ViT / image reuse"))
             {
                 {
@@ -842,6 +887,31 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::Button("Reset this group##Vit")) resetVit();
                 ImGui::TreePop();
             }
+                if (ImGui::Button("Reset this page##model")) {
+                    resetModel();
+                    if (isLmxxf) resetVit();
+                }
+            };
+            auto renderOutput = [&]() {
+                if (isLmxxf) {
+                    float transfer = config->DlssNrTransferStrength.value_or_default();
+                    if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
+                        config->DlssNrTransferStrength = transfer;
+                    HelpMarker("How much of the network's detail replaces the upscaler picture."
+                               "\n0 is the upscaler picture. 1 is the network result."
+                               "\nAbove 1 pushes past that result, up to 3."
+                               "\nApplies on the next frame. No restart.");
+
+                    float colour = config->DlssNrColourStrength.value_or_default();
+                    if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
+                        config->DlssNrColourStrength = colour;
+                    HelpMarker("How much of the network's colour replaces the game's hue."
+                               "\n0: game image as-is (except brightness from Transfer)."
+                               "\n1: network brightness, game colour (safest for saturated scenes)."
+                               "\nAbove 1 blends toward the full network colour (toy; can tint)."
+                               "\nApplies on the next frame. No restart.");
+                    if (ImGui::Button("Reset backend output")) resetOutput();
+                }
             if (!isLmxxf) {
                 if (ImGui::TreeNode("Additional Effects")) {
                     if (ImGui::TreeNode("Appearance and tonemap"))
@@ -920,7 +990,15 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     ImGui::TreePop();
                 }
+                if (ImGui::Button("Reset backend output")) { resetAppearance(); resetLighting(); }
             }
+            };
+            switch (page) {
+            case PipelineUi::Section::Input: renderInput(); break;
+            case PipelineUi::Section::Model: renderModel(); break;
+            case PipelineUi::Section::Output: renderOutput(); break;
+            }
+            ImGui::Separator();
             if (ImGui::TreeNode("Compatibility & Scheduling")) {
                 {
                     bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
@@ -938,21 +1016,6 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nAlso OptiScaler.ini [DlssNr] NrConvenience=0/1.");
                 }
                 if (isLmxxf) {
-                    bool fitLarge = config->LmxxfFitLarge.value_or_default();
-                    if (ImGui::Checkbox("High resolution", &fitLarge))
-                    {
-                        config->LmxxfFitLarge = fitLarge;
-                        // Label is UI-only; ini key is CfgKey::FitLarge (env alias wins over txt).
-                        CfgKey::PutEnvAlias(CfgKey::FitLarge, fitLarge);
-                        DlssNr::AmdBridge::InvalidateHistory();
-                    }
-                    HelpMarker("On (default): larger Color is fitted onto the 1080 network."
-                               "\nThat can cost same-frame time and memory."
-                               "\nOff: a wide frame is admitted only when width is"
-                               "\nat most 2560, height at most 1080, and the pixel count stays"
-                               "\nwithin 1920x1080. 2024x848 passes. 2560x1080 does not."
-                               "\nApplies on the next frame, including after a resolution change."
-                               "\nThe network may rebuild once. No restart.");
                     bool fallback = config->LmxxfFormatFallback.value_or_default();
                     if (ImGui::Checkbox("Additional colour formats", &fallback))
                     {
@@ -1019,8 +1082,6 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                 }
                 else {
-                    int encoding=std::clamp(config->AmdEncoding.value_or_default(),0,3);
-                    if(ImGui::Combo("Encoding",&encoding,"Auto (existing)\0Linear\0sRGB\0Gamma 2.2\0")) config->AmdEncoding=encoding;
                     bool everyFrame = config->AmdEveryFrame.value_or_default();
                     if (ImGui::Checkbox("Every-frame", &everyFrame))
                         config->AmdEveryFrame = everyFrame;
@@ -1135,6 +1196,22 @@ void RenderMenu(Config* config, float menuResScale)
             }
             if (isLmxxf) {
                 if (ImGui::TreeNode("Advanced Kernels")) {
+                    bool fitLarge = config->LmxxfFitLarge.value_or_default();
+                    if (ImGui::Checkbox("High resolution", &fitLarge))
+                    {
+                        config->LmxxfFitLarge = fitLarge;
+                        // Label is UI-only; ini key is CfgKey::FitLarge (env alias wins over txt).
+                        CfgKey::PutEnvAlias(CfgKey::FitLarge, fitLarge);
+                        DlssNr::AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("On (default): larger Color is fitted onto the 1080 network."
+                               "\nThat can cost same-frame time and memory."
+                               "\nOff: a wide frame is admitted only when width is"
+                               "\nat most 2560, height at most 1080, and the pixel count stays"
+                               "\nwithin 1920x1080. 2024x848 passes. 2560x1080 does not."
+                               "\nApplies on the next frame, including after a resolution change."
+                               "\nThe network may rebuild once. No restart.");
+
                     {
                         static char skippedInput[256] {};
                         static std::string skippedLoaded;
@@ -1193,11 +1270,7 @@ void RenderMenu(Config* config, float menuResScale)
                 {
                     ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
                     ImGui::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Measurement uses non-blocking HIP events and leaves PDL unchanged.");
-                    bool timingEnabled = config->NrTimingEnabled.value_or_default();
-                    if (ImGui::Checkbox("Measure NR performance", &timingEnabled)) config->NrTimingEnabled = timingEnabled;
-                    HelpMarker("Asynchronous GPU timing. Does not wait for the GPU. New recordings include encode/decode queries."
-                               "\nAverages and maxima use the last 120 samples. These are not whole-frame latency."
-                               "\nClosed recordings keep their queries until Reset/Release, even after measurement is disabled.");
+                    const bool timingEnabled = config->NrTimingEnabled.value_or_default();
                     bool timingLog = config->NrTimingLog.value_or_default();
                     if (ImGui::Checkbox("Write timing summary to log", &timingLog)) config->NrTimingLog = timingLog;
                     HelpMarker("Requires measurement and file logging. At most one summary every five seconds.");
@@ -1251,13 +1324,12 @@ void RenderMenu(Config* config, float menuResScale)
             }
             if (ImGui::Button("Reset NR settings")) {
                 ResetSharedNrDefaults(config);
-                resetImage();
-                resetQuality();
-                resetScheduling();
+                resetInput(); resetModel(); resetOutput(); resetScheduling();
                 if (isLmxxf) { resetKernels(); resetVit(); resetOption(config->DlssNrDebugView); }
                 else { resetLighting(); resetAppearance(); }
             }
             HelpMarker("Resets this backend and shared NR controls. Keeps backend selection, hot-switch preference, keybinds and the other backend settings.");
+            ImGui::PopID();
             return;
         }
 

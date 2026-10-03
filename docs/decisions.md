@@ -1,3 +1,26 @@
+## 2026-10-03 — Navigate NR controls by processing stage
+
+Adapt the node drawing and click navigation from wilsjo2's OptiScaler-NR v0.8.4
+(`8802b2b470db0462fa1ed03a125e793a7c06d735`, GPL-3.0), retaining its visual style.
+The three AMD backends use this product's existing pre-SR route: prepare input,
+run the network, adjust its output, then Super Resolution. The chart describes
+configuration; it does not establish that GPU work ran or change rendering options.
+Game-dependent follow-up rendering is illustrative rather than a universal HUD order.
+
+Keep backend selection and the existing performance-display option above the chart.
+Input owns resolution/exposure/preprocessing, model owns active passes/styles/history
+and reuse, and output owns final strengths/shared residual stabilization. Compatibility,
+kernel tuning and diagnostics remain tools. Preserve Config keys, defaults, delayed
+slider commits, inherited later-pass settings and startup-only hook policies.
+Page resets touch the current backend's page only; shared effects retain a separate
+reset, while Reset NR settings keeps its current backend plus shared-controls scope.
+
+Read existing nonblocking timing snapshots without enabling sampling on menu open.
+HIP/Vulkan network time is not whole NR latency; Daniel has no network snapshot in
+the host interface. Missing/stale measurements stay unavailable. Do not subtract
+network GPU time from frame interval to invent a remainder or combine overlapping
+stabilizer/blend measurements. No new runtime ABI, rendering route or default logging.
+
 ## 2026-10-03 — Retain mochizuki capacity when reducing active passes
 
 Separate the requested execution count from compiled network capacity. In automatic

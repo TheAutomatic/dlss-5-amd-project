@@ -67,12 +67,15 @@ lmxxf settings. The complete defaults are in the shipped `OptiScaler.ini`.
 | Advanced | WhitePoint for linear input, LinearInput (Auto/Linear/Encoded), MaxPasses (0 grows capacity as needed and retains it on pass reduction), DynamicResolution (Exact/Auto bucket/Always bucket) |
 | Pass 2/3 | Explicit override plus that pass's style, intensity, tone, structure, skin structure and mask. With override off, inherit pass 1 but use zero LocalTone |
 
-The menu shows status and the performance-display toggle first, followed by Quality,
-Pass 1 and enabled Pass 2/3, Output adjustment, Temporal history, Preprocessing,
-Advanced and Diagnostics. Quality and active passes initially expand. Disabling a
-pass hides its controls without deleting its settings. Model resolution displays
-as a percentage; resolution, pass count and prebuild-pass edits commit on release
-or completion of keyboard/text editing, avoiding rebuilds during dragging.
+The NR menu uses a clickable pre-SR flow chart. **Prepare NR input** contains model
+resolution, preprocessing and advanced input encoding/white point/DRS. **NR model**
+contains pass count, Pass 1 and enabled Pass 2/3, temporal history and prebuild
+capacity. **Apply NR edit** contains output adjustment and the shared intensity and
+stabilizer. The model page opens first; page buttons remain available when the chart
+is collapsed. Compatibility and diagnostics remain separate tools below the page.
+Disabling a pass hides its controls without deleting its settings. Model resolution
+displays as a percentage; resolution, pass count and prebuild-pass edits commit on
+release or completion of keyboard/text editing, avoiding rebuilds during dragging.
 
 In automatic capacity mode (`MochizukiMaxPasses=0`), changing 2→1→2 runs one or
 two passes of the same network. Lowering the active count keeps the larger allocation;
@@ -97,7 +100,9 @@ valid extent changes. Unsupported blit formats fall back to exact extents.
 Overall Intensity and Residual Stabilizer remain shared output effects. Intensity 0
 or ApplyModel off still incurs network work; disable NR to avoid it. Group reset only
 resets that group. Reset NR settings resets mochizuki and shared effects/timing,
-preserving other backend controls, backend selection and hotkeys.
+preserving other backend controls, backend selection and hotkeys. Reset this page
+resets only that page's mochizuki fields; on the model page this includes hidden
+later-pass overrides. Shared effects have their own reset.
 
 Ins and Page Up/Down can show completed Vulkan network GPU measurements. They do
 not include the D3D12 copies, upscaler, frame generation or whole-frame latency.
