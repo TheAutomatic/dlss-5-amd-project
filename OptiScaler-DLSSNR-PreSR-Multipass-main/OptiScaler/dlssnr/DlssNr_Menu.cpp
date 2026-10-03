@@ -167,6 +167,55 @@ static bool MochizukiChoice(const char* label, std::string_view key, int* value,
     return ImGui::SliderInt(label, value, low, high);
 }
 
+// Keep rebuild-triggering edits local until mouse, keyboard or text editing finishes.
+static bool MochizukiRebuildSlider(const char* label, float* value, float low, float high, bool integer)
+{
+    ImGui::PushID(label);
+    auto* storage = ImGui::GetStateStorage();
+    const auto pendingId = ImGui::GetID("pending");
+    const auto activeId = ImGui::GetID("editing");
+    const auto frameId = ImGui::GetID("last-frame");
+    const int frame = ImGui::GetFrameCount();
+    float pending = storage->GetBool(activeId) && storage->GetInt(frameId, -2) == frame - 1
+        ? storage->GetFloat(pendingId, *value) : *value;
+    if (integer) {
+        int v = static_cast<int>(pending);
+        ImGui::SliderInt(label, &v, static_cast<int>(low), static_cast<int>(high), "%d", ImGuiSliderFlags_AlwaysClamp);
+        pending = static_cast<float>(v);
+    } else {
+        ImGui::SliderFloat(label, &pending, low, high, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);
+    }
+    const bool commit = ImGui::IsItemDeactivatedAfterEdit() && pending != *value;
+    storage->SetFloat(pendingId, pending);
+    storage->SetBool(activeId, ImGui::IsItemActive());
+    storage->SetInt(frameId, frame);
+    if (commit) *value = pending;
+    ImGui::PopID();
+    return commit;
+}
+
+static bool MochizukiIntegerControl(const char* label, std::string_view key, int* value, int low, int high)
+{
+    if (key == CfgKey::MochizukiPasses || key == CfgKey::MochizukiMaxPasses) {
+        float pending = static_cast<float>(*value);
+        if (!MochizukiRebuildSlider(label, &pending, static_cast<float>(low), static_cast<float>(high), true)) return false;
+        *value = static_cast<int>(pending);
+        return true;
+    }
+    return MochizukiChoice(label, key, value, low, high);
+}
+
+static bool MochizukiFloatControl(const char* label, std::string_view key, float* value, float low, float high)
+{
+    if (key == CfgKey::MochizukiModelScale) {
+        float percent = *value * 100.f;
+        if (!MochizukiRebuildSlider("Model resolution", &percent, low * 100.f, high * 100.f, false)) return false;
+        *value = percent / 100.f;
+        return true;
+    }
+    return ImGui::SliderFloat(label, value, low, high, "%.2f");
+}
+
 static void RenderMochizukiMenu(Config* config)
 {
     ImGui::TextWrapped("%s", AmdBridge::Status().c_str());
@@ -174,15 +223,21 @@ static void RenderMochizukiMenu(Config* config)
     if (ImGui::Checkbox("Allow backend hot switching (restart)", &convenience))
         config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
     HelpMarker("Save and restart to change startup hook preparation. Off loads only the active backend.");
-    static const char* groups[] = {"Image", "Quality", "Temporal history", "Preprocessing", "Advanced", "Pass 2", "Pass 3"};
-    for (int g = 0; g < IM_ARRAYSIZE(groups); ++g)
+    bool timing = config->NrTimingEnabled.value_or_default();
+    if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
+    if (timing) ImGui::TextWrapped("NR GPU: %s", TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64(), true).c_str());
+    static const char* groups[] = {"Pass 1", "Quality", "Temporal history", "Preprocessing", "Advanced", "Pass 2", "Pass 3", "Output adjustment"};
+    static constexpr int order[] = {1, 0, 5, 6, 7, 2, 3, 4};
+    for (int g : order)
     {
+        const auto passes = config->MochizukiPasses.value_or_default();
+        if ((g == 5 && passes < 2) || (g == 6 && passes < 3)) continue;
         ImGui::PushID(g);
-        if (ImGui::TreeNode(groups[g]))
+        if (ImGui::TreeNodeEx(groups[g], (g == 0 || g == 1 || g == 5 || g == 6) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
         {
             bool changed = false;
-#define MZ_F(name, def, low, high, group, label, target) if (g == group) { float v = config->name.value_or_default(); if (ImGui::SliderFloat(label, &v, low, high, "%.2f")) { config->name = v; changed = true; } }
-#define MZ_U(name, def, low, high, group, label, target) if (g == group) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiChoice(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
+#define MZ_F(name, def, low, high, group, label, target) if (g == group) { float v = config->name.value_or_default(); if (MochizukiFloatControl(label, CfgKey::name, &v, low, high)) { config->name = v; changed = true; } }
+#define MZ_U(name, def, low, high, group, label, target) if (g == group) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiIntegerControl(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
 #define MZ_B(name, def, low, high, group, label, target) if (g == group) { bool v = config->name.value_or_default(); if (ImGui::Checkbox(label, &v)) { config->name = v; changed = true; } }
 #include "backend/MochizukiOptions.inc"
 #undef MZ_F
@@ -190,11 +245,12 @@ static void RenderMochizukiMenu(Config* config)
 #undef MZ_B
             if (changed) AmdBridge::InvalidateHistory();
             if (g == 0 || g == 5 || g == 6) ImGui::TextWrapped("Skin structure -1 follows Structure.");
-            if (g == 1) ImGui::TextWrapped("Scale or pass changes compile a new network. Lower model scale reduces cost. More passes increase cost and memory.");
+            if (g == 1) ImGui::TextWrapped("Resolution and pass edits apply when editing finishes. 50% halves width and height. More passes increase GPU cost and memory.");
             if (g == 2) ImGui::TextWrapped("History needs unjittered motion vectors. The separate Residual Stabilizer filters the final correction.");
             if (g == 3) ImGui::TextWrapped("Preprocessing changes what the model sees and reverses that transform from its answer.");
-            if (g == 4) ImGui::TextWrapped("DRS buckets reduce rebuilds when the render size changes. Prebuild passes 0 follows the current pass count. Apply model off still runs the network; disable NR to save GPU work.");
-            if (g >= 5) ImGui::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
+            if (g == 4) ImGui::TextWrapped("DRS buckets reduce rebuilds when the render size changes. Prebuild passes 0 follows the current pass count. White point controls linear-input brightness.");
+            if (g == 7) ImGui::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
+            if (g == 5 || g == 6) ImGui::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
             if (ImGui::Button("Reset this group")) ResetMochizuki(config, g);
             ImGui::TreePop();
         }
@@ -203,11 +259,8 @@ static void RenderMochizukiMenu(Config* config)
     if (ImGui::TreeNode("Diagnostics"))
     {
         ImGui::TextWrapped("Vulkan network timing uses completed timestamp queries. Median and p95 cover up to 120 samples; copies and whole-frame latency are separate.");
-        bool timing = config->NrTimingEnabled.value_or_default();
-        if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
         bool logging = config->NrTimingLog.value_or_default();
         if (ImGui::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
-        if (timing) ImGui::TextWrapped("NR GPU: %s", TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64(), true).c_str());
         ImGui::TextWrapped("%s", AmdBridge::EffectsStatus().c_str());
         if (ImGui::Button("Reset diagnostics")) {
             config->NrTimingEnabled = std::optional<bool>{}; config->NrTimingLog = std::optional<bool>{};

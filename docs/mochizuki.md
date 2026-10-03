@@ -59,12 +59,20 @@ lmxxf settings. The complete defaults are in the shipped `OptiScaler.ini`.
 
 | Group | Controls and behavior |
 |---|---|
-| Image | Model Intensity, Style (Standard/Natural/Cinematic), LocalTone, LocalStructure, SkinStructure (-1 follows Structure), AutomaticMask, DetailStrength, ColourStrength, MaxRatio highlight guard, WhitePoint for linear input |
-| Quality | ModelScale (0.25–1), Passes (1–3). Both affect GPU cost and can rebuild the network |
+| Pass 1 | Model Intensity, Style (Standard/Natural/Cinematic), LocalTone, LocalStructure, SkinStructure (-1 follows Structure), AutomaticMask |
+| Output adjustment | ApplyModel, DetailStrength, ColourStrength, MaxRatio highlight guard |
+| Quality | ModelScale (0.25–1), Passes (1–3). Both affect GPU cost and can rebuild the network; edits commit when editing finishes |
 | Temporal history | Temporal and HistoryStrength. Requires supported, unjittered motion vectors; unavailable vectors disable history |
 | Preprocessing | Preprocess, PreprocessExposure (Off/Auto/Fixed), PreprocessBiasEv, PreprocessCurve (None/Neutral/Reinhard/Filmic/GT/ACES/AgX), PreprocessContrast and PreprocessSaturation. The transform changes the model input and is reversed from its answer |
-| Advanced | ApplyModel, LinearInput (Auto/Linear/Encoded), MaxPasses (0 follows current passes), DynamicResolution (Exact/Auto bucket/Always bucket) |
+| Advanced | WhitePoint for linear input, LinearInput (Auto/Linear/Encoded), MaxPasses (0 follows current passes), DynamicResolution (Exact/Auto bucket/Always bucket) |
 | Pass 2/3 | Explicit override plus that pass's style, intensity, tone, structure, skin structure and mask. With override off, inherit pass 1 but use zero LocalTone |
+
+The menu shows status and the performance-display toggle first, followed by Quality,
+Pass 1 and enabled Pass 2/3, Output adjustment, Temporal history, Preprocessing,
+Advanced and Diagnostics. Quality and active passes initially expand. Disabling a
+pass hides its controls without deleting its settings. Model resolution displays
+as a percentage; resolution, pass count and prebuild-pass edits commit on release
+or completion of keyboard/text editing, avoiding rebuilds during dragging.
 
 Auto DRS buckets changing input subrects to reduce repeated network builds. The
 network repeats the subrect edge into the unused bucket and resets history when the
