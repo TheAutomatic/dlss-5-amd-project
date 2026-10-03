@@ -78,7 +78,7 @@ All three backends share this layout. The Page Up overlay keeps its independent 
 - [1. Standing on the Shoulders of Giants](#1-standing-on-the-shoulders-of-giants)
 - [2. Installation Guide](#2-installation-guide)
   - └─► [Optional: 3x+ Frame Generation](#optional-3x-frame-generation)
-- [3. Dual-Backend Architecture & Benchmarks](#3-dual-backend-architecture--benchmarks)
+- [3. Three Backends & Historical Benchmarks](#3-three-backends--historical-benchmarks)
 - [4. In-Game Settings & Controls](#4-in-game-settings--controls)
 - [5. Troubleshooting, Logs & Uninstallation](#5-troubleshooting-logs--uninstallation)
 - [6. Attributions & Licenses](#6-attributions--licenses)
@@ -143,10 +143,11 @@ RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
 | File / Directory | Purpose |
 |---|---|
 | `OptiScaler.dll` | Main binary (renamed during installation to your chosen proxy name) |
-| `OptiScaler.ini` | Core configuration file (contains `[DlssNr]` dual-backend options) |
+| `OptiScaler.ini` | Core configuration file (contains `[DlssNr]` three-backend options) |
 | `OptiScaler\` | Core dependencies (FFX, XeSS, Agility SDK, plugins) |
 | `LmxxfNrRuntime.dll` | lmxxf backend runtime (open-source HIP neural rendering) |
-| `lmxxf-modules\` | lmxxf dual-architecture compute modules (24 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
+| `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime, shaders and extraction tool; model supplied separately |
+| `lmxxf-modules\` | lmxxf dual-architecture compute modules (34 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
 | `shaders\` | lmxxf codec shaders (`native_codec_encode.hlsl` and others) |
 | `experimental_lighting\` | Precompiled shaders for the experimental lighting pass (`GatherCS.cso` / `ResolveCS.cso`) |
 | `Setup.bat` / `Setup.ps1` | Interactive installer (**Double-click `Setup.bat`**) |
@@ -169,7 +170,7 @@ Prepare either backend (or both for side-by-side coexistence):
 
 #### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [Click Here](https://gofile.io/d/RyvcrDxz) to download weights
 - `LmxxfNrRuntime.dll` (from project release or [upstream lmxxf repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
-- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 24 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 48 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
+- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 34 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 68 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
 - Shader folder `shaders\` (with `native_codec_encode.hlsl`);
 - Weights folder `native-game-tiled-assets\` (can be downloaded [here](https://gofile.io/d/RyvcrDxz));
 - Place these in the same extracted folder as `Setup.bat`.
@@ -184,6 +185,14 @@ To upgrade, run the new package's `Setup.bat` and select the game folder. When O
 
 ---
 
+#### Option C: Prepare Mochizuki (Windows / RDNA4)
+
+The complete package includes `MochizukiNrRuntime.dll` and `dlssnr-amd/shaders/`. Supply your own `nvngx_dlssnr.dll` **310.8.0** beside `Setup.bat`, install Python **3.10+**, and select Mochizuki in Setup to extract and validate the model. An existing model at `dlssnr-amd/dlssnr.bin` can be reused without extraction. See [Mochizuki installation](docs/mochizuki.md) for the source hash and standalone extraction tool.
+
+Without the source DLL or model, Setup reports `MODEL SETUP REQUIRED`; the runtime alone is insufficient. Other DLL versions are not extracted automatically. Move an invalid model aside before rerunning Setup; it is not silently overwritten.
+
+The first network build can take minutes. The bottom-right panel shows build progress while frames pass through unchanged. Resolution, model scale or pass capacity changes can trigger another build. Mochizuki has independent preprocessing, three styles, 1–3 passes (default 1), and temporal controls. Its `Mochizuki*` INI keys do not change other backends. For troubleshooting, check Ins dependency/build status first, then `OptiScaler.log`.
+
 ### Step 2: Run the Installer (Recommended)
 
 1. Extract this release to any temporary folder;
@@ -193,7 +202,7 @@ To upgrade, run the new package's `Setup.bat` and select the game folder. When O
    - Select your game's executable directory (e.g. `...\Binaries\Win64\`);
    - If OptiScaler is already installed, choose **Y** to uninstall automatically before installing (recommended), or **N** to overwrite;
    - Select your proxy DLL name (default `dxgi.dll`, recommended; `winmm.dll`, `d3d12.dll` also supported; **do not use `dinput8.dll`**);
-   - If both backends are detected, choose which to install or install both;
+   - Review the detected backends and weights, install one or all available backends, then choose the active backend;
    - The installer sets up proxies, clears conflicting duplicate files, and configures `OptiScaler.ini`.
 
 ---
@@ -206,7 +215,8 @@ If you prefer manual file placement:
 3. **Deploy Backend Files**:
    - **For `lmxxf`**: Copy `LmxxfNrRuntime.dll`, `lmxxf-modules\`, `shaders\`, and `native-game-tiled-assets\` into the game directory;
    - **For `danielblnc`**: Duplicate `version.dll` into `dlssnr_amd_pass1.dll`, `dlssnr_amd_pass2.dll`, `dlssnr_amd_pass3.dll`; copy `dlssnr_on_amd_weights.bin` into the game directory (**do not leave a file named `version.dll`** to prevent double injection);
-4. In `OptiScaler.ini`, set `Enabled = true` under `[DlssNr]` and set `NrBackend = lmxxf` or `NrBackend = daniel`.
+   - **For `mochizuki`**: Copy `MochizukiNrRuntime.dll`, `dlssnr-amd/shaders/` and your `dlssnr-amd/dlssnr.bin`;
+4. In `OptiScaler.ini`, set `Enabled = true` under `[DlssNr]` and set `NrBackend = lmxxf`, `NrBackend = daniel` or `NrBackend = mochizuki`.
 
 ---
 
@@ -261,9 +271,9 @@ These options are independent of DLSSNR. Required files are not bundled; obtain 
 
 ---
 
-## 3. Dual-Backend Architecture & Benchmarks
+## 3. Three Backends & Historical Benchmarks
 
-This project supports two distinct AMD Neural Rendering backend technologies:
+The three backends are lmxxf (HIP), Mochizuki (Vulkan), and Daniel. The benchmarks below are historical and do not measure 1.10.0 or Mochizuki:
 
 ```
                           ┌──► [lmxxf Backend]   ──► Open-source HIP / Same-frame queue / Deep tuning

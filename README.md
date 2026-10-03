@@ -82,7 +82,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 - [1. 巨人的肩膀](#1-巨人的肩膀)
 - [2. 安装指南 (Installation Guide)](#2-安装指南-installation-guide)
   - └─► [可选：3倍及以上多帧生成 (Frame Generation)](#可选功能3倍及以上多帧生成frame-generation)
-- [3. 双后端架构解析与性能实测](#3-双后端架构解析与性能实测)
+- [3. 三后端架构与历史性能实测](#3-三后端架构与历史性能实测)
 - [4. 游戏内设置与控制](#4-游戏内设置与控制)
 - [5. 排错、日志定位与卸载](#5-排错日志定位与卸载)
 - [6. 署名与许可 (Attributions & Licenses)](#6-署名与许可-attributions--licenses)
@@ -147,10 +147,11 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 | 文件/目录 | 作用 |
 |---|---|
 | `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
-| `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 双后端切换与参数选项） |
+| `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 三后端切换与参数选项） |
 | `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
 | `LmxxfNrRuntime.dll` | lmxxf 后端运行时（开源 HIP 神经渲染） |
-| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 24 个 `.hsaco`，附 `SHA256SUMS` 清单） |
+| `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime、着色器及模型提取工具；模型另备 |
+| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 34 个 `.hsaco`，附 `SHA256SUMS` 清单） |
 | `shaders\` | lmxxf 编解码着色器（`native_codec_encode.hlsl` 等） |
 | `experimental_lighting\` | 实验性光照 pass 的预编译着色器（`GatherCS.cso` / `ResolveCS.cso`） |
 | `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
@@ -169,11 +170,11 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 
 ### 第一步：准备对应后端的文件
 
-你可以根据需要准备以下任意一种（或两种都准备）：
+可以准备以下任意后端，或同时安装多个后端：
 
 #### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
 - 准备 `LmxxfNrRuntime.dll`（可从本项目 Release 或 [lmxxf 仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 获取）；
-- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 24 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 48 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
+- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 34 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 68 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
 - 模型权重目录 `native-game-tiled-assets\`（可[点击这里](https://gofile.io/d/RyvcrDxz)直接下载）；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
@@ -188,6 +189,14 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 
 ---
 
+#### 选项 C：准备 Mochizuki（Windows / RDNA4）
+
+完整包已包含 `MochizukiNrRuntime.dll` 和 `dlssnr-amd/shaders/`。另外准备自己的 `nvngx_dlssnr.dll` **310.8.0**，放在 `Setup.bat` 旁；安装 Python **3.10+**，运行 Setup 并选择 Mochizuki，安装器会提取和验证模型。已有模型时可直接放入 `dlssnr-amd/dlssnr.bin`，无需重新提取。完整校验值和独立提取方法见 [Mochizuki 安装说明](docs/mochizuki.md)。
+
+没有源 DLL 或模型时，Setup 会提示 `MODEL SETUP REQUIRED`；只有 runtime 不代表可以运行。其他版本的 DLL 不自动尝试提取。模型损坏时先把旧 `dlssnr.bin` 移走，再运行 Setup；安装器不会静默覆盖它。
+
+首次进入游戏可能需要数分钟编译网络，右下角显示阶段和进度；期间显示原始画面。改变分辨率、模型比例或叠层容量可能再次编译。Mochizuki 有独立的输入预处理、三种风格、1–3 遍叠层和时序控制；默认叠层 1。Ins/INI 中 `Mochizuki*` 参数不影响另外两个后端。需要排错时先看 Ins 的缺失依赖/编译状态，再看 `OptiScaler.log`。
+
 ### 第二步：运行安装器（推荐，一键全自动）
 
 1. 解压本 Release 包到任意临时目录；
@@ -197,7 +206,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
    - 弹出文件夹选择框，选中 **游戏主程序 exe 所在的目录**（例如 `...\Binaries\Win64\`）；
    - 若检测到已有 OptiScaler，输入 **Y** 自动卸载后安装（推荐），或输入 **N** 覆盖安装；
    - 按照提示选择你要注入的 **代理 DLL 名称**（默认为 `dxgi.dll`，推荐；也支持 `winmm.dll`、`d3d12.dll` 等，**不要选 `dinput8.dll`**）；
-   - 安装器自动扫描检测你的文件，若同时检测到两个后端，会弹出菜单让你选择安装哪一个，或两者皆装；
+   - 安装器显示三后端及权重检测结果；选择单个后端或安装全部可用后端，再选择当前启用的后端；
    - 安装器自动处理重命名、防双重注入清理、依赖部署，并配置 `OptiScaler.ini`。
 
 ---
@@ -210,7 +219,8 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 3. **部署后端**：
    - **若使用 `lmxxf`**：将 `LmxxfNrRuntime.dll`、`lmxxf-modules\`、`shaders\`、`native-game-tiled-assets\` 放入游戏目录；
    - **若使用 `danielblnc`**：将 danielblnc 的 `version.dll` 复制三份，分别命名为 `dlssnr_amd_pass1.dll`、`dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll`；将 `dlssnr_on_amd_weights.bin` 放入游戏目录（**切勿保留名为 `version.dll` 的 danielblnc 文件**，以免冲突）；
-4. 打开 `OptiScaler.ini`，在 `[DlssNr]` 中设置 `Enabled = true`，并通过 `NrBackend = lmxxf` 或 `NrBackend = daniel` 指定当前生效的后端。
+   - **若使用 `mochizuki`**：复制 `MochizukiNrRuntime.dll`、`dlssnr-amd/shaders/` 及自己的 `dlssnr-amd/dlssnr.bin`；
+4. 打开 `OptiScaler.ini`，在 `[DlssNr]` 中设置 `Enabled = true`，并通过 `NrBackend = lmxxf`、`NrBackend = daniel` 或 `NrBackend = mochizuki` 指定当前生效的后端。
 
 ---
 
@@ -267,13 +277,14 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 
 ---
 
-## 3. 双后端架构解析与性能实测
+## 3. 三后端架构与历史性能实测
 
-本项目目前同时支持两大技术路线的 AMD 神经渲染后端，用户可根据自身硬件与喜好自由选择：
+当前支持 lmxxf（HIP）、Mochizuki（Vulkan）与 Daniel 三个后端。下面的性能数据来自历史配置，不代表 1.10.0 或 Mochizuki 的性能：
 
 ```
                            ┌──► [lmxxf 后端]   ──► 开源 HIP 算子 / 主队列同帧同步 / 深度调优
 游戏 DLSS/XeSS 输入 ──► OptiScaler ──┤
+                           ├──► [Mochizuki] ──► Vulkan / D3D12 interop
                            └──► [daniel 后端] ──► 多槽调度 / 0.3.1 兼容 / 跨系列通用
                                        │
                                        ▼
