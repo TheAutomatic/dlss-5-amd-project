@@ -13,6 +13,26 @@
 - 1.8.x 时代的形式是 `1.8.x-0.3.y`（本 fork 版本 + 支持的 daniel runtime 版本）；1.9 起双后端，不再带 runtime 后缀。
 - **1.9.0.x 已全部撤包。** 本地遗留的 annotated tag `v1.9.0` 和 `dist/OptiScaler-AMD-PreSR-1.9.0.3.zip` 不要复用，任何新版本都不要再用 `1.9.0.x` 这个号。手动触发留空时读取 `VERSION`，也可显式指定版本。
 
+## 一键重编本地测试包
+
+双击 `tools/release/BUILD_LOCAL_PACKAGE.cmd`，选择源码工作树目录，再输入如
+`1.9.10.3` 的版本号。也可用参数运行 `BUILD_LOCAL_PACKAGE.ps1 -Root <源码目录>
+-Version 1.9.10.3`；加 `-PlanOnly` 只检查和显示计划，不修改或构建。
+
+脚本使用所选工作树（包括未提交修改），不切分支、不提交、不发布。重新编译 lmxxf
+runtime；分支包含 Mochizuki 时也编译该 runtime 和着色器；宿主使用 MSBuild Rebuild。
+HIP `.hsaco` 使用该分支已提交模块，不另行追更或重编 HIP 实验。Daniel 闭源 DLL 和
+模型仍由安装器原有流程获取，不属于本仓库可编译目标。
+
+依赖从所选工作树或主工作区 `dist/exports` 的完整解压包自动寻找；缺失时先解压一份
+已有完整包再运行。脚本必须在已配置编译工具与子模块的开发机运行。MSBuild 参数与
+`build-release-local.cmd` 使用相同的固定工具链，升级工具链时须同时更新这两个入口。
+
+输出为所选工作树 `exports/OptiScaler-AMD-PreSR-<版本>-local-<时间>.zip`，避免覆盖旧包；
+日志在 `exports/local-build-<时间>/`。成功后 VERSION 保留输入版本；失败恢复原 VERSION，
+停止后续打包。使用 LocalTest，不自动跑完整发版测试；已有产物新鲜度、依赖和 ZIP 校验
+照常执行。不要与同一工作树中的其他构建同时运行。
+
 ## 构建
 
 | 项 | 规则 |
