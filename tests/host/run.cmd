@@ -32,6 +32,8 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% /utf-8 tests\host\fg_resource_readiness.cpp /Fe"%OUT%\fg_resource_readiness.exe" /Fo"%OUT%\fg_resource_readiness.obj" || goto fail
+"%OUT%\fg_resource_readiness.exe" || goto fail
 %CXX% /utf-8 tests\host\nr_performance.cpp /Fe"%OUT%\nr_performance.exe" /Fo"%OUT%\nr_performance.obj" || goto fail
 "%OUT%\nr_performance.exe" || goto fail
 %CXX% /utf-8 tests\host\upscaler_route_diagnostic.cpp /Fe"%OUT%\upscaler_route_diagnostic.exe" /Fo"%OUT%\upscaler_route_diagnostic.obj" || goto fail

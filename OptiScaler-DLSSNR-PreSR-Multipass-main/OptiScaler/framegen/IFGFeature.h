@@ -1,5 +1,6 @@
 #pragma once
 #include "SysUtils.h"
+#include "FrameResourceReadiness.h"
 #include <OwnedMutex.h>
 #include <dxgi1_6.h>
 #include <flag-set-cpp/flag_set.hpp>
@@ -81,8 +82,8 @@ class IFGFeature
     UINT64 _targetFrame = 0;
     FG_Constants _constants {};
 
-    std::unordered_map<FG_ResourceType, bool> _resourceReady[BUFFER_COUNT] {};
-    std::unordered_map<FG_ResourceType, UINT64> _resourceFrame {};
+    FrameResourceReadiness _resourceReady[BUFFER_COUNT];
+    static_assert(FG_ResourceType::ResourceTypeCOUNT <= 32);
 
     bool _noHudless[BUFFER_COUNT] = { true, true, true, true };
     bool _noUi[BUFFER_COUNT] = { true, true, true, true };

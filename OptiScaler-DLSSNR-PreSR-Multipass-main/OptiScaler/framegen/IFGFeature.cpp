@@ -55,7 +55,7 @@ UINT64 IFGFeature::StartNewFrame()
     auto fIndex = GetIndex();
     LOG_DEBUG("_frameCount: {}, fIndex: {}", _frameCount, fIndex);
 
-    _resourceReady[fIndex].clear();
+    _resourceReady[fIndex].Reset();
     _waitingExecute[fIndex] = false;
 
     _noUi[fIndex] = true;
@@ -72,7 +72,7 @@ bool IFGFeature::IsResourceReady(FG_ResourceType type, int index)
     if (index < 0)
         index = GetIndex();
 
-    return _resourceReady[index].contains(type);
+    return _resourceReady[index].Contains(type);
 }
 
 bool IFGFeature::WaitingExecution(int index)
@@ -325,8 +325,7 @@ void IFGFeature::SetResourceReady(FG_ResourceType type, int index)
     if (index < 0)
         index = GetIndex();
 
-    _resourceReady[index][type] = true;
-    _resourceFrame[type] = _frameCount;
+    _resourceReady[index].Mark(type);
 }
 
 UINT IFGFeature::GetInterpolatedFrameCount() const { return _framesToInterpolate < 0 ? 1 : _framesToInterpolate; }

@@ -743,10 +743,8 @@ bool XeFG_Dx12::Dispatch()
 
     LOG_DEBUG("_frameCount: {}, willDispatchFrame: {}, fIndex: {}", _frameCount, willDispatchFrame, fIndex);
 
-    if (!_resourceReady[fIndex].contains(FG_ResourceType::Depth) ||
-        !_resourceReady[fIndex].at(FG_ResourceType::Depth) ||
-        !_resourceReady[fIndex].contains(FG_ResourceType::Velocity) ||
-        !_resourceReady[fIndex].at(FG_ResourceType::Velocity))
+    if (!_resourceReady[fIndex].ContainsMask((1u << FG_ResourceType::Depth) |
+                                              (1u << FG_ResourceType::Velocity)))
     {
         LOG_WARN("Depth or Velocity is not ready, skipping");
         return false;
