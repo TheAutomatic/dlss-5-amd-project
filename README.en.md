@@ -278,6 +278,7 @@ The three backends are lmxxf (HIP), Mochizuki (Vulkan), and Daniel. The benchmar
 ```
                           ┌──► [lmxxf Backend]   ──► Open-source HIP / Same-frame queue / Deep tuning
 Game DLSS/XeSS Inputs ──► OptiScaler ──┤
+                          ├──► [Mochizuki] ──► Vulkan / D3D12 interop
                           └──► [daniel Backend] ──► Multi-slot scheduling / 0.3.1 compat / Universal
                                       │
                                       ▼

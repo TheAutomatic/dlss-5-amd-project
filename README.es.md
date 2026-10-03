@@ -270,6 +270,7 @@ Los tres backends son lmxxf (HIP), Mochizuki (Vulkan) y Daniel. Las mediciones s
 ```
                             ┌──► [Backend lmxxf]  ──► HIP abierto / Misma cola del frame / Ajuste profundo
 Entradas DLSS/XeSS del juego ──► OptiScaler ──┤
+                            ├──► [Mochizuki] ──► Vulkan / D3D12 interop
                             └──► [Backend daniel] ──► Planificación multi-slot / Compat 0.3.1 / Universal
                                         │
                                         ▼

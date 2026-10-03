@@ -128,7 +128,7 @@ if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
     throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
 }
-# 31/arch, 62 dual must agree across runtime, tests, packager, and recipe.
+# 34/arch, 68 dual must agree across runtime, tests, packager, and recipe.
 $contract = Join-Path $PSScriptRoot 'check-module-contract.ps1'
 if (-not (Test-Path -LiteralPath $contract -PathType Leaf)) {
     throw "Module contract check is missing: $contract"
