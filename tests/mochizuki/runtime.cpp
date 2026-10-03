@@ -61,6 +61,8 @@ struct Frame {
             auto* row=static_cast<char*>(data)+footprint.Footprint.RowPitch*y;
             if(fmt==DXGI_FORMAT_R9G9B9E5_SHAREDEXP)
                 reinterpret_cast<DirectX::PackedVector::XMFLOAT3SE*>(row)[x]=DirectX::PackedVector::XMFLOAT3SE(base,base*.8f,base*.6f);
+            else if(fmt==DXGI_FORMAT_R11G11B10_FLOAT)
+                reinterpret_cast<DirectX::PackedVector::XMFLOAT3PK*>(row)[x]=DirectX::PackedVector::XMFLOAT3PK(base,base*.8f,base*.6f);
             else if(fmt==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
                 auto* p=reinterpret_cast<uint8_t*>(row)+x*4;
                 for(int k=0;k<3;k++)p[k]=uint8_t(std::round(base*(1.f-.2f*k)*255));p[3]=255;
@@ -92,6 +94,8 @@ struct Frame {
             float v;
             if(format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP)
                 v=DirectX::XMVectorGetX(DirectX::PackedVector::XMLoadFloat3SE(reinterpret_cast<DirectX::PackedVector::XMFLOAT3SE*>(row)+x));
+            else if(format==DXGI_FORMAT_R11G11B10_FLOAT)
+                v=DirectX::XMVectorGetX(DirectX::PackedVector::XMLoadFloat3PK(reinterpret_cast<DirectX::PackedVector::XMFLOAT3PK*>(row)+x));
             else if(format==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) v=reinterpret_cast<uint8_t*>(row)[x*4]/255.f;
             else v=DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<uint16_t*>(row)[x*4]);
             Require(std::isfinite(v)&&std::abs(v)<100,"non-finite or excessive output");sum+=v;
@@ -119,6 +123,10 @@ int wmain(int argc,wchar_t**argv) try {
     auto set=reinterpret_cast<PFN_MochizukiNrSetControls>(GetProcAddress(dll,"MochizukiNrSetControls"));
     auto prepare=reinterpret_cast<PFN_MochizukiNrPrepareFrame>(GetProcAddress(dll,"MochizukiNrPrepareFrame"));
     auto getInfo=reinterpret_cast<PFN_MochizukiNrGetInfo>(GetProcAddress(dll,"MochizukiNrGetInfo"));
+    auto getProgress=reinterpret_cast<PFN_MochizukiNrGetBuildProgress>(GetProcAddress(dll,"MochizukiNrGetBuildProgress"));
+    Require(getProgress!=nullptr,"missing build progress export");
+    MochizukiNrBuildProgress invalidProgress {sizeof invalidProgress};
+    Require(getProgress(nullptr,&invalidProgress)==LMXXF_NR_INVALID_ARGUMENT,"progress accepted null session");
     Require(defaults&&set&&prepare&&getInfo,"missing controls/frame exports");Rc(defaults(&controls));
     Require(controls.intensity==1&&controls.preprocess==0,"control defaults");
     MochizukiNrControls oldControls {sizeof controls-4};
@@ -137,12 +145,27 @@ int wmain(int argc,wchar_t**argv) try {
     ComPtr<ID3D12Fence> tail;Hr(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&tail)));uint64_t value=0;
     LmxxfNrCreateInfo ci {sizeof ci,device.Get(),q[0].Get(),argv[2],LMXXF_NR_CREATE_FLAG_RECORDING_LEASES};
     Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
-    Frame frame(device.Get(),256,256);List upload(device.Get());frame.Upload(upload.cmd.Get());Hr(upload.cmd->Close());Submit(q[0].Get(),upload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+    MochizukiNrBuildProgress wrongProgress {sizeof(MochizukiNrBuildProgress)-4};
+    Require(getProgress(context,&wrongProgress)==LMXXF_NR_INVALID_ARGUMENT,"partial progress struct accepted");
+    const bool startup=argc>3 && std::wstring(argv[3])==L"--startup";
+    Frame frame(device.Get(),startup?1920:256,startup?1080:256,startup?DXGI_FORMAT_R11G11B10_FLOAT:DXGI_FORMAT_R16G16B16A16_FLOAT);
+    List upload(device.Get());frame.Upload(upload.cmd.Get());Hr(upload.cmd->Close());Submit(q[0].Get(),upload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
     auto make=[&](Frame& f,UINT validWidth=0) {
         MochizukiNrFrameInfo info {};info.struct_size=sizeof info;info.color=f.color.Get();info.color_width=validWidth?validWidth:f.width;info.color_height=f.height;
         info.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;info.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;info.transfer_strength=info.color_strength=info.model_scale=1;info.passes=1;
         LmxxfNrJob job {sizeof job};const auto deadline=GetTickCount64()+300000;
-        for(;;) {int rc=prepare(context,&info,&job);if(!rc)break; if(rc!=LMXXF_NR_UNAVAILABLE||GetTickCount64()>deadline)Rc(rc);Sleep(100);}
+        std::string lastStage;uint32_t lastCompleted=UINT32_MAX;
+        for(;;) {
+            int rc=prepare(context,&info,&job);
+            MochizukiNrBuildProgress progress {sizeof progress};Rc(getProgress(context,&progress));
+            Require(progress.completed<=progress.total,"invalid build progress count");
+            if(progress.active && (lastStage!=progress.stage || lastCompleted!=progress.completed)) {
+                printf("BUILD_PROGRESS %.1fs %s %u/%u\n",double(GetTickCount64()-progress.start_tick)/1000,progress.stage,progress.completed,progress.total);
+                fflush(stdout);lastStage=progress.stage;lastCompleted=progress.completed;
+            }
+            if(!rc) {Require(!progress.active,"progress still active after ready");break;}
+            if(rc!=LMXXF_NR_UNAVAILABLE||GetTickCount64()>deadline)Rc(rc);Sleep(100);
+        }
         return job;
     };
     auto job=make(frame);List inputs(device.Get()),outputs(device.Get());Rc(api.RecordInputs(context,job.handle,inputs.cmd.Get()));Rc(api.RecordOutputs(context,job.handle,outputs.cmd.Get()));frame.Read(outputs.cmd.Get(),static_cast<ID3D12Resource*>(job.private_output));Hr(inputs.cmd->Close());Hr(outputs.cmd->Close());
@@ -156,6 +179,17 @@ int wmain(int argc,wchar_t**argv) try {
         Rc(api.EndRecordingExecution(context,job.handle,queue,3,tail.Get(),value,hr));Wait(tail.Get(),value);
     }
     frame.Check();
+    if(startup) {
+        if(argc>4 && argv[4][0]) {
+            FILE* file=nullptr;Require(_wfopen_s(&file,argv[4],L"wb")==0,"output dump open failed");
+            void* pixels=nullptr;Hr(frame.readback->Map(0,nullptr,&pixels));
+            for(UINT y=0;y<frame.height;y++)
+                Require(fwrite(static_cast<char*>(pixels)+y*frame.footprint.Footprint.RowPitch,4,frame.width,file)==frame.width,"output dump write failed");
+            frame.readback->Unmap(0,nullptr);fclose(file);
+        }
+        Rc(api.InvalidateRecording(context,job.handle));Rc(api.CollectRecording(context,job.handle));Rc(api.Destroy(context));
+        FreeLibrary(dll);puts("MOCHIZUKI_STARTUP_OK 1920x1080 R11G11B10_FLOAT");return 0;
+    }
     MochizukiNrInfo timing {sizeof timing};Rc(getInfo(context,&timing));
     Require(timing.gpu_samples>0 && std::isfinite(timing.gpu_ms_last) && timing.gpu_ms_last>0,"missing completed network timing");
     const auto samples=timing.gpu_samples;Rc(getInfo(context,&timing));

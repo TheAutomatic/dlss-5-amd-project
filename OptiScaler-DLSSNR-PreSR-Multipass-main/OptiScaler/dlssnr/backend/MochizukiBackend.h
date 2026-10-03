@@ -1,5 +1,6 @@
 #pragma once
 #include "Host.h"
+#include "mochizuki_runtime/MochizukiNrControls.h"
 #include <filesystem>
 #include <memory>
 
@@ -24,6 +25,7 @@ public:
     void InvalidateHistory() override;
     std::string Status() const override;
     NrTimingSnapshot Timing() const override;
+    MochizukiNrBuildProgress BuildProgress() const;
     bool GraphicsRestartNeeded(UINT) const override { return false; }
 };
 }

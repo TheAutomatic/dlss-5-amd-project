@@ -13,7 +13,8 @@ The runtime adapts native D3D12/Vulkan interop and pipeline prewarming code from
 [MatheusFerreiraS/neural-amd-opti](https://github.com/MatheusFerreiraS/neural-amd-opti).
 This product implements backend selection, host recording ownership, configuration,
 menus and packaging, and adapts the runtime for retained recordings, replay and
-completion-based resource release. Exact reused components, source pins, licenses and
+completion-based resource release. Its build-progress display and execution-history
+handling are described below. Exact reused components, source pins, licenses and
 local changes are in [the source record](../third_party/mochizuki/UPSTREAM.md).
 
 ## Installation
@@ -33,8 +34,14 @@ local changes are in [the source record](../third_party/mochizuki/UPSTREAM.md).
    the active backend. Ins exposes the same selection; with `NrConvenience=0`, save
    and restart after changing it. Unselected backends are not initialized.
 
-The first network build can take minutes. Ins displays **building the network**;
-frames pass through until it is ready. Changing resolution, model scale or pass
+The first network build can take minutes. Ins displays **building the network**.
+while building, a noninteractive panel also appears at the bottom right, even with
+Ins and the FPS overlay closed. It shows the phase, elapsed time and completed
+main-network shaders. Other phases use an indeterminate activity bar; shader counts
+are not an estimate of total remaining time. A step without an update for 30 seconds
+shows its waiting time. The panel disappears when building ends or NR is disabled.
+Build logs report at most about once per ten seconds plus phase completion.
+Frames pass through until it is ready. Changing resolution, model scale or pass
 capacity can require another build. Cache files belong to this machine and driver
 and are not distributed in the package. NR off releases the active session; closed
 command lists keep resources until they are invalidated and GPU work completes.
@@ -93,6 +100,14 @@ ordering, geometry retention, delayed collection, cancellation, execution-order
 history/reset, RGB9E5/sRGB outputs and changing DRS subrects. Both are wired
 into the corresponding `tests/run-all.cmd` tiers. Local and Actions use the same
 builder and ABI test; a local package is still pending actual game acceptance.
+
+For a focused 1080p R11G11B10 startup test, use
+`tests/mochizuki/run.cmd startup <asset-root> [output.raw]`. The asset root contains
+`dlssnr-amd/shaders` and the user model. A fresh asset directory alone does not make
+the AMD driver cache cold; use a fresh test executable name for that comparison and
+record the actual cache conditions. The test checks progress, then executes and
+reads back the network output. The eight edge-specialized shader bodies are disabled
+to reduce first-build cost, following the patch documented in the upstream notice.
 
 Uninstall removes the runtime and known shipped shaders. It preserves the user's
 model and local pipeline cache. To reclaim those, remove `dlssnr-amd` after closing

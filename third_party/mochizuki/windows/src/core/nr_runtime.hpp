@@ -162,6 +162,22 @@ struct RuntimeConfig {
 // was compiled. Null, the default, never stops a build. Set it around the
 // Runtime's constructor with BuildCancelScope.
 extern thread_local const std::atomic<bool>* build_cancel;
+// Host telemetry only; no shader or inference behavior changes. The callback
+// runs on the constructor thread and must never block on rendering or throw.
+using BuildProgressCallback = void (*)(void*, const char*, uint32_t, uint32_t) noexcept;
+inline thread_local BuildProgressCallback build_progress = nullptr;
+inline thread_local void* build_progress_context = nullptr;
+inline void report_build_progress(const char* stage, uint32_t done = 0, uint32_t total = 0) noexcept {
+    if (build_progress) build_progress(build_progress_context, stage, done, total);
+}
+struct BuildProgressScope {
+    BuildProgressCallback previous; void* context;
+    BuildProgressScope(BuildProgressCallback fn, void* user) noexcept
+        : previous(build_progress), context(build_progress_context) { build_progress = fn; build_progress_context = user; }
+    ~BuildProgressScope() { build_progress = previous; build_progress_context = context; }
+    BuildProgressScope(const BuildProgressScope&) = delete;
+    BuildProgressScope& operator=(const BuildProgressScope&) = delete;
+};
 struct BuildCancelScope {
     explicit BuildCancelScope(const std::atomic<bool>* flag) noexcept : outer_(build_cancel) { build_cancel = flag; }
     ~BuildCancelScope() { build_cancel = outer_; }

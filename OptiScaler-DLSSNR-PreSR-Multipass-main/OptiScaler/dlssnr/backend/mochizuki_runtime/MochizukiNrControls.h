@@ -20,6 +20,13 @@ extern "C"
  * needs no new session. */
 #define MOCHIZUKI_NR_FEATURE_ANY_QUEUE 1u
 
+    typedef struct MochizukiNrBuildProgress {
+        uint32_t struct_size, active, completed, total;
+        uint64_t start_tick, update_tick;
+        char stage[96];
+    } MochizukiNrBuildProgress;
+    typedef int32_t (*PFN_MochizukiNrGetBuildProgress)(void*, MochizukiNrBuildProgress*);
+
     /* One later pass's model controls (MochizukiNrControls::pass[0] is pass 2, pass[1] is pass 3). */
     typedef struct MochizukiNrPassControls
     {

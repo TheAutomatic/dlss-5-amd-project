@@ -21,7 +21,13 @@ contract and an explicit asset directory. Logging is opt-in and bounded. The cor
 completed timestamp-read serial accessor in `nr_runtime.hpp/.cpp` so UI polls do not
 duplicate GPU samples. No inference or shader math is changed by that accessor.
 
-The shader recipe uses upstream defaults, including `NR_EDGE_BODIES=1`. The build generator accepts an explicit shader compiler path; build tools and intermediate
+The shader recipe starts from upstream defaults and adapts MatheusFerreiraS's `NR_EDGE_BODIES=0` recipe on the eight
+pipelines that otherwise duplicate the Swin body for image-edge masks. A local RX 9070 XT fresh-executable
+1080p/R11G11B10 test reduced network construction from 133.7 s to 48.6 s; its output was byte-identical.
+This is startup evidence, not a claim of game FPS gains or all-game image equivalence.
+The core also reports build phases and completed main-network pipelines through a thread-local host
+callback. It changes no inference math. The host displays progress without a guessed total-time percentage.
+The build generator accepts an explicit shader compiler path; build tools and intermediate
 output live under exports, not this source tree.
 
 Build inputs are pinned: Vulkan-Headers `e3b1eec08173d6b825cd3ac88c885a63b621504a` (1.4.357),

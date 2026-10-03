@@ -1615,6 +1615,7 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
     };
 
     timer.mark("plan");
+    nr::report_build_progress("Unpacking weights");
     int lowering = 0;
     for (const Step* ps : run) {
         voff.step = lowering++;
@@ -3015,6 +3016,7 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
         for (Disp& d : disp) d.lo = d.hi = position.at(d.s);
     }
     timer.mark("weights-unpack");
+    nr::report_build_progress("Allocating GPU resources");
     if (!arena_probe)
         nr::logf("weight arena %.1f MB over %zu dispatches", double(wblob.size()) / 1e6, disp.size());
 
@@ -3671,12 +3673,14 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
     timer.mark("input-image");
     nr::logf("uploading weights: %.1f MB through a mapped staging buffer of the same size",
              double(wblob.size()) / 1e6);
+    nr::report_build_progress("Uploading weights to GPU");
     ctx.upload(wgt, 0, wblob.data(), wblob.size());
     timer.mark("weights-upload");
     // The pre-block's noise features (NR_NOISE_FIELD): a fixed function of pixel,
     // seed and gain, filled once here into the zeroed regions the lowering put
     // in the weight blob, by the same GLSL the pre-block would run per frame.
     if (!g_noise_jobs.empty()) {
+        nr::report_build_progress("Compiling noise shader");
         nrvk::Kernel nk;
         nk.create(ctx, spv_dir + "/g_noisefield.spv", {wgt.handle}, uint32_t(sizeof(NoiseJob)));
         ctx.one_shot([&](VkCommandBuffer cmd) {
@@ -3759,8 +3763,13 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
     // Bindings differ per shader and the buffers do not: every kernel in this
     // project reaches both arenas through push-constant offsets, which is what
     // lets one descriptor set per *shader* serve all of that shader's layers.
+    std::set<std::string> build_kernels;
+    for (const Disp& d : disp) build_kernels.insert(d.kern);
+    uint32_t compiled_kernels = 0;
     for (const Disp& d : disp) {
         if (kern.count(d.kern)) continue;
+        const std::string build_label = "Compiling shader: " + d.kern;
+        nr::report_build_progress(build_label.c_str(), compiled_kernels, uint32_t(build_kernels.size()));
         // A host going away (nr::build_cancel) stops here, between two
         // pipelines, and keeps what was compiled so far for its next start.
         if (nr::build_cancel && nr::build_cancel->load()) {
@@ -3829,7 +3838,10 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
             kern[d.kern].create(ctx, p, {act.handle, act.handle, act.handle, wgt.handle,
                                          wgt.handle, act.handle, wgt.handle, act.handle},
                                 sizeof(PushGemm) + (g_chain_kern.count(d.kern) ? 16 : 0));
+        ++compiled_kernels;
+        nr::report_build_progress(build_label.c_str(), compiled_kernels, uint32_t(build_kernels.size()));
     }
+    nr::report_build_progress("Saving pipeline cache");
     const size_t cache_bytes = ctx.save_pipeline_cache();
     timer.mark("pipelines");
     // `--wiring` prints what each dispatch reads and writes. A producer and a

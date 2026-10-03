@@ -1464,6 +1464,24 @@ struct Recording
 
 struct Session
 {
+    std::mutex progressMutex;
+    MochizukiNrBuildProgress progress {sizeof(MochizukiNrBuildProgress)};
+    uint64_t progressLogTick = 0;
+    static void ReportProgress(void* context, const char* stage, uint32_t done, uint32_t total) noexcept
+    {
+        auto& s = *static_cast<Session*>(context);
+        const auto now = GetTickCount64();
+        std::lock_guard lock(s.progressMutex);
+        std::snprintf(s.progress.stage, sizeof(s.progress.stage), "%s", stage);
+        s.progress.completed = done; s.progress.total = total;
+        s.progress.update_tick = now;
+        // Build-only diagnostics; bounded even with many pipeline callbacks.
+        if (!s.progressLogTick || now - s.progressLogTick >= 10000 || (total && done == total)) {
+            s.progressLogTick = now;
+            nr::logf("[mochizuki] build %.1f s: %s (%u/%u)",
+                double(now - s.progress.start_tick) / 1000, stage, done, total);
+        }
+    }
     std::wstring assets;
     std::shared_ptr<FrameBuffers> allocation;
     std::unordered_map<void*, std::unique_ptr<Recording>> recordings;
@@ -2833,6 +2851,12 @@ struct Session
                std::shared_ptr<nr::Runtime> old, UINT64 oldFinished, std::unique_ptr<FrameBuffers> buffers)
     {
         const auto t0 = std::chrono::steady_clock::now();
+        {
+            std::lock_guard lock(progressMutex);
+            progress = {sizeof(progress), 1, 0, 0, GetTickCount64(), GetTickCount64()};
+            progressLogTick = 0;
+        }
+        ReportProgress(this, "Waiting for previous GPU work", 0, 0);
         if (old)
         {
             if (WaitFinished(oldFinished, [this] { return abandon.load(); }) == VK_SUCCESS)
@@ -2850,6 +2874,7 @@ struct Session
         NrError::Kind kind = NrError::Other;
         try
         {
+            ReportProgress(this, "Waiting for network builder", 0, 0);
             // One core build at a time in the process, waited for in steps so that Destroy can end the wait.
             std::unique_lock core(CoreBuildMutex(), std::defer_lock);
             while (!core.try_lock_for(std::chrono::milliseconds(kWatchMs)))
@@ -2865,13 +2890,17 @@ struct Session
             // the core then loads; the capture records this build's for the next one, and Finish saves what the core
             // compiled after its own save (mz_interpose.h).
             mzi::Capture pipelines(host.device, host.physical, assets);
+            ReportProgress(this, "Prewarming cached shader descriptions", 0, 0);
             pipelines.Prewarm(&abandon);
             if (abandon)
                 throw std::runtime_error("stopped: the session is being destroyed");
             {
                 const nr::BuildCancelScope cancel(&abandon);
+                const nr::BuildProgressScope report(ReportProgress, this);
+                ReportProgress(this, "Preparing network graph", 0, 0);
                 made = std::make_shared<nr::Runtime>(host, config, nr::ControlMaskConfig {}, temporal);
             }
+            ReportProgress(this, "Saving shader cache", 0, 0);
             pipelines.Finish();
         }
         catch (const std::exception& e)
@@ -2897,6 +2926,7 @@ struct Session
             made && buildBaseUsage && vram.Read(usage, budget) && usage > buildBaseUsage ? usage - buildBaseUsage : 0;
         if (buffers && made && !abandon)
         {
+            ReportProgress(this, "Preparing shared frame buffers", 0, 0);
             try
             {
                 // The VRAM check the frame makes for them (MakeGeometry), now that the network holds its share. When
@@ -2923,6 +2953,10 @@ struct Session
         }
         else if (buffers)
             buffers.reset();
+        {
+            std::lock_guard progressLock(progressMutex);
+            progress.active = 0;
+        }
         std::unique_lock lock(buildMutex);
         built = std::move(made);
         builtBuffers = std::move(buffers);
@@ -4295,3 +4329,19 @@ extern "C" __declspec(dllexport) int32_t MochizukiNrPrepareFrame(
 
 extern "C" __declspec(dllexport) void MochizukiNrSetLogging(uint32_t enabled)
 { g_logging.store(enabled != 0, std::memory_order_relaxed); }
+
+extern "C" __declspec(dllexport) int32_t MochizukiNrGetBuildProgress(void* context, MochizukiNrBuildProgress* out)
+{
+    if (!context || !out || out->struct_size != sizeof(*out)) return LMXXF_NR_INVALID_ARGUMENT;
+    auto* s = static_cast<Session*>(context);
+    std::lock_guard lock(s->progressMutex);
+    *out = s->progress;
+    const auto now = GetTickCount64();
+    if (out->active && now - s->progressLogTick >= 10000) {
+        s->progressLogTick = now;
+        nr::logf("[mochizuki] build %.1f s: %s (%u/%u), last progress %.1f s ago",
+            double(now - out->start_tick) / 1000, out->stage, out->completed, out->total,
+            double(now - out->update_tick) / 1000);
+    }
+    return LMXXF_NR_OK;
+}

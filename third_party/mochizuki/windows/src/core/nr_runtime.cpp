@@ -933,6 +933,7 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
     if (s.build(int(argv.size()), argv.data(), &prepared_plan) != 0 || !s.missing.empty())
         throw std::runtime_error("NR graph initialization failed");
     timer.mark("graph");
+    report_build_progress("Preparing image and temporal pipelines");
     impl_->width = config.width; impl_->height = config.height;
     const auto adapters = std::filesystem::canonical(config.adapter_shaders.empty()
         ? network_shaders / "runtime" : std::filesystem::path(config.adapter_shaders));

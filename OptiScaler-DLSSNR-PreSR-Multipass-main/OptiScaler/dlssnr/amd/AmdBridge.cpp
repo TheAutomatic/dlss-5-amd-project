@@ -32,7 +32,7 @@ namespace
 // Switching only changes which one Record/Submit uses.
 std::atomic<DlssNr::Backend::Host*> g_daniel { nullptr };
 std::atomic<DlssNr::Backend::Host*> g_lmxxf { nullptr };
-std::atomic<DlssNr::Backend::Host*> g_mochizuki { nullptr };
+std::atomic<DlssNr::Backend::MochizukiBackend*> g_mochizuki { nullptr };
 
 DlssNr::Backend::Host* HostForKind(DlssNr::Backend::Kind k)
 {
@@ -819,6 +819,13 @@ NrTimingSnapshot Timing()
         snapshot.dropped += effects.dropped;
     }
     return snapshot;
+}
+MochizukiNrBuildProgress BuildProgress()
+{
+    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+        g_activeKind.load(std::memory_order_acquire) != int(DlssNr::Backend::Kind::Mochizuki)) return {};
+    if (auto* host = g_mochizuki.load(std::memory_order_acquire)) return host->BuildProgress();
+    return {};
 }
 std::string EffectsStatus() { return DlssNr::Effects::Status(); }
 std::string Status()

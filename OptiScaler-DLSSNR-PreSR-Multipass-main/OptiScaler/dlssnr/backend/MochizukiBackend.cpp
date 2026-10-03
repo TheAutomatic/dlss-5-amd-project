@@ -18,6 +18,7 @@ struct MochizukiBackend::Impl
     PFN_MochizukiNrPrepareFrame prepare = nullptr;
     PFN_MochizukiNrSetControls setControls = nullptr;
     PFN_MochizukiNrGetInfo getInfo = nullptr;
+    PFN_MochizukiNrGetBuildProgress getBuildProgress = nullptr;
     void (*setLogging)(uint32_t) = nullptr;
     std::shared_ptr<LmxxfRecording::SessionOwner> owner;
     uint64_t frameId = 0, retryAt = 0, infoAt = 0, logAt = 0;
@@ -26,6 +27,7 @@ struct MochizukiBackend::Impl
     mutable std::mutex mutex;
     std::string status = "mochizuki: idle";
     NrTimingSnapshot timing {};
+    MochizukiNrBuildProgress progress {};
 
     void Status(const std::string& text) { std::lock_guard lock(mutex); status = text; }
     void Error(const char* phase)
@@ -51,9 +53,10 @@ struct MochizukiBackend::Impl
             prepare = reinterpret_cast<PFN_MochizukiNrPrepareFrame>(GetProcAddress(module, "MochizukiNrPrepareFrame"));
             setControls = reinterpret_cast<PFN_MochizukiNrSetControls>(GetProcAddress(module, "MochizukiNrSetControls"));
             getInfo = reinterpret_cast<PFN_MochizukiNrGetInfo>(GetProcAddress(module, "MochizukiNrGetInfo"));
+            getBuildProgress = reinterpret_cast<PFN_MochizukiNrGetBuildProgress>(GetProcAddress(module, "MochizukiNrGetBuildProgress"));
             setLogging = reinterpret_cast<void (*)(uint32_t)>(GetProcAddress(module, "MochizukiNrSetLogging"));
             api.struct_size = sizeof api;
-            if (!getApi || !prepare || !setControls || !getInfo || !setLogging ||
+            if (!getApi || !prepare || !setControls || !getInfo || !getBuildProgress || !setLogging ||
                 getApi(LMXXF_NR_ABI_VERSION, &api) != LMXXF_NR_OK || !api.Create || !api.Destroy ||
                 !api.PrepareSession || !api.RecordInputs || !api.RecordOutputs || !api.EnqueueHip ||
                 !api.BeginRecordingExecution || !api.EndRecordingExecution || !api.InvalidateRecording ||
@@ -84,6 +87,10 @@ struct MochizukiBackend::Impl
         const auto now = GetTickCount64();
         if (now - infoAt < 500) return;
         infoAt = now;
+        MochizukiNrBuildProgress build {sizeof build};
+        if (getBuildProgress(owner->context, &build) == LMXXF_NR_OK) {
+            std::lock_guard lock(mutex); progress = build;
+        }
         char text[256] {};
         api.GetStatus(owner->context, text, sizeof text);
         Status(text);
@@ -196,7 +203,7 @@ void MochizukiBackend::ReleaseSession()
     std::lock_guard lifetime(Submission::RecordingMutex());
     p->owner.reset(); p->failed = false; p->retryAt = p->infoAt = 0;
     LmxxfRecording::Collect();
-    { std::lock_guard lock(p->mutex); p->timing = {}; p->status = "mochizuki: NR off"; }
+    { std::lock_guard lock(p->mutex); p->timing = {}; p->progress = {}; p->status = "mochizuki: NR off"; }
     if (!Config::Instance()->NrConvenience.value_or_default() && p->module)
     { FreeLibrary(p->module); p->module = nullptr; p->api = {}; }
 }
@@ -213,4 +220,5 @@ void MochizukiBackend::InvalidateHistory()
 }
 std::string MochizukiBackend::Status() const { std::lock_guard lock(p->mutex); return p->status; }
 NrTimingSnapshot MochizukiBackend::Timing() const { std::lock_guard lock(p->mutex); return p->timing; }
+MochizukiNrBuildProgress MochizukiBackend::BuildProgress() const { std::lock_guard lock(p->mutex); return p->progress; }
 }
