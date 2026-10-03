@@ -3575,18 +3575,14 @@ struct Session
         JoinBuilder();
         StopReleaser(); // what it has not freed is in `retired`
         vram.Close();   // a kernel handle to the adapter, which no GPU work uses
-        // Once the GPU has seen the session, a lost device, a game queue that does not drain within 30 s or Vulkan
-        // work that does not finish within kDrainWaitMs a wait (VulkanIdle) means it may still use it all: the game's
-        // queues are released (Lose, and Rerelease once more, since the watchdog has stopped), and the Vulkan side and
-        // the buffers leak rather than be freed under them; only the game's device and queues are given back.
-        // Otherwise everything goes, after a failure too. Before the GPU has seen it (a Start that failed, no build
-        // yet) nothing is in use.
-        if (gpuUsed && !deviceLost)
-        {
-            Queues queues;
-            if (FAILED(DrainGameQueues(queues)) || (vk.device && VulkanIdle(kDrainWaitMs) != VK_SUCCESS))
-                Lose("the session ended with GPU work that did not finish");
-        }
+        // Destroy rejects live recordings; CollectRecording only removes them
+        // after their submitted D3D12 consumer tails complete. No game command
+        // can still reference this session. Do not drain whole game queues here:
+        // later, unrelated waits may need the same thread that is turning NR off.
+        // The private Vulkan device still needs its own completion proof (and the
+        // builder was joined above). On loss, retain its imported resources.
+        if (gpuUsed && !deviceLost && vk.device && VulkanIdle(kDrainWaitMs) != VK_SUCCESS)
+            Lose("the session ended with Vulkan work that did not finish");
         if (gpuUsed && deviceLost)
         {
             Rerelease();

@@ -57,6 +57,7 @@ class LocalPackageTests(unittest.TestCase):
         self.assertIn(b'Compilation failed', result.stdout + result.stderr)
         self.assertEqual((self.root / 'VERSION').read_bytes(), b'1.0.0\r\n')
         self.assertEqual(list((self.root / 'exports').glob('*.zip')), [])
+        self.assertEqual(list((self.root / 'dist').glob('*.zip')), [])
 
     def test_mochizuki_requires_builder(self):
         p = self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime/MochizukiNrRuntime.cpp'

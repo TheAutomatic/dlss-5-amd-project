@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
   "to_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
-  "snapshot": "67bcb7c2e7ef4d2ca882ea66ec7368f9921f3f1f625f8a98de1415ed553e2f82",
+  "snapshot": "1bf126d3b985546c723fcc4561a43de6bcaa252170c6f7698f65f9a7bea05e4c",
   "reviewer": "Codex",
   "summary": "0.40 functional integration with Config-owned defaults, free geometry, fast numerics and multi-pass; preserve ABI2/recording/timing. COMGR shipping modules; LLVM23 and RowOpts explicitly deferred after actual compiler availability/compile checks.",
   "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "805e855c1fc39ca5e9b51aecb0d76f5039c13b2994aa9f95d8d4596fad0a301a",
+      "fingerprint": "45768099419fbc0c9fc7b7efee9d2c0e8a8f7702d5dcc8b53d9cebfe84772b26",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Integrated reviewed 0.40 source/features with retained product ABI2/recording contracts and COMGR modules; compiler optimization explicitly deferred. Final consumer re-review: InstallStatus validates UTF-8 hints before constructing paths and requires a nonempty model header payload; Selector caches dependency I/O only for menu diagnostics. Host malformed-UTF8 fallback regression passed; no inference or module change.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 配置、默认值与叠层 / Bridge、ABI、计时和输入",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Integrated reviewed 0.40 source/features with retained product ABI2/recording contracts and COMGR modules; compiler optimization explicitly deferred. Final consumer re-review: InstallStatus validates UTF-8 hints before constructing paths and requires a nonempty model header payload; Selector caches dependency I/O only for menu diagnostics. Host malformed-UTF8 fallback regression passed; no inference or module change. Cumulative review additionally removes Mochizuki final-destruction whole-game-queue draining after all owned recording tails are collected; private Vulkan completion, builder join and loss quarantine remain.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 配置、默认值与叠层 / Bridge、ABI、计时和输入; docs/lmxxf-040-consumer-review.md — 累计审查后的本地接入补审; docs/mochizuki.md — Session destruction and queue ownership",
+      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Old runtime failed destroy-tail with unrelated queues blocked; fixed runtime passed destroy-tail and full Mochizuki GPU suite (14 replays, two queues, resize, delayed collection, cancellation, history, formats, DRS). lmxxf inference and module consumers unchanged.",
       "next_step": ""
     },
     {

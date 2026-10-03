@@ -148,3 +148,17 @@ to reduce first-build cost, following the patch documented in the upstream notic
 Uninstall removes the runtime and known shipped shaders. It preserves the user's
 model and local pipeline cache. To reclaim those, remove `dlssnr-amd` after closing
 the game and confirming it is no longer needed.
+
+## Session destruction and queue ownership
+
+Destroy rejects sessions with live recordings or an executing token. An invalidated
+recording can be collected only after its submitted D3D12 consumer tails complete.
+Once all recordings are collected, destruction joins the builder and waits for the
+private Vulkan work, without draining later unrelated work on the game queues.
+Lost-device resources remain quarantined. This avoids making NR off/backend
+switching depend on game work that may need the switching thread to continue.
+
+`tests/mochizuki/run.cmd destroy-tail` reproduces this boundary by completing and
+collecting NR work, then blocking both game queues behind an unrelated fence.
+Destroy must return before the helper releases that fence. The full GPU suite
+includes this check alongside live-recording and cancellation coverage.

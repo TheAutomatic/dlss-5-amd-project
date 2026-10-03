@@ -12,6 +12,8 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <atomic>
+#include <thread>
 #include "dlssnr/backend/mochizuki_runtime/MochizukiNrApi.h"
 using Microsoft::WRL::ComPtr;
 void Require(bool yes, const char* text) { if (!yes) throw std::runtime_error(text); }
@@ -280,6 +282,26 @@ int wmain(int argc,wchar_t**argv) try {
         FreeLibrary(dll);
         puts("MOCHIZUKI_PASS_SWITCH_OK");return 0;
     }
+    auto destroyAfterOwnedTails = [&] {
+        // The recorded NR tails are complete. Later unrelated game work must not
+        // become a dependency of session destruction (NR off/backend switch).
+        ComPtr<ID3D12Fence> unrelated;
+        Hr(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&unrelated)));
+        for(auto& queue:q) Hr(queue->Wait(unrelated.Get(),1));
+        std::atomic<bool> returned{false}, forcedRelease{false};
+        std::thread release([&] {
+            const auto deadline=GetTickCount64()+1500;
+            while(!returned.load() && GetTickCount64()<deadline) Sleep(1);
+            forcedRelease=!returned.load();
+            unrelated->Signal(1);
+        });
+        const int rc=api.Destroy(context);
+        returned=true;
+        release.join();
+        Rc(rc);context=nullptr;
+        Require(!forcedRelease,"Destroy waited for unrelated game work after owned tails completed");
+        puts("MOCHIZUKI_DESTROY_OWNED_TAILS_OK");
+    };
     auto job=make(frame);List inputs(device.Get()),outputs(device.Get());Rc(api.RecordInputs(context,job.handle,inputs.cmd.Get()));Rc(api.RecordOutputs(context,job.handle,outputs.cmd.Get()));frame.Read(outputs.cmd.Get(),static_cast<ID3D12Resource*>(job.private_output));Hr(inputs.cmd->Close());Hr(outputs.cmd->Close());
     // A second Prepare must not invalidate the first closed recording.
     auto neverSubmitted=make(frame);Rc(api.InvalidateRecording(context,neverSubmitted.handle));Rc(api.CollectRecording(context,neverSubmitted.handle));
@@ -291,6 +313,10 @@ int wmain(int argc,wchar_t**argv) try {
         Rc(api.EndRecordingExecution(context,job.handle,queue,3,tail.Get(),value,hr));Wait(tail.Get(),value);
     }
     frame.Check();
+    if(argc>3 && std::wstring(argv[3])==L"--destroy-tail") {
+        Rc(api.InvalidateRecording(context,job.handle));Rc(api.CollectRecording(context,job.handle));
+        destroyAfterOwnedTails();FreeLibrary(dll);return 0;
+    }
     if(startup) {
         if(argc>4 && argv[4][0]) {
             FILE* file=nullptr;Require(_wfopen_s(&file,argv[4],L"wb")==0,"output dump open failed");
@@ -394,7 +420,7 @@ int wmain(int argc,wchar_t**argv) try {
     auto t6=temporal(6);auto t7=temporal(7);executeTemporal(*t7,false);executeTemporal(*t6,false);releaseTemporal(*t7);releaseTemporal(*t6);
     auto t8=temporal(8);executeTemporal(*t8,false);releaseTemporal(*t8);
     auto t9=temporal(9);executeTemporal(*t9,true);executeTemporal(*t9,false);releaseTemporal(*t9);
-    Rc(api.Destroy(context));
+    destroyAfterOwnedTails();
     // Cancellation must not return an unloadable DLL while its builder still runs.
     context=nullptr;Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));
     MochizukiNrFrameInfo cold {};cold.struct_size=sizeof cold;cold.color=resized.color.Get();cold.color_width=320;cold.color_height=256;

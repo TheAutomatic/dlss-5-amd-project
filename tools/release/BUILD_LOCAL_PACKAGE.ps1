@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([string]$Root, [string]$Version, [switch]$PlanOnly)
 $ErrorActionPreference = 'Stop'
 try {
@@ -86,11 +86,11 @@ exit /b 0
             if ($LASTEXITCODE -ne 0) { throw "Compilation failed; see $logs\build.log" }
             $ps = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
             & $ps -NoProfile -ExecutionPolicy Bypass -File tools/release/PACKAGE_RELEASE.ps1 `
-                -LocalTest -Version $Version -Name $name -OutDir exports `
+                -LocalTest -Version $Version -Name $name -OutDir dist `
                 -OptiDll exports/release-local/OptiScaler.dll -DepsRoot $deps 2>&1 |
                 Tee-Object -FilePath (Join-Path $logs 'package.log')
             if ($LASTEXITCODE -ne 0) { throw "Packaging failed; see $logs\package.log" }
-            $zip = Join-Path $Root "exports/$name.zip"
+            $zip = Join-Path $Root "dist/$name.zip"
             if (!(Test-Path -LiteralPath $zip -PathType Leaf)) { throw 'ZIP not produced.' }
             Write-Host "`nSUCCESS: $zip" -ForegroundColor Green
             Write-Host "VERSION is now $Version. No commit, tag or upload was made."

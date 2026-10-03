@@ -28,7 +28,7 @@ HIP `.hsaco` 使用该分支已提交模块，不另行追更或重编 HIP 实�
 已有完整包再运行。脚本必须在已配置编译工具与子模块的开发机运行。MSBuild 参数与
 `build-release-local.cmd` 使用相同的固定工具链，升级工具链时须同时更新这两个入口。
 
-输出为所选工作树 `exports/OptiScaler-AMD-PreSR-<版本>-local-<时间>.zip`，避免覆盖旧包；
+输出为所选工作树 `dist/OptiScaler-AMD-PreSR-<版本>-local-<时间>.zip`，避免覆盖旧包；
 日志在 `exports/local-build-<时间>/`。成功后 VERSION 保留输入版本；失败恢复原 VERSION，
 停止后续打包。使用 LocalTest，不自动跑完整发版测试；已有产物新鲜度、依赖和 ZIP 校验
 照常执行。不要与同一工作树中的其他构建同时运行。
