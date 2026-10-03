@@ -53,6 +53,8 @@
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
 
+`codec-flicker-test17.patch` 在现有 codec 补丁之后维护测试构建的逐帧命令位：可选 C1 有理高光曲线、原图对照及采样框标记。只有 `LMXXF_NR_FLICKER_TEST` runtime 能写入这些位；普通构建保持原路径。它不更改上游 pin、模型/模块或曝光策略，不代表曲线已通过游戏画质验收。
+
 更新固定头文件时，先对临时归档执行 `git apply --check`，成功后应用，再检查本地契约。任何 hunk 对不上均停止，不使用模糊替换、`--reject` 或部分应用。上游挪动上下文、改变契约或吸收了补丁时，在临时干净副本中重新审阅和生成对应 `.patch`，检查 diff 仅含预期修改，再验证 Runtime/相关测试。主同步脚本中不再存放 C++ 代码替换字符串。
 
 `module-defines.json` 按模块维护本地明确启用的宏。目前保留两个 multihead-fast-padded-wave 模块的 `HIP_FFN_LINE_STORES 1`。单个模块启用了某宏，不能代表其他模块也启用。上游出现同名同值定义时不重复注入；值冲突会失败，要求审阅。
@@ -83,3 +85,5 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 ```
 
 `--report-only` 的成功仅表示证据收集成功。审计默认返回 0 表示当前审阅记录有效，3 表示待审阅，1 表示读取/解析错误；同步脚本将任何非零审计结果转换为失败。
+
+`flicker-test18.patch` 保留仅由 `LMXXF_NR_FLICKER_TEST18` 启用的异步复用状态回调，并禁用冲突的旧 F8 开关；解码着色器增加测试专用可见保存状态字形。原有网络计算、模块和权重不变；补丁不代表鸣潮闪烁已修复。

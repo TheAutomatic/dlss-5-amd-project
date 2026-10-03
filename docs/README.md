@@ -12,6 +12,7 @@
 | [backends/lmxxf.md](backends/lmxxf.md) | lmxxf 后端专页 |
 | [temporal-test.md](temporal-test.md) | 默认关闭的 lmxxf 时序实验、四种现场对照与画质验收 |
 | [games/](games/) | 各游戏的兼容说明、已修复案例和排查入口 |
+| [games/nr-flicker-investigation.md](games/nr-flicker-investigation.md) | 鸣潮/伊莫 test12–21 闪烁调查结论、实验边界及上游最小复现 |
 | [release.md](release.md) | 发版：版本号、构建、包内容与禁入文件、编码规则、双后端烟测、CI |
 | [measurement.md](measurement.md) | 测量纪律：读数规则、PresentMon 列语义、开工前清单 |
 | [dev-environment.md](dev-environment.md) | 工具与测试索引、Windows / PowerShell / Git Bash 的坑、git 查证的坑、协作约定 |

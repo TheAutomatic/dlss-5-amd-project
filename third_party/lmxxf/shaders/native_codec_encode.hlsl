@@ -109,6 +109,12 @@ void main(uint3 id : SV_DispatchThreadID) {
     float3 value = max(Original.Load(int3(p,0)).rgb,0) / EffectivePaperWhite();
 #endif
     float3 shoulder = 0.75 + 0.25 * (1.0 - exp(-5.770780 * (value-0.75)));
+    // test17 candidate: same toe and 0..1 working domain, C1 rational shoulder.
+    // Deliberately retains the residual-transfer decoder, not an inverse shoulder.
+    if ((Reserved.x & 0x20000u) != 0) {
+        float3 d = max(value - 0.75, 0.0);
+        shoulder = 0.75 + 0.25 * (1.0 - 1.0 / (1.0 + 4.0 * d));
+    }
     value = saturate(value <= 0.75 ? value : shoulder);
     value = value <= 0.0031308 ? value*12.92 : 1.055*pow(value,1.0/2.4)-0.055;
     // FP16 rounding is performed by the RGBA16_FLOAT destination texture,

@@ -22,6 +22,11 @@
 #include <type_traits>
 namespace hip_reference {
 using U=uint32_t;using Api=hip_probe::Api;using Handle=hip_probe::Handle;
+#ifdef LMXXF_NR_FLICKER_TEST18
+inline thread_local void* Test18Owner=nullptr;
+inline thread_local void (*Test18Probe)(void*,Api&,Handle,const void*,U)=nullptr;
+#endif
+
 inline float Half(uint16_t h){U s=U(h&0x8000u)<<16,e=(h>>10)&31u,m=h&1023u,b;if(!e){if(!m)b=s;else{int sh=0;while(!(m&1024)){m<<=1;sh++;}b=s|(U(113-sh)<<23)|((m&1023)<<13);}}else b=s|((e==31?255:e+112)<<23)|(m<<13);float f;std::memcpy(&f,&b,4);return f;}
 inline std::vector<char> ReadBytes(const std::string&path){std::ifstream f(std::filesystem::u8path(path),std::ios::binary|std::ios::ate);if(!f)throw std::runtime_error("missing "+path);auto n=f.tellg();if(n<=0)throw std::runtime_error("empty "+path);std::vector<char>b(static_cast<size_t>(n));f.seekg(0);if(!f.read(b.data(),n))throw std::runtime_error("read "+path);return b;}
 inline std::vector<float> ReadWeights(const std::string&path){std::ifstream test(std::filesystem::u8path(path),std::ios::binary);bool full=bool(test);test.close();auto b=ReadBytes(full?path:path.substr(0,path.size()-4)+".f16");if(b.size()%(full?4:2))throw std::runtime_error("weight size "+path);std::vector<float>v(b.size()/(full?4:2));if(full)std::memcpy(v.data(),b.data(),b.size());else for(size_t i=0;i<v.size();i++){uint16_t h;std::memcpy(&h,b.data()+i*2,2);v[i]=Half(h);}return v;}
@@ -431,8 +436,17 @@ class Network {
  Tensor AdaptiveVitGroup(Tensor input,U n){
   const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=mode_s?U(std::stoul(mode_s)):0;
   const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
-  if(hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
+  if(hotkey
+#ifndef LMXXF_NR_FLICKER_TEST18
+     &&true
+#else
+     &&false // test18 owns capture controls; suppress legacy F8 toggle
+#endif
+     &&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
   AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
+#ifdef LMXXF_NR_FLICKER_TEST18
+  if(!mode&&Test18Probe)Test18Probe(Test18Owner,api,stream,nullptr,mode);
+#endif
   if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
   if(mode>3||opt.graph||!opt.fast_deep||!opt.pooled||opt.vit_byte_stream||std::any_of(opt.skip_blocks.begin(),opt.skip_blocks.end(),[](U b){return b>=31&&b<=38;}))throw std::runtime_error("adaptive ViT requires fast pooled graph-off non-byte-stream unskipped network, mode1..3");
   auto param=[](const char*key,float fallback){const char*v=std::getenv(key);float f=v?std::stof(v):fallback;if(!std::isfinite(f)||f<0)throw std::runtime_error("adaptive threshold");return f;};
@@ -451,6 +465,9 @@ class Network {
   Run("deep","reuse_image_stats",size_t(tiles)*256,adaptive_image,P(adaptive_image_anchor),P(adaptive_state),P(adaptive_image_signature),P(adaptive_image_delta),W,H);
   Run("deep","reuse_token_stats",size_t(n)*256,P(input),P(adaptive_anchor_in),P(adaptive_state),P(adaptive_stats),n,W/64,H/64,stride);
   Run("deep","reuse_decide",256,P(adaptive_stats),P(adaptive_state),n,period,global,local,mode,P(adaptive_image_delta),tiles,(W+31)/32,image_limit);
+#ifdef LMXXF_NR_FLICKER_TEST18
+  if(Test18Probe)Test18Probe(Test18Owner,api,stream,P(adaptive_state),mode);
+#endif
   Tensor full=input;adaptive_active=true;
   try{for(U block=31;block<=38;block++)full=Vit(full,n,block);}catch(...){adaptive_active=false;throw;}adaptive_active=false;
   auto result=New(size_t(n)*1024);Run("deep","reuse_finish",size_t(n)*1024,P(input),P(full),P(adaptive_anchor_in),P(adaptive_anchor_out),P(adaptive_gain),P(adaptive_state),P(result),U(n*1024),P(adaptive_image_signature),P(adaptive_image_anchor),U(tiles*3));

@@ -49,7 +49,8 @@
     "r10g10b10a2.patch",
     "typeless-float16.patch",
     "codec-hue-safe-preexp.patch",
-    "decode-upgrade-ratio-stable.patch"
+    "codec-flicker-test17.patch",
+    "flicker-test18.patch"
   ],
   "hip_files": [
     "build-modules.ps1",

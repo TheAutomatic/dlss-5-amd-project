@@ -10,6 +10,24 @@ spec.loader.exec_module(highlight)
 
 
 class CaptureTests(unittest.TestCase):
+    def test_v2_large_roi_and_guides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'test.nrhl'
+            data = bytearray(b'NRHLV2\0\0')
+            for stage, fmt, size, pixel in ((0, 10, 128, struct.pack('<4e', 2, 2, 2, 1)),
+                                           (5, 2, 128, struct.pack('<4f', .25, -.5, .75, 1))):
+                data.extend(highlight.HEADER.pack(7, stage, 0, 1920, 1080, 100, 200, size, size, fmt, 2, 0,
+                                                  1, 1, 1, 1, 1, 1000))
+                data.extend(pixel * size * size)
+            path.write_bytes(data)
+            rows = list(highlight.summaries(highlight.read_records(path)))
+            self.assertAlmostEqual(rows[0]['mean'], 2)
+            self.assertEqual(rows[1]['stage'], 'motion_depth')
+            self.assertAlmostEqual(rows[1]['mean'], .75)
+            path.write_bytes(data[:-1])
+            with self.assertRaisesRegex(ValueError, 'Truncated pixel'):
+                list(highlight.read_records(path))
+
     def test_real_half_float_and_temporal_gap(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'test.nrhl'

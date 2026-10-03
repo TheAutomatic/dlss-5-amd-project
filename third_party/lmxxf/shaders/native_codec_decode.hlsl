@@ -145,15 +145,7 @@ float3 Upgrade(float3 original,float3 proxy,float3 neural) {
  if(!(ny<=1e-5)) {
   float ratio=0;
   if(oy<py)ratio=oy/max(py,1e-6);
-  else {
-   // Luminance-match to the original. The (oy-py)/ny term is sharp in highlights:
-   // a small ny wobble flips ratio hard and the brightest pixels flicker frame to
-   // frame. Floor ny against the signal so the match stays smooth, then clamp the
-   // factor so a single frame cannot blow out. Average brightness intent is kept.
-   float denom=max(ny,0.25*max(oy-py,0.0)+0.05);
-   ratio=(ny+max(0,oy-py))/denom;
-   ratio=clamp(ratio,0.5,2.5);
-  }
+  else ratio=(ny+max(0,oy-py))/ny;
   result=lerp(original,Hue(neural*ratio,neural),TransferStrength);
  }
  return result;
@@ -166,6 +158,66 @@ float3 ReadFitted(Texture2D<float4> image,float2 p) {
              lerp(image.Load(int3(lo.x,hi.y,0)).rgb,image.Load(int3(hi,0)).rgb,f.x),f.y);
 }
 #endif
+// Test18 status uses a tiny embedded glyph font: no host-menu dependency.
+bool Test18Glyph(uint ch,uint2 p){
+ uint2 bits=uint2(0,0);switch(ch){
+ case 65u: bits=uint2(1663026734u,4u);break;
+ case 66u: bits=uint2(3809986095u,3u);break;
+ case 67u: bits=uint2(2182120510u,7u);break;
+ case 68u: bits=uint2(3810051631u,3u);break;
+ case 69u: bits=uint2(3256321087u,7u);break;
+ case 70u: bits=uint2(1108837439u,0u);break;
+ case 71u: bits=uint2(2736686142u,7u);break;
+ case 72u: bits=uint2(1663026737u,4u);break;
+ case 73u: bits=uint2(3359772831u,7u);break;
+ case 76u: bits=uint2(3255862305u,7u);break;
+ case 78u: bits=uint2(1939525233u,4u);break;
+ case 79u: bits=uint2(2736309806u,3u);break;
+ case 80u: bits=uint2(1108854319u,0u);break;
+ case 82u: bits=uint2(1381484079u,4u);break;
+ case 83u: bits=uint2(3775333438u,3u);break;
+ case 84u: bits=uint2(138547359u,1u);break;
+ case 85u: bits=uint2(2736309809u,3u);break;
+ case 86u: bits=uint2(353945137u,1u);break;
+ case 87u: bits=uint2(2002437681u,4u);break;
+ case 89u: bits=uint2(138553905u,1u);break;
+ case 48u: bits=uint2(2738546222u,3u);break;
+ case 49u: bits=uint2(2286031044u,3u);break;
+ case 50u: bits=uint2(3292807726u,7u);break;
+ case 56u: bits=uint2(2736211502u,3u);break;
+ case 57u: bits=uint2(2702132782u,3u);break;
+ }uint bit=p.y*5+p.x;return ((bit<32?bits.x>>bit:bits.y>>(bit-32))&1u)!=0;
+}
+float4 Test18Display(float4 value,uint2 p){
+ uint state=min((Reserved.x>>20)&7u,5u),seconds=(Reserved.x>>24)&31u;
+ float3 ink=state==3?float3(.05,1,.05):state>=4?float3(1,.1,.1):state==2?float3(1,.8,.05):float3(1,1,1);
+ int2 d=abs(int2(p)-int2(SourceBase));
+ bool corner=(d.x>=66&&d.x<=68&&d.y>=53&&d.y<=68)||(d.y>=66&&d.y<=68&&d.x>=53&&d.x<=68);
+ if(corner)value.rgb=ink;
+ if(p.y>=12&&p.y<18&&p.x>=12&&p.x<612)value.rgb=(p.x<12+seconds*30?ink:ink*.15);
+ if(p.x>=8&&p.x<596&&p.y>=22&&p.y<58){
+  value.rgb=float3(.015,.015,.015);
+  if(p.x>=12&&p.y>=26){uint2 cell=(p-uint2(12,26))/4;uint column=cell.x/6;
+   static const uint labels[144]={84u,69u,83u,84u,49u,56u,32u,82u,69u,65u,68u,89u,32u,70u,57u,32u,83u,84u,65u,82u,84u,32u,32u,32u,84u,69u,83u,84u,49u,56u,32u,67u,65u,80u,84u,85u,82u,73u,78u,71u,32u,32u,32u,32u,32u,32u,32u,32u,84u,69u,83u,84u,49u,56u,32u,83u,65u,86u,73u,78u,71u,32u,87u,65u,73u,84u,32u,32u,32u,32u,32u,32u,84u,69u,83u,84u,49u,56u,32u,83u,65u,86u,69u,68u,32u,32u,32u,32u,32u,32u,32u,32u,32u,32u,32u,32u,84u,69u,83u,84u,49u,56u,32u,70u,65u,73u,76u,69u,68u,32u,83u,69u,69u,32u,76u,79u,71u,32u,32u,32u,72u,73u,83u,84u,79u,82u,89u,32u,79u,70u,70u,32u,68u,69u,66u,85u,71u,32u,79u,70u,70u,32u,32u,32u};
+   if(column<24&&cell.x%6<5&&cell.y<7&&Test18Glyph(labels[state*24+column],uint2(cell.x%6,cell.y)))value.rgb=ink;
+  }
+ }return value;
+}
+
+float4 Test17Display(float4 value, uint2 p) {
+ if ((Reserved.x & 0x40000000u) != 0) return Test18Display(value,p);
+ if ((Reserved.x & 0x80000u) == 0) return value;
+ uint mode=(Reserved.x>>20)&3u;
+ float3 ink=mode==1?float3(0.05,1,0.05):mode==2?float3(0.1,0.5,1):float3(1,1,1);
+ // Corners lie outside the captured 128-square. Never feed markers to the model.
+ int2 d=abs(int2(p)-int2(SourceBase));
+ bool corner=(d.x>=66&&d.x<=68&&d.y>=53&&d.y<=68)||(d.y>=66&&d.y<=68&&d.x>=53&&d.x<=68);
+ uint seconds=(Reserved.x>>24)&31u;
+ bool bar=p.y>=12&&p.y<17&&p.x>=12&&p.x<612;
+ if(corner) value.rgb=ink;
+ if(bar)value.rgb=p.x<12+seconds*30?ink:ink*.15;
+ return value;
+}
 [numthreads(16,16,1)]
 void main(uint3 id:SV_DispatchThreadID) {
  if(any(id.xy>=Size))return;
@@ -173,6 +225,8 @@ void main(uint3 id:SV_DispatchThreadID) {
  uint2 extent=max(ProxySize,uint2(1,1));
  uint2 p=min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(Size)),extent-1);
  float4 source=OutputOriginal.Load(int3(id.xy,0));
+ // Same producer/inference/consumer path, but omit the model edit for a control.
+ if ((Reserved.x & 0x40000u) != 0) { Store(id.xy,Test17Display(source,id.xy)); return; }
 #if NATIVE_CODEC_SRGB_IO
  /* DLSS5_CODEC_SRGB (Magpie): the source is display-referred sRGB; linearize it for the blend and re-encode the result */
  float3 original=Decode(saturate(source.rgb));
@@ -203,8 +257,8 @@ void main(uint3 id:SV_DispatchThreadID) {
 
 #if NATIVE_CODEC_SRGB_IO
  result=saturate(result);result=result<=0.0031308?result*12.92:1.055*pow(result,1.0/2.4)-0.055;
- Store(id.xy,float4(result,source.a));
+  Store(id.xy,Test17Display(float4(result,source.a),id.xy));
 #else
- Store(id.xy,float4(result*EffectivePaperWhite(),source.a));
+  Store(id.xy,Test17Display(float4(result*EffectivePaperWhite(),source.a),id.xy));
 #endif
 }

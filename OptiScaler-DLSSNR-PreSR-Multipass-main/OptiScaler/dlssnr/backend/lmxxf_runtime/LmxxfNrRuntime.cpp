@@ -17,7 +17,6 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
-#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <string>
@@ -29,7 +28,15 @@
 #include <set>
 #include <vector>
 #include <chrono>
+#if defined(LMXXF_NR_FLICKER_TEST19)
+#include "FlickerCapture19.h"
+#elif defined(LMXXF_NR_FLICKER_TEST18)
+#include "FlickerCapture18.h"
+#elif defined(LMXXF_NR_FLICKER_TEST)
+#include "FlickerCapture.h"
+#else
 #include "HighlightCapture.h"
+#endif
 #include "TemporalHistory.h"
 
 namespace
@@ -1047,33 +1054,25 @@ bool LooksLikeObject(void *p)
     return info.State == MEM_COMMIT;
 }
 
-// Auto exposure for games that give no usable exposure texture (Wo Long 2: AutoExposure=true,
-// IsHdr=true, FP16 linear colour). Without it the codec normalises HDR scene values by an
-// exposure of 1 and highlights blow out. Before RecordInputs' encode, one 16x16 thread group
-// samples the valid region, and the exposure that puts the encoded mean at 0.45 is smoothed in
-// the log domain with the same 0.25 factor the daniel runtime uses. The result lives in our own
-// 1x1 R32_FLOAT texture, which the codecs bind exactly like a copied game exposure, so the codec
-// path and its `PaperWhite / exposure` white point are unchanged. At steady state this matches the
-// shader-side mean white point (auto-white.patch); the difference is that it is measured once per
-// frame and does not jump with a single bright object.
+// Auto exposure for games that give no usable exposure texture. Daniel 0.6.0 (IDA 9.4)
+// measures the encoded image after the job, aims encoded mean 0.5, and CPU-lerps the
+// exposure scalar by 0.25. We do the same on this command list: encode/decode of frame N
+// read `value` (the previous update); after encode, one 16x16 group writes `pending`
+// from the encoded fit rect; next RecordInputs copies pending → value. No extra Execute.
 struct ExposureMeter
 {
     static constexpr UINT kSrvRing = 16;
-    ID3D12Resource *value = nullptr; // R32_FLOAT 1x1, left in NON_PIXEL_SHADER_RESOURCE
-    ID3D12DescriptorHeap *heap = nullptr; // [0] value UAV, [1..kSrvRing] colour SRVs
+    ID3D12Resource *value = nullptr; // current exposure, SRV for encode/decode
+    ID3D12Resource *pending = nullptr; // next exposure, UAV from encoded mean
+    ID3D12DescriptorHeap *heap = nullptr; // [0] pending UAV, [1..kSrvRing] encoded SRVs
     ID3D12RootSignature *root = nullptr;
     ID3D12PipelineState *pso = nullptr;
     UINT increment = 0;
     uint64_t frames = 0;
     bool failed = false;
-    /* Diagnostics only: sample the 1x1 meter every kSamplePeriod Record() calls.
-       One tiny copy+wait per N frames is cheaper than a per-frame GPU readback stall. */
-    ID3D12Resource *readback = nullptr;
-    uint64_t sampleFrames = 0;
-    float sampledValue = -1.0f;
-    static constexpr uint64_t kSamplePeriod = 60;
+    bool pendingReady = false;
 
-    bool Ready() const { return value && heap && root && pso; }
+    bool Ready() const { return value && pending && heap && root && pso; }
 
     // Returns false (and stays failed) if any piece cannot be created; the frame then runs
     // without exposure, as before this existed.
@@ -1105,25 +1104,16 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         GroupMemoryBarrierWithGroupSync();
     }
     if (i != 0 || s_count[0] == 0)
-        return; // nothing measurable: keep the previous exposure
+        return;
     float mean = max(s_sum[0] / float(s_count[0]), 1e-4);
-    float encoded = pow(0.45, 2.2);
-    float target = clamp((encoded / (1.0 - encoded)) / mean, 1e-4, 100.0);
     float prev = Exposure[uint2(0, 0)];
     bool warm = prev > 0.0 && !isnan(prev) && !isinf(prev);
-    // Auto exposure was following the scene too fast (log-lerp 0.25/frame ~= 63% in 4
-    // frames). On camera motion the mean keeps moving, paper white jitters every frame
-    // and the encode shoulder turns that into highlight flicker. Follow slowly and cap
-    // the per-frame multiplicative step so a pan cannot make the scale jump.
-    if (!warm) {
-        Exposure[uint2(0, 0)] = target;
-    } else {
-        float lp = log(prev), lt = log(target);
-        float next = lp + (lt - lp) * 0.05;
-        const float kMaxLogStep = 0.02;
-        next = clamp(next, lp - kMaxLogStep, lp + kMaxLogStep);
-        Exposure[uint2(0, 0)] = exp(next);
-    }
+    if (!warm)
+        prev = 1.0;
+    // Closed loop on the encoded image: scale exposure so the next encoded mean is 0.5,
+    // then linear-lerp 0.25 onto the scalar (Daniel 0.6.0 worker at 0x18001e2a0).
+    float proposed = clamp(prev * (0.5 / mean), 1e-4, 100.0);
+    Exposure[uint2(0, 0)] = warm ? prev + (proposed - prev) * 0.25 : proposed;
 }
 )";
         ID3DBlob *code = nullptr, *errors = nullptr;
@@ -1178,8 +1168,9 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
             return Fail();
         increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        // Committed resources are zero-initialised, and the shader treats 0 as "no history",
-        // so the first metered frame takes its target directly.
+        // value is the codec exposure (SRV/copy dest). pending is the UAV the reduction writes.
+        // Zero means "not yet measured": the codec treats 0 as exposure 1, and the shader
+        // seeds prev=1 on the first encoded frame.
         D3D12_HEAP_PROPERTIES hp {};
         hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC rd {};
@@ -1188,21 +1179,51 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         rd.DepthOrArraySize = rd.MipLevels = 1;
         rd.Format = DXGI_FORMAT_R32_FLOAT;
         rd.SampleDesc.Count = 1;
-        rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
                                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
                                                    IID_PPV_ARGS(&value))))
             return Fail();
+        rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+                                                   IID_PPV_ARGS(&pending))))
+            return Fail();
         D3D12_UNORDERED_ACCESS_VIEW_DESC ud {};
         ud.Format = DXGI_FORMAT_R32_FLOAT;
         ud.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        device->CreateUnorderedAccessView(value, nullptr, &ud, heap->GetCPUDescriptorHandleForHeapStart());
+        device->CreateUnorderedAccessView(pending, nullptr, &ud, heap->GetCPUDescriptorHandleForHeapStart());
         return true;
     }
 
-    // colourState is the colour's state at RecordInputs; it is restored before returning.
+    // Copy last frame's closed-loop result into the texture encode/decode will bind.
+    void ApplyPending(ID3D12GraphicsCommandList *list)
+    {
+        if (!pendingReady || !value || !pending)
+            return;
+        D3D12_RESOURCE_BARRIER b[2] {};
+        b[0].Type = b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b[0].Transition = {pending, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE};
+        b[1].Transition = {value, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST};
+        list->ResourceBarrier(2, b);
+        D3D12_TEXTURE_COPY_LOCATION dst {}, src {};
+        dst.pResource = value;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.pResource = pending;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        list->ResourceBarrier(2, b);
+    }
+
+    // colour is the encoded fit rect; colourState is restored before returning.
     void Record(ID3D12GraphicsCommandList *list, ID3D12Device *device, ID3D12Resource *colour,
-                D3D12_RESOURCE_STATES colourState, UINT width, UINT height)
+                D3D12_RESOURCE_STATES colourState, UINT width, UINT height,
+                UINT originX = 0, UINT originY = 0)
     {
         // A fresh SRV every frame in a ring, never a rewrite of a slot the GPU may still be
         // reading: the colour pointer can change per frame, and a cached view keyed by pointer
@@ -1221,7 +1242,7 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         const bool moveColour = (colourState & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) == 0;
         D3D12_RESOURCE_BARRIER b[2] {};
         b[0].Type = b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b[0].Transition = {value, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+        b[0].Transition = {pending, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS};
         b[1].Transition = {colour, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, colourState,
                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE};
@@ -1234,15 +1255,13 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         list->SetComputeRootDescriptorTable(0, gpu);
         gpu.ptr += UINT64(slot) * increment;
         list->SetComputeRootDescriptorTable(1, gpu);
-        // Origin is always (0,0): AmdBridge rejects nonzero DLSS colour subrect bases, and
-        // job width/height is that top-left subrect (fallback: the whole allocation).
-        const UINT region[4] = {0, 0, (std::max)(width, 1u), (std::max)(height, 1u)};
+        const UINT region[4] = {originX, originY, (std::max)(width, 1u), (std::max)(height, 1u)};
         list->SetComputeRoot32BitConstants(2, 4, region, 0);
         list->Dispatch(1, 1, 1);
 
         D3D12_RESOURCE_BARRIER a[3] {};
         a[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        a[0].UAV.pResource = value;
+        a[0].UAV.pResource = pending;
         a[1] = b[0];
         a[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         a[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -1250,118 +1269,33 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
         a[2].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         a[2].Transition.StateAfter = colourState;
         list->ResourceBarrier(moveColour ? 3u : 2u, a);
-    }
-
-    /* Read the current meter value at low frequency. Call after Record on the same list's
-       queue completion, or here on a private one-shot list. Not on the frame critical path
-       every frame — only every kSamplePeriod Record() calls. */
-    void Sample(ID3D12Device *device, ID3D12CommandQueue *queue)
-    {
-        if (!value || !device || !queue)
-            return;
-        if ((++sampleFrames % kSamplePeriod) != 0)
-            return;
-        if (!readback)
-        {
-            D3D12_HEAP_PROPERTIES hp {};
-            hp.Type = D3D12_HEAP_TYPE_READBACK;
-            D3D12_RESOURCE_DESC bd {};
-            bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            bd.Width = 256;
-            bd.Height = 1;
-            bd.DepthOrArraySize = bd.MipLevels = 1;
-            bd.SampleDesc.Count = 1;
-            bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
-                                                       D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-                                                       IID_PPV_ARGS(&readback))))
-            {
-                readback = nullptr;
-                return;
-            }
-        }
-        ID3D12CommandAllocator *al = nullptr;
-        ID3D12GraphicsCommandList *cl = nullptr;
-        if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&al))) ||
-            FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, al, nullptr,
-                                             IID_PPV_ARGS(&cl))))
-        {
-            if (al)
-                al->Release();
-            return;
-        }
-        D3D12_RESOURCE_BARRIER toCopy {};
-        toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        toCopy.Transition = { value, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-                              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                              D3D12_RESOURCE_STATE_COPY_SOURCE };
-        cl->ResourceBarrier(1, &toCopy);
-        D3D12_TEXTURE_COPY_LOCATION dst {}, src {};
-        dst.pResource = readback;
-        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
-        dst.PlacedFootprint.Footprint.Width = 1;
-        dst.PlacedFootprint.Footprint.Height = 1;
-        dst.PlacedFootprint.Footprint.Depth = 1;
-        dst.PlacedFootprint.Footprint.RowPitch = 256;
-        src.pResource = value;
-        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        src.SubresourceIndex = 0;
-        cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        D3D12_RESOURCE_BARRIER toSrv = toCopy;
-        toSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        toSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-        cl->ResourceBarrier(1, &toSrv);
-        cl->Close();
-        ID3D12CommandList *ls[] = { cl };
-        queue->ExecuteCommandLists(1, ls);
-        ID3D12Fence *fence = nullptr;
-        if (SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
-        {
-            queue->Signal(fence, 1);
-            if (fence->GetCompletedValue() < 1)
-            {
-                HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-                if (ev)
-                {
-                    fence->SetEventOnCompletion(1, ev);
-                    WaitForSingleObject(ev, 20);
-                    CloseHandle(ev);
-                }
-            }
-            fence->Release();
-        }
-        void *mapped = nullptr;
-        if (SUCCEEDED(readback->Map(0, nullptr, &mapped)) && mapped)
-        {
-            sampledValue = *static_cast<const float *>(mapped);
-            readback->Unmap(0, nullptr);
-        }
-        cl->Release();
-        al->Release();
+        pendingReady = true;
     }
 
     void Release()
     {
-        for (IUnknown *p : {static_cast<IUnknown *>(value), static_cast<IUnknown *>(heap),
-                            static_cast<IUnknown *>(root), static_cast<IUnknown *>(pso),
-                            static_cast<IUnknown *>(readback)})
+        for (IUnknown *p : {static_cast<IUnknown *>(value), static_cast<IUnknown *>(pending),
+                            static_cast<IUnknown *>(heap), static_cast<IUnknown *>(root),
+                            static_cast<IUnknown *>(pso)})
             if (p)
                 p->Release();
         value = nullptr;
+        pending = nullptr;
         heap = nullptr;
         root = nullptr;
         pso = nullptr;
-        readback = nullptr;
+        pendingReady = false;
     }
 
     // Fail-closed teardown: the GPU may still reference these, so drop them without Release.
     void Abandon()
     {
         value = nullptr;
+        pending = nullptr;
         heap = nullptr;
         root = nullptr;
         pso = nullptr;
+        pendingReady = false;
     }
 
   private:
@@ -1385,8 +1319,8 @@ struct Job
     uint32_t debug_view = 0;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
-    /* Host scalars before the meter path forces pre/scale to 1. job.pre_exposure may be
-       forced; these keep the raw NGX values for analysis. */
+    /* Host NGX scalars. The meter path keeps pre and forces scale to 1; pre_exposure
+       is what the codec actually received (preCodec in GetStatus). */
     float pre_exposure_raw = 1.0f;
     float exposure_scale_raw = 1.0f;
     bool pre_exposure_host = false;
@@ -1403,6 +1337,10 @@ struct Job
     D3D12_RESOURCE_STATES motionState{}, depthState{};
     LmxxfTemporal::Parameters temporalParams{};
     bool temporalActive = false, modelHistory = false, temporalOutputs = false, zeroRecovered = false;
+#ifdef LMXXF_NR_FLICKER_TEST
+    ID3D12Resource *captureMotion=nullptr,*captureDepth=nullptr;
+    D3D12_RESOURCE_STATES captureMotionState{},captureDepthState{};
+#endif
 };
 
 struct Session
@@ -2553,6 +2491,23 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->colorFormat = cfmt;
         session->job.seed = 1;
         PrepareTemporal(session,info);
+#ifdef LMXXF_NR_FLICKER_TEST
+        auto &capture=session->highlights;
+        capture.Configure(session->shaderDir,session->modulesDir,session->weightsDir);
+        HighlightDiagnostics::FrameInfo di{};
+        di.renderW=info->color_width;di.renderH=info->color_height;di.hostTransfer=transfer_strength;
+        di.allowed=!session->job.temporalActive&&!debug_view&&!session->job.codec_passthrough;
+        session->job.captureMotion=session->job.captureDepth=nullptr;
+        if(info->struct_size>=sizeof(LmxxfNrFrameInfo)){
+            di.evaluate=info->evaluate_sequence;di.motionW=info->motion_width;di.motionH=info->motion_height;
+            di.jitterX=info->jitter_x;di.jitterY=info->jitter_y;di.scaleX=info->motion_scale_x;di.scaleY=info->motion_scale_y;di.temporalFlags=info->temporal_flags;
+            di.allowed=di.allowed&&!(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)&&info->output_smoothing==0;
+            session->job.captureMotion=static_cast<ID3D12Resource*>(info->motion);session->job.captureDepth=static_cast<ID3D12Resource*>(info->depth);
+            session->job.captureMotionState=static_cast<D3D12_RESOURCE_STATES>(info->motion_state);session->job.captureDepthState=static_cast<D3D12_RESOURCE_STATES>(info->depth_state);
+        }
+        const auto &cg=session->encode->Geometry();di.fitX=cg.x;di.fitY=cg.y;di.fitW=cg.fit_width;di.fitH=cg.fit_height;
+        capture.SetFrameInfo(di);capture.UpdateControls();
+#endif
         session->job.state = LMXXF_NR_JOB_PREPARED;
         job->handle = &session->job;
         if (!session->decode)
@@ -2614,10 +2569,8 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         }
         else if (j->autoExposure && session->boundExposure == session->meter.value && session->meter.Ready())
         {
-            // The codecs set their own heap, root signature and PSO in Record, so the meter's
-            // bindings do not leak into the encode that follows.
-            session->meter.Record(list, session->device, j->color, j->colorState, j->width, j->height);
-            session->meter.Sample(session->device, session->queue);
+            // Previous encoded-mean update, so this frame's encode and decode share one exposure.
+            session->meter.ApplyPending(list);
         }
 
 #ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
@@ -2627,7 +2580,13 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         captureMeta.pre = j->pre_exposure; captureMeta.scale = j->exposure_scale;
         captureMeta.paper = j->paper_white; captureMeta.transfer = j->transfer_strength;
         captureMeta.color = j->color_strength;
+#ifdef LMXXF_NR_FLICKER_TEST
+        if(session->highlights.Mode()==2)captureMeta.transfer=0;
+        session->highlights.Begin(session->device,captureMeta,session->highlights.CaptureKey());
+        session->highlights.Guides(list,session->device,j->captureMotion,j->captureDepth,j->captureMotionState,j->captureDepthState);
+#else
         session->highlights.Begin(session->device, captureMeta, (GetAsyncKeyState(VK_F9) & 0x8000) != 0);
+#endif
         session->highlights.Copy(list, j->color, j->colorState, 0, 0, 0, j->width, j->height);
         session->highlights.Copy(list, session->boundExposure, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                  4, 0, 0, 1, 1);
@@ -2636,15 +2595,25 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
         // menu and force Cyberpunk2077.exe colour strength to 0.
         NativeCodecParameters encParams;
+#ifdef LMXXF_NR_FLICKER_TEST
+        encParams.test_flags=session->highlights.TestFlags(false);
+#endif
         encParams.transfer_strength = j->transfer_strength;
         encParams.color_strength = j->color_strength;
         encParams.pre_exposure = j->pre_exposure;
         encParams.exposure_scale = j->exposure_scale;
         encParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
-        // Meter already wrote the white point into boundExposure. Never also ask the codec
-        // shader to estimate one (debug_view 0x10000): that would apply the correction twice.
+        // boundExposure is last frame's closed-loop result (or 0→1 on the first frame).
+        // Never also ask the codec shader to estimate a white point (debug_view 0x10000).
         encParams.auto_white = !j->autoExposure && (j->debug_view & 0x10000u) != 0;
         session->encode->Record(list, session->CodecStates({j->colorState}), j->paper_white, encParams);
+        if (j->autoExposure && session->boundExposure == session->meter.value && session->meter.Ready())
+        {
+            const auto &encGeo = session->encode->Geometry();
+            session->meter.Record(list, session->device, session->encode->Output(),
+                                  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                  encGeo.fit_width, encGeo.fit_height, encGeo.x, encGeo.y);
+        }
 #ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
         const auto &captureGeo = session->encode->Geometry();
         session->highlights.Copy(list, session->encode->Output(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -2755,6 +2724,12 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         QueueContract(session, targetQueue);
         try
         {
+#ifdef LMXXF_NR_FLICKER_TEST18
+            struct ProbeScope {
+                ProbeScope(HighlightDiagnostics::Capture* capture) {hip_reference::Test18Owner=capture;hip_reference::Test18Probe=[](void*owner,hip_probe::Api&api,void*stream,const void*state,unsigned mode){static_cast<HighlightDiagnostics::Capture*>(owner)->RecordReuse(api,stream,state,mode);};}
+                ~ProbeScope(){hip_reference::Test18Probe=nullptr;hip_reference::Test18Owner=nullptr;}
+            } probe(&session->highlights);
+#endif
             session->bridge->EnqueueAfterProducer(targetQueue, j->seed, j->modelHistory);
             if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                 j->state = LMXXF_NR_JOB_NR_COMPLETE;
@@ -2821,6 +2796,10 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         if (!session->decode)
             return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode missing");
         NativeCodecParameters codecParams;
+#ifdef LMXXF_NR_FLICKER_TEST
+        codecParams.test_flags=session->highlights.TestFlags(true);
+        codecParams.test_roi_x=session->highlights.RoiX(j->width);codecParams.test_roi_y=session->highlights.RoiY(j->height);
+#endif
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
         codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
@@ -3023,15 +3002,14 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f meterVal=%.6f",
+                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f encLoop=1",
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
                           session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u,
                           session->temporalCreates,session->temporalDeletes,
                           session->historyActiveFrames,session->historyPrimingFrames,
                           double(session->job.pre_exposure_raw),session->job.pre_exposure_host?1u:0u,
-                          double(session->job.exposure_scale_raw),
-                          double(session->job.pre_exposure),session->meter.sampledValue);
+                          double(session->job.exposure_scale_raw),double(session->job.pre_exposure));
             for(const auto &guide : {std::make_pair("motion", &session->temporalMotionDesc),
                                      std::make_pair("depth", &session->temporalDepthDesc)})
             {
@@ -3124,6 +3102,24 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)
     return TRUE;
 }
 
+#ifdef LMXXF_NR_FLICKER_TEST
+// Test harness entry, deliberately absent from ordinary builds and the public ABI.
+extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrTest17Select(void *context,uint32_t mode)
+{
+    return GuardSession(static_cast<Session*>(context),[&]{
+        auto*s=static_cast<Session*>(context);
+        if(!s||mode>2)return static_cast<int32_t>(LMXXF_NR_INVALID_ARGUMENT);
+        return static_cast<int32_t>(s->highlights.SelectMode(mode)?LMXXF_NR_OK:LMXXF_NR_UNAVAILABLE);
+    });
+}
+#endif
+
+
+#ifdef LMXXF_NR_FLICKER_TEST18
+extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrTest18StartCapture(void* context){
+    return Guard([&](){auto*s=static_cast<Session*>(context);RequireSession(s);s->highlights.RequestCapture();return static_cast<int32_t>(LMXXF_NR_OK);});
+}
+#endif
 
 extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrResolveArchModules(const wchar_t *modulesRoot, const char *arch,
                                                              wchar_t *outEffectiveDir, uint32_t maxChars,
@@ -3149,3 +3145,10 @@ extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrResolveArchModules(const wchar_t *modu
     }
     return static_cast<int32_t>(LMXXF_NR_OK);
 }
+
+#if defined(LMXXF_NR_FLICKER_TEST19)
+extern "C" __declspec(dllexport) int __cdecl LmxxfNrGetDiagnosticOverlay(NrDiagnosticOverlay* out, uint32_t bytes) {
+    if(!out||bytes!=sizeof(NrDiagnosticOverlay))return 0;
+    std::lock_guard<std::mutex> lock(NrDiagnostic19::mutex);*out=NrDiagnostic19::snapshot;return 1;
+}
+#endif

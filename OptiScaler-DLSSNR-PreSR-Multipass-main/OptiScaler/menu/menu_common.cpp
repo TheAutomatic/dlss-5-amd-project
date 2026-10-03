@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "menu_common.h"
+#include "nr_diagnostic_overlay.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/AmdPreSr.h>
 
@@ -1478,7 +1479,7 @@ void MenuCommon::BeginMenuFrameIfNeeded(RenderMenuContext& ctx)
                                DlssNr::ExposureScan::Where() != DlssNr::ExposureScan::Verdict::Off;
 
     if ((!config->DisableSplash.value_or_default() && now > splashStart && now < splashLimit) ||
-        config->ShowFps.value_or_default() || _isVisible || ImGui::notifications.size() > 0 || scanIndicator ||
+        config->ShowFps.value_or_default() || _isVisible || ImGui::notifications.size() > 0 || scanIndicator || NrOverlay::snapshot.visible ||
         (config->DlssNrCompare.value_or_default() != 0 && config->DlssNrCompareTags.value_or_default()))
     {
         if (!_isUWP)
@@ -7745,6 +7746,7 @@ bool MenuCommon::RenderMenu()
 
     // 2) Prepare one-shot notifications and start a new ImGui frame only when needed.
     UpdateVersionAndStartupNotifications(ctx);
+    if(!NrOverlay::Refresh()) NrOverlay::snapshot.visible=0;
     BeginMenuFrameIfNeeded(ctx);
     OptiInput::EndFrame(_isVisible);
 
@@ -7754,6 +7756,7 @@ bool MenuCommon::RenderMenu()
     RenderNotifications(ctx);
     UpdateFrameTimeAverages(ctx);
     RenderPerformanceOverlay(ctx);
+    if(ctx.newFrame) NrOverlay::Draw();
     RenderExposureScanIndicator(ctx.config->FpsOverlayAlpha.value_or_default());
 
     // 4) Draw the full settings menu last so popups and child windows keep their existing behavior.
