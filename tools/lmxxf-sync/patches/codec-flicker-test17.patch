@@ -1,0 +1,93 @@
+--- a/src/native_game_codec.h
++++ b/src/native_game_codec.h
+@@ -17,6 +17,10 @@
+  // No usable game exposure texture: estimate white point from image mean.
+  // Packed into the debug_view cbuffer word high bit (0x10000).
+  bool auto_white=false;
++#ifdef LMXXF_NR_FLICKER_TEST
++ // Test17 runtime commands only; not an ini/env override or a production key.
++ uint32_t test_flags=0,test_roi_x=0,test_roi_y=0;
++#endif
+  bool Valid()const{return std::isfinite(pre_exposure)&&pre_exposure>0&&std::isfinite(exposure_scale)&&exposure_scale>0&&ValidStrength();}
+  bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&(uint32_t(debug_view)&0xFu)<=4;}
+ };
+@@ -151,6 +155,10 @@
+   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
+   const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view)|(parameters.auto_white?0x10000u:0u);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
++#ifdef LMXXF_NR_FLICKER_TEST
++  words[17]|=parameters.test_flags;
++  if(count==3){words[4]=parameters.test_roi_x;words[5]=parameters.test_roi_y;}
++#endif
+   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
+   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;
+--- a/shaders/native_codec_encode.hlsl
++++ b/shaders/native_codec_encode.hlsl
+@@ -53,7 +53,7 @@
+  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+ #else
+  // No game exposure texture. auto_white (Reserved.x bit 0x10000): estimate from image mean.
+- // Otherwise prefer host pre-exposure; PaperWhiteScale is a fixed divisor (manual / legacy).
++ // Otherwise apply host pre-exposure continuously (undo factor); PaperWhiteScale is a fixed divisor (manual / legacy).
+  if ((Reserved.x & 0x10000u) != 0)
+      return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
+  float pre=asfloat(Reserved.y);
+@@ -109,6 +109,12 @@
+     float3 value = max(Original.Load(int3(p,0)).rgb,0) / EffectivePaperWhite();
+ #endif
+     float3 shoulder = 0.75 + 0.25 * (1.0 - exp(-5.770780 * (value-0.75)));
++    // test17 candidate: same toe and 0..1 working domain, C1 rational shoulder.
++    // Deliberately retains the residual-transfer decoder, not an inverse shoulder.
++    if ((Reserved.x & 0x20000u) != 0) {
++        float3 d = max(value - 0.75, 0.0);
++        shoulder = 0.75 + 0.25 * (1.0 - 1.0 / (1.0 + 4.0 * d));
++    }
+     value = saturate(value <= 0.75 ? value : shoulder);
+     value = value <= 0.0031308 ? value*12.92 : 1.055*pow(value,1.0/2.4)-0.055;
+     // FP16 rounding is performed by the RGBA16_FLOAT destination texture,
+--- a/shaders/native_codec_decode.hlsl
++++ b/shaders/native_codec_decode.hlsl
+@@ -158,6 +158,19 @@
+              lerp(image.Load(int3(lo.x,hi.y,0)).rgb,image.Load(int3(hi,0)).rgb,f.x),f.y);
+ }
+ #endif
++float4 Test17Display(float4 value, uint2 p) {
++ if ((Reserved.x & 0x80000u) == 0) return value;
++ uint mode=(Reserved.x>>20)&3u;
++ float3 ink=mode==1?float3(0.05,1,0.05):mode==2?float3(0.1,0.5,1):float3(1,1,1);
++ // Corners lie outside the captured 128-square. Never feed markers to the model.
++ int2 d=abs(int2(p)-int2(SourceBase));
++ bool corner=(d.x>=66&&d.x<=68&&d.y>=53&&d.y<=68)||(d.y>=66&&d.y<=68&&d.x>=53&&d.x<=68);
++ uint seconds=(Reserved.x>>24)&31u;
++ bool bar=p.y>=12&&p.y<17&&p.x>=12&&p.x<612;
++ if(corner) value.rgb=ink;
++ if(bar)value.rgb=p.x<12+seconds*30?ink:ink*.15;
++ return value;
++}
+ [numthreads(16,16,1)]
+ void main(uint3 id:SV_DispatchThreadID) {
+  if(any(id.xy>=Size))return;
+@@ -165,6 +178,8 @@
+  uint2 extent=max(ProxySize,uint2(1,1));
+  uint2 p=min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(Size)),extent-1);
+  float4 source=OutputOriginal.Load(int3(id.xy,0));
++ // Same producer/inference/consumer path, but omit the model edit for a control.
++ if ((Reserved.x & 0x40000u) != 0) { Store(id.xy,Test17Display(source,id.xy)); return; }
+ #if NATIVE_CODEC_SRGB_IO
+  /* DLSS5_CODEC_SRGB (Magpie): the source is display-referred sRGB; linearize it for the blend and re-encode the result */
+  float3 original=Decode(saturate(source.rgb));
+@@ -195,8 +210,8 @@
+ 
+ #if NATIVE_CODEC_SRGB_IO
+  result=saturate(result);result=result<=0.0031308?result*12.92:1.055*pow(result,1.0/2.4)-0.055;
+- Store(id.xy,float4(result,source.a));
+-#else
+- Store(id.xy,float4(result*EffectivePaperWhite(),source.a));
+-#endif
+-}
++  Store(id.xy,Test17Display(float4(result,source.a),id.xy));
++#else
++  Store(id.xy,Test17Display(float4(result*EffectivePaperWhite(),source.a),id.xy));
++#endif
++}

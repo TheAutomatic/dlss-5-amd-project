@@ -241,6 +241,7 @@ int main(int argc, char **argv)
          scale16 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false, temporalTest = false,
          temporalGuides = false;
+    int test17Mode=-1;
     for (int i = 3; i < argc; ++i)
     {
         if (!std::strcmp(argv[i], "--queue-mismatch"))
@@ -271,6 +272,10 @@ int main(int argc, char **argv)
             temporalTest = outputHash = true;
         else if (!std::strcmp(argv[i], "--temporal-guides"))
             temporalGuides = temporalTest = outputHash = true;
+        else if (!std::strcmp(argv[i], "--test17-soft"))
+            test17Mode=1,outputHash=true;
+        else if (!std::strcmp(argv[i], "--test17-identity"))
+            test17Mode=2,outputHash=true;
         else
         {
             std::fprintf(stderr,
@@ -384,6 +389,10 @@ int main(int argc, char **argv)
     info.flags = queueMismatch ? LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK : 0;
     void *ctx = nullptr;
     Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create");
+    if(test17Mode>=0){
+        auto select=reinterpret_cast<int32_t(*)(void*,uint32_t)>(GetProcAddress(dll,"LmxxfNrTest17Select"));
+        Require(select&&select(ctx,uint32_t(test17Mode))==LMXXF_NR_OK,"test17 runtime mode selected");
+    }
     const int32_t prep = api.PrepareSession(ctx);
     if (prep != LMXXF_NR_OK)
     {
@@ -744,6 +753,12 @@ int main(int argc, char **argv)
         Require(recreates(stBefore) == recreates(stAfter),
                 "subrect != allocation must not rebuild the codec chain");
         Require(api.CancelUnsubmitted(ctx, againJob.handle) == LMXXF_NR_OK, "cancel second subrect frame");
+    }
+
+    if(test17Mode==2&&job.private_output){
+        Require(HashTexture(device,submitQueue,static_cast<ID3D12Resource*>(job.private_output))==
+                HashTexture(device,submitQueue,static_cast<ID3D12Resource*>(frame.color)),"test17 identity exact original after HIP execution");
+        std::printf("test17 identity: original preserved with inference executed\n");
     }
 
     if (useExposure && !badExposure)

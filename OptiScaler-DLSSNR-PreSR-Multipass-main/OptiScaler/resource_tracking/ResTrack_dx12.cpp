@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <dlssnr/backend/lmxxf_runtime/DiagnosticOverlay.h>
 
 #include <dlssnr/DlssNr_ExposureScan.h>
 
@@ -489,6 +490,13 @@ void ResTrack_Dx12::hkCreateRenderTargetView(ID3D12Device* This, ID3D12Resource*
     }
 
     o_CreateRenderTargetView(This, pResource, pDesc, DestDescriptor);
+#if defined(LMXXF_NR_FLICKER_TEST19)
+    if(pResource && pDesc && pResource->GetDesc().Format==DXGI_FORMAT_R16G16B16A16_TYPELESS) {
+        const UINT observed=UINT(pDesc->Format);
+        pResource->SetPrivateData(NrObservedRtvFormatGuid,sizeof(observed),&observed);
+    }
+#endif
+
 
     if (Config::Instance()->FGHudfixDisableRTV.value_or_default())
         return;

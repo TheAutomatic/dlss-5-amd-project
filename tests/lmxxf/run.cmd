@@ -38,6 +38,8 @@ echo usage: tests\lmxxf\run.cmd abi^|warp^|device^|gpu [out-dir]
 exit /b 2
 
 :abi
+%AMD_TEST_PYTHON% tests\lmxxf\test_fullframes.py || goto fail
+%AMD_TEST_PYTHON% tests\lmxxf\test_capture19.py || goto fail
 call :Runtime || goto fail
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 tests\lmxxf\lmxxf_nr_abi.cpp /Fe"%OUT%\lmxxf_nr_abi.exe" /Fo"%OUT%\lmxxf_nr_abi.obj" || goto fail
 "%OUT%\lmxxf_nr_abi.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
@@ -57,6 +59,14 @@ goto pass
 "%OUT%\lmxxf_same_frame_boundary.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_color_probe.cpp /Fe"%OUT%\lmxxf_color_probe.exe" /Fo"%OUT%\lmxxf_color_probe.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
 "%OUT%\lmxxf_color_probe.exe" || goto fail
+%CXX% /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_flicker.cpp /Fe"%OUT%\lmxxf_flicker.exe" /Fo"%OUT%\lmxxf_flicker.obj" /link d3d12.lib dxgi.lib d3dcompiler.lib dxguid.lib bcrypt.lib user32.lib || goto fail
+"%OUT%\lmxxf_flicker.exe" || goto fail
+%CXX% /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_flicker18.cpp /Fe"%OUT%\lmxxf_flicker18.exe" /Fo"%OUT%\lmxxf_flicker18.obj" /link d3d12.lib dxgi.lib d3dcompiler.lib dxguid.lib bcrypt.lib user32.lib || goto fail
+"%OUT%\lmxxf_flicker18.exe" || goto fail
+%CXX% /DNOMINMAX /D_WIN32_WINNT=0x0A00 /I"third_party\lmxxf\src" tests\lmxxf\lmxxf_flicker19.cpp /Fe"%OUT%\lmxxf_flicker19.exe" /Fo"%OUT%\lmxxf_flicker19.obj" /link d3d12.lib dxgi.lib d3dcompiler.lib dxguid.lib bcrypt.lib user32.lib || goto fail
+"%OUT%\lmxxf_flicker19.exe" || goto fail
+%CXX% /DNOMINMAX /I"OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler" /I"OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include" /I"OptiScaler-DLSSNR-PreSR-Multipass-main\external\freetype" tests\lmxxf\nr_overlay19.cpp "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include\imgui\misc\freetype\imgui_freetype.cpp" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include\imgui\imgui.cpp" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include\imgui\imgui_draw.cpp" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include\imgui\imgui_tables.cpp" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include\imgui\imgui_widgets.cpp" "OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include\imgui\imgui_impl_dx11.cpp" /Fe"%OUT%\nr_overlay19.exe" /Fo"%OUT%\\" /link "OptiScaler-DLSSNR-PreSR-Multipass-main\external\freetype\freetype.lib" d3d11.lib d3dcompiler.lib dxgi.lib user32.lib || goto fail
+"%OUT%\nr_overlay19.exe" || goto fail
 goto pass
 
 :device
@@ -96,6 +106,10 @@ for %%M in ("" "--resize" "--queue-mismatch" "--rgb9e5" "--reject-formats" "--ex
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" %%~M || goto fail
 )
 rem Output-hash baselines: fixed pattern, 1920x1080, seed 1 (RX 9070 XT).
+if defined LMXXF_TEST17_CHECKS (
+  "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --test17-soft || goto fail
+  "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --test17-identity || goto fail
+)
 rem Rebuilt main 9a721fc control, vendor pin 54e14de5; the previous DLL baseline predated
 rem the current source. Completion-event candidate independently matched every control hash.
 call :Hash d3e681a3fdee46d8 --output-hash || goto fail

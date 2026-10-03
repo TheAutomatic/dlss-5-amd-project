@@ -13,21 +13,25 @@ from pathlib import Path
 HEADER = struct.Struct('<12I5fQ')
 FIELDS = ('frame stage tile width height x y w h format exposure_source debug_view '
           'pre scale paper transfer color tick').split()
-STAGES = ('game_input', 'encoded_input', 'neural_output', 'nr_composite', 'exposure')
+STAGES = ('game_input', 'encoded_input', 'neural_output', 'nr_composite', 'exposure', 'motion_depth')
 
 
 def read_records(path):
     with open(path, 'rb') as f:
-        if f.read(8) != b'NRHLV1\0\0':
-            raise ValueError('Not an NRHLV1 capture')
+        magic = f.read(8)
+        if magic not in (b'NRHLV1\0\0', b'NRHLV2\0\0'):
+            raise ValueError('Not an NRHL capture')
+        edge = 128 if magic == b'NRHLV2\0\0' else 32
         while raw := f.read(HEADER.size):
             if len(raw) != HEADER.size:
                 raise ValueError('Truncated record header')
             r = dict(zip(FIELDS, HEADER.unpack(raw)))
             formats = {10: ('<4e', 8), 41: ('<f', 4), 54: ('<e', 2)}
+            if magic == b'NRHLV2\0\0':
+                formats[2] = ('<4f', 16)
             if r['format'] not in formats or r['stage'] >= len(STAGES):
                 raise ValueError('Unsupported capture stage/format')
-            if not (0 < r['w'] <= 32 and 0 < r['h'] <= 32 and
+            if not (0 < r['w'] <= edge and 0 < r['h'] <= edge and
                     r['x'] + r['w'] <= r['width'] and r['y'] + r['h'] <= r['height']):
                 raise ValueError('Invalid ROI bounds')
             fmt, bpp = formats[r['format']]
@@ -35,7 +39,10 @@ def read_records(path):
             if len(payload) != r['w'] * r['h'] * bpp:
                 raise ValueError('Truncated pixel payload')
             pixels = list(struct.iter_unpack(fmt, payload))
-            values = [sum(c * weight for c, weight in zip(p[:3], (.2126, .7152, .0722)))
+            # Guide RGB contains mv.x, mv.y, device depth: never call its weighted
+            # sum luminance. Summary values for this stage are device depth only.
+            values = [p[2] if r['stage'] == 5 else
+                      sum(c * weight for c, weight in zip(p[:3], (.2126, .7152, .0722)))
                       if len(p) == 4 else p[0] for p in pixels]
             yield r, values
 

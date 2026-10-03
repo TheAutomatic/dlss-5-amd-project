@@ -28,7 +28,15 @@
 #include <set>
 #include <vector>
 #include <chrono>
+#if defined(LMXXF_NR_FLICKER_TEST19)
+#include "FlickerCapture19.h"
+#elif defined(LMXXF_NR_FLICKER_TEST18)
+#include "FlickerCapture18.h"
+#elif defined(LMXXF_NR_FLICKER_TEST)
+#include "FlickerCapture.h"
+#else
 #include "HighlightCapture.h"
+#endif
 #include "TemporalHistory.h"
 
 namespace
@@ -1329,6 +1337,10 @@ struct Job
     D3D12_RESOURCE_STATES motionState{}, depthState{};
     LmxxfTemporal::Parameters temporalParams{};
     bool temporalActive = false, modelHistory = false, temporalOutputs = false, zeroRecovered = false;
+#ifdef LMXXF_NR_FLICKER_TEST
+    ID3D12Resource *captureMotion=nullptr,*captureDepth=nullptr;
+    D3D12_RESOURCE_STATES captureMotionState{},captureDepthState{};
+#endif
 };
 
 struct Session
@@ -2479,6 +2491,23 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->colorFormat = cfmt;
         session->job.seed = 1;
         PrepareTemporal(session,info);
+#ifdef LMXXF_NR_FLICKER_TEST
+        auto &capture=session->highlights;
+        capture.Configure(session->shaderDir,session->modulesDir,session->weightsDir);
+        HighlightDiagnostics::FrameInfo di{};
+        di.renderW=info->color_width;di.renderH=info->color_height;di.hostTransfer=transfer_strength;
+        di.allowed=!session->job.temporalActive&&!debug_view&&!session->job.codec_passthrough;
+        session->job.captureMotion=session->job.captureDepth=nullptr;
+        if(info->struct_size>=sizeof(LmxxfNrFrameInfo)){
+            di.evaluate=info->evaluate_sequence;di.motionW=info->motion_width;di.motionH=info->motion_height;
+            di.jitterX=info->jitter_x;di.jitterY=info->jitter_y;di.scaleX=info->motion_scale_x;di.scaleY=info->motion_scale_y;di.temporalFlags=info->temporal_flags;
+            di.allowed=di.allowed&&!(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)&&info->output_smoothing==0;
+            session->job.captureMotion=static_cast<ID3D12Resource*>(info->motion);session->job.captureDepth=static_cast<ID3D12Resource*>(info->depth);
+            session->job.captureMotionState=static_cast<D3D12_RESOURCE_STATES>(info->motion_state);session->job.captureDepthState=static_cast<D3D12_RESOURCE_STATES>(info->depth_state);
+        }
+        const auto &cg=session->encode->Geometry();di.fitX=cg.x;di.fitY=cg.y;di.fitW=cg.fit_width;di.fitH=cg.fit_height;
+        capture.SetFrameInfo(di);capture.UpdateControls();
+#endif
         session->job.state = LMXXF_NR_JOB_PREPARED;
         job->handle = &session->job;
         if (!session->decode)
@@ -2551,7 +2580,13 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         captureMeta.pre = j->pre_exposure; captureMeta.scale = j->exposure_scale;
         captureMeta.paper = j->paper_white; captureMeta.transfer = j->transfer_strength;
         captureMeta.color = j->color_strength;
+#ifdef LMXXF_NR_FLICKER_TEST
+        if(session->highlights.Mode()==2)captureMeta.transfer=0;
+        session->highlights.Begin(session->device,captureMeta,session->highlights.CaptureKey());
+        session->highlights.Guides(list,session->device,j->captureMotion,j->captureDepth,j->captureMotionState,j->captureDepthState);
+#else
         session->highlights.Begin(session->device, captureMeta, (GetAsyncKeyState(VK_F9) & 0x8000) != 0);
+#endif
         session->highlights.Copy(list, j->color, j->colorState, 0, 0, 0, j->width, j->height);
         session->highlights.Copy(list, session->boundExposure, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                  4, 0, 0, 1, 1);
@@ -2560,6 +2595,9 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
         // menu and force Cyberpunk2077.exe colour strength to 0.
         NativeCodecParameters encParams;
+#ifdef LMXXF_NR_FLICKER_TEST
+        encParams.test_flags=session->highlights.TestFlags(false);
+#endif
         encParams.transfer_strength = j->transfer_strength;
         encParams.color_strength = j->color_strength;
         encParams.pre_exposure = j->pre_exposure;
@@ -2686,6 +2724,12 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         QueueContract(session, targetQueue);
         try
         {
+#ifdef LMXXF_NR_FLICKER_TEST18
+            struct ProbeScope {
+                ProbeScope(HighlightDiagnostics::Capture* capture) {hip_reference::Test18Owner=capture;hip_reference::Test18Probe=[](void*owner,hip_probe::Api&api,void*stream,const void*state,unsigned mode){static_cast<HighlightDiagnostics::Capture*>(owner)->RecordReuse(api,stream,state,mode);};}
+                ~ProbeScope(){hip_reference::Test18Probe=nullptr;hip_reference::Test18Owner=nullptr;}
+            } probe(&session->highlights);
+#endif
             session->bridge->EnqueueAfterProducer(targetQueue, j->seed, j->modelHistory);
             if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                 j->state = LMXXF_NR_JOB_NR_COMPLETE;
@@ -2752,6 +2796,10 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         if (!session->decode)
             return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode missing");
         NativeCodecParameters codecParams;
+#ifdef LMXXF_NR_FLICKER_TEST
+        codecParams.test_flags=session->highlights.TestFlags(true);
+        codecParams.test_roi_x=session->highlights.RoiX(j->width);codecParams.test_roi_y=session->highlights.RoiY(j->height);
+#endif
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
         codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);
@@ -3054,6 +3102,24 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)
     return TRUE;
 }
 
+#ifdef LMXXF_NR_FLICKER_TEST
+// Test harness entry, deliberately absent from ordinary builds and the public ABI.
+extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrTest17Select(void *context,uint32_t mode)
+{
+    return GuardSession(static_cast<Session*>(context),[&]{
+        auto*s=static_cast<Session*>(context);
+        if(!s||mode>2)return static_cast<int32_t>(LMXXF_NR_INVALID_ARGUMENT);
+        return static_cast<int32_t>(s->highlights.SelectMode(mode)?LMXXF_NR_OK:LMXXF_NR_UNAVAILABLE);
+    });
+}
+#endif
+
+
+#ifdef LMXXF_NR_FLICKER_TEST18
+extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrTest18StartCapture(void* context){
+    return Guard([&](){auto*s=static_cast<Session*>(context);RequireSession(s);s->highlights.RequestCapture();return static_cast<int32_t>(LMXXF_NR_OK);});
+}
+#endif
 
 extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrResolveArchModules(const wchar_t *modulesRoot, const char *arch,
                                                              wchar_t *outEffectiveDir, uint32_t maxChars,
@@ -3079,3 +3145,10 @@ extern "C" LMXXF_NR_EXPORT int32_t LmxxfNrResolveArchModules(const wchar_t *modu
     }
     return static_cast<int32_t>(LMXXF_NR_OK);
 }
+
+#if defined(LMXXF_NR_FLICKER_TEST19)
+extern "C" __declspec(dllexport) int __cdecl LmxxfNrGetDiagnosticOverlay(NrDiagnosticOverlay* out, uint32_t bytes) {
+    if(!out||bytes!=sizeof(NrDiagnosticOverlay))return 0;
+    std::lock_guard<std::mutex> lock(NrDiagnostic19::mutex);*out=NrDiagnostic19::snapshot;return 1;
+}
+#endif

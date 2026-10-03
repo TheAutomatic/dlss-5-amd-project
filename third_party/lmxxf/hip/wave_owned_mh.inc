@@ -306,11 +306,28 @@ DEV void swin_wave2_body(const float*in,const float*fw,const float*aw,void*out_a
   _Pragma("unroll 2") for(uint side=0;side<2;side++){
    _Pragma("unroll 2") for(uint half=0;half<2;half++)sums[side]=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(ones,exponent[side+2*half],sums[side]);
   }
+#ifndef W2_PROB_HALF
+#define W2_PROB_HALF 0
+#endif
+#if W2_PROB_HALF
+  // Retain normalized probabilities as half; V keeps its original FP8 values.
+  h8 prob[4];
+  _Pragma("unroll 4") for(uint key=0;key<4;key++)for(uint e=0;e<8;e++)
+   prob[key][e]=(_Float16)(float(exponent[key][e])/(sums[0][e]+sums[1][e]));
+#else
   i2 prob[4];
   _Pragma("unroll 4") for(uint key=0;key<4;key++){W2_Q8_DECL(a);for(uint e=0;e<8;e++){float inv=1.f/(sums[0][e]+sums[1][e]);W2_Q8_SETF(a,e,float(exponent[key][e]),inv);}W2_Q8_END(a);prob[key]=a;}
+#endif
   for(uint ci=0;ci<2;ci++){
    f8 av{};
-   _Pragma("unroll 4") for(uint key=0;key<4;key++)av=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(qkv[2][key][ci],prob[key],av);
+   _Pragma("unroll 4") for(uint key=0;key<4;key++){
+#if W2_PROB_HALF
+    h8 v{};for(uint e=0;e<8;e++)v[e]=(_Float16)__builtin_amdgcn_cvt_f32_fp8(int((uint(qkv[2][key][ci][e/4])>>(8*(e%4)))&255u),0);
+    av=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(v,prob[key],av);
+#else
+    av=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(qkv[2][key][ci],prob[key],av);
+#endif
+   }
    W2_Q8_DECL(a);for(uint e=0;e<8;e++)W2_Q8_SET(a,e,av[e]);W2_Q8_END(a);w2_store<C>(plane1,qt,head*2+ci,a);
   }
   w2_schedule();

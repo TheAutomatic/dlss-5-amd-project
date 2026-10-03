@@ -17,6 +17,7 @@
 | `tools/sync-lmxxf-upstream.ps1`、`tools/audit-lmxxf-enablements.py` + `tools/lmxxf-sync/` | 上游同步与审阅门禁。计划整体移入 `tools/lmxxf-sync/`，时机同上 |
 | `tools/diag/set-lmxxf-diagnostic.ps1` | 改游戏 ini 的 `LmxxfDiagnostic`（`-GameDir` 必填） |
 | `tools/diag/analyze-highlight.py` | 将鸣潮测试 runtime 的 F9 `.nrhl` 采集转成逐阶段、逐区域的时序 CSV；见 [采集说明](highlight-capture.md) |
+| `tools/diag/collect-wuwa-test17.ps1` | 收集 test17 同一会话三模式的诊断与游戏日志，检查采集完整性并生成回传 ZIP；不会修改游戏配置 |
 | `tools/diag/retirement_stats.py` | 汇总 `AMD_RETIRE_DIAGNOSTICS` 构建输出的 retirement 采集 |
 | `tools/dev/scan-mojibake.py` | 扫描乱码（UTF-8 标点被按 GB18030 解码后写回，典型：U+9225 + `?`） |
 
@@ -82,3 +83,6 @@ tests\run-all.cmd --tier ci|device|gpu|all [--out 目录] [--skip-sync] [--keep-
 - 提交时显式 `git add <路径>`，不用 `git add -A`：有文件按要求只留本地。提交后核对 `git show --stat`。
 - `.githooks/pre-commit` 拦两类：被 `.gitignore` 排除却用 `git add -f` 加进来的新文件；丢了 BOM 且含非 ASCII 的 `.ps1/.psm1`。`.githooks/commit-msg` 删除提交信息里所有 `Co-Authored-By:` 与 `*-Session:` 尾注（项目约定：提交不带这类尾注）。
 - 本地工作材料放在被忽略的目录（`work/`、`exports/` 等），tracked 文件不得引用它们。
+- test18 诊断工具：`tools/diag/collect-wuwa-test18.ps1` 仅收集最新一轮并校验时间线、复用记录和完整快照；`tools/diag/read-fullframes.py` 流式索引 `.nrhl.full`，可用 `--frame <编号> --stage 1 --out <文件>` 导出无损 RGBA16F 网络输入。相关解析/收集测试接入 `tests/lmxxf/run.cmd` 的 ABI 层，完整快照与状态字形读回接入 WARP 层。
+
+- test19 诊断：`tools/diag/collect-nr-test19.ps1` 校验整段颜色采样覆盖及完整快照/复用对应；`tools/install/apply-nr-test19.ps1` 更新已安装的代理与诊断载荷，先验哈希再备份，失败回滚，保留配置和权重。`LMXXF_NR_FLICKER_TEST19` 构建通过可选状态导出驱动宿主独立叠加层，并记录观测到的 TYPELESS RGBA16 RTV 格式；观测不改变实际 NR 视图。采集/叠加层测试接入 lmxxf ABI/WARP，增量更新测试接入 install。
