@@ -196,7 +196,8 @@ class ModulePackageTests(unittest.TestCase):
             self.assertNotIn('dlssnr-amd/dlssnr.bin', archive.namelist())
             archive.extractall(extracted)
         model = extracted / 'dlssnr-amd/dlssnr.bin'
-        model.write_bytes(b'user-owned model fixture')
+        # Recognized header; this lifecycle fixture is not an inference model.
+        model.write_bytes(b'NRMODEL1' + (599).to_bytes(4, 'little') + b'user-owned model fixture')
         game = self.root / 'mochizuki game'
         game.mkdir()
         code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game),
@@ -208,6 +209,7 @@ class ModulePackageTests(unittest.TestCase):
         parsed = configparser.ConfigParser()
         parsed.read(game / 'OptiScaler.ini', encoding='utf-8-sig')
         self.assertEqual(parsed['DlssNr']['NrBackend'], 'mochizuki')
+        self.assertEqual((game / 'dlssnr-amd/dlssnr.bin').read_bytes(), model.read_bytes())
         code, out = self.run_ps(['-File', str(extracted / 'Uninstall_OptiScaler_NR.ps1'), '-GameDir', str(game), '-NonInteractive'])
         self.assertEqual(code, 0, out)
         self.assertFalse((game / 'MochizukiNrRuntime.dll').exists())
