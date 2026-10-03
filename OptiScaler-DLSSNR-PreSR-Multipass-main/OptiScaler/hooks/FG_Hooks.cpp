@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "FG_Hooks.h"
 #include <Config.h>
+#include <atomic>
 
 #include <framegen/ffx/FSRFG_Dx12.h>
 #include <framegen/xefg/XeFG_Dx12.h>
@@ -22,6 +23,37 @@
 #include <detours/detours.h>
 
 #define XEFG_RESOURCE_REF_LIMIT 1
+
+// Stop interpolation before waiting for or resizing its swapchain. An active
+// asynchronous FG presenter can itself be waiting for the next application frame.
+// Waiting for that work first prevents the application thread from stopping it.
+class FGResizeTrace
+{
+    inline static std::atomic<unsigned> nextId { 0 };
+    unsigned id;
+public:
+    explicit FGResizeTrace(const char* entry) : id(nextId.fetch_add(1, std::memory_order_relaxed) + 1)
+    {
+        Step(entry);
+    }
+    void Step(const char* phase, HRESULT result = S_OK) const
+    {
+        if (id <= 24)
+            LOG_INFO("FG resize: sample={} phase={} tid={} result={:X}", id, phase, GetCurrentThreadId(), (UINT)result);
+    }
+    void Stop(IFGFeature* fg) const
+    {
+        Step("stop.begin");
+        if (fg != nullptr)
+        {
+            State::Instance().fgChanged = true;
+            fg->UpdateTarget();
+            if (fg->IsActive())
+                fg->Deactivate();
+        }
+        Step("stop.end");
+    }
+};
 
 static ID3D12Fence* resizeFence = nullptr;
 static UINT64 resizeFenceValue = 0;
@@ -126,6 +158,7 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
     // Create FG swapchain
     auto fg = State::Instance().currentFG;
     bool scResult = false;
+    FGResizeTrace resizeTrace("create.enter");
 
     {
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
@@ -153,6 +186,8 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         if (State::Instance().currentFGSwapchain != nullptr)
         {
             LOG_WARN("Looks like game is creating new swapchain, without releasing old one!");
+            resizeTrace.Stop(fg);
+            resizeTrace.Step("queue-wait.begin");
 
             if (State::Instance().currentCommandQueue != nullptr && resizeFence != nullptr &&
                 resizeFenceEvent != nullptr)
@@ -171,10 +206,13 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
                 }
             }
 
+            resizeTrace.Step("queue-wait.end");
             oldSwapChain = State::Instance().currentFGSwapchain;
         }
 
+        resizeTrace.Step("create-sdk.begin");
         scResult = fg->CreateSwapchain(pFactory, cq, pDesc, ppSwapChain, true);
+        resizeTrace.Step("create-sdk.end", scResult ? S_OK : E_FAIL);
 
         if (Config::Instance()->FGDontUseSwapchainBuffers.value_or_default())
             State::Instance().skipHeapCapture = false;
@@ -237,6 +275,7 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
     // Create FG swapchain
     auto fg = State::Instance().currentFG;
     bool scResult = false;
+    FGResizeTrace resizeTrace("create.enter");
 
     {
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
@@ -265,6 +304,8 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         if (State::Instance().currentFGSwapchain != nullptr)
         {
             LOG_WARN("Looks like game is creating new swapchain, without releasing old one!");
+            resizeTrace.Stop(fg);
+            resizeTrace.Step("queue-wait.begin");
 
             if (State::Instance().currentCommandQueue != nullptr && resizeFence != nullptr &&
                 resizeFenceEvent != nullptr)
@@ -283,10 +324,13 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
                 }
             }
 
+            resizeTrace.Step("queue-wait.end");
             oldSwapChain = State::Instance().currentFGSwapchain;
         }
 
+        resizeTrace.Step("create-sdk.begin");
         scResult = fg->CreateSwapchain1(pFactory, cq, hWnd, pDesc, pFullscreenDesc, ppSwapChain, true);
+        resizeTrace.Step("create-sdk.end", scResult ? S_OK : E_FAIL);
 
         if (Config::Instance()->FGDontUseSwapchainBuffers.value_or_default())
             State::Instance().skipHeapCapture = false;
@@ -596,6 +640,10 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
         return o_FGSCResizeBuffers(This, BufferCount, Width, Height, NewFormat, SwapChainFlags);
     }
 
+    FGResizeTrace resizeTrace("resize.enter");
+    resizeTrace.Stop(State::Instance().currentFG);
+    resizeTrace.Step("queue-wait.begin");
+
     if (State::Instance().currentCommandQueue != nullptr && resizeFence != nullptr && resizeFenceEvent != nullptr)
     {
         LOG_DEBUG("Waiting for GPU to finish before resizing buffers");
@@ -611,6 +659,8 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
             LOG_DEBUG("WaitForSingleObject result: {:X}", waitResult);
         }
     }
+
+    resizeTrace.Step("queue-wait.end");
 
     if (State::Instance().activeFgOutput == FGOutput::XeFG)
     {
@@ -754,7 +804,9 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
     HRESULT result;
     {
         ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
+        resizeTrace.Step("resize-sdk.begin");
         result = o_FGSCResizeBuffers(This, BufferCount, Width, Height, NewFormat, SwapChainFlags);
+        resizeTrace.Step("resize-sdk.end", result);
     }
 
     _skipResize1 = false;
@@ -834,6 +886,10 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain3* This, UINT BufferCount, UINT 
                                     ppPresentQueue);
     }
 
+    FGResizeTrace resizeTrace("resize.enter");
+    resizeTrace.Stop(State::Instance().currentFG);
+    resizeTrace.Step("queue-wait.begin");
+
     if (State::Instance().currentCommandQueue != nullptr && resizeFence != nullptr && resizeFenceEvent != nullptr)
     {
         LOG_DEBUG("Waiting for GPU to finish before resizing buffers");
@@ -849,6 +905,8 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain3* This, UINT BufferCount, UINT 
             LOG_DEBUG("WaitForSingleObject result: {:X}", waitResult);
         }
     }
+
+    resizeTrace.Step("queue-wait.end");
 
     if (State::Instance().activeFgOutput == FGOutput::XeFG)
     {
@@ -993,8 +1051,10 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain3* This, UINT BufferCount, UINT 
         ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
         _skipResize = true;
 
+        resizeTrace.Step("resize-sdk.begin");
         result = o_FGSCResizeBuffers1(This, BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
                                       ppPresentQueue);
+        resizeTrace.Step("resize-sdk.end", result);
 
         _skipResize = false;
     }

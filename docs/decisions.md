@@ -1,3 +1,20 @@
+## 2026-10-03 — Stop FG before swapchain drain/recreation
+
+The FG hooks previously waited on the application queue before calling Deactivate.
+Move pause/deactivation ahead of that wait in both factory recreation paths and
+both public ResizeBuffers entry points. An active asynchronous presenter can still
+be waiting for application work; the application must request stop before draining
+and resizing. Retain the existing backend, INI settings, reference ownership,
+internal-resize bypass and downstream resize behavior. This does not redesign
+OwnedMutex or claim to resolve every SDK callback/lock cycle.
+
+Add INFO entry/stop/wait/SDK boundaries with thread IDs and results, limited to the
+first 24 transitions per process, so another stall identifies the missing return.
+Correct the FSR FG preserved-swapchain warning that incorrectly named XeFG.
+Review the final diff and compile the host; user explicitly requested no broad test
+run for this diagnostic package. Real RE9 validation remains required. No runtime
+or module rebuild, no upstream update, and no merge/push as part of this change.
+
 ## 2026-10-03 — Keep adaptive history reset asynchronous
 
 Keep adaptive ViT enabled and preserve its thresholds and reset semantics. Reuse
