@@ -104,8 +104,10 @@ call :Hash fe40c904da05472e --output-hash || goto fail
 call :Hash 79233836b6257864 --auto-exposure || goto fail
 call :Hash 79233836b6257864 --auto-exposure --scale16 || goto fail
 call :Hash 8ba14ef2db0dddfe --r10g10b10a2 || goto fail
-cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_bridge_recording_gpu.cpp /Fe"%OUT%\lmxxf_bridge_recording_gpu.exe" /Fo"%OUT%\lmxxf_bridge_recording_gpu.obj" /link d3d12.lib dxgi.lib user32.lib || goto fail
+cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 /I"%REPO%\third_party\lmxxf\Development\HIP" /I"%REPO%\third_party\lmxxf\src" tests\lmxxf\lmxxf_bridge_recording_gpu.cpp /Fe"%OUT%\lmxxf_bridge_recording_gpu.exe" /Fo"%OUT%\lmxxf_bridge_recording_gpu.obj" /link d3d12.lib dxgi.lib user32.lib || goto fail
 "%OUT%\lmxxf_bridge_recording_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
+"%OUT%\lmxxf_bridge_recording_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --adaptive-reset || goto fail
+"%OUT%\lmxxf_bridge_recording_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --adaptive-reset-1080 || goto fail
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_bridge_zero_gpu.cpp /Fe"%OUT%\lmxxf_bridge_zero_gpu.exe" /Fo"%OUT%\lmxxf_bridge_zero_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --probe-drain || goto fail

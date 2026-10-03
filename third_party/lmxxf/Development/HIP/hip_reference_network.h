@@ -580,7 +580,20 @@ class Network {
    else{std::vector<double>product(1024,1.);for(U block=31;block<=38;block++)for(const char*part:{"contract","projection"}){auto weight=ReadWeights(opt.assets+"/block"+std::to_string(block)+"-"+part+".f32");size_t matrix=!strcmp(part,"contract")?4194304:1048576;if(weight.size()!=matrix+1024)throw std::runtime_error("adaptive gain weight shape");for(U i=0;i<1024;i++)product[i]*=double(weight[matrix+i]);}for(U i=0;i<1024;i++)gain[i]=float(product[i]);}
    for(float v:gain)if(!std::isfinite(v))throw std::runtime_error("adaptive gain nonfinite");adaptive_gain=Upload(gain.data(),4096,true);
   }
-  if(reset){U zero[8]{};adaptive_state=Upload(zero,sizeof(zero),true);adaptive_anchor_in=New(size_t(n)*1024);adaptive_anchor_out=New(size_t(n)*1024);adaptive_stats=New(size_t(n)*4);adaptive_n=n;U tiles=((W+31)/32)*((H+31)/32);adaptive_image_anchor=New(size_t(tiles)*3);adaptive_image_signature=New(size_t(tiles)*3);adaptive_image_delta=New(tiles);}
+  if(reset){
+   // Staged hosts enqueue after an external producer wait. Replacing persistent
+   // state here would allocate, synchronize the stream and free the old buffer
+   // (a device-wide drain), potentially waiting for work the host has yet to submit.
+   // Geometry is fixed per Network; allocate once during PrepareStagedKernels.
+   // State[2]==0 invalidates both anchors, so idle/seed/mode resets only need a
+   // stream-ordered clear. Keep the anchors alive for earlier queued frames.
+   if(!adaptive_state||adaptive_n!=n){
+    adaptive_state=std::make_shared<Allocation>(api,8*sizeof(U));
+    adaptive_anchor_in=New(size_t(n)*1024);adaptive_anchor_out=New(size_t(n)*1024);adaptive_stats=New(size_t(n)*4);adaptive_n=n;
+    U tiles=((W+31)/32)*((H+31)/32);adaptive_image_anchor=New(size_t(tiles)*3);adaptive_image_signature=New(size_t(tiles)*3);adaptive_image_delta=New(tiles);
+   }
+   api.Check(api.hipMemsetAsync(P(adaptive_state),0,8*sizeof(U),stream),"adaptive reset");
+  }
   U stride=W==1920?32:W/64,tiles=((W+31)/32)*((H+31)/32);
   if(!adaptive_image)throw std::runtime_error("adaptive image missing");
   Run("deep","reuse_image_stats",size_t(tiles)*256,adaptive_image,P(adaptive_image_anchor),P(adaptive_state),P(adaptive_image_signature),P(adaptive_image_delta),W,H);

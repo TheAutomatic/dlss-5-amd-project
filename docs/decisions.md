@@ -1,3 +1,21 @@
+## 2026-10-03 — Keep adaptive history reset asynchronous
+
+Keep adaptive ViT enabled and preserve its thresholds and reset semantics. Reuse
+same-geometry history buffers and clear the eight state words with hipMemsetAsync
+on the network stream. Previously each idle/seed/mode reset called Upload, which
+allocated a new state, synchronized the stream, copied synchronously and destroyed
+the old allocation (including hipDeviceSynchronize). In a staged host this occurs
+after an external producer wait inside the submission callback.
+
+The maintained reference-network.patch carries this change across upstream sync.
+The bridge GPU regression covers 720/1080 tiers, idle and seed invalidation, mode
+changes and disable/re-enable, plus actual queue switching and output readback.
+The old implementation fails the synchronous-call check in both tiers; the replacement
+passes and all 20 per-frame output hashes match. General tensor-pool growth is reported
+separately and is not claimed to be eliminated. Recording leases, PDL, queue/fence
+ordering and the public ABI stay unchanged. This removes a demonstrated submission
+hazard; RE9 cold-start and DLSS-switch hangs still require repeated game validation.
+
 ## 2026-10-03 — Frame-generation readiness and bounded RE diagnostics
 
 Replace the mutable per-slot readiness maps with an atomic resource bitset. Frame

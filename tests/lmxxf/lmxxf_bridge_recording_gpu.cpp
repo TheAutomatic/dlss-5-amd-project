@@ -4,7 +4,9 @@
 #include <dxgi1_4.h>
 #include "third_party/lmxxf/Development/HIP/hip_reference_network.h"
 #include "third_party/lmxxf/src/native_device_identity.h"
+#define DLSS5_BENCH_BRIDGE_ISOLATE
 #include "third_party/lmxxf/Development/HIP/hip_d3d12_bridge.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfProductionOptions.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -79,9 +81,43 @@ static void Transition(ID3D12GraphicsCommandList *list, ID3D12Resource *resource
 }
 
 
+// Count APIs that can drain the stream/device inside the submission callback.
+// Restore them before readback and teardown, which legitimately synchronize.
+// General tensor-pool growth is reported separately; this regression targets
+// persistent 32-byte adaptive state replacement and explicit synchronous APIs.
+struct SubmissionSyncAudit {
+    hip_probe::Api& api;
+    inline static unsigned calls = 0, allocations = 0;
+    inline static decltype(api.hipMalloc) alloc;
+    inline static decltype(api.hipFree) freeMem;
+    inline static decltype(api.hipMemcpy) copy;
+    inline static decltype(api.hipStreamSynchronize) streamSync;
+    inline static decltype(api.hipDeviceSynchronize) deviceSync;
+    explicit SubmissionSyncAudit(hip_probe::Api& a) : api(a) {
+        calls = allocations = 0;
+        alloc = api.hipMalloc; freeMem = api.hipFree; copy = api.hipMemcpy;
+        streamSync = api.hipStreamSynchronize; deviceSync = api.hipDeviceSynchronize;
+        api.hipMalloc = [](void** p, size_t n) { ++allocations; if (n == 8*sizeof(hip_reference::U)) ++calls; return alloc(p,n); };
+        api.hipFree = [](void* p) { ++calls; return freeMem(p); };
+        api.hipMemcpy = [](void* d, const void* s, size_t n, int k) { ++calls; return copy(d,s,n,k); };
+        api.hipStreamSynchronize = [](hip_probe::Handle h) { ++calls; return streamSync(h); };
+        api.hipDeviceSynchronize = []() { ++calls; return deviceSync(); };
+    }
+    ~SubmissionSyncAudit() {
+        api.hipMalloc = alloc; api.hipFree = freeMem; api.hipMemcpy = copy;
+        api.hipStreamSynchronize = streamSync; api.hipDeviceSynchronize = deviceSync;
+    }
+};
+
 int main(int argc, char** argv)
 {
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
+    const bool adaptive = argc == 4 && (std::strcmp(argv[3], "--adaptive-reset") == 0 || std::strcmp(argv[3], "--adaptive-reset-1080") == 0);
+    unsigned blockingCalls = 0;
+    if (adaptive) {
+        _putenv_s("DLSS5_VIT_ADAPTIVE", "1");
+        _putenv_s("DLSS5_VIT_ADAPTIVE_IDLE_MS", "500");
+    }
     ID3D12Debug* debug = nullptr;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) { debug->EnableDebugLayer(); debug->Release(); }
     IDXGIFactory4* factory = nullptr; ID3D12Device* device = nullptr;
@@ -98,11 +134,13 @@ int main(int argc, char** argv)
     D3D12_COMMAND_QUEUE_DESC qd {};
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&creation)), "creation queue");
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&actual)), "actual queue");
-    constexpr UINT width = 512, height = 512;
-    constexpr UINT64 pixels = UINT64(width) * height, bytes = pixels * 12;
+    const bool large = adaptive && std::strcmp(argv[3], "--adaptive-reset-1080") == 0;
+    const UINT width = adaptive ? (large ? 1920 : 1280) : 512, height = adaptive ? (large ? 1152 : 768) : 512;
+    const UINT64 pixels = UINT64(width) * height, bytes = pixels * 12;
     hip_reference::Options options; options.width = width; options.height = height;
     options.assets = argv[1]; options.modules = argv[2]; options.wmma = options.wave = options.pooled = true;
     options.fast_prefix = true;
+    if (adaptive) options = LmxxfProductionOptions(width, height, argv[2], argv[1]);
     try {
         hip_reference::D3D12Bridge bridge; bridge.Create(creation, options, {});
         bridge.PrepareStagedKernels(); bridge.EnableRecordingLeases();
@@ -146,7 +184,15 @@ int main(int argc, char** argv)
             ID3D12CommandQueue* q = pass % 2 ? creation : actual;
             bridge.BeginRecordedExecution(q);
             ID3D12CommandList* first[] = {producer}; q->ExecuteCommandLists(1, first);
-            bridge.EnqueueAfterProducer(q, 1);
+            if (adaptive) {
+                // Cover idle reset, seed invalidation, mode change and disable/re-enable.
+                if (pass == 0 || pass == 3) Sleep(600);
+                _putenv_s("DLSS5_VIT_ADAPTIVE", pass == 5 ? "0" : pass == 4 ? "2" : "1");
+                SubmissionSyncAudit audit(bridge.DiagnosticNetwork().Runtime());
+                bridge.EnqueueAfterProducer(q, pass == 2 ? 2 : 1);
+                blockingCalls += SubmissionSyncAudit::calls;
+                std::printf("adaptive pass=%u blocking_reset_calls=%u pool_allocations=%u\n", pass, SubmissionSyncAudit::calls, SubmissionSyncAudit::allocations);
+            } else bridge.EnqueueAfterProducer(q, 1);
             // Discard one actual execution after HIP, without submitting consumer.
             if (pass == 1) { bridge.EndRecordedExecution(q, true, false); continue; }
             ID3D12CommandList* second[] = {consumer}; q->ExecuteCommandLists(1, second);
@@ -158,12 +204,18 @@ int main(int argc, char** argv)
             for (UINT64 i = 0; i < pixels * 3; ++i) { finite = finite && std::isfinite(values[i]); nonzero = nonzero || std::fabs(values[i]) > 1e-8f; }
             Require(finite && nonzero, "finite nonzero neural output");
             if (baseline.empty()) baseline.assign(static_cast<unsigned char*>(data), static_cast<unsigned char*>(data) + bytes);
-            else Require(std::memcmp(baseline.data(), data, SIZE_T(bytes)) == 0, "replayed neural output bytes");
+            else if (!adaptive) Require(std::memcmp(baseline.data(), data, SIZE_T(bytes)) == 0, "replayed neural output bytes");
+            if (adaptive) {
+                unsigned long long hash = 14695981039346656037ull;
+                for (size_t b = 0; b < SIZE_T(bytes); ++b) { hash ^= static_cast<unsigned char*>(data)[b]; hash *= 1099511628211ull; }
+                std::printf("adaptive pass=%u output_hash=%016llx\n", pass, hash);
+            }
             readback->Unmap(0, nullptr);
         }
         Require(bridge.WaitForSubmittedWork(), "drain actual last execution queue");
         // Official fe4d1d73 event-query path: lazy enable, frame tags, disable/re-enable,
         // epoch rejection and failure quarantine. Compare actual output bytes as well.
+        if (!adaptive) {
         Require(!bridge.NetworkTimingEnabled() && !hip_reference::BridgeTimingTest::NewEventsAllocated(bridge),
                 "official timing has no events before first request");
         bridge.SetTimingEpoch(10);
@@ -200,6 +252,7 @@ int main(int argc, char** argv)
         Check(readback->Map(0, &timedRange, &timedData), "official timing readback");
         Require(std::memcmp(baseline.data(), timedData, SIZE_T(bytes)) == 0, "official timing preserves output bytes");
         readback->Unmap(0, nullptr);
+        }
         producer->Release(); consumer->Release(); pa->Release(); ca->Release(); input->Release(); readback->Release();
     } catch (const std::exception& e) { std::fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }
     ID3D12InfoQueue* info = nullptr;
@@ -213,5 +266,6 @@ int main(int argc, char** argv)
         info->Release();
     }
     actual->Release(); creation->Release(); device->Release();
+    Require(blockingCalls == 0, "adaptive reset must not replace its state buffer or synchronously drain inside HIP enqueue");
     std::puts("bridge recording leases: PASS (discard, real HIP replay, actual queue, byte readback)");
 }
