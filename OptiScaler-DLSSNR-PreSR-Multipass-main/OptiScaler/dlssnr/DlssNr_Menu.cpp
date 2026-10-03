@@ -337,16 +337,31 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::Checkbox("Enable NR", &enabled))
             config->DlssNrEnabled = enabled;
 
+        {
+            auto selectedKind = Backend::ActiveKindFromConfig();
+            {
+                std::lock_guard lock(config->NrBackendMutex);
+                if (auto raw = config->NrBackend.value_for_config(); raw && Backend::ParseRequest(*raw) != Backend::Request::Auto)
+                    selectedKind = Backend::ParseKind(*raw);
+            }
+            const auto issue = Backend::InstallIssue(selectedKind);
+            if (!issue.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, .72f, .25f, 1.f));
+                ImGui::TextWrapped("%s", issue.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
+
         if (DlssNr::AmdBridge::HasFiles())
         {
             using DlssNr::Backend::Kind;
             const Kind active = DlssNr::Backend::ActiveKindFromConfig();
             const bool isLmxxf = (active == Kind::Lmxxf);
             // Runtime name belongs with Enable NR — tight pair, not a separate group.
-            const char* ver = active == Kind::Mochizuki ? "mochizuki v0.0.3" : isLmxxf ? "lmxxf 0.39" : DlssNr::AmdBridge::RuntimeName();
+            const char* ver = active == Kind::Mochizuki ? "mochizuki v0.0.3" : isLmxxf ? "lmxxf 0.40" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
-            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf 0.39" : "pass1?"));
+            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf 0.40" : "pass1?"));
             HelpMarker(active == Kind::Mochizuki ? "AMD NR runtime: mochizuki (native D3D12 / Vulkan bridge)." : isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
                                : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
@@ -413,9 +428,9 @@ void RenderMenu(Config* config, float menuResScale)
             view.backend = Backend::Name(kind);
             view.enabled = config->DlssNrEnabled.value_or_default();
             if (isLmxxf) {
-                view.input = "Network tier: " + config->LmxxfNetworkHeight.value_or_default();
+                view.input = config->LmxxfNetworkFreeRes.value_or_default() ? "Native input resolution" : "Network tier: " + config->LmxxfNetworkHeight.value_or_default();
                 view.model = "Style " + std::to_string(config->LmxxfStyle.value_or_default()) +
-                    (config->LmxxfVitAdaptive.value_or_default() ? " / adaptive reuse on" : " / adaptive reuse off");
+                    std::string(" / ") + std::to_string(config->LmxxfMultiPass.value_or_default()) + " pass(es)";
             } else if (kind == Backend::Kind::Mochizuki) {
                 view.input = "Model resolution: " + std::to_string(int(std::lround(config->MochizukiModelScale.value_or_default() * 100))) + "%";
                 view.model = std::to_string(config->MochizukiPasses.value_or_default()) + " pass(es) requested";
@@ -458,6 +473,8 @@ void RenderMenu(Config* config, float menuResScale)
             auto resetInput = [&]() {
                 if (isLmxxf) {
                     resetOption(config->LmxxfAutoExposure); resetOption(config->LmxxfAutoExposureScale);
+                    resetOption(config->LmxxfNetworkFreeRes);
+                    CfgKey::PutEnvAlias(CfgKey::NetworkFreeRes, config->LmxxfNetworkFreeRes.value_or_default());
                     resetOption(config->LmxxfPaperWhite); resetOption(config->LmxxfNetworkHeight);
                     CfgKey::PutEnvString(CfgKey::NetworkHeight, config->LmxxfNetworkHeight.value_or_default().c_str());
                     resetOption(config->LmxxfNetwork1080Rows);
@@ -470,6 +487,11 @@ void RenderMenu(Config* config, float menuResScale)
             };
             auto resetModel = [&]() {
                 if (isLmxxf) {
+                    resetOption(config->LmxxfMultiPass); resetOption(config->LmxxfFastNumeric);
+                    resetOption(config->LmxxfMultiPassSkipBlocks);
+                    CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(config->LmxxfMultiPass.value_or_default()).c_str());
+                    CfgKey::PutEnvAlias(CfgKey::FastNumeric, config->LmxxfFastNumeric.value_or_default());
+                    CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, config->LmxxfMultiPassSkipBlocks.value_or_default().c_str());
                     resetOption(config->LmxxfStyle);
                     CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(config->LmxxfStyle.value_or_default()).c_str());
                 } else {
@@ -587,6 +609,17 @@ void RenderMenu(Config* config, float menuResScale)
             };
             auto renderInput = [&]() {
                 if (isLmxxf) {
+                    bool freeRes = config->LmxxfNetworkFreeRes.value_or_default();
+                    if (ImGui::Checkbox("Native input resolution", &freeRes)) {
+                        config->LmxxfNetworkFreeRes = freeRes;
+                        CfgKey::PutEnvAlias(CfgKey::NetworkFreeRes, freeRes);
+                        AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("On (default): run at the NR input size, padded for the network. This is before upscaling."
+                               "\nHigher resolutions cost more GPU time and VRAM; 4K can be several times slower than 1080p."
+                               "\nOverrides tier and Compact 1080 settings within the supported processing budget."
+                               "\nOutside that budget, use the tier settings below. Changes rebuild the network next frame.");
+                    if (freeRes) ImGui::TextWrapped("Tier controls below are the fallback for inputs outside the native-resolution budget.");
                     const std::string net = config->LmxxfNetworkHeight.value_or_default();
                     const bool isAuto = net.empty() || net == "auto";
                     static std::string lastFixed = "1080";
@@ -594,7 +627,7 @@ void RenderMenu(Config* config, float menuResScale)
                         lastFixed = net;
 
                     bool autoTier = isAuto;
-                    if (ImGui::Checkbox("NR% auto", &autoTier))
+                    if (ImGui::Checkbox("Automatic network tier", &autoTier))
                     {
                         const char *value = autoTier ? "auto" : lastFixed.c_str();
                         config->LmxxfNetworkHeight = value;
@@ -611,7 +644,7 @@ void RenderMenu(Config* config, float menuResScale)
                         int tierIdx = (lastFixed == "720") ? 0 : (lastFixed == "900") ? 1 : 2;
                         const unsigned inputH = DlssNr::Backend::LastLmxxfColorHeight();
                         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-                        if (ImGui::BeginCombo("NR%", tiers[tierIdx]))
+                        if (ImGui::BeginCombo("Network tier", tiers[tierIdx]))
                         {
                             for (int i = 0; i < 3; ++i)
                             {
@@ -715,6 +748,55 @@ void RenderMenu(Config* config, float menuResScale)
             };
             auto renderModel = [&]() {
                 if (isLmxxf) {
+                    int pass = static_cast<int>(config->LmxxfMultiPass.value_or_default()) - 1;
+                    if (ImGui::Combo("Network passes", &pass, "1 (default)\0" "2\0" "3\0")) {
+                        config->LmxxfMultiPass = static_cast<uint32_t>(pass + 1);
+                        CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(pass + 1).c_str());
+                        AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("Run the model 1-3 times on each frame. More passes strengthen the style and cost roughly N times the network work."
+                               "\nPasses 2/3 add frame-sized buffers. Adaptive ViT reuse is disabled with multiple passes."
+                               "\nChanging this rebuilds the network next frame; GPU timing includes all passes.");
+                    bool fast = config->LmxxfFastNumeric.value_or_default();
+                    if (ImGui::Checkbox("Fast numeric approximation", &fast)) {
+                        config->LmxxfFastNumeric = fast;
+                        CfgKey::PutEnvAlias(CfgKey::FastNumeric, fast);
+                        AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("On by default in 0.40. Uses faster approximate C32/C64 math with small image differences."
+                               "\nOff selects the normal numeric modules. Changing this rebuilds the network next frame.");
+                    if (ImGui::TreeNode("Later-pass block skipping (lossy)")) {
+                        static char blocks[256]{};
+                        static std::string loaded;
+                        static bool invalid = false;
+                        const auto current = config->LmxxfMultiPassSkipBlocks.value_or_default();
+                        auto supported = [&](const std::string& value) {
+                            const auto csv = "," + value + ",";
+                            for (int block = 1; block <= 69; ++block) {
+                                const bool forbidden = block == 4 || block == 69 ||
+                                    (config->LmxxfMHByteStream.value_or_default() &&
+                                     ((block >= 5 && block <= 22) || (block >= 48 && block <= 65)));
+                                if (forbidden && csv.find("," + std::to_string(block) + ",") != std::string::npos) return false;
+                            }
+                            return true;
+                        };
+                        if (loaded != current) { snprintf(blocks, sizeof blocks, "%s", current.c_str()); loaded = current; }
+                        if (ImGui::InputText("Skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            std::string normalized;
+                            invalid = !CfgKey::NormalizeSkipBlocks(blocks, normalized) || !supported(normalized);
+                            if (!invalid) {
+                                config->LmxxfMultiPassSkipBlocks = normalized;
+                                CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, normalized.c_str());
+                                AmdBridge::InvalidateHistory();
+                            }
+                        }
+                        if (invalid || !supported(current)) ImGui::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
+                        HelpMarker("Default none, recommended. Only passes 2/3 skip these blocks; pass 1 is unchanged."
+                                   "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
+                                   "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."
+                                   "\nPress Enter to apply; rebuilds next frame. Ignored with one pass.");
+                        ImGui::TreePop();
+                    }
                     int style = static_cast<int>(config->LmxxfStyle.value_or_default());
                     if (ImGui::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
                     {
@@ -722,7 +804,7 @@ void RenderMenu(Config* config, float menuResScale)
                         CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(style).c_str());
                         DlssNr::AmdBridge::InvalidateHistory();
                     }
-                    HelpMarker("Network style 0 / 1 / 2. Default 1 preserves earlier lmxxf output."
+                    HelpMarker("Network style 0 / 1 / 2. Default: 1."
                                "\nChanging style rebuilds the network on the next frame.");
                 } else {
                     static int passes = 1;

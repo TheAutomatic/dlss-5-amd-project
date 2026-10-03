@@ -207,6 +207,11 @@ DEV uint bid(){return __builtin_amdgcn_workgroup_id_x();}
 #endif
 #if CW_FAST_NUM&1
 DEV float Hrtz(float x){return x;}
+#elif HIP_C32_RTZ_ISA==2
+// 2026-10-02 ideas-yami-ikaruga: the same two instructions as builtins (v_cvt_pkrtz_f16_f32, then an exact f16->f32 widen) so
+// LLVM may fold the widen into the consumer (v_fma_mix_f32 with a -0 addend == the f32 mul/add of the widened half). Value
+// per input identical to the asm form (GPU 2^32 check in results/ideas-yami-ikaruga-20261002).
+DEV float Hrtz(float x){auto h=__builtin_amdgcn_cvt_pkrtz(x,x);return float(h[0]);}
 #elif HIP_C32_RTZ_ISA
 DEV float Hrtz(float x){uint h;float result;
  asm("v_cvt_pkrtz_f16_f32 %0, %1, %1" : "=v"(h) : "v"(x));

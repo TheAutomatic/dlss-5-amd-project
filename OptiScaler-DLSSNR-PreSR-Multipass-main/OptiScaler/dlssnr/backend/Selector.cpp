@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Selector.h"
+#include "InstallStatus.h"
 #include "../NrEffectsSettings.h"
 #include <Config.h>
 #include <Util.h>
@@ -20,6 +21,9 @@ struct InstallProbe
     bool hasMochizuki = false;
     bool valid = false;
     unsigned long long tick = 0;
+    std::string issues[3];
+    unsigned long long issueTick[3]{};
+    bool issueValid[3]{};
 };
 InstallProbe g_probe;
 
@@ -52,6 +56,20 @@ void InvalidateInstallProbe()
 {
     std::lock_guard lock(g_probe.mu);
     g_probe.valid = false;
+    for (auto& valid : g_probe.issueValid) valid = false;
+}
+
+std::string InstallIssue(Kind kind)
+{
+    std::lock_guard lock(g_probe.mu);
+    const auto index = static_cast<int>(kind);
+    const auto now = GetTickCount64();
+    if (!g_probe.issueValid[index] || now - g_probe.issueTick[index] >= 1000ull) {
+        g_probe.issues[index] = ProbeInstallIssue(kind, Util::DllPath().parent_path());
+        g_probe.issueTick[index] = now;
+        g_probe.issueValid[index] = true;
+    }
+    return g_probe.issues[index];
 }
 
 bool HasDanielInstalled()

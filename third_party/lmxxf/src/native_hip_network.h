@@ -3,6 +3,7 @@
 #include "native_network_geometry.h"
 #include "native_lab_paths.h"
 #include "native_hip_env_options.h"
+#include "native_hot_flags.h"
 // Experimental compile-time backend. Ordinary D3D12 codec and temporal passes stay in NativeGameFrame.
 class NativeHipNetwork {
  hip_reference::D3D12Bridge bridge;ID3D12Resource*color{};ID3D12Resource*history{};
@@ -23,11 +24,24 @@ color=direct_input?bridge.DirectInput():rgb;color->AddRef();history=temporal;if(
  }
  // The host submits both sides on the same queue. See D3D12Bridge's stage contract.
  void RecordInputCopy(ID3D12GraphicsCommandList*c,bool use_history=false){if(use_history&&!history)throw std::runtime_error("HIP history not bound");bridge.RecordInputCopy(c,color,use_history?history:nullptr);}
- void EnqueueAfterProducer(ID3D12CommandQueue*q,UINT seed,bool use_history=false){if(use_history&&!history)throw std::runtime_error("HIP history not bound");bridge.EnqueueAfterProducer(q,seed,use_history);}
+ void EnqueueAfterProducer(ID3D12CommandQueue*q,UINT seed,bool use_history=false){if(use_history&&!history)throw std::runtime_error("HIP history not bound");ApplyHotMultiPass();bridge.EnqueueAfterProducer(q,seed,use_history);}
  void RecordOutputReadable(ID3D12GraphicsCommandList*c){bridge.RecordOutputReadable(c);}
+ // Network GPU timing (hip_d3d12_bridge.h): off unless enabled here or DLSS5_NET_TIMING=1; the add-on does not enable it.
+ bool EnableNetworkTiming(){return bridge.EnableNetworkTiming();}
+ hip_reference::D3D12Bridge::NetworkTiming PollNetworkTiming(){return bridge.PollNetworkTiming();}
  void NotifyOutputSubmitted(ID3D12CommandQueue*q){bridge.NotifyOutputSubmitted(q);FrameSubmitted();}
- template<class Submission>void Run(Submission&submit,UINT seed,bool use_history=false){if(use_history&&!history)throw std::runtime_error("HIP history not bound");bridge.Run(submit,color,use_history?history:nullptr,seed);FrameSubmitted();}
+ template<class Submission>void Run(Submission&submit,UINT seed,bool use_history=false){if(use_history&&!history)throw std::runtime_error("HIP history not bound");ApplyHotMultiPass();bridge.Run(submit,color,use_history?history:nullptr,seed);FrameSubmitted();}
 private:
+ /* 2026-10-03: DLSS5_MULTI_PASS hotkey (writes the config file) and hot reload (applies it) before each network frame.
+    Unchanged value = no call into the network (bit-exact). */
+ int hot_generation=-1;
+ void ApplyHotMultiPass(){
+  auto&hot=NativeHotFlags::Instance();if(!NativeHotFlags::Enabled()&&!NativeHotFlags::HotkeyCode())return;
+  hot.PollMultiPassHotkey(bridge.MultiPass());
+  const auto v=hot.Get();if(int(v.generation)==hot_generation)return;hot_generation=int(v.generation);
+  if(v.multi_pass>0&&unsigned(v.multi_pass)!=bridge.MultiPass()){const unsigned was=bridge.MultiPass();bridge.MultiPass(unsigned(v.multi_pass));
+   if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=multi_pass detail=%u->%u (hot reload)\n",GetCurrentProcessId(),GetTickCount64(),was,bridge.MultiPass());fclose(f);}}
+ }
  void FrameSubmitted(){
   if(++frames==3){if(const char*v=std::getenv("DLSS5_HIP_MEMORY");v&&!strcmp(v,"1"))if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-hip.txt").c_str(),L"ab")){bridge.MemoryReport(f);fclose(f);}}
  }

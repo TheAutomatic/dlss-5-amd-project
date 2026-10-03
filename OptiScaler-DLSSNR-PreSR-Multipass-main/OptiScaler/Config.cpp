@@ -485,6 +485,25 @@ bool Config::Reload(std::filesystem::path iniPath)
                 CfgKey::PutEnvAlias(CfgKey::Pdl, pdl);
             }
             {
+                LmxxfNetworkFreeRes.set_from_config(readBool(CfgKey::kSection, CfgKey::NetworkFreeRes).value_or(true));
+                LmxxfFastNumeric.set_from_config(readBool(CfgKey::kSection, CfgKey::FastNumeric).value_or(true));
+                CfgKey::PutEnvAlias(CfgKey::NetworkFreeRes, LmxxfNetworkFreeRes.value_or_default());
+                CfgKey::PutEnvAlias(CfgKey::FastNumeric, LmxxfFastNumeric.value_or_default());
+                auto passes = readUInt(CfgKey::kSection, CfgKey::MultiPass).value_or(1);
+                if (passes < 1 || passes > 3) {
+                    LOG_WARN("DlssNr.{} must be 1..3; using 1", CfgKey::MultiPass);
+                    passes = 1;
+                }
+                LmxxfMultiPass.set_from_config(passes);
+                CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(passes).c_str());
+                auto multiRaw = readString(CfgKey::kSection, CfgKey::MultiPassSkipBlocks, true);
+                std::string multiSkip = "none";
+                if (multiRaw && !CfgKey::NormalizeSkipBlocks(*multiRaw, multiSkip)) {
+                    LOG_WARN("DlssNr.{} is invalid; using none", CfgKey::MultiPassSkipBlocks);
+                    multiSkip = "none";
+                }
+                LmxxfMultiPassSkipBlocks.set_from_config(multiSkip);
+                CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, multiSkip.c_str());
                 auto netH = readString(CfgKey::kSection, CfgKey::NetworkHeight, true);
                 std::string net = (netH.has_value() && !netH->empty()) ? *netH : "auto";
                 if (net != "auto" && net != "720" && net != "900" && net != "1080")
@@ -1654,6 +1673,10 @@ bool Config::SaveIni()
         ini.SetValue("DlssNr", "LmxxfDiagnostic", diagnostic->c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::FitLarge, GetBoolValue(Instance()->LmxxfFitLarge.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::Pdl, GetBoolValue(Instance()->LmxxfPdl.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NetworkFreeRes, GetBoolValue(Instance()->LmxxfNetworkFreeRes.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::FastNumeric, GetBoolValue(Instance()->LmxxfFastNumeric.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MultiPass, std::to_string(Instance()->LmxxfMultiPass.value_or_default()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MultiPassSkipBlocks, Instance()->LmxxfMultiPassSkipBlocks.value_or_default().c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NetworkHeight,
                  Instance()->LmxxfNetworkHeight.value_for_config_or("auto").c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::Network1080Rows,

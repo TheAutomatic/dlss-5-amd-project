@@ -27,7 +27,8 @@ inline float&NativeMotionSign(){static float s=1.f;return s;}
    from the first dispatch; {0,0} = not declared (XeSS path), the frame then assumes UV units of the render grid. */
 inline float*NativeMotionVectorScale(){static float s[2]={0.f,0.f};return s;}
 /* Lab root and weight loading for the game addon.
-   Root: the folder DLSS5-AMD next to this DLL when it holds native-game-flags.txt (the distributed package),
+   Root: the folder DLSS5-AMD next to this DLL when it holds one of the config layers (default-config.txt, custom-config.txt or
+   native-game-flags.txt; the distributed package),
    otherwise D:\DLSSNR-Lab (the development machine). Every lab path in the addon goes through NativeLabPath().
    Weights: NativeReadF32(path.f32) reads the f32 file, or path.f16 (IEEE half, expanded) when the f32 is absent --
    every network coefficient is an exact half, so the package ships halves at half the size. */
@@ -38,19 +39,23 @@ inline float*NativeMotionVectorScale(){static float s[2]={0.f,0.f};return s;}
 #include <stdexcept>
 #include <cstdint>
 #include <cstring>
+#include "native_config_layers.h"
 inline const std::wstring&NativeLabRoot(){
  static std::wstring root;if(!root.empty())return root;
  HMODULE h=nullptr;wchar_t path[MAX_PATH]{};
  if(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&NativeLabRoot),&h)&&GetModuleFileNameW(h,path,MAX_PATH)){
-  std::wstring dir(path);size_t slash=dir.find_last_of(L"\\/");if(slash!=std::wstring::npos){dir.resize(slash);std::wstring local=dir+L"\\DLSS5-AMD";if(GetFileAttributesW((local+L"\\native-game-flags.txt").c_str())!=INVALID_FILE_ATTRIBUTES){root=local;return root;}}
+  std::wstring dir(path);size_t slash=dir.find_last_of(L"\\/");if(slash!=std::wstring::npos){dir.resize(slash);std::wstring local=dir+L"\\DLSS5-AMD";if(NativeConfigDirHasAny(local)){root=local;return root;}}
  }
  /* RE Engine's mod-loading chain may relocate DLLs to _storage_. Packaged assets stay beside re9.exe. */
  if(GetModuleFileNameW(nullptr,path,MAX_PATH)){
-  std::wstring dir(path);size_t slash=dir.find_last_of(L"\\/");if(slash!=std::wstring::npos){dir.resize(slash);std::wstring local=dir+L"\\DLSS5-AMD";if(GetFileAttributesW((local+L"\\native-game-flags.txt").c_str())!=INVALID_FILE_ATTRIBUTES){root=local;return root;}}
+  std::wstring dir(path);size_t slash=dir.find_last_of(L"\\/");if(slash!=std::wstring::npos){dir.resize(slash);std::wstring local=dir+L"\\DLSS5-AMD";if(NativeConfigDirHasAny(local)){root=local;return root;}}
  }
  root=L"D:\\DLSSNR-Lab";return root;
 }
 inline std::wstring NativeLabPath(const wchar_t*relative){std::wstring p=NativeLabRoot();p+=L"\\";p+=relative;return p;}
+/* Effective "KEY=VALUE" lines of the lab root: default-config.txt, custom-config.txt, native-game-flags.txt merged, then the process
+   environment (snapshot) on top -- see native_config_layers.h. Re-reads the files on every call; one line per key. */
+inline std::vector<std::string> NativeConfigFileLines(){return NativeConfigLines(NativeConfigEffective(NativeLabRoot()));}
 inline float NativeHalfToFloat(uint16_t h){uint32_t s=(h&0x8000u)<<16,e=(h>>10)&31u,m=h&1023u;uint32_t b;if(e==0){if(m==0)b=s;else{int sh=0;while(!(m&0x400u)){m<<=1;sh++;}m&=0x3ffu;b=s|((113u-sh)<<23)|(m<<13);}}else if(e==31)b=s|0x7f800000u|(m<<13);else b=s|((e+112u)<<23)|(m<<13);float f;std::memcpy(&f,&b,4);return f;}
 /* Weight prefetch: the add-on's worker starts NativePrefetchWeights(assets dir) as soon as it is loaded, so the ~750MB of weight and
    noise files are already in memory when the user activates the network minutes later (Magpie) -- the file reads were ~4.5 s of the

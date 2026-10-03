@@ -59,7 +59,10 @@ class Git:
         if result.returncode not in allowed:
             raise RuntimeError('git ' + ' '.join(args) + ': ' +
                                result.stderr.decode('utf-8', 'replace').strip())
-        return result.stdout.decode('utf-8', 'strict')
+        # Upstream experiment logs can contain legacy-encoded bytes. Keep them
+        # visible as byte escapes in inventories/diffs; source reads stay strict.
+        errors = 'backslashreplace' if args and args[0] in ('diff', 'grep') else 'strict'
+        return result.stdout.decode('utf-8', errors)
 
     def resolve(self, ref):
         value = self.run('rev-parse', '--verify', '--end-of-options', ref + '^{commit}').strip()
@@ -108,7 +111,7 @@ def assignments(text):
 
 def parse_recipe(text):
     rows = {}
-    pattern = r"@\{\s*name\s*=\s*'([^']+)'\s*;\s*defines\s*=\s*@\(([^)]*)\)\s*;\s*sources\s*=\s*@\(([^)]*)\)\s*(?:;\s*opts\s*=\s*'([^']*)'\s*)?\}"
+    pattern = r"@\{\s*name\s*=\s*'([^']+)'\s*;\s*defines\s*=\s*@\(([^)]*)\)\s*;\s*sources\s*=\s*@\(([^)]*)\)\s*(?:;\s*opts\s*=\s*'([^']*)'\s*)?(?:;\s*compiler\s*=\s*'([^']*)'\s*)?(?:;\s*l23defines\s*=\s*@\(([^)]*)\)\s*)?\}"
     for match in re.finditer(pattern, text):
         name = match[1]
         if name in rows:
@@ -122,6 +125,10 @@ def parse_recipe(text):
         rows[name] = {'sources': sources, 'defines': re.findall(r"'([^']+)'", match[2])}
         if match[4] is not None:
             rows[name]['opts'] = match[4]
+        if match[5] is not None:
+            rows[name]['compiler'] = match[5]
+        if match[6] is not None:
+            rows[name]['l23defines'] = re.findall(r"'([^']+)'", match[6])
     # Do not silently drop a row when upstream changes its recipe syntax.
     if not rows or len(rows) != len(re.findall(r'@\{\s*name\s*=', text)):
         raise ValueError('Unrecognized build recipe rows; update the audit parser before reviewing')
@@ -230,9 +237,10 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
                                                    'blob': tree[path]['blob']})
     gates = {}
     for module, row in sorted(recipe.items()):
-        if 'opts' in row:
+        if any(key in row for key in ('opts', 'compiler', 'l23defines')):
             item('compiler:' + module, 'module-compiler-options', {
-                'module': module, 'opts': row['opts'],
+                'module': module, 'opts': row.get('opts', ''),
+                'compiler': row.get('compiler', 'comgr'), 'l23defines': row.get('l23defines', []),
                 'recipe_blob': tree['hip/build-modules.ps1']['blob'],
                 'note': 'Trace RowOpts/ExtraOpts and RTC_EXTRA_OPTS through the actual build invocation; a declared option is not necessarily enabled.'})
         defs = row['defines'] + overrides.get(module, [])
@@ -260,6 +268,7 @@ def collect(root, git, base, commit, skipped, supplied_modules=None):
                     r'^[ \t]*#[ \t]*define[ \t]+' + re.escape(name) + r'\b([^\n]*)', code, re.M)]
                 gates.setdefault(name, []).append({'module': module, 'source': path, 'blob': tree[path]['blob'],
                     'recipe_and_local_defines': [d for d in defs if d.split()[0] == name],
+                    'llvm23_only_defines': [d for d in row.get('l23defines', []) if d.split()[0] == name],
                     'source_definitions': defaults,
                     'implicit_recipe_candidate': name == 'HIP_ISA_HALF' or (name == 'HIP_PREPACKED_WEIGHTS' and module.endswith('-packed'))})
     for name, uses in sorted(gates.items()):

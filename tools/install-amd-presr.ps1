@@ -619,6 +619,13 @@ foreach ($candidate in @(
         break
     }
 }
+function Test-LmxxfWeights([string]$Directory) {
+    foreach ($name in @('block0-ffn.f16', 'block0-ffn.f32')) {
+        $file = Get-Item -LiteralPath (Join-Path $Directory $name) -ErrorAction SilentlyContinue
+        if ($file -and -not $file.PSIsContainer -and $file.Length -gt 0) { return $true }
+    }
+    return $false
+}
 $lmxxfWeights = $null
 foreach ($candidate in @(
         (Join-Path $release 'native-game-tiled-assets'),
@@ -626,7 +633,7 @@ foreach ($candidate in @(
         (Join-Path $Root 'DLSS5-AMD\native-game-tiled-assets'),
         (Join-Path $game 'native-game-tiled-assets')
     )) {
-    if (Test-Path -LiteralPath $candidate -PathType Container) {
+    if (Test-LmxxfWeights $candidate) {
         $lmxxfWeights = $candidate
         break
     }
@@ -654,6 +661,41 @@ $canDaniel = [bool]($srcA -or (Test-Path -LiteralPath $setup -PathType Leaf) -or
 $installLmxxf  = $false
 $installDaniel = $false
 $activeBackend = 'lmxxf'
+
+function Test-MochizukiModelHeader([string]$Path) {
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $stream = $null
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        $header = New-Object byte[] 16
+        if ($stream.Read($header, 0, 16) -ne 16) { return $false }
+        return ([Text.Encoding]::ASCII.GetString($header, 0, 8) -ceq 'NRMODEL1' -and
+            [BitConverter]::ToUInt32($header, 8) -eq 599 -and $stream.Length -gt 16)
+    } catch { return $false } finally { if ($stream) { $stream.Dispose() } }
+}
+$mochizukiModel = $null
+$modelCandidates = @((Join-Path $game 'dlssnr-amd/dlssnr.bin'), (Join-Path $Root 'dlssnr-amd/dlssnr.bin'))
+if ($mochizukiAssets) { $modelCandidates += (Join-Path $mochizukiAssets 'dlssnr.bin') }
+foreach ($candidate in $modelCandidates) {
+    if (Test-MochizukiModelHeader $candidate) { $mochizukiModel = $candidate; break }
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        Write-Host "Mochizuki model has an invalid header (kept unchanged): $candidate. Move it aside, then rerun Setup to install or extract a valid model." -ForegroundColor Yellow
+    }
+}
+$mochizukiNv = $null
+foreach ($candidate in @((Join-Path $Root 'nvngx_dlssnr.dll'), (Join-Path $game 'nvngx_dlssnr.dll'))) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        if ((Get-Sha256 $candidate) -ieq 'e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e') {
+            $mochizukiNv = $candidate; break
+        }
+        Write-Host "Mochizuki needs nvngx_dlssnr.dll 310.8.0; this DLL is not supported: $candidate" -ForegroundColor Yellow
+    }
+}
+Write-Host ''
+Write-Host 'Detected backend files (model presence is not a GPU compatibility test):' -ForegroundColor Cyan
+Write-Host ("  lmxxf: runtime/modules={0}; weights={1}" -f $canLmxxf, $(if ($lmxxfWeights) { $lmxxfWeights } else { 'MISSING - supply native-game-tiled-assets' }))
+Write-Host ("  daniel: runtime/installer={0}; weights={1}; NVIDIA model={2}" -f $canDaniel, $(if ($weights) { $weights } else { 'MISSING' }), $(if ($nv) { $nv } else { 'MISSING' }))
+Write-Host ("  mochizuki: runtime/shaders={0}; model={1}" -f $canMochizuki, $(if ($mochizukiModel) { $mochizukiModel + ' (header recognized; runtime validates contents)' } elseif ($mochizukiNv) { 'can extract from ' + $mochizukiNv } else { 'MISSING - supply nvngx_dlssnr.dll 310.8.0 or dlssnr-amd/dlssnr.bin' }))
 
 if ($canMochizuki -or $Backend -ne 'auto') {
     if ($Backend -eq 'auto' -and -not $NonInteractive) {
@@ -742,6 +784,41 @@ if ($installMochizuki) {
             $null = @(Get-LmxxfUnlinkedFiles (Join-Path $game 'dlssnr-amd'))
         }
     } catch { Fail $_.Exception.Message }
+}
+
+# Extract from the user's supported DLL when selected. Python is needed only
+# for extraction; an already extracted model can be installed without Python.
+if ($installMochizuki -and -not $mochizukiModel -and $mochizukiNv) {
+    $extract = $NonInteractive
+    if (-not $NonInteractive) {
+        $extract = (Ask-Choice 'Mochizuki model is missing. Extract it from the detected NVIDIA DLL?' @('Extract and install model (recommended)', 'Install runtime only; prepare model later')) -eq 1
+    }
+    if ($extract) {
+        $modelTool = Find-FirstFile @((Join-Path $Root 'mochizuki-model.py'), (Join-Path $PSScriptRoot 'install/mochizuki-model.py'))
+        $python = $null
+        foreach ($name in @('python', 'python3', 'py')) {
+            $cmd = Get-Command $name -ErrorAction SilentlyContinue
+            if ($cmd) {
+                & $cmd.Source -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0) { $python = $cmd.Source; break }
+            }
+        }
+        if (-not $python) {
+            Write-Host 'Model extraction needs Python 3.10+. Install Python, then rerun Setup or Mochizuki-Model.bat. Runtime installation will continue.' -ForegroundColor Yellow
+        } elseif (-not $modelTool) {
+            Write-Host 'Model extractor missing. Re-extract the complete OptiScaler package. Runtime installation will continue.' -ForegroundColor Yellow
+        } else {
+            $modelOutput = Join-Path $Root 'dlssnr-amd/dlssnr.bin'
+            if (Test-Path -LiteralPath $modelOutput) {
+                Write-Host "Existing invalid model was preserved: $modelOutput. Move it aside before rerunning extraction." -ForegroundColor Yellow
+            } else {
+                Write-Host 'Extracting Mochizuki model; validating every tensor. This may take a few minutes...' -ForegroundColor Cyan
+                & $python -X utf8 $modelTool $mochizukiNv $modelOutput
+                if ($LASTEXITCODE -eq 0 -and (Test-MochizukiModelHeader $modelOutput)) { $mochizukiModel = $modelOutput }
+                else { Write-Host 'Model extraction failed. See the error above; rerun Mochizuki-Model.bat after fixing it. Runtime installation will continue.' -ForegroundColor Yellow }
+            }
+        }
+    }
 }
 
 # --- process danielblnc runtime if selected ---
@@ -1205,7 +1282,7 @@ if ($installLmxxf) {
         Write-Host 'NOTE: lmxxf shaders not found in package; PrepareFrame may fail until shaders/ is beside OptiScaler.' -ForegroundColor DarkYellow
     }
     $gameWeights = Join-Path $game 'native-game-tiled-assets'
-    if (Test-Path -LiteralPath (Join-Path $gameWeights 'block0-ffn.f16') -PathType Leaf) {
+    if (Test-LmxxfWeights $gameWeights) {
         Write-Host 'native-game-tiled-assets already present in game folder.' -ForegroundColor Green
     } elseif ($lmxxfWeights) {
         if ([IO.Path]::GetFullPath($lmxxfWeights) -ine [IO.Path]::GetFullPath($gameWeights)) {
@@ -1232,8 +1309,7 @@ if ($installMochizuki) {
         $relative = $file.FullName.Substring($shaderRoot.Length).TrimStart('\','/')
         Install-One $file.FullName (Join-Path 'dlssnr-amd/shaders' $relative)
     }
-    $model = Join-Path $mochizukiAssets 'dlssnr.bin'
-    if (Test-Path -LiteralPath $model -PathType Leaf) { Install-One $model 'dlssnr-amd/dlssnr.bin' }
+    if ($mochizukiModel) { Install-One $mochizukiModel 'dlssnr-amd/dlssnr.bin' }
     if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin'))) {
         Write-Host 'Mochizuki model not installed. Run Mochizuki-Model.bat beside Setup.bat with your nvngx_dlssnr.dll, then run Setup again.' -ForegroundColor Yellow
     }
@@ -1401,5 +1477,9 @@ if (@($installDaniel, $installLmxxf, $installMochizuki | Where-Object { $_ }).Co
 }
 Write-Host ''
 if ($installMochizuki) { Write-Host "Mochizuki runtime and shaders installed; model is supplied separately." }
-Write-Host 'Install SUCCEEDED.' -ForegroundColor Green
+$activeModelPending = ($activeBackend -eq 'mochizuki' -and -not (Test-MochizukiModelHeader (Join-Path $game 'dlssnr-amd/dlssnr.bin'))) -or
+    ($activeBackend -eq 'lmxxf' -and -not $lmxxfWeights)
+if ($activeModelPending) {
+    Write-Host "Installation completed, but $activeBackend cannot run yet: MODEL SETUP REQUIRED. Follow the model instructions above, then restart the game." -ForegroundColor Yellow
+} else { Write-Host 'Install SUCCEEDED. Verify backend status in Ins when the game starts.' -ForegroundColor Green }
 Pause-Exit 0

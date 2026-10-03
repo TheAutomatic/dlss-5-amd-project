@@ -13,6 +13,7 @@
 #include "native_lab_paths.h"
 #include "native_game_rgb_input.h"
 #include "native_network_geometry.h"
+#include "native_config_layers.h"
 #include "native_rgb_texture.h"
 #include "hip_d3d12_bridge.h"
 #include "LmxxfRecordingLease.h"
@@ -393,7 +394,7 @@ bool CachedFileSha256(const std::wstring &path, std::string *outHex)
     return true;
 }
 
-static const char *const kKnownModuleNames[31] = {
+static const char *const kKnownModuleNames[34] = {
     "boundary-fast.hsaco",
     "boundary_reference.hsaco",
     "c32_fast.hsaco",
@@ -404,6 +405,7 @@ static const char *const kKnownModuleNames[31] = {
     "c32_prefix_reference.hsaco",
     "c32_tiled.hsaco",
     "c32_wmma.hsaco",
+    "c32-wave1-rtz.hsaco", "c32-wave1-fast.hsaco", "c64-wave2-fast.hsaco",
     "c32-wave1.hsaco",
     "c64-wave2.hsaco",
     "c512-m32-mh.hsaco",
@@ -490,63 +492,18 @@ std::wstring DllDirectory()
  * Flags fill gaps only: never overwrite an existing environment entry. */
 bool ApplyFlagsFileFallback(const std::wstring &path)
 {
-    FILE *f = _wfopen(path.c_str(), L"rb");
-    if (!f)
-        return false;
-    char line[512];
-    bool any = false;
-    while (fgets(line, sizeof line, f))
-    {
-        char *s = line;
-        while (*s == ' ' || *s == '\t')
-            ++s;
-        if (*s == '#' || *s == ';' || *s == '\n' || *s == '\r' || !*s)
-            continue;
-        char *eq = strchr(s, '=');
-        if (!eq || eq == s)
-            continue;
-        char *keyEnd = eq;
-        while (keyEnd > s && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t'))
-            --keyEnd;
-        if (keyEnd == s)
-            continue;
-        const size_t keyLen = size_t(keyEnd - s);
-        if (keyLen == 0 || keyLen >= 128)
-            continue;
-        char key[128];
-        memcpy(key, s, keyLen);
-        key[keyLen] = 0;
-        for (size_t i = 0; i < keyLen; ++i)
-        {
-            if (!((key[i] >= 'A' && key[i] <= 'Z') || (key[i] >= '0' && key[i] <= '9') || key[i] == '_'))
-            {
-                key[0] = 0;
-                break;
-            }
-        }
-        if (!key[0])
-            continue;
+    const auto dir = std::filesystem::path(path).parent_path().wstring();
+    unsigned found = 0;
+    const auto entries = NativeConfigLoadDir(dir, &found);
+    for (const auto& entry : entries) {
+        const char* key = entry.key.c_str();
         if (std::getenv(key))
             continue; // menu / ini / caller already owns this key
-        char *val = eq + 1;
-        while (*val == ' ' || *val == '\t')
-            ++val;
-        char *end = val + strlen(val);
-        while (end > val && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
-        {
-            --end;
-            *end = 0;
-        }
-        const size_t valLen = strlen(val);
-        if (keyLen + 1 + valLen >= 256)
+        if (entry.key.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != std::string::npos)
             continue;
-        char entry[256];
-        snprintf(entry, sizeof entry, "%s=%s", key, val);
-        _putenv(entry);
-        any = true;
+        _putenv((entry.key + "=" + entry.value).c_str());
     }
-    fclose(f);
-    return any;
+    return found != 0;
 }
 
 // The codec's colour-input contract, checked here instead of letting the codec throw.
@@ -558,7 +515,7 @@ const char *ColorInputProblem(const D3D12_RESOURCE_DESC &desc)
 {
     if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
         return "not TEXTURE2D";
-    if (!NativeInputGeometry::Supported(desc.Width, desc.Height, NativeFitLargeInput()))
+    if (!NativeInputGeometry::Supported(desc.Width, desc.Height, NativeAdmitLargeInput()))
         return "outside admitted geometry";
     if (desc.DepthOrArraySize != 1)
         return "DepthOrArraySize != 1";
@@ -859,10 +816,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
 
     if (isDualArch)
     {
-        if (count1200 != 31 || count1201 != 31 || rootMap.size() != 62)
+        if (count1200 != std::size(kKnownModuleNames) || count1201 != std::size(kKnownModuleNames) || rootMap.size() != 2 * std::size(kKnownModuleNames))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: dual-architecture SHA256SUMS incomplete (expected 31 gfx1200 and 31 gfx1201 entries)");
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 34 gfx1200 and 34 gfx1201 entries)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -972,7 +929,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
                                 ("Create: leaf SHA256SUMS mismatch with root for " + rootKey).c_str());
                 }
             }
-            if (leafMap.size() != 31)
+            if (leafMap.size() != std::size(kKnownModuleNames))
             {
                 return Fail(LMXXF_NR_UNAVAILABLE,
                             ("Create: leaf SHA256SUMS incomplete for " + std::string(arch)).c_str());
@@ -981,10 +938,10 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
     }
     else
     {
-        if (rootMap.size() != 31)
+        if (rootMap.size() != std::size(kKnownModuleNames))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: SHA256SUMS incomplete (expected 31 hsaco modules)");
+                        "Create: SHA256SUMS incomplete (expected 34 hsaco modules)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -1166,6 +1123,7 @@ struct Session
     unsigned netH = 0;
     unsigned netProcessingH = 0;
     float networkStyle = -1.f;
+    std::string networkOptions;
     // Adaptive reuse reads live env, but byte stream is baked into the network.
     // Rebuild when byte stream changes before allowing reuse on the next frame.
     bool vitByteStream = false;
@@ -1777,6 +1735,14 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
         }
         auto resolvedGeo = NativeResolveNetworkGeometry(info->color_width, info->color_height);
+        std::string requestedOptions;
+        for (const char* key : {CfgKey::MultiPass, CfgKey::MultiPassSkipBlocks, CfgKey::FastNumeric,
+                               CfgKey::NetworkFreeRes, CfgKey::SkipBlocks}) {
+            const char* value = std::getenv(key);
+            requestedOptions += key; requestedOptions += '=';
+            if (value) requestedOptions += value;
+            requestedOptions += ';';
+        }
         const char* styleValue = std::getenv(CfgKey::LmxxfStyle);
         // Match the upstream fallback without printing an invalid external value every frame.
         const float requestedStyle = styleValue && std::strcmp(styleValue, "0") == 0 ? 0.f :
@@ -1804,6 +1770,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->netH = geo.valid_height;
             session->netProcessingH = geo.processing_height;
             session->networkStyle = requestedStyle;
+            session->networkOptions = requestedOptions;
             session->CaptureBridgeDiagnostics();
             char geoMsg[192] {};
             std::snprintf(geoMsg, sizeof geoMsg,
@@ -2032,7 +1999,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                                  (session->netW != resolvedGeo.valid_width ||
                                   session->netH != resolvedGeo.valid_height ||
                                   session->netProcessingH != resolvedGeo.processing_height);
-        const bool styleChanged = session->hipPrepared && session->networkStyle != requestedStyle;
+        const bool styleChanged = session->hipPrepared && (session->networkStyle != requestedStyle || session->networkOptions != requestedOptions);
         const char *vitByte = std::getenv(CfgKey::VitByteStream);
         const bool vitByteStreamChanged = session->hipPrepared &&
             session->vitByteStream != (vitByte && std::strcmp(vitByte, "1") == 0);
@@ -2103,6 +2070,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->netH = geo.valid_height;
                 session->netProcessingH = geo.processing_height;
                 session->networkStyle = requestedStyle;
+            session->networkOptions = requestedOptions;
                 session->CaptureBridgeDiagnostics();
                 char geoMsg[192] {};
                 std::snprintf(geoMsg, sizeof geoMsg,

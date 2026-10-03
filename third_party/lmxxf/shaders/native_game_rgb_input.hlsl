@@ -9,7 +9,11 @@ RWStructuredBuffer<float4> post_base : register(u1);
 [numthreads(8,8,1)]
 void main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID) {
     uint width,height; source.GetDimensions(width,height);
+#ifdef NATIVE_RGB_PROCESSING_HEIGHT // DLSS5_NETWORK_FREE_RES: the host passes the padded height
+    uint processing_height=NATIVE_RGB_PROCESSING_HEIGHT;
+#else
     uint processing_height=((height+127)/128)*128;
+#endif
     uint2 p = group.xy * 8 + lane.xy;
     if (p.x >= width || p.y >= processing_height) return;
     uint sy = p.y < height ? p.y : 2*height-2-p.y;

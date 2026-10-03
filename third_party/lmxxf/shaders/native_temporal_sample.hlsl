@@ -41,6 +41,9 @@ float3 fetch(float2 xy) {
 }
 [numthreads(64,1,1)]
 void main(uint3 id:SV_DispatchThreadID) {
+#ifdef NATIVE_WIDE_ROW
+    id.x+=id.y*NATIVE_WIDE_ROW;
+#endif
     if(id.x>=count)return;
     float3 px,py,wx,wy;axis(coordinates[id.x].x,width,px,wx);axis(coordinates[id.x].y,height,py,wy);
     float top=wx.y*wy.x,left=wx.x*wy.y,center=wx.y*wy.y,bottom=wx.y*wy.z,right=wx.z*wy.y;
@@ -139,6 +142,9 @@ float3 fetch(float2 xy) {
 }
 [numthreads(64,1,1)]
 void main(uint3 id:SV_DispatchThreadID) {
+#ifdef NATIVE_WIDE_ROW
+    id.x+=id.y*NATIVE_WIDE_ROW;
+#endif
     if(id.x>=count)return;
     float3 px,py,wx,wy;axis(coordinates[id.x].x,width,px,wx);axis(coordinates[id.x].y,height,py,wy);
     precise float top=wx.y*wy.x,left=wx.x*wy.y,center=wx.y*wy.y,bottom=wx.y*wy.z,right=wx.z*wy.y;

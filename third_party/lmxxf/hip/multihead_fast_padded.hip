@@ -63,6 +63,12 @@ typedef unsigned uint;
 #else
 #define WG_FENCE(k) __builtin_amdgcn_fence(k,"workgroup")
 #endif
+#ifndef HIP_BARRIER_FENCE
+#define HIP_BARRIER_FENCE 0 /* 1: every bare s_barrier in this file gets the WG_FENCE release/acquire pair, so LLVM cannot move LDS accesses across it (LLVM23 bit-exactness probe, results/llvm23-vit-20261002) */
+#endif
+#if HIP_BARRIER_FENCE
+#define __builtin_amdgcn_s_barrier() (WG_FENCE(3),__builtin_amdgcn_s_barrier(),WG_FENCE(2))
+#endif
 DEV uint bits(float x){union{float f;uint u;}v;v.f=x;return v.u;}
 DEV float value(uint x){union{float f;uint u;}v;v.u=x;return v.f;}
 DEV uint lane(){return __builtin_amdgcn_workgroup_id_x()*256u+__builtin_amdgcn_workitem_id_x();}

@@ -259,6 +259,41 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void split_ffn_one_w2
  for(uint ob=0;ob<4;ob++)for(uint e=0;e<8;e++){uint rr=first+gr()*8+e,c=g*64+ob*16+rc();float v=F(c512_hq(r[ob][e]));out8[((rr/16)*16+c/32)*512+(rr%16)*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
 }
 #endif
+#ifndef C512_FFN_PROJ_FUSE
+#define C512_FFN_PROJ_FUSE 0 /* 2026-10-02 ideas-yami-ikaruga: 1 = export split_ffn_proj_fused (needs C512_FFN_F8W): split_ffn_one_w2f8 and
+ split_projection_frag in one 256-thread workgroup (16 tokens, wave g = channel group g in both stages). Stage 1 is the
+ w2f8 wave math unchanged; its E4M3 contract bytes go to an 8 KB LDS tile in the out8 tile layout instead of global;
+ workgroup barrier; stage 2 is split_projection_frag_body with A read from that LDS tile. Same values, same order. 0 = no export. */
+#endif
+#if C512_FFN_F8W && C512_FFN_PROJ_FUSE
+KERNEL __attribute__((amdgpu_flat_work_group_size(256,256))) void split_ffn_proj_fused(const float*in,const float*w,const float*wp,float*pout,unsigned char*pout8,uint tokens){
+ const uint g=__builtin_amdgcn_workitem_id_x()/32,first=bid()*16;if(first>=tokens)return;
+ __attribute__((shared)) unsigned char ct[16*512];
+ {const unsigned char*wm=reinterpret_cast<const unsigned char*>(w);const unsigned char*we=wm+262144*4+g*16384;
+ const uint*pw=reinterpret_cast<const uint*>(w)+393216+g*4096;
+ f8 m[4]{};
+ const float*ar=in+(first+rc())*512+gr()*8;
+ for(uint k=0;k<512;k+=16){float fa[8];__builtin_memcpy(fa,ar+k,32);i2 a=c5d_pack8f(fa);
+  for(uint j=0;j<4;j++){i2 b;__builtin_memcpy(&b,wm+(g*64+j*16+rc())*512+k+gr()*8,8);m[j]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,m[j]);}}
+ i2 x8[4];
+ for(uint j=0;j<4;j++){float xv[8];for(uint e=0;e<8;e++)xv[e]=F(c512_hq(m[j][e]));x8[j]=c5d_pack8f(xv);}
+ f8 r[4]{};
+ for(uint hb=0;hb<16;hb++){
+  f8 ex{};
+  for(uint ks=0;ks<4;ks++){i2 b;__builtin_memcpy(&b,we+(hb*16+rc())*64+ks*16+gr()*8,8);ex=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,x8[ks],ex);}
+  i2 a{};for(uint e=0;e<8;e++){float v=Hrtz(ex[e]),gate=clampf(v,-4.f,4.f),poly=__builtin_fmaf(gate,__builtin_fmaf(absf(gate),-.055908203125f,.447265625f),.89453125f);a[e/4]=int(uint(a[e/4])|(uint(byte_F(v*poly))<<(8*(e%4))));}
+  for(uint ob=0;ob<4;ob++){uint off=((ob*16+rc())*256+hb*16+gr()*8)/4;i2 b={int(pw[off]),int(pw[off+1])};r[ob]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,r[ob]);}
+ }
+ for(uint ob=0;ob<4;ob++)for(uint e=0;e<8;e++){uint rr=gr()*8+e,c=g*64+ob*16+rc();float v=F(c512_hq(r[ob][e]));ct[(c/32)*512+rr*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}}
+ WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
+ {const uint row=g*64;f8 acc[4]{};
+ for(uint j=0;j<4;j++)for(uint e=0;e<8;e++)acc[j][e]=H(in[(first+gr()*8+e)*512+row+j*16+rc()]*wp[262144+row+j*16+rc()]);
+ const unsigned char*wb=reinterpret_cast<const unsigned char*>(wp);const uint ab=rc()*32+gr()*8;
+ for(uint gs=0;gs<16;gs++)for(uint h=0;h<2;h++){i2 a;__builtin_memcpy(&a,ct+ab+gs*512+h*16,8);
+  for(uint j=0;j<4;j++){uint n0=row+j*16+rc();i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+gr())*16+n0%16)*8,8);acc[j]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[j]);}}
+ for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint rr=first+gr()*8+e,c=row+j*16+rc();float v=F(H(acc[j][e]));pout[rr*512+c]=v;pout8[((rr/16)*16+c/32)*512+(rr%16)*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}}
+}
+#endif
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void split_ffn_one_w2(const float*in,const float*w,unsigned char*out8,uint tokens){
  const uint wave=__builtin_amdgcn_workitem_id_x()/32,first=bid()/8*32+wave*16,g=bid()%8;if(first>=tokens)return;c512_ffn_one_body<1>(in,w,out8,tokens,first,g);}
 #endif

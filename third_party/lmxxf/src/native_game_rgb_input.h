@@ -42,7 +42,8 @@ public:
   for(UINT i=1;i<3;i++){p[i].ParameterType=D3D12_ROOT_PARAMETER_TYPE_UAV;p[i].Descriptor.ShaderRegister=i-1;}
   D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=3;rd.pParameters=p;ID3DBlob*blob=nullptr,*error=nullptr;
   auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error);if(error)error->Release();ck(hr);ck(d->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&root)));blob->Release();blob=nullptr;error=nullptr;
-  const D3D_SHADER_MACRO nt[]={{"NATIVE_RGB_NO_TILES","1"},{nullptr,nullptr}};hr=CompileNativeShader(dir+L"\\native_game_rgb_input.hlsl",no_tiles?nt:nullptr,"main",&blob,&error);if(error)error->Release();ck(hr);
+  const D3D_SHADER_MACRO nt[]={{"NATIVE_RGB_NO_TILES","1"},{nullptr,nullptr}};const std::string ph=std::to_string(geometry.processing_height);const D3D_SHADER_MACRO fr[]={{"NATIVE_RGB_PROCESSING_HEIGHT",ph.c_str()},{no_tiles?"NATIVE_RGB_NO_TILES":nullptr,"1"},{nullptr,nullptr}}; /* free geometry: padded height from the host */
+  hr=CompileNativeShader(dir+L"\\native_game_rgb_input.hlsl",geometry.Free()?fr:no_tiles?nt:nullptr,"main",&blob,&error);if(error)error->Release();ck(hr);
   D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={blob->GetBufferPointer(),blob->GetBufferSize()};ck(NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso)));blob->Release();
  }
  // before is supplied by the owner; the source returns to exactly that state.

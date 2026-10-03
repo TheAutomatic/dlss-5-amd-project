@@ -5,7 +5,8 @@ int main(int argc, char **argv)
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false,
-         upstreamControls = false, rgba32 = false;
+         upstreamControls = false, controls040 = false, rgba32 = false;
+    unsigned inputWidth = 0, inputHeight = 0;
     const char *dumpPath = nullptr;
     for (int i = 3; i < argc; ++i)
     {
@@ -21,6 +22,8 @@ int main(int argc, char **argv)
             outputHash = true;
         else if (!std::strcmp(argv[i], "--upstream-controls"))
             upstreamControls = outputHash = true;
+        else if (!std::strcmp(argv[i], "--040-controls"))
+            controls040 = outputHash = true;
         else if (!std::strcmp(argv[i], "--rgba32"))
             rgba32 = autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--reject-formats"))
@@ -37,6 +40,8 @@ int main(int argc, char **argv)
             autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--scale16"))
             scale16 = outputHash = true;
+        else if (!std::strcmp(argv[i], "--size") && i + 2 < argc)
+        { inputWidth = std::strtoul(argv[++i], nullptr, 10); inputHeight = std::strtoul(argv[++i], nullptr, 10); Require(inputWidth >= 320 && inputWidth <= 8192 && inputHeight >= 320 && inputHeight <= 8192, "input size"); outputHash = true; }
         else if (!std::strcmp(argv[i], "--dump") && i + 1 < argc)
         {
             dumpPath = argv[++i];
@@ -127,8 +132,8 @@ int main(int argc, char **argv)
     td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     // 2024x848 is 3440x1440 at DLSS Quality 1: 1.72M pixels, under the 1920x1080 budget of
     // 2.07M, but wider than 1920. Admission is by pixel budget precisely so this is allowed.
-    td.Width = ultrawide ? 2024 : 1920;
-    td.Height = ultrawide ? 848 : 1080;
+    td.Width = inputWidth ? inputWidth : ultrawide ? 2024 : 1920;
+    td.Height = inputHeight ? inputHeight : ultrawide ? 848 : 1080;
     td.DepthOrArraySize = td.MipLevels = 1;
     td.Format = rgb9e5        ? DXGI_FORMAT_R9G9B9E5_SHAREDEXP
                 : r10g10b10a2 ? DXGI_FORMAT_R10G10B10A2_UNORM
@@ -155,7 +160,9 @@ int main(int argc, char **argv)
     info.assets_directory = modules.c_str();
     info.flags = queueMismatch ? LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK : 0;
     void *ctx = nullptr;
-    Require(api.Create(&info, &ctx) == LMXXF_NR_OK, "Create");
+    const auto createResult = api.Create(&info, &ctx);
+    if (createResult != LMXXF_NR_OK) { char error[512]{}; api.GetLastError(error, sizeof error); std::fprintf(stderr, "Create rc=%d: %s\n", createResult, error); }
+    Require(createResult == LMXXF_NR_OK, "Create");
     const int32_t prep = api.PrepareSession(ctx);
     if (prep != LMXXF_NR_OK)
     {
@@ -493,6 +500,58 @@ int main(int argc, char **argv)
                 Require(hash == first, "unchanged control output is stable");
                 Require((hash == baseline) == c.sameBaseline, "control reaches network; default restored exactly");
                 std::printf("controls style=%s rows=%s repeat=%d hash=%016llx\n", c.style, c.rows, repeat,
+                            static_cast<unsigned long long>(hash));
+            }
+        }
+    }
+
+    if (controls040)
+    {
+        Require(outs == LMXXF_NR_OK, "baseline outputs");
+        const auto baseline = HashTexture(device, submitQueue, static_cast<ID3D12Resource*>(job.private_output));
+        auto count = [&]() {
+            char status[1024] {};
+            Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "control status");
+            const char* p = std::strstr(status, "recreates=");
+            Require(p != nullptr, "control recreate count");
+            return std::strtol(p + 10, nullptr, 10);
+        };
+        const struct { const char* key; const char* value; bool sameBaseline; } cases[] = {
+            {"DLSS5_FAST_NUMERIC", "0", false}, {"DLSS5_FAST_NUMERIC", "1", true},
+            {"DLSS5_MULTI_PASS", "2", false}, {"DLSS5_MULTI_PASS_SKIP_BLOCKS", "42,43,46", false},
+            {"DLSS5_MULTI_PASS_SKIP_BLOCKS", "none", false}, {"DLSS5_MULTI_PASS", "3", false},
+            {"DLSS5_MULTI_PASS", "1", true}, {"DLSS5_SKIP_BLOCKS", "42,43,46", false},
+            {"DLSS5_SKIP_BLOCKS", "none", true}, {"DLSS5_NETWORK_FREE_RES", "0", true},
+            {"DLSS5_NETWORK_FREE_RES", "1", true}};
+        for (const auto& c : cases)
+        {
+            SetEnvironmentVariableA(c.key, c.value);
+            const long before = count();
+            uint64_t first = 0;
+            for (int repeat = 0; repeat < 2; ++repeat)
+            {
+                WaitQueue(device, submitQueue);
+                Check(alloc->Reset(), "control allocator");
+                Check(list->Reset(alloc, nullptr), "control input list");
+                LmxxfNrJob next {}; next.struct_size = sizeof next;
+                Require(api.PrepareFrame(ctx, &frame, &next) == LMXXF_NR_OK, "control prepare");
+                Require(count() == before + 1, "control rebuilds exactly once");
+                Require(api.RecordInputs(ctx, next.handle, list) == LMXXF_NR_OK, "control inputs");
+                Check(list->Close(), "control input close");
+                submitQueue->ExecuteCommandLists(1, lists);
+                Require(api.EnqueueHip(ctx, next.handle, submitQueue) == LMXXF_NR_OK, "control HIP");
+                WaitQueue(device, submitQueue);
+                Check(outAlloc->Reset(), "control output allocator");
+                Check(list->Reset(outAlloc, nullptr), "control output list");
+                Require(api.RecordOutputs(ctx, next.handle, list) == LMXXF_NR_OK, "control outputs");
+                Check(list->Close(), "control output close");
+                submitQueue->ExecuteCommandLists(1, lists);
+                Require(api.Retire(ctx, next.handle) == LMXXF_NR_OK, "control retire");
+                const auto hash = HashTexture(device, submitQueue, static_cast<ID3D12Resource*>(next.private_output));
+                if (!repeat) first = hash;
+                Require(hash == first, "unchanged control output is stable");
+                Require((hash == baseline) == c.sameBaseline, "control reaches network; default restored exactly");
+                std::printf("controls040 %s=%s repeat=%d hash=%016llx\n", c.key, c.value, repeat,
                             static_cast<unsigned long long>(hash));
             }
         }

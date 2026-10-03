@@ -7,6 +7,9 @@ RWStructuredBuffer<float> rgb : register(u0);
 cbuffer Params : register(b0) { float threshold; float strength; uint pixels; uint pad; }
 [numthreads(64,1,1)]
 void main(uint3 id : SV_DispatchThreadID) {
+#ifdef NATIVE_WIDE_ROW
+    id.x += id.y * NATIVE_WIDE_ROW; // DLSS5_NETWORK_FREE_RES surfaces beyond 65535 groups: 2D dispatch
+#endif
     uint p = id.x; if (p >= pixels) return;
     float4 h = warped[p]; if (h.w <= 0) return;
     float3 o = float3(rgb[p*3], rgb[p*3+1], rgb[p*3+2]);

@@ -254,11 +254,14 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           body: |
-            ### 1.9.10.1 (compared to 1.9.9.1)
+            ### 1.10.0 (compared to 1.9.9.1)
 
-            - Updated the lmxxf integration to the pinned 0.39-generation source (82ce821f), with style, compact 1080 network and additional colour-format controls.
-            - Added Overall Intensity and Residual Stabilizer for both AMD backends. Stabilization requires valid motion/depth and is off by default.
+            - Updated lmxxf to pinned 0.40 source (c81a88bc), adding free resolution, fast numerics and 1/2/3 network passes. Defaults are all 71 blocks, fast numerics on, free resolution on and one pass.
+            - Added Overall Intensity and Residual Stabilizer for all three AMD backends. Stabilization requires valid motion/depth and is off by default.
             - Added optional asynchronous lmxxf NR GPU, encode/decode and output-effect timings in Ins and the Page Up/Page Down overlay. Measurement and timing logs are off by default; summaries are rate-limited.
+            - Added the Mochizuki Vulkan backend for Windows / RDNA4, with separate model controls, compilation progress and model extraction in Setup.
+            - Setup reports detected weights; Ins shows missing model/runtime dependencies. Unsupported or invalid Mochizuki model inputs receive actionable setup guidance.
+            - NR settings now follow an Input / Model / Output flowchart with page-scoped resets.
             - Reorganized NR settings and corrected reset scope. NR toggle now defaults to End; removed the F8 ViT shortcut.
             - Added a resizable, screen-bounded Ins window with corner anchoring, a fixed compact graph/footer area, and persistent window size.
             - Removed a redundant lmxxf input copy through shared input storage and disabled unused tile generation. These changes do not imply a fixed FPS improvement in every game.
@@ -272,9 +275,14 @@ jobs:
 
             Weight files: [lmxxf upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
 
+            **Mochizuki backend**
+
+            Supply your own supported `nvngx_dlssnr.dll` 310.8.0 and Python 3.10+ for Setup extraction, or an existing valid `dlssnr-amd/dlssnr.bin`. The archive contains neither file.
+
             **Updating and notes**
 
             - Install and overwrite the complete package; host and runtime must match. Old lmxxf ABI fallback is not supported.
+            - Free resolution can increase GPU time and memory substantially at higher inputs; multiple passes cost roughly N times the network work. Keeping the old INI preserves explicit previous settings.
             - Overall Intensity at 0 shows the original image but still runs NR; disable NR to save model computation.
             - NR GPU timing is not whole-frame latency. Stabilization and measurement add work; actual game performance and image quality depend on the scene and settings.
             - Daniel model caches may remain allocated after NR is disabled until the game exits.

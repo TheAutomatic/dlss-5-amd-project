@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "../NrTimingDisplay.h"
 #include "LmxxfBackend.h"
+#include "InstallStatus.h"
 #include "LmxxfRecordingOwner.h"
 #include <cstring>
 #include <State.h>
@@ -68,15 +69,7 @@ std::wstring WidenPath(const std::filesystem::path &p) { return p.wstring(); }
 
 std::filesystem::path ResolveModulesDir(const std::filesystem::path &directory)
 {
-    wchar_t env[MAX_PATH] {};
-    if (GetEnvironmentVariableW(L"LMXXF_MODULES_DIR", env, MAX_PATH) && env[0])
-        return env;
-    const auto nextToDll = directory / L"lmxxf-modules";
-    if (std::filesystem::exists(nextToDll))
-        return nextToDll;
-    // Dev layout: repo exports/lmxxf-modules-68dc099 relative to OptiScaler.dll parent is uncommon;
-    // prefer env. Fall back to directory itself so Create can still run and fail loudly.
-    return directory;
+    return FindLmxxfModuleRoot(directory);
 }
 
 // Each zero-output recovery blocks the game's submission thread on a GPU drain or clear.
@@ -396,68 +389,13 @@ bool LmxxfBackend::EnsureSession()
         SetEnvironmentVariableA("DLSS5_NETWORK_HEIGHT", "auto");
         LOG_INFO("lmxxf: DLSS5_NETWORK_HEIGHT defaulted to auto");
     }
-    // Weights directory detection:
-    // 1. Prioritize local folder next to OptiScaler / game (native-game-tiled-assets or lmxxf-weights).
-    // 2. Sibling hint file (lmxxf-weights-dir.txt).
-    // 3. Fallback to LMXXF_WEIGHTS_DIR environment variable (for development/benchmarks).
-    {
-        const auto localWeights = directory / L"native-game-tiled-assets";
-        const auto altWeights = directory / L"lmxxf-weights";
-        const auto hint = directory / L"lmxxf-weights-dir.txt";
-
-        if (std::filesystem::exists(localWeights) && std::filesystem::is_directory(localWeights))
-        {
-            SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", localWeights.c_str());
-            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR prioritized local dir: {}", localWeights.string());
-        }
-        else if (std::filesystem::exists(altWeights) && std::filesystem::is_directory(altWeights))
-        {
-            SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", altWeights.c_str());
-            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR prioritized local dir: {}", altWeights.string());
-        }
-        else if (std::filesystem::exists(hint))
-        {
-            std::wifstream in(hint);
-            std::wstring line;
-            if (in && std::getline(in, line) && !line.empty())
-            {
-                while (!line.empty() && (line.back() == L'\r' || line.back() == L' '))
-                    line.pop_back();
-                if (std::filesystem::exists(line) && std::filesystem::is_directory(line))
-                {
-                    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", line.c_str());
-                    LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from hint file: {}", std::filesystem::path(line).string());
-                }
-            }
-        }
-        else
-        {
-            // Fallback: check environment variable for development, but validate that it exists!
-            wchar_t env[MAX_PATH] {};
-            if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", env, MAX_PATH) && env[0])
-            {
-                if (std::filesystem::exists(env) && std::filesystem::is_directory(env))
-                {
-                    LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR from environment: {}", std::filesystem::path(env).string());
-                }
-                else
-                {
-                    LOG_WARN("lmxxf: LMXXF_WEIGHTS_DIR in environment points to non-existent path '{}', ignoring",
-                             std::filesystem::path(env).string());
-                    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", nullptr);
-                }
-            }
-        }
-
-        wchar_t now[MAX_PATH] {};
-        if (GetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", now, MAX_PATH) && now[0])
-            LOG_INFO("lmxxf: LMXXF_WEIGHTS_DIR={}", std::filesystem::path(now).string());
-        else
-        {
-            LOG_WARN("lmxxf: LMXXF_WEIGHTS_DIR unset (PrepareSession may fail without tiled weights)");
-            SetStatus("lmxxf: weights not found. Set LMXXF_WEIGHTS_DIR to native-game-tiled-assets (not HIP/), then restart the game.");
-        }
+    const auto weights = FindLmxxfWeights(directory);
+    if (weights.empty()) {
+        SetStatus("lmxxf: weights missing. Install native-game-tiled-assets beside OptiScaler (not just HIP modules), then restart.");
+        return false;
     }
+    SetEnvironmentVariableW(L"LMXXF_WEIGHTS_DIR", weights.c_str());
+    LOG_INFO("lmxxf: weights directory={}", weights.string());
 
     const auto modules = ResolveModulesDir(directory);
     const std::wstring modulesW = WidenPath(modules);

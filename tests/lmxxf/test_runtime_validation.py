@@ -59,7 +59,7 @@ LmxxfNrApi._fields_ = [
 ]
 
 class RuntimeConfigTests(unittest.TestCase):
-    def run_config_probe(self, initial_env, flags, probe):
+    def run_config_probe(self, initial_env, flags, probe, layers=None):
         # Each probe uses a private DLL/flags directory and process so CRT caches,
         # the flags probe timer and environment writes cannot leak between tests.
         runtime = Path(os.environ.get('LMXXF_TEST_RUNTIME', r'exports\lmxxf-runtime\LmxxfNrRuntime.dll')).resolve()
@@ -69,6 +69,8 @@ class RuntimeConfigTests(unittest.TestCase):
             shutil.copy2(runtime, dll)
             if flags is not None:
                 (Path(td) / 'native-game-flags.txt').write_text(flags, encoding='ascii')
+            for name, text in (layers or {}).items():
+                (Path(td) / name).write_text(text, encoding='utf-8')
             env = {key: value for key, value in os.environ.items() if not key.upper().startswith('DLSS5_')}
             env.update(initial_env)
             source = textwrap.dedent('''
@@ -100,6 +102,19 @@ class RuntimeConfigTests(unittest.TestCase):
                 cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_three_layers_preserve_host_and_merge_last_values(self):
+        self.run_config_probe({'DLSS5_MULTI_PASS': '1'},
+            'DLSS5_FAST_NUMERIC=1\nDLSS5_FAST_NUMERIC=0\nDLSS5_STYLE_FEATURE=\n', """
+                query_size()
+                assert get_env('DLSS5_MULTI_PASS') == '1'
+                assert get_env('DLSS5_FAST_NUMERIC') == '0'
+                assert get_env('DLSS5_NETWORK_FREE_RES') == '1'
+                assert get_env('DLSS5_STYLE_FEATURE') is None
+            """, layers={
+                'default-config.txt': '\ufeffDLSS5_MULTI_PASS=3\nDLSS5_FAST_NUMERIC=1\nDLSS5_NETWORK_FREE_RES=0\nDLSS5_STYLE_FEATURE=2\n',
+                'custom-config.txt': '# custom\nDLSS5_MULTI_PASS=2\nDLSS5_NETWORK_FREE_RES=1   \n',
+            })
 
     def test_live_fit_large_updates_after_crt_initialization(self):
         self.run_config_probe({'DLSS5_FIT_LARGE': '1'}, None, '''
@@ -174,7 +189,7 @@ class RuntimeValidationTests(unittest.TestCase):
         status_buf = ctypes.create_string_buffer(256)
         self.api.GetStatus(ctx, status_buf, 256)
         st = status_buf.value.decode()
-        self.assertIn("modules_ok=62", st)
+        self.assertIn("modules_ok=68", st)
         self.assertIn("arch=unknown", st)
         self.assertIn("pdl=0/0(unknown)", st)
         self.assertIn("hip=0", st)
@@ -190,7 +205,7 @@ class RuntimeValidationTests(unittest.TestCase):
         status_buf = ctypes.create_string_buffer(256)
         self.api.GetStatus(ctx, status_buf, 256)
         st = status_buf.value.decode()
-        self.assertIn("modules_ok=31", st)
+        self.assertIn("modules_ok=34", st)
         self.assertIn("arch=unknown", st)
         self.assertIn("pdl=0/0(unknown)", st)
         self.assertIn("hip=0", st)

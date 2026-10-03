@@ -57,6 +57,15 @@ def commit(directory):
 
 
 class RecipeParserTests(unittest.TestCase):
+    def test_llvm_compiler_and_barrier_defines_are_preserved(self):
+        row = "@{ name = 'c64-wave2'; defines = @('W2_PACK8 6'); sources = @('a.hip'); compiler = 'llvm23'; l23defines = @('HIP_BARRIER_FENCE 1') }"
+        parsed = audit.parse_recipe(row)['c64-wave2']
+        self.assertEqual(parsed['compiler'], 'llvm23')
+        self.assertEqual(parsed['l23defines'], ['HIP_BARRIER_FENCE 1'])
+        self.assertEqual(parsed['defines'], ['W2_PACK8 6'])
+        with self.assertRaises(ValueError):
+            audit.parse_recipe(row.replace("compiler = 'llvm23'", 'compiler = $unknown'))
+
     def test_optional_compiler_options_are_review_evidence(self):
         row = "@{ name = 'c32-wave1'; defines = @('CW_PACK8 1'); sources = @('c32.hip','body.inc'); opts = '-mllvm=-enable-post-misched=0' }"
         parsed = audit.parse_recipe(row)['c32-wave1']

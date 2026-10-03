@@ -3,7 +3,7 @@
 This development branch adds the mochizuki backend for Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Game acceptance is pending.
 
 
-# OptiScaler AMD pre-SR — 1.9.10.2
+# OptiScaler AMD pre-SR — 1.10.0
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
@@ -13,7 +13,17 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ## Changelog
 
-See the release 1.9.10.1 notes for details.
+See the release 1.10.0 notes for details.
+
+### 1.10.0 configuration and installation
+
+lmxxf now uses 0.40. Defaults: all 71 blocks (`DLSS5_SKIP_BLOCKS=none`), fast numerics on (`DLSS5_FAST_NUMERIC=true`), one pass (`DLSS5_MULTI_PASS=1`), and free resolution on (`DLSS5_NETWORK_FREE_RES=true`). Free resolution follows the actual input and falls back to network tiers outside its processing budget; 1440p/4K inputs can substantially increase GPU time and memory. Two or three passes strengthen the style at roughly N times the network work and disable adaptive ViT reuse. Keep `DLSS5_MULTI_PASS_SKIP_BLOCKS=none` unless deliberately trading appearance for speed. Changes rebuild the network next frame and may briefly stall.
+
+The Ins graph navigates **Input → Model → Output**: resolution/exposure, then style/passes/ViT, then blending/stabilization/appearance. Game input and downstream upscaling provide context. Compatibility, kernels and diagnostics remain separate advanced groups. Save Settings writes the INI; each page Reset affects that page.
+
+Setup reports detected weights before backend selection. lmxxf needs a folder containing `block0-ffn.f16/.f32`; Daniel needs extracted weights; Mochizuki needs `dlssnr-amd/dlssnr.bin`. With a supported `nvngx_dlssnr.dll` 310.8.0, Setup can extract the Mochizuki model using Python 3.10+. Missing source files receive setup instructions. Invalid models are preserved and must be moved aside before regeneration. Ins shows missing dependencies beside Enable NR.
+
+Upgrade by overwriting the complete package through Setup. Keeping the INI preserves explicit old settings. Menu/INI remains authoritative; upstream default/custom/native files and external environment only fill keys the host did not set. The 1.9.0 section below is historical; its old resolution limit does not apply to this version.
 
 ### lmxxf config map (ini / Ins menu)
 
@@ -21,15 +31,15 @@ Cross-layer keys use the same `DLSS5_*` names as upstream. **Ins labels are neve
 
 | Menu location | Key | Notes |
 |---|---|---|
-| Image | `TransferStrength` / `ColourStrength` | Detail / colour mix (Colour 0–1 keeps game colour) |
+| Output | `TransferStrength` / `ColourStrength` | Detail / colour mix (Colour 0–1 keeps game colour) |
 | Compatibility & Scheduling | `DLSS5_FIT_LARGE` | High resolution; fit large Color into the network (incl. >1080p) |
-| Quality & Performance | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (default) or 720 / 900 / 1080 |
-| Image | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
+| Input | `DLSS5_NETWORK_HEIGHT` | **Network tier** auto (default) or 720 / 900 / 1080 |
+| Input | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
 | Advanced Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Kernels / shared pool / byte stream |
 | ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
 | Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
 
-### New controls in 1.9.10.1
+### New controls in 1.10.0
 
 These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings** after changing them in Ins. See GitHub Releases for publication status.
 
@@ -38,8 +48,8 @@ These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings**
 | lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2; independent of Daniel's `Style`. Rebuilds the network on the next frame and may briefly stall |
 | Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | On selects 1088, only for the 1080 tier. May run faster but changes the image, especially the bottom edge; rebuilds the network |
 | Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | Accepts additional GPU-supported colour formats through private FP16 output; save and restart the game |
-| Overall Intensity | `NrOverallIntensity=1.0` | Both backends, 0–2. 0 shows the original, 1 keeps the full result, >1 amplifies the correction. NR still runs at 0; disable NR to save model work |
-| Residual Stabilizer | `NrStabilizerEnabled=false` | Both backends; uses motion and depth to reduce correction flicker. May soften moving detail or cause trails; adds GPU work and memory |
+| Overall Intensity | `NrOverallIntensity=1.0` | All three backends, 0–2. 0 shows the original, 1 keeps the full result, >1 amplifies the correction. NR still runs at 0; disable NR to save model work |
+| Residual Stabilizer | `NrStabilizerEnabled=false` | All three backends; uses motion and depth to reduce correction flicker. May soften moving detail or cause trails; adds GPU work and memory |
 | History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | Ranges 0–0.95 / 0–16. Either zero bypasses stabilization. Start with defaults; reduce if trailing appears |
 | Measure NR performance | `NrTimingEnabled=false` | Asynchronous lmxxf NR GPU, Encode and Decode measurements; Ins also exposes CPU stages and dropped samples |
 | Write timing summary to log | `NrTimingLog=false` | Requires measurement and file logging; at most one summary every five seconds |
@@ -58,7 +68,7 @@ Drag an edge to resize. Narrow windows use one column; content scrolls independe
 **Window** selects Free or a screen corner. Dragging the title bar releases the anchor; viewport changes keep the window within the game display area.
 **Menu Scale** controls text/control scale separately. **… → Reset window layout** restores automatic size, centering and Free mode without resetting NR or UI scale.
 **Save Settings** persists `[Menu] WindowWidth/WindowHeight` (logical pixels before scale; `auto` chooses the size) and `WindowAnchor` (0=Free, 1/2=top left/right, 3/4=bottom left/right). Free position is retained for this session only.
-Both backends share this layout. The Page Up overlay keeps its independent position setting.
+All three backends share this layout. The Page Up overlay keeps its independent position setting.
 
 
 ---

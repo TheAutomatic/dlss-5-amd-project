@@ -1,9 +1,9 @@
 {
   "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
-  "note": "Raw FOLLOW patch inputs at 82ce821f; pinned bridge raw input remains at bridge_raw_commit.",
+  "commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
+  "note": "Raw FOLLOW patch inputs at 0.40; product bridge stays based on bridge_raw_commit.",
   "bridge_raw_commit": "54e14de503431cd4536f8a7151b022af232178a9",
-  "follow_raw_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
+  "follow_raw_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
   "files": [
     {
       "path": "Development/HIP/hip_d3d12_bridge.h",
@@ -13,22 +13,22 @@
     {
       "path": "Development/HIP/hip_reference_network.h",
       "fixture": "hip_reference_network.upstream.h",
-      "sha256": "5c36098e0934b4a47e65280ef090252bd0f049c660df31872a6a9e49da1ae4cc"
+      "sha256": "d681b500e9285f2a3b90bbe3f121437cde0060a40499edfc42dd973955f5b7c6"
     },
     {
       "path": "src/native_lab_paths.h",
       "fixture": "native_lab_paths.upstream.h",
-      "sha256": "d12b67d66d743c815c06c8c8bc655f5ad878b3a942fc61e6bfd5b054026ac4c0"
+      "sha256": "cdca62b5afa6f6e95a29380722567851c5b6765d2891a17007776a55707accca"
     },
     {
       "path": "src/native_game_codec.h",
       "fixture": "native_game_codec.upstream.h",
-      "sha256": "acb6ebc88ebaf1425745fb2f1bfebc2eb3c7929f39df0627a67652e9d83fa7fd"
+      "sha256": "4497783e5f7ac39fed43113484a03798c01a5e269c078fdd4adad9e4ba9a65af"
     },
     {
       "path": "shaders/native_codec_encode.hlsl",
       "fixture": "native_codec_encode.upstream.hlsl",
-      "sha256": "e8fb25ab692a6834de220b2394728510379a280ca84d032831afc4a128dc2162"
+      "sha256": "237332c83235cba639053fd1b6d7030c75c699936449efc43a4a36243d78c2f9"
     },
     {
       "path": "shaders/native_codec_decode.hlsl",
@@ -43,7 +43,7 @@
     {
       "path": "src/native_game_rgb_input.h",
       "fixture": "native_game_rgb_input.upstream.h",
-      "sha256": "9ab241e1e1f23debbc89604465e7bfb0199a33a9e9fd2b8ced978de820f151a7"
+      "sha256": "3ae01a907dd8a5288c1ec7185efc2b111169ac76f1aacfd06f58783517a7d8a0"
     },
     {
       "path": "src/native_rgb_texture.h",

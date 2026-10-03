@@ -86,7 +86,11 @@ inline constexpr const char *Network1080Rows = "DLSS5_NETWORK_1080_ROWS";
 inline constexpr const char *LmxxfStyle = "DLSS5_STYLE";
 inline constexpr const char *FormatFallback = "DLSS5_FORMAT_FALLBACK";
 inline constexpr const char *SkipBlocks = "DLSS5_SKIP_BLOCKS";
-inline constexpr char kDefaultSkipBlocks[] = "42,43,46";
+inline constexpr char kDefaultSkipBlocks[] = "none";
+inline constexpr const char *NetworkFreeRes = "DLSS5_NETWORK_FREE_RES";
+inline constexpr const char *FastNumeric = "DLSS5_FAST_NUMERIC";
+inline constexpr const char *MultiPass = "DLSS5_MULTI_PASS";
+inline constexpr const char *MultiPassSkipBlocks = "DLSS5_MULTI_PASS_SKIP_BLOCKS";
 inline constexpr const char *WaveOwned = "DLSS5_HIP_WAVE_OWNED";
 inline constexpr const char *SwinRun = "DLSS5_HIP_SWIN_RUN";
 inline constexpr const char *C512M32 = "DLSS5_HIP_C512_M32";
@@ -249,6 +253,10 @@ inline constexpr const char *const kKnown[] = {
     EarlyExeWrap,
     Diagnostic,
     NetworkHeight,
+    NetworkFreeRes,
+    FastNumeric,
+    MultiPass,
+    MultiPassSkipBlocks,
     Network1080Rows,
     LmxxfStyle,
     FormatFallback,

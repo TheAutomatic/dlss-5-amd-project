@@ -26,7 +26,8 @@ local changes are in [the source record](../third_party/mochizuki/UPSTREAM.md).
    `e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`.
    The DLL and extracted weights are **not included** in our package.
 4. With Python 3.10 or newer installed, put that DLL beside `Setup.bat` and run
-   `Mochizuki-Model.bat`. You can also drag its DLL/ZIP onto that batch file.
+   `Setup.bat` to select Mochizuki and extract the detected model.
+   `Mochizuki-Model.bat` remains available separately; you can drag a DLL/ZIP onto it.
    Extraction only reads data and validates every model entry; it does not load the DLL.
    The result is `dlssnr-amd/dlssnr.bin`. A model extracted with the official tools is
    also usable at this path.

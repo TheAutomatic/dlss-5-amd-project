@@ -234,7 +234,7 @@ foreach ($pair in @(
 $iniSrc = Join-Path $source 'OptiScaler.ini'
 if (!(Test-Path $iniSrc)) { throw "Missing $iniSrc" }
 $ini = Get-Content -LiteralPath $iniSrc -Raw
-$mochizukiDefaults = ([regex]::Matches($ini, '(?m)^Mochizuki\w+=[^\r\n]*') | ForEach-Object { $_.Value }) -join "`n"
+$mochizukiDefaults = ([regex]::Matches($ini, '(?m)(?:^;[^\r\n]*\r?\n)*^Mochizuki\w+=[^\r\n]*') | ForEach-Object { $_.Value }) -join "`n"
 if (-not $mochizukiDefaults) { throw 'Mochizuki defaults missing from the source ini template.' }
 $ini = $ini -replace '(?m)^Dx12Upscaler=.*$', 'Dx12Upscaler=ffx'
 $ini = $ini -replace '(?m)^LogToFile=.*$', 'LogToFile=true'
@@ -242,7 +242,7 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version - Dual-backend AMD Neural Rendering (DLSS 5 on AMD) Pre-SR pipeline.
+; Product $Version - Three-backend AMD Neural Rendering (DLSS 5 on AMD) Pre-SR pipeline.
 ; Synthesizes detail and denoises ray-traced inputs before upscaling (FSR/XeSS).
 
 ; Enables DLSS-NR Pre-SR pipeline
@@ -287,7 +287,7 @@ NrStabilizerEnabled=false
 NrStabilizerAlpha=0.8
 NrStabilizerThreshold=4.0
 
-; lmxxf network style: 0 / 1 / 2. Default 1 preserves earlier lmxxf output.
+; lmxxf network style: 0 / 1 / 2. Default 1; other 0.40 default changes can still change the image.
 ; Separate from Daniel Style and shared NrOverallIntensity. Live change rebuilds the network.
 DLSS5_STYLE=1
 ; 1080-tier processing rows: 1152 (default), or 1088 (Compact 1080 network).
@@ -296,7 +296,19 @@ DLSS5_NETWORK_1080_ROWS=1152
 ; Additional supported colour formats use private FP16 output. Default true.
 ; Save Settings and restart the game after changing this.
 DLSS5_FORMAT_FALLBACK=true
-; NR% auto, or a fixed 720 / 900 / 1080 tier.
+; Native NR input resolution (before SR). true by default; overrides tier/Compact 1080 within the supported budget.
+; Larger input costs more GPU time and VRAM (4K can be several times 1080p). Outside the budget, use the tier below.
+; Changing native resolution, fast numeric, passes or block skipping rebuilds the network on the next frame.
+DLSS5_NETWORK_FREE_RES=true
+; Fast approximate C32/C64 arithmetic. true = 0.40 default; false = normal numeric modules. Small image differences.
+DLSS5_FAST_NUMERIC=true
+; Whole-network passes per frame: 1..3, default 1. More style, roughly N times network time and extra frame buffers.
+; Adaptive ViT reuse is disabled with 2/3 passes. GPU network timing includes all passes.
+DLSS5_MULTI_PASS=1
+; Additional skips only in passes 2/3. none is recommended; gains are small and style changes (lossy).
+; CSV 1..38,40..69; blocks 4/69 and byte-stream blocks 5..22,48..65 are unsupported; invalid combinations use none.
+DLSS5_MULTI_PASS_SKIP_BLOCKS=none
+; Automatic network tier, or fixed 720 / 900 / 1080. Used with native resolution off, or outside its supported budget.
 DLSS5_NETWORK_HEIGHT=auto
 ; Shared allocation / byte-stream paths; defaults match the product runtime.
 DLSS5_HIP_SHARED_POOL=true
@@ -325,10 +337,10 @@ LmxxfDiagnostic=off
 ; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). true/false - Default is true
 DLSS5_FIT_LARGE=true
 
-; Skip residual blocks (lmxxf). Default 42,43,46. Use none to run all blocks (higher quality, slower).
+; Skip residual blocks (lmxxf). Default none (all 71 blocks). 42,43,46 restores the old lossy skip.
 ; Comma list of 1..38,40..69. Cannot skip 5..22 or 48..65 while MH byte stream is on.
-; Applies on the next network rebuild.
-DLSS5_SKIP_BLOCKS=42,43,46
+; Blocks 4/69 are also unsupported. Changing this rebuilds the network on the next frame.
+DLSS5_SKIP_BLOCKS=none
 
 ; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
 ; without hipExtModuleLaunchKernel can still start the network. Restart after changing.

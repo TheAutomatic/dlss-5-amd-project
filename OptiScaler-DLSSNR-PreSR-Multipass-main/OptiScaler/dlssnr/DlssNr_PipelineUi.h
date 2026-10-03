@@ -28,6 +28,7 @@ struct View
 inline void Draw(const View& view, Section& selected)
 {
     ImGui::PushID("NR pipeline chart");
+    ImGui::TextDisabled("Game input -> %s NR (before upscaling)", view.backend.c_str());
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
     const float nodeWidth = std::min(width, ImGui::GetFontSize() * 27.0f);
@@ -35,14 +36,10 @@ inline void Draw(const View& view, Section& selected)
     const float padding = ImGui::GetStyle().FramePadding.x + 4.0f;
     const float wrapWidth = std::max(nodeWidth - padding * 2.0f, 1.0f);
     struct Node { const char* title; std::string detail; int section; };
-    const std::array<Node, 7> nodes {{
-        {"Game input", view.backend, -1},
+    const std::array<Node, 3> nodes {{
         {"Prepare NR input", view.input, int(Section::Input)},
         {"NR model", view.model, int(Section::Model)},
-        {"Apply NR edit", view.output, int(Section::Output)},
-        {"Super Resolution", "Game upscaler", -1},
-        {"Game follow-up rendering", "Game-dependent effects / HUD", -1},
-        {"Game output", "Presentation / FG when active", -1}
+        {"Apply NR edit", view.output, int(Section::Output)}
     }};
     float height = 0;
     for (const auto& node : nodes)
@@ -90,6 +87,7 @@ inline void Draw(const View& view, Section& selected)
     }
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + nodes.size() * step));
     ImGui::Dummy(ImVec2(width, 0));
+    ImGui::TextWrapped("Then: Super Resolution -> game effects / HUD -> presentation");
     ImGui::PopID();
 }
 // Short page buttons stay usable when the chart is collapsed and wrap in narrow columns.

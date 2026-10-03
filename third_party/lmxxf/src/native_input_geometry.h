@@ -17,6 +17,13 @@ struct NativeInputGeometry {
  /* large=true (DLSS5_FIT_LARGE=1): inputs beyond 1920x1080 are accepted and fitted like small ones, i.e. downsampled onto the
     network surface by the codec's bilinear fit and restored to the source extent before the host upscaler. */
  static bool Supported(uint64_t w,unsigned h,bool large=false){return w>0&&h>0&&w<=16384&&h<=16384&&(large||(w<=max_budget_width&&h<=max_height&&w*h<=max_pixels));}
+ /* free=true (DLSS5_NETWORK_FREE_RES): the network surface is the input's own size padded on the right (NativeNetworkGeometry::Free);
+    the input is placed 1:1 at the top-left, no scaling, and the codec mirrors it into the padded columns. */
+ static NativeInputGeometry Make(unsigned w,unsigned h,unsigned nw,unsigned nh,bool large,bool free){
+  if(!free)return Make(w,h,nw,nh,large);
+  if(!w||!h||w>nw||h>nh||nw>16384||nh>16384)throw std::runtime_error("input exceeds the free network surface");
+  return NativeInputGeometry{w,h,0,0,w,h,nw,nh};
+ }
  static NativeInputGeometry Make(unsigned w,unsigned h,unsigned nw=1920,unsigned nh=1080,bool large=false){
   if(!Supported(w,h,large))throw std::runtime_error("input exceeds this integration viewport limit");
   if(!((nw==1920&&nh==1080)||(nw==1280&&nh==720)||(nw==1600&&nh==900)))throw std::runtime_error("unsupported network viewport");

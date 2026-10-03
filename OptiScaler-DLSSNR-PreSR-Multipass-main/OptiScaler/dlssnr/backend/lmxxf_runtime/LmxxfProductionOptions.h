@@ -6,7 +6,7 @@
 #include <cstring>
 #include <string>
 
-/* Production HIP defaults (HIP_FAST=1, graph off, skip 42,43,46). Then NativeApplyHipEnvironment
+/* Production HIP defaults (HIP_FAST=1, graph off, all 71 blocks). Then NativeApplyHipEnvironment
  * lets DLSS5_* env keys override without a rebuild — same parser as the add-on / RE9 runtime. */
 inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsigned processing_h,
                                                      const std::string &modules, const std::string &assets)

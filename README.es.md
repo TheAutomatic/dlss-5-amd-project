@@ -3,7 +3,7 @@
 Esta rama de desarrollo incorpora mochizuki para Windows / RDNA4. Consulte [instalación, modelo, controles y validación](docs/mochizuki.md). No se incluyen DLL de NVIDIA ni pesos del modelo. Falta la validación en juegos.
 
 
-# OptiScaler AMD pre-SR — 1.9.10.2
+# OptiScaler AMD pre-SR — 1.10.0
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
 
@@ -13,7 +13,17 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 ## Registro de cambios
 
-Consulte las notas de la release 1.9.10.1 para más detalles.
+Consulte las notas de la release 1.10.0 para más detalles.
+
+### Configuración e instalación de 1.10.0
+
+lmxxf se actualiza a 0.40. Valores predeterminados: 71 bloques (`DLSS5_SKIP_BLOCKS=none`), cálculo aproximado activo (`DLSS5_FAST_NUMERIC=true`), una pasada (`DLSS5_MULTI_PASS=1`) y resolución libre activa (`DLSS5_NETWORK_FREE_RES=true`). La resolución libre sigue la entrada real y vuelve a los niveles de red cuando supera el presupuesto; 1440p/4K pueden aumentar mucho el tiempo GPU y la memoria. Dos o tres pasadas refuerzan el estilo con un coste cercano a N veces y desactivan la reutilización ViT adaptativa. Se recomienda `DLSS5_MULTI_PASS_SKIP_BLOCKS=none`. Los cambios reconstruyen la red en el siguiente fotograma y pueden causar una pausa.
+
+El gráfico Ins navega por **Input → Model → Output**: resolución/exposición, estilo/pasadas/ViT y mezcla/estabilización/apariencia. Compatibilidad, núcleos y diagnóstico siguen en grupos avanzados. Save Settings guarda el INI; Reset solo afecta a su página.
+
+Setup muestra los pesos detectados antes de elegir backend. lmxxf necesita una carpeta con `block0-ffn.f16/.f32`; Daniel necesita los pesos extraídos; Mochizuki necesita `dlssnr-amd/dlssnr.bin`. Setup puede extraer el modelo Mochizuki desde `nvngx_dlssnr.dll` 310.8.0 compatible con Python 3.10+. Si falta el DLL, indica qué archivo aportar; conserva modelos inválidos y pide apartarlos antes de regenerarlos. Ins muestra las dependencias ausentes junto a Enable NR.
+
+Actualice el paquete completo mediante Setup. Conservar el INI mantiene los valores explícitos anteriores. Menú/INI tiene prioridad; los archivos default/custom/native y el entorno solo completan claves que el host no establece. La sección 1.9.0 es histórica; su antiguo límite de resolución no se aplica a esta versión.
 
 ### Mapa de configuración lmxxf (ini / menú Ins)
 
@@ -21,15 +31,15 @@ Las claves de varias capas usan los mismos nombres `DLSS5_*` que upstream. **Las
 
 | Ubicación en el menú | Clave | Notas |
 |---|---|---|
-| Image | `TransferStrength` / `ColourStrength` | Detalle / color (Colour 0–1 conserva el color del juego) |
+| Output | `TransferStrength` / `ColourStrength` | Detalle / color (Colour 0–1 conserva el color del juego) |
 | Compatibility & Scheduling | `DLSS5_FIT_LARGE` | Alta resolución; ajusta Color grande a la red (incl. >1080p) |
-| Quality & Performance | `DLSS5_NETWORK_HEIGHT` | **NR%** auto (predeterminado) o 720 / 900 / 1080 |
-| Image | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
+| Input | `DLSS5_NETWORK_HEIGHT` | **Network tier** auto (predeterminado) o 720 / 900 / 1080 |
+| Input | `LmxxfAutoExposure`, paper white | Medición sin textura de exposición útil |
 | Advanced Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Núcleos / pool / byte stream |
 | ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE`, … | Reutilización ViT en fotogramas estáticos |
 | Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`, vista de debug, barreras mejoradas, early wrap | Diagnóstico |
 
-### Controles nuevos en 1.9.10.1
+### Controles nuevos en 1.10.0
 
 Estas opciones pertenecen a `[DlssNr]` en `OptiScaler.ini`. Pulse **Save Settings** tras ajustarlas en Ins. Consulte GitHub Releases para el estado de publicación.
 
@@ -38,8 +48,8 @@ Estas opciones pertenecen a `[DlssNr]` en `OptiScaler.ini`. Pulse **Save Setting
 | lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2; independiente de `Style` de Daniel. Reconstruye la red en el siguiente fotograma; puede causar una pausa breve |
 | Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | Activado usa 1088, solo en el nivel 1080. Puede acelerar pero cambia la imagen, especialmente el borde inferior; reconstruye la red |
 | Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | Acepta formatos adicionales compatibles con la GPU mediante salida FP16 privada; guarde y reinicie |
-| Overall Intensity | `NrOverallIntensity=1.0` | Ambos backends, 0–2. 0 muestra el original, 1 conserva el resultado completo, >1 amplifica la corrección. En 0 sigue ejecutándose NR; desactive NR para ahorrar cálculo |
-| Residual Stabilizer | `NrStabilizerEnabled=false` | Ambos backends; usa movimiento y profundidad para reducir parpadeos. Puede suavizar detalles en movimiento o dejar estelas; consume GPU y memoria |
+| Overall Intensity | `NrOverallIntensity=1.0` | Los tres backends, 0–2. 0 muestra el original, 1 conserva el resultado completo, >1 amplifica la corrección. En 0 sigue ejecutándose NR; desactive NR para ahorrar cálculo |
+| Residual Stabilizer | `NrStabilizerEnabled=false` | Los tres backends; usa movimiento y profundidad para reducir parpadeos. Puede suavizar detalles en movimiento o dejar estelas; consume GPU y memoria |
 | History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | Rangos 0–0.95 / 0–16. Cero en cualquiera omite la estabilización. Reduzca si aparecen estelas |
 | Measure NR performance | `NrTimingEnabled=false` | Medición asíncrona de NR GPU, Encode y Decode de lmxxf; Ins también muestra etapas CPU y muestras descartadas |
 | Write timing summary to log | `NrTimingLog=false` | Requiere medición y registro en archivo; como máximo un resumen cada cinco segundos |

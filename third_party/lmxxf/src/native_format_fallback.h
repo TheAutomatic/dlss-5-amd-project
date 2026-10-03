@@ -29,7 +29,7 @@ inline bool NativeFallbackOpaque(DXGI_FORMAT view){return view==DXGI_FORMAT_R9G9
 inline bool NativeFormatFallbackOn(){
  static const bool on=[]{
   if(const wchar_t*v=_wgetenv(L"DLSS5_FORMAT_FALLBACK"))return wcscmp(v,L"0")!=0;
-  unsigned x=1;if(FILE*f=_wfopen(NativeLabPath(L"native-game-flags.txt").c_str(),L"rb")){char line[256];while(fgets(line,sizeof line,f))sscanf(line,"DLSS5_FORMAT_FALLBACK=%u",&x);fclose(f);}
+  unsigned x=1;for(const std::string&cfg_line:NativeConfigFileLines()){const char*line=cfg_line.c_str();sscanf(line,"DLSS5_FORMAT_FALLBACK=%u",&x);}
   return x!=0;}();
  return on;
 }

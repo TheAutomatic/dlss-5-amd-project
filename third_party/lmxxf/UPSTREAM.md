@@ -1,7 +1,7 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `82ce821f0ea1a12925d04c353cb2d1b9ee006c11` (synced 2026-10-02)
+- Commit: `c81a88bc8534f7193df08ec3cae21d06d10d285d` (synced 2026-10-04)
 - **0.39 + six commits**: dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin, with the two maintained LINE_STORES overrides and no RowOpts/ExtraOpts. Full upstream review, actual per-module selections, product preset differences, validation and explicit deferrals are recorded in [the 0.39 consumer review](../../docs/lmxxf-039-consumer-review.md). Pinned bridge and product recording/timing contracts remain; input polling and IO fusion are not enabled. Direct shared input was integrated in the subsequent local transport update described below. Product bounded timing is independent of upstream FRAME_STATS. This source/module review is not release or game acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1

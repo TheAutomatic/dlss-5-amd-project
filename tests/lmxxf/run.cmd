@@ -76,6 +76,12 @@ for %%T in (lmxxf_list1_wrap lmxxf_create_execute lmxxf_evaluate_cut) do (
 goto pass
 
 :gpu
+rem Explicit 0.39 compatibility configuration; new product defaults are exercised below.
+set "DLSS5_SKIP_BLOCKS=42,43,46"
+set "DLSS5_FAST_NUMERIC=0"
+set "DLSS5_NETWORK_FREE_RES=0"
+set "DLSS5_MULTI_PASS=1"
+set "DLSS5_MULTI_PASS_SKIP_BLOCKS=none"
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 tests\lmxxf\lmxxf_module_load_gpu.cpp /Fe"%OUT%\lmxxf_module_load_gpu.exe" /Fo"%OUT%\lmxxf_module_load_gpu.obj" || goto fail
 "%OUT%\lmxxf_module_load_gpu.exe" tests\lmxxf\lmxxf_module_load_gpu.cpp || goto fail
 if not defined LMXXF_ASSETS (
@@ -111,6 +117,16 @@ cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 /I"%REPO
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lmxxf\lmxxf_bridge_zero_gpu.cpp /Fe"%OUT%\lmxxf_bridge_zero_gpu.exe" /Fo"%OUT%\lmxxf_bridge_zero_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --probe-drain || goto fail
+rem 0.40 product defaults and live network rebuild/output checks.
+set "DLSS5_SKIP_BLOCKS=none"
+set "DLSS5_FAST_NUMERIC=1"
+set "DLSS5_NETWORK_FREE_RES=1"
+"%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --040-controls || goto fail
+for %%S in ("1280 720" "1707 961" "2560 1440" "3440 1440") do (
+  "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --size %%~S || goto fail
+)
+set "DLSS5_MULTI_PASS=2"
+"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
 goto pass
 
 :pass

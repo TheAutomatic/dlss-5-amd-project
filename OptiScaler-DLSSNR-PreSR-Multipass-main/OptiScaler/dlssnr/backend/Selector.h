@@ -1,5 +1,6 @@
 #pragma once
 #include "Kind.h"
+#include <string>
 
 namespace DlssNr::Backend
 {
@@ -18,4 +19,5 @@ void InvalidateInstallProbe();
 bool HasDanielInstalled();
 bool HasLmxxfInstalled();
 bool HasMochizukiInstalled();
+std::string InstallIssue(Kind kind);
 } // namespace DlssNr::Backend

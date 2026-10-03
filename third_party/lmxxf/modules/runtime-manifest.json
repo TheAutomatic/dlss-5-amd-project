@@ -26,11 +26,11 @@
                   "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
                   "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir."
               ],
-    "module_count":  62,
-    "module_count_per_arch":  31,
+    "module_count":  68,
+    "module_count_per_arch":  34,
     "targets":  [
                     "gfx1200",
                     "gfx1201"
                 ],
-    "upstream_commit":  "82ce821f0ea1a12925d04c353cb2d1b9ee006c11"
+    "upstream_commit":  "c81a88bc8534f7193df08ec3cae21d06d10d285d"
 }

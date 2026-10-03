@@ -385,6 +385,10 @@ class Config
     CustomOptional<bool, NoDefault> LmxxfEarlyExeWrap;
     // Network tier: auto | 720 | 900 | 1080 (DLSS5_NETWORK_HEIGHT).
     CustomOptional<std::string> LmxxfNetworkHeight { "auto" };
+    CustomOptional<bool> LmxxfNetworkFreeRes { true };
+    CustomOptional<bool> LmxxfFastNumeric { true };
+    CustomOptional<uint32_t> LmxxfMultiPass { 1 };
+    CustomOptional<std::string> LmxxfMultiPassSkipBlocks { "none" };
     CustomOptional<uint32_t> LmxxfNetwork1080Rows { 1152 };
     CustomOptional<uint32_t> LmxxfStyle { 1 };
     // Mochizuki owns independent settings; reset never changes another backend.

@@ -49,8 +49,17 @@ float3 ReadFitted(uint2 pixel) {
 void main(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= Size)) return;
 #if NATIVE_CODEC_FIT
+#if NATIVE_CODEC_FIT_MIRROR
+    // DLSS5_NETWORK_FREE_RES: the input sits 1:1 at the top-left of a wider network surface; the padded columns take the
+    // mirror image (2*extent-2-x, the reflection NVIDIA's processing surface uses for its padded rows).
+    uint2 src=id.xy;uint2 edge=uint2(Padding.xy+Padding.zw);
+    if(src.x>=edge.x)src.x=2*edge.x-2-src.x;
+    if(src.y>=edge.y)src.y=2*edge.y-2-src.y;
+    float3 fitted=ReadFitted(src);
+#else
     if(any(float2(id.xy)<Padding.xy)||any(float2(id.xy)>=Padding.xy+Padding.zw)){Output[id.xy]=float4(0,0,0,1);return;}
     float3 fitted=ReadFitted(id.xy);
+#endif
 #endif
 #if NATIVE_CODEC_SRGB_IO
     // DLSS5_CODEC_SRGB (Magpie): the source is already a display-referred sRGB picture, i.e. already in the network's working

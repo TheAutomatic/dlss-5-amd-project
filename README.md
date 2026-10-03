@@ -3,7 +3,7 @@
 第三后端 mochizuki（Windows / RDNA4）已接入此开发分支，安装、模型来源、独立菜单和验证范围见 [mochizuki 说明](docs/mochizuki.md)。不附带 NVIDIA DLL 或模型；游戏表现待本地验收。
 
 
-# OptiScaler AMD pre-SR — 1.9.10.2
+# OptiScaler AMD pre-SR — 1.10.0
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -13,7 +13,17 @@
 
 ## 更新日志
 
-详情请看 release 1.9.10.1 更新日志。
+详情请看 release 1.10.0 更新日志。
+
+### 1.10.0 配置与安装
+
+lmxxf 更新至 0.40。默认全 71 块（`DLSS5_SKIP_BLOCKS=none`）、快速数值开启（`DLSS5_FAST_NUMERIC=true`）、叠层 1 遍（`DLSS5_MULTI_PASS=1`）、自由分辨率开启（`DLSS5_NETWORK_FREE_RES=true`）。自由分辨率按实际输入计算，超过处理预算时回退网络档位；1440p/4K 输入会显著增加耗时和显存。2/3 遍叠层加强风格，计算量约为对应倍数，并关闭自适应 ViT 复用。`DLSS5_MULTI_PASS_SKIP_BLOCKS=none` 建议保持默认。改变这些选项会在下一帧重建网络，可能短暂卡顿。
+
+Ins 流程图按 **Input → Model → Output** 导航：输入页管理分辨率和曝光；模型页管理风格、叠层和 ViT；输出页管理合成强度、稳定器与外观效果。游戏输入和后续超分作为流程说明。兼容、内核和诊断保留独立高级分组。点击 Save Settings 保存到 INI；每页 Reset 只重置该页。
+
+Setup 在选后端前显示检测到的权重。lmxxf 需要含 `block0-ffn.f16/.f32` 的权重目录；Daniel 需要提取后的权重；Mochizuki 需要 `dlssnr-amd/dlssnr.bin`。若检测到受支持的 `nvngx_dlssnr.dll` 310.8.0，Setup 可使用 Python 3.10+ 提取 Mochizuki 模型。缺少源 DLL 时会说明所需文件；无效模型会保留并要求先移走再重建，不显示为可用。Ins 在 Enable NR 附近提示所选后端缺失的依赖。
+
+更新使用安装器整包覆盖；选择保留 INI 会保留旧的显式设置。菜单/INI 始终优先；上游的 default/custom/native 三层文件与外部环境只补充宿主没有设置的键。下面 1.9.0 部分为历史记录，其旧分辨率限制不适用于本版。
 
 ### lmxxf 配置速查（ini / 菜单）
 
@@ -21,15 +31,15 @@
 
 | 菜单位置 | 键 | 说明 |
 |---|---|---|
-| Image | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
+| Output | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
 | Compatibility & Scheduling | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
-| Quality & Performance | `DLSS5_NETWORK_HEIGHT` | **NR%** auto（默认）或 720 / 900 / 1080 |
-| Image | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
+| Input | `DLSS5_NETWORK_HEIGHT` | **Network tier** auto（默认）或 720 / 900 / 1080 |
+| Input | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
 | Advanced Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 内核 / 显存池 / 字节流 |
 | ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
 | Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`、增强屏障、early wrap / Debug view | 兼容设置与诊断画面分别归组 |
 
-### 1.9.10.1 新增控制
+### 1.10.0 新增控制
 
 以下选项位于 `OptiScaler.ini` 的 `[DlssNr]`，在 Ins 菜单调节后点 **Save Settings** 保存。发布状态以 GitHub Releases 为准。
 
@@ -38,13 +48,13 @@
 | lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2；与 Daniel 的 `Style` 独立。改变后下一帧重建网络，可能短暂卡顿 |
 | Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | 打开改为 1088，仅影响 1080 档；可能更快但会改变画面，尤其底边。改变后重建网络 |
 | Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | 接受显卡支持的额外色彩格式，使用私有 FP16 输出；保存后重启游戏 |
-| Overall Intensity | `NrOverallIntensity=1.0` | 双后端共用，0–2；0 显示原图，1 保留完整结果，>1 增强修正。0 仍运行 NR，省算力应关闭 NR |
-| Residual Stabilizer | `NrStabilizerEnabled=false` | 双后端共用，利用运动与深度减少修正量闪烁；可能软化运动细节或拖影，增加 GPU 工作与显存 |
+| Overall Intensity | `NrOverallIntensity=1.0` | 三后端共用，0–2；0 显示原图，1 保留完整结果，>1 增强修正。0 仍运行 NR，省算力应关闭 NR |
+| Residual Stabilizer | `NrStabilizerEnabled=false` | 三后端共用，利用运动与深度减少修正量闪烁；可能软化运动细节或拖影，增加 GPU 工作与显存 |
 | History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | 范围分别 0–0.95 / 0–16；任一为 0 时旁路稳定器。先用默认值，拖影时降低 |
 | Measure NR performance | `NrTimingEnabled=false` | 按需测量 HIP 网络、Encode、Decode 和输出效果；网络计时使用非阻塞 HIP 事件，不改变 PDL 设置 |
 | Write timing summary to log | `NrTimingLog=false` | 同时启用计时和文件日志后，最多每 5 秒一条摘要，不逐帧刷屏 |
 
-菜单顶部保留启用、后端、Overall Intensity 和 Residual Stabilizer；其余按 Image、Quality & Performance、ViT / image reuse（lmxxf）、Additional Effects（daniel）、Compatibility & Scheduling、Advanced Kernels（lmxxf）、Diagnostics 排列。High resolution 默认开启，收在 Compatibility & Scheduling；保留 NR% 命名，当前 lmxxf 仍选择分辨率档位。
+菜单按上面的 Input / Model / Output 三页组织；Network tier 表示分辨率档位，作为自由分辨率超出预算时的回退。
 
 **Reset shared effects** 只恢复整体强度和稳定器；**Reset diagnostics** 恢复计时与调试显示。各分组 Reset 只作用于对应设置；ViT 分组统一管理执行路径、复用及互斥设置。底部 **Reset NR settings** 重置当前后端和共享 NR 控件，不改另一个后端、后端选择、热切换偏好或快捷键。Lighting / Appearance 的 Reset 不再修改模型次数、结构等分组外设置。
 

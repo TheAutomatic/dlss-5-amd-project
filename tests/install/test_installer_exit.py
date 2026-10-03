@@ -379,10 +379,130 @@ class InstallerExitTests(unittest.TestCase):
         (self.package / "OptiScaler.dll").write_bytes(b"fixture proxy")
         (self.package / "LmxxfNrRuntime.dll").write_bytes(b"fixture lmxxf runtime")
         make_modules(self.package / "lmxxf-modules")
+        weights = self.package / "native-game-tiled-assets"
+        weights.mkdir(exist_ok=True)
+        (weights / "block0-ffn.f16").write_bytes(b"fixture marker; no GPU inference")
 
         shaders = self.package / "shaders"
         shaders.mkdir(parents=True, exist_ok=True)
         (shaders / "native_codec_encode.hlsl").write_text("// shader fixture", encoding="utf-8")
+
+    def ready_mochizuki(self, model=False):
+        (self.package / "OptiScaler.dll").write_bytes(b"fixture proxy")
+        (self.package / "MochizukiNrRuntime.dll").write_bytes(b"fixture runtime")
+        shaders = self.package / "dlssnr-amd/shaders"
+        shaders.mkdir(parents=True)
+        (shaders / "fixture.spv").write_bytes(b"fixture shader")
+        if model:
+            (shaders.parent / "dlssnr.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
+
+    def test_mochizuki_missing_model_reports_pending(self):
+        self.ready_mochizuki()
+        code, output = self.run_direct(flags=("-NonInteractive", "-Backend", "mochizuki"))
+        self.assertEqual(code, 0, output)
+        self.assertIn("MODEL SETUP REQUIRED", output)
+        self.assertNotIn("Install SUCCEEDED.", output)
+        self.assertIn("310.8.0", output)
+        self.assertTrue((self.game / "MochizukiNrRuntime.dll").is_file())
+
+    def test_mochizuki_existing_model_needs_no_extraction(self):
+        self.ready_mochizuki(model=True)
+        expected = (self.package / "dlssnr-amd/dlssnr.bin").read_bytes()
+        code, output = self.run_direct(flags=("-NonInteractive", "-Backend", "mochizuki"))
+        self.assertEqual(code, 0, output)
+        self.assertIn("Install SUCCEEDED.", output)
+        self.assertNotIn("Extracting Mochizuki model", output)
+        self.assertEqual((self.game / "dlssnr-amd/dlssnr.bin").read_bytes(), expected)
+
+    def test_mochizuki_reuses_game_model(self):
+        self.ready_mochizuki()
+        model = self.game / 'dlssnr-amd/dlssnr.bin'
+        model.parent.mkdir()
+        data = b'NRMODEL1' + (599).to_bytes(4, 'little') + bytes(20)
+        model.write_bytes(data)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertNotIn('Extracting Mochizuki model', output)
+        self.assertEqual(model.read_bytes(), data)
+
+    def test_mochizuki_invalid_game_model_is_preserved_and_reported(self):
+        self.ready_mochizuki(model=True)
+        model = self.game / 'dlssnr-amd/dlssnr.bin'
+        model.parent.mkdir()
+        model.write_bytes(b'user invalid model')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('MODEL SETUP REQUIRED', output)
+        self.assertNotIn('Install SUCCEEDED.', output)
+        self.assertEqual(model.read_bytes(), b'user invalid model')
+
+    def test_mochizuki_unsupported_nvidia_dll_reports_model_pending(self):
+        self.ready_mochizuki()
+        (self.package / 'nvngx_dlssnr.dll').write_bytes(b'unsupported model DLL')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('DLL is not supported', output)
+        self.assertIn('MODEL SETUP REQUIRED', output)
+        self.assertNotIn('Extracting Mochizuki model', output)
+
+    def ready_supported_mochizuki_source(self):
+        self.ready_mochizuki()
+        source = b'fixture supported model source'
+        (self.package / 'nvngx_dlssnr.dll').write_bytes(source)
+        script = self.package / 'Setup.ps1'
+        text = script.read_text(encoding='utf-8-sig')
+        old = 'e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e'
+        self.assertEqual(text.lower().count(old), 1)
+        text = re.sub(old, hashlib.sha256(source).hexdigest(), text, flags=re.IGNORECASE)
+        write_ps(script, text)
+
+    def test_mochizuki_supported_source_extracts_and_installs(self):
+        self.ready_supported_mochizuki_source()
+        (self.package / 'mochizuki-model.py').write_text(
+            "import sys\nfrom pathlib import Path\np=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
+            "p.write_bytes(b'NRMODEL1'+(599).to_bytes(4,'little')+bytes(20))\n", encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Extracting Mochizuki model', output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
+
+    def test_mochizuki_extractor_failure_leaves_actionable_pending(self):
+        self.ready_supported_mochizuki_source()
+        (self.package / 'mochizuki-model.py').write_text('import sys; print("fixture extraction error", file=sys.stderr); sys.exit(4)\n', encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Model extraction failed', output)
+        self.assertIn('MODEL SETUP REQUIRED', output)
+
+    def test_mochizuki_missing_python_leaves_actionable_pending(self):
+        self.ready_supported_mochizuki_source()
+        script = self.package / 'Setup.ps1'
+        text = script.read_text(encoding='utf-8-sig')
+        old = "@('python', 'python3', 'py')"
+        self.assertEqual(text.count(old), 1)
+        write_ps(script, text.replace(old, "@('nonexistent-python-fixture')"))
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Python 3.10+', output)
+        self.assertIn('MODEL SETUP REQUIRED', output)
+
+    def test_lmxxf_empty_weight_directory_is_not_ready(self):
+        self.ready_lmxxf_dual_arch()
+        (self.package / "native-game-tiled-assets/block0-ffn.f16").unlink()
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        self.assertIn("MODEL SETUP REQUIRED", output)
+        self.assertNotIn("Install SUCCEEDED.", output)
+
+    def test_lmxxf_empty_weight_marker_is_not_ready(self):
+        self.ready_lmxxf_dual_arch()
+        (self.package / "native-game-tiled-assets/block0-ffn.f16").write_bytes(b"")
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        self.assertIn("MODEL SETUP REQUIRED", output)
+        self.assertNotIn("Install SUCCEEDED.", output)
 
     def test_dual_arch_lmxxf_clean_install(self):
         self.ready_lmxxf_dual_arch()
@@ -394,8 +514,8 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue((game_mods / "gfx1200").is_dir(), output)
         self.assertTrue((game_mods / "gfx1201").is_dir(), output)
         self.assertEqual(len(list(game_mods.glob("*.hsaco"))), 0, "no flat hsaco in root")
-        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 31)
-        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 31)
+        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 34)
+        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 34)
         self.assertTrue((game_mods / "SHA256SUMS").is_file(), output)
         self.assertTrue((game_mods / "runtime-manifest.json").is_file(), output)
 
@@ -415,7 +535,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertFalse(list(mods.glob("*.hsaco")))
         self.assertFalse((mods / "modules.json").exists())
         for arch in ("gfx1200", "gfx1201"):
-            self.assertEqual(len(list((mods / arch).glob("*.hsaco"))), 31)
+            self.assertEqual(len(list((mods / arch).glob("*.hsaco"))), 34)
         return mods
 
     def assert_custom_module_backed_up(self):

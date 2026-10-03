@@ -45,6 +45,9 @@ float2 fetch_motion(float2 uv) {
 #endif
 [numthreads(64,1,1)]
 void main(uint3 id:SV_DispatchThreadID) {
+#ifdef NATIVE_WIDE_ROW
+    id.x+=id.y*NATIVE_WIDE_ROW;
+#endif
     if(id.x>=processing_width*processing_height)return;
     uint2 p=uint2(id.x%processing_width,id.x/processing_width);
     p.x=p.x<valid_width?p.x:2*valid_width-p.x-2;

@@ -1,3 +1,11 @@
+## 2026-10-04 — lmxxf 0.40 defaults and update workflow
+
+Use all 71 blocks, fast numerics on, one network pass and free resolution on. INI/menu remains authoritative. Show missing model dependencies at backend selection and in Ins; preserve invalid user model files and explain how to replace them. The flowchart presents three editable stages, with game input and downstream rendering as context.
+
+Source updates and closed Daniel runtime updates have different costs. lmxxf requires reconciling our recording/ABI patches, generated modules, compiler-specific correctness, config ownership and upstream experiments that can change release defaults. Daniel leaves those internals inside the supplied binary, so our review mostly concerns its interface, packaging and behavior. Neither source staging nor reading an upstream changelog substitutes for this work.
+
+There was also avoidable product maintenance: module counts repeated in runtime validators could disagree with the name array. Those checks now derive their count from that array; cross-language package consumers remain protected by the existing module contract test. Keep staged review and group related evidence once in the consumer review document. Do not add another approval gate or rerun unchanged historical experiments merely because a new release workflow starts. This iteration also spent time on downloading a compiler whose official Windows distribution lacks AMDGPU; record the limitation and an executable follow-up instead of claiming its optimization is enabled.
+
 ## 2026-10-03 — Navigate NR controls by processing stage
 
 Adapt the node drawing and click navigation from wilsjo2's OptiScaler-NR v0.8.4

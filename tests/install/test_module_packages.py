@@ -144,7 +144,7 @@ class ModulePackageTests(unittest.TestCase):
         extracted = self.root / 'extracted'
         with zipfile.ZipFile(self.archive) as archive:
             entries = archive.namelist()
-            self.assertEqual(sum(p.endswith('.hsaco') for p in entries), 62)
+            self.assertEqual(sum(p.endswith('.hsaco') for p in entries), 68)
             self.assertIn('lmxxf-module-package.ps1', entries)
             archive.extractall(extracted)
         game = self.root / 'game'
