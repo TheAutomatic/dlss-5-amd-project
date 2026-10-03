@@ -50,12 +50,22 @@ struct Lease final : Submission::RecordingObserver
     void* job;
     Submission::RecordingIdentity identity;
     bool ready = false, invalidated = false, begun = false;
+    uint64_t traceId = 0;
+    void (*trace)(uint64_t, const char*, const void*, int32_t) noexcept = nullptr;
+    unsigned traceExecutions = 0;
+    bool tracing = false;
+    void Trace(const char* phase, const void* object, int32_t result = 0) const noexcept
+    { if (tracing && trace && traceId) trace(traceId, phase, object, result); }
     Lease(std::shared_ptr<SessionOwner> session, void* token, Submission::RecordingIdentity id)
         : owner(std::move(session)), job(token), identity(id) {}
     HRESULT BeforeExecute(const Submission::RecordingExecution& e) noexcept override
     {
         if (invalidated || !(e.identity == identity)) return E_UNEXPECTED;
+        tracing = traceId && traceExecutions < 2;
+        if (tracing) ++traceExecutions;
+        Trace("execute.begin", e.queue);
         const int32_t rc = owner->api.BeginRecordingExecution(owner->context, job, e.queue);
+        Trace("execute.admitted", e.queue, rc);
         begun = rc == LMXXF_NR_OK;
         if (!begun) owner->failed = true;
         return begun ? S_OK : E_FAIL;
@@ -66,7 +76,9 @@ struct Lease final : Submission::RecordingObserver
         auto& diagnostic = LmxxfCut::Pending();
         diagnostic.betweenHits.fetch_add(1, std::memory_order_relaxed);
         diagnostic.enqueueCalls.fetch_add(1, std::memory_order_relaxed);
+        Trace("hip.begin", e.queue);
         const int32_t rc = owner->api.EnqueueHip(owner->context, job, e.queue);
+        Trace("hip.end", e.queue, rc);
         std::array<char, 256> error {};
         owner->api.GetLastError(error.data(), static_cast<uint32_t>(error.size()));
         if (rc != LMXXF_NR_OK) owner->failed = true;
@@ -81,9 +93,12 @@ struct Lease final : Submission::RecordingObserver
         if (!begun) return;
         const uint32_t flags = (e.producerSubmitted ? LMXXF_NR_SUBMITTED_PRODUCER : 0) |
                                (e.continuationSubmitted ? LMXXF_NR_SUBMITTED_CONSUMER : 0);
+        Trace("retire.begin", e.queue, e.status);
         const int32_t rc = owner->api.EndRecordingExecution(owner->context, job, e.queue,
                                                           flags, e.fence, e.fenceValue, e.status);
         if (rc != LMXXF_NR_OK) owner->failed = true;
+        Trace("retire.end", e.queue, rc);
+        tracing = false;
         begun = false;
     }
     void Invalidated(Submission::RecordingIdentity id) noexcept override

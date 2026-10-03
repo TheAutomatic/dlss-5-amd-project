@@ -3,6 +3,7 @@
 #include "LmxxfBackend.h"
 #include "LmxxfRecordingOwner.h"
 #include <cstring>
+#include <State.h>
 #include "../submission/SubmissionTls.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
 #include "../amd/AmdBridge.h"
@@ -23,6 +24,36 @@ struct LmxxfBackend::Api
 namespace
 {
 std::atomic<unsigned> g_lastColorH { 0 };
+// Bounded phase evidence for the two reported RE titles, not a per-frame trace.
+thread_local uint64_t reTraceId = 0;
+void ReTrace(uint64_t id, const char* phase, const void* object, int32_t result) noexcept
+{
+    if (!id) return;
+    try { LOG_INFO("RE NR phase: sample={} phase={} object={:p} result={}", id, phase, object, result); }
+    catch (...) {}
+}
+struct ReTraceFrame
+{
+    uint64_t previous = reTraceId;
+    ReTraceFrame(UINT width, UINT height, DXGI_FORMAT format)
+    {
+        reTraceId = 0;
+        const auto& exe = State::Instance().gameExe;
+        if (_stricmp(exe.c_str(), "re9.exe") && _stricmp(exe.c_str(), "OnimushaWotS.exe")) return;
+        // Record holds LifecycleMutex: these counters are serialized.
+        static unsigned initial = 0, changes = 0;
+        static UINT oldW = 0, oldH = 0;
+        static DXGI_FORMAT oldFormat = DXGI_FORMAT_UNKNOWN;
+        static uint64_t next = 0;
+        const bool changed = width != oldW || height != oldH || format != oldFormat;
+        oldW = width; oldH = height; oldFormat = format;
+        if (initial < 3) { ++initial; reTraceId = ++next; }
+        else if (changed && changes < 4) { ++changes; reTraceId = ++next; }
+        ReTrace(reTraceId, "record.enter", nullptr, 0);
+    }
+    ~ReTraceFrame() { ReTrace(reTraceId, "record.return", nullptr, 0); reTraceId = previous; }
+};
+
 }
 
 unsigned LastLmxxfColorHeight()
@@ -530,25 +561,32 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     auto lease = LmxxfRecording::Attach(sessionOwner, jobHandle, logical);
     logical->Release();
     if (!lease) { SetStatus("lmxxf: this recording already owns an NR job"); return nullptr; }
+    lease->traceId = reTraceId;
+    lease->trace = &ReTrace;
+    ReTrace(reTraceId, "inputs.begin", jobHandle, 0);
     if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
         sessionOwner->failed = true;
         SetStatus("lmxxf: RecordInputs failed");
         return nullptr;
     }
+    ReTrace(reTraceId, "inputs.end/split.begin", jobHandle, 0);
     const HRESULT splitHr = LmxxfCut::TrySplitAtEvaluate(recordCmd);
+    ReTrace(reTraceId, "split.end", recordCmd, splitHr);
     if (splitHr != S_OK)
     {
         sessionOwner->failed = true;
         SetStatus("lmxxf: Split failed");
         return nullptr;
     }
+    ReTrace(reTraceId, "outputs.begin", jobHandle, 0);
     if (api->table.RecordOutputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
         sessionOwner->failed = true;
         SetStatus("lmxxf: RecordOutputs failed");
         return nullptr;
     }
+    ReTrace(reTraceId, "outputs.end", jobHandle, 0);
     lease->ready = true;
     SetStatus("lmxxf: recording ready");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
@@ -598,8 +636,12 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     }
     if (!NoteEnqueueRecoveries())
         return nullptr;
+    const auto traceDesc = frame.colour->GetDesc();
+    ReTraceFrame traceFrame(frame.width, frame.height, traceDesc.Format);
+    ReTrace(reTraceId, "session.begin", session, 0);
     if (!EnsureSession())
         return nullptr;
+    ReTrace(reTraceId, "session.end", session, 0);
     UpdateTiming();
 
     D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
@@ -629,7 +671,9 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
 
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
+    ReTrace(reTraceId, "prepare.begin", session, 0);
     int32_t frameRc = api->table.PrepareFrame(session, &fi, &job);
+    ReTrace(reTraceId, "prepare.end", job.handle, frameRc);
     if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
     {
         char err[256] {};

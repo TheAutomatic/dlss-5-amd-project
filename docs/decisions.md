@@ -1,3 +1,19 @@
+## 2026-10-03 — Frame-generation readiness and bounded RE diagnostics
+
+Replace the mutable per-slot readiness maps with an atomic resource bitset. Frame
+reset, publication and the combined depth/velocity check now share one atomic state;
+XeFG, FSR FG and DLSSG no longer perform contains/at across concurrent map erasure.
+Remove the unused resource-frame map. This fixes readiness bookkeeping only; it does
+not establish that all frame resources, frame counters or GPU lifetime are synchronized,
+and does not claim to fix all RE cold-start or channel-switch failures.
+
+On the RE comparison branch, trace NR preparation, recording, splitting and actual
+execution for re9.exe/OnimushaWotS.exe only: first three eligible Record calls and at
+most four later dimension/format changes, at most two executions per traced recording.
+The phase log distinguishes CPU recording from HIP submission; no new INI setting,
+ABI change, wait, kernel toggle or submission-order change is introduced. Keep the
+legacy-state comparison baseline until game evidence selects the next fix.
+
 # 决策记录
 
 ## 2026-10-02 · lmxxf 输入直写与无用 tile 副本
