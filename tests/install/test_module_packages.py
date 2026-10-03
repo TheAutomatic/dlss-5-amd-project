@@ -151,7 +151,8 @@ class ModulePackageTests(unittest.TestCase):
         game.mkdir()
         code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game), '-NonInteractive'])
         self.assertEqual(code, 0, out)
-        self.assertIn('Install SUCCEEDED', out)
+        self.assertIn('MODEL SETUP REQUIRED', out)
+        self.assertNotIn('Install SUCCEEDED', out)
         installed_ini = (game / 'OptiScaler.ini').read_text(encoding='utf-8-sig')
         # Check the installed artifact: the packager replaces the source DlssNr section.
         # A source-template-only addition used to disappear from the shipped ini.
@@ -163,7 +164,9 @@ class ModulePackageTests(unittest.TestCase):
             'MochizukiTemporal': 'true', 'MochizukiPreprocess': 'false',
             'MochizukiDynamicResolution': '1', 'MochizukiPass2Override': 'false',
             'DLSS5_STYLE': '1', 'DLSS5_NETWORK_1080_ROWS': '1152',
-            'DLSS5_FORMAT_FALLBACK': 'true', 'DLSS5_NETWORK_HEIGHT': 'auto',
+            'DLSS5_NETWORK_FREE_RES': 'true', 'DLSS5_FAST_NUMERIC': 'true',
+            'DLSS5_MULTI_PASS': '1', 'DLSS5_MULTI_PASS_SKIP_BLOCKS': 'none',
+            'DLSS5_SKIP_BLOCKS': 'none', 'DLSS5_FORMAT_FALLBACK': 'true', 'DLSS5_NETWORK_HEIGHT': 'auto',
             'DLSS5_HIP_SHARED_POOL': 'true', 'DLSS5_HIP_MH_BYTE_STREAM': 'true',
             'DLSS5_HIP_DECODER_BYTE': 'true',
         }
@@ -184,7 +187,8 @@ class ModulePackageTests(unittest.TestCase):
                                  '-NonInteractive', '-UninstallExisting'])
         self.assertEqual(code, 0, out)
         self.assertIn('Uninstall SUCCEEDED', out)
-        self.assertIn('Install SUCCEEDED', out)
+        self.assertIn('MODEL SETUP REQUIRED', out)
+        self.assertNotIn('Install SUCCEEDED', out)
         self.assertEqual(snapshot_files(game / 'lmxxf-modules'), snapshot_files(self.modules))
 
     def test_mochizuki_only_install_preserves_model_on_uninstall(self):

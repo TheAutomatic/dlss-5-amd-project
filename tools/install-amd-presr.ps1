@@ -1248,7 +1248,7 @@ if ($installLmxxf) {
     Write-Host 'Installing lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
     Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
 
-    Write-Host '  installed verified dual-architecture modules (48 modules).'
+    Write-Host '  installed verified dual-architecture modules (68 modules).'
     if ($lmxxfShaders) {
         $shaderKeep = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         Get-ChildItem -LiteralPath $lmxxfShaders -Recurse -File | ForEach-Object {
