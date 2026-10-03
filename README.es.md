@@ -162,7 +162,7 @@ Las tarjetas RX 6000 (RDNA2) con danielblnc 0.6.0 requieren AMD HIP 7.2 runtime.
 Prepare uno o varios backends:
 
 #### Opción A: [Preparar archivos del backend `lmxxf`](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [haga clic aquí](https://gofile.io/d/RyvcrDxz) para descargar los pesos
-- `LmxxfNrRuntime.dll` (del lanzamiento del proyecto o del [repositorio upstream de lmxxf](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting));
+- `LmxxfNrRuntime.dll` de este paquete completo (no sustituya el runtime ABI1 del upstream);
 - Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 34 módulos `.hsaco` cada uno y un total de 68 módulos; selección automática según GPU D3D12/HIP; el instalador valida el paquete completo y permite actualizar las instalaciones planas anteriores);
 - Carpeta de shaders `shaders\` (con los archivos `.hlsl`);
 - Carpeta de pesos `native-game-tiled-assets\` (se puede descargar [aquí](https://gofile.io/d/RyvcrDxz));
