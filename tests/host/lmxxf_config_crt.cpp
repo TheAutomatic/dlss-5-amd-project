@@ -111,7 +111,7 @@ int main(int argc, char **argv)
         CfgKey::PutEnvString(CfgKey::SkipBlocks, value);
         sync();
         const char *expected = std::strcmp(value, "1,2") == 0 ? "1,2" :
-                               std::strcmp(value, "none") == 0 ? "" : "42,43,46";
+                               ""; // 0.40 auto/invalid fall back to all 71 blocks.
         Require(skips(expected), "Runtime did not use the host skip block selection");
     }
     CfgKey::PutEnvString(CfgKey::SkipBlocks, "auto");
