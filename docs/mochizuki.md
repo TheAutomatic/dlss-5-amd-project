@@ -64,7 +64,7 @@ lmxxf settings. The complete defaults are in the shipped `OptiScaler.ini`.
 | Quality | ModelScale (0.25–1), Passes (1–3). Both affect GPU cost and can rebuild the network; edits commit when editing finishes |
 | Temporal history | Temporal and HistoryStrength. Requires supported, unjittered motion vectors; unavailable vectors disable history |
 | Preprocessing | Preprocess, PreprocessExposure (Off/Auto/Fixed), PreprocessBiasEv, PreprocessCurve (None/Neutral/Reinhard/Filmic/GT/ACES/AgX), PreprocessContrast and PreprocessSaturation. The transform changes the model input and is reversed from its answer |
-| Advanced | WhitePoint for linear input, LinearInput (Auto/Linear/Encoded), MaxPasses (0 follows current passes), DynamicResolution (Exact/Auto bucket/Always bucket) |
+| Advanced | WhitePoint for linear input, LinearInput (Auto/Linear/Encoded), MaxPasses (0 grows capacity as needed and retains it on pass reduction), DynamicResolution (Exact/Auto bucket/Always bucket) |
 | Pass 2/3 | Explicit override plus that pass's style, intensity, tone, structure, skin structure and mask. With override off, inherit pass 1 but use zero LocalTone |
 
 The menu shows status and the performance-display toggle first, followed by Quality,
@@ -73,6 +73,22 @@ Advanced and Diagnostics. Quality and active passes initially expand. Disabling 
 pass hides its controls without deleting its settings. Model resolution displays
 as a percentage; resolution, pass count and prebuild-pass edits commit on release
 or completion of keyboard/text editing, avoiding rebuilds during dragging.
+
+In automatic capacity mode (`MochizukiMaxPasses=0`), changing 2→1→2 runs one or
+two passes of the same network. Lowering the active count keeps the larger allocation;
+it reduces GPU work but does not reclaim that network's extra memory. An explicit
+prebuild count requests exact capacity, at least the active count, and can rebuild
+to a smaller network. Resolution, scale, encoding and preprocessing changes still
+have their own rebuild requirements.
+
+If a capacity expansion is refused by the process VRAM budget or its build fails,
+a compatible existing network and its frame buffers continue running. The status
+reports requested passes, effective passes, capacity and the waiting reason. Budget
+refusals retry at most once per ten seconds; out-of-memory builds retain their
+bounded backoff. Required candidate buffers must be allocated before installation;
+failure discards the candidate. Without a compatible ready network, frames pass
+through without NR. The budget is a Windows process allowance, not a physical VRAM
+free-space reading, and requested passes cannot be guaranteed under memory pressure.
 
 Auto DRS buckets changing input subrects to reduce repeated network builds. The
 network repeats the subrect edge into the unused bucket and resets history when the
@@ -108,6 +124,12 @@ ordering, geometry retention, delayed collection, cancellation, execution-order
 history/reset, RGB9E5/sRGB outputs and changing DRS subrects. Both are wired
 into the corresponding `tests/run-all.cmd` tiers. Local and Actions use the same
 builder and ABI test; a local package is still pending actual game acceptance.
+
+`tests/mochizuki/run.cmd pass-switch normal|budget|oom|frame-budget` runs focused
+GPU output comparisons for capacity reuse, expansion, budget/OOM recovery,
+candidate-buffer refusal, retained recordings and incompatible geometry/format.
+The normal case also compares two/three-pass output with independent fresh sessions.
+The other modes use test-only failure injection; they do not change product defaults.
 
 For a focused 1080p R11G11B10 startup test, use
 `tests/mochizuki/run.cmd startup <asset-root> [output.raw]`. The asset root contains

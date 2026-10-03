@@ -187,6 +187,9 @@ struct TestHooks
     bool buildOomOnce = false;   // MZ_TEST_BUILD_OOM_ONCE=1: the process's first network build runs out of memory
     uint64_t vramBudgetMb = 0;   // MZ_TEST_VRAM_BUDGET_MB=N: the VRAM check sees a budget of N MB
     uint64_t networkMb = 0;      // MZ_TEST_NETWORK_MB=N: the VRAM check estimates every network at N MB
+    uint64_t upgradeRefusals = 0; // MZ_TEST_UPGRADE_REFUSALS=N: reject N capacity expansion attempts
+    bool upgradeOomOnce = false; // MZ_TEST_UPGRADE_OOM_ONCE=1: fail the first multi-pass build
+    bool frameBudgetOnce = false; // MZ_TEST_FRAME_BUDGET_ONCE=1: refuse the first candidate's frame buffers
     uint64_t dropSubmitAt = 0;   // MZ_TEST_DROP_SUBMIT_AT=N: Enqueue N skips its Vulkan submit, the game still waits
 };
 
@@ -213,6 +216,9 @@ const TestHooks& Hooks()
         h.buildOomOnce = on("MZ_TEST_BUILD_OOM_ONCE");
         h.vramBudgetMb = number("MZ_TEST_VRAM_BUDGET_MB");
         h.networkMb = number("MZ_TEST_NETWORK_MB");
+        h.upgradeRefusals = number("MZ_TEST_UPGRADE_REFUSALS");
+        h.upgradeOomOnce = on("MZ_TEST_UPGRADE_OOM_ONCE");
+        h.frameBudgetOnce = on("MZ_TEST_FRAME_BUDGET_ONCE");
         h.dropSubmitAt = number("MZ_TEST_DROP_SUBMIT_AT");
         return h;
     }();
@@ -1294,6 +1300,11 @@ struct NetworkKey
     bool linear = false;
     bool prep = false; // RuntimeConfig::preprocess
     bool operator==(const NetworkKey&) const = default;
+    bool SameModel(const NetworkKey& other) const
+    {
+        return width == other.width && height == other.height && format == other.format &&
+               scale == other.scale && linear == other.linear && prep == other.prep;
+    }
 };
 
 // Super Resolution reads this texture after CopyTextureRegion fills it. It does
@@ -1598,6 +1609,11 @@ struct Session
     UINT64 measuredBytes = 0;
     UINT64 buildBaseUsage = 0; // this process's VRAM use when the running build was admitted; 0 when unknown
     UINT64 buildGrowth = 0;    // what the finished build's network added to it; 0 when unknown
+    uint64_t upgradeRefusals = 0;
+    std::atomic<bool> upgradeOomInjected { false }, frameBudgetInjected { false };
+    std::atomic<uint32_t> infoRequestedPasses { 1 };
+    // Host lifecycle calls serialize updates; GetStatus also reads under errorMutex.
+    char networkDeferred[192] {};
 
     // runtime->last_gpu_ms() of the last kGpuSamples frames, for GetStatus. Pushed under submitMutex as well.
     std::mutex statsMutex;
@@ -2572,11 +2588,16 @@ struct Session
                      RootUtf8(DataDirectory()).c_str());
     }
 
-    // A build ended without a network. Its key is not built again, except after running out of memory (kOomRetryMs).
-    // The network the frames kept during the build goes (on the releaser thread), and the frame's buffers with it: a
-    // retry then has the VRAM to itself, and meanwhile no frame runs, as when nothing was kept. A build that lost the
-    // device fails the session like any other lost device.
-    void BuildFailed()
+    // Explain temporary use of the existing capacity through the current status ABI.
+    void SetNetworkDeferred(const char* reason)
+    {
+        std::lock_guard lock(errorMutex);
+        std::snprintf(networkDeferred, sizeof networkDeferred, "%s", reason);
+    }
+
+    // Failed capacity expansion preserves a compatible network and its buffers.
+    // Incompatible replacements retain the ordinary passthrough/retry behavior.
+    void BuildFailed(bool preserveCurrent)
     {
         if (buildErrorKind == NrError::DeviceLost)
             throw NrError(NrError::DeviceLost, buildError);
@@ -2589,7 +2610,7 @@ struct Session
             nr::logf("[mochizuki] the network at %ux%u is not built again until the frame's extent, format or settings "
                      "change",
                      buildKey.width, buildKey.height);
-        if (runtime)
+        if (runtime && !preserveCurrent)
         {
             std::shared_ptr<nr::Runtime> old;
             UINT64 finished = 0;
@@ -2599,7 +2620,7 @@ struct Session
             }
             ReleaseLater(std::move(old), finished);
         }
-        RetireGeometry();
+        if (!preserveCurrent) RetireGeometry();
     }
 
     // The frames' network, taken from them: no frame records with it after, and `finished` gets the finished value of
@@ -2646,6 +2667,7 @@ struct Session
         if (old)
             ReleaseLater(std::move(old), oldFinished);
         buildHold = {};
+        SetNetworkDeferred("");
         {
             std::lock_guard stats(statsMutex);
             gpuMsCount = gpuMsNext = 0;
@@ -2676,7 +2698,7 @@ struct Session
     // is running, the last one for this key failed (buildHold) or the VRAM check refuses it; `why` then says why there
     // is none. g is the frame's geometry, `colour` its colour: buffers made for another one are retired before a build,
     // and the build makes the new ones beside the network.
-    bool EnsureNetwork(const NetworkKey& key, const Geometry& g, ID3D12Resource* colour, std::string& why)
+    bool EnsureNetwork(const NetworkKey& key, const Geometry& g, ID3D12Resource* colour, std::string& why, bool automaticCapacity)
     {
         static const char* const kBuilding = "building the network (the first time takes about half a minute)";
         bool finished = false;
@@ -2698,15 +2720,23 @@ struct Session
             }
         }
         if (finished && !built)
-            BuildFailed();
+            BuildFailed(runtime && net.SameModel(key) && geometry == g);
         if (built)
             Install();
-        if (runtime && net == key)
+        // A lower execution count needs no smaller network. Explicit capacity
+        // edits still request an exact rebuild; automatic mode retains capacity.
+        if (runtime && net.SameModel(key) &&
+            (net.maxPasses == key.maxPasses || (automaticCapacity && net.maxPasses >= key.maxPasses)))
+        {
+            SetNetworkDeferred("");
             return true;
+        }
+        const bool preserveCurrent = runtime && net.SameModel(key) && geometry == g;
         if (buildHold.Holds(key, GetTickCount64()))
         {
             why = buildHold.message;
-            return false;
+            if (preserveCurrent) SetNetworkDeferred(why.c_str());
+            return preserveCurrent;
         }
         // With a queue of their own for the builds, the frames keep a network for their extent and format meanwhile.
         const bool serve = Serves(key) && vk.buildQueue != vk.queue;
@@ -2716,7 +2746,13 @@ struct Session
         // The network, and the frame's buffers unless they are made already, beside what the frames still hold.
         bool admitted = VramAdmits(NetworkBytes(key) + (geometry == g ? 0 : FrameBytes(g)) + kVramMarginBytes,
                                    key.width, key.height, "the network", why, &buildBaseUsage);
-        if (!admitted && (runtime || !buried.empty() || Releasing()))
+        if (preserveCurrent && key.maxPasses > net.maxPasses && upgradeRefusals < hooks.upgradeRefusals)
+        {
+            ++upgradeRefusals;
+            admitted = false;
+            why = "insufficient VRAM for capacity expansion (test hook)";
+        }
+        if (!admitted && !preserveCurrent && (runtime || !buried.empty() || Releasing()))
         {
             // Not beside them: what the frames held goes first, after a drain of both sides, and the networks retired
             // before with it (the drain lets the releaser free them), then the check again.
@@ -2737,9 +2773,10 @@ struct Session
         {
             buildHold.Refused(key, why.c_str());
             NoteError(why.c_str());
-            return false;
+            if (preserveCurrent) SetNetworkDeferred(why.c_str());
+            return preserveCurrent;
         }
-        const bool keep = serve && runtime;
+        const bool keep = (serve || preserveCurrent) && runtime;
         // The first ready frame's buffers, when the frame has none, are made beside the network (the frames that keep
         // the old one make their own at once).
         std::unique_ptr<FrameBuffers> buffers;
@@ -2761,6 +2798,7 @@ struct Session
         buildKey = key;
         StartBuild(std::move(old), oldFinished, std::move(buffers), keep);
         why = kBuilding;
+        if (preserveCurrent) SetNetworkDeferred(kBuilding);
         return keep;
     }
 
@@ -2884,6 +2922,8 @@ struct Session
             std::unique_lock lock(submitMutex, std::defer_lock);
             if (host.queue == vk.queue)
                 lock.lock();
+            if (hooks.upgradeOomOnce && config.max_passes > 1 && !upgradeOomInjected.exchange(true))
+                throw std::runtime_error("vkAllocateMemory (MZ_TEST_UPGRADE_OOM_ONCE test hook): VkResult=-2");
             if (hooks.buildOomOnce && !g_buildOomInjected.exchange(true))
                 throw std::runtime_error("vkAllocateMemory (MZ_TEST_BUILD_OOM_ONCE test hook): VkResult=-2");
             // The pipelines an earlier build recorded are compiled on several threads first, into the pipeline.cache
@@ -2929,26 +2969,36 @@ struct Session
             ReportProgress(this, "Preparing shared frame buffers", 0, 0);
             try
             {
-                // The VRAM check the frame makes for them (MakeGeometry), now that the network holds its share. When
-                // it refuses, the frame's own check does too, and the network goes (ReleaseNetwork).
+                // Admit the required buffers after the candidate holds its own share.
+                // A refusal discards this uninstalled candidate, not the active network.
                 const Geometry& g = buffers->geometry;
                 std::string why;
-                if (VramAdmits(FrameBytes(g) + kVramMarginBytes, g.width, g.height, "the frame's buffers", why))
-                    MakeBuffers(*buffers, g, buffers->resultDesc);
-                else
-                    buffers.reset();
+                const bool admitted = VramAdmits(FrameBytes(g) + kVramMarginBytes, g.width, g.height,
+                                                 "the frame's buffers", why);
+                const bool injected = hooks.frameBudgetOnce && !frameBudgetInjected.exchange(true);
+                if (!admitted || injected)
+                    throw NrError(NrError::OutOfMemory, injected ? "frame buffer budget refused (test hook)" : why);
+                MakeBuffers(*buffers, g, buffers->resultDesc);
             }
             catch (const std::exception& e)
             {
                 buffers->Release(vk.device);
                 buffers.reset();
-                nr::logf("[mochizuki] the frame's buffers were not made beside the network (%s); the frame makes them",
-                         e.what());
+                // A network without its required buffers is not installable.
+                // It has never served a recording, so no frame owns it yet.
+                made.reset();
+                kind = KindOf(e);
+                std::snprintf(error, sizeof error, "candidate frame buffers failed at %ux%u: %s",
+                              config.width, config.height, e.what());
+                nr::logf("[mochizuki] %s", error);
             }
             catch (...)
             {
                 buffers->Release(vk.device);
                 buffers.reset();
+                made.reset();
+                kind = NrError::Other;
+                std::snprintf(error, sizeof error, "candidate frame buffers failed at %ux%u", config.width, config.height);
             }
         }
         else if (buffers)
@@ -3792,8 +3842,8 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
                 maxPassesSetting = s->controls.maxPasses;
                 drsMode = s->controls.drsMode;
             }
-            // By default the network is built for exactly the frame's passes, so one pass costs nothing extra; a
-            // larger max_passes lets the pass count change without a rebuild.
+            // Automatic capacity grows as needed and is retained when fewer passes run.
+            // An explicit prebuild count requests that exact capacity, at least the frame's passes.
             const uint32_t maxPasses = maxPassesSetting ? std::clamp(maxPassesSetting, passes, kMaxPasses) : passes;
             const bool linear = linearMode == 0 ? IsLinear(cf.vk) : linearMode == 1;
             // The extent the network and the frame's buffers are built for: the frame's subrect, or with dynamic
@@ -3811,7 +3861,8 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             s->prepWanted = s->prepWanted || model.preprocess.active();
             const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted };
             std::string why;
-            if (!s->EnsureNetwork(key, g, colour, why))
+            s->infoRequestedPasses = passes;
+            if (!s->EnsureNetwork(key, g, colour, why, maxPassesSetting == 0))
                 return Fail(LMXXF_NR_UNAVAILABLE, why.c_str());
             if (!(s->geometry == g))
             {
@@ -4105,8 +4156,14 @@ int32_t GetStatus(void* context, char* buf, uint32_t chars)
         const uint32_t vw = s->infoValidWidth, vh = s->infoValidHeight;
         if (vw && (vw != s->net.width || vh != s->net.height))
             std::snprintf(frame, sizeof frame, " (dynamic resolution, frame %ux%u)", vw, vh);
-        std::snprintf(text, sizeof text, "mochizuki %ux%u%s%s, network %.2f ms (p95 %.2f), %llu frames", s->net.width,
-                      s->net.height, model, frame, median, p95, static_cast<unsigned long long>(s->frames.load()));
+        char deferred[192] {};
+        { std::lock_guard lock(s->errorMutex); std::memcpy(deferred, s->networkDeferred, sizeof deferred); }
+        if (deferred[0])
+            std::snprintf(text, sizeof text, "mochizuki %ux%u: requested %u passes, using %u (capacity %u); %s",
+                          s->net.width, s->net.height, s->infoRequestedPasses.load(), passes, s->net.maxPasses, deferred);
+        else
+            std::snprintf(text, sizeof text, "mochizuki %ux%u%s%s, network %.2f ms (p95 %.2f), %llu frames", s->net.width,
+                          s->net.height, model, frame, median, p95, static_cast<unsigned long long>(s->frames.load()));
     }
     else
     {

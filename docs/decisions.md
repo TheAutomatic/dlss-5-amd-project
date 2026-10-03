@@ -1,3 +1,26 @@
+## 2026-10-03 — Retain mochizuki capacity when reducing active passes
+
+Separate the requested execution count from compiled network capacity. In automatic
+capacity mode, reuse a network with sufficient capacity only when extent, colour
+format, model scale, linear encoding and preprocessing capability match. A 2→1→2
+cycle runs fewer/more passes without rebuilding. An explicit prebuild setting can
+still request a smaller network; active passes remain bounded by available capacity.
+
+Preserve a compatible active network and its existing frame geometry when expansion
+is budget-refused, held for retry or fails to build. Do not drain it to make space
+for that expansion. The existing status ABI reports requested/effective counts,
+capacity and the deferred reason. Reject uninstalled candidates whose required
+frame buffers cannot be prepared. Keep the process-budget guard and bounded retry
+policy; do not release resources still owned by replayable or pending recordings.
+
+Focused AMD GPU verification covers output comparisons, automatic reduction/reuse,
+1→2→3 expansion, explicit reduction, budget/OOM recovery, candidate-buffer refusal,
+old recording replay and delayed collection, and incompatible extent/format changes.
+Use independent fresh sessions for two/three-pass output comparisons. This changes
+the mochizuki runtime only; shared effects, host selection and the package ABI are
+unchanged. Game acceptance, especially the separately reported backend hot-switch
+symptom, remains distinct from runtime-level GPU verification.
+
 ## 2026-10-03 — Combine RE repairs with the mochizuki backend
 
 Merge the tested mochizuki branch into the RE repair branch. Preserve caller-state

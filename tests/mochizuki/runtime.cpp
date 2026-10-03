@@ -168,6 +168,118 @@ int wmain(int argc,wchar_t**argv) try {
         }
         return job;
     };
+    if(argc>3 && std::wstring(argv[3])==L"--pass-switch") {
+        const std::wstring mode=argc>4?argv[4]:L"normal";
+        Require(mode==L"normal" || mode==L"budget" || mode==L"oom" || mode==L"frame-budget","unknown pass-switch mode");
+        const bool expansionFailure=mode==L"budget" || mode==L"oom";
+        bool sawFallback=false, sawCandidateFailure=false;
+        uint32_t oneDispatches=0,twoDispatches=0;
+        auto infoNow=[&] {MochizukiNrInfo i {sizeof i};Rc(getInfo(context,&i));return i;};
+        auto snapshot=[&] {
+            void* pixels=nullptr;Hr(frame.readback->Map(0,nullptr,&pixels));
+            std::vector<unsigned char> bytes(frame.width*frame.height*8);
+            for(UINT y=0;y<frame.height;y++)
+                memcpy(bytes.data()+y*frame.width*8,static_cast<char*>(pixels)+y*frame.footprint.Footprint.RowPitch,frame.width*8);
+            frame.readback->Unmap(0,nullptr);return bytes;
+        };
+        auto execute=[&](LmxxfNrJob& j,List& in,List& out) {
+            Rc(api.BeginRecordingExecution(context,j.handle,q[0].Get()));Submit(q[0].Get(),in);
+            Rc(api.EnqueueHip(context,j.handle,q[0].Get()));Submit(q[0].Get(),out);
+            auto hr=q[0]->Signal(tail.Get(),++value);Rc(api.EndRecordingExecution(context,j.handle,q[0].Get(),3,tail.Get(),value,hr));
+            Wait(tail.Get(),value);return snapshot();
+        };
+        auto retire=[&](LmxxfNrJob& j) {Rc(api.InvalidateRecording(context,j.handle));Rc(api.CollectRecording(context,j.handle));};
+        auto record=[&](LmxxfNrJob& j,List& in,List& out) {
+            Rc(api.RecordInputs(context,j.handle,in.cmd.Get()));Rc(api.RecordOutputs(context,j.handle,out.cmd.Get()));
+            frame.Read(out.cmd.Get(),static_cast<ID3D12Resource*>(j.private_output));Hr(in.cmd->Close());Hr(out.cmd->Close());
+        };
+        std::vector<unsigned char> goldenOne,goldenTwo;
+        auto run=[&](uint32_t passes,uint32_t capacity,bool immediate) {
+            const auto deadline=GetTickCount64()+120000;
+            unsigned frames=0;
+            for(;;) {
+                MochizukiNrFrameInfo f {};f.struct_size=sizeof f;f.color=frame.color.Get();f.color_width=frame.width;f.color_height=frame.height;
+                f.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;f.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;
+                f.transfer_strength=f.color_strength=f.model_scale=1;f.passes=passes;
+                LmxxfNrJob j {sizeof j};int rc=prepare(context,&f,&j);auto state=infoNow();
+                if(rc==LMXXF_NR_UNAVAILABLE) {
+                    Require(!immediate && !(expansionFailure && !goldenOne.empty()),"lost executable network during capacity change");
+                    if(mode==L"frame-budget" && strstr(state.last_error,"candidate frame buffers failed")) {
+                        Require(state.max_passes==0,"incomplete candidate was installed");sawCandidateFailure=true;
+                    }
+                } else {
+                    Rc(rc);List in(device.Get()),out(device.Get());record(j,in,out);auto pixels=execute(j,in,out);retire(j);state=infoNow();++frames;
+                    if(state.max_passes==capacity && !state.building) {
+                        frame.Check();
+                        printf("PASS_SWITCH request=%u capacity=%u dispatches=%u wait_frames=%u\n",passes,state.max_passes,state.network_dispatches,frames);
+                        return pixels;
+                    }
+                    Require(!immediate,"automatic pass reduction rebuilt the network");
+                    if(expansionFailure && !goldenOne.empty() && state.max_passes==1) {
+                        Require(pixels==goldenOne,"fallback changed the old network output");
+                        char status[512] {};Rc(api.GetStatus(context,status,sizeof status));
+                        Require(strstr(status,"requested 2 passes, using 1")!=nullptr,"missing requested/effective fallback status");
+                        if((mode==L"budget" && strstr(status,"insufficient VRAM")) ||
+                           (mode==L"oom" && strstr(state.last_error,"MZ_TEST_UPGRADE_OOM_ONCE"))) sawFallback=true;
+                    }
+                }
+                Require(GetTickCount64()<deadline,"pass switch did not recover");Sleep(100);
+            }
+        };
+        goldenOne=run(1,1,false);oneDispatches=infoNow().network_dispatches;
+        goldenTwo=run(2,2,false);twoDispatches=infoNow().network_dispatches;
+        Require(goldenOne!=goldenTwo && twoDispatches>oneDispatches,"two passes made no distinct GPU output");
+        if(expansionFailure)Require(sawFallback,"failure injection was not observed with working old output");
+        if(mode==L"frame-budget")Require(sawCandidateFailure,"candidate buffer failure was not observed");
+        // Keep a replayable two-pass recording while other frames change the count.
+        MochizukiNrFrameInfo f {};f.struct_size=sizeof f;f.color=frame.color.Get();f.color_width=frame.width;f.color_height=frame.height;
+        f.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;f.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;
+        f.transfer_strength=f.color_strength=f.model_scale=1;f.passes=2;
+        LmxxfNrJob old {sizeof old};Rc(prepare(context,&f,&old));List oldIn(device.Get()),oldOut(device.Get());record(old,oldIn,oldOut);
+        for(int cycle=0;cycle<3;cycle++) {
+            Require(run(1,2,true)==goldenOne,"single-pass output changed after capacity reuse");
+            Require(infoNow().network_dispatches==oneDispatches,"single-pass dispatch count changed");
+            Require(run(2,2,true)==goldenTwo,"two-pass output changed after capacity reuse");
+            Require(infoNow().network_dispatches==twoDispatches,"two-pass dispatch count changed");
+        }
+        auto three=run(3,3,false);Require(three!=goldenTwo,"third pass made no distinct GPU output");
+        Require(run(1,3,true)==goldenOne,"single-pass output changed at capacity three");
+        Require(execute(old,oldIn,oldOut)==goldenTwo,"retained old recording no longer replays correctly");
+        ComPtr<ID3D12Fence> gate;Hr(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)));
+        Hr(q[0]->Wait(gate.Get(),1));Rc(api.BeginRecordingExecution(context,old.handle,q[0].Get()));Submit(q[0].Get(),oldIn);
+        Rc(api.EnqueueHip(context,old.handle,q[0].Get()));Submit(q[0].Get(),oldOut);
+        auto pending=q[0]->Signal(tail.Get(),++value);Rc(api.EndRecordingExecution(context,old.handle,q[0].Get(),3,tail.Get(),value,pending));
+        Rc(api.InvalidateRecording(context,old.handle));
+        Require(api.CollectRecording(context,old.handle)==LMXXF_NR_UNAVAILABLE,"pending old recording collected early");
+        Hr(gate->Signal(1));Wait(tail.Get(),value);Rc(api.CollectRecording(context,old.handle));
+        // An explicit smaller prebuild capacity still frees the larger network.
+        controls.max_passes=1;Rc(set(context,&controls));Require(run(1,1,false)==goldenOne,"explicit capacity reduction changed output");
+        // Different extents/formats cannot use the capacity fallback.
+        for(auto format:{DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R9G9B9E5_SHAREDEXP}) {
+            Frame changed(device.Get(),format==DXGI_FORMAT_R16G16B16A16_FLOAT?320:256,256,format);
+            List up(device.Get());changed.Upload(up.cmd.Get());Hr(up.cmd->Close());Submit(q[0].Get(),up);
+            Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+            f.color=changed.color.Get();f.color_width=changed.width;f.color_height=changed.height;f.passes=1;
+            LmxxfNrJob initial {sizeof initial};Require(prepare(context,&f,&initial)==LMXXF_NR_UNAVAILABLE,"incompatible frame reused old network");
+            auto j=make(changed);List in(device.Get()),out(device.Get());
+            Rc(api.RecordInputs(context,j.handle,in.cmd.Get()));Rc(api.RecordOutputs(context,j.handle,out.cmd.Get()));
+            changed.Read(out.cmd.Get(),static_cast<ID3D12Resource*>(j.private_output));Hr(in.cmd->Close());Hr(out.cmd->Close());
+            Rc(api.BeginRecordingExecution(context,j.handle,q[0].Get()));Submit(q[0].Get(),in);
+            Rc(api.EnqueueHip(context,j.handle,q[0].Get()));Submit(q[0].Get(),out);
+            auto hr=q[0]->Signal(tail.Get(),++value);Rc(api.EndRecordingExecution(context,j.handle,q[0].Get(),3,tail.Get(),value,hr));
+            Wait(tail.Get(),value);changed.Check();retire(j);
+        }
+        Rc(api.Destroy(context));
+        if(mode==L"normal") {
+            controls.max_passes=0;
+            Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
+            Require(run(2,2,false)==goldenTwo,"expanded two-pass output differs from independent cold build");Rc(api.Destroy(context));
+            Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
+            Require(run(3,3,false)==three,"expanded three-pass output differs from independent cold build");Rc(api.Destroy(context));
+        }
+        FreeLibrary(dll);
+        puts("MOCHIZUKI_PASS_SWITCH_OK");return 0;
+    }
     auto job=make(frame);List inputs(device.Get()),outputs(device.Get());Rc(api.RecordInputs(context,job.handle,inputs.cmd.Get()));Rc(api.RecordOutputs(context,job.handle,outputs.cmd.Get()));frame.Read(outputs.cmd.Get(),static_cast<ID3D12Resource*>(job.private_output));Hr(inputs.cmd->Close());Hr(outputs.cmd->Close());
     // A second Prepare must not invalidate the first closed recording.
     auto neverSubmitted=make(frame);Rc(api.InvalidateRecording(context,neverSubmitted.handle));Rc(api.CollectRecording(context,neverSubmitted.handle));
