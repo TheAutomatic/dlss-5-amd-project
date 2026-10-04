@@ -4,11 +4,18 @@ static Ptr<ID3D12Resource> Guide(ID3D12Device* d, ID3D12CommandQueue* q, DXGI_FO
 {
     auto desc=Effects::Storage::Description(32,24);desc.Format=format;D3D12_HEAP_PROPERTIES hp {};hp.Type=D3D12_HEAP_TYPE_DEFAULT;
     Ptr<ID3D12Resource> r;Check(d->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(&r)),"guide");
-    Ptr<ID3D12DescriptorHeap> heap;D3D12_DESCRIPTOR_HEAP_DESC hd {D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};Check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"guide heap");
-    D3D12_UNORDERED_ACCESS_VIEW_DESC view {};view.Format=format;view.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;d->CreateUnorderedAccessView(r.Get(),nullptr,&view,heap->GetCPUDescriptorHandleForHeapStart());
-    auto rec=NewRecording(d);auto* raw=heap.Get();rec.proxy->SetDescriptorHeaps(1,&raw);
+    Ptr<ID3D12DescriptorHeap> heapGpu,heapCpu;
+    D3D12_DESCRIPTOR_HEAP_DESC hdGpu {D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
+    D3D12_DESCRIPTOR_HEAP_DESC hdCpu {D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_NONE,0};
+    Check(d->CreateDescriptorHeap(&hdGpu,IID_PPV_ARGS(&heapGpu)),"guide gpu heap");
+    Check(d->CreateDescriptorHeap(&hdCpu,IID_PPV_ARGS(&heapCpu)),"guide cpu heap");
+    D3D12_UNORDERED_ACCESS_VIEW_DESC view {};view.Format=format;view.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
+    d->CreateUnorderedAccessView(r.Get(),nullptr,&view,heapGpu->GetCPUDescriptorHandleForHeapStart());
+    d->CreateUnorderedAccessView(r.Get(),nullptr,&view,heapCpu->GetCPUDescriptorHandleForHeapStart());
+    auto rec=NewRecording(d);auto* raw=heapGpu.Get();rec.proxy->SetDescriptorHeaps(1,&raw);
     Effects::Barrier(rec.proxy.Get(),r.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    const float values[]={value,value,value,value};rec.proxy->ClearUnorderedAccessViewFloat(heap->GetGPUDescriptorHandleForHeapStart(),heap->GetCPUDescriptorHandleForHeapStart(),r.Get(),values,0,nullptr);
+    const float values[]={value,value,value,value};
+    rec.proxy->ClearUnorderedAccessViewFloat(heapGpu->GetGPUDescriptorHandleForHeapStart(),heapCpu->GetCPUDescriptorHandleForHeapStart(),r.Get(),values,0,nullptr);
     Effects::Barrier(rec.proxy.Get(),r.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Check(rec.proxy->Close(),"guide close");Check(rec.proxy->ExecuteOn(q),"guide submit");WaitQueue(d,q);return r;
 }
