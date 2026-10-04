@@ -1468,6 +1468,12 @@ struct ScopedNrStateEnvelope
         D3D12Hooks::SetRootSignatureTracking(false);
         const auto listId = reinterpret_cast<uint64_t>(c);
         auto& d = invocation.state;
+        // Recording safety is independent of graphics-wait admission. The
+        // submission-proxy path disables graphics tracking; it must still be
+        // allowed to run Daniel's compute fallback instead of inheriting false.
+        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
+        d.listType = static_cast<uint32_t>(c->GetType());
+        d.renderPassIdle = !tracker.IsRenderPassUnsafe(listId);
         const bool trackerArmed = D3D12Hooks::IsAmdGraphicsTrackerArmed();
         d.requested = trackerArmed && Config::Instance()->AmdGraphicsWait.value_or_default() != 0;
         if (!trackerArmed)
@@ -1476,12 +1482,9 @@ struct ScopedNrStateEnvelope
             AmdPreSr::GraphicsSnap::g_restoreArmed = false;
             return;
         }
-        auto& tracker = AmdPreSr::GraphicsSnap::GraphicsTracker();
-        d.listType = static_cast<uint32_t>(c->GetType());
         AmdPreSr::GraphicsSnap::GraphicsSnapshot candidate {};
         tracker.CopyState(listId, candidate, d.generation, d.generationKnown);
         d.predDisabled = candidate.predication.IsDisabled();
-        d.renderPassIdle = !tracker.IsRenderPassUnsafe(listId);
         d.psoReady = candidate.psoState == AmdPreSr::GraphicsSnap::BindState::KnownValue;
         d.reason = tracker.AdmitReason(listId);
         AmdPreSr::GraphicsSnap::DescribeAdmissionGates(candidate, d.generationKnown, false, d.gates,
