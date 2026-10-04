@@ -264,6 +264,7 @@ jobs:
             ### 1.10.0 (compared to 1.9.9.1)
 
             - Updated lmxxf to pinned 0.40 source (c81a88bc), adding free resolution, fast numerics and 1/2/3 network passes. Defaults are all 71 blocks, fast numerics on, free resolution on and one pass.
+            - Adopted upstream LLVM23.1.2 / RowOpts GPU module compilation: five LLVM modules per architecture and 29 COMGR modules, with all 68 included. RX9070XT numerical/runtime regressions passed; no fixed game speedup is claimed. Players do not need WSL or a compiler.
             - Added Overall Intensity and Residual Stabilizer for all three AMD backends. Stabilization requires valid motion/depth and is off by default.
             - Added optional asynchronous lmxxf NR GPU, encode/decode and output-effect timings in Ins and the Page Up/Page Down overlay. Measurement and timing logs are off by default; summaries are rate-limited.
             - Added the Mochizuki Vulkan backend for Windows / RDNA4, with separate model controls, compilation progress and model extraction in Setup.

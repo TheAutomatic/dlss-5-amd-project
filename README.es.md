@@ -17,6 +17,8 @@ Consulte las notas de la release 1.10.0 para más detalles.
 
 ### Configuración e instalación de 1.10.0
 
+Los módulos GPU de lmxxf usan la receta mixta LLVM23 / RowOpts de upstream: cinco módulos por arquitectura se compilan con LLVM23.1.2 y los otros 29 con COMGR. El paquete incluye los 68 módulos de ambas arquitecturas; los jugadores no necesitan WSL ni un compilador. Las pruebas de regresión numérica y del runtime pasaron en RX9070XT; el rendimiento en juegos de esta versión queda pendiente de validación, sin prometer una mejora fija.
+
 lmxxf se actualiza a 0.40. Valores predeterminados: 71 bloques (`DLSS5_SKIP_BLOCKS=none`), cálculo aproximado activo (`DLSS5_FAST_NUMERIC=true`), una pasada (`DLSS5_MULTI_PASS=1`) y resolución libre activa (`DLSS5_NETWORK_FREE_RES=true`). La resolución libre sigue la entrada real y vuelve a los niveles de red cuando supera el presupuesto; 1440p/4K pueden aumentar mucho el tiempo GPU y la memoria. Dos o tres pasadas refuerzan el estilo con un coste cercano a N veces y desactivan la reutilización ViT adaptativa. Se recomienda `DLSS5_MULTI_PASS_SKIP_BLOCKS=none`. Los cambios reconstruyen la red en el siguiente fotograma y pueden causar una pausa.
 
 El gráfico Ins navega por **Input → Model → Output**: resolución/exposición, estilo/pasadas/ViT y mezcla/estabilización/apariencia. Compatibilidad, núcleos y diagnóstico siguen en grupos avanzados. Save Settings guarda el INI; Reset solo afecta a su página.

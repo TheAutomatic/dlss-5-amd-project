@@ -17,6 +17,8 @@ See the release 1.10.0 notes for details.
 
 ### 1.10.0 configuration and installation
 
+lmxxf GPU modules use the upstream LLVM23 / RowOpts mixed compiler recipe: five modules per architecture use LLVM23.1.2 and the other 29 use COMGR. All 68 modules for both architectures are included; players do not need WSL or a compiler. Numerical and runtime regression checks passed on RX9070XT; game performance for this version still awaits acceptance, with no promised fixed speedup.
+
 lmxxf now uses 0.40. Defaults: all 71 blocks (`DLSS5_SKIP_BLOCKS=none`), fast numerics on (`DLSS5_FAST_NUMERIC=true`), one pass (`DLSS5_MULTI_PASS=1`), and free resolution on (`DLSS5_NETWORK_FREE_RES=true`). Free resolution follows the actual input and falls back to network tiers outside its processing budget; 1440p/4K inputs can substantially increase GPU time and memory. Two or three passes strengthen the style at roughly N times the network work and disable adaptive ViT reuse. Keep `DLSS5_MULTI_PASS_SKIP_BLOCKS=none` unless deliberately trading appearance for speed. Changes rebuild the network next frame and may briefly stall.
 
 The Ins graph navigates **Input → Model → Output**: resolution/exposure, then style/passes/ViT, then blending/stabilization/appearance. Game input and downstream upscaling provide context. Compatibility, kernels and diagnostics remain separate advanced groups. Save Settings writes the INI; each page Reset affects that page.

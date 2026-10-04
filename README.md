@@ -17,6 +17,8 @@
 
 ### 1.10.0 配置与安装
 
+lmxxf GPU 模块采用上游 LLVM23 / RowOpts 混合编译配方：每架构5个模块由 LLVM23.1.2 编译，其余29个由 COMGR 编译。两个架构共68个模块已随包提供，玩家无需安装 WSL 或编译器。RX9070XT 数值与运行时回归已通过；本版实际游戏性能仍待验收，不承诺固定提速。
+
 lmxxf 更新至 0.40。默认全 71 块（`DLSS5_SKIP_BLOCKS=none`）、快速数值开启（`DLSS5_FAST_NUMERIC=true`）、叠层 1 遍（`DLSS5_MULTI_PASS=1`）、自由分辨率开启（`DLSS5_NETWORK_FREE_RES=true`）。自由分辨率按实际输入计算，超过处理预算时回退网络档位；1440p/4K 输入会显著增加耗时和显存。2/3 遍叠层加强风格，计算量约为对应倍数，并关闭自适应 ViT 复用。`DLSS5_MULTI_PASS_SKIP_BLOCKS=none` 建议保持默认。改变这些选项会在下一帧重建网络，可能短暂卡顿。
 
 Ins 流程图按 **Input → Model → Output** 导航：输入页管理分辨率和曝光；模型页管理风格、叠层和 ViT；输出页管理合成强度、稳定器与外观效果。游戏输入和后续超分作为流程说明。兼容、内核和诊断保留独立高级分组。点击 Save Settings 保存到 INI；每页 Reset 只重置该页。
