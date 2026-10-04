@@ -10,7 +10,7 @@ Consulta [uso, límites y pruebas](docs/post-sr-nr.md) (en chino).
 Esta rama de desarrollo incorpora mochizuki para Windows / RDNA4. Consulte [instalación, modelo, controles y validación](docs/mochizuki.md). No se incluyen DLL de NVIDIA ni pesos del modelo. Falta la validación en juegos.
 
 
-# OptiScaler AMD pre-SR — 1.10.0
+# OptiScaler AMD pre-SR — 1.10.2
 **Agradecimientos especiales**: Gracias a todos los usuarios de Bilibili por sus pruebas y comentarios.
 
 Conecta el **renderizado neuronal de AMD** (DLSS5 on AMD) en **OptiScaler**, permitiendo que juegos **exclusivos de DLSS / XeSS** ejecuten reducción de ruido neuronal (neural denoising) en GPUs AMD; el reescalado sigue a cargo de **FFX/FSR**.
@@ -21,9 +21,14 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 ## Registro de cambios
 
-Consulte las notas de la release 1.10.0 para más detalles.
+### 1.10.2 (respecto a 1.10.1)
 
-### Configuración e instalación de 1.10.0
+- Los tres backends comparten **Processing order**, con la opción experimental **SR → NR**, y conservan sus propias 1–3 pasadas. Los valores predeterminados siguen siendo **NR → SR y una pasada**. Procesar después de SR utiliza la resolución de salida y puede aumentar el tiempo de GPU y la VRAM.
+- lmxxf se actualiza a **0.41**: añade predicción de la tercera pasada y protección de tonos de piel, amplía el cálculo rápido a ViT/C512 y conserva las optimizaciones de compilación LLVM23/RowOpts.
+- Con tres pasadas de lmxxf seleccionadas, se ejecutan por defecto **dos pasadas reales y una predicción local**. Desactive **Predict third pass (lossy)** para ejecutar tres pasadas reales. La protección de piel está desactivada por defecto; la resolución libre permanece activada.
+- Se actualizan el diagrama del menú, el estado y los comentarios INI. La actualización mediante sobrescritura del paquete completo conserva el orden y los ajustes de backend guardados.
+
+### Configuración e instalación
 
 La versión actual admite los siguientes backends y características correspondientes:
 

@@ -10,7 +10,7 @@ See [usage, limits and acceptance checks](docs/post-sr-nr.md) (Chinese).
 This development branch adds the mochizuki backend for Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Game acceptance is pending.
 
 
-# OptiScaler AMD pre-SR — 1.10.0
+# OptiScaler AMD pre-SR — 1.10.2
 **Special Thanks**: Thank you to all Bilibili users for your testing and feedback.
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
@@ -21,9 +21,14 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ## Changelog
 
-See the release 1.10.0 notes for details.
+### 1.10.2 (compared to 1.10.1)
 
-### 1.10.0 Configuration and Installation
+- All three backends share **Processing order**, including experimental **SR → NR**, and retain their own 1–3 passes. Defaults remain **NR → SR and one pass**. Post-SR processing uses output resolution and may increase GPU time and VRAM use.
+- Updated lmxxf to **0.41**, adding third-pass prediction and skin protection, extending fast numeric paths to ViT/C512, and retaining LLVM23/RowOpts build optimizations.
+- With three lmxxf passes selected, the default is **two real network passes plus a local prediction**. Disable **Predict third pass (lossy)** for three real passes. Skin protection defaults to off; native free resolution remains on.
+- Updated the menu diagram, status and INI comments. Full-package overwrite upgrades preserve saved processing order and backend settings.
+
+### Configuration and Installation
 
 The current version supports the following backends and features:
 

@@ -263,9 +263,12 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           body: |
-            ### 1.10.1（相比 1.10.0）
+            ### 1.10.2（相比 1.10.1）
 
-            - 修复 Mochizuki 后端在 AMD 26.9.2+ 新版显卡驱动中无法正常使用（着色器编译失败）的问题，感谢 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 提供的修复方案。
+            - 新增实验性 SR → NR：在 Ins 的 Processing order 切换处理顺序，Daniel、lmxxf、Mochizuki 共用，并保留各自 1～3 层 pass。默认仍为 NR → SR、1 层；SR 后按输出分辨率处理，可能增加 GPU 耗时和显存。
+            - lmxxf 更新到 0.41，新增第三层预测与肤色保护，快速数值路径扩展到 ViT/C512，保留 LLVM23/RowOpts 构建优化。
+            - lmxxf 选 3 层时默认执行两次真实网络加局部预测；关闭 Predict third pass (lossy) 后执行三次真实网络。肤色保护默认关闭，自由分辨率默认开启。
+            - 更新菜单流程图、状态与 INI 备注，整包覆盖升级保留用户已保存的处理顺序和后端设置。SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
 
             **Daniel 后端**
 
@@ -288,9 +291,12 @@ jobs:
 
             ---
 
-            ### 1.10.1 (compared to 1.10.0)
+            ### 1.10.2 (compared to 1.10.1)
 
-            - Fixed an issue where the Mochizuki backend failed to run (shader compilation error) on AMD driver 26.9.2 and newer. Special thanks to [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) for providing the fix.
+            - Added experimental SR → NR through Processing order in Ins for Daniel, lmxxf and Mochizuki, retaining each backend's 1–3 passes. Defaults remain NR → SR and one pass. Post-SR processing uses output resolution and may increase GPU time and VRAM use.
+            - Updated lmxxf to 0.41 with third-pass prediction, skin protection and fast numeric ViT/C512 paths, retaining LLVM23/RowOpts build optimizations.
+            - With three lmxxf passes selected, the default is two real network passes plus a local prediction. Disable Predict third pass (lossy) for three real passes. Skin protection defaults to off; native free resolution remains on.
+            - Updated menu diagrams, status and INI comments; full-package overwrite upgrades preserve saved processing order and backend settings. SR → NR covers DX12 and the DX11/Vulkan-to-DX12 bridges, not native RR/Vulkan. Unsupported texture layouts preserve the SR image and report the reason.
 
             **Daniel backend**
 

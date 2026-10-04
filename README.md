@@ -7,7 +7,7 @@ Daniel、lmxxf、Mochizuki 共用，默认仍为 NR → SR。SR 后按输出分�
 第三后端 mochizuki（Windows / RDNA4）已接入此开发分支，安装、模型来源、独立菜单和验证范围见 [mochizuki 说明](docs/mochizuki.md)。不附带 NVIDIA DLL 或模型；游戏表现待本地验收。
 
 
-# OptiScaler AMD pre-SR — 1.10.0
+# OptiScaler AMD pre-SR — 1.10.2
 **特别感谢**：各位 Bilibili 用户的测试与反馈意见。
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
@@ -18,9 +18,14 @@ Daniel、lmxxf、Mochizuki 共用，默认仍为 NR → SR。SR 后按输出分�
 
 ## 更新日志
 
-详情请看 release 1.10.0 更新日志。
+### 1.10.2（相比 1.10.1）
 
-### 1.10.0 配置与安装
+- 三后端共用 **Processing order**，可选实验性 **SR → NR**，并保留各自 1～3 层 pass。默认仍为 **NR → SR、1 层**；SR 后按输出分辨率处理，显存和耗时可能增加。
+- lmxxf 升级到 **0.41**：新增第三层预测和肤色保护，快速数值路径扩展到 ViT/C512；保留 LLVM23/RowOpts 构建优化。
+- lmxxf 选 3 层时默认执行 **两次真实网络＋局部预测**；关闭 **Predict third pass (lossy)** 才执行三次真实网络。肤色保护默认关闭，自由分辨率默认开启。
+- 菜单流程图、状态及 INI 备注同步更新；整包覆盖升级保留用户保存的处理顺序与后端设置。
+
+### 配置与安装
 
 当前版本已支持以下后端及对应功能：
 
