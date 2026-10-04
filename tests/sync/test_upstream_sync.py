@@ -702,7 +702,8 @@ class ModuleTests(Fixture):
         recipe = path.read_text()
         if conflicting:
             recipe = recipe.replace('defines = @()', "defines = @('HIP_FFN_LINE_STORES 0')")
-        write(path, 'param($OutputDir, $Compiler, $SourceDir, $Targets)\n' + recipe + '''
+        # The fixture already carries the real upstream parameter block.
+        write(path, recipe + '''
 foreach ($module in $modules) {
     [IO.File]::WriteAllText((Join-Path $OutputDir ($module.name + '.hsaco')), ($module.defines -join '|'))
     Write-Output 'fixture hash output'

@@ -2,7 +2,7 @@
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
 - Commit: `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3` (synced 2026-10-05)
-- **0.41**: 38 modules per architecture (76 total), five LLVM23.1.2 rows plus33 COMGR rows each, original RowOpts and two maintained LINE_STORES overrides. Predict-third-pass and skin protection have product INI/menu controls; default1 pass, prediction on, skin off, free resolution on. Product ABI2, recording/timing and SR placement are retained. Decisions and actual validation: [0.41 consumer review](../../docs/lmxxf-041-consumer-review.md). Source integration is not game/release acceptance.
+- **0.41**: 38 modules per architecture (76 total), five LLVM23.1.2 rows plus 33 COMGR rows each, original RowOpts and two maintained LINE_STORES overrides. Predict-third-pass and skin protection have product INI/menu controls; default 1 pass, prediction on, skin off, free resolution on. Product ABI2, recording/timing and SR placement are retained. Decisions and actual validation: [0.41 consumer review](../../docs/lmxxf-041-consumer-review.md). Source integration is not game/release acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 

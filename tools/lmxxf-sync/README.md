@@ -39,7 +39,7 @@
 
 ## 补丁维护
 
-`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑；补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询、分配失败清理，以及 adaptive ViT 历史重置的缓冲复用/流内异步清零；同尺寸重置不再重新 Upload 状态并释放旧缓冲，避免在外部 producer wait 之后同步排空 HIP。GPU bridge 回归覆盖 idle、seed、mode 和关闭/重开复用，普通张量池增长另行报告。
+`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。恢复/清零逻辑自历史 pin `54e14de503431cd4536f8a7151b022af232178a9` 起已包含；当前 0.41 基线为 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`。补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询、分配失败清理，以及 adaptive ViT 历史重置的缓冲复用/流内异步清零；同尺寸重置不再重新 Upload 状态并释放旧缓冲，避免在外部 producer wait 之后同步排空 HIP。GPU bridge 回归覆盖 idle、seed、mode 和关闭/重开复用，普通张量池增长另行报告。
 
 测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入与 pinned bridge 均来自 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`（0.41 快照，完成 pin 以 UPSTREAM.md 为准）；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 

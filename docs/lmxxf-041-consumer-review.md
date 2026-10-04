@@ -142,10 +142,15 @@ RE9 runtime把文件强度优先于host的改变不采纳。保留host标志优�
 - `lmxxf_recording_runtime_gpu` 冷启动3层+预测+肤色通过，覆盖录制、保留/重放、队列和完成凭证，
   baseline=49cc30048d3410ca，8个有效网络时间样本；未出现producer等待中的首次同步分配停顿。
 
-0.41候选完整`tests/lmxxf/run.cmd gpu`通过：格式/曝光、有效subrect、任意分辨率、
+最终审查修复FAST0的RTZ选择退步后，未重建未变的76模块，重新编译MSVC Runtime。
+最终DLL完整`tests/lmxxf/run.cmd gpu`通过：格式/曝光、有效subrect、任意分辨率、
 新旧控制、recording/adaptive/clear、2层及冷3层预测+肤色全部通过。
-最终审查发现并修复FAST0的RTZ选择退步后，未重建未变的76模块，重新编译MSVC Runtime，
 EXACT=`fe40c904da05472e`、AE和AE×16=`79233836b6257864`、R10=`8ba14ef2db0dddfe`
-四项黄金输出再次通过。FAST1分支未变，沿用候选的控制/布局/录制验证。
-旧候选的完整CI中止，不沿用其凭证；最终DLL重新跑完整CI与device检查。
+四项黄金输出通过。Runtime SHA256为
+`1eec34fc2345c4e0983d9bc3cac7660a35db98288738c4350b2f15c0bc026270`。
+旧候选的完整CI中止，不沿用其凭证。最终DLL的`tests/run-all.cmd --tier ci,device`
+全部通过，自动生成的runtime-ci凭证与上面的GPU测试DLL哈希一致；宿主Release构建通过。
+完整CI暴露同步测试夹具重复参数头，修正为使用已有的真实上游参数头后，26项模块专项及
+最终完整CI通过（同步工具68项全跑，未用缓存跳过本次修改）。未为此重编Runtime或模块。
+最终包沿用这份DLL与凭证，README、菜单/INI备注和Actions的38/76模块契约同步核对。
 游戏观感/性能、双HIP设备和gfx1200实卡未测。
