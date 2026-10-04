@@ -131,13 +131,18 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 - `d788963` 之后，PR #9（零输出回退）已并入上游。我们随之把 `native_rgb_reflect.h` 和 `native_input_geometry.h` 改回跟上游，只剩 `hip_d3d12_bridge.h` 还 pin 着。
 - 当前源码 pin 和同步状态分别读取 [UPSTREAM.md](../../third_party/lmxxf/UPSTREAM.md) 与 [sync-state.json](../../third_party/lmxxf/sync-state.json)，本页不维护第二份提交号。2026-09-28 文档核对时，状态为 `reviewed`，但记录了 `SkipBuild` 和 `AllowStaleModules`；这些是该次同步的验证例外，不能据此宣称完成构建或 GPU 验证。
 
-### 输入轮询与 IO 融合：暂缓接入
+<a id="输入轮询与-io-融合暂缓接入"></a>
+
+### 输入轮询与 IO 融合：已决定不接入
 
 输入直写已独立接入：RGB pass 写入 HIP 共享 UAV，省去中间拷贝，并关闭无消费者的 tile 副本。无需添加 `DLSS5_DIRECT_IO`；该上游 bitmask 不控制本产品。FP16 解码输出原本就直接交给后续处理，其他格式必要的 buffer→texture 转换保留。验证边界见 [消费者审阅](../lmxxf-039-consumer-review.md#输入直写本地增量)。
 
-这两项均为上游默认关闭的实验路径，目前没有产品菜单或 ini 绑定。
+2026-10-04 用户确认停止推进，审阅状态为 `excluded`。这两项均为上游默认关闭的
+实验路径，目前没有产品菜单或 ini 绑定；不再作为优化待办重复推荐。
 
 - `DLSS5_HIP_INPUT_POLL`：上游 `Development/results/handoff-gpu-20260930` 中，输入交接微测约省 0.05 ms，但整帧两档测试反而慢约 0.01–0.04 ms。产品固定的桥接版本承担录制、重放、取消及异步计时契约，不能只打开宏；需移植标记提交、等待、超时回退和资源退役，验证丢弃录制、跨队列重放与长时间运行。收益不足以支持现在改动同步路径。
 - `DLSS5_IO_FUSE`：上游普通 NativeGameFrame 路径让解码直接读取网络缓冲，省去中间输出步骤；本产品不走该入口。`Development/results/input-slim-20261001` 的收益约 0.004–0.035 ms；`bitexact-pm-20261001` 的组合复测中 900p p99 从 7.508/7.520 ms 升至 7.565/7.578 ms。需先设计输出缓冲的录制所有权、重放和重建退役，再做逐位与产品端平均值/p99 对照，才考虑启用。
 
-以上数字是上游实验结果，不是本产品实测。重新评估条件：上游提供稳定端到端收益，或本产品分析确认相关交接/拷贝是瓶颈。完整同步审阅仍以 pending 状态和逐项审阅记录为准。
+以上数字是上游实验结果，不是本产品实测。C512_PROJ_FB8也已确认不接入：同宿主复测
+逐位通过，但没有稳定整网收益。三项的当前决定及重新评估条件统一见
+[决策记录](../decisions.md#2026-10-04--lmxxf-输入轮询io-融合与-c512-fb8-已决定不接入)。

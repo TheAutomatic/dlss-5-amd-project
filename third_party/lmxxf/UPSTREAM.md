@@ -2,7 +2,7 @@
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
 - Commit: `c81a88bc8534f7193df08ec3cae21d06d10d285d` (synced 2026-10-04)
-- **0.40**: dual-arch modules (34/34) rebuilt with the original RowOpts recipe: five LLVM23.1.2 rows per architecture, remaining rows COMGR, and the two maintained LINE_STORES overrides. Actual C64 barrier defines, compiler commands and source/object hashes are recorded in modules.json. Feature decisions, validation and 23 remaining deferrals are in [the 0.40 consumer review](../../docs/lmxxf-040-consumer-review.md). Product ABI, recording/timing contracts and the pinned bridge remain. This source/module review is not release or game acceptance.
+- **0.40**: dual-arch modules (34/34) rebuilt with the original RowOpts recipe: five LLVM23.1.2 rows per architecture, remaining rows COMGR, and the two maintained LINE_STORES overrides. Actual C64 barrier defines, compiler commands and source/object hashes are recorded in modules.json. Feature decisions, validation and 20 remaining deferrals are in [the 0.40 consumer review](../../docs/lmxxf-040-consumer-review.md). Product ABI, recording/timing contracts and the pinned bridge remain. This source/module review is not release or game acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 

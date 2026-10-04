@@ -3,9 +3,9 @@
   "from_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
   "to_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
   "snapshot": "6b062d16f93b32c758a439c56f1bea170666b04bc7dc4fbed7e38c3c02b26886",
-  "reviewer": "Codex; LLVM23/RowOpts local integration review, 2026-10-04",
-  "summary": "0.40 functional integration with Config-owned defaults, free geometry, fast numerics and multi-pass; preserve ABI2/recording/timing. COMGR shipping modules; LLVM23 and RowOpts explicitly deferred after actual compiler availability/compile checks. Local compiler increment: original upstream LLVM23.1.2 rows and COMGR RowOpts enabled for both architectures; actual C64 barrier/source provenance enforced. No configuration, ABI or bridge behavior change. Nine compiler/barrier deferrals closed; remaining23 unchanged. COMGR-only statements in carried records refer to the initial0.40 validation; current compiler decisions and consumer review describe this increment. No local game speedup claim.",
-  "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed. ELF .text comparison against prior COMGR package:56 instruction sections unchanged, only the10 LLVM and2 deep/max-ilp sections changed; final MSVC runtime040-controls also passed with identical baseline hashes.",
+  "reviewer": "Codex; LLVM23/RowOpts local integration review, 2026-10-04; user-confirmed closure of3 prior optimization candidates,2026-10-04",
+  "summary": "Current0.40 integration: Config-owned defaults, free geometry, fast numerics and multi-pass; preserve product ABI2/recording/timing. Original upstream LLVM23.1.2 rows and COMGR RowOpts enabled for both architectures with actual C64 fence/source provenance.20 deferrals remain. User-confirmed2026-10-04: INPUT_POLL, IO_FUSE and C512_PROJ_FB8 are excluded, decided not to integrate, and are not optimization TODOs. Reuse these decisions unless new matching end-to-end or product-bottleneck evidence warrants reopening under new user direction; version/toolchain availability alone is insufficient. Historical carried validation remains source evidence, not a current claim of all-COMGR compilation. No local game speedup claim.",
+  "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed. ELF .text comparison against prior COMGR package:56 instruction sections unchanged, only the10 LLVM and2 deep/max-ilp sections changed; final MSVC runtime040-controls also passed with identical baseline hashes. Decision-only update: prior local decisions and corrected pinned upstream B8 reports reviewed; runtime/modules and their existing CI/GPU proof are unchanged.",
   "decisions": [
     {
       "id": "integration",
@@ -4131,11 +4131,11 @@
       "id": "flag:DLSS5_HIP_INPUT_POLL",
       "fingerprint": "3676cbb5b6b7b40df161b0731cc291d779871517ca57655e7a74423d312faffe",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Upstream marker/poll handoff remains off. The pinned product bridge has recording leases and recovery contracts that this upstream experiment does not implement.",
-      "evidence": "Upstream 82ce821f: Development/HIP/hip_d3d12_bridge.h; docs/backends/lmxxf.md; docs/decisions.md; Exact upstream consumer paths: Development/HIP/hip_d3d12_bridge.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Implement optional marker ownership in the pinned bridge with recording/replay/abandonment, timeout and ticket-wrap recovery; compare fence vs polling on identical runtime/modules in 900/1080 game ABBA, output hashes and p99 before adding Config/env/menu and considering a default change."
+      "decision": "excluded",
+      "reason": "Decided not to integrate, user confirmed2026-10-04. Prior study found a small handoff microbenchmark gain but slower full-frame results; adapting marker ownership to product recording/replay/cancellation/timeouts is not justified by this evidence.",
+      "evidence": "Fixed0.40 pin c81a88bc8534f7193df08ec3cae21d06d10d285d: Development/results/handoff-gpu-20260930/; Development/HIP/hip_d3d12_bridge.h; docs/decisions.md — 2026-10-04 lmxxf 输入轮询、IO 融合与 C512 FB8 已决定不接入. Reopen only with new matching end-to-end/bottleneck evidence and new user direction; version/toolchain availability alone is not evidence.",
+      "validation": "Decision-only closure: checked the prior product decision and pinned upstream experiment reports; no runtime/module/config changes or new performance measurements.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_MEMORY",
@@ -4671,11 +4671,11 @@
       "id": "flag:DLSS5_IO_FUSE",
       "fingerprint": "2d1b622d9e64f5e14e3bb0cd208e7161c303d0e779597334ae4ac8da1390623b",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "The upstream NativeGameFrame consumer skips neural conversion only with matching neural-buffer decode shader. Product runtime does not call UseNeuralBuffer; default off and upstream p99 result is inconclusive.",
-      "evidence": "Upstream 82ce821f: src/native_game_frame.h; src/native_game_codec.h: UseNeuralBuffer; shaders/native_codec_decode.hlsl; docs/decisions.md; Exact upstream consumer paths: src/native_game_codec.h, src/native_game_frame.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Add product-owned opt-in Config/env/menu, bind neural buffer SRV and exact lifetime leases in runtime codec path, require matching shader contract; verify EXACT/AE/history/replay hashes and game avg/p99 at both tiers before enabling."
+      "decision": "excluded",
+      "reason": "Decided not to integrate, user confirmed2026-10-04. Previously reviewed tiny upstream gains and worse900p tail latency in combined retests do not justify adapting neural-buffer decode and product recording lifetimes. Existing direct input/FP16 output work is retained.",
+      "evidence": "Fixed0.40 pin c81a88bc8534f7193df08ec3cae21d06d10d285d: Development/results/input-slim-20261001/; Development/results/bitexact-pm-20261001/; src/native_game_frame.h; src/native_game_codec.h; docs/decisions.md — 2026-10-04 lmxxf 输入轮询、IO 融合与 C512 FB8 已决定不接入. Reopen only with new matching end-to-end/bottleneck evidence and new user direction; version/toolchain availability alone is not evidence.",
+      "validation": "Decision-only closure: checked the prior product decision and pinned upstream experiment reports; no runtime/module/config changes or new performance measurements.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_LAYER_BENCH",
@@ -6641,11 +6641,11 @@
       "id": "kernel:C512_PROJ_FB8",
       "fingerprint": "9daa6129bc6eee995a59135f34f8b0798c7f2712364718d62ea2cc0860e4ebc6",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Default0 in both deep producer and MH reader; dropping f32 residual copy needs both exports and host opt-in. Current exact path preserves f32.",
-      "evidence": "c512-m32-deep (hip/deep_fast.hip): recipe [], source ['0']; c512-m32-mh (hip/multihead_fast_padded.hip): recipe [], source ['0']; c64-wave2 (hip/multihead_fast_padded.hip): recipe [], source ['0']; deep_fast (hip/deep_fast.hip): recipe [], source ['0']; deep_fast-packed (hip/deep_fast.hip): recipe [], source ['0']; multihead-fast-padded-wave (hip/multihead_fast_padded.hip): recipe [], source ['0']; multihead-fast-padded-wave-packed (hip/multihead_fast_padded.hip): recipe [], source ['0']; swin-persistent (hip/multihead_fast_padded.hip): recipe [], source ['0']; vit-stream (hip/deep_fast.hip): recipe [], source ['0']; vit-wide-deep (hip/deep_fast.hip): recipe [], source ['0']; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit only with paired host/module compile gates and matching buffer/weight layout; compare exact and AE output plus repeated full-frame mean/p99 on both architectures before enabling."
+      "decision": "excluded",
+      "reason": "Decided not to integrate, user confirmed2026-10-04. Upstream19-case bit-exact validation passed, but same-host retests and16-byte vector variant showed no stable full-network benefit; author kept module/host macros0 and rejected the candidate. Earlier reported large slowdown was confounded by different hosts and is superseded by the follow-up report.",
+      "evidence": "Fixed0.40 pin c81a88bc8534f7193df08ec3cae21d06d10d285d: Development/results/c512-qkv-pipeline-20261001/README.md section2 (corrected same-host B8 tests); Development/results/mochizuki-gap-20261001/README.md section6; Development/results/night-20261001/README.md section3; hip/deep_fast.hip; hip/multihead_fast_padded.hip; docs/decisions.md — 2026-10-04 lmxxf 输入轮询、IO 融合与 C512 FB8 已决定不接入. Reopen only with new matching end-to-end/bottleneck evidence and new user direction; version/toolchain availability alone is not evidence.",
+      "validation": "Decision-only closure: checked the prior product decision and pinned upstream experiment reports; no runtime/module/config changes or new performance measurements.",
+      "next_step": ""
     },
     {
       "id": "kernel:C512_PROJ_FB8_DIAG_W32",
