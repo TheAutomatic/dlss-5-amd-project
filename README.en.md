@@ -1,5 +1,12 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
+This experimental branch adds **SR → NR** for Daniel, lmxxf and Mochizuki. Select
+**Processing order** in Ins; **NR → SR** remains the default. Post-SR processing uses
+the upscaled resolution and may cost more GPU time and VRAM. Save Settings persists
+`[DlssNr] RunBeforeSR=false`; restart if the status requests recording hooks.
+DX12 and the DX11/Vulkan-to-DX12 bridges are covered; native RR/Vulkan are unchanged.
+See [usage, limits and acceptance checks](docs/post-sr-nr.md) (Chinese).
+
 This development branch adds the mochizuki backend for Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Game acceptance is pending.
 
 

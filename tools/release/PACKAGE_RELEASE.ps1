@@ -245,13 +245,17 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 ; Product $Version - Three-backend AMD Neural Rendering (DLSS 5 on AMD) Pre-SR pipeline.
 ; Synthesizes detail and denoises ray-traced inputs before upscaling (FSR/XeSS).
 
-; Enables DLSS-NR Pre-SR pipeline
+; Enables DLSS-NR at the selected processing stage
 ; true or false - Program default is false. Setup turns this on.
 Enabled=false
 
 ; Controls whether neural rendering executes before the upscaler
 ; When true, runs on the pre-upscale colour texture before FSR/XeSS
 ; true or false - This package sets true. If the key is absent, the program uses false.
+; Processing order for all three AMD backends (DX12 and DX11/Vulkan-to-DX12 bridges).
+; true = NR -> SR (default); false = SR -> NR (experimental, more GPU time/VRAM at display resolution).
+; Save Settings and restart if command-list ownership was not armed. Native RR/Vulkan are not added.
+; Unsupported output/guide layouts leave the SR image unchanged; see Ins status. Switching clears history.
 RunBeforeSR=true
 
 ; Selects the neural rendering backend
@@ -296,7 +300,8 @@ DLSS5_NETWORK_1080_ROWS=1152
 ; Additional supported colour formats use private FP16 output. Default true.
 ; Save Settings and restart the game after changing this.
 DLSS5_FORMAT_FALLBACK=true
-; Native NR input resolution (before SR). true by default; overrides tier/Compact 1080 within the supported budget.
+; Native NR input resolution at the selected stage (render before SR, display after SR).
+; true by default; overrides tier/Compact 1080 within the supported budget.
 ; Larger input costs more GPU time and VRAM (4K can be several times 1080p). Outside the budget, use the tier below.
 ; Changing native resolution, fast numeric, passes or block skipping rebuilds the network on the next frame.
 DLSS5_NETWORK_FREE_RES=true

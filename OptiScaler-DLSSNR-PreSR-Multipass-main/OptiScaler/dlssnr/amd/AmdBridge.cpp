@@ -7,6 +7,7 @@
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
 #include "../effects/NrOutputEffects.h"
+#include "../PostSr.h"
 #include "../backend/LmxxfBackend.h"
 #include "../backend/MochizukiBackend.h"
 #include "../backend/Selector.h"
@@ -73,8 +74,15 @@ std::unordered_set<ID3D12CommandList*> observedLists;
 void Message(const char* s)
 {
     std::lock_guard l(messageMutex);
-    if (*s && message != s && Config::Instance()->LogToFile.value_or_default())
+    // Evaluate clears the visible message before retrying. A persistent buffer
+    // or hook limitation must not append the same failure at frame rate.
+    static std::string lastLogged;
+    static ULONGLONG lastLoggedAt = 0;
+    const auto now = GetTickCount64();
+    if (*s && message != s && (lastLogged != s || now - lastLoggedAt >= 5000) &&
+        Config::Instance()->LogToFile.value_or_default())
     {
+        lastLogged = s; lastLoggedAt = now;
         DlssNr::Diagnostics::Append(Util::DllPath().parent_path() / L"amd_bridge.log",
             std::to_string(GetTickCount64()) + " thread=" + std::to_string(GetCurrentThreadId()) + " " + s);
     }
@@ -420,7 +428,7 @@ const char* RuntimeName()
     }
     return cachedName;
 }
-bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12CommandQueue* q)
+bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12CommandQueue* q, bool beforeUpscale)
 {
     // A single backend consumes one SR stream even if the engine rotates worker threads.
     // Serialize shared settling/identity state; thread-local replacement ownership stays unchanged.
@@ -551,10 +559,20 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // objects may never submit the same object twice, so do not require a prior
     // observation here.
     Message("");
+    static bool lastBefore = true;
+    if (lastBefore != beforeUpscale)
+    {
+        lastBefore = beforeUpscale;
+        lastFrame = {}; stableFrames = 0;
+        b->InvalidateHistory();
+        DlssNr::Effects::InvalidateHistory();
+        DlssNr::PostSr::Reset();
+        LOG_INFO("AMD NR order: {}", beforeUpscale ? "NR -> SR" : "SR -> NR (experimental)");
+    }
     // The swapchain's present queue can change when FG is enabled. It is
     // only a bootstrap hint; Submitted identifies the queue executing our list.
     AmdPreSr::Frame f {};
-    f.colour = Resource(params, NVSDK_NGX_Parameter_Color);
+    f.colour = Resource(params, beforeUpscale ? NVSDK_NGX_Parameter_Color : NVSDK_NGX_Parameter_Output);
     f.motion = Resource(params, NVSDK_NGX_Parameter_MotionVectors);
     f.depth = Resource(params, NVSDK_NGX_Parameter_Depth);
     f.exposure = Resource(params, NVSDK_NGX_Parameter_ExposureTexture);
@@ -562,6 +580,19 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     params->Get(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, &f.exposureScale);
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &f.width);
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &f.height);
+    UINT renderWidth = f.width, renderHeight = f.height;
+    if (!beforeUpscale)
+    {
+        // Render subrect describes the guides, never the completed SR colour.
+        if (auto input = Resource(params, NVSDK_NGX_Parameter_Color))
+        {
+            if (!renderWidth) renderWidth = UINT(input->GetDesc().Width);
+            if (!renderHeight) renderHeight = input->GetDesc().Height;
+        }
+        f.width = f.height = 0;
+        params->Get(NVSDK_NGX_Parameter_OutWidth, &f.width);
+        params->Get(NVSDK_NGX_Parameter_OutHeight, &f.height);
+    }
     if (f.colour)
     {
         const auto extent = f.colour->GetDesc();
@@ -569,12 +600,23 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
         if (!f.height) f.height = extent.Height;
     }
     UINT x = 0, y = 0, flags = 0, reset = 0;
-    params->Get(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_X, &x);
-    params->Get(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_Y, &y);
+    params->Get(beforeUpscale ? NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_X : NVSDK_NGX_Parameter_DLSS_Output_Subrect_Base_X, &x);
+    params->Get(beforeUpscale ? NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_Y : NVSDK_NGX_Parameter_DLSS_Output_Subrect_Base_Y, &y);
     if (x || y)
     {
-        Message("AMD pre-SR: nonzero colour subrect origin unsupported");
+        Message("AMD NR: nonzero colour subrect origin unsupported");
         return true;
+    }
+    if (!beforeUpscale)
+    {
+        for (const char* key : {NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_X,
+                               NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_Y,
+                               NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_X,
+                               NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_Y})
+        {
+            UINT origin = 0; params->Get(key, &origin);
+            if (origin) { Message("SR -> NR: nonzero guide subrect origin unsupported"); return true; }
+        }
     }
     auto haveFlags = params->Get(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, &flags) == NVSDK_NGX_Result_Success;
     if (haveFlags && !(flags & NVSDK_NGX_DLSS_Feature_Flags_MVLowRes) && f.motion)
@@ -665,6 +707,9 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     const auto& cfg = *Config::Instance();
     if (cfg.ColorResourceBarrier.has_value())
         f.colourState = static_cast<D3D12_RESOURCE_STATES>(cfg.ColorResourceBarrier.value());
+    if (!beforeUpscale)
+        f.colourState = cfg.OutputResourceBarrier.has_value() ?
+            static_cast<D3D12_RESOURCE_STATES>(cfg.OutputResourceBarrier.value()) : D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     if (cfg.MVResourceBarrier.has_value())
         f.motionState = static_cast<D3D12_RESOURCE_STATES>(cfg.MVResourceBarrier.value());
     if (cfg.DepthResourceBarrier.has_value())
@@ -731,6 +776,22 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
     // Evaluate cut: Split proxy + SetBetween(EnqueueHip) is owned by lmxxf Record.
     DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
     std::lock_guard effectsLifetime(DlssNr::Submission::RecordingMutex());
+    std::shared_ptr<DlssNr::PostSr::Lease> post;
+    if (!beforeUpscale)
+    {
+        // Rebuild temporal state if the guide grid changes under a fixed SR output.
+        static UINT lastRenderWidth = 0, lastRenderHeight = 0, lastMotionWidth = 0, lastMotionHeight = 0;
+        f.reset |= renderWidth != lastRenderWidth || renderHeight != lastRenderHeight ||
+                   f.motionWidth != lastMotionWidth || f.motionHeight != lastMotionHeight;
+        lastRenderWidth = renderWidth; lastRenderHeight = renderHeight;
+        lastMotionWidth = f.motionWidth; lastMotionHeight = f.motionHeight;
+        // Jittered MV cannot be used as unjittered post-SR history without a
+        // previous-jitter contract. Keep this experimental route spatial there.
+        f.reset |= f.motionJittered;
+        std::string reason;
+        post = DlssNr::PostSr::Prepare(cmd, f, renderWidth, renderHeight, reason);
+        if (!post) { b->InvalidateHistory(); Message(reason.c_str()); return true; }
+    }
     if (auto replacement = b->Record(cmd, f, s))
     {
         effectRecorded = true;
@@ -742,9 +803,14 @@ bool Before(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12C
              f.depthInverted, f.motionJittered, f.reset},
             {cfg.NrStabilizerEnabled.value_or_default(), cfg.NrStabilizerAlpha.value_or_default(),
              cfg.NrStabilizerThreshold.value_or_default()});
-        originalColour = f.colour;
-        replacedParams = params;
-        params->Set(NVSDK_NGX_Parameter_Color, replacement);
+        if (beforeUpscale)
+        {
+            originalColour = f.colour;
+            replacedParams = params;
+            params->Set(NVSDK_NGX_Parameter_Color, replacement);
+        }
+        else if (!DlssNr::PostSr::Finish(cmd, post, replacement, f.colourState))
+            Message("SR -> NR: unsupported NR result; keeping the SR output");
     }
     else DlssNr::Effects::InvalidateHistory();
     return true;
@@ -770,6 +836,7 @@ void InvalidateHistory()
 }
 void PollReleases()
 {
+    DlssNr::PostSr::Poll();
     DlssNr::Effects::Poll();
     if (auto b = g_daniel.load(std::memory_order_acquire)) b->PollRelease();
     if (auto b = g_lmxxf.load(std::memory_order_acquire)) b->PollRelease();
@@ -777,6 +844,7 @@ void PollReleases()
 }
 void OnNrDisabled()
 {
+    DlssNr::PostSr::Reset();
     DlssNr::Effects::Reset();
     // Both hosts are released so the inactive one is not left holding VRAM either.
     if (auto b = g_daniel.load(std::memory_order_acquire))

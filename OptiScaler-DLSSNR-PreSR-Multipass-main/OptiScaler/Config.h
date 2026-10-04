@@ -268,8 +268,8 @@ class Config
     // an undocumented feature driven directly through its snippet, not something NVIDIA exposes.
     CustomOptional<bool> DlssNrEnabled { false };
     // Run the NR pass on the upscaler's colour input, at render resolution, immediately before SR.
-    // Off preserves the v0.2.0 post-upscale placement.
-    CustomOptional<bool> DlssNrRunBeforeSr { false };
+    // Off selects experimental SR -> NR for all AMD backends (DX12 and bridges).
+    CustomOptional<bool> DlssNrRunBeforeSr { true };
     CustomOptional<bool> DlssNrApplyAfterRR { false };
     CustomOptional<unsigned int> DlssNrRRPasses { 1 };
     CustomOptional<float> DlssNrRRWorkingScale { 0.5f };

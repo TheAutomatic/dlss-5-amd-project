@@ -421,12 +421,27 @@ void RenderMenu(Config* config, float menuResScale)
         {
             const auto kind = Backend::ActiveKindFromConfig();
             const bool isLmxxf = kind == Backend::Kind::Lmxxf;
+            int order = config->DlssNrRunBeforeSr.value_or_default() ? 0 : 1;
+            const char* orders[] = {"NR -> SR (default)", "SR -> NR (experimental)"};
+            if (ImGui::Combo("Processing order", &order, orders, IM_ARRAYSIZE(orders)))
+            {
+                config->DlssNrRunBeforeSr = order == 0;
+                AmdBridge::InvalidateHistory();
+            }
+            HelpMarker("Applies to Daniel, lmxxf and Mochizuki on DX12 and the DX11/Vulkan-to-DX12 bridges."
+                       "\nNR -> SR enhances the render-resolution input. SR -> NR enhances the upscaled output."
+                       "\nThe model resolution setting is relative to the selected input; SR -> NR can cost much more GPU time and memory."
+                       "\nSwitching clears history. If recording hooks were not enabled at startup, Save Settings and restart."
+                       "\nNative Ray Reconstruction and native Vulkan are not added by this option."
+                       "\nJittered motion vectors use spatial NR in the experimental path. Unsupported buffers keep the SR image and show a status message."
+                       "\nINI: [DlssNr] RunBeforeSR=true / false. Save Settings to keep the selection.");
             ImGui::PushID(static_cast<int>(kind));
             static PipelineUi::Section pages[3] {PipelineUi::Section::Model, PipelineUi::Section::Model, PipelineUi::Section::Model};
             auto& page = pages[static_cast<int>(kind)];
             PipelineUi::View view;
             view.backend = Backend::Name(kind);
             view.enabled = config->DlssNrEnabled.value_or_default();
+            view.beforeSr = order == 0;
             if (isLmxxf) {
                 view.input = config->LmxxfNetworkFreeRes.value_or_default() ? "Native input resolution" : "Network tier: " + config->LmxxfNetworkHeight.value_or_default();
                 view.model = "Style " + std::to_string(config->LmxxfStyle.value_or_default()) +
@@ -1347,7 +1362,7 @@ void RenderMenu(Config* config, float menuResScale)
                 ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
                 if (isLmxxf)
                 {
-                    ImGui::TextWrapped("lmxxf HIP backend. Same-frame direct execution before Super Resolution.");
+                    ImGui::TextWrapped("lmxxf HIP backend. Same-frame execution at the selected processing stage.");
                     ImGui::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Measurement uses non-blocking HIP events and leaves PDL unchanged.");
                     const bool timingEnabled = config->NrTimingEnabled.value_or_default();
                     bool timingLog = config->NrTimingLog.value_or_default();

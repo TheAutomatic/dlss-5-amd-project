@@ -1,5 +1,12 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
+Esta rama experimental añade **SR → NR** para Daniel, lmxxf y Mochizuki. Se elige en
+**Processing order** del menú Ins; **NR → SR** sigue siendo el valor predeterminado.
+El procesamiento posterior usa la resolución de salida y puede consumir más tiempo GPU y VRAM.
+Save Settings guarda `[DlssNr] RunBeforeSR=false`; reinicia si el estado solicita los hooks.
+Incluye DX12 y los puentes DX11/Vulkan → DX12; no amplía RR ni Vulkan nativos.
+Consulta [uso, límites y pruebas](docs/post-sr-nr.md) (en chino).
+
 Esta rama de desarrollo incorpora mochizuki para Windows / RDNA4. Consulte [instalación, modelo, controles y validación](docs/mochizuki.md). No se incluyen DLL de NVIDIA ni pesos del modelo. Falta la validación en juegos.
 
 

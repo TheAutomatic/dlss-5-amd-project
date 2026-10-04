@@ -12,7 +12,9 @@
   -> Present
 ```
 
-NR 在超分**之前**作用于低分辨率 Color。`[DlssNr] Enabled=false` 关掉整个 pass；`NrBackend` 只选后端，不作开关（旧值 `off`/`none` 在首次加载时迁移成 `Enabled=false`）。
+NR 默认在超分**之前**作用于低分辨率 Color。本实验分支允许三个 AMD 后端用
+`RunBeforeSR=false` 在 SR 成功后处理 Output，共用 guide 映射和格式保持的写回层，
+见 [SR 后 NR](../post-sr-nr.md)。`[DlssNr] Enabled=false` 关掉整个 pass；`NrBackend` 只选后端，不作开关（旧值 `off`/`none` 在首次加载时迁移成 `Enabled=false`）。
 
 ## 两个后端
 

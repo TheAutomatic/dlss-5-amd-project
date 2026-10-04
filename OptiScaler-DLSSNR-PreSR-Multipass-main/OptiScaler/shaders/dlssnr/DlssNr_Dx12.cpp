@@ -1,5 +1,6 @@
 #include "pch.h"
 #include <dlssnr/amd/AmdBridge.h>
+#include <dlssnr/SrPlacement.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsRestoreDx12.h>
 #include <dlssnr/amd/GraphicsInvocation.h>
@@ -3056,11 +3057,13 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
         return;
     }
 
-    // The AMD runtime has a separate HIP pipeline. It consumes the colour input
-    // before SR and must never fall through to the NVIDIA NGX backend.
+    // All three AMD backends share the selected SR placement. Native RR still
+    // has a different input contract and cannot enter this experimental seam.
     if (DlssNr::AmdBridge::HasFiles())
     {
-        if (!beforeUpscale || forcePost)
+        static thread_local DlssNr::SrPlacement placement;
+        const bool selectedBefore = placement.Select(params, beforeUpscale, cfg.DlssNrRunBeforeSr.value_or_default());
+        if (forcePost || beforeUpscale != selectedBefore)
         {
             if(forcePost) ReportSkipOnce("AMD neural: native Ray Reconstruction is not supported; select Super Resolution");
             return;
@@ -3075,8 +3078,8 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             ReportSkipOnce("AMD neural: the upscaler could not restore state this frame");
             return;
         }
-        ScopedNrStateEnvelope amdStateEnvelope(cmdList, true);
-        if (DlssNr::AmdBridge::Before(cmdList, params, timingQueue))
+        ScopedNrStateEnvelope amdStateEnvelope(cmdList, beforeUpscale);
+        if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale))
             return;
     }
 

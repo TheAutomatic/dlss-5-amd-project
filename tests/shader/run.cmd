@@ -26,6 +26,8 @@ call :BuildAndRun nr_stabilizer
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun nr_stabilizer_lifecycle
 if not "%errorlevel%"=="0" goto fail
+call :BuildAndRun nr_post_sr
+if not "%errorlevel%"=="0" goto fail
 echo shader: PASS
 exit /b 0
 

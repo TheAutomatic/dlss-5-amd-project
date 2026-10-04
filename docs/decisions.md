@@ -1,3 +1,11 @@
+## 2026-10-05 — 三后端共用实验性 SR → NR
+
+保留默认 NR → SR，通过已有 RunBeforeSR 键显式选择 SR → NR。顺序在宿主共用入口控制，
+不为 Daniel、lmxxf、Mochizuki 分别增加配置或变更 runtime ABI。将 SR Output 和渲染分辨率
+guide 映射到同一网格，保留输出格式/alpha/有效区域，并使用录制所有权保护中间纹理。
+不支持的输入明确跳过并提示；不扩大 native RR 或 native Vulkan 的支持承诺。
+设计边界及验收见 [SR 后 NR](post-sr-nr.md)。
+
 ## 2026-10-05 — 减少重复工具回归和构建
 
 用户批准精简本地与Actions流程。保留每次发布的当前产物测试、安装保护和打包门禁；

@@ -142,7 +142,8 @@ bool ProxyWrapWanted()
 {
     // Common effects need recording lifetime callbacks even with a single backend.
     // This requests only the proxy; it never instantiates the inactive backend.
-    if (Config::Instance()->NrStabilizerEnabled.value_or_default() ||
+    if (!Config::Instance()->DlssNrRunBeforeSr.value_or_default() ||
+        Config::Instance()->NrStabilizerEnabled.value_or_default() ||
         DlssNr::OverallIntensity(Config::Instance()->NrOverallIntensity.value_or_default()) != 1.0f)
         return true;
     if (!LmxxfWired())

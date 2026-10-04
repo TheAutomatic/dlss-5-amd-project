@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Adapted from wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass v0.8.4 (8802b2b4),
 // DlssNr_PipelineUi.h. Retains the node drawing/click navigation; this product
-// supplies its three pre-SR backend views. No renderer or Config writes here.
+// supplies its three backend views. No renderer or Config writes here.
 #include <imgui/imgui.h>
 #include <algorithm>
 #include <array>
@@ -24,11 +24,13 @@ struct View
 {
     std::string backend, input, model, output;
     bool enabled = true;
+    bool beforeSr = true;
 };
 inline void Draw(const View& view, Section& selected)
 {
     ImGui::PushID("NR pipeline chart");
-    ImGui::TextDisabled("Game input -> %s NR (before upscaling)", view.backend.c_str());
+    ImGui::TextWrapped(view.beforeSr ? "Game input -> %s NR -> Super Resolution" :
+        "Game input -> Super Resolution -> %s NR", view.backend.c_str());
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
     const float nodeWidth = std::min(width, ImGui::GetFontSize() * 27.0f);
@@ -87,7 +89,9 @@ inline void Draw(const View& view, Section& selected)
     }
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + nodes.size() * step));
     ImGui::Dummy(ImVec2(width, 0));
-    ImGui::TextWrapped("Then: Super Resolution -> game effects / HUD -> presentation");
+    ImGui::TextWrapped("%s", view.beforeSr ?
+        "Then: Super Resolution -> game effects / HUD -> presentation" :
+        "Then: game effects / HUD -> presentation (game-dependent)");
     ImGui::PopID();
 }
 // Short page buttons stay usable when the chart is collapsed and wrap in narrow columns.
