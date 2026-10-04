@@ -19,9 +19,11 @@ int main()
     Check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)), "device");
     ComPtr<ID3D12CommandQueue> queue; D3D12_COMMAND_QUEUE_DESC qd {};
     Check(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)), "queue");
-    ComPtr<ID3D12CommandAllocator> allocator; ComPtr<ID3D12GraphicsCommandList> list;
+    ComPtr<ID3D12CommandAllocator> allocator, allocator2; ComPtr<ID3D12GraphicsCommandList> list, list2;
     Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)), "allocator");
     Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&list)), "list");
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator2)), "allocator2");
+    Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator2.Get(), nullptr, IID_PPV_ARGS(&list2)), "list2");
     LmxxfRuntime::RecordingGpuTimingPool pool;
     std::vector<std::shared_ptr<LmxxfRuntime::RecordingGpuTiming>> held;
     for (unsigned i = 0; i < 16; ++i) {
@@ -35,14 +37,18 @@ int main()
     timing->Begin(list.Get(), 0); timing->End(list.Get(), 0);
     timing->Begin(list.Get(), 1); timing->End(list.Get(), 1);
     Check(list->Close(), "close");
+    timing->Begin(list2.Get(), 0); timing->End(list2.Get(), 0);
+    timing->Begin(list2.Get(), 1); timing->End(list2.Get(), 1);
+    Check(list2->Close(), "close list2");
     ComPtr<ID3D12Fence> fence, gate;
     Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "fence");
     Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)), "gate");
     DlssNr::PerformanceStore store; store.SetEnabled(true);
     uint64_t value = 0;
-    auto submit = [&] {
+    auto submit = [&](ID3D12GraphicsCommandList* cl = nullptr) {
+        if (!cl) cl = list.Get();
         timing->BeforeExecution(store);
-        ID3D12CommandList* lists[] = {list.Get()}; queue->ExecuteCommandLists(1, lists);
+        ID3D12CommandList* lists[] = {cl}; queue->ExecuteCommandLists(1, lists);
         Check(queue->Signal(fence.Get(), ++value), "signal");
         timing->Submitted(std::make_shared<LmxxfRuntime::RecordingCompletion>(fence.Get(), queue.Get(), value),
                           true, 42, value, store.Epoch());
@@ -60,7 +66,7 @@ int main()
     auto first = store.Read();
     Require(first.stages[NR_GPU_ENCODE].samples == 1 && first.stages[NR_GPU_DECODE].samples == 1, "both completed stages");
     timing->Collect(store); Require(store.Read().stages[NR_GPU_ENCODE].samples == 1, "collect once");
-    Check(queue->Wait(gate.Get(), 2), "hold replay"); submit(); submit();
+    Check(queue->Wait(gate.Get(), 2), "hold replay"); submit(list.Get()); submit(list2.Get());
     Require(store.Read().dropped == 1, "in-flight replay drops old readback sample");
     Check(gate->Signal(2), "release replay"); wait();
     Require(store.Read().stages[NR_GPU_ENCODE].samples == 2 && store.Read().stages[NR_GPU_DECODE].execution_id == value,
