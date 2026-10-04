@@ -1,3 +1,16 @@
+## 2026-10-04 — Enable the original lmxxf LLVM23/RowOpts recipe
+
+Use WSL2 and the official AMDGPU-enabled Linux LLVM23.1.2 package for the five
+upstream LLVM rows per architecture. Use the unchanged upstream Windows recipe
+with RowOpts for the remaining COMGR rows, including c512-m32-deep max-ilp.
+Keep MSVC for the product host/runtime and existing product bridge patches.
+Record actual C64 HIP_BARRIER_FENCE, source/object hashes and compiler commands;
+missing or stale LLVM prebuilds must fail rather than silently reverting to COMGR.
+
+The complete gfx1201 GPU suite retains the old goldens and 0.40 control/geometry
+outputs. This enables the compiler recipe, without a local game speedup claim or
+gfx1200 hardware acceptance. See the 0.40 consumer review and sync build workflow.
+
 ## 2026-10-04 — lmxxf 0.40 defaults and update workflow
 
 Use all 71 blocks, fast numerics on, one network pass and free resolution on. INI/menu remains authoritative. Show missing model dependencies at backend selection and in Ins; preserve invalid user model files and explain how to replace them. The flowchart presents three editable stages, with game input and downstream rendering as context.

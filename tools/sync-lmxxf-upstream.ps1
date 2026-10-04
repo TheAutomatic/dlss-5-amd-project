@@ -37,6 +37,8 @@
   Complete gfx1200 + gfx1201 build/package directory. Validate its origin manually in the review.
 .PARAMETER NoBuildModules
   Require ModulesPath unless SkipModules is set.
+.PARAMETER LlvmPrebuiltDir
+  Original LLVM23 compile-modules.py output, including manifest.json, for recipe RowOpts.
 .PARAMETER SkipBuild
   Skip runtime compilation; the review must record why and the remaining validation.
 .EXAMPLE
@@ -52,6 +54,7 @@ param(
     [switch]$AllowOfflineUpstream,
     [switch]$SkipModules,
     [string]$ModulesPath = '',
+    [string]$LlvmPrebuiltDir = '',
     [switch]$NoBuildModules,
     [switch]$AllowStaleModules,
     [switch]$UpdateBridge,
@@ -277,7 +280,7 @@ try {
     $builtHere = $false
     if (-not $SkipModules) {
         if (-not $resolvedModules) {
-            $resolvedModules = Invoke-BuildGfx1201Modules $dstHip (Join-Path $dstHip '_build_gfx1201')
+            $resolvedModules = Invoke-BuildGfx1201Modules $dstHip (Join-Path $root 'exports/lmxxf-modules') -prebuiltDir $LlvmPrebuiltDir
             $builtHere = $true
         }
         Sync-LmxxfModules $resolvedModules $dstModules $commitHash

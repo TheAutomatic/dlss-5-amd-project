@@ -5,7 +5,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_reference.hip+prefix_reference.hip",
     "opts": "",
-    "sha256": "438C46BE0038BA545DA2EAB663AA4F81E0CD72CD6D126371CCBD9E461A1EA8AB"
+    "sha256": "C3B01C905B7B20AC357FD97D1BAA9D6C4EA7616AF0431543B41617C7324CBFF8",
+    "source_sha256": "4019d2f63d66cbb6c366b61edaba0f852cf6a1aff5ec3eb22724f031bc97b842"
   },
   {
     "target": "gfx1200",
@@ -13,7 +14,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "multihead_reference.hip",
     "opts": "",
-    "sha256": "16C467FFEC8FF3070EF2B789DEE16AFF7390CF559447BB37CCD370F7EEDCC44C"
+    "sha256": "4B02890CAAD85A42C185180CFD65B5051CD01D8402F8EC21536D9779BA3144D6",
+    "source_sha256": "bf6884694df670fa932f9284aa6b18479d4209c1f26c95eaa53efa021448573b"
   },
   {
     "target": "gfx1200",
@@ -21,7 +23,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "deep_reference.hip",
     "opts": "",
-    "sha256": "D726CEA76BEE9304B1FE99E84542F5557F5E9DBCBCA0C673A16A61C3AC73649B"
+    "sha256": "C2779CDFF408360721E5CD1312D945AE1951CFFC955893821EFD75724C67852E",
+    "source_sha256": "4c296112395350f5e8cbc78896eb00b821220e90e0616d53b7c3c2ff33eaaa5d"
   },
   {
     "target": "gfx1200",
@@ -29,7 +32,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "boundary_reference.hip",
     "opts": "",
-    "sha256": "3C6E83E01CE9F59657EEFBEB92E70FA8DE6F95155D3DEA6BB91498E7967C1948"
+    "sha256": "693547DEC3C6E47900ABA1E85F220304F2BFB19313F2B1D7403561F46CF3D6CF",
+    "source_sha256": "7511beecce670f1c56a3e977317d8b58c52568117cf1273a664e2b2a6209383f"
   },
   {
     "target": "gfx1200",
@@ -37,7 +41,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_wmma.hip",
     "opts": "",
-    "sha256": "BBDB65502CAA0FD71F97A26584C82BFD89973918979DD76F7E5E40C98D054CAC"
+    "sha256": "576AFA15B5E76B2FF10EEC95FF585E60AB8B7055F0F3EE3DF41478A3FEEF46A7",
+    "source_sha256": "966e4d01f44d0378eae9390423687f8231a030285f124aede700c35acbd6f384"
   },
   {
     "target": "gfx1200",
@@ -45,7 +50,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "multihead_wmma.hip",
     "opts": "",
-    "sha256": "D75BA913BFA44ED8E4E91B532E34804ACECE0B440CA328C3C1DB8F927B778334"
+    "sha256": "8C1A097BFA170EBA0C0CE51E44CC8F6F7521E2B64D6EFF3E07230DEB64D419AD",
+    "source_sha256": "416c52fcc500008f69fcf46e103b95461674ccb2531af3291877c052faa728f7"
   },
   {
     "target": "gfx1200",
@@ -53,7 +59,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "deep_wmma.hip",
     "opts": "",
-    "sha256": "C4C55A46B2FE260E37320A47A78A548919E8899D6659E752E1D36C414FA67667"
+    "sha256": "6B708483D0A9FCEE96967862E92AA5895BE969AB2316749EB5860CFE39BE0AF1",
+    "source_sha256": "bff74a671e99f9781fc252d3ceda3caf0489dfa1ae19c8a6a70e13a88adc8889"
   },
   {
     "target": "gfx1200",
@@ -61,7 +68,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_reference.hip+wave_pointwise.hip",
     "opts": "",
-    "sha256": "8B15312810023F7F08A3D104015F39ECF9552B4527A21E4856FC61BDDB269B2E"
+    "sha256": "1CFF01355F32152834286C303D38EFD05628757C6D4E0FD7F1C0A0F3DB9E701F",
+    "source_sha256": "646c1e471d4ecd876f1d2f97b3c09f4423afa7c2e26c2559d5bed9abd0b38424"
   },
   {
     "target": "gfx1200",
@@ -69,7 +77,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_tiled.hip",
     "opts": "",
-    "sha256": "54960056FEC902E02771DE7D1CF6913357DBD7525A2D6053D79047C3DFF0FE9F"
+    "sha256": "9A2B98313A62611FEE3AB230DCD44AC794C1CBB1A2CCCC3598939612CA8A995A",
+    "source_sha256": "c5afd86001d884dab18a6bdda86a6ce37bb92d0bc9c434883f92360b1d7c25c5"
   },
   {
     "target": "gfx1200",
@@ -77,7 +86,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "multihead_tiled.hip",
     "opts": "",
-    "sha256": "5DCB3892E76011475561F3D915DD2AC1525F79C5EBF6D351E481F4992A74B395"
+    "sha256": "10AA32A6735464D21F37E197423942E7D33333C667B035F8300B9819A8FCC88E",
+    "source_sha256": "e3d8ab3e98567c69a6ecb17eafd10eaf7210eb98e9bb393faba2d9583ca907f5"
   },
   {
     "target": "gfx1200",
@@ -85,7 +95,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_fast.hip",
     "opts": "",
-    "sha256": "B079E4BC302FD7AC0A5D1062BB5CF0ACE56C532ED97E2D4ADCF21FF2AE25E96C"
+    "sha256": "FFF987B9ADA5AF154B3862CC2D2B8B0474A2AA82C6271E7EA378FC473B2FF617",
+    "source_sha256": "e53264f8f4e4b6e12b5ea06c3b6feaf312a8156ab6bdbfcdf5d450018b79f90e"
   },
   {
     "target": "gfx1200",
@@ -93,7 +104,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_fast_attention.hip",
     "opts": "",
-    "sha256": "D42A32005038BE0F503B9929AC55958B3826203CDBB05B253B31BD33F2F36AF2"
+    "sha256": "169DE549AA946CBBA505260DE2D7A0B228ED93F2E2806D005F874C4009C18B6C",
+    "source_sha256": "49c479faa01ea23f81613d058c751e7db95c3e70b26f19946e6a71cf9630edde"
   },
   {
     "target": "gfx1200",
@@ -101,7 +113,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_fast_attention.hip+boundary_fast.hip",
     "opts": "",
-    "sha256": "490D5573B8F5B6B2B78AB5B767547A246303F15AF6507714507A9241468D1F11"
+    "sha256": "71AFC8157C410D849B57A9823FEB7A7107013306AE6F9ADB55C51EB2A5888C6F",
+    "source_sha256": "d73d2c88c047098d3f1f2b317e1a9a992b2ea6f4c09d608303e18c1014ed916b"
   },
   {
     "target": "gfx1200",
@@ -109,7 +122,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "c32_fused_attention_packed.hip",
     "opts": "",
-    "sha256": "8D5E3189186DA27B88D80FBD23F93AD0363074CC7AA0D22FEFE7392AC58CBAB8"
+    "sha256": "2B66DEB6C8C17BDE5E27734F49D205DA2651222A860A9183D5F1B88B41F893A6",
+    "source_sha256": "c23626f5661751f666d0d83694817f2da7b9fbabfa7d189f380dc48c4f2bc5d4"
   },
   {
     "target": "gfx1200",
@@ -117,7 +131,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_FP8_SAT_MODE 3",
     "sources": "c32_fused_ffn_attention.hip",
     "opts": "",
-    "sha256": "078E5166B694D713C748A5446D37F2D12FE83D0FC1155EF735B68777B016ED26"
+    "sha256": "5AD9FA58F3E761EBD8B2288C5BBB61685D68867A8FEB5BE5ECC9D6B47CCB3CA3",
+    "source_sha256": "0495270d0d50062a5bebb83780885e2f437261cc8b90c01907353b54e99cf69e"
   },
   {
     "target": "gfx1200",
@@ -125,7 +140,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_C32_DIAG_WEIGHTS 1; HIP_FP8_SAT_MODE 3",
     "sources": "c32_fused_ffn_attention.hip",
     "opts": "",
-    "sha256": "33368A4FEB0905F706E027A7888160D1ABF976ED75C0D0C4408FE1F0106794B6"
+    "sha256": "B55B493DB7760A94951D2AB091A51B2FB08ACD7025A250D38BF8B87448C760D3",
+    "source_sha256": "16be7b8fedf85e71cf552a964109007aabe9490dcda5ab579eb0ab8e37d91fbe"
   },
   {
     "target": "gfx1200",
@@ -133,7 +149,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "prefix_fast.hip",
     "opts": "",
-    "sha256": "C090FC0E39FE8C2A31725A569E51916C5DB90555C6D89F636CE230BE26C1987F"
+    "sha256": "724CF9A7329B8FE2FF8846D0CDA97E51D01A775B2CDBEF90F2F67286294FFDB7",
+    "source_sha256": "3d994ba93ce64f23eb80248991a8cd8c0df3fc20644d36473024659f168200a4"
   },
   {
     "target": "gfx1200",
@@ -141,7 +158,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "multihead_fast.hip",
     "opts": "",
-    "sha256": "C9BF4AF2766F0016965DC0C4FBD53F9CE44B8C20B8565283E4BC2CF6E08EB99C"
+    "sha256": "04D80A8CF63D5B0D908ECFBC3D25D12A3E4087BE5FBC0ECB962D8E7FE8D6AEBA",
+    "source_sha256": "e6c041d5d0eb2da9a23477e574b463102b8dc526ddf3a92a3b6d1fd762a8dfe7"
   },
   {
     "target": "gfx1200",
@@ -149,7 +167,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_FMED3_CLAMP 1; HIP_FFN_LINE_STORES 1",
     "sources": "multihead_fast_padded.hip",
     "opts": "",
-    "sha256": "C956171183F36D627EAF303F24A7E42C8C1F7670FD9004641EECADD1569C9462"
+    "sha256": "A4301509AD93027FC88706A95F621F7A8195CD7C854086FDE8D17E12437544EC",
+    "source_sha256": "af6edec7f22d70643f9289d39f4b5e1daf3af69bb3217fbafd5135f15639600a"
   },
   {
     "target": "gfx1200",
@@ -157,7 +176,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_MH_RTZ_ISA 1",
     "sources": "multihead_fused_attention.hip",
     "opts": "",
-    "sha256": "48CE2DEBCCD6FB041BB225FB9D61774046EC3F8D71C14885D9417F6FE46322DB"
+    "sha256": "5B1CAD8F5B5061FBDF9D26C98C68785F4A57E359BFDAAB6B0A330E51F59DB10B",
+    "source_sha256": "f7de870867a6c0db232c3d8f637a3cfb4f275002252a2c9ce5d74513afb51b13"
   },
   {
     "target": "gfx1200",
@@ -165,7 +185,8 @@
     "defines": "HIP_ISA_HALF 1",
     "sources": "deep_fast.hip",
     "opts": "",
-    "sha256": "200CB98D0ADBBF1018AD1A682AAE5A50E23905981AD615C4DA9719427F684858"
+    "sha256": "04DF467971DEBC44ED5DC1764A3A88EFF437826A9993373A3524002321959FEF",
+    "source_sha256": "946f3af102fef69303e7ea9362f3b4af380067a4087ac5a5a84f7fb28467ff04"
   },
   {
     "target": "gfx1200",
@@ -173,7 +194,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_DEC_WIDE 1; HIP_VIT_ATTN_NATIVE_HALF 1; HIP_VIT_ATTN_PROB_PAIR 1; HIP_VIT_ATTN_TRANSPOSED_AV 1; HIP_VIT_ATTN_TRANSPOSED_SCORE 1; HIP_BRANCHLESS_F 1; C512_F_MASK 1; C512_T8_TAIL_VEC 1; HIP_BYTE_F_ADD0 1; HIP_VIT_ATTN_RCP 1",
     "sources": "deep_fast.hip",
     "opts": "",
-    "sha256": "80EF20A592E19D6AB3CA2BB9BBC5D21ACD69C4156545BA329B3FB84630EC333C"
+    "sha256": "10B2C84E46574FF6CB2A3B03A15E17631690A6234CFA3091355A5F747D241481",
+    "source_sha256": "9d5f0582933ac1a9ed70428a15e58d8ec843ce121e7b18310b027d14f6680f7e"
   },
   {
     "target": "gfx1200",
@@ -181,7 +203,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1",
     "sources": "multihead_fast.hip",
     "opts": "",
-    "sha256": "AEE53542F433F901593106F2E581CB09459CD8FC5B946635A73F856B90FFACB0"
+    "sha256": "8D602696B3D97D6DBAC759350951D744D4AA37578ABCDDE52BEE681EF68718C4",
+    "source_sha256": "97e1217db40e05bc2986135730f12e9572ddf97e46f2b9abe167c48f67cc1dcf"
   },
   {
     "target": "gfx1200",
@@ -189,47 +212,427 @@
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; MH_POOL_HALF_IN 1; C512_HEAD_GROUP 1; HIP_C512_HOIST_RES 1; HIP_FFN_HOIST_RES 2; HIP_FFN_LINE_STORES 1; HIP_FMED3_CLAMP 1; HIP_POOL32_B8 1",
     "sources": "multihead_fast_padded.hip+c512_head_group.inc",
     "opts": "",
-    "sha256": "EB2CFC84DFFFC5F81C183A579EE7209C88F3CFDA74E631DCED1BA34517C27849"
+    "sha256": "594E8A8EECBE39D71A7C7F8A58EE30947A6DB4B4B88335807D21D930DA2C235D",
+    "source_sha256": "5806bbd59d766f65bbd3bf832e8a16cbdc0d721cb1cd8ba05edf64115c79b8e5"
   },
   {
     "target": "gfx1200",
     "module": "c32-wave1",
     "defines": "HIP_ISA_HALF 1; CW_UP_FUSED 1; CW_ACT_FMED3 1; HIP_PREPACKED_WEIGHTS 1; CW_ROLL_HIDDEN 1; CW_ROLL_WINDOW 1; CW_VEC_INPUT 1; CW_PREFIX_SPLIT 1; CW_PACK8 1; HIP_FP8_SAT_MODE 3; CW_DIRECT_OUT 1; CW_RTZ_PAIR 1; CW_PACK_MODE_MASK 127; CW_PREFIX_DIRECT_OUT 1; CW_PREFIX_FULL_TILE 1; CW_FINISH_FULL_TILE 1; CW_SKIP_BYTE 1; CW_DIAG_ONLY 1; CW_INPUT_HALF 7; CW_PREFIX_HALF_SOURCE 1; CW_PREPOST_BYTE 1; CW_PREFIX_TAIL_VEC 1; CW_FINISH_TAIL_VEC 1; CW_HOIST_UP 3",
     "sources": "c32_fused_ffn_attention.hip+wave_owned_c32.inc",
-    "opts": "",
-    "sha256": "355E94275946E4DC8E57B60A3AEDE46DEC08E247946DBD312EF3B5674DE0AF25"
+    "opts": "llvm23 prebuilt -mllvm=-enable-post-misched=0 -mllvm=-amdgpu-sched-strategy=max-ilp",
+    "sha256": "4D458C283BB2F83C1BF094530B0A14A4F8B02678D2CCB6A826AC242BAB8A608A",
+    "compiler_version": "clang version 23.1.2 (https://github.com/llvm/llvm-project 85ac560262434c9ccfc0c183ec22d4138ed647fb)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin\n",
+    "commands": [
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "--target=x86_64-pc-windows-msvc",
+        "--offload-arch=gfx1200",
+        "-O3",
+        "-x",
+        "hip",
+        "--offload-device-only",
+        "-cuid=23683F89FD4A7F0CBFE232E7135ACF604D00533EBF27B8D9B14C09C67E114373",
+        "-c",
+        "-emit-llvm",
+        "-fshort-wchar",
+        "-std=c++14",
+        "-fms-compatibility-version=19.44.35229",
+        "-nogpuinc",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/sources/c32-wave1/probe.hip",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.bc"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-mllvm",
+        "-enable-post-misched=0",
+        "-mllvm",
+        "-amdgpu-sched-strategy=max-ilp",
+        "-S",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.hsaco.s"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-mllvm",
+        "-enable-post-misched=0",
+        "-mllvm",
+        "-amdgpu-sched-strategy=max-ilp",
+        "-c",
+        "-mllvm",
+        "-amdgpu-internalize-symbols",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.o"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/ld.lld",
+        "--no-undefined",
+        "-shared",
+        "-plugin-opt=mcpu=gfx1200",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.o",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1.hsaco"
+      ]
+    ],
+    "source_sha256": "947eed38497f7e1db6775a670668f9eb458f70f5a7341f68dc85fc4f718ac9ab"
   },
   {
     "target": "gfx1200",
     "module": "c32-wave1-rtz",
     "defines": "HIP_ISA_HALF 1; CW_UP_FUSED 1; CW_ACT_FMED3 1; HIP_PREPACKED_WEIGHTS 1; CW_ROLL_HIDDEN 1; CW_ROLL_WINDOW 1; CW_VEC_INPUT 1; CW_PREFIX_SPLIT 1; CW_PACK8 1; HIP_FP8_SAT_MODE 3; CW_DIRECT_OUT 1; CW_RTZ_PAIR 1; CW_PACK_MODE_MASK 127; CW_PREFIX_DIRECT_OUT 1; CW_PREFIX_FULL_TILE 1; CW_FINISH_FULL_TILE 1; CW_SKIP_BYTE 1; CW_DIAG_ONLY 1; CW_INPUT_HALF 7; CW_PREFIX_HALF_SOURCE 1; CW_PREPOST_BYTE 1; CW_PREFIX_TAIL_VEC 1; CW_FINISH_TAIL_VEC 1; CW_HOIST_UP 3; HIP_C32_RTZ_ISA 2",
     "sources": "c32_fused_ffn_attention.hip+wave_owned_c32.inc",
-    "opts": "",
-    "sha256": "7A007C5C0433BC4B8C13D2AD75569C6F7C65FAC8715900996065478F41DB1792"
+    "opts": "llvm23 prebuilt -mllvm=-enable-post-misched=0 -mllvm=-amdgpu-sched-strategy=max-ilp",
+    "sha256": "64C9CCF60BABE9128790E0AF2A17D1A21734BE23BCA78DF1909BC28E1F47C3C7",
+    "compiler_version": "clang version 23.1.2 (https://github.com/llvm/llvm-project 85ac560262434c9ccfc0c183ec22d4138ed647fb)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin\n",
+    "commands": [
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "--target=x86_64-pc-windows-msvc",
+        "--offload-arch=gfx1200",
+        "-O3",
+        "-x",
+        "hip",
+        "--offload-device-only",
+        "-cuid=B16DEF3D385B82F3C57CA1C96D363D9A8270D0A9AD929AAF0B0FE06FB1B58715",
+        "-c",
+        "-emit-llvm",
+        "-fshort-wchar",
+        "-std=c++14",
+        "-fms-compatibility-version=19.44.35229",
+        "-nogpuinc",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/sources/c32-wave1-rtz/probe.hip",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.bc"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-mllvm",
+        "-enable-post-misched=0",
+        "-mllvm",
+        "-amdgpu-sched-strategy=max-ilp",
+        "-S",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.hsaco.s"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-mllvm",
+        "-enable-post-misched=0",
+        "-mllvm",
+        "-amdgpu-sched-strategy=max-ilp",
+        "-c",
+        "-mllvm",
+        "-amdgpu-internalize-symbols",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.o"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/ld.lld",
+        "--no-undefined",
+        "-shared",
+        "-plugin-opt=mcpu=gfx1200",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.o",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-rtz.hsaco"
+      ]
+    ],
+    "source_sha256": "056a2c1b9e93c29e6d38391b85b6b3d1c9778ec25d12b0438061454dba3c275d"
   },
   {
     "target": "gfx1200",
     "module": "c64-wave2",
-    "defines": "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 4; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1; W2_Q8_MASK 1; W2_FFN_W16 1; W2_HOIST_LOADS 15; W2_UP_LOW_BYTES 1; W2_DOWN_HALF 1; W2_UP_VEC 1; W2_QKV_FUSE 3",
+    "defines": "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 4; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1; W2_Q8_MASK 1; W2_FFN_W16 1; W2_HOIST_LOADS 15; W2_UP_LOW_BYTES 1; W2_DOWN_HALF 1; W2_UP_VEC 1; W2_QKV_FUSE 3; HIP_BARRIER_FENCE 1",
     "sources": "multihead_fast_padded.hip+wave_owned_mh.inc+wave_owned_attention_setup.inc+@wave-owned-attention-body+wave_owned_attention_exports.inc",
-    "opts": "",
-    "sha256": "584994DF1403A2998C1B991E54141F9FE576E60A682C509FD795AFB0A341740D"
+    "opts": "llvm23 prebuilt ",
+    "sha256": "B90443EE1589815C00F9E009CBFFEDAEF2F079497B83E82369AF25F139A6FDD1",
+    "compiler_version": "clang version 23.1.2 (https://github.com/llvm/llvm-project 85ac560262434c9ccfc0c183ec22d4138ed647fb)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin\n",
+    "commands": [
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "--target=x86_64-pc-windows-msvc",
+        "--offload-arch=gfx1200",
+        "-O3",
+        "-x",
+        "hip",
+        "--offload-device-only",
+        "-cuid=FAB4152799C209ED0C13DB15A4FF18A9AD2ADE8099997B9068A73A4F49621303",
+        "-c",
+        "-emit-llvm",
+        "-fshort-wchar",
+        "-std=c++14",
+        "-fms-compatibility-version=19.44.35229",
+        "-nogpuinc",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/sources/c64-wave2/probe.hip",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.bc"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-S",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.hsaco.s"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-c",
+        "-mllvm",
+        "-amdgpu-internalize-symbols",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.o"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/ld.lld",
+        "--no-undefined",
+        "-shared",
+        "-plugin-opt=mcpu=gfx1200",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.o",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2.hsaco"
+      ]
+    ],
+    "source_sha256": "35ce2109b656a97bc1363bbe751c73a78f043d18a0c06d4aba30f7089034c77e"
   },
   {
     "target": "gfx1200",
     "module": "c32-wave1-fast",
     "defines": "HIP_ISA_HALF 1; CW_UP_FUSED 1; CW_ACT_FMED3 1; HIP_PREPACKED_WEIGHTS 1; CW_ROLL_HIDDEN 1; CW_ROLL_WINDOW 1; CW_VEC_INPUT 1; CW_PREFIX_SPLIT 1; CW_PACK8 1; HIP_FP8_SAT_MODE 3; CW_DIRECT_OUT 1; CW_RTZ_PAIR 1; CW_PACK_MODE_MASK 127; CW_PREFIX_DIRECT_OUT 1; CW_PREFIX_FULL_TILE 1; CW_FINISH_FULL_TILE 1; CW_SKIP_BYTE 1; CW_DIAG_ONLY 1; CW_INPUT_HALF 7; CW_PREFIX_HALF_SOURCE 1; CW_PREPOST_BYTE 1; CW_PREFIX_TAIL_VEC 1; CW_FINISH_TAIL_VEC 1; CW_HOIST_UP 3; CW_FAST_NUM 3",
     "sources": "c32_fused_ffn_attention.hip+wave_owned_c32.inc",
-    "opts": "",
-    "sha256": "37E4EDCC73D613235C3466706BA314AA1167FB7EC2A22BE5BF55E6755F578448"
+    "opts": "llvm23 prebuilt -mllvm=-enable-post-misched=0 -mllvm=-amdgpu-sched-strategy=max-ilp",
+    "sha256": "188D41618C13E47144C3EF23AF51DE7016EC086C7C05890C6751086CB0A16829",
+    "compiler_version": "clang version 23.1.2 (https://github.com/llvm/llvm-project 85ac560262434c9ccfc0c183ec22d4138ed647fb)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin\n",
+    "commands": [
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "--target=x86_64-pc-windows-msvc",
+        "--offload-arch=gfx1200",
+        "-O3",
+        "-x",
+        "hip",
+        "--offload-device-only",
+        "-cuid=C9801BF0FEF004E3E8C0EEF6A36051EB90A6D726EF47909FAFE3E55948518751",
+        "-c",
+        "-emit-llvm",
+        "-fshort-wchar",
+        "-std=c++14",
+        "-fms-compatibility-version=19.44.35229",
+        "-nogpuinc",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/sources/c32-wave1-fast/probe.hip",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.bc"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-mllvm",
+        "-enable-post-misched=0",
+        "-mllvm",
+        "-amdgpu-sched-strategy=max-ilp",
+        "-S",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.hsaco.s"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-mllvm",
+        "-enable-post-misched=0",
+        "-mllvm",
+        "-amdgpu-sched-strategy=max-ilp",
+        "-c",
+        "-mllvm",
+        "-amdgpu-internalize-symbols",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.o"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/ld.lld",
+        "--no-undefined",
+        "-shared",
+        "-plugin-opt=mcpu=gfx1200",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.o",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c32-wave1-fast.hsaco"
+      ]
+    ],
+    "source_sha256": "c6430c4a2a9bccc0ca4d060c3757caa392b876550f0a85661788697e1354fd93"
   },
   {
     "target": "gfx1200",
     "module": "c64-wave2-fast",
-    "defines": "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 4; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1; W2_Q8_MASK 1; W2_FFN_W16 1; W2_HOIST_LOADS 15; W2_UP_LOW_BYTES 1; W2_DOWN_HALF 1; W2_UP_VEC 1; W2_QKV_FUSE 3; W2_FAST_NUM 3",
+    "defines": "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 4; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1; W2_Q8_MASK 1; W2_FFN_W16 1; W2_HOIST_LOADS 15; W2_UP_LOW_BYTES 1; W2_DOWN_HALF 1; W2_UP_VEC 1; W2_QKV_FUSE 3; W2_FAST_NUM 3; HIP_BARRIER_FENCE 1",
     "sources": "multihead_fast_padded.hip+wave_owned_mh.inc+wave_owned_attention_setup.inc+@wave-owned-attention-body+wave_owned_attention_exports.inc",
-    "opts": "",
-    "sha256": "CCF8CC3DDAD1B8A1275355AF7DB9056B62860FA1872D9CF586D8F7C209A853DD"
+    "opts": "llvm23 prebuilt ",
+    "sha256": "22983FC0B9506040865A98A6F39FBDC94E8331270DC60053A74403C3BD2BE1A9",
+    "compiler_version": "clang version 23.1.2 (https://github.com/llvm/llvm-project 85ac560262434c9ccfc0c183ec22d4138ed647fb)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin\n",
+    "commands": [
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "--target=x86_64-pc-windows-msvc",
+        "--offload-arch=gfx1200",
+        "-O3",
+        "-x",
+        "hip",
+        "--offload-device-only",
+        "-cuid=C768D199710F0F53282EE12136252FF4152766EB3A4F0377EB4756EE9FD3F36E",
+        "-c",
+        "-emit-llvm",
+        "-fshort-wchar",
+        "-std=c++14",
+        "-fms-compatibility-version=19.44.35229",
+        "-nogpuinc",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/sources/c64-wave2-fast/probe.hip",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.bc"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-S",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.hsaco.s"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/clang",
+        "-target",
+        "amdgcn-amd-amdhsa",
+        "-mcpu=gfx1200",
+        "-O3",
+        "-nogpulib",
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "-real-true16",
+        "-c",
+        "-mllvm",
+        "-amdgpu-internalize-symbols",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.bc",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.o"
+      ],
+      [
+        "/home/kenny/work/external/llvm23/LLVM-23.1.2-Linux-X64/bin/ld.lld",
+        "--no-undefined",
+        "-shared",
+        "-plugin-opt=mcpu=gfx1200",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.o",
+        "-o",
+        "/home/kenny/work/lmxxf-llvm23-040/gfx1200/c64-wave2-fast.hsaco"
+      ]
+    ],
+    "source_sha256": "f8ba42e07072873d64c04160a9e813245e854f27d38a7702fcbf3574f3fc4d61"
   },
   {
     "target": "gfx1200",
@@ -237,15 +640,17 @@
     "defines": "HIP_ISA_HALF 1; C512_COMPACT_QKV_ATTN 1; C512_FUSED_QKV_ATTN 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; HIP_FMED3_CLAMP 1; C512_COMPACT_NOF 1; C512_COMPACT_RCP 1; C512_COMPACT_FUSEQKV 1; C512_COMPACT_QKV_DEEP 4; C512_COMPACT_QKV_SCHED 1",
     "sources": "multihead_fast_padded.hip+c512_m32_mh.inc+c512_qkv_attention_fused.inc+c512_qkv_attention_compact.inc",
     "opts": "",
-    "sha256": "9C7C7410A2507DC338536C45B2413058A588B698A5E3A3329394B5782F11989D"
+    "sha256": "FC18F29B54192FE5232E9A3E4472DC2E73EB06F6FB182F2126FB3005486F5FF5",
+    "source_sha256": "6bc380113e65a054faacf402c8d003ba1f0c65f6d9b8f82ed5095aed7753077b"
   },
   {
     "target": "gfx1200",
     "module": "c512-m32-deep",
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1; C512_MIX_OCC_LDS 4096; C512_F_MASK 1; HIP_BYTE_F_ADD0 1; C512_FFN_ONE 2; C512_FFN_F8W 1",
     "sources": "deep_fast.hip+c512_m32_deep.inc",
-    "opts": "",
-    "sha256": "5C416B371C864D6A629BC71A330740E64067DC03F3974FEC93B984B11A4C8B10"
+    "opts": "-mllvm=-amdgpu-sched-strategy=max-ilp",
+    "sha256": "065B63597F6E12E0CCF133D591EB49939A214D06395EA35295DE795A97DFA3FE",
+    "source_sha256": "2d83a60eab49ed45690ed35a1dfdb1b7414dc4caf4eb25d3f35c9a0e267ac092"
   },
   {
     "target": "gfx1200",
@@ -253,7 +658,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1; HIP_VIT_STREAM_KERNELS 1; HIP_VIT_QKV_W5 1; VIT_CONTRACT_OCC_LDS 4096; VIT_QKV_F8W 1",
     "sources": "deep_fast.hip+vit_stream.inc",
     "opts": "",
-    "sha256": "DA2BE83204D5782889B430DA4F38A3257C0E9AEE1F00DC7763F0285A79B0177F"
+    "sha256": "3B3E69F58234F1418E6E5F742B22FA5D57DA7E855180A29A615AEE839E8D60BC",
+    "source_sha256": "c60c925012d93d4fc7d27e6ad3ee1c695cae56df8bd58e95f5231bcf5d4a660e"
   },
   {
     "target": "gfx1200",
@@ -261,7 +667,8 @@
     "defines": "HIP_ISA_HALF 1; HIP_PREPACKED_WEIGHTS 1; HIP_BRANCHLESS_F 1",
     "sources": "deep_fast.hip+vit_wide_deep.inc",
     "opts": "",
-    "sha256": "6BFDC9FCD4730518E8ABB0337A974D29AEE38BAC6B14667C98B5582B9E33B7A1"
+    "sha256": "D9E23965DB83AB908C60FC0B7DB4FA3284C97112F0D5F04C4DD52B42DBACCED9",
+    "source_sha256": "3b624edc4f8392eae2c65d8ccbd40e68460449bf69e9a7ba49caf6db0efe2b62"
   },
   {
     "target": "gfx1200",
@@ -269,6 +676,7 @@
     "defines": "HIP_ISA_HALF 1; W2_UP_FUSED 1; W2_FFN_QT_SMALL_MASK 3; W2_FFN_QT_BATCH 2; W2_BOUNDED_RCP 1; HIP_PREPACKED_WEIGHTS 1; HIP_FFN_HOIST_RES 2; HIP_PDL_KERNELS 0; W2_FRAGMENT_WEIGHTS 1; W2_LAUNDER_QKV 1; W2_SCHED_FENCE 1; W2_ROLL_QUERY 1; W2_HIDDEN_TILES 2; W2_PACK8 6; HIP_FMED3_CLAMP 1; W2_BYTE_INPUT_LOADS 1; W2_RTZ_PAIR 1; W2_DIRECT_COORDS 1; W2_Q8_MASK 1; W2_FFN_W16 1; W2_EXPLICIT_WINDOW 1; W2_NO_EXPORTS 1; HIP_SWIN_PERSISTENT_KERNELS 1",
     "sources": "multihead_fast_padded.hip+wave_owned_mh.inc+@swin-persistent-types+swin_persistent.inc",
     "opts": "",
-    "sha256": "F44DFB1953B8DF286B13C9A4F8024E81E51EB4CE9AA902B30217DBA75BADFB11"
+    "sha256": "274A98122FC5AE9A9C4AF688E93D0DFD6CD21B372756CC30B6182039734FE3AA",
+    "source_sha256": "8a486f32134ecf020bf755e76c9d168a72ff26e0fdb8a5d65821f6c0051decd6"
   }
 ]

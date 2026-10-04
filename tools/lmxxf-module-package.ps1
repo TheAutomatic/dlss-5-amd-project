@@ -220,6 +220,14 @@ function New-LmxxfModuleStage([string]$Source, [string]$Destination, [string]$Co
             $manifest | Add-Member -NotePropertyName module_count_per_arch -NotePropertyValue 34 -Force
             $manifest | Add-Member -NotePropertyName targets -NotePropertyValue @('gfx1200', 'gfx1201') -Force
             $manifest | Add-Member -NotePropertyName upstream_commit -NotePropertyValue $CommitHash -Force
+            $llvmCount = 0
+            foreach ($arch in @('gfx1200', 'gfx1201')) {
+                $rows = [IO.File]::ReadAllText((Join-Path $stage "$arch/modules.json")) | ConvertFrom-Json
+                $llvmCount += @($rows | Where-Object { $_.opts -like 'llvm23 prebuilt*' }).Count
+            }
+            $compilerDescription = 'System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK)'
+            if ($llvmCount) { $compilerDescription += "; $llvmCount upstream LLVM23 prebuilt modules (per-module provenance in modules.json)" }
+            $manifest | Add-Member -NotePropertyName compiler -NotePropertyValue $compilerDescription -Force
             [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
             $readme = Join-Path $stage 'README.md'
             if (Test-Path -LiteralPath $readme -PathType Leaf) {

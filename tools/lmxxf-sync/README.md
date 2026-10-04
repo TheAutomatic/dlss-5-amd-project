@@ -96,4 +96,37 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 
 上游 pin 不变、仅调整产品接入或本地补丁时，复核本地最终 diff、重放受影响补丁并重新执行审计即可；不必为此重拷 vendor 或重编未变的模块。功能结论引用同一文档，沿用未变证据。实际追更新 pin 仍走上面的 staged 流程。日常只做风险相关专项测试，完整测试集中在发版前；验证范围与未测项目如实记录。
 
-0.40 功能、COMGR 模块、LLVM23/RowOpts 暂缓及验证边界见 [消费审阅](../../docs/lmxxf-040-consumer-review.md)。
+0.40 功能、LLVM23/COMGR 混合模块、RowOpts 与验证边界见 [消费审阅](../../docs/lmxxf-040-consumer-review.md)。
+
+## LLVM23 与 RowOpts 构建
+
+生产同步启用原版配方的 RowOpts；每架构五个 LLVM23 行，其余29行 COMGR。
+先在 WSL/Linux 提取固定 pin 的 `hip/`、`Development/HIP/swin_persistent_types.h` 与
+`Development/tools/llvm-fork/`（使用 git archive，不能用作者克隆的不同工作树版本）。
+使用官方含 AMDGPU 的 Linux LLVM23.1.2 包或同版本源码构建，先核对归档哈希和
+clang --print-targets；官方 Windows 包不含 AMDGPU。Ubuntu26 的 LLD 缺 ICU70 时，
+可从 Ubuntu 签名仓库下载并私有解包，以 LD_LIBRARY_PATH 指向其 lib 目录。
+不替换系统库，不需要 ROCm SDK。
+
+在 Linux 运行上游脚本（路径按本机设置）：
+
+```sh
+python3 <pinned-source>/Development/tools/llvm-fork/compile-modules.py \
+  --bin <llvm23>/bin --out <linux-output> \
+  --compiler-rows llvm23 --row-opts --target-feature=-real-true16 --jobs 4
+```
+
+把整个输出（含 manifest.json 和两个架构目录）复制到本工作树
+`exports/lmxxf-llvm23/`，或通过 `-LlvmPrebuiltDir` 指定另一目录。同步例如：
+
+```powershell
+tools/sync-lmxxf-upstream.ps1 -UpstreamPath <clone> -UpstreamRef <full-pin> `
+  -SkipUpstreamFetch -LlvmPrebuiltDir exports/lmxxf-llvm23
+```
+
+同步调用未修改的上游 `build-modules.ps1 -RowOpts -PrebuiltDir`，输出到
+`exports/lmxxf-modules/`。包装器保留产品 LINE_STORES 宏，并验证预编来源、
+两个阶段的 -real-true16 与 per-row opts，补齐 C64 的 HIP_BARRIER_FENCE 及源码哈希。
+缺失或过期预编产物必须重新构建，不静默用 COMGR 替代。
+`-ModulesPath` 仍可提供已验证的完整68模块树，照常经过人工来源审阅和双架构契约检查。
+WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 无需迁移。

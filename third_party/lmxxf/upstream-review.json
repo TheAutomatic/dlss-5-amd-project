@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
   "to_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
-  "snapshot": "1bf126d3b985546c723fcc4561a43de6bcaa252170c6f7698f65f9a7bea05e4c",
-  "reviewer": "Codex",
-  "summary": "0.40 functional integration with Config-owned defaults, free geometry, fast numerics and multi-pass; preserve ABI2/recording/timing. COMGR shipping modules; LLVM23 and RowOpts explicitly deferred after actual compiler availability/compile checks.",
-  "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+  "snapshot": "6b062d16f93b32c758a439c56f1bea170666b04bc7dc4fbed7e38c3c02b26886",
+  "reviewer": "Codex; LLVM23/RowOpts local integration review, 2026-10-04",
+  "summary": "0.40 functional integration with Config-owned defaults, free geometry, fast numerics and multi-pass; preserve ABI2/recording/timing. COMGR shipping modules; LLVM23 and RowOpts explicitly deferred after actual compiler availability/compile checks. Local compiler increment: original upstream LLVM23.1.2 rows and COMGR RowOpts enabled for both architectures; actual C64 barrier/source provenance enforced. No configuration, ABI or bridge behavior change. Nine compiler/barrier deferrals closed; remaining23 unchanged. COMGR-only statements in carried records refer to the initial0.40 validation; current compiler decisions and consumer review describe this increment. No local game speedup claim.",
+  "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed. ELF .text comparison against prior COMGR package:56 instruction sections unchanged, only the10 LLVM and2 deep/max-ilp sections changed; final MSVC runtime040-controls also passed with identical baseline hashes.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "45768099419fbc0c9fc7b7efee9d2c0e8a8f7702d5dcc8b53d9cebfe84772b26",
+      "fingerprint": "6078207572606d55093871e0f68fe4b03c6bc913da98f49fffb3b642e69f0d39",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Integrated reviewed 0.40 source/features with retained product ABI2/recording contracts and COMGR modules; compiler optimization explicitly deferred. Final consumer re-review: InstallStatus validates UTF-8 hints before constructing paths and requires a nonempty model header payload; Selector caches dependency I/O only for menu diagnostics. Host malformed-UTF8 fallback regression passed; no inference or module change. Cumulative review additionally removes Mochizuki final-destruction whole-game-queue draining after all owned recording tails are collected; private Vulkan completion, builder join and loss quarantine remain.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 配置、默认值与叠层 / Bridge、ABI、计时和输入; docs/lmxxf-040-consumer-review.md — 累计审查后的本地接入补审; docs/mochizuki.md — Session destruction and queue ownership",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Old runtime failed destroy-tail with unrelated queues blocked; fixed runtime passed destroy-tail and full Mochizuki GPU suite (14 replays, two queues, resize, delayed collection, cancellation, history, formats, DRS). lmxxf inference and module consumers unchanged.",
+      "reason": "Reviewed local compiler-wrapper/package metadata diff and unchanged runtime/module consumers. Default sync invokes upstream RowOpts and fails when LLVM prebuild is missing or source/defines/options do not match; preserves existing product patches and LINE_STORES overrides. Other integration evidence remains unchanged.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     },
     {
@@ -2670,22 +2670,22 @@
     {
       "id": "file:Development/tools/llvm-fork/build-llvm23.sh",
       "fingerprint": "62f3cb3e0bf7ebcd93b909bc3c62497a2cf7676d664037fbcc72363892d539d4",
-      "classification": "production",
-      "decision": "deferred",
-      "reason": "Reviewed compiler recipe parser, l23defines, target feature and row options; Windows official compiler lacks AMDGPU. Not used to claim a shipping LLVM build.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
+      "classification": "out-of-scope",
+      "decision": "excluded",
+      "reason": "Optional source-build route reviewed; the official Linux LLVM23.1.2 package already contains AMDGPU and reproduces the accepted C64 hashes. No compiler fork/source-build changes are required.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
       "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "next_step": ""
     },
     {
       "id": "file:Development/tools/llvm-fork/compile-modules.py",
       "fingerprint": "ac48632a6698149a8625159fc3a3b957e2310b95f2c5c7e4e69f8bb013294c95",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Reviewed compiler recipe parser, l23defines, target feature and row options; Windows official compiler lacks AMDGPU. Not used to claim a shipping LLVM build.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Executed unchanged upstream script on pinned source with compiler-rows llvm23, row-opts and target-feature=-real-true16; source/defines/object/command provenance is bound before copying.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "file:Development/tools/package-039.ps1",
@@ -2762,9 +2762,9 @@
       "fingerprint": "25df20170e793f20c4c7f9871b645280e579c964419949bfda0866785a266c44",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; COMGR recipe used, compiler optimization deferred separately.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 自由几何 / 数值模块与编译器（暂缓项） / Bridge、ABI、计时和输入",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; Original RowOpts recipe now uses the reviewed LLVM23/COMGR split; actual C64 barrier and compiler row evidence recorded separately.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. LLVM23/RowOpts increment: Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     },
     {
@@ -2772,9 +2772,9 @@
       "fingerprint": "590eee91fc05560b55f8a877ab5f0b2f7e2b8240236e7dbad7f9b5e4c931f2d8",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; COMGR recipe used, compiler optimization deferred separately.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 自由几何 / 数值模块与编译器（暂缓项） / Bridge、ABI、计时和输入",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; Original RowOpts recipe now uses the reviewed LLVM23/COMGR split; actual C64 barrier and compiler row evidence recorded separately.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. LLVM23/RowOpts increment: Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     },
     {
@@ -2782,9 +2782,9 @@
       "fingerprint": "dcc2d2ee90b3089bf6f29ba2ea3db1e3432ff340d3c9787b1492b9f2dad4395f",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; COMGR recipe used, compiler optimization deferred separately.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 自由几何 / 数值模块与编译器（暂缓项） / Bridge、ABI、计时和输入",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; Original RowOpts recipe now uses the reviewed LLVM23/COMGR split; actual C64 barrier and compiler row evidence recorded separately.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. LLVM23/RowOpts increment: Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     },
     {
@@ -2792,9 +2792,9 @@
       "fingerprint": "d5823805c8c444c8f182f9f89174d458d5cb8db9eca35ac55ea82ad8972c571f",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; COMGR recipe used, compiler optimization deferred separately.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 自由几何 / 数值模块与编译器（暂缓项） / Bridge、ABI、计时和输入",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; Original RowOpts recipe now uses the reviewed LLVM23/COMGR split; actual C64 barrier and compiler row evidence recorded separately.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. LLVM23/RowOpts increment: Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     },
     {
@@ -2802,9 +2802,9 @@
       "fingerprint": "7b51bb230fbe3eb404471a200a13118cf43caa1e2d73f2cc3b7af33fc88e0b3c",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; COMGR recipe used, compiler optimization deferred separately.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 自由几何 / 数值模块与编译器（暂缓项） / Bridge、ABI、计时和输入",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Reviewed closure and exact source diff; synchronized through manifest/maintained patches. Optional experimental branches remain gated; Original RowOpts recipe now uses the reviewed LLVM23/COMGR split; actual C64 barrier and compiler row evidence recorded separately.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. LLVM23/RowOpts increment: Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     },
     {
@@ -6231,61 +6231,61 @@
       "id": "compiler:c32-wave1",
       "fingerprint": "5faf19dcf2b52d1746211218deb46683cca7d357333496f958a85b45f225b153",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Original LLVM23 row enabled with enable-post-misched=0 and max-ilp for both architectures; actual base C32 defines preserved and matching source hash enforced.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "compiler:c32-wave1-fast",
       "fingerprint": "b09dee9a9a5144b59c7c2cb1593ac3552fa5f099d35432f5ece142e97c7ed8ba",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Original LLVM23 fast row enabled with enable-post-misched=0 and max-ilp for both architectures; fast defines retained and default/control GPU hashes unchanged.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "compiler:c32-wave1-rtz",
       "fingerprint": "b4b12d9cc491df9f35b7e0ce7bcf389309b224143898e0e8f698fe7bc51c70aa",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Original LLVM23 RTZ row enabled with enable-post-misched=0 and max-ilp for both architectures; HIP_C32_RTZ_ISA2 retained for existing geometry-gated selection.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "compiler:c512-m32-deep",
       "fingerprint": "6bea04a5d4aa9a5443fbc2417321b6d77fcbbc2cd0c9735c7cd4a1eed8dc67fd",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Original COMGR max-ilp RowOpts enabled for both architectures; this row remains COMGR, as specified by upstream production recipe.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "compiler:c64-wave2",
       "fingerprint": "b073c6df6f6eea17fa4f9b1d68d06ea50277e0af49661908e4b7e6510a381fd3",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Original LLVM23 C64 row enabled with actual HIP_BARRIER_FENCE1 and both-stage -real-true16; hashes exactly match upstream accepted fenced objects for gfx1200/gfx1201.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "compiler:c64-wave2-fast",
       "fingerprint": "70a884545d6e4461c77d8a368fe33dcd6088e53534025d350eb9f6480f3fccc5",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Original LLVM23 fast C64 row enabled with actual HIP_BARRIER_FENCE1 and both-stage -real-true16; fast path/control/free-resolution GPU regression passed.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "kernel:ATTN_SYNC",
@@ -7211,11 +7211,11 @@
       "id": "kernel:HIP_BARRIER_FENCE",
       "fingerprint": "9b0aac0b92f010eb56b88d2ff06f196733c6f1397e6d17d78244c0cb9052cae7",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Current shipping modules are COMGR without RowOpts; downloaded official LLVM Windows build has no AMDGPU target. C64 fence is mandatory when adopting LLVM23, not a claimed active COMGR define.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "",
-      "next_step": "Build AMDGPU-enabled LLVM23.1.2; run upstream compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16 for both architectures, include C64 HIP_BARRIER_FENCE=1, build remaining COMGR RowOpts rows, record actual provenance; pass old goldens/new controls/geometry/recording and ABBA before claiming speedup."
+      "decision": "integrated",
+      "reason": "Actual LLVM23 C64 base and fast modules prepend HIP_BARRIER_FENCE1 from original l23defines. This is the workgroup/LDS fence before split barriers, required for LLVM22+ gfx12 correctness; it is recorded in both architecture metadata and verified generated source, not merely available as an unused macro.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
+      "next_step": ""
     },
     {
       "id": "kernel:HIP_BRANCHLESS_F",
@@ -8679,12 +8679,12 @@
     },
     {
       "id": "modules:external",
-      "fingerprint": "9cfc13fa3eeb7999f62666310112902e736fea0d855c5c2ff4f5f6e2b0d130b8",
+      "fingerprint": "a457f54bc0916cd362d851e0668536343fefd7681fbc57195fdc8059729829b2",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Supplied full 68-module tree was built locally by Invoke-BuildModules from staged 0.40 sources with module-defines.json overrides. modules.json records COMGR defines/sources and empty opts; actual hashes tested by GPU suite. No LLVM prebuilt substitution.",
-      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器（暂缓项）",
-      "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.",
+      "reason": "Both architecture build trees originate from the fixed0.40 pin.10 LLVM objects are compiled by unmodified upstream compile-modules.py;58 COMGR objects by the original recipe with RowOpts and existing product macro overrides. C64 fence and full LLVM commands/source/object hashes are recorded per module; complete package contract checked before staging.",
+      "evidence": "docs/lmxxf-040-consumer-review.md — 数值模块与编译器 / 已取得验证与边界; tools/lmxxf-sync/README.md — LLVM23 与 RowOpts 构建",
+      "validation": "Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed.",
       "next_step": ""
     }
   ]

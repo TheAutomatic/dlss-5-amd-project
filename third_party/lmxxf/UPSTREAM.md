@@ -2,7 +2,7 @@
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
 - Commit: `c81a88bc8534f7193df08ec3cae21d06d10d285d` (synced 2026-10-04)
-- **0.39 + six commits**: dual-arch modules (31/31) rebuilt from `hip/build-modules.ps1` at this pin, with the two maintained LINE_STORES overrides and no RowOpts/ExtraOpts. Full upstream review, actual per-module selections, product preset differences, validation and explicit deferrals are recorded in [the 0.39 consumer review](../../docs/lmxxf-039-consumer-review.md). Pinned bridge and product recording/timing contracts remain; input polling and IO fusion are not enabled. Direct shared input was integrated in the subsequent local transport update described below. Product bounded timing is independent of upstream FRAME_STATS. This source/module review is not release or game acceptance.
+- **0.40**: dual-arch modules (34/34) rebuilt with the original RowOpts recipe: five LLVM23.1.2 rows per architecture, remaining rows COMGR, and the two maintained LINE_STORES overrides. Actual C64 barrier defines, compiler commands and source/object hashes are recorded in modules.json. Feature decisions, validation and 23 remaining deferrals are in [the 0.40 consumer review](../../docs/lmxxf-040-consumer-review.md). Product ABI, recording/timing contracts and the pinned bridge remain. This source/module review is not release or game acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
@@ -37,7 +37,7 @@ Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves
 |---|---|---|
 | `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual + product `PdlRequested/Effective/Reason`; merge upstream VRAM pool when refreshing | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
 | `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product; forks upstream runtime with auto-exposure meter etc.) | **Not in sync list** — never copied from upstream; merge deliberately |
-| `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` gfx1201 rows | Shipping COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
+| `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` dual-arch rows | Shipping LLVM23/COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
 
 ## FOLLOW (track upstream performance / recipe)
 

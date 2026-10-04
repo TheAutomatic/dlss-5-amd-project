@@ -689,6 +689,16 @@ if ($result -isnot [string] -or -not (Test-Path -LiteralPath $result -PathType C
             text = (self.vendor / 'hip/_build_gfx1201' / (name + '.hsaco')).read_text()
             self.assertEqual(text, 'HIP_FFN_LINE_STORES 1')
 
+    def test_llvm_recipe_requires_prebuild_before_compiler_runs(self):
+        body = self.mock_recipe()
+        recipe = self.vendor / 'hip/build-modules.ps1'
+        recipe.write_text(recipe.read_text().replace("sources = @('active.hip') }",
+            "sources = @('active.hip'); compiler = 'llvm23' }"))
+        result = self.helpers(body)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('LLVM23 rows require', result.stdout)
+        self.assertFalse((self.vendor / 'hip/rtc_compile.exe').exists())
+
     def test_recipe_exit_and_conflicting_override_fail(self):
         result = self.helpers(self.mock_recipe(exit_code=27))
         self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -793,6 +803,19 @@ Assert-LmxxfModulePackage $dest
         metadata = json.loads((self.vendor / 'new-modules/runtime-manifest.json').read_text())
         self.assertEqual(metadata['upstream_commit'], 'fixture')
         self.assertEqual(metadata['module_count'], len(ARCHES) * len(MODULE_NAMES))
+
+    def test_mixed_compiler_package_replaces_stale_comgr_description(self):
+        bundle = make_modules(self.up / 'modules', marker='new')
+        for arch in ARCHES:
+            path = bundle / arch / 'modules.json'
+            entries = json.loads(path.read_text())
+            entries[0]['opts'] = 'llvm23 prebuilt -mllvm=-amdgpu-sched-strategy=max-ilp'
+            write(path, json.dumps(entries))
+        result = self.helpers("Sync-LmxxfModules (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules 'fixture'")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        metadata = json.loads((self.vendor / 'modules/runtime-manifest.json').read_text())
+        self.assertIn('2 upstream LLVM23 prebuilt modules', metadata['compiler'])
+        self.assertIn('amd_comgr_3.dll', metadata['compiler'])
 
     def test_destination_trailing_separator_is_normalized(self):
         make_modules(self.up / 'modules', marker='new')

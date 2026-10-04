@@ -41,33 +41,45 @@ Swin/C256 的既有尺寸门控保留。上游 history/temporal shader 的 NATIV
 FREE_PAD/FREE_EXTRA 是几何对照诊断项，不新增玩家菜单控制。
 上游 720 档与 NVIDIA 几何一致性仍未定论，保留旧固定720档；自由720按新规则计算。
 
-## 数值模块与编译器（暂缓项）
+## 数值模块与编译器
 
 0.40 每架构 34 模块，共 68。Fast numeric 选择 c32-wave1-fast/c64-wave2-fast，
 对应 CW_FAST_NUM=3/W2_FAST_NUM=3；修改的是舍入及倒数路径，有损，不等于逐位算术。
 关闭 fast 时，1920×1152/1088 才选 c32-wave1-rtz（HIP_C32_RTZ_ISA=2）；其他几何用普通 C32。
 fast 优先于 rtz，不需要内容重复的 rtz-fast 文件。缺模块不冒充成功，完整包仍检查全部受控模块。
 
-本轮实际模块由 COMGR 构建，未启用 RowOpts。保留两个 multihead 模块的产品
-HIP_FFN_LINE_STORES=1；各模块实际 defines/source/hash 记录在 modules.json。
+首次接入使用全 COMGR、未启用 RowOpts；2026-10-04 增量接入改为上游 RowOpts 配方。
+每架构 c32-wave1、c32-wave1-rtz、c32-wave1-fast、c64-wave2、c64-wave2-fast 使用
+LLVM23.1.2，其余29行使用驱动 COMGR；c512-m32-deep 使用 max-ilp。
+保留两个 multihead 模块的产品 HIP_FFN_LINE_STORES=1。
+各模块实际 defines/source/hash、LLVM 版本和完整命令记录在 modules.json。
 源码宏、配方与消费者的其余不变部分沿用 [0.39 审阅](lmxxf-039-consumer-review.md)，
 本轮完整模块重建及旧配置黄金输出再次验证，不能仅因源码在模块中出现就宣称该核被派发。
 
-**明确暂缓 LLVM23 与 RowOpts 编译优化**。已下载并核对官方 Windows LLVM 23.1.2
-归档 SHA256 `ceaee048142fece144752c6f6431cb0905a7a6160f78ab8cf5cf0b6216f99418`；
-`clang --print-targets` 无 AMDGPU，真实 HIP 编译失败；本机未安装 WSL。
-这不妨碍 COMGR 执行 0.40 功能，但不能宣称接入上游 LLVM23 的提速。
+原暂缓原因是官方 Windows 包不含 AMDGPU；这不是硬件或内核限制。
+现使用 WSL2 Ubuntu 中官方 `LLVM-23.1.2-Linux-X64.tar.zst`，归档 SHA256
+`6382de1c1a210ce5a5cc49d18bc8444d137742e7cbf9b19f4ae602bb1ab52534`，
+Clang/LLD 23.1.2，LLVM commit `85ac560262434c9ccfc0c183ec22d4138ed647fb`。
+该包包含 AMDGPU；LLD 所需 ICU70 从 Ubuntu 签名仓库取得并私有解包，未降级系统库。
+无需构建 LLVM 源码或安装 ROCm SDK；上游 build-llvm23.sh 作为可选源码构建路径排除。
 
-下一步：在包含 AMDGPU 的 LLVM23.1.2 构建上运行上游
-`Development/tools/llvm-fork/compile-modules.py --compiler-rows llvm23 --row-opts --target-feature=-real-true16`，
-为两个架构生成五个 LLVM 行；C64 两行必须加 l23defines 中的 HIP_BARRIER_FENCE=1。
-其余 COMGR 行按 `build-modules.ps1 -RowOpts -PrebuiltDir` 构建，尤其 c512-m32-deep 的 max-ilp。
-保存编译器版本、完整命令、源码和产物哈希；生成清单必须包含实际 l23defines，不能沿用遗漏这些宏的上游预编拷贝清单。
-验收：模块契约、源补丁、旧输出黄金值、新默认与叠层/自由几何 GPU 回归，再做相同负载的 ABBA，才能声称提速。
+固定 pin 的源码经 git archive 提取；未修改上游 compile-modules.py：
+`--compiler-rows llvm23 --row-opts --target-feature=-real-true16 --jobs 4`，同时生成 gfx1200/gfx1201。
+Linux 只离线编译这10个 GPU 模块；其余模块仍用原版 Windows build-modules.ps1 的
+`-RowOpts -PrebuiltDir`，宿主和 Runtime 继续 MSVC，不迁移 MSYS2 或产品桥接补丁。
+C64 两行实际含 l23defines 的 HIP_BARRIER_FENCE=1，两个编译阶段均禁用 real-true16。
+普通 C64 产物与上游 next-candidate 接受版本完全相同：gfx1201
+`a0cad8cb4b53db0756cde6c4abec9c1d7b3f4c0eaa82cd59fa281c8958dc898d`，gfx1200
+`b90443ee1589815c00f9e009cbffedaef2f079497b83e82369af25f139a6fdd1`。
+
+同步包装器核对预编 manifest 的实际 defines、源码 SHA256、产物 SHA256、目标和调度选项，
+补齐上游预编拷贝清单遗漏的 l23defines 与生成源码；不改写 FOLLOW 的上游编译脚本。
+缺少 manifest、源码/宏/产物不匹配时失败，不能静默退回全 COMGR。
+可复现步骤见 [同步工作流](../tools/lmxxf-sync/README.md#llvm23-与-rowopts-构建)。
 
 依据：`compiler-sweep-20261001`、`llvm23-vit-20261002`、`next-candidate-20261002` 的结果与生成脚本。
 LLVM22/23 不再为 gfx12 裸拆分屏障自动补 LDS 等待；COMGR 本轮仍走既有 LLVM21 路径。
-HIP_BARRIER_FENCE=1 对未来 LLVM C64 行是正确性前提，不能因当前热核未使用就删掉。
+HIP_BARRIER_FENCE=1 对实际 LLVM C64 行是正确性前提，不能删掉。
 不扩展 LLVM 到所有模块：上游已查明 ViT/MH 裸屏障问题，补栅栏后仍无稳定性能收益。
 
 ## Bridge、ABI、计时和输入
@@ -111,6 +123,23 @@ RuntimeConfigTests 4项通过（层合并、BOM/空值/重复、宿主优先）�
 最终完整CI及打包状态单独记录在发布交接，不能由上述开发验证替代。
 gfx1200真实硬件、游戏画面/帧率、完整安装后的用户验收未完成；由本地试包继续验证。
 
+LLVM23/RowOpts 增量验证：10个 LLVM 模块与其余58个 COMGR 模块完整构建；
+逐个比较 ELF `.text`：仅10个 LLVM 与2个 deep/max-ilp 模块的指令变化，
+其余56个指令段与旧包一致；重建后的完整文件哈希包含生成源码换行等元数据差异。
+LLVM 模块的上游屏障扫描启发式检查均为0命中（C32每个24核，C64每个116核），
+该静态检查不替代 GPU 验证。RX9070XT 的完整 `tests/lmxxf/run.cmd gpu` 通过，
+含上述旧黄金值、0.40 控制、四个自由尺寸、故障注入、录制重放、adaptive 重置及两遍计时。
+COMGR/LLVM 默认1080、自由1440及控制切换哈希一致；未执行新的后端性能基准或游戏 ABBA，
+不报告本地提速百分比。按 [测量纪律](measurement.md)，后端性能仅引用上游。
+完整 CI 和最终 Runtime 身份记录在本次验证输出，不据此声称已发布或游戏验收。
+最终 `tests/run-all.cmd --tier ci,device --out exports/llvm23-ci` 全部通过，
+包含65项同步测试和新增来源/混合编译器专项；未跳过 sync。
+MSVC Runtime SHA256（与完整CI凭证及最终GPU控制测试一致）：
+`7738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5`。
+完整GPU套件验证的是同源码、同MSVC配置的前一构建；最终构建另验证全部0.40控制。
+日志为 `exports/llvm23/{gpu,final-runtime-controls,ci,audit-final}.log`，
+凭证为 `exports/llvm23-ci/runtime-ci.sha256`。本次未制作或发布安装包。
+
 ## 累计审查后的本地接入补审
 
 2026-10-04 从鬼武者状态恢复修复起补审宿主与三后端的累计改动。
@@ -120,4 +149,6 @@ gfx1200真实硬件、游戏画面/帧率、完整安装后的用户验收未完
 旧代码在队列阻塞复现中失败；修复后 destroy-tail 与完整 Mochizuki GPU 回归通过，
 含14次重放、双队列、resize、延迟收集、构建取消、历史顺序、格式与DRS。
 lmxxf Runtime、桥接、配置和68个模块未因该修正改变，沿用以上0.40功能证据；
-其余逐项分类、32项暂缓及验收条件保持不变。最终CI与产物身份仍由发版验证记录。
+当时其余逐项分类、32项暂缓及验收条件保持不变；后续 LLVM23/RowOpts 接入连同
+C64 屏障宏关闭其中9项，现余23项；其余分类与验收条件沿用不变证据。
+最终CI与产物身份仍由验证记录。
