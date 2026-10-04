@@ -61,6 +61,8 @@ raw夹具仍是固定SHA的无BOM原文件。配方、宏、命令和内核源�
 FAST_NUMERIC=1保留C32/C64/C128近似，并选择上述两个fast twin：
 deep VIT_FAST_NUM=15（attention去half/裸rcp及projection去RNE half），vit-stream=4。
 本地FastTwin补丁仅查询配方实际交付的四种twin，避免每次初始化把不存在的实验MH twin误报为安装缺失。
+另修复上游无条件twin循环覆盖rtz_tall结果的问题：仅FAST1重写twin；FAST0的1920×1152/1088
+保留c32-wave1-rtz，其他几何保持普通C32。这延续0.40既有优化，不新增模块或数值算法。
 `VIT_FAST_H` 由bit2选择，不是独立开关。关闭FAST使用普通模块；不能保证跨版本FAST=1输出相同。
 C512_FAST_PROJ默认0及VIT_FAST_NUM的f16残差导出位不启用：上游两种残差实现精确但更慢，
 生产配方和宿主分支未收，不能将它们算作已启用优化。
@@ -140,4 +142,10 @@ RE9 runtime把文件强度优先于host的改变不采纳。保留host标志优�
 - `lmxxf_recording_runtime_gpu` 冷启动3层+预测+肤色通过，覆盖录制、保留/重放、队列和完成凭证，
   baseline=49cc30048d3410ca，8个有效网络时间样本；未出现producer等待中的首次同步分配停顿。
 
-最终完整CI、旧黄金输出、设备检查和试包状态随后追加。游戏观感/性能、双HIP设备和gfx1200实卡未测。
+0.41候选完整`tests/lmxxf/run.cmd gpu`通过：格式/曝光、有效subrect、任意分辨率、
+新旧控制、recording/adaptive/clear、2层及冷3层预测+肤色全部通过。
+最终审查发现并修复FAST0的RTZ选择退步后，未重建未变的76模块，重新编译MSVC Runtime，
+EXACT=`fe40c904da05472e`、AE和AE×16=`79233836b6257864`、R10=`8ba14ef2db0dddfe`
+四项黄金输出再次通过。FAST1分支未变，沿用候选的控制/布局/录制验证。
+旧候选的完整CI中止，不沿用其凭证；最终DLL重新跑完整CI与device检查。
+游戏观感/性能、双HIP设备和gfx1200实卡未测。

@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
   "to_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
-  "snapshot": "1aafd0dbad0608e218a50f05ad49409b161992effc10b7e2b273445162a5e8a4",
+  "snapshot": "5d28f3f129171dc5ecda0444e88b08bcf3c4586828346534939f904d6388d7f6",
   "reviewer": "Codex - feature/consumer review 2026-10-05",
   "summary": "lmxxf0.41 staged integration retaining PostSr and multipass ABI2; explicit predict/skin controls, canonical76 LLVM23/COMGR modules, exact layout optimizations and enqueue device selection. Full feature inventory and boundaries: docs/lmxxf-041-consumer-review.md",
   "validation": "docs/lmxxf-041-consumer-review.md - 本地验证: MSVC runtime, config CRT6, raw patch replay2, controls041, RGB/RGBA and native1440 layout comparisons, cold3 predict+skin recording PASS. Complete release CI/game validation recorded separately.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "6b434a5d6e1e5e48d021011187fc7ce602c9082ec34e6a9a4f8e42fbd588c38d",
+      "fingerprint": "4de9fc0e1d383a19390faa507910d3b0a53b8278f0a41374ad1c3560fdc4859a",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed final local config/menu/runtime/module contract and maintained patches. Retain completed PostSr/recording ABI2; stage checks passed, final CI and local package follow. Encoding-only follow-up: raw0.41 build script lost UTF-8 BOM; maintained patch restores only BOM, no recipe/kernel changes. Module provenance and bytes remain applicable; independent raw patch replay2 passed again. Recipe fingerprint normalizes only a leading PS1 UTF-8 BOM, retaining all other bytes. Dedicated BOM/changed-source/binary and unknown-baseline/pending-retry tests pass; no module waiver.",
+      "reason": "Reviewed final local config/menu/runtime/module contract and maintained patches. Retain completed PostSr/recording ABI2; stage checks passed, final CI and local package follow. Encoding-only follow-up: raw0.41 build script lost UTF-8 BOM; maintained patch restores only BOM, no recipe/kernel changes. Module provenance and bytes remain applicable; independent raw patch replay2 passed again. Recipe fingerprint normalizes only a leading PS1 UTF-8 BOM, retaining all other bytes. Dedicated BOM/changed-source/binary and unknown-baseline/pending-retry tests pass; no module waiver. Final code review restores FAST0 RTZ-tall selection: guard fast-twin replacement with cached fast_numeric. Keeps existing0.40 module path and all FAST1 code; no module byte change.",
       "evidence": "docs/lmxxf-041-consumer-review.md - 本地验证; Bridge与宿主边界",
-      "validation": "docs/lmxxf-041-consumer-review.md - 本地验证: MSVC runtime, config CRT6, raw patch replay2, controls041, RGB/RGBA and native1440 layout comparisons, cold3 predict+skin recording PASS. Complete release CI/game validation recorded separately.",
+      "validation": "docs/lmxxf-041-consumer-review.md - 本地验证: MSVC runtime, config CRT6, raw patch replay2, controls041, RGB/RGBA and native1440 layout comparisons, cold3 predict+skin recording PASS. Complete release CI/game validation recorded separately. Final MSVC rebuild plus EXACT/AE/AE-scale16/R10 GPU goldens passed after the RTZ fix. Earlier full0.41 GPU suite passed; FAST1 controls/layout/recording remain applicable. Final fullCI uses rebuilt DLL, no old receipt reuse.",
       "next_step": ""
     },
     {

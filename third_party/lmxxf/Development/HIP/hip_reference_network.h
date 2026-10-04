@@ -733,7 +733,7 @@ std::fprintf(stderr,"vit_contract_byte_edge=%u\n",unsigned(vit_contract_byte_edg
 if(wave_owned_active){
  const bool rtz_tall=HIP_C32_RTZ_TALL&&W==1920&&(H==1152||H==1088)&&std::ifstream(std::filesystem::u8path(opt.modules+"/c32-wave1-rtz.hsaco"),std::ios::binary).good();
  std::string extra[][2]={{"c64_wave2","c64-wave2"},{"c32_wave1",rtz_tall?"c32-wave1-rtz":"c32-wave1"}};
- for(auto&entry:extra)entry[1]=FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
+ if(fast_numeric)for(auto&entry:extra)entry[1]=FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* Preserve the selected RTZ module when fast numeric is off; fast C32 always uses the non-RTZ twin stem. */
  for(auto&entry:extra){entry[1]+=".hsaco";Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+entry[1]).c_str()),entry[1].c_str());modules[entry[0]]=m;}}
 if(SwinRunCompatible(opt)){
  std::ifstream probe(std::filesystem::u8path(opt.modules+"/swin-persistent.hsaco"),std::ios::binary);

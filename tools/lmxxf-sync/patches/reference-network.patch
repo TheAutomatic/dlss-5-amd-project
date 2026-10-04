@@ -124,6 +124,15 @@
  if(c512_m32_active){
   const char*extra[][2]={{"c512_m32_mh","c512-m32-mh.hsaco"},{"c512_m32_deep","c512-m32-deep.hsaco"}};
   for(auto&entry:extra){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+entry[1]).c_str()),entry[1]);modules[entry[0]]=m;}}
+@@ -677,7 +733,7 @@
+ if(wave_owned_active){
+  const bool rtz_tall=HIP_C32_RTZ_TALL&&W==1920&&(H==1152||H==1088)&&std::ifstream(std::filesystem::u8path(opt.modules+"/c32-wave1-rtz.hsaco"),std::ios::binary).good();
+  std::string extra[][2]={{"c64_wave2","c64-wave2"},{"c32_wave1",rtz_tall?"c32-wave1-rtz":"c32-wave1"}};
+- for(auto&entry:extra)entry[1]=FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
++ if(fast_numeric)for(auto&entry:extra)entry[1]=FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* Preserve the selected RTZ module when fast numeric is off; fast C32 always uses the non-RTZ twin stem. */
+  for(auto&entry:extra){entry[1]+=".hsaco";Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+entry[1]).c_str()),entry[1].c_str());modules[entry[0]]=m;}}
+ if(SwinRunCompatible(opt)){
+  std::ifstream probe(std::filesystem::u8path(opt.modules+"/swin-persistent.hsaco"),std::ios::binary);
 @@ -688,7 +744,7 @@
  if(opt.fast_deep){const std::string deep_stem=opt.packed_weights?"deep_fast-packed":"deep_fast";Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+FastTwin(deep_stem)+".hsaco").c_str()),"deep fast module");modules["deep_fast"]=m;}
  if(opt.fast_mh){const std::string mh_stem=opt.packed_weights?(opt.mh_wave?"multihead-fast-padded-wave-packed":"multihead-fast-packed"):(opt.mh_wave?"multihead-fast-padded-wave":"multihead-fast");Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+FastTwin(mh_stem)+".hsaco").c_str()),"MH fast module");modules["mh_fast"]=m;}
