@@ -123,6 +123,11 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 
 ## 暂缓 / 不做
 
+2026-10-04 已按用户决定关闭剩余实验/旧路径与额外idle菜单绑定，当前功能暂缓0项。
+未采用的实验不作为重复数值/性能验证待办；具体依据见
+[决定](../decisions.md#2026-10-04--lmxxf-剩余20项不再作为接入待办)及
+[逐项表](../lmxxf-040-consumer-review.md#未采用路径与上游验证范围)。
+
 逐项的暂缓、排除理由及下一步，以 [upstream-review.json](../../third_party/lmxxf/upstream-review.json) 为准；实际跳过的验证以 [sync-state.json](../../third_party/lmxxf/sync-state.json) 的 `skipped_checks` 为准。旧能力评审的列表不能直接当作当前结论；`reviewed` 也不代表所有功能都已启用或所有验证都已完成。
 
 ## 与上游的关系

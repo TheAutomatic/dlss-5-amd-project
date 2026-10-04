@@ -3,9 +3,9 @@
   "from_commit": "82ce821f0ea1a12925d04c353cb2d1b9ee006c11",
   "to_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
   "snapshot": "6b062d16f93b32c758a439c56f1bea170666b04bc7dc4fbed7e38c3c02b26886",
-  "reviewer": "Codex; LLVM23/RowOpts local integration review, 2026-10-04; user-confirmed closure of3 prior optimization candidates,2026-10-04",
-  "summary": "Current0.40 integration: Config-owned defaults, free geometry, fast numerics and multi-pass; preserve product ABI2/recording/timing. Original upstream LLVM23.1.2 rows and COMGR RowOpts enabled for both architectures with actual C64 fence/source provenance.20 deferrals remain. User-confirmed2026-10-04: INPUT_POLL, IO_FUSE and C512_PROJ_FB8 are excluded, decided not to integrate, and are not optimization TODOs. Reuse these decisions unless new matching end-to-end or product-bottleneck evidence warrants reopening under new user direction; version/toolchain availability alone is insufficient. Historical carried validation remains source evidence, not a current claim of all-COMGR compilation. No local game speedup claim.",
-  "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed. ELF .text comparison against prior COMGR package:56 instruction sections unchanged, only the10 LLVM and2 deep/max-ilp sections changed; final MSVC runtime040-controls also passed with identical baseline hashes. Decision-only update: prior local decisions and corrected pinned upstream B8 reports reviewed; runtime/modules and their existing CI/GPU proof are unchanged.",
+  "reviewer": "Codex; LLVM23/RowOpts local integration review, 2026-10-04; user-confirmed closure of3 prior optimization candidates,2026-10-04; user-confirmed closure of remaining20 unselected paths/config binding,2026-10-04",
+  "summary": "Current0.40 integration: Config-owned defaults, free geometry, fast numerics and multi-pass; preserve product ABI2/recording/timing. Original upstream LLVM23.1.2 rows and COMGR RowOpts enabled for both architectures with actual C64 fence/source provenance.0 deferrals remain. User-confirmed2026-10-04: INPUT_POLL, IO_FUSE and C512_PROJ_FB8 are excluded, decided not to integrate, and are not optimization TODOs. Reuse these decisions unless new matching end-to-end or product-bottleneck evidence warrants reopening under new user direction; version/toolchain availability alone is insufficient. Historical carried validation remains source evidence, not a current claim of all-COMGR compilation. No local game speedup claim. All remaining20 decisions are now excluded under the documented user policy:19 unselected experimental/legacy entries plus additional adaptive-idle Config/menu binding only. Preserve accepted production optimizations, adaptive500 ms behavior and existing external override. Do not reopen unchanged experiments or demand local numerical/performance reruns merely because they remain in upstream source.",
+  "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately. Original pinned compile-modules.py produced10 LLVM modules in WSL2 using official AMDGPU-enabled LLVM23.1.2; original Windows recipe with RowOpts produced68 total. Source/object/defines/commands verified; ordinary C64 hashes match upstream accepted candidates. Static barrier heuristic:0 hits for all10, nonempty disassembly checked. MSVC runtime/ABI and63 sync tests passed; provenance accept/reject tests passed; missing-prebuild fail-before-compile test passed. RX9070XT complete tests/lmxxf/run.cmd gpu passed: old exact/AE/R10 goldens retained, all040-controls hashes match prior COMGR control run, default1080 8ab18e93c98441d7, free1440 0ee1753213d7b7f8, arbitrary geometry/recording/adaptive/zero-fallback/two-pass coverage. Logs exports/llvm23/gpu.log and baseline-controls.log. Final tests/run-all.cmd --tier ci,device passed without skip-sync (65 sync tests included); MSVC runtime SHA2567738dfda5c1c9c2b8c503ae560169c376660a711a1112a6fb18fab960bb742b5 matches exports/llvm23-ci/runtime-ci.sha256 and final040-control GPU run; no game ABBA or gfx1200 hardware validation claimed. ELF .text comparison against prior COMGR package:56 instruction sections unchanged, only the10 LLVM and2 deep/max-ilp sections changed; final MSVC runtime040-controls also passed with identical baseline hashes. Decision-only update: prior local decisions and corrected pinned upstream B8 reports reviewed; runtime/modules and their existing CI/GPU proof are unchanged. Decision-only closure of20 entries: pinned production defaults/template, consumer compatibility and existing upstream findings checked; code/modules and existing CI/GPU proof unchanged.",
   "decisions": [
     {
       "id": "integration",
@@ -4071,11 +4071,11 @@
       "id": "flag:DLSS5_HIP_FFN_QKV_BN",
       "fingerprint": "97c9e3d4fcaf9f2fa8a6e1960bec3df4dbf3757a0cd2eff86304bb7dd05714c5",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; constructor rejects batched norm with mh_byte_stream, which is enabled in production. Not independently switchable on current recipe.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-ffn-qkv-bn.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_FFN_QKV_BN: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; constructor rejects batched norm with mh_byte_stream, which is enabled in production. Not independently switchable on current recipe. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-ffn-qkv-bn.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_FFN_QKV_MAX_C",
@@ -4091,11 +4091,11 @@
       "id": "flag:DLSS5_HIP_GATHER_FOLD",
       "fingerprint": "1ba48a7a66a4b4ed797f41ca673a25506d8496f42f2b4e1fc8617724fd82f73b",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "GatherFoldOk returns false at HIP_VIT_GATHER_FOLD_HOST=0 before env parsing; upstream exact experiments were slower3/3. Not enabled.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/hip_reference_network.h; Exact upstream consumer paths: Development/HIP/hip_reference_network.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_GATHER_FOLD: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. GatherFoldOk returns false at HIP_VIT_GATHER_FOLD_HOST=0 before env parsing; upstream exact experiments were slower3/3. Not enabled. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/hip_reference_network.h; Exact upstream consumer paths: Development/HIP/hip_reference_network.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围; Development/results/gap-fusion-20260930/README.md:19 groups SAME,900p slower in all3 rounds,author rejected and left host/module gates0",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_GATHER_FOLD_LOG",
@@ -4151,11 +4151,11 @@
       "id": "flag:DLSS5_HIP_MH_ATTN_W16",
       "fingerprint": "fca67361d2725ee1fcd7a420b422da59ab28a01f2d11d9e14e169b886268f8af",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "mh_attn_w16 defaultfalse; legacy projection selects w16 only c64 without feature_byte/out_byte. Current byte pipeline does not use this option; W2_FFN_W16 is separate.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-c64-w16.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_MH_ATTN_W16: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. mh_attn_w16 defaultfalse; legacy projection selects w16 only c64 without feature_byte/out_byte. Current byte pipeline does not use this option; W2_FFN_W16 is separate. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-c64-w16.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_MH_BYTE_STREAM",
@@ -4181,11 +4181,11 @@
       "id": "flag:DLSS5_HIP_MH_FFN_FRAG",
       "fingerprint": "c9a7aa26bcd6cf61a22f8cb941e5755de0488d908b2f4050d8cae12bcd4d9767",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse for C64/C128 legacy fragment route; current wave-owned kernels use their own layouts. Do not infer from enabled C256 option.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-c256-fragment.ps1; Development/HIP/test-ffnfrag.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_MH_FFN_FRAG: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse for C64/C128 legacy fragment route; current wave-owned kernels use their own layouts. Do not infer from enabled C256 option. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-c256-fragment.ps1; Development/HIP/test-ffnfrag.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_MH_FFN_FRAG256",
@@ -4221,11 +4221,11 @@
       "id": "flag:DLSS5_HIP_MH_WINDOW_FUSED",
       "fingerprint": "7ff258c4164dc8236b29329b6fa85865857f0524bc8dfcd3bca7cccccfd02165",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; requires special c64-window-fused module outside31-module package and non-byte feature path. Cannot turn on independently.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_MH_WINDOW_FUSED: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; requires special c64-window-fused module outside the current controlled module package and non-byte feature path. Cannot turn on independently. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_MODULES",
@@ -4261,11 +4261,11 @@
       "id": "flag:DLSS5_HIP_POOL_PROJECT_FUSED",
       "fingerprint": "c4d320a65e85820d4b9df5c6ad601e03f75b387976a0f64650493de30ec295a0",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; alternative Down path requires token count divisible16 and changes pooling/projection dispatch; not final production recipe.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-pool-project.ps1; Development/HIP/test-poolf.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_POOL_PROJECT_FUSED: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; alternative Down path requires token count divisible16 and changes pooling/projection dispatch; not final production recipe. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-pool-project.ps1; Development/HIP/test-poolf.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_POOL_PROJECT_GROUP",
@@ -4351,11 +4351,11 @@
       "id": "flag:DLSS5_HIP_QKV_WAVE_C512",
       "fingerprint": "e1c7082c83f0787daa968dd89f81ecdafccac230ec4393042c3febb359836962",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; constructor forbids combination with c512_qkv_frag=true. Current C512 fragment/M32 recipe retained.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-c512-qkv.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "To revisit HIP_QKV_WAVE_C512: construct a compatible isolated recipe using the cited consumer prerequisites and required exports, compare exact/AE hashes plus repeated mean/p99 on both target architectures; enable only with measured benefit. Keep current production default unchanged."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; constructor forbids combination with c512_qkv_frag=true. Current C512 fragment/M32 recipe retained. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/Run/constructor/Down; product LmxxfProductionOptions.h; Development/HIP/test-c512-qkv.ps1; src/native_hip_env_options.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_RASTER_ONLY",
@@ -4391,11 +4391,11 @@
       "id": "flag:DLSS5_HIP_SPARSE_WEIGHTS",
       "fingerprint": "79607a65f82368881b425fdfec39808fd5898f112185cd65a1b795429077dda9",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse. Sparse multi-chunk VMM allocations caused upstream driver hangs/hash changes; source constructor and Allocation retain only opt-in path.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_SPARSE_WEIGHTS only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse. Sparse multi-chunk VMM allocations caused upstream driver hangs/hash changes; source constructor and Allocation retain only opt-in path. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_SPLIT_MAPPED",
@@ -4411,11 +4411,11 @@
       "id": "flag:DLSS5_HIP_SPLIT_MIX_FUSED",
       "fingerprint": "c7c463abed8d86764d7823b7dbac6d83df0122958c536c9d4d6af4c0ce1ca115",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; incompatible with product split_mix_h16w and c512_proj_tiles, validated by constructor.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_SPLIT_MIX_FUSED only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; incompatible with product split_mix_h16w and c512_proj_tiles, validated by constructor. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_SPLIT_MIX_H16W",
@@ -4441,11 +4441,11 @@
       "id": "flag:DLSS5_HIP_TILED_FFN_SMALL",
       "fingerprint": "3061112b01e46749386408f7c8835fb490844ff8c2bbe75a909fafe1dffa531a",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; TiledMin controls C64/C128 alternative, product tiled_ffn_min_c=256. No demonstrated reason to override production lower-channel recipe.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_TILED_FFN_SMALL only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; TiledMin controls C64/C128 alternative, product tiled_ffn_min_c=256. No demonstrated reason to override production lower-channel recipe. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_ATTN_FUSED",
@@ -4461,11 +4461,11 @@
       "id": "flag:DLSS5_HIP_VIT_BYTE_STREAM",
       "fingerprint": "a632979477beaf99de272547f6b6d3608f3fd5d42cd6567fb89630a52b7257dd",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Old boolean stream defaultfalse; incompatible with current VitStreamCompatible path. Not the VIT_STREAM bitmask.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_BYTE_STREAM only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Old boolean stream defaultfalse; incompatible with current VitStreamCompatible path. Not the VIT_STREAM bitmask. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_CONTRACT_FRAG",
@@ -4491,51 +4491,51 @@
       "id": "flag:DLSS5_HIP_VIT_EXPAND_M2",
       "fingerprint": "0e18070d1d637a70ed9d980e2707ef733d031e2ee59d70845a846477042bb4a8",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; alternate fragment expand kernel excludes M4 and changes dispatch. Not selected in current recipe.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_EXPAND_M2 only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; alternate fragment expand kernel excludes M4 and changes dispatch. Not selected in current recipe. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_EXPAND_M4",
       "fingerprint": "98adf26e154e2abeccd98f5775342a2332a79d63ecce291678967d5fc2df41e7",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; requires blocked packed mask1 and excludes old byte-stream; retained only as alternate experiment.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_EXPAND_M4 only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; requires blocked packed mask1 and excludes old byte-stream; retained only as alternate experiment. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_FFN_FUSED",
       "fingerprint": "0f6f95604b4f8e33ca3bb7535b6ab113a82f6e9c501529611169b38ca355209b",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; constructor excludes byte-stream/input-tiled/M2/M4/splitK and current VitStreamCompatible requires false.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_FFN_FUSED only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; constructor excludes byte-stream/input-tiled/M2/M4/splitK and current VitStreamCompatible requires false. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_HALF_STREAM",
       "fingerprint": "659a4acd8b00e6842cad5e127e0805b91315758c6404e4959d4fc264f02680a6",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Old boolean defaultfalse requires old vit_byte_stream=true; current VIT_STREAM bit1 handles half contract separately.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_HALF_STREAM only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Old boolean defaultfalse requires old vit_byte_stream=true; current VIT_STREAM bit1 handles half contract separately. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_INPUT_TILED",
       "fingerprint": "67b49d7d6702ad8270633bf0491e86595098823d51a515432ca6b17914c8246b",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; requires expand fragment and excludes M2/M4/old byte stream. Current packed input is not this experimental layout.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_INPUT_TILED only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; requires expand fragment and excludes M2/M4/old byte stream. Current packed input is not this experimental layout. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_PROJ_FRAG",
@@ -4591,21 +4591,21 @@
       "id": "flag:DLSS5_HIP_VIT_QKV_N4",
       "fingerprint": "0fbdf90dcf964eafecdbea5386aa0e55694c84dce4663cfde9ec870bca0022dd",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse requires old half stream, which requires old byte stream. Not enabled in current mask3 path.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_QKV_N4 only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse requires old half stream, which requires old byte stream. Not enabled in current mask3 path. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_SPLIT_K",
       "fingerprint": "28d8e2c910ae60af5e5e234e363ef9303fdbe33a0e4518c02191f427068b2443",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Defaultfalse; splitK excludes current stream and changes reduction order. Current exact recipe retained.",
-      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit HIP_VIT_SPLIT_K only with compatible Options and module layout; for sparse weights first prove VMM multi-chunk kernel correctness on supported drivers. For ViT alternatives disable conflicting stream modes, compare exact/AE and repeated frame mean/p99 on both architectures before changing production default."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Defaultfalse; splitK excludes current stream and changes reduction order. Current exact recipe retained. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "src/native_hip_env_options.h; Development/HIP/hip_reference_network.h Options/compatibility predicates/constructor; Development/HIP/hip_d3d12_bridge.h; src/native_network_geometry.h/native_pso.h; product LmxxfProductionOptions.h and ConfigKeys.h; Exact upstream consumer paths: src/native_hip_env_options.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围; Development/HIP/README.md — ViT16x64 output blocks: narrow and16x64 Split-K preserved output but ran slower,kept off; distinct from HLSL DLSS5_VIT_SPLIT_K",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_HIP_VIT_STREAM",
@@ -6021,11 +6021,11 @@
       "id": "flag:DLSS5_VIT_ADAPTIVE_IDLE_MS",
       "fingerprint": "7ccf8cb7f8afcbbf0bb990de67ed453f48516969f358fe53ee98eb5f261ff382",
       "classification": "production",
-      "decision": "deferred",
-      "reason": "Retain upstream default 500 ms and diagnostic external override. It is an idle-reset threshold, not a frame-reuse quality setting. Do not inject the large benchmark threshold into the user ini.",
-      "evidence": "Upstream 82ce821f: Development/HIP/hip_reference_network.h: AdaptiveIdleMs; Development/HIP/experiments/c128-c64-inchain/idle-check.ps1 and pin-check.ps1; Exact upstream consumer paths: Development/HIP/hip_reference_network.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "If users need adjustable idle behavior, add ConfigKeys/known-key, Config load/save, EnvAlias/PutEnvAlias and bounded menu setting. Test 500 ms default, 0 every-frame reset, long-idle reset, rebuild and symmetric benchmark pin; document initialization caching/restart semantics."
+      "decision": "excluded",
+      "reason": "User-confirmed exclusion of additional product Config/menu binding,2026-10-04. The existing upstream500 ms idle-reset behavior and external diagnostic override remain active; this decision does not disable adaptive reuse or its idle reset.",
+      "evidence": "Upstream 82ce821f: Development/HIP/hip_reference_network.h: AdaptiveIdleMs; Development/HIP/experiments/c128-c64-inchain/idle-check.ps1 and pin-check.ps1; Exact upstream consumer paths: Development/HIP/hip_reference_network.h; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "flag:DLSS5_VIT_ADAPTIVE_LOG",
@@ -7921,11 +7921,11 @@
       "id": "kernel:HIP_VIT_GATHER_FOLD",
       "fingerprint": "f3267687248c7676587152814943f88a57bf3b6036c81bed8a9256d4ce0b8d01",
       "classification": "experiment",
-      "decision": "deferred",
-      "reason": "Default0 in both head producer and deep consumer; host gate also0. Exact but slower upstream; keep normal gather until repeated full-frame benefit.",
-      "evidence": "c512-m32-deep (hip/deep_fast.hip): recipe [], source ['0']; deep_fast (hip/deep_fast.hip): recipe [], source ['0']; deep_fast-packed (hip/deep_fast.hip): recipe [], source ['0']; multihead-fast-padded-wave-packed (hip/c512_head_group.inc): recipe [], source ['0']; vit-stream (hip/deep_fast.hip): recipe [], source ['0']; vit-wide-deep (hip/deep_fast.hip): recipe [], source ['0']; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.",
-      "validation": "",
-      "next_step": "Revisit only with paired host/module compile gates and matching buffer/weight layout; compare exact and AE output plus repeated full-frame mean/p99 on both architectures before enabling."
+      "decision": "excluded",
+      "reason": "User-confirmed not to adopt this unselected experimental/legacy path,2026-10-04. Default0 in both head producer and deep consumer; host gate also0. Exact but slower upstream; keep normal gather until repeated full-frame benefit. Follow the accepted upstream production recipe; no local re-benchmark TODO for this excluded path.",
+      "evidence": "c512-m32-deep (hip/deep_fast.hip): recipe [], source ['0']; deep_fast (hip/deep_fast.hip): recipe [], source ['0']; deep_fast-packed (hip/deep_fast.hip): recipe [], source ['0']; multihead-fast-padded-wave-packed (hip/c512_head_group.inc): recipe [], source ['0']; vit-stream (hip/deep_fast.hip): recipe [], source ['0']; vit-wide-deep (hip/deep_fast.hip): recipe [], source ['0']; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/decisions.md — 2026-10-04 lmxxf 剩余20项不再作为接入待办; docs/lmxxf-040-consumer-review.md — 未采用路径与上游验证范围; Development/results/gap-fusion-20260930/README.md:19 groups SAME,900p slower in all3 rounds,author rejected and left host/module gates0",
+      "validation": "Decision-only source/recipe review at fixed0.40 pin; individual prior consumer/layout evidence retained. No new runtime/module change, candidate execution or local performance claim. Existing upstream measurements are used where documented; a test script alone is not a recorded passing result.",
+      "next_step": ""
     },
     {
       "id": "kernel:HIP_VIT_HOIST_SCALE",

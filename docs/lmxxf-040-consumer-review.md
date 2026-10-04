@@ -104,11 +104,51 @@ runtime 已采用共享直接输入；上游 DIRECT_IO bitmask 不作为第二�
 - compiler sweep 的其他调度、部分寄存器、VOPD、s_delay_alu、LLVM ViT/MH 等组合：没有进入最终配方，保留实验，不普遍启用。
 - INPUT_POLL、IO_FUSE、投影FB8已决定不接入（excluded），依据和重开条件见
   [决策记录](decisions.md#2026-10-04--lmxxf-输入轮询io-融合与-c512-fb8-已决定不接入)，不再作为优化待办重复推荐。
-  gather-fold等其余暂缓项继续引用0.39逐项理由与验收条件；不能通过添加无消费者 INI 键启用。
+  其余20项也已按用户决定排除，见下节；不再安排重跑实验或新增无生产消费者的 INI 键。
 - experiments 的运行/备份/看门狗脚本、results 原始日志/图片为作者测量材料。
   它们用于解释最终生产决策，不作为本产品构建依赖，也不逐份重跑作者游戏测量。
 - 三种部署模板的主体是既有开关的中英注释展开；核对实际赋值、生成器和最终消费者，
   不把注释中的旧发布数字当作当前本地默认。上游部分 README 仍残留 fast 默认关闭的旧句，以最终模板为准。
+
+## 未采用路径与上游验证范围
+
+2026-10-04 用户决定：沿用上游已采用配方，以下20项均为 `excluded`，不再作为优化待办。
+核对固定0.40的 `src/native_hip_network.h`、`src/native_hip_env_options.h`、
+`scripts/hip-game-flags.txt`、`Development/HIP/hip_reference_network.h` 及当前模块配方。
+这些实验开关未被生产配方采用；不能把 Options 的初始值当作最终部署值。
+尤其 `DLSS5_HIP_VIT_BYTE_STREAM=0` 与当前 `DLSS5_HIP_VIT_STREAM=3` 是不同接口。
+
+下表除内核宏和最后一行外，名称均省略 `DLSS5_HIP_` 前缀。
+“有测试脚本”只表示存在实验入口，不证明其数值通过、性能变慢或测遍了所有架构。
+不接入的依据可以是旧路径已被替代、当前配方不兼容或上游未采用；不必编造性能结论。
+
+| 项目 | 不接入依据 / 已知上游验证 |
+|---|---|
+| FFN_QKV_BN | 默认关闭，与现用 MH byte stream 冲突；有 test-ffn-qkv-bn.ps1，未据此声称整网收益。 |
+| GATHER_FOLD | gap-fusion-20260930：19组逐位一致，900p三轮全慢，作者明确不收、宿主门控0。 |
+| MH_ATTN_W16 | 旧非字节C64投影路径，当前字节管线不选；test-c64-w16.ps1不是已采用的C256 W2_FFN_W16。 |
+| MH_FFN_FRAG | 旧C64/C128 fragment路径，现用wave-owned布局；有test-ffnfrag.ps1，不能从已采用FRAG256推断本项启用。 |
+| MH_WINDOW_FUSED | 旧整窗融合需额外c64-window-fused模块及非字节路径；closed-v040报告提到旧融合未获收益，不能套到新的wave结构。 |
+| POOL_PROJECT_FUSED | 旧Down替代派发，要求token数整除16；有test-pool-project/test-poolf脚本，最终配方未选。 |
+| QKV_WAVE_C512 | 与现用c512_qkv_frag互斥；有test-c512-qkv.ps1，保留已采用fragment/M32路径。 |
+| SPARSE_WEIGHTS | Options内明确DO NOT SHIP：多chunk VMM触发驱动挂起/失败，三组哈希改变。 |
+| SPLIT_MIX_FUSED | 与现用split_mix_h16w及c512_proj_tiles冲突；gap-fusion报告称既有融合为null/负账。 |
+| TILED_FFN_SMALL | 将C64/C128纳入旧tiled替代路径；生产门槛256，未采用降至64。 |
+| VIT_BYTE_STREAM | 旧布尔接口关闭，不能与现用VIT_STREAM=3混同，也不因此禁用已采用流式优化。 |
+| VIT_EXPAND_M2 | 旧fragment替代expand，和M4互斥；有test-vit-m2.ps1，当前配方未选。 |
+| VIT_EXPAND_M4 | 旧替代expand需特定packed mask/layout；有test-vit-expand-m4.ps1，当前配方未选。 |
+| VIT_FFN_FUSED | 与当前stream及多个输入/expand路径不兼容，默认关闭。 |
+| VIT_HALF_STREAM | 依赖旧byte-stream布尔路径；现用VIT_STREAM bit1已有独立half契约。 |
+| VIT_INPUT_TILED | 旧输入布局依赖fragment并排斥M2/M4/旧byte；不能等同现用packed输入。 |
+| VIT_QKV_N4 | 依赖旧half/byte stream，当前mask3不使用。 |
+| VIT_SPLIT_K | HIP README的ViT16x64节：窄版和16x64版均保持输出但更慢，故关闭；不是HLSL的DLSS5_VIT_SPLIT_K。 |
+| HIP_VIT_GATHER_FOLD（内核宏） | 与GATHER_FOLD同一候选的模块侧记录；producer/consumer及host门控均0，沿用同一拒收报告。 |
+| DLSS5_VIT_ADAPTIVE_IDLE_MS | 排除额外Config/菜单绑定。生产500 ms空闲重置及外部诊断覆盖已存在，继续保留。 |
+
+数值差异检查原来写的是“将来若产品采用该候选，应进行的本地验证”，并不表示上游没检查。
+已排除候选不再要求产品侧补测；有上游结论就引用，没有结论就记录未采用及具体依赖。
+已采用的LLVM23/RowOpts、当前stream及产品桥接仍由本地已有回归证明其兼容性。
+执行与后续沿用规则见 [决策记录](decisions.md#2026-10-04--lmxxf-剩余20项不再作为接入待办)。
 
 ## 已取得验证与边界
 
@@ -152,5 +192,6 @@ MSVC Runtime SHA256（与完整CI凭证及最终GPU控制测试一致）：
 lmxxf Runtime、桥接、配置和68个模块未因该修正改变，沿用以上0.40功能证据；
 当时其余逐项分类、32项暂缓及验收条件保持不变；后续 LLVM23/RowOpts 接入连同
 C64 屏障宏关闭其中9项，当时余23项；随后用户确认INPUT_POLL、IO_FUSE、C512_PROJ_FB8
-已决定不接入，再关闭3项，现余20项。其余分类与验收条件沿用不变证据。
+已决定不接入，再关闭3项，当时余20项；随后用户决定不采用其余实验/旧路径及
+额外idle菜单绑定，将20项全部排除，当前暂缓0项。逐项分类与指纹保留，已关闭的验收待办清空。
 最终CI与产物身份仍由验证记录。
