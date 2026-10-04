@@ -263,19 +263,9 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           body: |
-            ### 1.10.0（相比 1.9.9.1）
+            ### 1.10.1（相比 1.10.0）
 
-            - 将 lmxxf 更新至锁定的 0.40 源码（c81a88bc），增加自由分辨率及多层 passes 网络等。0.40 详细日志请参考原作者主页。
-            - NR 设置重组为按 Input → Model → Output 流程图导航，并支持各单页独立重置（借鉴 [@Mochizuki0323](https://github.com/Mochizuki0323) 原版 UI 设计）。
-            - 为三个 AMD 后端（lmxxf / Daniel / Mochizuki）统一新增整体合成强度（Overall Intensity）与残差稳定器（Residual Stabilizer）。感谢 Caili666 建议，残差稳定器算法参考 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS)。
-            - 菜单及 Page Up/Page Down 浮层中新增可选的 lmxxf NR 异步 GPU 耗时、编解码耗时与输出效果耗时统计。性能测量与日志记录默认关闭；日志摘要已做限频处理。
-            - 新增适用于 Windows / RDNA4 的 Mochizuki Vulkan 后端，具备独立的模型设置、着色器编译进度显示以及 Setup 模型提取支持。
-            - Setup 安装器会报告检测到的模型权重；Ins 菜单会提示所选后端缺失的依赖。
-            - 修复 Mochizuki 在自身指令记录完成后仍等待无关游戏队列的问题，避免关闭 NR 或切换后端时可能出现的短暂卡顿。
-            - 整理 NR 设置分组并修正重置范围。NR 快速开关默认改为 End；移除 ViT 的 F8 快捷键。
-            - 增加支持拖动调大小、支持屏幕边界限制与四角停靠的 Ins 窗口，优化底部紧凑状态栏布局并支持记忆窗口尺寸。
-            - 通过共享输入显存去除了 lmxxf 的冗余输入复制，并关闭了未使用的切片生成。此改动不代表在所有游戏中均有固定帧率提升。
-            - 当没有任何受支持的超分辨率管线到达 OptiScaler 时，输出受限的启动诊断日志。
+            - 修复 Mochizuki 后端在 AMD 26.9.2+ 新版显卡驱动中无法正常使用（着色器编译失败）的问题，感谢 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 提供的修复方案。
 
             **Daniel 后端**
 
@@ -289,13 +279,6 @@ jobs:
 
             提取模型需要自行提供受支持的 `nvngx_dlssnr.dll` 310.8.0（同 Daniel 后端）以及 Python 3.10+，或直接放入有效的 `dlssnr-amd/dlssnr.bin`。本包不附带上述任一文件。
 
-            **升级与说明**
-
-            - 建议使用完整安装包选择覆盖更新。
-            - lmxxf 自由分辨率在较高输入分辨率下会显著增加 GPU 耗时与显存开销。
-            - NR GPU 耗时不等同于整帧延迟。稳定器与耗时测量会增加额外开销；实际游戏表现与画质取决于具体场景与设置。
-            - 若在游戏运行中开启过 Daniel 后端，即使之后在菜单中关闭 NR，Daniel 的模型缓存（约 1.6 GB）仍会驻留在显存中，需退出游戏才会释放，显存受限的用户请注意。lmxxf 与 Mochizuki 后端无此问题。
-
             **已知问题**
 
             - lmxxf 在部分游戏场景下的闪退问题（已知包括《鸣潮》、《异环》、《伊莫》等）正在与上游协同排查修复，当前遇到闪退推荐尝试 Mochizuki 后端。
@@ -305,19 +288,9 @@ jobs:
 
             ---
 
-            ### 1.10.0 (compared to 1.9.9.1)
+            ### 1.10.1 (compared to 1.10.0)
 
-            - Updated lmxxf to pinned 0.40 source (c81a88bc), adding free resolution, multi-pass networks, and more. For detailed 0.40 release notes, please refer to the original author's repository.
-            - Reorganized NR settings into an Input → Model → Output flowchart navigation with page-scoped resets (inspired by the original UI design by [@Mochizuki0323](https://github.com/Mochizuki0323)).
-            - Added Overall Intensity and Residual Stabilizer across all three AMD backends (lmxxf / Daniel / Mochizuki). Thanks to Caili666 for the suggestion; residual stabilizer algorithm inspired by [@MatheusFerreiraS](https://github.com/MatheusFerreiraS).
-            - Added optional asynchronous lmxxf NR GPU, encode/decode, and output-effect timings in Ins and the Page Up/Page Down overlay. Profiling and timing logs are disabled by default; log summaries are rate-limited.
-            - Added the Mochizuki Vulkan backend for Windows / RDNA4, featuring independent model controls, shader compilation progress display, and model extraction in Setup.
-            - Setup reports detected weights; the Ins menu prompts for missing dependencies of the selected backend.
-            - Fixed an issue where Mochizuki waited on unrelated game queues after completing its own recordings, avoiding potential stalls when disabling NR or switching backends.
-            - Reorganized NR settings groups and corrected reset scopes. The NR toggle shortcut now defaults to End; removed the F8 shortcut for ViT.
-            - Added a resizable Ins window with screen boundary protection, corner anchoring, a compact status footer, and persistent window dimensions.
-            - Eliminated redundant lmxxf input copies via shared input storage and disabled unused tile generation. (This does not imply a fixed FPS improvement across all games).
-            - Outputs a bounded startup log diagnostic when no supported upscaler route reaches OptiScaler.
+            - Fixed an issue where the Mochizuki backend failed to run (shader compilation error) on AMD driver 26.9.2 and newer. Special thanks to [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) for providing the fix.
 
             **Daniel backend**
 
@@ -330,13 +303,6 @@ jobs:
             **Mochizuki backend**
 
             Model extraction requires your own supported `nvngx_dlssnr.dll` 310.8.0 (same as the Daniel backend) and Python 3.10+, or an existing valid `dlssnr-amd/dlssnr.bin`. This package contains neither file.
-
-            **Updating and Notes**
-
-            - It is recommended to update by completely overwriting using the full release package.
-            - lmxxf free resolution can substantially increase GPU time and VRAM usage at higher input resolutions.
-            - NR GPU timing does not represent whole-frame latency. Stabilization and performance measurement add extra overhead; actual game performance and visual quality vary with scenes and settings.
-            - If the Daniel backend was activated during a session, its model cache (~1.6 GB) will remain in VRAM even if NR is disabled in the menu, and is only reclaimed upon exiting the game. Users with limited VRAM should take note. The lmxxf and Mochizuki backends do not have this behavior.
 
             **Known Issues**
 
