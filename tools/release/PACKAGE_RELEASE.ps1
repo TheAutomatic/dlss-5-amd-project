@@ -249,11 +249,10 @@ $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 ; true or false - Program default is false. Setup turns this on.
 Enabled=false
 
-; Controls whether neural rendering executes before the upscaler
-; When true, runs on the pre-upscale colour texture before FSR/XeSS
-; true or false - This package sets true. If the key is absent, the program uses false.
 ; Processing order for all three AMD backends (DX12 and DX11/Vulkan-to-DX12 bridges).
 ; true = NR -> SR (default); false = SR -> NR (experimental, more GPU time/VRAM at display resolution).
+; Program and package default: true. Each backend keeps its selected 1..3 passes in either order.
+; SR runs once; all NR layers run at the selected stage, then the combined result is written once.
 ; Save Settings and restart if command-list ownership was not armed. Native RR/Vulkan are not added.
 ; Unsupported output/guide layouts leave the SR image unchanged; see Ins status. Switching clears history.
 RunBeforeSR=true

@@ -21,6 +21,23 @@ SR 后仍可使用每个后端原有的强度、passes 和输出控制。整体�
 但网络仍会运行。SR 后的效果不再经过 SR 的时间积累；清晰度、稳定性和性能须在游戏中比较。
 这不会给游戏新增 SR、光追或 Ray Reconstruction，也不保证 NR 处理的位置一定在 HUD 之前。
 
+## 多层 pass
+
+三个后端在两种处理顺序下均保留 **1～3 层，默认 1 层**。选择 SR → NR 后，
+三层的顺序是 `SR → NR 第 1 层 → NR 第 2 层 → NR 第 3 层 → 整体输出控制 → 写回`。
+SR 只执行一次，后续 NR 层使用上一层的颜色结果；切换顺序不会重置已保存的层数。
+
+| 后端 | Ins 的层数选项 | `[DlssNr]` 中的 INI 键 |
+|---|---|---|
+| Daniel | AMD neural passes | `Passes=1/2/3` |
+| lmxxf | Network passes | `DLSS5_MULTI_PASS=1/2/3` |
+| Mochizuki | Model passes → Passes | `MochizukiPasses=1/2/3` |
+
+层数由各后端分别保存。Mochizuki 的 `MochizukiMaxPasses` 是预建容量，不是实际层数；
+自动容量在降层时保留，以便再次升层。升层构建期间可暂用已有层数，以状态中的实际层数为准。
+lmxxf 多层会关闭 Adaptive ViT reuse；第二、三层跳块仍由原有选项控制。
+显示分辨率配合多层会进一步增加计算和显存开销，可以先测试两层，再决定是否使用三层。
+
 ## 范围和失败提示
 
 支持现有 DX12 超分入口，以及 DX11/Vulkan → DX12 桥接入口。原生 Ray Reconstruction
@@ -46,11 +63,15 @@ guide 要求可采样、单样本的 2D 纹理；非零子区域原点、其他�
 3. 检查运动边缘、细线、透明物和镜头切换；比较 100% 与较低模型分辨率的时间/显存。
 4. 切换 SR 质量、分辨率和 NR 顺序，检查是否能恢复；保存后重启确认选择持久化。
 5. 按游戏已有支持打开 FG，检查没有重复 NR、异常拖影；正常退出。
+6. 每个后端在 SR → NR 下依次切换 1→2→3→1 层，检查实际层数、效果、耗时及恢复情况；
+   再比较默认 NR → SR。Mochizuki 等待升层构建完成，lmxxf 等待网络重建。
 
 自动化使用 `tests/shader/nr_post_sr.cpp` 验证辅助纹理映射、输出转换/alpha/区域保护，以及
 丢弃、重放、跨队列、未完成时 Reset 和失败凭证。它接在 `tests/shader/run.cmd`，
 默认 WARP；显式 `NR_EFFECTS_HARDWARE=1` 可在 AMD 设备执行。模拟网络结果验证的是
 宿主适配层，不等同三个后端的真实游戏验收。
+同一测试还用逐层翻倍的 GPU 颜色变换检查 1→2→3→1 层的最后结果、原 alpha/区域保护，
+覆盖直接录制、producer/continuation 拆分和关闭列表重放。
 
 ## 本地接入审阅（2026-10-05）
 
@@ -63,3 +84,15 @@ guide 要求可采样、单样本的 2D 纹理；非零子区域原点、其他�
 阶段/辅助尺寸变化的历史清空，以及拆分列表、重放、跨队列和未完成时 Reset 的所有权。
 适配层在 WARP 和 RX 9070 XT 上通过，含真实 proxy 的 producer/continuation 拆分。
 记录来自测试的模拟 NR 输出；未将此结果写成三后端完整游戏通过，画质/性能仍待游戏验收。
+
+多层复核：Daniel 在 `AmdPreSr::Record` 内逐层修改私有颜色，各层各有时间历史；
+lmxxf 的 `MultiPassRest` 串联网络并复用同一帧的历史/噪声，层数改变会重建网络；
+Mochizuki 的 `Runtime::record_all` 保存各层历史，并在层数变化或旧录制重放时使历史失效。
+共享适配层位于整个后端调用之外，只准备一次辅助纹理和写回一次最终结果。
+
+2026-10-05 的补充验证：适配层 1～3 层测试在 WARP、RX 9070 XT 上通过；
+Mochizuki 的 `tests/mochizuki/run.cmd pass-switch normal` 真实模型用例通过
+1～3 层切换、容量复用、独立冷启动结果比较及旧录制重放。
+lmxxf 的 `lmxxf_nr_gpu --040-controls` 在 RX 9070 XT、1920×1080 上通过了
+1→2→3→1 层及跳块切换：各层输出不同，相同设置重复输出一致，恢复一层后回到基线。
+这些运行时用例与适配层测试分开执行；Daniel 的闭源网络和三个后端的完整游戏链仍需本地验收。

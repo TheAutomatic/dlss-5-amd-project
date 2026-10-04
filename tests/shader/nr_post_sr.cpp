@@ -81,6 +81,121 @@ static Ptr<ID3D12Resource> Guide(ID3D12Device* d, ID3D12CommandQueue* q, UINT w,
     Transfer(d, q, r.Get(), &data);
     return r;
 }
+static void Multipass(ID3D12Device* d, ID3D12CommandQueue* q, const AmdPreSr::Frame& base)
+{
+    // A deterministic GPU stand-in for the backend's entire cascade. Each pass
+    // must consume its predecessor; only the final result reaches SR Output.
+    // This tests the adapter/recording boundary, not neural-network quality.
+    constexpr char shader[] = R"(
+Texture2D<float4> input:register(t0);
+RWTexture2D<float4> output:register(u0);
+cbuffer Params:register(b0){uint width,height;}
+[numthreads(8,8,1)]void main(uint3 p:SV_DispatchThreadID){
+ if(p.x<width&&p.y<height)output[p.xy]=float4(input.Load(int3(p.xy,0)).rgb*2,0);
+}
+)";
+    D3D12_DESCRIPTOR_RANGE ranges[] { { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, 0 },
+                                      { D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 1 } };
+    D3D12_ROOT_PARAMETER params[2] {};
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable = { 2, ranges };
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[1].Constants = { 0, 0, 2 };
+    D3D12_ROOT_SIGNATURE_DESC rd { 2, params };
+    Ptr<ID3DBlob> rootBlob, code, error;
+    Ptr<ID3D12RootSignature> root;
+    Ptr<ID3D12PipelineState> pipeline;
+    Check(D3D12SerializeRootSignature(&rd, D3D_ROOT_SIGNATURE_VERSION_1, &rootBlob, &error), "cascade root blob");
+    Check(d->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(), IID_PPV_ARGS(&root)),
+          "cascade root");
+    Check(NativeCompileShaderBlob(shader, sizeof shader - 1, "post-SR cascade test", nullptr, nullptr, "main", &code,
+                                  &error),
+          "cascade shader");
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pd {};
+    pd.pRootSignature = root.Get();
+    pd.CS = { code->GetBufferPointer(), code->GetBufferSize() };
+    Check(d->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pipeline)), "cascade pipeline");
+    // Both the inline and producer/continuation paths must preserve the whole
+    // cascade, including when the user reduces the pass count again.
+    for (bool split : { false, true })
+        for (UINT passes : { 1u, 2u, 3u, 1u })
+        {
+            UploadColorPattern(d, q, base.colour);
+            std::vector<Ptr<ID3D12Resource>> stages;
+            Ptr<ID3D12DescriptorHeap> heap;
+            D3D12_DESCRIPTOR_HEAP_DESC hd { D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, passes * 2,
+                                            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
+            Check(d->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap)), "cascade descriptors");
+            const auto stride = d->GetDescriptorHandleIncrementSize(hd.Type);
+            auto r = NewRecording(d);
+            auto f = base;
+            std::string reason;
+            auto lease = PostSr::Prepare(r.proxy.Get(), f, 16, 12, reason);
+            Require(bool(lease), "cascade prepare");
+            auto previous = f.colour;
+            for (UINT pass = 0; pass < passes; ++pass)
+            {
+                stages.push_back(Texture(d, f.width, f.height));
+                auto next = stages.back().Get();
+                auto cpu = heap->GetCPUDescriptorHandleForHeapStart();
+                cpu.ptr += SIZE_T(pass * 2) * stride;
+                D3D12_SHADER_RESOURCE_VIEW_DESC srv {};
+                srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                srv.Texture2D.MipLevels = 1;
+                d->CreateShaderResourceView(previous, &srv, cpu);
+                cpu.ptr += stride;
+                d->CreateUnorderedAccessView(next, nullptr, nullptr, cpu);
+                if (split && pass == 0)
+                    Check(r.proxy->SplitSegments(), "cascade producer split");
+                Effects::Barrier(r.proxy.Get(), next, PostSr::Read, PostSr::Write);
+                r.proxy->SetComputeRootSignature(root.Get());
+                r.proxy->SetPipelineState(pipeline.Get());
+                ID3D12DescriptorHeap* heaps[] { heap.Get() };
+                r.proxy->SetDescriptorHeaps(1, heaps);
+                auto gpu = heap->GetGPUDescriptorHandleForHeapStart();
+                gpu.ptr += UINT64(pass * 2) * stride;
+                r.proxy->SetComputeRootDescriptorTable(0, gpu);
+                const UINT dims[] { f.width, f.height };
+                r.proxy->SetComputeRoot32BitConstants(1, 2, dims, 0);
+                r.proxy->Dispatch((f.width + 7) / 8, (f.height + 7) / 8, 1);
+                Effects::Barrier(r.proxy.Get(), next, PostSr::Write, PostSr::Read);
+                previous = next;
+            }
+            Require(PostSr::Finish(r.proxy.Get(), lease, previous, PostSr::Read), "cascade finish");
+            Check(r.proxy->Close(), "cascade close");
+            // Replaying a closed recording must still start with the SR frame,
+            // not stale private pass buffers from its previous execution.
+            for (int replay = 0; replay < 2; ++replay)
+            {
+                UploadColorPattern(d, q, base.colour);
+                Check(r.proxy->ExecuteOn(q), "cascade execute");
+                WaitQueue(d, q);
+                const auto bytes = Transfer(d, q, base.colour);
+                const auto desc = base.colour->GetDesc();
+                std::vector<unsigned char> original(size_t(desc.Width) * 8);
+                for (UINT y = 0; y < desc.Height; ++y)
+                {
+                    FillRow(original.data(), y, UINT(desc.Width), desc.Format);
+                    for (UINT x = 0; x < desc.Width; ++x)
+                        for (UINT c = 0; c < 4; ++c)
+                        {
+                            UINT16 actual, source;
+                            std::memcpy(&actual, bytes.data() + ((y * desc.Width + x) * 4 + c) * 2, 2);
+                            std::memcpy(&source, original.data() + (x * 4 + c) * 2, 2);
+                            const float expected =
+                                Half(source) * (x < f.width && y < f.height && c < 3 ? float(1u << passes) : 1.f);
+                            Require(Half(actual) == expected, "cascade final pass, alpha and padding");
+                        }
+                }
+            }
+            r.proxy.Reset();
+            lease.reset();
+            PostSr::Poll();
+            Require(PostSr::Global().leases.empty(), "cascade recordings released");
+        }
+}
 int main()
 {
     Ptr<ID3D12Debug> debug;
@@ -216,6 +331,7 @@ int main()
     }
     PostSr::Poll();
     Require(PostSr::Global().leases.empty(), "split recording ownership released");
+    Multipass(d.Get(), q.Get(), base);
     // HDR FP16 result -> common SR output formats. No UAV flag on game output.
     for (auto fmt : { DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R11G11B10_FLOAT,
                       DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM })
@@ -265,6 +381,7 @@ int main()
                 std::fprintf(stderr, "%s\n", m->pDescription);
             Require(m->Severity > D3D12_MESSAGE_SEVERITY_ERROR, "debug validation");
         }
-    std::puts("Post-SR NR: PASS (guides, units, formats, padding, alpha, discard, pending Reset, cross-queue replay, "
+    std::puts("Post-SR NR: PASS (1/2/3-pass cascade and replay, guides, units, formats, padding, alpha, discard, "
+              "pending Reset, cross-queue replay, "
               "failed proof)");
 }
