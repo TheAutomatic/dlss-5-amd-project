@@ -4018,7 +4018,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
         {
             ImGui::SameLine(0.0f, 16.0f);
 
-            const auto currentCount = fgOutput->GetInterpolatedFrameCount();
+            const auto currentCount = config->FGXeFGInterpolationCount.value_or_default();
             const auto currentIntCount = std::to_string(static_cast<uint64_t>(currentCount) + 1) + "X";
 
             ImGui::PushItemWidth(95.0f * menuResScale);
@@ -4031,7 +4031,8 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
                     if (ImGui::Selectable(mode.c_str(), (currentCount == static_cast<UINT>(i + 1))))
                     {
                         LOG_DEBUG("XeFG Interpolation Count set to: {}", i + 1);
-                        state.fgChanged = true;
+                        if (XeFGProxy::SetNumInterpolatedFrames() == nullptr)
+                            state.fgChanged = true;
                         config->FGXeFGInterpolationCount = i + 1;
                     }
                 }
@@ -4041,7 +4042,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
             ImGui::PopItemWidth();
 
-            ShowHelpMarker("Set XeFG interpolation count");
+            ShowHelpMarker("Base XeFG multiplier. Kept unchanged while the NR override is active.");
         }
 
         ImGui::SameLine(0.0f, 16.0f);
@@ -4054,6 +4055,56 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
                        "Reverts back to previous XeFG 2 behaviour\n\n"
                        "Fixes artifacting transparent HUD/UI");
         ImGui::EndDisabled();
+
+        const bool liveMultiplier = XeFGProxy::SetNumInterpolatedFrames() != nullptr;
+        const auto nrCount = config->DlssNrXeFGInterpolationCount.value_or_default();
+        const auto nrLabel = nrCount > 0 ? std::to_string(static_cast<uint64_t>(nrCount) + 1) + "X"
+                                         : std::string("No override");
+        ImGui::BeginDisabled(!liveMultiplier);
+        ImGui::PushItemWidth(140.0f * menuResScale);
+        if (ImGui::BeginCombo("DLSS NR MFG override", nrLabel.c_str()))
+        {
+            if (ImGui::Selectable("No override", nrCount == 0))
+                config->DlssNrXeFGInterpolationCount = 0;
+            for (int count = 1; count <= maxInterpolationCount; ++count)
+            {
+                const auto label = std::to_string(static_cast<uint64_t>(count) + 1) + "X";
+                if (ImGui::Selectable(label.c_str(), nrCount == count))
+                    config->DlssNrXeFGInterpolationCount = count;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopItemWidth();
+        ImGui::EndDisabled();
+        ShowHelpMarker("Override XeFG only after DLSS NR successfully runs.\n"
+                       "Never changes the base multiplier or enables frame generation.\n"
+                       "NR off/failure/session rebuild restores the current base multiplier.\n"
+                       "Skipped frames and pauses keep the override. Save Settings to persist.\n"
+                       "Changing multipliers briefly pauses/rearms frame generation.");
+        if (!liveMultiplier)
+            ImGui::TextDisabled("NR override unavailable: this XeSS version cannot change multipliers live.");
+        if (const auto multiplier = fgOutput->GetInterpolationStatus())
+        {
+            const auto baseline = static_cast<unsigned long long>(config->FGXeFGInterpolationCount.value_or_default()) + 1;
+            if (multiplier->applied >= 1)
+                ImGui::Text("Base: %lluX | Last applied: %dX", baseline, multiplier->applied + 1);
+            else
+                ImGui::Text("Base: %lluX | Applied: not initialized", baseline);
+            if (!fgActive)
+                ImGui::TextDisabled("Frame generation is off; NR override is inactive.");
+            else if (multiplier->requiresReinitialization)
+                ImGui::TextWrapped("XeSS disabled FG after a multiplier error. Restart the game to reinitialize XeSS.");
+            else if (multiplier->failed)
+                ImGui::TextWrapped("Multiplier change failed (target %dX). Keeping the last applied multiplier.",
+                                   multiplier->target + 1);
+            else if (multiplier->overridden && multiplier->applied == multiplier->target)
+                ImGui::TextDisabled("NR override active: %dX", multiplier->applied + 1);
+            else if (nrCount > 0 && liveMultiplier)
+                ImGui::TextDisabled("NR override saved; waiting for NR / XeFG to run.");
+            if (multiplier->limited)
+                ImGui::TextWrapped("Requested %lluX exceeds current capability; target limited to %dX. Saved values are unchanged.",
+                                   static_cast<unsigned long long>(multiplier->requested) + 1, multiplier->target + 1);
+        }
 
         bool fgDV = config->FGXeFGDebugView.value_or_default();
         if (ImGui::Checkbox("Debug View##2", &fgDV))

@@ -24,6 +24,7 @@ class XeFG_Dx12 : public virtual IFGFeature_Dx12
     bool _infiniteDepth = false;
     std::optional<bool> _haveHudless = std::nullopt;
     bool _uiComposition = false;
+    FrameGeneration::InterpolationOverride _nrMultiplier;
 
     std::unique_ptr<DI_Dx12> _depthInvert;
 
@@ -34,6 +35,7 @@ class XeFG_Dx12 : public virtual IFGFeature_Dx12
     xefg_swapchain_d3d12_resource_data_t GetResourceData(FG_ResourceType type, int index = -1);
 
     bool Dispatch();
+    void UpdateInterpolationCount();
 
   protected:
     void ReleaseObjects() override final;
@@ -80,4 +82,8 @@ class XeFG_Dx12 : public virtual IFGFeature_Dx12
 
     // Inherited via IFGFeature_Dx12
     bool SetInterpolatedFrameCount(UINT interpolatedFrameCount) override;
+    std::optional<FrameGeneration::InterpolationStatus> GetInterpolationStatus() const override
+    {
+        return _nrMultiplier.Snapshot();
+    }
 };

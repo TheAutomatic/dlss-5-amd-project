@@ -7,6 +7,7 @@
 namespace DlssNr::AmdBridge
 {
 bool HasFiles();
+bool IsRunning();
 bool HasDanielRuntime();
 bool HasLmxxfRuntime();
 // Hot-switch: clear history, force warm-up; ProxyWrap is sticky-on once lmxxf enabled it.

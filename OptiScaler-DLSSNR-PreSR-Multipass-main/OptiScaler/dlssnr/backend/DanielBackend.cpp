@@ -42,6 +42,7 @@ void DanielBackend::ResetGraphicsWaitState() { inner.ResetGraphicsWaitState(); }
 void DanielBackend::InvalidateHistory() { inner.InvalidateHistory(); }
 
 std::string DanielBackend::Status() const { return inner.Status(); }
+bool DanielBackend::IsRunning() const { return inner.IsRunning(); }
 
 bool DanielBackend::GraphicsRestartNeeded(UINT activePasses) const
 {

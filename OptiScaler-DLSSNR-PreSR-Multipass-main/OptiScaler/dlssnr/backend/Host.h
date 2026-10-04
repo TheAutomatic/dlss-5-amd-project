@@ -28,6 +28,7 @@ class Host
     virtual void InvalidateHistory() = 0;
     virtual std::string Status() const = 0;
     virtual NrTimingSnapshot Timing() const { return {}; }
+    virtual bool IsRunning() const = 0;
     virtual bool GraphicsRestartNeeded(UINT activePasses) const = 0;
 };
 } // namespace DlssNr::Backend

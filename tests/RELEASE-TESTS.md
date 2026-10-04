@@ -51,6 +51,9 @@ tests\mochizuki\run.cmd gpu
 ```
 
 ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数表边界、旧 ABI 拒绝与模块状态。
+host CI 的 `nr_multiplier` 验证 NR 专用 XeFG 倍率、基础配置保留、能力限制和失败重试；
+`nr_activity_recording` 验证完整提交后才激活，诊断/回退不激活，旧会话回调不能激活新会话。
+这些 CPU 测试不替代游戏中的 XeSS 倍率切换、画面和帧节奏实测。
 同步入口使用临时仓库和测试模块，验证补丁、完整性、失败退出与字节往返；
 它不等于已经完成真实上游集成审阅。后者仍按
 [同步说明](../tools/lmxxf-sync/README.md) 执行。

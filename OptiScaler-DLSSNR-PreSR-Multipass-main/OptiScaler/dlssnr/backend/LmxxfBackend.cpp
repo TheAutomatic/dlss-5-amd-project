@@ -461,6 +461,7 @@ bool LmxxfBackend::EnsureSession()
     }
     session = ctx;
     timingConfigured = false;
+    activityOwner.store(sessionOwner, std::memory_order_release);
     sessionReady = true;
     sessionFailures = 0;
     SetStatus("lmxxf: session ready");
@@ -480,6 +481,7 @@ bool LmxxfBackend::NoteEnqueueRecoveries()
     if (recoveryDisabled) return false;
     if (!sessionOwner || !sessionOwner->failed) return true;
     recoveryDisabled = true;
+    activityOwner.store({}, std::memory_order_release);
     sessionOwner.reset(); session = nullptr; sessionReady = false;
     SetStatus("lmxxf: recording execution failed; NR off (see log)");
     return false;
@@ -503,6 +505,7 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     lease->traceId = reTraceId;
     lease->trace = &ReTrace;
     ReTrace(reTraceId, "inputs.begin", jobHandle, 0);
+    lease->neural = diagnostic == LmxxfProbe::Mode::Off;
     if (api->table.RecordInputs(session, jobHandle, recordCmd) != LMXXF_NR_OK)
     {
         sessionOwner->failed = true;
@@ -615,6 +618,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     ReTrace(reTraceId, "prepare.end", job.handle, frameRc);
     if (frameRc != LMXXF_NR_OK || !job.handle || !job.private_output)
     {
+        sessionOwner->activity.Reset();
         char err[256] {};
         if (api->table.GetLastError)
             api->table.GetLastError(err, sizeof err);
@@ -666,6 +670,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         if (rebindish && (prepareFrameFailLogs <= 2 || (prepareFrameFailLogs % 4) == 0))
         {
             LOG_WARN("lmxxf: PrepareFrame fail -> host session rebuild #{}", ++prepareFrameRebuilds);
+            activityOwner.store({}, std::memory_order_release);
             sessionOwner.reset();
             session = nullptr;
             sessionReady = false;
@@ -1012,6 +1017,7 @@ bool LmxxfBackend::Shutdown()
 {
     std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     LmxxfCut::DisarmBetweenSlot();
+    activityOwner.store({}, std::memory_order_release);
     sessionOwner.reset(); session = nullptr; sessionReady = false;
     LmxxfRecording::Collect();
     if (runtimeDll) { FreeLibrary(reinterpret_cast<HMODULE>(runtimeDll)); runtimeDll = nullptr; }
@@ -1030,6 +1036,7 @@ void LmxxfBackend::ReleaseSession()
     timingConfigured = false;
     // Existing recording observers retain their own session/module. New active
     // sessions can start immediately; old closed lists are still executable.
+    activityOwner.store({}, std::memory_order_release);
     sessionOwner.reset(); session = nullptr; sessionReady = false;
     sessionFailures = sessionRetryIn = 0; recoveryDisabled = false;
     LmxxfRecording::Collect();
@@ -1077,6 +1084,12 @@ void LmxxfBackend::InvalidateHistory()
 }
 
 std::string LmxxfBackend::Status() const { return status; }
+bool LmxxfBackend::IsRunning() const
+{
+    const auto owner = activityOwner.load(std::memory_order_acquire);
+    return diagnostic == LmxxfProbe::Mode::Off && owner &&
+           !owner->failed.load(std::memory_order_acquire) && owner->activity.IsRunning();
+}
 
 bool LmxxfBackend::GraphicsRestartNeeded(UINT) const { return false; }
 } // namespace DlssNr::Backend

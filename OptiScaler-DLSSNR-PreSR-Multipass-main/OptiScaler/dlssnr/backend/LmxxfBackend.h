@@ -3,6 +3,7 @@
 #include "../DiagnosticLog.h"
 #include "LmxxfEvaluateCut.h"
 #include <memory>
+#include <atomic>
 #include "LmxxfColorProbe.h"
 #include "LmxxfStagingProbe.h"
 #include <filesystem>
@@ -25,6 +26,7 @@ class LmxxfBackend final : public Host
     void *runtimeDll = nullptr; // HMODULE
     void *session = nullptr;
     std::shared_ptr<LmxxfRecording::SessionOwner> sessionOwner;
+    std::atomic<std::shared_ptr<LmxxfRecording::SessionOwner>> activityOwner;
     bool sessionReady = false;
     uint64_t frameId = 0;
     std::string status { "lmxxf: idle" };
@@ -89,6 +91,7 @@ class LmxxfBackend final : public Host
     void InvalidateHistory() override;
     std::string Status() const override;
     NrTimingSnapshot Timing() const override;
+    bool IsRunning() const override;
     bool GraphicsRestartNeeded(UINT activePasses) const override;
 };
 } // namespace DlssNr::Backend

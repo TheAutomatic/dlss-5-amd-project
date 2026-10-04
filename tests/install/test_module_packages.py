@@ -138,6 +138,19 @@ class ModulePackageTests(unittest.TestCase):
         self.assertIn('Missing runtime-ci.sha256', out)
         self.assertFalse(self.archive.exists())
 
+    def test_archive_preserves_nr_multiplier_default(self):
+        code, out = self.package()
+        self.assertEqual(code, 0, out)
+        source = configparser.ConfigParser(strict=False)
+        source.read(REPO / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler.ini', encoding='utf-8-sig')
+        with zipfile.ZipFile(self.archive) as archive:
+            packaged = configparser.ConfigParser(strict=False)
+            packaged.read_string(archive.read('OptiScaler.ini').decode('utf-8-sig'))
+        self.assertEqual(packaged['DlssNr']['XeFGInterpolationCount'], 'auto')
+        self.assertEqual(packaged['DlssNr']['XeFGInterpolationCount'],
+                         source['DlssNr']['XeFGInterpolationCount'])
+        self.assertEqual(packaged['XeFG']['InterpolationCount'], source['XeFG']['InterpolationCount'])
+
     def test_valid_actual_archive_can_install(self):
         code, out = self.package()
         self.assertEqual(code, 0, out)

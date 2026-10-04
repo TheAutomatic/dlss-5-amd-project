@@ -254,6 +254,11 @@ Enabled=false
 ; true or false - This package sets true. If the key is absent, the program uses false.
 RunBeforeSR=true
 
+; Optional XeFG override while NR is actually running. 0/auto = no override.
+; Generated-frame count: 1 = 2X, 2 = 3X, 3 = 4X, etc. Requires live multiplier support.
+; Never rewrites [XeFG] InterpolationCount. Capability limits affect only the applied value.
+XeFGInterpolationCount=auto
+
 ; Selects the neural rendering backend
 ; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
 ; daniel - danielblnc 0.3.0-0.6.0 runtime (using dlssnr_amd_pass*.dll + weights.bin)

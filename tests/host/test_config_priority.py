@@ -71,6 +71,7 @@ class ConfigPriorityTests(unittest.TestCase):
                 "AmdUseGameExposure",
                 "AmdToneChannels",
                 "Quality",
+                "XeFGInterpolationCount",
                 "QueuePriority",
                 "QueuePriorityLegacy",
                 "Inline",
@@ -82,6 +83,22 @@ class ConfigPriorityTests(unittest.TestCase):
     def test_env_alias_is_identity_for_unified_keys(self):
         self.assertIn("if (std::strncmp(iniKey, \"DLSS5_\", 6) == 0)", KEYS)
         self.assertNotIn('return "DLSS5_FIT_LARGE"', KEYS)
+
+    def test_nr_multiplier_has_separate_persistent_key(self):
+        self.assertIn('XeFGInterpolationCount = "XeFGInterpolationCount"', KEYS)
+        self.assertIn('    XeFGInterpolationCount,', KEYS.split('kKnown[]', 1)[1])
+        self.assertIn('DlssNrXeFGInterpolationCount.set_from_config(readInt(CfgKey::kSection, CfgKey::XeFGInterpolationCount))', CONFIG)
+        self.assertIn('ini.SetValue(CfgKey::kSection, CfgKey::XeFGInterpolationCount,', CONFIG)
+        self.assertIn('Instance()->DlssNrXeFGInterpolationCount.value_for_config()', CONFIG)
+        self.assertIn('DlssNrXeFGInterpolationCount.value() < 0', CONFIG)
+        xefg = (ROOT / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/framegen/xefg/XeFG_Dx12.cpp').read_text(encoding='utf-8')
+        self.assertNotRegex(xefg, r'FGXeFGInterpolationCount\s*=')
+        self.assertNotIn('FGXeFGInterpolationCount.set_volatile_value', xefg)
+        self.assertIn('DlssNr::IsActiveForFrameGeneration()', xefg)
+        nr = (ROOT / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/dlssnr/DlssNr_Dx12.cpp').read_text(encoding='utf-8')
+        activity = nr.split('bool IsActiveForFrameGeneration()', 1)[1].split('const char* FailureReason()', 1)[0]
+        self.assertIn('g_activityBackend.load', activity)
+        self.assertNotIn('HasFiles()', activity)
 
     def test_flags_fallback_does_not_overwrite_env(self):
         self.assertIn("if (std::getenv(key))", RUNTIME)

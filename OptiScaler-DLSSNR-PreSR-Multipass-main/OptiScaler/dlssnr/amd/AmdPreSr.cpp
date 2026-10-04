@@ -1,5 +1,6 @@
 #include "AmdPreSr.h"
 #include "../DiagnosticLog.h"
+#include "../NrSessionActivity.h"
 #include "AmdLayout.h"
 #ifdef AMD_RETIRE_DIAGNOSTICS
 #include "RetirementDiagnostics.h"
@@ -365,6 +366,7 @@ struct Backend::Impl
     std::filesystem::path directory;
     std::string status = "AMD pre-SR: not initialized";
     std::atomic<bool> failed { false };
+    DlssNr::NrSessionActivity activity;
     std::atomic<bool> resetRequested { true };
     // Stop host admission while recorded submissions finish. Every Evaluate
     // polls release, including while NR is off; native Notify remains enabled.
@@ -434,6 +436,7 @@ struct Backend::Impl
         // UINT_MAX = never recorded this slot. 0 is a real value (the runtime refused).
         static constexpr UINT kPassUnset = 0xffffffffu;
         UINT passCount = kPassUnset;
+        uint64_t activityToken = 0;
         SubmissionState submission;
         ComPtr<ID3D12CommandQueue> submissionQueue;
         std::unique_ptr<ColorEncoding> decode, encode;
@@ -762,6 +765,7 @@ struct Backend::Impl
             lastSubmitted = GetTickCount64();
             if (!failed && passCount && !timedOut)
             {
+                activity.Succeeded(sl.activityToken);
                 ++completedFrames;
                 lastCompleted = lastSubmitted;
                 status = "Completed AMD pre-SR passes=" + std::to_string(passCount) + " at " +
@@ -1409,6 +1413,9 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
                     if (p->slots[k].pending.load(std::memory_order_acquire))
                         return nullptr;
             }
+            if (resize)
+                p->activity.Reset();
+
             // Every live slot needs its own FP16 target, not just whichever one
             // is active on the frame the count changes. A slot with a null
             // colour is refused by the runtime outright: the call returns in well under a
@@ -1954,6 +1961,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
         // Even accepted == 0 has B's copy/conversion/barrier commands recorded.
         // Track that list until its D3D fence completes before reusing resources.
         sl->submission.Record(GetTickCount64());
+        sl->activityToken = p->activity.Token();
         sl->pending.store(cmd, std::memory_order_release);
         if (p->failed)
             return nullptr;
@@ -2272,6 +2280,11 @@ std::string Backend::Status() const
     return runtimeTag + p->status;
 }
 UINT64 Backend::RecordedFrames() const { return p->frames; }
+bool Backend::IsRunning() const
+{
+    return !p->failed.load(std::memory_order_acquire) &&
+           !p->releasePending.load(std::memory_order_acquire) && p->activity.IsRunning();
+}
 void Backend::InvalidateHistory() { p->resetRequested.store(true); }
 bool Backend::Ready()
 {
@@ -2284,6 +2297,7 @@ bool Backend::Ready()
 bool Backend::Shutdown()
 {
     std::lock_guard guard(p->lock);
+    p->activity.Reset();
     const AmdLayout* L = p->L;
     if (!p->fence) return false;
     p->RetireSubmission(false, "Shutdown");
@@ -2308,6 +2322,7 @@ bool Backend::Shutdown()
 void Backend::ReleaseSession()
 {
     std::lock_guard guard(p->lock);
+    p->activity.Reset();
     // Do not disable the native runtime while an already recorded job still
     // needs Notify. Stop admission at the host and let its submission finish.
     if (p->L) p->releasePending = true;
@@ -2356,6 +2371,7 @@ bool Backend::CompletePendingReleaseLocked()
     for (auto& gate : p->gfxStartup) gate.Reset();
     for (auto& flag : p->gfxStartupFallbackReported) flag = false;
     p->releasePending = false;
+    p->activity.Reset();
     p->Log("AMD staging/session buffers released (verified module and model cache retained)");
     return true;
 }
@@ -2365,6 +2381,7 @@ void Backend::ResetGraphicsWaitState()
     std::lock_guard guard(p->lock);
     if (p->gfxRestart.NeedsRestart(3))
     {
+        p->activity.Reset();
         p->releasePending = true;
         CompletePendingReleaseLocked();
         return;

@@ -114,6 +114,7 @@ class Backend
     void ResetGraphicsWaitState();
     void InvalidateHistory(); // applied at the next safe recording boundary
     std::string Status() const;
+    bool IsRunning() const;
     // Lock-free menu snapshot, restricted to the currently configured passes.
     bool GraphicsRestartNeeded(UINT activePasses) const;
     UINT64 RecordedFrames() const;

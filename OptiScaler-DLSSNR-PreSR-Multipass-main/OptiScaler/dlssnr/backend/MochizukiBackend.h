@@ -24,6 +24,7 @@ public:
     void ResetGraphicsWaitState() override {}
     void InvalidateHistory() override;
     std::string Status() const override;
+    bool IsRunning() const override;
     NrTimingSnapshot Timing() const override;
     MochizukiNrBuildProgress BuildProgress() const;
     bool GraphicsRestartNeeded(UINT) const override { return false; }

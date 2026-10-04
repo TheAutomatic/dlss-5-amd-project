@@ -44,6 +44,10 @@ exit /b 2
 "%OUT%\menu_window_layout.exe" || goto fail
 %CXX% /utf-8 tests\host\nr_diagnostic_log.cpp /Fe"%OUT%\nr_diagnostic_log.exe" /Fo"%OUT%\nr_diagnostic_log.obj" || goto fail
 "%OUT%\nr_diagnostic_log.exe" "%OUT%\diagnostic-log" || goto fail
+%CXX% tests\host\nr_multiplier.cpp /Fe"%OUT%\nr_multiplier.exe" /Fo"%OUT%\nr_multiplier.obj" || goto fail
+"%OUT%\nr_multiplier.exe" || goto fail
+%CXX% /utf-8 /I"%INC%" tests\host\nr_activity_recording.cpp /Fe"%OUT%\nr_activity_recording.exe" /Fo"%OUT%\nr_activity_recording.obj" /link "%DETOURS%" dxguid.lib || goto fail
+"%OUT%\nr_activity_recording.exe" || goto fail
 %CXX% /utf-8 tests\host\amd_model_settings.cpp /Fe"%OUT%\amd_model_settings.exe" /Fo"%OUT%\amd_model_settings.obj" || goto fail
 "%OUT%\amd_model_settings.exe" || goto fail
 %CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail
