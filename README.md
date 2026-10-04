@@ -4,6 +4,7 @@
 
 
 # OptiScaler AMD pre-SR — 1.10.0
+**特别感谢**：各位 Bilibili 用户的测试与反馈意见。
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
@@ -17,64 +18,32 @@
 
 ### 1.10.0 配置与安装
 
-lmxxf GPU 模块采用上游 LLVM23 / RowOpts 混合编译配方：每架构5个模块由 LLVM23.1.2 编译，其余29个由 COMGR 编译。两个架构共68个模块已随包提供，玩家无需安装 WSL 或编译器。RX9070XT 数值与运行时回归已通过；本版实际游戏性能仍待验收，不承诺固定提速。
+当前版本已支持以下后端及对应功能：
 
-lmxxf 更新至 0.40。默认全 71 块（`DLSS5_SKIP_BLOCKS=none`）、快速数值开启（`DLSS5_FAST_NUMERIC=true`）、叠层 1 遍（`DLSS5_MULTI_PASS=1`）、自由分辨率开启（`DLSS5_NETWORK_FREE_RES=true`）。自由分辨率按实际输入计算，超过处理预算时回退网络档位；1440p/4K 输入会显著增加耗时和显存。2/3 遍叠层加强风格，计算量约为对应倍数，并关闭自适应 ViT 复用。`DLSS5_MULTI_PASS_SKIP_BLOCKS=none` 建议保持默认。改变这些选项会在下一帧重建网络，可能短暂卡顿。
+- lmxxf 0.40（支持全分辨率输入、多层 passes 等大量更新，请参考 lmxxf 原仓库说明）
+- Daniel 0.6.0
+- Mochizuki 0.0.3（接入时参考了 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 的思路）
 
-Ins 流程图按 **Input → Model → Output** 导航：输入页管理分辨率和曝光；模型页管理风格、叠层和 ViT；输出页管理合成强度、稳定器与外观效果。游戏输入和后续超分作为流程说明。兼容、内核和诊断保留独立高级分组。点击 Save Settings 保存到 INI；每页 Reset 只重置该页。
+lmxxf 菜单下 ViT 复用采用本项目的性能取向默认值 **16 / 1 / 50 / 1**（period/global/local/image），不是原版 **4 / 0.22 / 1 / 0.35**；更宽松的阈值可能留下旧细节或拖影，如有画面异常做相应调整或关闭 ViT 复用功能 (image reuse)。
 
-Setup 在选后端前显示检测到的权重。lmxxf 需要含 `block0-ffn.f16/.f32` 的权重目录；Daniel 需要提取后的权重；Mochizuki 需要 `dlssnr-amd/dlssnr.bin`。若检测到受支持的 `nvngx_dlssnr.dll` 310.8.0，Setup 可使用 Python 3.10+ 提取 Mochizuki 模型。缺少源 DLL 时会说明所需文件；无效模型会保留并要求先移走再重建，不显示为可用。Ins 在 Enable NR 附近提示所选后端缺失的依赖。
+### 游戏兼容
 
-更新使用安装器整包覆盖；选择保留 INI 会保留旧的显式设置。菜单/INI 始终优先；上游的 default/custom/native 三层文件与外部环境只补充宿主没有设置的键。下面 1.9.0 部分为历史记录，其旧分辨率限制不适用于本版。
+- 修复自 1.9.8.1 以来卡普空 RE 引擎游戏（鬼武者、生化危机9）的闪退问题。
+- lmxxf 部分游戏场景闪退问题（已知鸣潮、异环、伊莫等）正在与上游共同商议修复，当前版本推荐尝试 Mochizuki 后端。
+- 可能无法与 ReShade 插件兼容。
 
-### lmxxf 配置速查（ini / 菜单）
-
-跨层键与上游同名（`DLSS5_*`）。**Ins 菜单文案不会写入 ini**；优先级：菜单/ini > `native-game-flags.txt` / 环境变量 > 默认值。`DLSS5_STRENGTH` 与 Detail/Colour 为同一组强度，本侧已传入时以菜单为准，无需第二套滑条。
-
-| 菜单位置 | 键 | 说明 |
-|---|---|---|
-| Output | `TransferStrength` / `ColourStrength` | 网络细节 / 色彩合成（Colour 0–1 保原色，>1 网络色） |
-| Compatibility & Scheduling | `DLSS5_FIT_LARGE` | High resolution；大 Color 拟合进网络（含 >1080p） |
-| Input | `DLSS5_NETWORK_HEIGHT` | **Network tier** auto（默认）或 720 / 900 / 1080 |
-| Input | `LmxxfAutoExposure` 等 | 无曝光纹理时自动测光；关掉后用 Exposure scale |
-| Advanced Kernels | `DLSS5_HIP_WAVE_OWNED` 等 | 内核 / 显存池 / 字节流 |
-| ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE` 等 | 静止帧 ViT 复用（可调，非逐位） |
-| Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`、增强屏障、early wrap / Debug view | 兼容设置与诊断画面分别归组 |
-
-### 1.10.0 新增控制
-
-以下选项位于 `OptiScaler.ini` 的 `[DlssNr]`，在 Ins 菜单调节后点 **Save Settings** 保存。发布状态以 GitHub Releases 为准。
-
-| 菜单 | 配置键与默认值 | 用法 |
-|---|---|---|
-| lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2；与 Daniel 的 `Style` 独立。改变后下一帧重建网络，可能短暂卡顿 |
-| Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | 打开改为 1088，仅影响 1080 档；可能更快但会改变画面，尤其底边。改变后重建网络 |
-| Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | 接受显卡支持的额外色彩格式，使用私有 FP16 输出；保存后重启游戏 |
-| Overall Intensity | `NrOverallIntensity=1.0` | 三后端共用，0–2；0 显示原图，1 保留完整结果，>1 增强修正。0 仍运行 NR，省算力应关闭 NR |
-| Residual Stabilizer | `NrStabilizerEnabled=false` | 三后端共用，利用运动与深度减少修正量闪烁；可能软化运动细节或拖影，增加 GPU 工作与显存 |
-| History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | 范围分别 0–0.95 / 0–16；任一为 0 时旁路稳定器。先用默认值，拖影时降低 |
-| Measure NR performance | `NrTimingEnabled=false` | 按需测量 HIP 网络、Encode、Decode 和输出效果；网络计时使用非阻塞 HIP 事件，不改变 PDL 设置 |
-| Write timing summary to log | `NrTimingLog=false` | 同时启用计时和文件日志后，最多每 5 秒一条摘要，不逐帧刷屏 |
-
-菜单按上面的 Input / Model / Output 三页组织；Network tier 表示分辨率档位，作为自由分辨率超出预算时的回退。
-
-**Reset shared effects** 只恢复整体强度和稳定器；**Reset diagnostics** 恢复计时与调试显示。各分组 Reset 只作用于对应设置；ViT 分组统一管理执行路径、复用及互斥设置。底部 **Reset NR settings** 重置当前后端和共享 NR 控件，不改另一个后端、后端选择、热切换偏好或快捷键。Lighting / Appearance 的 Reset 不再修改模型次数、结构等分组外设置。
-
-**Page Up** 打开帧率面板，**Page Down** 切换详情；Just FPS 不显示 NR 耗时，其他样式显示 NR GPU，详细样式补充编解码及有样本的输出效果耗时。编解码/效果数值是最近 120 个有效样本的统计；网络数值是最近 5 个样本的中位数，重建后跳过首样本、丢弃已观察到的不足 0.01 ms 异常事件区间，至少积累 3 个再显示；`N/A` 表示无可用样本，`stale` 表示过期。编解码与输出效果各自换行显示，各阶段不能相加当作整帧延迟。计时不新增等待 GPU 的操作，但不是绝对零开销，实际影响仍需游戏对照测试；Daniel 的内部网络耗时尚未接入此面板。
-
-稳定器需要有效运动/深度，无法安全执行时旁路并在 Ins 显示状态。纯后端模式首次开启共享输出效果可能需要保存并重启。整体强度作用于最终输出，不等同于模型的 `Intensity`、Detail 或 Colour。
-
-NR 快速开关默认 **End**，帧生成默认未绑定；可在快捷键菜单修改。移除 ViT 的 F8 开关，只通过 Ins 菜单调节；旧 `DLSS5_VIT_REUSE_HOTKEY` 不再生效。更新时使用安装器整包覆盖，宿主和 runtime 必须配套。
-
-ViT 复用仍采用本项目的性能取向默认值 **16 / 1 / 50 / 1**（period/global/local/image），不是上游 **4 / 0.22 / 1 / 0.35**；更宽松的阈值可能留下旧细节或拖影。`DLSS5_HIP_INPUT_POLL` 与 `DLSS5_IO_FUSE` 尚未接入产品路径，不能通过添加 ini 键启用。
-
-### Ins 窗口布局
+### Ins 窗口布局（部分思路借鉴）
 
 可拖动窗口边缘调整大小；窄窗口改为单栏，内容滚动，底部操作独立保留。
 底部 **Window** 可选择自由移动或四角停靠；拖动标题栏解除停靠。窗口随游戏显示区域变化保持在边界内。
 **Menu Scale** 仍控制字体/控件大小，和窗口尺寸分开。**… → Reset window layout** 只恢复窗口尺寸、居中和自由模式，不改 NR 或缩放设置。
 **Save Settings** 保存 `[Menu] WindowWidth/WindowHeight`（缩放前逻辑像素，`auto` 为自动）和 `WindowAnchor`（0=自由，1/2=左上/右上，3/4=左下/右下）。自由位置仅在当前会话保留。
 Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置。
+
+### 安装器
+
+- 后端选择时现在将提示权重所在位置（使用安装器文件夹权重或所选游戏文件夹内已备）
+- Mochizuki 后端可选
 
 
 ---
@@ -360,7 +329,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 
 #### daniel 配置键（与 `dlssnr_on_amd.ini` `[DlssNrOnAmd]` 对应）
 
-**优先级：Ins 会话 > `OptiScaler.ini` `[DlssNr]`（Save 后）> `dlssnr_on_amd.ini` / 环境 > 默认。**  
+**优先级：Ins 会话 > `OptiScaler.ini` `[DlssNr]`（Save 后）> `dlssnr_on_amd.ini` / 环境 > 默认。**
 Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
 
 | Ins 菜单 | OptiScaler.ini | daniel 键 | 默认 |
@@ -374,7 +343,7 @@ Ins 文案不进 ini；**Save Settings** 才把菜单值写入两侧 ini。
 | HIP high-priority queue | `QueuePriority` | `QueuePriority` | 关 |
 | Style（Pass 1） | `Style` | `Style` | 0 Default |
 
-daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。  
+daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDevice` 等）见 `dlssnr_on_amd.ini`；`OverlayKey` 只绑 daniel 自家 overlay。
 高级进程环境变量（无 Ins 开关）：`DLSSNR_NO_REG`、`DLSSNR_CHAIN`、`DLSSNR_NOBLEND`、`DLSSNR_NO_REPACK`、`DLSSNR_WBLOG`。
 
 **热切换**（菜单 **Allow backend hot switching**，或改 `OptiScaler.ini` `[DlssNr]`）：
@@ -401,7 +370,7 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 - `amd_presr.log`：Pre-SR 调度管线日志；
 - `dlssnr_on_amd.log`：Daniel 后端专用运行日志。
 
-> **注意：lmxxf 后端的日志在哪？**  
+> **注意：lmxxf 后端的日志在哪？**
 > 与 `danielblnc` 后端写入独立的 `dlssnr_on_amd.log` 不同，`lmxxf` 后端与 C-ABI 运行时的日志已直接接入统一日志系统，其所有初始化、状态检测与运行报错均**集中记录在 `OptiScaler.log`（以及 `amd_bridge.log`）中**，无需查找额外日志文件。
 
 #### 1. `lmxxf` 后端专属排错
@@ -439,7 +408,7 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 
 ## 6. 署名与许可 (Attributions & Licenses)
 
-代码链与开源传承（自上而下）：  
+代码链与开源传承（自上而下）：
 [OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → [**本仓库 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project)。
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**：通用超分辨率与神经渲染代理框架；

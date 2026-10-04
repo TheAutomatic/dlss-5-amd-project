@@ -4,6 +4,7 @@ This development branch adds the mochizuki backend for Windows / RDNA4. See [ins
 
 
 # OptiScaler AMD pre-SR — 1.10.0
+**Special Thanks**: Thank you to all Bilibili users for your testing and feedback.
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
@@ -15,62 +16,34 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 See the release 1.10.0 notes for details.
 
-### 1.10.0 configuration and installation
+### 1.10.0 Configuration and Installation
 
-lmxxf GPU modules use the upstream LLVM23 / RowOpts mixed compiler recipe: five modules per architecture use LLVM23.1.2 and the other 29 use COMGR. All 68 modules for both architectures are included; players do not need WSL or a compiler. Numerical and runtime regression checks passed on RX9070XT; game performance for this version still awaits acceptance, with no promised fixed speedup.
+The current version supports the following backends and features:
 
-lmxxf now uses 0.40. Defaults: all 71 blocks (`DLSS5_SKIP_BLOCKS=none`), fast numerics on (`DLSS5_FAST_NUMERIC=true`), one pass (`DLSS5_MULTI_PASS=1`), and free resolution on (`DLSS5_NETWORK_FREE_RES=true`). Free resolution follows the actual input and falls back to network tiers outside its processing budget; 1440p/4K inputs can substantially increase GPU time and memory. Two or three passes strengthen the style at roughly N times the network work and disable adaptive ViT reuse. Keep `DLSS5_MULTI_PASS_SKIP_BLOCKS=none` unless deliberately trading appearance for speed. Changes rebuild the network next frame and may briefly stall.
+- lmxxf 0.40 (supports native free resolution input, multi-pass networks, and numerous updates; please refer to the lmxxf upstream repo for details)
+- Daniel 0.6.0
+- Mochizuki 0.0.3 (integration guided by the architectural approach of [@MatheusFerreiraS](https://github.com/MatheusFerreiraS))
 
-The Ins graph navigates **Input → Model → Output**: resolution/exposure, then style/passes/ViT, then blending/stabilization/appearance. Game input and downstream upscaling provide context. Compatibility, kernels and diagnostics remain separate advanced groups. Save Settings writes the INI; each page Reset affects that page.
+In the lmxxf menu, ViT reuse retains this project's performance-oriented defaults of **16 / 1 / 50 / 1** (period/global/local/image), rather than upstream's **4 / 0.22 / 1 / 0.35**. Looser thresholds may leave stale details or ghosting; adjust accordingly or disable ViT reuse (image reuse) if visual anomalies occur.
 
-Setup reports detected weights before backend selection. lmxxf needs a folder containing `block0-ffn.f16/.f32`; Daniel needs extracted weights; Mochizuki needs `dlssnr-amd/dlssnr.bin`. With a supported `nvngx_dlssnr.dll` 310.8.0, Setup can extract the Mochizuki model using Python 3.10+. Missing source files receive setup instructions. Invalid models are preserved and must be moved aside before regeneration. Ins shows missing dependencies beside Enable NR.
+### Game Compatibility
 
-Upgrade by overwriting the complete package through Setup. Keeping the INI preserves explicit old settings. Menu/INI remains authoritative; upstream default/custom/native files and external environment only fill keys the host did not set. The 1.9.0 section below is historical; its old resolution limit does not apply to this version.
+- Fixed game crashes in Capcom RE Engine titles (Onimusha, Resident Evil 9) present since 1.9.8.1.
+- Crashes with the lmxxf backend in certain game scenes (known cases: Wuthering Waves, Neverness to Everness, Yimo, etc.) are being jointly investigated with upstream. For this release, trying the Mochizuki backend is recommended.
+- May conflict with ReShade.
 
-### lmxxf config map (ini / Ins menu)
+### Ins Window Layout (partially inspired by upstream)
 
-Cross-layer keys use the same `DLSS5_*` names as upstream. **Ins labels are never written to the ini.** Priority: menu/ini > `native-game-flags.txt` / environment > defaults. `DLSS5_STRENGTH` is the same pair as Detail/Colour strength; when the host sends those fields the menu wins — no second slider.
+Drag window edges to resize; narrow windows switch to a single column with scrollable content, while bottom action buttons remain accessible.
+The bottom **Window** option allows free positioning or anchoring to screen corners; dragging the title bar un-anchors the window. The window stays bounded within the game display viewport during resolution changes.
+**Menu Scale** continues to scale fonts and controls independently of window size. **… → Reset window layout** only resets window dimensions, centering, and free mode without affecting NR or scale settings.
+**Save Settings** persists `[Menu] WindowWidth/WindowHeight` (logical pixels before scaling, `auto` for automatic) and `WindowAnchor` (0=Free, 1/2=top-left/top-right, 3/4=bottom-left/bottom-right). Free positions persist only for the current session.
+Daniel and lmxxf share this layout; the Page Up overlay continues using its independent position settings.
 
-| Menu location | Key | Notes |
-|---|---|---|
-| Output | `TransferStrength` / `ColourStrength` | Detail / colour mix (Colour 0–1 keeps game colour) |
-| Compatibility & Scheduling | `DLSS5_FIT_LARGE` | High resolution; fit large Color into the network (incl. >1080p) |
-| Input | `DLSS5_NETWORK_HEIGHT` | **Network tier** auto (default) or 720 / 900 / 1080 |
-| Input | `LmxxfAutoExposure`, paper white | Meter when no usable exposure texture |
-| Advanced Kernels | `DLSS5_HIP_WAVE_OWNED`, … | Kernels / shared pool / byte stream |
-| ViT / image reuse → Reuse tuning | `DLSS5_VIT_ADAPTIVE`, … | Static-frame ViT reuse (tunable) |
-| Compatibility & Scheduling / Diagnostics | `DLSS5_HIP_PDL`, debug view, enhanced barriers, early wrap | Diagnostics |
+### Installer
 
-### New controls in 1.10.0
-
-These settings belong to `[DlssNr]` in `OptiScaler.ini`. Click **Save Settings** after changing them in Ins. See GitHub Releases for publication status.
-
-| Menu | Key and default | Behaviour |
-|---|---|---|
-| lmxxf style | `DLSS5_STYLE=1` | 0 / 1 / 2; independent of Daniel's `Style`. Rebuilds the network on the next frame and may briefly stall |
-| Compact 1080 network | `DLSS5_NETWORK_1080_ROWS=1152` | On selects 1088, only for the 1080 tier. May run faster but changes the image, especially the bottom edge; rebuilds the network |
-| Additional colour formats | `DLSS5_FORMAT_FALLBACK=true` | Accepts additional GPU-supported colour formats through private FP16 output; save and restart the game |
-| Overall Intensity | `NrOverallIntensity=1.0` | All three backends, 0–2. 0 shows the original, 1 keeps the full result, >1 amplifies the correction. NR still runs at 0; disable NR to save model work |
-| Residual Stabilizer | `NrStabilizerEnabled=false` | All three backends; uses motion and depth to reduce correction flicker. May soften moving detail or cause trails; adds GPU work and memory |
-| History blend / Residual threshold | `NrStabilizerAlpha=0.8` / `NrStabilizerThreshold=4.0` | Ranges 0–0.95 / 0–16. Either zero bypasses stabilization. Start with defaults; reduce if trailing appears |
-| Measure NR performance | `NrTimingEnabled=false` | Asynchronous lmxxf NR GPU, Encode and Decode measurements; Ins also exposes CPU stages and dropped samples |
-| Write timing summary to log | `NrTimingLog=false` | Requires measurement and file logging; at most one summary every five seconds |
-
-**Page Up** opens the FPS overlay; **Page Down** changes detail. Just FPS omits NR timings; other styles show NR GPU, while detailed styles add encode/decode and output-effect times when samples exist. Codec/effect statistics cover the last 120 valid samples; NR GPU uses a five-sample median after warm-up and does not change PDL. `N/A` means unavailable and `stale` means outdated. NR GPU includes the network output copy. Do not add stages together as whole-frame latency. Measurement adds no GPU waits, but has some overhead that still needs game testing. Daniel's internal network timing is not integrated into this panel.
-
-The stabilizer needs valid motion/depth; unsafe paths bypass it and show an Ins status. Enabling shared output effects for the first time in a pure-backend session may require saving and restarting. Overall Intensity blends the final output; it is separate from model `Intensity`, Detail and Colour.
-
-ViT reuse retains this product's performance-oriented **16 / 1 / 50 / 1** defaults (period/global/local/image), compared with upstream **4 / 0.22 / 1 / 0.35**. Looser thresholds can retain stale detail or trails. `DLSS5_HIP_INPUT_POLL` and `DLSS5_IO_FUSE` are not integrated into the product path; adding ini keys does not enable them.
-
-NR toggle defaults to **End**; ViT reuse has no F8 shortcut. Reset controls affect their own group; Reset NR settings preserves the other backend, backend selection, hot-switch preference and keybinds. Install the complete package with matching host and runtime.
-
-### Ins window layout
-
-Drag an edge to resize. Narrow windows use one column; content scrolls independently of the footer.
-**Window** selects Free or a screen corner. Dragging the title bar releases the anchor; viewport changes keep the window within the game display area.
-**Menu Scale** controls text/control scale separately. **… → Reset window layout** restores automatic size, centering and Free mode without resetting NR or UI scale.
-**Save Settings** persists `[Menu] WindowWidth/WindowHeight` (logical pixels before scale; `auto` chooses the size) and `WindowAnchor` (0=Free, 1/2=top left/right, 3/4=bottom left/right). Free position is retained for this session only.
-All three backends share this layout. The Page Up overlay keeps its independent position setting.
+- Backend selection now indicates weight file locations (uses installer folder weights or detected existing files in the chosen game folder).
+- The Mochizuki backend is now selectable.
 
 
 ---
