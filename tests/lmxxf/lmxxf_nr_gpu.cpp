@@ -1,11 +1,13 @@
 #include "lmxxf_gpu_test_utils.h"
+#include <limits>
 
 int main(int argc, char **argv)
 {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false,
-         upstreamControls = false, controls040 = false, rgba32 = false;
+         upstreamControls = false, controls040 = false, controls041 = false, rgba32 = false;
     unsigned inputWidth = 0, inputHeight = 0;
     unsigned activeWidth = 1280, activeHeight = 720;
     const char *dumpPath = nullptr;
@@ -25,6 +27,8 @@ int main(int argc, char **argv)
             upstreamControls = outputHash = true;
         else if (!std::strcmp(argv[i], "--040-controls"))
             controls040 = outputHash = true;
+        else if (!std::strcmp(argv[i], "--041-controls"))
+            controls041 = outputHash = true;
         else if (!std::strcmp(argv[i], "--rgba32"))
             rgba32 = autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--reject-formats"))
@@ -335,6 +339,20 @@ int main(int argc, char **argv)
         frame.exposure_scale = 0.5f;
     }
 
+    if (controls041)
+    {
+        // Reject non-finite host input before it can reach the codec, without poisoning the session.
+        for (float value : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+        {
+            auto invalid = frame;
+            invalid.flags |= LMXXF_NR_FRAME_FLAG_STRENGTH;
+            invalid.transfer_strength = value;
+            invalid.color_strength = 1.0f;
+            LmxxfNrJob rejected {}; rejected.struct_size = sizeof rejected;
+            Require(api.PrepareFrame(ctx, &invalid, &rejected) == LMXXF_NR_INVALID_ARGUMENT,
+                    "non-finite host strength rejected");
+        }
+    }
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
     const int32_t pfr = api.PrepareFrame(ctx, &frame, &job);
@@ -506,6 +524,68 @@ int main(int argc, char **argv)
                 Require(hash == first, "unchanged control output is stable");
                 Require((hash == baseline) == c.sameBaseline, "control reaches network; default restored exactly");
                 std::printf("controls style=%s rows=%s repeat=%d hash=%016llx\n", c.style, c.rows, repeat,
+                            static_cast<unsigned long long>(hash));
+            }
+        }
+    }
+
+    if (controls041)
+    {
+        Require(outs == LMXXF_NR_OK, "0.41 baseline outputs");
+        uint64_t hashes[12] {};
+        hashes[0] = HashTexture(device, submitQueue, static_cast<ID3D12Resource*>(job.private_output));
+        auto count = [&]() {
+            char status[1024] {};
+            Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "0.41 status");
+            const char* p = std::strstr(status, "recreates=");
+            Require(p != nullptr, "0.41 recreate count");
+            return std::strtol(p + 10, nullptr, 10);
+        };
+        // Each row changes at least one network option. Reference indexes include the initial
+        // one-pass result at index 0. Exercise inert controls, real/predicted third passes,
+        // combined skin protection and exact restoration after rebuilding.
+        const struct { int passes, predict, skin, reference; bool equal; } cases[] = {
+            {1, 0, 0, 0, true}, {1, 0, 1, 0, true},
+            {2, 0, 0, 0, false}, {2, 1, 0, 3, true}, {2, 1, 1, 3, false},
+            {3, 1, 0, 3, false}, {3, 0, 0, 6, false}, {3, 1, 0, 6, true},
+            {3, 1, 1, 6, false}, {3, 0, 1, 7, false}, {1, 1, 0, 0, true}};
+        unsigned index = 0;
+        for (const auto& c : cases)
+        {
+            ++index;
+            SetEnvironmentVariableA("DLSS5_MULTI_PASS", std::to_string(c.passes).c_str());
+            SetEnvironmentVariableA("DLSS5_MULTI_PASS_PREDICT", c.predict ? "1" : "0");
+            SetEnvironmentVariableA("DLSS5_MULTI_PASS_SKIN_PROTECT", c.skin ? "1" : "0");
+            const long before = count();
+            for (int repeat = 0; repeat < 2; ++repeat)
+            {
+                WaitQueue(device, submitQueue);
+                Check(alloc->Reset(), "0.41 input allocator");
+                Check(list->Reset(alloc, nullptr), "0.41 input list");
+                LmxxfNrJob next {}; next.struct_size = sizeof next;
+                Require(api.PrepareFrame(ctx, &frame, &next) == LMXXF_NR_OK, "0.41 prepare");
+                Require(count() == before + 1, "0.41 controls rebuild exactly once");
+                char status[1024] {}, expected[96] {};
+                Require(api.GetStatus(ctx, status, sizeof status) == LMXXF_NR_OK, "0.41 applied status");
+                std::snprintf(expected, sizeof expected, "passes=%d network_passes=%d predict=%d skin=%d",
+                              c.passes, c.passes == 3 && c.predict ? 2 : c.passes, c.predict, c.skin);
+                Require(std::strstr(status, expected) != nullptr, "status reports applied network options");
+                Require(api.RecordInputs(ctx, next.handle, list) == LMXXF_NR_OK, "0.41 inputs");
+                Check(list->Close(), "0.41 input close");
+                submitQueue->ExecuteCommandLists(1, lists);
+                Require(api.EnqueueHip(ctx, next.handle, submitQueue) == LMXXF_NR_OK, "0.41 HIP");
+                WaitQueue(device, submitQueue);
+                Check(outAlloc->Reset(), "0.41 output allocator");
+                Check(list->Reset(outAlloc, nullptr), "0.41 output list");
+                Require(api.RecordOutputs(ctx, next.handle, list) == LMXXF_NR_OK, "0.41 outputs");
+                Check(list->Close(), "0.41 output close");
+                submitQueue->ExecuteCommandLists(1, lists);
+                Require(api.Retire(ctx, next.handle) == LMXXF_NR_OK, "0.41 retire");
+                const auto hash = HashTexture(device, submitQueue, static_cast<ID3D12Resource*>(next.private_output));
+                if (!repeat) hashes[index] = hash;
+                Require(hash == hashes[index], "0.41 repeated output stable");
+                Require((hash == hashes[c.reference]) == c.equal, "0.41 control output and restoration");
+                std::printf("controls041 %s repeat=%d hash=%016llx\n", expected, repeat,
                             static_cast<unsigned long long>(hash));
             }
         }

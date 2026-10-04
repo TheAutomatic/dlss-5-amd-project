@@ -152,7 +152,11 @@ class Fixture(unittest.TestCase):
         write(self.up / 'src/LmxxfProductionOptions.h', product)
         for profile in audit.PROFILES:
             write(self.up / profile, 'DLSS5_HIP_GRAPH=0\nDLSS5_TEST_UNKNOWN=1\nDLSS5_NETWORK_HEIGHT=900\n')
-        recipe = '$modules = @(\n' + '\n'.join(
+        # Preserve the real param header used by the encoding-only patch; the small
+        # synthetic recipe below remains the orchestrator fixture, never real GPU code.
+        build_raw = frozen_upstream_files()['hip/build-modules.ps1'].decode('utf-8')
+        param_end = build_raw.index('\n)') + 2
+        recipe = build_raw[:param_end] + '\n$modules = @(\n' + '\n'.join(
             "@{ name = '%s'; defines = @(); sources = @('active.hip') }" % module
             for module in ('multihead-fast-padded-wave', 'multihead-fast-padded-wave-packed')) + '\n)\n'
         kernel = '#ifndef HIP_FFN_LINE_STORES\n#define HIP_FFN_LINE_STORES 0\n#endif\n#if defined(HIP_EXPERIMENT) && HIP_OTHER\n#endif\n'
@@ -609,6 +613,27 @@ class AuditTests(Fixture):
 
 @unittest.skipUnless(PS and os.name == 'nt', 'PowerShell/Windows required')
 class ModuleTests(Fixture):
+    def test_recipe_bom_only_is_neutral_but_source_changes_are_not(self):
+        folder = self.folder / 'fingerprint'
+        folder.mkdir()
+        recipe = folder / 'build-modules.ps1'
+        script = self.folder / 'fingerprint-bom.ps1'
+        write(script, ". '" + str(self.config / 'Modules.ps1').replace("'", "''") + "'\n"
+              + "Get-TreeFingerprint '" + str(folder).replace("'", "''") + "' @('*.ps1','*.hip','*.hsaco')\n")
+        def fp():
+            return subprocess.check_output([PS, '-NoProfile', '-File', str(script)], text=True).strip()
+        recipe.write_bytes(b'$modules = @()\n')
+        baseline = fp()
+        recipe.write_bytes(b'\xef\xbb\xbf$modules = @()\n')
+        self.assertEqual(fp(), baseline)
+        recipe.write_bytes(b'\xef\xbb\xbf$modules = @(1)\n')
+        self.assertNotEqual(fp(), baseline)
+        binary = folder / 'same.hsaco'
+        binary.write_bytes(b'code')
+        before = fp()
+        binary.write_bytes(b'\xef\xbb\xbfcode')
+        self.assertNotEqual(fp(), before, 'binary bytes must never be normalized')
+
     def test_release_freshness_covers_runtime_headers_and_lmxxf_host(self):
         runtime = self.local / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
         host = self.local / 'exports/release-local/OptiScaler.dll'

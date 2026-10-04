@@ -96,3 +96,7 @@ Mochizuki 的 `tests/mochizuki/run.cmd pass-switch normal` 真实模型用例通
 lmxxf 的 `lmxxf_nr_gpu --040-controls` 在 RX 9070 XT、1920×1080 上通过了
 1→2→3→1 层及跳块切换：各层输出不同，相同设置重复输出一致，恢复一层后回到基线。
 这些运行时用例与适配层测试分开执行；Daniel 的闭源网络和三个后端的完整游戏链仍需本地验收。
+
+## lmxxf 0.41 补充
+
+同一处理位置仍包含整个叠层链。请求 3 层时，默认 `DLSS5_MULTI_PASS_PREDICT=true` 为两次真实网络加局部预测；设为 false 才是真实三遍。肤色保护默认关闭，可在两层或三层时保留第一遍的肤色；采用颜色启发式，不是人物分割。准备输入、最终输出效果和写回 SR 结果各执行一次。上面的 0.40 验证为历史基线；0.41 结果见 [接入审阅](lmxxf-041-consumer-review.md)。

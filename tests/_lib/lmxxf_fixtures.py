@@ -8,6 +8,10 @@ import shutil
 
 
 MODULE_NAMES = (
+    'deep_fast-packed-fast',
+    'vit-stream-fast',
+    'multi-pass-skin',
+    'multi-pass-predict',
     'boundary-fast', 'boundary_reference', 'c32_fast', 'c32_fast_attention',
     'c32_fused_attention', 'c32_fused_ffn_attention-packed', 'c32_fused_ffn_attention',
     'c32_prefix_reference', 'c32_tiled', 'c32_wmma', 'deep_fast-packed', 'deep_fast',
@@ -41,8 +45,8 @@ def make_modules(directory, marker='fixture', runtime_manifest=True):
     (directory / 'SHA256SUMS').write_text('\n'.join(root_rows) + '\n', encoding='utf-8')
     if runtime_manifest:
         (directory / 'runtime-manifest.json').write_text(json.dumps(dict(
-            schema=2, runtime_abi=1, targets=list(ARCHES), module_count=68,
-            module_count_per_arch=34, upstream_commit='0' * 40)), encoding='utf-8')
+            schema=2, runtime_abi=1, targets=list(ARCHES), module_count=76,
+            module_count_per_arch=38, upstream_commit='0' * 40)), encoding='utf-8')
     return directory
 
 

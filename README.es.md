@@ -27,7 +27,7 @@ Consulte las notas de la release 1.10.0 para más detalles.
 
 La versión actual admite los siguientes backends y características correspondientes:
 
-- lmxxf 0.40 (soporte para resolución libre nativa, redes multi-pasada y múltiples mejoras; consulte el repositorio upstream de lmxxf para más detalles)
+- lmxxf 0.41: predicción de la tercera pasada (activa por defecto, solo con 3 pasadas; desactívela para tres pasadas reales), protección opcional de tonos de piel (desactivada) y cálculo rápido ViT/C512. Se mantiene una pasada y resolución libre por defecto. Admite NR→SR y SR→NR; controles en Ins → Model e INI.
 - Daniel 0.6.0
 - Mochizuki 0.0.3 (integración inspirada en la arquitectura de [@MatheusFerreiraS](https://github.com/MatheusFerreiraS))
 
@@ -128,7 +128,7 @@ Las tarjetas RX 6000 (RDNA2) con danielblnc 0.6.0 requieren AMD HIP 7.2 runtime.
 | `OptiScaler\` | Dependencias centrales (FFX, XeSS, Agility SDK, plugins) |
 | `LmxxfNrRuntime.dll` | Runtime del backend lmxxf (renderizado neuronal HIP de código abierto) |
 | `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Runtime, shaders y herramienta de extracción de Mochizuki; modelo por separado |
-| `lmxxf-modules\` | Módulos de cómputo lmxxf de doble arquitectura (34 `.hsaco` para cada una de `gfx1200` / `gfx1201`, con manifiestos `SHA256SUMS`) |
+| `lmxxf-modules\` | Módulos de cómputo lmxxf de doble arquitectura (38 `.hsaco` para cada una de `gfx1200` / `gfx1201`, con manifiestos `SHA256SUMS`) |
 | `shaders\` | Shaders del códec lmxxf (`native_codec_encode.hlsl` y otros) |
 | `experimental_lighting\` | Shaders precompilados del pase de iluminación experimental (`GatherCS.cso` / `ResolveCS.cso`) |
 | `Setup.bat` / `Setup.ps1` | Instalador interactivo (**Haga doble clic en `Setup.bat`**) |
@@ -151,7 +151,7 @@ Prepare uno o varios backends:
 
 #### Opción A: [Preparar archivos del backend `lmxxf`](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) o [haga clic aquí](https://gofile.io/d/RyvcrDxz) para descargar los pesos
 - `LmxxfNrRuntime.dll` de este paquete completo (no sustituya el runtime ABI1 del upstream);
-- Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 34 módulos `.hsaco` cada uno y un total de 68 módulos; selección automática según GPU D3D12/HIP; el instalador valida el paquete completo y permite actualizar las instalaciones planas anteriores);
+- Carpeta de módulos `lmxxf-modules\` (estructura de doble arquitectura que incluye subdirectorios `gfx1200` [serie 9060, experimental] y `gfx1201` [serie 9070, producción], con 38 módulos `.hsaco` cada uno y un total de 76 módulos; selección automática según GPU D3D12/HIP; el instalador valida el paquete completo y permite actualizar las instalaciones planas anteriores);
 - Carpeta de shaders `shaders\` (con los archivos `.hlsl`);
 - Carpeta de pesos `native-game-tiled-assets\` (se puede descargar [aquí](https://gofile.io/d/RyvcrDxz));
 - Coloque estos elementos en la misma carpeta descomprimida junto a `Setup.bat`.

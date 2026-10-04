@@ -394,7 +394,11 @@ bool CachedFileSha256(const std::wstring &path, std::string *outHex)
     return true;
 }
 
-static const char *const kKnownModuleNames[34] = {
+static const char *const kKnownModuleNames[38] = {
+    "deep_fast-packed-fast.hsaco",
+    "vit-stream-fast.hsaco",
+    "multi-pass-skin.hsaco",
+    "multi-pass-predict.hsaco",
     "boundary-fast.hsaco",
     "boundary_reference.hsaco",
     "c32_fast.hsaco",
@@ -819,7 +823,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         if (count1200 != std::size(kKnownModuleNames) || count1201 != std::size(kKnownModuleNames) || rootMap.size() != 2 * std::size(kKnownModuleNames))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: dual-architecture SHA256SUMS incomplete (expected 34 gfx1200 and 34 gfx1201 entries)");
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 38 gfx1200 and 38 gfx1201 entries)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -941,7 +945,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         if (rootMap.size() != std::size(kKnownModuleNames))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: SHA256SUMS incomplete (expected 34 hsaco modules)");
+                        "Create: SHA256SUMS incomplete (expected 38 hsaco modules)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -1701,7 +1705,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (const wchar_t *e = _wgetenv(L"DLSS5_STRENGTH"))
             {
                 float a = 1.f, b = 1.f;
-                if (swscanf(e, L"%f,%f", &a, &b) == 2 && a >= 0.f && b >= 0.f)
+                wchar_t trailing = 0;
+                if (swscanf(e, L"%f,%f %lc", &a, &b, &trailing) == 2 &&
+                    std::isfinite(a) && std::isfinite(b) && a >= 0.f && a <= 3.f && b >= 0.f && b <= 3.f)
                 {
                     transfer_strength = a;
                     color_strength = b;
@@ -1712,7 +1718,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         {
             debug_view = 4; // Tint
         }
-        if (transfer_strength < 0.0f || transfer_strength > 3.0f || color_strength < 0.0f || color_strength > 3.0f)
+        if (!std::isfinite(transfer_strength) || !std::isfinite(color_strength) ||
+            transfer_strength < 0.0f || transfer_strength > 3.0f || color_strength < 0.0f || color_strength > 3.0f)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: transfer_strength and color_strength must be in [0, 3]");
 
         // Match upstream auto tier: <=1280x720 -> 720, <=1600x900 -> 900, else 1080.
@@ -1736,7 +1743,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         }
         auto resolvedGeo = NativeResolveNetworkGeometry(info->color_width, info->color_height);
         std::string requestedOptions;
-        for (const char* key : {CfgKey::MultiPass, CfgKey::MultiPassSkipBlocks, CfgKey::FastNumeric,
+        for (const char* key : {CfgKey::MultiPass, CfgKey::MultiPassPredict, CfgKey::MultiPassSkinProtect,
+                               CfgKey::MultiPassSkipBlocks, CfgKey::FastNumeric,
                                CfgKey::NetworkFreeRes, CfgKey::SkipBlocks}) {
             const char* value = std::getenv(key);
             requestedOptions += key; requestedOptions += '=';
@@ -2805,12 +2813,16 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             {
                 auto geo = NativeCurrentNetworkGeometry();
                 std::snprintf(text, sizeof text,
-                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u autoexp=%u",
+                              "lmxxf arch=%s match=%s %s modules_ok=%u hip=1 net=%ux%u color_job=%ux%u weights=%u recreates=%u autoexp=%u passes=%u network_passes=%u predict=%u skin=%u",
                               archStr, matchStr, pdlBuf,
                               static_cast<unsigned>(session->hsacoCount), geo.valid_width, geo.valid_height,
                               session->job.width, session->job.height,
                               session->weightsDir.empty() ? 0u : 1u, session->codecRecreates,
-                              session->job.autoExposure ? 1u : 0u);
+                              session->job.autoExposure ? 1u : 0u,
+                              session->bridge->MultiPass(),
+                              session->bridge->MultiPass() == 3 && session->bridge->MultiPassPredict() ? 2u : session->bridge->MultiPass(),
+                              session->bridge->MultiPassPredict() ? 1u : 0u,
+                              session->bridge->MultiPassSkinProtect() ? 1u : 0u);
             }
             else
             {

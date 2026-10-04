@@ -1,19 +1,19 @@
 {
   "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
-  "note": "Raw FOLLOW patch inputs at 0.40; product bridge stays based on bridge_raw_commit.",
-  "bridge_raw_commit": "54e14de503431cd4536f8a7151b022af232178a9",
-  "follow_raw_commit": "c81a88bc8534f7193df08ec3cae21d06d10d285d",
+  "commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
+  "note": "Raw 0.41 patch inputs; bridge patch retains product recording contracts and exclusions.",
+  "bridge_raw_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
+  "follow_raw_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
   "files": [
     {
       "path": "Development/HIP/hip_d3d12_bridge.h",
       "fixture": "hip_d3d12_bridge.upstream.h",
-      "sha256": "44b35e819804cb40f28680d3fe20cd7104030f81a3c3447842687a0986a6d1a0"
+      "sha256": "6844e714b2d5770a5937a6a521d790f8b4a8f087930dba3746685b06b9ca56bc"
     },
     {
       "path": "Development/HIP/hip_reference_network.h",
       "fixture": "hip_reference_network.upstream.h",
-      "sha256": "d681b500e9285f2a3b90bbe3f121437cde0060a40499edfc42dd973955f5b7c6"
+      "sha256": "990cec0453eed345f597c6af75aa2b51eb1f09605ede12cd87be29e92927f4d7"
     },
     {
       "path": "src/native_lab_paths.h",
@@ -54,6 +54,11 @@
       "path": "Development/HIP/hip_api.h",
       "fixture": "hip_api.upstream.h",
       "sha256": "45c46c8ed6633c0094817f6392049bbf01eb355d55c9fd8c3d11fdff90e9b519"
+    },
+    {
+      "path": "hip/build-modules.ps1",
+      "fixture": "build-modules.upstream.txt",
+      "sha256": "64804487be8bdacc883190d2272694334e88ffff21d32f2e7f78bb3b95412bd7"
     }
   ]
 }

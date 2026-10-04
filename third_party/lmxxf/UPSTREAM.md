@@ -1,8 +1,8 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `c81a88bc8534f7193df08ec3cae21d06d10d285d` (synced 2026-10-04)
-- **0.40**: dual-arch modules (34/34) rebuilt with the original RowOpts recipe: five LLVM23.1.2 rows per architecture, remaining rows COMGR, and the two maintained LINE_STORES overrides. Actual C64 barrier defines, compiler commands and source/object hashes are recorded in modules.json. Feature decisions, validation and zero remaining feature deferrals (unselected experiments are decided exclusions) are in [the 0.40 consumer review](../../docs/lmxxf-040-consumer-review.md). Product ABI, recording/timing contracts and the pinned bridge remain. This source/module review is not release or game acceptance.
+- Commit: `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3` (synced 2026-10-05)
+- **0.41**: 38 modules per architecture (76 total), five LLVM23.1.2 rows plus33 COMGR rows each, original RowOpts and two maintained LINE_STORES overrides. Predict-third-pass and skin protection have product INI/menu controls; default1 pass, prediction on, skin off, free resolution on. Product ABI2, recording/timing and SR placement are retained. Decisions and actual validation: [0.41 consumer review](../../docs/lmxxf-041-consumer-review.md). Source integration is not game/release acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 

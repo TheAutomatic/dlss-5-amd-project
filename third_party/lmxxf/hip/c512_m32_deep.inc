@@ -237,6 +237,12 @@ WAVE void split_ffn_one_m32(const float*in,const float*w,unsigned char*out8,uint
 #ifndef C512_FFN_F8W
 #define C512_FFN_F8W 0
 #endif
+#ifndef C512_DIRECT_PACK
+#define C512_DIRECT_PACK 0 /* bit0: mix's F decode/repack; bit1: final byte-only contract exit */
+#endif
+#if C512_DIRECT_PACK && (!HIP_NATIVE_FP8_F || !HIP_BRANCHLESS_F || !HIP_BYTE_F_ADD0)
+#error C512_DIRECT_PACK_requires_production_native_branchless_F_and_byte_F_add0
+#endif
 #if C512_FFN_F8W
 DEV i2 c5d_pack8f(const float*v){i2 r;for(uint i=0;i<2;i++){int w=__builtin_amdgcn_cvt_pk_fp8_f32(v[4*i],v[4*i+1],0,false);w=__builtin_amdgcn_cvt_pk_fp8_f32(v[4*i+2],v[4*i+3],w,true);r[i]=w;}return r;}
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void split_ffn_one_w2f8(const float*in,const float*w,unsigned char*out8,uint tokens){
@@ -248,7 +254,12 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void split_ffn_one_w2
  for(uint k=0;k<512;k+=16){float fa[8];__builtin_memcpy(fa,ar+k,32);i2 a=c5d_pack8f(fa);
   for(uint j=0;j<4;j++){i2 b;__builtin_memcpy(&b,wm+(g*64+j*16+rc())*512+k+gr()*8,8);m[j]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(b,a,m[j]);}}
  i2 x8[4];
+ 
+#if C512_DIRECT_PACK&1
+ for(uint j=0;j<4;j++){float xv[8];for(uint e=0;e<8;e++)xv[e]=fp8_add0(c512_hq(m[j][e]));x8[j]=c5d_pack8f(xv);}
+#else
  for(uint j=0;j<4;j++){float xv[8];for(uint e=0;e<8;e++)xv[e]=F(c512_hq(m[j][e]));x8[j]=c5d_pack8f(xv);}
+#endif
  f8 r[4]{};
  for(uint hb=0;hb<16;hb++){
   f8 ex{};
@@ -256,7 +267,12 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void split_ffn_one_w2
   i2 a{};for(uint e=0;e<8;e++){float v=Hrtz(ex[e]),gate=clampf(v,-4.f,4.f),poly=__builtin_fmaf(gate,__builtin_fmaf(absf(gate),-.055908203125f,.447265625f),.89453125f);a[e/4]=int(uint(a[e/4])|(uint(byte_F(v*poly))<<(8*(e%4))));}
   for(uint ob=0;ob<4;ob++){uint off=((ob*16+rc())*256+hb*16+gr()*8)/4;i2 b={int(pw[off]),int(pw[off+1])};r[ob]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,r[ob]);}
  }
+ 
+#if C512_DIRECT_PACK&2
+ for(uint ob=0;ob<4;ob++)for(uint e=0;e<8;e++){uint rr=first+gr()*8+e,c=g*64+ob*16+rc();out8[((rr/16)*16+c/32)*512+(rr%16)*32+c%32]=byte_F(c512_hq(r[ob][e]));}
+#else
  for(uint ob=0;ob<4;ob++)for(uint e=0;e<8;e++){uint rr=first+gr()*8+e,c=g*64+ob*16+rc();float v=F(c512_hq(r[ob][e]));out8[((rr/16)*16+c/32)*512+(rr%16)*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
+#endif
 }
 #endif
 #ifndef C512_FFN_PROJ_FUSE

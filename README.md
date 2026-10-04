@@ -24,7 +24,7 @@ Daniel、lmxxf、Mochizuki 共用，默认仍为 NR → SR。SR 后按输出分�
 
 当前版本已支持以下后端及对应功能：
 
-- lmxxf 0.40（支持全分辨率输入、多层 passes 等大量更新，请参考 lmxxf 原仓库说明）
+- lmxxf 0.41：新增第三层预测（默认开，仅选 3 层时生效；关闭后运行真实三遍）和肤色保护（默认关）。快速数值路径扩展到 ViT/C512。默认仍为 1 层、自由分辨率开；支持 NR→SR 与 SR→NR。Ins 的 Model 页与 INI 均可调整。
 - Daniel 0.6.0
 - Mochizuki 0.0.3（接入时参考了 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 的思路）
 
@@ -126,7 +126,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 | `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
 | `LmxxfNrRuntime.dll` | lmxxf 后端运行时（开源 HIP 神经渲染） |
 | `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime、着色器及模型提取工具；模型另备 |
-| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 34 个 `.hsaco`，附 `SHA256SUMS` 清单） |
+| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 38 个 `.hsaco`，附 `SHA256SUMS` 清单） |
 | `shaders\` | lmxxf 编解码着色器（`native_codec_encode.hlsl` 等） |
 | `experimental_lighting\` | 实验性光照 pass 的预编译着色器（`GatherCS.cso` / `ResolveCS.cso`） |
 | `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
@@ -149,7 +149,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 
 #### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
 - 使用本项目完整包内配套的 `LmxxfNrRuntime.dll`（不要混用上游 ABI1 runtime）；
-- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 34 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 68 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
+- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 38 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 76 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
 - 模型权重目录 `native-game-tiled-assets\`（可[点击这里](https://gofile.io/d/RyvcrDxz)直接下载）；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。

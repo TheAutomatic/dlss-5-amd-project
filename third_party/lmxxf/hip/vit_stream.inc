@@ -18,7 +18,7 @@
 #define VIT_QKV_TAIL_VEC 0 /* 1: vit_stream_qkv_frag_hin_w5 byte tail transposed through the wave's LDS norm tile, one 16-byte store per lane; bytes unchanged (results/deep-tail-20260930) */
 #endif
 #if HIP_VIT_STREAM_KERNELS
-template<uint TM,uint TN,bool ByteAv,bool HalfSkip>
+template<uint TM,uint TN,bool ByteAv,bool HalfSkip,bool ByteSkip=false>
 DEV void vit_stream_project_tiles(const float*in,const float*w,const float*skip,float*out,uint tokens,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;
  constexpr uint IN=1024,OUT=1024;
  uint first=bid()/(OUT/(16*TN))*(16*TM),row=bid()%(OUT/(16*TN))*(16*TN);if(first>=tokens)return;
@@ -30,7 +30,7 @@ DEV void vit_stream_project_tiles(const float*in,const float*w,const float*skip,
  for(uint p=0;p<4;p++){f8 a[TM][TN]{};
   if(!p)
 #pragma unroll
-  for(uint t=0;t<TM;t++)for(uint j=0;j<TN;j++)if(t<live)for(uint e=0;e<8;e++)a[t][j][e]=H((HalfSkip?float(reinterpret_cast<const _Float16*>(skip)[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()]):skip[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()])*w[IN*OUT+row+j*16+rc()]);
+  for(uint t=0;t<TM;t++)for(uint j=0;j<TN;j++)if(t<live)for(uint e=0;e<8;e++)a[t][j][e]=VIT_FAST_H((ByteSkip?__builtin_amdgcn_cvt_f32_fp8(int(reinterpret_cast<const unsigned char*>(skip)[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()]),0):(HalfSkip?float(reinterpret_cast<const _Float16*>(skip)[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()]):skip[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()]))*w[IN*OUT+row+j*16+rc()]);
   for(uint k=p*(IN/4);k<(p+1)*(IN/4);k+=16){i2 x[TM];
 #pragma unroll
    for(uint t=0;t<TM;t++){x[t]=i2{};if(t<live){if constexpr(ByteAv)__builtin_memcpy(&x[t],reinterpret_cast<const unsigned char*>(in)+(first+t*16+rc())*IN+k+gr()*8,8);else {DF_PACK8_LOOP(x[t],in[(first+t*16+rc())*IN+k+gr()*8+e]);}}}
@@ -43,7 +43,7 @@ DEV void vit_stream_project_tiles(const float*in,const float*w,const float*skip,
 #pragma unroll
   for(uint j=0;j<TN;j++)for(uint e=0;e<8;e++)total[t][j][e]=p?total[t][j][e]+a[t][j][e]:a[t][j][e];}
 #pragma unroll
- for(uint t=0;t<TM;t++){if(t>=live)continue;for(uint j=0;j<TN;j++)for(uint e=0;e<8;e++)out[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()]=F(H(total[t][j][e]));}
+ for(uint t=0;t<TM;t++){if(t>=live)continue;for(uint j=0;j<TN;j++)for(uint e=0;e<8;e++)out[(first+t*16+gr()*8+e)*OUT+row+j*16+rc()]=F(VIT_FAST_H(total[t][j][e]));}
 }
 WAVE void vit_stream_project_n64_b(const float*in,const float*w,const float*skip,float*out,uint tokens,uint inputs,uint outputs,const uint*reuse_gate){vit_stream_project_tiles<1,4,true,false>(in,w,skip,out,tokens,reuse_gate);}
 WAVE void vit_stream_project_n64_h(const float*in,const float*w,const float*skip,float*out,uint tokens,uint inputs,uint outputs,const uint*reuse_gate){vit_stream_project_tiles<1,4,false,true>(in,w,skip,out,tokens,reuse_gate);}
@@ -189,4 +189,47 @@ KERNEL __attribute__((amdgpu_flat_work_group_size(160,160))) void vit_stream_qkv
 #endif
 #endif
 WAVE void vit_stream_contract_frag_hout(const float*in,const float*w,const float*skip,float*out,uint tokens,uint inputs,uint outputs,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;if(inputs==4096&&outputs==1024)vit_contract_blocked_body<false,false,false,true,true>(in,w,skip,out,tokens);}
+
+#if VIT_CONTRACT_BYTE_EDGE && VIT_QKV_F8W
+// All three exports must be paired by the host. Byte contract is only an exact E4M3 representation change.
+WAVE void vit_stream_contract_frag_bout(const float*in,const float*w,const float*skip,float*out,uint tokens,uint inputs,uint outputs,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;if(inputs==4096&&outputs==1024)vit_contract_blocked_body<false,false,false,false,true,true>(in,w,skip,out,tokens);}
+WAVE void vit_stream_project_n64_bb(const float*in,const float*w,const float*skip,float*out,uint tokens,uint inputs,uint outputs,const uint*reuse_gate){vit_stream_project_tiles<1,4,true,false,true>(in,w,skip,out,tokens,reuse_gate);}
+KERNEL __attribute__((amdgpu_flat_work_group_size(160,160))) void vit_stream_qkv_frag_bin_w5f8(const float*in,const float*w,unsigned char*out,uint tokens,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;
+ constexpr uint CH=8;
+ __attribute__((shared)) _Float16 lds[2*2*CH*256];/* bytes: 2 buffers x 2 column tiles x CH x 256B = 8KB used for staging; 16KB kept for the norm tiles */
+ unsigned char*l8=reinterpret_cast<unsigned char*>(lds);
+ const uint t=__builtin_amdgcn_workitem_id_x(),wv=t>>5,lane=t&31,groups=(tokens/16+4)/5,perpart=groups*32,part=bid()/perpart,local=bid()%perpart,first=(local/32*5+wv)*16,row=local%32*32;if(part>=3)return;
+ const bool live=first<tokens;
+ const unsigned char*hb=reinterpret_cast<const unsigned char*>(w)+part*1048576+(row/16)*64*256;
+ int __attribute__((ext_vector_type(4))) s0{},s1{};/* t<128 moves pieces p=t+i*128: column tile p>>7, 16B at (p&127)*16 of the chunk */
+#define F8_SRC(i) (hb+((t+(i)*128)>>7)*16384+kc*CH*256+(t&127)*16)
+#define F8_DST(i) (l8+sb*(2*CH*256)+((t+(i)*128)>>7)*(CH*256)+(t&127)*16)
+#define F8_FETCH {if(t<128){__builtin_memcpy(&s0,F8_SRC(0),16);__builtin_memcpy(&s1,F8_SRC(1),16);}}
+#define F8_STASH {if(t<128){__builtin_memcpy(F8_DST(0),&s0,16);__builtin_memcpy(F8_DST(1),&s1,16);}}
+ f8 acc[2]{};
+ {const uint kc=0;F8_FETCH}
+#pragma unroll 1
+ for(uint kc=0;kc<1024/(16*CH);kc++){{const uint sb=kc&1;F8_STASH}__builtin_amdgcn_s_barrier();if(kc+1<1024/(16*CH)){const uint kc1=kc+1;{const uint kc=kc1;F8_FETCH}}
+  if(live)
+#pragma unroll
+  for(uint kk=0;kk<CH;kk++){uint k=(kc*CH+kk)*16;i2 a8;__builtin_memcpy(&a8,reinterpret_cast<const unsigned char*>(in)+(first+rc())*1024+k+gr()*8,8);
+#pragma unroll
+   for(uint j=0;j<2;j++){i2 b;__builtin_memcpy(&b,l8+(kc&1)*(2*CH*256)+j*(CH*256)+kk*256+lane*8,8);acc[j]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a8,b,acc[j]);}}}
+#undef F8_SRC
+#undef F8_DST
+#undef F8_FETCH
+#undef F8_STASH
+ __builtin_amdgcn_s_barrier();
+ float*raw=reinterpret_cast<float*>(lds)+wv*(16*33);
+ f8 sum{};
+ if(part<2){
+  for(uint j=0;j<2;j++)for(uint e=0;e<8;e++)raw[(gr()*8+e)*33+j*16+rc()]=acc[j][e];
+  __builtin_amdgcn_s_barrier();
+  for(uint k=0;k<32;k+=16){h8 x{},ones{};for(uint e=0;e<8;e++){float v=raw[rc()*33+k+gr()*8+e];x[e]=(_Float16)(v*v);ones[e]=(_Float16)1.f;}sum=__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(x,ones,sum);}
+ }
+ if(!live)return;
+ const float scale=part==0?5.65625f*w[786432+row/32]:1.f;
+ for(uint j=0;j<2;j++)for(uint e=0;e<8;e++){float v=acc[j][e];if(part<2){v*=__builtin_amdgcn_rsqf(maxf(sum[e],6.198883056640625e-5f))*scale;}out[(part*tokens+first+gr()*8+e)*1024+row+j*16+rc()]=byte_F(v);}
+}
+#endif
 #endif

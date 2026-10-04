@@ -66,7 +66,8 @@
     "shader-compile-system32.patch",
     "recording-leases.patch",
     "module-load-cleanup.patch",
-    "codec-active-subrect.patch"
+    "codec-active-subrect.patch",
+    "module-script-encoding.patch"
   ],
   "hip_files": [
     "build-modules.ps1",

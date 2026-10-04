@@ -627,6 +627,33 @@ FASTWAVE void mh_attention_project_frag_c512_fb8(const unsigned char*av8,const u
 #ifndef C512_SPLIT_N
 #define C512_SPLIT_N 0 /* 1: add exports mh_attention_project_frag_c512_n2 (block 64, same grid) and _n2g (block 32, grid x2): each wave 16 tokens x 32 columns, per-output init/K order/epilogue as the default path. results/fill-cu-20260930. */
 #endif
+
+// C512_FAST_PROJ (2026-10-03, fast-vit-c512): mh_attention_project_frag_c512_f16res = the production projection (the
+// HIP_C512_HOIST_RES 1-wave form: 16 tokens x 64 columns, same operands/K order/epilogue) with the residual read as RNE
+// halves from split_projection_frag_f16res instead of the f32 tensor. split_projection_frag's f32 value is F(H(acc)),
+// an E4M3 value, so the half is exact: the init products are bit-identical; only the residual traffic halves. Lossless.
+#ifndef C512_FAST_PROJ
+#define C512_FAST_PROJ 0
+#endif
+#if C512_FAST_PROJ
+FASTWAVE void mh_attention_project_frag_c512_f16res(const unsigned char*av8,const _Float16*feature16,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){
+ const uint C=512;uint l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4,block=__builtin_amdgcn_workgroup_id_x(),first=block/8*16,col=block%8*64;if(first>=tokens)return;
+ const unsigned char*wb=reinterpret_cast<const unsigned char*>(w)+size_t(3)*C*C*4;const uint skip=4*C*C+(C/32)*4096+C/32;
+ f8 acc[4];
+ {float ws[4];for(uint n=0;n<4;n++)ws[n]=w[skip+col+n*16+rc];
+  float fv[4][8];for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e;uint pp=p<tokens?p:first;fv[n][e]=feature16[pp*C+col+n*16+rc];}
+  for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e;acc[n][e]=p<tokens?Hrtz(fv[n][e]*ws[n]):0.f;}}
+ bool live=first+rc<tokens;
+ const unsigned char*arow=av8+(first+rc)*C+g*8;
+ for(uint k=0;k<C;k+=32){uint gs=k/32;
+  for(uint h=0;h<2;h++){i2 a{};if(live)__builtin_memcpy(&a,arow+k+h*16,8);
+   for(uint n=0;n<4;n++){uint n0=col+n*16+rc;i2 b;__builtin_memcpy(&b,wb+((n0/16)*16+gs)*512+((h*2+g)*16+n0%16)*8,8);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[n]);}}}
+ for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint p=first+g*8+e,c=col+n*16+rc;if(p>=tokens)continue;float a=acc[n][e],v=post==3?Hrtz(a):post==4?F(a):F(Hrtz(a));uint dest=p*C+c;
+  if(cropw){uint x=p%workw,y=p/workw;if(x<sx||y<sy||x>=sx+cropw||y>=sy+croph)continue;dest=((y-sy)*cropw+x-sx)*C+c;}
+  out[dest]=v;}
+}
+#endif
+
 #if C512_SPLIT_N
 template<bool WG64> DEV void c512_proj_n2_body(const unsigned char*av8,const float*feature,const float*w,float*out,uint tokens,uint post,uint cropw,uint croph,uint workw,uint sx,uint sy){
  const uint C=512;uint t=__builtin_amdgcn_workitem_id_x(),l=t&31,rc=l&15,g=l>>4,half=WG64?(t>>5):(__builtin_amdgcn_workgroup_id_x()&1u),block=WG64?__builtin_amdgcn_workgroup_id_x():(__builtin_amdgcn_workgroup_id_x()>>1),first=block/8*16,col=block%8*64+half*32;if(first>=tokens)return;

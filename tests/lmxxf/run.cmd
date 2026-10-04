@@ -81,6 +81,8 @@ set "DLSS5_SKIP_BLOCKS=42,43,46"
 set "DLSS5_FAST_NUMERIC=0"
 set "DLSS5_NETWORK_FREE_RES=0"
 set "DLSS5_MULTI_PASS=1"
+set "DLSS5_MULTI_PASS_PREDICT=1"
+set "DLSS5_MULTI_PASS_SKIN_PROTECT=0"
 set "DLSS5_MULTI_PASS_SKIP_BLOCKS=none"
 cl /nologo /std:c++17 /EHsc /W4 /utf-8 tests\lmxxf\lmxxf_module_load_gpu.cpp /Fe"%OUT%\lmxxf_module_load_gpu.exe" /Fo"%OUT%\lmxxf_module_load_gpu.obj" || goto fail
 "%OUT%\lmxxf_module_load_gpu.exe" tests\lmxxf\lmxxf_module_load_gpu.cpp || goto fail
@@ -122,6 +124,7 @@ set "DLSS5_SKIP_BLOCKS=none"
 set "DLSS5_FAST_NUMERIC=1"
 set "DLSS5_NETWORK_FREE_RES=1"
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --040-controls || goto fail
+"%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --041-controls || goto fail
 rem Active input smaller than its allocation must work in free-resolution mode too.
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --subrect || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --size 3840 2160 --active-size 2259 1271 || goto fail
@@ -129,6 +132,10 @@ for %%S in ("1280 720" "1707 961" "2560 1440" "3440 1440") do (
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --size %%~S || goto fail
 )
 set "DLSS5_MULTI_PASS=2"
+"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
+rem Cold three-pass prediction + skin must prepare allocations before the producer wait.
+set "DLSS5_MULTI_PASS=3"
+set "DLSS5_MULTI_PASS_SKIN_PROTECT=1"
 "%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
 goto pass
 

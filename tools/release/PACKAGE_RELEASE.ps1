@@ -128,7 +128,7 @@ if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
     throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
 }
-# 34/arch, 68 dual must agree across runtime, tests, packager, and recipe.
+# 38/arch, 76 dual must agree across runtime, tests, packager, and recipe.
 $contract = Join-Path $PSScriptRoot 'check-module-contract.ps1'
 if (-not (Test-Path -LiteralPath $contract -PathType Leaf)) {
     throw "Module contract check is missing: $contract"
@@ -290,7 +290,7 @@ NrStabilizerEnabled=false
 NrStabilizerAlpha=0.8
 NrStabilizerThreshold=4.0
 
-; lmxxf network style: 0 / 1 / 2. Default 1; other 0.40 default changes can still change the image.
+; lmxxf network style: 0 / 1 / 2. Default 1; other upstream numeric changes can still change the image.
 ; Separate from Daniel Style and shared NrOverallIntensity. Live change rebuilds the network.
 DLSS5_STYLE=1
 ; 1080-tier processing rows: 1152 (default), or 1088 (Compact 1080 network).
@@ -304,11 +304,16 @@ DLSS5_FORMAT_FALLBACK=true
 ; Larger input costs more GPU time and VRAM (4K can be several times 1080p). Outside the budget, use the tier below.
 ; Changing native resolution, fast numeric, passes or block skipping rebuilds the network on the next frame.
 DLSS5_NETWORK_FREE_RES=true
-; Fast approximate C32/C64 arithmetic. true = 0.40 default; false = normal numeric modules. Small image differences.
+; Fast approximate C32/C64/C128, ViT and C512 arithmetic (0.41). Default true; false uses normal numeric modules.
 DLSS5_FAST_NUMERIC=true
-; Whole-network passes per frame: 1..3, default 1. More style, roughly N times network time and extra frame buffers.
+; Requested network passes per frame: 1..3, default 1. More style and extra frame buffers. See third-pass prediction below.
 ; Adaptive ViT reuse is disabled with 2/3 passes. GPU network timing includes all passes.
 DLSS5_MULTI_PASS=1
+; Only at 3 passes: true runs two real network passes then predicts the third locally (lossy, default true).
+; false runs three real passes. No effect at 1/2 passes. Changing this rebuilds the network.
+DLSS5_MULTI_PASS_PREDICT=true
+; At 2/3 passes, keep first-pass skin tones using a color heuristic (not segmentation). Default false.
+DLSS5_MULTI_PASS_SKIN_PROTECT=false
 ; Additional skips only in passes 2/3. none is recommended; gains are small and style changes (lossy).
 ; CSV 1..38,40..69; blocks 4/69 and byte-stream blocks 5..22,48..65 are unsupported; invalid combinations use none.
 DLSS5_MULTI_PASS_SKIP_BLOCKS=none

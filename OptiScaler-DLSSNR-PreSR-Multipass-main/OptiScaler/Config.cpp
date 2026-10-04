@@ -496,6 +496,10 @@ bool Config::Reload(std::filesystem::path iniPath)
                 }
                 LmxxfMultiPass.set_from_config(passes);
                 CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(passes).c_str());
+                LmxxfMultiPassPredict.set_from_config(readBool(CfgKey::kSection, CfgKey::MultiPassPredict).value_or(true));
+                LmxxfMultiPassSkinProtect.set_from_config(readBool(CfgKey::kSection, CfgKey::MultiPassSkinProtect).value_or(false));
+                CfgKey::PutEnvAlias(CfgKey::MultiPassPredict, LmxxfMultiPassPredict.value_or_default());
+                CfgKey::PutEnvAlias(CfgKey::MultiPassSkinProtect, LmxxfMultiPassSkinProtect.value_or_default());
                 auto multiRaw = readString(CfgKey::kSection, CfgKey::MultiPassSkipBlocks, true);
                 std::string multiSkip = "none";
                 if (multiRaw && !CfgKey::NormalizeSkipBlocks(*multiRaw, multiSkip)) {
@@ -1676,6 +1680,8 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::NetworkFreeRes, GetBoolValue(Instance()->LmxxfNetworkFreeRes.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::FastNumeric, GetBoolValue(Instance()->LmxxfFastNumeric.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MultiPass, std::to_string(Instance()->LmxxfMultiPass.value_or_default()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MultiPassPredict, GetBoolValue(Instance()->LmxxfMultiPassPredict.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MultiPassSkinProtect, GetBoolValue(Instance()->LmxxfMultiPassSkinProtect.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MultiPassSkipBlocks, Instance()->LmxxfMultiPassSkipBlocks.value_or_default().c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NetworkHeight,
                  Instance()->LmxxfNetworkHeight.value_for_config_or("auto").c_str());

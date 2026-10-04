@@ -446,6 +446,8 @@ void RenderMenu(Config* config, float menuResScale)
                 view.input = config->LmxxfNetworkFreeRes.value_or_default() ? "Native input resolution" : "Network tier: " + config->LmxxfNetworkHeight.value_or_default();
                 view.model = "Style " + std::to_string(config->LmxxfStyle.value_or_default()) +
                     std::string(" / ") + std::to_string(config->LmxxfMultiPass.value_or_default()) + " pass(es)";
+                if (config->LmxxfMultiPass.value_or_default() == 3 && config->LmxxfMultiPassPredict.value_or_default())
+                    view.model += " (2 real + prediction)";
             } else if (kind == Backend::Kind::Mochizuki) {
                 view.input = "Model resolution: " + std::to_string(int(std::lround(config->MochizukiModelScale.value_or_default() * 100))) + "%";
                 view.model = std::to_string(config->MochizukiPasses.value_or_default()) + " pass(es) requested";
@@ -503,6 +505,9 @@ void RenderMenu(Config* config, float menuResScale)
             auto resetModel = [&]() {
                 if (isLmxxf) {
                     resetOption(config->LmxxfMultiPass); resetOption(config->LmxxfFastNumeric);
+                    resetOption(config->LmxxfMultiPassPredict); resetOption(config->LmxxfMultiPassSkinProtect);
+                    CfgKey::PutEnvAlias(CfgKey::MultiPassPredict, config->LmxxfMultiPassPredict.value_or_default());
+                    CfgKey::PutEnvAlias(CfgKey::MultiPassSkinProtect, config->LmxxfMultiPassSkinProtect.value_or_default());
                     resetOption(config->LmxxfMultiPassSkipBlocks);
                     CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(config->LmxxfMultiPass.value_or_default()).c_str());
                     CfgKey::PutEnvAlias(CfgKey::FastNumeric, config->LmxxfFastNumeric.value_or_default());
@@ -769,16 +774,37 @@ void RenderMenu(Config* config, float menuResScale)
                         CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(static_cast<int>(pass)).c_str());
                         AmdBridge::InvalidateHistory();
                     }
-                    HelpMarker("Run the model 1-3 times on each frame. More passes strengthen the style and cost roughly N times the network work."
+                    HelpMarker("Select 1-3 passes at the chosen NR/SR stage. With Predict third pass on, 3 uses two real passes plus a local prediction."
                                "\nPasses 2/3 add frame-sized buffers. Adaptive ViT reuse is disabled with multiple passes."
                                "\nChanging this rebuilds the network next frame; GPU timing includes all passes.");
+                    bool predict = config->LmxxfMultiPassPredict.value_or_default();
+                    if (ImGui::Checkbox("Predict third pass (lossy)", &predict)) {
+                        config->LmxxfMultiPassPredict = predict;
+                        CfgKey::PutEnvAlias(CfgKey::MultiPassPredict, predict);
+                        AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("Default on in 0.41. Only active with 3 passes: run two real passes and predict the third locally."
+                               "\nApproximate result; turn off for three real network passes. Passes 1/2 are unchanged by this option."
+                               "\nINI: DLSS5_MULTI_PASS_PREDICT. Changes rebuild the network next frame.");
+                    if (config->LmxxfMultiPass.value_or_default() == 3)
+                        ImGui::TextUnformatted(predict ? "3-pass mode: 2 real passes + prediction" : "3-pass mode: 3 real passes");
+                    bool skinProtect = config->LmxxfMultiPassSkinProtect.value_or_default();
+                    if (ImGui::Checkbox("Protect skin in later passes", &skinProtect)) {
+                        config->LmxxfMultiPassSkinProtect = skinProtect;
+                        CfgKey::PutEnvAlias(CfgKey::MultiPassSkinProtect, skinProtect);
+                        AmdBridge::InvalidateHistory();
+                    }
+                    HelpMarker("Default off. At 2/3 passes, blend skin-coloured regions toward pass 1."
+                               "\nColour heuristic: may select warm scenery or miss skin under coloured lighting. Ignored with one pass."
+                               "\nINI: DLSS5_MULTI_PASS_SKIN_PROTECT. Changes rebuild the network next frame.");
                     bool fast = config->LmxxfFastNumeric.value_or_default();
                     if (ImGui::Checkbox("Fast numeric approximation", &fast)) {
                         config->LmxxfFastNumeric = fast;
                         CfgKey::PutEnvAlias(CfgKey::FastNumeric, fast);
                         AmdBridge::InvalidateHistory();
                     }
-                    HelpMarker("On by default in 0.40. Uses faster approximate C32/C64 math with small image differences."
+                    HelpMarker("On by default. 0.41 extends approximate math from C32/C64/C128 to ViT and C512 projection."
+                               "\nOutput can differ from 0.40 even with 1/2 passes."
                                "\nOff selects the normal numeric modules. Changing this rebuilds the network next frame.");
                     if (ImGui::TreeNode("Later-pass block skipping (lossy)")) {
                         static char blocks[256]{};

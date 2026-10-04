@@ -41,7 +41,7 @@
 
 `patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。当前 pin `54e14de503431cd4536f8a7151b022af232178a9` 已包含恢复/清零逻辑；补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询、分配失败清理，以及 adaptive ViT 历史重置的缓冲复用/流内异步清零；同尺寸重置不再重新 Upload 状态并释放旧缓冲，避免在外部 producer wait 之后同步排空 HIP。GPU bridge 回归覆盖 idle、seed、mode 和关闭/重开复用，普通张量池增长另行报告。
 
-测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入来自 `c81a88bc8534f7193df08ec3cae21d06d10d285d`（0.40 已审阅快照，完成 pin 以 UPSTREAM.md 为准），pinned bridge 来自 `54e14de503431cd4536f8a7151b022af232178a9`；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
+测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入与 pinned bridge 均来自 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`（0.41 快照，完成 pin 以 UPSTREAM.md 为准）；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
 `manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
 
@@ -54,6 +54,7 @@
 
 - `recording-leases.patch`：codec/RGB 私有输出采用固定 NSR→UAV→NSR 录制状态，并提供精确资源/heap/root/PSO pin（包括可选 neural_buffer）；仅包含 FOLLOW 头。
 - `module-load-cleanup.patch`：HIP 模块成功加载但 Style 初始化抛异常时，卸载尚未交付给 Network 的模块；成功后才发布句柄。原始 hip_api.h 快照参与补丁重放，GPU tier 的故障注入测试覆盖 Style 拷贝失败、缺失导出、加载失败和正常所有权交付。
+- `module-script-encoding.patch`：0.41 上游构建脚本移除了 BOM，但注释含非 ASCII。只恢复 UTF-8 BOM，保留原配方/命令，确保 Windows PowerShell 5.1 编码与仓库约定一致；独立原始快照参与补丁重放。
 - `codec-active-subrect.patch`：codec 以宿主有效输入区域构建采样几何，输出仍保留整张纹理的分配尺寸及 raw-buffer 行距；decode 原样保留区域外像素。避免自由分辨率按有效区域建网、却用较大分配尺寸校验 codec 的冲突。GPU tier 覆盖固定/自由分辨率 subrect、2259×1271 有效区域与 3840×2160 分配、重复帧不重建及区域外逐字节一致。
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
@@ -68,7 +69,7 @@
 - `-SkipEnablementAudit` 仅供无 Python 机器准备源码以便后续审阅：返回 0 表示准备完成，状态仍为 pending，不构建、不前移完成 pin，也不打印同步完成。后续必须不带该开关重新执行。
 - `-SkipBuild`、`-SkipModules`、`-AllowStaleModules` 是明确的验证例外，必须在审阅中说明并安排后续验证。跳过构建绝不意味着产物已可发布。
 - 首次使用此流程还没有模块验证基线，需构建模块，或明确使用 `-AllowStaleModules` 并记录后续验证；不能仅因当次源码没有变化就认定已有模块有效。
-- `-ModulesPath` 只接受完整的 gfx1200 + gfx1201 构建树/模块包：两架构各 **$PerArch** 个受控模块（当前 **34**，以 `tools/release/check-module-contract.ps1` 为准）、根/叶子 `SHA256SUMS` 和两份 `modules.json` 必须一致。上游构建树可不含产品 `runtime-manifest.json`，同步时在候选目录补齐；安装和打包则必须已经包含它。缺少一个架构、清单不完整、哈希错配或链接路径均在目标改变前失败；`-AllowStaleModules` 不能绕过包完整性校验。旧扁平目标需先移出同步目录。增删模块时见 [docs/release.md](../../docs/release.md)「模块数量契约」。
+- `-ModulesPath` 只接受完整的 gfx1200 + gfx1201 构建树/模块包：两架构各 **$PerArch** 个受控模块（当前 **38**，以 `tools/release/check-module-contract.ps1` 为准）、根/叶子 `SHA256SUMS` 和两份 `modules.json` 必须一致。上游构建树可不含产品 `runtime-manifest.json`，同步时在候选目录补齐；安装和打包则必须已经包含它。缺少一个架构、清单不完整、哈希错配或链接路径均在目标改变前失败；`-AllowStaleModules` 不能绕过包完整性校验。旧扁平目标需先移出同步目录。增删模块时见 [docs/release.md](../../docs/release.md)「模块数量契约」。
 - `-ModulesPath` 把提供模块的实际内容绑定到审阅记录，校验提供目录的摘要并刷新模块；摘要只证明字节一致，不能证明这些字节由当前源码生成，构建来源也需人工/AI审阅。
 - 源码复制之后的失败会保留待审阅状态，方便分步接入。不要删除 `sync-state.json` 来清除失败；它保留失败前模块比较基线，防止第二次运行误把旧模块认作新源码的产物。审阅通过后也不会用一个允许旧模块的例外把这些模块标成已验证。
 - `UPSTREAM.md` 的 pin 是最近完成的同步。pending 时用 `sync-state.json` 的 `to_commit` 查看正在接入哪个版本。提交接入变更时同时保留审阅记录和状态记录，避免其他 checkout 丢失上下文。
@@ -101,7 +102,7 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 
 ## LLVM23 与 RowOpts 构建
 
-生产同步启用原版配方的 RowOpts；每架构五个 LLVM23 行，其余29行 COMGR。
+生产同步启用原版配方的 RowOpts；每架构五个 LLVM23 行，其余33行 COMGR。
 先在 WSL/Linux 提取固定 pin 的 `hip/`、`Development/HIP/swin_persistent_types.h` 与
 `Development/tools/llvm-fork/`（使用 git archive，不能用作者克隆的不同工作树版本）。
 使用官方含 AMDGPU 的 Linux LLVM23.1.2 包或同版本源码构建，先核对归档哈希和
@@ -129,7 +130,7 @@ tools/sync-lmxxf-upstream.ps1 -UpstreamPath <clone> -UpstreamRef <full-pin> `
 `exports/lmxxf-modules/`。包装器保留产品 LINE_STORES 宏，并验证预编来源、
 两个阶段的 -real-true16 与 per-row opts，补齐 C64 的 HIP_BARRIER_FENCE 及源码哈希。
 缺失或过期预编产物必须重新构建，不静默用 COMGR 替代。
-`-ModulesPath` 仍可提供已验证的完整68模块树，照常经过人工来源审阅和双架构契约检查。
+`-ModulesPath` 仍可提供已验证的完整76模块树，照常经过人工来源审阅和双架构契约检查。
 WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 无需迁移。
 
 ## 审阅范围与工具测试复用

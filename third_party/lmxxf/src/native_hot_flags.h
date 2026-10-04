@@ -15,12 +15,14 @@
      DLSS5_NOTICE     on-screen status line (0/1/2)
      DLSS5_SHOW_FPS   FPS text in that line (0/1)
      DLSS5_MULTI_PASS pass count 1/2/3 (2026-10-03; HIP network, applied before the next network frame; invalid/absent = 1)
+     DLSS5_MULTI_PASS_PREDICT 0/1; default 1; only active with 3 passes (LOSSY)
+     DLSS5_MULTI_PASS_SKIN_PROTECT 0/1; default 0; skin-color heuristic blend at N>1
    Everything else (network height, skip blocks, HIP kernels/modules, FP8/wave/tiling switches, DIRECT_IO, PRE_UPSCALE, FIT_*, ASYNC,
    FRAME_STATS, FORMAT_FALLBACK) stays as read at start: those build buffers, modules or pipelines once, or change the network's
    numbers; editing them needs a game restart as before. The first poll only records the time stamp, so an unedited file changes
    nothing (bit-exact). A reload is logged to logs\native-game-oneshot.txt. Cost: one GetTickCount64 per call, one stat per second.
    0 = never poll (previous behaviour). */
-struct NativeHotFlagValues{bool strength=false;float transfer=1.f,color=1.f;int notice=-1,fps=-1,multi_pass=-1;unsigned generation=0;};
+struct NativeHotFlagValues{bool strength=false;float transfer=1.f,color=1.f;int notice=-1,fps=-1,multi_pass=-1,multi_pass_predict=-1,multi_pass_skin_protect=-1;unsigned generation=0;};
 class NativeHotFlags{
  std::mutex mutex;NativeHotFlagValues values;std::atomic<bool> hotkey_down{false},force_reload{false}; /* force: set by the hotkey after writing (a write in the same file-time tick would not change the stamp) */ULONGLONG last_poll=0;FILETIME stamp{};bool stamped=false;
  /* Stamp of the three layers (default / custom / native): write time of each, 0 for a missing file, folded into one value so that
@@ -36,11 +38,15 @@ class NativeHotFlags{
   if(!NativeConfigDirHasAny(NativeLabRoot()))return;
   for(const std::string&cfg_line:NativeConfigFileLines()){const char*line=cfg_line.c_str();{unsigned n;
    if(sscanf(line,"DLSS5_NOTICE=%u",&n)==1)v.notice=int(n);if(sscanf(line,"DLSS5_SHOW_FPS=%u",&n)==1)v.fps=int(n);sscanf(line,"DLSS5_STRENGTH=%47s",strength);
+   if(!strncmp(line,"DLSS5_MULTI_PASS_PREDICT=",25)){const char*m=line+25;v.multi_pass_predict=(!*m||!strcmp(m,"1"))?1:!strcmp(m,"0")?0:(std::fprintf(stderr,"DLSS5_MULTI_PASS_PREDICT=%s invalid (0/1), using 0\n",m),0);}
+   if(!strncmp(line,"DLSS5_MULTI_PASS_SKIN_PROTECT=",30)){const char*m=line+30;v.multi_pass_skin_protect=(!*m||!strcmp(m,"0"))?0:!strcmp(m,"1")?1:(std::fprintf(stderr,"DLSS5_MULTI_PASS_SKIN_PROTECT=%s invalid (0/1), using 0\n",m),0);}
    if(!strncmp(line,"DLSS5_MULTI_PASS=",17)){const char*m=line+17;v.multi_pass=(!*m||!strcmp(m,"1"))?1:!strcmp(m,"2")?2:!strcmp(m,"3")?3:(std::fprintf(stderr,"DLSS5_MULTI_PASS=%s invalid (1/2/3), using 1\n",m),1);}}}
   if(v.multi_pass<0)v.multi_pass=1; /* key gone from every layer: built-in default */
+  if(v.multi_pass_predict<0)v.multi_pass_predict=1; /* key removed: built-in default */
+  if(v.multi_pass_skin_protect<0)v.multi_pass_skin_protect=0; /* key removed: built-in default */
   float a=1.f,b=1.f;if(sscanf(strength,"%f,%f",&a,&b)==2&&a>=0.f&&a<=3.f&&b>=0.f&&b<=3.f){v.strength=true;v.transfer=a;v.color=b;}
   values=v;
-  if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=hot_reload detail=generation %u strength=%s notice=%d show_fps=%d multi_pass=%d (other keys need a restart)\n",GetCurrentProcessId(),GetTickCount64(),v.generation,v.strength?strength:"startup",v.notice,v.fps,v.multi_pass);fclose(f);}
+  if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-game-oneshot.txt").c_str(),L"ab")){fprintf(f,"pid=%lu tick=%llu event=hot_reload detail=generation %u strength=%s notice=%d show_fps=%d multi_pass=%d multi_pass_predict=%d multi_pass_skin_protect=%d (other keys need a restart)\n",GetCurrentProcessId(),GetTickCount64(),v.generation,v.strength?strength:"startup",v.notice,v.fps,v.multi_pass,v.multi_pass_predict,v.multi_pass_skin_protect);fclose(f);}
  }
 public:
  static bool Enabled(){

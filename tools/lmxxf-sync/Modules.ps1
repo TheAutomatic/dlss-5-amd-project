@@ -41,9 +41,17 @@ function Get-TreeFingerprint([string]$dir, [string[]]$filters = @('*.hsaco')) {
     $ms = New-Object IO.MemoryStream
     try {
         foreach ($file in $files) {
-            $nameBytes = [Text.Encoding]::UTF8.GetBytes($file.RelPath + ':' + $file.Length + ':')
-            $ms.Write($nameBytes, 0, $nameBytes.Length)
             $payload = [IO.File]::ReadAllBytes($file.FullName)
+            # A UTF-8 BOM is required for non-ASCII PowerShell on Windows 5.1, but it
+            # does not change a build recipe. Normalize only this encoding marker;
+            # every other script byte, HIP source byte and binary byte still counts.
+            if ($file.RelPath.EndsWith('.ps1') -and $payload.Length -ge 3 -and
+                $payload[0] -eq 0xef -and $payload[1] -eq 0xbb -and $payload[2] -eq 0xbf) {
+                if ($payload.Length -gt 3) { $payload = [byte[]]$payload[3..($payload.Length - 1)] }
+                else { $payload = [byte[]]::new(0) }
+            }
+            $nameBytes = [Text.Encoding]::UTF8.GetBytes($file.RelPath + ':' + $payload.Length + ':')
+            $ms.Write($nameBytes, 0, $nameBytes.Length)
             $ms.Write($payload, 0, $payload.Length)
         }
         return (-join ($sha.ComputeHash($ms.ToArray()) | ForEach-Object { $_.ToString('x2') }))

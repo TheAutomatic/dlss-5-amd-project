@@ -90,6 +90,8 @@ inline constexpr char kDefaultSkipBlocks[] = "none";
 inline constexpr const char *NetworkFreeRes = "DLSS5_NETWORK_FREE_RES";
 inline constexpr const char *FastNumeric = "DLSS5_FAST_NUMERIC";
 inline constexpr const char *MultiPass = "DLSS5_MULTI_PASS";
+inline constexpr const char *MultiPassPredict = "DLSS5_MULTI_PASS_PREDICT";
+inline constexpr const char *MultiPassSkinProtect = "DLSS5_MULTI_PASS_SKIN_PROTECT";
 inline constexpr const char *MultiPassSkipBlocks = "DLSS5_MULTI_PASS_SKIP_BLOCKS";
 inline constexpr const char *WaveOwned = "DLSS5_HIP_WAVE_OWNED";
 inline constexpr const char *SwinRun = "DLSS5_HIP_SWIN_RUN";
@@ -256,6 +258,8 @@ inline constexpr const char *const kKnown[] = {
     NetworkFreeRes,
     FastNumeric,
     MultiPass,
+    MultiPassPredict,
+    MultiPassSkinProtect,
     MultiPassSkipBlocks,
     Network1080Rows,
     LmxxfStyle,

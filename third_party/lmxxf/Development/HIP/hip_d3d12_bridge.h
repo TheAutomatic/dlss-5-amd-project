@@ -176,6 +176,10 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   {const char*v=std::getenv("DLSS5_HIP_POST_SIGNAL_QUERY");if(!(v&&!strcmp(v,"0")))post_query=reinterpret_cast<EventQueryFn>(GetProcAddress(api.dll,"hipStreamQuery"));}
  }
  unsigned MultiPass(unsigned set=0){if(!network)return 0;if(set)network->SetMultiPass(set);return network->MultiPass();}
+ bool MultiPassSkinProtect()const{return network&&network->MultiPassSkinProtect();}
+ void MultiPassSkinProtect(bool set){if(network)network->SetMultiPassSkinProtect(set);}
+ bool MultiPassPredict()const{return network&&network->MultiPassPredict();}
+ void MultiPassPredict(bool set){if(network)network->SetMultiPassPredict(set);}
  unsigned long long ReleaseMarks()const{return release_marks;}
  unsigned long long ReleaseMarkFailures()const{return release_mark_failures;}
  ID3D12Resource*Output()const{return output.resource;}
@@ -211,6 +215,7 @@ private:
   QueueContract(producer);if(temporal!=recorded_temporal)throw std::runtime_error("bridge temporal input mismatch");if(external&&network->GraphEnabled())throw std::runtime_error("staged bridge requires HIP graph off");
   auto&api=network->Runtime();
   try{
+   api.Check(api.hipSetDevice(hip_device),"select HIP device for enqueue");
    pending=true;Check(queue->Signal(fence,++value),"D3D input signal");hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
    if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
    const bool upstreamTimed=TimingBegin();

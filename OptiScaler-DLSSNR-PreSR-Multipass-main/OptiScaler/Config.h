@@ -388,6 +388,8 @@ class Config
     CustomOptional<bool> LmxxfNetworkFreeRes { true };
     CustomOptional<bool> LmxxfFastNumeric { true };
     CustomOptional<uint32_t> LmxxfMultiPass { 1 };
+    CustomOptional<bool> LmxxfMultiPassPredict { true };
+    CustomOptional<bool> LmxxfMultiPassSkinProtect { false };
     CustomOptional<std::string> LmxxfMultiPassSkipBlocks { "none" };
     CustomOptional<uint32_t> LmxxfNetwork1080Rows { 1152 };
     CustomOptional<uint32_t> LmxxfStyle { 1 };

@@ -1,11 +1,11 @@
-# Fail if the module-count contract drifts across sources (34 per arch / 68 dual).
+# Fail if the module-count contract drifts across sources (38 per arch / 76 dual).
 # Single bump point: $PerArch. Update every listed site when the module list changes.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $failures = New-Object System.Collections.Generic.List[string]
 
-$PerArch = 34
-$Dual = 68
+$PerArch = 38
+$Dual = 76
 
 function Read-Root([string]$rel) {
     [IO.File]::ReadAllText((Join-Path $root $rel))

@@ -57,6 +57,21 @@ DEV float H(float x){return from_half(half_bits(x));}
 #ifndef HIP_NATIVE_FP8_F
 #define HIP_NATIVE_FP8_F 1
 #endif
+// FAST TIER (lossy, 2026-10-03 fast-vit-c512): ViT / deep numerical relaxations, built only into the *-fast module twins
+// (DLSS5_FAST_NUMERIC=1, host swaps file). bit0 = ViT attention epilogue drops the RTZ half round trip (byte_F(acc*inv)
+// instead of byte_F(Hrtz(acc*inv)): the E4M3 quantize after it dominates); bit1 = attention denominator inverse is a bare
+// hardware rcp (no Newton steps; divisor in [1/256,2048] per the HIP_VIT_ATTN_RCP probe); bit2 = ViT contract drops the
+// RNE half round trip (init H(skip*w) -> skip*w, epilogue (_Float16)F(H(total)) -> (_Float16)F(total)); bit3 = C512 FFN
+// projection epilogue F(H(acc)) -> F(acc); bit4 = split_projection_frag_f16res export (extra RNE-half residual output;
+// exact, the f32 value is E4M3-valued). 0 everywhere = byte-identical to the exact module.
+#ifndef VIT_FAST_NUM
+#define VIT_FAST_NUM 0
+#endif
+#if VIT_FAST_NUM&4
+#define VIT_FAST_H(x) (x)
+#else
+#define VIT_FAST_H(x) H(x)
+#endif
 #ifndef VIT_EXPAND_TAIL_VEC
 #define VIT_EXPAND_TAIL_VEC 0 /* 1: vit_expand_blocked_body hidden bytes staged in LDS, 2 x b128 per lane; bytes unchanged (results/deep-tail2-20260930) */
 #endif
@@ -232,11 +247,20 @@ DEV float fp8_add0(float x){
 #endif
 DEV float vit_inv(float x){
 #if HIP_VIT_ATTN_RCP
- float r=__builtin_amdgcn_rcpf(x);r=__builtin_fmaf(r,__builtin_fmaf(-x,r,1.f),r);return __builtin_fmaf(r,__builtin_fmaf(-x,r,1.f),r);
+ float r=__builtin_amdgcn_rcpf(x);
+#if !(VIT_FAST_NUM&2)
+ r=__builtin_fmaf(r,__builtin_fmaf(-x,r,1.f),r);r=__builtin_fmaf(r,__builtin_fmaf(-x,r,1.f),r);
+#endif
+ return r;
 #else
  return 1.f/x;
 #endif
 }
+#if VIT_FAST_NUM&1
+DEV float vit_attn_hrtz(float x){return x;}
+#else
+DEV float vit_attn_hrtz(float x){return Hrtz(x);}
+#endif
 // ByteInput: Q/K/V arrive as the E4M3 bytes vit_qkv_project_normalize_fused_f16compact_fp8 stores (byte_F of the same
 // F() values the f32 tensor holds, so pack() of the f32 value and the stored byte are identical): Q/K rows are one
 // 8-byte load per lane, V columns eight byte loads placed exactly as pack() places them.
@@ -310,11 +334,11 @@ DEV void vit_attention_transposed_score_body(const float*in,float*out,uint token
  // Query is now in the lane, feature in the accumulator element. All eight
  // denominator rows are identical; keep the same K16 reduction, divide once.
  float inv=vit_inv(sum[0]);
- for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+rc())*1024+head*32+c*16+gr()*8+e]=byte_F(Hrtz(acc[c][e]*inv));else out[(first+rc())*1024+head*32+c*16+gr()*8+e]=F(Hrtz(acc[c][e]*inv));}
+ for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+rc())*1024+head*32+c*16+gr()*8+e]=byte_F(vit_attn_hrtz(acc[c][e]*inv));else out[(first+rc())*1024+head*32+c*16+gr()*8+e]=F(vit_attn_hrtz(acc[c][e]*inv));}
 #else
  float inv[8];for(uint e=0;e<8;e++)inv[e]=vit_inv(sum[e]);
 
- for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+gr()*8+e)*1024+head*32+c*16+rc()]=byte_F(Hrtz(acc[c][e]*inv[e]));else out[(first+gr()*8+e)*1024+head*32+c*16+rc()]=F(Hrtz(acc[c][e]*inv[e]));}
+ for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+gr()*8+e)*1024+head*32+c*16+rc()]=byte_F(vit_attn_hrtz(acc[c][e]*inv[e]));else out[(first+gr()*8+e)*1024+head*32+c*16+rc()]=F(vit_attn_hrtz(acc[c][e]*inv[e]));}
 #endif
 }
 #endif
@@ -354,7 +378,7 @@ DEV void vit_attention_ks2_body(const float*in,float*out,uint tokens){
  if(wv)return;
  for(uint c=0;c<2;c++)for(uint e=0;e<8;e++)acc[c][e]+=part[lane*17+c*8+e];
  float inv=vit_inv(sum[0]+part[lane*17+16]);
- for(uint c=0;c<2;c++)for(uint e=0;e<8;e++)reinterpret_cast<unsigned char*>(out)[(first+rc())*1024+head*32+c*16+gr()*8+e]=byte_F(Hrtz(acc[c][e]*inv));
+ for(uint c=0;c<2;c++)for(uint e=0;e<8;e++)reinterpret_cast<unsigned char*>(out)[(first+rc())*1024+head*32+c*16+gr()*8+e]=byte_F(vit_attn_hrtz(acc[c][e]*inv));
 }
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void vit_attention_fused_400_bytein_bout_ks2(const float*in,float*out,uint tokens,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;vit_attention_ks2_body<400>(in,out,tokens);}
 KERNEL __attribute__((amdgpu_flat_work_group_size(64,64))) void vit_attention_fused_640_bytein_bout_ks2(const float*in,float*out,uint tokens,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;vit_attention_ks2_body<640>(in,out,tokens);}
@@ -378,7 +402,7 @@ DEV void vit_attention_fused_body(const float*in,float*out,uint tokens){
  }
  float inv[8];for(uint e=0;e<8;e++)inv[e]=vit_inv(sum[e]);
  WG_FENCE(3);__builtin_amdgcn_s_barrier();WG_FENCE(2);
- for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+gr()*8+e)*1024+head*32+c*16+rc()]=byte_F(Hrtz(acc[c][e]*inv[e]));else out[(first+gr()*8+e)*1024+head*32+c*16+rc()]=F(Hrtz(acc[c][e]*inv[e]));}
+ for(uint c=0;c<2;c++)for(uint e=0;e<8;e++){if constexpr(ByteOut)reinterpret_cast<unsigned char*>(out)[(first+gr()*8+e)*1024+head*32+c*16+rc()]=byte_F(vit_attn_hrtz(acc[c][e]*inv[e]));else out[(first+gr()*8+e)*1024+head*32+c*16+rc()]=F(vit_attn_hrtz(acc[c][e]*inv[e]));}
 }
 // Byte-stream twins: byte Q/K/V in, attention output stored as its E4M3 byte for vit_project_bytein_bout.
 WAVE void vit_attention_fused_256_bytein_bout(const float*in,float*out,uint tokens,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;vit_attention_fused_body<256,true,true>(in,out,tokens);}
@@ -673,7 +697,19 @@ WAVE void vit_expand_blocked_fp8_frag_bytein_m4(const float*in,const float*w,flo
 // ByteStream: the block input arrives as the E4M3 bytes the previous vit_project_bytein_bout stored (or vit_pack_input
 // produced), the residual skip is decoded from them, and the F(H(total)) result is stored as its byte (byte_F: exact on
 // the F() lattice). Same MMA operands, accumulation order and rounding as the f32 body.
-template<bool Partial,bool Tiled=false,bool ByteStream=false,bool HalfOut=false,bool Frag=false>
+#ifndef VIT_CONTRACT_BYTE_EDGE
+#define VIT_CONTRACT_BYTE_EDGE 0
+#endif
+#if VIT_CONTRACT_BYTE_EDGE && (!HIP_NATIVE_FP8_F || !HIP_BRANCHLESS_F)
+#error VIT_CONTRACT_BYTE_EDGE_requires_production_native_branchless_F
+#endif
+// Return the byte already chosen inside production F(), preserving its zero and saturation rules.
+DEV unsigned char vit_contract_F_byte(float x){
+ uint a=bits(x)&0x7fffffffu;float c=__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f);
+ unsigned char b=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false));
+ return a==0?0:b;
+}
+template<bool Partial,bool Tiled=false,bool ByteStream=false,bool HalfOut=false,bool Frag=false,bool ByteFOut=false>
 DEV void vit_contract_blocked_body(const float*in,const float*w,const float*skip,float*out,uint tokens){
 #if VIT_CONTRACT_OCC_LDS
  __attribute__((shared)) volatile uint occ_pad[VIT_CONTRACT_OCC_LDS/4]; /* occupancy cap only (small-wins O); branch never taken for a real token count */
@@ -682,14 +718,14 @@ DEV void vit_contract_blocked_body(const float*in,const float*w,const float*skip
 
  uint blocks=tokens,part0=Partial?bid()/blocks:0,local=Partial?bid()%blocks:bid(),first=local/16*16,col=local%16*64;
  if(first>=tokens||part0>=4)return;const uint*ip=reinterpret_cast<const uint*>(in),*wp=reinterpret_cast<const uint*>(w);f8 total[4]{};
- if constexpr(!Partial)for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint c=col+n*16+rc();float s;if constexpr(ByteStream)s=__builtin_amdgcn_cvt_f32_fp8(int(reinterpret_cast<const unsigned char*>(skip)[(first+gr()*8+e)*1024+c]),0);else s=skip[(first+gr()*8+e)*1024+c];total[n][e]=H(s*w[4194304+c]);}
+ if constexpr(!Partial)for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint c=col+n*16+rc();float s;if constexpr(ByteStream)s=__builtin_amdgcn_cvt_f32_fp8(int(reinterpret_cast<const unsigned char*>(skip)[(first+gr()*8+e)*1024+c]),0);else s=skip[(first+gr()*8+e)*1024+c];total[n][e]=VIT_FAST_H(s*w[4194304+c]);}
  for(uint part=part0;part<(Partial?part0+1:4);part++){f8 acc[4]{};
   for(uint k=part*1024;k<(part+1)*1024;k+=16){uint off=((first+rc())*4096+k+gr()*8)/4;i2 a={int(ip[off]),int(ip[off+1])};
    for(uint n=0;n<4;n++){uint row=col+n*16+rc();i2 b;if constexpr(Frag)b=vit_weight_fragment_native(w,row,4096,k);else b=vit_weight_fragment<Tiled>(w,row,4096,k);acc[n]=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,acc[n]);}
   }
   for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){if constexpr(Partial)out[(part*tokens+first+gr()*8+e)*1024+col+n*16+rc()]=acc[n][e];else total[n][e]+=acc[n][e];}
  }
- if constexpr(!Partial)for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint i=(first+gr()*8+e)*1024+col+n*16+rc();if constexpr(HalfOut)reinterpret_cast<_Float16*>(out)[i]=(_Float16)F(H(total[n][e]));else if constexpr(ByteStream)reinterpret_cast<unsigned char*>(out)[i]=byte_F(H(total[n][e]));else out[i]=F(H(total[n][e]));}
+ if constexpr(!Partial)for(uint n=0;n<4;n++)for(uint e=0;e<8;e++){uint i=(first+gr()*8+e)*1024+col+n*16+rc();if constexpr(ByteFOut)reinterpret_cast<unsigned char*>(out)[i]=vit_contract_F_byte(VIT_FAST_H(total[n][e]));else if constexpr(HalfOut)reinterpret_cast<_Float16*>(out)[i]=(_Float16)F(VIT_FAST_H(total[n][e]));else if constexpr(ByteStream)reinterpret_cast<unsigned char*>(out)[i]=byte_F(H(total[n][e]));else out[i]=F(H(total[n][e]));}
 }
 // Fragment-weight twin (host option vit_contract_frag): B from the FragmentPackedMatrix tiles (one contiguous 8-byte load) as the frag expand does.
 WAVE void vit_contract_blocked_fp8_frag(const float*in,const float*w,const float*skip,float*out,uint tokens,uint inputs,uint outputs,const uint*reuse_gate){if(reuse_gate&&reuse_gate[0])return;if(inputs==4096&&outputs==1024)vit_contract_blocked_body<false,false,false,false,true>(in,w,skip,out,tokens);}
@@ -794,7 +830,7 @@ void split_ffn_fused_fp8_t8(const float*in,const float*w,float*out,unsigned char
 // split_projection_blocked in the QKV-frag shape: A from the contract's E4M3 tiles, B from fragment-tiled E4M3 projection
 // weights (PackedSplitProjectionFrag), no LDS; residual H(skip*scale) and F(H(acc)) as split_projection_blocked. Also
 // stores the tiled E4M3 copy for mh_qkv_normalize_frag_c512 (replaces split_projection_blocked_t8).
-template<bool W32> DEV void split_projection_frag_body(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,uint tokens){
+template<bool W32,bool F16Res=false> DEV void split_projection_frag_body(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,_Float16*out16,uint tokens){
  uint first=bid()/8*16,row=bid()%8*64;if(first>=tokens)return;f8 acc[4]{};
  for(uint j=0;j<4;j++)for(uint e=0;e<8;e++)acc[j][e]=H(skip[(first+gr()*8+e)*512+row+j*16+rc()]*w[262144+row+j*16+rc()]);
  const unsigned char*wb=reinterpret_cast<const unsigned char*>(w);const unsigned char*arow=in8+((first/16)*16)*512+rc()*32+gr()*8;
@@ -803,14 +839,23 @@ template<bool W32> DEV void split_projection_frag_body(const unsigned char*in8,c
 #if C512_T8_TAIL_VEC
  // 16 tokens x 64 channels = two consecutive 512-byte out8 tiles; staged in LDS, lane stores 2 x 16 contiguous bytes.
  __attribute__((shared)) unsigned char t8[1024];
- for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint r=first+gr()*8+e,c=row+j*16+rc();float v=F(H(acc[j][e]));if constexpr(W32)out[r*512+c]=v;uint cl=j*16+rc();t8[(cl/32)*512+(r%16)*32+cl%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
+ for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint r=first+gr()*8+e,c=row+j*16+rc();float v=F(VIT_FAST_H(acc[j][e]));if constexpr(W32)out[r*512+c]=v;if constexpr(F16Res)out16[r*512+c]=(_Float16)v;uint cl=j*16+rc();t8[(cl/32)*512+(r%16)*32+cl%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
  WG_FENCE(3);__builtin_amdgcn_wave_barrier();WG_FENCE(2);
  {uint l=__builtin_amdgcn_workitem_id_x();for(uint h=0;h<2;h++){int __attribute__((ext_vector_type(4))) q;__builtin_memcpy(&q,__builtin_assume_aligned(t8+h*512+l*16,16),16);__builtin_memcpy(__builtin_assume_aligned(out8+size_t(first+row/32)*512+h*512+l*16,16),&q,16);}}
 #else
- for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint r=first+gr()*8+e,c=row+j*16+rc();float v=F(H(acc[j][e]));if constexpr(W32)out[r*512+c]=v;out8[((r/16)*16+c/32)*512+(r%16)*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
+ for(uint j=0;j<4;j++)for(uint e=0;e<8;e++){uint r=first+gr()*8+e,c=row+j*16+rc();float v=F(VIT_FAST_H(acc[j][e]));if constexpr(W32)out[r*512+c]=v;if constexpr(F16Res)out16[r*512+c]=(_Float16)v;out8[((r/16)*16+c/32)*512+(r%16)*32+c%32]=static_cast<unsigned char>(__builtin_amdgcn_cvt_pk_fp8_f32(v,0.f,0,false));}
 #endif
 }
-WAVE void split_projection_frag(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,uint tokens){split_projection_frag_body<true>(in8,w,skip,out,out8,tokens);}
+WAVE void split_projection_frag(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,uint tokens){split_projection_frag_body<true>(in8,w,skip,out,out8,nullptr,tokens);}
+#if VIT_FAST_NUM&16
+// FAST TIER f16 residual twin (2026-10-03 fast-vit-c512): also stores the residual as RNE halves. v is an E4M3 value
+// (F(H(acc))), so the half is exact and mh_attention_project_frag_c512_f16res reads bit-identical numbers with half
+// the traffic. Both C512_T8_TAIL_VEC epilogue branches carry the out16 store.
+WAVE void split_projection_frag_f16res(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,_Float16*out16,uint tokens){split_projection_frag_body<true,true>(in8,w,skip,out,out8,out16,tokens);}
+// f16-only twin (fast-vit-c512 P3 v2): the f32 copy is not written (CompactC512Body's ffn has no other reader on this
+// path) — the producer stores bytes + halves only, the projection reads the halves. Same values as f16res.
+WAVE void split_projection_frag_f16only(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,_Float16*out16,uint tokens){split_projection_frag_body<false,true>(in8,w,skip,out,out8,out16,tokens);}
+#endif
 // C512_PROJ_FB8 (2026-10-01, results/mochizuki-gap-20261001): the same kernel without the f32 copy; its only reader,
 // mh_attention_project_frag_c512, reads the E4M3 tiles instead (_fb8). Bytes identical. 0 = no export.
 #ifndef C512_PROJ_FB8
@@ -820,7 +865,7 @@ WAVE void split_projection_frag(const unsigned char*in8,const float*w,const floa
 #ifndef C512_PROJ_FB8_DIAG_W32
 #define C512_PROJ_FB8_DIAG_W32 0 /* DIAGNOSTIC: the _nof32 export still writes f32 (isolates the _fb8 reader's cost) */
 #endif
-WAVE void split_projection_frag_nof32(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,uint tokens){split_projection_frag_body<C512_PROJ_FB8_DIAG_W32!=0>(in8,w,skip,out,out8,tokens);}
+WAVE void split_projection_frag_nof32(const unsigned char*in8,const float*w,const float*skip,float*out,unsigned char*out8,uint tokens){split_projection_frag_body<C512_PROJ_FB8_DIAG_W32!=0>(in8,w,skip,out,out8,nullptr,tokens);}
 #endif
 
 WAVE void split_mix_blocked_h16w(const float*in,const float*w,float*out,uint tokens){

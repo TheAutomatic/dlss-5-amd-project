@@ -27,7 +27,7 @@ See the release 1.10.0 notes for details.
 
 The current version supports the following backends and features:
 
-- lmxxf 0.40 (supports native free resolution input, multi-pass networks, and numerous updates; please refer to the lmxxf upstream repo for details)
+- lmxxf 0.41: third-pass prediction (on by default, only at 3 passes; disable for three real passes), optional skin protection (off), and fast numeric ViT/C512 paths. Defaults remain one pass and native free resolution. Both NR→SR and SR→NR are supported; controls are in Ins → Model and INI.
 - Daniel 0.6.0
 - Mochizuki 0.0.3 (integration guided by the architectural approach of [@MatheusFerreiraS](https://github.com/MatheusFerreiraS))
 
@@ -129,7 +129,7 @@ RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
 | `OptiScaler\` | Core dependencies (FFX, XeSS, Agility SDK, plugins) |
 | `LmxxfNrRuntime.dll` | lmxxf backend runtime (open-source HIP neural rendering) |
 | `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime, shaders and extraction tool; model supplied separately |
-| `lmxxf-modules\` | lmxxf dual-architecture compute modules (34 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
+| `lmxxf-modules\` | lmxxf dual-architecture compute modules (38 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
 | `shaders\` | lmxxf codec shaders (`native_codec_encode.hlsl` and others) |
 | `experimental_lighting\` | Precompiled shaders for the experimental lighting pass (`GatherCS.cso` / `ResolveCS.cso`) |
 | `Setup.bat` / `Setup.ps1` | Interactive installer (**Double-click `Setup.bat`**) |
@@ -152,7 +152,7 @@ Prepare either backend (or both for side-by-side coexistence):
 
 #### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [Click Here](https://gofile.io/d/RyvcrDxz) to download weights
 - `LmxxfNrRuntime.dll` from this complete project package (do not substitute the upstream ABI1 runtime);
-- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 34 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 68 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
+- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 38 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 76 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
 - Shader folder `shaders\` (with `native_codec_encode.hlsl`);
 - Weights folder `native-game-tiled-assets\` (can be downloaded [here](https://gofile.io/d/RyvcrDxz));
 - Place these in the same extracted folder as `Setup.bat`.
