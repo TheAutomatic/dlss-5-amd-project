@@ -52,7 +52,7 @@ public:
  /* SRV format of a codec input: the old mapping for every format accepted before 0.38; fallback-table formats (private FP16 output only) use their table view. */
  static DXGI_FORMAT SourceView(DXGI_FORMAT f){return NativeIsGameColor(f)||f==DXGI_FORMAT_R9G9B9E5_SHAREDEXP||f==DXGI_FORMAT_R16G16B16A16_FLOAT?NativeViewFormat(f):NativeFallbackColorView(f)!=DXGI_FORMAT_UNKNOWN?NativeFallbackColorView(f):NativeViewFormat(f);}
  // Encode: {linear original}. Decode: {encoded proxy, encoded neural, linear original}.
- void Create(ID3D12Device*d,const std::vector<ID3D12Resource*>&inputs,const std::wstring&dir,bool privateFloatOutput=false,ID3D12Resource*exposure=nullptr){
+ void Create(ID3D12Device*d,const std::vector<ID3D12Resource*>&inputs,const std::wstring&dir,bool privateFloatOutput=false,ID3D12Resource*exposure=nullptr,unsigned activeWidth=0,unsigned activeHeight=0){
   private_float_output=privateFloatOutput;
   if(count||!d||(inputs.size()!=1&&inputs.size()!=3))throw std::runtime_error("codec initialization contract");
   if(exposure){
@@ -71,14 +71,18 @@ public:
   }
   step(d,"inputs-checked");
   count=UINT(inputs.size());for(UINT i=0;i<count;i++){source[i]=inputs[i];source[i]->AddRef();}
-  auto external=source[count==3?2:0]->GetDesc();geometry=NativeInputGeometry::Make(unsigned(external.Width),external.Height,network.valid_width,network.valid_height,NativeAdmitLargeInput(),network.Free());
-  out_width=count==3?geometry.width:network.valid_width;out_height=count==3?geometry.height:network.valid_height;
+  auto external=source[count==3?2:0]->GetDesc();
+  if((activeWidth==0)!=(activeHeight==0)||activeWidth>external.Width||activeHeight>external.Height)throw std::runtime_error("codec active input geometry");
+  // NGX's active render area may be smaller than the resource allocation. Only
+  // that area belongs to the network; keep the complete allocation for write-back.
+  geometry=NativeInputGeometry::Make(activeWidth?activeWidth:unsigned(external.Width),activeHeight?activeHeight:external.Height,network.valid_width,network.valid_height,NativeAdmitLargeInput(),network.Free());
+  out_width=count==3?unsigned(external.Width):network.valid_width;out_height=count==3?external.Height:network.valid_height;
   auto desc=source[0]->GetDesc();desc.Width=out_width;desc.Height=out_height;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   /* Typeless game textures: the encoder's output (our intermediate) is FP16; the decoder's output is copied raw into the game texture, so it takes the game's interpretation (UNORM for Ronin). */
   unorm_out=!private_float_output&&count==3&&NativeViewFormat(source[2]->GetDesc().Format)==DXGI_FORMAT_R16G16B16A16_UNORM;
   /* 8-bit UNORM game texture (Magpie): UNORM8 bits in a raw buffer (row pitch 1920*4), copied into the texture by the frame; BGRA order for B8G8R8A8. */
   unorm8_out=!private_float_output&&count==3&&NativeIsRgba8Unorm(source[2]->GetDesc().Format);r11_out=!private_float_output&&count==3&&NativeIsR11G11B10(source[2]->GetDesc().Format);out_format=private_float_output?DXGI_FORMAT_R16G16B16A16_FLOAT:count==3?NativeViewFormat(source[2]->GetDesc().Format):DXGI_FORMAT_UNKNOWN;
-  row_pitch=geometry.RowPitch((unorm8_out||r11_out)?4:8);
+  row_pitch=(out_width*((unorm8_out||r11_out)?4:8)+255u)&~255u;
   desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
   if(unorm8_out||r11_out){desc={};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=UINT64(row_pitch)*out_height;desc.Height=1;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;}
   else if(unorm_out){desc={};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=UINT64(row_pitch)*out_height;desc.Height=1;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;} /* UNORM bits in a raw buffer (this driver device-removes on non-float RGBA16 typed UAVs); the frame copies it into the game texture */ /* UNORM bits are written through a UINT UAV (the driver device-removes on a UNORM typed UAV) */
@@ -94,7 +98,7 @@ public:
   D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=neural_buffer?3u:2u;rd.pParameters=params;ID3DBlob*b=nullptr,*err=nullptr;auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&b,&err);if(err)err->Release();check(hr,"rootsig-serialize");step(d,"rootsig-serialized");check(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)),"rootsig");step(d,"rootsig");b->Release();b=nullptr;err=nullptr;
   /* DLSS5_CODEC_SRGB=1 (Magpie): the host texture is a display-referred sRGB picture: the encoder passes it through, the decoder linearizes and re-encodes. */
   const char*srgb_io=(_wgetenv(L"DLSS5_CODEC_SRGB")&&!wcscmp(_wgetenv(L"DLSS5_CODEC_SRGB"),L"1"))?"1":"0";
-  const char*fit=geometry.Adapted()?"1":"0";
+  const char*fit=(geometry.Adapted()||(count==3&&(out_width!=geometry.width||out_height!=geometry.height)))?"1":"0";
   const D3D_SHADER_MACRO uint_out[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UINT_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},unorm8[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UNORM8_OUT","1"},{"NATIVE_CODEC_BGRA",(out_format==DXGI_FORMAT_B8G8R8A8_UNORM||out_format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)?"1":"0"},{"NATIVE_CODEC_DEBUG_TINT",(_wgetenv(L"DLSS5_DEBUG_TINT")&&!wcscmp(_wgetenv(L"DLSS5_DEBUG_TINT"),L"1"))?"1":"0"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},plain[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},r11[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_R11_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}}; /* DLSS5_DEBUG_TINT=1 (diagnostic): the UNORM8 path writes a magenta-tinted picture so the write-back is visible */std::vector<D3D_SHADER_MACRO>macros;for(const D3D_SHADER_MACRO*m=unorm8_out?unorm8:r11_out?r11:unorm_out?uint_out:plain;m->Name;m++)macros.push_back(*m);if(neural_buffer)macros.push_back({"NATIVE_CODEC_NEURAL_BUFFER","1"});if(count!=3&&network.Free()&&geometry.fit_width<geometry.network_width)macros.push_back({"NATIVE_CODEC_FIT_MIRROR","1"}); /* free geometry: mirror the input into the padded columns */macros.push_back({nullptr,nullptr});
   hr=CompileNativeShader(dir+(count==3?L"\\native_codec_decode.hlsl":L"\\native_codec_encode.hlsl"),macros.data(),"main",&b,&err);if(FAILED(hr)){std::string message=count==3?"codec decode compile failed: ":"codec encode compile failed: ";if(err)message.append(static_cast<const char*>(err->GetBufferPointer()),err->GetBufferSize());if(err)err->Release();if(b)b->Release();throw std::runtime_error(message+" HRESULT="+std::to_string(unsigned(hr)));}if(err)err->Release();step(d,"compiled");
   D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={b->GetBufferPointer(),b->GetBufferSize()};hr=NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso));b->Release();check(hr,"pso");

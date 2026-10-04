@@ -54,6 +54,7 @@
 
 - `recording-leases.patch`：codec/RGB 私有输出采用固定 NSR→UAV→NSR 录制状态，并提供精确资源/heap/root/PSO pin（包括可选 neural_buffer）；仅包含 FOLLOW 头。
 - `module-load-cleanup.patch`：HIP 模块成功加载但 Style 初始化抛异常时，卸载尚未交付给 Network 的模块；成功后才发布句柄。原始 hip_api.h 快照参与补丁重放，GPU tier 的故障注入测试覆盖 Style 拷贝失败、缺失导出、加载失败和正常所有权交付。
+- `codec-active-subrect.patch`：codec 以宿主有效输入区域构建采样几何，输出仍保留整张纹理的分配尺寸及 raw-buffer 行距；decode 原样保留区域外像素。避免自由分辨率按有效区域建网、却用较大分配尺寸校验 codec 的冲突。GPU tier 覆盖固定/自由分辨率 subrect、2259×1271 有效区域与 3840×2160 分配、重复帧不重建及区域外逐字节一致。
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
 

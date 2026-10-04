@@ -7,6 +7,7 @@ int main(int argc, char **argv)
          useExposure = false, badExposure = false, ultrawide = false, subrect = false,
          upstreamControls = false, controls040 = false, rgba32 = false;
     unsigned inputWidth = 0, inputHeight = 0;
+    unsigned activeWidth = 1280, activeHeight = 720;
     const char *dumpPath = nullptr;
     for (int i = 3; i < argc; ++i)
     {
@@ -36,6 +37,8 @@ int main(int argc, char **argv)
             ultrawide = outputHash = true;
         else if (!std::strcmp(argv[i], "--subrect"))
             subrect = outputHash = true;
+        else if (!std::strcmp(argv[i], "--active-size") && i + 2 < argc)
+        { activeWidth = std::strtoul(argv[++i], nullptr, 10); activeHeight = std::strtoul(argv[++i], nullptr, 10); Require(activeWidth >= 320 && activeHeight >= 320, "active input size"); subrect = outputHash = true; }
         else if (!std::strcmp(argv[i], "--auto-exposure"))
             autoExposure = outputHash = true;
         else if (!std::strcmp(argv[i], "--scale16"))
@@ -177,11 +180,12 @@ int main(int argc, char **argv)
     frame.color_width = static_cast<UINT>(td.Width);
     frame.color_height = td.Height;
     // --subrect: the Color buffer is larger than the render area the game actually uses (NGX
-    // subrect). The codec is built at the ALLOCATION size, so the two disagree on every frame.
+    // subrect). Network sampling uses the active area; output retains the allocation.
     if (subrect)
     {
-        frame.color_width = 1280;
-        frame.color_height = 720;
+        Require(activeWidth <= td.Width && activeHeight <= td.Height, "active area fits allocation");
+        frame.color_width = activeWidth;
+        frame.color_height = activeHeight;
     }
     frame.color = color;
     frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -451,7 +455,9 @@ int main(int argc, char **argv)
         std::printf("output_hash=%016llx %ux%u\n",
                     static_cast<unsigned long long>(HashTexture(device, submitQueue,
                                                                  static_cast<ID3D12Resource *>(job.private_output),
-                                                                 scale16 ? 4u : 0u)),
+                                                                 scale16 ? 4u : 0u,
+                                                                 subrect ? frame.color_width : 0,
+                                                                 subrect ? frame.color_height : 0)),
                     frame.color_width, frame.color_height);
     if (dumpPath && outs == LMXXF_NR_OK && job.private_output)
         DumpTexture(device, submitQueue, static_cast<ID3D12Resource *>(job.private_output), dumpPath);

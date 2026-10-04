@@ -185,7 +185,7 @@ static bool MochizukiChoice(const char* label, std::string_view key, int* value,
 }
 
 // Keep rebuild-triggering edits local until mouse, keyboard or text editing finishes.
-static bool MochizukiRebuildSlider(const char* label, float* value, float low, float high, bool integer)
+static bool RebuildSlider(const char* label, float* value, float low, float high, bool integer)
 {
     ImGui::PushID(label);
     auto* storage = ImGui::GetStateStorage();
@@ -215,7 +215,7 @@ static bool MochizukiIntegerControl(const char* label, std::string_view key, int
 {
     if (key == CfgKey::MochizukiPasses || key == CfgKey::MochizukiMaxPasses) {
         float pending = static_cast<float>(*value);
-        if (!MochizukiRebuildSlider(label, &pending, static_cast<float>(low), static_cast<float>(high), true)) return false;
+        if (!RebuildSlider(label, &pending, static_cast<float>(low), static_cast<float>(high), true)) return false;
         *value = static_cast<int>(pending);
         return true;
     }
@@ -226,7 +226,7 @@ static bool MochizukiFloatControl(const char* label, std::string_view key, float
 {
     if (key == CfgKey::MochizukiModelScale) {
         float percent = *value * 100.f;
-        if (!MochizukiRebuildSlider("Model resolution", &percent, low * 100.f, high * 100.f, false)) return false;
+        if (!RebuildSlider("Model resolution", &percent, low * 100.f, high * 100.f, false)) return false;
         *value = percent / 100.f;
         return true;
     }
@@ -748,10 +748,10 @@ void RenderMenu(Config* config, float menuResScale)
             };
             auto renderModel = [&]() {
                 if (isLmxxf) {
-                    int pass = static_cast<int>(config->LmxxfMultiPass.value_or_default()) - 1;
-                    if (ImGui::Combo("Network passes", &pass, "1 (default)\0" "2\0" "3\0")) {
-                        config->LmxxfMultiPass = static_cast<uint32_t>(pass + 1);
-                        CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(pass + 1).c_str());
+                    float pass = static_cast<float>(config->LmxxfMultiPass.value_or_default());
+                    if (RebuildSlider("Network passes", &pass, 1.f, 3.f, true)) {
+                        config->LmxxfMultiPass = static_cast<uint32_t>(pass);
+                        CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(static_cast<int>(pass)).c_str());
                         AmdBridge::InvalidateHistory();
                     }
                     HelpMarker("Run the model 1-3 times on each frame. More passes strengthen the style and cost roughly N times the network work."
@@ -807,12 +807,9 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("Network style 0 / 1 / 2. Default: 1."
                                "\nChanging style rebuilds the network on the next frame.");
                 } else {
-                    static int passes = 1;
-                    static bool editingPasses = false;
-                    if(!editingPasses)passes=int(config->DlssNrPasses.value_or_default());
-                    ImGui::SliderInt("AMD neural passes", &passes, 1, 3);
-                    editingPasses=ImGui::IsItemActive();
-                    if(ImGui::IsItemDeactivatedAfterEdit())config->DlssNrPasses=uint32_t(passes);
+                    float passes = static_cast<float>(config->DlssNrPasses.value_or_default());
+                    if (RebuildSlider("AMD neural passes", &passes, 1.f, 3.f, true))
+                        config->DlssNrPasses = static_cast<uint32_t>(passes);
                     {
                         static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
                         int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;

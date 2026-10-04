@@ -122,6 +122,9 @@ set "DLSS5_SKIP_BLOCKS=none"
 set "DLSS5_FAST_NUMERIC=1"
 set "DLSS5_NETWORK_FREE_RES=1"
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --040-controls || goto fail
+rem Active input smaller than its allocation must work in free-resolution mode too.
+"%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --subrect || goto fail
+"%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --size 3840 2160 --active-size 2259 1271 || goto fail
 for %%S in ("1280 720" "1707 961" "2560 1440" "3440 1440") do (
   "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --size %%~S || goto fail
 )

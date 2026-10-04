@@ -186,9 +186,11 @@ float3 ReadFittedNeural(float2 p) {
 [numthreads(16,16,1)]
 void main(uint3 id:SV_DispatchThreadID) {
  if(any(id.xy>=Size))return;
+ // Preserve allocation padding outside the active render area, including alpha.
+ if(any(id.xy>=SourceSize)){Store(id.xy,OutputOriginal.Load(int3(id.xy,0)));return;}
  if(HdrMode!=1||PaperWhiteScale<=0){Store(id.xy,0);return;}
  uint2 extent=max(ProxySize,uint2(1,1));
- uint2 p=min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(Size)),extent-1);
+ uint2 p=min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(SourceSize)),extent-1);
  float4 source=OutputOriginal.Load(int3(id.xy,0));
 #if NATIVE_CODEC_SRGB_IO
  /* DLSS5_CODEC_SRGB (Magpie): the source is display-referred sRGB; linearize it for the blend and re-encode the result */
@@ -197,7 +199,7 @@ void main(uint3 id:SV_DispatchThreadID) {
  float3 original=max(source.rgb,0)/EffectivePaperWhite();
 #endif
  #if NATIVE_CODEC_FIT
- float2 network_p=Padding.xy+(float2(id.xy)+.5)*Padding.zw/float2(Size)-.5;
+ float2 network_p=Padding.xy+(float2(id.xy)+.5)*Padding.zw/float2(SourceSize)-.5;
  float3 upgraded=Upgrade(original,Decode(ReadFitted(Proxy,network_p)),Decode(NEURAL_FITTED(network_p)));
 #else
  float3 upgraded=Upgrade(original,Decode(Proxy.Load(int3(p,0)).rgb),Decode(NEURAL_AT(id.xy)));

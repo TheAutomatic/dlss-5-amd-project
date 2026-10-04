@@ -157,7 +157,7 @@ static void UploadColorPattern(ID3D12Device *device, ID3D12CommandQueue *queue, 
 // exponentShift > 0 divides every normal FP16 value by 2^shift before hashing, so a run on an
 // exactly scaled input can be compared bit for bit with the unscaled one.
 static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3D12Resource *tex,
-                            UINT exponentShift = 0)
+                            UINT exponentShift = 0, UINT preservedOutsideWidth = 0, UINT preservedOutsideHeight = 0)
 {
     const D3D12_RESOURCE_DESC td = tex->GetDesc();
     if (td.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
@@ -216,6 +216,21 @@ static uint64_t HashTexture(ID3D12Device *device, ID3D12CommandQueue *queue, ID3
     void *mapped = nullptr;
     Check(rb->Map(0, nullptr, &mapped), "map readback");
     const auto *base = static_cast<const unsigned char *>(mapped);
+    if (preservedOutsideWidth && preservedOutsideHeight)
+    {
+        Require(td.Format == DXGI_FORMAT_R16G16B16A16_FLOAT, "padding comparison format");
+        auto *expected = new unsigned char[static_cast<size_t>(rowBytes)];
+        for (UINT y = 0; y < h; ++y)
+        {
+            FillRow(expected, y, static_cast<UINT>(td.Width), td.Format);
+            const size_t begin = y < preservedOutsideHeight ? size_t(preservedOutsideWidth) * 8 : 0;
+            Require(begin <= rowBytes && std::memcmp(base + size_t(y) * fp.Footprint.RowPitch + begin,
+                    expected + begin, static_cast<size_t>(rowBytes) - begin) == 0,
+                    "allocation pixels outside active input preserved exactly");
+        }
+        delete[] expected;
+        std::printf("subrect allocation padding: exact match\n");
+    }
     for (UINT y = 0; y < h; ++y)
     {
         const unsigned char *row = base + size_t(y) * fp.Footprint.RowPitch;

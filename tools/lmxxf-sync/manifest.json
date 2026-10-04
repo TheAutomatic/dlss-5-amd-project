@@ -65,7 +65,8 @@
     "codec-hue-safe-preexp.patch",
     "shader-compile-system32.patch",
     "recording-leases.patch",
-    "module-load-cleanup.patch"
+    "module-load-cleanup.patch",
+    "codec-active-subrect.patch"
   ],
   "hip_files": [
     "build-modules.ps1",

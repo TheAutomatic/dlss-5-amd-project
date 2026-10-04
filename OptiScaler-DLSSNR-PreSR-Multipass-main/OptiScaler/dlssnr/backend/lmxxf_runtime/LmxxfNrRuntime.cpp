@@ -2109,7 +2109,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->allocWidth = cw;
                 session->allocHeight = ch;
                 enc = new NativeGameCodec();
-                enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, bindExposure);
+                enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, bindExposure,
+                            info->color_width, info->color_height);
                 rgbIn = new NativeGameRgbInput();
                 // HIP consumes PostBase only; the tile-ordered duplicate has no reader.
                 rgbIn->Create(session->device, enc->Output(), session->shaderDir, false);
@@ -2118,7 +2119,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
                 dec = new NativeGameCodec();
                 dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir,
-                            privateFloatOutput, bindExposure);
+                            privateFloatOutput, bindExposure, info->color_width, info->color_height);
                 if (dec->BufferOutput())
                 {
                     D3D12_RESOURCE_DESC td = cdesc;
