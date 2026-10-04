@@ -37,7 +37,8 @@ class RuntimeProofTests(unittest.TestCase):
                           'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime'):
             shutil.copytree(ROOT / directory, self.root / directory,
                             ignore=shutil.ignore_patterns('__pycache__'))
-        for name in ('tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
+        for name in ('OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib',
+                     'tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
                      'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):

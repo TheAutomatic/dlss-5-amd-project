@@ -162,43 +162,45 @@ jobs:
           powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/release/check-module-contract.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: No-GPU regression suites
-        timeout-minutes: 20
-        shell: pwsh
-        run: |
-          cmd /d /c tests\run-all.cmd --tier ci --out exports\release-ci\tests
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          New-Item -ItemType Directory -Force exports/lmxxf-runtime | Out-Null
-          Copy-Item -LiteralPath exports/release-ci/tests/runtime/LmxxfNrRuntime.dll -Destination exports/lmxxf-runtime/LmxxfNrRuntime.dll
-          Copy-Item -LiteralPath exports/release-ci/tests/runtime-ci.sha256 -Destination exports/lmxxf-runtime/runtime-ci.sha256
-
-      - name: Build OptiScaler Release (default = multi-slot)
+      - name: Compute build and tooling cache keys
+        id: cache_keys
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Trailing *forward* slash on SolutionDir/OutDir/IntDir is required:
-          # the project concatenates $(SolutionDir)external\... with no extra
-          # separator, and a trailing backslash inside /p:Value="...\" makes
-          # MSBuild swallow the closing quote. OutDir without a slash also
-          # collapsed obj + filename (OptiScaler.pch).
-          $slnDir = "$PWD/OptiScaler-DLSSNR-PreSR-Multipass-main/"
-          $outDir = "$PWD/$env:BUILD_OUT/"
-          # PreBuildEvent runs: it generates resource_build_{date,commit}.h, which
-          # resource.h includes in Release and which are NOT in git.
-          # PostBuildEvent stays off: it copies a README this fork does not have.
-          msbuild "$slnDir/OptiScaler/OptiScaler.vcxproj" `
-            /m:4 /t:Build /p:Configuration=Release /p:Platform=x64 `
-            /p:PlatformToolset=$env:PLATFORM_TOOLSET `
-            /p:VCToolsVersion=${{ steps.toolchain.outputs.msvc }} `
-            /p:WindowsTargetPlatformVersion=$env:WINDOWS_SDK_VERSION `
-            /p:PostBuildEventUseInBuild=false `
-            /p:SolutionDir="$slnDir" `
-            /p:OutDir="$outDir" `
-            /p:IntDir="${outDir}obj/"
+          $mochi = python -B tools/build/mochizuki-manifest.py --cache-key
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path "$env:BUILD_OUT/OptiScaler.dll")) {
-            throw "Build did not produce $env:BUILD_OUT/OptiScaler.dll"
-          }
+          $sync = python -B tools/lmxxf-sync/test-cache.py key
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "mochi=$mochi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "sync=$sync" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Restore verified Mochizuki build
+        uses: actions/cache@v5
+        with:
+          path: |
+            exports/mochizuki-runtime/MochizukiNrRuntime.dll
+            exports/mochizuki-runtime/build-manifest.json
+            exports/mochizuki-runtime/dlssnr-amd/shaders
+          key: mochi-${{ runner.os }}-${{ steps.cache_keys.outputs.mochi }}
+
+      - name: Restore tooling test receipt
+        uses: actions/cache@v5
+        with:
+          path: exports/test-cache/sync.json
+          key: tooling-${{ runner.os }}-${{ steps.cache_keys.outputs.sync }}
+
+      - name: Build or verify Mochizuki
+        shell: pwsh
+        run: |
+          cmd /d /c tools\build\build-mochizuki-runtime.cmd --reuse
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build host and run CI concurrently
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          ./tools/build/build-ci.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package user zip
         shell: pwsh

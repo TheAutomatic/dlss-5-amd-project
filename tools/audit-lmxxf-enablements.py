@@ -147,8 +147,15 @@ def local_inputs(root, manifest):
                  for path in (root / VENDOR / 'hip').glob(pattern))
     files.update(VENDOR / 'hip' / name for name in ('build-modules.ps1', 'rtc_compile.cpp'))
     files.update(path.relative_to(root) for path in (root / VENDOR / 'shaders').glob('*.hlsl'))
+    # Keep shared selection, submission, effects and menu consumers in the review.
+    # Mochizuki's private runtime/adapter do not consume lmxxf's source or recipe.
+    private_mochizuki = RUNTIME / 'backend/mochizuki_runtime'
+    private_adapter = {RUNTIME / 'backend' / name for name in
+                       ('MochizukiBackend.cpp', 'MochizukiBackend.h')}
     files.update(path.relative_to(root) for path in (root / RUNTIME).rglob('*')
-                 if path.is_file() and path.suffix in ('.h', '.hpp', '.cpp', '.inl'))
+                 if path.is_file() and path.suffix in ('.h', '.hpp', '.cpp', '.inl')
+                 and not path.relative_to(root).is_relative_to(private_mochizuki)
+                 and path.relative_to(root) not in private_adapter)
     files.add(OPTIONS)
     files.add(RUNTIME.parent / 'ConfigKeys.h')
     return {path.as_posix(): file_hash(root / path) for path in sorted(files)}

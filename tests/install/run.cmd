@@ -15,7 +15,7 @@ set "PS51=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%AMD_TEST_PYTHON%" -B tests\install\test_release_upload.py || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_runtime_ci_proof.py || goto fail
 
-"%AMD_TEST_PYTHON%" -B tests\install\test_local_package.py || goto fail
+rem Local build launcher tests run with the cached tooling suite (tests\sync).
 
 echo install: PASS
 exit /b 0

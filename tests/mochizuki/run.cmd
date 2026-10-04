@@ -1,6 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0..\.."
+if /i "%~1"=="abi" (
+  python -B tests\mochizuki\test_build_cache.py
+  if errorlevel 1 exit /b 1
+)
 call tests\_lib\msvc-env.cmd || exit /b 1
 if not exist exports\mochizuki-tests mkdir exports\mochizuki-tests
 cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /I OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler tests/mochizuki/runtime.cpp /Foexports/mochizuki-tests/runtime.obj /Feexports/mochizuki-tests/runtime.exe /link d3d12.lib dxgi.lib || exit /b 1

@@ -32,6 +32,9 @@ Before a release, run [tests/RELEASE-TESTS.md](tests/RELEASE-TESTS.md) once agai
 artifacts (`tests\run-all.cmd --tier ci`, plus applicable device/GPU checks). Reuse valid
 results when the relevant source and artifacts are unchanged; never run duplicate suites
 just to follow multiple entry points. The packager checks freshness; it does not run tests.
+The CI entrypoint may reuse a matching successful tooling-suite receipt within the current UTC
+week; source/environment changes force a full run. Runtime/ABI and package checks still run.
+See docs/release.md for cache inputs and force-run commands; --skip-sync cannot certify a release.
 
 ## Package compatibility
 

@@ -16,12 +16,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('out', nargs='?', default='exports/mochizuki-runtime')
     parser.add_argument('--skip-shaders', action='store_true', help='reuse already built shaders for local adapter iteration')
+    parser.add_argument('--reuse', action='store_true', help='reuse only matching source, toolchain and artifact hashes')
     args = parser.parse_args()
     manifest = runpy.run_path(str(Path(__file__).with_name('mochizuki-manifest.py')))
     source_hashes = manifest['sources']()
     out = (repo / args.out).resolve()
     if not out.is_relative_to((repo / 'exports').resolve()):
         parser.error('Build output must be under this workspace exports directory')
+    if args.reuse and not args.skip_shaders and manifest['reusable'](out):
+        print('BUILD_REUSED', out / 'MochizukiNrRuntime.dll')
+        return
     obj = out / 'obj'
     obj.mkdir(parents=True, exist_ok=True)
     headers, glslang = deps.dependencies(repo)

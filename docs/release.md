@@ -37,17 +37,50 @@ HIP `.hsaco` 使用该分支已提交模块，不另行追更或重编 HIP 实�
 
 | 项 | 规则 |
 |---|---|
-| 入口 | `tools\build\build-release-local.cmd`：先编 runtime，通过 LMXXF_TEST_RUNTIME 让 `tests\run-all.cmd --tier ci,device` 验证同一 DLL，最后 MSBuild。输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译本体时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
+| 入口 | `tools\build\build-release-local.cmd`：先构建或按内容校验复用 Mochizuki，再编 lmxxf runtime，通过 LMXXF_TEST_RUNTIME 让 `tests\run-all.cmd --tier ci,device` 验证同一 DLL，最后 MSBuild。输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译本体时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
 | 工具集 | 本地与 CI 均固定 `PlatformToolset=v145`、MSVC `14.44.35207`、Windows SDK `10.0.26100.0`。runtime、测试和宿主使用同一环境；Actions 检查实际环境，缺失就失败。升级时同时改本地构建入口、`tests/_lib/msvc-env.cmd` 和 workflow，再验证 |
 | 宏 | 发行构建不定义诊断宏（`AMD_RETIRE_DIAGNOSTICS`、`AMD_TIMING_DIAGNOSTICS` 等）。诊断构建只用于取证，不能拿去打包或报数 |
 | 记录 | 记录源码 SHA、子模块状态、host/runtime/模块清单及最终 zip 的 SHA256、测试命令与结果；引用帧率时附构建脚本与 host SHA（见 [measurement.md](measurement.md)） |
 | modules | 流程要求使用**已提交**的 `third_party/lmxxf/modules`；打包器读取工作树，故本地必须先检查干净状态。CI 不重编 HIP 内核。发版前确认 modules 与当前 `hip/` 源码一致（sync 负责重编，见 [tools/lmxxf-sync/README.md](../tools/lmxxf-sync/README.md)） |
 | shader-cache | `shader-cache/*.dxbc` 不进 git、不进包。runtime 私有加载 System32 编译器；缓存身份包含编译器、目标、flags、源码及 include。冷/热编译和曝光等实际变体由 shader 回归验证，不从本机缓存复制预编译结果 |
 
+## 减少重复验证（2026-10-05）
+
+日常小修运行受影响领域的专项，不把默认完整构建入口当作每次编辑后的检查。
+发布前仍运行 `tests\run-all.cmd --tier ci`：当前 DLL 的 ABI、host/WARP、shader、
+安装升级/卸载、包内容和凭证检查每次执行；GPU/device 按实际改动补充，不被缓存替代。
+
+同步工具完整回归与本地试包启动器回归由 `tests\sync\run.cmd` 统一管理。
+只有测试输入内容、Python/PowerShell/Git/Windows/编译环境和当前 UTC 周全部匹配，
+才可复用 `exports/test-cache/sync.json` 中的成功记录。输入包含测试与夹具、
+同步/审计/构建/打包工具、lmxxf源码和模块、配置键及Git属性；新增、删除或修改均失效。
+缺失、损坏、环境变化或跨周自动全跑；失败先移除旧记录，测试中途输入变化不发新记录。
+用 `tests\sync\run.cmd --force` 强制完整运行。周一 UTC 后首次使用会重新验证，
+不是后台定时任务。单跑该工具套件不生成 runtime CI 凭证。
+
+完整CI中的 `PASS sync` 可能对应当次运行或日志明确标为 `REUSED` 的匹配成功记录。
+`--skip-sync` 仍只用于开发排查，不能生成发版凭证；不能手工编造缓存记录。
+不跨输入变化复用整个CI，不缓存GPU测试结果，不因同一源码重新编出了不同时间戳
+就机械重复所有历史GPU场景；按实际源码/工具链/模块变化和产物身份判断证据范围。
+
+Mochizuki 使用 `build-mochizuki-runtime.cmd --reuse`：源码、生成器、构建脚本、
+Vulkan导入库、MSVC/SDK/Python身份、DLL及全部shader哈希匹配才复用。
+旧清单或任何不匹配均重建；不传 `--reuse` 可强制完整构建。
+本地完整构建入口已启用此选项，一键交互式“重编试包”仍按其承诺强制重编。
+
+Actions按精确键缓存上述Mochizuki产物及工具测试记录，不使用模糊restore key，
+不缓存用户模型、驱动pipeline cache或ABI通过记录。恢复后仍校验实际文件并重跑ABI。
+`tools/build/build-ci.ps1` 在同一runner并行执行宿主构建和CI，分别输出
+`exports/release-ci/host.log`、`tests.log`及对应stderr日志；两者完成且成功后才打包。
+失败不会进入后续上传/发布。CI仍使用同一次测试的lmxxf DLL和自动生成的哈希凭证。
+
+最终包模块契约、Mochizuki构建清单、源码新鲜度、DLL配套及ZIP逐文件哈希均保留。
+缓存仅减少重复工作，不能代替上游接入审阅、当前产物检查、游戏验收或远端验证。
+
 ## 本地发版清单（与 CI 对齐）
 
 完整 CI 测试成功后，统一入口在输出目录生成 `runtime-ci.sha256`，同时检查
-runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证。
+runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证。同步工具测试允许使用上方严格匹配的本周成功记录；这属于已验证结果复用，不等同跳过。
 本地完整构建和 Actions 将已测试 DLL 与凭证一起复制到 `exports/lmxxf-runtime/`。
 打包在替换 staging 之前检查两者匹配，并复核 staging DLL 与所选 host/runtime 字节一致；
 实际 zip 的逐文件校验继续执行。手动组合构建时也须复制同一次成功 CI 的 DLL 和凭证，
@@ -56,7 +89,7 @@ runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证
 
 ### 执行顺序
 
-1. **固定待发布源码。** 更新 `VERSION`、各语言 README 和 release workflow 的发布正文，确认描述与实际验证一致。修复和版本变更提交后记录完整 SHA；检查 `git status --short` 和 `git submodule status --recursive`。发布验证用干净检出及完整子模块，不继承旧 `exports`。修改源码后重新构建受影响产物，不能继续沿用旧验证结果。
+1. **固定待发布源码。** 更新 `VERSION`、各语言 README 和 release workflow 的发布正文，确认描述与实际验证一致。修复和版本变更提交后记录完整 SHA；检查 `git status --short` 和 `git submodule status --recursive`。发布验证用干净检出及完整子模块；仅按上方内容校验规则恢复指定缓存，不继承其他旧 `exports`。修改源码后重新构建受影响产物，不能继续沿用旧验证结果。
 2. **完成上游接入再发版。** 涉及 lmxxf 同步时先按 [同步流程](../tools/lmxxf-sync/README.md) 审阅、补丁重放、模块来源与契约检查，确认 `sync-state.json` 为 reviewed 且审计针对当前接入内容有效。不能只看历史 reviewed 字样；pending、非零退出或仅 report-only 都不放行。发布 job 只使用提交的模块，不临时追移动的上游分支。
 3. **构建并测同一 runtime。** 有 D3D12 设备的本机运行下方完整构建命令，已包含 `ci,device`，不用在前面再重复跑一次 CI。无设备时在非 tag Actions 上跑完整 CI/构建，并如实记录 device/GPU SKIP。根据改动补充 GPU、双后端烟测；已有验证仅在源码、配置和产物身份适用时沿用。
 4. **本地试包与正式安装包统一放 dist。** 使用下方显式 host 路径和输出路径。打包器自动校验 runtime-ci 凭证、源码新鲜度、模块契约、包内容及实际 zip 哈希。`--fast`、`--skip-sync`、`-AllowMissingDeps`、`-WarnOnly`、`-AllowStaleModules` 不能作为发版通过依据。构建后不要再同步模块或重编 runtime 然后沿用旧测试凭证。

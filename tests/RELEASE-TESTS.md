@@ -12,7 +12,7 @@ tests\run-all.cmd --tier ci
 
 | tier | 覆盖 | 运行条件 |
 |---|---|---|
-| `ci` | host/config、shader、mochizuki ABI、lmxxf ABI/C 冒烟/WARP、安装卸载、模块打包、上传回归、同步工具及 Git 二进制往返 | 无独立 GPU 要求；Windows/MSVC/WARP |
+| `ci` | host/config、shader、mochizuki ABI、lmxxf ABI/C 冒烟/WARP、安装卸载、模块打包、上传回归、同步工具及 Git 二进制往返（本周同输入成功记录可复用） | 无独立 GPU 要求；Windows/MSVC/WARP |
 | `device` | host graphics 与实际 D3D12 列表/proxy 测试 | D3D12 硬件 |
 | `gpu` | mochizuki Vulkan 输出/重放/跨队列/分辨率/取消（自备模型）、lmxxf 实际 HIP、格式/曝光、输出黄金哈希、录制租约、bridge 与故障回归 | AMD GPU，`LMXXF_ASSETS` 指向有效权重目录 |
 | `all` | 上述全部 | 满足全部依赖 |
@@ -46,6 +46,7 @@ tests\lmxxf\run.cmd device
 tests\lmxxf\run.cmd gpu
 tests\install\run.cmd
 tests\sync\run.cmd
+tests\sync\run.cmd --force
 tests\mochizuki\run.cmd abi
 tests\mochizuki\run.cmd gpu
 tests\mochizuki\run.cmd shader-tail
@@ -61,3 +62,15 @@ Mochizuki `shader-tail` 额外运行 1280×720、1129×635、640×360 的 ViT �
 检查有限、非黑屏且有实际网络修正的输出，重复执行录制并导出 R11G11B10 像素。
 它验证运行健康，不能代替独立数值正确性对照或 Windows 32.0.32015 驱动实测。
 需要性能结论时按 [测量规则](../docs/measurement.md) 记录实际配置与产物身份。
+
+## 工具回归复用与构建缓存
+
+同步工具和本地试包启动器的完整回归允许本周、同内容、同环境复用。
+由 `tools/lmxxf-sync/test-cache.py` 绑定所有测试输入，详细范围和失效规则见
+[发版：减少重复验证](../docs/release.md#减少重复验证2026-10-05)。
+`tests/sync/run-uncached.cmd` 是内部入口；日常用 `run.cmd`，审计时用 `run.cmd --force`。
+缓存正确性回归也在该完整套件中。强制运行失败会清除旧成功记录。
+
+Mochizuki构建缓存的来源/产物/工具链失效回归由 `tests/mochizuki/run.cmd abi` 执行。
+恢复构建缓存之后ABI依旧每次执行。原有运行时CI凭证的失败、替换DLL、skip-sync
+拒绝测试保留在install套件，不随工具缓存跳过。

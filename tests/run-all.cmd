@@ -7,7 +7,8 @@ rem           device  hardware D3D12 adapter: host device (amd_graphics_d3), lmx
 rem           gpu     AMD GPU + LMXXF_ASSETS (weights folder): lmxxf gpu.
 rem           all     ci + device + gpu.
 rem           Several tiers may be combined: --tier ci,device
-rem   --skip-sync   skip tests\sync (1.5-3 min) for inner loops; reported as SKIP.
+rem   sync reuses a matching successful tooling run in the current UTC week; it never reuses runtime tests.
+rem   --skip-sync   skip tests\sync for inner loops; reported as SKIP and disables release proof.
 rem   --keep-going  run every suite and fail at the end instead of stopping at the first failure.
 rem The runtime is built once into <out>\runtime unless LMXXF_TEST_RUNTIME already names a DLL.
 setlocal EnableExtensions

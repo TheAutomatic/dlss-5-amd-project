@@ -131,3 +131,15 @@ tools/sync-lmxxf-upstream.ps1 -UpstreamPath <clone> -UpstreamRef <full-pin> `
 缺失或过期预编产物必须重新构建，不静默用 COMGR 替代。
 `-ModulesPath` 仍可提供已验证的完整68模块树，照常经过人工来源审阅和双架构契约检查。
 WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 无需迁移。
+
+## 审阅范围与工具测试复用
+
+本地指纹保留lmxxf实现和共用选择、菜单、提交、效果消费者；排除
+`backend/mochizuki_runtime/` 和 `MochizukiBackend.cpp/.h` 的私有实现。
+这些文件不消费lmxxf源码或模块；共同ABI、ConfigKeys及共用代码仍受检查。
+因此仅修改Mochizuki私有实现不要求重走lmxxf接入审阅；上游更新、lmxxf或共用
+消费者修改照常失效。回归同时验证两类边界，不能任意扩大排除范围。
+
+完整工具回归用 `tests\sync\run.cmd`，按内容/环境/UTC周复用成功记录；
+`--force` 强制全跑。缓存不改变实际同步审计、模块校验或pending语义。
+详见 [发版流程](../../docs/release.md#减少重复验证2026-10-05)。

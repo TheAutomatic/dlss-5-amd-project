@@ -68,7 +68,8 @@ class ModulePackageTests(unittest.TestCase):
         for directory in ('third_party/mochizuki',
                           'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime'):
             shutil.copytree(REPO / directory, self.root / directory, ignore=shutil.ignore_patterns('__pycache__'))
-        for name in ('tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
+        for name in ('OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib',
+                     'tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
                      'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
                      'tools/install/mochizuki-model.py', 'docs/mochizuki.md',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',

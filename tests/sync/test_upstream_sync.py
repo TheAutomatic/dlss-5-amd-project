@@ -519,6 +519,21 @@ class AuditTests(Fixture):
         write(self.local / audit.RUNTIME.parent / 'ConfigKeys.h', '// changed product configuration\n')
         self.assertTrue(audit.validate_review(self.collect(), reviewed))
 
+    def test_private_mochizuki_changes_do_not_invalidate_lmxxf_review(self):
+        reviewed = self.reviewed(self.collect())
+        for relative in ('backend/mochizuki_runtime/new.cpp', 'backend/MochizukiBackend.cpp',
+                         'backend/MochizukiBackend.h'):
+            write(self.local / audit.RUNTIME / relative, '// unrelated backend\n')
+        self.assertEqual(audit.validate_review(self.collect(), reviewed), [])
+
+    def test_shared_and_lmxxf_consumers_still_invalidate_review(self):
+        for relative in ('backend/Selector.cpp', 'amd/AmdBridge.cpp', 'DlssNr_Menu.cpp',
+                         'backend/lmxxf_runtime/new.h'):
+            with self.subTest(path=relative):
+                reviewed = self.reviewed(self.collect())
+                write(self.local / audit.RUNTIME / relative, '// changed consumer\n')
+                self.assertTrue(audit.validate_review(self.collect(), reviewed))
+
     def test_integrated_needs_validation_and_duplicate_ids_fail(self):
         report = self.collect()
         reviewed = self.reviewed(report)

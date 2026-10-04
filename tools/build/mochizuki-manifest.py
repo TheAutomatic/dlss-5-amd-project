@@ -1,7 +1,9 @@
 """Bind the Mochizuki DLL/shaders to their exact source closure."""
 import hashlib
 import json
+import os
 from pathlib import Path
+import platform
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +16,7 @@ def sources():
     for folder in (ROOT / 'third_party/mochizuki/windows', product / 'dlssnr/backend/mochizuki_runtime'):
         paths.extend(p for p in folder.rglob('*') if p.is_file() and '__pycache__' not in p.parts)
     paths.extend([product / 'dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h', product / 'dlssnr/NrPerformance.h'])
+    paths.append(product / 'library/vulkan/vulkan-1.lib')
     paths.extend(ROOT / 'tools/build' / f for f in ('build-mochizuki-runtime.py', 'build-mochizuki-runtime.cmd', 'mochizuki-deps.py', 'mochizuki-manifest.py'))
     return {p.relative_to(ROOT).as_posix(): digest(p) for p in sorted(paths)}
 
@@ -22,8 +25,28 @@ def artifacts(out):
     paths.extend(p for p in (out / 'dlssnr-amd/shaders').rglob('*') if p.is_file())
     return {p.relative_to(out).as_posix(): digest(p) for p in sorted(paths)}
 
+def cache_key():
+    # Compiler/SDK are pinned by the build environment, not inferred from the DLL date.
+    value = [sources(), platform.system(), platform.machine(),
+             os.environ.get('VCToolsVersion', ''), os.environ.get('WindowsSDKVersion', ''),
+             sys.version]
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
 def write(out):
-    (out / 'build-manifest.json').write_text(json.dumps({'sources': sources(), 'artifacts': artifacts(out)}, indent=2)+'\n', encoding='utf-8')
+    (out / 'build-manifest.json').write_text(json.dumps({'sources': sources(), 'artifacts': artifacts(out),
+        'build_key': cache_key()}, indent=2)+'\n', encoding='utf-8')
+
+
+def reusable(out):
+    try:
+        data = json.loads((out / 'build-manifest.json').read_text(encoding='utf-8'))
+        if data.get('build_key') != cache_key():
+            return False
+        verify(out)
+        return True
+    except (OSError, ValueError, KeyError, AttributeError, TypeError, SystemExit):
+        return False
 
 def verify(out):
     manifest = json.loads((out / 'build-manifest.json').read_text(encoding='utf-8'))
@@ -32,4 +55,7 @@ def verify(out):
     print('MOCHIZUKI_BUILD_VERIFIED')
 
 if __name__ == '__main__':
-    verify(Path(sys.argv[1]).resolve())
+    if sys.argv[1] == '--cache-key':
+        print(cache_key())
+    else:
+        verify(Path(sys.argv[1]).resolve())

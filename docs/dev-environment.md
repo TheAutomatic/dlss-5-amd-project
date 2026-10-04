@@ -88,3 +88,6 @@ tests\run-all.cmd --tier ci|device|gpu|all [--out 目录] [--skip-sync] [--keep-
 - `tools/build/mochizuki-manifest.py`：源码及可分发产物哈希验证。
 - `tools/install/mochizuki-model.py`：仅从用户提供的指定版本 DLL 提取模型。
 - `tests/mochizuki/run.cmd abi|gpu`：无 GPU ABI 与实际 D3D12/Vulkan 生命周期回归。
+
+- `tools/build/build-ci.ps1`：Actions的宿主/CI并行入口，需已配置MSVC环境与pwsh。
+- `tools/lmxxf-sync/test-cache.py`：同步工具回归的内容/环境/UTC周成功记录；通过tests/sync/run.cmd使用。
