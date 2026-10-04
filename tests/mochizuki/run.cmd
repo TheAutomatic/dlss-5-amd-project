@@ -6,6 +6,7 @@ if not exist exports\mochizuki-tests mkdir exports\mochizuki-tests
 cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /I OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler tests/mochizuki/runtime.cpp /Foexports/mochizuki-tests/runtime.obj /Feexports/mochizuki-tests/runtime.exe /link d3d12.lib dxgi.lib || exit /b 1
 if /i "%~1"=="destroy-tail" goto destroytail
 if /i "%~1"=="startup" goto startup
+if /i "%~1"=="shader-tail" goto shadertail
 if /i "%~1"=="pass-switch" goto passswitch
 if /i "%~1"=="gpu" (
   exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime"
@@ -31,8 +32,18 @@ exit /b %errorlevel%
 :startup
 set "ASSETS=%CD%\exports\mochizuki-runtime"
 if not "%~2"=="" set "ASSETS=%~f2"
-exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%ASSETS%" --startup "%~3"
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%ASSETS%" --startup "%~3" %4 %5
 exit /b %errorlevel%
+
+:shadertail
+rem The ViT 64-token key chunk is partial at these render resolutions.
+for %%S in (1280x720 1129x635 640x360) do (
+  for /f "tokens=1,2 delims=x" %%W in ("%%S") do (
+    exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --startup "%CD%\exports\mochizuki-tests\tail-%%S.bin" %%W %%X
+    if errorlevel 1 exit /b 1
+  )
+)
+exit /b 0
 
 :destroytail
 exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --destroy-tail

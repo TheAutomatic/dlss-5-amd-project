@@ -9,10 +9,12 @@ dynamic index and live in scratch. NIR unrolls them before ACO sees them. Doing 
 unroll in the source gives LLPC straight-line code with constant indices.
 
 A loop is unrolled when its header is `for (int V = A; V < B; V++ | ++V | V += S)` with A, B,
-S integer constant expressions, its body neither assigns V nor contains break/continue/return
-at its own level, and the trip count is at most --max-trip. Each copy is
+S integer constant expressions (`int` or `uint`, `16u`), its body neither assigns V nor contains break/return
+at its own level, and the trip count is at most --max-trip. A `continue` is kept by wrapping each copy in
+`do { } while (false)`. Each copy is
 `{ const int V = value; body }` and the copies sit in one more block, since the loop can be
-the unbraced body of an `if`. Inner loops are unrolled first.
+the unbraced body of an `if`. Inner loops are unrolled first, and again in each copy once V's
+value is in their headers (`for (int m = mh; ...)`).
 """
 import argparse
 import re
@@ -90,7 +92,8 @@ def statement_end(s, i):
 
 
 def const_eval(e):
-    e = e.strip()
+    # `16u`, `uint(NR_QB)`: a uint loop's bounds are the same integers.
+    e = re.sub(r'(\d)[uU]\b', r'\1', re.sub(r'\buint\s*\(', '(', e.strip()))
     if not CONST.match(e):
         return None
     try:
@@ -100,7 +103,7 @@ def const_eval(e):
 
 
 def own_level_escape(body):
-    """break/continue/return that would leave this loop (nested loops/switches are skipped)."""
+    """The break/continue/return that would leave this loop (nested loops/switches are skipped)."""
     s, i, flat = body, 0, []
     loop = re.compile(r'\b(for|while|switch|do)\b')
     while i < len(s):
@@ -112,8 +115,24 @@ def own_level_escape(body):
         try:
             i = statement_end(s, m.start())
         except Exception:
-            return True
-    return re.search(r'\b(break|continue|return)\b', ''.join(flat)) is not None
+            return {'unparsed'}
+    return set(re.findall(r'\b(break|continue|return)\b', ''.join(flat)))
+
+
+def with_value(body, v, x, max_trip, stats):
+    """A copy's body with V's value in the headers of the loops still in it, unrolled again: an inner
+    loop that runs from V (`for (int m = mh; m < mh + 2; ++m)`) is constant only once V is. `x` is the
+    value as a GLSL literal (`2`, `16u`)."""
+    if not re.search(r'\bfor\s*\([^;]*\b%s\b' % v, body) or re.search(r'\bu?int\s+%s\b' % v, body):
+        return body
+    out, pos = [], 0
+    for m in HEAD.finditer(body):
+        p_open = body.index('(', m.start())
+        p_close = match_paren(body, p_open)
+        out.append(body[pos:p_open] + re.sub(r'\b%s\b' % v, '(%s)' % x, body[p_open:p_close + 1]))
+        pos = p_close + 1
+    out.append(body[pos:])
+    return transform(''.join(out), max_trip, stats)
 
 
 def transform(s, max_trip, stats):
@@ -131,10 +150,11 @@ def transform(s, max_trip, stats):
         parts = header.split(';')
         unrolled = None
         if len(parts) == 3:
-            h0 = re.match(r'\s*int\s+(\w+)\s*=\s*(.+)$', parts[0], re.S)
+            h0 = re.match(r'\s*(int|uint)\s+(\w+)\s*=\s*(.+)$', parts[0], re.S)
             if h0:
-                v = h0.group(1)
-                a = const_eval(h0.group(2))
+                ty, v = h0.group(1), h0.group(2)
+                suffix = 'u' if ty == 'uint' else ''
+                a = const_eval(h0.group(3))
                 hc = re.match(r'\s*%s\s*(<|<=)\s*(.+)$' % v, parts[1], re.S)
                 b = const_eval(hc.group(2)) if hc else None
                 inc = parts[2].strip()
@@ -150,10 +170,14 @@ def transform(s, max_trip, stats):
                     values = list(range(a, b, step))
                     assigns = re.search(r'(?<![\w.])%s\s*(=[^=]|\+\+|--|[-+*/]=)|(\+\+|--)\s*%s\b' % (v, v), body)
                     wanted = not PRIVATE_ONLY or indexes_private(body, v)
-                    if (wanted and len(values) <= max_trip and not assigns and not own_level_escape(body)
+                    esc = own_level_escape(body)
+                    if (wanted and len(values) <= max_trip and not assigns and esc <= {'continue'}
                             and stats['unrolled'] < stats.get('limit', 1 << 30)):
-                        # One block around the copies: the loop may be the body of an `if`.
-                        unrolled = '{ ' + ''.join('{ const int %s = %d; %s }' % (v, x, body) for x in values) + ' }'
+                        # One block around the copies: the loop may be the body of an `if`. A `continue`
+                        # ends its copy, which a `do { } while (false)` around the copy keeps.
+                        wrap = '{ const %s %s = %d%s; do %s while (false); }' if esc else '{ const %s %s = %d%s; %s }'
+                        unrolled = '{ ' + ''.join(wrap % (ty, v, x, suffix, with_value(body, v, f'{x}{suffix}', max_trip, stats))
+                                                  for x in values) + ' }'
                         stats['unrolled'] += 1
         if unrolled is None:
             stats['kept'] += 1
@@ -178,6 +202,11 @@ def main():
     for m in re.finditer(r'\bbuffer\s+\w+\s*\{([^}]*)\}', text):
         GLOBALS.update(re.findall(r'(\w+)\s*\[\s*\]', m.group(1)))
     GLOBALS.update(re.findall(r'\bshared\s+[\w<>, ]+?\s+(\w+)\s*\[', text))
+    # A 16x16 subgroup matrix holds 8 values a lane at the subgroup size the runtime requires (32), so its
+    # `.length()` is a constant and the loops over its components can unroll.
+    mats = set(re.findall(r'\bcoopmat\s*<[^<>]*gl_ScopeSubgroup\s*,\s*16\s*,\s*16\s*,[^<>]*>\s+(\w+)', text))
+    if mats:
+        text = re.sub(r'\b(%s)((?:\[[^\[\]]*\])*)\.length\(\)' % '|'.join(sorted(mats)), '8', text)
     stats = {'unrolled': 0, 'kept': 0, 'limit': a.limit}
     sys.setrecursionlimit(10000)
     out = transform(text, a.max_trip, stats)

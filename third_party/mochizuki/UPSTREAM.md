@@ -30,6 +30,20 @@ callback. It changes no inference math. The host displays progress without a gue
 The build generator accepts an explicit shader compiler path; build tools and intermediate
 output live under exports, not this source tree.
 
+The Windows shader build also carries the cooperative-matrix driver workaround from
+[MatheusFerreiraS/neural-amd-opti be7bf0a](https://github.com/MatheusFerreiraS/neural-amd-opti/commit/be7bf0a3d542b96894b61f42f2c3a389592952c8).
+Only `unroll_glsl.py`, the four-source unroll selection in `build_network.py`, and
+the partial-key-chunk changes in `vit_attn_vt_chunk.glsl` are imported. The local
+`--glslang` option remains. Fixed-bound int/uint cooperative-matrix array loops,
+including continue and subgroup-32 matrix length loops, are expanded before glslang.
+The ViT tail avoids a loaded/zero matrix select and masks padding in scalar f16 values.
+This targets Windows driver 32.0.32015; it also corrects the original partial-chunk
+output on older drivers. Old output hashes at affected resolutions are not correctness
+references. The commit's async, input, menu and runtime changes are not imported.
+Rebuild with `tools/build/build-mochizuki-runtime.cmd` without `--skip-shaders`.
+Do not ship local pipeline caches or prewarm manifests; cached prewarm modules are
+validated against the installed SPIR-V bytes before use.
+
 Build inputs are pinned: Vulkan-Headers `e3b1eec08173d6b825cd3ac88c885a63b621504a` (1.4.357),
 glslang 16.5.0. Host compile constants are read from `windows/build/arch/rdna4.sh`, the same source the
 shader recipe documents. See tools/build/build-mochizuki-runtime.cmd.

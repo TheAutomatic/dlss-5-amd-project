@@ -529,3 +529,13 @@ RE9 实机反馈暴露出前一项修复遗漏的调用条件：原生身份查�
 lmxxf 的网络和 codec 采样都使用宿主给出的有效 Color 区域；整张纹理的分配尺寸只用于输出分配、raw-buffer 行距及完整写回。decode 保留有效区域外的原始像素，不能用取消边界检查或缩放整个分配来掩盖自由分辨率的几何冲突。该修复维护在 codec-active-subrect.patch，后续同步必须重放；没有改变 LLVM23/RowOpts 模块、实验功能选择或 ABI。
 
 验证范围见 docs/lmxxf-040-consumer-review.md 的有效输入区域补修记录。游戏内自由分辨率和菜单操作仍须用户实测验收。
+
+## 2026-10-04：Mochizuki Windows cooperative-matrix shader 修复
+
+- 直接在 main `85e92e7` 上接入 Storm 的 [be7bf0a](https://github.com/MatheusFerreiraS/neural-amd-opti/commit/be7bf0a3d542b96894b61f42f2c3a389592952c8) shader 子集。`unroll_glsl.py`、ViT include 与其父提交相同；构建脚本只有本地 shader 编译器参数差异。
+- 导入展开器；构建脚本仅增加四个 shader 的 `UNROLLED` 选择；ViT include 应用尾块补丁。保留本地 `--glslang`、进度回调与 recording lease，不导入 Daniel async、菜单、DirectInput 或 runtime 改动。
+- 完整重编 SPIR-V，不用 `--skip-shaders`；旧预热模块必须通过当前 shader 内容校验。测试资源中的旧缓存保留为迁移验证输入，缓存不入包。
+- 720p、约 635p、360p 的 ViT 最后一个 64-token key chunk 不满；原输出在旧驱动也有计算错误，不用旧哈希强制判定修复回退。数值变化须结合有限值、网络实际执行、重复录制与独立正确性证据判断。
+- 本机驱动是 `32.0.31041.1004`；作者的 `32.0.32015` 验证是外部证据，本机旧驱动验证不能冒充新驱动实测。这里只按 Windows 驱动版本记录，不把第三方营销版本号作为源码证据。
+- 本地完整 shader 构建、ABI、GPU 录制/跨队列/历史/取消/DRS/格式回归、三个尾块分辨率与 1→2→3 passes 验证通过。旧预热清单被当前 shader 校验拒绝并重建；三个尾块分辨率在独立进程中的修复版输出逐字节一致。
+- 固定 R11G11B10 输入下，新旧输出 RGB 平均绝对差：1080p 0.000856、720p 0.002749、635p 0.002984、360p 0.041726。额外用同一 shader 的非转置路径 `NR_VTRANS=0, NR_VKMASK=1` 作数值交叉检查，各分辨率与修复版差为 0.000850～0.001012，最大单通道差 0.015625。该路径是补充证据，不是独立模型 oracle；未开 mask 的替代路径在部分尾块仍明显偏离，不能当参考。游戏观感、新驱动实测与完整发布验证尚未覆盖。

@@ -150,7 +150,12 @@ int wmain(int argc,wchar_t**argv) try {
     MochizukiNrBuildProgress wrongProgress {sizeof(MochizukiNrBuildProgress)-4};
     Require(getProgress(context,&wrongProgress)==LMXXF_NR_INVALID_ARGUMENT,"partial progress struct accepted");
     const bool startup=argc>3 && std::wstring(argv[3])==L"--startup";
-    Frame frame(device.Get(),startup?1920:256,startup?1080:256,startup?DXGI_FORMAT_R11G11B10_FLOAT:DXGI_FORMAT_R16G16B16A16_FLOAT);
+    UINT startupWidth=1920,startupHeight=1080;
+    if(startup && argc>6) {
+        startupWidth=UINT(_wtoi(argv[5]));startupHeight=UINT(_wtoi(argv[6]));
+        Require(startupWidth>0 && startupHeight>0 && startupWidth<=3840 && startupHeight<=2160,"invalid startup dimensions");
+    }
+    Frame frame(device.Get(),startup?startupWidth:256,startup?startupHeight:256,startup?DXGI_FORMAT_R11G11B10_FLOAT:DXGI_FORMAT_R16G16B16A16_FLOAT);
     List upload(device.Get());frame.Upload(upload.cmd.Get());Hr(upload.cmd->Close());Submit(q[0].Get(),upload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
     auto make=[&](Frame& f,UINT validWidth=0) {
         MochizukiNrFrameInfo info {};info.struct_size=sizeof info;info.color=f.color.Get();info.color_width=validWidth?validWidth:f.width;info.color_height=f.height;
@@ -326,7 +331,7 @@ int wmain(int argc,wchar_t**argv) try {
             frame.readback->Unmap(0,nullptr);fclose(file);
         }
         Rc(api.InvalidateRecording(context,job.handle));Rc(api.CollectRecording(context,job.handle));Rc(api.Destroy(context));
-        FreeLibrary(dll);puts("MOCHIZUKI_STARTUP_OK 1920x1080 R11G11B10_FLOAT");return 0;
+        FreeLibrary(dll);printf("MOCHIZUKI_STARTUP_OK %ux%u R11G11B10_FLOAT\n",frame.width,frame.height);return 0;
     }
     MochizukiNrInfo timing {sizeof timing};Rc(getInfo(context,&timing));
     Require(timing.gpu_samples>0 && std::isfinite(timing.gpu_ms_last) && timing.gpu_ms_last>0,"missing completed network timing");

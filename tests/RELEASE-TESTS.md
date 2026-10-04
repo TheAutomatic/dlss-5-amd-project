@@ -48,6 +48,7 @@ tests\install\run.cmd
 tests\sync\run.cmd
 tests\mochizuki\run.cmd abi
 tests\mochizuki\run.cmd gpu
+tests\mochizuki\run.cmd shader-tail
 ```
 
 ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数表边界、旧 ABI 拒绝与模块状态。
@@ -56,4 +57,7 @@ ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数�
 [同步说明](../tools/lmxxf-sync/README.md) 执行。
 
 GPU tier 的 EXACT/AE/R10 黄金哈希用于固定输入回归，不证明游戏帧率或整个游戏矩阵。
+Mochizuki `shader-tail` 额外运行 1280×720、1129×635、640×360 的 ViT 部分 key chunk，
+检查有限、非黑屏且有实际网络修正的输出，重复执行录制并导出 R11G11B10 像素。
+它验证运行健康，不能代替独立数值正确性对照或 Windows 32.0.32015 驱动实测。
 需要性能结论时按 [测量规则](../docs/measurement.md) 记录实际配置与产物身份。

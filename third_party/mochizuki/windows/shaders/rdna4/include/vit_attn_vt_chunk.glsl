@@ -15,11 +15,16 @@
                 }
 #elif NR_VADDR && NR_VT_GUARD == 0
                 NR_LOAD_A_ACT(kfr[d], kcb + kb * X3 + d * 256u, 16u);
-#else
-                if (NR_VT_GUARD == 0 || j0 + kb < pc.tokens)
-                    NR_LOAD_A_ACT(kfr[d],
+#elif NR_VT_GUARD == 0
+                NR_LOAD_A_ACT(kfr[d],
                               nr_at16(pc.x_off, j0 + kb, kbase + d * 16u, X3), 16u);
-                else kfr[d] = NR_FRAG_A(0.0);
+#else
+                // A padding tile loads the last live one and is killed in the
+                // f16 values below. AMD's Windows driver 32.0.32015 miscompiles
+                // the select between a loaded and a zero fragment (a partial
+                // chunk: 720p, 635p, 360p).
+                NR_LOAD_A_ACT(kfr[d],
+                              nr_at16(pc.x_off, min(j0 + kb, jlast), kbase + d * 16u, X3), 16u);
 #endif
             }
             // V^T as the A operand, hoisted out of the query blocks. Clamped to
@@ -62,13 +67,23 @@
                     a *= vec2(lds_ki[kb + row0 + uint(c)],
                               lds_ki[kb + row0 + uint(c) + 1u]);
 #endif
+#if NR_VT_GUARD
+                    // A padding key's logit is the zero a zero K tile gave.
+                    if (j0 + kb >= pc.tokens) a = vec2(0.0);
+#endif
                     f16vec2 pp = nr_vit_exp2(a);
 #if NR_VQP
                     pp = f16vec2(nr_quant_e4m3(pp.x * NR_F16(ps)),
                                  nr_quant_e4m3(pp.y * NR_F16(ps)));
 #endif
                     pv[c >> 1] = pp;
+#if NR_VT_GUARD
+                    // ... and its probability is zero in P.
+                    const NR_F16 live = NR_F16(j0 + kb < pc.tokens ? 1.0 : 0.0);
+                    ph[c] = pp.x * live; ph[c+1] = pp.y * live;
+#else
                     ph[c] = pp.x; ph[c+1] = pp.y;
+#endif
                 }
                 // The PTX reduction, in lane. `shuffleXor(16)` is the pair eight
                 // keys apart - the other half wave holds them - and the four-pair
@@ -124,14 +139,12 @@
                 // **P^T is the B operand with no memory in between.** An
                 // Accumulator's components and a B operand's are the same map
                 // (coopmm.glsl's probe table), so this copy moves no data - it
-                // is the whole point of the orientation. A padding key tile is
-                // killed here exactly as it was before the transpose.
+                // is the whole point of the orientation. A padding key tile was
+                // zeroed in `ph` above.
 #if NR_VPB16
                 NR_FRAG_B pf = NR_FRAG_B(ph);
-                if (NR_VT_GUARD != 0 && j0 + kb >= pc.tokens) pf = NR_FRAG_B(0.0);
 #else
                 NR_FRAG_E4M3 pe = NR_FRAG_E4M3(ph);
-                if (NR_VT_GUARD != 0 && j0 + kb >= pc.tokens) pe = NR_FRAG_E4M3(0.0);
                 NR_FRAG_B pf;
 #if NR_VKPERM && NR_VT_GUARD == 0
                 {

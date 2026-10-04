@@ -32,6 +32,10 @@ MOTION = ['motion_luma', 'motion_estimate']
 
 
 QUAD = True   # --no-quad: the pair loops as written (A/B)
+# Sources unrolled before glslang. ffwd3_t, attn and vit_attn too: AMD's Windows driver 32.0.32015 crashes (access
+# violation in vkCreateComputePipelines) on their loops that index arrays of cooperative matrices with the loop
+# variable, or, in vit_attn, compiles them to a wrong answer (the context saturates at +-448).
+UNROLLED = {'fswin_t.comp', 'ffwd3_t.comp', 'attn.comp', 'vit_attn.comp'}
 
 
 def glslang(arch, src, defines, out, unroll=False, network=False):
@@ -82,7 +86,7 @@ def main():
     pipelines = table['pipelines']
     for name, e in pipelines.items():
         glslang(a.arch, R / 'windows/shaders' / a.arch / e['source'], e['defines'] + a.define, out / f'g_{name}.spv',
-                unroll=e['source'] == 'fswin_t.comp', network=True)
+                unroll=e['source'] in UNROLLED, network=True)
     for name, text in table['markers'].items():
         (out / name).write_text('\n'.join(text) + '\n' if isinstance(text, list) else text + '\n')
     (out / 'runtime').mkdir()
@@ -90,7 +94,7 @@ def main():
     for name, v in table['variants'].items():
         base = pipelines[v['base']]
         glslang(a.arch, R / 'windows/shaders' / a.arch / base['source'], base['defines'] + v['add'],
-                out / 'temporal' / f'{name}.spv', unroll=base['source'] == 'fswin_t.comp', network=True)
+                out / 'temporal' / f'{name}.spv', unroll=base['source'] in UNROLLED, network=True)
     for k in MOTION:
         glslang(a.arch, R / 'windows/shaders/passes' / f'{k}.comp', [], out / 'temporal' / f'{k}.spv')
     shutil.copy2(out / 'shader-constants.txt', out / 'temporal' / 'shader-constants.txt')
