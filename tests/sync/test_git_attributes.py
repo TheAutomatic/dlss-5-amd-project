@@ -50,7 +50,16 @@ class BinaryAttributesTests(unittest.TestCase):
             git(tree, '-c', 'user.name=Module test', '-c', 'user.email=test@example.invalid',
                 '-c', 'core.hooksPath=', 'commit', '-qm', 'binary fixture')
             for relative in expected:
-                (tree / relative).unlink()
+                target = tree / relative
+                for attempt in range(10):
+                    try:
+                        target.unlink()
+                        break
+                    except PermissionError:
+                        import time
+                        time.sleep(0.05)
+                else:
+                    target.unlink()
             git(tree, 'checkout', '--', '.')
             for relative, digest in expected.items():
                 self.assertEqual(hashlib.sha256((tree / relative).read_bytes()).digest(), digest,
