@@ -173,6 +173,11 @@ function Remove-LmxxfTemporaryTree([string]$Path, [string]$Parent) {
 # Shipping metadata, modules and old build sidecars may be replaced as package data.
 # Anything outside these exact names/locations remains user-owned.
 function Test-LmxxfOwnedModulePath([string]$Relative) {
+    # Older installs placed live HLSL below the module root. Do not carry these
+    # stale shaders/cache back into the active tree as user extras on upgrade.
+    $normalized = $Relative.Replace('\', '/')
+    if ($normalized -match '^shaders/(native_|preblock_)[^/]+\.hlsl$' -or
+        $normalized -match '^shaders/shader-cache/[0-9a-f]{16}(\.v2)?\.dxbc(\.[0-9]+\.[0-9]+\.tmp)?$') { return $true }
     $parts = $Relative.Replace('\', '/').Split('/')
     if ($parts.Count -eq 2) {
         if ($parts[0] -notin @('gfx1200', 'gfx1201')) { return $false }

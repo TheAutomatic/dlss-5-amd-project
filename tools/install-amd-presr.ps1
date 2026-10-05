@@ -552,14 +552,14 @@ function Find-FirstFile([string[]]$paths) {
 
 # Always use the new package's uninstaller, and check it before changing the game.
 $ps1Src = Find-FirstFile @(
-    (Join-Path $Root 'Uninstall_OptiScaler_NR.ps1'),
     (Join-Path $release 'Uninstall_OptiScaler_NR.ps1'),
+    (Join-Path $Root 'Uninstall_OptiScaler_NR.ps1'),
     (Join-Path $PSScriptRoot 'uninstall-amd-presr.ps1')
 )
 if (-not $ps1Src) { Fail 'Missing Uninstall_OptiScaler_NR.ps1 next to Setup.ps1.' }
 $batSrc = Find-FirstFile @(
-    (Join-Path $Root 'Uninstall_OptiScaler_NR.bat'),
-    (Join-Path $release 'Uninstall_OptiScaler_NR.bat')
+    (Join-Path $release 'Uninstall_OptiScaler_NR.bat'),
+    (Join-Path $Root 'Uninstall_OptiScaler_NR.bat')
 )
 $moduleHelperSrc = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
 
@@ -608,8 +608,7 @@ $lmxxfRuntime = $null
 foreach ($candidate in @(
         (Join-Path $release 'LmxxfNrRuntime.dll'),
         (Join-Path $Root 'LmxxfNrRuntime.dll'),
-        (Join-Path $Root 'exports\lmxxf-runtime\LmxxfNrRuntime.dll'),
-        (Join-Path $game 'LmxxfNrRuntime.dll')
+        (Join-Path $Root 'exports\lmxxf-runtime\LmxxfNrRuntime.dll')
     )) {
     if (Test-Path -LiteralPath $candidate -PathType Leaf) { $lmxxfRuntime = $candidate; break }
 }
@@ -617,8 +616,7 @@ $lmxxfMods = $null
 foreach ($candidate in @(
         (Join-Path $release 'lmxxf-modules'),
         (Join-Path $Root 'lmxxf-modules'),
-        (Join-Path $Root 'third_party\lmxxf\modules'),
-        (Join-Path $game 'lmxxf-modules')
+        (Join-Path $Root 'third_party\lmxxf\modules')
     )) {
     if (Test-Path -LiteralPath $candidate -PathType Container) {
         $lmxxfMods = $candidate
@@ -629,8 +627,7 @@ $lmxxfShaders = $null
 foreach ($candidate in @(
         (Join-Path $release 'shaders'),
         (Join-Path $Root 'shaders'),
-        (Join-Path $Root 'third_party\lmxxf\shaders'),
-        (Join-Path $game 'shaders')
+        (Join-Path $Root 'third_party\lmxxf\shaders')
     )) {
     if ((Test-Path -LiteralPath $candidate -PathType Container) -and
         (Test-Path -LiteralPath (Join-Path $candidate 'native_codec_encode.hlsl') -PathType Leaf)) {
@@ -674,7 +671,13 @@ $mochizukiRuntime = Find-FirstFile @((Join-Path $release 'MochizukiNrRuntime.dll
 $mochizukiAssets = if ($mochizukiRuntime) { Join-Path (Split-Path -Parent $mochizukiRuntime) 'dlssnr-amd' } else { $null }
 $canMochizuki = [bool]($mochizukiRuntime -and (Test-Path -LiteralPath (Join-Path $mochizukiAssets 'shaders') -PathType Container))
 $installMochizuki = $false
-$canLmxxf  = [bool]($lmxxfRuntime -and $lmxxfMods)
+$canLmxxf  = [bool]($lmxxfRuntime -and $lmxxfMods -and $lmxxfShaders)
+# Code and shaders must come from this update, even when Y will uninstall first.
+# Model reuse from the game is separate and remains supported.
+if ($Backend -in @('auto', 'all', 'lmxxf') -and -not $canLmxxf -and
+    ($lmxxfRuntime -or $lmxxfMods -or $lmxxfShaders)) {
+    Fail 'Incomplete lmxxf package: runtime, modules and shaders must be supplied together. Re-extract the complete update; installed game components are not used to fill missing update files.'
+}
 $canDaniel = [bool]($srcA -or (Test-Path -LiteralPath $setup -PathType Leaf) -or $weights)
 
 $installLmxxf  = $false
@@ -990,6 +993,7 @@ if ($uninstallFirst) {
 
     Write-Host ''
     Write-Host 'Uninstalling the existing OptiScaler installation...' -ForegroundColor Cyan
+    Write-Host ("Uninstall script: {0}" -f $ps1Src)
     # A child process isolates the uninstaller's exit statement. Y already grants
     # consent: no second confirmation, backup deletion, or intermediate pause.
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -1264,7 +1268,7 @@ if ($installLmxxf) {
     Write-Host 'Installing lmxxf runtime + modules + shaders...' -ForegroundColor Cyan
     Install-One $lmxxfRuntime 'LmxxfNrRuntime.dll'
 
-    Write-Host '  installed verified dual-architecture modules (68 modules).'
+    Write-Host '  installed verified dual-architecture modules (76 modules).'
     if ($lmxxfShaders) {
         $shaderKeep = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         Get-ChildItem -LiteralPath $lmxxfShaders -Recurse -File | ForEach-Object {
@@ -1413,6 +1417,7 @@ try {
         'project=OptiScaler AMD pre-SR',
         ('proxy=' + $Proxy),
         ('backend=' + $activeBackend),
+        ('uninstallFirst=' + $uninstallFirst.ToString().ToLowerInvariant()),
         ('installed=' + (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')),
         ('game=' + $game)
     ) -join "`r`n" | Set-Content -LiteralPath $installMark -Encoding ASCII

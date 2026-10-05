@@ -192,6 +192,18 @@ class ModulePackageTests(unittest.TestCase):
         self.assertNotIn('Install SUCCEEDED', out)
         self.assertEqual(snapshot_files(game / 'lmxxf-modules'), snapshot_files(self.modules))
 
+        # A complete generated package must also uninstall its code/shader trees,
+        # including a nested shader left by an earlier version.
+        stale = game / 'lmxxf-modules/shaders/native_game_rgb_input.hlsl'
+        stale.parent.mkdir()
+        stale.write_text('// old installed shader', encoding='utf-8')
+        code, out = self.run_ps(['-File', str(extracted / 'Uninstall_OptiScaler_NR.ps1'),
+                                 '-GameDir', str(game), '-NonInteractive', '-NoPause'])
+        self.assertEqual(code, 0, out)
+        self.assertIn('Uninstall SUCCEEDED', out)
+        for relative in ('LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'lmxxf-modules', 'shaders'):
+            self.assertFalse((game / relative).exists(), relative)
+
     def test_mochizuki_only_install_preserves_model_on_uninstall(self):
         code, out = self.package()
         self.assertEqual(code, 0, out)

@@ -71,6 +71,8 @@ public class UninstallProxyFixture { }
         'OptiScaler\dlssnr\user-notes.md',
         'lmxxf-modules\user.generated.hip', 'lmxxf-modules\user.hsaco.s',
         'lmxxf-modules\gfx9999\c32_fast.generated.hip',
+        'shaders\user-custom.hlsl', 'shaders\shader-cache\notes.txt',
+        'lmxxf-modules\shaders\user-custom.hlsl', 'lmxxf-modules\shaders\shader-cache\notes.txt',
         'dlssnr-amd\dlssnr.bin', 'native-game-tiled-assets\model.bin',
         'dlssnr-amd\shaders\runtime\user.spv', 'dlssnr-amd\prewarm\user.txt',
         'backup-amd-presr-fixture\OptiScaler.ini',
@@ -91,6 +93,12 @@ public class UninstallProxyFixture { }
         'lmxxf-modules\c32_fast.generated.hip', 'lmxxf-modules\c32_fast.hsaco.s',
         'lmxxf-modules\gfx1200\boundary-fast.generated.hip', 'lmxxf-modules\gfx1200\boundary-fast.hsaco.s',
         'lmxxf-modules\gfx1201\deep_fast.generated.hip', 'lmxxf-modules\gfx1201\deep_fast.hsaco.s',
+        'shaders\native_format_convert.hlsl', 'shaders\preblock_retired.hlsl',
+        'shaders\shader-cache\213cc4c0f37d5145.dxbc',
+        'lmxxf-modules\shaders\native_game_rgb_input.hlsl', 'lmxxf-modules\shaders\preblock_retired.hlsl',
+        'lmxxf-modules\shaders\shader-cache\213cc4c0f37d5145.dxbc',
+        'lmxxf-modules\shaders\shader-cache\2159d4b8f3f84637.v2.dxbc',
+        'lmxxf-modules\shaders\shader-cache\2159d4b8f3f84637.v2.dxbc.12.3.tmp',
         'Uninstall_OptiScaler_NR.bat', 'Uninstall_OptiScaler_NR.ps1')
     foreach ($root in $roots) {
         foreach ($relative in $preserved) { Put-File (Join-Path $root $relative) }
@@ -101,7 +109,8 @@ public class UninstallProxyFixture { }
     Put-File (Join-Path $game 'amd-presr-install.txt') 'proxy=dxgi.dll'
     $normalOut = Run-Uninstall $game
     $plan = ($normalOut -join "`n") -split 'Deleted:', 2 | Select-Object -First 1
-    foreach ($relative in @('OptiScaler.1.log', 'dlssnr-amd/pipeline.cache', 'lmxxf-modules/c32_fast.generated.hip', 'dlssnr_core.dll', 'dlss-enabler.log')) {
+    foreach ($relative in @('OptiScaler.1.log', 'dlssnr-amd/pipeline.cache', 'lmxxf-modules/c32_fast.generated.hip', 'dlssnr_core.dll', 'dlss-enabler.log',
+            'lmxxf-modules/shaders/native_game_rgb_input.hlsl', 'lmxxf-modules/shaders/shader-cache/213cc4c0f37d5145.dxbc')) {
         if (-not $plan.Contains((Join-Path $game $relative).Replace('/', '\'))) {
             throw "Cleanup omitted from preview: $relative"
         }

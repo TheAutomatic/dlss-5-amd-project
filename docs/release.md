@@ -195,6 +195,25 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 
 GPU 输出哈希和实机覆盖范围见 [测试入口说明](../tests/RELEASE-TESTS.md)。未安装的游戏或没有的硬件明确记录 SKIP，不将本地无卡 PASS 写成游戏验证通过。
 
+### 安装更新与历史残留验证
+
+整包里的runtime、模块和HLSL是一套更新来源。Setup缺少lmxxf任一组件时，
+在卸载/写入前提示重新解压完整包，不再从游戏目录补齐旧代码；游戏权重仍可复用。
+核对运行资源时要检查实际shader目录，不能只验DLL、HSACO和权重：runtime旁的
+整包`shaders`优先于旧`lmxxf-modules/shaders`，两处旧native_/preblock_ HLSL
+及可识别的编译缓存都属于卸载范围。模块升级暂存也必须排除旧嵌套shader，
+否则即使选Y先卸载，也会从卸载前准备的暂存树重新装回它们。
+
+Y直接执行新包的`Uninstall_OptiScaler_NR.ps1`，沿用独立卸载的同一套规则；
+不调用游戏里可能过时的副本，失败返回码会阻止后续安装。旧release子目录布局
+优先选择与更新DLL同目录的卸载脚本，控制台打印调用路径，安装记录写入
+`uninstallFirst=true/false`，方便核对是否真正执行过卸载。
+
+这些回归已纳入`tests/install/test_installer_exit.py`与`amd_uninstall.ps1`，
+覆盖Y先卸载、N直接覆盖、独立卸载、重复安装、缺组件前置拒绝，以及权重/
+自定义文件/链接保护；按本页现有CI入口运行，不另开一轮重复安装测试。
+GPU的shader优先级回归包装既有HIP专项调用，同样不重复矩阵。
+
 ## CI 与 GitHub Release
 
 - `.github/workflows/release.yml`：推 `v*` tag 或手动触发。先检查工具链/依赖，再运行统一 CI（构建 runtime 并测试）、编宿主、打包、检查 zip、上传 artifact。创建 Release 和上传 Release 附件两步都有 tag 条件；手动触发时选择 tag 仍会发布，预验证必须选择非 tag 分支。

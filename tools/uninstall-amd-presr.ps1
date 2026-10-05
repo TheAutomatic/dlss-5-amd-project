@@ -194,11 +194,12 @@ $protectedNames = @(
     'version.dll',
     'native-game-tiled-assets'
 )
-# Live glue set (12 top-level *.hlsl). Install/uninstall also purge retired native_/preblock_ leftovers.
+# Live glue set. Also purge retired native_/preblock_ files in both historical locations.
 $lmxxfShaderFiles = @(
     'native_black_probe.hlsl',
     'native_codec_decode.hlsl',
     'native_codec_encode.hlsl',
+    'native_format_convert.hlsl',
     'native_game_rgb_input.hlsl',
     'native_history_guard.hlsl',
     'native_output_smooth.hlsl',
@@ -346,19 +347,21 @@ foreach ($root in $roots) {
     if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
         $planned.Add("$lmxxfMods  (lmxxf modules tree)")
     }
-    $shadersDir = Join-Path $root 'shaders'
-    if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
-        foreach ($sf in $lmxxfShaderFiles) {
-            Add-PlannedFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
-        }
-        # Also plan retired wave/vit/preblock hlsl left by older installs (install used to upsert-only).
-        Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^(native_|preblock_)' -and ($lmxxfShaderFiles -notcontains $_.Name) } |
-            ForEach-Object { Add-PlannedFile $_.FullName 'lmxxf-shader-stale' }
-        $cacheDir = Join-Path $shadersDir 'shader-cache'
-        if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
-            Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
-                Add-PlannedFile $_.FullName 'lmxxf-shader-cache'
+    foreach ($shadersDir in @((Join-Path $root 'shaders'), (Join-Path $root 'lmxxf-modules/shaders'))) {
+        if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
+            foreach ($sf in $lmxxfShaderFiles) {
+                Add-PlannedFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
+            }
+            # Also plan retired wave/vit/preblock hlsl left by older installs (install used to upsert-only).
+            Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^(native_|preblock_)' -and ($lmxxfShaderFiles -notcontains $_.Name) } |
+                ForEach-Object { Add-PlannedFile $_.FullName 'lmxxf-shader-stale' }
+            $cacheDir = Join-Path $shadersDir 'shader-cache'
+            if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
+                Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^[0-9a-f]{16}(\.v2)?\.dxbc(\.[0-9]+\.[0-9]+\.tmp)?$' } | ForEach-Object {
+                        Add-PlannedFile $_.FullName 'lmxxf-shader-cache'
+                    }
             }
         }
     }
@@ -578,24 +581,26 @@ foreach ($root in $roots) {
             Remove-EmptyDirectory $lmxxfMods
         }
     }
-    $shadersDir = Join-Path $root 'shaders'
-    if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
-        foreach ($sf in $lmxxfShaderFiles) {
-            Remove-SafeFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
-        }
-        Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^(native_|preblock_)' } |
-            ForEach-Object { Remove-SafeFile $_.FullName 'lmxxf-shader-stale' }
-        $cacheDir = Join-Path $shadersDir 'shader-cache'
-        if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
-            Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue | ForEach-Object {
-                Remove-SafeFile $_.FullName 'lmxxf-shader-cache'
+    foreach ($shadersDir in @((Join-Path $root 'shaders'), (Join-Path $root 'lmxxf-modules/shaders'))) {
+        if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
+            foreach ($sf in $lmxxfShaderFiles) {
+                Remove-SafeFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
             }
-            Remove-EmptyDirectory $cacheDir
+            Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^(native_|preblock_)' } |
+                ForEach-Object { Remove-SafeFile $_.FullName 'lmxxf-shader-stale' }
+            $cacheDir = Join-Path $shadersDir 'shader-cache'
+            if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
+                Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^[0-9a-f]{16}(\.v2)?\.dxbc(\.[0-9]+\.[0-9]+\.tmp)?$' } | ForEach-Object {
+                        Remove-SafeFile $_.FullName 'lmxxf-shader-cache'
+                    }
+                Remove-EmptyDirectory $cacheDir
+            }
+            Remove-EmptyDirectory $shadersDir
         }
-        Remove-EmptyDirectory $shadersDir
     }
-
+    Remove-EmptyDirectory (Join-Path $root 'lmxxf-modules')
     foreach ($relative in @('dlssnr-amd/shaders/runtime', 'dlssnr-amd/shaders/temporal',
             'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd')) {
         Remove-EmptyDirectory (Join-Path $root $relative)

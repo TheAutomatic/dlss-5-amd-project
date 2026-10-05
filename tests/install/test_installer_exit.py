@@ -782,7 +782,25 @@ class InstallerExitTests(unittest.TestCase):
         (self.game / "OptiScaler.ini").write_text("[DlssNr]\nUserSentinel=keep\n", encoding="utf-8")
         (mods / "user-custom.hsaco").write_bytes(b"user-owned GPU code")
         (mods / "user_weights.bin").write_bytes(b"user weights")
+        self.add_legacy_shader_files(mods)
         return mods
+
+    def add_legacy_shader_files(self, mods):
+        for relative in ('shaders/native_game_rgb_input.hlsl', 'shaders/preblock_retired.hlsl',
+                         'shaders/shader-cache/213cc4c0f37d5145.dxbc',
+                         'shaders/shader-cache/2159d4b8f3f84637.v2.dxbc.12.3.tmp'):
+            path = mods / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'old installed shader or cache')
+        (mods / 'shaders/user-custom.hlsl').write_bytes(b'keep custom shader')
+        (mods / 'shaders/shader-cache/notes.txt').write_bytes(b'keep cache notes')
+
+    def assert_legacy_shaders_removed(self, mods):
+        self.assertFalse((mods / 'shaders/native_game_rgb_input.hlsl').exists())
+        self.assertFalse((mods / 'shaders/preblock_retired.hlsl').exists())
+        self.assertEqual(list((mods / 'shaders/shader-cache').iterdir()),
+                         [mods / 'shaders/shader-cache/notes.txt'])
+        self.assertEqual((mods / 'shaders/user-custom.hlsl').read_bytes(), b'keep custom shader')
 
     def assert_dual_arch_installed(self):
         mods = self.game / "lmxxf-modules"
@@ -810,6 +828,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(snapshot_files(backups[0]), {"user-custom.hsaco": before["user-custom.hsaco"]})
         self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
         self.assertEqual((mods / "user_weights.bin").read_bytes(), b"user weights")
+        self.assert_legacy_shaders_removed(mods)
 
     def test_clean_overwrite_has_no_permanent_or_temporary_old_package(self):
         self.ready_lmxxf_dual_arch()
@@ -819,6 +838,7 @@ class InstallerExitTests(unittest.TestCase):
         (mods / "c32_fast.generated.hip").write_bytes(b"obsolete source")
         (mods / "gfx1201/c32_fast.hsaco.s").write_bytes(b"obsolete disassembly")
         (mods / "user-notes.txt").write_bytes(b"keep notes")
+        self.add_legacy_shader_files(mods)
         (self.game / "LmxxfNrRuntime.dll").write_bytes(b"previous runtime")
         with (self.game / "OptiScaler.ini").open("a", encoding="utf-8") as stream:
             stream.write("\n[User]\nSentinel=keep\n")
@@ -835,6 +855,7 @@ class InstallerExitTests(unittest.TestCase):
                              (self.package / "LmxxfNrRuntime.dll").read_bytes())
             self.assertIn("Sentinel=keep", (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"))
             self.assert_dual_arch_installed()
+            self.assert_legacy_shaders_removed(mods)
 
     def test_setup_no_overwrites_legacy_without_uninstall_or_second_proxy_prompt(self):
         self.ready_legacy_install()
@@ -865,6 +886,8 @@ class InstallerExitTests(unittest.TestCase):
         self.assertNotIn("Type Y to delete", output)
         self.assertNotIn("Keep these backup folders?", output)
         self.assertNotIn("old uninstaller must not run", output)
+        self.assertIn('Uninstall script: ' + str(self.package / 'Uninstall_OptiScaler_NR.ps1'), output)
+        self.assertIn('uninstallFirst=true', (self.game / 'amd-presr-install.txt').read_text())
         self.assertFalse((self.game / "dlssnr_amd_pass3.dll").exists())
         self.assertEqual((backup / "keep.bin").read_bytes(), b"old backup")
         self.assert_dual_arch_installed()
@@ -872,6 +895,21 @@ class InstallerExitTests(unittest.TestCase):
         ini = (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig")
         self.assertIn("PackageSentinel", ini)
         self.assertNotIn("UserSentinel", ini)
+        self.assert_legacy_shaders_removed(self.game / 'lmxxf-modules')
+
+    def test_release_uninstaller_wins_over_stale_root_copy(self):
+        self.ready_legacy_install()
+        release = self.package / 'release'
+        release.mkdir()
+        (self.package / 'OptiScaler.dll').rename(release / 'OptiScaler.dll')
+        shutil.copy2(self.package / 'Uninstall_OptiScaler_NR.ps1', release / 'Uninstall_OptiScaler_NR.ps1')
+        write_ps(self.package / 'Uninstall_OptiScaler_NR.ps1', "throw 'stale root uninstaller ran'\n")
+        code, output = self.run_batch(stdin='Y\n')
+        self.assertEqual(code, 0, output)
+        self.assertIn('Uninstall script: ' + str(release / 'Uninstall_OptiScaler_NR.ps1'), output)
+        self.assertNotIn('stale root uninstaller ran', output)
+        self.assertIn('Uninstall SUCCEEDED.', output)
+        self.assert_legacy_shaders_removed(self.game / 'lmxxf-modules')
 
     def test_existing_install_prompt_precedes_proxy_menu(self):
         self.ready_legacy_install()
@@ -929,18 +967,25 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn("Uninstall SUCCEEDED.", output)
         self.assertIn("Install SUCCEEDED.", output)
 
-    def test_setup_clean_reinstall_preserves_reused_game_runtime_and_shaders(self):
+    def test_setup_clean_reinstall_rejects_missing_update_components(self):
         self.ready_lmxxf_dual_arch()
         code, output = self.run_direct()
         self.assertEqual(code, 0, output)
-        (self.package / "LmxxfNrRuntime.dll").unlink()
-        (self.package / "shaders/native_codec_encode.hlsl").unlink()
-        code, output = self.run_batch(stdin="yes\n")
-        self.assertEqual(code, 0, output)
-        self.assertIn("Uninstall SUCCEEDED.", output)
-        self.assertEqual((self.game / "LmxxfNrRuntime.dll").read_bytes(), b"fixture lmxxf runtime")
-        self.assertTrue((self.game / "shaders/native_codec_encode.hlsl").is_file())
-        self.assertFalse(list(self.game.glob(".amd-presr-source-*")))
+        before = snapshot_files(self.game)
+        for relative in ('LmxxfNrRuntime.dll', 'shaders/native_codec_encode.hlsl', 'lmxxf-modules'):
+            with self.subTest(missing=relative):
+                path = self.package / relative
+                saved = self.root / 'held-update-component'
+                path.rename(saved)
+                try:
+                    code, output = self.run_batch(stdin="yes\n")
+                    self.assertEqual(code, 1, output)
+                    self.assertIn('Incomplete lmxxf package', output)
+                    self.assertNotIn('Uninstalling the existing', output)
+                    self.assertEqual(snapshot_files(self.game), before)
+                    self.assertFalse(list(self.game.glob('.amd-presr-source-*')))
+                finally:
+                    saved.rename(path)
 
     def test_setup_clean_reinstall_from_package_in_game_preserves_its_sources(self):
         self.ready_lmxxf_dual_arch()
@@ -979,6 +1024,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual((mods / "user-custom.hsaco").read_bytes(), b"user-owned GPU code")
         self.assertEqual(list(mods.glob("*.hsaco")), [mods / "user-custom.hsaco"])
         self.assertTrue((mods / "user_weights.bin").exists())
+        self.assert_legacy_shaders_removed(mods)
         code, output = self.run_direct()
         self.assertEqual(code, 0, output)
         self.assert_custom_module_backed_up()
