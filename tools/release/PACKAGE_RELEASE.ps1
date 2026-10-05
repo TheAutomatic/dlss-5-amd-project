@@ -314,7 +314,7 @@ DLSS5_MULTI_PASS=1
 DLSS5_MULTI_PASS_PREDICT=true
 ; At 2/3 passes, keep first-pass skin tones using a color heuristic (not segmentation). Default false.
 DLSS5_MULTI_PASS_SKIN_PROTECT=false
-; Ins > Model: both skip lists are shown together under Block skipping.
+; Ins > Advanced Kernels: both skip lists are adjacent, with no extra subgroup.
 ; Base skip list for all real network passes (lmxxf). Default none; 42,43,46 restores the old lossy skip.
 ; Comma list of 1..38,40..69. Cannot skip 5..22 or 48..65 while MH byte stream is on.
 ; Blocks 4/69 are also unsupported. Changing this rebuilds the network on the next frame.
