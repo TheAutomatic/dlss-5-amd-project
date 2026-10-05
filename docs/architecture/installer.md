@@ -75,6 +75,7 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 - mochizuki 移除 runtime、日志、已知 shader 文件、`pipeline.cache` 与 `prewarm/manifest.txt`；保留用户的 `dlssnr-amd/dlssnr.bin`。重新安装后首次运行会重建缓存。已知子目录仅在为空时移除。
 - `DLSS5-AMD/native-game-flags.txt` 若仅剩安装器生成的三行示例注释则删除；存在用户配置或其它注释时保留。
 - Daniel/Mochi 的 `dlssnr_on_amd`、`dlssnr-amd` 日志和旧 INI、`dlssnr-amd-crash.dmp`、`dlssnr-amd-install.txt` 一起清理。旧安装记录只用于识别 `L` 行中安全的顶层 `*_dxgi/d3d11/d3d9.log` 和 `vkd3d-proton.cache[.write]`；不执行其 DLL、目录、备份恢复操作，游戏自己的 `logs/` 不整目录清扫。
+- 覆盖和卸载都清理旧独立 NR 的 `dlssnr_core.dll`、`dlss-enabler.log` 及数字轮转日志，覆盖前先检查占用；游戏根目录与 `_storage_` 均覆盖。保留 DLSS Enabler 的 DLL/INI、相似名称的用户文件和链接目标，不为这些残留创建备份。
 - 本项目正常覆盖直接更新本包文件，不再自动备份旧 DLL/INI/模块，也不创建空备份目录。只有需要单独保护的用户模块、作者 runtime，或用户明确选择移开的其它代理会留一份 `backup-amd-presr-时间`；移开的代理不再重复保存两份。原版后端的 `dlssnr-amd-backup` 属于另一套安装记录，卸载器本身不创建备份。
 
 ## 其它规则

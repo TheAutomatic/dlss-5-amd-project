@@ -66,6 +66,8 @@ public class UninstallProxyFixture { }
         'OptiScaler\D3D12_OptiScaler\other-mod.dll',
         'OptiScaler.notes.log', 'OptiScaler.log.notes', 'OptiScaler.1.log.bak',
         'other-mod.1.log', 'logs\dxgi.log', 'yysls_d3d11.log',
+        'dlss-enabler-headless.dll', 'dlss-enabler.ini', 'dlss-enabler.notes.log',
+        'dlss-enabler.log.bak', 'dlssnr_core_custom.dll',
         'OptiScaler\dlssnr\user-notes.md',
         'lmxxf-modules\user.generated.hip', 'lmxxf-modules\user.hsaco.s',
         'lmxxf-modules\gfx9999\c32_fast.generated.hip',
@@ -74,7 +76,8 @@ public class UninstallProxyFixture { }
         'backup-amd-presr-fixture\OptiScaler.ini',
         'backup-amd-presr-fixture\OptiScaler\libxess.dll'
     )
-    $removed = @('dlssnr_on_amd.log', 'dlssnr_on_amd.1.log', 'dlssnr_on_amd.ini',
+    $removed = @('dlssnr_core.dll', 'dlss-enabler.log', 'dlss-enabler.1.log', 'dlss-enabler.log.2',
+        'dlssnr_on_amd.log', 'dlssnr_on_amd.1.log', 'dlssnr_on_amd.ini',
         'dlssnr-amd.log', 'dlssnr-amd.log.1', 'dlssnr-amd-crash.dmp', 'dlssnr-amd.ini', 'dlssnr-amd-install.txt',
         'dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',
         'dlssnr_amd_pass3.dll', 'OptiScaler.ini', 'amd-presr-install.txt',
@@ -98,7 +101,7 @@ public class UninstallProxyFixture { }
     Put-File (Join-Path $game 'amd-presr-install.txt') 'proxy=dxgi.dll'
     $normalOut = Run-Uninstall $game
     $plan = ($normalOut -join "`n") -split 'Deleted:', 2 | Select-Object -First 1
-    foreach ($relative in @('OptiScaler.1.log', 'dlssnr-amd/pipeline.cache', 'lmxxf-modules/c32_fast.generated.hip')) {
+    foreach ($relative in @('OptiScaler.1.log', 'dlssnr-amd/pipeline.cache', 'lmxxf-modules/c32_fast.generated.hip', 'dlssnr_core.dll', 'dlss-enabler.log')) {
         if (-not $plan.Contains((Join-Path $game $relative).Replace('/', '\'))) {
             throw "Cleanup omitted from preview: $relative"
         }
@@ -155,6 +158,7 @@ public class UninstallProxyFixture { }
         $target = Join-Path $testRoot ('external-' + $id)
         foreach ($relative in @('OptiScaler.ini', 'amd_presr.log', 'libxess.dll',
                 'D3D12Core.dll', 'OptiScaler\libxess.dll', 'OptiScaler.1.log',
+                'dlssnr_core.dll', 'dlss-enabler.log',
                 'pipeline.cache', 'manifest.txt', 'prewarm\manifest.txt',
                 'c32_fast.generated.hip', 'README.md', 'design\frame-hold.md')) {
             Put-File (Join-Path $target $relative)
@@ -165,6 +169,7 @@ public class UninstallProxyFixture { }
         Assert-Exists $link
         foreach ($relative in @('OptiScaler.ini', 'amd_presr.log', 'libxess.dll',
                 'D3D12Core.dll', 'OptiScaler\libxess.dll', 'OptiScaler.1.log',
+                'dlssnr_core.dll', 'dlss-enabler.log',
                 'pipeline.cache', 'manifest.txt', 'prewarm\manifest.txt',
                 'c32_fast.generated.hip', 'README.md', 'design\frame-hold.md')) {
             Assert-Exists (Join-Path $target $relative)

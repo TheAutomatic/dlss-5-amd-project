@@ -144,6 +144,43 @@ class InstallerExitTests(unittest.TestCase):
         self.assertNotIn("NrBackend=lmxxf", text)
         self.assertNotIn("NrBackend = lmxxf", text)
 
+    def test_overwrite_and_clean_reinstall_remove_legacy_core_and_enabler_logs(self):
+        self.ready_install()
+        removed = ('dlssnr_core.dll', 'dlss-enabler.log', 'dlss-enabler.1.log', 'dlss-enabler.log.2')
+        kept = ('dlssnr_core_custom.dll', 'dlss-enabler-headless.dll', 'dlss-enabler.ini',
+                'dlss-enabler.notes.log', 'dlss-enabler.log.bak')
+        for clean in (False, True):
+            with self.subTest(clean=clean):
+                for folder in (self.game, self.game / '_storage_'):
+                    folder.mkdir(exist_ok=True)
+                    for name in removed + kept:
+                        (folder / name).write_bytes(b'legacy fixture')
+                flags = ('-NonInteractive', '-UninstallExisting') if clean else ('-NonInteractive',)
+                code, output = self.run_direct(flags=flags)
+                self.assertEqual(code, 0, output)
+                for folder in (self.game, self.game / '_storage_'):
+                    for name in removed:
+                        self.assertFalse((folder / name).exists(), name)
+                    for name in kept:
+                        self.assertEqual((folder / name).read_bytes(), b'legacy fixture', name)
+                self.assertFalse(list(self.game.glob('backup-amd-presr-*')))
+                self.assertEqual((self.game / 'dlssnr_amd_pass1.dll').read_bytes(), FAKE_RUNTIME)
+                self.assertTrue((self.game / 'dlssnr_on_amd_weights.bin').is_file())
+
+    def test_locked_legacy_artifacts_stop_before_overwrite(self):
+        self.ready_install()
+        for relative in ('dlssnr_core.dll', '_storage_/dlss-enabler.log'):
+            with self.subTest(relative=relative):
+                target = self.game / relative
+                target.parent.mkdir(exist_ok=True)
+                target.write_bytes(b'locked legacy artifact')
+                before = snapshot_files(self.game)
+                with locked_file(target):
+                    code, output = self.run_direct()
+                self.assertEqual(code, 1, output)
+                self.assertIn('file lock detected', output)
+                self.assertEqual(snapshot_files(self.game), before)
+
     def test_kept_ini_migrates_legacy_preferences(self):
         self.ready_install()
         ini = self.game / "OptiScaler.ini"

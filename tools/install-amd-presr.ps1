@@ -446,10 +446,29 @@ function Test-FileLocked([string]$path) {
     catch { return $false }
 }
 
+# Legacy standalone NR core is not used by our integrated runtimes. Only this
+# exact DLL and DLSS Enabler's disposable logs are retired; keep its DLL/INI.
+# Collect and check locks before changing the installation, including store logs.
+$legacyCleanupFiles = @()
+foreach ($legacyRoot in @($game, (Join-Path $game '_storage_'))) {
+    if (-not (Test-Path -LiteralPath $legacyRoot -PathType Container)) { continue }
+    try { $null = Assert-LmxxfUnlinkedPath $legacyRoot }
+    catch { Write-Warning "Legacy cleanup skipped linked directory: $legacyRoot"; continue }
+    foreach ($file in (Get-ChildItem -LiteralPath $legacyRoot -File -Force)) {
+        if ($file.Name -ine 'dlssnr_core.dll' -and
+            $file.Name -notmatch '^dlss-enabler(\.[0-9]+)?\.log(\.[0-9]+)?$') { continue }
+        try { $legacyCleanupFiles += Assert-LmxxfUnlinkedPath $file.FullName }
+        catch { Write-Warning "Legacy cleanup skipped linked file: $($file.FullName)" }
+    }
+}
+
 $locked = @()
 foreach ($name in ($proxies + @('LmxxfNrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
     $p = Join-Path $game $name
     if (Test-FileLocked $p) { $locked += $name }
+}
+foreach ($path in $legacyCleanupFiles) {
+    if (Test-FileLocked $path) { $locked += $path }
 }
 if ($locked.Count -gt 0) {
     Fail @"
@@ -1505,6 +1524,15 @@ try {
 }
 
 Write-Host ''
+# All selected backends have been installed. No permanent backup of these
+# retired artifacts; a clean reinstall may already have removed them.
+foreach ($path in $legacyCleanupFiles) {
+    $safePath = Assert-LmxxfUnlinkedPath $path
+    if (Test-Path -LiteralPath $safePath -PathType Leaf) {
+        Remove-Item -LiteralPath $safePath -Force -ErrorAction Stop
+        Write-Host "Removed legacy NR artifact: $safePath"
+    }
+}
 Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:           $game"
 Write-Host "  Proxy:          $Proxy"

@@ -88,6 +88,7 @@ if (Test-Path -LiteralPath $moduleHelper -PathType Leaf) {
 $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','wininet.dll','dbghelp.dll')
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
+    'dlssnr_core.dll', # Legacy standalone NR core; integrated runtimes do not use it.
     'OptiScaler.ini','amd-presr-install.txt',
     'dlssnr_on_amd.ini', 'dlssnr-amd.ini', 'dlssnr-amd-crash.dmp', 'dlssnr-amd-install.txt',
     'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'lmxxf-module-package.ps1',
@@ -167,7 +168,7 @@ $projectLeafNames = @(
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
 # spdlog rotates OptiScaler.log into OptiScaler.1.log; older sinks used .log.1.
 # Match numeric rotations only, not user notes such as OptiScaler.notes.log.
-$projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr|dlssnr_on_amd|dlssnr-amd)(\.[0-9]+)?\.log(\.[0-9]+)?$'
+$projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr|dlssnr_on_amd|dlssnr-amd|dlss-enabler)(\.[0-9]+)?\.log(\.[0-9]+)?$'
 # Old module bundles also shipped generated sources and disassembly. Limit cleanup
 # to the same controlled module stems and the two supported architecture folders.
 foreach ($arch in @('', 'gfx1200/', 'gfx1201/')) {
