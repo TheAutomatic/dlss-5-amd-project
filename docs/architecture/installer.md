@@ -70,7 +70,11 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 - 先问是否保留 `backup-amd-presr-*`（`-RemoveBackups` 可在非交互时删除），再列出计划删除的文件，Y/N 确认。
 - 只删明确依赖：识别为 OptiScaler 的代理、本项目的 pass/配置/日志、清单记录的依赖、受控名称的模块。不按扩展名清扫，不递归删整个 OptiScaler 目录。
 - 保留：`nvngx_dlssnr.dll`、两类权重、作者的 setup 与日志、其它代理、用户插件和未知文件。`_storage_`（商店版游戏的作者日志位置）按同样规则处理。
-- mochizuki 只移除 runtime、日志和已知 shader 文件；保留用户的 `dlssnr-amd/dlssnr.bin` 和本机 pipeline cache。
+- 日志清理同时识别 `OptiScaler.1.log`（spdlog 当前格式）和 `OptiScaler.log.1`，只接受数字轮转后缀；不匹配用户命名的笔记或其它模组日志。
+- 清理受控 lmxxf 模块对应的 `.generated.hip` / `.hsaco.s` 旧构建附件，以及旧包的四份 `OptiScaler/dlssnr` 说明文件；未知模块、源码和用户文档保留。
+- mochizuki 移除 runtime、日志、已知 shader 文件、`pipeline.cache` 与 `prewarm/manifest.txt`；保留用户的 `dlssnr-amd/dlssnr.bin`。重新安装后首次运行会重建缓存。已知子目录仅在为空时移除。
+- `DLSS5-AMD/native-game-flags.txt` 若仅剩安装器生成的三行示例注释则删除；存在用户配置或其它注释时保留。
+- 原版后端安装器的 `dlssnr-amd-install.txt`、DXVK/VKD3D DLL、日志、备份及游戏自己的 `logs/` 不属于本项目卸载范围；不会根据另一套安装记录删除或恢复游戏文件。
 
 ## 其它规则
 

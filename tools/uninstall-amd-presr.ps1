@@ -91,6 +91,11 @@ $projectLeafNames = @(
     'OptiScaler.ini','amd-presr-install.txt',
     'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'lmxxf-module-package.ps1',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
+    'OptiScaler/dlssnr/README.md',
+    'OptiScaler/dlssnr/design/frame-hold.md',
+    'OptiScaler/dlssnr/design/multi-point-anchoring.md',
+    'OptiScaler/dlssnr/design/pre-sr-multipass.md',
+    'dlssnr-amd/pipeline.cache', 'dlssnr-amd/prewarm/manifest.txt',
     'dlssnr-amd/shaders/accumulation.txt',
     'dlssnr-amd/shaders/coherent-act.txt',
     'dlssnr-amd/shaders/g_attn.spv',
@@ -159,7 +164,18 @@ $projectLeafNames = @(
     'Uninstall.bat','Uninstall.ps1'
 )
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
-$projectLogPatterns = @('OptiScaler.log*','amd_bridge.log*','amd_presr.log*','mochizuki_nr.log*')
+# spdlog rotates OptiScaler.log into OptiScaler.1.log; older sinks used .log.1.
+# Match numeric rotations only, not user notes such as OptiScaler.notes.log.
+$projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr)(\.[0-9]+)?\.log(\.[0-9]+)?$'
+# Old module bundles also shipped generated sources and disassembly. Limit cleanup
+# to the same controlled module stems and the two supported architecture folders.
+foreach ($arch in @('', 'gfx1200/', 'gfx1201/')) {
+    foreach ($module in $controlledModules) {
+        $stem = [IO.Path]::GetFileNameWithoutExtension($module)
+        $projectLeafNames += 'lmxxf-modules/' + $arch + $stem + '.generated.hip'
+        $projectLeafNames += 'lmxxf-modules/' + $arch + $module + '.s'
+    }
+}
 $dependencyPaths = @(
     'amd_fidelityfx_loader_dx12.dll',
     'amd_fidelityfx_upscaler_dx12.dll',
@@ -249,10 +265,20 @@ function Add-PlannedFile([string]$path, [string]$why) {
 }
 
 # Setup only upserts one DLSS5_FIT_LARGE line; the file may also hold the user's own
-# upstream lmxxf flags. Return the text left after removing our line.
+# upstream lmxxf flags. Remove our old line or an otherwise untouched seed template.
 function Get-FlagsRemainder([string]$path) {
     $text = [IO.File]::ReadAllText($path)
-    return [regex]::Replace($text, '(?m)^DLSS5_FIT_LARGE=.*(\r?\n|$)', '')
+    $remainder = [regex]::Replace($text, '(?m)^DLSS5_FIT_LARGE=.*(\r?\n|$)', '')
+    $seedLines = @(
+        '# Optional lmxxf upstream keys (DLSS5_*).',
+        '# OptiScaler.ini / Ins menu win on conflict; this file only fills gaps.',
+        '# Example: DLSS5_HIP_WAVE_OWNED=1'
+    )
+    $userLines = @($remainder -split '\r?\n' | Where-Object {
+        $_.Trim().Length -gt 0 -and $seedLines -cnotcontains $_.Trim()
+    })
+    if ($userLines.Count -eq 0) { return '' }
+    return $remainder
 }
 
 $recordedProxy = $null
@@ -293,11 +319,9 @@ foreach ($root in $roots) {
     foreach ($name in $projectLeafNames) {
         Add-PlannedFile (Join-Path $root $name) 'project-file'
     }
-    foreach ($pat in $projectLogPatterns) {
-        Get-ChildItem -LiteralPath $root -Filter $pat -File -ErrorAction SilentlyContinue | ForEach-Object {
-            Add-PlannedFile $_.FullName 'project-log'
-        }
-    }
+    Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $projectLogNamePattern } |
+        ForEach-Object { Add-PlannedFile $_.FullName 'project-log' }
     $deps = Join-Path $root 'OptiScaler'
     if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
         foreach ($relative in $dependencyPaths) {
@@ -327,10 +351,13 @@ foreach ($root in $roots) {
 
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
     if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
-        if ((Get-FlagsRemainder $flagsFile).Trim().Length -eq 0) {
+        $flagsRest = Get-FlagsRemainder $flagsFile
+        if ($flagsRest.Trim().Length -eq 0) {
             Add-PlannedFile $flagsFile 'lmxxf-flags'
-        } else {
+        } elseif ($flagsRest -cne [IO.File]::ReadAllText($flagsFile)) {
             $planned.Add("$flagsFile  (lmxxf-flags: remove the DLSS5_FIT_LARGE line; other flags kept)")
+        } else {
+            $kept.Add("user flags/comments: $flagsFile")
         }
     }
 }
@@ -389,7 +416,7 @@ if ($backupDirs.Count -gt 0) {
 if ($planned.Count -gt 0) {
     Write-Host 'Planned deletions (files/folders):' -ForegroundColor Yellow
     foreach ($d in $planned) { Write-Host "  - $d" }
-    Write-Host 'Empty OptiScaler dependency folders will be removed if they become empty.'
+    Write-Host 'Known dependency and shader folders will be removed only if empty. Mochizuki caches will be rebuilt on next use.'
 } else {
     Write-Host 'Nothing matching this project is planned for deletion.' -ForegroundColor Yellow
 }
@@ -450,16 +477,16 @@ foreach ($root in $roots) {
         if ($selfLeafNames -contains $name) { continue }
         Remove-SafeFile (Join-Path $root $name) 'project-file'
     }
-    foreach ($pat in $projectLogPatterns) {
-        Get-ChildItem -LiteralPath $root -Filter $pat -File -ErrorAction SilentlyContinue | ForEach-Object {
-            Remove-SafeFile $_.FullName 'project-log'
-        }
-    }
+    Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $projectLogNamePattern } |
+        ForEach-Object { Remove-SafeFile $_.FullName 'project-log' }
     $deps = Join-Path $root 'OptiScaler'
     if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
         foreach ($relative in $dependencyPaths) {
             Remove-SafeFile (Join-Path $deps $relative) 'project-dependency'
         }
+        Remove-EmptyDirectory (Join-Path $deps 'dlssnr/design')
+        Remove-EmptyDirectory (Join-Path $deps 'dlssnr')
         Remove-EmptyDirectory (Join-Path $deps 'D3D12_OptiScaler')
         Remove-EmptyDirectory $deps
     }
@@ -554,13 +581,18 @@ foreach ($root in $roots) {
         Remove-EmptyDirectory $shadersDir
     }
 
+    foreach ($relative in @('dlssnr-amd/shaders/runtime', 'dlssnr-amd/shaders/temporal',
+            'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd')) {
+        Remove-EmptyDirectory (Join-Path $root $relative)
+    }
+
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
     if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
         $flagsRest = Get-FlagsRemainder $flagsFile
         if ($flagsRest.Trim().Length -eq 0) {
             Remove-SafeFile $flagsFile 'lmxxf-flags'
             Remove-EmptyDirectory (Join-Path $root 'DLSS5-AMD')
-        } else {
+        } elseif ($flagsRest -cne [IO.File]::ReadAllText($flagsFile)) {
             try {
                 [IO.File]::WriteAllText($flagsFile, $flagsRest)
                 $deleted.Add("$flagsFile  (lmxxf-flags: removed the DLSS5_FIT_LARGE line)")

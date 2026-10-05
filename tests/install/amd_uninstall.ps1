@@ -64,12 +64,29 @@ public class UninstallProxyFixture { }
         'OptiScaler\unknown.dll', 'OptiScaler\libxess_custom.dll', 'OptiScaler\user.ini',
         'OptiScaler\nvngx_dlssnr.dll', 'OptiScaler\dlssnr_on_amd_weights.bin',
         'OptiScaler\D3D12_OptiScaler\other-mod.dll',
+        'OptiScaler.notes.log', 'OptiScaler.log.notes', 'OptiScaler.1.log.bak',
+        'other-mod.1.log', 'logs\dxgi.log', 'yysls_d3d11.log',
+        'dlssnr-amd-install.txt', 'dlssnr-amd.log', 'dlssnr-amd-crash.dmp',
+        'OptiScaler\dlssnr\user-notes.md',
+        'lmxxf-modules\user.generated.hip', 'lmxxf-modules\user.hsaco.s',
+        'lmxxf-modules\gfx9999\c32_fast.generated.hip',
+        'dlssnr-amd\dlssnr.bin', 'native-game-tiled-assets\model.bin',
+        'dlssnr-amd\shaders\runtime\user.spv', 'dlssnr-amd\prewarm\user.txt',
         'backup-amd-presr-fixture\OptiScaler.ini',
         'backup-amd-presr-fixture\OptiScaler\libxess.dll'
     )
     $removed = @('dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',
         'dlssnr_amd_pass3.dll', 'OptiScaler.ini', 'amd-presr-install.txt',
-        'OptiScaler.log.1', 'amd_presr.log', 'amd_bridge.log.2',
+        'OptiScaler.log', 'OptiScaler.1.log', 'OptiScaler.2.log', 'OptiScaler.10.log',
+        'OptiScaler.log.1', 'amd_presr.log', 'amd_bridge.log.2', 'mochizuki_nr.1.log',
+        'OptiScaler\dlssnr\README.md', 'OptiScaler\dlssnr\design\frame-hold.md',
+        'OptiScaler\dlssnr\design\multi-point-anchoring.md', 'OptiScaler\dlssnr\design\pre-sr-multipass.md',
+        'dlssnr-amd\pipeline.cache', 'dlssnr-amd\prewarm\manifest.txt',
+        'dlssnr-amd\shaders\runtime\runtime_encode.spv',
+        'dlssnr-amd\shaders\temporal\motion_estimate.spv',
+        'lmxxf-modules\c32_fast.generated.hip', 'lmxxf-modules\c32_fast.hsaco.s',
+        'lmxxf-modules\gfx1200\boundary-fast.generated.hip', 'lmxxf-modules\gfx1200\boundary-fast.hsaco.s',
+        'lmxxf-modules\gfx1201\deep_fast.generated.hip', 'lmxxf-modules\gfx1201\deep_fast.hsaco.s',
         'Uninstall_OptiScaler_NR.bat', 'Uninstall_OptiScaler_NR.ps1')
     foreach ($root in $roots) {
         foreach ($relative in $preserved) { Put-File (Join-Path $root $relative) }
@@ -78,7 +95,13 @@ public class UninstallProxyFixture { }
         Copy-Item -LiteralPath $proxy -Destination (Join-Path $root 'dxgi.dll')
     }
     Put-File (Join-Path $game 'amd-presr-install.txt') 'proxy=dxgi.dll'
-    $null = Run-Uninstall $game
+    $normalOut = Run-Uninstall $game
+    $plan = ($normalOut -join "`n") -split 'Deleted:', 2 | Select-Object -First 1
+    foreach ($relative in @('OptiScaler.1.log', 'dlssnr-amd/pipeline.cache', 'lmxxf-modules/c32_fast.generated.hip')) {
+        if (-not $plan.Contains((Join-Path $game $relative).Replace('/', '\'))) {
+            throw "Cleanup omitted from preview: $relative"
+        }
+    }
     foreach ($root in $roots) {
         foreach ($relative in $preserved) { Assert-Exists (Join-Path $root $relative) }
         foreach ($relative in $removed) { Assert-Removed (Join-Path $root $relative) }
@@ -104,8 +127,13 @@ public class UninstallProxyFixture { }
 
     $cleanGame = Join-Path $testRoot 'deps-only-game'
     foreach ($relative in $deps) { Put-File (Join-Path $cleanGame ('OptiScaler\' + $relative)) }
+    foreach ($relative in $removed | Where-Object { $_ -match '^(OptiScaler\\|dlssnr-amd\\|lmxxf-modules\\)' }) {
+        Put-File (Join-Path $cleanGame $relative)
+    }
     $null = Run-Uninstall $cleanGame
     Assert-Removed (Join-Path $cleanGame 'OptiScaler')
+    Assert-Removed (Join-Path $cleanGame 'dlssnr-amd')
+    Assert-Removed (Join-Path $cleanGame 'lmxxf-modules')
     Write-Host 'PASS empty dependency directories removed without recursion'
 
     $escapeGame = Join-Path $testRoot 'escape-game'
@@ -119,12 +147,15 @@ public class UninstallProxyFixture { }
     }
     Write-Host 'PASS relative and absolute proxy paths in install records are rejected'
 
-    foreach ($linkedRelative in @('_storage_', 'OptiScaler', 'OptiScaler\D3D12_OptiScaler')) {
+    foreach ($linkedRelative in @('_storage_', 'OptiScaler', 'OptiScaler\D3D12_OptiScaler', 'OptiScaler\dlssnr',
+            'dlssnr-amd', 'dlssnr-amd\prewarm', 'lmxxf-modules')) {
         $id = [guid]::NewGuid().ToString('N')
         $linkGame = Join-Path $testRoot ('linked-game-' + $id)
         $target = Join-Path $testRoot ('external-' + $id)
         foreach ($relative in @('OptiScaler.ini', 'amd_presr.log', 'libxess.dll',
-                'D3D12Core.dll', 'OptiScaler\libxess.dll')) {
+                'D3D12Core.dll', 'OptiScaler\libxess.dll', 'OptiScaler.1.log',
+                'pipeline.cache', 'manifest.txt', 'prewarm\manifest.txt',
+                'c32_fast.generated.hip', 'README.md', 'design\frame-hold.md')) {
             Put-File (Join-Path $target $relative)
         }
         $link = Join-Path $linkGame $linkedRelative
@@ -132,7 +163,9 @@ public class UninstallProxyFixture { }
         $null = Run-Uninstall $linkGame
         Assert-Exists $link
         foreach ($relative in @('OptiScaler.ini', 'amd_presr.log', 'libxess.dll',
-                'D3D12Core.dll', 'OptiScaler\libxess.dll')) {
+                'D3D12Core.dll', 'OptiScaler\libxess.dll', 'OptiScaler.1.log',
+                'pipeline.cache', 'manifest.txt', 'prewarm\manifest.txt',
+                'c32_fast.generated.hip', 'README.md', 'design\frame-hold.md')) {
             Assert-Exists (Join-Path $target $relative)
         }
     }
@@ -148,6 +181,40 @@ public class UninstallProxyFixture { }
     $left = [IO.File]::ReadAllText($userFlags)
     if ($left -cne "DLSS5_NETWORK_HEIGHT=900`r`nDLSS5_STRENGTH=1,1`r`n") { throw "User flags not preserved: [$left]" }
     Write-Host 'PASS flags file: installer-owned FIT_LARGE line removed, user flags kept'
+    $seed = @(
+        '# Optional lmxxf upstream keys (DLSS5_*).',
+        '# OptiScaler.ini / Ins menu win on conflict; this file only fills gaps.',
+        '# Example: DLSS5_HIP_WAVE_OWNED=1'
+    ) -join "`r`n"
+    $seedGame = Join-Path $testRoot 'seed-only-game'
+    Put-File (Join-Path $seedGame 'DLSS5-AMD\native-game-flags.txt') ($seed + "`r`n")
+    $null = Run-Uninstall $seedGame
+    Assert-Removed (Join-Path $seedGame 'DLSS5-AMD')
+    foreach ($custom in @('# My saved experiment', 'DLSS5_HIP_WAVE_OWNED=1')) {
+        Put-File $userFlags ($seed + "`r`n" + $custom + "`r`n")
+        $savedTime = [datetime]::new(2020, 1, 2, 3, 4, 5, [DateTimeKind]::Utc)
+        [IO.File]::SetLastWriteTimeUtc($userFlags, $savedTime)
+        $customOut = Run-Uninstall (Split-Path -Parent (Split-Path -Parent $userFlags))
+        if ([IO.File]::GetLastWriteTimeUtc($userFlags) -ne $savedTime -or
+            ($customOut -join '') -match 'removed the DLSS5_FIT_LARGE line') {
+            throw 'Unchanged user flags were rewritten or reported as deleted.'
+        }
+        if ([IO.File]::ReadAllText($userFlags) -cne ($seed + "`r`n" + $custom + "`r`n")) {
+            throw 'Custom flags/comments changed during uninstall.'
+        }
+    }
+    Write-Host 'PASS untouched seed removed; custom flags and comments preserved byte-for-byte'
+
+    $standalone = Join-Path $testRoot 'standalone-game'
+    Put-File (Join-Path $standalone 'lmxxf-modules\c32_fast.generated.hip')
+    Copy-Item -LiteralPath $uninstall -Destination (Join-Path $standalone 'Uninstall_OptiScaler_NR.ps1')
+    Copy-Item -LiteralPath (Join-Path $repo 'tools\lmxxf-module-package.ps1') -Destination $standalone
+    $out = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $standalone 'Uninstall_OptiScaler_NR.ps1') -NonInteractive -NoPause 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Standalone cleanup failed: $out" }
+    Assert-Removed (Join-Path $standalone 'lmxxf-modules')
+    Assert-Removed (Join-Path $standalone 'lmxxf-module-package.ps1')
+    Assert-Removed (Join-Path $standalone 'Uninstall_OptiScaler_NR.ps1')
+    Write-Host 'PASS installed standalone uninstaller loads module names before removing its helper'
     Write-Host 'All uninstall regression checks passed.'
 } finally {
     # Remove junctions themselves before fixture cleanup. Never recursively
