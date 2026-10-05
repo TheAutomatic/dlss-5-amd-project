@@ -816,69 +816,72 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     HelpMarker("Network style 0 / 1 / 2. Default: 1."
                                "\nChanging style rebuilds the network on the next frame.");
-                    ImGui::SeparatorText("Block skipping (lossy)");
-                    auto supported = [&](const std::string& value) {
-                        const auto csv = "," + value + ",";
-                        for (int block = 1; block <= 69; ++block) {
-                            const bool forbidden = block == 4 || block == 69 ||
-                                (config->LmxxfMHByteStream.value_or_default() &&
-                                 ((block >= 5 && block <= 22) || (block >= 48 && block <= 65)));
-                            if (forbidden && csv.find("," + std::to_string(block) + ",") != std::string::npos) return false;
-                        }
-                        return true;
-                    };
+                    if (ImGui::TreeNode("Block skipping (lossy)"))
                     {
-                        static char skippedInput[256] {};
-                        static std::string skippedLoaded;
-                        static bool skippedInvalid = false;
-                        const auto skipped = config->LmxxfSkipBlocks.value_or_default();
-                        if (skippedLoaded != skipped)
+                        auto supported = [&](const std::string& value) {
+                            const auto csv = "," + value + ",";
+                            for (int block = 1; block <= 69; ++block) {
+                                const bool forbidden = block == 4 || block == 69 ||
+                                    (config->LmxxfMHByteStream.value_or_default() &&
+                                     ((block >= 5 && block <= 22) || (block >= 48 && block <= 65)));
+                                if (forbidden && csv.find("," + std::to_string(block) + ",") != std::string::npos) return false;
+                            }
+                            return true;
+                        };
                         {
-                            std::snprintf(skippedInput, sizeof skippedInput, "%s", skipped.c_str());
-                            skippedLoaded = skipped;
-                            skippedInvalid = false;
-                        }
-                        if (ImGui::InputText("Base skipped blocks (all passes)", skippedInput, sizeof skippedInput,
-                                             ImGuiInputTextFlags_EnterReturnsTrue))
-                        {
-                            std::string normalized;
-                            skippedInvalid = !CfgKey::NormalizeSkipBlocks(skippedInput, normalized) || !supported(normalized);
-                            if (!skippedInvalid)
+                            static char skippedInput[256] {};
+                            static std::string skippedLoaded;
+                            static bool skippedInvalid = false;
+                            const auto skipped = config->LmxxfSkipBlocks.value_or_default();
+                            if (skippedLoaded != skipped)
                             {
-                                config->LmxxfSkipBlocks = normalized;
-                                CfgKey::PutEnvString(CfgKey::SkipBlocks, normalized.c_str());
-                                AmdBridge::InvalidateHistory();
+                                std::snprintf(skippedInput, sizeof skippedInput, "%s", skipped.c_str());
+                                skippedLoaded = skipped;
+                                skippedInvalid = false;
                             }
-                        }
-                        if (skippedInvalid || !supported(skipped))
-                            ImGui::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
-                        HelpMarker("Upstream default since 0.40: none (all blocks). This base list applies to every real network pass."
-                                   "\nOptional: enter 42,43,46 to skip the three blocks used by the pre-0.40 default. Enter none to run all blocks again."
-                                   "\nThe field below adds skips only in passes 2/3. Skipping changes quality and style."
-                                   "\nPress Enter to apply; rebuilds next frame. INI: DLSS5_SKIP_BLOCKS."
-                                   "\nDisable MH byte stream before skipping blocks 5-22 or 48-65. Blocks 4/69 are unsupported.");
-                    }
-                    {
-                        static char blocks[256]{};
-                        static std::string loaded;
-                        static bool invalid = false;
-                        const auto current = config->LmxxfMultiPassSkipBlocks.value_or_default();
-                        if (loaded != current) { snprintf(blocks, sizeof blocks, "%s", current.c_str()); loaded = current; invalid = false; }
-                        if (ImGui::InputText("Extra skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            std::string normalized;
-                            invalid = !CfgKey::NormalizeSkipBlocks(blocks, normalized) || !supported(normalized);
-                            if (!invalid) {
-                                config->LmxxfMultiPassSkipBlocks = normalized;
-                                CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, normalized.c_str());
-                                AmdBridge::InvalidateHistory();
+                            if (ImGui::InputText("Base skipped blocks (all passes)", skippedInput, sizeof skippedInput,
+                                                 ImGuiInputTextFlags_EnterReturnsTrue))
+                            {
+                                std::string normalized;
+                                skippedInvalid = !CfgKey::NormalizeSkipBlocks(skippedInput, normalized) || !supported(normalized);
+                                if (!skippedInvalid)
+                                {
+                                    config->LmxxfSkipBlocks = normalized;
+                                    CfgKey::PutEnvString(CfgKey::SkipBlocks, normalized.c_str());
+                                    AmdBridge::InvalidateHistory();
+                                }
                             }
+                            if (skippedInvalid || !supported(skipped))
+                                ImGui::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
+                            HelpMarker("Upstream default since 0.40: none (all blocks). This base list applies to every real network pass."
+                                       "\nOptional: enter 42,43,46 to skip the three blocks used by the pre-0.40 default. Enter none to run all blocks again."
+                                       "\nThe field below adds skips only in passes 2/3. Skipping changes quality and style."
+                                       "\nPress Enter to apply; rebuilds next frame. INI: DLSS5_SKIP_BLOCKS."
+                                       "\nDisable MH byte stream before skipping blocks 5-22 or 48-65. Blocks 4/69 are unsupported.");
                         }
-                        if (invalid || !supported(current)) ImGui::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
-                        HelpMarker("Default none. Added to the base skip list only for real network passes 2/3; pass 1 is unchanged."
-                                   "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
-                                   "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."
-                                   "\nPress Enter to apply; rebuilds next frame. Ignored with one pass. A predicted third pass has no extra network blocks."
-                                   "\nINI: DLSS5_MULTI_PASS_SKIP_BLOCKS.");
+                        {
+                            static char blocks[256]{};
+                            static std::string loaded;
+                            static bool invalid = false;
+                            const auto current = config->LmxxfMultiPassSkipBlocks.value_or_default();
+                            if (loaded != current) { snprintf(blocks, sizeof blocks, "%s", current.c_str()); loaded = current; invalid = false; }
+                            if (ImGui::InputText("Extra skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                                std::string normalized;
+                                invalid = !CfgKey::NormalizeSkipBlocks(blocks, normalized) || !supported(normalized);
+                                if (!invalid) {
+                                    config->LmxxfMultiPassSkipBlocks = normalized;
+                                    CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, normalized.c_str());
+                                    AmdBridge::InvalidateHistory();
+                                }
+                            }
+                            if (invalid || !supported(current)) ImGui::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
+                            HelpMarker("Default none. Added to the base skip list only for real network passes 2/3; pass 1 is unchanged."
+                                       "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
+                                       "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."
+                                       "\nPress Enter to apply; rebuilds next frame. Ignored with one pass. A predicted third pass has no extra network blocks."
+                                       "\nINI: DLSS5_MULTI_PASS_SKIP_BLOCKS.");
+                        }
+                        ImGui::TreePop();
                     }
                 } else {
                     float passes = static_cast<float>(config->DlssNrPasses.value_or_default());
@@ -988,55 +991,54 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nApplies on the next network rebuild.");
                 }
                 bool adapt = config->LmxxfVitAdaptive.value_or_default();
-                    if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                {
+                    if (adapt)
                     {
-                        if (adapt)
-                        {
-                            config->LmxxfVitByteStream = false;
-                            CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
-                        }
-                        config->LmxxfVitAdaptive = adapt;
-                        CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
+                        config->LmxxfVitByteStream = false;
+                        CfgKey::PutEnvAlias(CfgKey::VitByteStream, false);
                     }
-                    if (ImGui::TreeNode("Reuse tuning")) {
-                    int period = config->LmxxfVitReusePeriod.value_or_default();
-                        if (ImGui::SliderInt("Reuse period", &period, 1, 16))
-                        {
-                            config->LmxxfVitReusePeriod = period;
-                            char buf[32];
-                            snprintf(buf, sizeof buf, "%d", period);
-                            CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
-                        }
-                        float gl = config->LmxxfVitReuseGlobal.value_or_default();
-                        if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
-                        {
-                            config->LmxxfVitReuseGlobal = gl;
-                            char buf[32];
-                            snprintf(buf, sizeof buf, "%g", gl);
-                            CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
-                        }
-                        float lo = config->LmxxfVitReuseLocal.value_or_default();
-                        if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
-                        {
-                            config->LmxxfVitReuseLocal = lo;
-                            char buf[32];
-                            snprintf(buf, sizeof buf, "%g", lo);
-                            CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
-                        }
-                        float im = config->LmxxfVitReuseImage.value_or_default();
-                        if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
-                        {
-                            config->LmxxfVitReuseImage = im;
-                            char buf[32];
-                            snprintf(buf, sizeof buf, "%g", im);
-                            CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
-                        }
-                        HelpMarker("Static frames reuse ViT; motion returns to full cost."
-                                   "\nEnabling adaptive reuse turns off ViT byte stream."
-                                   "\nStrength sliders are tunable (not bit-exact)."
-                                   "\nApplies on the next network rebuild.");
-                    ImGui::TreePop();
+                    config->LmxxfVitAdaptive = adapt;
+                    CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
                 }
+                ImGui::BeginDisabled(!adapt);
+                int period = config->LmxxfVitReusePeriod.value_or_default();
+                if (ImGui::SliderInt("Reuse period", &period, 1, 16))
+                {
+                    config->LmxxfVitReusePeriod = period;
+                    char buf[32];
+                    snprintf(buf, sizeof buf, "%d", period);
+                    CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
+                }
+                float gl = config->LmxxfVitReuseGlobal.value_or_default();
+                if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
+                {
+                    config->LmxxfVitReuseGlobal = gl;
+                    char buf[32];
+                    snprintf(buf, sizeof buf, "%g", gl);
+                    CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
+                }
+                float lo = config->LmxxfVitReuseLocal.value_or_default();
+                if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
+                {
+                    config->LmxxfVitReuseLocal = lo;
+                    char buf[32];
+                    snprintf(buf, sizeof buf, "%g", lo);
+                    CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
+                }
+                float im = config->LmxxfVitReuseImage.value_or_default();
+                if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
+                {
+                    config->LmxxfVitReuseImage = im;
+                    char buf[32];
+                    snprintf(buf, sizeof buf, "%g", im);
+                    CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
+                }
+                ImGui::EndDisabled();
+                HelpMarker("Static frames reuse ViT; motion returns to full cost."
+                           "\nEnabling adaptive reuse turns off ViT byte stream."
+                           "\nStrength sliders are tunable (not bit-exact)."
+                           "\nApplies on the next network rebuild.");
                 if (ImGui::Button("Reset this group##Vit")) resetVit();
                 ImGui::TreePop();
             }
