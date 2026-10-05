@@ -1405,6 +1405,72 @@ try {
     Write-Host "NOTE: could not write install record: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
+# Cache game models even when their backend was not selected for this install.
+# Publish only complete copies; never merge into or replace an existing package model.
+function Save-GameModelForNextInstall([ValidateSet('lmxxf', 'mochizuki')][string]$Kind) {
+    $stage = $null
+    try {
+        $packageRoot = [IO.Path]::GetFullPath($Root)
+        $gameRoot = [IO.Path]::GetFullPath($game)
+        if ($packageRoot.TrimEnd('\', '/') -ieq $gameRoot.TrimEnd('\', '/')) { return }
+        $relative = if ($Kind -eq 'lmxxf') { 'native-game-tiled-assets' } else { 'dlssnr-amd/dlssnr.bin' }
+        $destination = Join-Path $packageRoot $relative
+        if (Test-Path -LiteralPath $destination) { return }
+        $source = Assert-LmxxfUnlinkedPath (Join-Path $gameRoot $relative)
+        $destination = Assert-LmxxfUnlinkedPath $destination
+        $packageRoot = Assert-LmxxfUnlinkedPath $packageRoot
+        if ($Kind -eq 'lmxxf') {
+            if (-not (Test-LmxxfWeights $source)) { return }
+            if ($packageRoot.StartsWith($source + '\', [StringComparison]::OrdinalIgnoreCase) -or
+                $packageRoot -ieq $source) { throw 'Package folder is inside the source model directory.' }
+            $files = @(Get-LmxxfUnlinkedFiles $source)
+        } else {
+            if (-not (Test-MochizukiModelHeader $source)) { return }
+            $files = @(Get-Item -LiteralPath $source -ErrorAction Stop)
+        }
+        $stage = Join-Path $packageRoot ('.amd-presr-model-' + [guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($stage)
+        $payload = Join-Path $stage 'model'
+        if ($Kind -eq 'lmxxf') { [void][IO.Directory]::CreateDirectory($payload) }
+        foreach ($file in $files) {
+            $copy = if ($Kind -eq 'lmxxf') {
+                Join-Path $payload $file.FullName.Substring($source.Length).TrimStart('\', '/')
+            } else { $payload }
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($copy))
+            $hash = Get-Sha256 $file.FullName
+            Copy-Item -LiteralPath $file.FullName -Destination $copy -ErrorAction Stop
+            if ((Get-Sha256 $copy) -ne $hash) { throw "Model copy checksum mismatch: $($file.FullName)" }
+        }
+        if ($Kind -eq 'mochizuki' -and -not (Test-MochizukiModelHeader $payload)) {
+            throw 'Copied Mochizuki model has an invalid header.'
+        }
+        $destination = Assert-LmxxfUnlinkedPath $destination
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+        # The two-argument Move APIs fail if the destination appeared during copying.
+        if ($Kind -eq 'lmxxf') { [IO.Directory]::Move($payload, $destination) }
+        else { [IO.File]::Move($payload, $destination) }
+        Write-Host "Saved $relative in the package folder for the next install: $destination" -ForegroundColor Green
+    } catch {
+        Write-Host "NOTE: could not save $Kind game model for the next install: $($_.Exception.Message)" -ForegroundColor Yellow
+    } finally {
+        if ($stage -and (Test-Path -LiteralPath $stage)) {
+            try {
+                $safeStage = Assert-LmxxfUnlinkedPath $stage
+                if ([IO.Path]::GetDirectoryName($safeStage) -ine $packageRoot -or
+                    [IO.Path]::GetFileName($safeStage) -notmatch '^\.amd-presr-model-[0-9a-f]{32}$') {
+                    throw "Unexpected model staging path: $safeStage"
+                }
+                $null = @(Get-LmxxfUnlinkedFiles $safeStage)
+                Remove-Item -LiteralPath $safeStage -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-Host "NOTE: model staging cleanup failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+}
+Save-GameModelForNextInstall 'lmxxf'
+Save-GameModelForNextInstall 'mochizuki'
+
 # Keep reusable danielblnc files in the package folder for the next game.
 # Never write them into the game folder — that would re-inject danielblnc version.dll next to OptiScaler.
 # Summary must report what is truly kept in the package directory, not $srcA.
@@ -1433,8 +1499,8 @@ try {
     }
     if ($stagedA -and (Test-Path -LiteralPath $stagedA -PathType Leaf)) {
         $stagedFull = [IO.Path]::GetFullPath($stagedA)
-        if ($stagedFull.StartsWith($env:TEMP, [StringComparison]::OrdinalIgnoreCase) -or
-            $stagedFull -match 'amd-presr-version-') {
+        if ([IO.Path]::GetDirectoryName($stagedFull) -ieq [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\', '/') -and
+            [IO.Path]::GetFileName($stagedFull) -match '^amd-presr-version-[0-9a-f]{32}\.dll$') {
             try { Remove-Item -LiteralPath $stagedA -Force } catch { }
         }
     }

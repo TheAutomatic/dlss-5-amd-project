@@ -74,6 +74,22 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 
 ## 其它规则
 
+### 为下一款游戏保留模型
+
+安装结束时，安装包目录与游戏目录不同且可写，安装器会自动将游戏内已有的模型
+补回 `Setup.bat` 所在目录，供下一次安装使用。这一步不受本次所选后端限制。
+
+- Daniel：受支持的作者 runtime 保存为 `version.dll`，另保留 `dlssnr_on_amd_weights.bin`。
+- lmxxf：复制 `native-game-tiled-assets/`；至少需要非空的 `block0-ffn.f16` 或 `.f32` 标记。
+- Mochizuki：复制头部可识别的 `dlssnr-amd/dlssnr.bin`，不复制游戏的 pipeline cache。
+
+lmxxf/Mochizuki 仅在目标目录或文件不存在时回存，已有内容（包括不完整或无效副本）
+保持原样，不合并或覆盖。新副本先写入临时目录，逐文件核对复制哈希，再移动到正式位置；
+不跟随源/目标的符号链接或 junction。复制失败会清理临时副本并显示提示，
+不使已经完成的游戏安装失败。模型头部/标记检查不是完整模型验证，运行时仍负责加载校验。
+
+### 通用约束
+
 - **不往 `WindowsApps` 写。** 路径含 `\WindowsApps\` 时安装器拒绝（ACL/TrustedInstaller）。商店版游戏装到可写的 `Content\` 之类目录。
 - 本项目的代理与作者原生的 `version.dll` 注入互斥，不要在同一目录双注入；安装器不在游戏目录留下作者的 `version.dll`，而是复制成 `dlssnr_amd_pass1-3.dll`。
 - 代理默认 `dxgi.dll`，交互时可选 `winmm.dll` / `d3d12.dll` / `winhttp.dll` / `wininet.dll` / `dbghelp.dll`。

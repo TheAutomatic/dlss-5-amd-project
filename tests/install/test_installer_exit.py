@@ -396,6 +396,139 @@ class InstallerExitTests(unittest.TestCase):
         if model:
             (shaders.parent / "dlssnr.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
 
+    def ready_game_models(self):
+        files = {
+            'native-game-tiled-assets/block0-ffn.f16': b'game model marker',
+            'native-game-tiled-assets/block1-ffn.f32': b'game model tensor',
+            'native-game-tiled-assets/subdir/extra.bin': b'nested model file',
+            'dlssnr-amd/dlssnr.bin': b'NRMODEL1' + (599).to_bytes(4, 'little') + bytes(20),
+        }
+        for relative, data in files.items():
+            path = self.game / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (self.game / 'dlssnr-amd/pipeline.cache').write_bytes(b'game-specific cache')
+        return files
+
+    def test_game_model_cache_all_backends_then_install_another_game(self):
+        self.ready_install()
+        self.ready_lmxxf_dual_arch()
+        self.ready_mochizuki()
+        (self.package / 'native-game-tiled-assets/block0-ffn.f16').unlink()
+        (self.package / 'native-game-tiled-assets').rmdir()
+        for name in ('version.dll', 'dlssnr_on_amd_weights.bin'):
+            (self.package / name).rename(self.game / name)
+        expected = self.ready_game_models()
+        # Installing Daniel also caches the two unselected backends' game models.
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        for relative, data in expected.items():
+            self.assertEqual((self.package / relative).read_bytes(), data)
+            self.assertEqual((self.game / relative).read_bytes(), data)
+        self.assertEqual((self.package / 'version.dll').read_bytes(), FAKE_RUNTIME)
+        self.assertEqual((self.package / 'dlssnr_on_amd_weights.bin').stat().st_size, 1024 * 1024)
+        self.assertFalse((self.package / 'dlssnr-amd/pipeline.cache').exists())
+        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
+        other_game = self.root / 'another game'
+        other_game.mkdir()
+        code, output = self.run_direct(game=other_game, flags=('-NonInteractive', '-Backend', 'all'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Install SUCCEEDED.', output)
+        for relative, data in expected.items():
+            self.assertEqual((other_game / relative).read_bytes(), data)
+
+    def test_game_model_cache_preserves_existing_package_models(self):
+        self.ready_install()
+        self.ready_game_models()
+        existing = {
+            'native-game-tiled-assets/user-model.bin': b'keep existing partial directory',
+            'dlssnr-amd/dlssnr.bin': b'keep existing file, even if invalid',
+        }
+        for relative, data in existing.items():
+            path = self.package / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        for relative, data in existing.items():
+            self.assertEqual((self.package / relative).read_bytes(), data)
+        self.assertFalse((self.package / 'native-game-tiled-assets/block0-ffn.f16').exists())
+        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
+
+    def test_game_model_cache_package_is_game_skips_copy_and_cleans_temporary_runtime(self):
+        self.ready_install()
+        expected = self.ready_game_models()
+        for relative, data in expected.items():
+            path = self.package / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        code, output = self.run_direct(game=self.package, flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Install SUCCEEDED.', output)
+        for relative, data in expected.items():
+            self.assertEqual((self.package / relative).read_bytes(), data)
+        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
+        temporary = re.search(r'Copied danielblnc runtime outside game folder: (.+)', output)
+        self.assertIsNotNone(temporary, output)
+        self.assertFalse(Path(temporary.group(1).strip()).exists())
+        self.assertEqual((self.package / 'dlssnr_amd_pass1.dll').read_bytes(), FAKE_RUNTIME)
+
+    def test_game_model_cache_ignores_invalid_game_models(self):
+        self.ready_install()
+        self.ready_game_models()
+        (self.game / 'native-game-tiled-assets/block0-ffn.f16').write_bytes(b'')
+        (self.game / 'dlssnr-amd/dlssnr.bin').write_bytes(b'not a model')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertFalse((self.package / 'native-game-tiled-assets').exists())
+        self.assertFalse((self.package / 'dlssnr-amd/dlssnr.bin').exists())
+
+    def test_game_model_cache_failed_copy_cleans_staging_and_continues(self):
+        self.ready_install()
+        expected = self.ready_game_models()
+        with locked_file(self.game / 'native-game-tiled-assets/block1-ffn.f32'):
+            code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('could not save lmxxf game model', output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertFalse((self.package / 'native-game-tiled-assets').exists())
+        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
+        self.assertEqual((self.package / 'dlssnr-amd/dlssnr.bin').read_bytes(),
+                         expected['dlssnr-amd/dlssnr.bin'])
+
+    def test_game_model_cache_blocked_destination_is_nonfatal(self):
+        self.ready_install()
+        expected = self.ready_game_models()
+        (self.package / 'dlssnr-amd').write_bytes(b'preserve non-directory collision')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('could not save mochizuki game model', output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertEqual((self.package / 'dlssnr-amd').read_bytes(), b'preserve non-directory collision')
+        self.assertEqual((self.package / 'native-game-tiled-assets/block0-ffn.f16').read_bytes(),
+                         expected['native-game-tiled-assets/block0-ffn.f16'])
+        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
+
+    def test_game_model_cache_rejects_linked_source_directory(self):
+        self.ready_install()
+        self.ready_game_models()
+        outside = self.root / 'outside model'
+        outside.mkdir()
+        (outside / 'private.bin').write_bytes(b'do not copy')
+        link = self.game / 'native-game-tiled-assets/linked'
+        result = subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J', str(link), str(outside)],
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.addCleanup(link.rmdir)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('could not save lmxxf game model', output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertFalse((self.package / 'native-game-tiled-assets').exists())
+        self.assertEqual((outside / 'private.bin').read_bytes(), b'do not copy')
+        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
+
     def test_mochizuki_missing_model_reports_pending(self):
         self.ready_mochizuki()
         code, output = self.run_direct(flags=("-NonInteractive", "-Backend", "mochizuki"))
