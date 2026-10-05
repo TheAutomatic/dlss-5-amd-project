@@ -274,13 +274,13 @@ jobs:
             - 改进安装与卸载逻辑。
             - 调整 Ins 菜单与 INI 文件备注。
 
-            **升级与模型准备**
+            **安装与对应后端权重准备**
 
             - 请完整解压 ZIP 至任意文件夹并运行新包的 `Setup.bat`。更新时推荐选择 **Y 先卸载**，重新使用包内默认配置。
             - **Daniel 0.6.0**：运行文件请前往 [Daniel 官方发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取；`nvngx_dlssnr.dll` 310.8.0 请自行获取。
             - **lmxxf 0.41**：需自备 `native-game-tiled-assets` 权重目录，见 [原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [下载镜像](https://gofile.io/d/wRln0Pue)。
             - **Mochizuki 0.0.3**：从 `nvngx_dlssnr.dll` 310.8.0（与 Daniel 使用同一文件）提取权重，需要 Python 3.10+。
-            - 如目标游戏文件夹内留存曾安装过的三后端有效权重，执行 `Setup.bat` 后可自动利用，并补回安装包内缺失的权重；更新本插件时无需反复重新拷贝。
+            - 如本次安装目标游戏文件夹内留存曾安装过的三后端有效权重，执行 `Setup.bat` 后可自动利用，并补回安装包内缺失的权重，使得日常更新本插件时无需反复重新拷贝。
             - 本包不含 NVIDIA DLL、Daniel 安装器或模型权重。
 
             **已知问题**
@@ -304,13 +304,13 @@ jobs:
             - Improved installation and uninstallation logic.
             - Refined the Ins menu and INI comments.
 
-            **Upgrading and model requirements**
+            **Installation and backend model preparation**
 
             - Extract the complete ZIP into a folder of your choice and run the new package's `Setup.bat`. When upgrading, we recommend choosing **Y to uninstall first** and start with the package's default settings.
             - **Daniel 0.6.0**: obtain the runtime files from the [Daniel releases page](https://github.com/danielblnc/DLSS-NR-on-AMD/releases). Obtain `nvngx_dlssnr.dll` 310.8.0 separately.
             - **lmxxf 0.41**: provide `native-game-tiled-assets` weights from the [upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
             - **Mochizuki 0.0.3**: extract the weights from `nvngx_dlssnr.dll` 310.8.0, the same file used by Daniel. Python 3.10+ is required.
-            - If valid weights from previous installations of any of the three backends remain in the target game folder, `Setup.bat` can reuse them and copy missing weights back into the installer folder. You do not need to copy them manually each time you update this plugin.
+            - If the game folder selected for this installation still contains valid weights from previous installations of any of the three backends, `Setup.bat` can reuse them and copy missing weights back into the installer folder, so you do not need to copy them manually again for routine plugin updates.
             - NVIDIA DLLs, the Daniel installer and model weights are not included.
 
             **Known issues**
