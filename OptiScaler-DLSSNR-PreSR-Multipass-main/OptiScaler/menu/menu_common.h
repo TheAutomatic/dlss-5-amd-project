@@ -4,6 +4,7 @@
 #include <Config.h>
 
 #include <imgui/imgui.h>
+#include "MenuUi.h"
 
 class ScopedIndent
 {
@@ -26,7 +27,7 @@ class ScopedCollapsingHeader
         ImGui::BeginChild("##CollapsingHeaderChild", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-        _headerOpen = ImGui::CollapsingHeader(label, flags);
+        _headerOpen = MenuUi::CollapsingHeader(label, flags);
         _active = true;
     }
 

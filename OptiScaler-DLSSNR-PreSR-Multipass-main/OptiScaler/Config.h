@@ -827,6 +827,7 @@ class Config
 
     // Menu
     CustomOptional<float, NoDefault> MenuScale;
+    CustomOptional<std::string> MenuLanguage { "en" }; // UI only: en / zh-CN
     CustomOptional<float, NoDefault> MenuWindowWidth;
     CustomOptional<float, NoDefault> MenuWindowHeight;
     CustomOptional<int> MenuWindowAnchor { 0 }; // Free, top left/right, bottom left/right

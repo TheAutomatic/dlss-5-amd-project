@@ -46,6 +46,7 @@
 `manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
 
 - `reference-network.patch`：见上。
+- `history-adaptive-exclusion.patch`：在 native history 补丁之后，按 history 请求禁止自适应 ViT 复用，保留用户配置，history 关闭后恢复。之前允许连续 seed 复用的实验在伊莫发生严重闪烁，已撤下，兼容性待进一步调查。配套 `bridge.patch` 保存请求级门控、共享 history UAV 直写及原有 COMMON/信号量/录制租约边界；功能与验证见 [native history](../../docs/architecture/lmxxf-native-history.md)。
 - `auto-white.patch`：`shaders/native_codec_encode.hlsl`、`shaders/native_codec_decode.hlsl`、`src/native_game_codec.h` 里无游戏曝光时的均值白点（`Reserved.x` 的 0x10000 位）。基于 `24986ae094bbd150f4d86a0ca76159a43f374884`。着色器目录本来会被整体镜像成上游版本，没有这个补丁，sync 会把它悄悄冲掉。当前线上路径是 runtime 侧 meter（带时间平滑），本侧不再设置 0x10000；补丁保留以固定着色器契约，并与 meter 互斥（有 meter 时不会同时开 shader 估白点）。
 - `r10g10b10a2.patch`：`src/native_lab_paths.h` 接受 R10G10B10A2 颜色输入（Horizon）。基于同一提交。
 - `typeless-float16.patch`：在前述格式补丁之后，为 `R16G16B16A16_TYPELESS` 增加产品可选的 FLOAT 解释，默认仍为上游的 UNORM。

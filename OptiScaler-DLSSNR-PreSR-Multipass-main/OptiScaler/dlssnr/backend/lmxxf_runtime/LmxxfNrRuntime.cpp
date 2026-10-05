@@ -1678,7 +1678,7 @@ void PrepareHistory(Session* s,const LmxxfNrFrameInfo* info,RecordingJob& j)
     auto ng=NativeCurrentNetworkGeometry();auto& chain=*j.chain;
     if(!chain.history){
         auto history=std::make_unique<LmxxfNativeTemporal::History>();
-        history->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height);
+        history->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height,s->bridge->DirectHistory());
         chain.control.Create(s->device);chain.history=std::move(history);
     }
     j.historyBinding=LmxxfNativeTemporal::History::Binding(s->device,motion,depth);

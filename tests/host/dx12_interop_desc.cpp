@@ -19,7 +19,7 @@ int main()
         assert(Dx12InteropDesc::Prepare(d, tearing));
         assert(d.BufferCount == 2 && d.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD);
         assert(d.BufferUsage == DXGI_USAGE_RENDER_TARGET_OUTPUT);
-        assert(d.Flags == (tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0));
+        assert(d.Flags == (tearing ? UINT(DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) : 0u));
         assert(d.Width == 1920 && d.Height == 1080);
     }
     for (int invalid = 0; invalid < 5; ++invalid)

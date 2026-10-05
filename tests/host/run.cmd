@@ -32,6 +32,8 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+"%AMD_TEST_PYTHON%" -B tests\host\test_menu_localization.py || goto fail
+call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 %CXX% /utf-8 tests\host\dx12_interop_desc.cpp /Fe"%OUT%\dx12_interop_desc.exe" /Fo"%OUT%\dx12_interop_desc.obj" || goto fail
 "%OUT%\dx12_interop_desc.exe" || goto fail
 %CXX% /utf-8 tests\host\vulkan_call_scope.cpp /Fe"%OUT%\vulkan_call_scope.exe" /Fo"%OUT%\vulkan_call_scope.obj" || goto fail

@@ -68,7 +68,8 @@
     "module-load-cleanup.patch",
     "codec-active-subrect.patch",
     "module-script-encoding.patch",
-    "native-post-history.patch"
+    "native-post-history.patch",
+    "history-adaptive-exclusion.patch"
   ],
   "hip_files": [
     "build-modules.ps1",

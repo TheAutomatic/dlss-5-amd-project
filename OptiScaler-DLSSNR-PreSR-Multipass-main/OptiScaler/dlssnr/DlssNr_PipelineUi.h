@@ -4,6 +4,7 @@
 // DlssNr_PipelineUi.h. Retains the node drawing/click navigation; this product
 // supplies its three backend views. No renderer or Config writes here.
 #include <imgui/imgui.h>
+#include <menu/MenuUi.h>
 #include <algorithm>
 #include <array>
 #include <string>
@@ -29,7 +30,7 @@ struct View
 inline void Draw(const View& view, Section& selected)
 {
     ImGui::PushID("NR pipeline chart");
-    ImGui::TextWrapped(view.beforeSr ? "Game input -> %s NR -> Super Resolution" :
+    MenuUi::TextWrapped(view.beforeSr ? "Game input -> %s NR -> Super Resolution" :
         "Game input -> Super Resolution -> %s NR", view.backend.c_str());
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
@@ -39,14 +40,14 @@ inline void Draw(const View& view, Section& selected)
     const float wrapWidth = std::max(nodeWidth - padding * 2.0f, 1.0f);
     struct Node { const char* title; std::string detail; int section; };
     const std::array<Node, 3> nodes {{
-        {"Prepare NR input", view.input, int(Section::Input)},
-        {"NR model", view.model, int(Section::Model)},
-        {"Apply NR edit", view.output, int(Section::Output)}
+        {MenuLocale::Translate("Prepare NR input"), MenuLocale::Translate(view.input.c_str()), int(Section::Input)},
+        {MenuLocale::Translate("NR model"), MenuLocale::Translate(view.model.c_str()), int(Section::Model)},
+        {MenuLocale::Translate("Apply NR edit"), MenuLocale::Translate(view.output.c_str()), int(Section::Output)}
     }};
     float height = 0;
     for (const auto& node : nodes)
-        height = std::max(height, ImGui::CalcTextSize(node.title, nullptr, false, wrapWidth).y +
-            ImGui::CalcTextSize(node.detail.c_str(), nullptr, false, wrapWidth).y + 12.0f);
+        height = std::max(height, MenuUi::CalcTextSize(node.title, nullptr, false, wrapWidth).y +
+            MenuUi::CalcTextSize(node.detail.c_str(), nullptr, false, wrapWidth).y + 12.0f);
     const float step = height + gap;
     auto* draw = ImGui::GetWindowDrawList();
     const float x = origin.x + (width - nodeWidth) * 0.5f;
@@ -78,8 +79,8 @@ inline void Draw(const View& view, Section& selected)
         if (!view.enabled && editable) fill.w *= .55f;
         draw->AddRectFilled(at, ImVec2(at.x + nodeWidth, at.y + height), ImGui::GetColorU32(fill),
             ImGui::GetStyle().FrameRounding);
-        const auto title = ImGui::CalcTextSize(node.title, nullptr, false, wrapWidth);
-        const auto detail = ImGui::CalcTextSize(node.detail.c_str(), nullptr, false, wrapWidth);
+        const auto title = MenuUi::CalcTextSize(node.title, nullptr, false, wrapWidth);
+        const auto detail = MenuUi::CalcTextSize(node.detail.c_str(), nullptr, false, wrapWidth);
         const float y = at.y + (height - title.y - detail.y) * .5f;
         draw->AddText(nullptr, 0, ImVec2(at.x + (nodeWidth - title.x) * .5f, y),
             ImGui::GetColorU32(ImGuiCol_Text), node.title, nullptr, wrapWidth);
@@ -89,7 +90,7 @@ inline void Draw(const View& view, Section& selected)
     }
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + nodes.size() * step));
     ImGui::Dummy(ImVec2(width, 0));
-    ImGui::TextWrapped("%s", view.beforeSr ?
+    MenuUi::TextWrapped("%s", view.beforeSr ?
         "Then: Super Resolution -> game effects / HUD -> presentation" :
         "Then: game effects / HUD -> presentation (game-dependent)");
     ImGui::PopID();
@@ -101,15 +102,15 @@ inline void Navigation(Section& selected)
         const auto page = Section(i);
         static const char* labels[] = {"Input", "Model", "Output"};
         const char* label = labels[i];
-        const float buttonWidth = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
+        const float buttonWidth = MenuUi::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
         const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
         if (i && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + buttonWidth <= right)
             ImGui::SameLine();
         const bool chosen = page == selected;
         if (chosen) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-        if (ImGui::Button(label)) selected = page;
+        if (MenuUi::Button(label)) selected = page;
         if (chosen) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", SectionName(page));
+        if (ImGui::IsItemHovered()) MenuUi::SetTooltip("%s", SectionName(page));
     }
 }
 }

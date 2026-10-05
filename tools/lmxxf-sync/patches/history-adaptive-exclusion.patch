@@ -1,0 +1,26 @@
+--- a/Development/HIP/hip_reference_network.h
++++ b/Development/HIP/hip_reference_network.h
+@@ -637,10 +637,10 @@
+  static long long AdaptiveIdleMs(){static const long long ms=[]{const char*v=std::getenv("DLSS5_VIT_ADAPTIVE_IDLE_MS");if(!v||!*v)return 500LL;char*e=nullptr;long long x=std::strtoll(v,&e,10);return (e&&!*e&&x>=0)?x:500LL;}();return ms;}
+  Tensor adaptive_image_anchor,adaptive_image_signature,adaptive_image_delta;void*adaptive_image=nullptr;
+  void*adaptive_prev_history=nullptr;void*adaptive_prev_input=nullptr;U adaptive_prev_seed=0;
+- bool adaptive_dirty=false;U adaptive_last_mode=0,adaptive_frame=0;
++ bool adaptive_dirty=false,adaptive_allowed=true;U adaptive_last_mode=0,adaptive_frame=0;
+  bool adaptive_active=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
+  Tensor AdaptiveVitGroup(Tensor input,U n){
+-  const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=mode_s?U(std::stoul(mode_s)):0;
++  const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=adaptive_allowed&&mode_s?U(std::stoul(mode_s)):0;
+   AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
+   if(multi_pass>1)mode=0;
+   if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
+@@ -825,6 +825,10 @@
+  Handle Stream()const{return stream;}
+  Api& Runtime(){return api;}
+  void Synchronize(){api.Check(api.hipStreamSynchronize(stream),"network completion");}
++ // Product safety policy, separate from the user's saved/environment mode.
++ // Native history plus approximate ViT reuse flickers in game; keep full ViT
++ // until a temporally stable reuse policy has been validated.
++ void SetAdaptiveReuseAllowed(bool allowed){if(adaptive_allowed!=allowed){adaptive_allowed=allowed;adaptive_dirty=true;}}
+  void Enqueue(void*rgba,void*history,void*rgb_output,U seed){if(adaptive_prev_history!=history||adaptive_prev_seed!=seed||adaptive_prev_input!=rgba){adaptive_dirty=true;adaptive_prev_history=history;adaptive_prev_seed=seed;adaptive_prev_input=rgba;}
+   if(!rgba||!rgb_output||(!device_noise&&!opt.fast_prefix)||!opt.pooled||opt.profile||opt.wall_profile||observer||!opt.dump_dir.empty())throw std::runtime_error("device graph requires initialized noise, pooled mode and no diagnostic readbacks");
+   if(opt.graph){

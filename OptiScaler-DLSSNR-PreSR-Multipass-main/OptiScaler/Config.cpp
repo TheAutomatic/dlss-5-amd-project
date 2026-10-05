@@ -837,6 +837,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             if (auto setting = readFloat("Menu", "Scale"); setting.has_value())
                 MenuScale.set_from_config(std::clamp(setting.value(), 0.5f, 2.0f));
 
+            if (auto language = readString(CfgKey::kMenuSection, CfgKey::MenuLanguage, true); language)
+                MenuLanguage.set_from_config(*language == "zh" || *language == "zh-cn" ? "zh-CN" : "en");
             if (auto value = readFloat(CfgKey::kMenuSection, CfgKey::MenuWindowWidth);
                 value && std::isfinite(*value) && *value > 0)
                 MenuWindowWidth.set_from_config(*value);
@@ -1894,6 +1896,8 @@ bool Config::SaveIni()
     // Menu
     {
         ini.SetValue("Menu", "Scale", GetFloatValue(Instance()->MenuScale).c_str());
+        ini.SetValue(CfgKey::kMenuSection, CfgKey::MenuLanguage,
+                     Instance()->MenuLanguage.value_or_default().c_str());
         ini.SetValue(CfgKey::kMenuSection, CfgKey::MenuWindowWidth,
                      GetFloatValue(Instance()->MenuWindowWidth.value_for_config()).c_str());
         ini.SetValue(CfgKey::kMenuSection, CfgKey::MenuWindowHeight,

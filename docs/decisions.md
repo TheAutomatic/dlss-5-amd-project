@@ -1,3 +1,11 @@
+## 2026-10-06 — lmxxf history 与 ViT adaptive reuse 暂时互斥
+
+伊莫实测同时开启出现严重闪烁，关闭 adaptive reuse 后正常。撤下允许连续 seed 保留
+ViT 缓存的实验；history 开启时菜单置灰复用及四个滑块，Runtime 按该网络的 history
+请求禁止复用（包括预热/priming/无有效 guide），保留用户原配置，关闭 history 后恢复。
+保留共享历史缓冲直写和单次写入优化，不通过降低采样精度换性能。兼容调查未完成，
+恢复前必须有动态场景误差/刷新诊断和游戏闪烁、拖影验收；见 [native history](architecture/lmxxf-native-history.md)。
+
 ## 2026-10-05 — 三后端共用实验性 SR → NR
 
 保留默认 NR → SR，通过已有 RunBeforeSR 键显式选择 SR → NR。顺序在宿主共用入口控制，

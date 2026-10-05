@@ -23,7 +23,7 @@ static double Reference5(const std::vector<float>& rgb,unsigned w,unsigned h,dou
 // Exercise the real pre/post shaders over every pixel, including reflected rows.
 // The large surfaces exceeded the old one-dimensional dispatch limit. The narrow
 // case catches missing per-row bounds checks in a partially filled thread group.
-static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph)
+static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph,bool direct=false)
 {
     const unsigned n=w*ph;
     auto motion=g.Texture(1,1,DXGI_FORMAT_R32G32_FLOAT),depth=g.Texture(1,1,DXGI_FORMAT_R32_FLOAT);
@@ -45,8 +45,16 @@ static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph)
         g.Upload(output.Get(),network);
     };
     uploadNetwork(true);
-    LmxxfNativeTemporal::History hist;hist.Create(g.device.Get(),w,h,ph);
+    auto shared=g.Buffer(UINT64(n)*16);
+    g.Run([&](auto*cmd){LmxxfTemporal::Transition(cmd,shared.Get(),ReadState,D3D12_RESOURCE_STATE_COMMON);});
+    LmxxfNativeTemporal::History hist;hist.Create(g.device.Get(),w,h,ph,direct?shared.Get():nullptr);
     auto binding=hist.Binding(g.device.Get(),motion.Get(),depth.Get());
+    const auto readWarp=[&](ID3D12Resource* r){
+        if(r==shared.Get())g.Run([&](auto*cmd){LmxxfTemporal::Transition(cmd,r,D3D12_RESOURCE_STATE_COMMON,ReadState);});
+        auto result=g.Read(r);
+        if(r==shared.Get())g.Run([&](auto*cmd){LmxxfTemporal::Transition(cmd,r,ReadState,D3D12_RESOURCE_STATE_COMMON);});
+        return result;
+    };
     LmxxfRuntime::TemporalControl control;control.Create(g.device.Get());
     std::vector<std::shared_ptr<LmxxfRuntime::RecordingCompletion>> jobs,chain;
     LmxxfNativeTemporal::Parameters p{};p.width=w;p.height=h;p.processingHeight=ph;p.viewWidth=w;p.viewHeight=h;
@@ -57,7 +65,7 @@ static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph)
         g.Run([&](auto*cmd){hist.RecordOutputs(cmd,raw.Get(),output.Get(),depth.Get(),ReadState,p,binding.Get(),control.Address());});};
     inputs();
     for(auto* warp:{hist.Warped(),hist.PostWarped()}) {
-        const auto pixels=g.Read(warp);
+        const auto pixels=readWarp(warp);
         for(unsigned i=0;i<n;++i) {
             for(unsigned c=0;c<3;++c)Require(pixels[i*4+c]==.4f,"prime dispatch must write every raw pixel");
             Require(pixels[i*4+3]==0,"prime history invalid across entire surface");
@@ -65,7 +73,7 @@ static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph)
     }
     finish();p.useHistory=1;inputs();
     for(auto* warp:{hist.Warped(),hist.PostWarped()}) {
-        const auto pixels=g.Read(warp);
+        const auto pixels=readWarp(warp);
         for(unsigned i=0;i<n;++i) {
             for(unsigned c=0;c<3;++c)if(!(std::abs(pixels[i*4+c]-expected(i,c))<2e-6f)) {
                 std::fprintf(stderr,"surface=%ux%u pixel=(%u,%u) channel=%u actual=%.9g expected=%.9g\n",w,ph,i%w,i/w,c,pixels[i*4+c],expected(i,c));
@@ -82,7 +90,7 @@ static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph)
             Require(std::abs(pixels[i*3+c]-(.8f+weight*(expected(i,c)-.8f)))<2e-6f,"post dispatch blends every output pixel");
         for(size_t i=size_t(n)*3;i<pixels.size();++i)Require(pixels[i]==0,"post dispatch preserves logits");
     }
-    g.NoErrors();std::printf("native temporal dispatch coverage PASS %ux%u processing=%ux%u\n",w,h,w,ph);
+    g.NoErrors();std::printf("native temporal dispatch coverage PASS %ux%u processing=%ux%u direct=%d\n",w,h,w,ph,int(direct));
 }
 int main(int argc,char** argv)try
 {
@@ -147,7 +155,8 @@ int main(int argc,char** argv)try
     // A fitted viewport: boundaries must not read letterbox pixels.
     p.viewX=2;p.viewWidth=4;reset();inputs();pre=g.Read(hist.Warped());Require(pre[3]==0&&pre[2*4+3]==1&&pre[6*4+3]==0,"fit viewport validity");
     CheckDispatchCoverage(g,65,3,4);
-    CheckDispatchCoverage(g,3456,1440,1472); // Free-resolution 3440x1440 input.
-    CheckDispatchCoverage(g,3840,2160,2176);
+    CheckDispatchCoverage(g,65,3,4,true);
+    CheckDispatchCoverage(g,3456,1440,1472,true); // Free-resolution 3440x1440 input.
+    CheckDispatchCoverage(g,3840,2160,2176,true);
     g.NoErrors();std::printf("native temporal %s PASS: distinct pre/post motion, 5tap, edges, reversed depth, post model feedback, zero recovery/reset/fit, dispatch coverage\n",argc==2?"GPU":"WARP");return 0;
 }catch(const std::exception&e){std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}

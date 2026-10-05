@@ -105,7 +105,7 @@ if (!(Test-Path -LiteralPath $modRoot -PathType Container)) {
 $optiDll = if ($OptiDll) { $OptiDll } else { Join-Path $Root 'exports/release-local/OptiScaler.dll' }
 $optiSrcRoot = Join-Path $Root 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler'
 if (Test-Path -LiteralPath $optiDll -PathType Leaf) {
-    $optiSources = Get-ChildItem -LiteralPath $optiSrcRoot -Recurse -Include '*.cpp', '*.h' -File -ErrorAction SilentlyContinue |
+    $optiSources = Get-ChildItem -LiteralPath $optiSrcRoot -Recurse -Include '*.cpp', '*.h', '*.hpp', '*.inl', '*.rc', '*.ttf', '*.vcxproj' -File -ErrorAction SilentlyContinue |
         Where-Object {
             $_.FullName -notmatch '\\(external|include\\imgui|dlssnr\\backend\\lmxxf_runtime)\\'
         } |

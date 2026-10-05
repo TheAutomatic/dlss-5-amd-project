@@ -31,7 +31,9 @@ contract. Graph remains unsupported by the existing staged recording bridge.
 
 History can add ghosting, soften moving detail, and increase GPU time and memory.
 When enabled on a supported network, the shared post buffer grows from 12 to 20
-bytes per processing pixel; the four history/warp buffers add 64 bytes per pixel.
+bytes per processing pixel; three additional history/warp buffers add 48 bytes per
+pixel. The pre-warp writes directly into the bridge's existing shared history
+buffer, avoiding a fourth allocation and one full float4 copy per frame.
 Each live recording retains its guide bindings. Control uploads/allocators are
 pooled and reused only after their own GPU completion. No old benchmark is a
 current universal performance estimate.
@@ -67,7 +69,22 @@ Reset increments a session epoch checked by every execution, including old
 closed recordings. Repeated/reversed frame ordinals, gaps over 500 ms, changing
 chains, guide geometry/conventions, model scale, paper white or exposure scale
 prime again. Normal pre-exposure changes do not reset normalized history.
-The existing asynchronous adaptive-state reset is retained.
+Native history and adaptive ViT reuse are temporarily mutually exclusive.
+Requesting history disables adaptive reuse for that network, including warm-up,
+priming, missing guides and unsupported history combinations. The menu shows the
+reuse checkbox as unchecked/disabled and disables its four sliders. Saved reuse
+preferences and environment values remain intact; turning history off builds a
+network that respects them again. The runtime enforces this independently of the
+menu. Original seed invalidation and asynchronous adaptive reset remain intact;
+the experimental consecutive-seed exception has been removed.
+
+The shared pre-warp is retained by the chain and follows COMMON -> UAV -> COMMON
+on every producer execution. HIP reads it behind the original producer semaphore;
+the next producer still waits for the previous consumer, including across queues.
+Reprojection computes its default/valid results in registers and stores each
+pre/post pixel once. Sampling, precision, disocclusion checks and model seeds are
+unchanged. Finish and RGB texture conversion remain separate: measured fusion
+candidates did not reduce output-stage time.
 
 ## ABI and modules
 
@@ -85,6 +102,7 @@ The fourth-row weights preserve the established feature ordering and are not
 retuned. Missing exports refuse native history with a full-package error.
 
 `native-post-history.patch` applies after the existing FOLLOW patches;
+`history-adaptive-exclusion.patch` then preserves the network-level exclusion.
 `bridge.patch` remains the pinned bridge patch. The raw 0.41 fixture includes
 `wave_owned_c32.inc`; patch replay must reproduce every changed vendor file.
 The upstream pin remains b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3.
@@ -101,6 +119,12 @@ plus 33 blocked/reversed control updates, cancellation and failed Signal proof.
 delayed recordings, repeated execution, cross-queue execution, reset of already
 recorded commands, control-only cancellation, missing guides, history off,
 old-chain replay and unsupported multi-pass fallback without changing passes.
+The `--history-excludes-adaptive` variant verifies that a retained adaptive
+preference does not run the reuse path while history is requested, including
+warm-up, missing guides, replay/reset/cancel and unsupported passes. Turning
+history off must resume actual reuse, and turning it on again restores full ViT.
+The shader tests cover direct COMMON-state history writes at narrow padded,
+ultrawide and 4K dimensions as well as the original separate-buffer path.
 
 The initial dedicated runs passed on WARP and RX 9070 XT (gfx1201). Both gfx1200
 and gfx1201 modules were built; gfx1200 hardware, new game acceptance and dynamic
@@ -124,3 +148,43 @@ An instrumented synthetic 1280x720 bridge run measured completed input/output
 command-list spans. Its overall span was too variable to establish a reliable
 end-to-end history cost; it is not a game or network benchmark. Dynamic-scene
 acceptance and a stable in-game cost comparison remain follow-up work.
+
+### 2026-10-06 performance follow-up
+
+An experiment allowed consecutive history seeds to retain the adaptive cache.
+Static synthetic 1080p timing on RX 9070 XT improved from about 9.5 to 8.2-8.3 ms
+network time, and offline execution/gate checks passed. Yimo game testing then
+showed severe flicker with both features enabled, disappearing when adaptive
+reuse was disabled. This rejects the experiment for product use; the speedup is
+not available under the current exclusion policy.
+
+Investigation remains open: seed changes alter the model noise, and the previous
+model output is fed into the next inference. Coarse image/token thresholds do not
+bound final temporal error; approximate/full refresh differences may feed back
+into history. This is a hypothesis, not a per-frame diagnosis. Any future attempt
+needs dynamic-sequence output-error/refresh measurements and game validation of
+flicker and ghosting. Static hashes, speed or correct submission ordering alone
+cannot establish compatibility.
+
+The independent direct-history and single-store optimizations remain: measured
+input stage about 0.63 -> 0.47 ms and one fewer 33.75 MiB buffer at 1920x1152.
+They retained output hashes with adaptive off in both numeric modes and passed
+WARP/gfx1201 numerical, replay/reset and 4K coverage checks. No full release CI
+proof or game acceptance is implied; older receipts do not certify later changes.
+
+### Why native history excludes adaptive ViT
+
+Adaptive ViT approximates blocks 31–38 as an anchored output plus a per-channel
+linear gain times the input delta. Its token L1 and raw RGB tile-mean thresholds
+do not bound final RGB/logit error or align cached tokens to motion. Native history
+changes both the seed-dependent prefix noise and the reprojected RGB prefix.
+Its final blended output becomes the next frame's model input, so approximation
+and hard reuse/refresh transitions can feed errors back into subsequent frames.
+The final blend weight being below 0.74 is not a stability bound for that full loop.
+
+A continuous-seed cache experiment passed static execution tests but produced severe
+in-game flicker; that exception has been removed. Current production retains full ViT
+whenever history is requested, including warmup and missing-guide fallbacks, without
+overwriting saved reuse preferences. Future compatibility needs dynamic-sequence
+comparison against full inference, RGB/logit error measurements and game validation;
+threshold tightening or fixed seeds alone do not establish correctness.

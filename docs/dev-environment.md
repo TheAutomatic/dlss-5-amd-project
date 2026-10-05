@@ -4,6 +4,9 @@
 
 ## 工具与测试索引
 
+菜单中文字体重建：`python tools/build/build-menu-font.py --source <NotoSansSC原字体>`，需要 fonttools；
+普通构建使用已提交字体，不联网下载。来源、许可及更新规则见 [菜单本地化](architecture/menu-localization.md)。
+
 所有脚本都在仓库根目录运行。每类东西放哪，见 [workspace.md](workspace.md)。
 
 | 工具 | 用途 |

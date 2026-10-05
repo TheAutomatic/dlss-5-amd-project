@@ -264,15 +264,14 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            ### 1.10.2（相比 1.10.1）
+            ### 1.10.3（相比 1.10.2）
 
-            - 新增实验性 **SR → NR**：在超分后执行神经渲染。
-            - lmxxf 更新到 **0.41**，新增**肤色保护**、第 3 层预测（尽可能还原 3 层 NR 效果，同时保留接近 2 层的帧数）。选择 3 层时，默认执行**两次真实网络＋第三层局部预测**；关闭 **Predict third pass (lossy)** 后执行三次真实网络。肤色保护默认关闭，自由分辨率默认开启。
-            - 改进 Unity 部分场景因丢失 NR 造成的闪烁：默认覆盖《伊莫》（Aniimo）的 UnityPlayer 调用；其他 Unity 游戏可在 **Early command-list wrap** 中手动启用，保存后重启生效。
-            - 修复旧 lmxxf 着色器残留遮蔽新包、导致彩色噪点或条块的问题。
-            - 修复 Mochizuki 遇到短暂分辨率跳变时造成的闪烁。
-            - 改进安装与卸载逻辑。
-            - 调整 Ins 菜单与 INI 文件备注。
+            - Ins 菜单支持 **English / 简体中文**，默认英文，内置中文字体；语言随“保存设置”写入 INI，并改善窄窗口与缩放下的标签排版。
+            - 新增可选 lmxxf **Temporal history（时序历史）**，默认关闭；目前支持 **SR 前的单层 NR**，需要有效运动矢量与深度。可减轻部分闪烁，也会增加 GPU 耗时，可能带来拖影。
+            - 开启时序历史时暂时禁用 **ViT adaptive reuse** 及四项参数，避免两者同开导致的严重闪烁；保留原偏好，关闭历史后恢复。保留历史缓冲直写与单次写入优化。
+            - 修复 **SR → NR** 的处理尺寸错误与保留录制间临时资源复用造成的闪烁，修复原生 4K 时序历史的调度边界。
+            - 增加 NR 专用 **XeFG 倍率**设置；修正后端初始化期间 Vulkan 调用保护的线程隔离。
+            - 定向跟进 OptiScaler `97e99b4c` 的 NVAPI、DXGI SwapChain 和 HUD 捕获稳定性修复，保留三后端生命周期；并非全量合并。lmxxf 仍为 **0.41**。
 
             **安装与对应后端权重准备**
 
@@ -286,7 +285,7 @@ jobs:
             **已知问题**
 
             - SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
-            - 部分游戏场景的 lmxxf 闪烁问题仍在修复，遇到闪烁时推荐尝试 Mochizuki 作为后端。
+            - 时序历史与 ViT 自适应复用的兼容性仍待调查；多层或 SR 后路径暂不启用 lmxxf 时序历史。部分场景仍可能闪烁，可尝试 Mochizuki。
             - 可能与 ReShade 冲突。
             - Unity 游戏如遇 NR 丢失带来的闪烁，请尝试开启对应实验性开关（伊莫已默认开启）。
 
@@ -294,15 +293,14 @@ jobs:
 
             ---
 
-            ### 1.10.2 (compared to 1.10.1)
+            ### 1.10.3 (compared to 1.10.2)
 
-            - Added experimental **SR → NR**: run neural rendering after upscaling.
-            - Updated lmxxf to **0.41**, adding **skin protection** and third-pass prediction, designed to approximate three-pass NR quality while retaining frame rates close to two passes. With three passes selected, the default is **two real network passes plus a local third-pass prediction**. Disable **Predict third pass (lossy)** to run three real network passes. Skin protection defaults to off; native free resolution defaults to on.
-            - Improved flicker caused by NR dropping out in some Unity scenarios. Aniimo's UnityPlayer calls are covered by default; other Unity games can enable **Early command-list wrap** manually. Save settings and restart the game to apply.
-            - Fixed stale lmxxf shaders overriding an updated package and causing colored noise or blocks.
-            - Fixed Mochizuki flicker caused by brief resolution changes.
-            - Improved installation and uninstallation logic.
-            - Refined the Ins menu and INI comments.
+            - Added **English / Simplified Chinese** to the Ins menu, with English as the default and an embedded Chinese font. Save Settings persists the language to the INI; labels adapt to narrow windows and UI scaling.
+            - Added optional lmxxf **Temporal history**, off by default. It currently supports **one NR pass before SR**, with valid motion/depth guides. It may reduce flicker, at additional GPU cost and with possible ghosting.
+            - Temporal history temporarily disables **ViT adaptive reuse** and its four controls to avoid severe flicker when combined. Saved preferences return when history is disabled. Retained direct history-buffer and single-store optimizations.
+            - Fixed **SR → NR** processing dimensions and flicker from scratch-resource reuse across retained recordings; fixed native 4K history dispatch bounds.
+            - Added an NR-only **XeFG multiplier** setting and isolated Vulkan call guards per thread during backend initialization.
+            - Selectively ported NVAPI, DXGI swapchain and HUD capture stability fixes reviewed against OptiScaler `97e99b4c`, preserving the three-backend lifecycle. This is not a full upstream merge. lmxxf remains at **0.41**.
 
             **Installation and backend model preparation**
 
@@ -316,7 +314,7 @@ jobs:
             **Known issues**
 
             - SR → NR supports DX12 and the DX11/Vulkan-to-DX12 bridges; it does not add native RR/Vulkan support. Unsupported texture layouts preserve the SR image and report the reason.
-            - lmxxf flicker in some game scenarios is still being addressed. If you encounter flicker, we recommend trying Mochizuki as the backend.
+            - History/adaptive-ViT compatibility remains under investigation. lmxxf temporal history is unavailable with multiple passes or after SR. Some scenarios may still flicker; try Mochizuki if affected.
             - ReShade may conflict.
             - If NR dropping out causes flicker in a Unity game, try enabling the corresponding experimental option. It is enabled by default for Aniimo.
 

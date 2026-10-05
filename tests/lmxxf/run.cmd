@@ -122,6 +122,7 @@ set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
 call :Runtime || goto fail
 %CXX% tests\lmxxf\lmxxf_native_history_gpu.cpp /Fe"%OUT%\lmxxf_native_history_gpu.exe" /Fo"%OUT%\lmxxf_native_history_gpu.obj" /link %D3D% d3dcompiler.lib || goto fail
 "%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
+"%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --history-excludes-adaptive || goto fail
 rem The runtime resolves modules from its assets argument and weights from LMXXF_WEIGHTS_DIR.
 rem Passing the weights folder itself would make it prefer the (possibly stale) HIP\ copy beside
 rem the weights over this checkout's modules.

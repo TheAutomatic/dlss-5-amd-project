@@ -99,11 +99,8 @@ float4 ReprojectAt(float2 uv,float2 motion,float3 raw,float depth) {
     if(!HistoryCompatible(q,raw,depth))return 0;
     return History5(q);
 }
-[numthreads(64,1,1)]
-void Reproject(uint3 id:SV_DispatchThreadID) {
-    if(id.x>=width||id.y>=processingHeight)return;
-    uint i=id.y*width+id.x;
-    float3 raw=Raw[i].rgb;PreOut[i]=float4(raw,0);PostOut[i]=float4(raw,0);
+void ReprojectPixel(uint i,out float4 preValue,out float4 postValue) {
+    float3 raw=Raw[i].rgb;preValue=float4(raw,0);postValue=float4(raw,0);
     uint2 p=Mirror(i);if(!useHistory||!InView(p)||!all(isfinite(raw)))return;
     float2 uv=ViewUV(p),muv=uv;
     if(hasDepth) {
@@ -117,8 +114,14 @@ void Reproject(uint3 id:SV_DispatchThreadID) {
     float depth=hasDepth?GetDepth(uv):0;
     depth=depthInverted?depth:1-depth;
     float4 pre=ReprojectAt(uv,GetMotion(muv),raw,depth),post=ReprojectAt(uv,GetMotion(uv),raw,depth);
-    if(pre.w>0)PreOut[i]=pre;
-    if(post.w>0)PostOut[i]=post;
+    if(pre.w>0)preValue=pre;
+    if(post.w>0)postValue=post;
+}
+[numthreads(64,1,1)]
+void Reproject(uint3 id:SV_DispatchThreadID) {
+    if(id.x>=width||id.y>=processingHeight)return;
+    uint i=id.y*width+id.x;float4 pre,post;ReprojectPixel(i,pre,post);
+    PreOut[i]=pre;PostOut[i]=post;
 }
 [numthreads(64,1,1)]
 void Finish(uint3 id:SV_DispatchThreadID) {
@@ -161,6 +164,7 @@ class History
     ID3D12RootSignature *root{};
     ID3D12PipelineState *reproject{}, *finish{};
     UINT width{}, height{}, processingHeight{};
+    D3D12_RESOURCE_STATES preState=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
     static ID3D12Resource *Buffer(ID3D12Device *device, UINT64 bytes)
     {
@@ -198,13 +202,20 @@ public:
         if(finish) finish->Release();
     }
     bool Matches(UINT w,UINT h,UINT ph) const { return width==w && height==h && processingHeight==ph; }
-    void Create(ID3D12Device *device, UINT w, UINT h, UINT ph)
+    void Create(ID3D12Device *device, UINT w, UINT h, UINT ph, ID3D12Resource* sharedPre=nullptr)
     {
         width=w; height=h; processingHeight=ph;
         postWarp=Buffer(device,UINT64(w)*ph*16);
         previousRaw=Buffer(device,UINT64(w)*ph*16);
         previousModel=Buffer(device,UINT64(w)*ph*16);
-        preWarp=Buffer(device,UINT64(w)*ph*16);
+        if(sharedPre) {
+            // The bridge owns the HIP mapping; this extra reference survives
+            // every recording lease. COMMON is the D3D12/HIP handoff boundary.
+            auto d=sharedPre->GetDesc();
+            if(d.Dimension!=D3D12_RESOURCE_DIMENSION_BUFFER||d.Width<UINT64(w)*ph*16||
+               !(d.Flags&D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))throw std::runtime_error("history shared pre buffer");
+            preWarp=sharedPre;preWarp->AddRef();preState=D3D12_RESOURCE_STATE_COMMON;
+        } else preWarp=Buffer(device,UINT64(w)*ph*16);
         D3D12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,2,0,0,0};
         D3D12_ROOT_PARAMETER params[12]{};
         params[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[0].DescriptorTable={1,&range};
@@ -254,11 +265,11 @@ public:
         // mips and the stencil plane can be in different states in the game.
         Transition(cmd,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
         Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
-        Transition(cmd,preWarp,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Transition(cmd,preWarp,preState,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         Transition(cmd,postWarp,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         // Keep each dispatch axis below D3D12's 65535-group limit, including 4K.
         Bind(cmd,raw,output,p,heap,control); cmd->SetPipelineState(reproject); cmd->Dispatch((width+63)/64,processingHeight,1);
-        Transition(cmd,preWarp,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(cmd,preWarp,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,preState);
         Transition(cmd,postWarp,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Transition(cmd,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ms,0);
         Transition(cmd,depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ds,0);

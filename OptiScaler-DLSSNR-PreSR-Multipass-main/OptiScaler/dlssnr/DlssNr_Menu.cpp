@@ -49,13 +49,13 @@ static void ResetSharedNrDefaults(Config* config)
 static void HelpMarker(const char* tip)
 {
     ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
+    MenuUi::TextDisabled("(?)");
 
     if (ImGui::IsItemHovered())
     {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
-        ImGui::TextUnformatted(tip);
+        MenuUi::TextUnformatted(tip);
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
@@ -83,13 +83,13 @@ static bool DeferredSlider(const char* label, Option* opt, float mn, float mx,
                            float def, const char* fmt = "%.2f", bool inheritReset = false)
 {
     static std::unordered_map<ImGuiID, float> pending;
-    const ImGuiID id = ImGui::GetID(label);
+    const ImGuiID id = MenuUi::GetID(label);
 
     auto it = pending.find(id);
     float value = it != pending.end() ? it->second : (opt->has_value() ? opt->value() : def);
     bool changed = false;
 
-    if (ImGui::SliderFloat(label, &value, mn, mx, fmt))
+    if (MenuUi::SliderFloat(label, &value, mn, mx, fmt))
         pending[id] = value;
 
     if (ImGui::IsItemDeactivatedAfterEdit())
@@ -107,7 +107,7 @@ static bool DeferredSlider(const char* label, Option* opt, float mn, float mx,
     ImGui::SameLine();
 
     const std::string resetId = std::string("Reset##") + label;
-    if (ImGui::SmallButton(resetId.c_str()))
+    if (MenuUi::SmallButton(resetId.c_str()))
     {
         if (inheritReset)
             *opt = std::optional<float> {};
@@ -130,7 +130,7 @@ static bool InheritedProfileCombo(const char* label, CustomOptional<uint32_t, No
     if (opt->has_value())
         selected = std::clamp((int) opt->value(), 0, nameCount - 2) + 1;
 
-    if (!ImGui::Combo(label, &selected, names, nameCount))
+    if (!MenuUi::Combo(label, &selected, names, nameCount))
         return false;
 
     if (selected == 0)
@@ -172,16 +172,16 @@ static void ResetMochizuki(Config* config, int selectedGroup = -1,
 static bool MochizukiChoice(const char* label, std::string_view key, int* value, int low, int high)
 {
     if (key == CfgKey::MochizukiStyle || key == CfgKey::MochizukiPass2Style || key == CfgKey::MochizukiPass3Style)
-        return ImGui::Combo(label, value, "Standard\0Natural\0Cinematic\0");
+        return MenuUi::Combo(label, value, "Standard\0Natural\0Cinematic\0");
     if (key == CfgKey::MochizukiPreprocessExposure)
-        return ImGui::Combo(label, value, "Off\0Auto\0Fixed\0");
+        return MenuUi::Combo(label, value, "Off\0Auto\0Fixed\0");
     if (key == CfgKey::MochizukiPreprocessCurve)
-        return ImGui::Combo(label, value, "None\0Neutral\0Reinhard\0Filmic\0GT\0ACES\0AgX\0");
+        return MenuUi::Combo(label, value, "None\0Neutral\0Reinhard\0Filmic\0GT\0ACES\0AgX\0");
     if (key == CfgKey::MochizukiLinearInput)
-        return ImGui::Combo(label, value, "Auto\0Linear\0Encoded\0");
+        return MenuUi::Combo(label, value, "Auto\0Linear\0Encoded\0");
     if (key == CfgKey::MochizukiDynamicResolution)
-        return ImGui::Combo(label, value, "Exact\0Auto bucket\0Always bucket\0");
-    return ImGui::SliderInt(label, value, low, high);
+        return MenuUi::Combo(label, value, "Exact\0Auto bucket\0Always bucket\0");
+    return MenuUi::SliderInt(label, value, low, high);
 }
 
 // Keep rebuild-triggering edits local until mouse, keyboard or text editing finishes.
@@ -197,10 +197,10 @@ static bool RebuildSlider(const char* label, float* value, float low, float high
         ? storage->GetFloat(pendingId, *value) : *value;
     if (integer) {
         int v = static_cast<int>(pending);
-        ImGui::SliderInt(label, &v, static_cast<int>(low), static_cast<int>(high), "%d", ImGuiSliderFlags_AlwaysClamp);
+        MenuUi::SliderInt(label, &v, static_cast<int>(low), static_cast<int>(high), "%d", ImGuiSliderFlags_AlwaysClamp);
         pending = static_cast<float>(v);
     } else {
-        ImGui::SliderFloat(label, &pending, low, high, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);
+        MenuUi::SliderFloat(label, &pending, low, high, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);
     }
     const bool commit = ImGui::IsItemDeactivatedAfterEdit() && pending != *value;
     storage->SetFloat(pendingId, pending);
@@ -230,23 +230,23 @@ static bool MochizukiFloatControl(const char* label, std::string_view key, float
         *value = percent / 100.f;
         return true;
     }
-    return ImGui::SliderFloat(label, value, low, high, "%.2f");
+    return MenuUi::SliderFloat(label, value, low, high, "%.2f");
 }
 
 
 static void RenderSharedOutputEffects(Config* config)
 {
             float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
-            if (ImGui::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
+            if (MenuUi::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
                 config->NrOverallIntensity = overallIntensity;
             HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
                        "\nThis does not reduce model computation. Disable NR to save that work."
                        "\nA pure-backend session may require a restart to enable the shared effect recording path.");
             const bool isLmxxf = Backend::ActiveKindFromConfig() == Backend::Kind::Lmxxf;
             if (isLmxxf && config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
-                ImGui::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
+                MenuUi::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
             bool stabilizer = config->NrStabilizerEnabled.value_or_default();
-            if (ImGui::Checkbox("Residual Stabilizer", &stabilizer)) {
+            if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
                 config->NrStabilizerEnabled = stabilizer;
                 DlssNr::AmdBridge::InvalidateHistory();
             }
@@ -255,13 +255,13 @@ static void RenderSharedOutputEffects(Config* config)
             if (stabilizer) {
                 float alpha = config->NrStabilizerAlpha.value_or_default();
                 float threshold = config->NrStabilizerThreshold.value_or_default();
-                if (ImGui::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
-                if (ImGui::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
+                if (MenuUi::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
+                if (MenuUi::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
                 HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
                 if (isLmxxf && config->NrTimingEnabled.value_or_default())
-                    ImGui::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
+                    MenuUi::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
             }
-            if (ImGui::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
+            if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
             HelpMarker("Resets Overall Intensity and Residual Stabilizer only.");
 
 }
@@ -270,7 +270,7 @@ static void RenderEarlyCommandListWrap(Config* config)
 {
     static const char* names[] = {"auto (Unreal/Forza/Aniimo)", "force on", "force off"};
     int index = config->LmxxfEarlyExeWrap.has_value() ? (*config->LmxxfEarlyExeWrap ? 1 : 2) : 0;
-    if (ImGui::Combo("Early command-list wrap", &index, names, IM_ARRAYSIZE(names)))
+    if (MenuUi::Combo("Early command-list wrap", &index, names, IM_ARRAYSIZE(names)))
     {
         if (index == 0) config->LmxxfEarlyExeWrap.reset();
         else config->LmxxfEarlyExeWrap = (index == 1);
@@ -297,47 +297,47 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page)
         ImGui::PushID(g);
         const char* label = g == 1 ? (page == PipelineUi::Section::Input ? "Resolution" : "Model passes") :
             g == 4 ? (page == PipelineUi::Section::Input ? "Advanced input" : "Prebuild capacity") : groups[g];
-        if (ImGui::TreeNodeEx(label, (g == 0 || g == 1 || g == 5 || g == 6) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+        if (MenuUi::TreeNodeEx(label, (g == 0 || g == 1 || g == 5 || g == 6) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
         {
             bool changed = false;
 #define MZ_F(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { float v = config->name.value_or_default(); if (MochizukiFloatControl(label, CfgKey::name, &v, low, high)) { config->name = v; changed = true; } }
 #define MZ_U(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiIntegerControl(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
-#define MZ_B(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { bool v = config->name.value_or_default(); if (ImGui::Checkbox(label, &v)) { config->name = v; changed = true; } }
+#define MZ_B(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { bool v = config->name.value_or_default(); if (MenuUi::Checkbox(label, &v)) { config->name = v; changed = true; } }
 #include "backend/MochizukiOptions.inc"
 #undef MZ_F
 #undef MZ_U
 #undef MZ_B
             if (changed) AmdBridge::InvalidateHistory();
-            if (g == 0 || g == 5 || g == 6) ImGui::TextWrapped("Skin structure -1 follows Structure.");
-            if (g == 1) ImGui::TextWrapped(page == PipelineUi::Section::Input ?
+            if (g == 0 || g == 5 || g == 6) MenuUi::TextWrapped("Skin structure -1 follows Structure.");
+            if (g == 1) MenuUi::TextWrapped(page == PipelineUi::Section::Input ?
                 "Resolution edits apply when editing finishes. 50% halves width and height." :
                 "Pass edits apply when editing finishes. More passes increase GPU cost and memory.");
-            if (g == 2) ImGui::TextWrapped("History needs unjittered motion vectors. The separate Residual Stabilizer filters the final correction.");
-            if (g == 3) ImGui::TextWrapped("Preprocessing changes what the model sees and reverses that transform from its answer.");
-            if (g == 4) ImGui::TextWrapped(page == PipelineUi::Section::Input ?
+            if (g == 2) MenuUi::TextWrapped("History needs unjittered motion vectors. The separate Residual Stabilizer filters the final correction.");
+            if (g == 3) MenuUi::TextWrapped("Preprocessing changes what the model sees and reverses that transform from its answer.");
+            if (g == 4) MenuUi::TextWrapped(page == PipelineUi::Section::Input ?
                 "DRS buckets reduce rebuilds when the render size changes. White point controls linear-input brightness." :
                 "Automatic prebuild capacity grows as needed and is retained on pass reduction. Capacity is not the active pass count.");
-            if (g == 7) ImGui::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
-            if (g == 5 || g == 6) ImGui::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
-            if (ImGui::Button("Reset this group")) ResetMochizuki(config, g, page);
+            if (g == 7) MenuUi::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
+            if (g == 5 || g == 6) MenuUi::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
+            if (MenuUi::Button("Reset this group")) ResetMochizuki(config, g, page);
             ImGui::TreePop();
         }
         ImGui::PopID();
     }
-    if (ImGui::TreeNode("Diagnostics"))
+    if (MenuUi::TreeNode("Diagnostics"))
     {
-        ImGui::TextWrapped("Vulkan network timing uses completed timestamp queries. Median and p95 cover up to 120 samples; copies and whole-frame latency are separate.");
+        MenuUi::TextWrapped("Vulkan network timing uses completed timestamp queries. Median and p95 cover up to 120 samples; copies and whole-frame latency are separate.");
         bool logging = config->NrTimingLog.value_or_default();
-        if (ImGui::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
-        ImGui::TextWrapped("%s", AmdBridge::EffectsStatus().c_str());
-        if (ImGui::Button("Reset diagnostics")) {
+        if (MenuUi::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
+        MenuUi::TextWrapped("%s", AmdBridge::EffectsStatus().c_str());
+        if (MenuUi::Button("Reset diagnostics")) {
             config->NrTimingLog = std::optional<bool>{};
         }
         ImGui::TreePop();
     }
-    if (ImGui::Button("Reset this page")) ResetMochizuki(config, -1, page);
+    if (MenuUi::Button("Reset this page")) ResetMochizuki(config, -1, page);
     HelpMarker("Resets this page's mochizuki controls, including hidden later-pass overrides on the model page. Keeps shared effects and other backends.");
-    if (ImGui::Button("Reset NR settings")) { ResetMochizuki(config); ResetSharedNrDefaults(config); }
+    if (MenuUi::Button("Reset NR settings")) { ResetMochizuki(config); ResetSharedNrDefaults(config); }
     HelpMarker("Resets mochizuki and shared NR controls. Keeps other backends, selection and hotkeys.");
 }
 
@@ -352,7 +352,7 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::Spacing();
 
         bool enabled = config->DlssNrEnabled.value_or_default();
-        if (ImGui::Checkbox("Enable NR", &enabled))
+        if (MenuUi::Checkbox("Enable NR", &enabled))
             config->DlssNrEnabled = enabled;
 
         {
@@ -365,7 +365,7 @@ void RenderMenu(Config* config, float menuResScale)
             const auto issue = Backend::InstallIssue(selectedKind);
             if (!issue.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, .72f, .25f, 1.f));
-                ImGui::TextWrapped("%s", issue.c_str());
+                MenuUi::TextWrapped("%s", issue.c_str());
                 ImGui::PopStyleColor();
             }
         }
@@ -379,7 +379,7 @@ void RenderMenu(Config* config, float menuResScale)
             const char* ver = active == Kind::Mochizuki ? "mochizuki v0.0.3" : isLmxxf ? "lmxxf 0.41" : DlssNr::AmdBridge::RuntimeName();
             const bool haveVer = ver && *ver;
             HGap(0.12f);
-            ImGui::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf 0.41" : "pass1?"));
+            MenuUi::TextDisabled("%s", haveVer ? ver : (isLmxxf ? "lmxxf 0.41" : "pass1?"));
             HelpMarker(active == Kind::Mochizuki ? "AMD NR runtime: mochizuki (native D3D12 / Vulkan bridge)." : isLmxxf ? "AMD NR runtime: lmxxf (same-frame direct execution)."
                                : (haveVer ? "AMD NR runtime: danielblnc backend."
                                           : "AMD NR runtime: pass1 not identified yet."));
@@ -393,12 +393,12 @@ void RenderMenu(Config* config, float menuResScale)
                     std::lock_guard lock(config->NrBackendMutex);
                     if (auto raw = config->NrBackend.value_for_config()) selected = static_cast<int>(ParseKind(*raw));
                 }
-                if (ImGui::BeginCombo("Backend", names[selected]))
+                if (MenuUi::BeginCombo("Backend", names[selected]))
                 {
                     for (int i = 0; i < IM_ARRAYSIZE(names); ++i)
                     {
                         const auto flags = installed[i] ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled;
-                        if (ImGui::Selectable(names[i], selected == i, flags))
+                        if (MenuUi::Selectable(names[i], selected == i, flags))
                         {
                             selected = i;
                             const bool live = config->NrConvenience.value_or_default() &&
@@ -414,10 +414,10 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     ImGui::EndCombo();
                 }
-                ImGui::TextDisabled("Active: %s", Name(active));
-                if (!installed[selected]) ImGui::TextWrapped("Selected runtime is not installed. Use the package installer.");
+                MenuUi::TextDisabled("Active: %s", Name(active));
+                if (!installed[selected]) MenuUi::TextWrapped("Selected runtime is not installed. Use the package installer.");
                 else if (selected != static_cast<int>(active))
-                    ImGui::TextWrapped("Save Settings, then restart the game to use %s.", names[selected]);
+                    MenuUi::TextWrapped("Save Settings, then restart the game to use %s.", names[selected]);
                 HelpMarker("Hot switching requires NrConvenience and command-list hooks armed at startup."
                            "\nWith hot switching off, only the selected backend loads."
                            "\nClosed GPU recordings retain their resources until Reset/Release and completion.");
@@ -427,11 +427,11 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (AmdPresentExperimental::IsTarget())
         {
-            ImGui::TextWrapped("Experimental final-image neural: synthetic motion/depth, no temporal history. Includes game HUD.");
-            ImGui::TextUnformatted("One pass, 100% image resolution. Restart after resizing the output.");
+            MenuUi::TextWrapped("Experimental final-image neural: synthetic motion/depth, no temporal history. Includes game HUD.");
+            MenuUi::TextUnformatted("One pass, 100% image resolution. Restart after resizing the output.");
             float strength=config->AmdNeuralLightingStrength.value_or_default();
-            if(ImGui::SliderFloat("Tone intensity",&strength,0.f,1.f)) config->AmdNeuralLightingStrength=strength;
-            ImGui::TextWrapped("%s",AmdPresentExperimental::Status().c_str());
+            if(MenuUi::SliderFloat("Tone intensity",&strength,0.f,1.f)) config->AmdNeuralLightingStrength=strength;
+            MenuUi::TextWrapped("%s",AmdPresentExperimental::Status().c_str());
             return;
         }
 
@@ -441,7 +441,7 @@ void RenderMenu(Config* config, float menuResScale)
             const bool isLmxxf = kind == Backend::Kind::Lmxxf;
             int order = config->DlssNrRunBeforeSr.value_or_default() ? 0 : 1;
             const char* orders[] = {"NR -> SR (default)", "SR -> NR (experimental)"};
-            if (ImGui::Combo("Processing order", &order, orders, IM_ARRAYSIZE(orders)))
+            if (MenuUi::Combo("Processing order", &order, orders, IM_ARRAYSIZE(orders)))
             {
                 config->DlssNrRunBeforeSr = order == 0;
                 AmdBridge::InvalidateHistory();
@@ -461,17 +461,17 @@ void RenderMenu(Config* config, float menuResScale)
             view.enabled = config->DlssNrEnabled.value_or_default();
             view.beforeSr = order == 0;
             if (isLmxxf) {
-                view.input = config->LmxxfNetworkFreeRes.value_or_default() ? "Native input resolution" : "Network tier: " + config->LmxxfNetworkHeight.value_or_default();
-                view.model = "Style " + std::to_string(config->LmxxfStyle.value_or_default()) +
-                    std::string(" / ") + std::to_string(config->LmxxfMultiPass.value_or_default()) + " pass(es)";
+                view.input = config->LmxxfNetworkFreeRes.value_or_default() ? "Native input resolution" : MenuLocale::Translate("Network tier: ") + config->LmxxfNetworkHeight.value_or_default();
+                view.model = MenuLocale::Translate("Style ") + std::to_string(config->LmxxfStyle.value_or_default()) +
+                    std::string(" / ") + std::to_string(config->LmxxfMultiPass.value_or_default()) + MenuLocale::Translate(" pass(es)");
                 if (config->LmxxfMultiPass.value_or_default() == 3 && config->LmxxfMultiPassPredict.value_or_default())
-                    view.model += " (2 real + prediction)";
+                    view.model += MenuLocale::Translate(" (2 real + prediction)");
             } else if (kind == Backend::Kind::Mochizuki) {
-                view.input = "Model resolution: " + std::to_string(int(std::lround(config->MochizukiModelScale.value_or_default() * 100))) + "%";
-                view.model = std::to_string(config->MochizukiPasses.value_or_default()) + " pass(es) requested";
+                view.input = MenuLocale::Translate("Model resolution: ") + std::to_string(int(std::lround(config->MochizukiModelScale.value_or_default() * 100))) + "%";
+                view.model = std::to_string(config->MochizukiPasses.value_or_default()) + MenuLocale::Translate(" pass(es) requested");
             } else {
-                view.input = "Model resolution: " + std::to_string(int(std::lround(config->AmdNrScale.value_or_default() * 100))) + "%";
-                view.model = std::to_string(config->DlssNrPasses.value_or_default()) + " pass(es) configured";
+                view.input = MenuLocale::Translate("Model resolution: ") + std::to_string(int(std::lround(config->AmdNrScale.value_or_default() * 100))) + "%";
+                view.model = std::to_string(config->DlssNrPasses.value_or_default()) + MenuLocale::Translate(" pass(es) configured");
             }
             view.output = config->NrStabilizerEnabled.value_or_default() ? "Strength / residual stabilization" : "Strength / colour";
             if ((kind == Backend::Kind::Mochizuki && !config->MochizukiApplyModel.value_or_default()) ||
@@ -480,25 +480,25 @@ void RenderMenu(Config* config, float menuResScale)
             if (isLmxxf)
             {
                 bool timing = config->NrTimingEnabled.value_or_default();
-                if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
+                if (MenuUi::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
             }
-            if (ImGui::CollapsingHeader("NR flow", ImGuiTreeNodeFlags_DefaultOpen)) PipelineUi::Draw(view, page);
+            if (MenuUi::CollapsingHeader("NR flow", ImGuiTreeNodeFlags_DefaultOpen)) PipelineUi::Draw(view, page);
             else PipelineUi::Navigation(page);
-            if (!view.enabled) ImGui::TextDisabled("NR is off. These nodes describe the configured path.");
-            else ImGui::TextWrapped("%s", AmdBridge::Status().c_str());
+            if (!view.enabled) MenuUi::TextDisabled("NR is off. These nodes describe the configured path.");
+            else MenuUi::TextWrapped("%s", AmdBridge::Status().c_str());
             if (State::Instance().currentFeature && State::Instance().currentFeature->GetUpscalerType() == Upscaler::DLSSD)
-                ImGui::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
+                MenuUi::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
             if (isLmxxf && config->NrTimingEnabled.value_or_default()) {
-                ImGui::TextWrapped("Network GPU: %s (not whole NR/frame latency)",
+                MenuUi::TextWrapped("Network GPU: %s (not whole NR/frame latency)",
                     TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64()).c_str());
             }
-            ImGui::SeparatorText(PipelineUi::SectionName(page));
+            MenuUi::SeparatorText(PipelineUi::SectionName(page));
             if (page == PipelineUi::Section::Output) RenderSharedOutputEffects(config);
             if (kind == Backend::Kind::Mochizuki) {
                 RenderMochizukiMenu(config, page);
-                if (ImGui::TreeNode("Compatibility & Scheduling")) {
+                if (MenuUi::TreeNode("Compatibility & Scheduling")) {
                     bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
-                    if (ImGui::Checkbox("Allow backend hot switching (restart)", &convenience))
+                    if (MenuUi::Checkbox("Allow backend hot switching (restart)", &convenience))
                         config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
                     HelpMarker("Save and restart to change startup hook preparation. Off loads only the active backend.");
                     RenderEarlyCommandListWrap(config);
@@ -652,7 +652,7 @@ void RenderMenu(Config* config, float menuResScale)
             auto renderInput = [&]() {
                 if (isLmxxf) {
                     bool freeRes = config->LmxxfNetworkFreeRes.value_or_default();
-                    if (ImGui::Checkbox("Native input resolution", &freeRes)) {
+                    if (MenuUi::Checkbox("Native input resolution", &freeRes)) {
                         config->LmxxfNetworkFreeRes = freeRes;
                         CfgKey::PutEnvAlias(CfgKey::NetworkFreeRes, freeRes);
                         AmdBridge::InvalidateHistory();
@@ -662,7 +662,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nHigher resolutions cost more GPU time and VRAM; 4K can be several times slower than 1080p."
                                "\nOverrides tier and Compact 1080 settings within the supported processing budget."
                                "\nOutside that budget, use the tier settings below. Changes rebuild the network next frame.");
-                    if (freeRes) ImGui::TextWrapped("Tier controls below are the fallback for inputs outside the native-resolution budget.");
+                    if (freeRes) MenuUi::TextWrapped("Tier controls below are the fallback for inputs outside the native-resolution budget.");
                     const std::string net = config->LmxxfNetworkHeight.value_or_default();
                     const bool isAuto = net.empty() || net == "auto";
                     static std::string lastFixed = "1080";
@@ -670,7 +670,7 @@ void RenderMenu(Config* config, float menuResScale)
                         lastFixed = net;
 
                     bool autoTier = isAuto;
-                    if (ImGui::Checkbox("Automatic network tier", &autoTier))
+                    if (MenuUi::Checkbox("Automatic network tier", &autoTier))
                     {
                         const char *value = autoTier ? "auto" : lastFixed.c_str();
                         config->LmxxfNetworkHeight = value;
@@ -687,7 +687,7 @@ void RenderMenu(Config* config, float menuResScale)
                         int tierIdx = (lastFixed == "720") ? 0 : (lastFixed == "900") ? 1 : 2;
                         const unsigned inputH = DlssNr::Backend::LastLmxxfColorHeight();
                         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-                        if (ImGui::BeginCombo("Network tier", tiers[tierIdx]))
+                        if (MenuUi::BeginCombo("Network tier", tiers[tierIdx]))
                         {
                             for (int i = 0; i < 3; ++i)
                             {
@@ -695,7 +695,7 @@ void RenderMenu(Config* config, float menuResScale)
                                 const bool tooTall = inputH != 0 && tierH[i] > static_cast<int>(inputH);
                                 if (tooTall)
                                     ImGui::BeginDisabled();
-                                if (ImGui::Selectable(tiers[i], tierIdx == i))
+                                if (MenuUi::Selectable(tiers[i], tierIdx == i))
                                 {
                                     tierIdx = i;
                                     lastFixed = tiers[i];
@@ -710,9 +710,9 @@ void RenderMenu(Config* config, float menuResScale)
                             ImGui::EndCombo();
                         }
                     }
-                    if (ImGui::TreeNode("Advanced resolution")) {
+                    if (MenuUi::TreeNode("Advanced resolution")) {
                     bool compact = config->LmxxfNetwork1080Rows.value_or_default() == 1088;
-                    if (ImGui::Checkbox("Compact 1080 network", &compact))
+                    if (MenuUi::Checkbox("Compact 1080 network", &compact))
                     {
                         config->LmxxfNetwork1080Rows = compact ? 1088u : 1152u;
                         CfgKey::PutEnvString(CfgKey::Network1080Rows, compact ? "1088" : "1152");
@@ -725,7 +725,7 @@ void RenderMenu(Config* config, float menuResScale)
                     }
 
                     bool autoExposure = config->LmxxfAutoExposure.value_or_default();
-                    if (ImGui::Checkbox("Auto exposure", &autoExposure))
+                    if (MenuUi::Checkbox("Auto exposure", &autoExposure))
                         config->LmxxfAutoExposure = autoExposure;
                     HelpMarker("When the game does not send a usable exposure texture,"
                                "\nmeasure the frame's mean brightness once per frame and"
@@ -736,11 +736,11 @@ void RenderMenu(Config* config, float menuResScale)
                     if (!autoExposure)
                     {
                         float expScale = config->LmxxfAutoExposureScale.value_or_default();
-                        if (ImGui::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
+                        if (MenuUi::SliderFloat("Exposure scale##autoexp", &expScale, 0.5f, 64.0f, "%.2f",
                                                ImGuiSliderFlags_Logarithmic))
                             config->LmxxfAutoExposureScale = expScale;
                         ImGui::SameLine();
-                        if (ImGui::SmallButton("Reset##autoexp"))
+                        if (MenuUi::SmallButton("Reset##autoexp"))
                             config->LmxxfAutoExposureScale = 8.0f;
                         HelpMarker("Manual paper white when Auto exposure is off"
                                    "\n(including when the game sends pre-exposure)."
@@ -749,11 +749,11 @@ void RenderMenu(Config* config, float menuResScale)
                     }
 
                     float paper = config->LmxxfPaperWhite.value_or_default();
-                    if (ImGui::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
+                    if (MenuUi::SliderFloat("Codec paper white", &paper, 0.05f, 64.0f, "%.2f",
                                            ImGuiSliderFlags_Logarithmic))
                         config->LmxxfPaperWhite = paper;
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("Reset##paper"))
+                    if (MenuUi::SmallButton("Reset##paper"))
                         config->LmxxfPaperWhite = 1.0f;
                     HelpMarker("White level used by encode and decode. Default 1."
                                "\nLog slider, so 1 is easy to land on. Reset returns to 1."
@@ -763,31 +763,31 @@ void RenderMenu(Config* config, float menuResScale)
                     static float scale = 100.f;
                     static bool editingScale = false;
                     if (!editingScale) scale = config->AmdNrScale.value_or_default()*100.f;
-                    ImGui::SliderFloat("NR resolution (%)",&scale,25,100,"%.0f%%");
+                    MenuUi::SliderFloat("NR resolution (%)",&scale,25,100,"%.0f%%");
                     editingScale = ImGui::IsItemActive();
                     // Commit once after dragging or text entry, not one model rebuild per mouse move.
                     if(ImGui::IsItemDeactivatedAfterEdit()) config->AmdNrScale=scale/100.f;
                     int exposure = config->AmdUseGameExposure.value_or_default() ? 1 : 0;
-                    if (ImGui::Combo("Exposure source", &exposure, "Auto\0Game (auto fallback)\0"))
+                    if (MenuUi::Combo("Exposure source", &exposure, "Auto\0Game (auto fallback)\0"))
                         config->AmdUseGameExposure = exposure != 0;
                     HelpMarker("Exposure used by the neural model. Auto estimates brightness from the image."
                                "\nGame uses the game's exposure texture when available; otherwise it falls back to Auto."
                                "\nSeparate from the appearance filter's Exposure (EV).");
                     static const char* toneCurves[] = { "Reinhard (soft)", "ACES (filmic)" };
                     int curve = config->DlssNrToneCurve.value_or_default() ? 1 : 0;
-                    if (ImGui::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
+                    if (MenuUi::Combo("Tone curve", &curve, toneCurves, IM_ARRAYSIZE(toneCurves)))
                         config->DlssNrToneCurve = (uint32_t) curve;
                     HelpMarker("Display curve the network sees (ToneCurve)."
                                "\nReinhard usually has better colour; ACES if highlights oversaturate.");
                     DeferredSlider("Tone lift (black)", &config->DlssNrToneLift, 0.0f, 0.25f, 0.0f);
                     HelpMarker("Floor of the display curve (ToneLift / Black lift). 0 = none.");
-                    if (ImGui::TreeNode("Advanced input")) {
+                    if (MenuUi::TreeNode("Advanced input")) {
                     int encoding=std::clamp(config->AmdEncoding.value_or_default(),0,3);
-                    if(ImGui::Combo("Encoding",&encoding,"Auto (existing)\0Linear\0sRGB\0Gamma 2.2\0")) config->AmdEncoding=encoding;
+                    if(MenuUi::Combo("Encoding",&encoding,"Auto (existing)\0Linear\0sRGB\0Gamma 2.2\0")) config->AmdEncoding=encoding;
                         ImGui::TreePop();
                     }
                 }
-                if (ImGui::Button("Reset this page##input")) resetInput();
+                if (MenuUi::Button("Reset this page##input")) resetInput();
             };
             auto renderModel = [&]() {
                 if (isLmxxf) {
@@ -801,7 +801,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nPasses 2/3 add frame-sized buffers. Adaptive ViT reuse is disabled with multiple passes."
                                "\nChanging this rebuilds the network next frame; GPU timing includes all passes.");
                     bool predict = config->LmxxfMultiPassPredict.value_or_default();
-                    if (ImGui::Checkbox("Predict third pass (lossy)", &predict)) {
+                    if (MenuUi::Checkbox("Predict third pass (lossy)", &predict)) {
                         config->LmxxfMultiPassPredict = predict;
                         CfgKey::PutEnvAlias(CfgKey::MultiPassPredict, predict);
                         AmdBridge::InvalidateHistory();
@@ -810,9 +810,9 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nApproximate result; turn off for three real network passes. Passes 1/2 are unchanged by this option."
                                "\nINI: DLSS5_MULTI_PASS_PREDICT. Changes rebuild the network next frame.");
                     if (config->LmxxfMultiPass.value_or_default() == 3)
-                        ImGui::TextUnformatted(predict ? "3-pass mode: 2 real passes + prediction" : "3-pass mode: 3 real passes");
+                        MenuUi::TextUnformatted(predict ? "3-pass mode: 2 real passes + prediction" : "3-pass mode: 3 real passes");
                     bool skinProtect = config->LmxxfMultiPassSkinProtect.value_or_default();
-                    if (ImGui::Checkbox("Protect skin in later passes", &skinProtect)) {
+                    if (MenuUi::Checkbox("Protect skin in later passes", &skinProtect)) {
                         config->LmxxfMultiPassSkinProtect = skinProtect;
                         CfgKey::PutEnvAlias(CfgKey::MultiPassSkinProtect, skinProtect);
                         AmdBridge::InvalidateHistory();
@@ -821,7 +821,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nColour heuristic: may select warm scenery or miss skin under coloured lighting. Ignored with one pass."
                                "\nINI: DLSS5_MULTI_PASS_SKIN_PROTECT. Changes rebuild the network next frame.");
                     bool fast = config->LmxxfFastNumeric.value_or_default();
-                    if (ImGui::Checkbox("Fast numeric approximation", &fast)) {
+                    if (MenuUi::Checkbox("Fast numeric approximation", &fast)) {
                         config->LmxxfFastNumeric = fast;
                         CfgKey::PutEnvAlias(CfgKey::FastNumeric, fast);
                         AmdBridge::InvalidateHistory();
@@ -829,22 +829,23 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("On by default. 0.41 extends approximate math from C32/C64/C128 to ViT and C512 projection."
                                "\nOutput can differ from 0.40 even with 1/2 passes."
                                "\nOff selects the normal numeric modules. Changing this rebuilds the network next frame.");
-                    if(ImGui::CollapsingHeader("Temporal history##lmxxf")) {
+                    if(MenuUi::CollapsingHeader("Temporal history##lmxxf")) {
                         bool history=config->LmxxfModelHistory.value_or_default();
-                        if(ImGui::Checkbox("Temporal history",&history)) {
+                        if(MenuUi::Checkbox("Temporal history",&history)) {
                             config->LmxxfModelHistory=history;AmdBridge::InvalidateHistory();
                         }
                         HelpMarker("Reprojects the previous model output and uses the model's temporal blend."
                                    "\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost."
                                    "\nCurrently supports one pass before upscaling with valid motion/depth guides."
+                                   "\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained."
                                    "\nUnsupported combinations keep your settings and run without history. Default: off.");
-                        if(ImGui::SmallButton("Reset temporal history settings")) {
+                        if(MenuUi::SmallButton("Reset temporal history settings")) {
                             resetOption(config->LmxxfModelHistory);AmdBridge::InvalidateHistory();
                         }
-                        ImGui::TextWrapped("%s",AmdBridge::Status().c_str());
+                        MenuUi::TextWrapped("%s",AmdBridge::Status().c_str());
                     }
                     int style = static_cast<int>(config->LmxxfStyle.value_or_default());
-                    if (ImGui::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
+                    if (MenuUi::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
                     {
                         config->LmxxfStyle = static_cast<uint32_t>(style);
                         CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(style).c_str());
@@ -859,7 +860,7 @@ void RenderMenu(Config* config, float menuResScale)
                     {
                         static const char* qualityNames[] = { "Reference (NVIDIA-exact)", "Fast (cheaper math)" };
                         int quality = config->DlssNrQuality.value_or_default() ? 1 : 0;
-                        if (ImGui::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
+                        if (MenuUi::Combo("Quality", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
                             config->DlssNrQuality = quality ? 1 : 0;
                         HelpMarker("Quality (0.4.2+). Reference keeps NVIDIA's exact arithmetic (default)."
                                    "\nFast is usually visually equivalent and faster."
@@ -867,15 +868,15 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     static const char* styles[] = { "Standard", "Natural", "Cinematic" };
                     int style = static_cast<int>((std::min)(config->DlssNrStyle.value_or_default(), 2u));
-                    if (ImGui::Combo("Style##daniel", &style, styles, IM_ARRAYSIZE(styles)))
+                    if (MenuUi::Combo("Style##daniel", &style, styles, IM_ARRAYSIZE(styles)))
                         config->DlssNrStyle = static_cast<uint32_t>(style);
                     HelpMarker("Model appearance profile. Applies to all active passes.");
                     auto neuralSlider = [](const char* label, auto& option, float lo, float hi) {
                         auto storage=ImGui::GetStateStorage();
-                        const ImGuiID id=ImGui::GetID(label);
+                        const ImGuiID id=MenuUi::GetID(label);
                         const ImGuiID activeId=id ^ 0x6e72534cu;
                         float value=storage->GetBool(activeId,false)?storage->GetFloat(id):option.value_or_default();
-                        ImGui::SliderFloat(label,&value,lo,hi);
+                        MenuUi::SliderFloat(label,&value,lo,hi);
                         const bool active=ImGui::IsItemActive();
                         const bool commit=ImGui::IsItemDeactivatedAfterEdit();
                         storage->SetFloat(id,value);storage->SetBool(activeId,active);
@@ -885,29 +886,29 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("Model lighting and colour response. Applied on the first pass."
                                "\nSeparate from Tone strength in the appearance filter.");
                     bool toneChannels = config->AmdToneChannels.value_or(config->AmdNeuralLightingStrength.value_or_default() > 0);
-                    if (ImGui::Checkbox("Broad structure channel", &toneChannels))
+                    if (MenuUi::Checkbox("Broad structure channel", &toneChannels))
                         config->AmdToneChannels = toneChannels;
                     HelpMarker("Enable the broad structure response in addition to the character channels.");
                     neuralSlider("AMD structure", config->DlssNrLocalStructure, 0, 2);
                     bool autoMask = config->DlssNrAutoMask.value_or_default();
-                    if (ImGui::Checkbox("Model character mask", &autoMask))
+                    if (MenuUi::Checkbox("Model character mask", &autoMask))
                         config->DlssNrAutoMask = autoMask;
                     HelpMarker("Enable the model's semantic character channels."
                                "\nSeparate from Automatic skin mask in the appearance filter.");
                     ImGui::BeginDisabled(!autoMask);
                     bool skinAuto = config->DlssNrSkinStructure.value_or_default() < 0;
-                    if (ImGui::Checkbox("Skin structure follows structure", &skinAuto))
+                    if (MenuUi::Checkbox("Skin structure follows structure", &skinAuto))
                         config->DlssNrSkinStructure = skinAuto ? -1.0f : config->DlssNrLocalStructure.value_or_default();
                     if (!skinAuto)
                         neuralSlider("AMD character structure", config->DlssNrSkinStructure, 0, 2);
                     ImGui::EndDisabled();
                 }
-            if (isLmxxf && ImGui::TreeNode("ViT / image reuse"))
+            if (isLmxxf && MenuUi::TreeNode("ViT / image reuse"))
             {
                 {
                     auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
                         bool v = opt.value_or_default();
-                        if (ImGui::Checkbox(label, &v))
+                        if (MenuUi::Checkbox(label, &v))
                         {
                             opt = v;
                             CfgKey::PutEnvAlias(key, v);
@@ -920,7 +921,7 @@ void RenderMenu(Config* config, float menuResScale)
                     if (vitStream < 0 || vitStream > 3)
                         vitStream = 3;
                     bool vitByte = config->LmxxfVitByteStream.value_or_default();
-                    if (ImGui::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
+                    if (MenuUi::Combo("ViT stream (exp)", &vitStream, "Off\0AV FP8\0Contract F16\0Both\0"))
                     {
                         config->LmxxfVitStream = vitStream;
                         char buf[8];
@@ -935,7 +936,7 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     if (vitStream != 0)
                         ImGui::BeginDisabled();
-                    if (ImGui::Checkbox("ViT byte stream (exp)", &vitByte))
+                    if (MenuUi::Checkbox("ViT byte stream (exp)", &vitByte))
                     {
                         if (vitByte)
                         {
@@ -959,8 +960,10 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nEnabling ViT byte stream turns off adaptive reuse."
                                "\nApplies on the next network rebuild.");
                 }
-                bool adapt = config->LmxxfVitAdaptive.value_or_default();
-                if (ImGui::Checkbox("ViT adaptive reuse", &adapt))
+                const bool historyBlocksReuse = config->LmxxfModelHistory.value_or_default();
+                bool adapt = !historyBlocksReuse && config->LmxxfVitAdaptive.value_or_default();
+                ImGui::BeginDisabled(historyBlocksReuse);
+                if (MenuUi::Checkbox("ViT adaptive reuse", &adapt))
                 {
                     if (adapt)
                     {
@@ -972,7 +975,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
                 ImGui::BeginDisabled(!adapt);
                 int period = config->LmxxfVitReusePeriod.value_or_default();
-                if (ImGui::SliderInt("Reuse period", &period, 1, 16))
+                if (MenuUi::SliderInt("Reuse period", &period, 1, 16))
                 {
                     config->LmxxfVitReusePeriod = period;
                     char buf[32];
@@ -980,7 +983,7 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitReusePeriod, buf);
                 }
                 float gl = config->LmxxfVitReuseGlobal.value_or_default();
-                if (ImGui::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
+                if (MenuUi::SliderFloat("Reuse global", &gl, 0.f, 2.f, "%.2f"))
                 {
                     config->LmxxfVitReuseGlobal = gl;
                     char buf[32];
@@ -988,7 +991,7 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitReuseGlobal, buf);
                 }
                 float lo = config->LmxxfVitReuseLocal.value_or_default();
-                if (ImGui::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
+                if (MenuUi::SliderFloat("Reuse local", &lo, 0.f, 50.f, "%.2f"))
                 {
                     config->LmxxfVitReuseLocal = lo;
                     char buf[32];
@@ -996,7 +999,7 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitReuseLocal, buf);
                 }
                 float im = config->LmxxfVitReuseImage.value_or_default();
-                if (ImGui::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
+                if (MenuUi::SliderFloat("Reuse image", &im, 0.f, 2.f, "%.2f"))
                 {
                     config->LmxxfVitReuseImage = im;
                     char buf[32];
@@ -1004,14 +1007,18 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
                 }
                 ImGui::EndDisabled();
+                ImGui::EndDisabled();
+                if (historyBlocksReuse)
+                    MenuUi::TextWrapped("ViT adaptive reuse is unavailable while Temporal history is enabled. Your settings are retained.");
                 HelpMarker("Static frames reuse ViT; motion returns to full cost."
+                           "\nTemporarily incompatible with Temporal history due to flicker."
                            "\nEnabling adaptive reuse turns off ViT byte stream."
                            "\nStrength sliders are tunable (not bit-exact)."
                            "\nApplies on the next network rebuild.");
-                if (ImGui::Button("Reset this group##Vit")) resetVit();
+                if (MenuUi::Button("Reset this group##Vit")) resetVit();
                 ImGui::TreePop();
             }
-                if (ImGui::Button("Reset this page##model")) {
+                if (MenuUi::Button("Reset this page##model")) {
                     resetModel();
                     if (isLmxxf) resetVit();
                 }
@@ -1019,7 +1026,7 @@ void RenderMenu(Config* config, float menuResScale)
             auto renderOutput = [&]() {
                 if (isLmxxf) {
                     float transfer = config->DlssNrTransferStrength.value_or_default();
-                    if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
+                    if (MenuUi::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
                         config->DlssNrTransferStrength = transfer;
                     HelpMarker("How much of the network's detail replaces the upscaler picture."
                                "\n0 is the upscaler picture. 1 is the network result."
@@ -1027,25 +1034,25 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nApplies on the next frame. No restart.");
 
                     float colour = config->DlssNrColourStrength.value_or_default();
-                    if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
+                    if (MenuUi::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
                         config->DlssNrColourStrength = colour;
                     HelpMarker("How much of the network's colour replaces the game's hue."
                                "\n0: game image as-is (except brightness from Transfer)."
                                "\n1: network brightness, game colour (safest for saturated scenes)."
                                "\nAbove 1 blends toward the full network colour (toy; can tint)."
                                "\nApplies on the next frame. No restart.");
-                    if (ImGui::Button("Reset backend output")) resetOutput();
+                    if (MenuUi::Button("Reset backend output")) resetOutput();
                 }
             if (!isLmxxf) {
-                if (ImGui::TreeNode("Additional Effects")) {
-                    if (ImGui::TreeNode("Appearance and tonemap"))
+                if (MenuUi::TreeNode("Additional Effects")) {
+                    if (MenuUi::TreeNode("Appearance and tonemap"))
                     {
                         bool lookEnabled = config->AmdLookEnabled.value_or_default();
-                        if (ImGui::Checkbox("Enable appearance filter", &lookEnabled)) config->AmdLookEnabled = lookEnabled;
+                        if (MenuUi::Checkbox("Enable appearance filter", &lookEnabled)) config->AmdLookEnabled = lookEnabled;
                         ImGui::BeginDisabled(!lookEnabled);
                         auto slider = [](const char* label, auto& option, float lo, float hi) {
                             float value = option.value_or_default();
-                            if (ImGui::SliderFloat(label, &value, lo, hi)) option = value;
+                            if (MenuUi::SliderFloat(label, &value, lo, hi)) option = value;
                         };
                         slider("Effect mix", config->AmdLookMix, 0, 1);
                         slider("Material detail", config->AmdLookMaterialDetail, 0, 2);
@@ -1060,37 +1067,37 @@ void RenderMenu(Config* config, float menuResScale)
                         slider("Edge/halo protection", config->AmdLookAntiHalo, 0, 1);
                         slider("Flat/noisy area protection", config->AmdLookFlatAreaProtection, 0, 1);
                         bool detectSkin = config->AmdLookDetectSkin.value_or_default();
-                        if (ImGui::Checkbox("Automatic skin mask", &detectSkin)) config->AmdLookDetectSkin = detectSkin;
+                        if (MenuUi::Checkbox("Automatic skin mask", &detectSkin)) config->AmdLookDetectSkin = detectSkin;
                         ImGui::Separator();
-                        ImGui::TextUnformatted("Tonemap");
+                        MenuUi::TextUnformatted("Tonemap");
                         slider("Tone strength", config->AmdLookTone, 0, 1);
                         slider("Exposure (EV)", config->AmdLookExposureEV, -3, 3);
                         slider("Contrast", config->AmdLookContrast, 0.5, 1.5);
                         slider("Saturation", config->AmdLookSaturation, 0, 2);
                         slider("Highlight compression", config->AmdLookHighlightCompression, 0, 1);
                         int inspect = static_cast<int>(config->AmdLookInspect.value_or_default());
-                        if (ImGui::Combo("Inspect", &inspect, "Final image\0Skin mask\0Material residual\0Local lighting\0"))
+                        if (MenuUi::Combo("Inspect", &inspect, "Final image\0Skin mask\0Material residual\0Local lighting\0"))
                             config->AmdLookInspect = static_cast<uint32_t>(inspect);
                         ImGui::EndDisabled();
-                        if (ImGui::Button("Reset to defaults"))
+                        if (MenuUi::Button("Reset to defaults"))
                         {
                             resetAppearance();
                         }
                         ImGui::TreePop();
                     }
-                    if (ImGui::TreeNode("Lighting (experimental)"))
+                    if (MenuUi::TreeNode("Lighting (experimental)"))
                     {
                         ImGui::PushID("RTGI");
                         bool enabled = config->AmdRtgiEnabled.value_or_default();
-                        if (ImGui::Checkbox("Enable effect", &enabled)) config->AmdRtgiEnabled = enabled;
+                        if (MenuUi::Checkbox("Enable effect", &enabled)) config->AmdRtgiEnabled = enabled;
                         auto slider = [](const char* label, auto& option, float lo, float hi) {
                             float value = option.value_or_default();
-                            if (ImGui::SliderFloat(label, &value, lo, hi)) option = value;
+                            if (MenuUi::SliderFloat(label, &value, lo, hi)) option = value;
                         };
                         int quality = config->AmdRtgiQuality.value_or_default();
-                        if (ImGui::Combo("Quality", &quality, "Very low\0Low\0Medium\0High\0Ultra\0")) config->AmdRtgiQuality = uint32_t(quality);
+                        if (MenuUi::Combo("Quality", &quality, "Very low\0Low\0Medium\0High\0Ultra\0")) config->AmdRtgiQuality = uint32_t(quality);
                         int denoiser = config->AmdRtgiDenoiser.value_or_default();
-                        if (ImGui::Combo("Denoiser", &denoiser, "Low\0Medium\0High\0")) config->AmdRtgiDenoiser = uint32_t(denoiser);
+                        if (MenuUi::Combo("Denoiser", &denoiser, "Low\0Medium\0High\0")) config->AmdRtgiDenoiser = uint32_t(denoiser);
                         slider("Effect mix", config->AmdRtgiMix, 0, 1);
                         slider("Contact shading", config->AmdRtgiContact, 0, 2);
                         slider("Bounce saturation", config->AmdRtgiSaturation, 0, 2);
@@ -1104,8 +1111,8 @@ void RenderMenu(Config* config, float menuResScale)
                         slider("Camera FOV", config->AmdRtgiFov, 20, 140);
                         slider("Depth range", config->AmdRtgiFarPlane, 10, 10000);
                         int inspect = config->AmdRtgiInspect.value_or_default();
-                        if (ImGui::Combo("Inspect", &inspect, "Final image\0Lighting\0")) config->AmdRtgiInspect = uint32_t(inspect);
-                        if (ImGui::Button("Reset to defaults"))
+                        if (MenuUi::Combo("Inspect", &inspect, "Final image\0Lighting\0")) config->AmdRtgiInspect = uint32_t(inspect);
+                        if (MenuUi::Button("Reset to defaults"))
                         {
                             resetLighting();
                         }
@@ -1114,7 +1121,7 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     ImGui::TreePop();
                 }
-                if (ImGui::Button("Reset backend output")) { resetAppearance(); resetLighting(); }
+                if (MenuUi::Button("Reset backend output")) { resetAppearance(); resetLighting(); }
             }
             };
             switch (page) {
@@ -1123,17 +1130,17 @@ void RenderMenu(Config* config, float menuResScale)
             case PipelineUi::Section::Output: renderOutput(); break;
             }
             ImGui::Separator();
-            if (ImGui::TreeNode("Compatibility & Scheduling")) {
+            if (MenuUi::TreeNode("Compatibility & Scheduling")) {
                 {
                     bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
                     static bool convenienceDirty = false;
-                    if (ImGui::Checkbox("Allow backend hot switching", &convenience))
+                    if (MenuUi::Checkbox("Allow backend hot switching", &convenience))
                     {
                         config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
                         convenienceDirty = true;
                     }
                     if (convenienceDirty)
-                        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
+                        MenuUi::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
                                            "Restart the game to apply hot-switch setting.");
                     HelpMarker("On (default): prepare hot switching when lmxxf is installed. Restart after changing."
                                "\nOff: start with only the selected backend; changing backends needs a game restart."
@@ -1141,7 +1148,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
                 if (isLmxxf) {
                     bool fallback = config->LmxxfFormatFallback.value_or_default();
-                    if (ImGui::Checkbox("Additional colour formats", &fallback))
+                    if (MenuUi::Checkbox("Additional colour formats", &fallback))
                     {
                         config->LmxxfFormatFallback = fallback;
                         CfgKey::PutEnvAlias(CfgKey::FormatFallback, fallback);
@@ -1157,7 +1164,7 @@ void RenderMenu(Config* config, float menuResScale)
                         pdlAtStartCaptured = true;
                     }
                     bool pdl = config->LmxxfPdl.value_or_default();
-                    if (ImGui::Checkbox("PDL chained launch", &pdl))
+                    if (MenuUi::Checkbox("PDL chained launch", &pdl))
                     {
                         config->LmxxfPdl = pdl;
                         CfgKey::PutEnvAlias(CfgKey::Pdl, pdl);
@@ -1170,19 +1177,19 @@ void RenderMenu(Config* config, float menuResScale)
                     if (!pdl)
                     {
                         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
-                        ImGui::TextWrapped(
+                        MenuUi::TextWrapped(
                             "Only turn this off when neural rendering fails to start and the log says "
                             "missing HIP export hipExtModuleLaunchKernel. Otherwise leave it on.");
                         ImGui::PopStyleColor();
                     }
                     if (pdl != pdlAtStart)
                     {
-                        ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
+                        MenuUi::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
                                            "Save Settings and restart to apply the changes");
                     }
                     {
                         bool eb = config->LmxxfAllowEnhancedBarriers.value_or_default();
-                        if (ImGui::Checkbox("Allow enhanced barriers", &eb))
+                        if (MenuUi::Checkbox("Allow enhanced barriers", &eb))
                         {
                             config->LmxxfAllowEnhancedBarriers = eb;
                         }
@@ -1193,7 +1200,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
                 else {
                     bool everyFrame = config->AmdEveryFrame.value_or_default();
-                    if (ImGui::Checkbox("Every-frame", &everyFrame))
+                    if (MenuUi::Checkbox("Every-frame", &everyFrame))
                         config->AmdEveryFrame = everyFrame;
                     HelpMarker("Off: Temporal history on, skip a frame if the previous network is"
                                "\nstill busy. Closer to 60 FPS; more ghosting because FSR also accumulates."
@@ -1211,24 +1218,24 @@ void RenderMenu(Config* config, float menuResScale)
                     std::snprintf(slotPreview, sizeof(slotPreview), "%d", shown);
 
                     ImGui::AlignTextToFramePadding();
-                    ImGui::TextUnformatted("NR slots");
+                    MenuUi::TextUnformatted("NR slots");
                     HGap(0.15f);
                     // Width fits one digit plus the arrow, with padding — not a full-width
                     // bar, and not so tight that the arrow covers the number.
                     {
-                        const float digitW = ImGui::CalcTextSize(slotPreview).x;
+                        const float digitW = MenuUi::CalcTextSize(slotPreview).x;
                         const float arrowW = ImGui::GetFrameHeight();
                         const float padX = ImGui::GetStyle().FramePadding.x;
                         const float comboW = digitW + arrowW + padX * 4.0f;
                         ImGui::SetNextItemWidth(std::max(comboW, ImGui::GetFontSize() * 3.2f));
                     }
-                    if (ImGui::BeginCombo("##AmdSlots", slotPreview))
+                    if (MenuUi::BeginCombo("##AmdSlots", slotPreview))
                     {
                         for (int s = 2; s <= 5; ++s)
                         {
                             char item[8] {};
                             std::snprintf(item, sizeof(item), "%d", s);
-                            if (ImGui::Selectable(item, shown == s))
+                            if (MenuUi::Selectable(item, shown == s))
                                 config->AmdSlots = s;
                         }
                         ImGui::EndCombo();
@@ -1251,7 +1258,7 @@ void RenderMenu(Config* config, float menuResScale)
                     if (stored < 2)
                     {
                         // Own line under the slot control; New wait starts below it.
-                        ImGui::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
+                        MenuUi::TextDisabled("(ini has NR slots = 1: single-slot mode, not selectable here)");
                     }
                     else
                     {
@@ -1265,49 +1272,49 @@ void RenderMenu(Config* config, float menuResScale)
                         std::clamp(config->DlssNrPasses.value_or_default(), 1u, 3u));
                     const bool restartNeeded = !submissionActive && newWait && restartToTryNewWait;
                     ImGui::BeginDisabled(submissionActive);
-                    if (ImGui::Checkbox(restartNeeded ? "New wait mode (restart)" : "New wait mode", &newWait))
+                    if (MenuUi::Checkbox(restartNeeded ? "New wait mode (restart)" : "New wait mode", &newWait))
                     {
                         config->AmdGraphicsWait = newWait ? 1 : 0;
                         if (newWait && restartToTryNewWait)
-                            ImGui::OpenPopup("New wait restart");
+                            MenuUi::OpenPopup("New wait restart");
                     }
                     ImGui::EndDisabled();
                     if (submissionActive)
-                        ImGui::TextDisabled("Original wait is active while NR submission hooks are enabled.");
+                        MenuUi::TextDisabled("Original wait is active while NR submission hooks are enabled.");
                     HelpMarker("On: New wait mode (0.3.1 1-pixel draw). Still being tested."
                                "\nOff: Original wait mode (switches immediately)."
                                "\nRestart if prompted: hooks or a pass may not be ready for new wait mode."
                                "\nFrames that cannot use new wait mode still fall back to original wait.");
-                    if (ImGui::BeginPopupModal("New wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                    if (MenuUi::BeginPopupModal("New wait restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
                     {
-                        ImGui::TextUnformatted("Some NR processing still uses original wait.");
-                        ImGui::TextUnformatted("Restart the game to retry new-wait initialization.");
-                        if (ImGui::Button("OK"))
+                        MenuUi::TextUnformatted("Some NR processing still uses original wait.");
+                        MenuUi::TextUnformatted("Restart the game to retry new-wait initialization.");
+                        if (MenuUi::Button("OK"))
                             ImGui::CloseCurrentPopup();
                         ImGui::EndPopup();
                     }
                     {
                         bool inlineWait = config->AmdInline.value_or_default() != 0;
-                        if (ImGui::Checkbox("Inline same-frame wait", &inlineWait))
+                        if (MenuUi::Checkbox("Inline same-frame wait", &inlineWait))
                             config->AmdInline = inlineWait ? 1 : 0;
                         HelpMarker("On (default): game waits for NR in the same frame (historical path)."
                                    "\nOff: async (daniel Async=1); pre-upscale is forced off because it requires inline."
                                    "\nSaved to dlssnr_on_amd.ini only with Save Settings. Restart may be required.");
                     }
                     bool qprio = config->AmdQueuePriority.value_or_default() != 0;
-                    if (ImGui::Checkbox("HIP high-priority queue", &qprio))
+                    if (MenuUi::Checkbox("HIP high-priority queue", &qprio))
                         config->AmdQueuePriority = qprio ? 1 : 0;
                     HelpMarker("QueuePriority=1: high-priority HIP stream (helps under heavy load)."
                                "\nOff: null stream (QueuePriority=0)."
                                "\nSaved to dlssnr_on_amd.ini only with Save Settings.");
                 }
-                if (ImGui::Button("Reset this group##Compatibility & Scheduling")) resetScheduling();
+                if (MenuUi::Button("Reset this group##Compatibility & Scheduling")) resetScheduling();
                 ImGui::TreePop();
             }
             if (isLmxxf) {
-                if (ImGui::TreeNode("Advanced Kernels")) {
+                if (MenuUi::TreeNode("Advanced Kernels")) {
                     bool fitLarge = config->LmxxfFitLarge.value_or_default();
-                    if (ImGui::Checkbox("High resolution", &fitLarge))
+                    if (MenuUi::Checkbox("High resolution", &fitLarge))
                     {
                         config->LmxxfFitLarge = fitLarge;
                         // Label is UI-only; ini key is CfgKey::FitLarge (env alias wins over txt).
@@ -1344,7 +1351,7 @@ void RenderMenu(Config* config, float menuResScale)
                                 skippedLoaded = skipped;
                                 skippedInvalid = false;
                             }
-                            if (ImGui::InputText("Base skipped blocks (all passes)", skippedInput, sizeof skippedInput,
+                            if (MenuUi::InputText("Base skipped blocks (all passes)", skippedInput, sizeof skippedInput,
                                                  ImGuiInputTextFlags_EnterReturnsTrue))
                             {
                                 std::string normalized;
@@ -1357,7 +1364,7 @@ void RenderMenu(Config* config, float menuResScale)
                                 }
                             }
                             if (skippedInvalid || !supported(skipped))
-                                ImGui::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
+                                MenuUi::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
                             HelpMarker("Upstream default since 0.40: none (all blocks). This base list applies to every real network pass."
                                        "\nOptional: enter 42,43,46 to skip the three blocks used by the pre-0.40 default. Enter none to run all blocks again."
                                        "\nThe field below adds skips only in passes 2/3. Skipping changes quality and style."
@@ -1370,7 +1377,7 @@ void RenderMenu(Config* config, float menuResScale)
                             static bool invalid = false;
                             const auto current = config->LmxxfMultiPassSkipBlocks.value_or_default();
                             if (loaded != current) { snprintf(blocks, sizeof blocks, "%s", current.c_str()); loaded = current; invalid = false; }
-                            if (ImGui::InputText("Extra skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            if (MenuUi::InputText("Extra skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
                                 std::string normalized;
                                 invalid = !CfgKey::NormalizeSkipBlocks(blocks, normalized) || !supported(normalized);
                                 if (!invalid) {
@@ -1379,7 +1386,7 @@ void RenderMenu(Config* config, float menuResScale)
                                     AmdBridge::InvalidateHistory();
                                 }
                             }
-                            if (invalid || !supported(current)) ImGui::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
+                            if (invalid || !supported(current)) MenuUi::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
                             HelpMarker("Default none. Added to the base skip list only for real network passes 2/3; pass 1 is unchanged."
                                        "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
                                        "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."
@@ -1391,7 +1398,7 @@ void RenderMenu(Config* config, float menuResScale)
                     {
                         auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
                             bool v = opt.value_or_default();
-                            if (ImGui::Checkbox(label, &v))
+                            if (MenuUi::Checkbox(label, &v))
                             {
                                 opt = v;
                                 CfgKey::PutEnvAlias(key, v);
@@ -1407,46 +1414,46 @@ void RenderMenu(Config* config, float menuResScale)
                         kernelToggle("Decoder byte", config->LmxxfDecoderByte, CfgKey::DecoderByte);
                     }
 
-                    if (ImGui::Button("Reset this group##Advanced Kernels")) resetKernels();
+                    if (MenuUi::Button("Reset this group##Advanced Kernels")) resetKernels();
                     ImGui::TreePop();
                 }
             }
-            if (ImGui::TreeNode("Diagnostics")) {
+            if (MenuUi::TreeNode("Diagnostics")) {
                 const auto effectsStatus = DlssNr::AmdBridge::EffectsStatus();
-                if (!effectsStatus.empty()) ImGui::TextWrapped("%s", effectsStatus.c_str());
-                ImGui::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
+                if (!effectsStatus.empty()) MenuUi::TextWrapped("%s", effectsStatus.c_str());
+                MenuUi::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
                 if (isLmxxf)
                 {
-                    ImGui::TextWrapped("lmxxf HIP backend. Same-frame execution at the selected processing stage.");
-                    ImGui::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Measurement uses non-blocking HIP events and leaves PDL unchanged.");
+                    MenuUi::TextWrapped("lmxxf HIP backend. Same-frame execution at the selected processing stage.");
+                    MenuUi::TextWrapped("NR GPU measures the HIP network. Display uses a 5-sample median after warm-up. Measurement uses non-blocking HIP events and leaves PDL unchanged.");
                     const bool timingEnabled = config->NrTimingEnabled.value_or_default();
                     bool timingLog = config->NrTimingLog.value_or_default();
-                    if (ImGui::Checkbox("Write timing summary to log", &timingLog)) config->NrTimingLog = timingLog;
+                    if (MenuUi::Checkbox("Write timing summary to log", &timingLog)) config->NrTimingLog = timingLog;
                     HelpMarker("Requires measurement and file logging. At most one summary every five seconds.");
                     if (timingEnabled) {
                         const auto snapshot = DlssNr::AmdBridge::Timing();
                         const auto now = GetTickCount64();
-                        ImGui::TextWrapped("NR GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_NETWORK, now, true).c_str());
-                        ImGui::TextWrapped("Encode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_ENCODE, now, true).c_str());
-                        ImGui::TextWrapped("Decode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_DECODE, now, true).c_str());
-                        if (ImGui::TreeNode("CPU timing and sample diagnostics")) {
+                        MenuUi::TextWrapped("NR GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_NETWORK, now, true).c_str());
+                        MenuUi::TextWrapped("Encode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_ENCODE, now, true).c_str());
+                        MenuUi::TextWrapped("Decode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_DECODE, now, true).c_str());
+                        if (MenuUi::TreeNode("CPU timing and sample diagnostics")) {
                             const char* labels[] = {"Prepare", "Enqueue", "Rebuild", "Drain"};
                             for (unsigned i = 0; i < 4; ++i)
-                                ImGui::TextWrapped("%s CPU: %s", labels[i], DlssNr::TimingValueText(snapshot, i, now, true).c_str());
-                            ImGui::Text("Dropped samples: %llu", static_cast<unsigned long long>(snapshot.dropped));
+                                MenuUi::TextWrapped("%s CPU: %s", labels[i], DlssNr::TimingValueText(snapshot, i, now, true).c_str());
+                            MenuUi::Text("Dropped samples: %llu", static_cast<unsigned long long>(snapshot.dropped));
                             ImGui::TreePop();
                         }
                     }
                 }
                 else
                 {
-                    ImGui::TextWrapped("AMD HIP backend. Each pass owns independent temporal history. More passes increase GPU time and memory. Restart the game after a backend failure.");
+                    MenuUi::TextWrapped("AMD HIP backend. Each pass owns independent temporal history. More passes increase GPU time and memory. Restart the game after a backend failure.");
                 }
                 if (isLmxxf) {
                     static const char* debugNames[] = { "Off", "Proxy (what the model sees)",
                                                         "Model output (raw)", "Difference (amplified)" };
                     int debugView = (int) config->DlssNrDebugView.value_or_default();
-                    if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
+                    if (MenuUi::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
                         config->DlssNrDebugView = (uint32_t) debugView;
                     HelpMarker("Off is the normal picture."
                                "\nProxy is what the network is shown. Model output is its raw answer."
@@ -1455,7 +1462,7 @@ void RenderMenu(Config* config, float menuResScale)
 
                 }
                 else {
-                    ImGui::TextWrapped(
+                    MenuUi::TextWrapped(
                         "daniel extras live in dlssnr_on_amd.ini [DlssNrOnAmd]: PollSpacing,"
                         " OverlayKey, HipDevice, InlineWaitMs, ..."
                         "\nIns menu / OptiScaler.ini win on Save for keys this menu exposes."
@@ -1463,7 +1470,7 @@ void RenderMenu(Config* config, float menuResScale)
                         "\nProcess env (advanced, no Ins toggle): DLSSNR_NO_REG, DLSSNR_CHAIN,"
                         " DLSSNR_NOBLEND, DLSSNR_NO_REPACK, DLSSNR_WBLOG.");
                 }
-                if (isLmxxf && ImGui::Button("Reset diagnostics"))
+                if (isLmxxf && MenuUi::Button("Reset diagnostics"))
                 {
                     resetOption(config->NrTimingEnabled);
                     resetOption(config->NrTimingLog);
@@ -1471,7 +1478,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
                 ImGui::TreePop();
             }
-            if (ImGui::Button("Reset NR settings")) {
+            if (MenuUi::Button("Reset NR settings")) {
                 ResetSharedNrDefaults(config);
                 resetInput(); resetModel(); resetOutput(); resetScheduling();
                 if (isLmxxf) { resetKernels(); resetVit(); resetOption(config->DlssNrDebugView); }
@@ -1489,7 +1496,7 @@ void RenderMenu(Config* config, float menuResScale)
                    "\nUndocumented and driven directly, so none of this is officially supported.");
 
         bool beforeSr = config->DlssNrRunBeforeSr.value_or_default();
-        if (ImGui::Checkbox("Apply before Super Resolution", &beforeSr))
+        if (MenuUi::Checkbox("Apply before Super Resolution", &beforeSr))
             config->DlssNrRunBeforeSr = beforeSr;
 
         HelpMarker("Runs Neural Rendering on the render-resolution colour input immediately before"
@@ -1501,7 +1508,7 @@ void RenderMenu(Config* config, float menuResScale)
                    "\nDirect3D 11/Vulkan bridges; native Vulkan keeps the post-upscale path.");
 
         bool afterRR = config->DlssNrApplyAfterRR.value_or_default();
-        if (ImGui::Checkbox("Apply after Ray Reconstruction (DX12)", &afterRR))
+        if (MenuUi::Checkbox("Apply after Ray Reconstruction (DX12)", &afterRR))
             config->DlssNrApplyAfterRR = afterRR;
         HelpMarker("Requires the game's native Ray Reconstruction option. RR denoises and upscales"
                    "\nfirst; NR then processes its output before frame generation."
@@ -1509,10 +1516,10 @@ void RenderMenu(Config* config, float menuResScale)
                    "\nIndependent controls below prevent inheriting the cost of the SR configuration."
                    "\nNative Vulkan does not use these DX12 controls.");
         int rrPasses = (int) config->DlssNrRRPasses.value_or_default();
-        if (ImGui::SliderInt("NR passes after RR", &rrPasses, 1, (int) MaxPassCount))
+        if (MenuUi::SliderInt("NR passes after RR", &rrPasses, 1, (int) MaxPassCount))
             config->DlssNrRRPasses = (unsigned int) rrPasses;
         float rrScale = config->DlssNrRRWorkingScale.value_or_default();
-        if (ImGui::SliderFloat("NR model scale after RR", &rrScale, 0.25f, 2.0f, "%.2fx"))
+        if (MenuUi::SliderFloat("NR model scale after RR", &rrScale, 0.25f, 2.0f, "%.2fx"))
             config->DlssNrRRWorkingScale = rrScale;
         HelpMarker("Relative to RR's OUTPUT resolution: 0.50x at 4K runs NR at 1920x1080."
                    "\nRR itself remains full quality. The NR edit is resized for final composition."
@@ -1520,10 +1527,10 @@ void RenderMenu(Config* config, float menuResScale)
 
         // The toggle can be bound to a key, and nobody would think to look for it under Keybinds
         // unless told. Dimmed, because it is a note rather than a setting.
-        ImGui::TextDisabled("Can be toggled with a key -- bind it under Keybinds, \"Neural Rendering\".");
+        MenuUi::TextDisabled("Can be toggled with a key -- bind it under Keybinds, \"Neural Rendering\".");
 
         bool applyModel = config->DlssNrApplyModel.value_or_default();
-        if (ImGui::Checkbox("Apply the model", &applyModel))
+        if (MenuUi::Checkbox("Apply the model", &applyModel))
             config->DlssNrApplyModel = applyModel;
 
         HelpMarker("Whether the model's edit is applied. Off shows the clean upscaler frame while the"
@@ -1542,7 +1549,7 @@ void RenderMenu(Config* config, float menuResScale)
         // moment it describes the frame before last.
         if (!enabled)
         {
-            ImGui::TextDisabled("Off. The model stays loaded, so turning this back on is immediate.");
+            MenuUi::TextDisabled("Off. The model stays loaded, so turning this back on is immediate.");
         }
         else if (!DlssNr::IsRunning() && !vulkan)
         {
@@ -1550,14 +1557,14 @@ void RenderMenu(Config* config, float menuResScale)
 
             if (reason[0] != 0)
             {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "Off for this session: %s.", reason);
+                MenuUi::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "Off for this session: %s.", reason);
                 ImGui::SameLine();
 
-                if (ImGui::SmallButton("Retry"))
+                if (MenuUi::SmallButton("Retry"))
                     DlssNr::RetryAfterFailure();
             }
             else if (enabled)
-                ImGui::TextUnformatted("Waiting for the upscaler to run.");
+                MenuUi::TextUnformatted("Waiting for the upscaler to run.");
         }
         else
         {
@@ -1575,19 +1582,19 @@ void RenderMenu(Config* config, float menuResScale)
                 !config->DlssNrApplyModel.value_or_default() ? "  (model running, edit hidden)" : "";
 
             if (ms.has_value())
-                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running%s - %.2f ms per frame%s",
+                MenuUi::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running%s - %.2f ms per frame%s",
                                    vulkan ? " natively on Vulkan" : "", ms.value(), runSuffix);
             else if (vulkan)
                 // Measured but not yet read: the first few frames are still in the query ring.
-                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running natively on Vulkan - %llu frames%s",
+                MenuUi::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running natively on Vulkan - %llu frames%s",
                                    DlssNr::FramesVk(), runSuffix);
             else
-                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running.%s", runSuffix);
+                MenuUi::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running.%s", runSuffix);
 
             ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
+            MenuUi::TextDisabled("(?)");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("The whole pass: the staging copies and the resolve as well as the"
+                MenuUi::SetTooltip("The whole pass: the staging copies and the resolve as well as the"
                                   "\nmodel. Timing only the model would flatter the number."
                                   "\n\nCompare it against the frame time at the bottom of this window to"
                                   "\nsee what it is costing you.");
@@ -1596,7 +1603,7 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::Spacing();
         ImGui::PushItemWidth(220.0f * menuResScale);
 
-        ImGui::SeparatorText("Cost");
+        MenuUi::SeparatorText("Cost");
 
         {
             int passes = (int) std::clamp(config->DlssNrPasses.value_or_default(), 1u,
@@ -1608,7 +1615,7 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::PushStyleColor(ImGuiCol_Text, colour);
             ImGui::PushStyleColor(ImGuiCol_SliderGrab, colour);
 
-            if (ImGui::SliderInt("Model passes", &passes, 1, (int) DlssNr::MaxPassCount,
+            if (MenuUi::SliderInt("Model passes", &passes, 1, (int) DlssNr::MaxPassCount,
                                  passes == 1 ? "%d (normal)" : "%dx model cost"))
                 config->DlssNrPasses = (uint32_t) std::clamp(passes, 1, (int) DlssNr::MaxPassCount);
 
@@ -1639,7 +1646,7 @@ void RenderMenu(Config* config, float menuResScale)
                                ? pendingScale
                                : (int) lroundf(config->DlssNrWorkingScale.value_or_default() * 100.0f);
 
-        if (ImGui::SliderInt("Model resolution", &scalePercent, 25, 200, "%d%%"))
+        if (MenuUi::SliderInt("Model resolution", &scalePercent, 25, 200, "%d%%"))
             pendingScale = scalePercent;
 
         if (ImGui::IsItemDeactivatedAfterEdit() && pendingScale >= 0)
@@ -1649,7 +1656,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
 
         if (scalePercent > 100)
-            ImGui::TextDisabled("Supersampling %.2fx: the model runs ABOVE native, then\n"
+            MenuUi::TextDisabled("Supersampling %.2fx: the model runs ABOVE native, then\n"
                                 "is sampled back down. Experimental, and costly -- time grows with the area.",
                                 scalePercent / 100.0f);
 
@@ -1661,7 +1668,7 @@ void RenderMenu(Config* config, float menuResScale)
             if (ds < 0 || ds >= IM_ARRAYSIZE(dsNames))
                 ds = (int) Scaler::Lanczos3;
 
-            if (ImGui::Combo("Downscaler (NR)", &ds, dsNames, IM_ARRAYSIZE(dsNames)))
+            if (MenuUi::Combo("Downscaler (NR)", &ds, dsNames, IM_ARRAYSIZE(dsNames)))
                 config->DlssNrScalingDownscaler = (Scaler) ds;
 
             HelpMarker("The filter that averages the model's above-native answer back to display size --"
@@ -1693,7 +1700,7 @@ void RenderMenu(Config* config, float menuResScale)
             static const char* enlargeNames[] = { "Classic", "Matched residual" };
             int enlarge = config->DlssNrTransfer.value_or_default() == 1 ? 1 : 0;
 
-            if (ImGui::Combo("Enlargement", &enlarge, enlargeNames, IM_ARRAYSIZE(enlargeNames)))
+            if (MenuUi::Combo("Enlargement", &enlarge, enlargeNames, IM_ARRAYSIZE(enlargeNames)))
                 config->DlssNrTransfer = (uint32_t) enlarge;
 
             if (!reduced)
@@ -1713,14 +1720,14 @@ void RenderMenu(Config* config, float menuResScale)
                        "\n\nFrom hhkbble's multi-pass work on this fork.");
         }
 
-        ImGui::SeparatorText("How much of it lands");
+        MenuUi::SeparatorText("How much of it lands");
 
         float transfer = config->DlssNrTransferStrength.value_or_default();
-        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
+        if (MenuUi::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
             config->DlssNrTransferStrength = transfer;
 
         ImGui::SameLine();
-        if (ImGui::SmallButton("Reset##detail"))
+        if (MenuUi::SmallButton("Reset##detail"))
             config->DlssNrTransferStrength = 1.0f;
 
         HelpMarker("How far the frame moves toward the model's picture."
@@ -1734,11 +1741,11 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nand it decides what to do with it.");
 
         float colour = config->DlssNrColourStrength.value_or_default();
-        if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
+        if (MenuUi::SliderFloat("Colour strength", &colour, 0.0f, 3.0f, "%.2f"))
             config->DlssNrColourStrength = colour;
 
         ImGui::SameLine();
-        if (ImGui::SmallButton("Reset##colour"))
+        if (MenuUi::SmallButton("Reset##colour"))
             config->DlssNrColourStrength = 1.0f;
 
         HelpMarker("Whether the model's colour arrives with its light."
@@ -1762,7 +1769,7 @@ void RenderMenu(Config* config, float menuResScale)
         int reversible = (int) config->DlssNrReversibleMode.value_or_default();
         if (reversible < 0 || reversible > 4)
             reversible = 0;
-        if (ImGui::Combo("Reversible proxy (experimental)", &reversible, reversibleNames,
+        if (MenuUi::Combo("Reversible proxy (experimental)", &reversible, reversibleNames,
                          IM_ARRAYSIZE(reversibleNames)))
             config->DlssNrReversibleMode = (uint32_t) reversible;
 
@@ -1786,15 +1793,15 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nstable. If you love the Replace look but the flicker bothers you, use this."
                        "\n\nOff is byte-identical to before.");
 
-        ImGui::SeparatorText("Model passes");
-        ImGui::TextWrapped("Each pass has its own style and model strengths. Changes apply when you release a slider.");
+        MenuUi::SeparatorText("Model passes");
+        MenuUi::TextWrapped("Each pass has its own style and model strengths. Changes apply when you release a slider.");
         static const char* styles[] = { "Standard", "Natural", "Cinematic" };
         static const char* inheritedStyles[] = { "Auto (inherit pass 1)", "Standard", "Natural", "Cinematic" };
 
-        if (ImGui::TreeNodeEx("Pass 1", ImGuiTreeNodeFlags_DefaultOpen))
+        if (MenuUi::TreeNodeEx("Pass 1", ImGuiTreeNodeFlags_DefaultOpen))
         {
             int style = (int) std::min(config->DlssNrStyle.value_or_default(), 2u);
-            if (ImGui::Combo("Style", &style, styles, IM_ARRAYSIZE(styles)))
+            if (MenuUi::Combo("Style", &style, styles, IM_ARRAYSIZE(styles)))
                 config->DlssNrStyle = (uint32_t) style;
             DeferredSlider("Intensity", &config->DlssNrIntensity, 0.0f, 2.0f, 1.0f);
             DeferredSlider("Local structure", &config->DlssNrLocalStructure, 0.0f, 2.0f, 1.0f);
@@ -1803,7 +1810,7 @@ void RenderMenu(Config* config, float menuResScale)
             HelpMarker("-1 follows local structure; 0 reduces skin structure independently."
                        "\nThis is not a skin-colour/tone off switch. Use the final skin/scene controls below for that.");
             bool mask = config->DlssNrAutoMask.value_or_default();
-            if (ImGui::Checkbox("Auto skin mask", &mask))
+            if (MenuUi::Checkbox("Auto skin mask", &mask))
                 config->DlssNrAutoMask = mask;
             HelpMarker("NVIDIA's internal automatic mask, not the colour-based preview below."
                        "\nWith Skin structure=-1 it follows general structure, so the difference may be subtle."
@@ -1811,71 +1818,71 @@ void RenderMenu(Config* config, float menuResScale)
             ImGui::TreePop();
         }
 
-        if (ImGui::TreeNodeEx("Pass 2", ImGuiTreeNodeFlags_DefaultOpen))
+        if (MenuUi::TreeNodeEx("Pass 2", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::TextWrapped("Unset controls inherit pass 1, except local tone which defaults to 0. Reset restores this behavior. Only active passes run.");
+            MenuUi::TextWrapped("Unset controls inherit pass 1, except local tone which defaults to 0. Reset restores this behavior. Only active passes run.");
             InheritedProfileCombo("Style", &config->DlssNrPass2Style, inheritedStyles, IM_ARRAYSIZE(inheritedStyles));
             DeferredSlider("Intensity", &config->DlssNrPass2Intensity, 0.0f, 2.0f, config->DlssNrIntensity.value_or_default(), "%.2f", true);
             DeferredSlider("Local structure", &config->DlssNrPass2LocalStructure, 0.0f, 2.0f, config->DlssNrLocalStructure.value_or_default(), "%.2f", true);
             DeferredSlider("Local tone", &config->DlssNrPass2LocalTone, 0.0f, 2.0f, 0.0f, "%.2f", true);
             DeferredSlider("Skin structure", &config->DlssNrPass2SkinStructure, -1.0f, 2.0f, config->DlssNrSkinStructure.value_or_default(), "%.2f", true);
             bool mask = config->DlssNrPass2AutoMask.has_value() ? config->DlssNrPass2AutoMask.value() : config->DlssNrAutoMask.value_or_default();
-            if (ImGui::Checkbox("Auto skin mask", &mask))
+            if (MenuUi::Checkbox("Auto skin mask", &mask))
                 config->DlssNrPass2AutoMask = mask;
             ImGui::SameLine();
-            if (ImGui::SmallButton("Reset##mask"))
+            if (MenuUi::SmallButton("Reset##mask"))
                 config->DlssNrPass2AutoMask = std::optional<bool> {};
             ImGui::TreePop();
         }
 
-        if (ImGui::TreeNodeEx("Pass 3", ImGuiTreeNodeFlags_DefaultOpen))
+        if (MenuUi::TreeNodeEx("Pass 3", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::TextWrapped("Unset controls inherit pass 1, except local tone which defaults to 0. Reset restores this behavior. Only active passes run.");
+            MenuUi::TextWrapped("Unset controls inherit pass 1, except local tone which defaults to 0. Reset restores this behavior. Only active passes run.");
             InheritedProfileCombo("Style", &config->DlssNrPass3Style, inheritedStyles, IM_ARRAYSIZE(inheritedStyles));
             DeferredSlider("Intensity", &config->DlssNrPass3Intensity, 0.0f, 2.0f, config->DlssNrIntensity.value_or_default(), "%.2f", true);
             DeferredSlider("Local structure", &config->DlssNrPass3LocalStructure, 0.0f, 2.0f, config->DlssNrLocalStructure.value_or_default(), "%.2f", true);
             DeferredSlider("Local tone", &config->DlssNrPass3LocalTone, 0.0f, 2.0f, 0.0f, "%.2f", true);
             DeferredSlider("Skin structure", &config->DlssNrPass3SkinStructure, -1.0f, 2.0f, config->DlssNrSkinStructure.value_or_default(), "%.2f", true);
             bool mask = config->DlssNrPass3AutoMask.has_value() ? config->DlssNrPass3AutoMask.value() : config->DlssNrAutoMask.value_or_default();
-            if (ImGui::Checkbox("Auto skin mask", &mask))
+            if (MenuUi::Checkbox("Auto skin mask", &mask))
                 config->DlssNrPass3AutoMask = mask;
             ImGui::SameLine();
-            if (ImGui::SmallButton("Reset##mask"))
+            if (MenuUi::SmallButton("Reset##mask"))
                 config->DlssNrPass3AutoMask = std::optional<bool> {};
             ImGui::TreePop();
         }
 
-        if (ImGui::TreeNode("Advanced preset hints (effect unverified)"))
+        if (MenuUi::TreeNode("Advanced preset hints (effect unverified)"))
         {
-            ImGui::TextWrapped("These hints are passed to NVIDIA at creation, but their visual effect is unverified. Use Style for model profile selection. Existing INI hints are preserved.");
+            MenuUi::TextWrapped("These hints are passed to NVIDIA at creation, but their visual effect is unverified. Use Style for model profile selection. Existing INI hints are preserved.");
             static const char* presets[] = { "Default", "Preset 1", "Preset 2", "Preset 3" };
             static const char* inheritedPresets[] = { "Auto (inherit pass 1)", "Default", "Preset 1", "Preset 2", "Preset 3" };
             int preset = (int) std::min(config->DlssNrPreset.value_or_default(), 3u);
-            if (ImGui::Combo("Pass 1 preset hint", &preset, presets, IM_ARRAYSIZE(presets)))
+            if (MenuUi::Combo("Pass 1 preset hint", &preset, presets, IM_ARRAYSIZE(presets)))
                 config->DlssNrPreset = (uint32_t) preset;
             InheritedProfileCombo("Pass 2 preset hint", &config->DlssNrPass2Preset, inheritedPresets, IM_ARRAYSIZE(inheritedPresets));
             InheritedProfileCombo("Pass 3 preset hint", &config->DlssNrPass3Preset, inheritedPresets, IM_ARRAYSIZE(inheritedPresets));
             ImGui::TreePop();
         }
-        ImGui::TextWrapped("Per-pass overrides apply to the DX12 multipass path, including NR after RR. Native Vulkan and the driver-proxy backend remain single-pass.");
+        MenuUi::TextWrapped("Per-pass overrides apply to the DX12 multipass path, including NR after RR. Native Vulkan and the driver-proxy backend remain single-pass.");
 
-        ImGui::SeparatorText("Colour");
+        MenuUi::SeparatorText("Colour");
 
-        if (ImGui::TreeNode("Skin and environment (final edit)"))
+        if (MenuUi::TreeNode("Skin and environment (final edit)"))
         {
-            ImGui::TextWrapped("Optional colour-based selection, NOT NVIDIA's automatic skin mask. Warm scenery can be selected and coloured lighting can hide skin. Check the preview. These controls affect the combined result of all passes.");
+            MenuUi::TextWrapped("Optional colour-based selection, NOT NVIDIA's automatic skin mask. Warm scenery can be selected and coloured lighting can hide skin. Check the preview. These controls affect the combined result of all passes.");
             bool filter = config->DlssNrSkinProtection.value_or_default();
-            if (ImGui::Checkbox("Separate skin / environment controls", &filter))
+            if (MenuUi::Checkbox("Separate skin / environment controls", &filter))
                 config->DlssNrSkinProtection = filter;
             ImGui::BeginDisabled(!filter);
             bool tone = config->DlssNrSkinToneEnabled.value_or_default();
-            if (ImGui::Checkbox("Allow skin tone / colour changes", &tone))
+            if (MenuUi::Checkbox("Allow skin tone / colour changes", &tone))
                 config->DlssNrSkinToneEnabled = tone;
             HelpMarker("Off preserves colour in selected pixels; lighting/detail can still change."
                        "\nAlso set Skin detail / lighting to 0 to suppress both.");
             const auto slider = [](const char* label, auto& option) {
                 float v = option.value_or_default();
-                if (ImGui::SliderFloat(label, &v, 0.0f, 1.0f, "%.2f"))
+                if (MenuUi::SliderFloat(label, &v, 0.0f, 1.0f, "%.2f"))
                     option = v;
             };
             slider("Skin detail / lighting", config->DlssNrSkinDetail);
@@ -1885,13 +1892,13 @@ void RenderMenu(Config* config, float menuResScale)
             slider("Environment detail / lighting", config->DlssNrEnvironmentDetail);
             slider("Environment colour", config->DlssNrEnvironmentColour);
             bool preview = config->DlssNrShowSkinMask.value_or_default();
-            if (ImGui::Checkbox("Preview colour-based mask", &preview))
+            if (MenuUi::Checkbox("Preview colour-based mask", &preview))
                 config->DlssNrShowSkinMask = preview;
             ImGui::EndDisabled();
             ImGui::TreePop();
         }
 
-        ImGui::TextDisabled("The model was trained on finished, sRGB-encoded frames. The upscaler's\n"
+        MenuUi::TextDisabled("The model was trained on finished, sRGB-encoded frames. The upscaler's\n"
                             "output is not one: it is linear and open-ended. These decide how it is\n"
                             "mapped into something the model recognises. A frame the game reports as\n"
                             "already tone-mapped is passed over untouched and none of this applies.");
@@ -1930,7 +1937,7 @@ void RenderMenu(Config* config, float menuResScale)
             if (source < 0 || source > 2)
                 source = 0;
 
-            if (ImGui::Combo("White point from", &source, sourceNames, IM_ARRAYSIZE(sourceNames)))
+            if (MenuUi::Combo("White point from", &source, sourceNames, IM_ARRAYSIZE(sourceNames)))
             {
                 config->DlssNrWhitePointSource = (uint32_t) source;
 
@@ -1957,25 +1964,25 @@ void RenderMenu(Config* config, float menuResScale)
             if (source == 1)
             {
                 if (!vk && ex.seenFrames == 0)
-                    ImGui::TextDisabled("Waiting for a frame...");
+                    MenuUi::TextDisabled("Waiting for a frame...");
                 else if (!haveExposure)
-                    ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
+                    MenuUi::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
                                        "This game supplies no exposure -- paper white is in use. Try "
                                        "the scan instead.");
                 else if (vk)
-                    ImGui::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
+                    MenuUi::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
                                        "This game supplies an exposure and it is being read.");
                 else if (ex.exposure > 1e-6f)
                 {
                     const float trim =
                         std::clamp(config->DlssNrWhitePointTrim.value_or_default(), 0.25f, 4.0f);
-                    ImGui::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
+                    MenuUi::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
                                        "Game exposure %.4f  ->  white point %.2f%s", ex.exposure,
                                        ex.preExposure / ex.exposure * trim,
                                        ex.offeredNow ? "" : "  (held: absent this frame)");
                 }
                 else
-                    ImGui::TextDisabled("Reading the exposure...");
+                    MenuUi::TextDisabled("Reading the exposure...");
             }
             else if (source == 2)
             {
@@ -1988,15 +1995,15 @@ void RenderMenu(Config* config, float menuResScale)
                     const unsigned int watching = (unsigned int) DlssNr::ExposureScan::Report().size();
 
                     if (watching == 0)
-                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
+                        MenuUi::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
                                            "Nothing in this game is shaped like an exposure.");
                     else
-                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
+                        MenuUi::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
                                            "Watching %u, none moving yet -- go between light and shade.",
                                            watching);
                 }
                 else if (!haveAnchor)
-                    ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
+                    MenuUi::TextColored(ImVec4(0.9f, 0.6f, 0.25f, 1.0f),
                                        "Found one. Set paper white below until the picture looks "
                                        "right, then press Anchor here.");
                 // Once anchored, the scan -> white point readout sits above the sliders below; it is
@@ -2004,7 +2011,7 @@ void RenderMenu(Config* config, float menuResScale)
             }
             else if (haveExposure)
             {
-                ImGui::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
+                MenuUi::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
                                    "This game supplies an exposure -- the option above would use it.");
             }
         }
@@ -2077,7 +2084,7 @@ void RenderMenu(Config* config, float menuResScale)
                         liveScan, config->DlssNrScanInverted.value_or_default(),
                         config->DlssNrScanTrim.value_or_default());
 
-                    ImGui::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
+                    MenuUi::TextColored(ImVec4(0.45f, 0.8f, 0.45f, 1.0f),
                                        "Scan %.5f  ->  white point %.2f   (%u point%s)", liveScan, w,
                                        (unsigned) anchors.size(), anchors.size() == 1 ? "" : "s");
                 }
@@ -2100,7 +2107,7 @@ void RenderMenu(Config* config, float menuResScale)
                 else
                     snprintf(lbl, sizeof(lbl), "Paper white");
 
-                if (ImGui::SliderFloat(lbl, &pw, 0.25f, 2000.0f, "%.2fx", ImGuiSliderFlags_Logarithmic))
+                if (MenuUi::SliderFloat(lbl, &pw, 0.25f, 2000.0f, "%.2fx", ImGuiSliderFlags_Logarithmic))
                 {
                     if (editingRow)
                     {
@@ -2126,13 +2133,13 @@ void RenderMenu(Config* config, float menuResScale)
             {
                 float trim = config->DlssNrScanTrim.value_or_default();
 
-                if (ImGui::SliderFloat("Trim (x the scan)", &trim, 0.25f, 4.0f, "%.2fx",
+                if (MenuUi::SliderFloat("Trim (x the scan)", &trim, 0.25f, 4.0f, "%.2fx",
                                        ImGuiSliderFlags_Logarithmic))
                     config->DlssNrScanTrim = std::clamp(trim, 0.25f, 4.0f);
 
                 ImGui::SameLine();
 
-                if (ImGui::SmallButton("Reset##scantrim"))
+                if (MenuUi::SmallButton("Reset##scantrim"))
                     config->DlssNrScanTrim = 1.0f;
 
                 HelpMarker("A multiplier on the scan's white point, and the control you adjust between"
@@ -2148,7 +2155,7 @@ void RenderMenu(Config* config, float menuResScale)
             float trim = ofScan ? config->DlssNrScanTrim.value_or_default()
                                 : config->DlssNrWhitePointTrim.value_or_default();
 
-            if (ImGui::SliderFloat(ofScan ? "Trim (x the scan)" : "Trim (x the game's exposure)", &trim,
+            if (MenuUi::SliderFloat(ofScan ? "Trim (x the scan)" : "Trim (x the game's exposure)", &trim,
                                    0.25f, 4.0f, "%.2fx", ImGuiSliderFlags_Logarithmic))
             {
                 if (ofScan)
@@ -2161,7 +2168,7 @@ void RenderMenu(Config* config, float menuResScale)
 
             // Deliberately always present rather than greyed at 1. The point of it is that the safe
             // value is one click away without having to know what the safe value is.
-            if (ImGui::SmallButton("Reset##wptrim"))
+            if (MenuUi::SmallButton("Reset##wptrim"))
             {
                 if (ofScan)
                     config->DlssNrScanTrim = 1.0f;
@@ -2188,7 +2195,7 @@ void RenderMenu(Config* config, float menuResScale)
             // of anything that can be bounded here. One tester was still improving at 100.
             float wpScale = config->DlssNrWhitePointScale.value_or_default();
 
-            if (ImGui::SliderFloat("Paper white", &wpScale, 0.25f, 2000.0f, "%.2fx",
+            if (MenuUi::SliderFloat("Paper white", &wpScale, 0.25f, 2000.0f, "%.2fx",
                                    ImGuiSliderFlags_Logarithmic))
                 config->DlssNrWhitePointScale = wpScale;
 
@@ -2217,11 +2224,11 @@ void RenderMenu(Config* config, float menuResScale)
         // Highlight guard, directly under the white point / trim -- it bounds the model's edit and
         // belongs with the exposure controls it works alongside.
         float maxRatio = config->DlssNrMaxRatio.value_or_default();
-        if (ImGui::SliderFloat("Highlight guard", &maxRatio, 1.0f, 8.0f, "%.1fx"))
+        if (MenuUi::SliderFloat("Highlight guard", &maxRatio, 1.0f, 8.0f, "%.1fx"))
             config->DlssNrMaxRatio = maxRatio;
 
         ImGui::SameLine();
-        if (ImGui::SmallButton("Reset##guard"))
+        if (MenuUi::SmallButton("Reset##guard"))
             config->DlssNrMaxRatio = 2.0f;
 
         HelpMarker("The most the pass may move any pixel, as a multiple of what it already was, in"
@@ -2260,7 +2267,7 @@ void RenderMenu(Config* config, float menuResScale)
                 bool meter = config->DlssNrScanMeter.value_or_default();
 
                 if (config->DlssNrWhitePointSource.value_or_default() == 2 &&
-                    ImGui::Checkbox("Show the light meter on screen", &meter))
+                    MenuUi::Checkbox("Show the light meter on screen", &meter))
                     config->DlssNrScanMeter = meter;
 
                 HelpMarker("A lamp in the corner: red for dark, green for full light, and the"
@@ -2294,7 +2301,7 @@ void RenderMenu(Config* config, float menuResScale)
                 // chosen source and it currently has a value to capture.
                 ImGui::BeginDisabled(live <= 0.0f || !isSource);
 
-                if (ImGui::Button("Anchor here"))
+                if (MenuUi::Button("Anchor here"))
                 {
                     // What to capture. Before the first point, the paper white above (an absolute value
                     // with the wide range a fresh game needs). After that, the EFFECTIVE white point the
@@ -2333,7 +2340,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nand the numbers are the same for everyone who takes the profile.");
 
                 if (!isSource)
-                    ImGui::TextDisabled("(the scan is only watching -- the white point above comes "
+                    MenuUi::TextDisabled("(the scan is only watching -- the white point above comes "
                                         "from somewhere else)");
 
                 if (!anchors.empty())
@@ -2360,7 +2367,7 @@ void RenderMenu(Config* config, float menuResScale)
                         ImGui::PushID((int) i);
 
                         // Delete first, so its click is never swallowed by the row-wide Selectable.
-                        if (ImGui::SmallButton("x"))
+                        if (MenuUi::SmallButton("x"))
                         {
                             DlssNr::ExposureScan::AnchorRemove((int) i);
                             config->DlssNrScanAnchors = DlssNr::ExposureScan::SerializeAnchors();
@@ -2382,13 +2389,13 @@ void RenderMenu(Config* config, float menuResScale)
 
                         // Click selects the row (slider edits it); click again deselects (slider
                         // returns to the live unanchored point).
-                        if (ImGui::Selectable(row, sel))
+                        if (MenuUi::Selectable(row, sel))
                             selectedAnchor = sel ? -1 : (int) i;
 
                         ImGui::PopID();
                     }
 
-                    ImGui::TextDisabled("Click a row to edit it with the slider above; click it again"
+                    MenuUi::TextDisabled("Click a row to edit it with the slider above; click it again"
                                         " to control the live point. > is the point in use now.");
                 }
 
@@ -2397,7 +2404,7 @@ void RenderMenu(Config* config, float menuResScale)
                 if (anchors.size() == 1)
                 {
                     bool inverted = config->DlssNrScanInverted.value_or_default();
-                    if (ImGui::Checkbox("The number runs the other way", &inverted))
+                    if (MenuUi::Checkbox("The number runs the other way", &inverted))
                         config->DlssNrScanInverted = inverted;
 
                     HelpMarker("Flip this if the picture gets worse in the direction it should be"
@@ -2412,7 +2419,7 @@ void RenderMenu(Config* config, float menuResScale)
                 // Everything below is read-out rather than control: what the scan is looking at and
                 // how to tell whether it found the right thing. Folded away because the two decisions
                 // that matter -- anchor, and which way the number runs -- are above it.
-                if (ImGui::TreeNode("Advanced"))
+                if (MenuUi::TreeNode("Advanced"))
                 {
 
                     const auto found = DlssNr::ExposureScan::Report();
@@ -2420,7 +2427,7 @@ void RenderMenu(Config* config, float menuResScale)
 
                     if (found.empty())
                     {
-                        ImGui::TextDisabled("%s", why != nullptr && why[0] != 0
+                        MenuUi::TextDisabled("%s", why != nullptr && why[0] != 0
                                                       ? why
                                                       : "nothing matched yet.");
                     }
@@ -2432,20 +2439,20 @@ void RenderMenu(Config* config, float menuResScale)
 
                             if (c.reads == 0)
                             {
-                                ImGui::TextDisabled("%zu. %s -- not read yet", i + 1, c.shape.c_str());
+                                MenuUi::TextDisabled("%zu. %s -- not read yet", i + 1, c.shape.c_str());
                                 continue;
                             }
 
                             // Moving is the whole signal, so it is the thing that is coloured.
-                            ImGui::TextColored(c.moves ? ImVec4(0.45f, 0.8f, 0.45f, 1.0f)
+                            MenuUi::TextColored(c.moves ? ImVec4(0.45f, 0.8f, 0.45f, 1.0f)
                                                        : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
                                                "%zu. %s = %.5f  (seen %.5f..%.5f) %s", i + 1,
                                                c.shape.c_str(), c.latest, c.lowest, c.highest,
                                                c.moves ? "MOVES" : "flat so far");
                         }
 
-                        ImGui::TextDisabled("Walk from shade into daylight. A real exposure moves.");
-                        ImGui::TextDisabled("One that only ever climbs is a counter, not an exposure.");
+                        MenuUi::TextDisabled("Walk from shade into daylight. A real exposure moves.");
+                        MenuUi::TextDisabled("One that only ever climbs is a counter, not an exposure.");
                     }
 
                     ImGui::TreePop();
@@ -2456,13 +2463,13 @@ void RenderMenu(Config* config, float menuResScale)
 
         }
 
-        ImGui::SeparatorText("Compare");
+        MenuUi::SeparatorText("Compare");
 
         // Freeze the frame the model works on, so a setting change re-renders it in place -- the only
         // clean way to A/B our own settings (a moving scene confounds every other comparison). See
         // design/frame-hold.md.
         bool held = config->DlssNrHoldFrame.value_or_default();
-        if (ImGui::Checkbox("Hold frame", &held))
+        if (MenuUi::Checkbox("Hold frame", &held))
             config->DlssNrHoldFrame = held;
 
         HelpMarker("Freezes the frame the model works on. While held, change paper white, the"
@@ -2477,7 +2484,7 @@ void RenderMenu(Config* config, float menuResScale)
 
         static const char* compareNames[] = { "Off", "Side by side", "Wipe" };
         int compare = (int) config->DlssNrCompare.value_or_default();
-        if (ImGui::Combo("Compare", &compare, compareNames, IM_ARRAYSIZE(compareNames)))
+        if (MenuUi::Combo("Compare", &compare, compareNames, IM_ARRAYSIZE(compareNames)))
             config->DlssNrCompare = (uint32_t) compare;
 
         HelpMarker("Shows the pass against itself, so the two can be seen at once rather than"
@@ -2493,11 +2500,11 @@ void RenderMenu(Config* config, float menuResScale)
         if (compare != 0)
         {
             bool swap = config->DlssNrCompareSwap.value_or_default();
-            if (ImGui::Checkbox("Swap sides", &swap))
+            if (MenuUi::Checkbox("Swap sides", &swap))
                 config->DlssNrCompareSwap = swap;
 
             bool tags = config->DlssNrCompareTags.value_or_default();
-            if (ImGui::Checkbox("Label the sides", &tags))
+            if (MenuUi::Checkbox("Label the sides", &tags))
                 config->DlssNrCompareTags = tags;
 
             HelpMarker("Writes which side is which onto the frame itself, so a screenshot still"
@@ -2509,7 +2516,7 @@ void RenderMenu(Config* config, float menuResScale)
             if (tags)
             {
                 float tagScale = config->DlssNrTagScale.value_or_default();
-                if (ImGui::SliderFloat("Label size", &tagScale, 0.5f, 5.0f, "%.1fx"))
+                if (MenuUi::SliderFloat("Label size", &tagScale, 0.5f, 5.0f, "%.1fx"))
                     config->DlssNrTagScale = std::clamp(tagScale, 0.5f, 5.0f);
             }
 
@@ -2523,7 +2530,7 @@ void RenderMenu(Config* config, float menuResScale)
         if (compare == 1)
         {
             float zoom = config->DlssNrCompareZoom.value_or_default();
-            if (ImGui::SliderFloat("Zoom", &zoom, 1.0f, 2.0f, "%.2f"))
+            if (MenuUi::SliderFloat("Zoom", &zoom, 1.0f, 2.0f, "%.2f"))
                 config->DlssNrCompareZoom = std::clamp(zoom, 1.0f, 2.0f);
 
             HelpMarker("How much of the frame each half shows."
@@ -2537,7 +2544,7 @@ void RenderMenu(Config* config, float menuResScale)
         if (compare == 2)
         {
             float split = config->DlssNrCompareSplit.value_or_default();
-            if (ImGui::SliderFloat("Split", &split, 0.0f, 1.0f, "%.2f"))
+            if (MenuUi::SliderFloat("Split", &split, 0.0f, 1.0f, "%.2f"))
                 config->DlssNrCompareSplit = std::clamp(split, 0.0f, 1.0f);
 
             HelpMarker("Where the wipe cuts. Left of it is the frame as the upscaler produced it,"
@@ -2547,7 +2554,7 @@ void RenderMenu(Config* config, float menuResScale)
         static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
                                             "Difference (amplified)" };
         int debugView = (int) config->DlssNrDebugView.value_or_default();
-        if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
+        if (MenuUi::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
             config->DlssNrDebugView = (uint32_t) debugView;
 
         HelpMarker("Proxy is the picture handed to the model -- if that looks wrong, the white point"

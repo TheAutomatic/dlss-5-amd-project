@@ -95,6 +95,13 @@ they take upstream changes and carry only our hunks.
 
 Any new product edit to a vendored file must ship with a patch in `local_patches`, or the next sync drops it.
 
+`history-adaptive-exclusion.patch` follows the native-history patch: requesting
+native history disables adaptive reuse without overwriting its saved preference.
+The attempted consecutive-seed reuse policy caused severe game flicker and was
+removed pending further investigation. The pinned `bridge.patch` also makes the native-history
+buffer a UAV so the producer can write it directly under the existing semaphore
+and recording-lease contract. See [native history](../../docs/architecture/lmxxf-native-history.md).
+
 ### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
 > [!IMPORTANT]
 > See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (independent unified patch check + local contract check).

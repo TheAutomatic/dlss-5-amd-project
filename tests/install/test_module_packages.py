@@ -132,6 +132,21 @@ class ModulePackageTests(unittest.TestCase):
                 self.assertIn(header.name, out)
                 header.unlink()
 
+    def test_menu_assets_invalidate_old_host(self):
+        source_dir = self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler'
+        for name in ('menu/MenuStrings.inl', 'menu/font/Subset.ttf', 'OptiScaler.rc', 'OptiScaler.vcxproj'):
+            with self.subTest(source=name):
+                source = source_dir / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_bytes(b'fixture build input')
+                newer = self.opti.stat().st_mtime + 20
+                os.utime(source, (newer, newer))
+                code, out = self.package()
+                self.assertNotEqual(code, 0, out)
+                self.assertIn('STALE OptiScaler.dll', out)
+                self.assertIn(source.name, out)
+                source.unlink()
+
     def test_runtime_without_ci_proof_is_rejected(self):
         (self.root / 'exports/lmxxf-runtime/runtime-ci.sha256').unlink()
         code, out = self.package()

@@ -66,7 +66,7 @@ class ConfigPriorityTests(unittest.TestCase):
                 "kSection",
                 "kDanielSection",
                 "kMenuSection",  # Host window settings do not cross the runtime boundary.
-                "MenuWindowWidth", "MenuWindowHeight", "MenuWindowAnchor",
+                "MenuLanguage", "MenuWindowWidth", "MenuWindowHeight", "MenuWindowAnchor",
                 "ToneCurve",
                 "ToneLift",
                 "AmdUseGameExposure",

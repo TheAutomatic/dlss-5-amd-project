@@ -15,6 +15,7 @@
 namespace CfgKey
 {
 inline constexpr const char *kMenuSection = "Menu";
+inline constexpr const char *MenuLanguage = "Language";
 inline constexpr const char *MenuWindowWidth = "WindowWidth";
 inline constexpr const char *MenuWindowHeight = "WindowHeight";
 inline constexpr const char *MenuWindowAnchor = "WindowAnchor";
@@ -126,7 +127,7 @@ inline constexpr const char *Async = "Async";
 // Known product ini keys; [Menu] keys are explicitly identified below. Adding a control
 // requires registering its key here first; display labels remain UI-only.
 inline constexpr const char *const kKnown[] = {
-    MenuWindowWidth, MenuWindowHeight, MenuWindowAnchor, // [Menu], no runtime env aliases
+    MenuLanguage, MenuWindowWidth, MenuWindowHeight, MenuWindowAnchor, // [Menu], no runtime env aliases
     "Enabled",
     XeFGInterpolationCount,
     "RunBeforeSR",
