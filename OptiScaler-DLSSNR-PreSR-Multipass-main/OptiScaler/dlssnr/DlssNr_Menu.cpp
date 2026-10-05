@@ -242,7 +242,8 @@ static void RenderSharedOutputEffects(Config* config)
             HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
                        "\nThis does not reduce model computation. Disable NR to save that work."
                        "\nA pure-backend session may require a restart to enable the shared effect recording path.");
-            if (config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
+            const bool isLmxxf = Backend::ActiveKindFromConfig() == Backend::Kind::Lmxxf;
+            if (isLmxxf && config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
                 ImGui::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
             bool stabilizer = config->NrStabilizerEnabled.value_or_default();
             if (ImGui::Checkbox("Residual Stabilizer", &stabilizer)) {
@@ -257,7 +258,7 @@ static void RenderSharedOutputEffects(Config* config)
                 if (ImGui::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
                 if (ImGui::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
                 HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
-                if (config->NrTimingEnabled.value_or_default())
+                if (isLmxxf && config->NrTimingEnabled.value_or_default())
                     ImGui::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
             }
             if (ImGui::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
@@ -330,7 +331,7 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page)
         if (ImGui::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
         ImGui::TextWrapped("%s", AmdBridge::EffectsStatus().c_str());
         if (ImGui::Button("Reset diagnostics")) {
-            config->NrTimingEnabled = std::optional<bool>{}; config->NrTimingLog = std::optional<bool>{};
+            config->NrTimingLog = std::optional<bool>{};
         }
         ImGui::TreePop();
     }
@@ -476,17 +477,19 @@ void RenderMenu(Config* config, float menuResScale)
             if ((kind == Backend::Kind::Mochizuki && !config->MochizukiApplyModel.value_or_default()) ||
                 OverallIntensity(config->NrOverallIntensity.value_or_default()) == 0)
                 view.output = "Correction hidden; network still runs";
-            bool timing = config->NrTimingEnabled.value_or_default();
-            if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
+            if (isLmxxf)
+            {
+                bool timing = config->NrTimingEnabled.value_or_default();
+                if (ImGui::Checkbox("Show NR performance", &timing)) config->NrTimingEnabled = timing;
+            }
             if (ImGui::CollapsingHeader("NR flow", ImGuiTreeNodeFlags_DefaultOpen)) PipelineUi::Draw(view, page);
             else PipelineUi::Navigation(page);
             if (!view.enabled) ImGui::TextDisabled("NR is off. These nodes describe the configured path.");
             else ImGui::TextWrapped("%s", AmdBridge::Status().c_str());
             if (State::Instance().currentFeature && State::Instance().currentFeature->GetUpscalerType() == Upscaler::DLSSD)
                 ImGui::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
-            if (timing) {
-                if (kind == Backend::Kind::Daniel) ImGui::TextDisabled("Network GPU timing is unavailable for Daniel.");
-                else ImGui::TextWrapped("Network GPU: %s (not whole NR/frame latency)",
+            if (isLmxxf && config->NrTimingEnabled.value_or_default()) {
+                ImGui::TextWrapped("Network GPU: %s (not whole NR/frame latency)",
                     TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64()).c_str());
             }
             ImGui::SeparatorText(PipelineUi::SectionName(page));

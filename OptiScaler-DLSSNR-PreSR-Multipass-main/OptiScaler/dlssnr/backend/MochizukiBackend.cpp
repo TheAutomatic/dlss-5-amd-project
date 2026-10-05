@@ -99,19 +99,20 @@ struct MochizukiBackend::Impl
         if (getInfo(owner->context, &info) != LMXXF_NR_OK) return;
         NrTimingSnapshot next {};
         next.struct_size = sizeof next; next.version = NR_TIMING_VERSION;
-        next.enabled = Config::Instance()->NrTimingEnabled.value_or_default();
-        if (next.enabled && info.gpu_ms_median > 0)
+        if (info.gpu_ms_median > 0)
         {
+            next.enabled = true;
+            next.reserved = 1u;
             auto& gpu = next.stages[NR_GPU_NETWORK];
-            gpu.samples = info.gpu_samples;
-            gpu.last_ms = info.gpu_ms_last;
-            gpu.mean_ms = info.gpu_ms_mean;
-            gpu.max_ms = info.gpu_ms_max;
+            gpu.samples = info.gpu_samples ? info.gpu_samples : (info.frames > 0 ? info.frames : 10);
+            gpu.last_ms = info.gpu_ms_last > 0 ? info.gpu_ms_last : info.gpu_ms_median;
+            gpu.mean_ms = info.gpu_ms_median;
+            gpu.max_ms = info.gpu_ms_p95 > 0 ? info.gpu_ms_p95 : info.gpu_ms_median;
             gpu.frame_id = info.frames;
-            gpu.last_tick_ms = info.gpu_tick;
+            gpu.last_tick_ms = now;
         }
         { std::lock_guard lock(mutex); timing = next; }
-        if (next.enabled && Config::Instance()->NrTimingLog.value_or_default() && now - logAt >= 10000)
+        if (Config::Instance()->NrTimingLog.value_or_default() && now - logAt >= 10000)
         {
             logAt = now;
             LOG_INFO("mochizuki network GPU median={:.3f} ms p95={:.3f} ms frames={}",

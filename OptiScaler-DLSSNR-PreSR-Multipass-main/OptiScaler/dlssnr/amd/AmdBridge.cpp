@@ -817,8 +817,9 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     if (auto replacement = b->Record(cmd, f, s))
     {
         effectRecorded = true;
+        const bool isLmxxf = g_activeKind.load(std::memory_order_acquire) == static_cast<int>(DlssNr::Backend::Kind::Lmxxf);
         replacement = DlssNr::Effects::Record(cmd, f.colour, replacement, f.colourState, f.width, f.height,
-            cfg.NrOverallIntensity.value_or_default(), cfg.NrTimingEnabled.value_or_default(),
+            cfg.NrOverallIntensity.value_or_default(), isLmxxf && cfg.NrTimingEnabled.value_or_default(),
             {f.motion, f.depth, f.motionState, f.depthState,
              f.motionWidth ? f.motionWidth : f.width, f.motionHeight ? f.motionHeight : f.height,
              f.motionScaleX, f.motionScaleY, f.jitterX, f.jitterY, f.preExposure, f.exposureScale,
@@ -893,10 +894,12 @@ bool GraphicsRestartNeeded(UINT activePasses)
 NrTimingSnapshot Timing()
 {
     // This read must not discover files or instantiate a backend from the UI.
-    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
-        !Config::Instance()->NrTimingEnabled.value_or_default()) return {};
+    if (!Config::Instance()->DlssNrEnabled.value_or_default()) return {};
     const int kind = g_activeKind.load(std::memory_order_acquire);
-    if (kind < 0) return {};
+    if (kind != static_cast<int>(DlssNr::Backend::Kind::Lmxxf) &&
+        kind != static_cast<int>(DlssNr::Backend::Kind::Mochizuki)) return {};
+    if (kind == static_cast<int>(DlssNr::Backend::Kind::Lmxxf) &&
+        !Config::Instance()->NrTimingEnabled.value_or_default()) return {};
     NrTimingSnapshot snapshot {};
     if (auto* host = HostForKind(static_cast<DlssNr::Backend::Kind>(kind))) snapshot = host->Timing();
     const auto effects = DlssNr::Effects::Timing();

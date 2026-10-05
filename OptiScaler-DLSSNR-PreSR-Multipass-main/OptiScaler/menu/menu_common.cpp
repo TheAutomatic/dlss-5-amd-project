@@ -1989,19 +1989,34 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
             std::string codecTimingLine, effectsTimingLine;
             if (overlayType != FpsOverlay_JustFPS && config->DlssNrEnabled.value_or_default())
                 firstLine += std::string(" | NR: ") + DlssNr::Backend::Name(DlssNr::Backend::ActiveKindFromConfig());
-            if (overlayType != FpsOverlay_JustFPS && config->NrTimingEnabled.value_or_default()) {
-                const auto timing = DlssNr::AmdBridge::Timing();
-                if (timing.version == NR_TIMING_VERSION) {
-                    const auto now = GetTickCount64();
-                    firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
-                    if (overlayType >= FpsOverlay_Detailed &&
-                        (timing.stages[NR_GPU_ENCODE].samples || timing.stages[NR_GPU_DECODE].samples))
-                        codecTimingLine = "Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
-                                      " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
-                    if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_BLEND].samples)
-                        effectsTimingLine = "Blend: " + DlssNr::TimingValueText(timing, NR_GPU_BLEND, now);
-                    if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_STABILIZER].samples)
-                        effectsTimingLine += (effectsTimingLine.empty() ? "" : "\n") + std::string("Stabilizer+blend: ") + DlssNr::TimingValueText(timing, NR_GPU_STABILIZER, now);
+            if (overlayType != FpsOverlay_JustFPS && config->DlssNrEnabled.value_or_default()) {
+                const auto kind = DlssNr::Backend::ActiveKindFromConfig();
+                if (kind == DlssNr::Backend::Kind::Lmxxf && config->NrTimingEnabled.value_or_default()) {
+                    const auto timing = DlssNr::AmdBridge::Timing();
+                    if (timing.version == NR_TIMING_VERSION) {
+                        const auto now = GetTickCount64();
+                        firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
+                        if (overlayType >= FpsOverlay_Detailed &&
+                            (timing.stages[NR_GPU_ENCODE].samples || timing.stages[NR_GPU_DECODE].samples))
+                            codecTimingLine = "Encode: " + DlssNr::TimingValueText(timing, NR_GPU_ENCODE, now) +
+                                          " | Decode: " + DlssNr::TimingValueText(timing, NR_GPU_DECODE, now);
+                        if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_BLEND].samples)
+                            effectsTimingLine = "Blend: " + DlssNr::TimingValueText(timing, NR_GPU_BLEND, now);
+                        if (overlayType >= FpsOverlay_Detailed && timing.stages[NR_GPU_STABILIZER].samples)
+                            effectsTimingLine += (effectsTimingLine.empty() ? "" : "\n") + std::string("Stabilizer+blend: ") + DlssNr::TimingValueText(timing, NR_GPU_STABILIZER, now);
+                    }
+                }
+                else if (kind == DlssNr::Backend::Kind::Mochizuki) {
+                    const auto timing = DlssNr::AmdBridge::Timing();
+                    if (timing.version == NR_TIMING_VERSION && timing.stages[NR_GPU_NETWORK].samples > 0) {
+                        const auto now = GetTickCount64();
+                        firstLine += " | NR GPU: " + DlssNr::TimingValueText(timing, NR_GPU_NETWORK, now);
+                    }
+                    if (overlayType >= FpsOverlay_Detailed) {
+                        const auto status = DlssNr::AmdBridge::Status();
+                        if (!status.empty())
+                            codecTimingLine = status;
+                    }
                 }
             }
 
