@@ -18,90 +18,20 @@ Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单
 
 ## 更新日志
 
-### 1.10.2（相比 1.10.1）
-
-- 新增实验性 **SR → NR**：在 Ins 的 **Processing order** 切换处理顺序，Daniel、lmxxf、Mochizuki 均支持，并保留各自 1～3 层 pass。默认仍为 **NR → SR、1 层**；SR 后按输出分辨率处理，可能增加 GPU 耗时和显存。
-- lmxxf 更新到 **0.41**，新增第三层预测、肤色保护及 ViT/C512 快速数值路径，保留 LLVM23/RowOpts 构建优化。选择 3 层时，默认执行 **两次真实网络＋第三层局部预测**；关闭 **Predict third pass (lossy)** 后执行三次真实网络。肤色保护默认关闭，自由分辨率默认开启。
-- 调整 lmxxf 菜单：基础跳块与第 2/3 层额外跳块相邻放在原 **Advanced Kernels** 内；**ViT adaptive reuse** 后直接显示四个参数，关闭复用时置灰。流程图、状态和 INI 说明同步更新。
-- 改进 Unity 早期命令列表接管：默认覆盖《伊莫》（Aniimo）的 UnityPlayer 调用；其他 Unity 游戏可在 **Early command-list wrap** 中手动启用，保存后重启生效。
-- 修复旧 lmxxf 着色器残留遮蔽新包、导致彩色噪点或条块的问题。Mochizuki 遇到短暂分辨率跳变时保留现有网络，避免立即拆除重建。
-- 改进安装：显示已检测到的模型，安装目录缺失的有效权重可从游戏回存，供下次安装使用；Mochizuki 缺少可用 Python 时提示到 Microsoft Store 搜索安装 Python 3.10+。不完整的 lmxxf 更新包会报错，不再借用游戏旧组件补齐。
-- 改进覆盖与卸载：覆盖安装不再自动备份整套旧包，并保留已保存的 INI 设置；选 **Y 先卸载** 直接执行新包的卸载脚本，失败即停止安装。补齐旧 shader、缓存、日志、dump 与旧 NR core 的清理，阻止旧 shader 在重装时被带回，保留权重与自定义文件。
-
-### 配置与安装
-
-当前版本已支持以下后端及对应功能：
-
-- lmxxf 0.41：新增第三层预测（默认开，仅选 3 层时生效；关闭后运行真实三遍）和肤色保护（默认关）。快速数值路径扩展到 ViT/C512。默认仍为 1 层、自由分辨率开；支持 NR→SR 与 SR→NR。Ins 的 Model 页与 INI 均可调整。
-- Daniel 0.6.0
-- Mochizuki 0.0.3（接入时参考了 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 的思路）
-
-lmxxf 菜单下 ViT 复用采用本项目的性能取向默认值 **16 / 1 / 50 / 1**（period/global/local/image），不是原版 **4 / 0.22 / 1 / 0.35**；更宽松的阈值可能留下旧细节或拖影，如有画面异常做相应调整或关闭 ViT 复用功能 (image reuse)。
-
-### 游戏兼容
-
-- 修复自 1.9.8.1 以来卡普空 RE 引擎游戏（鬼武者、生化危机9）的闪退问题。
-- lmxxf 部分游戏场景闪退问题（已知鸣潮、异环、伊莫等）正在与上游共同商议修复，当前版本推荐尝试 Mochizuki 后端。
-- 可能无法与 ReShade 插件兼容。
-
-### Ins 窗口布局（部分思路借鉴）
-
-可拖动窗口边缘调整大小；窄窗口改为单栏，内容滚动，底部操作独立保留。
-底部 **Window** 可选择自由移动或四角停靠；拖动标题栏解除停靠。窗口随游戏显示区域变化保持在边界内。
-**Menu Scale** 仍控制字体/控件大小，和窗口尺寸分开。**… → Reset window layout** 只恢复窗口尺寸、居中和自由模式，不改 NR 或缩放设置。
-**Save Settings** 保存 `[Menu] WindowWidth/WindowHeight`（缩放前逻辑像素，`auto` 为自动）和 `WindowAnchor`（0=自由，1/2=左上/右上，3/4=左下/右下）。自由位置仅在当前会话保留。
-Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置。
-
-### 安装器
-
-- 后端选择时现在将提示权重所在位置（使用安装器文件夹权重或所选游戏文件夹内已备）
-- Mochizuki 后端可选
-
+更新日志详见 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases)
 
 ---
 
 ## 目录
-- [📢 1.9.0 更新日志 (Changelog)](#-190-更新日志-changelog)
 - [1. 巨人的肩膀](#1-巨人的肩膀)
 - [2. 安装指南 (Installation Guide)](#2-安装指南-installation-guide)
+  - ├─► [⚡ 极速简易安装教程](#quick-start)
+  - ├─► [完整详细安装说明与高级选项](#完整详细安装说明与高级选项)
   - └─► [可选：3倍及以上多帧生成 (Frame Generation)](#可选功能3倍及以上多帧生成frame-generation)
 - [3. 三后端架构与历史性能实测](#3-三后端架构与历史性能实测)
 - [4. 游戏内设置与控制](#4-游戏内设置与控制)
 - [5. 排错、日志定位与卸载](#5-排错日志定位与卸载)
 - [6. 署名与许可 (Attributions & Licenses)](#6-署名与许可-attributions--licenses)
-
----
-
-## 📢 1.9.0 更新日志 (Changelog)
-
-本次 1.9.0 是一次**重大的架构级里程碑升级**。我们正式引入了开源的 [**`lmxxf` HIP 神经渲染后端**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)，并重点攻克了虚幻引擎 5（UE5）等复杂现代游戏中的多队列与切分兼容性难题。
-
-### 🚀 核心更新点
-
-1. **修复 `lmxxf` 后端对虚幻引擎 5（UE5，如《异环》、《幻兽帕鲁》等）游戏的兼容（1.9.0.3）**
-   - **正确绑定渲染队列（解决《异环》Neverness to Everness 等崩溃问题）**：重构了后端队列生命周期，在首帧准确锁定执行 DLSS-NR 命令列表的真实渲染 Direct 队列，解决因视口渲染队列与 Swapchain 呈现队列分离导致的 `QueueContract: targetQueue != sessionQueue` 会话失效与崩溃问题。
-   - **跨队列安全保护**：在命令切分执行回调中加入 COM 同一性检查，遇意外队列分发时主动跳过 HIP 调用并保持正常渲染。
-   - **显存排干与安全迁移**：动态队列迁移前等待 GPU 排干完成，减少底层会话废弃（`AbandonSessionResources`）导致的显存泄漏风险。
-   - **命令列表切分准入与日志优化（解决《幻兽帕鲁》Palworld 等卡顿问题）**：优化了命令列表切分准入判定；默认日志等级优化为 2 (Information)，移除导致部分游戏启动卡顿数十秒的静态哈希，并引入渐进式指数退避限流，避免磁盘暴增。
-
-2. **引入 `lmxxf` 神经渲染后端**
-   - **接入开源核心**：在保留原有 `danielblnc` 后端的基础上，全新接入开源 HIP 神经渲染后端。
-   - **主队列同帧同步执行（Same-Frame Queue Execution）**：将输入录制、HIP 异步推理、输出屏障无缝嵌入在游戏主命令队列内超分辨率（Pre-SR）之前完成。
-   - **lmxxf 支持 DLSS / XeSS 代理接入**：让 lmxxf 后端同样能拦截 DLSS / XeSS 输入并在送交 FSR 前完成神经降噪，使无原生 FSR 的游戏也能使用。
-   - **双后端共存与切换**：支持在安装时自由选择后端，并可在 `OptiScaler.ini` 中通过 `NrBackend=lmxxf` 或 `NrBackend=daniel` 自由切换。
-   - **内存与稳定性优化**：优化 `fast_prefix` 加速模式，跳过无用的 201MB 噪声 Buffer 分配，显著降低主机内存占用与初始化耗时；强化伪装 NVIDIA（Fake NVAPI）时的 GPU LUID 智能匹配，避免多显卡或驱动欺骗时跨卡崩溃。
-   - **⚠️ 分辨率支持限制与推荐档位**：注意当前 `lmxxf` **仅支持超分前渲染分辨率 ≤ 1080p** 的画面进行神经渲染。对应典型档位参考：
-     - **4K 显示输出**：推荐使用 **FSR 性能档**（渲染分辨率 1080p）或超级性能档（720p）；若设为 4K 质量档（1440p 渲染）会超出当前模型切片架构上限。
-     - **2K (1440p) 显示输出**：可使用 **FSR 质量档 / 平衡档 / 性能档**（渲染分辨率均在 1080p 及以下）。
-     - **1080p 显示输出**：可使用 **1080p 原生** 或各类超分档位。
-
-3. **修复安装器交互逻辑**
-   - 支持双后端选择与覆盖/共存安装，卸载脚本增加路径安全保护。
-
-4. **菜单（Ins Menu）全面净化与画质原生动态调参**
-   - **智能菜单过滤**：在 `lmxxf` 模式下自动隐藏 Daniel 专属的无效选项（如 passes、slots、new wait、实验性 RTGI 等），避免设置混淆。
-   - **排版与间距修复**：修复了 `Enable NR` 与 `AMD processing` 挤在同一行的布局 Bug，恢复清晰合理的垂直层级与间距。
-   - **原生动态调参滑条**：在 Ins 菜单新增 `Detail strength`（细节/亮度强度）、`Colour strength`（色彩饱和校正）无级滑条，并支持 `Debug view` 实时可视化调试图，改动即时生效。
 
 ---
 
@@ -113,16 +43,37 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分辨率代理框架（支持 DLSS / FFX / XeSS 输入输出） | 作为整体安装与运行主体，提供通用注入、Hook 与配置界面 |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 首次把 DLSS 神经渲染接进 OptiScaler，并提出在超分前运行多 pass 的 Pre-SR 架构 | 继承其 OptiScaler 代码基底与 Pre-SR 调度管线 |
-| **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
+| **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分；引入 [RenoDX](https://github.com/clshortfuse/renodx) 的 OkLab 与双分支色调映射改善高光偏色 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体（0.3.0–0.6.0） | **不改动其核心**，按规范接口调用；并针对 0.3.1+ 的 1 像素 Draw 等待补齐状态保护，确保在 DLSS/XeSS 游戏上安全运行 |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 逆向恢复 71 块网络并移植到 AMD HIP 的开源神经渲染算力核心 | **接入 OptiScaler 通用代理框架以兼容更多纯 DLSS / XeSS 游戏**；实现主队列同帧同步执行；开发标准版本化 C-ABI 独立运行时（`LmxxfNrRuntime` 并反哺合并至上游）；增加动态色彩/细节无级滑条等 |
-| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | 开源 HDR / 色彩渲染 Addon | `dlssnr.hlsl` 色彩合成算法来源 |
+| **[Mochizuki / DLSSNR-AMD](https://github.com/mochizuki0323/DLSSNR-AMD)** | 纯开源 Vulkan / RDNA4 神经渲染网络核心与 SPIR-V 着色器体系 | 深度接入多后端架构并重构生命周期安全：解决跨 API 在无关游戏队列上的死等卡顿与显存泄漏；整合着色器取消机制与 26.9.2+ 驱动修复（由 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 提供） |
 
 使用 danielblnc 0.6.0 的 RX 6000（RDNA2）显卡需要安装 AMD HIP 7.2 runtime。
 
 ---
 
 ## 2. 安装指南 (Installation Guide)
+
+### <span id="quick-start"></span>⚡ 极速简易安装教程（三后端通用）
+
+1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载本项目最新 zip 压缩包，解压至任意非中文路径。
+2. **收集必备外部文件**（复制到与 `Setup.bat` 同一文件夹下，即 **1 个文件夹 + 1 个 DLL + 1 个 EXE**）：
+   - `nvngx_dlssnr.dll`（NVIDIA 原生降噪动态库，当前**仅支持 310.8.0** 版本）；
+   - [`native-game-tiled-assets` 文件夹](https://gofile.io/d/RyvcrDxz)（lmxxf 权重目录，解压后包含权重文件）；
+   - [`dlssnr_on_amd_setup.exe`](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)（Danielblnc 所需的安装/提取程序）。
+   > 💡 **提示**：若计划使用 **Mochizuki** 后端，请提前在微软商店（Microsoft Store）搜索并安装 **Python 3.10+**。
+3. **运行安装器并选择游戏**：
+   - 双击运行 `Setup.bat`，在弹出的窗口中选择**游戏的实际主程序运行目录**（注意：必须是游戏 exe 实际执行的所在目录，例如虚幻引擎游戏通常为 `...\<GameName>\Binaries\Win64\`，而非平台 Launcher 或外层快捷方式目录）；
+   - 按交互提示选择代理 DLL（通常可选 `dxgi.dll`，无法使用时可尝试 `winmm.dll` 或其他注入方式）与后端进行安装。若此前已安装过旧版本，升级推荐选择覆盖安装。
+4. **注：升级安装时无需执行步骤 2**：
+   - 如果你曾经在目标游戏中安装过本项目及对应后端权重，后续升级新版本时无需执行步骤 2，安装工具将自动识别并带回安装工具所在文件夹。
+
+---
+
+### 完整详细安装说明与高级选项
+
+<details>
+<summary><strong>📖 点击展开：完整详细安装说明与高级选项（文件清单、各后端独立准备、卸载机制与手动部署）</strong></summary>
 
 <details>
 <summary><strong>📦 点击展开：压缩包内文件清单</strong></summary>
@@ -149,13 +100,11 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 
 </details>
 
----
-
-### 第一步：准备对应后端的文件
+#### 第一步：准备对应后端的文件（详细说明）
 
 可以准备以下任意后端，或同时安装多个后端：
 
-#### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
+##### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
 - 使用本项目完整包内配套的 `LmxxfNrRuntime.dll`（不要混用上游 ABI1 runtime）；
 - 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 38 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 76 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
@@ -165,22 +114,22 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 升级时直接运行新包的 `Setup.bat` 并选择游戏目录。检测到已有 OptiScaler 后，安装器会建议先卸载，以避免新版文件、模块布局和旧设置冲突：输入 **Y（推荐）**会自动调用新包卸载器，再继续安装；输入 **N** 则直接覆盖安装。卸载会重置 OptiScaler 设置，保留权重和已有备份。正常覆盖不再备份旧 DLL、INI 或整套模块；模块切换仅临时保留旧目录，成功后清理、失败时恢复。用户自加且不能混入新版模块集的 `.hsaco` 等内容单独保存在安装结束时显示的 `backup-amd-presr-*/lmxxf-modules`，其他兼容的用户文件继续保留。
 
 
-#### 选项 B：[准备 `danielblnc` 后端文件](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
+##### 选项 B：[准备 `danielblnc` 后端文件](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
 - 准备 `dlssnr_on_amd_setup.exe` 与 `nvngx_dlssnr.dll`（推荐，可从 [danielblnc Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取，安装器会自动调用生成 weights）；
 - 或者放入已经生成好的 `version.dll` 与 `dlssnr_on_amd_weights.bin`；
 - 同样放在与 `Setup.bat` 相同的解压目录下。
 
 ---
 
-#### 选项 C：准备 Mochizuki（Windows / RDNA4）
+##### 选项 C：准备 Mochizuki（Windows / RDNA4）
 
-完整包已包含 `MochizukiNrRuntime.dll` 和 `dlssnr-amd/shaders/`。另外准备自己的 `nvngx_dlssnr.dll` **310.8.0**，放在 `Setup.bat` 旁；安装 Python **3.10+**，运行 Setup 并选择 Mochizuki，安装器会提取和验证模型。已有模型时可直接放入 `dlssnr-amd/dlssnr.bin`，无需重新提取。完整校验值和独立提取方法见 [Mochizuki 安装说明](docs/mochizuki.md)。
+完整包已包含 `MochizukiNrRuntime.dll` 和 `dlssnr-amd/shaders/`。另外准备自己的 `nvngx_dlssnr.dll` **310.8.0**（当前仅支持该版本，SHA256 为 `e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`），放在 `Setup.bat` 旁；安装 Python **3.10+**，运行 Setup 并选择 Mochizuki，安装器会提取和验证模型。已有模型时可直接放入 `dlssnr-amd/dlssnr.bin`，无需重新提取。完整校验值和独立提取方法见 [Mochizuki 安装说明](docs/mochizuki.md)。
 
 没有源 DLL 或模型时，Setup 会提示 `MODEL SETUP REQUIRED`；只有 runtime 不代表可以运行。其他版本的 DLL 不自动尝试提取。模型损坏时先把旧 `dlssnr.bin` 移走，再运行 Setup；安装器不会静默覆盖它。
 
 首次进入游戏可能需要数分钟编译网络，右下角显示阶段和进度；期间显示原始画面。改变分辨率、模型比例或叠层容量可能再次编译。Mochizuki 有独立的输入预处理、三种风格、1–3 遍叠层和时序控制；默认叠层 1。Ins/INI 中 `Mochizuki*` 参数不影响另外两个后端。需要排错时先看 Ins 的缺失依赖/编译状态，再看 `OptiScaler.log`。
 
-### 第二步：运行安装器（推荐，一键全自动）
+#### 第二步：运行安装器（详细流程）
 
 1. 解压本 Release 包到任意临时目录；
 2. 将准备好的后端文件与 `Setup.bat` 放在同一目录下；
@@ -188,13 +137,13 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 4. **双击运行 `Setup.bat`**：
    - 弹出文件夹选择框，选中 **游戏主程序 exe 所在的目录**（例如 `...\Binaries\Win64\`）；
    - 若检测到已有 OptiScaler，输入 **Y** 自动卸载后安装（推荐），或输入 **N** 覆盖安装；
-   - 按照提示选择你要注入的 **代理 DLL 名称**（默认为 `dxgi.dll`，推荐；也支持 `winmm.dll`、`d3d12.dll` 等，**不要选 `dinput8.dll`**）；
+   - 按照提示选择你要注入的 **代理 DLL 名称**（默认为 `dxgi.dll`，推荐；也支持 `winmm.dll`、`d3d12.dll` 等，**不要选 `dinput8.dll`**；卡普空 RE 引擎游戏请提前自行安装相应补丁）；
    - 安装器显示三后端及权重检测结果；选择单个后端或安装全部可用后端，再选择当前启用的后端；
    - 安装器自动处理重命名、防双重注入清理、依赖部署，并配置 `OptiScaler.ini`。
 
 ---
 
-### 第三步：手动安装（高级玩家）
+#### 第三步：手动安装（高级玩家）
 
 若你熟悉游戏模组手动放置，可直接将文件拷贝至游戏主程序目录：
 1. 将 `OptiScaler.dll` 重命名为你选择的代理名称（如 `dxgi.dll`）放入游戏目录；
@@ -204,6 +153,8 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
    - **若使用 `danielblnc`**：将 danielblnc 的 `version.dll` 复制三份，分别命名为 `dlssnr_amd_pass1.dll`、`dlssnr_amd_pass2.dll`、`dlssnr_amd_pass3.dll`；将 `dlssnr_on_amd_weights.bin` 放入游戏目录（**切勿保留名为 `version.dll` 的 danielblnc 文件**，以免冲突）；
    - **若使用 `mochizuki`**：复制 `MochizukiNrRuntime.dll`、`dlssnr-amd/shaders/` 及自己的 `dlssnr-amd/dlssnr.bin`；
 4. 打开 `OptiScaler.ini`，在 `[DlssNr]` 中设置 `Enabled = true`，并通过 `NrBackend = lmxxf`、`NrBackend = daniel` 或 `NrBackend = mochizuki` 指定当前生效的后端。
+
+</details>
 
 ---
 
@@ -362,7 +313,7 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `NrConvenience` | `1` | `1`：装了 lmxxf 时预开提交代理，daniel ↔ lmxxf 可会话内热切换；`0`：只启所选后端，换后端需重启游戏。改后重启生效。 |
+| `NrConvenience` | `1` | `1`：装了 lmxxf 或 mochizuki 时预开提交代理，三后端（daniel ↔ lmxxf ↔ mochizuki）可会话内实时热切换；`0`：只启所选后端，换后端需重启游戏。改后重启生效。 |
 
 ---
 
@@ -382,8 +333,8 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 - `amd_presr.log`：Pre-SR 调度管线日志；
 - `dlssnr_on_amd.log`：Daniel 后端专用运行日志。
 
-> **注意：lmxxf 后端的日志在哪？**
-> 与 `danielblnc` 后端写入独立的 `dlssnr_on_amd.log` 不同，`lmxxf` 后端与 C-ABI 运行时的日志已直接接入统一日志系统，其所有初始化、状态检测与运行报错均**集中记录在 `OptiScaler.log`（以及 `amd_bridge.log`）中**，无需查找额外日志文件。
+> **注意：lmxxf 与 Mochizuki 后端的日志在哪？**
+> 与 `danielblnc` 后端写入独立的 `dlssnr_on_amd.log` 不同，`lmxxf` 与 `mochizuki` 后端的日志已直接接入统一日志系统，其所有初始化、状态检测、网络编译与运行报错均**集中记录在 `OptiScaler.log`（以及 `amd_bridge.log`）中**，无需查找额外日志文件。
 
 #### 1. `lmxxf` 后端专属排错
 - **状态栏显示 `waiting` 或无法启用**：
@@ -402,19 +353,25 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
   - 确认游戏目录中**没有多余的 danielblnc `version.dll`** 与代理文件冲突；
   - 查看 `dlssnr_on_amd.log` 排查底层报错。
 
-#### 3. 微软商店版 / XBOX PC 特殊提示
+#### 3. `mochizuki` 后端专属排错
+- **状态栏提示缺失依赖或无法启用**：
+  - 打开 `OptiScaler.log`，搜索 `mochizuki` 关键字，或在 Ins 菜单中查看缺失依赖提示；
+  - 检查游戏目录是否缺失 `MochizukiNrRuntime.dll`；
+  - 检查 `dlssnr-amd/shaders/` 着色器目录是否完整，以及是否存在 `dlssnr-amd/dlssnr.bin` 模型文件；
+  - 首次进入游戏可能需要数分钟编译网络，右下角会实时显示编译阶段与进度，编译完成前游戏显示原始画面。
+- **环境依赖排查**：
+  - 确保安装了支持 Vulkan 的 AMD 显卡驱动；初次提取模型需在微软商店安装 Python 3.10+。
+
+#### 4. 微软商店版 / XBOX PC 特殊提示
 由于系统文件虚拟化映射，部分微软商店或 XBOX PC 游戏会在游戏 exe 同级生成名为 **`_storage_`** 的文件夹，日志与生成文件可能会写入此处，请在此目录同步排查。
 
 ### 三、问题反馈格式
 若遇到无法解决的崩溃或异常，提交 Issue 时请提供：
 1. 注入代理名称（如 `dxgi.dll`）；
-2. 所选后端（`lmxxf` 还是 `daniel`）；
+2. 所选后端（`lmxxf`、`daniel` 还是 `mochizuki`）；
 3. 显卡型号、操作系统版本与 AMD 驱动版本；
 4. 游戏名称与输出分辨率、超分档位；
 5. 附带完整的上述 `.log` 日志文件。
-
-### 四、已知问题 (Known Issues)
-- **UE5（《幻兽帕鲁》《异环》等）**：旧构建把所有 Query 都判为不可切分，且首个交换链创建前的游戏命令列表未包装，导致 `lmxxf` 回退到原图输出。当前源码已放宽已完成 Query 的准入，并提前包装游戏主程序创建的列表；D3D12 测试通过，仍需在游戏中验证神经降噪实际执行和画面稳定性。
 
 ---
 
@@ -429,13 +386,8 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 - [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**：AMD Pre-SR 桥接方案；
 - [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**：danielblnc 保留所有权利，禁止未经授权重新分发，本项目不随包分发其二进制，采用外部检测安装方式对接；
 - [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**：开源 HIP 神经渲染算力核心与 71 块网络还原；
+- [**Mochizuki / DLSSNR-AMD**](https://github.com/mochizuki0323/DLSSNR-AMD) — **MIT License**：纯开源 Vulkan / RDNA4 神经渲染核心网络与 SPIR-V 着色器体系；
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**：`dlssnr.hlsl` 色彩通道合成算法；
 - [**本项目 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**：多槽调度架构、主队列同帧同步执行、C-ABI 标准化运行时与 PR 反哺、0.3.1 状态冻结/恢复、双后端共存与智能安装器。
 
 本项目不含 NVIDIA 专有二进制文件、danielblnc 安装工具或未授权分发资产。使用时请遵循各上游开源协议。
-
-## 已知问题（1.9.2-alpha）
-
-- **`lmxxf` 大分辨率输入：** `[DlssNr] DLSS5_FIT_LARGE` 默认开启，更大的 Color 会拟合到网络尺寸。此前帕鲁的秒级卡顿是每帧重复重建链路的 Bug，已修复；截至 2026-09-28，维护者未发现修复后 FitLarge 仍有问题，不再根据旧测量建议降低分辨率或关闭它。显式设为 `false` 时，输入宽不超过 2560、高不超过 1080，并且总像素不超过 1920×1080（例如 2024×848）；2560×1080 不会放行。
-- **《赛博朋克 2077》色彩：** 旧版网络色相混入导致霓虹发棕的路径已调整；当前 Colour strength 0–1 保留游戏原色，>1 才向网络色混合。无需沿用旧版强制设为 0 的建议；该规则适用于所有游戏。
-- **PDL：** 链式启动默认打开。驱动里没有 `hipExtModuleLaunchKernel` 时，把 `DLSS5_HIP_PDL` 设为 false 后重启。

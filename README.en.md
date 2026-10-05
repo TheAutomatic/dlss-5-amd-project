@@ -21,90 +21,20 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ## Changelog
 
-### 1.10.2 (compared to 1.10.1)
-
-- Added experimental **SR → NR** through **Processing order** in Ins for Daniel, lmxxf and Mochizuki, retaining each backend's 1–3 passes. Defaults remain **NR → SR and one pass**. Post-SR processing uses output resolution and may increase GPU time and VRAM use.
-- Updated lmxxf to **0.41**, adding third-pass prediction, skin protection and fast numeric ViT/C512 paths while retaining LLVM23/RowOpts build optimizations. With three passes selected, the default is **two real network passes plus a local third-pass prediction**. Disable **Predict third pass (lossy)** for three real passes. Skin protection defaults to off; native free resolution remains on.
-- Refined the lmxxf menu: base skipping and extra skipping for passes 2/3 sit together in **Advanced Kernels**. The four **ViT adaptive reuse** parameters appear directly below the toggle and are disabled when reuse is off. Updated the diagram, status and INI comments.
-- Improved early command-list handling for Unity: Aniimo's UnityPlayer calls are covered by default. Other Unity games can opt in through **Early command-list wrap**; save settings and restart to apply.
-- Fixed stale lmxxf shaders overriding an updated package and causing colored noise or blocks. Mochizuki now retains its working network during brief resolution changes instead of immediately tearing it down and rebuilding it.
-- Improved installation: detected models are shown, and valid game weights can be saved back to the installer folder when missing there for future installs. Missing usable Python now prompts Mochizuki users to install Python 3.10+ from Microsoft Store. Incomplete lmxxf updates are rejected instead of borrowing old game components.
-- Improved overwrite and uninstall: overwrites no longer back up the entire old package and preserve saved INI settings. Choosing **Y to uninstall first** runs the new package's uninstaller and stops installation on failure. Expanded cleanup covers old shaders, caches, logs, dumps and the legacy NR core; old shaders are no longer restored during reinstall. Weights and custom files are preserved.
-
-### Configuration and Installation
-
-The current version supports the following backends and features:
-
-- lmxxf 0.41: third-pass prediction (on by default, only at 3 passes; disable for three real passes), optional skin protection (off), and fast numeric ViT/C512 paths. Defaults remain one pass and native free resolution. Both NR→SR and SR→NR are supported; controls are in Ins → Model and INI.
-- Daniel 0.6.0
-- Mochizuki 0.0.3 (integration guided by the architectural approach of [@MatheusFerreiraS](https://github.com/MatheusFerreiraS))
-
-In the lmxxf menu, ViT reuse retains this project's performance-oriented defaults of **16 / 1 / 50 / 1** (period/global/local/image), rather than upstream's **4 / 0.22 / 1 / 0.35**. Looser thresholds may leave stale details or ghosting; adjust accordingly or disable ViT reuse (image reuse) if visual anomalies occur.
-
-### Game Compatibility
-
-- Fixed game crashes in Capcom RE Engine titles (Onimusha, Resident Evil 9) present since 1.9.8.1.
-- Crashes with the lmxxf backend in certain game scenes (known cases: Wuthering Waves, Neverness to Everness, Yimo, etc.) are being jointly investigated with upstream. For this release, trying the Mochizuki backend is recommended.
-- May conflict with ReShade.
-
-### Ins Window Layout (partially inspired by upstream)
-
-Drag window edges to resize; narrow windows switch to a single column with scrollable content, while bottom action buttons remain accessible.
-The bottom **Window** option allows free positioning or anchoring to screen corners; dragging the title bar un-anchors the window. The window stays bounded within the game display viewport during resolution changes.
-**Menu Scale** continues to scale fonts and controls independently of window size. **… → Reset window layout** only resets window dimensions, centering, and free mode without affecting NR or scale settings.
-**Save Settings** persists `[Menu] WindowWidth/WindowHeight` (logical pixels before scaling, `auto` for automatic) and `WindowAnchor` (0=Free, 1/2=top-left/top-right, 3/4=bottom-left/bottom-right). Free positions persist only for the current session.
-Daniel and lmxxf share this layout; the Page Up overlay continues using its independent position settings.
-
-### Installer
-
-- Backend selection now indicates weight file locations (uses installer folder weights or detected existing files in the chosen game folder).
-- The Mochizuki backend is now selectable.
-
+See the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) for detailed changelogs.
 
 ---
 
 ## Table of Contents
-- [📢 1.9.0 Changelog](#-190-changelog)
 - [1. Standing on the Shoulders of Giants](#1-standing-on-the-shoulders-of-giants)
 - [2. Installation Guide](#2-installation-guide)
+  - ├─► [⚡ Quick Start Installation](#quick-start)
+  - ├─► [Full Installation Details & Advanced Options](#full-installation-details--advanced-options)
   - └─► [Optional: 3x+ Frame Generation](#optional-3x-frame-generation)
 - [3. Three Backends & Historical Benchmarks](#3-three-backends--historical-benchmarks)
 - [4. In-Game Settings & Controls](#4-in-game-settings--controls)
 - [5. Troubleshooting, Logs & Uninstallation](#5-troubleshooting-logs--uninstallation)
 - [6. Attributions & Licenses](#6-attributions--licenses)
-
----
-
-## 📢 1.9.0 Changelog
-
-Version 1.9.0 is a **major architectural milestone upgrade**. We officially introduce the open-source [**`lmxxf` HIP Neural Rendering backend**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) and resolve critical multi-queue and command list split compatibility hurdles in modern Unreal Engine 5 titles.
-
-### 🚀 Key Highlights
-
-1. **Unreal Engine 5 (UE5) Compatibility Fixes for lmxxf (*Neverness to Everness*, *Palworld*, etc.) (1.9.0.3)**
-   - **Render Queue Binding (*Neverness to Everness*)**: Correctly binds to the game's actual Direct rendering queue executing DLSS-NR commands, avoiding crashes and session invalidation caused by viewport render queue vs. Swapchain present queue mismatch (`QueueContract: targetQueue != sessionQueue`).
-   - **Queue Safety Guard**: Adds COM identity checks during command list execution callbacks to skip HIP evaluation gracefully when unexpected command lists are dispatched.
-   - **GPU Draining on Migration**: Flushes the GPU prior to queue migration to reduce VRAM leak risks from session recreation.
-   - **Command List Split & Startup Fixes (*Palworld*)**: Hardens split eligibility checks, adjusts default log level to 2 (Information) to remove startup hashing delays, and introduces log rate-limiting.
-
-2. **New `lmxxf` Neural Rendering Backend**
-   - **Open-Source Compute Core**: In addition to maintaining compatibility with the existing `danielblnc` backend, integrates the open-source HIP neural rendering core.
-   - **Same-Frame Queue Execution**: Embeds input recording, HIP asynchronous inference, and output barrier synchronization within the game's primary command queue before upscaling (Pre-SR).
-   - **DLSS / XeSS Proxy Support for lmxxf**: Enables the `lmxxf` backend to intercept DLSS and XeSS inputs before upscaling (Pre-SR), allowing games without native FSR to use the lmxxf denoiser.
-   - **Dual-Backend Support**: Seamlessly supports both `lmxxf` and `danielblnc` backends. Switch between them anytime in `OptiScaler.ini` via `NrBackend=lmxxf` or `NrBackend=daniel`.
-   - **Memory & Stability Hardening**: Optimizes `fast_prefix` mode to bypass the redundant 201MB noise buffer allocation, reducing host memory footprint and startup overhead. Enhances GPU LUID matching in Fake NVAPI to prevent cross-adapter crashes in multi-GPU or spoofed environments.
-   - **⚠️ Resolution Recommendation**: The current `lmxxf` model architecture is optimized for **pre-upscale render resolution ≤ 1080p**:
-     - **4K Output**: Recommended to use **FSR Performance** (1080p render) or Ultra Performance (720p render).
-     - **1440p (2K) Output**: Recommended to use **FSR Quality / Balanced / Performance** (all render at or below 1080p).
-     - **1080p Output**: Supports **Native 1080p** or any FSR scaling mode.
-
-3. **Installer Update**
-   - Fixed installer interaction logic, supporting dual-backend selection and safe coexistence/overwrites.
-
-4. **Menu (Ins Menu) Polish & Real-Time Parameter Sliders**
-   - **Context-Aware Menu**: Automatically hides Daniel-specific options (e.g. slots, passes, new wait) when in `lmxxf` mode to eliminate confusion.
-   - **Layout Fixes**: Resolves layout clumping between `Enable NR` and `AMD processing`, restoring clear vertical structure.
-   - **Live Sliders**: Introduces continuous sliders for `Detail strength` and `Colour strength`, along with a real-time `Debug view` channel selector for live visual diagnostics.
 
 ---
 
@@ -116,16 +46,37 @@ This project is built upon the collective achievements of pioneering developers 
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | Universal upscaling proxy framework (DLSS / FFX / XeSS) | Serves as the host and injection layer, providing hooking and GUI controls |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | First integrated DLSS-NR into OptiScaler; architected Pre-SR Multi-Pass pipeline | Inherits their OptiScaler codebase foundation and Pre-SR dispatch structure |
-| **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Bridged Pre-SR to AMD runtime: DLSS Input → AMD NR → FFX | Pioneered **Multi-slot scheduling**, eliminating **8.7 ms/frame** of idle GPU stalls; adapted 0.3.1; restored D3D12 state freeze/restore; enhanced XBOX PC compatibility. **Bridge overhead measured at just 0.01–0.03 ms** |
+| **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Bridged Pre-SR to AMD runtime: DLSS Input → AMD NR → FFX; integrated [RenoDX](https://github.com/clshortfuse/renodx) OkLab and two-branch tone mapping for specular highlight preservation | Pioneered **Multi-slot scheduling**, eliminating **8.7 ms/frame** of idle GPU stalls; adapted 0.3.1; restored D3D12 state freeze/restore; enhanced XBOX PC compatibility. **Bridge overhead measured at just 0.01–0.03 ms** |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Core AMD Neural Rendering runtime (0.3.0–0.6.0) | Calls standard runtime without core modifications; adds D3D12 state protection for 0.3.1+ 1-pixel draw wait |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | Reversed 71-block network ported to open-source AMD HIP kernels | **Integrated into OptiScaler universal proxy framework to support more DLSS / XeSS games**; implemented same-frame queue execution; developed standardized C-ABI standalone runtime (`LmxxfNrRuntime`); added real-time detail/color tuning sliders |
-| **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** | Open-source HDR / Color grading addon | Source of color composition algorithms in `dlssnr.hlsl` |
+| **[Mochizuki / DLSSNR-AMD](https://github.com/mochizuki0323/DLSSNR-AMD)** | Fully open-source Vulkan / RDNA4 neural rendering network core and SPIR-V shaders | Integrated into multi-backend architecture with overhauled lifecycle safety: eliminated stalls on unrelated game queues and memory leaks; integrated shader cancellation and driver 26.9.2+ fixes (provided by [@MatheusFerreiraS](https://github.com/MatheusFerreiraS)) |
 
 RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
 
 ---
 
 ## 2. Installation Guide
+
+### <span id="quick-start"></span>⚡ Quick Start Installation (All Three Backends)
+
+1. **Download & Extract**: Download the latest release `.zip` from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract it to any folder.
+2. **Collect Required External Files** (copy them into the same extracted folder as `Setup.bat`, i.e., **1 folder + 1 DLL + 1 EXE**):
+   - `nvngx_dlssnr.dll` (NVIDIA DLSS-NR native library, **version 310.8.0 is strictly required**);
+   - [`native-game-tiled-assets` folder](https://gofile.io/d/RyvcrDxz) (lmxxf weights directory containing model files);
+   - [`dlssnr_on_amd_setup.exe`](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) (Setup/extraction executable for danielblnc).
+   > 💡 **Tip**: If you plan to use the **Mochizuki** backend, please make sure **Python 3.10+** is installed from the Microsoft Store beforehand.
+3. **Run Setup & Select Game Directory**:
+   - Double-click `Setup.bat` and select the directory where the **actual game executable** is located (e.g. Unreal Engine games typically use `...\<GameName>\Binaries\Win64\`, not the platform launcher or shortcut folder);
+   - Follow prompts to select your proxy DLL (typically `dxgi.dll`; try `winmm.dll` or other injection methods if unavailable) and desired backend. When updating, **an overwrite installation is recommended**.
+4. **Note: Skip step 2 when upgrading**:
+   - If you have previously installed this project and backend weights in a game, **you can skip step 2 when upgrading**; the installer will automatically detect existing weights and files from the game folder and copy them back into the setup directory for reuse.
+
+---
+
+### Full Installation Details & Advanced Options
+
+<details>
+<summary><strong>📖 Click to expand: Full Installation Details & Advanced Options (Contents, Backend Setup, Overwrite/Rollback & Manual Deployment)</strong></summary>
 
 <details>
 <summary><strong>📦 Click to expand: Package Contents</strong></summary>
@@ -152,13 +103,11 @@ RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
 
 </details>
 
----
-
-### Step 1: Prepare Backend Files
+#### Step 1: Prepare Backend Files (Detailed)
 
 Prepare either backend (or both for side-by-side coexistence):
 
-#### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [Click Here](https://gofile.io/d/RyvcrDxz) to download weights
+##### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [Click Here](https://gofile.io/d/RyvcrDxz) to download weights
 - `LmxxfNrRuntime.dll` from this complete project package (do not substitute the upstream ABI1 runtime);
 - Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 38 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 76 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
 - Shader folder `shaders\` (with `native_codec_encode.hlsl`);
@@ -168,22 +117,22 @@ Prepare either backend (or both for side-by-side coexistence):
 To upgrade, run the new package's `Setup.bat` and select the game folder. When OptiScaler is detected, Setup recommends uninstalling first to avoid conflicts between the new files, module layout, and old settings. Choose **Y (Recommended)** to run the new uninstaller automatically and continue installing, or **N** to overwrite the existing installation. Uninstall resets OptiScaler settings but keeps weights and existing backups. Normal overwrite does not create backup copies of old DLLs, INI files, or complete module folders. The old module tree is kept temporarily for rollback and removed after a successful switch. User-added `.hsaco` files and other content that cannot enter the new module layout are saved separately under `backup-amd-presr-*/lmxxf-modules`; compatible user files remain in place.
 
 
-#### Option B: [Prepare `danielblnc` Backend Files](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
+##### Option B: [Prepare `danielblnc` Backend Files](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
 - `dlssnr_on_amd_setup.exe` and `nvngx_dlssnr.dll` (from [danielblnc Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases); installer generates weights automatically);
 - Or pre-generated `version.dll` and `dlssnr_on_amd_weights.bin`;
 - Place in the same extracted folder as `Setup.bat`.
 
 ---
 
-#### Option C: Prepare Mochizuki (Windows / RDNA4)
+##### Option C: Prepare Mochizuki (Windows / RDNA4)
 
-The complete package includes `MochizukiNrRuntime.dll` and `dlssnr-amd/shaders/`. Supply your own `nvngx_dlssnr.dll` **310.8.0** beside `Setup.bat`, install Python **3.10+**, and select Mochizuki in Setup to extract and validate the model. An existing model at `dlssnr-amd/dlssnr.bin` can be reused without extraction. See [Mochizuki installation](docs/mochizuki.md) for the source hash and standalone extraction tool.
+The complete package includes `MochizukiNrRuntime.dll` and `dlssnr-amd/shaders/`. Supply your own `nvngx_dlssnr.dll` **310.8.0** (version 310.8.0 is strictly required, SHA256: `e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`) beside `Setup.bat`, install Python **3.10+**, and select Mochizuki in Setup to extract and validate the model. An existing model at `dlssnr-amd/dlssnr.bin` can be reused without extraction. See [Mochizuki installation](docs/mochizuki.md) for the source hash and standalone extraction tool.
 
 Without the source DLL or model, Setup reports `MODEL SETUP REQUIRED`; the runtime alone is insufficient. Other DLL versions are not extracted automatically. Move an invalid model aside before rerunning Setup; it is not silently overwritten.
 
 The first network build can take minutes. The bottom-right panel shows build progress while frames pass through unchanged. Resolution, model scale or pass capacity changes can trigger another build. Mochizuki has independent preprocessing, three styles, 1–3 passes (default 1), and temporal controls. Its `Mochizuki*` INI keys do not change other backends. For troubleshooting, check Ins dependency/build status first, then `OptiScaler.log`.
 
-### Step 2: Run the Installer (Recommended)
+#### Step 2: Run the Installer (Detailed)
 
 1. Extract this release to any temporary folder;
 2. Place your backend files alongside `Setup.bat`;
@@ -191,13 +140,13 @@ The first network build can take minutes. The bottom-right panel shows build pro
 4. **Double-click `Setup.bat`**:
    - Select your game's executable directory (e.g. `...\Binaries\Win64\`);
    - If OptiScaler is already installed, choose **Y** to uninstall automatically before installing (recommended), or **N** to overwrite;
-   - Select your proxy DLL name (default `dxgi.dll`, recommended; `winmm.dll`, `d3d12.dll` also supported; **do not use `dinput8.dll`**);
+   - Select your proxy DLL name (default `dxgi.dll`, recommended; `winmm.dll`, `d3d12.dll` also supported; **do not use `dinput8.dll`**; please install corresponding crash-fix patches beforehand for Capcom RE Engine titles);
    - Review the detected backends and weights, install one or all available backends, then choose the active backend;
    - The installer sets up proxies, clears conflicting duplicate files, and configures `OptiScaler.ini`.
 
 ---
 
-### Step 3: Manual Installation
+#### Step 3: Manual Installation
 
 If you prefer manual file placement:
 1. Rename `OptiScaler.dll` to your proxy name (e.g. `dxgi.dll`) and copy it to the game directory;
@@ -207,6 +156,8 @@ If you prefer manual file placement:
    - **For `danielblnc`**: Duplicate `version.dll` into `dlssnr_amd_pass1.dll`, `dlssnr_amd_pass2.dll`, `dlssnr_amd_pass3.dll`; copy `dlssnr_on_amd_weights.bin` into the game directory (**do not leave a file named `version.dll`** to prevent double injection);
    - **For `mochizuki`**: Copy `MochizukiNrRuntime.dll`, `dlssnr-amd/shaders/` and your `dlssnr-amd/dlssnr.bin`;
 4. In `OptiScaler.ini`, set `Enabled = true` under `[DlssNr]` and set `NrBackend = lmxxf`, `NrBackend = daniel` or `NrBackend = mochizuki`.
+
+</details>
 
 ---
 
@@ -342,6 +293,12 @@ Ins labels are not written to ini; **Save Settings** persists menu values to bot
 Unlisted daniel keys (`OverlayKey`, `PollSpacing`, ...) stay in `dlssnr_on_amd.ini`; `OverlayKey` binds only daniel's own overlay.  
 Advanced process env (no Ins toggle): `DLSSNR_NO_REG`, `DLSSNR_CHAIN`, `DLSSNR_NOBLEND`, `DLSSNR_NO_REPACK`, `DLSSNR_WBLOG`.
 
+**Hot switching** (menu **Allow backend hot switching**, or `OptiScaler.ini` `[DlssNr]`):
+
+| Key | Default | Description |
+|---|---|---|
+| `NrConvenience` | `1` | `1`: Pre-arms submission hooks when lmxxf or mochizuki is installed, enabling live in-game hot switching across all three backends (daniel ↔ lmxxf ↔ mochizuki); `0`: loads only the active backend; changing backends requires restarting the game. Takes effect on next restart. |
+
 ---
 
 ## 5. Troubleshooting, Logs & Uninstallation
@@ -360,14 +317,14 @@ Inspect the following logs in the game directory (or `_storage_` for Microsoft S
 - `amd_presr.log`: Pre-SR dispatch log;
 - `dlssnr_on_amd.log`: danielblnc runtime log.
 
-> **Where are lmxxf logs?**  
-> Unlike `danielblnc` which writes to a separate `dlssnr_on_amd.log`, the `lmxxf` backend and its C-ABI runtime pipe all initialization, telemetry, and error messages directly into **`OptiScaler.log`** (and `amd_bridge.log`). There is no need to search for separate log files.
+> **Where are lmxxf & Mochizuki logs?**  
+> Unlike `danielblnc` which writes to a separate `dlssnr_on_amd.log`, both `lmxxf` and `mochizuki` pipe all initialization, telemetry, shader builds, and error messages directly into **`OptiScaler.log`** (and `amd_bridge.log`). There is no need to search for separate log files.
 
 #### `lmxxf` Backend Diagnostics
 - **Status displays `waiting` or NR does not activate**:
   - Open `OptiScaler.log` and search for `Lmxxf`;
   - Verify that `LmxxfNrRuntime.dll` exists in the game directory;
-  - Verify that `lmxxf-modules\` exists and contains `SHA256SUMS` along with all 71 `.hsaco` compute modules;
+  - Verify that `lmxxf-modules\` exists and contains `SHA256SUMS` along with all compute modules;
   - Verify that `shaders\` exists and contains `native_codec_encode.hlsl`.
 - **Missing weights error**:
   - Ensure the `native-game-tiled-assets\` directory is present in the game directory.
@@ -380,19 +337,25 @@ Inspect the following logs in the game directory (or `_storage_` for Microsoft S
   - Ensure there is no conflicting `version.dll` left in the game directory;
   - Check `dlssnr_on_amd.log` for runtime initialization errors.
 
+#### `mochizuki` Backend Diagnostics
+- **Status indicates missing dependencies or NR does not activate**:
+  - Open `OptiScaler.log` and search for `mochizuki`, or check the Ins menu status for missing dependencies;
+  - Verify that `MochizukiNrRuntime.dll` exists in the game directory;
+  - Verify that `dlssnr-amd/shaders/` and `dlssnr-amd/dlssnr.bin` are present and valid;
+  - The first network build may take several minutes; progress is shown in the bottom-right overlay, with the original frame displayed until compilation finishes.
+- **Environment Checks**:
+  - Ensure an AMD driver with Vulkan support is installed; ensure Python 3.10+ from Microsoft Store was present during initial model extraction.
+
 #### Microsoft Store / XBOX PC Notes
 Due to Windows filesystem virtualization, certain Store/Game Pass titles create a **`_storage_`** folder next to the executable. Check this folder if logs or outputs do not appear in the primary game directory.
 
 ### 3. Issue Reporting Format
 When reporting issues, please include:
 1. Proxy DLL name used (e.g. `dxgi.dll`);
-2. Selected backend (`lmxxf` or `daniel`);
+2. Selected backend (`lmxxf`, `daniel`, or `mochizuki`);
 3. GPU model, OS version, and AMD driver version;
 4. Game title, output resolution, and FSR mode;
 5. Relevant `.log` files listed above.
-
-### 4. Known Issues
-- **UE5 (Palworld, Neverness to Everness, and others)**: Older builds rejected every query and left game command lists created before the first swapchain unwrapped, causing the `lmxxf` backend to return original color. The current source permits completed queries and wraps lists created by the game executable earlier. D3D12 tests pass; neural rendering and image stability still need validation in the games.
 
 ---
 
@@ -407,13 +370,8 @@ Codebase heritage (top to bottom):
 - [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**: AMD Pre-SR bridge;
 - [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**: Author retains all rights; redistribution prohibited; integrated via external detection;
 - [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**: Open-source HIP neural rendering core and 71-block network recovery;
+- [**Mochizuki / DLSSNR-AMD**](https://github.com/mochizuki0323/DLSSNR-AMD) — **MIT License**: Fully open-source Vulkan / RDNA4 neural rendering network core and SPIR-V shaders;
 - [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**: Color compositing algorithms in `dlssnr.hlsl`;
 - [**This Project (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
 
 This distribution contains no NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights. Please respect all upstream licenses.
-
-## Known issues (1.9.2-alpha)
-
-- **Large inputs with `lmxxf`:** `[DlssNr] DLSS5_FIT_LARGE` is enabled by default and fits larger Color inputs to the network dimensions. Palworld's former multi-second stalls came from a bug that rebuilt the chain every frame; it is fixed. As of 2026-09-28, the maintainer has found no remaining FitLarge problem after that fix. The old measurements are no longer grounds for recommending a lower resolution or disabling FitLarge. When explicitly set to `false`, input width is limited to 2560, height to 1080, and pixel count to 1920×1080 (for example 2024×848); 2560×1080 is rejected.
-- **Cyberpunk 2077 colour:** The old network-hue mixing path that could turn neon brown has been changed. Colour strength 0–1 now preserves the game's original chroma; values above 1 blend toward network colour. The old recommendation to force it to 0 no longer applies. This rule applies to all games.
-- **PDL:** Chained launch is on by default. If the driver has no `hipExtModuleLaunchKernel`, set `DLSS5_HIP_PDL=false` and restart.
