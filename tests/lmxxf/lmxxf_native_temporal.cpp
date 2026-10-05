@@ -1,6 +1,7 @@
 #include "temporal_fixture.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/TemporalControl.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/NativeTemporalHistory.h"
+#include <cstring>
 
 // Independent double-precision five-tap reference. Deliberately samples a
 // nonlinear field; an ordinary bilinear warp cannot pass the fractional test.
@@ -19,9 +20,74 @@ static double Reference5(const std::vector<float>& rgb,unsigned w,unsigned h,dou
     double values[]={sample(a.p0,b.pm),sample(a.pm,b.p0),sample(a.pm,b.pm),sample(a.pm,b.p2),sample(a.p2,b.pm)};
     double sum=0,total=0;for(int i=0;i<5;++i){sum+=weights[i]*values[i];total+=weights[i];}return sum/total;
 }
-int main()try
+// Exercise the real pre/post shaders over every pixel, including reflected rows.
+// The large surfaces exceeded the old one-dimensional dispatch limit. The narrow
+// case catches missing per-row bounds checks in a partially filled thread group.
+static void CheckDispatchCoverage(Gpu& g,unsigned w,unsigned h,unsigned ph)
 {
-    Gpu g;constexpr unsigned w=8,h=8,n=w*h;
+    const unsigned n=w*ph;
+    auto motion=g.Texture(1,1,DXGI_FORMAT_R32G32_FLOAT),depth=g.Texture(1,1,DXGI_FORMAT_R32_FLOAT);
+    g.Upload(motion.Get(),{0,0});g.Upload(depth.Get(),{.5f});
+    auto raw=g.Buffer(UINT64(n)*16),output=g.Buffer(UINT64(n)*20);
+    {
+        std::vector<float> colour(size_t(n)*4,.4f);
+        g.Upload(raw.Get(),colour);
+    }
+    const auto expected=[&](unsigned i,unsigned c){
+        unsigned x=i%w,y=i/w;if(y>=h)y=2*h-y-2;
+        // A smooth field isolates dispatch coverage from subpixel roundoff at
+        // discontinuities; every row, column and channel still has its own value.
+        return .25f+float(x)/(8*w)+float(y)/(8*h)+float(c)/64;
+    };
+    const auto uploadNetwork=[&](bool prime){
+        std::vector<float> network(size_t(n)*5,0);
+        for(unsigned i=0;i<n;++i)for(unsigned c=0;c<3;++c)network[i*3+c]=prime?expected(i,c):.8f;
+        g.Upload(output.Get(),network);
+    };
+    uploadNetwork(true);
+    LmxxfNativeTemporal::History hist;hist.Create(g.device.Get(),w,h,ph);
+    auto binding=hist.Binding(g.device.Get(),motion.Get(),depth.Get());
+    LmxxfRuntime::TemporalControl control;control.Create(g.device.Get());
+    std::vector<std::shared_ptr<LmxxfRuntime::RecordingCompletion>> jobs,chain;
+    LmxxfNativeTemporal::Parameters p{};p.width=w;p.height=h;p.processingHeight=ph;p.viewWidth=w;p.viewHeight=h;
+    p.renderWidth=p.renderHeight=p.motionWidth=p.motionHeight=1;p.hasDepth=0;p.logitOffset=n*3;
+    const auto inputs=[&]{control.Submit(g.device.Get(),g.queue.Get(),&p,sizeof(p),jobs,chain);
+        g.Run([&](auto*cmd){hist.RecordInputs(cmd,raw.Get(),output.Get(),motion.Get(),depth.Get(),ReadState,ReadState,p,binding.Get(),control.Address());});};
+    const auto finish=[&]{control.Submit(g.device.Get(),g.queue.Get(),&p,sizeof(p),jobs,chain);
+        g.Run([&](auto*cmd){hist.RecordOutputs(cmd,raw.Get(),output.Get(),depth.Get(),ReadState,p,binding.Get(),control.Address());});};
+    inputs();
+    for(auto* warp:{hist.Warped(),hist.PostWarped()}) {
+        const auto pixels=g.Read(warp);
+        for(unsigned i=0;i<n;++i) {
+            for(unsigned c=0;c<3;++c)Require(pixels[i*4+c]==.4f,"prime dispatch must write every raw pixel");
+            Require(pixels[i*4+3]==0,"prime history invalid across entire surface");
+        }
+    }
+    finish();p.useHistory=1;inputs();
+    for(auto* warp:{hist.Warped(),hist.PostWarped()}) {
+        const auto pixels=g.Read(warp);
+        for(unsigned i=0;i<n;++i) {
+            for(unsigned c=0;c<3;++c)if(!(std::abs(pixels[i*4+c]-expected(i,c))<2e-6f)) {
+                std::fprintf(stderr,"surface=%ux%u pixel=(%u,%u) channel=%u actual=%.9g expected=%.9g\n",w,ph,i%w,i/w,c,pixels[i*4+c],expected(i,c));
+                Require(false,"history reprojects every pixel including padded rows");
+            }
+            Require(pixels[i*4+3]==1,"history valid across entire surface");
+        }
+    }
+    uploadNetwork(false);finish();
+    const float weight=.73974609375f*.5f;
+    {
+        const auto pixels=g.Read(output.Get());
+        for(unsigned i=0;i<n;++i)for(unsigned c=0;c<3;++c)
+            Require(std::abs(pixels[i*3+c]-(.8f+weight*(expected(i,c)-.8f)))<2e-6f,"post dispatch blends every output pixel");
+        for(size_t i=size_t(n)*3;i<pixels.size();++i)Require(pixels[i]==0,"post dispatch preserves logits");
+    }
+    g.NoErrors();std::printf("native temporal dispatch coverage PASS %ux%u processing=%ux%u\n",w,h,w,ph);
+}
+int main(int argc,char** argv)try
+{
+    Require(argc==1||(argc==2&&std::strcmp(argv[1],"--hardware")==0),"usage: lmxxf_native_temporal [--hardware]");
+    Gpu g(argc==2);constexpr unsigned w=8,h=8,n=w*h;
     auto motion=g.Texture(w,h,DXGI_FORMAT_R32G32_FLOAT),depth=g.Texture(w,h,DXGI_FORMAT_R32_FLOAT);
     auto raw=g.Buffer(n*16),output=g.Buffer(n*20);
     std::vector<float> colour(n*4,.4f),network(n*5,0),rgb(n*3),vectors(n*2,0),depths(n,.5f);
@@ -80,5 +146,8 @@ int main()try
     std::fill(network.begin(),network.begin()+n*3,.6f);reset();inputs();post=g.Read(hist.PostWarped());Require(std::abs(post[target*4]-.6f)<2e-6,"reset primes fresh model");
     // A fitted viewport: boundaries must not read letterbox pixels.
     p.viewX=2;p.viewWidth=4;reset();inputs();pre=g.Read(hist.Warped());Require(pre[3]==0&&pre[2*4+3]==1&&pre[6*4+3]==0,"fit viewport validity");
-    g.NoErrors();std::puts("native temporal WARP PASS: distinct pre/post motion, 5tap, edges, reversed depth, post model feedback, zero recovery/reset/fit");return 0;
+    CheckDispatchCoverage(g,65,3,4);
+    CheckDispatchCoverage(g,3456,1440,1472); // Free-resolution 3440x1440 input.
+    CheckDispatchCoverage(g,3840,2160,2176);
+    g.NoErrors();std::printf("native temporal %s PASS: distinct pre/post motion, 5tap, edges, reversed depth, post model feedback, zero recovery/reset/fit, dispatch coverage\n",argc==2?"GPU":"WARP");return 0;
 }catch(const std::exception&e){std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}

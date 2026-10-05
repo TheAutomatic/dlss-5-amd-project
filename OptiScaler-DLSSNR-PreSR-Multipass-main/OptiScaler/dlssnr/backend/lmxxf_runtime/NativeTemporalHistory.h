@@ -101,7 +101,8 @@ float4 ReprojectAt(float2 uv,float2 motion,float3 raw,float depth) {
 }
 [numthreads(64,1,1)]
 void Reproject(uint3 id:SV_DispatchThreadID) {
-    uint i=id.x;if(i>=width*processingHeight)return;
+    if(id.x>=width||id.y>=processingHeight)return;
+    uint i=id.y*width+id.x;
     float3 raw=Raw[i].rgb;PreOut[i]=float4(raw,0);PostOut[i]=float4(raw,0);
     uint2 p=Mirror(i);if(!useHistory||!InView(p)||!all(isfinite(raw)))return;
     float2 uv=ViewUV(p),muv=uv;
@@ -121,7 +122,8 @@ void Reproject(uint3 id:SV_DispatchThreadID) {
 }
 [numthreads(64,1,1)]
 void Finish(uint3 id:SV_DispatchThreadID) {
-    uint i=id.x;if(i>=width*processingHeight)return;
+    if(id.x>=width||id.y>=processingHeight)return;
+    uint i=id.y*width+id.x;
     uint2 pixel=Mirror(i);float depth=hasDepth?GetDepth(ViewUV(pixel)):0;
     depth=depthInverted?depth:1-depth;
     RawOut[i]=float4(Raw[i].rgb,InView(pixel)?depth:-1);
@@ -254,7 +256,8 @@ public:
         Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
         Transition(cmd,preWarp,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         Transition(cmd,postWarp,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        Bind(cmd,raw,output,p,heap,control); cmd->SetPipelineState(reproject); cmd->Dispatch((width*processingHeight+63)/64,1,1);
+        // Keep each dispatch axis below D3D12's 65535-group limit, including 4K.
+        Bind(cmd,raw,output,p,heap,control); cmd->SetPipelineState(reproject); cmd->Dispatch((width+63)/64,processingHeight,1);
         Transition(cmd,preWarp,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Transition(cmd,postWarp,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Transition(cmd,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ms,0);
@@ -265,7 +268,7 @@ public:
     {
         Transition(cmd,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0);
         for(auto *r:{previousRaw,previousModel,output}) Transition(cmd,r,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        Bind(cmd,raw,output,p,heap,control); cmd->SetPipelineState(finish); cmd->Dispatch((width*processingHeight+63)/64,1,1);
+        Bind(cmd,raw,output,p,heap,control); cmd->SetPipelineState(finish); cmd->Dispatch((width+63)/64,processingHeight,1);
         for(auto *r:{previousRaw,previousModel,output}) Transition(cmd,r,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Transition(cmd,depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,ds,0);
     }

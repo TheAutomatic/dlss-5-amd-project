@@ -97,6 +97,9 @@ for %%N in (UnityPlayer OtherEngine) do (
 exit /b %errorlevel%
 
 :gpu
+rem Run the native pre/post shaders at ultrawide/4K without allocating a full network.
+%CXX% tests\lmxxf\lmxxf_native_temporal.cpp /Fe"%OUT%\lmxxf_native_temporal.exe" /Fo"%OUT%\lmxxf_native_temporal.obj" /link %D3D% d3dcompiler.lib || goto fail
+"%OUT%\lmxxf_native_temporal.exe" --hardware || goto fail
 rem Explicit 0.39 compatibility configuration; new product defaults are exercised below.
 set "DLSS5_SKIP_BLOCKS=42,43,46"
 set "DLSS5_FAST_NUMERIC=0"
