@@ -69,6 +69,13 @@ class InstallerExitTests(unittest.TestCase):
             return "Uninstall_OptiScaler_NR.bat", "Uninstall_OptiScaler_NR.ps1"
         return f"{name}.bat", f"{name}.ps1"
 
+    def assert_uninstaller_path(self, output, expected):
+        paths = re.findall(r"(?m)^Uninstall script: (.+)$", output)
+        self.assertEqual(len(paths), 1, output)
+        # Actions may supply TEMP through RUNNER~1 while PowerShell expands it
+        # to runneradmin. Compare file identity, still rejecting the old copy.
+        self.assertTrue(Path(paths[0].strip()).samefile(expected), output)
+
     def run_process(self, args, stdin=""):
         # A timeout must end Setup.bat's PowerShell too. Killing only cmd.exe
         # leaves that child holding stdout, and the test then waits forever.
@@ -886,7 +893,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertNotIn("Type Y to delete", output)
         self.assertNotIn("Keep these backup folders?", output)
         self.assertNotIn("old uninstaller must not run", output)
-        self.assertIn('Uninstall script: ' + str(self.package / 'Uninstall_OptiScaler_NR.ps1'), output)
+        self.assert_uninstaller_path(output, self.package / 'Uninstall_OptiScaler_NR.ps1')
         self.assertIn('uninstallFirst=true', (self.game / 'amd-presr-install.txt').read_text())
         self.assertFalse((self.game / "dlssnr_amd_pass3.dll").exists())
         self.assertEqual((backup / "keep.bin").read_bytes(), b"old backup")
@@ -906,7 +913,7 @@ class InstallerExitTests(unittest.TestCase):
         write_ps(self.package / 'Uninstall_OptiScaler_NR.ps1', "throw 'stale root uninstaller ran'\n")
         code, output = self.run_batch(stdin='Y\n')
         self.assertEqual(code, 0, output)
-        self.assertIn('Uninstall script: ' + str(release / 'Uninstall_OptiScaler_NR.ps1'), output)
+        self.assert_uninstaller_path(output, release / 'Uninstall_OptiScaler_NR.ps1')
         self.assertNotIn('stale root uninstaller ran', output)
         self.assertIn('Uninstall SUCCEEDED.', output)
         self.assert_legacy_shaders_removed(self.game / 'lmxxf-modules')

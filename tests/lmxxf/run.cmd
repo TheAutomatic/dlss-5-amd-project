@@ -108,7 +108,7 @@ if not defined LMXXF_ASSETS (
   goto fail
 )
 if not exist "%LMXXF_ASSETS%\block0-ffn.f16" if not exist "%LMXXF_ASSETS%\block0-ffn.f32" (
-  echo FAIL: LMXXF_ASSETS=%LMXXF_ASSETS% has no block0-ffn weights.
+  echo FAIL: LMXXF_ASSETS="%LMXXF_ASSETS%" has no block0-ffn weights.
   goto fail
 )
 call :Runtime || goto fail
