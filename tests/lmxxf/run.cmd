@@ -140,7 +140,7 @@ rem 0.40 product defaults and live network rebuild/output checks.
 set "DLSS5_SKIP_BLOCKS=none"
 set "DLSS5_FAST_NUMERIC=1"
 set "DLSS5_NETWORK_FREE_RES=1"
-"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --hip-passthrough || goto fail
+"%AMD_TEST_PYTHON%" -B tests\lmxxf\test_shader_precedence.py "%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" "%OUT%" || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --040-controls || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --041-controls || goto fail
 rem Active input smaller than its allocation must work in free-resolution mode too.
@@ -167,7 +167,7 @@ set "DLSS5_NETWORK_FREE_RES=1"
 set "DLSS5_MULTI_PASS=1"
 call :Runtime || goto fail
 %CXX% /I"%RT_INC%" /I"%INC%" tests\lmxxf\lmxxf_recording_runtime_gpu.cpp /Fe"%OUT%\lmxxf_recording_runtime_gpu.exe" /Fo"%OUT%\lmxxf_recording_runtime_gpu.obj" /link %D3D% "%DETOURS%" || goto fail
-"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --hip-passthrough || goto fail
+"%AMD_TEST_PYTHON%" -B tests\lmxxf\test_shader_precedence.py "%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" "%OUT%" || goto fail
 goto pass
 
 :pass

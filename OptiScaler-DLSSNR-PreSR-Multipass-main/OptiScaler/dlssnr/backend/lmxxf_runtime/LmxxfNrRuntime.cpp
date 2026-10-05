@@ -583,8 +583,10 @@ std::wstring FindShaderDir(const std::wstring &assets = {})
 {
     const std::wstring dll = DllDirectory();
     const std::wstring candidates[] = {
-        JoinPath(assets, L"shaders"),
+        // The package ships the matching shaders beside this runtime. Legacy
+        // shaders inside lmxxf-modules must not shadow that complete update.
         JoinPath(dll, L"shaders"),
+        JoinPath(assets, L"shaders"),
         L"shaders",
         L"third_party\\lmxxf\\shaders", // dev fallback
     };

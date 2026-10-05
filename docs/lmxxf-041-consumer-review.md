@@ -284,3 +284,35 @@ WARP颜色探针及新增解析/代理接管断言；RX9070XT `tests/lmxxf/run.c
 诊断尚待验证；本机D3D12 debug layer不可用，GPU证据为完成栅栏后的实际读回。
 实机须同时确认hip_passthrough_recorded、hip_copy_queued递增和画面表现；
 计数表示成功排入队列，不单独作为GPU完成或像素正确性证明。
+
+### 残留着色器遮蔽整包更新（2026-10-05）
+
+伊莫正常lmxxf及有效HIP往返均出现彩色噪点/条块/错位，codec往返正常。
+将RGB改成私有缓冲再复制仍复现，已撤回该候选。实际问题路径是
+`FindShaderDir` 原先优先选择 `assets_directory/shaders`，游戏残留的
+`lmxxf-modules/shaders` 因而遮蔽本次整包自带的 `shaders`。只核对DLL、
+76个HIP模块和权重无法覆盖此问题，必须核对真正被选中的HLSL。
+
+旧 `native_game_rgb_input.hlsl` 不认识 `NATIVE_RGB_NO_TILES`，仍向u0写tile
+排列、向u1写raster排列；当前 NativeGameRgbInput 在关闭无消费者的tile输出时，
+将两者绑定到同一输出缓冲。旧shader继续两路写入，造成不同排列互相覆盖；
+即使绕过逐帧网络或增加一次输入复制也保留此冲突。
+相关RGB输入/输出HLSL及包装头在上游0.40 pin c81a88bc到0.41 pin b687e13a
+没有变化；当前证据指向本地资源选择的混装问题，不能归因0.41新网络算法。
+这不排除其它独立问题，仍需最终游戏画面验收。
+
+修复只将runtime同目录的整包shaders提到assets/shaders之前；独立工具没有
+runtime旁shaders时，原assets与开发目录查找仍可用。没有增加配置、CPU/GPU
+同步或每帧复制，保留DirectInput；ABI/上游pin/模块/算法/INI默认值不变。
+无需更新菜单或INI注释。包本来就将当前HLSL放在runtime同目录shaders中。
+
+GPU复现：旧runtime配合游戏实际modules/shaders时，既有HIP全图对照失败；
+修复版使用相同游戏modules（包括旧shader），旁边放经哈希核对的13份游戏整包
+shader后，720p/1080p/1707×961全图对照、跨队列/保留录制/改尺寸/正常网络
+交替全部通过，1080p正常推理黄金哈希恢复806dd30da2c516da。MSVC构建与
+ABI/C宿主及23项runtime检查通过。新增 `test_shader_precedence.py` 将明确
+不可编译的旧shader放到modules/shaders，确认整包HLSL优先；它包装原来一次
+HIP专项调用，接入gpu与hip-passthrough入口，不重复GPU矩阵。
+
+本次只需增量runtime；关闭HIP诊断后继续真实推理游戏验收。未重复全CI/全部
+GPU/Actions，gfx1200实卡及不可用的D3D12 debug layer未验证，不视为发布认证。
