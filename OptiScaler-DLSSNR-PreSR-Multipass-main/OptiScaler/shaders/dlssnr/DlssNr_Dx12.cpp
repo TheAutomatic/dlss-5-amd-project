@@ -8,6 +8,7 @@
 #include <set>
 
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/NrSessionActivity.h>
 
 
 #include <dlssnr/DlssNr_Capture.h>
@@ -383,6 +384,9 @@ struct NrState
 };
 
 NrState g_nr;
+DlssNr::NrSessionActivity g_nativeActivity;
+enum class NrActivityBackend { None, Native, Amd };
+std::atomic<NrActivityBackend> g_activityBackend { NrActivityBackend::None };
 std::unique_ptr<DlssNr_Dx12> g_compose;
 
 // What the pass costs on the GPU, for the breakdown in the overlay.
@@ -756,6 +760,7 @@ void ReleaseSurfacesIfFormatChanged(DXGI_FORMAT needed)
     ForgetCalibration();
 
     ParkNrFeature(g_nr.feature);
+    g_nativeActivity.Reset();
     g_nr.featurePendingSubmission = false;
 
     // The extras go with it: they were built for this raster and this tuning too.
@@ -1696,6 +1701,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
     const Config& cfg = *Config::Instance();
+    g_activityBackend.store(NrActivityBackend::Native, std::memory_order_release);
 
     if (g_nr.failed || cmdList == nullptr || colour == nullptr || depth == nullptr ||
         motion == nullptr || output == nullptr)
@@ -1874,6 +1880,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     if (!EnsureForwarder() || !EnsureCapabilityParams(device))
     {
         g_nr.failed = true;
+        g_nativeActivity.Reset();
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         device->Release();
         return;
@@ -1929,6 +1936,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         // Parked rather than released: with frame generation the GPU can still be several frames
         // deep in work that references all of it.
         ParkNrFeature(g_nr.feature);
+        g_nativeActivity.Reset();
         g_nr.featurePendingSubmission = false;
 
         for (unsigned int i = 1; i < DlssNr::MaxPassCount; ++i)
@@ -1971,6 +1979,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     if (cropColor && g_nr.activeColor == nullptr)
     {
         g_nr.failed = true;
+        g_nativeActivity.Reset();
         g_nr.reason = "the pre-SR active colour staging texture could not be allocated";
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         device->Release();
@@ -2044,6 +2053,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         if (!snippet.has_value())
         {
             g_nr.failed = true;
+            g_nativeActivity.Reset();
             g_nr.reason = "nvngx_dlssnr.dll was not found beside OptiScaler or the game";
             LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
             device->Release();
@@ -2067,6 +2077,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         {
             g_nr.featurePendingSubmission = false;
             g_nr.failed = true;
+            g_nativeActivity.Reset();
             g_nr.reason = "the model would not initialise";
             const auto initResult = (unsigned int) (g_nr.lastInit != nullptr ? *g_nr.lastInit : 0);
             const auto createResult = (unsigned int) (g_nr.lastCreate != nullptr ? *g_nr.lastCreate : 0);
@@ -2249,6 +2260,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     if (!haveCodec)
     {
         g_nr.failed = true;
+        g_nativeActivity.Reset();
         g_nr.reason = "the colour codec would not compile";
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         device->Release();
@@ -2566,6 +2578,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     if (depthIn == nullptr || motionIn == nullptr)
     {
         g_nr.failed = true;
+        g_nativeActivity.Reset();
         g_nr.reason = "the game's depth or motion vectors could not be made readable";
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         FinishColor(false);
@@ -2587,6 +2600,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     // quietly doing the work.
     if (cfg.DlssNrUseProxy.value_or_default())
     {
+        g_nativeActivity.Reset();
         const unsigned int proxyResult = DlssNr::Proxy::Run(
             cmdList, device, modelInput, depthIn, motionIn, g_nr.output, workWidth, workHeight,
             guideWidth, guideHeight, g_nr.guideDepthInverted, g_nr.reset,
@@ -2597,6 +2611,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         if (proxyResult != 1)
         {
             g_nr.failed = true;
+            g_nativeActivity.Reset();
             g_nr.reason = "the proxy path could not run the model";
             LOG_ERROR("DLSS-NR (proxy): evaluate returned 0x{:X} ({}), disabling for this session",
                       proxyResult, NgxResultName(proxyResult));
@@ -2669,6 +2684,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     };
 
     int result = NVSDK_NGX_Result_Success;
+    const auto activityToken = g_nativeActivity.Token();
 
     for (unsigned int pass = 0; pass < effectivePasses && result == NVSDK_NGX_Result_Success;
          ++pass)
@@ -2934,6 +2950,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     else
     {
         g_nr.failed = true;
+        g_nativeActivity.Reset();
         g_nr.reason = "the model refused to run";
         LOG_ERROR("DLSS-NR evaluate returned 0x{:X} ({}), disabling for this session", (uint32_t) result,
                   NgxResultName((unsigned int) result));
@@ -2951,6 +2968,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     // Failed evaluations leave the game's original image intact. A successful copy-back writes
     // only the active rectangle and restores both resources before DLSS consumes the image.
     FinishColor(result == NVSDK_NGX_Result_Success);
+    if (result == NVSDK_NGX_Result_Success)
+        g_nativeActivity.Succeeded(activityToken);
 
     if (g_gpuTime != nullptr)
     {
@@ -3018,6 +3037,7 @@ namespace DlssNr
 {
 void RetryAfterFailure()
 {
+    g_nativeActivity.Reset();
     g_nr.failed = false;
     g_nr.reason = "";
     g_nr.reset = true;
@@ -3041,8 +3061,10 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
     static std::atomic<bool> s_nrWasEnabled { true };
     if (!cfg.DlssNrEnabled.value_or_default())
     {
+        g_activityBackend.store(NrActivityBackend::None, std::memory_order_release);
         if (s_nrWasEnabled.exchange(false))
         {
+            g_nativeActivity.Reset();
             DlssNr::AmdBridge::InvalidateHistory();
             DlssNr::AmdBridge::OnNrDisabled();
         }
@@ -3065,6 +3087,8 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
         const bool selectedBefore = placement.Select(params, beforeUpscale, cfg.DlssNrRunBeforeSr.value_or_default());
         if (forcePost || beforeUpscale != selectedBefore)
         {
+            if (forcePost)
+                g_activityBackend.store(NrActivityBackend::None, std::memory_order_release);
             if(forcePost) ReportSkipOnce("AMD neural: native Ray Reconstruction is not supported; select Super Resolution");
             return;
         }
@@ -3080,13 +3104,17 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
         }
         ScopedNrStateEnvelope amdStateEnvelope(cmdList, beforeUpscale);
         if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale))
+        {
+            g_activityBackend.store(NrActivityBackend::Amd, std::memory_order_release);
             return;
+        }
     }
 
     // forcePost is supplied only for a native RR feature by the NGX and bridge callers.
     // RR already reconstructs and upscales; never edit its noisy input or inherit SR's multipass cost.
     if (forcePost && !cfg.DlssNrApplyAfterRR.value_or_default())
     {
+        g_activityBackend.store(NrActivityBackend::None, std::memory_order_release);
         ReportSkipOnce("Ray Reconstruction is active; enable ApplyAfterRR to process its output");
         return;
     }
@@ -3504,6 +3532,17 @@ CalibrationReading Calibration()
 }
 
 bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
+bool IsActiveForFrameGeneration()
+{
+    if (!Config::Instance()->DlssNrEnabled.value_or_default())
+        return false;
+    switch (g_activityBackend.load(std::memory_order_acquire))
+    {
+    case NrActivityBackend::Native: return g_nativeActivity.IsRunning();
+    case NrActivityBackend::Amd: return AmdBridge::IsRunning();
+    default: return false;
+    }
+}
 
 const char* FailureReason() { return g_nr.failed ? g_nr.reason : ""; }
 
@@ -3535,6 +3574,8 @@ bool CaptureInProgress() { return g_capture.isActive(); }
 void Shutdown()
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
+    g_activityBackend.store(NrActivityBackend::None, std::memory_order_release);
+    g_nativeActivity.Reset();
 
     for (auto& r : g_nrRetired)
     {

@@ -391,6 +391,11 @@ void SyncBackendWithConfig()
     }
     Message("AMD NR: NR backend switched");
 }
+bool IsRunning()
+{
+    const auto host = ActiveHost();
+    return host && host->IsRunning();
+}
 const char* RuntimeName()
 {
     // The menu queries this every frame. Cache both known and unknown hashes,

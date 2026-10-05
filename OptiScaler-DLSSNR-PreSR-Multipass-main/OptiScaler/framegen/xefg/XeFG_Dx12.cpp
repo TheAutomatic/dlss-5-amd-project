@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "XeFG_Dx12.h"
+#include <dlssnr/DlssNr.h>
 #include <hudfix/Hudfix_Dx12.h>
 #include <menu/menu_overlay_dx.h>
 #include <resource_tracking/ResTrack_dx12.h>
@@ -373,11 +374,8 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
     {
         LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget, _maxInterpolationCount);
 
-        intTarget = 1;
+        intTarget = std::clamp(intTarget, 1, (std::max)(1, _maxInterpolationCount));
     }
-
-    if (_framesToInterpolate > intTarget)
-        Config::Instance()->FGXeFGInterpolationCount.set_volatile_value(intTarget);
 
     if (Config::Instance()->ForceXeLL.value_or_default())
         params.maxInterpolatedFrames = 1;
@@ -426,6 +424,8 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
     }
 
     LOG_INFO("XeFG swapchain created");
+    _framesToInterpolate = intTarget;
+    _nrMultiplier.Reset(intTarget);
     result = XeFGProxy::D3D12GetSwapChainPtr()(_swapChainContext, IID_PPV_ARGS(swapChain));
     if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
     {
@@ -540,11 +540,8 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
     {
         LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget, _maxInterpolationCount);
 
-        intTarget = 1;
+        intTarget = std::clamp(intTarget, 1, (std::max)(1, _maxInterpolationCount));
     }
-
-    if (_framesToInterpolate > intTarget)
-        Config::Instance()->FGXeFGInterpolationCount.set_volatile_value(intTarget);
 
     if (Config::Instance()->ForceXeLL.value_or_default())
         params.maxInterpolatedFrames = 1;
@@ -595,6 +592,8 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
     }
 
     LOG_INFO("XeFG swapchain created");
+    _framesToInterpolate = intTarget;
+    _nrMultiplier.Reset(intTarget);
     result = XeFGProxy::D3D12GetSwapChainPtr()(_swapChainContext, IID_PPV_ARGS(swapChain));
     if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
     {
@@ -640,6 +639,8 @@ void XeFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
 void XeFG_Dx12::Activate()
 {
     LOG_DEBUG("");
+    if (_nrMultiplier.Snapshot().requiresReinitialization)
+        return;
 
     auto currentFeature = State::Instance().currentFeature;
     bool nativeAA = false;
@@ -738,7 +739,7 @@ bool XeFG_Dx12::Dispatch()
     if (fIndex < 0)
         return false;
 
-    if (!IsActive() || IsPaused())
+    if (!IsActive() || IsPaused() || _nrMultiplier.Snapshot().requiresReinitialization)
         return false;
 
     LOG_DEBUG("_frameCount: {}, willDispatchFrame: {}, fIndex: {}", _frameCount, willDispatchFrame, fIndex);
@@ -775,39 +776,6 @@ bool XeFG_Dx12::Dispatch()
 
         if (uiResult != XEFG_SWAPCHAIN_RESULT_SUCCESS)
             LOG_ERROR("SetUiCompositionState error: {} ({})", magic_enum::enum_name(uiResult), (UINT) uiResult);
-    }
-
-    if (XeFGProxy::SetNumInterpolatedFrames() != nullptr)
-    {
-        if (Config::Instance()->FGXeFGInterpolationCount.value_or_default() > _maxInterpolationCount)
-        {
-            Config::Instance()->FGXeFGInterpolationCount = _maxInterpolationCount;
-            LOG_WARN("Requested interpolation count is higher than max supported, setting to max: {}",
-                     _maxInterpolationCount);
-        }
-
-        if (_framesToInterpolate != Config::Instance()->FGXeFGInterpolationCount.value_or_default())
-        {
-            LOG_INFO("Interpolation count changed {} -> {}", _framesToInterpolate,
-                     Config::Instance()->FGXeFGInterpolationCount.value_or_default());
-
-            state.WAR_xefgRequestFGToggle = true;
-
-#ifndef DONT_USE_XMX
-            ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
-#endif // !DONT_USE_XMX
-
-            auto intResult = XeFGProxy::SetNumInterpolatedFrames()(
-                _swapChainContext, Config::Instance()->FGXeFGInterpolationCount.value_or_default());
-
-            _framesToInterpolate = Config::Instance()->FGXeFGInterpolationCount.value_or_default();
-
-            if (intResult != XEFG_SWAPCHAIN_RESULT_SUCCESS)
-            {
-                LOG_ERROR("SetNumInterpolatedFrames error: {} ({})", magic_enum::enum_name(intResult),
-                          (UINT) intResult);
-            }
-        }
     }
 
     // Workaround for wrong frame limit
@@ -1037,6 +1005,43 @@ XeFG_Dx12::~XeFG_Dx12() { Shutdown(); }
 
 bool XeFG_Dx12::SetInterpolatedFrameCount(UINT interpolatedFrameCount) { return true; }
 
+void XeFG_Dx12::UpdateInterpolationCount()
+{
+    if (_swapChainContext == nullptr)
+        return;
+    const auto config = Config::Instance();
+    FrameGeneration::InterpolationRequest request;
+    request.baseline = config->FGXeFGInterpolationCount.value_or_default();
+    request.nrOverride = config->DlssNrXeFGInterpolationCount.value_or_default();
+    request.maximum = _maxInterpolationCount;
+    request.liveSupported = XeFGProxy::SetNumInterpolatedFrames() != nullptr;
+    request.enabled = config->FGEnabled.value_or_default() && State::Instance().activeFgInput != FGInput::ForceXeLL;
+    request.nrRunning = request.nrOverride > 0 && request.enabled && DlssNr::IsActiveForFrameGeneration();
+    const bool changed = _nrMultiplier.Update(request, [&](int target) {
+#ifndef DONT_USE_XMX
+        ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
+#endif
+        const auto result = XeFGProxy::SetNumInterpolatedFrames()(_swapChainContext, target);
+        if (result == XEFG_SWAPCHAIN_RESULT_SUCCESS)
+            return FrameGeneration::InterpolationApplyResult::Success;
+        LOG_ERROR("XeFG multiplier change to {}X failed: {} ({}); keeping last applied count {}",
+                  target + 1, magic_enum::enum_name(result), (UINT) result, _framesToInterpolate);
+        return result == XEFG_SWAPCHAIN_RESULT_ERROR_INVALID_ARGUMENT
+                   ? FrameGeneration::InterpolationApplyResult::Rejected
+                   : FrameGeneration::InterpolationApplyResult::RequiresReinitialization;
+    });
+    const auto status = _nrMultiplier.Snapshot();
+    if (changed)
+    {
+        LOG_INFO("XeFG interpolation count {} -> {} (NR override: {})", _framesToInterpolate,
+                 status.applied, status.overridden);
+        _framesToInterpolate = status.applied;
+        State::Instance().fgChanged = true;
+    }
+    if (status.requiresReinitialization && IsActive())
+        Deactivate();
+}
+
 void XeFG_Dx12::EvaluateState(ID3D12Device* device, FG_Constants& fgConstants)
 {
     LOG_FUNC();
@@ -1056,6 +1061,7 @@ void XeFG_Dx12::EvaluateState(ID3D12Device* device, FG_Constants& fgConstants)
     }
 
     _infiniteDepth = static_cast<bool>(fgConstants.flags & FG_Flags::InfiniteDepth);
+    UpdateInterpolationCount();
 
     // If FG Enabled from menu
     if (Config::Instance()->FGEnabled.value_or_default())

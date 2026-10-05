@@ -115,6 +115,7 @@ inline constexpr const char *ToneLift = "ToneLift";
 inline constexpr const char *AmdUseGameExposure = "AmdUseGameExposure";
 inline constexpr const char *AmdToneChannels = "AmdToneChannels";
 inline constexpr const char *Quality = "Quality";
+inline constexpr const char *XeFGInterpolationCount = "XeFGInterpolationCount";
 inline constexpr const char *QueuePriority = "QueuePriority";
 inline constexpr const char *QueuePriorityLegacy = "AmdQueuePriority";
 // AmdInline=1 means daniel Async=0 (same-frame). Write Async on Save.
@@ -126,6 +127,7 @@ inline constexpr const char *Async = "Async";
 inline constexpr const char *const kKnown[] = {
     MenuWindowWidth, MenuWindowHeight, MenuWindowAnchor, // [Menu], no runtime env aliases
     "Enabled",
+    XeFGInterpolationCount,
     "RunBeforeSR",
     "ApplyAfterRR",
     "RRPasses",

@@ -1,5 +1,6 @@
 #pragma once
 #include "LmxxfEvaluateCut.h"
+#include "../NrSessionActivity.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
 #include <memory>
 #include <vector>
@@ -11,7 +12,8 @@ struct SessionOwner
     LmxxfNrApi api {};
     void* context = nullptr;
     HMODULE module = nullptr;
-    bool failed = false;
+    std::atomic<bool> failed { false };
+    NrSessionActivity activity;
     ~SessionOwner()
     {
         if (context && api.Destroy(context) != LMXXF_NR_OK)
@@ -56,14 +58,17 @@ struct Lease final : Submission::RecordingObserver
     bool tracing = false;
     void Trace(const char* phase, const void* object, int32_t result = 0) const noexcept
     { if (tracing && trace && traceId) trace(traceId, phase, object, result); }
+    bool neural = false, enqueued = false;
+    uint64_t activityToken = 0;
     Lease(std::shared_ptr<SessionOwner> session, void* token, Submission::RecordingIdentity id)
-        : owner(std::move(session)), job(token), identity(id) {}
+        : owner(std::move(session)), job(token), identity(id), activityToken(owner->activity.Token()) {}
     HRESULT BeforeExecute(const Submission::RecordingExecution& e) noexcept override
     {
         if (invalidated || !(e.identity == identity)) return E_UNEXPECTED;
         tracing = traceId && traceExecutions < 2;
         if (tracing) ++traceExecutions;
         Trace("execute.begin", e.queue);
+        enqueued = false;
         const int32_t rc = owner->api.BeginRecordingExecution(owner->context, job, e.queue);
         Trace("execute.admitted", e.queue, rc);
         begun = rc == LMXXF_NR_OK;
@@ -81,6 +86,9 @@ struct Lease final : Submission::RecordingObserver
         Trace("hip.end", e.queue, rc);
         std::array<char, 256> error {};
         owner->api.GetLastError(error.data(), static_cast<uint32_t>(error.size()));
+        enqueued = rc == LMXXF_NR_OK && error[0] == '\0';
+        if (neural && !enqueued)
+            owner->activity.Reset();
         if (rc != LMXXF_NR_OK) owner->failed = true;
         std::lock_guard lock(diagnostic.mutex);
         diagnostic.lastEnqueueRc.store(rc, std::memory_order_relaxed);
@@ -100,6 +108,11 @@ struct Lease final : Submission::RecordingObserver
         Trace("retire.end", e.queue, rc);
         tracing = false;
         begun = false;
+        if (neural && ready && enqueued && e.producerSubmitted && e.continuationSubmitted &&
+            SUCCEEDED(e.status) && rc == LMXXF_NR_OK && !owner->failed.load(std::memory_order_acquire))
+            owner->activity.Succeeded(activityToken);
+        else if (neural)
+            owner->activity.Reset();
     }
     void Invalidated(Submission::RecordingIdentity id) noexcept override
     {

@@ -21,6 +21,7 @@ class DanielBackend final : public Host
     void ResetGraphicsWaitState() override;
     void InvalidateHistory() override;
     std::string Status() const override;
+    bool IsRunning() const override;
     bool GraphicsRestartNeeded(UINT activePasses) const override;
 };
 } // namespace DlssNr::Backend

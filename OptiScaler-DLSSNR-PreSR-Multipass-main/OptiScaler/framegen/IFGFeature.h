@@ -3,6 +3,7 @@
 #include "FrameResourceReadiness.h"
 #include <OwnedMutex.h>
 #include <atomic>
+#include "InterpolationOverride.h"
 #include <dxgi1_6.h>
 #include <flag-set-cpp/flag_set.hpp>
 
@@ -153,6 +154,7 @@ class IFGFeature
     void GetInterpolationPos(UINT& left, UINT& top, int index = -1);
     void SetResourceReady(FG_ResourceType type, int index = -1);
     UINT GetInterpolatedFrameCount() const;
+    virtual std::optional<FrameGeneration::InterpolationStatus> GetInterpolationStatus() const { return std::nullopt; }
     int GetMaxInterpolationCount() const;
     bool GetDMFGSupport() const;
 

@@ -58,6 +58,9 @@ ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数�
 `early-unity` 是 `device` 内的独立定位入口：真实 UnityPlayer/OtherEngine 测试 DLL
 验证早期调用来源过滤、显式开关和自动范围，以及保留列表的拆分/执行/读回/Reset。
 已运行完整 `device` 时不重复运行它；不需要 HIP/Vulkan 模型。
+host CI 的 `nr_multiplier` 验证 NR 专用 XeFG 倍率、基础配置保留、能力限制和失败重试；
+`nr_activity_recording` 验证完整提交后才激活，诊断/回退不激活，旧会话回调不能激活新会话。
+这些 CPU 测试不替代游戏中的 XeSS 倍率切换、画面和帧节奏实测。
 同步入口使用临时仓库和测试模块，验证补丁、完整性、失败退出与字节往返；
 它不等于已经完成真实上游集成审阅。后者仍按
 [同步说明](../tools/lmxxf-sync/README.md) 执行。

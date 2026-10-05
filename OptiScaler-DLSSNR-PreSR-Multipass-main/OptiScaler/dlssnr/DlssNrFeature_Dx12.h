@@ -97,6 +97,7 @@ CalibrationReading Calibration();
 
 // Whether the model is loaded and running, for the overlay.
 bool IsRunning();
+bool IsActiveForFrameGeneration();
 
 // Why it is not, if it is not. Empty while it is running or has not been tried yet.
 const char* FailureReason();

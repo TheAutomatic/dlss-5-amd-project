@@ -32,6 +32,7 @@ struct MochizukiBackend::Impl
     void Status(const std::string& text) { std::lock_guard lock(mutex); status = text; }
     void Error(const char* phase)
     {
+        if (owner) owner->activity.Reset();
         char error[256] {};
         if (api.GetLastError) api.GetLastError(error, sizeof error);
         Status(std::string("mochizuki: ") + phase + (error[0] ? ": " : "") + error);
@@ -171,6 +172,7 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
     LmxxfNrJob job {sizeof job};
     if (p->prepare(p->owner->context, &frame, &job) != LMXXF_NR_OK)
     {
+        p->owner->activity.Reset();
         char reason[256] {};
         p->api.GetLastError(reason, sizeof reason);
         p->Info();
@@ -187,6 +189,7 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
     }
     auto lease = LmxxfRecording::Attach(p->owner, job.handle, logical.Get());
     if (!lease) { p->Status("mochizuki: this recording already owns NR work"); return nullptr; }
+    lease->neural = true;
     auto* invocation = AmdPreSr::GraphicsSnap::GraphicsInvocationFor(reinterpret_cast<uint64_t>(cmd));
     if (invocation) { invocation->commandsRecorded = true; invocation->outcome = "recording_attempted"; }
     if (p->api.RecordInputs(p->owner->context, job.handle, cmd) != LMXXF_NR_OK ||
@@ -221,6 +224,12 @@ void MochizukiBackend::InvalidateHistory()
     if (p->owner) p->api.ResetHistory(p->owner->context);
 }
 std::string MochizukiBackend::Status() const { std::lock_guard lock(p->mutex); return p->status; }
+bool MochizukiBackend::IsRunning() const
+{
+    std::lock_guard lifetime(Submission::RecordingMutex());
+    return p->owner && !p->failed && !p->owner->failed.load(std::memory_order_acquire) &&
+           p->owner->activity.IsRunning();
+}
 NrTimingSnapshot MochizukiBackend::Timing() const { std::lock_guard lock(p->mutex); return p->timing; }
 MochizukiNrBuildProgress MochizukiBackend::BuildProgress() const { std::lock_guard lock(p->mutex); return p->progress; }
 }
