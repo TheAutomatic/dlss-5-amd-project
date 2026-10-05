@@ -10,6 +10,7 @@
 | [post-sr-nr.md](post-sr-nr.md) | 三后端实验性 SR → NR：设置、分辨率、输入限制和验收 |
 | [architecture/overview.md](architecture/overview.md) | 管线、两个后端怎么加载与选择、代码归属与许可证、日志位置、如何查看 wilsjo2 上游 |
 | [architecture/lmxxf-c-abi.md](architecture/lmxxf-c-abi.md) | `LmxxfNrRuntime.dll` 的 C ABI：为什么有 DLL 边界、`struct_size` 分档、四条演进规则、资源查找 |
+| [architecture/lmxxf-native-history.md](architecture/lmxxf-native-history.md) | 原生 temporal history：执行顺序、资源、ABI 与支持范围 |
 | [architecture/lmxxf-recording-lifecycle.md](architecture/lmxxf-recording-lifecycle.md) | 录制租约、实际提交凭证、重放与异步回收 |
 | [architecture/nr-output-effects.md](architecture/nr-output-effects.md) | 双后端整体强度、残差稳定器、历史/资源归属及验证范围 |
 | [architecture/installer.md](architecture/installer.md) | 安装器与卸载器：后端选择、升级流程、ini 与 flags 文件、双架构模块包校验、卸载范围 |

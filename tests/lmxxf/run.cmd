@@ -55,6 +55,10 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
+%CXX% tests\lmxxf\lmxxf_temporal_control.cpp /Fe"%OUT%\lmxxf_temporal_control.exe" /Fo"%OUT%\lmxxf_temporal_control.obj" /link %D3D% d3dcompiler.lib || goto fail
+"%OUT%\lmxxf_temporal_control.exe" || goto fail
+%CXX% tests\lmxxf\lmxxf_native_temporal.cpp /Fe"%OUT%\lmxxf_native_temporal.exe" /Fo"%OUT%\lmxxf_native_temporal.obj" /link %D3D% d3dcompiler.lib || goto fail
+"%OUT%\lmxxf_native_temporal.exe" || goto fail
 %CXX% /I"%INC%" tests\lmxxf\lmxxf_legacy_root_capture.cpp /Fe"%OUT%\lmxxf_legacy_root_capture.exe" /Fo"%OUT%\lmxxf_legacy_root_capture.obj" /link %D3D% "%DETOURS%" || goto fail
 "%OUT%\lmxxf_legacy_root_capture.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_recording_timing.cpp /Fe"%OUT%\lmxxf_recording_timing.exe" /Fo"%OUT%\lmxxf_recording_timing.obj" /link %D3D% || goto fail
@@ -111,7 +115,10 @@ if not exist "%LMXXF_ASSETS%\block0-ffn.f16" if not exist "%LMXXF_ASSETS%\block0
   echo FAIL: LMXXF_ASSETS="%LMXXF_ASSETS%" has no block0-ffn weights.
   goto fail
 )
+set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
 call :Runtime || goto fail
+%CXX% tests\lmxxf\lmxxf_native_history_gpu.cpp /Fe"%OUT%\lmxxf_native_history_gpu.exe" /Fo"%OUT%\lmxxf_native_history_gpu.obj" /link %D3D% d3dcompiler.lib || goto fail
+"%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
 rem The runtime resolves modules from its assets argument and weights from LMXXF_WEIGHTS_DIR.
 rem Passing the weights folder itself would make it prefer the (possibly stale) HIP\ copy beside
 rem the weights over this checkout's modules.

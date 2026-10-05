@@ -166,6 +166,7 @@ inline bool SwinRunCompatible(const Options&o){
 }
 inline std::atomic<int> AdaptivePreviewState{0};
 class Network {
+ Tensor native_post_row;void* native_post_output=nullptr;
  bool vit_contract_byte_edge=false; // paired exact representation of an already E4M3-valued edge
  bool free_geometry=false; /* DLSS5_NETWORK_FREE_RES geometry (FreeGeometry): generic ViT grid, no 640-token cap */
  bool wave_owned_active=false;bool c32_skip_byte=false;bool c32_pre_down_byte=false;bool c32_post_low_byte=false;bool c512_m32_active=false;bool vit_proj_n64_active=false;unsigned vit_stream_active=0;bool fast_numeric=false; /* DLSS5_FAST_NUMERIC (cached at construction): load the lossy *-fast module twins where present */
@@ -434,7 +435,7 @@ class Network {
   }
   if(module=="c32_fused"||module=="c32_fused_ffn"||module=="mh_fused"){groups=count;threads=128;}
   if(module=="c64_wave2"){groups=count;threads=kernel.rfind("c64_",0)==0?64:kernel.rfind("c128_",0)==0?128:256;}
-  if(module=="c32_wave1"&&(kernel=="c32_wave1_up"||kernel=="c32_wave1_up_b8"||kernel=="c32_wave1_up_lb"||kernel=="c32_wave1_up_b8_lb"||kernel=="c32_wave1_finish_dcrop_b8"||kernel=="c32_wave1_finish_dcrop_b8d"||kernel=="c32_wave1_prefix_b8d"||kernel=="c32_wave1_mapped_b8"||kernel=="c32_wave1_finish_b8"||(kernel=="c32_wave1_post_b8"||kernel=="c32_wave1_post_b8_rgba"))){groups=count;threads=32;}
+  if(module=="c32_wave1"&&(kernel=="c32_wave1_up"||kernel=="c32_wave1_up_b8"||kernel=="c32_wave1_up_lb"||kernel=="c32_wave1_up_b8_lb"||kernel=="c32_wave1_finish_dcrop_b8"||kernel=="c32_wave1_finish_dcrop_b8d"||kernel=="c32_wave1_prefix_b8d"||kernel=="c32_wave1_mapped_b8"||kernel=="c32_wave1_finish_b8"||(kernel=="c32_wave1_post_logit"||kernel=="c32_wave1_post_b8_logit"||kernel=="c32_wave1_post_b8"||kernel=="c32_wave1_post_b8_rgba"))){groups=count;threads=32;}
   if(module=="c512_m32_mh"||module=="c512_m32_deep"){groups=count/1024;threads=32;}
   if(kernel=="split_ffn_one_w2"||kernel=="split_ffn_one_w2f8")threads=64;
   if(kernel=="split_ffn_proj_fused"){threads=256;groups=count/8192;}
@@ -795,7 +796,7 @@ if(opt.fast_c32){const char*f[][2]={{"c32_fast_ffn","c32_fast.hsaco"},{"c32_fast
  else
  {if(c32_skip_byte)throw std::runtime_error("byte C32 skip needs the wave-owned up");source=Up(source,skips[0],W/4,H/4,W/2,H/2,64,32,"block66-weights.f32");}skips[0].reset();c32_skip_byte=false;for(U b=c32_begin;b<=69;b++){if(opt.skip_blocks.count(b)){if(!opt.raw_chain)throw std::runtime_error("C32 skip needs the raw chain");if(b==69)SkipChainFinish(chain,W/2,H/2,false);if(chain.main)source=chain.main;continue;}chain=opt.raw_chain?C32Chain(source,chain.raw?&chain:nullptr,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"),b==69,false):C32(source,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"));source=chain.main;if(source)Stage("block"+std::to_string(b),source);}chain={};
  C32Result post{};
- if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){const bool lowb=c32_post_low_byte;const bool rgba=request_rgba&&lowb&&HasFn("c32_wave1","c32_wave1_post_b8_rgba");graph_output_stride=rgba?4:3;Tensor out;if(rgba){out=multi_feed[multi_next];multi_next^=1;if(!out)throw std::runtime_error("RGBA outputs must be prepared before producer wait");}else out=New(size_t(W)*H*3);c32_post_low_byte=false;Run(lowb?"c32_wave1":"c32_fused_ffn",lowb?(rgba?"c32_wave1_post_b8_rgba":"c32_wave1_post_b8"):"c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);source.reset();skip0.reset();Stage("block70",out);return out;}
+ if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){const bool lowb=c32_post_low_byte;const bool rgba=request_rgba&&lowb&&HasFn("c32_wave1","c32_wave1_post_b8_rgba");graph_output_stride=rgba?4:3;Tensor out;if(rgba){out=multi_feed[multi_next];multi_next^=1;if(!out)throw std::runtime_error("RGBA outputs must be prepared before producer wait");}else out=New(size_t(W)*H*3);c32_post_low_byte=false;if(native_post_output){if(rgba||multi_pass!=1)throw std::runtime_error("native history requires single pass RGB output");Run("c32_wave1",lowb?"c32_wave1_post_b8_logit":"c32_wave1_post_logit",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f,P(native_post_row),native_post_output);}else{Run(lowb?"c32_wave1":"c32_fused_ffn",lowb?(rgba?"c32_wave1_post_b8_rgba":"c32_wave1_post_b8"):"c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);};source.reset();skip0.reset();Stage("block70",out);return out;}
   auto raw=New(size_t(ww)*hh*16);Run("c32_fused_ffn","c32_post_merge_fused_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(raw),windows,W,H,sx,sy);post={Tensor{},Tensor{},raw,ww,hh,sx,sy};source.reset();skip0.reset();}
  else{auto merged=New(size_t(W)*H*32);Run(opt.fast_c32?"boundary_fast":"boundary",opt.pre_main8?"hip_post_merge_fast_skip8":opt.fast_c32?"hip_post_merge_fast":"hip_post_merge",size_t(W)*H*32,P(source),P(skip0),Weight("post70-scales.f32"),P(merged),W,H);source.reset();skip0.reset();post=C32(merged,W,H,opt.post_shift,"post70-ffn.f32","post70-attention.f32");}
  auto out=New(size_t(W)*H*3);Run(opt.fast_c32?"boundary_fast":"boundary",opt.half_c32?"hip_post_head_fast_half":opt.fast_c32?"hip_post_head_fast":"hip_post_head_exact",size_t(W)*H*3,P(post.raw),P(color),Weight("post70-head.f32"),P(out),W,H,post.workw,post.sx,post.sy,.03125f);Stage("block70",out);return out;}
@@ -806,6 +807,15 @@ if(opt.fast_c32){const char*f[][2]={{"c32_fast_ffn","c32_fast.hsaco"},{"c32_fast
   if(opt.profile){bool valid=true;std::map<std::string,double>ms;for(auto&t:timings){float elapsed;api.Check(api.hipEventElapsedTime(&elapsed,t.begin,t.end),"event elapsed");if(!std::isfinite(elapsed)||elapsed<0)valid=false;ms[t.name]+=elapsed;api.hipEventDestroy(t.begin);api.hipEventDestroy(t.end);}timings.clear();double total=0;for(auto&m:ms){std::printf("kernel_ms %s %.6f\n",m.first.c_str(),m.second);total+=m.second;}if(valid)std::printf("kernel_ms TOTAL %.6f\n",total);else std::printf("PROFILE INVALID: negative/nonfinite HIP event intervals; discard this iteration\n");}return result;}
  // Device callers initialize once and use this stream for external fence waits/signals.
  void SetNoise(const std::vector<float>&noise){if(!opt.fast_prefix&&noise.size()!=50331648)throw std::runtime_error("noise size");api.Check(api.hipStreamSynchronize(stream),"set noise");ClearGraph();graph_warmed=false;device_noise=opt.fast_prefix?Tensor{}:Upload(noise.data(),noise.size()*4,true);}
+ bool NativeHistorySupported()const{return wave_owned_active&&opt.post_merge_fold&&opt.post_head_fused&&!opt.graph&&multi_pass==1;}
+ void EnableNativePostHistory(const std::vector<float>&row,void*output,size_t bytes){
+  if(row.size()!=32||!output||bytes<size_t(W)*H*8||native_post_row||!NativeHistorySupported())
+   throw std::runtime_error("native history unsupported network layout");
+  for(float v:row)if(!std::isfinite(v))throw std::runtime_error("native history nonfinite weight");
+  try{Fn("c32_wave1","c32_wave1_post_logit");Fn("c32_wave1","c32_wave1_post_b8_logit");}
+  catch(...){throw std::runtime_error("native history module mismatch; update the complete package, runtime and modules");}
+  native_post_row=Upload(row.data(),128,true);native_post_output=output;
+ }
  bool GraphEnabled()const{return opt.graph;}
  bool WaveOwnedActive()const{return wave_owned_active;}
  bool SwinRunActive()const{return SwinRunCompatible(opt)&&!sp_disabled&&(!sp_error_host||!sp_error_host[0].load(std::memory_order_acquire));}

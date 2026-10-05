@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define LMXXF_NR_ABI_VERSION 2u
+#define LMXXF_NR_ABI_VERSION 3u
 
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
@@ -62,7 +62,7 @@ typedef struct LmxxfNrCapabilities
      * max_input_width*max_input_height (ultrawide). */
     uint32_t max_input_width;
     uint32_t max_input_height;
-    uint32_t history_supported; /* first product version: 0 */
+    uint32_t history_supported; /* native single-pass history; query session for active/fallback status */
     uint32_t overlap_supported; /* first product version: 0 */
     uint32_t graph_supported;   /* first product version: 0; EnqueueHip must not graph-wait */
     /* [DEPRECATED] 1 = legacy single-target indicator; does not reflect active runtime GPU arch.
@@ -90,6 +90,12 @@ typedef struct LmxxfNrCreateInfo
  * network inference. Mutually exclusive with CODEC_PASSTHROUGH. Restart the host to change. */
 #define LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH   (1u << 4)
 
+#define LMXXF_NR_TEMPORAL_MODEL_HISTORY (1u << 0)
+#define LMXXF_NR_TEMPORAL_INPUTS_VALID (1u << 1)
+#define LMXXF_NR_TEMPORAL_RESET (1u << 2)
+#define LMXXF_NR_TEMPORAL_MV_JITTERED (1u << 3)
+#define LMXXF_NR_TEMPORAL_DEPTH_INVERTED (1u << 4)
+
 typedef struct LmxxfNrFrameInfo
 {
     uint32_t struct_size;
@@ -116,6 +122,10 @@ typedef struct LmxxfNrFrameInfo
     /* Codec paper white passed to encode and decode Record. Finite and in (0, 64], default 1.
      * Not the HDR Paper White anchor. Required in the current package ABI. */
     float paper_white;
+    uint32_t temporal_flags;
+    void *motion, *depth;
+    uint32_t motion_state, depth_state, motion_width, motion_height;
+    float motion_scale_x, motion_scale_y, jitter_x, jitter_y;
 } LmxxfNrFrameInfo;
 
 typedef struct LmxxfNrJob

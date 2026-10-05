@@ -23,7 +23,7 @@ class D3D12Bridge {
  ID3D12Resource* zero_upload{};ID3D12CommandAllocator* clear_alloc{};ID3D12GraphicsCommandList* clear_cmd{};
  size_t zero_upload_bytes{};bool clear_submission_unconfirmed{};
  // Producer writes the shared UAV and leaves it COMMON before HIP reads it.
- bool direct_input{};
+ bool direct_input{},native_history{};
  // Opt-in HIP round-trip diagnostic. Prepared before any producer wait; never
  // changes the normal network path or allocates in the submission callback.
  using PassthroughCopyFn=int(*)(void*,size_t,const void*,size_t,size_t,size_t,int,Handle);
@@ -158,7 +158,7 @@ public:
   if(network){DestroyTiming();auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);if(passthrough_rgb)api.hipFree(passthrough_rgb);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
- void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
+ void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise,const std::vector<float>&nativePostRow={}){
   if(network||queue||!q)throw std::runtime_error("bridge already initialized/invalid queue");if(q->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_DIRECT&&q->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_COMPUTE)throw std::runtime_error("bridge requires DIRECT or COMPUTE queue");queue=q;queue->AddRef();Check(q->GetDevice(IID_PPV_ARGS(&device)),"queue device");pixels=size_t(options.width)*options.height;
   options.pooled=true;options.profile=false;options.dump_dir.clear();
   // Pick the HIP device that is the game's D3D12 adapter. Hosts with an iGPU or a second card expose several HIP devices
@@ -177,7 +177,7 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   }
   module_directory=options.modules;
   network=new Network(std::move(options));auto&api=network->Runtime();
-  Share(input,pixels*16,direct_input);Share(history,pixels*16);Share(output,pixels*12,true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);
+  Share(input,pixels*16,direct_input);Share(history,pixels*16);Share(output,pixels*(nativePostRow.empty()||!network->NativeHistorySupported()?12:20),true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);if(!nativePostRow.empty()&&network->NativeHistorySupported()){network->EnableNativePostHistory(nativePostRow,static_cast<char*>(output.mapped)+pixels*12,pixels*8);native_history=true;}
   {const char*v=std::getenv("DLSS5_HIP_POST_SIGNAL_QUERY");if(!(v&&!strcmp(v,"0")))post_query=reinterpret_cast<EventQueryFn>(GetProcAddress(api.dll,"hipStreamQuery"));}
  }
  unsigned MultiPass(unsigned set=0){if(!network)return 0;if(set)network->SetMultiPass(set);return network->MultiPass();}
@@ -188,6 +188,7 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
  unsigned long long ReleaseMarks()const{return release_marks;}
  unsigned long long ReleaseMarkFailures()const{return release_mark_failures;}
  unsigned long long HipPassthroughQueued()const{return passthrough_queued;}
+ bool NativeHistoryEnabled()const{return native_history;}
  ID3D12Resource*Output()const{return output.resource;}
  void RequestDirectInput(){if(network||queue)throw std::runtime_error("direct input must be requested before Create");direct_input=true;}
  ID3D12Resource*DirectInput()const{return direct_input?input.resource:nullptr;}

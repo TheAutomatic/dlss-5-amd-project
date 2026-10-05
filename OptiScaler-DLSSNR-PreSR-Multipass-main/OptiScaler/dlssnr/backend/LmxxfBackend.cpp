@@ -302,7 +302,7 @@ bool LmxxfBackend::EnsureRuntime()
     }
     api->table.struct_size = sizeof(LmxxfNrApi);
     if (getApi(LMXXF_NR_ABI_VERSION, &api->table) != LMXXF_NR_OK ||
-        api->table.abi_version < 2 || !api->table.BeginRecordingExecution || !api->table.EndRecordingExecution ||
+        api->table.abi_version != LMXXF_NR_ABI_VERSION || !api->table.BeginRecordingExecution || !api->table.EndRecordingExecution ||
         !api->table.InvalidateRecording || !api->table.CollectRecording || !api->table.GetTimings)
     {
         api->table = {};
@@ -556,6 +556,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                                      const AmdPreSr::Settings &settings)
 {
     std::lock_guard recordLock(LmxxfCut::LifecycleMutex());
+    ++frameId; // Include bypassed evaluations in temporal continuity.
     if (!PollRelease()) return nullptr;
     if (!cmd || !frame.colour)
     {
@@ -608,7 +609,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     D3D12_RESOURCE_DESC desc = frame.colour->GetDesc();
     LmxxfNrFrameInfo fi {};
     fi.struct_size = sizeof(fi);
-    fi.frame_id = ++frameId;
+    fi.frame_id = frameId;
     fi.command_list = cmd;
     fi.color_width = JobExtent(frame.width, desc.Width);
     fi.color_height = JobExtent(frame.height, desc.Height);
@@ -629,6 +630,15 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.exposure_state = static_cast<uint32_t>(frame.exposureState);
     fi.pre_exposure = frame.preExposure;
     fi.exposure_scale = frame.exposureScale;
+    fi.motion=frame.motion;fi.depth=frame.depth;
+    fi.motion_state=static_cast<uint32_t>(frame.motionState);fi.depth_state=static_cast<uint32_t>(frame.depthState);
+    fi.motion_width=frame.motionWidth?frame.motionWidth:fi.color_width;
+    fi.motion_height=frame.motionHeight?frame.motionHeight:fi.color_height;
+    fi.motion_scale_x=frame.motionScaleX;fi.motion_scale_y=frame.motionScaleY;
+    fi.jitter_x=frame.jitterX;fi.jitter_y=frame.jitterY;
+    fi.temporal_flags=(Config::Instance()->LmxxfModelHistory.value_or_default()?LMXXF_NR_TEMPORAL_MODEL_HISTORY:0u)|
+        (frame.reset?LMXXF_NR_TEMPORAL_RESET:0u)|(frame.motionJittered?LMXXF_NR_TEMPORAL_MV_JITTERED:0u)|
+        (frame.depthInverted?LMXXF_NR_TEMPORAL_DEPTH_INVERTED:0u)|(frame.temporalInputsValid?LMXXF_NR_TEMPORAL_INPUTS_VALID:0u);
 
     LmxxfNrJob job {};
     job.struct_size = sizeof(job);
@@ -1122,7 +1132,13 @@ void LmxxfBackend::InvalidateHistory()
     stagingProbe.InvalidateEpoch();
 }
 
-std::string LmxxfBackend::Status() const { return status; }
+std::string LmxxfBackend::Status() const {
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
+    char runtime[768]{};
+    if(session&&api&&api->table.GetStatus(session,runtime,sizeof(runtime))==LMXXF_NR_OK)
+        return status+" | "+runtime;
+    return status;
+}
 bool LmxxfBackend::IsRunning() const
 {
     const auto owner = activityOwner.load(std::memory_order_acquire);

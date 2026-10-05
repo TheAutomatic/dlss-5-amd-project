@@ -418,6 +418,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             MochizukiModelScale.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiModelScale));
             MochizukiPasses.set_from_config(readUInt(CfgKey::kSection, CfgKey::MochizukiPasses));
             MochizukiTemporal.set_from_config(readBool(CfgKey::kSection, CfgKey::MochizukiTemporal));
+            LmxxfModelHistory.set_from_config(readBool(CfgKey::kSection, CfgKey::LmxxfModelHistory));
             MochizukiHistoryStrength.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiHistoryStrength));
             MochizukiPreprocess.set_from_config(readBool(CfgKey::kSection, CfgKey::MochizukiPreprocess));
             MochizukiPreprocessExposure.set_from_config(readUInt(CfgKey::kSection, CfgKey::MochizukiPreprocessExposure));
@@ -1652,6 +1653,7 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiModelScale, GetFloatValue(Instance()->MochizukiModelScale.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiPasses, GetIntValue(Instance()->MochizukiPasses.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiTemporal, GetBoolValue(Instance()->MochizukiTemporal.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::LmxxfModelHistory, GetBoolValue(Instance()->LmxxfModelHistory.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiHistoryStrength, GetFloatValue(Instance()->MochizukiHistoryStrength.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiPreprocess, GetBoolValue(Instance()->MochizukiPreprocess.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiPreprocessExposure, GetIntValue(Instance()->MochizukiPreprocessExposure.value_for_config()).c_str());

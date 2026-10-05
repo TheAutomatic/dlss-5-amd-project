@@ -54,7 +54,7 @@ tests\mochizuki\run.cmd gpu
 tests\mochizuki\run.cmd shader-tail
 ```
 
-ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数表边界、旧 ABI 拒绝与模块状态。
+ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v3 函数表边界、旧 ABI 拒绝与模块状态。
 `early-unity` 是 `device` 内的独立定位入口：真实 UnityPlayer/OtherEngine 测试 DLL
 验证早期调用来源过滤、显式开关和自动范围，以及保留列表的拆分/执行/读回/Reset。
 已运行完整 `device` 时不重复运行它；不需要 HIP/Vulkan 模型。

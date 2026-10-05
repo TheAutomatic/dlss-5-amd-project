@@ -1,4 +1,7 @@
 #include "LmxxfNrApi.h"
+#include "NativeTemporalHistory.h"
+#include "NativePostWeights.h"
+#include "TemporalControl.h"
 #include "../../NrPerformanceStore.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -67,7 +70,7 @@ struct CpuTiming
     };
 };
 
-static_assert(sizeof(LmxxfNrFrameInfo) == 112, "package frame layout");
+static_assert(sizeof(LmxxfNrFrameInfo) == 160, "package frame layout");
 
 // Bound each D3D12 queue wait during EnqueueHip recovery to limit stalls.
 // Teardown keeps its 30 s wait; HIP stream synchronization is not bounded here.
@@ -1050,12 +1053,23 @@ struct RecordingChain
     std::shared_ptr<hip_reference::D3D12Bridge> bridge;
     std::vector<std::shared_ptr<LmxxfRuntime::RecordingCompletion>> completions;
     bool unconfirmed = false;
+    std::unique_ptr<LmxxfNativeTemporal::History> history;
+    LmxxfRuntime::TemporalControl control;
+    bool historyValid=false;
+    uint32_t nextSeed=0;
+    uint64_t epoch=0,tick=0;
+    LmxxfNrFrameInfo previous{};
     explicit RecordingChain(hip_reference::D3D12Bridge* p)
         : bridge(p, LmxxfRuntime::DeferredDelete<hip_reference::D3D12Bridge>) {}
 };
 
 struct RecordingJob : Job
 {
+    LmxxfNrFrameInfo historyInfo{};
+    LmxxfNativeTemporal::Parameters historyParams{};
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> historyBinding;
+    bool temporal=false,historyEnqueued=false;
+    uint64_t historyEpoch=0;
     uint64_t executionId = 0;
     std::shared_ptr<LmxxfRuntime::RecordingGpuTiming> gpuTiming;
     LmxxfRuntime::RecordingPins pins;
@@ -1093,6 +1107,9 @@ struct Session
     Job* preparing = nullptr;
     std::map<void*, std::unique_ptr<RecordingJob>> recordings;
     std::shared_ptr<RecordingChain> recordingChain;
+    std::weak_ptr<RecordingChain> lastHistoryChain;
+    uint64_t historyEpoch=1;
+    std::string historyStatus="off";
 
     Job* FindJob(void* handle)
     {
@@ -1524,7 +1541,7 @@ int32_t QueryCapabilities(LmxxfNrCapabilities *out)
             out->max_input_width = 1920;
             out->max_input_height = 1080;
         }
-        out->history_supported = 0;
+        out->history_supported = 1;
         out->overlap_supported = 0;
         out->graph_supported = 0;
         out->gfx1201_target = 1;
@@ -1634,6 +1651,72 @@ int32_t PrepareSession(void *context)
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
+}
+
+void PrepareHistory(Session* s,const LmxxfNrFrameInfo* info,RecordingJob& j)
+{
+    auto disable=[&](const char* why){s->historyStatus=why;};
+    if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)){disable("off");return;}
+    if(j.codec_passthrough||j.hip_passthrough||(j.debug_view&0xFu)){disable("diagnostic-view");return;}
+    if(s->bridge->MultiPass()!=1){disable("unsupported-passes");return;}
+    if(!s->bridge->NativeHistoryEnabled()){disable("unsupported-post-layout");return;}
+    if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_INPUTS_VALID)){disable("unknown-motion-contract");return;}
+    auto* motion=static_cast<ID3D12Resource*>(info->motion);auto* depth=static_cast<ID3D12Resource*>(info->depth);
+    if(!motion||!depth||motion==depth||motion==j.color||depth==j.color){disable("missing-guides");return;}
+    auto md=motion->GetDesc(),dd=depth->GetDesc();
+    if(LmxxfTemporal::TextureIssue(md)||LmxxfTemporal::TextureIssue(dd)||
+       LmxxfTemporal::MotionFormat(md.Format)==DXGI_FORMAT_UNKNOWN||LmxxfTemporal::DepthFormat(dd.Format)==DXGI_FORMAT_UNKNOWN){disable("unsupported-guide-format");return;}
+    if(!info->motion_width||!info->motion_height||info->motion_width>md.Width||info->motion_height>md.Height||
+       info->color_width>dd.Width||info->color_height>dd.Height){disable("guide-extent");return;}
+    if(!std::isfinite(info->motion_scale_x)||!std::isfinite(info->motion_scale_y)||!std::isfinite(info->jitter_x)||!std::isfinite(info->jitter_y)){
+        disable("invalid-motion-scalars");return;
+    }
+    for(auto* guide:{motion,depth}){ID3D12Device* device=nullptr;
+        HRESULT hr=guide->GetDevice(IID_PPV_ARGS(&device));bool same=SUCCEEDED(hr)&&device&&NativeSameDevice(device,s->device);
+        if(device)device->Release();if(!same){disable("guide-device");return;}
+    }
+    auto ng=NativeCurrentNetworkGeometry();auto& chain=*j.chain;
+    if(!chain.history){
+        auto history=std::make_unique<LmxxfNativeTemporal::History>();
+        history->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height);
+        chain.control.Create(s->device);chain.history=std::move(history);
+    }
+    j.historyBinding=LmxxfNativeTemporal::History::Binding(s->device,motion,depth);
+    j.pins.Add(motion);j.pins.Add(depth);j.historyInfo=*info;
+    auto& p=j.historyParams;auto g=s->encode->Geometry();
+    p.width=ng.valid_width;p.height=ng.valid_height;p.processingHeight=ng.processing_height;
+    p.viewX=g.x;p.viewY=g.y;p.viewWidth=g.fit_width;p.viewHeight=g.fit_height;
+    p.renderWidth=j.width;p.renderHeight=j.height;p.motionWidth=info->motion_width;p.motionHeight=info->motion_height;
+    p.scaleX=info->motion_scale_x/float(info->motion_width);p.scaleY=info->motion_scale_y/float(info->motion_height);
+    p.historyStrength=1;p.logitOffset=ng.valid_width*ng.processing_height*3;p.hasDepth=1;
+    p.depthInverted=(info->temporal_flags&LMXXF_NR_TEMPORAL_DEPTH_INVERTED)?1:0;
+    j.temporal=true;s->historyStatus="ready";
+}
+
+void BeginHistory(Session* s,RecordingJob& j,ID3D12CommandQueue* queue)
+{
+    j.historyEnqueued=false;
+    if(!j.temporal){s->lastHistoryChain.reset();return;}
+    auto& h=*j.chain;const auto& a=j.historyInfo;const auto& b=h.previous;
+    const uint32_t stable=LMXXF_NR_TEMPORAL_MV_JITTERED|LMXXF_NR_TEMPORAL_DEPTH_INVERTED;
+    bool use=h.historyValid&&s->lastHistoryChain.lock()==j.chain&&h.epoch==s->historyEpoch&&
+        a.frame_id&&b.frame_id!=UINT64_MAX&&a.frame_id==b.frame_id+1&&GetTickCount64()-h.tick<=500&&
+        !(a.temporal_flags&LMXXF_NR_TEMPORAL_RESET)&&h.nextSeed!=UINT32_MAX&&
+        a.color_width==b.color_width&&a.color_height==b.color_height&&a.model_scale==b.model_scale&&
+        a.motion_width==b.motion_width&&a.motion_height==b.motion_height&&
+        a.motion_scale_x==b.motion_scale_x&&a.motion_scale_y==b.motion_scale_y&&
+        (a.temporal_flags&stable)==(b.temporal_flags&stable)&&a.paper_white==b.paper_white&&a.exposure_scale==b.exposure_scale;
+    auto& p=j.historyParams;p.useHistory=use?1:0;p.jitterX=p.jitterY=0;
+    if(use&&!(a.temporal_flags&LMXXF_NR_TEMPORAL_MV_JITTERED)){
+        p.jitterX=(b.jitter_x-a.jitter_x)/float(a.color_width);p.jitterY=(b.jitter_y-a.jitter_y)/float(a.color_height);
+    }
+    j.seed=use?h.nextSeed:0;j.historyEpoch=s->historyEpoch;
+    h.historyValid=false;s->lastHistoryChain=j.chain;
+    // This submission exists independently of the game producer. Retain the
+    // entire job/chain on any uncertain completion, including Begin failure.
+    j.unconfirmed=h.unconfirmed=true;
+    h.control.Submit(s->device,queue,&p,sizeof(p),j.completions,h.completions);
+    j.unconfirmed=h.unconfirmed=false;
 }
 
 int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *job)
@@ -1758,6 +1841,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             if (value) requestedOptions += value;
             requestedOptions += ';';
         }
+        if(info->temporal_flags & ~31u)return Fail(LMXXF_NR_INVALID_ARGUMENT,"unknown temporal flags");
+        if(!session->recordingLeases)session->historyStatus=(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)?"unsupported-lifecycle":"off";
+        const bool requestHistory=(info->temporal_flags & LMXXF_NR_TEMPORAL_MODEL_HISTORY)!=0 && session->recordingLeases;
+        requestedOptions += requestHistory ? "history=1;" : "history=0;";
         const char* styleValue = std::getenv(CfgKey::LmxxfStyle);
         // Match the upstream fallback without printing an invalid external value every frame.
         const float requestedStyle = styleValue && std::strcmp(styleValue, "0") == 0 ? 0.f :
@@ -1776,7 +1863,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
             session->InstallBridge(new hip_reference::D3D12Bridge());
             session->bridge->RequestDirectInput();
-            session->bridge->Create(session->queue, opt, {});
+            session->bridge->Create(session->queue, opt, {}, requestHistory ? LmxxfNativePostWeights() : std::vector<float>{});
             if (session->recordingLeases) session->bridge->EnableRecordingLeases();
             ++session->bridgeCreates;
             session->hipPrepared = true;
@@ -2076,7 +2163,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                     return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
                 session->InstallBridge(new hip_reference::D3D12Bridge());
                 session->bridge->RequestDirectInput();
-                session->bridge->Create(session->queue, opt, {});
+                session->bridge->Create(session->queue, opt, {}, requestHistory ? LmxxfNativePostWeights() : std::vector<float>{});
                 if (session->recordingLeases) session->bridge->EnableRecordingLeases();
                 ++session->bridgeCreates;
                 session->hipPrepared = true;
@@ -2230,6 +2317,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             }
             static_cast<Job&>(*lease) = session->job;
             lease->chain = session->recordingChain;
+            PrepareHistory(session,info,*lease);
             // Capture dependencies before recording any command, including failure paths.
             session->encode->PinRecording(lease->pins.objects);
             session->rgbInput->PinRecording(lease->pins.objects);
@@ -2354,7 +2442,17 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
             return static_cast<int32_t>(LMXXF_NR_OK);
         }
         session->rgbInput->Record(list, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        session->bridge->RecordInputCopy(list, session->rgbInput->PostBase(), nullptr);
+        auto* temporalJob=session->recordingLeases?static_cast<RecordingJob*>(j):nullptr;
+        ID3D12Resource* temporalInput=nullptr;
+        if(temporalJob && temporalJob->temporal){
+            auto& chain=*temporalJob->chain;auto& fi=temporalJob->historyInfo;
+            chain.history->RecordInputs(list,session->rgbInput->PostBase(),session->bridge->Output(),
+                static_cast<ID3D12Resource*>(fi.motion),static_cast<ID3D12Resource*>(fi.depth),
+                static_cast<D3D12_RESOURCE_STATES>(fi.motion_state),static_cast<D3D12_RESOURCE_STATES>(fi.depth_state),
+                temporalJob->historyParams,temporalJob->historyBinding.Get(),chain.control.Address());
+            temporalInput=chain.history->Warped();
+        }
+        session->bridge->RecordInputCopy(list, session->rgbInput->PostBase(), temporalInput);
         if (timing) timing->End(list, 0);
         j->state = LMXXF_NR_JOB_PRODUCER_SUBMITTED;
         SetError("");
@@ -2396,7 +2494,8 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
                     bridge->PauseNetworkTiming();
                     bridge->EnqueueHipPassthroughAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue));
                 }
-                else bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
+                else bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, lease->temporal);
+                lease->historyEnqueued=lease->temporal;
             }
             SetError("");
             return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2515,6 +2614,12 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         if (!j->codec_passthrough)
         {
             session->bridge->RecordOutputReadable(list);
+            if(session->recordingLeases){auto* t=static_cast<RecordingJob*>(j);if(t->temporal){
+                auto& chain=*t->chain;auto& fi=t->historyInfo;
+                chain.history->RecordOutputs(list,session->rgbInput->PostBase(),session->bridge->Output(),
+                    static_cast<ID3D12Resource*>(fi.depth),static_cast<D3D12_RESOURCE_STATES>(fi.depth_state),
+                    t->historyParams,t->historyBinding.Get(),chain.control.Address());
+            }}
             session->rgbTex->Record(list);
             if (session->recordingLeases) session->bridge->SealRecordedOutput(list);
         }
@@ -2663,6 +2768,7 @@ int32_t BeginRecordingExecution(void* context, void* job, void* actualQueue)
             if (c->queue != queue && FAILED(queue->Wait(c->fence, c->value)))
                 return Fail(LMXXF_NR_FAILED, "BeginRecordingExecution: previous consumer wait failed");
         }
+        BeginHistory(session,*j,queue);
         if (!j->sealed)
         {
             // A failed Record may have appended private commands to a live game
@@ -2670,7 +2776,9 @@ int32_t BeginRecordingExecution(void* context, void* job, void* actualQueue)
             // Bridge input copies and a sealed output both end in COMMON.
             j->chain->bridge->CancelUnsubmitted();
         }
-        else if (!j->codec_passthrough) j->chain->bridge->BeginRecordedExecution(queue);
+        else {
+            if (!j->codec_passthrough) j->chain->bridge->BeginRecordedExecution(queue,j->temporal);
+        }
         if (j->gpuTiming) j->gpuTiming->BeforeExecution(session->performance);
         j->started = true;
         j->executionId = ++session->timingExecution;
@@ -2722,6 +2830,12 @@ int32_t EndRecordingExecution(void* context, void* job, void* actualQueue,
         }
         if (j->sealed && !j->codec_passthrough) j->chain->bridge->EndRecordedExecution(queue, producer, consumer);
         if (producer) j->unconfirmed = j->chain->unconfirmed = false;
+        if(j->temporal){
+            auto& h=*j->chain;
+            h.historyValid=producer&&consumer&&j->historyEnqueued;
+            if(h.historyValid){h.previous=j->historyInfo;h.epoch=j->historyEpoch;h.tick=GetTickCount64();h.nextSeed=j->seed+1;}
+            session->historyStatus=h.historyValid?(j->historyParams.useHistory?"active":"priming"):"reset-after-discard";
+        }
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -2776,6 +2890,8 @@ int32_t ResetHistory(void *context)
     return GuardSession(session, [&] {
         if (!session)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "null context");
+        if(session->historyEpoch==UINT64_MAX)return Fail(LMXXF_NR_UNAVAILABLE,"history epoch exhausted");
+        ++session->historyEpoch;session->lastHistoryChain.reset();session->historyStatus="reset-requested";
         SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
     });
@@ -2856,6 +2972,8 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         }
         if (session)
         {
+            const size_t historyUsed=std::strlen(text);
+            std::snprintf(text+historyUsed,sizeof(text)-historyUsed," history=%s",session->historyStatus.c_str());
             if (session->job.hip_passthrough && session->bridge)
             {
                 const size_t used = std::strlen(text);

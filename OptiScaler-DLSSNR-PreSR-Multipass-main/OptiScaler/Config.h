@@ -394,6 +394,7 @@ class Config
     CustomOptional<bool> LmxxfMultiPassSkinProtect { false };
     CustomOptional<std::string> LmxxfMultiPassSkipBlocks { "none" };
     CustomOptional<uint32_t> LmxxfNetwork1080Rows { 1152 };
+    CustomOptional<bool> LmxxfModelHistory { false };
     CustomOptional<uint32_t> LmxxfStyle { 1 };
     // Mochizuki owns independent settings; reset never changes another backend.
     CustomOptional<float> MochizukiIntensity { 1.f };

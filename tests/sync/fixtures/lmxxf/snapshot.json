@@ -59,6 +59,11 @@
       "path": "hip/build-modules.ps1",
       "fixture": "build-modules.upstream.txt",
       "sha256": "64804487be8bdacc883190d2272694334e88ffff21d32f2e7f78bb3b95412bd7"
+    },
+    {
+      "path": "hip/wave_owned_c32.inc",
+      "fixture": "wave_owned_c32.upstream.inc",
+      "sha256": "df8270de897bdf619008d9da1d82c77149b3a09193175ea39df76e7eac9f2b34"
     }
   ]
 }

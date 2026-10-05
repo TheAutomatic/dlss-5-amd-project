@@ -83,6 +83,7 @@ inline constexpr const char *MochizukiPass3AutomaticMask = "MochizukiPass3Automa
 // Upstream-shared knobs (ini name == env name). Menu labels stay in DlssNr_Menu.cpp.
 inline constexpr const char *NetworkHeight = "DLSS5_NETWORK_HEIGHT";
 inline constexpr const char *Network1080Rows = "DLSS5_NETWORK_1080_ROWS";
+inline constexpr const char *LmxxfModelHistory = "LmxxfModelHistory";
 inline constexpr const char *LmxxfStyle = "DLSS5_STYLE";
 inline constexpr const char *FormatFallback = "DLSS5_FORMAT_FALLBACK";
 inline constexpr const char *SkipBlocks = "DLSS5_SKIP_BLOCKS";
@@ -264,6 +265,7 @@ inline constexpr const char *const kKnown[] = {
     MultiPassSkinProtect,
     MultiPassSkipBlocks,
     Network1080Rows,
+    LmxxfModelHistory,
     LmxxfStyle,
     FormatFallback,
     SkipBlocks,

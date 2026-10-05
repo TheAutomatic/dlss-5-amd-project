@@ -1,10 +1,10 @@
 # lmxxf recording lifecycle
 
-The product backend negotiates ABI v2 and attaches a recording lease before appending
+The product backend negotiates ABI v3 and attaches a recording lease before appending
 private commands. Each lease owns its immutable bindings and session independently of
 the active backend. NR off or backend shutdown drops the active owner; closed game
 recordings remain executable until successful Reset or final Release invalidates them.
-Only the current whole-package ABI is accepted; old table/frame sizes and ABI v1 are rejected.
+Only the current whole-package ABI is accepted; old table/frame sizes and ABI v1/v2 are rejected.
 
 ## Submission events
 
@@ -159,3 +159,7 @@ switching away clears the displayed data. Just FPS retains its original layout.
 Other overlay styles show network time, with encode/decode in detailed styles.
 CPU and GPU stage durations are not summed into game frame latency. UI/game visual
 validation remains separate from automated timestamp/lifecycle tests.
+
+Native history adds separately certified control uploads to the same leases; see
+[native temporal history](lmxxf-native-history.md) for actual-execution seed/reset
+and the supported single-pass contract.

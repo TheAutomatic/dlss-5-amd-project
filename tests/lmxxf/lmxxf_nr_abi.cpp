@@ -50,9 +50,10 @@ int main(int argc, char **argv)
     Require(telemetry.api.SetEnabled(nullptr, 1) == LMXXF_NR_INVALID_ARGUMENT, "timing requires session");
 
     LmxxfNrApi rejected {}; rejected.struct_size = sizeof rejected;
+    Require(getApi(2, &rejected) == LMXXF_NR_UNSUPPORTED_ABI, "ABI2 rejected; install complete package");
     Require(getApi(1, &rejected) == LMXXF_NR_UNSUPPORTED_ABI, "old ABI rejected; install complete package");
     rejected.struct_size = 168;
-    Require(getApi(2, &rejected) == LMXXF_NR_INVALID_ARGUMENT, "old package table rejected");
+    Require(getApi(LMXXF_NR_ABI_VERSION, &rejected) == LMXXF_NR_INVALID_ARGUMENT, "old package table rejected");
     static_assert(sizeof(LmxxfNrTimings) == 24);
     LmxxfNrApi api {};
     api.struct_size = sizeof(api);
@@ -79,7 +80,7 @@ int main(int argc, char **argv)
         else
             Require(caps.max_input_width == 1920 && caps.max_input_height == 1080, "max input");
     }
-    Require(caps.history_supported == 0 && caps.overlap_supported == 0, "history/overlap off");
+    Require(caps.history_supported == 1 && caps.overlap_supported == 0, "native history capability; no overlap");
     Require(caps.graph_supported == 0, "graph off");
     Require(caps.gfx1201_target == 1, "gfx1201 target");
 

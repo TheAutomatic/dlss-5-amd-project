@@ -144,3 +144,5 @@ WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 �
 完整工具回归用 `tests\sync\run.cmd`，按内容/环境/UTC周复用成功记录；
 `--force` 强制全跑。缓存不改变实际同步审计、模块校验或pending语义。
 详见 [发版流程](../../docs/release.md#减少重复验证2026-10-05)。
+
+原生 temporal history 的本地接入见 [架构与验证](../../docs/architecture/lmxxf-native-history.md)。`native-post-history.patch` 增加 float/b8 post 第四行，`bridge.patch` 为开启时扩展共享输出；不移动 0.41 pin，不改其它模块或默认精度。

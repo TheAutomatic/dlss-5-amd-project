@@ -67,7 +67,8 @@
     "recording-leases.patch",
     "module-load-cleanup.patch",
     "codec-active-subrect.patch",
-    "module-script-encoding.patch"
+    "module-script-encoding.patch",
+    "native-post-history.patch"
   ],
   "hip_files": [
     "build-modules.ps1",

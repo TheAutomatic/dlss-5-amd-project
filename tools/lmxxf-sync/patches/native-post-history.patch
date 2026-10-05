@@ -1,0 +1,93 @@
+--- a/hip/wave_owned_c32.inc
++++ b/hip/wave_owned_c32.inc
+@@ -203,7 +203,7 @@
+ DEV float cw_up_F(float x){uint a=bits(x)&0x7fffffffu;float c=__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f);float r=__builtin_amdgcn_cvt_f32_fp8(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false),0);return a==0?0.f:r;}
+ DEV float cw_up_shuffle(float v,uint lane){return __builtin_bit_cast(float,__builtin_amdgcn_ds_bpermute(lane*4,__builtin_bit_cast(int,v)));}
+ template<bool Chain,bool Finish=false,bool DownCrop=false,bool Post=false,bool Prefix=false,bool Up=false,bool Byte=false,bool DownByte=false,bool InByte=false,bool UpLowByte=false,bool PostRGBA=false>
+-DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0,const float*upw=nullptr){fp8_sat_mode();
++DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0,const float*upw=nullptr,const float*logitw=nullptr,float*logit=nullptr){fp8_sat_mode();
+  constexpr uint cw_kind=Prefix?5:Post?4:Finish?(DownCrop?3:2):Chain?0:1;
+  uint win=bid();if(win>=windows)return;
+  __attribute__((shared)) _Float16 residual[4*2*32*8];
+@@ -418,6 +418,10 @@
+    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);sums[0]+=f*headw[c];sums[1]+=f*headw[32+c];sums[2]+=f*headw[64+c];}
+ #endif
+    for(uint c=0;c<3;c++){float acc=Hrtz(sums[c]),centered=color[p*4+c]*.125f-.0625f,v=(acc*rgbscale+centered)*8.f+.5f;rgb[p*(PostRGBA?4:3)+c]=cw_clampf(v,0.f,1.f);}if constexpr(PostRGBA)rgb[p*4+3]=1.f;
++   if(logit){float value=0.f;
++    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);value+=f*logitw[c];}
++    logit[p*2]=value;logit[p*2+1]=Hrtz(value);
++   }
+   }}};
+ #if CW_POST_FULL_TILE
+   if(tx>=sx&&ty>=sy&&tx+8<=width+sx&&ty+8<=height+sy)emit(cw_true{});else emit(cw_false{});
+@@ -433,6 +437,10 @@
+    uint p=uint(y)*width+uint(x);float sums[3]{};
+    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);sums[0]+=f*headw[c];sums[1]+=f*headw[32+c];sums[2]+=f*headw[64+c];}
+    for(uint c=0;c<3;c++){float acc=Hrtz(sums[c]),centered=color[p*4+c]*.125f-.0625f,v=(acc*rgbscale+centered)*8.f+.5f;rgb[p*(PostRGBA?4:3)+c]=cw_clampf(v,0.f,1.f);}if constexpr(PostRGBA)rgb[p*4+3]=1.f;
++   if(logit){float value=0.f;
++    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);value+=f*logitw[c];}
++    logit[p*2]=value;logit[p*2+1]=Hrtz(value);
++   }
+   }}
+  }
+ #endif
+@@ -535,6 +543,7 @@
+ CW_FINISH(c32_wave1_finish,false)
+ CW_FINISH(c32_wave1_finish_dcrop,true)
+ CW_ENTRY void c32_wave1_post(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
++CW_ENTRY void c32_wave1_post_logit(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale,const float*logitw,float*logit){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale,nullptr,0,0,nullptr,logitw,logit);}
+ CW_ENTRY void c32_wave1_prefix(const unsigned char*rgba,const float*history,const float*fw,const float*w,float*main,float*down,uint windows,uint mode,uint raw,uint width,uint height,uint seed,uint temporal){cw_body<false,true,false,false,true>(rgba,fw,w,nullptr,windows,mode,raw,width,height,0,0,0,0,0,main,down,nullptr,nullptr,nullptr,nullptr,nullptr,0.f,history,seed,temporal);}
+ 
+ #if CW_SKIP_BYTE
+@@ -546,6 +555,7 @@
+ CW_ENTRY void c32_wave1_mapped_b8(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy){cw_body<false,false,false,false,false,false,false,false,true>(in,fw,w,out,windows,mode,raw,width,height,sx,sy,0,0,0);}
+ CW_ENTRY void c32_wave1_finish_b8(const unsigned char*in,const float*fw,const float*w,unsigned char*main,float*down,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py){cw_body<true,true,false,false,false,false,true>(in,fw,w,nullptr,windows,mode,raw,width,height,sx,sy,prevw,px,py,reinterpret_cast<float*>(main),down);}
+ CW_ENTRY void c32_wave1_post_b8(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true,false,false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
++CW_ENTRY void c32_wave1_post_b8_logit(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale,const float*logitw,float*logit){cw_body<false,false,false,true,false,false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale,nullptr,0,0,nullptr,logitw,logit);}
+ CW_ENTRY void c32_wave1_post_b8_rgba(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true,false,false,false,false,true,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
+ #endif
+ #if CW_UP_FUSED
+--- a/Development/HIP/hip_reference_network.h
++++ b/Development/HIP/hip_reference_network.h
+@@ -166,6 +166,7 @@
+ }
+ inline std::atomic<int> AdaptivePreviewState{0};
+ class Network {
++ Tensor native_post_row;void* native_post_output=nullptr;
+  bool vit_contract_byte_edge=false; // paired exact representation of an already E4M3-valued edge
+  bool free_geometry=false; /* DLSS5_NETWORK_FREE_RES geometry (FreeGeometry): generic ViT grid, no 640-token cap */
+  bool wave_owned_active=false;bool c32_skip_byte=false;bool c32_pre_down_byte=false;bool c32_post_low_byte=false;bool c512_m32_active=false;bool vit_proj_n64_active=false;unsigned vit_stream_active=0;bool fast_numeric=false; /* DLSS5_FAST_NUMERIC (cached at construction): load the lossy *-fast module twins where present */
+@@ -434,7 +435,7 @@
+   }
+   if(module=="c32_fused"||module=="c32_fused_ffn"||module=="mh_fused"){groups=count;threads=128;}
+   if(module=="c64_wave2"){groups=count;threads=kernel.rfind("c64_",0)==0?64:kernel.rfind("c128_",0)==0?128:256;}
+-  if(module=="c32_wave1"&&(kernel=="c32_wave1_up"||kernel=="c32_wave1_up_b8"||kernel=="c32_wave1_up_lb"||kernel=="c32_wave1_up_b8_lb"||kernel=="c32_wave1_finish_dcrop_b8"||kernel=="c32_wave1_finish_dcrop_b8d"||kernel=="c32_wave1_prefix_b8d"||kernel=="c32_wave1_mapped_b8"||kernel=="c32_wave1_finish_b8"||(kernel=="c32_wave1_post_b8"||kernel=="c32_wave1_post_b8_rgba"))){groups=count;threads=32;}
++  if(module=="c32_wave1"&&(kernel=="c32_wave1_up"||kernel=="c32_wave1_up_b8"||kernel=="c32_wave1_up_lb"||kernel=="c32_wave1_up_b8_lb"||kernel=="c32_wave1_finish_dcrop_b8"||kernel=="c32_wave1_finish_dcrop_b8d"||kernel=="c32_wave1_prefix_b8d"||kernel=="c32_wave1_mapped_b8"||kernel=="c32_wave1_finish_b8"||(kernel=="c32_wave1_post_logit"||kernel=="c32_wave1_post_b8_logit"||kernel=="c32_wave1_post_b8"||kernel=="c32_wave1_post_b8_rgba"))){groups=count;threads=32;}
+   if(module=="c512_m32_mh"||module=="c512_m32_deep"){groups=count/1024;threads=32;}
+   if(kernel=="split_ffn_one_w2"||kernel=="split_ffn_one_w2f8")threads=64;
+   if(kernel=="split_ffn_proj_fused"){threads=256;groups=count/8192;}
+@@ -795,7 +796,7 @@
+  else
+  {if(c32_skip_byte)throw std::runtime_error("byte C32 skip needs the wave-owned up");source=Up(source,skips[0],W/4,H/4,W/2,H/2,64,32,"block66-weights.f32");}skips[0].reset();c32_skip_byte=false;for(U b=c32_begin;b<=69;b++){if(opt.skip_blocks.count(b)){if(!opt.raw_chain)throw std::runtime_error("C32 skip needs the raw chain");if(b==69)SkipChainFinish(chain,W/2,H/2,false);if(chain.main)source=chain.main;continue;}chain=opt.raw_chain?C32Chain(source,chain.raw?&chain:nullptr,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"),b==69,false):C32(source,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"));source=chain.main;if(source)Stage("block"+std::to_string(b),source);}chain={};
+  C32Result post{};
+- if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){const bool lowb=c32_post_low_byte;const bool rgba=request_rgba&&lowb&&HasFn("c32_wave1","c32_wave1_post_b8_rgba");graph_output_stride=rgba?4:3;Tensor out;if(rgba){out=multi_feed[multi_next];multi_next^=1;if(!out)throw std::runtime_error("RGBA outputs must be prepared before producer wait");}else out=New(size_t(W)*H*3);c32_post_low_byte=false;Run(lowb?"c32_wave1":"c32_fused_ffn",lowb?(rgba?"c32_wave1_post_b8_rgba":"c32_wave1_post_b8"):"c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);source.reset();skip0.reset();Stage("block70",out);return out;}
++ if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){const bool lowb=c32_post_low_byte;const bool rgba=request_rgba&&lowb&&HasFn("c32_wave1","c32_wave1_post_b8_rgba");graph_output_stride=rgba?4:3;Tensor out;if(rgba){out=multi_feed[multi_next];multi_next^=1;if(!out)throw std::runtime_error("RGBA outputs must be prepared before producer wait");}else out=New(size_t(W)*H*3);c32_post_low_byte=false;if(native_post_output){if(rgba||multi_pass!=1)throw std::runtime_error("native history requires single pass RGB output");Run("c32_wave1",lowb?"c32_wave1_post_b8_logit":"c32_wave1_post_logit",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f,P(native_post_row),native_post_output);}else{Run(lowb?"c32_wave1":"c32_fused_ffn",lowb?(rgba?"c32_wave1_post_b8_rgba":"c32_wave1_post_b8"):"c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);};source.reset();skip0.reset();Stage("block70",out);return out;}
+   auto raw=New(size_t(ww)*hh*16);Run("c32_fused_ffn","c32_post_merge_fused_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(raw),windows,W,H,sx,sy);post={Tensor{},Tensor{},raw,ww,hh,sx,sy};source.reset();skip0.reset();}
+  else{auto merged=New(size_t(W)*H*32);Run(opt.fast_c32?"boundary_fast":"boundary",opt.pre_main8?"hip_post_merge_fast_skip8":opt.fast_c32?"hip_post_merge_fast":"hip_post_merge",size_t(W)*H*32,P(source),P(skip0),Weight("post70-scales.f32"),P(merged),W,H);source.reset();skip0.reset();post=C32(merged,W,H,opt.post_shift,"post70-ffn.f32","post70-attention.f32");}
+  auto out=New(size_t(W)*H*3);Run(opt.fast_c32?"boundary_fast":"boundary",opt.half_c32?"hip_post_head_fast_half":opt.fast_c32?"hip_post_head_fast":"hip_post_head_exact",size_t(W)*H*3,P(post.raw),P(color),Weight("post70-head.f32"),P(out),W,H,post.workw,post.sx,post.sy,.03125f);Stage("block70",out);return out;}
+@@ -806,6 +807,15 @@
+   if(opt.profile){bool valid=true;std::map<std::string,double>ms;for(auto&t:timings){float elapsed;api.Check(api.hipEventElapsedTime(&elapsed,t.begin,t.end),"event elapsed");if(!std::isfinite(elapsed)||elapsed<0)valid=false;ms[t.name]+=elapsed;api.hipEventDestroy(t.begin);api.hipEventDestroy(t.end);}timings.clear();double total=0;for(auto&m:ms){std::printf("kernel_ms %s %.6f\n",m.first.c_str(),m.second);total+=m.second;}if(valid)std::printf("kernel_ms TOTAL %.6f\n",total);else std::printf("PROFILE INVALID: negative/nonfinite HIP event intervals; discard this iteration\n");}return result;}
+  // Device callers initialize once and use this stream for external fence waits/signals.
+  void SetNoise(const std::vector<float>&noise){if(!opt.fast_prefix&&noise.size()!=50331648)throw std::runtime_error("noise size");api.Check(api.hipStreamSynchronize(stream),"set noise");ClearGraph();graph_warmed=false;device_noise=opt.fast_prefix?Tensor{}:Upload(noise.data(),noise.size()*4,true);}
++ bool NativeHistorySupported()const{return wave_owned_active&&opt.post_merge_fold&&opt.post_head_fused&&!opt.graph&&multi_pass==1;}
++ void EnableNativePostHistory(const std::vector<float>&row,void*output,size_t bytes){
++  if(row.size()!=32||!output||bytes<size_t(W)*H*8||native_post_row||!NativeHistorySupported())
++   throw std::runtime_error("native history unsupported network layout");
++  for(float v:row)if(!std::isfinite(v))throw std::runtime_error("native history nonfinite weight");
++  try{Fn("c32_wave1","c32_wave1_post_logit");Fn("c32_wave1","c32_wave1_post_b8_logit");}
++  catch(...){throw std::runtime_error("native history module mismatch; update the complete package, runtime and modules");}
++  native_post_row=Upload(row.data(),128,true);native_post_output=output;
++ }
+  bool GraphEnabled()const{return opt.graph;}
+  bool WaveOwnedActive()const{return wave_owned_active;}
+  bool SwinRunActive()const{return SwinRunCompatible(opt)&&!sp_disabled&&(!sp_error_host||!sp_error_host[0].load(std::memory_order_acquire));}

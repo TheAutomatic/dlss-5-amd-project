@@ -23,7 +23,7 @@ int main(int argc, char** argv)
     HMODULE dll = LoadLibraryW(Widen(argv[1]).c_str()); Require(dll != nullptr, "runtime load");
     auto getApi = reinterpret_cast<int32_t(*)(uint32_t, LmxxfNrApi*)>(GetProcAddress(dll, "LmxxfNrGetApi"));
     Require(getApi != nullptr, "runtime export"); LmxxfNrApi api {}; api.struct_size = sizeof api;
-    Require(getApi(2, &api) == LMXXF_NR_OK && api.CollectRecording, "v2 table");
+    Require(getApi(LMXXF_NR_ABI_VERSION, &api) == LMXXF_NR_OK && api.CollectRecording, "current package table");
     auto getTiming = reinterpret_cast<int32_t (*)(uint32_t, LmxxfNrTimingApi*)>(GetProcAddress(dll, "LmxxfNrGetTimingApi"));
     LmxxfNrTimingApi timing {}; timing.struct_size = sizeof timing;
     Require(getTiming && getTiming(NR_TIMING_VERSION, &timing) == LMXXF_NR_OK, "GPU timing extension");

@@ -259,7 +259,7 @@ int main(int argc, char **argv)
             bigTex->Release();
         }
 
-        LmxxfNrFrameInfo oldFrame = frame; oldFrame.struct_size = 80;
+        LmxxfNrFrameInfo oldFrame = frame; oldFrame.struct_size = 112;
         LmxxfNrJob oldJob {}; oldJob.struct_size = sizeof oldJob;
         Require(api.PrepareFrame(ctx, &oldFrame, &oldJob) == LMXXF_NR_INVALID_ARGUMENT,
                 "old frame layout rejected");
