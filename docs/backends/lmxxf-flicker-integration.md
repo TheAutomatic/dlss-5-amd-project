@@ -37,6 +37,15 @@ them in Git does not enable them by default or certify a release.
 
 ## Acceptance and remaining integration work
 
+The lmxxf menu uses a `Temporal history` group with an enable switch, live status and
+`Reset this group`, following the Mochizuki menu conventions. The old A/B/C/D buttons
+and independent output-smoothing slider are removed. Enabling the switch selects the
+former B path; disabling it selects A. Selecting either clears legacy output smoothing.
+An existing nonzero smoothing preference is displayed with an explicit disable action
+until the user changes it. The runtime/API field remains for recorded experiments;
+this UI cleanup does not remove it or reinterpret it as Mochizuki's history strength.
+The native B algorithm and current defaults are unchanged.
+
 On 2026-10-05 the user accepted B's current observed behavior and allowed unobserved
 scenes to be checked later. The existing normal session reported 6,791 Evaluate calls
 without an original-frame fallback. The user's separate Mochi history on/off comparison
