@@ -383,6 +383,62 @@ int wmain(int argc,wchar_t**argv) try {
         Rc(api.EndRecordingExecution(context,drsJob.handle,q[0].Get(),3,tail.Get(),value,signal));Wait(tail.Get(),value);
         resized.Check(width);Rc(api.InvalidateRecording(context,drsJob.handle));Rc(api.CollectRecording(context,drsJob.handle));
     }
+    Rc(api.Destroy(context));
+    // Auto mode with whole, differently sized allocations is still exact. A
+    // one-frame excursion must not destroy the ready network or launch a build.
+    context=nullptr;Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
+    {
+        auto frameInfo=[](Frame& f, UINT validWidth=0) {
+            MochizukiNrFrameInfo i {};i.struct_size=sizeof i;i.color=f.color.Get();
+            i.color_width=validWidth?validWidth:f.width;i.color_height=f.height;
+            i.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            i.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;i.transfer_strength=i.color_strength=i.model_scale=1;i.passes=1;
+            return i;
+        };
+        auto run=[&](Frame& f,LmxxfNrJob& j,UINT validWidth=0) {
+            List in(device.Get()),out(device.Get());
+            Rc(api.RecordInputs(context,j.handle,in.cmd.Get()));Rc(api.RecordOutputs(context,j.handle,out.cmd.Get()));
+            f.Read(out.cmd.Get(),static_cast<ID3D12Resource*>(j.private_output));Hr(in.cmd->Close());Hr(out.cmd->Close());
+            Rc(api.BeginRecordingExecution(context,j.handle,q[0].Get()));Submit(q[0].Get(),in);
+            Rc(api.EnqueueHip(context,j.handle,q[0].Get()));Submit(q[0].Get(),out);
+            auto hr=q[0]->Signal(tail.Get(),++value);
+            Rc(api.EndRecordingExecution(context,j.handle,q[0].Get(),3,tail.Get(),value,hr));Wait(tail.Get(),value);
+            f.Check(validWidth);Rc(api.InvalidateRecording(context,j.handle));Rc(api.CollectRecording(context,j.handle));
+        };
+        auto stable=make(frame);run(frame,stable);
+        auto transient=frameInfo(resized),normal=frameInfo(frame);
+        for(unsigned attempt=0;attempt<3;++attempt) {
+            LmxxfNrJob candidate {sizeof candidate};
+            Require(prepare(context,&transient,&candidate)==LMXXF_NR_UNAVAILABLE,"transient extent was accepted");
+            char reason[256] {};api.GetLastError(reason,sizeof reason);
+            Require(std::strstr(reason,"input resolution is settling")!=nullptr,"transient extent started rebuilding");
+            MochizukiNrBuildProgress progress {sizeof progress};Rc(getProgress(context,&progress));
+            Require(!progress.active,"transient extent launched a builder");
+            MochizukiNrInfo current {sizeof current};Rc(getInfo(context,&current));
+            Require(!current.building,"transient extent scheduled a builder");
+            // Time between visits alone must not count as a sustained new size.
+            Sleep(350);
+            LmxxfNrJob resumed {sizeof resumed};Rc(prepare(context,&normal,&resumed));run(frame,resumed);
+            Rc(getInfo(context,&current));
+            Require(current.frame_w==frame.width && current.frame_h==frame.height && !current.building,
+                    "normal frames lost their ready network");
+        }
+        // A sustained exact extent must eventually replace the old network.
+        auto sustained=make(resized);run(resized,sustained);
+        MochizukiNrInfo current {sizeof current};Rc(getInfo(context,&current));
+        Require(current.frame_w==resized.width && current.frame_h==resized.height,"stable resize never applied");
+        // Genuine DRS bucket growth must start at once, without exact-size settling.
+        Frame larger(device.Get(),384,256);List up(device.Get());larger.Upload(up.cmd.Get());Hr(up.cmd->Close());
+        Submit(q[0].Get(),up);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+        auto growth=frameInfo(larger,352);LmxxfNrJob growing {sizeof growing};
+        Require(prepare(context,&growth,&growing)==LMXXF_NR_UNAVAILABLE,"new bucket unexpectedly ready");
+        // Build progress is published by the worker; Info.building is set before
+        // PrepareFrame returns and does not depend on when that worker is scheduled.
+        Rc(getInfo(context,&current));
+        Require(current.building,"DRS bucket growth was delayed by exact-size settling");
+        auto bucketJob=make(larger,352);run(larger,bucketJob,352);
+        puts("MOCHIZUKI_EXTENT_SETTLE_OK excursions=3 immediate_resume=passed stable_resize=passed bucket_growth=immediate");
+    }
     Rc(api.Destroy(context));controls.drs_mode=0;
     // Prepare order is not execution order. A discarded or late recording must
     // not make history continuous, and ResetHistory also applies to closed lists.

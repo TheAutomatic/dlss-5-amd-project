@@ -1404,6 +1404,7 @@ constexpr uint32_t kErrorsLogged = 10; // a session's first errors logged in ful
 constexpr UINT kBucketAlign = 64;
 constexpr UINT kBucketShrinkMargin = 128;
 constexpr ULONGLONG kBucketShrinkMs = 30'000;
+constexpr ULONGLONG kExactExtentSettleMs = 300;
 
 // Held by a network build from the prewarm to the end of the core's constructor (Session::Build), so that builds never
 // overlap in the process: the core's build writes process-wide state (the model pack's index, which every weight read
@@ -1571,6 +1572,12 @@ struct Session
     // submitMutex. Only EnsureNetwork and ~Session join the builder, under buildMutex once buildDone is set.
     std::shared_ptr<nr::Runtime> runtime;
     NetworkKey net, buildKey;
+    // Auto DRS can still use exact extents (whole allocations, or no blit support).
+    // A transient request must not take the working network away from normal frames.
+    NetworkKey extentCandidate;
+    ULONGLONG extentCandidateSince = 0;
+    bool extentCandidatePending = false;
+    uint32_t extentDeferrals = 0;
     std::thread builder;
     std::mutex buildMutex;
     std::condition_variable buildEnded; // buildDone was set
@@ -2698,9 +2705,38 @@ struct Session
     // is running, the last one for this key failed (buildHold) or the VRAM check refuses it; `why` then says why there
     // is none. g is the frame's geometry, `colour` its colour: buffers made for another one are retired before a build,
     // and the build makes the new ones beside the network.
-    bool EnsureNetwork(const NetworkKey& key, const Geometry& g, ID3D12Resource* colour, std::string& why, bool automaticCapacity)
+    bool EnsureNetwork(const NetworkKey& key, const Geometry& g, ID3D12Resource* colour, std::string& why,
+                       bool automaticCapacity, bool settleExactExtent)
     {
         static const char* const kBuilding = "building the network (the first time takes about half a minute)";
+        // The host bypasses its settle window when DRS is enabled. Only a real
+        // bucket handles changing extents immediately; auto/exact still needs a
+        // stable replacement size. Startup and same-size setting edits are immediate.
+        if (!settleExactExtent || !runtime || (net.width == key.width && net.height == key.height))
+            extentCandidatePending = false;
+        else
+        {
+            const auto now = GetTickCount64();
+            if (!extentCandidatePending || !(extentCandidate == key))
+            {
+                extentCandidate = key;
+                extentCandidateSince = now;
+                extentCandidatePending = true;
+                if (++extentDeferrals <= 8 || extentDeferrals % 100 == 0)
+                    nr::logf("[mochizuki] extent settle #%u: keeping %ux%u; request %ux%u, colour allocation "
+                             "%llux%u DXGI %u, motion %ux%u DXGI %u; waiting %llu ms before rebuilding",
+                             extentDeferrals, net.width, net.height, key.width, key.height,
+                             static_cast<unsigned long long>(g.colourWidth), g.colourHeight, unsigned(g.colourFormat),
+                             g.motionWidth, g.motionHeight, unsigned(g.motionFormat), kExactExtentSettleMs);
+            }
+            if (now - extentCandidateSince < kExactExtentSettleMs)
+            {
+                // This incompatible frame uses its own original colour, never an
+                // old image. A following frame of the old size can resume NR at once.
+                why = "input resolution is settling (keeping the current network)";
+                return false;
+            }
+        }
         bool finished = false;
         {
             std::lock_guard lock(buildMutex);
@@ -3858,7 +3894,7 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted };
             std::string why;
             s->infoRequestedPasses = passes;
-            if (!s->EnsureNetwork(key, g, colour, why, maxPassesSetting == 0))
+            if (!s->EnsureNetwork(key, g, colour, why, maxPassesSetting == 0, drsMode != 0 && !g.bucketed))
                 return Fail(LMXXF_NR_UNAVAILABLE, why.c_str());
             if (!(s->geometry == g))
             {

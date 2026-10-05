@@ -98,6 +98,15 @@ Auto DRS buckets changing input subrects to reduce repeated network builds. The
 network repeats the subrect edge into the unused bucket and resets history when the
 valid extent changes. Unsupported blit formats fall back to exact extents.
 
+When DRS is enabled but the current input still uses exact extents (for example,
+whole allocations in Auto mode), a different size must remain requested for 300 ms
+before replacing a ready network. During this wait, incompatible frames pass
+through with their original colour; a return to the ready network's size resumes
+NR immediately and cancels the pending resize. Sustained changes still rebuild.
+Startup, same-size setting changes and actual DRS bucket growth do not incur this
+extra wait. This prevents short size excursions from triggering two unnecessary
+builds; it does not remove the cost of a genuine resolution change.
+
 Overall Intensity and Residual Stabilizer remain shared output effects. Intensity 0
 or ApplyModel off still incurs network work; disable NR to avoid it. Group reset only
 resets that group. Reset NR settings resets mochizuki and shared effects/timing,

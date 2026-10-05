@@ -210,3 +210,18 @@ TreeNode/TreePop，两项均在原 Advanced Kernels 内，Model 的 reset 不再
 用户文件与 junction 保护。最终 diff 已复核复制/切换/回滚顺序和删除范围。
 这次未重编 Runtime/模块、未重复完整 CI/device/GPU、未打包；用户选择只修改脚本，
 游戏目录未进行清理或权重搬移。
+
+### Mochizuki 尺寸诊断对共享入口的影响
+
+`AmdBridge.cpp::Evaluate` 保存原有 render-subrect Get 的返回码与回退前尺寸，
+在 Mochizuki 输入尺寸/模型比例变化时限量记录原始值、最终尺寸及颜色/motion 分配。
+Get 次数、参数、零值回退、SR 前后尺寸选择和配置优先级保持不变；lmxxf 不进入
+新增日志分支。本次没有修改 lmxxf Runtime、ABI、模块、内核或上游 pin。
+
+对应 Mochizuki 修复在其私有 `Session::EnsureNetwork` 中实现：启用 DRS 但仍按
+精确尺寸运行时，新尺寸稳定 300 ms 才替换现有网络；真正的 bucket 增长仍即时处理。
+完整行为及边界见 [Mochizuki 说明](mochizuki.md)。最终 diff 已复核，宿主 Release
+构建及 `tests/mochizuki/run.cmd gpu` 通过，涵盖三次短暂变尺寸后的立即恢复、
+持续变尺寸、bucket 即时增长，以及已有回放、双队列、历史、格式与销毁检查。
+测试以同步发布的 Info.building 判断已启动构建，避免与后台进度首次发布竞争。
+沿用未变的 lmxxf 证据；未重复完整 CI/lmxxf GPU 或远端 Actions，游戏验收另行记录。

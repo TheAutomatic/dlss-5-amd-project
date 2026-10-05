@@ -578,8 +578,9 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     f.exposure = Resource(params, NVSDK_NGX_Parameter_ExposureTexture);
     params->Get(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, &f.preExposure);
     params->Get(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, &f.exposureScale);
-    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &f.width);
-    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &f.height);
+    const auto renderWidthResult = params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &f.width);
+    const auto renderHeightResult = params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &f.height);
+    const UINT rawRenderWidth = f.width, rawRenderHeight = f.height;
     UINT renderWidth = f.width, renderHeight = f.height;
     if (!beforeUpscale)
     {
@@ -642,6 +643,22 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     const auto now=GetTickCount64();
     const bool firstProbe = (settlingWidth == 0 && settlingHeight == 0);
     if(settlingWidth!=f.width || settlingHeight!=f.height || settlingScale!=requestedScale) {
+        if (active == DlssNr::Backend::Kind::Mochizuki)
+        {
+            static unsigned extentChanges = 0;
+            if (++extentChanges <= 8 || extentChanges % 100 == 0)
+            {
+                const auto cd = f.colour ? f.colour->GetDesc() : D3D12_RESOURCE_DESC{};
+                const auto md = f.motion ? f.motion->GetDesc() : D3D12_RESOURCE_DESC{};
+                LOG_INFO("Mochi input #{}: {} -> {}x{}, raw render {}x{} (Get {:x}/{:x}), colour {:p} "
+                         "allocation {}x{} DXGI {}, motion {}x{} DXGI {}, params {:p}, DRS {}",
+                         extentChanges, beforeUpscale ? "pre-SR" : "post-SR", f.width, f.height,
+                         rawRenderWidth, rawRenderHeight, unsigned(renderWidthResult), unsigned(renderHeightResult),
+                         static_cast<void*>(f.colour), cd.Width, cd.Height, unsigned(cd.Format),
+                         md.Width, md.Height, unsigned(md.Format), static_cast<void*>(params),
+                         Config::Instance()->MochizukiDynamicResolution.value_or_default());
+            }
+        }
         if (!firstProbe && !runtimeDrs)
         {
             // Real change after we already had a size: keep the settle window.

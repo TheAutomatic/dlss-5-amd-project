@@ -176,6 +176,8 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
         p->Info();
         if (std::strstr(reason, "building the network"))
             p->Status("mochizuki: building the network; first use may take minutes (original frame)");
+        else if (std::strstr(reason, "input resolution is settling"))
+            p->Status("mochizuki: waiting for stable input resolution (original frame)");
         else
         {
             p->Status(std::string("mochizuki: ") + reason);
