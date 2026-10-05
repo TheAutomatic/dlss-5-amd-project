@@ -314,7 +314,14 @@ DLSS5_MULTI_PASS=1
 DLSS5_MULTI_PASS_PREDICT=true
 ; At 2/3 passes, keep first-pass skin tones using a color heuristic (not segmentation). Default false.
 DLSS5_MULTI_PASS_SKIN_PROTECT=false
-; Additional skips only in passes 2/3. none is recommended; gains are small and style changes (lossy).
+; Ins > Model: both skip lists are shown together under Block skipping.
+; Base skip list for all real network passes (lmxxf). Default none; 42,43,46 restores the old lossy skip.
+; Comma list of 1..38,40..69. Cannot skip 5..22 or 48..65 while MH byte stream is on.
+; Blocks 4/69 are also unsupported. Changing this rebuilds the network on the next frame.
+DLSS5_SKIP_BLOCKS=none
+
+; Added to the base list only in real network passes 2/3. Default none; ignored at 1 pass.
+; A predicted third pass has no extra network blocks. Gains are small and style changes (lossy).
 ; CSV 1..38,40..69; blocks 4/69 and byte-stream blocks 5..22,48..65 are unsupported; invalid combinations use none.
 DLSS5_MULTI_PASS_SKIP_BLOCKS=none
 ; Automatic network tier, or fixed 720 / 900 / 1080. Used with native resolution off, or outside its supported budget.
@@ -345,11 +352,6 @@ LmxxfDiagnostic=off
 ; Fit Color inputs above 1920x1080 onto the 1080 network (same name as env/txt)
 ; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). true/false - Default is true
 DLSS5_FIT_LARGE=true
-
-; Skip residual blocks (lmxxf). Default none (all 71 blocks). 42,43,46 restores the old lossy skip.
-; Comma list of 1..38,40..69. Cannot skip 5..22 or 48..65 while MH byte stream is on.
-; Blocks 4/69 are also unsupported. Changing this rebuilds the network on the next frame.
-DLSS5_SKIP_BLOCKS=none
 
 ; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
 ; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
