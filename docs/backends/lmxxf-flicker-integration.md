@@ -8,6 +8,11 @@ them in Git does not enable them by default or certify a release.
 - Submission ownership and recording-generation tracking prevent a late completion or
   reset list from retiring/reusing the wrong NR job. Early Unity list interception and
   frame diagnostics are retained with their existing activation conditions.
+- The production `FinishRecord` path rechecks split eligibility immediately before
+  recording inputs. Failure reasons are copied while the proxy reference is held;
+  split failures report their HRESULT and current reason. This is not a reservation:
+  a later allocation/close failure still needs separate handling if observed. RTAS
+  rejection is unchanged. Codec-only diagnostics retain their existing early guard.
 - Native model history (`LMXXF_NR_NATIVE_TEMPORAL_TEST`) preserves separate pre/post
   reprojection, the model's fourth-row projection, and history rejection. Display
   smoothing stays outside model feedback.
