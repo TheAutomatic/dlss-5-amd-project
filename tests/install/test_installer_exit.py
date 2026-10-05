@@ -279,8 +279,8 @@ class InstallerExitTests(unittest.TestCase):
                     "-File", str(script), "-NoPause"]
             return self.run_process(args, stdin)
 
-        # Setup always creates backup-amd-presr-*, so keep-backups is asked first.
-        code, output = run_in_place("Y\nN\n")
+        # A clean install no longer creates an empty backup directory.
+        code, output = run_in_place("N\n")
         self.assertEqual(code, 0, output)
         self.assertIn("Planned deletions", output)
         self.assertIn("Cancelled.", output)
@@ -288,7 +288,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue(pass1.is_file(), output)
         self.assertTrue(script.is_file(), output)
 
-        code, output = run_in_place("Y\nY\n")
+        code, output = run_in_place("Y\n")
         self.assertEqual(code, 0, output)
         self.assertIn("Planned deletions", output)
         self.assertIn("Uninstall SUCCEEDED.", output)
@@ -676,7 +676,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(len(saved), 1)
         self.assertEqual(saved[0].read_bytes(), b"user-owned GPU code")
 
-    def test_legacy_upgrade_noninteractive_overwrites_with_backup(self):
+    def test_legacy_upgrade_preserves_only_excluded_user_modules(self):
         mods = self.ready_legacy_install()
         before = snapshot_files(mods)
         code, output = self.run_direct()
@@ -686,8 +686,34 @@ class InstallerExitTests(unittest.TestCase):
         self.assert_dual_arch_installed()
         self.assert_custom_module_backed_up()
         backups = list(self.game.glob("backup-amd-presr-*/lmxxf-modules"))
-        self.assertEqual(snapshot_files(backups[0]), before)
+        self.assertEqual(snapshot_files(backups[0]), {"user-custom.hsaco": before["user-custom.hsaco"]})
+        self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
         self.assertEqual((mods / "user_weights.bin").read_bytes(), b"user weights")
+
+    def test_clean_overwrite_has_no_permanent_or_temporary_old_package(self):
+        self.ready_lmxxf_dual_arch()
+        code, output = self.run_direct()
+        self.assertEqual(code, 0, output)
+        mods = self.game / "lmxxf-modules"
+        (mods / "c32_fast.generated.hip").write_bytes(b"obsolete source")
+        (mods / "gfx1201/c32_fast.hsaco.s").write_bytes(b"obsolete disassembly")
+        (mods / "user-notes.txt").write_bytes(b"keep notes")
+        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"previous runtime")
+        with (self.game / "OptiScaler.ini").open("a", encoding="utf-8") as stream:
+            stream.write("\n[User]\nSentinel=keep\n")
+        for _ in range(2):
+            code, output = self.run_direct()
+            self.assertEqual(code, 0, output)
+            self.assertFalse(list(self.game.glob("backup-amd-presr-*")))
+            self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
+            self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
+            self.assertEqual((mods / "user-notes.txt").read_bytes(), b"keep notes")
+            self.assertFalse((mods / "c32_fast.generated.hip").exists())
+            self.assertFalse((mods / "gfx1201/c32_fast.hsaco.s").exists())
+            self.assertEqual((self.game / "LmxxfNrRuntime.dll").read_bytes(),
+                             (self.package / "LmxxfNrRuntime.dll").read_bytes())
+            self.assertIn("Sentinel=keep", (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"))
+            self.assert_dual_arch_installed()
 
     def test_setup_no_overwrites_legacy_without_uninstall_or_second_proxy_prompt(self):
         self.ready_legacy_install()
@@ -741,7 +767,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertFalse((self.game / "winmm.dll").exists())
         self.assertEqual((self.game / "dxgi.dll").read_bytes(), b"fixture proxy")
-        self.assertTrue(list(self.game.glob("backup-amd-presr-*/winmm.dll.moved")))
+        self.assertFalse(list(self.game.glob("backup-amd-presr-*/winmm.dll*")))
         self.assertNotIn("How to continue?", output)
 
     def test_setup_uninstall_failure_stops_before_install(self):
@@ -815,6 +841,15 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self.assertIn("Could not install lmxxf-modules", output)
         self.assertEqual(snapshot_files(self.game), before)
+
+    def test_locked_excluded_user_module_is_preserved(self):
+        mods = self.ready_legacy_install()
+        before = snapshot_files(self.game)
+        with locked_file(mods / "user-custom.hsaco"):
+            code, output = self.run_direct()
+        self.assertEqual(code, 1, output)
+        self.assertEqual(snapshot_files(self.game), before)
+        self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
 
     def test_uninstall_then_install_preserves_extra_hsaco(self):
         mods = self.ready_legacy_install()

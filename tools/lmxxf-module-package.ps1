@@ -170,6 +170,22 @@ function Remove-LmxxfTemporaryTree([string]$Path, [string]$Parent) {
     }
 }
 
+# Shipping metadata, modules and old build sidecars may be replaced as package data.
+# Anything outside these exact names/locations remains user-owned.
+function Test-LmxxfOwnedModulePath([string]$Relative) {
+    $parts = $Relative.Replace('\', '/').Split('/')
+    if ($parts.Count -eq 2) {
+        if ($parts[0] -notin @('gfx1200', 'gfx1201')) { return $false }
+    } elseif ($parts.Count -ne 1) { return $false }
+    $name = $parts[-1]
+    if ($name -in @('SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md')) { return $true }
+    foreach ($module in Get-LmxxfModuleNames) {
+        if ($name -ieq $module -or $name -ieq ($module + '.s') -or
+            $name -ieq ([IO.Path]::GetFileNameWithoutExtension($module) + '.generated.hip')) { return $true }
+    }
+    return $false
+}
+
 function New-LmxxfModuleStage([string]$Source, [string]$Destination, [string]$CommitHash = '', [switch]$Upgrade) {
     Assert-LmxxfModulePackage $Source -BuildOutput:([bool]$CommitHash)
     $Destination = Assert-LmxxfUnlinkedPath $Destination
@@ -180,14 +196,14 @@ function New-LmxxfModuleStage([string]$Source, [string]$Destination, [string]$Co
         [void][IO.Directory]::CreateDirectory($stage)
         if (Test-Path -LiteralPath $Destination) {
             if ($Upgrade) {
-                # Setup replaces the module set as a whole. Keep other user files
-                # active; all former modules (including custom hsaco) remain in the
-                # required backup when Publish-LmxxfModuleStage switches directories.
+                # Keep user files active unless they would violate the module package
+                # layout. Publish preserves just those excluded user files separately;
+                # controlled old modules/metadata/build sidecars are replaced.
                 $prefix = $Destination.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
                 foreach ($file in Get-LmxxfUnlinkedFiles $Destination) {
                     $rel = $file.FullName.Substring($prefix.Length)
                     $top = ($rel -split '[\\/]')[0]
-                    if ($file.Extension -ieq '.hsaco' -or $rel -ieq 'modules.json' -or
+                    if ((Test-LmxxfOwnedModulePath $rel) -or $file.Extension -ieq '.hsaco' -or
                         ($top -match '^gfx' -and @('gfx1200', 'gfx1201') -cnotcontains $top)) { continue }
                     $target = Join-Path $stage $rel
                     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
@@ -255,10 +271,27 @@ function Publish-LmxxfModuleStage([string]$Stage, [string]$Destination, [string]
     if ([IO.Path]::GetDirectoryName($staged) -ine $parent -or [IO.Path]::GetFileName($staged) -notmatch '^\.lmxxf-stage-[0-9a-f]{32}$') {
         throw 'Module staging directory must be a private sibling of its destination.'
     }
-    if ($Upgrade -and -not $Backup) { throw 'Upgrading installed modules requires a permanent backup path.' }
+    if ($Upgrade -and -not $Backup) { throw 'Upgrading installed modules requires a path for excluded user files.' }
     Assert-LmxxfModuleDestination $dest -AllowLegacy:$Upgrade
     Assert-LmxxfModulePackage $staged
-    $previous = if ($Backup) { Assert-LmxxfUnlinkedPath $Backup } else { Join-Path $parent ('.lmxxf-previous-' + [guid]::NewGuid().ToString('N')) }
+    $excludedUserFiles = @()
+    if ($Upgrade) {
+        $userBackup = Assert-LmxxfUnlinkedPath $Backup
+        if (-not $userBackup.StartsWith($parent.TrimEnd('\', '/') + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            (Test-Path -LiteralPath $userBackup)) { throw "Unsafe or occupied user-file backup path: $userBackup" }
+        if (Test-Path -LiteralPath $dest) {
+            $prefix = $dest.TrimEnd('\', '/') + '\'
+            foreach ($file in Get-LmxxfUnlinkedFiles $dest) {
+                $rel = $file.FullName.Substring($prefix.Length)
+                $top = ($rel -split '[\\/]')[0]
+                if (-not (Test-LmxxfOwnedModulePath $rel) -and
+                    ($file.Extension -ieq '.hsaco' -or ($top -match '^gfx' -and $top -notin @('gfx1200', 'gfx1201')))) {
+                    $excludedUserFiles += $rel
+                }
+            }
+        }
+    }
+    $previous = if ($Backup -and -not $Upgrade) { Assert-LmxxfUnlinkedPath $Backup } else { Join-Path $parent ('.lmxxf-previous-' + [guid]::NewGuid().ToString('N')) }
     if (-not $previous.StartsWith($parent.TrimEnd('\', '/') + '\', [StringComparison]::OrdinalIgnoreCase) -or
         (Test-Path -LiteralPath $previous)) { throw "Unsafe or occupied module backup path: $previous" }
     $moved = $false
@@ -268,15 +301,34 @@ function Publish-LmxxfModuleStage([string]$Stage, [string]$Destination, [string]
             [IO.Directory]::Move($dest, $previous)
             $moved = $true
         }
+        foreach ($rel in $excludedUserFiles) {
+            $target = Join-Path $userBackup $rel
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+            Copy-Item -LiteralPath (Join-Path $previous $rel) -Destination $target -ErrorAction Stop
+        }
         [IO.Directory]::Move($staged, $dest)
     } catch {
         if ($moved) {
             try { [IO.Directory]::Move($previous, $dest) }
             catch { throw "Module switch and rollback failed. Previous modules remain at $previous; restore them before retrying. $($_.Exception.Message)" }
         }
+        if ($Upgrade -and (Test-Path -LiteralPath $userBackup)) {
+            # The original tree is restored above. Remove only files copied by
+            # this failed switch, then their empty containers.
+            foreach ($rel in $excludedUserFiles) {
+                $target = Assert-LmxxfUnlinkedPath (Join-Path $userBackup $rel)
+                if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
+            }
+            $null = @(Get-LmxxfUnlinkedFiles $userBackup)
+            $dirs = @(Get-ChildItem -LiteralPath $userBackup -Recurse -Directory -Force |
+                Sort-Object { $_.FullName.Length } -Descending | ForEach-Object { $_.FullName }) + @($userBackup)
+            foreach ($dir in $dirs) {
+                if (@(Get-ChildItem -LiteralPath $dir -Force).Count -eq 0) { [IO.Directory]::Delete($dir, $false) }
+            }
+        }
         throw
     }
-    if ($moved -and -not $Backup) {
+    if ($moved -and ($Upgrade -or -not $Backup)) {
         try { Remove-LmxxfTemporaryTree $previous $parent }
         catch { Write-Warning "New module package is active; old files retained at $previous : $($_.Exception.Message)" }
     }

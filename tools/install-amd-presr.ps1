@@ -1036,11 +1036,11 @@ foreach ($f in $found) {
         continue
     }
     if ($f.IsOptiScaler) {
-        # The early Y/N already selected the install path. Back up the existing
-        # target and retire any other OptiScaler proxy to avoid double injection.
+        # Overwrite the target directly; retire other identified OptiScaler proxies
+        # to avoid duplicate injection without retaining old package copies.
         $toMove += $f
         if (-not $isTarget) {
-            Write-Host ("{0} is a previous OptiScaler proxy — moving to backup to prevent duplicate injection with {1}." -f $f.Name, $Proxy) -ForegroundColor Yellow
+            Write-Host ("{0} is a previous OptiScaler proxy — removing it to prevent duplicate injection with {1}." -f $f.Name, $Proxy) -ForegroundColor Yellow
         }
     } else {
         if ($NonInteractive) {
@@ -1070,9 +1070,6 @@ foreach ($f in $found) {
     }
 }
 
-# Overwriting keeps a backup, including old/custom modules excluded from the new bundle.
-[void][System.IO.Directory]::CreateDirectory($backup)
-
 # Publish a fully validated module tree before changing DLLs. A failed directory
 # switch restores the previous tree; no per-file live module overwrite is used.
 if ($installLmxxf) {
@@ -1081,16 +1078,20 @@ if ($installLmxxf) {
     catch { Fail ("Could not install lmxxf-modules: " + $_.Exception.Message) }
     $lmxxfStage = $null
     if (Test-Path -LiteralPath $moduleBackup) {
-        Write-Host "Previous module files, including extra .hsaco files, are preserved in: $moduleBackup" -ForegroundColor Cyan
+        Write-Host "User-added module files excluded from the active package are preserved in: $moduleBackup" -ForegroundColor Cyan
     }
 }
 
-# Any file scheduled for movement is ALWAYS safely backed up to .moved; NEVER silently deleted
+# Old OptiScaler files are ordinary overwrite data. Preserve a single copy only
+# for the author runtime or another proxy explicitly selected for moving aside.
 foreach ($f in $toMove) {
+    if ($f.IsOptiScaler) {
+        if ($f.Name -ine $Proxy) { Remove-Item -LiteralPath $f.Path -Force -ErrorAction Stop }
+        continue
+    }
     if (-not (Test-Path -LiteralPath $backup)) {
         [void][System.IO.Directory]::CreateDirectory($backup)
     }
-    Copy-Item -LiteralPath $f.Path -Destination (Join-Path $backup $f.Name) -Force
     Move-Item -LiteralPath $f.Path -Destination (Join-Path $backup ($f.Name + '.moved')) -Force
     Write-Host ("Moved {0} -> backup" -f $f.Name)
 }
@@ -1123,10 +1124,6 @@ function Install-One([string]$src, [string]$rel) {
             if ($isWeight) {
                 return
             }
-            $save = Join-Path $backup $rel
-            $sdir = Split-Path -Parent $save
-            if ($sdir) { [void][System.IO.Directory]::CreateDirectory($sdir) }
-            Copy-Item -LiteralPath $dest -Destination $save -Force
         }
         $ddir = Split-Path -Parent $dest
         if ($ddir) { [void][System.IO.Directory]::CreateDirectory($ddir) }
@@ -1138,8 +1135,7 @@ Install failed on $rel :
 
 The file is probably locked by a running game.
 Close the game completely, then run Setup.bat again.
-Partial files (if any) are under:
-  $backup
+Run Setup again after closing the game to finish the full-package overwrite.
 "@
     }
 }

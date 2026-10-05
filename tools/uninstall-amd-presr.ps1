@@ -7,7 +7,7 @@
   Removes identified OptiScaler proxies, named passes/config/logs, listed dependencies,
   and this uninstaller. Asks whether to keep backup-amd-presr-* folders, then lists
   planned deletions, then asks Y/N. Does NOT delete nvngx_dlssnr.dll, weights,
-  danielblnc setup/log, other proxies, or user-added plugins and unknown files.
+  danielblnc setup, other proxies, or user-added plugins and unknown files.
 
 .EXAMPLE
   .\Uninstall_OptiScaler_NR.bat
@@ -89,6 +89,7 @@ $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
     'OptiScaler.ini','amd-presr-install.txt',
+    'dlssnr_on_amd.ini', 'dlssnr-amd.ini', 'dlssnr-amd-crash.dmp', 'dlssnr-amd-install.txt',
     'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'lmxxf-module-package.ps1',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'OptiScaler/dlssnr/README.md',
@@ -166,7 +167,7 @@ $projectLeafNames = @(
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
 # spdlog rotates OptiScaler.log into OptiScaler.1.log; older sinks used .log.1.
 # Match numeric rotations only, not user notes such as OptiScaler.notes.log.
-$projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr)(\.[0-9]+)?\.log(\.[0-9]+)?$'
+$projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr|dlssnr_on_amd|dlssnr-amd)(\.[0-9]+)?\.log(\.[0-9]+)?$'
 # Old module bundles also shipped generated sources and disassembly. Limit cleanup
 # to the same controlled module stems and the two supported architecture folders.
 foreach ($arch in @('', 'gfx1200/', 'gfx1201/')) {
@@ -189,7 +190,6 @@ $protectedNames = @(
     'nvngx_dlssnr.dll',
     'dlssnr_on_amd_weights.bin',
     'dlssnr_on_amd_setup.exe',
-    'dlssnr_on_amd.log',
     'version.dll',
     'native-game-tiled-assets'
 )
@@ -304,6 +304,19 @@ if ((Test-UninstallPath $storage) -and (Test-Path -LiteralPath $storage -PathTyp
     $roots += $storage
 }
 
+$legacyLogPaths = New-Object System.Collections.Generic.List[string]
+foreach ($root in $roots) {
+    $legacyMark = Join-Path $root 'dlssnr-amd-install.txt'
+    if ((Test-UninstallPath $legacyMark) -and (Test-Path -LiteralPath $legacyMark -PathType Leaf)) {
+        foreach ($line in [IO.File]::ReadAllLines($legacyMark)) {
+            if ($line -match '^L ([^/\\:*?"<>|]+_(?:dxgi|d3d11|d3d9)\.log|vkd3d-proton\.cache(?:\.write)?)$') {
+                $legacyLogPaths.Add((Join-Path $root $Matches[1]))
+            }
+        }
+    }
+}
+foreach ($path in $legacyLogPaths) { Add-PlannedFile $path 'legacy-backend-log' }
+
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
     foreach ($name in $proxyNames) {
@@ -362,7 +375,7 @@ foreach ($root in $roots) {
     }
 }
 
-foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe','dlssnr_on_amd.log')) {
+foreach ($name in @('nvngx_dlssnr.dll','dlssnr_on_amd_weights.bin','dlssnr_on_amd_setup.exe')) {
     foreach ($root in $roots) {
         if (!(Test-UninstallPath $root)) { continue }
         $p = Join-Path $root $name
@@ -381,7 +394,8 @@ foreach ($root in $roots) {
 $backupDirs = New-Object System.Collections.Generic.List[string]
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
-    Get-ChildItem -LiteralPath $root -Directory -Filter 'backup-amd-presr*' -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'backup-amd-presr*' -or $_.Name -ieq 'dlssnr-amd-backup' } |
         ForEach-Object {
             if (Test-UninstallPath $_.FullName) { $backupDirs.Add($_.FullName) }
         }
@@ -405,7 +419,7 @@ if ($backupDirs.Count -gt 0) {
         $keepBackups = -not $RemoveBackups
     } else {
         Write-Host ''
-        $keepBackups = Read-YesNo 'Keep these backup folders? Y = keep, N = delete them too'
+        $keepBackups = Read-YesNo 'Keep these backup folders? Y = keep, N = delete them too (model files are kept)'
     }
     foreach ($b in $backupDirs) {
         if ($keepBackups) { $kept.Add("kept backup: $b") }
@@ -602,6 +616,7 @@ foreach ($root in $roots) {
         }
     }
 }
+foreach ($path in $legacyLogPaths) { Remove-SafeFile $path 'legacy-backend-log' }
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
     foreach ($name in $selfLeafNames) {
@@ -613,7 +628,7 @@ if (-not $keepBackups) {
     foreach ($b in $backupDirs) {
         if (!(Test-UninstallPath $b)) { continue }
         $leaf = Split-Path -Leaf $b
-        if ($leaf -notmatch '^(?i)backup-amd-presr') { continue }
+        if ($leaf -notmatch '^(?i)backup-amd-presr' -and $leaf -ine 'dlssnr-amd-backup') { continue }
         if (!(Test-Path -LiteralPath $b -PathType Container)) { continue }
         if (Test-TreeReparse $b) {
             $kept.Add("linked path: $b")
@@ -621,8 +636,22 @@ if (-not $keepBackups) {
             continue
         }
         try {
-            Remove-Item -LiteralPath $b -Recurse -Force
-            $deleted.Add("$b  (backup folder)")
+            # Some original-backend backups include the only remaining model copy.
+            # Delete backup contents individually so choosing N cannot destroy it.
+            $backupPrefix = [IO.Path]::GetFullPath($b).TrimEnd('\') + '\'
+            foreach ($file in Get-ChildItem -LiteralPath $b -Recurse -File -Force -ErrorAction Stop) {
+                $relative = $file.FullName.Substring($backupPrefix.Length)
+                if ($file.Name -in @('dlssnr.bin', 'dlssnr_on_amd_weights.bin', 'nvngx_dlssnr.dll') -or
+                    @($relative.Split('\')) -contains 'native-game-tiled-assets') {
+                    $kept.Add("model inside backup: $($file.FullName)")
+                    continue
+                }
+                Remove-SafeFile $file.FullName 'backup-file'
+            }
+            Get-ChildItem -LiteralPath $b -Recurse -Directory -Force -ErrorAction Stop |
+                Sort-Object { $_.FullName.Length } -Descending |
+                ForEach-Object { Remove-EmptyDirectory $_.FullName }
+            Remove-EmptyDirectory $b
         } catch {
             $errors.Add("$b : $($_.Exception.Message)")
         }

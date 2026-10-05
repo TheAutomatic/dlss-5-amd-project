@@ -875,7 +875,15 @@ Assert-LmxxfModulePackage $dest
         self.assertEqual(snapshot_files(self.vendor / 'modules'), before)
 
     def test_publish_failure_restores_previous_directory(self):
+        self.assert_publish_failure_restores_previous_directory(False)
+
+    def test_upgrade_publish_failure_restores_previous_directory(self):
+        self.assert_publish_failure_restores_previous_directory(True)
+
+    def assert_publish_failure_restores_previous_directory(self, upgrade):
         make_modules(self.up / 'modules', marker='new')
+        if upgrade:
+            (self.vendor / 'modules/user-custom.hsaco').write_bytes(b'keep custom module')
         before = snapshot_files(self.vendor / 'modules')
         result = self.helpers("""
 Add-Type -TypeDefinition @'
@@ -887,22 +895,24 @@ public class StageLock {
     [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
 }
 '@
-$stage = New-LmxxfModuleStage (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules
+$stage = New-LmxxfModuleStage (Join-Path $env:LMXXF_FIXTURE_UPSTREAM 'modules') $modules STAGE_UPGRADE
 $handle = [StageLock]::CreateFileW($stage, [uint32]2147483648, 3, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
 if ($handle -eq [IntPtr](-1)) { throw 'Could not lock stage directory' }
 $rejected = $false
 try {
-    try { Publish-LmxxfModuleStage $stage $modules }
+    try { Publish-LmxxfModuleStage $stage $modules PUBLISH_UPGRADE }
     catch { $rejected = $true }
 } finally {
     [void][StageLock]::CloseHandle($handle)
     Remove-LmxxfTemporaryTree $stage (Split-Path -Parent $stage)
 }
 if (-not $rejected) { throw 'Locked stage was unexpectedly published' }
-""")
+""".replace('STAGE_UPGRADE', '-Upgrade' if upgrade else '')
+            .replace('PUBLISH_UPGRADE', "-Upgrade -Backup (Join-Path (Split-Path -Parent $modules) 'user-files')" if upgrade else ''))
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(snapshot_files(self.vendor / 'modules'), before)
         self.assertFalse(list(self.vendor.glob('.lmxxf-previous-*')))
+        self.assertFalse((self.vendor / 'user-files').exists())
 
     def test_fingerprint_detects_gfx1200_change(self):
         fp1 = self.helpers("Get-TreeFingerprint $modules")

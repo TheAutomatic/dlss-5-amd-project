@@ -59,14 +59,13 @@ public class UninstallProxyFixture { }
     $roots = @($game, (Join-Path $game '_storage_'))
     $preserved = @(
         'version.dll', 'unknown-game.dll', 'nvngx_dlssnr.dll',
-        'dlssnr_on_amd_weights.bin', 'dlssnr_on_amd_setup.exe', 'dlssnr_on_amd.log',
+        'dlssnr_on_amd_weights.bin', 'dlssnr_on_amd_setup.exe',
         'OptiScaler\plugins\XeFGUnlock.asi', 'OptiScaler\plugins\XeFGUnlock.ini',
         'OptiScaler\unknown.dll', 'OptiScaler\libxess_custom.dll', 'OptiScaler\user.ini',
         'OptiScaler\nvngx_dlssnr.dll', 'OptiScaler\dlssnr_on_amd_weights.bin',
         'OptiScaler\D3D12_OptiScaler\other-mod.dll',
         'OptiScaler.notes.log', 'OptiScaler.log.notes', 'OptiScaler.1.log.bak',
         'other-mod.1.log', 'logs\dxgi.log', 'yysls_d3d11.log',
-        'dlssnr-amd-install.txt', 'dlssnr-amd.log', 'dlssnr-amd-crash.dmp',
         'OptiScaler\dlssnr\user-notes.md',
         'lmxxf-modules\user.generated.hip', 'lmxxf-modules\user.hsaco.s',
         'lmxxf-modules\gfx9999\c32_fast.generated.hip',
@@ -75,7 +74,9 @@ public class UninstallProxyFixture { }
         'backup-amd-presr-fixture\OptiScaler.ini',
         'backup-amd-presr-fixture\OptiScaler\libxess.dll'
     )
-    $removed = @('dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',
+    $removed = @('dlssnr_on_amd.log', 'dlssnr_on_amd.1.log', 'dlssnr_on_amd.ini',
+        'dlssnr-amd.log', 'dlssnr-amd.log.1', 'dlssnr-amd-crash.dmp', 'dlssnr-amd.ini', 'dlssnr-amd-install.txt',
+        'dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',
         'dlssnr_amd_pass3.dll', 'OptiScaler.ini', 'amd-presr-install.txt',
         'OptiScaler.log', 'OptiScaler.1.log', 'OptiScaler.2.log', 'OptiScaler.10.log',
         'OptiScaler.log.1', 'amd_presr.log', 'amd_bridge.log.2', 'mochizuki_nr.1.log',
@@ -215,6 +216,45 @@ public class UninstallProxyFixture { }
     Assert-Removed (Join-Path $standalone 'lmxxf-module-package.ps1')
     Assert-Removed (Join-Path $standalone 'Uninstall_OptiScaler_NR.ps1')
     Write-Host 'PASS installed standalone uninstaller loads module names before removing its helper'
+    $legacyGame = Join-Path $testRoot 'legacy-backend-game'
+    $legacyRemove = @('game_dxgi.log', 'game_d3d11.log', 'game_d3d9.log', 'vkd3d-proton.cache', 'vkd3d-proton.cache.write')
+    $legacyKeep = @('game.dll', 'game-notes.log', 'logs\game_dxgi.log', 'game-assets\save.dat')
+    foreach ($file in $legacyRemove + $legacyKeep) { Put-File (Join-Path $legacyGame $file) }
+    $outsideLog = Join-Path $testRoot 'outside_dxgi.log'
+    Put-File $outsideLog
+    $record = ($legacyRemove | ForEach-Object { 'L ' + $_ }) -join "`r`n"
+    $record += "`r`nL ..\outside_dxgi.log`r`nL game.dll`r`nL game-notes.log`r`nL logs\game_dxgi.log`r`nF game.dll`r`nD game-assets`r`n"
+    Put-File (Join-Path $legacyGame 'dlssnr-amd-install.txt') $record
+    $null = Run-Uninstall $legacyGame
+    foreach ($file in $legacyRemove) { Assert-Removed (Join-Path $legacyGame $file) }
+    foreach ($file in $legacyKeep) { Assert-Exists (Join-Path $legacyGame $file) }
+    Assert-Exists $outsideLog
+    Assert-Removed (Join-Path $legacyGame 'dlssnr-amd-install.txt')
+    Write-Host 'PASS legacy record cleans only allowed logs/cache; no DLL, directory or outside-path operations'
+
+    $legacyBackup = Join-Path $legacyGame 'dlssnr-amd-backup'
+    $models = @('dlssnr-amd\dlssnr.bin', 'dlssnr_on_amd_weights.bin',
+        'native-game-tiled-assets\tensor.bin', 'nvngx_dlssnr.dll')
+    foreach ($file in $models) { Put-File (Join-Path $legacyBackup $file) 'only model copy' }
+    foreach ($file in @('OptiScaler.ini', 'dlssnr-amd\pipeline.cache', 'dlssnr-amd\shaders\old.spv')) {
+        Put-File (Join-Path $legacyBackup $file)
+    }
+    $null = Run-Uninstall $legacyGame
+    Assert-Exists (Join-Path $legacyBackup 'OptiScaler.ini')
+    $null = Run-Uninstall -Dir $legacyGame -RemoveBackups
+    foreach ($file in $models) {
+        if ([IO.File]::ReadAllText((Join-Path $legacyBackup $file)) -cne 'only model copy') {
+            throw 'Backup cleanup changed a model.'
+        }
+    }
+    Assert-Removed (Join-Path $legacyBackup 'OptiScaler.ini')
+    Assert-Removed (Join-Path $legacyBackup 'dlssnr-amd\pipeline.cache')
+    Assert-Removed (Join-Path $legacyBackup 'dlssnr-amd\shaders')
+    $legacyEmpty = Join-Path $testRoot 'legacy-no-model'
+    Put-File (Join-Path $legacyEmpty 'dlssnr-amd-backup\old.dll')
+    $null = Run-Uninstall -Dir $legacyEmpty -RemoveBackups
+    Assert-Removed (Join-Path $legacyEmpty 'dlssnr-amd-backup')
+    Write-Host 'PASS legacy backup is optional; deleting it preserves every model and prunes empty folders'
     Write-Host 'All uninstall regression checks passed.'
 } finally {
     # Remove junctions themselves before fixture cleanup. Never recursively

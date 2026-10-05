@@ -159,7 +159,7 @@ Daniel/lmxxf 共用此布局；Page Up 浮层继续使用其独立位置设置�
 - 模型权重目录 `native-game-tiled-assets\`（可[点击这里](https://gofile.io/d/RyvcrDxz)直接下载）；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
 
-升级时直接运行新包的 `Setup.bat` 并选择游戏目录。检测到已有 OptiScaler 后，安装器会建议先卸载，以避免新版文件、模块布局和旧设置冲突：输入 **Y（推荐）**会自动调用新包卸载器，再继续安装；输入 **N** 则直接覆盖安装。卸载会重置 OptiScaler 设置，保留权重和已有备份。覆盖升级会备份旧模块目录；额外 `.hsaco` 保存在安装结束时显示的 `backup-amd-presr-*/lmxxf-modules` 中，不混入新版模块目录，其他兼容的用户文件继续保留。
+升级时直接运行新包的 `Setup.bat` 并选择游戏目录。检测到已有 OptiScaler 后，安装器会建议先卸载，以避免新版文件、模块布局和旧设置冲突：输入 **Y（推荐）**会自动调用新包卸载器，再继续安装；输入 **N** 则直接覆盖安装。卸载会重置 OptiScaler 设置，保留权重和已有备份。正常覆盖不再备份旧 DLL、INI 或整套模块；模块切换仅临时保留旧目录，成功后清理、失败时恢复。用户自加且不能混入新版模块集的 `.hsaco` 等内容单独保存在安装结束时显示的 `backup-amd-presr-*/lmxxf-modules`，其他兼容的用户文件继续保留。
 
 
 #### 选项 B：[准备 `danielblnc` 后端文件](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)

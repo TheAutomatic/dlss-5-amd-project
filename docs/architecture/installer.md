@@ -61,20 +61,21 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 
 - 恰好 `gfx1200/` 与 `gfx1201/` 两个架构目录，不允许其它 `gfx*`；根目录不允许旧的 `modules.json`。
 - 每个架构包含契约规定的已知模块；数量以 [发版模块契约](../release.md#模块数量契约追-lmxxf--增删-hsaco-时最容易漏) 为准。根 `SHA256SUMS` 与各叶子 `SHA256SUMS` 一致，且与实际文件哈希一致；`modules.json` 与 `runtime-manifest.json`（schema、ABI、targets、计数）一致。
-- 覆盖升级时先生成并验证候选目录，再把旧目录整体移入 `backup-amd-presr-*/lmxxf-modules`，最后切换；切换失败恢复旧目录。这只保证模块目录不留混合布局，不代表整套卸载加安装具备事务回滚。用户额外放的 `.hsaco` 留在备份里。
+- 覆盖升级时先生成并验证候选目录，再把旧目录临时改名为 `.lmxxf-previous-*`，最后切换；失败时恢复旧目录，成功后删除临时旧目录。普通用户文件留在新目录；不符合模块包布局的用户自加 `.hsaco` 或其它架构内容，单独保存在 `backup-amd-presr-*/lmxxf-modules`，不夹带整套旧模块。这只保证模块切换，不代表整套安装具备事务回滚。
 - runtime 自身在读清单和模块前也检查根目录与每级路径的 reparse 属性，拒绝 junction 和 symlink。
 
 ## 卸载器
 
 - 对自己所在目录（游戏目录）执行，也可传 `-GameDir`。
-- 先问是否保留 `backup-amd-presr-*`（`-RemoveBackups` 可在非交互时删除），再列出计划删除的文件，Y/N 确认。
+- 先问是否保留 `backup-amd-presr-*` 和原版后端的 `dlssnr-amd-backup`（`-RemoveBackups` 可在非交互时清理），再列出计划删除的文件，Y/N 确认。选择清理备份也保留其中的模型文件；仅剩模型时目录仍会保留。
 - 只删明确依赖：识别为 OptiScaler 的代理、本项目的 pass/配置/日志、清单记录的依赖、受控名称的模块。不按扩展名清扫，不递归删整个 OptiScaler 目录。
-- 保留：`nvngx_dlssnr.dll`、两类权重、作者的 setup 与日志、其它代理、用户插件和未知文件。`_storage_`（商店版游戏的作者日志位置）按同样规则处理。
+- 保留：`nvngx_dlssnr.dll`、两类权重、作者的 setup、其它代理、用户插件和未知文件。`_storage_`（商店版游戏的作者日志位置）按同样规则处理。
 - 日志清理同时识别 `OptiScaler.1.log`（spdlog 当前格式）和 `OptiScaler.log.1`，只接受数字轮转后缀；不匹配用户命名的笔记或其它模组日志。
 - 清理受控 lmxxf 模块对应的 `.generated.hip` / `.hsaco.s` 旧构建附件，以及旧包的四份 `OptiScaler/dlssnr` 说明文件；未知模块、源码和用户文档保留。
 - mochizuki 移除 runtime、日志、已知 shader 文件、`pipeline.cache` 与 `prewarm/manifest.txt`；保留用户的 `dlssnr-amd/dlssnr.bin`。重新安装后首次运行会重建缓存。已知子目录仅在为空时移除。
 - `DLSS5-AMD/native-game-flags.txt` 若仅剩安装器生成的三行示例注释则删除；存在用户配置或其它注释时保留。
-- 原版后端安装器的 `dlssnr-amd-install.txt`、DXVK/VKD3D DLL、日志、备份及游戏自己的 `logs/` 不属于本项目卸载范围；不会根据另一套安装记录删除或恢复游戏文件。
+- Daniel/Mochi 的 `dlssnr_on_amd`、`dlssnr-amd` 日志和旧 INI、`dlssnr-amd-crash.dmp`、`dlssnr-amd-install.txt` 一起清理。旧安装记录只用于识别 `L` 行中安全的顶层 `*_dxgi/d3d11/d3d9.log` 和 `vkd3d-proton.cache[.write]`；不执行其 DLL、目录、备份恢复操作，游戏自己的 `logs/` 不整目录清扫。
+- 本项目正常覆盖直接更新本包文件，不再自动备份旧 DLL/INI/模块，也不创建空备份目录。只有需要单独保护的用户模块、作者 runtime，或用户明确选择移开的其它代理会留一份 `backup-amd-presr-时间`；移开的代理不再重复保存两份。原版后端的 `dlssnr-amd-backup` 属于另一套安装记录，卸载器本身不创建备份。
 
 ## 其它规则
 
