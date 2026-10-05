@@ -261,7 +261,7 @@ jobs:
           # Pre-release when tag name has an -alpha/-beta/-rc suffix (e.g. v1.9.1-alpha).
           # Formal tags like v1.9.1 stay latest/stable; plain substrings such as "source" do not count.
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
-          name: OptScaler(NR) ${{ steps.ver.outputs.version }}
+          name: ${{ github.ref_name }}
           generate_release_notes: true
           body: |
             ### 1.10.2（相比 1.10.1）
