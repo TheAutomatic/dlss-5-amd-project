@@ -481,7 +481,7 @@ bool IFeature_Dx11wDx12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NG
         {
             DlssNr::EvaluateAfterUpscale(cmdList, InParameters, Dx12CommandQueue,
                                          dx12Feature->GetUpscalerType() == Upscaler::DLSSD,
-                                         _frameCount);
+                                         _frameCount, {dx12Feature->DisplayWidth(), dx12Feature->DisplayHeight()});
 
             // Asked only after the D3D12 path has had its turn. Probing first would have made a D3D11
             // init the very first thing to ever touch the snippet, and if that had left its core

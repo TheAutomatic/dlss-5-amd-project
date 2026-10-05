@@ -353,6 +353,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="framegen\IFGFeature.h" />
     <ClInclude Include="framegen\InterpolationOverride.h" />
     <ClInclude Include="dlssnr\NrSessionActivity.h" />
+    <ClInclude Include="dlssnr\SrOutputExtent.h" />
     <ClInclude Include="framegen\IFGFeature_Dx12.h" />
     <ClInclude Include="framegen\nvngx\Nvngx_FG.h" />
     <ClInclude Include="fsr4\FSR4ModelSelection.h" />

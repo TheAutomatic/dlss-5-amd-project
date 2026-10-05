@@ -3051,7 +3051,7 @@ void RetryAfterFailure()
 // RunPass directly and never touches an NGX parameter block.
 void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                       bool beforeUpscale, ID3D12CommandQueue* timingQueue, bool forcePost,
-                      unsigned long long submissionEpoch)
+                      unsigned long long submissionEpoch, SrOutputExtent outputExtent = {})
 {
     const Config& cfg = *Config::Instance();
 
@@ -3103,7 +3103,7 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             return;
         }
         ScopedNrStateEnvelope amdStateEnvelope(cmdList, beforeUpscale);
-        if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale))
+        if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale, outputExtent))
         {
             g_activityBackend.store(NrActivityBackend::Amd, std::memory_order_release);
             return;
@@ -3383,9 +3383,9 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
 
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                           ID3D12CommandQueue* timingQueue, bool forcePost,
-                          unsigned long long submissionEpoch)
+                          unsigned long long submissionEpoch, SrOutputExtent outputExtent)
 {
-    EvaluateInternal(cmdList, params, false, timingQueue, forcePost, submissionEpoch);
+    EvaluateInternal(cmdList, params, false, timingQueue, forcePost, submissionEpoch, outputExtent);
 }
 
 void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,

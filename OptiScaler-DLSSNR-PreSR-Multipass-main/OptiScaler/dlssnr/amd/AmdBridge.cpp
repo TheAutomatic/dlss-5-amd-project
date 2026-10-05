@@ -433,7 +433,8 @@ const char* RuntimeName()
     }
     return cachedName;
 }
-bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12CommandQueue* q, bool beforeUpscale)
+bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12CommandQueue* q, bool beforeUpscale,
+              SrOutputExtent outputExtent)
 {
     // A single backend consumes one SR stream even if the engine rotates worker threads.
     // Serialize shared settling/identity state; thread-local replacement ownership stays unchanged.
@@ -595,9 +596,28 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
             if (!renderWidth) renderWidth = UINT(input->GetDesc().Width);
             if (!renderHeight) renderHeight = input->GetDesc().Height;
         }
-        f.width = f.height = 0;
-        params->Get(NVSDK_NGX_Parameter_OutWidth, &f.width);
-        params->Get(NVSDK_NGX_Parameter_OutHeight, &f.height);
+        const auto allocation = f.colour ? f.colour->GetDesc() : D3D12_RESOURCE_DESC{};
+        const auto resolved = ResolveSrOutputExtent(params, outputExtent, allocation.Width, allocation.Height);
+        if (!resolved)
+        {
+            b->InvalidateHistory();
+            Message("SR -> NR: invalid output extent; keeping the SR output");
+            return true;
+        }
+        f.width = resolved->width;
+        f.height = resolved->height;
+        static UINT reportedWidth = 0, reportedHeight = 0, reportedRenderWidth = 0, reportedRenderHeight = 0;
+        static unsigned extentReports = 0;
+        if (reportedWidth != f.width || reportedHeight != f.height ||
+            reportedRenderWidth != renderWidth || reportedRenderHeight != renderHeight)
+        {
+            reportedWidth = f.width; reportedHeight = f.height;
+            reportedRenderWidth = renderWidth; reportedRenderHeight = renderHeight;
+            if (++extentReports <= 8 || extentReports % 100 == 0)
+                LOG_INFO("SR -> NR extent #{}: output {}x{}, render {}x{}, allocation {}x{}",
+                         extentReports, f.width, f.height, renderWidth, renderHeight,
+                         allocation.Width, allocation.Height);
+        }
     }
     if (f.colour)
     {
@@ -627,8 +647,16 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     auto haveFlags = params->Get(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, &flags) == NVSDK_NGX_Result_Success;
     if (haveFlags && !(flags & NVSDK_NGX_DLSS_Feature_Flags_MVLowRes) && f.motion)
     {
-        params->Get(NVSDK_NGX_Parameter_OutWidth, &f.motionWidth);
-        params->Get(NVSDK_NGX_Parameter_OutHeight, &f.motionHeight);
+        if (!beforeUpscale)
+        {
+            f.motionWidth = f.width;
+            f.motionHeight = f.height;
+        }
+        else
+        {
+            params->Get(NVSDK_NGX_Parameter_OutWidth, &f.motionWidth);
+            params->Get(NVSDK_NGX_Parameter_OutHeight, &f.motionHeight);
+        }
         if (!f.motionWidth) f.motionWidth = static_cast<UINT>(f.motion->GetDesc().Width);
         if (!f.motionHeight) f.motionHeight = f.motion->GetDesc().Height;
     }

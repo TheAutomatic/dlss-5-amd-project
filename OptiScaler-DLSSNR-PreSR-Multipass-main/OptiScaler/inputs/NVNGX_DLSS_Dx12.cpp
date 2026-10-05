@@ -963,8 +963,10 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_GetFeatureRequirements(
 static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdList,
                                                const NVSDK_NGX_Handle* InFeatureHandle,
                                                NVSDK_NGX_Parameter* InParameters,
-                                               PFN_NVSDK_NGX_ProgressCallback InCallback)
+                                               PFN_NVSDK_NGX_ProgressCallback InCallback,
+                                               DlssNr::SrOutputExtent& nrOutputExtent)
 {
+    nrOutputExtent = {};
     State& state = State::Instance();
     const Config& cfg = *Config::Instance();
     const uint32_t handleId = InFeatureHandle->Id;
@@ -1080,6 +1082,8 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
 
         ScopedSkipHeapCapture skip {};
         evalSuccess = feature->Evaluate(InCmdList, InParameters);
+        if (evalSuccess)
+            nrOutputExtent = {feature->DisplayWidth(), feature->DisplayHeight()};
     }
 
     if (!evalSuccess)
@@ -1212,14 +1216,17 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         DlssNr::EvaluateBeforeUpscale(InCmdList, InParameters);
 
     // OptiScaler internal handling
-    const NVSDK_NGX_Result optiResult = TryEvaluateOptiFeature(InCmdList, InFeatureHandle, InParameters, InCallback);
+    DlssNr::SrOutputExtent nrOutputExtent;
+    const NVSDK_NGX_Result optiResult = TryEvaluateOptiFeature(InCmdList, InFeatureHandle, InParameters, InCallback,
+                                                             nrOutputExtent);
 
     DlssNr::AmdBridge::Restore(InParameters);
 
     // Same pass, for OptiScaler's own upscalers rather than native DLSS.
-    if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration)
+    if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration &&
+        nrOutputExtent.width && nrOutputExtent.height)
         DlssNr::EvaluateAfterUpscale(InCmdList, InParameters, nullptr,
-                                     feature == NVSDK_NGX_Feature_RayReconstruction);
+                                     feature == NVSDK_NGX_Feature_RayReconstruction, 0, nrOutputExtent);
 
     return optiResult;
 }

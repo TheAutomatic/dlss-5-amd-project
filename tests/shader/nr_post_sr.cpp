@@ -1,5 +1,48 @@
 #include "nr_effects_test_utils.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/PostSr.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/SrOutputExtent.h"
+
+struct OutputParameters
+{
+    unsigned int outWidth = 1920, outHeight = 1080;
+    std::optional<unsigned int> dynamicWidth, dynamicHeight;
+    NVSDK_NGX_Result Get(const char* key, unsigned int* value) const
+    {
+        const std::string_view name(key);
+        if (name == NVSDK_NGX_Parameter_OutWidth) *value = outWidth;
+        else if (name == NVSDK_NGX_Parameter_OutHeight) *value = outHeight;
+        else if (name == "FSR.upscaleSize.width" && dynamicWidth) *value = *dynamicWidth;
+        else if (name == "FSR.upscaleSize.height" && dynamicHeight) *value = *dynamicHeight;
+        else return NVSDK_NGX_Result_Fail;
+        return NVSDK_NGX_Result_Success;
+    }
+};
+
+static void OutputExtentPolicy()
+{
+    OutputParameters params;
+    auto extent = DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 3840, 2160);
+    Require(extent && extent->width == 3840 && extent->height == 2160,
+            "4K SR must not inherit 1080p optimal-settings results");
+    extent = DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 4096, 2176);
+    Require(extent && extent->width == 3840 && extent->height == 2160, "SR allocation padding is excluded");
+    params.outWidth = params.outHeight = 0;
+    extent = DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 4096, 2176);
+    Require(extent && extent->width == 3840 && extent->height == 2160, "missing legacy dimensions are irrelevant");
+    params.dynamicWidth = 2560; params.dynamicHeight = 1440;
+    extent = DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 3840, 2160);
+    Require(extent && extent->width == 2560 && extent->height == 1440, "per-frame FSR output extent");
+    params.dynamicHeight.reset();
+    Require(!DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 3840, 2160), "partial dynamic extent rejected");
+    params.dynamicHeight = 5000;
+    Require(!DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 3840, 2160), "oversized dynamic extent rejected");
+    params.dynamicWidth.reset(); params.dynamicHeight.reset();
+    Require(!DlssNr::ResolveSrOutputExtent(&params, {3840, 2160}, 1920, 1080), "feature extent must fit output");
+    Require(!DlssNr::ResolveSrOutputExtent(&params, {3840, 0}, 3840, 2160), "partial feature extent rejected");
+    extent = DlssNr::ResolveSrOutputExtent(&params, {}, 3840, 2160);
+    Require(extent && extent->width == 3840 && extent->height == 2160, "untracked native output fallback");
+    Require(!DlssNr::ResolveSrOutputExtent(&params, {}, 0, 2160), "missing output rejected");
+}
 
 static Ptr<ID3D12Resource> Tex(ID3D12Device* d, UINT w, UINT h, DXGI_FORMAT fmt)
 {
@@ -198,6 +241,7 @@ cbuffer Params:register(b0){uint width,height;}
 }
 int main()
 {
+    OutputExtentPolicy();
     Ptr<ID3D12Debug> debug;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
         debug->EnableDebugLayer();
@@ -221,8 +265,14 @@ int main()
     base.colour = output.Get();
     base.motion = mv.Get();
     base.depth = depth.Get();
-    base.width = 32;
-    base.height = 24;
+    // The same 2:1 display/render ratio as 4K/1080p, with allocation padding.
+    // Exercise production dimension selection before GPU guide/copy/multipass tests.
+    OutputParameters params;
+    params.outWidth = 16; params.outHeight = 12;
+    const auto extent = DlssNr::ResolveSrOutputExtent(&params, {32, 24}, 35, 27);
+    Require(bool(extent), "resolve SR output before recording");
+    base.width = extent->width;
+    base.height = extent->height;
     base.motionWidth = 16;
     base.motionHeight = 12;
     base.motionScaleX = -16;

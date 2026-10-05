@@ -4,6 +4,7 @@
 
 #include <shaders/dlssnr/DlssNr_Common.h>
 #include <nvsdk_ngx.h>
+#include "SrOutputExtent.h"
 
 // DLSS 5 Neural Rendering, run over the upscaler's output.
 //
@@ -34,9 +35,10 @@ inline constexpr unsigned int MaxPassCount = 3;
 // game never does -- so without this the pass runs and never reports what it cost.
 // forcePost identifies an RR feature: selects ApplyAfterRR, RRPasses and RRWorkingScale.
 // Do not set it for ordinary SR fallback; that decision is made from Color's active subrect.
+// outputExtent comes from this evaluate's SR feature, never the reusable NGX OutWidth/OutHeight keys.
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                           ID3D12CommandQueue* timingQueue = nullptr, bool forcePost = false,
-                          unsigned long long submissionEpoch = 0);
+                          unsigned long long submissionEpoch = 0, SrOutputExtent outputExtent = {});
 
 // Runs the same pass over Color immediately before Super Resolution consumes it. The call is a no-op
 // unless RunBeforeSR is enabled. Color is returned in its original readable state.
