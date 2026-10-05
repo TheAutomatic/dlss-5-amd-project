@@ -1,10 +1,10 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-本实验分支新增 **SR → NR**：Ins 的 **Processing order** 可切换超分与 NR 的顺序，
+可选实验性 **SR → NR**：Ins 的 **Processing order** 可切换超分与 NR 的顺序，
 Daniel、lmxxf、Mochizuki 共用，默认仍为 NR → SR。SR 后按输出分辨率处理，可能增加显存和耗时；
 使用方法、限制及验收见 [SR 后 NR](docs/post-sr-nr.md)。
 
-第三后端 mochizuki（Windows / RDNA4）已接入此开发分支，安装、模型来源、独立菜单和验证范围见 [mochizuki 说明](docs/mochizuki.md)。不附带 NVIDIA DLL 或模型；游戏表现待本地验收。
+Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单和验证范围见 [mochizuki 说明](docs/mochizuki.md)。不附带 NVIDIA DLL 或模型；已有本地游戏测试，其他游戏与场景仍需验证。
 
 
 # OptiScaler AMD pre-SR — 1.10.2
@@ -20,10 +20,13 @@ Daniel、lmxxf、Mochizuki 共用，默认仍为 NR → SR。SR 后按输出分�
 
 ### 1.10.2（相比 1.10.1）
 
-- 三后端共用 **Processing order**，可选实验性 **SR → NR**，并保留各自 1～3 层 pass。默认仍为 **NR → SR、1 层**；SR 后按输出分辨率处理，显存和耗时可能增加。
-- lmxxf 升级到 **0.41**：新增第三层预测和肤色保护，快速数值路径扩展到 ViT/C512；保留 LLVM23/RowOpts 构建优化。
-- lmxxf 选 3 层时默认执行 **两次真实网络＋局部预测**；关闭 **Predict third pass (lossy)** 才执行三次真实网络。肤色保护默认关闭，自由分辨率默认开启。
-- 菜单流程图、状态及 INI 备注同步更新；整包覆盖升级保留用户保存的处理顺序与后端设置。
+- 新增实验性 **SR → NR**：在 Ins 的 **Processing order** 切换处理顺序，Daniel、lmxxf、Mochizuki 均支持，并保留各自 1～3 层 pass。默认仍为 **NR → SR、1 层**；SR 后按输出分辨率处理，可能增加 GPU 耗时和显存。
+- lmxxf 更新到 **0.41**，新增第三层预测、肤色保护及 ViT/C512 快速数值路径，保留 LLVM23/RowOpts 构建优化。选择 3 层时，默认执行 **两次真实网络＋第三层局部预测**；关闭 **Predict third pass (lossy)** 后执行三次真实网络。肤色保护默认关闭，自由分辨率默认开启。
+- 调整 lmxxf 菜单：基础跳块与第 2/3 层额外跳块相邻放在原 **Advanced Kernels** 内；**ViT adaptive reuse** 后直接显示四个参数，关闭复用时置灰。流程图、状态和 INI 说明同步更新。
+- 改进 Unity 早期命令列表接管：默认覆盖《伊莫》（Aniimo）的 UnityPlayer 调用；其他 Unity 游戏可在 **Early command-list wrap** 中手动启用，保存后重启生效。
+- 修复旧 lmxxf 着色器残留遮蔽新包、导致彩色噪点或条块的问题。Mochizuki 遇到短暂分辨率跳变时保留现有网络，避免立即拆除重建。
+- 改进安装：显示已检测到的模型，安装目录缺失的有效权重可从游戏回存，供下次安装使用；Mochizuki 缺少可用 Python 时提示到 Microsoft Store 搜索安装 Python 3.10+。不完整的 lmxxf 更新包会报错，不再借用游戏旧组件补齐。
+- 改进覆盖与卸载：覆盖安装不再自动备份整套旧包，并保留已保存的 INI 设置；选 **Y 先卸载** 直接执行新包的卸载脚本，失败即停止安装。补齐旧 shader、缓存、日志、dump 与旧 NR core 的清理，阻止旧 shader 在重装时被带回，保留权重与自定义文件。
 
 ### 配置与安装
 

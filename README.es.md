@@ -1,13 +1,13 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-Esta rama experimental añade **SR → NR** para Daniel, lmxxf y Mochizuki. Se elige en
+Se ofrece **SR → NR** experimental para Daniel, lmxxf y Mochizuki. Se elige en
 **Processing order** del menú Ins; **NR → SR** sigue siendo el valor predeterminado.
 El procesamiento posterior usa la resolución de salida y puede consumir más tiempo GPU y VRAM.
 Save Settings guarda `[DlssNr] RunBeforeSR=false`; reinicia si el estado solicita los hooks.
 Incluye DX12 y los puentes DX11/Vulkan → DX12; no amplía RR ni Vulkan nativos.
 Consulta [uso, límites y pruebas](docs/post-sr-nr.md) (en chino).
 
-Esta rama de desarrollo incorpora mochizuki para Windows / RDNA4. Consulte [instalación, modelo, controles y validación](docs/mochizuki.md). No se incluyen DLL de NVIDIA ni pesos del modelo. Falta la validación en juegos.
+El backend Mochizuki es compatible con Windows / RDNA4. Consulte [instalación, modelo, controles y validación](docs/mochizuki.md). No se incluyen DLL de NVIDIA ni pesos del modelo. Hay pruebas locales en juegos; otros títulos y escenarios requieren validación.
 
 
 # OptiScaler AMD pre-SR — 1.10.2
@@ -23,10 +23,13 @@ Este proyecto es un fork de **Matheus** y proyectos de la comunidad upstream, ma
 
 ### 1.10.2 (respecto a 1.10.1)
 
-- Los tres backends comparten **Processing order**, con la opción experimental **SR → NR**, y conservan sus propias 1–3 pasadas. Los valores predeterminados siguen siendo **NR → SR y una pasada**. Procesar después de SR utiliza la resolución de salida y puede aumentar el tiempo de GPU y la VRAM.
-- lmxxf se actualiza a **0.41**: añade predicción de la tercera pasada y protección de tonos de piel, amplía el cálculo rápido a ViT/C512 y conserva las optimizaciones de compilación LLVM23/RowOpts.
-- Con tres pasadas de lmxxf seleccionadas, se ejecutan por defecto **dos pasadas reales y una predicción local**. Desactive **Predict third pass (lossy)** para ejecutar tres pasadas reales. La protección de piel está desactivada por defecto; la resolución libre permanece activada.
-- Se actualizan el diagrama del menú, el estado y los comentarios INI. La actualización mediante sobrescritura del paquete completo conserva el orden y los ajustes de backend guardados.
+- Se añade **SR → NR** experimental en **Processing order** del menú Ins para Daniel, lmxxf y Mochizuki, conservando sus 1–3 pasadas. Los valores predeterminados siguen siendo **NR → SR y una pasada**. Procesar a la resolución de salida puede aumentar el tiempo de GPU y la VRAM.
+- lmxxf se actualiza a **0.41**, con predicción de la tercera pasada, protección de piel y cálculo rápido ViT/C512, conservando LLVM23/RowOpts. Con tres pasadas se ejecutan por defecto **dos pasadas reales y una predicción local de la tercera**. Desactive **Predict third pass (lossy)** para tres pasadas reales. La protección de piel está desactivada por defecto; la resolución libre permanece activada.
+- Se reorganiza el menú lmxxf: los bloques omitidos de base y los adicionales de las pasadas 2/3 quedan juntos en **Advanced Kernels**. Los cuatro parámetros de **ViT adaptive reuse** aparecen directamente debajo y se deshabilitan al desactivar la reutilización. Se actualizan el diagrama, el estado y los comentarios INI.
+- Se mejora la captura temprana de listas de comandos de Unity: las llamadas de UnityPlayer en Aniimo se admiten por defecto. Otros juegos Unity pueden activarla en **Early command-list wrap**; guarde y reinicie para aplicar.
+- Se corrige la carga de shaders lmxxf antiguos que ocultaban los actualizados y causaban ruido de colores o bloques. Mochizuki conserva la red durante cambios breves de resolución, evitando reconstrucciones inmediatas.
+- El instalador muestra los modelos detectados y puede guardar pesos válidos del juego en su propia carpeta si faltan, para instalaciones futuras. Si falta Python, Mochizuki indica cómo instalar Python 3.10+ desde Microsoft Store. Las actualizaciones lmxxf incompletas se rechazan sin reutilizar componentes antiguos del juego.
+- La sobrescritura conserva los ajustes INI y ya no guarda una copia del paquete antiguo completo. Elegir **Y para desinstalar primero** ejecuta el desinstalador del paquete nuevo y detiene la instalación si falla. Se amplía la limpieza de shaders, cachés, registros, volcados y el antiguo núcleo NR; los shaders viejos no se restauran al reinstalar. Se conservan pesos y archivos personalizados.
 
 ### Configuración e instalación
 

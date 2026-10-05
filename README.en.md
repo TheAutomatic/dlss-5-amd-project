@@ -1,13 +1,13 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-This experimental branch adds **SR → NR** for Daniel, lmxxf and Mochizuki. Select
+Optional experimental **SR → NR** is available for Daniel, lmxxf and Mochizuki. Select
 **Processing order** in Ins; **NR → SR** remains the default. Post-SR processing uses
 the upscaled resolution and may cost more GPU time and VRAM. Save Settings persists
 `[DlssNr] RunBeforeSR=false`; restart if the status requests recording hooks.
 DX12 and the DX11/Vulkan-to-DX12 bridges are covered; native RR/Vulkan are unchanged.
 See [usage, limits and acceptance checks](docs/post-sr-nr.md) (Chinese).
 
-This development branch adds the mochizuki backend for Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Game acceptance is pending.
+The Mochizuki backend supports Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Local game tests are available; other games and scenarios still need validation.
 
 
 # OptiScaler AMD pre-SR — 1.10.2
@@ -23,10 +23,13 @@ This project is forked from **Matheus** and upstream community projects, maintai
 
 ### 1.10.2 (compared to 1.10.1)
 
-- All three backends share **Processing order**, including experimental **SR → NR**, and retain their own 1–3 passes. Defaults remain **NR → SR and one pass**. Post-SR processing uses output resolution and may increase GPU time and VRAM use.
-- Updated lmxxf to **0.41**, adding third-pass prediction and skin protection, extending fast numeric paths to ViT/C512, and retaining LLVM23/RowOpts build optimizations.
-- With three lmxxf passes selected, the default is **two real network passes plus a local prediction**. Disable **Predict third pass (lossy)** for three real passes. Skin protection defaults to off; native free resolution remains on.
-- Updated the menu diagram, status and INI comments. Full-package overwrite upgrades preserve saved processing order and backend settings.
+- Added experimental **SR → NR** through **Processing order** in Ins for Daniel, lmxxf and Mochizuki, retaining each backend's 1–3 passes. Defaults remain **NR → SR and one pass**. Post-SR processing uses output resolution and may increase GPU time and VRAM use.
+- Updated lmxxf to **0.41**, adding third-pass prediction, skin protection and fast numeric ViT/C512 paths while retaining LLVM23/RowOpts build optimizations. With three passes selected, the default is **two real network passes plus a local third-pass prediction**. Disable **Predict third pass (lossy)** for three real passes. Skin protection defaults to off; native free resolution remains on.
+- Refined the lmxxf menu: base skipping and extra skipping for passes 2/3 sit together in **Advanced Kernels**. The four **ViT adaptive reuse** parameters appear directly below the toggle and are disabled when reuse is off. Updated the diagram, status and INI comments.
+- Improved early command-list handling for Unity: Aniimo's UnityPlayer calls are covered by default. Other Unity games can opt in through **Early command-list wrap**; save settings and restart to apply.
+- Fixed stale lmxxf shaders overriding an updated package and causing colored noise or blocks. Mochizuki now retains its working network during brief resolution changes instead of immediately tearing it down and rebuilding it.
+- Improved installation: detected models are shown, and valid game weights can be saved back to the installer folder when missing there for future installs. Missing usable Python now prompts Mochizuki users to install Python 3.10+ from Microsoft Store. Incomplete lmxxf updates are rejected instead of borrowing old game components.
+- Improved overwrite and uninstall: overwrites no longer back up the entire old package and preserve saved INI settings. Choosing **Y to uninstall first** runs the new package's uninstaller and stops installation on failure. Expanded cleanup covers old shaders, caches, logs, dumps and the legacy NR core; old shaders are no longer restored during reinstall. Weights and custom files are preserved.
 
 ### Configuration and Installation
 
