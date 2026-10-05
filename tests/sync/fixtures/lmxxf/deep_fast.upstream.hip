@@ -693,17 +693,6 @@ WAVE void reuse_decide(const float*stats,uint*state,uint n,uint period,float glo
  if(reason==0&&mode==1&&changed==0&&state[1]+1>=period)reason=8;
  state[0]=reason==0||reason==8;state[1]=state[0]?(state[1]<period?state[1]+1:period):0;state[2]=1;state[3]++;state[4]=bits(rel);state[5]=bits(peak);state[6]=reason;state[7]=bits(image_peak);}
 }
-// Opt-in exact cache: reuse only a finite, bit-identical ViT input, including
-// padded tokens. Seed/history/mode invalidation is still owned by the host.
-// Separate entry point makes old modules fail explicitly when this is selected.
-WAVE void reuse_decide_exact(const float*stats,uint*state,uint n){
- uint lane=__builtin_amdgcn_workitem_id_x(),changed=0,bad=0;
- for(uint t=lane;t<n;t+=32){changed|=stats[t*4+3]!=0.f;bad|=!__builtin_isfinite(stats[t*4+2])||stats[t*4+2]>=1.e29f;}
- for(uint offset=16;offset;offset>>=1){changed|=__builtin_amdgcn_ds_bpermute(((lane+offset)&31)*4,changed);bad|=__builtin_amdgcn_ds_bpermute(((lane+offset)&31)*4,bad);}
- if(!lane){uint reason=!state[2]?1:bad?4:changed?9:8;bool reuse=reason==8;
-  state[0]=reuse;state[1]=reuse?(state[1]<16?state[1]+1:16):0;state[2]=1;state[3]++;
-  state[4]=0;state[5]=0;state[6]=reason;state[7]=0;}
-}
 WAVE void reuse_finish(const float*x,const float*full,float*anchor_in,float*anchor_out,const float*gain,const uint*state,float*out,uint count,const float*image_signature,float*image_anchor,uint image_count){
  uint i=bid()*256+__builtin_amdgcn_workitem_id_x();bool reuse=state[0]!=0;
  if(!reuse){uint s=i;for(uint j=0;j<8&&s<image_count;j++,s+=32)image_anchor[s]=image_signature[s];}

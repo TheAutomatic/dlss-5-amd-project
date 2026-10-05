@@ -1,0 +1,61 @@
+--- a/Development/HIP/hip_reference_network.h
++++ b/Development/HIP/hip_reference_network.h
+@@ -434,9 +434,11 @@
+  Tensor adaptive_image_anchor,adaptive_image_signature,adaptive_image_delta;void*adaptive_image=nullptr;
+  void*adaptive_prev_history=nullptr;void*adaptive_prev_input=nullptr;U adaptive_prev_seed=0;
+  bool adaptive_dirty=false,adaptive_key_down=false,adaptive_user_disabled=false;U adaptive_last_mode=0,adaptive_frame=0;
+- bool adaptive_active=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
++ bool adaptive_active=false,adaptive_exact=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
+  Tensor AdaptiveVitGroup(Tensor input,U n){
+   const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=mode_s?U(std::stoul(mode_s)):0;
++  const char*exact_s=std::getenv("DLSS5_VIT_REUSE_EXACT");
++  if(exact_s&&strcmp(exact_s,"0")&&strcmp(exact_s,"1"))throw std::runtime_error("DLSS5_VIT_REUSE_EXACT must be 0 or 1");
+   const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
+   if(hotkey
+ #ifndef LMXXF_NR_FLICKER_TEST18
+@@ -445,12 +447,14 @@
+      &&false // test18 owns capture controls; suppress legacy F8 toggle
+ #endif
+      &&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
+-  AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
++  const bool exact=mode==1&&exact_s&&!strcmp(exact_s,"1");
++  AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode||exact!=adaptive_exact){adaptive_dirty=true;adaptive_last_mode=mode;adaptive_exact=exact;}
+ #ifdef LMXXF_NR_FLICKER_TEST18
+   if(!mode&&Test18Probe)Test18Probe(Test18Owner,api,stream,nullptr,mode);
+ #endif
+   if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
+   if(mode>3||opt.graph||!opt.fast_deep||!opt.pooled||opt.vit_byte_stream||std::any_of(opt.skip_blocks.begin(),opt.skip_blocks.end(),[](U b){return b>=31&&b<=38;}))throw std::runtime_error("adaptive ViT requires fast pooled graph-off non-byte-stream unskipped network, mode1..3");
++  if(exact){try{Fn("deep_fast","reuse_decide_exact");}catch(...){throw std::runtime_error("Exact ViT reuse module mismatch; update the complete package, including runtime and modules");}}
+   auto param=[](const char*key,float fallback){const char*v=std::getenv(key);float f=v?std::stof(v):fallback;if(!std::isfinite(f)||f<0)throw std::runtime_error("adaptive threshold");return f;};
+   float global=param("DLSS5_VIT_REUSE_GLOBAL",.22f),local=param("DLSS5_VIT_REUSE_LOCAL",1.f),image_limit=param("DLSS5_VIT_REUSE_IMAGE",.35f);
+   U period=4;if(const char*v=std::getenv("DLSS5_VIT_REUSE_PERIOD"))period=U(std::stoul(v));if(period<1||period>16)throw std::runtime_error("adaptive max period1..16");
+@@ -472,7 +476,8 @@
+   if(!adaptive_image)throw std::runtime_error("adaptive image missing");
+   Run("deep","reuse_image_stats",size_t(tiles)*256,adaptive_image,P(adaptive_image_anchor),P(adaptive_state),P(adaptive_image_signature),P(adaptive_image_delta),W,H);
+   Run("deep","reuse_token_stats",size_t(n)*256,P(input),P(adaptive_anchor_in),P(adaptive_state),P(adaptive_stats),n,W/64,H/64,stride);
+-  Run("deep","reuse_decide",256,P(adaptive_stats),P(adaptive_state),n,period,global,local,mode,P(adaptive_image_delta),tiles,(W+31)/32,image_limit);
++  if(exact)Run("deep","reuse_decide_exact",256,P(adaptive_stats),P(adaptive_state),n);
++  else Run("deep","reuse_decide",256,P(adaptive_stats),P(adaptive_state),n,period,global,local,mode,P(adaptive_image_delta),tiles,(W+31)/32,image_limit);
+ #ifdef LMXXF_NR_FLICKER_TEST18
+   if(Test18Probe)Test18Probe(Test18Owner,api,stream,P(adaptive_state),mode);
+ #endif
+--- a/hip/deep_fast.hip
++++ b/hip/deep_fast.hip
+@@ -693,6 +693,17 @@
+  if(reason==0&&mode==1&&changed==0&&state[1]+1>=period)reason=8;
+  state[0]=reason==0||reason==8;state[1]=state[0]?(state[1]<period?state[1]+1:period):0;state[2]=1;state[3]++;state[4]=bits(rel);state[5]=bits(peak);state[6]=reason;state[7]=bits(image_peak);}
+ }
++// Opt-in exact cache: reuse only a finite, bit-identical ViT input, including
++// padded tokens. Seed/history/mode invalidation is still owned by the host.
++// Separate entry point makes old modules fail explicitly when this is selected.
++WAVE void reuse_decide_exact(const float*stats,uint*state,uint n){
++ uint lane=__builtin_amdgcn_workitem_id_x(),changed=0,bad=0;
++ for(uint t=lane;t<n;t+=32){changed|=stats[t*4+3]!=0.f;bad|=!__builtin_isfinite(stats[t*4+2])||stats[t*4+2]>=1.e29f;}
++ for(uint offset=16;offset;offset>>=1){changed|=__builtin_amdgcn_ds_bpermute(((lane+offset)&31)*4,changed);bad|=__builtin_amdgcn_ds_bpermute(((lane+offset)&31)*4,bad);}
++ if(!lane){uint reason=!state[2]?1:bad?4:changed?9:8;bool reuse=reason==8;
++  state[0]=reuse;state[1]=reuse?(state[1]<16?state[1]+1:16):0;state[2]=1;state[3]++;
++  state[4]=0;state[5]=0;state[6]=reason;state[7]=0;}
++}
+ WAVE void reuse_finish(const float*x,const float*full,float*anchor_in,float*anchor_out,const float*gain,const uint*state,float*out,uint count,const float*image_signature,float*image_anchor,uint image_count){
+  uint i=bid()*256+__builtin_amdgcn_workitem_id_x();bool reuse=state[0]!=0;
+  if(!reuse){uint s=i;for(uint j=0;j<8&&s<image_count;j++,s+=32)image_anchor[s]=image_signature[s];}

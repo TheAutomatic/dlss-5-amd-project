@@ -53,6 +53,18 @@
 
 新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
 
+`exact-vit-reuse.patch` 在异步 reset 补丁后维护默认关闭的 `DLSS5_VIT_REUSE_EXACT`。
+adaptive mode 1 可仅复用有限且逐位相同的完整 ViT 输入（含 padding）；其他模式与旧决策入口不变。
+独立 `reuse_decide_exact` 入口使缺失新模块时明确拒绝，需完整更新。模式/选项切换仍异步清空缓存。
+`tests/lmxxf/run.cmd reuse` 检查真实 GPU 上的单 bit、padding、正负零、NaN/Inf、重置及连续相同输入；
+原始 `deep_fast.hip` 夹具直接取自固定 pin。此补丁不前移上游完成 pin，不代表无历史闪烁已根治。
+
+`adaptive-reset-async.patch` 区分 ViT 缓存失效与缓冲区尺寸变化：同尺寸时保留 anchors/state，用同一 HIP stream 的 `hipMemsetAsync` 清零 8 个状态字。seed/history/input/mode/超时仍按原规则失效；state[2]=0 使统计内核跳过旧 anchors，完整 ViT 后重新写入。避免 `Upload` 与旧持久分配析构在 producer wait 后同步等待 GPU。`tests/lmxxf/run.cmd native` 的 `--blocked-producer` 用未完成的 D3D12 fence 检查 CPU enqueue 独立于 GPU 输入完成，且保留原有切换/reset/像素断言；此改动不改变模块/模型算法或上游完成 pin。
+
+`c32-test20-precision.patch` 保存调查分支已存在的 C32 精度实验宏（默认关闭，测试模块显式启用 `CW_PROB_HALF=1`），不表示普通模块启用或上游集成验收。`native-post-history.patch` 在其后添加可选第四行 post 投影和独立 logit 输出；原 RGB 入口保留，新的测试 runtime 必须配套新模块。固定 `bridge.patch` 同时维护可选扩大输出、完整清零和容量统计。原始 HIP 夹具直接来自固定上游提交；补丁链测试复现当前源码，不改变完成 pin。原生重投影、模型混合与 seed 计数由产品 `NativeTemporalHistory.h` 和 `LMXXF_NR_NATIVE_TEMPORAL_TEST` 构建维护；目前仅为本地调查候选，真实游戏运动质量尚未验收。
+
+`model-style.patch` 在现有补丁链之后维护 `DLSS5_MODEL_STYLE` 的严格 0/1/2 解析、网络 Options 及 block0 前缀权重变换。仅缩放前缀投影的第 6 列，两个权重加载入口都在上传/打包前应用；Natural 1 保留原始权重字节。宿主 ini/menu 优先级及 session 锁定由产品代码维护。补丁不改变上游 pin 或 GPU 模块，不代表闪烁已消除。原始 `packed_weights.h` 和 `native_hip_env_options.h` 夹具同样直接提取自上述固定提交。
+
 `codec-flicker-test17.patch` 在现有 codec 补丁之后维护测试构建的逐帧命令位：可选 C1 有理高光曲线、原图对照及采样框标记。只有 `LMXXF_NR_FLICKER_TEST` runtime 能写入这些位；普通构建保持原路径。它不更改上游 pin、模型/模块或曝光策略，不代表曲线已通过游戏画质验收。
 
 更新固定头文件时，先对临时归档执行 `git apply --check`，成功后应用，再检查本地契约。任何 hunk 对不上均停止，不使用模糊替换、`--reject` 或部分应用。上游挪动上下文、改变契约或吸收了补丁时，在临时干净副本中重新审阅和生成对应 `.patch`，检查 diff 仅含预期修改，再验证 Runtime/相关测试。主同步脚本中不再存放 C++ 代码替换字符串。

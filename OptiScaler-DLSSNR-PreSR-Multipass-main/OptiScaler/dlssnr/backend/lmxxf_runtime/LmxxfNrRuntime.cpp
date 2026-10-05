@@ -38,6 +38,13 @@
 #include "HighlightCapture.h"
 #endif
 #include "TemporalHistory.h"
+#ifdef LMXXF_NR_NATIVE_TEMPORAL_TEST
+#include "NativeTemporalHistory.h"
+#include "NativePostWeights.h"
+namespace SessionTemporal=LmxxfNativeTemporal;
+#else
+namespace SessionTemporal=LmxxfTemporal;
+#endif
 
 namespace
 {
@@ -1335,7 +1342,7 @@ struct Job
     bool codec_passthrough = false;
     ID3D12Resource *motion = nullptr, *depth = nullptr;
     D3D12_RESOURCE_STATES motionState{}, depthState{};
-    LmxxfTemporal::Parameters temporalParams{};
+    SessionTemporal::Parameters temporalParams{};
     bool temporalActive = false, modelHistory = false, temporalOutputs = false, zeroRecovered = false;
 #ifdef LMXXF_NR_FLICKER_TEST
     ID3D12Resource *captureMotion=nullptr,*captureDepth=nullptr;
@@ -1363,7 +1370,7 @@ struct Session
     NativeGameRgbInput *rgbInput = nullptr;
     NativeRgbTexture *rgbTex = nullptr;
     NativeGameCodec *decode = nullptr;
-    LmxxfTemporal::History *temporal = nullptr;
+    SessionTemporal::History *temporal = nullptr;
     std::string temporalReason = "off";
     D3D12_RESOURCE_DESC temporalMotionDesc {}, temporalDepthDesc {};
     const char *temporalResetReason = "none";
@@ -1378,6 +1385,18 @@ struct Session
     // Adaptive reuse reads live env, but byte stream is baked into the network.
     // Rebuild when byte stream changes before allowing reuse on the next frame.
     bool vitByteStream = false;
+    unsigned modelStyle = 1;
+    bool modelStyleLocked = false;
+    // Style applies next launch. Retain the selected weights across geometry rebuilds.
+    void LockModelStyle(hip_reference::Options& options)
+    {
+        if (!modelStyleLocked)
+        {
+            modelStyle = options.model_style;
+            modelStyleLocked = true;
+        }
+        options.model_style = modelStyle;
+    }
     /* Count of codec+HIP teardowns triggered by geoChanged (valid/alloc/format/exposure). */
     uint32_t codecRecreates = 0;
     uint32_t bridgeCreates = 0;
@@ -1413,9 +1432,9 @@ struct Session
         pdlReason = bridge->PdlReason();
         char diagMsg[512] {};
         std::snprintf(diagMsg, sizeof diagMsg,
-                      "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' pdl=%u/%u(%s) modules='%s'",
+                      "lmxxf: HIP lazy Create arch=%s device_match=%s adapter='%s' pdl=%u/%u(%s) modelStyle=%u modules='%s'",
                       actualArch.c_str(), deviceMatch.c_str(), adapterName.c_str(), pdlRequested ? 1u : 0u,
-                      pdlEffective ? 1u : 0u, pdlReason.c_str(), selectedModulesDir.c_str());
+                      pdlEffective ? 1u : 0u, pdlReason.c_str(), modelStyle, selectedModulesDir.c_str());
         OutputDebugStringA(diagMsg);
         OutputDebugStringA("\n");
     }
@@ -1895,7 +1914,7 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
     }
     const auto ng=NativeCurrentNetworkGeometry();
     if(!s->temporal) {
-        auto candidate=std::make_unique<LmxxfTemporal::History>();
+        auto candidate=std::make_unique<SessionTemporal::History>();
         candidate->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height);
         s->temporal=candidate.release();
         ++s->temporalCreates;
@@ -1934,7 +1953,14 @@ void PrepareTemporal(Session *s, const LmxxfNrFrameInfo *info)
         p.jitterY=(h.jitterY-info->jitter_y)/float(j.height);
     }
     p.useHistory=h.valid?1u:0u; p.smoothStrength=smoothing;
+    #ifdef LMXXF_NR_NATIVE_TEMPORAL_TEST
+    p.historyStrength=model?1.f:0.f;
+    p.logitOffset=ng.valid_width*ng.processing_height*3;
+    p.hasDepth=1;
+    if(model){j.seed=h.valid?h.seed:0;h.seed=j.seed+1;}
+#else
     p.stabilizeFeedback=model?1u:0u;
+#endif
     p.depthInverted=(info->temporal_flags&LMXXF_NR_TEMPORAL_DEPTH_INVERTED)?1u:0u;
     j.temporalActive=true; j.modelHistory=model&&h.valid;
     j.motion=motion; j.depth=depth;
@@ -2070,10 +2096,15 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             auto geo = NativeCurrentNetworkGeometry();
             auto opt = LmxxfProductionOptions(geo.processing_width, geo.processing_height,
                                               Utf8(session->modulesDir), Utf8(session->weightsDir));
+            session->LockModelStyle(opt);
             if (opt.graph)
                 return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
             session->bridge = new hip_reference::D3D12Bridge();
+            #ifdef LMXXF_NR_NATIVE_TEMPORAL_TEST
+            session->bridge->Create(session->queue, opt, {}, LmxxfNativePostWeights());
+#else
             session->bridge->Create(session->queue, opt, {});
+#endif
             ++session->bridgeCreates;
             session->hipPrepared = true;
             session->vitByteStream = opt.vit_byte_stream;
@@ -2357,10 +2388,15 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 auto geo = NativeCurrentNetworkGeometry();
                 auto opt = LmxxfProductionOptions(geo.processing_width, geo.processing_height,
                                                   Utf8(session->modulesDir), Utf8(session->weightsDir));
+                session->LockModelStyle(opt);
                 if (opt.graph)
                     return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
                 session->bridge = new hip_reference::D3D12Bridge();
-                session->bridge->Create(session->queue, opt, {});
+                #ifdef LMXXF_NR_NATIVE_TEMPORAL_TEST
+            session->bridge->Create(session->queue, opt, {}, LmxxfNativePostWeights());
+#else
+            session->bridge->Create(session->queue, opt, {});
+#endif
                 ++session->bridgeCreates;
                 session->hipPrepared = true;
                 session->vitByteStream = opt.vit_byte_stream;
@@ -2496,12 +2532,34 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         capture.Configure(session->shaderDir,session->modulesDir,session->weightsDir);
         HighlightDiagnostics::FrameInfo di{};
         di.renderW=info->color_width;di.renderH=info->color_height;di.hostTransfer=transfer_strength;
+#ifdef LMXXF_NR_FLICKER_TEST19
+        // Capture the user's active temporal path without changing its controls.
+        di.allowed=!debug_view&&!session->job.codec_passthrough;
+        di.seed=session->job.seed;
+#ifdef LMXXF_NR_NATIVE_TEMPORAL_TEST
+        di.nativeTemporal=1;
+#endif
+        di.temporalActive=session->job.temporalActive?1u:0u;
+        di.modelHistoryActive=session->job.modelHistory?1u:0u;
+        di.historyInputValid=session->job.temporalParams.useHistory;
+        di.historyPriming=di.temporalActive&&!di.historyInputValid?1u:0u;
+        di.historyResets=session->temporal?session->temporal->resets:0;
+        di.historyActiveFrames=session->historyActiveFrames;
+        di.historyPrimingFrames=session->historyPrimingFrames;
+        di.temporalReason=session->temporalReason;
+        di.historyResetReason=session->temporalResetReason;
+#else
         di.allowed=!session->job.temporalActive&&!debug_view&&!session->job.codec_passthrough;
+#endif
         session->job.captureMotion=session->job.captureDepth=nullptr;
         if(info->struct_size>=sizeof(LmxxfNrFrameInfo)){
             di.evaluate=info->evaluate_sequence;di.motionW=info->motion_width;di.motionH=info->motion_height;
             di.jitterX=info->jitter_x;di.jitterY=info->jitter_y;di.scaleX=info->motion_scale_x;di.scaleY=info->motion_scale_y;di.temporalFlags=info->temporal_flags;
+#ifdef LMXXF_NR_FLICKER_TEST19
+            di.outputSmoothing=info->output_smoothing;
+#else
             di.allowed=di.allowed&&!(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)&&info->output_smoothing==0;
+#endif
             session->job.captureMotion=static_cast<ID3D12Resource*>(info->motion);session->job.captureDepth=static_cast<ID3D12Resource*>(info->depth);
             session->job.captureMotionState=static_cast<D3D12_RESOURCE_STATES>(info->motion_state);session->job.captureDepthState=static_cast<D3D12_RESOURCE_STATES>(info->depth_state);
         }
@@ -2911,6 +2969,9 @@ int32_t Retire(void *context, void *job)
         if(session->temporal && j && j->temporalOutputs && !j->zeroRecovered)
             session->temporal->valid=true;
 #ifdef LMXXF_NR_HIGHLIGHT_DIAGNOSTICS
+#ifdef LMXXF_NR_FLICKER_TEST19
+        session->highlights.SetZeroRecovered(j&&j->zeroRecovered);
+#endif
         session->highlights.Submitted(session->queue);
 #endif
         SetError("");
@@ -3002,7 +3063,8 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         {
             const size_t used = std::strlen(text);
             std::snprintf(text + used, sizeof(text) - used,
-                          " temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f encLoop=1",
+                          " modelStyle=%u styleLocked=%u temporal=%s modelHistory=%u smoothing=%.2f historyFrames=%u historyResets=%u histCreate=%u histDelete=%u histActive=%u histPriming=%u preRaw=%.6f preHost=%u scaleRaw=%.6f preCodec=%.6f encLoop=1",
+                          session->modelStyle,session->modelStyleLocked?1u:0u,
                           session->temporalReason.c_str(),session->job.modelHistory?1u:0u,
                           session->job.temporalParams.smoothStrength,
                           session->temporal?session->temporal->used:0u,session->temporal?session->temporal->resets:0u,
@@ -3023,6 +3085,10 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
             }
             const size_t offset=std::strlen(text);
             std::snprintf(text+offset,sizeof(text)-offset," historyReset=%s",session->temporalResetReason);
+#ifdef LMXXF_NR_NATIVE_TEMPORAL_TEST
+            const size_t nativeOffset=std::strlen(text);
+            std::snprintf(text+nativeOffset,sizeof(text)-nativeOffset," nativePost=1 historySeed=%u",session->job.seed);
+#endif
         }
         if (session)
         {

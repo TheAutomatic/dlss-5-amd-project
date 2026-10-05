@@ -328,6 +328,18 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
             LmxxfPaperWhite.set_from_config(readFloat("DlssNr", "LmxxfPaperWhite"));
             LmxxfAutoExposure.set_from_config(readBool("DlssNr", "LmxxfAutoExposure"));
+            {
+                auto style = readUInt(CfgKey::kSection, CfgKey::ModelStyle);
+                if (style && *style > 2)
+                {
+                    LOG_WARN("DlssNr.{} must be 0, 1 or 2; using Natural (1)", CfgKey::ModelStyle);
+                    style = 1u;
+                }
+                LmxxfModelStyle.set_from_config(style);
+                // Missing/auto leaves env and flags fallbacks available. An explicit INI owns the key.
+                if (style)
+                    CfgKey::PutEnvString(CfgKey::ModelStyle, std::to_string(*style).c_str());
+            }
             LmxxfModelHistory.set_from_config(readBool(CfgKey::kSection, CfgKey::ModelHistory));
             LmxxfOutputSmoothing.set_from_config(readFloat(CfgKey::kSection, CfgKey::OutputSmoothing));
             LmxxfAutoExposureScale.set_from_config(readFloat("DlssNr", "LmxxfAutoExposureScale"));
@@ -493,6 +505,9 @@ bool Config::Reload(std::filesystem::path iniPath)
                 LmxxfVitStream.set_from_config(vstream);
                 const bool adapt = readUnifiedBoolDefault(CfgKey::VitAdaptive, true);
                 LmxxfVitAdaptive.set_from_config(adapt);
+                const bool exactReuse = readUnifiedBoolDefault(CfgKey::VitReuseExact, false);
+                LmxxfVitReuseExact.set_from_config(exactReuse);
+                CfgKey::PutEnvAlias(CfgKey::VitReuseExact, exactReuse);
                 // Match the menu's exclusions when an ini contains conflicting choices.
                 // A selected stream wins over byte stream; byte stream disables reuse.
                 if (LmxxfVitStream.value_or_default() != 0)
@@ -1534,6 +1549,7 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::VitStream,
                  GetIntValue(Instance()->LmxxfVitStream.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitAdaptive, GetBoolValue(Instance()->LmxxfVitAdaptive.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::VitReuseExact, GetBoolValue(Instance()->LmxxfVitReuseExact.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReusePeriod, GetIntValue(Instance()->LmxxfVitReusePeriod.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReuseGlobal, GetFloatValue(Instance()->LmxxfVitReuseGlobal.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::VitReuseLocal, GetFloatValue(Instance()->LmxxfVitReuseLocal.value_for_config()).c_str());
@@ -1543,6 +1559,8 @@ bool Config::SaveIni()
                  GetFloatValue(Instance()->LmxxfPaperWhite.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LmxxfAutoExposure",
                  GetBoolValue(Instance()->LmxxfAutoExposure.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::ModelStyle,
+                 GetIntValue(Instance()->LmxxfModelStyle.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::ModelHistory,
                  GetBoolValue(Instance()->LmxxfModelHistory.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::OutputSmoothing,

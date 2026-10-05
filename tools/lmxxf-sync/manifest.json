@@ -50,7 +50,12 @@
     "typeless-float16.patch",
     "codec-hue-safe-preexp.patch",
     "codec-flicker-test17.patch",
-    "flicker-test18.patch"
+    "flicker-test18.patch",
+    "model-style.patch",
+    "c32-test20-precision.patch",
+    "native-post-history.patch",
+    "adaptive-reset-async.patch",
+    "exact-vit-reuse.patch"
   ],
   "hip_files": [
     "build-modules.ps1",

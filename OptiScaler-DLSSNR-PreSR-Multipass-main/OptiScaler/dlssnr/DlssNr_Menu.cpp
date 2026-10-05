@@ -484,6 +484,16 @@ void RenderMenu(Config* config, float menuResScale)
 
             if (isLmxxf)
             {
+                static const char* modelStyles[] = { "Auto (flags / Natural)", "Standard", "Natural", "Cinematic" };
+                const auto savedStyle = config->LmxxfModelStyle.value_for_config();
+                int modelStyle = savedStyle ? int(std::min(*savedStyle, 2u)) + 1 : 0;
+                if (ImGui::Combo("Model style (next launch)", &modelStyle, modelStyles, IM_ARRAYSIZE(modelStyles)))
+                    config->LmxxfModelStyle.set_for_next_launch(modelStyle ? std::optional<uint32_t>(uint32_t(modelStyle - 1)) : std::nullopt);
+                HelpMarker("The model's own Standard / Natural / Cinematic conditioning."
+                           "\nSave Settings and restart the game to apply. The current model stays loaded."
+                           "\nAuto uses flags/environment, then Natural (the previous lmxxf default)."
+                           "\nThis does not change Detail strength or add output smoothing.");
+
                 float transfer = config->DlssNrTransferStrength.value_or_default();
                 if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 3.0f, "%.2f"))
                     config->DlssNrTransferStrength = transfer;
@@ -730,6 +740,17 @@ void RenderMenu(Config* config, float menuResScale)
                             config->LmxxfVitAdaptive = adapt;
                             CfgKey::PutEnvAlias(CfgKey::VitAdaptive, adapt);
                         }
+                        bool exactReuse = config->LmxxfVitReuseExact.value_or_default();
+                        if (ImGui::Checkbox("Only reuse identical input", &exactReuse))
+                        {
+                            config->LmxxfVitReuseExact = exactReuse;
+                            CfgKey::PutEnvAlias(CfgKey::VitReuseExact, exactReuse);
+                        }
+                        HelpMarker("Avoids approximation errors from reuse."
+                                   "\nChanging scenes may need full computation every frame."
+                                   "\nRequires ViT adaptive reuse; does not add image history."
+                                   "\nApplies next frame.");
+                        ImGui::BeginDisabled(exactReuse);
                         int period = config->LmxxfVitReusePeriod.value_or_default();
                         if (ImGui::SliderInt("Reuse period", &period, 1, 16))
                         {
@@ -762,6 +783,7 @@ void RenderMenu(Config* config, float menuResScale)
                             snprintf(buf, sizeof buf, "%g", im);
                             CfgKey::PutEnvString(CfgKey::VitReuseImage, buf);
                         }
+                        ImGui::EndDisabled();
                         bool hot = config->LmxxfVitReuseHotkey.value_or_default();
                         if (ImGui::Checkbox("Hotkey F8", &hot))
                         {
@@ -885,6 +907,8 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvString(CfgKey::VitStream, "0");
                     config->LmxxfVitAdaptive = true;
                     CfgKey::PutEnvAlias(CfgKey::VitAdaptive, true);
+                    config->LmxxfVitReuseExact = false;
+                    CfgKey::PutEnvAlias(CfgKey::VitReuseExact, false);
                     config->LmxxfVitReusePeriod = 16;
                     CfgKey::PutEnvString(CfgKey::VitReusePeriod, "16");
                     config->LmxxfVitReuseGlobal = 1.0f;

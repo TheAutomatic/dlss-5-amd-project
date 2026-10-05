@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <chrono>
 
 static void Require(bool ok, const char *what)
 {
@@ -240,11 +242,19 @@ int main(int argc, char **argv)
     bool queueMismatch = false, resize = false, rgb9e5 = false, r10g10b10a2 = false, autoExposure = false,
          scale16 = false, outputHash = false, rejectFormats = false,
          useExposure = false, badExposure = false, ultrawide = false, subrect = false, temporalTest = false,
-         temporalGuides = false;
+         temporalGuides = false, nativeTemporalTest = false, blockedProducer = false;
     int test17Mode=-1;
     for (int i = 3; i < argc; ++i)
     {
-        if (!std::strcmp(argv[i], "--queue-mismatch"))
+        if (!std::strcmp(argv[i], "--native-temporal"))
+            nativeTemporalTest = temporalTest = outputHash = true;
+        else if (!std::strcmp(argv[i], "--blocked-producer")) {
+            blockedProducer = true;
+            _putenv_s("DLSS5_VIT_ADAPTIVE", "1");
+            _putenv_s("DLSS5_VIT_ADAPTIVE_LOG", "");
+            _putenv_s("DLSS5_VIT_REUSE_HOTKEY", "0");
+        }
+        else if (!std::strcmp(argv[i], "--queue-mismatch"))
             queueMismatch = true;
         else if (!std::strcmp(argv[i], "--resize"))
             resize = true;
@@ -598,7 +608,7 @@ int main(int argc, char **argv)
         }
         const UINT guides=LMXXF_NR_TEMPORAL_INPUTS_VALID|LMXXF_NR_TEMPORAL_DEPTH_INVERTED;
         frame.temporal_flags=guides;
-        UINT run=0;
+        UINT run=0, nextNativeSeed=0;
         const auto execute=[&](const char *expected) -> uint64_t {
             ++run;++frame.evaluate_sequence;
             ID3D12CommandAllocator *pa=nullptr,*ca=nullptr;
@@ -613,6 +623,16 @@ int main(int argc, char **argv)
             char state[2048]{};api.GetStatus(ctx,state,sizeof state);
             std::printf("temporal run=%u %s\n",run,state);
             Require(std::strstr(state,expected)!=nullptr,"temporal effective state");
+            if(nativeTemporalTest) {
+                Require(std::strstr(state,"nativePost=1")!=nullptr,"native test runtime required");
+                const char *seedText=std::strstr(state,"historySeed=");Require(seedText!=nullptr,"native seed diagnostic");
+                const bool model=(frame.temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)!=0;
+                const bool priming=std::strstr(state,"temporal=priming")!=nullptr;
+                const bool active=std::strstr(state,"temporal=active")!=nullptr;
+                if(priming||!active)nextNativeSeed=0;
+                const unsigned wanted=model&&(priming||active)?nextNativeSeed++:1;
+                Require(std::strtoul(seedText+12,nullptr,10)==wanted,"native seed progresses and resets with model history");
+            }
             if(temporalGuides && frame.struct_size==sizeof(frame) && frame.motion==motion && frame.depth==depth) {
                 Require(std::strstr(state,"/fmt2/dim3/array1/mips2/samples1/flags0")!=nullptr,"motion descriptor diagnostics");
                 Require(std::strstr(state,"/fmt19/dim3/array1/mips2/samples1/flags2")!=nullptr,"depth descriptor diagnostics");
@@ -620,20 +640,45 @@ int main(int argc, char **argv)
             ok(api.RecordInputs(ctx,tj.handle,pc),"temporal inputs");Check(pc->Close(),"temporal producer close");
             // Same contract as the product: record the consumer before EnqueueHip.
             ok(api.RecordOutputs(ctx,tj.handle,cc),"temporal outputs");Check(cc->Close(),"temporal consumer close");
+            ID3D12Fence *gate=nullptr;
+            HANDLE enqueueDone=nullptr;
+            std::thread releaseGate;
+            bool enqueueBlocked=false;
+            // After warmup, a CPU submission must not require producer GPU
+            // completion. The watchdog releases even a broken runtime so the
+            // regression fails cleanly without leaving the GPU queue blocked.
+            if(blockedProducer && run>1) {
+                Check(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"producer gate");
+                Check(submitQueue->Wait(gate,1),"block producer GPU");
+                enqueueDone=CreateEventW(nullptr,TRUE,FALSE,nullptr);Require(enqueueDone!=nullptr,"enqueue event");
+                releaseGate=std::thread([&]{
+                    enqueueBlocked=WaitForSingleObject(enqueueDone,2000)!=WAIT_OBJECT_0;
+                    Check(gate->Signal(1),"release producer gate");
+                });
+            }
             ID3D12CommandList *ps[]={pc},*cs[]={cc};submitQueue->ExecuteCommandLists(1,ps);
-            ok(api.EnqueueHip(ctx,tj.handle,submitQueue),"temporal enqueue");submitQueue->ExecuteCommandLists(1,cs);
+            const auto enqueueStart=std::chrono::steady_clock::now();
+            const int enqueueRc=api.EnqueueHip(ctx,tj.handle,submitQueue);
+            const double enqueueMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-enqueueStart).count();
+            if(gate) {SetEvent(enqueueDone);releaseGate.join();CloseHandle(enqueueDone);}
+            std::printf("enqueue run=%u blocked=%u cpu_ms=%.3f\n",run,unsigned(enqueueBlocked),enqueueMs);
+            ok(enqueueRc,"temporal enqueue");submitQueue->ExecuteCommandLists(1,cs);
             ok(api.Retire(ctx,tj.handle),"temporal retire");WaitQueue(device,submitQueue);
+            if(gate)gate->Release();
             const auto hash=HashTexture(device,submitQueue,static_cast<ID3D12Resource*>(tj.private_output));
+            std::printf("temporal_hash run=%u value=%016llx\n",run,static_cast<unsigned long long>(hash));
+            Require(!enqueueBlocked,"EnqueueHip must return while producer GPU is blocked");
             pc->Release();cc->Release();pa->Release();ca->Release();return hash;
         };
         const auto baseline=execute("temporal=off");
         frame.temporal_flags=guides|LMXXF_NR_TEMPORAL_MODEL_HISTORY;
-        Require(execute("temporal=priming")==baseline,"history priming preserves baseline pixels");
+        const auto primingHash=execute("temporal=priming");
+        if(!nativeTemporalTest)Require(primingHash==baseline,"history priming preserves baseline pixels");
         const auto historyHash=execute("temporal=active modelHistory=1");
         Require(historyHash!=baseline,"history reaches network math");
         execute("temporal=active modelHistory=1");
         frame.temporal_flags|=LMXXF_NR_TEMPORAL_RESET;
-        Require(execute("temporal=priming")==baseline,"reset preserves baseline");
+        Require(execute("temporal=priming")==primingHash,"reset restores first model frame");
         frame.temporal_flags=guides|LMXXF_NR_TEMPORAL_MODEL_HISTORY;execute("temporal=active modelHistory=1");
         frame.temporal_flags=guides;frame.output_smoothing=.25f;
         Require(execute("temporal=priming")==baseline,"smoothing-only priming preserves baseline");
@@ -643,7 +688,7 @@ int main(int argc, char **argv)
         Require(execute("temporal=off")==baseline,"off restores baseline after both modes");
         frame.temporal_flags|=LMXXF_NR_TEMPORAL_MODEL_HISTORY;execute("temporal=priming");
         Require(api.ResetHistory(ctx)==LMXXF_NR_OK,"ResetHistory API");
-        Require(execute("temporal=priming")==baseline,"ResetHistory drops prior frame");
+        Require(execute("temporal=priming")==primingHash,"ResetHistory drops prior frame");
         frame.evaluate_sequence+=3;execute("temporal=priming");execute("temporal=active modelHistory=1");
         frame.motion=nullptr;Require(execute("temporal=missing-guides")==baseline,"missing motion preserves baseline");
         frame.motion=motion;execute("temporal=priming");execute("temporal=active modelHistory=1");

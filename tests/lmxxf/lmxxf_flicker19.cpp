@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include "third_party/lmxxf/src/native_game_codec.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/FlickerCapture19.h"
 using Microsoft::WRL::ComPtr;
@@ -76,6 +78,7 @@ int main(int argc,char**argv){
         typeless->SetPrivateData(NrObservedRtvFormatGuid,sizeof(observed),&observed);
         Require(capture.TestFlags(true)==0 && capture.TestFlags(false)==0,"no UI or mode flags enter codec");
         for(UINT frame=0;frame<22;frame++){
+            fi.nativeTemporal=run?1:0;fi.seed=run?frame:1;capture.SetFrameInfo(fi);
             reset();capture.Begin(d.Get(),meta,frame==0,1000+3000*run+100*frame);
             if(frame<20)Require(!capture.SelectScreenPoint(.1f,.9f),"target locked during capture");
             capture.Guides(c.Get(),d.Get(),motion.Get(),depth.Get(),read,read);
@@ -95,6 +98,21 @@ int main(int argc,char**argv){
         Require(last-first==1900,"ROI extends through last tenth of recording");
         {std::lock_guard<std::mutex>lock(NrDiagnostic19::mutex);const auto&o=NrDiagnostic19::snapshot;Require(o.state==3&&o.edge==64&&o.pixels==20&&o.missingMask==0,"host snapshot reflects complete capture");}
         std::wstring path=capture.Path();
+        {
+            std::ifstream csv(path+L".csv");std::string line;Require(bool(std::getline(csv,line)),"capture CSV header");
+            Require(line.find("model_seed,native_temporal")!=std::string::npos,"seed column names");
+            UINT row=0;
+            while(std::getline(csv,line)){
+                std::istringstream fields(line);std::vector<std::string>v;std::string item;
+                while(std::getline(fields,item,','))v.push_back(item);
+                Require(v.size()==38,"capture CSV schema columns");
+                Require(std::stoul(v[36])==(run?row:1)&&std::stoul(v[37])==(run?1u:0u),"seed is captured per frame");++row;
+            }
+            Require(row==20,"every captured frame has seed metadata");
+            std::ifstream infoFile(path+L".info.txt");std::string infoText((std::istreambuf_iterator<char>(infoFile)),{});
+            Require(infoText.find("diagnostic_revision=23")!=std::string::npos,"capture revision");
+            Require(infoText.find(run?"seed_policy=native-counter-when-history-requested":"seed_policy=fixed-1")!=std::string::npos,"capture seed policy");
+        }
         FILE*ff=_wfopen((path+L".full").c_str(),L"rb");Require(ff!=nullptr,"full frame file");
         Require(fread(magic,1,8,ff)==8&&!memcmp(magic,"NRFFV1\0\0",8),"full magic");
         UINT fullRecords=0;uint64_t firstFull=0,lastFull=0;

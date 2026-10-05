@@ -52,6 +52,8 @@ class ConfigPriorityTests(unittest.TestCase):
                 "AllowEnhancedBarriers",
                 "EarlyExeWrap",
                 "Diagnostic",
+                # Native model conditioning has its own product key and an explicit DLSS5 alias.
+                "ModelStyle",
                 # Product-only frame ABI controls, like AutoExposure; no env consumer.
                 "ModelHistory",
                 "OutputSmoothing",
@@ -89,7 +91,7 @@ class ConfigPriorityTests(unittest.TestCase):
 
     def test_menu_labels_are_not_ini_keys(self):
         # Display strings must not appear as SetValue / CfgKey string literals.
-        for label in ("High resolution", "Network tier", "Wave-owned attention", "ViT adaptive reuse"):
+        for label in ("High resolution", "Network tier", "Wave-owned attention", "ViT adaptive reuse", "Only reuse identical input"):
             self.assertNotIn(f'"{label}"', CONFIG)
             self.assertNotIn(f'"{label}"', KEYS)
 

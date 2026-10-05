@@ -31,6 +31,26 @@
       "path": "shaders/native_codec_decode.hlsl",
       "fixture": "native_codec_decode.upstream.hlsl",
       "sha256": "3762d2f18c1485e2548b5d7734f357bd8f5819e5ef7b2b8b196e2634b2c4b07d"
+    },
+    {
+      "path": "Development/HIP/packed_weights.h",
+      "fixture": "packed_weights.upstream.h",
+      "sha256": "4aa0a3a8b014cb0c517d7c9e4811a1af5e3f92f7165a5b90c4e3d0edced99d35"
+    },
+    {
+      "path": "src/native_hip_env_options.h",
+      "fixture": "native_hip_env_options.upstream.h",
+      "sha256": "55537d03752e4fb34a321e81dc44a804e84c88108b4086d498d77af47e85e5e3"
+    },
+    {
+      "path": "hip/wave_owned_c32.inc",
+      "fixture": "wave_owned_c32.upstream.inc",
+      "sha256": "f28f281626b2ca6d4732c61136690895682991feece4dd4d8fb043a9f074edec"
+    },
+    {
+      "path": "hip/deep_fast.hip",
+      "fixture": "deep_fast.upstream.hip",
+      "sha256": "b159faf6637610f21e1ee3ae93402db8bf52084d546c426f4cf0886c4ffd8ff7"
     }
   ]
 }

@@ -19,8 +19,8 @@ inline void Draw() {
     if (!s.visible || GetTickCount64()-s.updated>=3000) return;
     auto*vp=ImGui::GetMainViewport(); auto*draw=ImGui::GetForegroundDrawList(vp);
     const auto color=s.state==3?IM_COL32(64,255,96,255):s.state>=4?IM_COL32(255,96,80,255):IM_COL32(255,255,255,255);
-    const char*labels[]={"TEST21 READY - F9 starts 20s capture", "TEST21 CAPTURING - BOX LOCKED", "TEST21 SAVING - PLEASE WAIT",
-        "TEST21 SAVED - capture is on disk", "TEST21 INCOMPLETE - keep logs; do not repeat", "TEST21: History OFF / Smoothing 0 / Debug OFF"};
+    const char*labels[]={"NR CAPTURE READY - F9 starts 20s capture", "NR CAPTURING - BOX LOCKED", "NR SAVING - PLEASE WAIT",
+        "NR SAVED - capture is on disk", "NR INCOMPLETE - keep logs; do not repeat", "NR CAPTURE: Debug OFF / Codec bypass OFF"};
     const char*label=labels[s.state<=5?s.state:4];
     float font=ImGui::GetFontSize(); float scale=font/16.0f;
     ImVec2 pos(vp->Pos.x+16*scale,vp->Pos.y+18*scale);

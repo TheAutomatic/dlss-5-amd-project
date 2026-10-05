@@ -30,6 +30,7 @@ inline constexpr const char *PaperWhite = "LmxxfPaperWhite";
 inline constexpr const char *AllowEnhancedBarriers = "LmxxfAllowEnhancedBarriers";
 inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
+inline constexpr const char *ModelStyle = "LmxxfModelStyle";
 inline constexpr const char *ModelHistory = "LmxxfModelHistory";
 inline constexpr const char *OutputSmoothing = "LmxxfOutputSmoothing";
 
@@ -46,6 +47,7 @@ inline constexpr const char *DecoderByte = "DLSS5_HIP_DECODER_BYTE";
 inline constexpr const char *VitByteStream = "DLSS5_HIP_VIT_BYTE_STREAM";
 inline constexpr const char *VitStream = "DLSS5_HIP_VIT_STREAM";
 inline constexpr const char *VitAdaptive = "DLSS5_VIT_ADAPTIVE";
+inline constexpr const char *VitReuseExact = "DLSS5_VIT_REUSE_EXACT";
 inline constexpr const char *VitReusePeriod = "DLSS5_VIT_REUSE_PERIOD";
 inline constexpr const char *VitReuseGlobal = "DLSS5_VIT_REUSE_GLOBAL";
 inline constexpr const char *VitReuseLocal = "DLSS5_VIT_REUSE_LOCAL";
@@ -65,6 +67,7 @@ inline constexpr const char *Async = "Async";
 // Known DlssNr ini keys (save path). Adding a menu control requires adding its key here
 // first; labels stay in DlssNr_Menu.cpp only.
 inline constexpr const char *const kKnown[] = {
+    ModelStyle,
     ModelHistory,
     OutputSmoothing,
     "Enabled",
@@ -159,6 +162,7 @@ inline constexpr const char *const kKnown[] = {
     VitByteStream,
     VitStream,
     VitAdaptive,
+    VitReuseExact,
     VitReusePeriod,
     VitReuseGlobal,
     VitReuseLocal,
@@ -233,6 +237,8 @@ inline const char *EnvAlias(const char *iniKey)
 {
     if (!iniKey)
         return nullptr;
+    if (std::strcmp(iniKey, ModelStyle) == 0)
+        return "DLSS5_MODEL_STYLE";
     if (std::strncmp(iniKey, "DLSS5_", 6) == 0)
         return iniKey;
     return nullptr;

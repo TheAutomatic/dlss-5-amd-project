@@ -1,6 +1,9 @@
 @echo off
 rem lmxxf runtime and submission tests. Every test in tests\lmxxf belongs to exactly one tier below.
-rem Usage: tests\lmxxf\run.cmd abi^|warp^|device^|gpu [out-dir]
+rem Usage: tests\lmxxf\run.cmd abi^|warp^|temporal^|device^|creation^|gpu^|native^|reuse [out-dir]
+rem   native : candidate runtime lifecycle; requires explicit LMXXF_TEST_RUNTIME, LMXXF_TEST_MODULES, LMXXF_ASSETS.
+rem   reuse  : exact ViT cache GPU contract; explicit LMXXF_TEST_MODULES for the device architecture.
+rem   creation: real DLL caller admission and retained early-list submission (also in device).
 rem   abi    : lmxxf_nr_abi, lmxxf_zero_fallback_abi.c, test_runtime_validation.py (no GPU)
 rem   warp   : lmxxf_same_frame_boundary, lmxxf_color_probe (D3D12 WARP; no GPU)
 rem   device : lmxxf_state_object, lmxxf_list_split, lmxxf_list1_wrap, lmxxf_create_execute,
@@ -31,13 +34,30 @@ set "MODS=%REPO%\third_party\lmxxf\modules"
 set "CXX=cl /nologo /std:c++20 /EHsc /W4 /utf-8"
 set "D3D=d3d12.lib dxgi.lib dxguid.lib uuid.lib"
 if /i "%TIER%"=="abi" goto abi
+if /i "%TIER%"=="temporal" goto temporal_only
 if /i "%TIER%"=="warp" goto warp
 if /i "%TIER%"=="device" goto device
+if /i "%TIER%"=="creation" goto creation
 if /i "%TIER%"=="gpu" goto gpu
-echo usage: tests\lmxxf\run.cmd abi^|warp^|device^|gpu [out-dir]
+if /i "%TIER%"=="native" goto native
+if /i "%TIER%"=="reuse" goto reuse
+echo usage: tests\lmxxf\run.cmd abi^|warp^|temporal^|device^|creation^|gpu^|native^|reuse [out-dir]
 exit /b 2
 
+:reuse
+if not defined LMXXF_TEST_MODULES (
+  echo FAIL: set LMXXF_TEST_MODULES to the explicit candidate module directory.
+  goto fail
+)
+cl /nologo /std:c++17 /O2 /EHsc /W4 /utf-8 tests\lmxxf\lmxxf_exact_reuse.cpp /Fe"%OUT%\lmxxf_exact_reuse.exe" /Fo"%OUT%\lmxxf_exact_reuse.obj" || goto fail
+for %%M in (deep_fast deep_fast-packed) do (
+  "%OUT%\lmxxf_exact_reuse.exe" "%LMXXF_TEST_MODULES%\%%M.hsaco" || goto fail
+)
+goto pass
+
 :abi
+cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX tests\lmxxf\lmxxf_model_style.cpp /Fe"%OUT%\lmxxf_model_style.exe" /Fo"%OUT%\lmxxf_model_style.obj" || goto fail
+"%OUT%\lmxxf_model_style.exe" || goto fail
 %AMD_TEST_PYTHON% tests\lmxxf\test_fullframes.py || goto fail
 %AMD_TEST_PYTHON% tests\lmxxf\test_capture19.py || goto fail
 call :Runtime || goto fail
@@ -53,8 +73,7 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
-%CXX% tests\lmxxf\lmxxf_temporal.cpp /Fe"%OUT%\lmxxf_temporal.exe" /Fo"%OUT%\lmxxf_temporal.obj" /link %D3D% d3dcompiler.lib || goto fail
-"%OUT%\lmxxf_temporal.exe" || goto fail
+call :RunTemporal || goto fail
 %CXX% /I"%INC%" tests\lmxxf\lmxxf_same_frame_boundary.cpp /Fe"%OUT%\lmxxf_same_frame_boundary.exe" /Fo"%OUT%\lmxxf_same_frame_boundary.obj" /link %D3D% d3dcompiler.lib "%DETOURS%" || goto fail
 "%OUT%\lmxxf_same_frame_boundary.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_color_probe.cpp /Fe"%OUT%\lmxxf_color_probe.exe" /Fo"%OUT%\lmxxf_color_probe.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
@@ -69,7 +88,19 @@ goto pass
 "%OUT%\nr_overlay19.exe" || goto fail
 goto pass
 
+:temporal_only
+call :RunTemporal || goto fail
+goto pass
+
+:RunTemporal
+for %%T in (lmxxf_temporal lmxxf_native_temporal) do (
+  %CXX% tests\lmxxf\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" /link %D3D% d3dcompiler.lib || exit /b 1
+  "%OUT%\%%T.exe" || exit /b 1
+)
+exit /b 0
+
 :device
+call :EarlyUnity || goto fail
 set "DXC=%WindowsSdkDir%bin\%WindowsSDKVersion%x64\dxc.exe"
 if not exist "%DXC%" (
   echo FAIL: Windows SDK dxc.exe required for DXR continuation test.
@@ -120,6 +151,38 @@ cl /nologo /std:c++17 /EHsc /W4 /utf-8 /DNOMINMAX /D_WIN32_WINNT=0x0A00 tests\lm
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
 "%OUT%\lmxxf_bridge_zero_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" --probe-drain || goto fail
 goto pass
+
+:native
+if not defined LMXXF_TEST_RUNTIME goto native_missing
+if not defined LMXXF_TEST_MODULES goto native_missing
+if not defined LMXXF_ASSETS goto native_missing
+if not exist "%LMXXF_TEST_RUNTIME%" goto native_missing
+if not exist "%LMXXF_TEST_MODULES%\c32-wave1.hsaco" goto native_missing
+set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
+%CXX% /O2 /I"%RT_INC%" tests\lmxxf\lmxxf_nr_gpu.cpp /Fe"%OUT%\lmxxf_nr_gpu.exe" /Fo"%OUT%\lmxxf_nr_gpu.obj" /link d3d12.lib dxgi.lib || goto fail
+for %%M in ("--native-temporal" "--native-temporal --temporal-guides" "--native-temporal --subrect" "--native-temporal --blocked-producer" "--queue-mismatch") do (
+  "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%LMXXF_TEST_MODULES%" %%~M || goto fail
+)
+goto pass
+:native_missing
+echo FAIL: native tier needs explicit candidate LMXXF_TEST_RUNTIME, LMXXF_TEST_MODULES and LMXXF_ASSETS.
+goto fail
+
+:creation
+call :EarlyUnity || goto fail
+for %%T in (lmxxf_create_execute lmxxf_list1_wrap lmxxf_evaluate_cut) do (
+  %CXX% /I"%INC%" tests\lmxxf\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" /link %D3D% "%DETOURS%" || goto fail
+  "%OUT%\%%T.exe" || goto fail
+)
+goto pass
+
+:EarlyUnity
+for %%N in (UnityPlayer OtherEngine) do (
+  %CXX% /O2 /LD tests\lmxxf\early_caller_fixture.cpp /Fe"%OUT%\%%N.dll" /Fo"%OUT%\%%N.obj" /link /IMPLIB:"%OUT%\%%N.lib" %D3D% || exit /b 1
+)
+%CXX% /O2 /DNOMINMAX /DLMXXF_NR_FLICKER_TEST19 /I"%INC%" tests\lmxxf\lmxxf_early_unity.cpp /Fe"%OUT%\lmxxf_early_unity.exe" /Fo"%OUT%\lmxxf_early_unity.obj" /link %D3D% "%DETOURS%" || exit /b 1
+"%OUT%\lmxxf_early_unity.exe" "%OUT%\UnityPlayer.dll" "%OUT%\OtherEngine.dll"
+exit /b %errorlevel%
 
 :pass
 echo lmxxf %TIER%: PASS

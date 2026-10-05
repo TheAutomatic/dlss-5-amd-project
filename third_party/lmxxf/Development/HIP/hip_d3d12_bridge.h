@@ -17,7 +17,7 @@ namespace hip_reference {
 class D3D12Bridge {
  struct Shared {ID3D12Resource*resource{};HANDLE handle{};Handle imported{};void*mapped{};};
  Network*network{};ID3D12Device*device{};ID3D12CommandQueue*queue{};ID3D12Fence*fence{};
- HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
+ HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{},output_bytes{};bool readable{},pending{},failed{};
  ID3D12Resource* zero_upload{};ID3D12CommandAllocator* clear_alloc{};ID3D12GraphicsCommandList* clear_cmd{};
  size_t zero_upload_bytes{};bool clear_submission_unconfirmed{};
 public:
@@ -59,7 +59,7 @@ private:
   if(zero_upload&&clear_alloc&&clear_cmd)return true;
   if(!device||!pixels)return false;
   try{
-   zero_upload_bytes=std::min<size_t>(pixels*12,65536);
+   zero_upload_bytes=std::min<size_t>(output_bytes,65536);
    D3D12_HEAP_PROPERTIES up{};up.Type=D3D12_HEAP_TYPE_UPLOAD;
    D3D12_RESOURCE_DESC ud{};ud.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;ud.Width=zero_upload_bytes;ud.Height=1;ud.DepthOrArraySize=ud.MipLevels=1;ud.SampleDesc.Count=1;ud.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;ud.Flags=D3D12_RESOURCE_FLAG_NONE;
    Check(device->CreateCommittedResource(&up,D3D12_HEAP_FLAG_NONE,&ud,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&zero_upload)),"zero upload buffer");
@@ -96,8 +96,8 @@ public:
   if(network){auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
- void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
-  if(network||queue||!q)throw std::runtime_error("bridge already initialized/invalid queue");if(q->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_DIRECT&&q->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_COMPUTE)throw std::runtime_error("bridge requires DIRECT or COMPUTE queue");queue=q;queue->AddRef();Check(q->GetDevice(IID_PPV_ARGS(&device)),"queue device");pixels=size_t(options.width)*options.height;
+ void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise,const std::vector<float>&nativePostRow={}){
+  if(network||queue||!q)throw std::runtime_error("bridge already initialized/invalid queue");if(q->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_DIRECT&&q->GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_COMPUTE)throw std::runtime_error("bridge requires DIRECT or COMPUTE queue");queue=q;queue->AddRef();Check(q->GetDevice(IID_PPV_ARGS(&device)),"queue device");pixels=size_t(options.width)*options.height;output_bytes=pixels*(nativePostRow.empty()?12:20);
   options.pooled=true;options.profile=false;options.dump_dir.clear();
   // Pick the HIP device that is the game's D3D12 adapter. Hosts with an iGPU or a second card expose several HIP devices
   // LUID is authoritative even when a host spoofs DXGI VendorId/Description.
@@ -115,13 +115,13 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   }
   module_directory=options.modules;
   network=new Network(std::move(options));auto&api=network->Runtime();
-  Share(input,pixels*16);Share(history,pixels*16);Share(output,pixels*12,true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);
+  Share(input,pixels*16);Share(history,pixels*16);Share(output,output_bytes,true);Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);if(!nativePostRow.empty())network->EnableNativePostHistory(nativePostRow,static_cast<char*>(output.mapped)+pixels*12,pixels*8);
  }
  unsigned long long ReleaseMarks()const{return release_marks;}
  unsigned long long ReleaseMarkFailures()const{return release_mark_failures;}
  ID3D12Resource*Output()const{return output.resource;}
  size_t free_at_create{};int hip_device=-1;/* HIP device index chosen for the D3D12 adapter */
- void MemoryReport(FILE*f){if(!network)return;network->Runtime().hipStreamSynchronize(network->Stream());std::fprintf(f,"hip_memory device_free_before_network_MiB=%.1f shared input_MiB=%.1f history_MiB=%.1f output_MiB=%.1f\n",free_at_create/1048576.,pixels*16/1048576.,pixels*16/1048576.,pixels*12/1048576.);network->MemoryReport(f);}
+ void MemoryReport(FILE*f){if(!network)return;network->Runtime().hipStreamSynchronize(network->Stream());std::fprintf(f,"hip_memory device_free_before_network_MiB=%.1f shared input_MiB=%.1f history_MiB=%.1f output_MiB=%.1f\n",free_at_create/1048576.,pixels*16/1048576.,pixels*16/1048576.,output_bytes/1048576.);network->MemoryReport(f);}
 bool PdlRequested()const{return network?network->PdlRequested():false;}
  bool PdlEffective()const{return network?network->PdlEffective():false;}
  std::string PdlReason()const{return network?network->PdlReason():"bridge uninitialized";}
@@ -190,7 +190,7 @@ public:
   if(!network||failed||!output.mapped)return false;
   auto&api=network->Runtime();
   try{
-   api.Check(api.hipMemsetAsync(output.mapped,0,pixels*12,network->Stream()),"clear output");
+   api.Check(api.hipMemsetAsync(output.mapped,0,output_bytes,network->Stream()),"clear output");
    network->Synchronize();
    return true;
   }catch(...){
@@ -227,7 +227,7 @@ public:
    completedEvent=CreateEventW(nullptr,FALSE,FALSE,nullptr);
    if(!completedEvent)throw std::runtime_error("clear event");
    Barrier(cmd,output.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
-   const UINT64 total=UINT64(pixels)*12;
+   const UINT64 total=output_bytes;
    for(UINT64 offset=0;offset<total;offset+=zero_upload_bytes)
     cmd->CopyBufferRegion(output.resource,offset,zero_upload,0,std::min<UINT64>(zero_upload_bytes,total-offset));
    Barrier(cmd,output.resource,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);

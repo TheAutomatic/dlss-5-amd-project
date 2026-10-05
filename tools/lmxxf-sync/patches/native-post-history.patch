@@ -1,0 +1,88 @@
+--- a/Development/HIP/hip_reference_network.h
++++ b/Development/HIP/hip_reference_network.h
+@@ -60,6 +60,7 @@
+ }
+ inline std::atomic<int> AdaptivePreviewState{0};
+ class Network {
++ Tensor native_post_row;void* native_post_output=nullptr;
+  bool wave_owned_active=false;bool c512_m32_active=false;bool vit_proj_n64_active=false;unsigned vit_stream_active=0;
+  /* ---- programmatic-dependent-launch emulation (opt.pdl; results/pdl-chain-20260925) ----
+     C64/C128/C256 chain launches after the chain head go out with hipExtAnyOrderLaunch (no AQL barrier bit) and the _pdl
+@@ -250,7 +251,7 @@
+    static const std::map<std::string,std::string> kernels={
+     {"c32_fast_ffn_attention_fused_half_chain","c32_wave1_chain"},{"c32_fast_ffn_attention_fused_half_mapped","c32_wave1_mapped"},
+     {"c32_fast_ffn_attention_fused_half_chain_finish","c32_wave1_finish"},{"c32_fast_ffn_attention_fused_half_chain_finish_dcrop","c32_wave1_finish_dcrop"},
+-    {"c32_post_merge_head_half","c32_wave1_post"},{"c32_fast_ffn_attention_fused_half_prefix_finish_main8","c32_wave1_prefix"}};
++    {"c32_post_merge_head_half_logit","c32_wave1_post_logit"},{"c32_post_merge_head_half","c32_wave1_post"},{"c32_fast_ffn_attention_fused_half_prefix_finish_main8","c32_wave1_prefix"}};
+    auto it=kernels.find(kernel);if(it!=kernels.end()){module="c32_wave1";kernel=it->second;groups=count;threads=32;}
+   }
+   static const std::set<std::string> accelerated={"c32_ffn_expand","c32_ffn_contract","c32_attn_qkv","c32_attn_scores","c32_attn_av","c32_attn_project","mh_ffn_expand","mh_ffn_contract","mh_ffn_project","mh_qkv","mh_scores_exp","mh_attention_av","mh_attention_project","mh_pool_project","split_mix","split_expand","split_contract","split_projection","vit_expand","vit_project","vit_qkv_project","decoder_project2x"};
+@@ -532,7 +533,7 @@
+  for(U j=0;j<8;j++){source=Body(source,W/32,H/32,512,shifts[j],23+j,j==7);}skips[4]=source;source=Down(source,W/32,H/32,512,"head-matrix.f32",true);U vw=W==1920?32:W/64,vh=W==1920?20:H/64;if(W!=1920&&(vw*vh)%16)vh++;/* 2026-09-17: token grid padded to a multiple of 16 tokens by one row of zero tokens (1600x960: 25x15 real -> 25x16), the way 1920x1152 pads 30x18 -> 32x20 */U n=vw*vh;Stage("head",source);source=Gather(source,n,false);source=AdaptiveVitGroup(source,n);source=Gather(source,n,true);source=Up(source,skips[4],vw,vh,W/32,H/32,1024,512,"decoder39-weights.f32");skips[4].reset();Stage("block39",source);for(U b=40;b<=47;b++)source=Body(source,W/32,H/32,512,Shift(b),b,false);
+  U ups[]={48,56,62},cs[]={256,128,64},ends[]={55,61,65};for(U g=0;g<3;g++){U ow=W/(16u>>g),oh=H/(16u>>g);const bool byte_up=opt.decoder_byte&&opt.mh_byte_stream&&opt.decoder_h16w&&opt.fast_deep;source=Up(source,skips[3-g],ow/2,oh/2,ow,oh,cs[g]*2,cs[g],Block(ups[g],"weights"),byte_up);skips[3-g].reset();for(U b=ups[g];b<=ends[g];b++)source=Body(source,ow,oh,cs[g],Shift(b),b,false,opt.mh_byte_stream&&(b>ups[g]||byte_up),opt.mh_byte_stream&&b<ends[g]);}source=Up(source,skips[0],W/4,H/4,W/2,H/2,64,32,"block66-weights.f32");skips[0].reset();C32Result chain{};for(U b=66;b<=69;b++){if(opt.skip_blocks.count(b)){if(!opt.raw_chain)throw std::runtime_error("C32 skip needs the raw chain");if(b==69)SkipChainFinish(chain,W/2,H/2,false);if(chain.main)source=chain.main;continue;}chain=opt.raw_chain?C32Chain(source,chain.raw?&chain:nullptr,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"),b==69,false):C32(source,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"));source=chain.main;if(source)Stage("block"+std::to_string(b),source);}chain={};
+  C32Result post{};
+- if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){auto out=New(size_t(W)*H*3);Run("c32_fused_ffn","c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);source.reset();skip0.reset();Stage("block70",out);return out;}
++ if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){auto out=New(size_t(W)*H*3);if(native_post_output){Run("c32_fused_ffn","c32_post_merge_head_half_logit",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f,P(native_post_row),native_post_output);}else{Run("c32_fused_ffn","c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);}source.reset();skip0.reset();Stage("block70",out);return out;}
+   auto raw=New(size_t(ww)*hh*16);Run("c32_fused_ffn","c32_post_merge_fused_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(raw),windows,W,H,sx,sy);post={Tensor{},Tensor{},raw,ww,hh,sx,sy};source.reset();skip0.reset();}
+  else{auto merged=New(size_t(W)*H*32);Run(opt.fast_c32?"boundary_fast":"boundary",opt.pre_main8?"hip_post_merge_fast_skip8":opt.fast_c32?"hip_post_merge_fast":"hip_post_merge",size_t(W)*H*32,P(source),P(skip0),Weight("post70-scales.f32"),P(merged),W,H);source.reset();skip0.reset();post=C32(merged,W,H,opt.post_shift,"post70-ffn.f32","post70-attention.f32");}
+  auto out=New(size_t(W)*H*3);Run(opt.fast_c32?"boundary_fast":"boundary",opt.half_c32?"hip_post_head_fast_half":opt.fast_c32?"hip_post_head_fast":"hip_post_head_exact",size_t(W)*H*3,P(post.raw),P(color),Weight("post70-head.f32"),P(out),W,H,post.workw,post.sx,post.sy,.03125f);Stage("block70",out);return out;}
+@@ -543,6 +544,16 @@
+   if(opt.profile){bool valid=true;std::map<std::string,double>ms;for(auto&t:timings){float elapsed;api.Check(api.hipEventElapsedTime(&elapsed,t.begin,t.end),"event elapsed");if(!std::isfinite(elapsed)||elapsed<0)valid=false;ms[t.name]+=elapsed;api.hipEventDestroy(t.begin);api.hipEventDestroy(t.end);}timings.clear();double total=0;for(auto&m:ms){std::printf("kernel_ms %s %.6f\n",m.first.c_str(),m.second);total+=m.second;}if(valid)std::printf("kernel_ms TOTAL %.6f\n",total);else std::printf("PROFILE INVALID: negative/nonfinite HIP event intervals; discard this iteration\n");}return result;}
+  // Device callers initialize once and use this stream for external fence waits/signals.
+  void SetNoise(const std::vector<float>&noise){if(!opt.fast_prefix&&noise.size()!=50331648)throw std::runtime_error("noise size");api.Check(api.hipStreamSynchronize(stream),"set noise");ClearGraph();graph_warmed=false;device_noise=opt.fast_prefix?Tensor{}:Upload(noise.data(),noise.size()*4,true);}
++
++ // Configure before the first staged frame. The extension has a separate
++ // float2 output; RGB stays three floats and its arithmetic is unchanged.
++ void EnableNativePostHistory(const std::vector<float>&row,void*output,size_t bytes){
++  if(row.size()!=32||!output||bytes<size_t(W)*H*8||native_post_row||!wave_owned_active||!opt.post_merge_fold||!opt.post_head_fused||opt.graph)
++   throw std::runtime_error("native model history requires wave-owned fused post, graph off and a complete matching package");
++  for(float v:row)if(!std::isfinite(v))throw std::runtime_error("native model history row is nonfinite");
++  try{Fn("c32_wave1","c32_wave1_post_logit");}catch(...){throw std::runtime_error("native model history module mismatch; update the complete package, including runtime and modules");}
++  Synchronize();native_post_row=Upload(row.data(),128,true);native_post_output=output;
++ }
+  bool GraphEnabled()const{return opt.graph;}
+  bool WaveOwnedActive()const{return wave_owned_active;}
+  bool C512M32Active()const{return c512_m32_active;}
+--- a/hip/wave_owned_c32.inc
++++ b/hip/wave_owned_c32.inc
+@@ -166,7 +166,7 @@
+  if(x>=0&&y>=0&&x<int(width)&&y<int(height)){uint xx=uint(x)+px,yy=uint(y)+py,tile=(yy/8)*(prevw/8)+xx/8,tok=(yy%8)*8+xx%8;__builtin_memcpy(&a,in+(tile*64+tok)*32+ci*16+g*8,8);}return a;
+ }
+ template<bool Chain,bool Finish=false,bool DownCrop=false,bool Post=false,bool Prefix=false>
+-DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0){fp8_sat_mode();
++DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0,const float*logitw=nullptr,float*logit=nullptr){fp8_sat_mode();
+  constexpr uint cw_kind=Prefix?5:Post?4:Finish?(DownCrop?3:2):Chain?0:1;
+  uint win=bid();if(win>=windows)return;
+  __attribute__((shared)) _Float16 residual[4*2*32*8];
+@@ -402,6 +402,12 @@
+    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);sums[0]+=f*headw[c];sums[1]+=f*headw[32+c];sums[2]+=f*headw[64+c];}
+ #endif
+    for(uint c=0;c<3;c++){float acc=Hrtz(sums[c]),centered=color[p*4+c]*.125f-.0625f,v=(acc*rgbscale+centered)*8.f+.5f;rgb[p*3+c]=cw_clampf(v,0.f,1.f);}
++   // Optional native post projection: retain the original RGB statements above verbatim.
++   // No sigmoid, history blend, RGB scaling, or modification of the residual.
++   if(logit){float ow=0.f;
++    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);ow+=f*logitw[c];}
++    logit[p*2]=ow;logit[p*2+1]=Hrtz(ow);
++   }
+   }}};
+ #if CW_POST_FULL_TILE
+   if(tx>=sx&&ty>=sy&&tx+8<=width+sx&&ty+8<=height+sy)emit(cw_true{});else emit(cw_false{});
+@@ -417,6 +423,12 @@
+    uint p=uint(y)*width+uint(x);float sums[3]{};
+    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);sums[0]+=f*headw[c];sums[1]+=f*headw[32+c];sums[2]+=f*headw[64+c];}
+    for(uint c=0;c<3;c++){float acc=Hrtz(sums[c]),centered=color[p*4+c]*.125f-.0625f,v=(acc*rgbscale+centered)*8.f+.5f;rgb[p*3+c]=cw_clampf(v,0.f,1.f);}
++   // Optional native post projection: retain the original RGB statements above verbatim.
++   // No sigmoid, history blend, RGB scaling, or modification of the residual.
++   if(logit){float ow=0.f;
++    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);ow+=f*logitw[c];}
++    logit[p*2]=ow;logit[p*2+1]=Hrtz(ow);
++   }
+   }}
+  }
+ #endif
+@@ -478,4 +490,5 @@
+ CW_FINISH(c32_wave1_finish,false)
+ CW_FINISH(c32_wave1_finish_dcrop,true)
+ CW_ENTRY void c32_wave1_post(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
++CW_ENTRY void c32_wave1_post_logit(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale,const float*logitw,float*logit){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale,nullptr,0,0,logitw,logit);}
+ CW_ENTRY void c32_wave1_prefix(const unsigned char*rgba,const float*history,const float*fw,const float*w,float*main,float*down,uint windows,uint mode,uint raw,uint width,uint height,uint seed,uint temporal){cw_body<false,true,false,false,true>(rgba,fw,w,nullptr,windows,mode,raw,width,height,0,0,0,0,0,main,down,nullptr,nullptr,nullptr,nullptr,nullptr,0.f,history,seed,temporal);}

@@ -29,6 +29,14 @@ Only after review and requested verification succeed does the completed commit a
 
 ## OURS (do not follow upstream on sync)
 
+The investigation branch also carries `c32-test20-precision.patch` and
+`native-post-history.patch`. The latter adds optional fourth-row post logits;
+the pinned bridge patch sizes and clears the extended shared output. Native
+model history is selected only by `LMXXF_NR_NATIVE_TEMPORAL_TEST` in the product
+runtime and requires its matching module. These local experiments do not advance
+the completed upstream pin or certify release modules. See the sync README for
+patch order and the explicit `tests/lmxxf/run.cmd native` candidate test entry.
+
 Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves** the vendor file below by default; pass the named switch only when intentionally refreshing from upstream and re-applying local patches (fail-closed). After PR #9 merged upstream, reflect / input-geometry no longer need pinning.
 
 | Path | Owner note | Sync default |
@@ -90,6 +98,7 @@ they take upstream changes and carry only our hunks.
 | `reference-network.patch` | `Development/HIP/hip_reference_network.h` | PDL preflight, status queries, allocation-failure cleanup |
 | `auto-white.patch` | `shaders/native_codec_encode.hlsl`, `shaders/native_codec_decode.hlsl`, `src/native_game_codec.h` | Mean-based white point when the game gives no usable exposure (`Reserved.x` bit 0x10000). The runtime meter (log-smoothed) is the live path and the host no longer sets this bit; the patch stays so a sync cannot silently revert the shader contract. Shaders are otherwise mirrored from upstream |
 | `r10g10b10a2.patch` | `src/native_lab_paths.h` | Accept R10G10B10A2 colour input (Horizon) |
+| `model-style.patch` | `Development/HIP/hip_reference_network.h`, `Development/HIP/packed_weights.h`, `src/native_hip_env_options.h` | Native model style 0/1/2: strict environment parsing and prefix weight-column transform before upload/packing; Natural 1 preserves the original weight bytes. Host configuration and session locking live in product code. |
 
 Any new product edit to a vendored file must ship with a patch in `local_patches`, or the next sync drops it.
 

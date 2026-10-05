@@ -10,13 +10,27 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 - 权重不进仓库。完整查找顺序见 [加载与资源查找](../architecture/lmxxf-c-abi.md#加载与资源查找)。
 - 后端选择：`[DlssNr] NrBackend`，由安装器写入。只装了一边就用那一边；两边都装了就让用户选。
 
+## 可选的精确 ViT 缓存
+
+`[DlssNr] DLSS5_VIT_REUSE_EXACT=false` 默认关闭；菜单 Image reuse 下的
+`Only reuse identical input` 可在下一帧启用。它只在 `DLSS5_VIT_ADAPTIVE=1`
+时生效：ViT 输入（包括填充 token）全部有限且逐位相同时才复用，否则完整计算。
+seed、history、输入地址、模式或超时失效仍强制刷新。开启后不使用近似阈值或周期
+决定复用，原设置保留；关闭后恢复原复用策略。模式 0/2/3 语义不变。
+
+这消除 ViT 近似缓存的额外误差，不改变 Detail、模型图像历史或输出平滑，也不保证
+完整无历史模型本身不闪烁。变化输入通常失去复用收益，静止的相同输入仍可复用。
+宿主 ini/menu 优先于 flags/外部环境。需要配套含 `reuse_decide_exact` 的 deep_fast
+模块；选中时若缺入口会明确要求完整更新。候选须通过 `tests/lmxxf/run.cmd reuse`
+（显式 `LMXXF_TEST_MODULES`）以及网络输出、切换/重置和提交顺序验证，不能只凭模块编译发布。
+
 ## 同帧执行契约（路线甲）
 
 - NR 与游戏帧在同一帧内完成：代理 list 被拆成逻辑段，HIP 在两段之间入队。
 - 以下情况 fail-closed，拒绝拆分：query、predication、RT/meta 命令、无法建模的 viewport/scissor 调用，以及非代理 list 上的 Record。
 - 使用 enhanced barrier 的 list 默认拒绝，因为 layout/access 和 `SYNC_SPLIT` 都没有建模。需要时用 `LmxxfAllowEnhancedBarriers=true` 显式放开。
 - 已录完、`Flags` 为 none 的 alias barrier 不否决拆分（`803c8ba`）。
-- 游戏创建 swapchain 之前，只对 Unreal 和 Forza 做早期 `CreateCommandList` 包装。`LmxxfEarlyExeWrap` 可以强制打开或关闭。燕云这一类游戏如果早包装会崩。
+- 游戏创建 swapchain 之前，Unreal 和 Forza 只提前包装游戏 EXE 创建的 DIRECT 列表；伊莫 `Aniimo.exe` 则提前包装 `UnityPlayer.dll` 创建的 DIRECT 列表，避免长期保留的启动列表偶发回退原图。两条路径都先确保提交 hook 就绪，其他模块仍等 swapchain 后接管。`LmxxfEarlyExeWrap=false` 关闭这两种早期接管，`true` 保留强制 EXE 接管语义，并仅在伊莫启用上述 Unity 调用者例外；未设置时按游戏自动选择。燕云这一类游戏如果早包装会崩。
 - 证据：lmxxf 早期整幅画面发糊，根因是 Color 迟了 1 帧，改成同帧后解决，在 5400 帧上验证过。
 
 ## 准入
@@ -37,6 +51,14 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 正式配置键为 `[DlssNr] DLSS5_FIT_LARGE`，默认 **true**；旧名 `LmxxfFitLarge` 仅用于读取旧配置。菜单 / ini 优先，flags 只补宿主未设置的键，具体见 [安装器与配置](../architecture/installer.md#dlss5-amdnative-game-flagstxt)。
 
 帕鲁曾出现的秒级卡顿由 allocation 与渲染子矩形比较错误造成，已在 `a129c5f` 修复。截至 2026-09-28，维护者未发现修复后 FitLarge 仍有问题；旧耗时不能作为现行性能结论，也不构成关闭 FitLarge 或限制分辨率的建议。修复经验与回归依据见 [Palworld](../games/palworld.md)，默认值变更历史见 [决策记录](../decisions.md)。
+
+## 模型风格
+
+`[DlssNr] LmxxfModelStyle` 选择模型原生条件：`0` Standard（标准）、`1` Natural（自然）、`2` Cinematic（电影）。缺省 / `auto` 先使用外部 `DLSS5_MODEL_STYLE` 或 flags 文件，最终默认 `1`，保持原 lmxxf 数学行为；显式 ini 数字优先。该键独立于 NVIDIA 路径的 `Style`。
+
+lmxxf 菜单的 **Model style (next launch)** 写入下次启动配置；点击 Save Settings 后重启游戏生效。当前网络及尺寸变化后的重建保持本 session 选定的风格。运行时状态的 `modelStyle` 是实际使用值，`styleLocked=1` 表示已锁定本 session，未锁定时尚未建立网络。
+
+实现把 block0 的 32×16 输入投影第 6 列乘以风格编号，等价于模型输入的 `style/128`：该列保持 FP16 精确表示，随后仍走原有 prefix / inline-prefix / reference 路径。Natural 保留原权重字节，不改变 hsaco 或 kernel ABI。风格改变模型生成内容；它不是后加平滑，也不等于完整原生时序算法或闪烁已根治。
 
 ## 曝光
 

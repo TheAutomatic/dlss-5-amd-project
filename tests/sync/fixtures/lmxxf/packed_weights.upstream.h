@@ -6,11 +6,6 @@
 #include <cmath>
 #include <utility>
 namespace hip_reference {
-// Native Style is input feature 6 = style/128. Existing kernels use 1/128;
-// fold the integer style into that projection column before either weight upload.
-// This leaves the prefix's FP16 products unchanged for exactly representable weights.
-inline void ApplyPrefixModelStyle(std::vector<float>& values, unsigned style);
-
 // Lossless encoding only: reject weights requiring quantization or saturation.
 inline uint8_t ExactWeightFp8(float value){
  uint32_t bits;std::memcpy(&bits,&value,4);uint32_t a=bits&0x7fffffffu;uint8_t sign=uint8_t((bits>>24)&128u);
@@ -24,16 +19,6 @@ inline uint8_t ExactWeightFp8(float value){
 }
 // Lossless binary16 encoding; reject any weight that would require rounding.
 inline uint16_t ExactWeightHalf(float v){uint32_t b;std::memcpy(&b,&v,4);uint32_t a=b&0x7fffffffu;uint16_t sign=uint16_t((b>>16)&0x8000u);if(!a)return sign;if(a>=0x7f800000u)throw std::runtime_error("nonfinite half weight");int e=int(a>>23)-127;if(e>15)throw std::runtime_error("half weight overflow");if(e>=-14){if(a&8191u)throw std::runtime_error("weight not exact half");return uint16_t(sign|((e+15)<<10)|((a>>13)&1023u));}float x=v<0?-v:v,q=x*16777216.f;if(q<1||q>1023||q!=float(uint32_t(q)))throw std::runtime_error("weight not exact half subnormal");return uint16_t(sign|uint16_t(q));}
-inline void ApplyPrefixModelStyle(std::vector<float>& values, unsigned style){
- if(style>2)throw std::runtime_error("model style must be 0, 1 or 2");
- if(style==1)return; // Natural retains every original weight bit.
- if(values.size()!=8736)throw std::runtime_error("model style requires block0 FFN weights");
- for(size_t row=0;row<32;row++){
-  const size_t i=row*16+6;ExactWeightHalf(values[i]);
-  const float scaled=values[i]*float(style); // Retain negative zero for Standard.
-  ExactWeightHalf(scaled);values[i]=scaled;
- }
-}
 inline void PackHalfMatrix(std::vector<float>&v,size_t count){if(count>v.size())throw std::runtime_error("half matrix shape");auto*bytes=reinterpret_cast<uint8_t*>(v.data());for(size_t i=0;i<count;i++){uint16_t h=ExactWeightHalf(v[i]);std::memcpy(bytes+i*2,&h,2);}}
 // Round-to-nearest-even binary16 (with subnormals), matching the device (_Float16) cast of an arbitrary f32 weight.
 inline uint16_t RoundWeightHalf(float x){uint32_t b;std::memcpy(&b,&x,4);uint32_t a=b&0x7fffffffu;uint16_t s=uint16_t((b>>16)&0x8000u);int e=int(a>>23)-127;

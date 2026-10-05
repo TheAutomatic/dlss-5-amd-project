@@ -64,6 +64,11 @@ struct FrameInfo {
     uint64_t evaluate=0;
     UINT renderW=0,renderH=0,motionW=0,motionH=0,fitX=0,fitY=0,fitW=0,fitH=0,temporalFlags=0;
     float jitterX=0,jitterY=0,scaleX=0,scaleY=0,hostTransfer=1;
+    UINT temporalActive=0,modelHistoryActive=0,historyInputValid=0,historyPriming=0,zeroRecovered=0;
+    UINT historyResets=0,historyActiveFrames=0,historyPrimingFrames=0;
+    UINT seed=1,nativeTemporal=0;
+    float outputSmoothing=0;
+    std::string temporalReason="off",historyResetReason="none";
     bool allowed=true;
 };
 class Capture {
@@ -139,7 +144,7 @@ class Capture {
     std::shared_ptr<std::atomic<int>> saved=std::make_shared<std::atomic<int>>(0);
     std::thread writer;
     mutable std::mutex statusMutex;
-    std::string status=" test19 F9=capture centered-ROI";
+    std::string status=" test19 F9=capture F10=pick-ROI";
     template<class T> static void Drop(T *&p){if(p)p->Release();p=nullptr;}
     static void Barrier(ID3D12GraphicsCommandList *c,ID3D12Resource*r,D3D12_RESOURCE_STATES a,D3D12_RESOURCE_STATES b){
         if(a==b)return;D3D12_RESOURCE_BARRIER v{};v.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;v.Transition={r,0,a,b};c->ResourceBarrier(1,&v);
@@ -163,7 +168,7 @@ class Capture {
         s<<(running?(now-start<duration?"capturing":"writing"):result<0?"failed":result>0?"saved":sealed?"writing":"ready");
         s<<" roi="<<centerX<<","<<centerY<<" seconds="<<(running?(now-start)/1000:0)
          <<" reuse="<<reuse.completed<<"/"<<reuse.requested<<" reuseErrors="<<reuse.failed<<" pending="<<Pending()<<" slot="<<current<<" pixelFrames="<<pixelFrames<<" guides="<<guideFrames<<" missingMask="<<missingMask<<" dropped="<<dropped<<" cancelled="<<cancelled;
-        if(!eligible)s<<" NEED-HISTORY-OFF-SMOOTHING-0-DEBUG-OFF";
+        if(!eligible)s<<" NEED-DEBUG-OFF-CODEC-BYPASS-OFF";
         if(!path.empty())s<<" file="<<Utf8(path);
         std::lock_guard<std::mutex> lock(statusMutex);status=s.str();
     }
@@ -246,9 +251,11 @@ cbuffer C:register(b0){uint2 origin;uint2 extent;uint2 renderSize;uint2 motionSi
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&FileHash),&module);
         GetModuleFileNameW(module,dll,MAX_PATH);
         SYSTEMTIME utc{};GetSystemTime(&utc);
-        std::ostringstream s;s<<"build=NR-test19\ndiagnostic_revision=21\ncodec_candidate=original-only\n";
+        std::ostringstream s;s<<"build=NR-test19\ndiagnostic_revision=23\ncodec_candidate=original-only\n";
+        s<<"history_capture=observational\nstage2=encoded_network_output_after_temporal\nstage3=final_nr_texture_before_host_sr_or_present\n";
         s<<"runtime="<<Utf8(dll)<<"\nruntime_sha256="<<FileHash(dll)<<"\nshader_dir="<<Utf8(shaders)<<"\nmodules="<<Utf8(modules)<<"\nweights_dir="<<Utf8(weights)<<"\n";
         for(const auto*name:{L"native_codec_encode.hlsl",L"native_codec_decode.hlsl"})s<<Utf8(name)<<"_sha256="<<FileHash(shaders+L"\\"+name)<<"\n";
+        for(const auto*name:{L"c32-wave1.hsaco",L"deep_fast-packed.hsaco",L"vit-stream.hsaco",L"modules.json"})s<<"flat_"<<Utf8(name)<<"_sha256="<<FileHash(modules+L"\\"+name)<<"\n";
         for(const auto*arch:{L"gfx1200",L"gfx1201"})s<<"c32_wave1_"<<Utf8(arch)<<"_sha256="<<FileHash(modules+L"\\"+arch+L"\\c32-wave1.hsaco")<<"\n";
         s<<"utc="<<utc.wYear<<"-"<<utc.wMonth<<"-"<<utc.wDay<<"T"<<utc.wHour<<":"<<utc.wMinute<<":"<<utc.wSecond<<"Z\nutc_tick="<<GetTickCount64()<<"\n";identity=s.str();
     }
@@ -282,6 +289,9 @@ cbuffer C:register(b0){uint2 origin;uint2 extent;uint2 renderSize;uint2 motionSi
     bool CaptureKey()const{return keys[4]||requestedCapture;}
     void RequestCapture(){requestedCapture=true;}
     UINT TestFlags(bool)const{return 0;} // All diagnostic UI is drawn by the host overlay.
+    // Called after HIP enqueue, including when outputs were recorded first.
+    // The lifecycle owner keeps this slot current until Submitted retires it.
+    void SetZeroRecovered(bool recovered){if(current>=0)slots[current].info.zeroRecovered=recovered?1u:0u;}
     void RecordReuse(hip_probe::Api&a,void*stream,const void*state,unsigned actualMode){if(running&&now-start<duration&&current>=0)reuse.Record(a,stream,state,actualMode,meta.frame);}
     UINT RoiX(UINT extent)const{UINT edge=(std::min)(kEdge,extent);return Origin(centerX,extent,edge)+edge/2;}
     UINT RoiY(UINT extent)const{UINT edge=(std::min)(kEdge,extent);return Origin(centerY,extent,edge)+edge/2;}
@@ -297,12 +307,12 @@ cbuffer C:register(b0){uint2 origin;uint2 extent;uint2 renderSize;uint2 motionSi
             if(directory.empty()){wchar_t tmp[MAX_PATH]{};GetTempPathW(MAX_PATH,tmp);directory=std::wstring(tmp)+L"Lmxxf-NR-test19";CreateDirectoryW(directory.c_str(),nullptr);}
             ++captureId;captureMode=mode;start=now;burst=dropped=cancelled=readFrames=pixelFrames=guideFrames=0;
             wchar_t name[128]{};swprintf_s(name,L"\\capture-%lu-%llu-%u-mode%u.nrhl",GetCurrentProcessId(),GetTickCount64(),captureId,mode);path=directory+name;
-            {std::ostringstream settings;settings<<"\nseed=1\nlegacy_f8_disabled=1\nroi_source_x="<<centerX<<"\nroi_source_y="<<centerY<<"\nroi_display_y="<<NrCaptureSourceY(centerY,screenYFlipped)<<"\nroi_source_y_flipped="<<screenYFlipped<<"\n";
-            for(const char*key:{"DLSS5_VIT_ADAPTIVE","DLSS5_VIT_REUSE_PERIOD","DLSS5_VIT_REUSE_GLOBAL","DLSS5_VIT_REUSE_LOCAL","DLSS5_VIT_REUSE_IMAGE","DLSS5_VIT_REUSE_HOTKEY","DLSS5_SKIP_BLOCKS","DLSS5_HIP_PDL","DLSS5_HIP_GRAPH","DLSS5_HIP_FAST","DLSS5_HIP_WAVE_OWNED","DLSS5_VIT_BYTE_STREAM","DLSS5_TYPELESS_RGBA16"}){const char*v=std::getenv(key);settings<<key<<"="<<(v?v:"<compile-default>")<<"\n";}
+            {std::ostringstream settings;settings<<"\nseed_policy="<<(frameInfo.nativeTemporal?"native-counter-when-history-requested":"fixed-1")<<"\nlegacy_f8_disabled=1\nroi_source_x="<<centerX<<"\nroi_source_y="<<centerY<<"\nroi_display_y="<<NrCaptureSourceY(centerY,screenYFlipped)<<"\nroi_source_y_flipped="<<screenYFlipped<<"\n";
+            for(const char*key:{"DLSS5_MODEL_STYLE","DLSS5_VIT_ADAPTIVE","DLSS5_VIT_REUSE_EXACT","DLSS5_VIT_REUSE_PERIOD","DLSS5_VIT_REUSE_GLOBAL","DLSS5_VIT_REUSE_LOCAL","DLSS5_VIT_REUSE_IMAGE","DLSS5_VIT_REUSE_HOTKEY","DLSS5_SKIP_BLOCKS","DLSS5_HIP_PDL","DLSS5_HIP_GRAPH","DLSS5_HIP_FAST","DLSS5_HIP_WAVE_OWNED","DLSS5_HIP_VIT_STREAM","DLSS5_HIP_VIT_BYTE_STREAM","DLSS5_TYPELESS_RGBA16"}){const char*v=std::getenv(key);settings<<key<<"="<<(v?v:"<compile-default>")<<"\n";}
             captureSettings=settings.str();}
             fullBytes={'N','R','F','F','V','1',0,0};fullFrames=fullTarget=fullErrors=fullRequested=missingMask=0;lastPixel=0;budgetFailed=false;reuse.Start();
             bytes={'N','R','H','L','V','2',0,0};bytes.reserve(size_t(burstLimit)*kBytes+4*1024*1024);
-            csv.str("");csv.clear();csv<<"frame,tick,evaluate,mode,mask,render_w,render_h,motion_w,motion_h,fit_x,fit_y,fit_w,fit_h,jitter_x,jitter_y,mv_scale_x,mv_scale_y,temporal_flags,host_transfer,roi_x,roi_y,source_format,view_format,observed_rtv_format\n";
+            csv.str("");csv.clear();csv<<"frame,tick,evaluate,mode,mask,render_w,render_h,motion_w,motion_h,fit_x,fit_y,fit_w,fit_h,jitter_x,jitter_y,mv_scale_x,mv_scale_y,temporal_flags,host_transfer,roi_x,roi_y,source_format,view_format,observed_rtv_format,model_history_requested,temporal_active,model_history_active,history_input_valid,history_priming,history_reset_reason,history_resets,history_active_frames,history_priming_frames,output_smoothing,temporal_reason,zero_recovered,model_seed,native_temporal\n";
             saved->store(0);running=true;sealed=false;EnsureGuides(d);
         }
         if(!running){Publish();return;}
@@ -377,7 +387,9 @@ cbuffer C:register(b0){uint2 origin;uint2 extent;uint2 renderSize;uint2 motionSi
                 D3D12_RANGE none{0,0};s.buffer->Unmap(0,&none);
                 {
                     const auto&r=s.metadata;const auto&i=s.info;
-                    csv<<r.frame<<','<<r.tick<<','<<i.evaluate<<','<<captureMode<<','<<s.mask<<','<<i.renderW<<','<<i.renderH<<','<<i.motionW<<','<<i.motionH<<','<<i.fitX<<','<<i.fitY<<','<<i.fitW<<','<<i.fitH<<','<<i.jitterX<<','<<i.jitterY<<','<<i.scaleX<<','<<i.scaleY<<','<<i.temporalFlags<<','<<i.hostTransfer<<','<<centerX<<','<<centerY<<','<<s.sourceFormat<<','<<s.viewFormat<<','<<s.observedRtv<<'\n';
+                    csv<<r.frame<<','<<r.tick<<','<<i.evaluate<<','<<captureMode<<','<<s.mask<<','<<i.renderW<<','<<i.renderH<<','<<i.motionW<<','<<i.motionH<<','<<i.fitX<<','<<i.fitY<<','<<i.fitW<<','<<i.fitH<<','<<i.jitterX<<','<<i.jitterY<<','<<i.scaleX<<','<<i.scaleY<<','<<i.temporalFlags<<','<<i.hostTransfer<<','<<centerX<<','<<centerY<<','<<s.sourceFormat<<','<<s.viewFormat<<','<<s.observedRtv
+                       <<','<<((i.temporalFlags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)?1:0)<<','<<i.temporalActive<<','<<i.modelHistoryActive<<','<<i.historyInputValid<<','<<i.historyPriming
+                       <<','<<i.historyResetReason<<','<<i.historyResets<<','<<i.historyActiveFrames<<','<<i.historyPrimingFrames<<','<<i.outputSmoothing<<','<<i.temporalReason<<','<<i.zeroRecovered<<','<<i.seed<<','<<i.nativeTemporal<<'\n';
                 }
                 if(!s.fullTiles.empty()){
                     unsigned char*fp=nullptr;D3D12_RANGE fr{0,SIZE_T(s.fullCapacity)};

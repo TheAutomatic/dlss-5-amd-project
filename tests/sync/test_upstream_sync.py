@@ -281,6 +281,35 @@ class SyncTests(Fixture):
         self.assertIn('reference-network.patch', result.stdout)
         self.assertEqual(snapshot_files(self.vendor), before)
 
+    def test_model_style_patch_applies_to_raw_targets_and_survives_resync(self):
+        targets = ('Development/HIP/hip_reference_network.h',
+                   'Development/HIP/packed_weights.h', 'src/native_hip_env_options.h')
+        raw = {name: (self.up / name).read_text(encoding='utf-8') for name in targets}
+        expected = {name: (self.vendor / name).read_text(encoding='utf-8') for name in targets}
+        self.assertNotIn('ApplyPrefixModelStyle', raw[targets[0]])
+        self.assertNotIn('ApplyPrefixModelStyle', raw[targets[1]])
+        self.assertNotIn('DLSS5_MODEL_STYLE', raw[targets[2]])
+        for _ in range(2):
+            result = self.sync()
+            self.assertEqual(result.returncode, 0, result.stdout)
+            for name in targets:
+                with self.subTest(path=name):
+                    self.assertEqual((self.vendor / name).read_text(encoding='utf-8'), expected[name])
+                    self.assertEqual((self.up / name).read_text(encoding='utf-8'), raw[name])
+
+    def test_model_style_conflict_fails_before_vendor_changes(self):
+        path = self.up / 'src/native_hip_env_options.h'
+        raw = path.read_text(encoding='utf-8')
+        signature = 'inline void NativeApplyHipEnvironment(hip_reference::Options&o,bool fast){'
+        self.assertIn(signature, raw)
+        write(path, raw.replace(signature, signature.replace('bool fast', 'bool fast_prefix')))
+        commit(self.up)
+        before = snapshot_files(self.vendor)
+        result = self.sync()
+        self.assert_failed(result)
+        self.assertIn('model-style.patch', result.stdout)
+        self.assertEqual(snapshot_files(self.vendor), before)
+
     def test_local_shader_patch_conflict_fails_before_vendor_changes(self):
         # A shader that follows upstream still carries our auto-white hunks. If upstream edits the
         # lines they sit on, the sync must stop rather than mirror the shader back to upstream.

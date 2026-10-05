@@ -9,6 +9,11 @@ extern "C" __declspec(dllexport) bool RuntimeSkips(const char *expected)
     return options.skip_blocks == hip_reference::ParseSkipBlocks(expected);
 }
 
+extern "C" __declspec(dllexport) unsigned RuntimeStyle()
+{
+    return LmxxfProductionOptions(1920, 1152, "modules", "assets").model_style;
+}
+
 extern "C" __declspec(dllexport) const char *ReadRuntimeEnvironment(const char *key)
 {
     return std::getenv(key);
@@ -44,9 +49,11 @@ int main(int argc, char **argv)
         GetProcAddress(dll, "ReadRuntimeEnvironment"));
     const auto sync = reinterpret_cast<void (*)()>(GetProcAddress(dll, "SyncRuntimeEnvironment"));
     const auto skips = reinterpret_cast<bool (*)(const char *)>(GetProcAddress(dll, "RuntimeSkips"));
-    Require(read && sync && skips, "missing runtime fixture exports");
+    const auto style = reinterpret_cast<unsigned (*)()>(GetProcAddress(dll, "RuntimeStyle"));
+    Require(read && sync && skips && style, "missing runtime fixture exports");
     auto expect = [&](const char *key, const char *value) {
-        const char *actual = read(key);
+        const char *alias = CfgKey::EnvAlias(key);
+        const char *actual = read(alias ? alias : key);
         if (!actual || std::strcmp(actual, value) != 0)
         {
             std::fprintf(stderr, "%s: expected %s, got %s\n", key, value, actual ? actual : "(unset)");
@@ -95,6 +102,14 @@ int main(int argc, char **argv)
         const char *expected = std::strcmp(value, "1,2") == 0 ? "1,2" :
                                std::strcmp(value, "none") == 0 ? "" : "42,43,46";
         Require(skips(expected), "Runtime did not use the host skip block selection");
+    }
+    // Non-identity product alias: the native model option must consume all three values.
+    for (unsigned selected = 0; selected < 3; ++selected)
+    {
+        CfgKey::PutEnvString(CfgKey::ModelStyle, std::to_string(selected).c_str());
+        sync();
+        expect(CfgKey::ModelStyle, std::to_string(selected).c_str());
+        Require(style() == selected, "Runtime did not consume the host model style selection");
     }
     // The full valid list exceeds the old PutEnvString fixed buffer once the key is added.
     std::string all;

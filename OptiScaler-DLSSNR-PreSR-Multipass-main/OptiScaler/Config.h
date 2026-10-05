@@ -57,6 +57,13 @@ template <class T, HasDefaultValue defaultState = WithDefault> class CustomOptio
         _volatile = true;
     }
 
+    // Also allow an explicit Auto choice for the next launch without changing this session.
+    constexpr void set_for_next_launch(const std::optional<T>& value)
+    {
+        _configIni = value;
+        _volatile = true;
+    }
+
     // Use this when first setting a CustomOptional
     constexpr void set_from_config(const std::optional<T>& opt)
     {
@@ -354,6 +361,8 @@ class Config
     // exposure keep using that texture and ignore this. Default on: the runtime meters the
     // colour and smooths it (LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE).
     CustomOptional<bool> LmxxfAutoExposure { true };
+    // Native model conditioning: 0 Standard / 1 Natural / 2 Cinematic. Save and restart.
+    CustomOptional<uint32_t, SoftDefault> LmxxfModelStyle { 1 };
     CustomOptional<bool> LmxxfModelHistory { false };
     CustomOptional<float> LmxxfOutputSmoothing { 0.0f };
     // Manual white scale when exposure is missing AND LmxxfAutoExposure is off.
@@ -365,7 +374,8 @@ class Config
     // true opts in for games that need those lists on the NR path.
     CustomOptional<bool> LmxxfAllowEnhancedBarriers { false };
     // Wrap host CreateCommandList results before the swapchain exists.
-    // Missing = engine whitelist (Unreal + Forza). false = never. true = force for any engine.
+    // Missing = Unreal/Forza EXE or Aniimo's UnityPlayer.dll. false = no early wrap.
+    // true forces EXE wrapping for any engine; the UnityPlayer exception stays Aniimo-only.
     // Other engines (e.g. Yan Yun) can crash with early ArmCreate + wrap. Restart after change.
     CustomOptional<bool, NoDefault> LmxxfEarlyExeWrap;
     // Network tier: auto | 720 | 900 | 1080 (DLSS5_NETWORK_HEIGHT).
@@ -383,6 +393,7 @@ class Config
     CustomOptional<int> LmxxfVitStream { 0 };
     // Static-frame ViT reuse (tunable; not bit-exact).
     CustomOptional<bool> LmxxfVitAdaptive { true };
+    CustomOptional<bool> LmxxfVitReuseExact { false };
     CustomOptional<int> LmxxfVitReusePeriod { 16 };
     CustomOptional<float> LmxxfVitReuseGlobal { 1.0f };
     CustomOptional<float> LmxxfVitReuseLocal { 50.0f };
