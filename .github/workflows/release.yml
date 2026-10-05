@@ -212,7 +212,7 @@ jobs:
             -OptiDll "$env:BUILD_OUT\OptiScaler.dll" `
             -OutDir dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path "dist\OptScaler(NR)-$ver.zip")) {
+          if (!(Test-Path "dist\OptScaler-NR-$ver.zip")) {
             throw "Package zip missing for $ver"
           }
 
@@ -222,7 +222,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # Independent CI tripwire: inspect the exact archive that Release uploads.
           $ver = '${{ steps.ver.outputs.version }}'
-          $zipPath = "dist\OptScaler(NR)-$ver.zip"
+          $zipPath = "dist\OptScaler-NR-$ver.zip"
           $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath))
@@ -250,8 +250,8 @@ jobs:
         with:
           name: OptScaler(NR)
           path: |
-            dist/OptScaler(NR)-${{ steps.ver.outputs.version }}.zip
-            dist/OptScaler(NR)-${{ steps.ver.outputs.version }}/SHA256SUMS.txt
+            dist/OptScaler-NR-${{ steps.ver.outputs.version }}.zip
+            dist/OptScaler-NR-${{ steps.ver.outputs.version }}/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Create GitHub Release metadata
@@ -338,5 +338,5 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptScaler(NR)-$env:RELEASE_VERSION.zip"
+          python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptScaler-NR-$env:RELEASE_VERSION.zip"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

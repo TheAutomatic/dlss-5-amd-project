@@ -9,7 +9,7 @@
 ## 版本号
 
 - 版本串来自仓库根的 `VERSION`；`PACKAGE_RELEASE.ps1` 未显式给 `-Version` 时读它，并把 `VERSION` 放进包里。
-- 当前产品名为 **OptScaler(NR)**。安装/卸载窗口与 Release 标题显示 `OptScaler(NR) <版本>`，正式 ZIP 为 `OptScaler(NR)-<版本>.zip`，Actions artifact 名为 `OptScaler(NR)`。同步修改名称时检查打包、上传和下载路径；括号需按实际 shell 正确引用。`OptiScaler.dll` / INI、旧日志名、源码目录及注册表位置保持兼容，旧安装记录仍可识别，新记录写入 `project=OptScaler(NR)`。
+- 当前产品名为 **OptScaler(NR)**。安装/卸载窗口与 Release 标题显示 `OptScaler(NR) <版本>`，正式 ZIP 为 `OptScaler-NR-<版本>.zip`，Actions artifact 名为 `OptScaler(NR)`。ZIP 使用连字符，避免 GitHub 上传附件时将括号改为点号、导致按文件名核验失败。同步修改名称时检查打包、上传和下载路径。`OptiScaler.dll` / INI、旧日志名、源码目录及注册表位置保持兼容，旧安装记录仍可识别，新记录写入 `project=OptScaler(NR)`。
 - tag 为 `v<版本>`。CI 在 tag 名含 `-alpha`、`-beta` 或 `-rc` 时发成 prerelease，否则是正式版（Latest）。只认这三个后缀。
 - 1.8.x 时代的形式是 `1.8.x-0.3.y`（本 fork 版本 + 支持的 daniel runtime 版本）；1.9 起双后端，不再带 runtime 后缀。
 - **1.9.0.x 已全部撤包。** 本地遗留的 annotated tag `v1.9.0` 和 `dist/OptiScaler-AMD-PreSR-1.9.0.3.zip` 不要复用，任何新版本都不要再用 `1.9.0.x` 这个号。手动触发留空时读取 `VERSION`，也可显式指定版本。
@@ -29,7 +29,7 @@ HIP `.hsaco` 使用该分支已提交模块，不另行追更或重编 HIP 实�
 已有完整包再运行。脚本必须在已配置编译工具与子模块的开发机运行。MSBuild 参数与
 `build-release-local.cmd` 使用相同的固定工具链，升级工具链时须同时更新这两个入口。
 
-输出为所选工作树 `dist/OptScaler(NR)-<版本>-local-<时间>.zip`，避免覆盖旧包；
+输出为所选工作树 `dist/OptScaler-NR-<版本>-local-<时间>.zip`，避免覆盖旧包；
 日志在 `exports/local-build-<时间>/`。成功后 VERSION 保留输入版本；失败恢复原 VERSION，
 停止后续打包。使用 LocalTest，不自动跑完整发版测试；已有产物新鲜度、依赖和 ZIP 校验
 照常执行。不要与同一工作树中的其他构建同时运行。
@@ -158,7 +158,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 
 ## 包内容
 
-`PACKAGE_RELEASE.ps1 -OutDir dist` 在 `dist/` 生成 `OptScaler(NR)-<版本>/` 打包目录和同名 `.zip`，本地测试与正式发布统一使用这一位置。Actions 在独立 runner 的 `dist/` 生成附件；线上发布仍须使用通过远端验证的产物。
+`PACKAGE_RELEASE.ps1 -OutDir dist` 在 `dist/` 生成 `OptScaler-NR-<版本>/` 打包目录和同名 `.zip`，本地测试与正式发布统一使用这一位置。Actions 在独立 runner 的 `dist/` 生成附件；线上发布仍须使用通过远端验证的产物。
 
 包根目录：
 

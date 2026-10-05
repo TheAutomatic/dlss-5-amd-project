@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptScaler(NR)-<VERSION>
+  Default product: OptScaler-NR-<VERSION>
     VERSION = this fork's product version
     0.3.0–0.6.0 = supported danielblnc runtime
     lmxxf  = supported lmxxf HIP neural rendering runtime
@@ -48,7 +48,7 @@ if (-not $PSBoundParameters.ContainsKey('Version')) {
         if ($v) { $Version = $v }
     }
 }
-if (-not $Name) { $Name = "OptScaler(NR)-$Version" }
+if (-not $Name) { $Name = "OptScaler-NR-$Version" }
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
 

@@ -54,7 +54,7 @@ try {
     Write-Host 'Full host rebuild and runtime builds. Local test package; no full release test suite.'
     if ($PlanOnly) { exit 0 }
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-    $name = "OptScaler(NR)-$Version-local-$stamp"
+    $name = "OptScaler-NR-$Version-local-$stamp"
     $scratch = Join-Path $Root "work/scratch/local-package-$stamp"
     $logs = Join-Path $Root "exports/local-build-$stamp"
     New-Item -ItemType Directory -Path $scratch,$logs -Force | Out-Null
