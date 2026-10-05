@@ -43,6 +43,7 @@ tests\shader\run.cmd
 tests\lmxxf\run.cmd abi
 tests\lmxxf\run.cmd warp
 tests\lmxxf\run.cmd device
+tests\lmxxf\run.cmd early-unity
 tests\lmxxf\run.cmd gpu
 tests\install\run.cmd
 tests\sync\run.cmd
@@ -53,6 +54,9 @@ tests\mochizuki\run.cmd shader-tail
 ```
 
 ABI 入口包含 C++、C 和 Python runtime 校验，覆盖当前 ABI v2 函数表边界、旧 ABI 拒绝与模块状态。
+`early-unity` 是 `device` 内的独立定位入口：真实 UnityPlayer/OtherEngine 测试 DLL
+验证早期调用来源过滤、显式开关和自动范围，以及保留列表的拆分/执行/读回/Reset。
+已运行完整 `device` 时不重复运行它；不需要 HIP/Vulkan 模型。
 同步入口使用临时仓库和测试模块，验证补丁、完整性、失败退出与字节往返；
 它不等于已经完成真实上游集成审阅。后者仍按
 [同步说明](../tools/lmxxf-sync/README.md) 执行。

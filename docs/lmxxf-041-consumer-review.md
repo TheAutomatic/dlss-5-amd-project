@@ -225,3 +225,27 @@ Get 次数、参数、零值回退、SR 前后尺寸选择和配置优先级保�
 持续变尺寸、bucket 即时增长，以及已有回放、双队列、历史、格式与销毁检查。
 测试以同步发布的 Info.building 判断已启动构建，避免与后台进度首次发布竞争。
 沿用未变的 lmxxf 证据；未重复完整 CI/lmxxf GPU 或远端 Actions，游戏验收另行记录。
+
+### Unity 启动列表的共享接管
+
+伊莫启动时由 UnityPlayer.dll 创建、在交换链建立后仍反复使用的 DIRECT 列表，
+无法被原来的 EXE 调用方过滤捕获；交换链后开启代理也不能改变已有原生对象的身份。
+`SubmissionHooks.h::ShouldWrapCreate` 增加实际返回地址所属模块的判断，
+`D3D12_Hooks.cpp::HookToDevice` 默认仅启用 Aniimo.exe 与已加载 UnityPlayer.dll
+的组合。保留 Unreal/Forza EXE 规则，明确 true 时也接受其他 Unity 游戏的该模块，
+false 同时关闭两条早期路径。探针 DIRECT 队列确认提交钩子就绪之后才发布标志；
+Disarm 清除新标志。没有导入逐帧创建来源诊断、网络实验或其它分支的执行路径。
+
+两个后端在原 Compatibility & Scheduling 中复用 Early command-list wrap 控件。
+继续绑定已有 `LmxxfEarlyExeWrap`，Auto 清除显式值，保存后重启；菜单和源模板/
+生成 INI 的说明一致。普通交换链后的代理、DIRECT 限制、内部创建抑制与开列表
+诊断开关不变；不改变 lmxxf Runtime、ABI、模块、内核、上游 pin 或环境优先级。
+
+最终 diff 复审、`tools/build/build-release-local.cmd --fast` 及
+`tests/lmxxf/run.cmd device` 通过。新增回归用两个真实 DLL 调用方验证自动策略、
+显式启停、EXE/其它模块排除、DIRECT/COMPUTE/COPY 以及两种 Create 接口；
+保留列表跨代理开关后两轮拆分/执行/Reset，GPU 读回与原始数据一致，COM 身份、
+viewport 和录制失效通知正确。新回归只接入 device 一次，并提供 early-unity
+专项入口。未重复未变的完整 CI/lmxxf 网络 GPU；尚未在游戏里验证这次新宿主，
+后续本地安装需确认早期 Unity 接管记录与首次角色管理/返回场景，不能将先前
+Mochizuki 瞬态尺寸修复的游戏结果当成本次验证。按用户要求本轮不打包。

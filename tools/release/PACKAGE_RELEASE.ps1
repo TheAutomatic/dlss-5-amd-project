@@ -407,9 +407,12 @@ LmxxfAutoExposureScale=8
 ; group across two submits. true opts in; false rejects those lists. Restart after changing.
 LmxxfAllowEnhancedBarriers=false
 
-; Wrap host command lists created before the swapchain. Leave unset for the engine
-; whitelist (Unreal + Forza). true = force for any engine. false = never.
-; Other engines can crash with early wrap (e.g. Yan Yun). Restart after changing.
+; Early command-list wrap: shared by lmxxf and Mochizuki. Leave unset for auto.
+; Auto: EXE calls in Unreal/Forza; UnityPlayer.dll calls in Aniimo.exe only.
+; true = EXE plus loaded UnityPlayer.dll callers, including other Unity games.
+; false = disable both early paths; normal post-swapchain wrapping is unchanged.
+; Ins > Compatibility & Scheduling > Early command-list wrap. Save and restart.
+; Other games are unvalidated; forced early wrap can crash (e.g. Yan Yun).
 ; LmxxfEarlyExeWrap=
 
 ; Resolution scale factor for neural rendering model input
@@ -548,6 +551,7 @@ Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/UPSTREAM.md') -De
 New-Item -ItemType Directory -Force (Join-Path $stage 'model-tools'), (Join-Path $stage 'docs') | Out-Null
 Get-ChildItem (Join-Path $root 'third_party/mochizuki/linux/package/model-tools') -File | Where-Object { $_.Extension -in @('.py','.json','.txt','.sha256') } | Copy-Item -Destination (Join-Path $stage 'model-tools')
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-model.py') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-python.ps1') -Destination $stage
 $mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
 $mzDoc = $mzDoc.Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
 [IO.File]::WriteAllText((Join-Path $stage 'docs/mochizuki.md'), $mzDoc, [Text.UTF8Encoding]::new($false))
@@ -556,9 +560,8 @@ $mzDoc = $mzDoc.Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Moc
 setlocal
 set "SOURCE=%~1"
 if not defined SOURCE set "SOURCE=%~dp0nvngx_dlssnr.dll"
-python -X utf8 "%~dp0mochizuki-model.py" "%SOURCE%" "%~dp0dlssnr-amd/dlssnr.bin"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin"
 set "RC=%ERRORLEVEL%"
-if not "%RC%"=="0" echo Model extraction failed. Requires Python 3.10+ and nvngx_dlssnr.dll 310.8.0. See docs/mochizuki.md.
 pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII

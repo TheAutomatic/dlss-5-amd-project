@@ -165,7 +165,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 |---|---|
 | `OptiScaler.dll`、`OptiScaler.ini` | ini 的 `[DlssNr]` 段由打包脚本生成 |
 | `LmxxfNrRuntime.dll`、`lmxxf-modules/`（gfx1200 + gfx1201，数量见模块契约）、`shaders/`（只含顶层 `.hlsl`） | lmxxf 后端 |
-| `MochizukiNrRuntime.dll`、`dlssnr-amd/shaders/`、`Mochizuki-Model.bat`、`mochizuki-model.py`、`model-tools/` | mochizuki 后端及用户模型提取工具；不含 `dlssnr.bin` |
+| `MochizukiNrRuntime.dll`、`dlssnr-amd/shaders/`、`Mochizuki-Model.bat`、`mochizuki-python.ps1`、`mochizuki-model.py`、`model-tools/` | mochizuki 后端及用户模型提取工具；共用 Python 探测与商店安装指引，不含 `dlssnr.bin` |
 | `Setup.bat`、`Setup.ps1`、`lmxxf-module-package.ps1` | 安装器，见 [architecture/installer.md](architecture/installer.md) |
 | `Uninstall_OptiScaler_NR.bat`、`Uninstall_OptiScaler_NR.ps1` | 卸载器 |
 | `README.md`、`README.en.md`、`README.es.md` | 直接拷贝仓库根的 README，没有第二份副本 |

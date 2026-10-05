@@ -46,6 +46,7 @@ class InstallerExitTests(unittest.TestCase):
         self.env.pop("PSMODULEPATH", None)
         self.env["PATH"] = str(PS.parent) + os.pathsep + self.env.get("PATH", "")
         shutil.copy2(REPO / "tools/lmxxf-module-package.ps1", self.package)
+        shutil.copy2(REPO / "tools/install/mochizuki-python.ps1", self.package)
         source = (REPO / "tools/release/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
         for title_name, script, file_name in (
             ("Setup", "install", "Setup"),
@@ -645,10 +646,11 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertIn('Model extraction failed', output)
         self.assertIn('MODEL SETUP REQUIRED', output)
+        self.assertNotIn('search for Python', output)
 
     def test_mochizuki_missing_python_leaves_actionable_pending(self):
         self.ready_supported_mochizuki_source()
-        script = self.package / 'Setup.ps1'
+        script = self.package / 'mochizuki-python.ps1'
         text = script.read_text(encoding='utf-8-sig')
         old = "@('python', 'python3', 'py')"
         self.assertEqual(text.count(old), 1)
@@ -656,7 +658,89 @@ class InstallerExitTests(unittest.TestCase):
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
         self.assertEqual(code, 0, output)
         self.assertIn('Python 3.10+', output)
+        self.assertIn('Microsoft Store (Windows Store)', output)
+        self.assertIn('search for Python', output)
+        self.assertNotIn('Extracting Mochizuki model', output)
         self.assertIn('MODEL SETUP REQUIRED', output)
+
+    def fixture_python_candidates(self, candidates):
+        script = self.package / 'mochizuki-python.ps1'
+        text = script.read_text(encoding='utf-8-sig')
+        old = "@('python', 'python3', 'py')"
+        self.assertEqual(text.count(old), 1)
+        paths = ', '.join("'" + str(p).replace("'", "''") + "'" for p in candidates)
+        write_ps(script, text.replace(old, '@(' + paths + ')'))
+
+    def test_mochizuki_unusable_python_does_not_abort_setup(self):
+        self.ready_supported_mochizuki_source()
+        broken = self.package / 'broken-python.cmd'
+        broken.write_text('@echo off\necho Python was not found 1>&2\nexit /b 1\n', encoding='ascii')
+        empty = self.package / 'empty-python.cmd'
+        empty.write_text('@echo off\nexit /b 0\n', encoding='ascii')
+        old = self.package / 'old-python.cmd'
+        old.write_text('@echo off\necho MOCHI_PYTHON_TOO_OLD\nexit /b 0\n', encoding='ascii')
+        self.fixture_python_candidates((broken, empty, old))
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('no working Python 3.10+', output)
+        self.assertIn('Microsoft Store', output)
+        self.assertIn('MODEL SETUP REQUIRED', output)
+        self.assertNotIn('Extracting Mochizuki model', output)
+        self.assertNotIn('Install SUCCEEDED.', output)
+
+    def test_mochizuki_python_fallback_after_broken_launcher(self):
+        self.ready_supported_mochizuki_source()
+        broken = self.package / 'broken-python.cmd'
+        broken.write_text('@echo off\necho launcher error 1>&2\nexit /b 1\n', encoding='ascii')
+        self.fixture_python_candidates((broken, Path(sys.executable)))
+        (self.package / 'mochizuki-model.py').write_text(
+            "import sys\nfrom pathlib import Path\np=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
+            "p.write_bytes(b'NRMODEL1'+(599).to_bytes(4,'little')+bytes(20))\n", encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertNotIn('search for Python', output)
+
+    def test_mochizuki_same_name_python_fallback(self):
+        self.ready_supported_mochizuki_source()
+        first, second = self.root / 'first-bin', self.root / 'second-bin'
+        first.mkdir(); second.mkdir()
+        (first / 'fixture-python.cmd').write_text('@echo off\necho launcher error 1>&2\nexit /b 1\n', encoding='ascii')
+        (second / 'fixture-python.cmd').write_text('@echo off\n"' + sys.executable + '" %*\nexit /b %errorlevel%\n', encoding='ascii')
+        self.env['PATH'] = str(first) + os.pathsep + str(second) + os.pathsep + self.env['PATH']
+        self.fixture_python_candidates(('fixture-python',))
+        (self.package / 'mochizuki-model.py').write_text(
+            "import sys\nfrom pathlib import Path\np=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
+            "p.write_bytes(b'NRMODEL1'+(599).to_bytes(4,'little')+bytes(20))\n", encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Install SUCCEEDED.', output)
+        self.assertNotIn('search for Python', output)
+
+    def run_mochizuki_model_launcher(self):
+        source = (REPO / 'tools/release/PACKAGE_RELEASE.ps1').read_text(encoding='utf-8-sig')
+        body = re.search(r"@'\n(@echo off\nsetlocal\nset \"SOURCE=%~1\".*?)\n'@ \| Set-Content", source, re.S)
+        self.assertIsNotNone(body)
+        launcher = self.package / 'Mochizuki-Model.bat'
+        launcher.write_text(body.group(1), encoding='ascii')
+        code, output = self.run_process('cmd.exe /d /s /c "' + subprocess.list2cmdline([str(launcher)]) + '"', '\n')
+        return code, output
+
+    def test_mochizuki_model_launcher_missing_python(self):
+        self.fixture_python_candidates(('nonexistent-python-fixture',))
+        code, output = self.run_mochizuki_model_launcher()
+        self.assertNotEqual(code, 0, output)
+        self.assertIn('search for Python', output)
+        self.assertIn('Microsoft Store', output)
+
+    def test_mochizuki_model_launcher_preserves_extractor_error(self):
+        self.fixture_python_candidates((Path(sys.executable),))
+        (self.package / 'mochizuki-model.py').write_text('import sys; print("fixture extraction error"); sys.exit(4)\n', encoding='utf-8')
+        code, output = self.run_mochizuki_model_launcher()
+        self.assertEqual(code, 4, output)
+        self.assertIn('fixture extraction error', output)
+        self.assertIn('Python was found', output)
+        self.assertNotIn('search for Python', output)
 
     def test_lmxxf_empty_weight_directory_is_not_ready(self):
         self.ready_lmxxf_dual_arch()

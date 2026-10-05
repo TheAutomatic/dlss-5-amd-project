@@ -71,7 +71,7 @@ class ModulePackageTests(unittest.TestCase):
         for name in ('OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib',
                      'tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
                      'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
-                     'tools/install/mochizuki-model.py', 'docs/mochizuki.md',
+                     'tools/install/mochizuki-model.py', 'tools/install/mochizuki-python.ps1', 'docs/mochizuki.md',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):
             target = self.root / name
@@ -198,6 +198,11 @@ class ModulePackageTests(unittest.TestCase):
         extracted = self.root / 'extracted'
         with zipfile.ZipFile(self.archive) as archive:
             self.assertIn('MochizukiNrRuntime.dll', archive.namelist())
+            self.assertEqual(archive.read('mochizuki-python.ps1'),
+                             (REPO / 'tools/install/mochizuki-python.ps1').read_bytes())
+            launcher = archive.read('Mochizuki-Model.bat').decode('ascii')
+            self.assertIn('-File "%~dp0mochizuki-python.ps1"', launcher)
+            self.assertIn('exit /b %RC%', launcher)
             self.assertNotIn('dlssnr-amd/dlssnr.bin', archive.namelist())
             archive.extractall(extracted)
         model = extracted / 'dlssnr-amd/dlssnr.bin'

@@ -3011,7 +3011,7 @@ static void HookToDevice(ID3D12Device* InDevice)
             else
             {
                 LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
-                // Whitelist: Unreal (session bind) and Forza (lists before swapchain).
+                // Whitelist: Unreal/Forza EXE calls and Aniimo's UnityPlayer calls.
                 // Other engines can crash with early ArmCreate + wrap (e.g. Yan Yun).
                 // LmxxfEarlyExeWrap=true/false forces the decision; missing keeps the whitelist.
                 {
@@ -3026,9 +3026,11 @@ static void HookToDevice(ID3D12Device* InDevice)
                     const auto forced = Config::Instance()->LmxxfEarlyExeWrap;
                     if (forced.has_value())
                         allowEarly = *forced;
+                    const bool allowUnityPlayer = DlssNr::Submission::Hooks::WantsEarlyUnityPlayerWrap(
+                        exeLower, GetModuleHandleW(L"UnityPlayer.dll") != nullptr, forced);
                     LOG_INFO("lmxxf early exe wrap allow={} (unreal={} forza={} override={})", allowEarly, isUnreal,
                              isForza, forced.has_value() ? (*forced ? "true" : "false") : "auto");
-                    if (allowEarly)
+                    if (allowEarly || allowUnityPlayer)
                     {
                         D3D12_COMMAND_QUEUE_DESC queueDesc {};
                         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -3038,12 +3040,16 @@ static void HookToDevice(ID3D12Device* InDevice)
                         const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
                         if (earlyQueue)
                             earlyQueue->Release();
-                        DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
-                        LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", ready, ready);
+                        DlssNr::Submission::Hooks::SetEarlyExeWrap(allowEarly && ready);
+                        DlssNr::Submission::Hooks::SetEarlyUnityPlayerWrap(allowUnityPlayer && ready);
+                        LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", allowEarly && ready, ready);
+                        LOG_INFO("NR early UnityPlayer proxy: {} (game={}, submission hook ready={})",
+                                 allowUnityPlayer && ready, st.gameExe, ready);
                     }
                     else
                     {
                         DlssNr::Submission::Hooks::SetEarlyExeWrap(false);
+                        DlssNr::Submission::Hooks::SetEarlyUnityPlayerWrap(false);
                     }
                 }
             }

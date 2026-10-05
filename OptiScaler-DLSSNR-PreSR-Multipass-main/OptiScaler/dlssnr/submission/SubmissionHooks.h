@@ -6,6 +6,8 @@
 #include <atomic>
 #include <intrin.h>
 #include <mutex>
+#include <optional>
+#include <string_view>
 
 // G1 Create/Execute wrap for lmxxf submission.
 // Default: disarmed. Product must not call Arm until G1/P3 gates.
@@ -31,6 +33,9 @@ inline std::atomic<bool> g_proxyWrap { false };
 // UE can retain lists created before the first swapchain. Wrap only calls from
 // the host executable during boot; Streamline and vendor modules stay native.
 inline std::atomic<bool> g_earlyExeWrap { false };
+// Aniimo retains boot lists created by UnityPlayer.dll before the swapchain.
+// Other Unity games require explicit opt-in; the submission hook must be ready.
+inline std::atomic<bool> g_earlyUnityPlayerWrap { false };
 inline std::atomic<uint32_t> g_earlyWrappedLists { 0 };
 inline std::atomic<bool> g_wrapOpenLists { false };
 inline BetweenFn g_between = nullptr;
@@ -51,7 +56,13 @@ inline bool ExpandEnabled() { return g_expandEnabled.load(std::memory_order_acqu
 inline bool ProxyWrapEnabled() { return g_proxyWrap.load(std::memory_order_acquire); }
 inline void SetProxyWrap(bool on) { g_proxyWrap.store(on, std::memory_order_release); }
 inline void SetEarlyExeWrap(bool on) { g_earlyExeWrap.store(on, std::memory_order_release); }
+inline void SetEarlyUnityPlayerWrap(bool on) { g_earlyUnityPlayerWrap.store(on, std::memory_order_release); }
 inline void SetWrapOpenLists(bool on) { g_wrapOpenLists.store(on, std::memory_order_release); }
+
+inline bool WantsEarlyUnityPlayerWrap(std::string_view exeLower, bool unityLoaded, std::optional<bool> forced)
+{
+    return unityLoaded && forced.value_or(exeLower == "aniimo.exe");
+}
 
 inline bool IsHostExecutableCaller(void *address)
 {
@@ -64,8 +75,16 @@ inline bool IsHostExecutableCaller(void *address)
 
 inline bool ShouldWrapCreate(void *caller)
 {
-    return ProxyWrapEnabled() ||
-           (g_earlyExeWrap.load(std::memory_order_acquire) && IsHostExecutableCaller(caller));
+    if (ProxyWrapEnabled() ||
+        (g_earlyExeWrap.load(std::memory_order_acquire) && IsHostExecutableCaller(caller)))
+        return true;
+    if (!g_earlyUnityPlayerWrap.load(std::memory_order_acquire))
+        return false;
+    HMODULE callerModule = nullptr;
+    return caller && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       reinterpret_cast<LPCWSTR>(caller), &callerModule) &&
+           callerModule == GetModuleHandleW(L"UnityPlayer.dll");
 }
 
 inline void SetBetween(BetweenFn fn, void *ctx)
@@ -334,6 +353,7 @@ inline void Disarm()
     if (!g_armed.load(std::memory_order_relaxed))
         return;
     g_earlyExeWrap.store(false, std::memory_order_release);
+    g_earlyUnityPlayerWrap.store(false, std::memory_order_release);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     if (o_CreateCommandList)

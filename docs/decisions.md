@@ -567,3 +567,16 @@ lmxxf 的网络和 codec 采样都使用宿主给出的有效 Color 区域；整
 不另设 `Block skipping` 分类，也不移到 Model 页外露。两项 reset 随 Advanced Kernels。
 已有 `ViT / image reuse` 内的四个滑块直接跟随 adaptive reuse，关闭时置灰；不恢复
 `Reuse tuning` 中间层。以后扩展同类选项时沿用这些位置。
+
+## 2026-10-05：Unity 启动命令列表接管范围
+
+lmxxf 与 Mochizuki 共用的早期接管补入 UnityPlayer.dll 调用方过滤。默认只对
+`Aniimo.exe + UnityPlayer.dll` 启用，保留 Unreal/Forza 的 EXE 规则；其他 Unity
+游戏可用已有 `LmxxfEarlyExeWrap=true` 主动启用，false 同时关闭两条早期路径。
+不自动扩大到全部 Unity 游戏：引擎相同不能证明启动时序和列表使用方式相同。
+有同类保留列表证据且完成启动/录制验证后，再考虑扩充默认名单。
+
+两后端在原 `Compatibility & Scheduling` 内共用 `Early command-list wrap` 菜单，
+INI 键名不变，保存后重启。只接管 DIRECT，先确认提交钩子就绪再开放早期代理；
+保留正常交换链后的接管、内部创建抑制、录制与 Reset 生命周期。设备回归和宿主
+构建已通过，游戏验证待进行；此修复不代表消除所有 Unity 闪烁或模型历史问题。

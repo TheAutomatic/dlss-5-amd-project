@@ -814,16 +814,17 @@ if ($installMochizuki -and -not $mochizukiModel -and $mochizukiNv) {
     }
     if ($extract) {
         $modelTool = Find-FirstFile @((Join-Path $Root 'mochizuki-model.py'), (Join-Path $PSScriptRoot 'install/mochizuki-model.py'))
+        $pythonHelper = Find-FirstFile @((Join-Path $Root 'mochizuki-python.ps1'), (Join-Path $PSScriptRoot 'install/mochizuki-python.ps1'))
         $python = $null
-        foreach ($name in @('python', 'python3', 'py')) {
-            $cmd = Get-Command $name -ErrorAction SilentlyContinue
-            if ($cmd) {
-                & $cmd.Source -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>$null | Out-Null
-                if ($LASTEXITCODE -eq 0) { $python = $cmd.Source; break }
-            }
+        if ($pythonHelper) {
+            . $pythonHelper
+            $python = Find-MochizukiPython
         }
-        if (-not $python) {
-            Write-Host 'Model extraction needs Python 3.10+. Install Python, then rerun Setup or Mochizuki-Model.bat. Runtime installation will continue.' -ForegroundColor Yellow
+        if (-not $pythonHelper) {
+            Write-Host 'Python detection helper missing. Re-extract the complete OptiScaler package. Runtime installation will continue.' -ForegroundColor Yellow
+        } elseif (-not $python) {
+            Write-MochizukiPythonHelp
+            Write-Host 'Mochizuki model is still missing. Runtime installation will continue; model setup is required.' -ForegroundColor Yellow
         } elseif (-not $modelTool) {
             Write-Host 'Model extractor missing. Re-extract the complete OptiScaler package. Runtime installation will continue.' -ForegroundColor Yellow
         } else {

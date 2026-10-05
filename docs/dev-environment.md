@@ -87,6 +87,7 @@ tests\run-all.cmd --tier ci|device|gpu|all [--out 目录] [--skip-sync] [--keep-
 - `tools/build/build-mochizuki-runtime.cmd`：MSVC runtime 与固定版本 glslang shaders。
 - `tools/build/mochizuki-manifest.py`：源码及可分发产物哈希验证。
 - `tools/install/mochizuki-model.py`：仅从用户提供的指定版本 DLL 提取模型。
+- `tools/install/mochizuki-python.ps1`：Setup 与独立模型工具共用的 Python 3.10+ 探测；缺失或不可用时提示到 Windows 商店搜索 Python 安装。
 - `tests/mochizuki/run.cmd abi|gpu`：无 GPU ABI 与实际 D3D12/Vulkan 生命周期回归。
 
 - `tools/build/build-ci.ps1`：Actions的宿主/CI并行入口，需已配置MSVC环境与pwsh。

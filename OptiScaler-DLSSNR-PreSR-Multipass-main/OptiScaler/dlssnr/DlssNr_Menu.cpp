@@ -265,6 +265,23 @@ static void RenderSharedOutputEffects(Config* config)
 
 }
 
+static void RenderEarlyCommandListWrap(Config* config)
+{
+    static const char* names[] = {"auto (Unreal/Forza/Aniimo)", "force on", "force off"};
+    int index = config->LmxxfEarlyExeWrap.has_value() ? (*config->LmxxfEarlyExeWrap ? 1 : 2) : 0;
+    if (ImGui::Combo("Early command-list wrap", &index, names, IM_ARRAYSIZE(names)))
+    {
+        if (index == 0) config->LmxxfEarlyExeWrap.reset();
+        else config->LmxxfEarlyExeWrap = (index == 1);
+    }
+    HelpMarker("Wrap command lists created before the swapchain. Shared by lmxxf and Mochizuki."
+               "\nAuto: EXE calls in Unreal/Forza; UnityPlayer.dll calls in Aniimo only."
+               "\nForce on: EXE calls and UnityPlayer.dll calls in other Unity games too."
+               "\nForce off: disable both early paths; normal post-swapchain wrapping stays enabled."
+               "\nOther games are unvalidated; forcing early wrap can cause startup problems."
+               "\nSave and restart to apply. INI: LmxxfEarlyExeWrap.");
+}
+
 static void RenderMochizukiMenu(Config* config, PipelineUi::Section page)
 {
     static const char* groups[] = {"Pass 1", "Quality", "Temporal history", "Preprocessing", "Advanced", "Pass 2", "Pass 3", "Output adjustment"};
@@ -481,6 +498,7 @@ void RenderMenu(Config* config, float menuResScale)
                     if (ImGui::Checkbox("Allow backend hot switching (restart)", &convenience))
                         config->NrConvenience.set_for_next_launch(convenience ? 1 : 0);
                     HelpMarker("Save and restart to change startup hook preparation. Off loads only the active backend.");
+                    RenderEarlyCommandListWrap(config);
                     ImGui::TreePop();
                 }
                 ImGui::PopID();
@@ -1153,21 +1171,7 @@ void RenderMenu(Config* config, float menuResScale)
                         HelpMarker("Leave off unless a game needs NR on lists that use"
                                    "\nenhanced barriers (may corrupt state / TDR). Restart.");
                     }
-                    {
-                        static const char *wrapNames[] = {"auto (Unreal/Forza)", "force on", "force off"};
-                        int wrapIdx = 0;
-                        if (config->LmxxfEarlyExeWrap.has_value())
-                            wrapIdx = *config->LmxxfEarlyExeWrap ? 1 : 2;
-                        if (ImGui::Combo("Early exe wrap", &wrapIdx, wrapNames, 3))
-                        {
-                            if (wrapIdx == 0)
-                                config->LmxxfEarlyExeWrap.reset();
-                            else
-                                config->LmxxfEarlyExeWrap = (wrapIdx == 1);
-                        }
-                        HelpMarker("Wrap game command lists created before the swapchain."
-                                   "\nauto: Unreal and Forza only. Restart to apply.");
-                    }
+                    RenderEarlyCommandListWrap(config);
                 }
                 else {
                     bool everyFrame = config->AmdEveryFrame.value_or_default();

@@ -1,10 +1,11 @@
 @echo off
 rem lmxxf runtime and submission tests. Every test in tests\lmxxf belongs to exactly one tier below.
-rem Usage: tests\lmxxf\run.cmd abi^|warp^|device^|gpu [out-dir]
+rem Usage: tests\lmxxf\run.cmd abi^|warp^|device^|early-unity^|gpu [out-dir]
 rem   abi    : lmxxf_nr_abi, lmxxf_zero_fallback_abi.c, test_runtime_validation.py (no GPU)
 rem   warp   : lmxxf_same_frame_boundary, lmxxf_color_probe (D3D12 WARP; no GPU)
 rem   device : lmxxf_list_split, lmxxf_list1_wrap, lmxxf_create_execute, lmxxf_evaluate_cut
-rem            (hardware D3D12 adapter)
+rem            plus early Unity caller admission, retained split/Reset (hardware D3D12 adapter)
+rem   early-unity: only the early caller/retained-list regression (also included in device).
 rem   gpu    : runtime formats/exposure/output hashes, recording lifecycle and bridge regressions.
 rem            Bridge fixtures use /std:c++17 for upstream header compatibility.
 rem            Needs AMD GPU and LMXXF_ASSETS = native-game-tiled-assets weights folder.
@@ -34,8 +35,9 @@ set "D3D=d3d12.lib dxgi.lib dxguid.lib uuid.lib"
 if /i "%TIER%"=="abi" goto abi
 if /i "%TIER%"=="warp" goto warp
 if /i "%TIER%"=="device" goto device
+if /i "%TIER%"=="early-unity" goto early-unity
 if /i "%TIER%"=="gpu" goto gpu
-echo usage: tests\lmxxf\run.cmd abi^|warp^|device^|gpu [out-dir]
+echo usage: tests\lmxxf\run.cmd abi^|warp^|device^|early-unity^|gpu [out-dir]
 exit /b 2
 
 :abi
@@ -73,7 +75,20 @@ for %%T in (lmxxf_list1_wrap lmxxf_create_execute lmxxf_evaluate_cut) do (
   %CXX% /I"%INC%" tests\lmxxf\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" /link %D3D% "%DETOURS%" || goto fail
   "%OUT%\%%T.exe" || goto fail
 )
+call :EarlyUnity || goto fail
 goto pass
+
+:early-unity
+call :EarlyUnity || goto fail
+goto pass
+
+:EarlyUnity
+for %%N in (UnityPlayer OtherEngine) do (
+  %CXX% /O2 /LD tests\lmxxf\early_caller_fixture.cpp /Fe"%OUT%\%%N.dll" /Fo"%OUT%\%%N.obj" /link /IMPLIB:"%OUT%\%%N.lib" %D3D% || exit /b 1
+)
+%CXX% /O2 /I"%INC%" tests\lmxxf\lmxxf_early_unity.cpp /Fe"%OUT%\lmxxf_early_unity.exe" /Fo"%OUT%\lmxxf_early_unity.obj" /link %D3D% "%DETOURS%" || exit /b 1
+"%OUT%\lmxxf_early_unity.exe" "%OUT%\UnityPlayer.dll" "%OUT%\OtherEngine.dll"
+exit /b %errorlevel%
 
 :gpu
 rem Explicit 0.39 compatibility configuration; new product defaults are exercised below.

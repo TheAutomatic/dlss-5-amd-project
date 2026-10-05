@@ -31,6 +31,11 @@ local changes are in [the source record](../third_party/mochizuki/UPSTREAM.md).
    Extraction only reads data and validates every model entry; it does not load the DLL.
    The result is `dlssnr-amd/dlssnr.bin`. A model extracted with the official tools is
    also usable at this path.
+   If no working Python 3.10+ is found, Setup and the standalone model tool explain
+   how to open Microsoft Store (Windows Store), search for **Python**, and install
+   version 3.10 or newer. Close and reopen the installer afterward. They also try
+   `python3` and `py` when `python` is unavailable; a Windows execution alias alone
+   is not accepted as a working interpreter. Existing extracted models need no Python.
 5. Run `Setup.bat`, select mochizuki alone or install all available backends. Choose
    the active backend. Ins exposes the same selection; with `NrConvenience=0`, save
    and restart after changing it. Unselected backends are not initialized.
@@ -106,6 +111,17 @@ NR immediately and cancels the pending resize. Sustained changes still rebuild.
 Startup, same-size setting changes and actual DRS bucket growth do not incur this
 extra wait. This prevents short size excursions from triggering two unnecessary
 builds; it does not remove the cost of a genuine resolution change.
+
+**Compatibility & Scheduling → Early command-list wrap** controls the shared
+submission hook (`LmxxfEarlyExeWrap` in the INI, also used by lmxxf). Auto admits
+early EXE calls in Unreal/Forza and early UnityPlayer.dll calls in Aniimo.exe.
+Other Unity games stay on the normal post-swapchain policy unless explicitly
+forced on. Force on admits both EXE and loaded UnityPlayer.dll callers; force off
+disables both early paths. Save and restart after changing this setting. Forced
+early wrapping can break initialization in untested games; it is not a general
+Unity compatibility guarantee. The hook still accepts only DIRECT command lists
+and requires a ready submission path. This addresses retained boot lists missing
+NR, independently of the transient-resolution handling above.
 
 Overall Intensity and Residual Stabilizer remain shared output effects. Intensity 0
 or ApplyModel off still incurs network work; disable NR to avoid it. Group reset only

@@ -16,7 +16,7 @@ lmxxf 后端把 Kien 的 MIT 项目 [lmxxf/dlss5-on-amd-9070xt-porting](https://
 - 以下情况 fail-closed，拒绝拆分：query、predication、RT/meta 命令、无法建模的 viewport/scissor 调用，以及非代理 list 上的 Record。
 - 使用 enhanced barrier 的 list 默认拒绝，因为 layout/access 和 `SYNC_SPLIT` 都没有建模。需要时用 `LmxxfAllowEnhancedBarriers=true` 显式放开。
 - 已录完、`Flags` 为 none 的 alias barrier 不否决拆分（`803c8ba`）。
-- 游戏创建 swapchain 之前，只对 Unreal 和 Forza 做早期 `CreateCommandList` 包装。`LmxxfEarlyExeWrap` 可以强制打开或关闭。燕云这一类游戏如果早包装会崩。
+- 游戏创建 swapchain 之前，自动包装 Unreal/Forza 的 EXE 调用，以及伊莫 `Aniimo.exe` 中来自 `UnityPlayer.dll` 的调用；只接受 DIRECT 列表，先确保提交 hook 就绪。其他 Unity 游戏默认不提前接管。`LmxxfEarlyExeWrap=true` 显式允许 EXE 和已加载 UnityPlayer.dll 的早期调用，`false` 关闭两条早期路径；正常 swapchain 后接管不受此开关影响。该配置与 Mochizuki 共用，Ins 的 Compatibility & Scheduling 中显示为 Early command-list wrap，保存并重启生效。其他游戏需逐一验证，燕云这一类游戏强制早包装可能崩溃。
 - 证据：lmxxf 早期整幅画面发糊，根因是 Color 迟了 1 帧，改成同帧后解决，在 5400 帧上验证过。
 
 ## 准入
