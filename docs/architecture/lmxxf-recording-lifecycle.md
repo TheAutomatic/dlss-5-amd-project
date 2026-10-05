@@ -68,6 +68,11 @@ removal has a distinct result. Unconfirmed resources are intentionally retained.
 
 Partial failed recordings retain their observer and private pins. They may execute the
 already-recorded commands without HIP; the failed active owner is retired from new work.
+A final split-eligibility check in `LmxxfRecording::Attach` rejects and collects the
+prepared job before attaching an observer or recording private input commands. This
+check does not reserve a continuation: a later split failure still retains the partial
+recording as above. Host diagnostics copy rejection text before releasing the queried
+interface and report the split HRESULT separately from the rejection reason.
 A threadpool timer collects invalidated completed leases even when no backend is active.
 The registry and observers never own a COM reference back to the proxy.
 

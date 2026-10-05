@@ -10,11 +10,27 @@
 #include <thread>
 #include "queue_faults.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfEvaluateCut.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfRecordingOwner.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/SplitEligibility.h"
 
 template<class T>using Ptr=Microsoft::WRL::ComPtr<T>;
 static void Require(bool ok,const char* text){if(!ok){std::fprintf(stderr,"FAIL: %s\n",text);std::exit(1);}}
 static void Check(HRESULT hr,const char* text){Require(SUCCEEDED(hr),text);}
 namespace Submission=DlssNr::Submission;
+struct RejectedJob {
+ unsigned invalidated=0,collected=0;
+ static int32_t Invalidate(void* context,void* job){
+  auto& state=*static_cast<RejectedJob*>(context);
+  Require(job==context,"rejection invalidates the prepared job");
+  ++state.invalidated;return LMXXF_NR_OK;
+ }
+ static int32_t Collect(void* context,void* job){
+  auto& state=*static_cast<RejectedJob*>(context);
+  Require(job==context&&state.invalidated==1,"invalidate before collection");
+  ++state.collected;return LMXXF_NR_OK;
+ }
+ static int32_t Destroy(void*){return LMXXF_NR_OK;}
+};
 struct Observer:Submission::RecordingObserver{
  unsigned invalidations=0,producers=0,between=0,continuations=0;
  bool reject=false;
@@ -61,6 +77,25 @@ int main(){
  Check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,alloc.Get(),nullptr,IID_PPV_ARGS(&native)),"native list");
  DlssNr::Submission::CommandListProxy* proxy=nullptr;
  Check(DlssNr::Submission::CommandListProxy::Create(device.Get(),alloc.Get(),native.Get(),&proxy),"proxy");
+ // Reject before attaching any observer/private commands. An overflowing root
+ // index marks the proxy without forwarding an invalid call to the native list.
+ Require(Submission::ReadSplitEligibility(proxy).allowed,"fresh list is eligible");
+ Require(!Submission::ReadSplitEligibility(native.Get()).allowed,"native list is not our proxy");
+ proxy->SetComputeRoot32BitConstant(64,0,0);
+ const auto rejected=Submission::ReadSplitEligibility(proxy);
+ Require(!rejected.allowed&&rejected.reason=="root_overflow","capture exact rejection");
+ RejectedJob rejectedJob;
+ auto owner=std::make_shared<DlssNr::Backend::LmxxfRecording::SessionOwner>();
+ owner->context=&rejectedJob;owner->api.InvalidateRecording=&RejectedJob::Invalidate;
+ owner->api.CollectRecording=&RejectedJob::Collect;owner->api.Destroy=&RejectedJob::Destroy;
+ const auto registrySize=DlssNr::Backend::LmxxfRecording::Registry().size();
+ Require(!DlssNr::Backend::LmxxfRecording::Attach(owner,&rejectedJob,proxy),"ineligible attachment refused");
+ Require(rejectedJob.invalidated==1&&rejectedJob.collected==1,"unsubmitted job collected exactly once");
+ Require(DlssNr::Backend::LmxxfRecording::Registry().size()==registrySize,"no rejected lease retained");
+ Require(proxy->UnsplitNativeList()==native.Get(),"rejection appended no private segment or observer");
+ Check(proxy->Close(),"close rejected generation");Check(proxy->Reset(alloc.Get(),nullptr),"reset rejection");
+ Require(Submission::ReadSplitEligibility(proxy).allowed&&rejected.reason=="root_overflow","reason snapshot survives reset");
+ owner.reset();
  auto first=std::make_shared<Observer>();auto identity=proxy->Identity();
  Check(proxy->ObserveRecording(first),"observe first generation");
  auto resourceOwner=std::make_shared<Observer>();

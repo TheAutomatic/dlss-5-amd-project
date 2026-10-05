@@ -184,6 +184,14 @@ inline void Collect()
 inline std::shared_ptr<Lease> Attach(const std::shared_ptr<SessionOwner>& owner, void* job,
                                      Submission::ILogicalCommandList* logical)
 {
+    // No private commands have been appended yet. An ineligible recording must
+    // not acquire an observer or retain a job merely to be rejected after input writes.
+    if (!logical || logical->IsSplitIneligible())
+    {
+        owner->api.InvalidateRecording(owner->context, job);
+        owner->api.CollectRecording(owner->context, job);
+        return {};
+    }
     std::shared_ptr<Lease> lease;
     try
     {

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "../NrTimingDisplay.h"
 #include "LmxxfBackend.h"
+#include "../submission/SplitEligibility.h"
 #include "InstallStatus.h"
 #include "LmxxfRecordingOwner.h"
 #include <cstring>
@@ -499,9 +500,18 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         SetStatus("lmxxf: recording proxy unavailable");
         return nullptr;
     }
+    // Save the borrowed diagnostic before Attach/Release can change its owner.
+    const char* borrowed = logical->SplitRejectionReason();
+    const std::string splitReason = borrowed ? borrowed : "unknown";
+    const bool eligible = !logical->IsSplitIneligible();
     auto lease = LmxxfRecording::Attach(sessionOwner, jobHandle, logical);
     logical->Release();
-    if (!lease) { SetStatus("lmxxf: this recording already owns an NR job"); return nullptr; }
+    if (!lease)
+    {
+        SetStatus(eligible ? "lmxxf: recording ownership unavailable" :
+                  (std::string("lmxxf: split blocked before record: ") + splitReason + " (NO NR)").c_str());
+        return nullptr;
+    }
     lease->traceId = reTraceId;
     lease->trace = &ReTrace;
     ReTrace(reTraceId, "inputs.begin", jobHandle, 0);
@@ -517,8 +527,13 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     ReTrace(reTraceId, "split.end", recordCmd, splitHr);
     if (splitHr != S_OK)
     {
+        const auto eligibility = DlssNr::Submission::ReadSplitEligibility(recordCmd);
         sessionOwner->failed = true;
-        SetStatus("lmxxf: Split failed");
+        char state[768] {};
+        std::snprintf(state, sizeof(state), "lmxxf: Split failed hr=%08X reason=%s",
+                      static_cast<unsigned>(splitHr),
+                      eligibility.allowed ? "split-operation-failed" : eligibility.reason.c_str());
+        SetStatus(state);
         return nullptr;
     }
     ReTrace(reTraceId, "outputs.begin", jobHandle, 0);
@@ -560,13 +575,14 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         return nullptr;
     }
     const bool ineligible = logical->IsSplitIneligible();
-    const char *reason = logical->SplitRejectionReason();
+    const char *borrowedReason = logical->SplitRejectionReason();
+    const std::string reason = borrowedReason ? borrowedReason : "unknown";
     logical->Release();
     if (ineligible)
     {
         char status[128] {};
         std::snprintf(status, sizeof(status), "lmxxf: split ineligible: %s (NO NR)",
-                      reason ? reason : "unknown");
+                      reason.c_str());
         SetStatus(status);
         static std::atomic<uint32_t> s_ineligibleCount{0};
         const uint32_t c = s_ineligibleCount.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -795,7 +811,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
     const UINT w = frame.width ? frame.width : static_cast<UINT>(d.Width);
     const UINT h = frame.height ? frame.height : d.Height;
     ID3D12Resource *output = nullptr;
-    const char *reason = "original_no_nr";
+    std::string reason = "original_no_nr";
     LmxxfProbe::Evidence ev {};
     ev.evaluateId = id;
     ev.list = cmd;
@@ -820,10 +836,11 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
             ++boundaryProxyHits;
             if (logical->IsSplitIneligible())
             {
-                reason = logical->SplitRejectionReason();
+                const char *borrowedReason = logical->SplitRejectionReason();
+                reason = borrowedReason ? borrowedReason : "unknown";
                 ++boundaryRejects;
                 char state[256] {};
-                snprintf(state, sizeof state, "lmxxf diagnostic: %s REJECTED (%s; original Color)", modeName, reason);
+                snprintf(state, sizeof state, "lmxxf diagnostic: %s REJECTED (%s; original Color)", modeName, reason.c_str());
                 SetStatus(state);
             }
             else if (!EnsureSession())
@@ -923,7 +940,10 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
             if (diagnostic == LmxxfProbe::Mode::ProxyOriginal)
                 reason = "proxy_original_no_nr";
             else if (logical->IsSplitIneligible())
-                reason = logical->SplitRejectionReason();
+            {
+                const char *borrowedReason = logical->SplitRejectionReason();
+                reason = borrowedReason ? borrowedReason : "unknown";
+            }
             else
             {
                 cutHr = logical->SplitSegments();
@@ -941,7 +961,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
         if (!isProxy || (diagnostic == LmxxfProbe::Mode::SplitOriginal && cutHr != S_OK))
             ++boundaryRejects;
         char state[256] {};
-        snprintf(state, sizeof state, "lmxxf diagnostic: %s (original Color; NO NR)", reason);
+        snprintf(state, sizeof state, "lmxxf diagnostic: %s (original Color; NO NR)", reason.c_str());
         SetStatus(state);
         if (sampled)
             LOG_INFO("lmxxf boundary: eval={} proxy={} cutHr={:X} proxyHits={} cutsRecorded={} rejected={} unsplitSubmitted={} producerSubmitted={} continuationSubmitted={} submitFailures={} (counts are NOT GPU completion)",
@@ -984,7 +1004,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
         else
         {
             char buf[256];
-            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s REJECTED (%s)", modeName, reason);
+            snprintf(buf, sizeof buf, "lmxxf diagnostic: %s REJECTED (%s)", modeName, reason.c_str());
             SetStatus(buf);
         }
     }
