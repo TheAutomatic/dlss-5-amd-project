@@ -7665,10 +7665,11 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
 
     // Check for GPU support once and reuse the result in all menu sections.
     // DXVK might call Vulkan device creation, which would destroy our objects.
-    State::Instance().vulkanSkipHooks = true;
-    ctx.primaryGpu =
-        std::make_unique<std::decay_t<decltype(IdentifyGpu::getPrimaryGpu())>>(IdentifyGpu::getPrimaryGpu());
-    State::Instance().vulkanSkipHooks = false;
+    {
+        ScopedSkipVulkanHooks skipVulkanHooks;
+        ctx.primaryGpu =
+            std::make_unique<std::decay_t<decltype(IdentifyGpu::getPrimaryGpu())>>(IdentifyGpu::getPrimaryGpu());
+    }
 
     // Overlay font
     if (config->UseHQFont.value_or_default())

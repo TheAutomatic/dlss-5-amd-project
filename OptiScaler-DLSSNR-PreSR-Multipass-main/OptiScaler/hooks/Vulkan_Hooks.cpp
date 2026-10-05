@@ -53,7 +53,7 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
 
 static void HookDevice(VkDevice InDevice)
 {
-    if (o_CreateSwapchainKHR != nullptr || State::Instance().vulkanSkipHooks)
+    if (o_CreateSwapchainKHR != nullptr || ScopedSkipVulkanHooks::Active())
         return;
 
     LOG_FUNC();
@@ -96,7 +96,7 @@ static VkResult hkvkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32Surf
     auto procHwnd = Util::GetProcessWindow();
     LOG_DEBUG("procHwnd: {0:X}, swapchain hwnd: {1:X}", (UINT64) procHwnd, (UINT64) pCreateInfo->hwnd);
 
-    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks)
+    if (result == VK_SUCCESS && !ScopedSkipVulkanHooks::Active())
     {
         MenuOverlayVk::DestroyVulkanObjects(false);
 
@@ -116,7 +116,7 @@ VALIDATE_HOOK(hkvkCreateInstance, PFN_vkCreateInstance)
 static VkResult hkvkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator,
                                    VkInstance* pInstance)
 {
-    if (State::Instance().vulkanSkipHooks) return o_vkCreateInstance(pCreateInfo, pAllocator, pInstance);
+    if (ScopedSkipVulkanHooks::Active()) return o_vkCreateInstance(pCreateInfo, pAllocator, pInstance);
 
     LOG_FUNC();
 
@@ -146,7 +146,7 @@ static VkResult hkvkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, cons
     }
 
     // Disabled to prevent unnecessary object release
-    // if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks)
+    // if (result == VK_SUCCESS && !ScopedSkipVulkanHooks::Active())
     //{
     //     MenuOverlayVk::DestroyVulkanObjects(false);
     // }
@@ -160,7 +160,7 @@ VALIDATE_HOOK(hkvkCreateDevice, PFN_vkCreateDevice)
 static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo,
                                  const VkAllocationCallbacks* pAllocator, VkDevice* pDevice)
 {
-    if (State::Instance().vulkanSkipHooks) return o_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+    if (ScopedSkipVulkanHooks::Active()) return o_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
 
     LOG_FUNC();
 
@@ -246,7 +246,7 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 
     if (result == VK_SUCCESS && Config::Instance()->OverlayMenu.value_or_default())
     {
-        if (!State::Instance().vulkanSkipHooks)
+        if (!ScopedSkipVulkanHooks::Active())
         {
             // Disabled to prevent unnecessary object release
             // MenuOverlayVk::DestroyVulkanObjects(false);
@@ -357,7 +357,7 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
     }
 
     if (result == VK_SUCCESS && device != VK_NULL_HANDLE && pCreateInfo != nullptr && *pSwapchain != VK_NULL_HANDLE &&
-        !State::Instance().vulkanSkipHooks)
+        !ScopedSkipVulkanHooks::Active())
     {
         State::Instance().screenWidth = static_cast<float>(pCreateInfo->imageExtent.width);
         State::Instance().screenHeight = static_cast<float>(pCreateInfo->imageExtent.height);

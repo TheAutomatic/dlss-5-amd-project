@@ -3,6 +3,7 @@
 
 #include "misc/Quirks.h"
 #include "misc/SkipSpoof.h"
+#include "misc/VulkanCallScope.h"
 #include "framegen/IFGFeature_Dx12.h"
 #include <inputs/FG/Streamline_Inputs_Dx12.h>
 #include <inputs/FG/Streamline_Inputs_Sl1_Dx12.h>
@@ -267,8 +268,6 @@ class State
 
     // Vulkan stuff
     bool vulkanCreatingSC = false;
-    bool creatingD3DDevice = false;
-    bool vulkanSkipHooks = false;
     VkInstance VulkanInstance = nullptr;
 
     // Framegraph
@@ -482,20 +481,6 @@ class ScopedSkipHeapCapture
     ~ScopedSkipHeapCapture() { State::Instance().skipHeapCapture = previousState; }
 };
 
-class ScopedSkipVulkanHooks
-{
-  private:
-    bool previousState;
-
-  public:
-    ScopedSkipVulkanHooks()
-    {
-        previousState = State::Instance().vulkanSkipHooks;
-        State::Instance().vulkanSkipHooks = true;
-    }
-    ~ScopedSkipVulkanHooks() { State::Instance().vulkanSkipHooks = previousState; }
-};
-
 class ScopedVulkanCreatingSC
 {
   private:
@@ -508,18 +493,4 @@ class ScopedVulkanCreatingSC
         State::Instance().vulkanCreatingSC = true;
     }
     ~ScopedVulkanCreatingSC() { State::Instance().vulkanCreatingSC = previousState; }
-};
-
-class ScopedCreatingD3DDevice
-{
-  private:
-    bool previousState;
-
-  public:
-    ScopedCreatingD3DDevice()
-    {
-        previousState = State::Instance().creatingD3DDevice;
-        State::Instance().creatingD3DDevice = true;
-    }
-    ~ScopedCreatingD3DDevice() { State::Instance().creatingD3DDevice = previousState; }
 };
