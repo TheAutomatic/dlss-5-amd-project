@@ -66,7 +66,7 @@ using ExitFn = void(NTAPI*)(LONG);
 ExecuteFn executeOriginal = nullptr;
 ExitFn exitOriginal = nullptr;
 bool submissionHookReady = false; // guarded by initMutex
-std::string message = "AMD pre-SR: waiting for a DirectX 12 SR frame";
+std::string message = "AMD NR: waiting for a DirectX 12 SR frame";
 std::mutex messageMutex;
 std::mutex initMutex;
 std::mutex observedMutex;
@@ -172,7 +172,7 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
         if (matched)
         {
             s_confirmedRenderQueue.Set(q);
-            LOG_INFO("AMD pre-SR: confirmed execution queue {:p} for target list {:p}",
+            LOG_INFO("AMD NR: confirmed execution queue {:p} for target list {:p}",
                      reinterpret_cast<void*>(q), reinterpret_cast<void*>(matched));
         }
     }
@@ -275,7 +275,7 @@ bool InstallSubmissionHook(ID3D12Device *device, ID3D12CommandQueue *q)
         DetourTransactionAbort();
     if (err != NO_ERROR)
     {
-        Message("AMD pre-SR: could not install submission notification");
+        Message("AMD NR: could not install submission notification");
         return false;
     }
     DlssNr::Submission::NoteRawExecuteCommandLists(executeOriginal);
@@ -306,7 +306,7 @@ bool IsAmd(ID3D12Device* d)
         {
             DXGI_ADAPTER_DESC1 desc {};
             amd = SUCCEEDED(a->GetDesc1(&desc)) && desc.VendorId == 0x1002;
-            LOG_INFO("AMD pre-SR physical adapter vendor: {:04X}, AMD: {}", desc.VendorId, amd);
+            LOG_INFO("AMD NR physical adapter vendor: {:04X}, AMD: {}", desc.VendorId, amd);
             a->Release();
         }
         f->Release();
@@ -389,7 +389,7 @@ void SyncBackendWithConfig()
         if (selected == DlssNr::Backend::Kind::Daniel)
             b->ResetGraphicsWaitState();
     }
-    Message("AMD pre-SR: NR backend switched");
+    Message("AMD NR: NR backend switched");
 }
 const char* RuntimeName()
 {
@@ -449,7 +449,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         if (!loggedLmxxfFallback)
         {
             loggedLmxxfFallback = true;
-            Message("AMD pre-SR: NrBackend=lmxxf is not wired; using daniel");
+            Message("AMD NR: NrBackend=lmxxf is not wired; using daniel");
         }
     }
     ID3D12Device* device = nullptr;
@@ -513,7 +513,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         if (!s_loggedWait)
         {
             s_loggedWait = true;
-            LOG_INFO("AMD pre-SR: awaiting execution queue observation for target command list {:p}; bypassing NR this frame",
+            LOG_INFO("AMD NR: awaiting execution queue observation for target command list {:p}; bypassing NR this frame",
                      reinterpret_cast<void*>(cmd));
         }
         return true;
@@ -670,7 +670,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
             static unsigned settleChanges = 0;
             ++settleChanges;
             if (settleChanges <= 8 || settleChanges % 100 == 0)
-                LOG_INFO("AMD pre-SR settle #{}: {}x{} scale {:.3f} -> {}x{} scale {:.3f} (thread {})",
+                LOG_INFO("AMD NR settle #{}: {}x{} scale {:.3f} -> {}x{} scale {:.3f} (thread {})",
                          settleChanges, settlingWidth, settlingHeight, settlingScale, f.width, f.height,
                          requestedScale, GetCurrentThreadId());
             b->InvalidateHistory();
@@ -703,14 +703,14 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         lastFrame = current;
         stableFrames = 0;
         b->InvalidateHistory();
-        Message("AMD pre-SR: warming up after an upscaler/resource change");
+        Message("AMD NR: warming up after an upscaler/resource change");
         return true;
     }
     lastFrame = current;
     if (runtimeDrs) stableFrames = 2;
     if (stableFrames < 2 && ++stableFrames < 2)
     {
-        Message("AMD pre-SR: warming up after an upscaler/resource change");
+        Message("AMD NR: warming up after an upscaler/resource change");
         return true;
     }
     f.depthInverted = (flags & NVSDK_NGX_DLSS_Feature_Flags_DepthInverted) != 0;
@@ -923,6 +923,6 @@ std::string Status()
     }
     if (auto b = ActiveHost())
         return b->Status();
-    return "AMD pre-SR: idle";
+    return "AMD NR: idle";
 }
 } // namespace DlssNr::AmdBridge

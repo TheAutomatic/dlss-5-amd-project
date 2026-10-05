@@ -363,7 +363,7 @@ struct Backend::Impl
     std::array<HMODULE, 3> runtime {};
     std::array<UINT, 3> observedTimeouts {};
     std::filesystem::path directory;
-    std::string status = "AMD pre-SR: not initialized";
+    std::string status = "AMD NR: not initialized";
     std::atomic<bool> failed { false };
     std::atomic<bool> resetRequested { true };
     // Stop host admission while recorded submissions finish. Every Evaluate
@@ -764,7 +764,7 @@ struct Backend::Impl
             {
                 ++completedFrames;
                 lastCompleted = lastSubmitted;
-                status = "Completed AMD pre-SR passes=" + std::to_string(passCount) + " at " +
+                status = "Completed AMD NR passes=" + std::to_string(passCount) + " at " +
                          std::to_string(width) + "x" + std::to_string(height);
                 if (completedFrames <= 3 || completedFrames % 120 == 0)
                     Log(status);
@@ -1318,7 +1318,7 @@ ID3D12Resource* Backend::Record(ID3D12GraphicsCommandList* cmd, const Frame& inc
             auto gd = guide->GetDesc();
             if (gd.Width < w || gd.Height < h || gd.SampleDesc.Count != 1 || gd.DepthOrArraySize != 1 ||
                 gd.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
-                throw std::runtime_error(std::string("Unsupported AMD pre-SR ") +
+                throw std::runtime_error(std::string("Unsupported AMD NR ") +
                                          (guide == f.motion ? "motion: " : "depth: ") + Layout(guide));
         }
         const UINT inputW=w, inputH=h;

@@ -36,10 +36,11 @@ class InstallerExitTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="amd-installer-exit-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.package = self.root / "package with spaces"
+        self.package = self.root / "OptScaler(NR) package with spaces"
         self.game = self.root / "game with spaces"
         self.package.mkdir()
         self.game.mkdir()
+        shutil.copy2(REPO / "VERSION", self.package)
         self.env = {key.upper(): value for key, value in os.environ.items()}
         # A parent pwsh may export its own PSModulePath. Test the actual PS5
         # runtime with its default module discovery, like a double-click.
@@ -53,11 +54,11 @@ class InstallerExitTests(unittest.TestCase):
             ("Uninstall", "uninstall", "Uninstall_OptiScaler_NR"),
         ):
             body = re.search(
-                r"@'\n(@echo off\nsetlocal\ntitle OptiScaler AMD pre-SR "
-                + title_name + r"\n.*?)\n'@ \| Set-Content", source, re.S
+                r"@'\n(@echo off\nsetlocal\ntitle OptScaler\(NR\) @VERSION@ - "
+                + title_name + r"\n.*?)\n'@", source, re.S
             )
             self.assertIsNotNone(body, f"missing production {file_name}.bat template")
-            batch = body.group(1)
+            batch = body.group(1).replace("@VERSION@", (REPO / "VERSION").read_text().strip())
             self.assertEqual(len(re.findall(r"(?m)^pause$", batch)), 1)
             batch = batch.replace("\npause\n", f"\necho {PAUSE_MARKER}\npause\n")
             (self.package / f"{file_name}.bat").write_bytes(batch.replace("\n", "\r\n").encode("ascii"))
@@ -877,6 +878,19 @@ class InstallerExitTests(unittest.TestCase):
         self.assert_custom_module_backed_up()
         self.assertIn("UserSentinel", (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"))
 
+    def test_old_and_new_brand_records_detect_install_without_proxy(self):
+        self.ready_install()
+        record = self.game / "amd-presr-install.txt"
+        for brand in ("OptiScaler AMD pre-SR", "OptScaler(NR)"):
+            with self.subTest(brand=brand):
+                (self.game / "dxgi.dll").unlink(missing_ok=True)
+                record.write_text(f"project={brand}\nproxy=dxgi.dll\n", encoding="ascii")
+                code, output = self.run_batch(stdin="N\n")
+                self.assertEqual(code, 0, output)
+                self.assertIn("Existing OptiScaler installation detected", output)
+                self.assertIn("Continuing with an overwrite installation", output)
+                self.assertIn("project=OptScaler(NR)", record.read_text())
+
     def test_setup_yes_uses_new_uninstaller_then_installs_without_second_confirmation(self):
         self.ready_legacy_install()
         (self.package / "OptiScaler.ini").write_text("[DlssNr]\nPackageSentinel=yes\n", encoding="utf-8")
@@ -889,7 +903,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("Uninstall SUCCEEDED.", output)
         self.assertIn("Install SUCCEEDED.", output)
-        self.assertLess(output.index("Uninstall SUCCEEDED."), output.index("Installing OptiScaler as"))
+        self.assertLess(output.index("Uninstall SUCCEEDED."), output.index("Installing OptScaler(NR)"))
         self.assertNotIn("Type Y to delete", output)
         self.assertNotIn("Keep these backup folders?", output)
         self.assertNotIn("old uninstaller must not run", output)

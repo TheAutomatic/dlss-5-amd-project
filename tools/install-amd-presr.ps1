@@ -94,6 +94,17 @@ if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
     $release = Join-Path $Root 'release'
 }
 
+$productTitle = 'OptScaler(NR)'
+$versionFile = Join-Path $release 'VERSION'
+if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
+    $productVersion = ([IO.File]::ReadAllText($versionFile)).Trim()
+    # This title is also embedded into the fallback batch launcher.
+    if ($productVersion -match '^[0-9]+(?:\.[0-9]+){2,3}(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$') {
+        $productTitle += ' ' + $productVersion
+    }
+}
+Write-Host $productTitle -ForegroundColor Cyan
+
 # Do not use Get-FileHash: it belongs to Microsoft.PowerShell.Utility and relies on module autoloading.
 # When PSModulePath points to PowerShell 7 module directories (e.g. launched from pwsh
 # or in CI within shell: pwsh invoking powershell -File), the 5.1 child process cannot load it
@@ -513,7 +524,7 @@ OptiScaler.dll sits next to Setup.ps1.
 $existingOpti = @($proxies | Where-Object { Test-OptiProxy (Join-Path $game $_) }).Count -gt 0
 $existingRecord = Join-Path $game 'amd-presr-install.txt'
 if (-not $existingOpti -and (Test-Path -LiteralPath $existingRecord -PathType Leaf)) {
-    $existingOpti = [IO.File]::ReadAllText($existingRecord) -match '(?m)^project=OptiScaler AMD pre-SR\r?$'
+    $existingOpti = [IO.File]::ReadAllText($existingRecord) -match '(?m)^project=(?:OptScaler\(NR\)|OptiScaler AMD pre-SR)\r?$'
 }
 $uninstallFirst = $false
 if ($existingOpti) {
@@ -1216,7 +1227,7 @@ function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collect
 }
 
 Write-Host ''
-Write-Host "Installing OptiScaler as $Proxy ..." -ForegroundColor Cyan
+Write-Host "Installing $productTitle as $Proxy ..." -ForegroundColor Cyan
 Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 
 $ini = Join-Path $release 'OptiScaler.ini'
@@ -1391,10 +1402,10 @@ if ($batSrc) {
     Install-One $batSrc 'Uninstall_OptiScaler_NR.bat'
 } else {
     $batDest = Join-Path $game 'Uninstall_OptiScaler_NR.bat'
-    @'
+    (@'
 @echo off
 setlocal
-title OptiScaler AMD pre-SR Uninstall
+title @PRODUCT_TITLE@ - Uninstall
 rem Double-click in the game folder. Optional: Uninstall_OptiScaler_NR.bat "D:\GameFolder"
 if "%~1"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -NoPause
@@ -1405,7 +1416,7 @@ set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" echo Uninstall failed ^(exit code %EC%^). See the error above.
 pause
 exit /b %EC%
-'@ | Set-Content -LiteralPath $batDest -Encoding ASCII
+'@).Replace('@PRODUCT_TITLE@', $productTitle) | Set-Content -LiteralPath $batDest -Encoding ASCII
     Write-Host "Wrote uninstaller: $batDest" -ForegroundColor Green
 }
 
@@ -1414,7 +1425,7 @@ exit /b %EC%
 $installMark = Join-Path $game 'amd-presr-install.txt'
 try {
     @(
-        'project=OptiScaler AMD pre-SR',
+        'project=OptScaler(NR)',
         ('proxy=' + $Proxy),
         ('backend=' + $activeBackend),
         ('uninstallFirst=' + $uninstallFirst.ToString().ToLowerInvariant()),
@@ -1547,13 +1558,13 @@ if (Test-Path -LiteralPath $backup) {
 }
 Write-Host "  Active Backend: $activeBackend" -ForegroundColor Cyan
 if ($installLmxxf) {
-    Write-Host "  Installed:      OptiScaler + lmxxf runtime (LmxxfNrRuntime.dll, modules, shaders)" -ForegroundColor Green
+    Write-Host "  Installed:      OptScaler(NR) + lmxxf runtime (LmxxfNrRuntime.dll, modules, shaders)" -ForegroundColor Green
 }
 if ($installDaniel) {
-    Write-Host "  Installed:      OptiScaler + danielblnc runtime (dlssnr_amd_pass1-3.dll + weights)" -ForegroundColor Green
+    Write-Host "  Installed:      OptScaler(NR) + danielblnc runtime (dlssnr_amd_pass1-3.dll + weights)" -ForegroundColor Green
 }
 if ($installMochizuki) {
-    Write-Host "  Installed:      OptiScaler + mochizuki runtime (MochizukiNrRuntime.dll, shaders)" -ForegroundColor Green
+    Write-Host "  Installed:      OptScaler(NR) + mochizuki runtime (MochizukiNrRuntime.dll, shaders)" -ForegroundColor Green
 }
 if ($installDaniel) {
     if ($keptA -or $keptW) {

@@ -1,9 +1,9 @@
 ﻿<#
 .SYNOPSIS
   Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptiScaler-AMD-PreSR-1.9.8
-    1.9.8  = this fork's product version
-    0.3.0–0.5.0 = supported danielblnc runtime
+  Default product: OptScaler(NR)-<VERSION>
+    VERSION = this fork's product version
+    0.3.0–0.6.0 = supported danielblnc runtime
     lmxxf  = supported lmxxf HIP neural rendering runtime
 
 .EXAMPLE
@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.9.8',
+    [string]$Version = '1.10.2',
     [string]$OutDir = 'dist',
     [string]$Name = '',
     [string]$OptiDll = '',
@@ -48,7 +48,7 @@ if (-not $PSBoundParameters.ContainsKey('Version')) {
         if ($v) { $Version = $v }
     }
 }
-if (-not $Name) { $Name = "OptiScaler-AMD-PreSR-$Version" }
+if (-not $Name) { $Name = "OptScaler(NR)-$Version" }
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
 
@@ -242,8 +242,8 @@ $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
 $ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
 $ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
 [DlssNr]
-; Product $Version - Three-backend AMD Neural Rendering (DLSS 5 on AMD) Pre-SR pipeline.
-; Synthesizes detail and denoises ray-traced inputs before upscaling (FSR/XeSS).
+; OptScaler(NR) $Version - Three-backend AMD Neural Rendering (DLSS 5 on AMD), before or after SR.
+; Synthesizes detail and denoises ray-traced inputs at the selected processing stage.
 
 ; Enables DLSS-NR at the selected processing stage
 ; true or false - Program default is false. Setup turns this on.
@@ -606,10 +606,10 @@ $installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
 if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
 Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $root 'tools/lmxxf-module-package.ps1') -Destination $stage -Force
-@'
+(@'
 @echo off
 setlocal
-title OptiScaler AMD pre-SR Setup
+title OptScaler(NR) @VERSION@ - Setup
 rem No args: Setup.ps1 opens a folder picker and proxy menu.
 rem Optional: Setup.bat "D:\GameFolder" [dxgi.dll]
 if "%~2"=="" (
@@ -621,15 +621,15 @@ set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" echo Setup failed ^(exit code %EC%^). See the error above.
 pause
 exit /b %EC%
-'@ | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
+'@).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
 
 $uninstallSrc = Join-Path $root 'tools/uninstall-amd-presr.ps1'
 if (!(Test-Path $uninstallSrc)) { throw "Missing $uninstallSrc" }
 Copy-Item $uninstallSrc (Join-Path $stage 'Uninstall_OptiScaler_NR.ps1') -Force
-@'
+(@'
 @echo off
 setlocal
-title OptiScaler AMD pre-SR Uninstall
+title OptScaler(NR) @VERSION@ - Uninstall
 rem Double-click in the game folder. Optional: Uninstall_OptiScaler_NR.bat "D:\GameFolder"
 if "%~1"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -NoPause
@@ -640,7 +640,7 @@ set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" echo Uninstall failed ^(exit code %EC%^). See the error above.
 pause
 exit /b %EC%
-'@ | Set-Content -LiteralPath (Join-Path $stage 'Uninstall_OptiScaler_NR.bat') -Encoding ASCII
+'@).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $stage 'Uninstall_OptiScaler_NR.bat') -Encoding ASCII
 Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
 Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
 if (Test-Path $readmeEs) {
