@@ -353,7 +353,8 @@ class Config
     // daniel looked like "no choice" and the menu snapped back to the running host.
     CustomOptional<std::string, SoftDefault> NrBackend { "daniel" };
     // lmxxf diagnostics: original/copy-current/staging-current/staging-previous,
-    // proxy-original/split-original (NO NR). off requires a same-frame boundary. Restart to change.
+    // proxy-original/split-original, codec-passthrough (no HIP), hip-passthrough (HIP copy, no NR).
+    // off requires a same-frame boundary. Restart to change.
     CustomOptional<std::string> LmxxfDiagnostic { "off" };
     // Fit Color inputs above 1920x1080 onto the 1080 network (ini/env/txt: DLSS5_FIT_LARGE).
     // Default true, matching upstream package flags. Large Color costs same-frame NR

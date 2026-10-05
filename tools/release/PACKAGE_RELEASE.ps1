@@ -346,7 +346,10 @@ Quality=0
 ; proxy-original    - Open-list proxy, original colour
 ; split-original    - Split list then original colour
 ; codec-passthrough - Encode to decode without the network (no HIP)
-; Default is off. Restart after changing. Invalid values do not enable NR.
+; hip-passthrough   - RGB conversion and HIP shared-buffer round trip, no per-frame NR
+; Model initialization/warm-up still runs; hip-passthrough skips all neural passes afterwards.
+; Default is off. INI only; fully restart after changing, restore off after testing.
+; Invalid values do not enable NR.
 LmxxfDiagnostic=off
 
 ; Fit Color inputs above 1920x1080 onto the 1080 network (same name as env/txt)

@@ -16,7 +16,8 @@ struct RecordedFrame
 };
 int main(int argc, char** argv)
 {
-    if (argc != 3) return 2;
+    const bool hipDiagnostic = argc == 4 && std::strcmp(argv[3], "--hip-passthrough") == 0;
+    if (argc != 3 && !hipDiagnostic) return 2;
     Ptr<ID3D12Debug> debug;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) debug->EnableDebugLayer();
     HMODULE dll = LoadLibraryW(Widen(argv[1]).c_str()); Require(dll != nullptr, "runtime load");
@@ -59,7 +60,8 @@ int main(int argc, char** argv)
         D3D12_HEAP_PROPERTIES hp {}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC rd {}; rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         rd.Width = width; rd.Height = height; rd.DepthOrArraySize = rd.MipLevels = 1;
-        rd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; rd.SampleDesc.Count = 1;
+        rd.Format = hipDiagnostic ? DXGI_FORMAT_R16G16B16A16_TYPELESS : DXGI_FORMAT_R16G16B16A16_FLOAT;
+        rd.SampleDesc.Count = 1;
         rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         Ptr<ID3D12Resource> colour;
         Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -68,7 +70,8 @@ int main(int argc, char** argv)
         return colour;
     };
     uint64_t nextFrame = 0;
-    auto record = [&](void* owner, UINT width, UINT height, bool passthrough = false, bool exposure = false) {
+    auto record = [&](void* owner, UINT width, UINT height, bool passthrough = false, bool exposure = false,
+                      bool hipPassthrough = false) {
         auto result = std::make_unique<RecordedFrame>();
         Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&result->producerAllocator)), "producer allocator");
         Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&result->consumerAllocator)), "consumer allocator");
@@ -83,7 +86,10 @@ int main(int argc, char** argv)
         frame.command_list = result->producer.Get(); frame.color = colour.Get(); frame.color_width = width; frame.color_height = height;
         frame.color_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         frame.paper_white = frame.pre_exposure = frame.exposure_scale = frame.model_scale = 1;
-        frame.flags = (passthrough ? LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH : 0) | (exposure ? LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE : 0);
+        if (hipDiagnostic) frame.pre_exposure = 2; // Yimo's observed frame contract.
+        frame.flags = (passthrough ? LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH : 0) |
+                      (exposure ? LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE : 0) |
+                      (hipPassthrough ? LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH : 0);
         LmxxfNrJob job {}; job.struct_size = sizeof job;
         ok(api.PrepareFrame(owner, &frame, &job), "prepare recording"); result->token = job.handle;
         result->output = static_cast<ID3D12Resource*>(job.private_output);
@@ -120,6 +126,62 @@ int main(int argc, char** argv)
         if (owner == context) { LmxxfNrTimings net {}; net.struct_size = sizeof net; ok(api.GetTimings(owner, &net), "completed network timing"); }
         return HashTexture(device.Get(), target, frame.output);
     };
+    if (hipDiagnostic)
+    {
+        auto conflictColour = makeColour(1280, 720);
+        LmxxfNrFrameInfo conflict {}; conflict.struct_size = sizeof conflict;
+        conflict.color = conflictColour.Get(); conflict.color_width = 1280; conflict.color_height = 720;
+        conflict.flags = LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH;
+        LmxxfNrJob rejected {}; rejected.struct_size = sizeof rejected;
+        Require(api.PrepareFrame(context, &conflict, &rejected) == LMXXF_NR_INVALID_ARGUMENT &&
+                !rejected.handle && !rejected.private_output, "conflicting diagnostics rejected before publishing a job");
+        char conflictError[256] {}; api.GetLastError(conflictError, sizeof conflictError);
+        Require(std::strstr(conflictError, "conflicting passthrough") != nullptr, "explicit conflicting-mode error");
+        // Retained records must survive resize, intervening codec use and queue changes.
+        // Full-texture hashes include every RGB channel and the last pixel: a flat
+        // RGBA copy or the Windows HIP row truncation cannot pass this comparison.
+        for (auto& frame : frames) discard(context, frame);
+        frames.clear();
+        std::vector<uint64_t> hashes;
+        for (const auto size : {std::pair{1280u,720u}, std::pair{1920u,1080u}, std::pair{1707u,961u}})
+        {
+            auto codec = record(context, size.first, size.second, true);
+            const auto expected = run(context, *codec, queue.Get());
+            auto hip = record(context, size.first, size.second, false, false, true);
+            Require(run(context, *hip, other.Get()) == expected, "HIP round trip equals codec across entire image");
+            run(context, *codec, queue.Get());
+            Require(run(context, *hip, queue.Get()) == expected, "HIP round trip replay after codec use on another queue");
+            char status[1536] {}; ok(api.GetStatus(context, status, sizeof status), "HIP copy evidence");
+            Require(std::strstr(status, "diagnostic=hip-passthrough hip_copy_queued=2") != nullptr,
+                    "actual HIP copies recorded, not diagnostic fallback");
+            std::printf("HIP passthrough %ux%u: PASS hash=%016llx copies=2\n", size.first, size.second,
+                        static_cast<unsigned long long>(expected));
+            hashes.push_back(expected); frames.push_back(std::move(hip)); discard(context, codec);
+        }
+        for (size_t i = 0; i < frames.size(); ++i)
+            Require(run(context, *frames[i], (i & 1) ? queue.Get() : other.Get()) == hashes[i],
+                    "HIP diagnostic retains old geometry resources");
+        auto normal = record(context, 1280, 720);
+        const auto normalHash = run(context, *normal, queue.Get());
+        Require(normalHash != hashes.front(), "normal network still executes with diagnostic records retained");
+        Require(run(context, *frames.front(), other.Get()) == hashes.front(), "HIP copy survives normal network execution");
+        Require(run(context, *normal, queue.Get()) == normalHash, "normal network survives diagnostic execution");
+        discard(context, normal);
+        for (auto& frame : frames) discard(context, frame);
+        ok(api.Destroy(context), "destroy HIP diagnostic session");
+        Ptr<ID3D12InfoQueue> messages;
+        if (SUCCEEDED(device.As(&messages)))
+            for (UINT64 i = 0; i < messages->GetNumStoredMessages(); ++i) {
+                SIZE_T bytes = 0; messages->GetMessage(i, nullptr, &bytes); std::vector<char> storage(bytes);
+                auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+                Check(messages->GetMessage(i, message, &bytes), "diagnostic debug message");
+                if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) std::fprintf(stderr, "%s\n", message->pDescription);
+                Require(message->Severity > D3D12_MESSAGE_SEVERITY_ERROR, "HIP passthrough D3D12 debug errors");
+            }
+        FreeLibrary(dll);
+        std::puts("HIP passthrough recording/resize/replay: PASS");
+        return 0;
+    }
     LmxxfNrTimings net {}; net.struct_size = sizeof net;
     ok(api.GetTimings(context, &net), "lazy network timing request");
     Require(!net.valid, "first request cannot fabricate a sample");

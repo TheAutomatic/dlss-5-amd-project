@@ -44,6 +44,7 @@ tests\lmxxf\run.cmd abi
 tests\lmxxf\run.cmd warp
 tests\lmxxf\run.cmd device
 tests\lmxxf\run.cmd early-unity
+tests\lmxxf\run.cmd hip-passthrough
 tests\lmxxf\run.cmd gpu
 tests\install\run.cmd
 tests\sync\run.cmd

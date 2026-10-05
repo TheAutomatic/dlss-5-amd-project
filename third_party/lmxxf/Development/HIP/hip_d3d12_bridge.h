@@ -24,6 +24,11 @@ class D3D12Bridge {
  size_t zero_upload_bytes{};bool clear_submission_unconfirmed{};
  // Producer writes the shared UAV and leaves it COMMON before HIP reads it.
  bool direct_input{};
+ // Opt-in HIP round-trip diagnostic. Prepared before any producer wait; never
+ // changes the normal network path or allocates in the submission callback.
+ using PassthroughCopyFn=int(*)(void*,size_t,const void*,size_t,size_t,size_t,int,Handle);
+ PassthroughCopyFn passthrough_copy{};void*passthrough_rgb{};
+ unsigned long long passthrough_queued{};
 public:
  enum class Phase { Ready, InputRecorded, OutputRecordedPendingHip, HipQueued, OutputRecorded };
  Phase CurrentPhase()const{return phase;}
@@ -150,7 +155,7 @@ public:
   if(recording_leases&&network&&network->Runtime().hipSetDevice(hip_device)!=0)return;
   if(!WaitForSubmittedWork())return;
   if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
-  if(network){DestroyTiming();auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
+  if(network){DestroyTiming();auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);if(passthrough_rgb)api.hipFree(passthrough_rgb);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
  void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
@@ -182,6 +187,7 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
  void MultiPassPredict(bool set){if(network)network->SetMultiPassPredict(set);}
  unsigned long long ReleaseMarks()const{return release_marks;}
  unsigned long long ReleaseMarkFailures()const{return release_mark_failures;}
+ unsigned long long HipPassthroughQueued()const{return passthrough_queued;}
  ID3D12Resource*Output()const{return output.resource;}
  void RequestDirectInput(){if(network||queue)throw std::runtime_error("direct input must be requested before Create");direct_input=true;}
  ID3D12Resource*DirectInput()const{return direct_input?input.resource:nullptr;}
@@ -208,24 +214,36 @@ private:
    if(!(direct_input&&rgba==input.resource))copy(rgba,input);if(temporal)copy(temporal,history);if(readable)Barrier(c,output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);readable=false;
   }catch(...){failed=true;throw;}
  }
- void Enqueue(ID3D12CommandQueue*producer,U seed,bool temporal,bool external){
+ void Enqueue(ID3D12CommandQueue*producer,U seed,bool temporal,bool external,bool hip_passthrough=false){
   if(!network||failed)throw std::runtime_error("bridge unavailable");
   const bool output_recorded=phase==Phase::OutputRecordedPendingHip;
   if(phase!=Phase::InputRecorded&&!output_recorded)throw std::runtime_error("bridge stage order");
   QueueContract(producer);if(temporal!=recorded_temporal)throw std::runtime_error("bridge temporal input mismatch");if(external&&network->GraphEnabled())throw std::runtime_error("staged bridge requires HIP graph off");
+  if(hip_passthrough&&(!passthrough_copy||!passthrough_rgb||temporal))throw std::runtime_error("HIP passthrough not prepared or temporal input supplied");
   auto&api=network->Runtime();
   try{
    api.Check(api.hipSetDevice(hip_device),"select HIP device for enqueue");
    pending=true;Check(queue->Signal(fence,++value),"D3D input signal");hip_probe::WaitParams wait{};wait.params.fence.value=value;api.Check(api.hipWaitExternalSemaphoresAsync(&semaphore,&wait,1,network->Stream()),"HIP input wait");
    if(span_probe){if(span_pending){float ms=-1;int sync=api.hipEventSynchronize(span_end),status=api.hipEventElapsedTime(&ms,span_begin,span_end);fprintf(stderr,"hip_span gpu_ms=%.3f cpu_enqueue_ms=%.3f sync=%d status=%d\n",ms,span_cpu,sync,status);span_pending=false;}api.Check(api.hipEventRecord(span_begin,network->Stream()),"span begin");}
-   const bool upstreamTimed=TimingBegin();
-   auto start=std::chrono::steady_clock::now();network->Enqueue(input.mapped,temporal?history.mapped:nullptr,output.mapped,seed);
+   const bool upstreamTimed=!hip_passthrough&&TimingBegin();
+   auto start=std::chrono::steady_clock::now();
+   if(hip_passthrough){
+    // Raster float4 -> raster float3, not a flat byte copy. Chunk the strided
+    // copy below the Windows HIP 2^20-row limit (also used by MultiPassFeed).
+    const size_t chunk=size_t(1)<<19;
+    for(size_t offset=0;offset<pixels;offset+=chunk)
+     api.Check(passthrough_copy(static_cast<char*>(passthrough_rgb)+offset*12,12,
+       static_cast<const char*>(input.mapped)+offset*16,16,12,std::min(chunk,pixels-offset),3,network->Stream()),"HIP passthrough RGBA to RGB");
+    // Keep the normal final device-to-shared-output copy as well as both fences.
+    api.Check(api.hipMemcpyAsync(output.mapped,passthrough_rgb,pixels*12,3,network->Stream()),"HIP passthrough output copy");
+   }else network->Enqueue(input.mapped,temporal?history.mapped:nullptr,output.mapped,seed);
    if(upstreamTimed)TimingEnd();
    if(span_probe){span_cpu=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();api.Check(api.hipEventRecord(span_end,network->Stream()),"span end");span_pending=true;}
    hip_probe::SignalParams signal{};signal.params.fence.value=++value;api.Check(api.hipSignalExternalSemaphoresAsync(&semaphore,&signal,1,network->Stream()),"HIP output signal");
    if(post_query)post_query(network->Stream()); // Nonblocking submission kick; never wait on the CPU.
    if(api.hipEventRecord(release_mark,network->Stream())==0)++release_marks;else ++release_mark_failures;
    Check(queue->Wait(fence,value),"D3D output wait");phase=output_recorded?Phase::OutputRecorded:Phase::HipQueued;
+   if(hip_passthrough)++passthrough_queued; // queued, not proof of GPU completion
   }catch(...){failed=true;throw;}
  }
 public:
@@ -244,6 +262,17 @@ public:
   auto&api=network->Runtime();
   try{api.Check(api.hipMemsetAsync(input.mapped,0,pixels*16,network->Stream()),"prepare input");network->Enqueue(input.mapped,nullptr,output.mapped,1);network->Synchronize();}
   catch(...){failed=true;throw;}
+ }
+ // Diagnostic setup only. The normal warm-up/model allocation still occurs;
+ // subsequent game frames bypass inference, including every multi-pass layer.
+ void PrepareHipPassthrough(){
+  Require(Phase::Ready);
+  if(passthrough_rgb)return;
+  auto&api=network->Runtime();
+  api.Check(api.hipSetDevice(hip_device),"select HIP device for passthrough preparation");
+  passthrough_copy=reinterpret_cast<PassthroughCopyFn>(GetProcAddress(api.dll,"hipMemcpy2DAsync"));
+  if(!passthrough_copy)throw std::runtime_error("HIP passthrough requires hipMemcpy2DAsync");
+  api.Check(api.hipMalloc(&passthrough_rgb,pixels*12),"HIP passthrough RGB buffer");
  }
  // Product recording leases: the caller owns every recorded resource until Reset/Release
  // and completion, and serializes these methods. Legacy staged callers remain unchanged.
@@ -292,6 +321,7 @@ public:
  }
  void RecordInputCopy(ID3D12GraphicsCommandList*c,ID3D12Resource*rgba,ID3D12Resource*temporal=nullptr){RecordInput(c,rgba,temporal,true);}
  void EnqueueAfterProducer(ID3D12CommandQueue*producer,U seed,bool temporal=false){Enqueue(producer,seed,temporal,true);}
+ void EnqueueHipPassthroughAfterProducer(ID3D12CommandQueue*producer){Enqueue(producer,1,false,true,true);}
  void RecordOutputReadable(ID3D12GraphicsCommandList*c){
   if(!network||failed)throw std::runtime_error("bridge unavailable");
   const bool before_enqueue=phase==Phase::InputRecorded;

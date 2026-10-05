@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('original', 'copy-current', 'staging-current', 'staging-previous', 'proxy-original', 'split-original', 'codec-passthrough', 'off')]
+    [ValidateSet('original', 'copy-current', 'staging-current', 'staging-previous', 'proxy-original', 'split-original', 'codec-passthrough', 'hip-passthrough', 'off')]
     [string]$Mode,
     # The game folder that holds OptiScaler.ini. Required: there is no sensible default game.
     [Parameter(Mandatory = $true)]

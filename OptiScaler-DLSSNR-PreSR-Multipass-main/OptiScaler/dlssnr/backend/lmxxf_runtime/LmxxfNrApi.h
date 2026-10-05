@@ -86,6 +86,9 @@ typedef struct LmxxfNrCreateInfo
  * luminance, log-domain smoothing) and binds the result as the codec exposure. Ignored when a
  * usable exposure is supplied; pre_exposure and exposure_scale are then not applied. */
 #define LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE     (1u << 3)
+/* Diagnostic: normal RGB conversion, shared-memory fences and HIP copies, no per-frame
+ * network inference. Mutually exclusive with CODEC_PASSTHROUGH. Restart the host to change. */
+#define LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH   (1u << 4)
 
 typedef struct LmxxfNrFrameInfo
 {

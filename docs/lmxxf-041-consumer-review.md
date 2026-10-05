@@ -249,3 +249,38 @@ viewport 和录制失效通知正确。新回归只接入 device 一次，并提
 专项入口。未重复未变的完整 CI/lmxxf 网络 GPU；尚未在游戏里验证这次新宿主，
 后续本地安装需确认早期 Unity 接管记录与首次角色管理/返回场景，不能将先前
 Mochizuki 瞬态尺寸修复的游戏结果当成本次验证。按用户要求本轮不打包。
+
+### HIP 往返诊断（2026-10-05）
+
+`[DlssNr] LmxxfDiagnostic=hip-passthrough` 用于拆分/codec对照正常但正常推理花屏时，
+进一步定位 RGB 布局与 HIP 桥接。默认仍为 off，仅 INI 设置，完全重启后生效。
+源模板、生成 INI、诊断脚本的允许值和宿主状态同步说明；不是菜单热切开关。
+两个 passthrough 模式互斥，非法组合在 PrepareFrame 发布 job 之前拒绝。
+ABI2表和结构体尺寸不变，新增显式帧标志；旧runtime拒绝未知标志时提示整包更新，
+不以原图回退伪装诊断通过。
+
+`LmxxfBackend::RecordDiagnostic` 沿用正常颜色/曝光契约与 FinishRecord 租约；
+Runtime 的 RecordInputs/RecordOutputs、实际 Begin/EndRecordingExecution 不变。
+固定 bridge 新增 PrepareHipPassthrough，在录制前分配私有 RGB 缓冲；Enqueue
+沿用原 producer signal → HIP wait → HIP工作 → HIP signal → consumer wait。
+仅把 Network::Enqueue 替换为分块异步 float4→float3 复制，再使用正常的
+device-to-shared输出复制。分块不超过2^19行，防止Windows HIP的2^20行截断。
+临时缓冲跟随bridge，录制失效且已提交工作完成后才释放；提交回调没有新增分配、
+释放或CPU同步。正常模式不分配该缓冲。网络初始化/预热仍保留，之后每帧跳过
+全部网络层；本模式不测量推理耗时，也不证明网络内部张量/布局正确。
+
+固定头变更同步维护 `tools/lmxxf-sync/patches/bridge.patch`，从独立原始0.41
+夹具重放，FOLLOW头、HIP模块、算法默认值及上游pin未变。
+实际验证：MSVC runtime及宿主构建；ABI/C宿主和23项runtime检查；原始补丁重放2项；
+WARP颜色探针及新增解析/代理接管断言；RX9070XT `tests/lmxxf/run.cmd hip-passthrough`
+和同一可执行文件的三层配置通过。TYPELESS/FLOAT、preExposure=2，720p/1080p/
+1707×961的整张读回哈希与codec-passthrough一致，包含大于百万像素、旧录制、
+跨队列、改尺寸和正常网络交替；实际HIP复制计数与互斥标志拒绝均已检查。
+正常录制生命周期回归通过；1080p正常推理输出哈希仍为806dd30da2c516da，
+与改动前相同。诊断日志沿用采样，新增一条仅在hip-passthrough中输出，默认模式
+无新增逐帧日志。复核成功状态只在FinishRecord设置，避免每帧两种状态来回刷日志。
+
+本次为本地调查包，未重复完整CI/全GPU矩阵/Actions，gfx1200实卡与游戏中新增
+诊断尚待验证；本机D3D12 debug layer不可用，GPU证据为完成栅栏后的实际读回。
+实机须同时确认hip_passthrough_recorded、hip_copy_queued递增和画面表现；
+计数表示成功排入队列，不单独作为GPU完成或像素正确性证明。

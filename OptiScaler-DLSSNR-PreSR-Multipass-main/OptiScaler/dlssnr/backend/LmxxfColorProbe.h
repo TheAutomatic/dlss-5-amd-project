@@ -6,7 +6,7 @@
 
 namespace DlssNr::Backend::LmxxfProbe
 {
-enum class Mode { Off, Original, CopyCurrent, StagingCurrent, StagingPrevious, Invalid, ProxyOriginal, SplitOriginal, CodecPassthrough };
+enum class Mode { Off, Original, CopyCurrent, StagingCurrent, StagingPrevious, Invalid, ProxyOriginal, SplitOriginal, CodecPassthrough, HipPassthrough };
 inline Mode ParseMode(std::string_view value)
 {
     if (value == "off") return Mode::Off;
@@ -17,12 +17,14 @@ inline Mode ParseMode(std::string_view value)
     if (value == "proxy-original") return Mode::ProxyOriginal;
     if (value == "split-original") return Mode::SplitOriginal;
     if (value == "codec-passthrough") return Mode::CodecPassthrough;
+    if (value == "hip-passthrough") return Mode::HipPassthrough;
     return Mode::Invalid; // Never silently enable HIP on a misspelled diagnostic option.
 }
 
 inline bool NeedsOpenListProxy(Mode mode)
 {
-    return mode == Mode::ProxyOriginal || mode == Mode::SplitOriginal || mode == Mode::CodecPassthrough;
+    return mode == Mode::ProxyOriginal || mode == Mode::SplitOriginal ||
+           mode == Mode::CodecPassthrough || mode == Mode::HipPassthrough;
 }
 
 struct Evidence

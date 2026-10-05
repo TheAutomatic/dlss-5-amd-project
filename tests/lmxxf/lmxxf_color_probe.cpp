@@ -31,6 +31,8 @@ static void Barrier(ID3D12GraphicsCommandList *cmd, ID3D12Resource *r,
 }
 int main(int argc, char **argv)
 {
+    Require(ParseMode("hip-passthrough") == Mode::HipPassthrough && NeedsOpenListProxy(Mode::HipPassthrough),
+            "HIP passthrough keeps open-list proxy admission");
     Require(ParseMode("off") == Mode::Off && ParseMode("original") == Mode::Original &&
             ParseMode("copy-current") == Mode::CopyCurrent && ParseMode("typo") == Mode::Invalid,
             "diagnostic mode parser");

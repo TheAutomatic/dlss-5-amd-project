@@ -238,7 +238,7 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
     seenRecoveries = LmxxfCut::Pending().recoveredEnqueues.load(std::memory_order_relaxed);
     seenEnqueueCalls = static_cast<uint64_t>(LmxxfCut::Pending().enqueueCalls.load(std::memory_order_relaxed));
     diagnostic = LmxxfProbe::ParseMode(Config::Instance()->LmxxfDiagnostic.value_or_default());
-    LOG_INFO("lmxxf diagnostic: mode={} (restart to change; off/original/copy-current/staging-current/staging-previous/proxy-original/split-original)",
+    LOG_INFO("lmxxf diagnostic: mode={} (restart to change; off/original/copy-current/staging-current/staging-previous/proxy-original/split-original/codec-passthrough/hip-passthrough)",
              Config::Instance()->LmxxfDiagnostic.value_or_default());
     {
         const bool fit = Config::Instance()->LmxxfFitLarge.value_or_default();
@@ -527,7 +527,10 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
     }
     ReTrace(reTraceId, "outputs.end", jobHandle, 0);
     lease->ready = true;
-    SetStatus("lmxxf: recording ready");
+    SetStatus(diagnostic == LmxxfProbe::Mode::HipPassthrough ?
+                  "lmxxf diagnostic: hip-passthrough (HIP round trip; NO NR)" :
+              diagnostic == LmxxfProbe::Mode::CodecPassthrough ?
+                  "lmxxf diagnostic: codec-passthrough (NO HIP/NR)" : "lmxxf: recording ready");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
 }
 
@@ -794,8 +797,10 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
     ev.sampled = sampled;
     ev.mode = diagnostic;
 
-    if (diagnostic == LmxxfProbe::Mode::CodecPassthrough)
+    if (diagnostic == LmxxfProbe::Mode::CodecPassthrough || diagnostic == LmxxfProbe::Mode::HipPassthrough)
     {
+        const bool hipPassthrough = diagnostic == LmxxfProbe::Mode::HipPassthrough;
+        const char* modeName = hipPassthrough ? "hip-passthrough" : "codec-passthrough";
         DlssNr::Submission::ILogicalCommandList *logical = nullptr;
         const bool isProxy = SUCCEEDED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
                                                          reinterpret_cast<void **>(&logical))) && logical;
@@ -803,7 +808,7 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
         {
             reason = "boundary_not_proxy";
             ++boundaryRejects;
-            SetStatus("lmxxf diagnostic: codec-passthrough REJECTED (not proxy; original Color)");
+            SetStatus((std::string("lmxxf diagnostic: ") + modeName + " REJECTED (not proxy; original Color)").c_str());
         }
         else
         {
@@ -813,14 +818,14 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 reason = logical->SplitRejectionReason();
                 ++boundaryRejects;
                 char state[256] {};
-                snprintf(state, sizeof state, "lmxxf diagnostic: codec-passthrough REJECTED (%s; original Color)", reason);
+                snprintf(state, sizeof state, "lmxxf diagnostic: %s REJECTED (%s; original Color)", modeName, reason);
                 SetStatus(state);
             }
             else if (!EnsureSession())
             {
                 reason = "ensure_session_failed";
                 ++boundaryRejects;
-                SetStatus("lmxxf diagnostic: codec-passthrough REJECTED (session failed; original Color)");
+                SetStatus((std::string("lmxxf diagnostic: ") + modeName + " REJECTED (session failed; original Color)").c_str());
             }
             else
             {
@@ -833,7 +838,8 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                 fi.color_height = JobExtent(frame.height, desc.Height);
                 fi.color = frame.colour;
                 fi.color_state = static_cast<uint32_t>(frame.colourState);
-                fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW | LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH;
+                fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW |
+                           (hipPassthrough ? LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH : LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH);
                 fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
                 fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
                 fi.paper_white = EffectiveCodecPaperWhite(IsUsableExposureTexture(frame.exposure));
@@ -859,18 +865,22 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
                     static uint64_t diagPrepareFails = 0;
                     if (++diagPrepareFails <= 5 || (diagPrepareFails % 300 == 0))
                     {
-                        LOG_ERROR("lmxxf diagnostic: codec-passthrough PrepareFrame rc={} handle={} out={} err='{}' {}x{} (fail#{})",
-                                  frameRc, job.handle != nullptr, job.private_output != nullptr, err,
+                        LOG_ERROR("lmxxf diagnostic: {} PrepareFrame rc={} handle={} out={} err='{}' {}x{} (fail#{})",
+                                  modeName, frameRc, job.handle != nullptr, job.private_output != nullptr, err,
                                   fi.color_width, fi.color_height, diagPrepareFails);
                     }
                     reason = "prepare_frame_failed";
                     ++boundaryRejects;
-                    SetStatus((std::string("lmxxf diagnostic: codec-passthrough PrepareFrame failed: ") + err).c_str());
+                    SetStatus((std::string("lmxxf diagnostic: ") + modeName + " PrepareFrame failed: " + err +
+                               (hipPassthrough && frameRc == LMXXF_NR_INVALID_ARGUMENT &&
+                                std::strstr(err, "unknown flags") ?
+                                "; update the complete package (host and runtime must match)" : "")).c_str());
                 }
                 else
                 {
                     output = FinishRecord(cmd, job.handle, job.private_output);
-                    reason = output ? "codec_passthrough_recorded" : "codec_passthrough_record_failed";
+                    reason = hipPassthrough ? (output ? "hip_passthrough_recorded" : "hip_passthrough_record_failed") :
+                                             (output ? "codec_passthrough_recorded" : "codec_passthrough_record_failed");
                     if (output) ++boundaryCuts; else ++boundaryRejects;
                 }
             }
@@ -878,12 +888,21 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
         if (logical)
             logical->Release();
         if (sampled)
+        {
             LOG_INFO("lmxxf boundary: eval={} proxy={} reason={} proxyHits={} cutsRecorded={} rejected={} output={} unsplitSubmitted={} producerSubmitted={} continuationSubmitted={} submitFailures={}",
                      id, isProxy, reason, boundaryProxyHits, boundaryCuts, boundaryRejects, static_cast<void *>(output),
                      DlssNr::Submission::g_unsplitProxySubmissions.load(std::memory_order_relaxed),
                      DlssNr::Submission::g_splitSubmissions.load(std::memory_order_relaxed),
                      DlssNr::Submission::g_continuationSubmissions.load(std::memory_order_relaxed),
                      DlssNr::Submission::g_submissionFailures.load(std::memory_order_relaxed));
+            if (hipPassthrough && session && api->table.GetStatus)
+            {
+                char status[1536] {};
+                api->table.GetStatus(session, status, sizeof status);
+                LOG_INFO("lmxxf HIP passthrough: eval={} enqueueCalls={} lastEnqueueRc={} runtime='{}' (queued counts, not GPU completion)",
+                         id, LmxxfCut::Pending().enqueueCalls.load(), LmxxfCut::Pending().lastEnqueueRc.load(), status);
+            }
+        }
     }
     else if (LmxxfProbe::NeedsOpenListProxy(diagnostic))
     {

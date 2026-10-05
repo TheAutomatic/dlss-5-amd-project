@@ -1039,6 +1039,7 @@ struct Job
      * Session::meter.value, which the codecs bind in place of a game exposure. */
     bool autoExposure = false;
     bool codec_passthrough = false;
+    bool hip_passthrough = false;
     uint64_t frameId = 0;
 };
 
@@ -1673,9 +1674,13 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 return Fail(LMXXF_NR_UNAVAILABLE, "PrepareFrame: previous frame consumer not yet submitted (bridge not Ready)");
         }
         const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW |
-                                      LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE;
+                                      LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE |
+                                      LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH;
         if ((info->flags & ~allowedFlags) != 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: unknown flags");
+        if ((info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) &&
+            (info->flags & LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH))
+            return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: conflicting passthrough diagnostics");
         if (session->shaderDir.empty())
             session->shaderDir = FindShaderDir(session->assetsDir);
         if (session->shaderDir.empty())
@@ -2189,6 +2194,8 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->rebuildTiming.Record(ms);
             session->performance.Record(NR_CPU_REBUILD, ms, GetTickCount64(), info->frame_id);
         }
+        if (info->flags & LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH)
+            session->bridge->PrepareHipPassthrough();
         session->job = {};
         session->job.color = color;
         session->job.colorState = static_cast<D3D12_RESOURCE_STATES>(info->color_state);
@@ -2204,6 +2211,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         session->job.autoExposure = frameAutoExposure && bindExposure == session->meter.value;
         session->job.sourceExposureState = frameExposureState;
         session->job.codec_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) != 0;
+        session->job.hip_passthrough = (info->flags & LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH) != 0;
         session->colorFormat = cfmt;
         session->job.frameId = info->frame_id;
         session->job.seed = 1;
@@ -2381,7 +2389,12 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
                 auto* bridge = lease->chain->bridge.get();
                 session->CollectTiming(bridge);
                 session->ConfigureNetworkTiming(bridge, j->frameId);
-                bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
+                if (j->hip_passthrough)
+                {
+                    bridge->PauseNetworkTiming();
+                    bridge->EnqueueHipPassthroughAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue));
+                }
+                else bridge->EnqueueAfterProducer(static_cast<ID3D12CommandQueue*>(command_queue), j->seed, false);
             }
             SetError("");
             return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2437,7 +2450,12 @@ int32_t EnqueueHip(void *context, void *job, void *command_queue)
         try
         {
             session->ConfigureNetworkTiming(session->bridge, j->frameId);
-            session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
+            if (j->hip_passthrough)
+            {
+                session->bridge->PauseNetworkTiming();
+                session->bridge->EnqueueHipPassthroughAfterProducer(targetQueue);
+            }
+            else session->bridge->EnqueueAfterProducer(targetQueue, j->seed, false);
             if (j->state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                 j->state = LMXXF_NR_JOB_NR_COMPLETE;
             SetError("");
@@ -2836,6 +2854,12 @@ int32_t GetStatus(void *context, char *buf, uint32_t buf_chars)
         }
         if (session)
         {
+            if (session->job.hip_passthrough && session->bridge)
+            {
+                const size_t used = std::strlen(text);
+                std::snprintf(text + used, sizeof(text) - used, " diagnostic=hip-passthrough hip_copy_queued=%llu",
+                              session->bridge->HipPassthroughQueued());
+            }
             const auto t = session->bridge ? session->bridge->PollNetworkTiming() : hip_reference::D3D12Bridge::NetworkTiming{};
             const size_t offset = std::strlen(text);
             if (t.valid) std::snprintf(text + offset, sizeof(text) - offset, " net_gpu_ms=%.3f (frame %llu)", t.ms, t.tag);

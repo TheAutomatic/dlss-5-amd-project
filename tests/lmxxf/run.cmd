@@ -1,11 +1,12 @@
 @echo off
 rem lmxxf runtime and submission tests. Every test in tests\lmxxf belongs to exactly one tier below.
-rem Usage: tests\lmxxf\run.cmd abi^|warp^|device^|early-unity^|gpu [out-dir]
+rem Usage: tests\lmxxf\run.cmd abi^|warp^|device^|early-unity^|hip-passthrough^|gpu [out-dir]
 rem   abi    : lmxxf_nr_abi, lmxxf_zero_fallback_abi.c, test_runtime_validation.py (no GPU)
 rem   warp   : lmxxf_same_frame_boundary, lmxxf_color_probe (D3D12 WARP; no GPU)
 rem   device : lmxxf_list_split, lmxxf_list1_wrap, lmxxf_create_execute, lmxxf_evaluate_cut
 rem            plus early Unity caller admission, retained split/Reset (hardware D3D12 adapter)
 rem   early-unity: only the early caller/retained-list regression (also included in device).
+rem   hip-passthrough: focused HIP round-trip/codec comparison (also included in gpu).
 rem   gpu    : runtime formats/exposure/output hashes, recording lifecycle and bridge regressions.
 rem            Bridge fixtures use /std:c++17 for upstream header compatibility.
 rem            Needs AMD GPU and LMXXF_ASSETS = native-game-tiled-assets weights folder.
@@ -37,7 +38,8 @@ if /i "%TIER%"=="warp" goto warp
 if /i "%TIER%"=="device" goto device
 if /i "%TIER%"=="early-unity" goto early-unity
 if /i "%TIER%"=="gpu" goto gpu
-echo usage: tests\lmxxf\run.cmd abi^|warp^|device^|early-unity^|gpu [out-dir]
+if /i "%TIER%"=="hip-passthrough" goto hip-passthrough
+echo usage: tests\lmxxf\run.cmd abi^|warp^|device^|early-unity^|hip-passthrough^|gpu [out-dir]
 exit /b 2
 
 :abi
@@ -138,6 +140,7 @@ rem 0.40 product defaults and live network rebuild/output checks.
 set "DLSS5_SKIP_BLOCKS=none"
 set "DLSS5_FAST_NUMERIC=1"
 set "DLSS5_NETWORK_FREE_RES=1"
+"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --hip-passthrough || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --040-controls || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --041-controls || goto fail
 rem Active input smaller than its allocation must work in free-resolution mode too.
@@ -152,6 +155,19 @@ rem Cold three-pass prediction + skin must prepare allocations before the produc
 set "DLSS5_MULTI_PASS=3"
 set "DLSS5_MULTI_PASS_SKIN_PROTECT=1"
 "%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
+goto pass
+
+:hip-passthrough
+rem Focused new-diagnostic test; also run in gpu. No module or network-default changes.
+if not defined LMXXF_ASSETS goto fail
+set "LMXXF_WEIGHTS_DIR=%LMXXF_ASSETS%"
+set "DLSS5_SKIP_BLOCKS=none"
+set "DLSS5_FAST_NUMERIC=1"
+set "DLSS5_NETWORK_FREE_RES=1"
+set "DLSS5_MULTI_PASS=1"
+call :Runtime || goto fail
+%CXX% /I"%RT_INC%" /I"%INC%" tests\lmxxf\lmxxf_recording_runtime_gpu.cpp /Fe"%OUT%\lmxxf_recording_runtime_gpu.exe" /Fo"%OUT%\lmxxf_recording_runtime_gpu.obj" /link %D3D% "%DETOURS%" || goto fail
+"%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --hip-passthrough || goto fail
 goto pass
 
 :pass
