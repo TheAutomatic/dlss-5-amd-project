@@ -163,30 +163,30 @@ EXACT=`fe40c904da05472e`、AE和AE×16=`79233836b6257864`、R10=`8ba14ef2db0dddf
 
 ### 游戏验收后的菜单调整
 
-lmxxf 版本标识修正为 0.41。Model 页在风格之后以 `Block skipping (lossy)`
-共同折叠两行跳块输入，展开后相邻显示，第 2/3 层没有额外子组；
-基础跳块从 Advanced Kernels 移入此处。
+lmxxf 版本标识修正为 0.41。两行跳块输入放在原有 `Advanced Kernels` 分类中，
+紧跟 High resolution，相邻显示；不在 Model 页显示，也不新增 Block skipping 分类
+或第 2/3 层子组。基础跳块恢复原位置，后续 pass 跳块一同归入此处。
 `DLSS5_SKIP_BLOCKS` 是所有实际网络 pass 的基础列表，
 `DLSS5_MULTI_PASS_SKIP_BLOCKS` 是第 2/3 次实际网络执行追加的列表，
 与 `hip_reference_network.h::MultiPassRest` 合并集合的实现一致。
 两个默认值均为 `none`。帮助说明提供旧版 `42,43,46` 示例和 `none` 还原方式，
 明确预测的第三层不再执行一遍网络；生成 INI 中两项相邻且说明一致。
 
-Model 页 reset 现在同时重置两项并同步环境；Advanced Kernels reset 不再越界重置它。
+Advanced Kernels 的组 reset 同时重置两项并同步环境；Model 页 reset 不修改跳块配置。
 基础输入复用后续层已有的模块限制校验，避免提交会被 Runtime 拒绝的 4/69 或
 与 MH byte stream 冲突的块；合法输入仍通过 Config 和 CfgKey 写入，按 Enter 重建并清历史。
 键名、默认值、持久化读取和 Runtime/模块字节保持原样，不覆盖用户已有配置。
-最终 diff 人工核对布局、输入校验、reset 归属和 INI 文案；六项配置优先级专项
-（含独立 CRT 环境更新）通过，宿主 Release 重编。仅复用未变 Runtime/模块对应的
-完整 CI/device/GPU 证据，普通打包仍检查凭证、产物新鲜度和实际 ZIP。
-菜单层级复核后，两项跳块改为共同折叠；`ViT / image reuse` 保留外层分组，
-移除 `Reuse tuning` 子组。四个滑块（period/global/local/image）直接跟在
-`ViT adaptive reuse` 之后，用同帧 checkbox 状态控制 `BeginDisabled(!adapt)`，
-关闭时保留数值并全部置灰禁用。帮助及 reset 位于禁用范围之外，
-原 Config/CfgKey 绑定和 ViT byte stream 互斥逻辑不变。
-本次仅调整菜单布局及交互；复核树节点/禁用范围配对、四项写入绑定与 reset 可用性，
-宿主 Release 重编通过。不重复运行未受影响的完整 CI/device/GPU，也不重打包。
-这项布局修改的最终游戏显示留待用户验收。
+此前六项配置优先级专项（含独立 CRT 环境更新）已通过。本次仅移动跳块控件和
+重置归属：与原代码逐字比较确认两行控件、校验、帮助和提交逻辑未变；移除一对
+TreeNode/TreePop，两项均在原 Advanced Kernels 内，Model 的 reset 不再包含跳块。
+最终 diff 复核和宿主 Release（--fast）重编通过，不重复未受影响的完整 CI/device/GPU。
+本地试包使用 LocalTest，继续检查产物新鲜度、模块契约和实际 ZIP 哈希；完整发布验证
+和最终游戏菜单显示待验收。
+
+`ViT / image reuse` 保留外层分组，已移除 `Reuse tuning` 子组。四个滑块
+（period/global/local/image）直接跟在 `ViT adaptive reuse` 之后，同帧 checkbox 状态
+控制 `BeginDisabled(!adapt)`，关闭时保留数值并全部置灰禁用。帮助及 reset 位于禁用
+范围之外，原 Config/CfgKey 绑定和 ViT byte stream 互斥逻辑不变；本次未再修改复用控件。
 
 作者取消默认跳块始于 0.40（2026-10-03），0.41 沿用；并非本项目删掉功能。
 固定 pin 的 `CHANGELOG.zh-CN.md` 第 297 行、`README.zh-CN.md` 第 21/53 行和

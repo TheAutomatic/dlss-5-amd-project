@@ -508,12 +508,8 @@ void RenderMenu(Config* config, float menuResScale)
                     resetOption(config->LmxxfMultiPassPredict); resetOption(config->LmxxfMultiPassSkinProtect);
                     CfgKey::PutEnvAlias(CfgKey::MultiPassPredict, config->LmxxfMultiPassPredict.value_or_default());
                     CfgKey::PutEnvAlias(CfgKey::MultiPassSkinProtect, config->LmxxfMultiPassSkinProtect.value_or_default());
-                    resetOption(config->LmxxfMultiPassSkipBlocks);
-                    resetOption(config->LmxxfSkipBlocks);
-                    CfgKey::PutEnvString(CfgKey::SkipBlocks, config->LmxxfSkipBlocks.value_or_default().c_str());
                     CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(config->LmxxfMultiPass.value_or_default()).c_str());
                     CfgKey::PutEnvAlias(CfgKey::FastNumeric, config->LmxxfFastNumeric.value_or_default());
-                    CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, config->LmxxfMultiPassSkipBlocks.value_or_default().c_str());
                     resetOption(config->LmxxfStyle);
                     CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(config->LmxxfStyle.value_or_default()).c_str());
                 } else {
@@ -551,6 +547,10 @@ void RenderMenu(Config* config, float menuResScale)
             auto resetKernels = [&]() {
                 resetOption(config->LmxxfFitLarge);
                 CfgKey::PutEnvAlias(CfgKey::FitLarge, config->LmxxfFitLarge.value_or_default());
+                resetOption(config->LmxxfSkipBlocks);
+                CfgKey::PutEnvString(CfgKey::SkipBlocks, config->LmxxfSkipBlocks.value_or_default().c_str());
+                resetOption(config->LmxxfMultiPassSkipBlocks);
+                CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, config->LmxxfMultiPassSkipBlocks.value_or_default().c_str());
                 resetOption(config->LmxxfWaveOwned);
                 CfgKey::PutEnvAlias(CfgKey::WaveOwned, config->LmxxfWaveOwned.value_or_default());
                 resetOption(config->LmxxfSwinRun);
@@ -816,73 +816,6 @@ void RenderMenu(Config* config, float menuResScale)
                     }
                     HelpMarker("Network style 0 / 1 / 2. Default: 1."
                                "\nChanging style rebuilds the network on the next frame.");
-                    if (ImGui::TreeNode("Block skipping (lossy)"))
-                    {
-                        auto supported = [&](const std::string& value) {
-                            const auto csv = "," + value + ",";
-                            for (int block = 1; block <= 69; ++block) {
-                                const bool forbidden = block == 4 || block == 69 ||
-                                    (config->LmxxfMHByteStream.value_or_default() &&
-                                     ((block >= 5 && block <= 22) || (block >= 48 && block <= 65)));
-                                if (forbidden && csv.find("," + std::to_string(block) + ",") != std::string::npos) return false;
-                            }
-                            return true;
-                        };
-                        {
-                            static char skippedInput[256] {};
-                            static std::string skippedLoaded;
-                            static bool skippedInvalid = false;
-                            const auto skipped = config->LmxxfSkipBlocks.value_or_default();
-                            if (skippedLoaded != skipped)
-                            {
-                                std::snprintf(skippedInput, sizeof skippedInput, "%s", skipped.c_str());
-                                skippedLoaded = skipped;
-                                skippedInvalid = false;
-                            }
-                            if (ImGui::InputText("Base skipped blocks (all passes)", skippedInput, sizeof skippedInput,
-                                                 ImGuiInputTextFlags_EnterReturnsTrue))
-                            {
-                                std::string normalized;
-                                skippedInvalid = !CfgKey::NormalizeSkipBlocks(skippedInput, normalized) || !supported(normalized);
-                                if (!skippedInvalid)
-                                {
-                                    config->LmxxfSkipBlocks = normalized;
-                                    CfgKey::PutEnvString(CfgKey::SkipBlocks, normalized.c_str());
-                                    AmdBridge::InvalidateHistory();
-                                }
-                            }
-                            if (skippedInvalid || !supported(skipped))
-                                ImGui::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
-                            HelpMarker("Upstream default since 0.40: none (all blocks). This base list applies to every real network pass."
-                                       "\nOptional: enter 42,43,46 to skip the three blocks used by the pre-0.40 default. Enter none to run all blocks again."
-                                       "\nThe field below adds skips only in passes 2/3. Skipping changes quality and style."
-                                       "\nPress Enter to apply; rebuilds next frame. INI: DLSS5_SKIP_BLOCKS."
-                                       "\nDisable MH byte stream before skipping blocks 5-22 or 48-65. Blocks 4/69 are unsupported.");
-                        }
-                        {
-                            static char blocks[256]{};
-                            static std::string loaded;
-                            static bool invalid = false;
-                            const auto current = config->LmxxfMultiPassSkipBlocks.value_or_default();
-                            if (loaded != current) { snprintf(blocks, sizeof blocks, "%s", current.c_str()); loaded = current; invalid = false; }
-                            if (ImGui::InputText("Extra skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                                std::string normalized;
-                                invalid = !CfgKey::NormalizeSkipBlocks(blocks, normalized) || !supported(normalized);
-                                if (!invalid) {
-                                    config->LmxxfMultiPassSkipBlocks = normalized;
-                                    CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, normalized.c_str());
-                                    AmdBridge::InvalidateHistory();
-                                }
-                            }
-                            if (invalid || !supported(current)) ImGui::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
-                            HelpMarker("Default none. Added to the base skip list only for real network passes 2/3; pass 1 is unchanged."
-                                       "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
-                                       "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."
-                                       "\nPress Enter to apply; rebuilds next frame. Ignored with one pass. A predicted third pass has no extra network blocks."
-                                       "\nINI: DLSS5_MULTI_PASS_SKIP_BLOCKS.");
-                        }
-                        ImGui::TreePop();
-                    }
                 } else {
                     float passes = static_cast<float>(config->DlssNrPasses.value_or_default());
                     if (RebuildSlider("AMD neural passes", &passes, 1.f, 3.f, true))
@@ -1366,6 +1299,72 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nwithin 1920x1080. 2024x848 passes. 2560x1080 does not."
                                "\nApplies on the next frame, including after a resolution change."
                                "\nThe network may rebuild once. No restart.");
+
+                    {
+                        auto supported = [&](const std::string& value) {
+                            const auto csv = "," + value + ",";
+                            for (int block = 1; block <= 69; ++block) {
+                                const bool forbidden = block == 4 || block == 69 ||
+                                    (config->LmxxfMHByteStream.value_or_default() &&
+                                     ((block >= 5 && block <= 22) || (block >= 48 && block <= 65)));
+                                if (forbidden && csv.find("," + std::to_string(block) + ",") != std::string::npos) return false;
+                            }
+                            return true;
+                        };
+                        {
+                            static char skippedInput[256] {};
+                            static std::string skippedLoaded;
+                            static bool skippedInvalid = false;
+                            const auto skipped = config->LmxxfSkipBlocks.value_or_default();
+                            if (skippedLoaded != skipped)
+                            {
+                                std::snprintf(skippedInput, sizeof skippedInput, "%s", skipped.c_str());
+                                skippedLoaded = skipped;
+                                skippedInvalid = false;
+                            }
+                            if (ImGui::InputText("Base skipped blocks (all passes)", skippedInput, sizeof skippedInput,
+                                                 ImGuiInputTextFlags_EnterReturnsTrue))
+                            {
+                                std::string normalized;
+                                skippedInvalid = !CfgKey::NormalizeSkipBlocks(skippedInput, normalized) || !supported(normalized);
+                                if (!skippedInvalid)
+                                {
+                                    config->LmxxfSkipBlocks = normalized;
+                                    CfgKey::PutEnvString(CfgKey::SkipBlocks, normalized.c_str());
+                                    AmdBridge::InvalidateHistory();
+                                }
+                            }
+                            if (skippedInvalid || !supported(skipped))
+                                ImGui::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
+                            HelpMarker("Upstream default since 0.40: none (all blocks). This base list applies to every real network pass."
+                                       "\nOptional: enter 42,43,46 to skip the three blocks used by the pre-0.40 default. Enter none to run all blocks again."
+                                       "\nThe field below adds skips only in passes 2/3. Skipping changes quality and style."
+                                       "\nPress Enter to apply; rebuilds next frame. INI: DLSS5_SKIP_BLOCKS."
+                                       "\nDisable MH byte stream before skipping blocks 5-22 or 48-65. Blocks 4/69 are unsupported.");
+                        }
+                        {
+                            static char blocks[256]{};
+                            static std::string loaded;
+                            static bool invalid = false;
+                            const auto current = config->LmxxfMultiPassSkipBlocks.value_or_default();
+                            if (loaded != current) { snprintf(blocks, sizeof blocks, "%s", current.c_str()); loaded = current; invalid = false; }
+                            if (ImGui::InputText("Extra skipped blocks in passes 2/3", blocks, sizeof blocks, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                                std::string normalized;
+                                invalid = !CfgKey::NormalizeSkipBlocks(blocks, normalized) || !supported(normalized);
+                                if (!invalid) {
+                                    config->LmxxfMultiPassSkipBlocks = normalized;
+                                    CfgKey::PutEnvString(CfgKey::MultiPassSkipBlocks, normalized.c_str());
+                                    AmdBridge::InvalidateHistory();
+                                }
+                            }
+                            if (invalid || !supported(current)) ImGui::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
+                            HelpMarker("Default none. Added to the base skip list only for real network passes 2/3; pass 1 is unchanged."
+                                       "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
+                                       "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."
+                                       "\nPress Enter to apply; rebuilds next frame. Ignored with one pass. A predicted third pass has no extra network blocks."
+                                       "\nINI: DLSS5_MULTI_PASS_SKIP_BLOCKS.");
+                        }
+                    }
 
                     {
                         auto kernelToggle = [&](const char *label, CustomOptional<bool> &opt, const char *key) {
