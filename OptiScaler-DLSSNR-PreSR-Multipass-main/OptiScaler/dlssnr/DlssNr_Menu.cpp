@@ -635,7 +635,8 @@ void RenderMenu(Config* config, float menuResScale)
                         CfgKey::PutEnvAlias(CfgKey::NetworkFreeRes, freeRes);
                         AmdBridge::InvalidateHistory();
                     }
-                    HelpMarker("On (default): run at the NR input size, padded for the network. This is before upscaling."
+                    HelpMarker("On (default): run at the NR input size, padded for the network."
+                               "\nNR -> SR uses render resolution; SR -> NR uses the upscaled output resolution."
                                "\nHigher resolutions cost more GPU time and VRAM; 4K can be several times slower than 1080p."
                                "\nOverrides tier and Compact 1080 settings within the supported processing budget."
                                "\nOutside that budget, use the tier settings below. Changes rebuild the network next frame.");

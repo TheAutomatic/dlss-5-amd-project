@@ -154,3 +154,8 @@ EXACT=`fe40c904da05472e`、AE和AE×16=`79233836b6257864`、R10=`8ba14ef2db0dddf
 最终完整CI通过（同步工具68项全跑，未用缓存跳过本次修改）。未为此重编Runtime或模块。
 最终包沿用这份DLL与凭证，README、菜单/INI备注和Actions的38/76模块契约同步核对。
 游戏观感/性能、双HIP设备和gfx1200实卡未测。
+
+菜单复核：公共Processing order位于三页之前；输入尺寸/曝光放Input，多层/预测/肤色放Model，
+共享强度/稳定放Output。修正Native input resolution提示中遗留的“总在超分前”描述，
+明确两种顺序分别使用渲染尺寸和SR输出尺寸。本次仅修改帮助字符串；配置、运行时与模块不变，
+沿用对应完整CI/device/GPU证据，重新构建宿主并核验新包。
