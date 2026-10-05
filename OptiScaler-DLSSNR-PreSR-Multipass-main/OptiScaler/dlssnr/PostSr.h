@@ -101,7 +101,10 @@ struct Storage
 {
     std::shared_ptr<Pipeline> pipeline;
     ComPtr<ID3D12Resource> motion, depth, output;
-    ComPtr<ID3D12DescriptorHeap> heap;
+    // Scratch pixels are fully written and consumed within one logical Execute.
+    // Closed recordings may share them; their descriptors remain private below.
+    std::shared_ptr<LmxxfRuntime::RecordingCompletion> chain;
+    bool unconfirmed = false;
     UINT width = 0, height = 0;
     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
     UINT64 bytes = 0;
@@ -125,10 +128,6 @@ struct Storage
         if (!make(DXGI_FORMAT_R32G32_FLOAT, &s->motion) || !make(DXGI_FORMAT_R32_FLOAT, &s->depth) ||
             !make(format, &s->output))
             return {};
-        D3D12_DESCRIPTOR_HEAP_DESC hd { D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 8,
-                                        D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
-        if (FAILED(p->device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&s->heap))))
-            return {};
         return s;
     }
 };
@@ -138,6 +137,7 @@ struct State
     std::shared_ptr<Pipeline> pipeline;
     std::vector<std::shared_ptr<Storage>> pool;
     std::vector<std::shared_ptr<Lease>> leases;
+    uint64_t copySubmissions = 0; // Submission facts, not a claim of GPU completion.
 };
 inline State& Global()
 {
@@ -149,23 +149,26 @@ inline void ScheduleCollectionLocked() noexcept;
 struct Lease final : Submission::RecordingObserver
 {
     std::shared_ptr<Storage> storage;
+    ComPtr<ID3D12DescriptorHeap> heap;
     ComPtr<ID3D12Resource> target, motion, depth, result;
     Submission::RecordingIdentity identity;
     std::vector<std::shared_ptr<LmxxfRuntime::RecordingCompletion>> completions;
-    bool invalidated = false, unconfirmed = false;
+    bool invalidated = false, unconfirmed = false, copyRecorded = false;
     HRESULT BeforeExecute(const Submission::RecordingExecution& e) noexcept override
     {
-        if (invalidated || unconfirmed || !(identity == e.identity))
+        if (invalidated || unconfirmed || storage->unconfirmed || !(identity == e.identity))
             return E_UNEXPECTED;
-        // A closed list may be replayed on a different queue. Serialize writers
-        // to this recording's private guides/output until their previous use ends.
-        for (const auto& p : completions)
-            if (p->queue != e.queue && !p->Complete())
-            {
-                const auto hr = e.queue->Wait(p->fence, p->value);
-                if (FAILED(hr))
-                    return hr;
-            }
+        // RecordingMutex covers this dependency, the entire split Execute and
+        // publication of its completion. Order ALL users of the scratch set,
+        // including distinct retained lists and replay on another queue. Same-
+        // queue executions are already ordered; no CPU/GPU drain is needed.
+        const auto& p = storage->chain;
+        if (p && p->queue != e.queue && !p->Complete())
+        {
+            const auto hr = e.queue->Wait(p->fence, p->value);
+            if (FAILED(hr))
+                return hr;
+        }
         completions.erase(std::remove_if(completions.begin(), completions.end(), [](auto& p) { return p->Complete(); }),
                           completions.end());
         return S_OK;
@@ -174,13 +177,16 @@ struct Lease final : Submission::RecordingObserver
     {
         if (!e.producerSubmitted)
             return;
-        unconfirmed = true;
+        unconfirmed = storage->unconfirmed = true;
         if (FAILED(e.status) || !e.fence || !e.fenceValue || e.fenceValue == UINT64_MAX)
             return;
         try
         {
-            completions.push_back(std::make_shared<LmxxfRuntime::RecordingCompletion>(e.fence, e.queue, e.fenceValue));
-            unconfirmed = false;
+            auto proof = std::make_shared<LmxxfRuntime::RecordingCompletion>(e.fence, e.queue, e.fenceValue);
+            completions.push_back(proof);
+            storage->chain = std::move(proof);
+            unconfirmed = storage->unconfirmed = false;
+            if (copyRecorded) ++Global().copySubmissions;
         }
         catch (...)
         {
@@ -335,7 +341,7 @@ inline std::shared_ptr<Lease> Prepare(ID3D12GraphicsCommandList* cmd, AmdPreSr::
                      s.pool.end());
         std::shared_ptr<Storage> storage;
         for (auto& a : s.pool)
-            if (a.use_count() == 1)
+            if (!a->unconfirmed && a->width == f.width && a->height == f.height && a->format == format)
             {
                 storage = a;
                 break;
@@ -369,7 +375,9 @@ inline std::shared_ptr<Lease> Prepare(ID3D12GraphicsCommandList* cmd, AmdPreSr::
             constexpr UINT64 budget = 768ull * 1024 * 1024;
             if (seen.size() >= 16 || bytes > budget || estimate > budget - bytes)
             {
-                reason = "SR -> NR: adapter memory budget in use; lower resolution or wait for recordings";
+                reason = "SR -> NR: adapter memory budget in use (" + std::to_string(bytes / (1024 * 1024)) +
+                         " MiB, " + std::to_string(seen.size()) + " distinct scratch sets); "
+                         "lower resolution or wait for recordings";
                 return {};
             }
             storage = Storage::Create(s.pipeline, f.width, f.height, format);
@@ -382,6 +390,13 @@ inline std::shared_ptr<Lease> Prepare(ID3D12GraphicsCommandList* cmd, AmdPreSr::
         }
         auto l = std::make_shared<Lease>();
         l->storage = storage;
+        D3D12_DESCRIPTOR_HEAP_DESC hd { D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 8,
+                                        D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
+        if (FAILED(d->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&l->heap))))
+        {
+            reason = "SR -> NR: descriptor allocation failed";
+            return {};
+        }
         l->target = f.colour;
         l->motion = f.motion;
         l->depth = f.depth;
@@ -394,7 +409,7 @@ inline std::shared_ptr<Lease> Prepare(ID3D12GraphicsCommandList* cmd, AmdPreSr::
             return {};
         }
         const UINT stride = d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        auto cpu = storage->heap->GetCPUDescriptorHandleForHeapStart();
+        auto cpu = l->heap->GetCPUDescriptorHandleForHeapStart();
         auto srv = [&](ID3D12Resource* r, DXGI_FORMAT fmt)
         {
             D3D12_SHADER_RESOURCE_VIEW_DESC v {};
@@ -426,7 +441,7 @@ inline std::shared_ptr<Lease> Prepare(ID3D12GraphicsCommandList* cmd, AmdPreSr::
         Barrier(cmd, f.depth, f.depthState, Read);
         Barrier(cmd, storage->motion.Get(), Read, Write);
         Barrier(cmd, storage->depth.Get(), Read, Write);
-        auto* heap = storage->heap.Get();
+        auto* heap = l->heap.Get();
         cmd->SetDescriptorHeaps(1, &heap);
         cmd->SetComputeRootSignature(s.pipeline->root.Get());
         cmd->SetPipelineState(s.pipeline->guides.Get());
@@ -472,7 +487,7 @@ inline bool Finish(ID3D12GraphicsCommandList* cmd, const std::shared_ptr<Lease>&
     l->result = result;
     auto* d = s.pipeline->device.Get();
     const auto stride = d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    auto cpu = s.heap->GetCPUDescriptorHandleForHeapStart();
+    auto cpu = l->heap->GetCPUDescriptorHandleForHeapStart();
     cpu.ptr += 4 * stride;
     D3D12_SHADER_RESOURCE_VIEW_DESC v {};
     v.Format = Effects::ReadFormat(result->GetDesc().Format);
@@ -482,7 +497,7 @@ inline bool Finish(ID3D12GraphicsCommandList* cmd, const std::shared_ptr<Lease>&
     d->CreateShaderResourceView(result, &v, cpu);
     Barrier(cmd, l->target.Get(), targetState, Read);
     Barrier(cmd, s.output.Get(), Read, Write);
-    auto* heap = s.heap.Get();
+    auto* heap = l->heap.Get();
     cmd->SetDescriptorHeaps(1, &heap);
     cmd->SetComputeRootSignature(s.pipeline->root.Get());
     cmd->SetPipelineState(s.pipeline->copy.Get());
@@ -502,6 +517,7 @@ inline bool Finish(ID3D12GraphicsCommandList* cmd, const std::shared_ptr<Lease>&
     cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
     Barrier(cmd, s.output.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, Read);
     Barrier(cmd, l->target.Get(), D3D12_RESOURCE_STATE_COPY_DEST, targetState);
+    l->copyRecorded = true;
     return true;
 }
 } // namespace DlssNr::PostSr

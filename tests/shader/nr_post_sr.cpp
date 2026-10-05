@@ -124,6 +124,132 @@ static Ptr<ID3D12Resource> Guide(ID3D12Device* d, ID3D12CommandQueue* q, UINT w,
     Transfer(d, q, r.Get(), &data);
     return r;
 }
+static void Retained4KRecordings(ID3D12Device* d, ID3D12CommandQueue* q)
+{
+    // Engines may retain many closed lists even when their GPU work has finished.
+    // Real 4K allocations exercise the byte limit (the small pixel tests cannot).
+    for (auto format : {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT})
+    {
+        PostSr::Reset();
+        auto colour = Tex(d, 3840, 2160, format);
+        auto motion = Guide(d, q, 16, 12, 2), depth = Guide(d, q, 16, 12, 1);
+        std::vector<Recording> recordings;
+        for (unsigned i = 0; i < 24; ++i)
+        {
+            auto r = NewRecording(d);
+            AmdPreSr::Frame f;
+            f.colour = colour.Get(); f.motion = motion.Get(); f.depth = depth.Get();
+            f.width = 3840; f.height = 2160; f.motionWidth = 16; f.motionHeight = 12;
+            std::string reason;
+            auto lease = PostSr::Prepare(r.proxy.Get(), f, 16, 12, reason);
+            if (!lease) std::fprintf(stderr, "4K retained recording %u: %s\n", i, reason.c_str());
+            Require(bool(lease), "24 retained 4K recordings must not exhaust the adapter budget");
+            Check(r.proxy->Close(), "retained 4K close");
+            recordings.push_back(std::move(r));
+        }
+        Require(PostSr::Global().pool.size() == 1, "4K recordings share one scratch set");
+        Require(PostSr::Global().pool.front()->bytes < 180ull * 1024 * 1024, "4K scratch stays bounded");
+        // Discarded lists must release their descriptors and recording ownership.
+        recordings.clear();
+        PostSr::Poll();
+        Require(PostSr::Global().leases.empty(), "retained 4K recordings released");
+    }
+    PostSr::Reset();
+}
+static void SharedScratchRecordings(ID3D12Device* d, ID3D12CommandQueue* q, ID3D12CommandQueue* other,
+                                    const AmdPreSr::Frame& base)
+{
+    PostSr::Reset();
+    auto alternateMotion = Guide(d, q, 16, 12, 2);
+    std::vector<float> alternateValues(16 * 12 * 2);
+    for (unsigned y = 0; y < 12; ++y)
+        for (unsigned x = 0; x < 16; ++x)
+            for (unsigned c = 0; c < 2; ++c)
+                alternateValues[(y * 16 + x) * 2 + c] = float(x + 100 * y + 1000 * c + 5000);
+    std::vector<unsigned char> data(alternateValues.size() * sizeof(float));
+    std::memcpy(data.data(), alternateValues.data(), data.size());
+    Transfer(d, q, alternateMotion.Get(), &data);
+    std::vector<Recording> recordings;
+    std::vector<Ptr<ID3D12Resource>> targets, results, capturedGuides;
+    for (unsigned i = 0; i < 24; ++i)
+    {
+        auto target = Tex(d, 32, 24, DXGI_FORMAT_R16G16B16A16_FLOAT);
+        auto result = Texture(d, 32, 24);
+        auto capture = Tex(d, 32, 24, DXGI_FORMAT_R32G32_FLOAT);
+        UploadColorPattern(d, q, target.Get());
+        g_patternExponentShift = 1 + i % 2;
+        UploadColorPattern(d, q, result.Get());
+        g_patternExponentShift = 0;
+        auto r = NewRecording(d);
+        auto f = base;
+        f.colour = target.Get();
+        if (i % 2) f.motion = alternateMotion.Get();
+        f.jitterX = i % 2 ? -.5f : .5f;
+        std::string reason;
+        auto lease = PostSr::Prepare(r.proxy.Get(), f, 16, 12, reason);
+        Require(bool(lease), "retained recording prepares without frame drops");
+        // Capture each invocation's guides before the scratch set is reused.
+        Effects::Barrier(r.proxy.Get(), f.motion, PostSr::Read, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        Effects::Barrier(r.proxy.Get(), capture.Get(), PostSr::Read, D3D12_RESOURCE_STATE_COPY_DEST);
+        r.proxy->CopyResource(capture.Get(), f.motion);
+        Effects::Barrier(r.proxy.Get(), f.motion, D3D12_RESOURCE_STATE_COPY_SOURCE, PostSr::Read);
+        Effects::Barrier(r.proxy.Get(), capture.Get(), D3D12_RESOURCE_STATE_COPY_DEST, PostSr::Read);
+        if (i % 2) Check(r.proxy->SplitSegments(), "shared scratch split");
+        Require(PostSr::Finish(r.proxy.Get(), lease, result.Get(), PostSr::Read), "shared scratch finish");
+        Check(r.proxy->Close(), "shared scratch close");
+        recordings.push_back(std::move(r));
+        targets.push_back(std::move(target)); results.push_back(std::move(result));
+        capturedGuides.push_back(std::move(capture));
+    }
+    Require(PostSr::Global().pool.size() == 1, "distinct recordings share scratch");
+    for (size_t i = 1; i < PostSr::Global().leases.size(); ++i)
+        Require(PostSr::Global().leases[i]->heap != PostSr::Global().leases[0]->heap,
+                "retained descriptors remain private");
+
+    Ptr<ID3D12Fence> gate, reached;
+    Check(d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)), "scratch gate");
+    Check(d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&reached)), "scratch marker");
+    Check(q->Wait(gate.Get(), 1), "hold first scratch writer");
+    Check(recordings[0].proxy->ExecuteOn(q), "first scratch writer");
+    Check(recordings[1].proxy->ExecuteOn(other), "different recording on other queue");
+    Check(other->Signal(reached.Get(), 1), "scratch writer marker");
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    Require(event != nullptr, "scratch marker event");
+    Check(reached->SetEventOnCompletion(1, event), "scratch completion event");
+    Require(WaitForSingleObject(event, 100) == WAIT_TIMEOUT, "different recording waits for shared scratch");
+    Check(gate->Signal(1), "release first scratch writer");
+    WaitQueue(d, other);
+    CloseHandle(event);
+    for (unsigned i = 2; i < recordings.size(); ++i)
+        Check(recordings[i].proxy->ExecuteOn(i % 2 ? other : q), "queued scratch writer");
+    WaitQueue(d, q); WaitQueue(d, other);
+    // Replaying old lists after recording newer ones must retain their original
+    // source, target and guide bindings, including across the producer/NR split.
+    for (int i = int(recordings.size()) - 1; i >= 0; --i)
+        Check(recordings[i].proxy->ExecuteOn(i % 2 ? q : other), "reverse scratch replay");
+    WaitQueue(d, q); WaitQueue(d, other);
+    for (unsigned i = 0; i < recordings.size(); ++i)
+    {
+        auto actual = Transfer(d, q, targets[i].Get()), expected = Transfer(d, q, results[i].Get());
+        auto guides = Transfer(d, q, capturedGuides[i].Get());
+        for (unsigned y = 0; y < 24; ++y)
+            for (unsigned x = 0; x < 32; ++x)
+            {
+                const size_t offset = (y * 32 + x) * 8;
+                Require(std::memcmp(actual.data() + offset, expected.data() + offset, 6) == 0,
+                        "shared scratch preserves each recording's result");
+                const int sx = std::clamp(int(std::floor((x + .5f) * .5f + (i % 2 ? -.5f : .5f))), 0, 15);
+                const int sy = std::clamp(int(std::floor((y + .5f) * .5f - .5f)), 0, 11);
+                float m[2]; std::memcpy(m, guides.data() + offset, 8);
+                Require(m[0] == sx + 100 * sy + (i % 2 ? 5000 : 0) && m[1] == m[0] + 1000,
+                        "shared scratch preserves each recording's guide bindings and jitter");
+            }
+    }
+    recordings.clear();
+    PostSr::Poll();
+    Require(PostSr::Global().leases.empty(), "shared scratch recording leases released");
+    PostSr::Reset();
+}
 static void Multipass(ID3D12Device* d, ID3D12CommandQueue* q, const AmdPreSr::Frame& base)
 {
     // A deterministic GPU stand-in for the backend's entire cascade. Each pass
@@ -255,6 +381,7 @@ int main()
     D3D12_COMMAND_QUEUE_DESC qd {};
     Check(d->CreateCommandQueue(&qd, IID_PPV_ARGS(&q)), "queue");
     Check(d->CreateCommandQueue(&qd, IID_PPV_ARGS(&other)), "other queue");
+    Retained4KRecordings(d.Get(), q.Get());
     auto output = Tex(d.Get(), 35, 27, DXGI_FORMAT_R16G16B16A16_FLOAT), result = Texture(d.Get(), 35, 27);
     UploadColorPattern(d.Get(), q.Get(), output.Get());
     g_patternExponentShift = 1;
@@ -335,8 +462,8 @@ int main()
             Require(m[0] == sx + 100 * sy && m[1] == sx + 100 * sy + 1000 && z == sx + 100 * sy,
                     "active guide mapping excludes padding and applies jitter");
         }
-    // A native-size colour pass still changes the stage: replay must not alias
-    // a later recording, and cross-queue reuse must wait for its own completion.
+    // Replay preserves a recording's bindings; cross-queue scratch reuse must
+    // wait for prior writers even when the recording itself is still retained.
     Ptr<ID3D12Fence> gate;
     Check(d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)), "gate");
     Check(q->Wait(gate.Get(), 1), "gate queue");
@@ -382,6 +509,7 @@ int main()
     PostSr::Poll();
     Require(PostSr::Global().leases.empty(), "split recording ownership released");
     Multipass(d.Get(), q.Get(), base);
+    SharedScratchRecordings(d.Get(), q.Get(), other.Get(), base);
     // HDR FP16 result -> common SR output formats. No UAV flag on game output.
     for (auto fmt : { DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R11G11B10_FLOAT,
                       DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM })
@@ -405,6 +533,9 @@ int main()
     // Failed completion notification must never permit buffer reuse or replay.
     auto failed = record(false);
     auto failLease = PostSr::Global().leases.back();
+    auto sibling = record(false);
+    auto siblingLease = PostSr::Global().leases.back();
+    Require(siblingLease->storage == failLease->storage, "failed proof fixture shares scratch");
     Check(failed.proxy->ExecuteOn(q.Get()), "failure fixture");
     WaitQueue(d.Get(), q.Get());
     Submission::RecordingExecution e { failLease->identity, 99, q.Get() };
@@ -412,10 +543,15 @@ int main()
     e.status = E_FAIL;
     failLease->Executed(e);
     Require(FAILED(failLease->BeforeExecute(e)), "unconfirmed replay rejected");
+    e.identity = siblingLease->identity;
+    Require(FAILED(siblingLease->BeforeExecute(e)), "unconfirmed shared scratch blocks sibling execution");
     // Fixture cleanup: actual work completed before injecting the failed proof.
     failLease->unconfirmed = false;
+    failLease->storage->unconfirmed = false;
     failed.proxy.Reset();
     failLease.reset();
+    sibling.proxy.Reset();
+    siblingLease.reset();
     PostSr::Reset();
     PostSr::Poll();
     Ptr<ID3D12InfoQueue> info;
@@ -432,6 +568,6 @@ int main()
             Require(m->Severity > D3D12_MESSAGE_SEVERITY_ERROR, "debug validation");
         }
     std::puts("Post-SR NR: PASS (1/2/3-pass cascade and replay, guides, units, formats, padding, alpha, discard, "
-              "pending Reset, cross-queue replay, "
+              "24 retained 4K lists, private descriptors, shared scratch cross-queue/reverse replay, pending Reset, "
               "failed proof)");
 }

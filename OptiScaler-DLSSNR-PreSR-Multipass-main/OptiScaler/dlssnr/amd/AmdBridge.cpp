@@ -88,6 +88,49 @@ void Message(const char* s)
     }
     message = s;
 }
+// Bounded default diagnostics distinguish adapter rejection, backend warm-up and
+// copy submission. Called under RecordingMutex; steady playback stops logging
+// after three windows. Persistent skips log at most once per 30 seconds.
+struct PostSrFrameReport
+{
+    bool enabled, prepared = false, recorded = false, copied = false;
+    ~PostSrFrameReport()
+    {
+        if (!enabled) return;
+        try
+        {
+            struct Window
+            {
+                ULONGLONG start = 0, loggedAt = 0;
+                uint64_t frames = 0, prepared = 0, recorded = 0, copied = 0, submissions = 0;
+                unsigned reports = 0;
+                bool hadSkips = false;
+            };
+            static Window w;
+            const auto now = GetTickCount64();
+            const auto& adapter = DlssNr::PostSr::Global();
+            if (!w.start) { w.start = now; w.submissions = adapter.copySubmissions; }
+            ++w.frames; w.prepared += prepared; w.recorded += recorded; w.copied += copied;
+            if (now - w.start < 5000) return;
+            const bool skips = w.frames != w.copied;
+            if (w.reports < 3 || skips != w.hadSkips || (skips && now - w.loggedAt >= 30000))
+            {
+                UINT64 bytes = 0;
+                for (const auto& scratch : adapter.pool) bytes += scratch->bytes;
+                LOG_INFO("SR -> NR {} ms: frames {}, adapter ready {}, NR recorded {}, copy recorded {}, "
+                         "copy submissions {}, pooled scratch {} MiB / {} sets, retained recordings {}",
+                         now - w.start, w.frames, w.prepared, w.recorded, w.copied,
+                         adapter.copySubmissions - w.submissions, bytes / (1024 * 1024),
+                         adapter.pool.size(), adapter.leases.size());
+                ++w.reports; w.loggedAt = now;
+            }
+            w.hadSkips = skips;
+            w.start = now; w.frames = w.prepared = w.recorded = w.copied = 0;
+            w.submissions = adapter.copySubmissions;
+        }
+        catch (...) {} // Diagnostics must not affect the render path.
+    }
+};
 thread_local NVSDK_NGX_Parameter* replacedParams = nullptr;
 thread_local ID3D12Resource* originalColour = nullptr;
 struct FrameIdentity
@@ -826,6 +869,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     // Evaluate cut: Split proxy + SetBetween(EnqueueHip) is owned by lmxxf Record.
     DlssNr::Backend::LmxxfCut::OnEvaluateBeforeRecord(cmd);
     std::lock_guard effectsLifetime(DlssNr::Submission::RecordingMutex());
+    PostSrFrameReport postReport {!beforeUpscale};
     std::shared_ptr<DlssNr::PostSr::Lease> post;
     if (!beforeUpscale)
     {
@@ -841,9 +885,11 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         std::string reason;
         post = DlssNr::PostSr::Prepare(cmd, f, renderWidth, renderHeight, reason);
         if (!post) { b->InvalidateHistory(); Message(reason.c_str()); return true; }
+        postReport.prepared = true;
     }
     if (auto replacement = b->Record(cmd, f, s))
     {
+        postReport.recorded = true;
         effectRecorded = true;
         const bool isLmxxf = g_activeKind.load(std::memory_order_acquire) == static_cast<int>(DlssNr::Backend::Kind::Lmxxf);
         replacement = DlssNr::Effects::Record(cmd, f.colour, replacement, f.colourState, f.width, f.height,
@@ -860,8 +906,11 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
             replacedParams = params;
             params->Set(NVSDK_NGX_Parameter_Color, replacement);
         }
-        else if (!DlssNr::PostSr::Finish(cmd, post, replacement, f.colourState))
-            Message("SR -> NR: unsupported NR result; keeping the SR output");
+        else
+        {
+            postReport.copied = DlssNr::PostSr::Finish(cmd, post, replacement, f.colourState);
+            if (!postReport.copied) Message("SR -> NR: unsupported NR result; keeping the SR output");
+        }
     }
     else DlssNr::Effects::InvalidateHistory();
     return true;
