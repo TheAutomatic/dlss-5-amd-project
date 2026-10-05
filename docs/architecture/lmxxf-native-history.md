@@ -106,4 +106,21 @@ The initial dedicated runs passed on WARP and RX 9070 XT (gfx1201). Both gfx1200
 and gfx1201 modules were built; gfx1200 hardware, new game acceptance and dynamic
 scene/ghosting assessment remain untested. The Windows D3D12 debug layer was
 unavailable, so numerical/ordering passes are not a debug-layer certification.
-Full integration suite results are recorded when the final artifacts finish.
+Final `tests/run-all.cmd --tier ci,device` passed on the matching artifacts,
+including host/config, shader, both runtime ABIs, WARP, installer, complete sync
+and hardware list/Unity admission tests. The CI receipt binds lmxxf runtime
+SHA256 `a5b62235c02ea6fbff3069d4ae8cdf06865c938ee046ed317bcee9fa98821d97`.
+The complete lmxxf GPU tier passed; the fast-numeric native-history replay suite
+also passed. A focused old-module check refused history with the full-package
+update error, and the final old-FrameInfo format-rejection test passed.
+
+Only gfx1201's default b8 production path and fast-numeric history were exercised
+on hardware. Float post exports were built and resolved, but their complete GPU
+matrix was not run. Mochizuki was rebuilt for ABI3 and passed ABI tests; its
+Vulkan model/GPU matrix was not run. No new package, game installation, remote
+Actions run or main merge is implied by these local validation results.
+
+An instrumented synthetic 1280x720 bridge run measured completed input/output
+command-list spans. Its overall span was too variable to establish a reliable
+end-to-end history cost; it is not a game or network benchmark. Dynamic-scene
+acceptance and a stable in-game cost comparison remain follow-up work.
