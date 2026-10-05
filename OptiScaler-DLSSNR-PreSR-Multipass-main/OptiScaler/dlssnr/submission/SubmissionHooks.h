@@ -5,6 +5,9 @@
 #include <atomic>
 #include <intrin.h>
 #include <mutex>
+#ifdef LMXXF_NR_FLICKER_TEST19
+#include "ListCreationDiagnostic.h"
+#endif
 
 // G1 Create/Execute wrap for lmxxf submission.
 // Default: disarmed. Product must not call Arm until G1/P3 gates.
@@ -30,6 +33,9 @@ inline std::atomic<bool> g_proxyWrap { false };
 // UE can retain lists created before the first swapchain. Wrap only calls from
 // the host executable during boot; Streamline and vendor modules stay native.
 inline std::atomic<bool> g_earlyExeWrap { false };
+// Enabled only for Aniimo after the submission hook is ready. Its retained boot
+// lists are created in UnityPlayer.dll, not in the host executable.
+inline std::atomic<bool> g_earlyUnityPlayerWrap { false };
 inline std::atomic<uint32_t> g_earlyWrappedLists { 0 };
 inline std::atomic<bool> g_wrapOpenLists { false };
 inline std::mutex g_executeMu;
@@ -51,6 +57,7 @@ inline bool ExpandEnabled() { return g_expandEnabled.load(std::memory_order_acqu
 inline bool ProxyWrapEnabled() { return g_proxyWrap.load(std::memory_order_acquire); }
 inline void SetProxyWrap(bool on) { g_proxyWrap.store(on, std::memory_order_release); }
 inline void SetEarlyExeWrap(bool on) { g_earlyExeWrap.store(on, std::memory_order_release); }
+inline void SetEarlyUnityPlayerWrap(bool on) { g_earlyUnityPlayerWrap.store(on, std::memory_order_release); }
 inline void SetWrapOpenLists(bool on) { g_wrapOpenLists.store(on, std::memory_order_release); }
 
 inline bool IsHostExecutableCaller(void *address)
@@ -64,9 +71,29 @@ inline bool IsHostExecutableCaller(void *address)
 
 inline bool ShouldWrapCreate(void *caller)
 {
-    return ProxyWrapEnabled() ||
-           (g_earlyExeWrap.load(std::memory_order_acquire) && IsHostExecutableCaller(caller));
+    if (ProxyWrapEnabled() ||
+        (g_earlyExeWrap.load(std::memory_order_acquire) && IsHostExecutableCaller(caller)))
+        return true;
+    if (!g_earlyUnityPlayerWrap.load(std::memory_order_acquire))
+        return false;
+    HMODULE callerModule = nullptr;
+    return caller && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       reinterpret_cast<LPCWSTR>(caller), &callerModule) &&
+           callerModule == GetModuleHandleW(L"UnityPlayer.dll");
 }
+
+#ifdef LMXXF_NR_FLICKER_TEST19
+inline uint32_t CreationGateSnapshot()
+{
+    using namespace CreationDiagnostic;
+    return (IsArmed()?Armed:0u) | (ProxyWrapEnabled()?ProxyWrap:0u) |
+           (g_earlyExeWrap.load(std::memory_order_acquire)?EarlyExeWrap:0u) |
+           (g_wrapOpenLists.load(std::memory_order_acquire)?OpenLists:0u) |
+           (g_earlyUnityPlayerWrap.load(std::memory_order_acquire)?EarlyUnityPlayerWrap:0u) |
+           (g_suppressProxyWrap?Suppressed:0u);
+}
+#endif
 
 inline void SetBetween(BetweenFn fn, void *ctx)
 {
@@ -134,10 +161,19 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
                                           ID3D12CommandAllocator *alloc, ID3D12PipelineState *initial, REFIID riid,
                                           void **out)
 {
+#ifdef LMXXF_NR_FLICKER_TEST19
+    const auto creation=CreationDiagnostic::Begin(_ReturnAddress(),type,0,riid,CreationGateSnapshot());
+#endif
     // Opt-in only for proxy-original/split-original until real-game boundary validation.
     if (!IsArmed() || !ShouldWrapCreate(_ReturnAddress()) || !g_wrapOpenLists.load(std::memory_order_acquire) ||
         g_suppressProxyWrap || type != D3D12_COMMAND_LIST_TYPE_DIRECT || !out)
-        return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
+    {
+        const HRESULT hr=o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
+#ifdef LMXXF_NR_FLICKER_TEST19
+        if (SUCCEEDED(hr) && out) CreationDiagnostic::Attach(*out,creation,false);
+#endif
+        return hr;
+    }
     ID3D12GraphicsCommandList *real = nullptr;
     const HRESULT hr = o_CreateCommandList(device, nodeMask, type, alloc, initial, IID_PPV_ARGS(&real));
     if (FAILED(hr))
@@ -148,16 +184,28 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
         *out = nullptr;
     else if (!ProxyWrapEnabled())
         g_earlyWrappedLists.fetch_add(1, std::memory_order_relaxed);
+#ifdef LMXXF_NR_FLICKER_TEST19
+    if (SUCCEEDED(wrap) && out) CreationDiagnostic::Attach(*out,creation,true);
+#endif
     return wrap;
 }
 
 inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, D3D12_COMMAND_LIST_TYPE type,
                                            D3D12_COMMAND_LIST_FLAGS flags, REFIID riid, void **out)
 {
+#ifdef LMXXF_NR_FLICKER_TEST19
+    const auto creation=CreationDiagnostic::Begin(_ReturnAddress(),type,1,riid,CreationGateSnapshot());
+#endif
     if (!IsArmed() || !ShouldWrapCreate(_ReturnAddress()) || g_suppressProxyWrap ||
         type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
-        return o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
-                                    : E_NOINTERFACE;
+    {
+        const HRESULT hr=o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
+                                             : E_NOINTERFACE;
+#ifdef LMXXF_NR_FLICKER_TEST19
+        if (SUCCEEDED(hr) && out) CreationDiagnostic::Attach(*out,creation,false);
+#endif
+        return hr;
+    }
 
     // Create closed real list, wrap as proxy; allocator binds on first Reset.
     ID3D12GraphicsCommandList *real = nullptr;
@@ -171,13 +219,17 @@ inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, 
         *out = nullptr;
     else if (SUCCEEDED(wrap) && !ProxyWrapEnabled())
         g_earlyWrappedLists.fetch_add(1, std::memory_order_relaxed);
+#ifdef LMXXF_NR_FLICKER_TEST19
+    if (SUCCEEDED(wrap) && out) CreationDiagnostic::Attach(*out,creation,true);
+#endif
     return wrap;
 }
 
 // Expand proxies in a batch: for each ILogicalCommandList, ExecuteOnWithBetween;
 // non-proxies submitted via original ExecuteCommandLists in contiguous runs.
 inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandList *const *lists,
-                            BetweenFn between, void *betweenCtx, PFN_ExecuteCommandLists rawExec)
+                            BetweenFn between, void *betweenCtx, PFN_ExecuteCommandLists rawExec,
+                            void (*unsubmitted)(ID3D12CommandList *, void *) = nullptr, void *unsubmittedCtx = nullptr)
 {
     if (!queue || !lists || !rawExec)
         return;
@@ -223,7 +275,11 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
             const HRESULT hr = logical->ExecuteOnWithBetween(queue, between ? invoke : nullptr,
                                                                between ? &invocation : nullptr);
             if (FAILED(hr))
+            {
                 g_submissionFailures.fetch_add(1, std::memory_order_relaxed);
+                if (unsubmitted && !logical->LastExecuteSubmittedProducer())
+                    unsubmitted(lists[i], unsubmittedCtx);
+            }
         }
         logical->Release();
     }
@@ -232,7 +288,7 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
 
 inline void WINAPI hkExecuteCommandLists(ID3D12CommandQueue *queue, UINT num, ID3D12CommandList *const *lists)
 {
-    if (!IsArmed())
+    if (!IsArmed() || InsideLogicalExecute())
     {
         o_ExecuteCommandLists(queue, num, lists);
         return;
@@ -332,6 +388,7 @@ inline void Disarm()
     if (!g_armed.load(std::memory_order_relaxed))
         return;
     g_earlyExeWrap.store(false, std::memory_order_release);
+    g_earlyUnityPlayerWrap.store(false, std::memory_order_release);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     if (o_CreateCommandList)

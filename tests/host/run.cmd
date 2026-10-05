@@ -32,6 +32,10 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% /utf-8 tests\host\lmxxf_job_lifecycle.cpp /Fe"%OUT%\lmxxf_job_lifecycle.exe" /Fo"%OUT%\lmxxf_job_lifecycle.obj" || goto fail
+"%OUT%\lmxxf_job_lifecycle.exe" || goto fail
+%CXX% /utf-8 /DNOMINMAX /I"%INC%" tests\host\lmxxf_submission_lifecycle.cpp /Fe"%OUT%\lmxxf_submission_lifecycle.exe" /Fo"%OUT%\lmxxf_submission_lifecycle.obj" /link "%DETOURS%" d3d12.lib dxgi.lib dxguid.lib uuid.lib || goto fail
+"%OUT%\lmxxf_submission_lifecycle.exe" || goto fail
 %CXX% tests\host\lmxxf_continuity.cpp /Fe"%OUT%\lmxxf_continuity.exe" /Fo"%OUT%\lmxxf_continuity.obj" || goto fail
 "%OUT%\lmxxf_continuity.exe" || goto fail
 %CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail

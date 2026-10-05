@@ -1,6 +1,7 @@
 #pragma once
 #include "../submission/CommandListProxy.h"
 #include "Selector.h"
+#include "LmxxfJobLifecycle.h"
 #include "../submission/SubmissionHooks.h"
 #include <array>
 #include <atomic>
@@ -28,6 +29,8 @@ struct PendingHip
     GetLastErrorFn getLastError = nullptr;
     ID3D12CommandList *targetList = nullptr; // Identity only; the backend owns the pending job.
     ID3D12CommandQueue *expectedQueue = nullptr;
+    std::shared_ptr<JobLifecycle> lifecycle;
+    uint64_t token = 0;
     std::array<char, 256> lastEnqueueError {};
     ID3D12CommandQueue *lastEnqueueQueue = nullptr;
     std::atomic<int> betweenHits { 0 };
@@ -48,16 +51,20 @@ inline PendingHip &Pending()
     return p;
 }
 
-inline void ClearPendingEnqueue()
+inline void ClearPendingEnqueue(uint64_t expectedToken = 0)
 {
     auto &p = Pending();
     std::lock_guard lock(p.mutex);
+    if (expectedToken && p.token != expectedToken)
+        return;
     p.session = nullptr;
     p.job = nullptr;
     p.enqueueHip = nullptr;
     p.getLastError = nullptr;
     p.targetList = nullptr;
     p.expectedQueue = nullptr;
+    p.lifecycle = nullptr;
+    p.token = 0;
 }
 
 inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const *lists)
@@ -76,6 +83,8 @@ inline void ClearPendingEnqueueIfSubmitted(UINT count, ID3D12CommandList *const 
             p.getLastError = nullptr;
             p.targetList = nullptr;
             p.expectedQueue = nullptr;
+            p.lifecycle = nullptr;
+            p.token = 0;
             return;
         }
     }
@@ -88,6 +97,8 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
     void *job;
     EnqueueHipFn fn;
     GetLastErrorFn getLastError = nullptr;
+    std::shared_ptr<JobLifecycle> lifecycle;
+    uint64_t token = 0;
     bool match = true;
     {
         std::lock_guard lock(p.mutex);
@@ -121,11 +132,17 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
                 p.skippedHits.fetch_add(1, std::memory_order_relaxed);
             }
         }
+        // Claim before consuming: discard/cancel must not overtake a callback
+        // after its producer was submitted. No runtime call holds either mutex.
+        if (p.lifecycle && !p.lifecycle->BeginEnqueue(p.token))
+            return;
         // Consume before call so a nested submission cannot enqueue twice.
         session = p.session;
         job = p.job;
         fn = p.enqueueHip;
         getLastError = p.getLastError;
+        lifecycle = p.lifecycle;
+        token = p.token;
         p.session = nullptr;
         p.job = nullptr;
         p.enqueueHip = nullptr;
@@ -175,6 +192,8 @@ inline void BetweenThunk(ID3D12CommandQueue *queue, ID3D12CommandList *list, voi
         }
         p.lastEnqueueQueue = queue;
     }
+    if (lifecycle)
+        lifecycle->EndEnqueue(token);
 }
 
 // QI for ILogicalCommandList and SplitSegments. S_FALSE = not our proxy (cannot sandwich).
@@ -191,7 +210,8 @@ inline HRESULT TrySplitAtEvaluate(ID3D12GraphicsCommandList *cmd)
 }
 
 inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip, GetLastErrorFn getLastError,
-                             ID3D12CommandList *targetList, ID3D12CommandQueue *expectedQueue = nullptr)
+                             ID3D12CommandList *targetList, ID3D12CommandQueue *expectedQueue = nullptr,
+                             std::shared_ptr<JobLifecycle> lifecycle = {}, uint64_t token = 0)
 {
     auto &p = Pending();
     std::lock_guard lock(p.mutex);
@@ -201,6 +221,8 @@ inline void SetPendingEnqueue(void *session, void *job, EnqueueHipFn enqueueHip,
     p.getLastError = getLastError;
     p.targetList = targetList;
     p.expectedQueue = expectedQueue;
+    p.lifecycle = lifecycle;
+    p.token = token;
 }
 
 struct EnqueueDiagnostic

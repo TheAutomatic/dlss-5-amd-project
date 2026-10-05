@@ -3,6 +3,7 @@
 #include "ContinuationState.h"
 #include "ResourceStateBook.h"
 #include "QueryStateBook.h"
+#include "ListGenerationToken.h"
 #include <atomic>
 #include <string>
 // Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
@@ -42,11 +43,17 @@ ILogicalCommandList : public IUnknown
     // Borrowed pointer, only for unsplit lists: preserve the caller's Execute batch.
     virtual ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList(void) = 0;
     virtual const char *STDMETHODCALLTYPE SplitRejectionReason(void) = 0;
+    // Older test doubles may omit discard tracking. An empty credential cannot authorize cancellation.
+    virtual ListGenerationSnapshot STDMETHODCALLTYPE RecordingGeneration(void) { return {}; }
+    // Conservative default for older test doubles: failure alone cannot prove no GPU submit.
+    virtual bool STDMETHODCALLTYPE LastExecuteSubmittedProducer(void) { return true; }
 };
 
 class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogicalCommandList
 {
     std::atomic<ULONG> refs { 1 };
+    std::shared_ptr<ListGenerationToken> generationToken = std::make_shared<ListGenerationToken>();
+    bool lastExecuteSubmittedProducer = false;
     LogicalList logical;
     ContinuationState contState;
     ResourceStateBook resBook;
@@ -96,6 +103,14 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
     }
 
   public:
+    ~CommandListProxy()
+    {
+        generationToken->destroyed.store(true, std::memory_order_release);
+    }
+    ListGenerationSnapshot STDMETHODCALLTYPE RecordingGeneration() override
+    {
+        return { generationToken, generationToken->generation.load(std::memory_order_acquire) };
+    }
     static HRESULT Create(ID3D12Device *device, ID3D12CommandAllocator *alloc, ID3D12GraphicsCommandList *real,
                           CommandListProxy **out, ID3D12PipelineState *initial = nullptr)
     {
@@ -226,6 +241,7 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         const HRESULT hr = logical.Reset(alloc, initial);
         if (FAILED(hr))
             return hr;
+        generationToken->generation.fetch_add(1, std::memory_order_release);
         contState.Reset();
         resBook.Reset();
         queryBook.Reset();
@@ -258,12 +274,14 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         resBook.ApplyExecuteDecay();
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override { return logical.Execute(queue); }
+    HRESULT STDMETHODCALLTYPE ExecuteOn(ID3D12CommandQueue *queue) override
+    { return logical.Execute(queue, nullptr, nullptr, &lastExecuteSubmittedProducer); }
     HRESULT STDMETHODCALLTYPE ExecuteOnWithBetween(ID3D12CommandQueue *queue, BetweenCallback between,
                                                    void *betweenCtx) override
     {
-        return logical.Execute(queue, between, betweenCtx);
+        return logical.Execute(queue, between, betweenCtx, &lastExecuteSubmittedProducer);
     }
+    bool STDMETHODCALLTYPE LastExecuteSubmittedProducer() override { return lastExecuteSubmittedProducer; }
     bool STDMETHODCALLTYPE IsSplitIneligible() override
     {
         return rawInterfaceEscaped || splitIneligible || logical.WasSplit() || !queryBook.CanSplit() ||

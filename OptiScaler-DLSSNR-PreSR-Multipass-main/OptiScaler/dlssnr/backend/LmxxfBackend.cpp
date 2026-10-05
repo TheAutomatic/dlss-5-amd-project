@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "LmxxfBackend.h"
 #include "LmxxfQueueDrain.h"
+#ifdef LMXXF_NR_FLICKER_TEST19
+#include "LmxxfFrameTrace.h"
+#endif
 #include <cstring>
 #include "../submission/SubmissionTls.h"
 #include "lmxxf_runtime/LmxxfNrApi.h"
@@ -24,6 +27,14 @@ namespace
 std::atomic<unsigned> g_lastColorH { 0 };
 std::mutex g_temporalStatusMutex;
 std::string g_temporalStatus="Waiting for lmxxf";
+struct SubmissionReceipt
+{
+    const LmxxfBackend *backend;
+    std::optional<JobLifecycle::Work> work;
+};
+// ExecuteBatch brackets callbacks on one thread. A stack also handles a runtime
+// submission re-entering the hook before the outer batch has returned.
+thread_local std::vector<SubmissionReceipt> submissionReceipts;
 }
 
 std::string LastLmxxfTemporalStatus()
@@ -193,6 +204,7 @@ void LmxxfBackend::SetStatus(const char *s)
 {
     if (!s)
         return;
+    std::lock_guard statusLock(statusMutex);
     if (status == s)
         return;
     status = s;
@@ -246,7 +258,14 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
 
 LmxxfBackend::~LmxxfBackend()
 {
-    Shutdown();
+    // Production hosts are process-lifetime objects. A caller destroying one must
+    // first obtain a successful Shutdown; retain external runtime resources if it
+    // violates that precondition rather than unloading code used by a callback.
+    if (!Shutdown())
+    {
+        LOG_ERROR("lmxxf: backend destroyed before submission quiesced; runtime resources retained");
+        return;
+    }
     delete api;
     api = nullptr;
     if (queue)
@@ -518,30 +537,55 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
         SetStatus("lmxxf: RecordOutputs failed");
         return nullptr;
     }
-    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip,
-                               api->table.GetLastError, recordCmd, queue);
-    LmxxfCut::ArmBetweenSlot();
+    DlssNr::Submission::ILogicalCommandList *logical = nullptr;
+    DlssNr::Submission::ListGenerationSnapshot pendingGeneration;
+    if (SUCCEEDED(recordCmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                            reinterpret_cast<void **>(&logical))) && logical)
     {
-        std::lock_guard lock(jobMutex);
-        pendingJobInfo = {jobHandle, recordCmd};
+        pendingGeneration = logical->RecordingGeneration();
+        logical->Release();
     }
+    const uint64_t token = jobLifecycle->Publish(jobHandle, recordCmd, pendingGeneration);
+    if (!token)
+    {
+        api->table.CancelUnsubmitted(session, jobHandle);
+        SetStatus("lmxxf: job ownership unavailable (NO NR)");
+        return nullptr;
+    }
+    LmxxfCut::SetPendingEnqueue(session, jobHandle, api->table.EnqueueHip,
+                               api->table.GetLastError, recordCmd, queue, jobLifecycle, token);
+    LmxxfCut::ArmBetweenSlot();
     SetStatus("lmxxf: Record ok (pending EnqueueHip)");
     return reinterpret_cast<ID3D12Resource *>(privateOutput);
 }
 
 
-// Set by Submitted when the split list ran on a queue other than the session's
-// (e.g. after a swapchain rebuild). Record rebuilds the session there.
-static ID3D12CommandQueue *g_requeue = nullptr;
-
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
     std::lock_guard recordLock(recordMutex);
+#ifdef LMXXF_NR_FLICKER_TEST19
+    const uint64_t beginTick = GetTickCount64();
+#endif
     ++evaluateSequence_;
     bool nrRecorded = false;
+    bool ownsRuntime = false;
+    struct RecordOwnership {
+        JobLifecycle &lifecycle;
+        bool &owned;
+        ~RecordOwnership() { if (owned) lifecycle.EndRecord(); }
+    } recordOwnership { *jobLifecycle, ownsRuntime };
     // Runs before recordMutex is released and covers every early-return path.
     auto reportOutcome = [&] {
+#ifdef LMXXF_NR_FLICKER_TEST19
+        const auto traceReason = Status();
+        auto &tracePending = LmxxfCut::Pending();
+        NrHostTrace::Observe(evaluateSequence_, beginTick, nrRecorded, traceReason.c_str(),
+                             jobLifecycle->Observe(), Config::Instance()->LmxxfModelHistory.value_or_default(),
+                             frame.reset, frame.temporalInputsValid, tracePending.enqueueCalls.load(),
+                             tracePending.lastEnqueueRc.load(), tracePending.recoveredEnqueues.load(),
+                             DlssNr::Submission::g_submissionFailures.load());
+#endif
         if (diagnostic != LmxxfProbe::Mode::Off) return;
         if (!frameDiagnostics.Observe(nrRecorded, GetTickCount64())) return;
         const auto &d = frameDiagnostics;
@@ -550,8 +594,11 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
                  "maxRecorded={} maxOriginal={} enqueueCalls={} lastEnqueueRc={} submitFailures={} reason={}",
                  d.calls, d.recorded, d.original, d.switches, nrRecorded ? "recorded" : "original", d.streak,
                  d.maxRecorded, d.maxOriginal, pending.enqueueCalls.load(), pending.lastEnqueueRc.load(),
-                 DlssNr::Submission::g_submissionFailures.load(), status);
-        if (session && api && api->table.GetStatus)
+                 DlssNr::Submission::g_submissionFailures.load(), Status());
+        // Busy callbacks may be mutating or destroying the session. Only its
+        // admitted recording owner may read non-atomic runtime diagnostics.
+        if (ownsRuntime && jobLifecycle->Current() == JobLifecycle::Phase::Recording &&
+            session && api && api->table.GetStatus)
         {
             char perf[2048] {};
             if (api->table.GetStatus(session, perf, sizeof(perf)) == LMXXF_NR_OK)
@@ -565,62 +612,23 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         SetStatus("lmxxf: Record missing cmd/colour");
         return nullptr;
     }
-    // Swapchain rebuild can move the game to another queue (Onimusha/RE9).
+    // Only a successful Reset or final proxy release proves that an unsubmitted
+    // recording was discarded. Evaluate counts and a consumed HIP slot do not.
+    if (const auto active = jobLifecycle->Active(); active && active->generation.Discarded())
     {
-        std::lock_guard lock(jobMutex);
-        if (g_requeue && !pendingJobInfo.job)
+        if (const auto cancelled = jobLifecycle->BeginCancelIfArmed(active->cmd))
         {
-            if (g_requeue != queue)
-            {
-                if (session && api && api->table.Destroy)
-                    api->table.Destroy(session);
-                session = nullptr;
-                sessionReady = false;
-                g_requeue->AddRef();
-                if (queue)
-                    queue->Release();
-                queue = g_requeue;
-                DlssNr::AmdBridge::UpdateConfirmedRenderQueue(queue);
-                LOG_INFO("lmxxf: game submits on a new queue {:p}; session rebuilt there",
-                         reinterpret_cast<void *>(queue));
-            }
-            g_requeue = nullptr;
+            if (session && api && api->table.CancelUnsubmitted)
+                api->table.CancelUnsubmitted(session, cancelled->job);
+            LmxxfCut::ClearPendingEnqueue(cancelled->token);
+            jobLifecycle->EndOperation(*cancelled);
         }
     }
-    bool previousPending = false;
+    ownsRuntime = jobLifecycle->BeginRecord();
+    if (!ownsRuntime)
     {
-        std::lock_guard lock(jobMutex);
-        previousPending = pendingJobInfo.job != nullptr;
-        if (previousPending)
-        {
-            if (++pendingJobInfo.stalledEvaluations >= 8)
-            {
-                // BetweenThunk consumes Pending.job when HIP ran; if it still matches,
-                // the list was never submitted and cannot retire itself.
-                void *job = pendingJobInfo.job;
-                const bool enqueued = LmxxfCut::Pending().job != job;
-                pendingJobInfo = {};
-                if (session && api && job)
-                {
-                    if (enqueued && api->table.Retire)
-                        api->table.Retire(session, job);
-                    else if (!enqueued && api->table.CancelUnsubmitted)
-                        api->table.CancelUnsubmitted(session, job);
-                }
-                LmxxfCut::ClearPendingEnqueue();
-                static unsigned recoveries = 0;
-                if (++recoveries <= 5 || recoveries % 100 == 0)
-                    LOG_WARN("lmxxf: stalled job recovered ({}; recovery {})",
-                             enqueued ? "retired" : "cancelled", recoveries);
-                previousPending = false;
-            }
-        }
-    }
-    if (previousPending)
-    {
-        // The previous Evaluate already returned its output to SR. Cancelling its
-        // job here would leave that recorded continuation consuming invalid data.
-        SetStatus("lmxxf: previous frame not submitted (original Color; NO NR)");
+        SetStatus(jobLifecycle->Stopping() ? "lmxxf: shutdown requested (original Color; NO NR)"
+                                         : "lmxxf: previous frame still in flight (original Color; NO NR)");
         return nullptr;
     }
     // Crucially before EnsureSession: controls do not load the runtime, prepare HIP,
@@ -629,9 +637,30 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
         return RecordDiagnostic(cmd, frame, settings);
     // Never substitute Color from an earlier Evaluate to work around an unsubmitted producer.
     DlssNr::Submission::ILogicalCommandList *logical = nullptr;
-    if (FAILED(cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
-                                  reinterpret_cast<void **>(&logical))) || !logical)
+    const HRESULT boundaryHr=cmd->QueryInterface(__uuidof(DlssNr::Submission::ILogicalCommandList),
+                                                 reinterpret_cast<void **>(&logical));
+    if (FAILED(boundaryHr) || !logical)
     {
+#ifdef LMXXF_NR_FLICKER_TEST19
+        static std::atomic<uint64_t> misses {0};
+        const uint64_t miss=misses.fetch_add(1,std::memory_order_relaxed)+1;
+        if (miss<=64 || miss%128==0)
+        {
+            namespace Origin = DlssNr::Submission::CreationDiagnostic;
+            Origin::Stamp creation;
+            const bool found=Origin::Read(cmd,creation);
+            if (!found) creation={};
+            char objectModule[96] {};uint64_t objectOffset=0;
+            Origin::Module((*reinterpret_cast<void ***>(cmd))[0],objectModule,objectOffset);
+            LOG_WARN("lmxxf boundary provenance v1: eval={} tick={} miss={} cmd={:p} type={} qi={:X} null={} "
+                     "objectModule={} objectOffset={:X} creationFound={} creationId={} creationTick={} "
+                     "creationThread={} creationApi={} creationType={} creationGates={:X} wrapped={} caller={}+{:X}",
+                     evaluateSequence_,GetTickCount64(),miss,static_cast<void *>(cmd),static_cast<unsigned>(cmd->GetType()),
+                     static_cast<unsigned>(boundaryHr),logical==nullptr,objectModule,objectOffset,found,
+                     creation.id,creation.tick,creation.thread,creation.api,creation.type,creation.gates,creation.wrapped,
+                     creation.callerModule,creation.callerOffset);
+        }
+#endif
         SetStatus("lmxxf: same-frame boundary unavailable (original Color; NO NR)");
         return nullptr;
     }
@@ -699,7 +728,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     const float smoothing=std::isfinite(smoothingSetting)?std::clamp(smoothingSetting,0.f,.5f):0.f;
     if(api->temporalSupported && !frameInfoV1) {
         fi.temporal_flags=(modelHistory?LMXXF_NR_TEMPORAL_MODEL_HISTORY:0u)|
-            ((frame.reset||temporalResetPending.exchange(false))?LMXXF_NR_TEMPORAL_RESET:0u)|
+            (ConsumeTemporalReset(frame.reset,temporalResetPending)?LMXXF_NR_TEMPORAL_RESET:0u)|
             (frame.motionJittered?LMXXF_NR_TEMPORAL_MV_JITTERED:0u)|
             (frame.depthInverted?LMXXF_NR_TEMPORAL_DEPTH_INVERTED:0u)|
             (frame.temporalInputsValid?LMXXF_NR_TEMPORAL_INPUTS_VALID:0u);
@@ -1173,45 +1202,49 @@ ID3D12Resource *LmxxfBackend::RecordDiagnostic(ID3D12GraphicsCommandList *cmd, c
 // is unnecessary: AmdBridge::ExecuteBatch always calls ExecuteExpanded when ExpandEnabled().
 int LmxxfBackend::PendingListIndex(UINT, ID3D12CommandList *const *) const { return -1; }
 
-void LmxxfBackend::Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) {}
+void LmxxfBackend::Submitting(ID3D12CommandQueue *q, UINT count, ID3D12CommandList *const *lists)
+{
+    SubmissionReceipt receipt { this, {} };
+    if (const auto active = jobLifecycle->Active())
+        if (q && lists)
+            for (UINT i = 0; i < count; ++i)
+                if (active->cmd == lists[i] && jobLifecycle->BeginSubmission(*active))
+                { receipt.work = active; break; }
+    submissionReceipts.push_back(receipt);
+}
+
+void LmxxfBackend::SubmissionRejected(ID3D12CommandList *list)
+{
+    // Only ExecuteExpanded's explicit pre-producer failure credential reaches here.
+    if (!submissionReceipts.empty() && submissionReceipts.back().backend == this)
+    {
+        const auto &receipt = submissionReceipts.back();
+        if (receipt.work && receipt.work->cmd == list)
+            jobLifecycle->RejectSubmission(*receipt.work);
+    }
+}
 
 void LmxxfBackend::TraceBoundary(const std::string &) {}
 
 void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandList *const * lists)
 {
-    void *jobToRetire = nullptr;
-    bool containsCmd = false;
-    {
-        std::lock_guard lock(jobMutex);
-        if (lists)
-        {
-            for (UINT i = 0; i < count; ++i)
-            {
-                if (pendingJobInfo.cmd && lists[i] == pendingJobInfo.cmd)
-                {
-                    containsCmd = true;
-                    break;
-                }
-            }
-        }
-        // Swapchain rebuild: the list may submit on a queue we did not bind at Record.
-        // If HIP already ran there (lastQueue), follow that queue on the next Record.
-        if (!containsCmd && q && this->queue && q != this->queue && pendingJobInfo.job)
-        {
-            const auto last = LmxxfCut::Pending().lastQueue.load(std::memory_order_relaxed);
-            if (last && last == q)
-                g_requeue = q;
-        }
-        if (containsCmd)
-        {
-            if (session && pendingJobInfo.job && api && api->table.Retire)
-            {
-                jobToRetire = pendingJobInfo.job;
-            }
-            pendingJobInfo = {};
-        }
-    }
-    if (containsCmd && q && q != queue)
+    // No recordMutex here: runtime-internal Execute can re-enter on the Record
+    // thread. Only the exact completed logical list may claim this job.
+    // Bind completion to the job observed before this exact batch executed. A
+    // delayed old callback cannot claim a new job at a reused list/job address.
+    if (submissionReceipts.empty() || submissionReceipts.back().backend != this)
+        return;
+    const auto receipt = submissionReceipts.back();
+    submissionReceipts.pop_back();
+    if (!receipt.work)
+        return;
+    const auto completing = jobLifecycle->BeginCompletion(*receipt.work);
+    if (!completing)
+        return;
+    void *jobToRetire = completing->job;
+    // The Completing reservation blocks Record and Shutdown until Retire,
+    // migration and Cut cleanup are all finished. No state mutex spans these calls.
+    if (q && q != queue)
     {
         bool sameQueue = (this->queue == q);
         if (!sameQueue && this->queue && q)
@@ -1280,18 +1313,18 @@ void LmxxfBackend::Submitted(ID3D12CommandQueue *q, UINT count, ID3D12CommandLis
                       retireRc, err, reinterpret_cast<void *>(q), reinterpret_cast<void *>(queue));
         }
     }
-    // Other UE/FG lists may submit before the list containing this Evaluate.
-    // Only that list can retire the pending HIP slot.
-    LmxxfCut::ClearPendingEnqueueIfSubmitted(count, lists);
+    LmxxfCut::ClearPendingEnqueue(completing->token);
+    jobLifecycle->EndOperation(*completing);
 }
 
 bool LmxxfBackend::Shutdown()
 {
+    // Nonblocking admission: a same-thread internal callback must never wait for
+    // itself. The process-lifetime owner keeps this backend/session/DLL alive when
+    // Shutdown returns false and can retry after the real submission completes.
+    if (!jobLifecycle->BeginShutdown())
+        return jobLifecycle->Current() == JobLifecycle::Phase::Closed;
     LmxxfCut::DisarmBetweenSlot();
-    {
-        std::lock_guard lock(jobMutex);
-        pendingJobInfo = {};
-    }
     if (prepareFrameFailLogs)
         LOG_WARN("lmxxf: session end — PrepareFrame failed {} times ({} poisoned); those frames used original Color (no NR)",
                  prepareFrameFailLogs, prepareFramePoisonLogs);
@@ -1309,6 +1342,7 @@ bool LmxxfBackend::Shutdown()
     if (api)
         api->table = {};
     SetStatus("lmxxf: shutdown");
+    jobLifecycle->EndShutdown();
     return true;
 }
 
@@ -1319,7 +1353,7 @@ void LmxxfBackend::InvalidateHistory()
     stagingProbe.InvalidateEpoch();
 }
 
-std::string LmxxfBackend::Status() const { return status; }
+std::string LmxxfBackend::Status() const { std::lock_guard lock(statusMutex); return status; }
 
 bool LmxxfBackend::GraphicsRestartNeeded(UINT) const { return false; }
 } // namespace DlssNr::Backend

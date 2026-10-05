@@ -3023,9 +3023,14 @@ static void HookToDevice(ID3D12Device* InDevice)
                     const auto forced = Config::Instance()->LmxxfEarlyExeWrap;
                     if (forced.has_value())
                         allowEarly = *forced;
+                    // Aniimo retains DIRECT lists created here before the swapchain.
+                    // Keep this exception scoped to the observed game and caller module.
+                    const bool allowUnityPlayer = exeLower == "aniimo.exe" &&
+                                                  GetModuleHandleW(L"UnityPlayer.dll") &&
+                                                  (!forced.has_value() || *forced);
                     LOG_INFO("lmxxf early exe wrap allow={} (unreal={} forza={} override={})", allowEarly, isUnreal,
                              isForza, forced.has_value() ? (*forced ? "true" : "false") : "auto");
-                    if (allowEarly)
+                    if (allowEarly || allowUnityPlayer)
                     {
                         D3D12_COMMAND_QUEUE_DESC queueDesc {};
                         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -3035,12 +3040,16 @@ static void HookToDevice(ID3D12Device* InDevice)
                         const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
                         if (earlyQueue)
                             earlyQueue->Release();
-                        DlssNr::Submission::Hooks::SetEarlyExeWrap(ready);
-                        LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", ready, ready);
+                        DlssNr::Submission::Hooks::SetEarlyExeWrap(allowEarly && ready);
+                        DlssNr::Submission::Hooks::SetEarlyUnityPlayerWrap(allowUnityPlayer && ready);
+                        LOG_INFO("lmxxf early executable proxy: {} (submission hook ready={})", allowEarly && ready, ready);
+                        LOG_INFO("lmxxf early UnityPlayer proxy: {} (game={}, submission hook ready={})",
+                                 allowUnityPlayer && ready, st.gameExe, ready);
                     }
                     else
                     {
                         DlssNr::Submission::Hooks::SetEarlyExeWrap(false);
+                        DlssNr::Submission::Hooks::SetEarlyUnityPlayerWrap(false);
                     }
                 }
             }

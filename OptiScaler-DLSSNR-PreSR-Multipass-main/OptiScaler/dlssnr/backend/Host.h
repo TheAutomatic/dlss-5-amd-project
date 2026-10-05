@@ -14,6 +14,7 @@ class Host
                                    const AmdPreSr::Settings&) = 0;
     virtual int PendingListIndex(UINT, ID3D12CommandList* const*) const = 0;
     virtual void Submitting(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) = 0;
+    virtual void SubmissionRejected(ID3D12CommandList*) {}
     virtual void TraceBoundary(const std::string&) = 0;
     virtual void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) = 0;
     virtual bool Shutdown() = 0;

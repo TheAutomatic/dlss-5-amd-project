@@ -179,7 +179,12 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
     if (DlssNr::Submission::Hooks::ExpandEnabled())
     {
         const auto between = DlssNr::Submission::Hooks::GetBetween();
-        DlssNr::Submission::Hooks::ExecuteExpanded(q, n, c, between.fn, between.ctx, executeOriginal);
+        const auto unsubmitted = [](ID3D12CommandList *list, void *context) {
+            if (auto *host = static_cast<DlssNr::Backend::Host *>(context))
+                host->SubmissionRejected(list);
+        };
+        DlssNr::Submission::Hooks::ExecuteExpanded(q, n, c, between.fn, between.ctx, executeOriginal,
+                                                   unsubmitted, lmxxf);
     }
     else
         executeOriginal(q, n, c);
@@ -197,6 +202,13 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 }
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
 {
+    // Runtime fallback submissions inside the HIP slot are already owned by the
+    // outer logical Execute. Do not expand or report them as another game batch.
+    if (DlssNr::Submission::InsideLogicalExecute())
+    {
+        executeOriginal(q, n, c);
+        return;
+    }
     // Only the active host may split the batch. A stale Daniel slot after
     // switching to lmxxf must not isolate lists the lmxxf path submits whole.
     auto b = ActiveHost();

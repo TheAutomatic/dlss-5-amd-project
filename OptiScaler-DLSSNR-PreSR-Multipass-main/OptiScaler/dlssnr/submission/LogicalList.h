@@ -252,8 +252,10 @@ class LogicalList
     using BetweenCallback = void (*)(ID3D12CommandQueue *queue, void *ctx);
 
     // Closed lists may be re-submitted after prior GPU work (D3D12 allows multiple Execute).
-    HRESULT Execute(ID3D12CommandQueue *queue, BetweenCallback between = nullptr, void *betweenCtx = nullptr)
+    HRESULT Execute(ID3D12CommandQueue *queue, BetweenCallback between = nullptr, void *betweenCtx = nullptr,
+                    bool *producerSubmitted = nullptr)
     {
+        if (producerSubmitted) *producerSubmitted = false;
         if (!queue || !producer)
             return E_INVALIDARG;
         if (phase == Phase::RecordingProducer || phase == Phase::RecordingContinuation)
@@ -273,6 +275,7 @@ class LogicalList
         // must not ClearPendingEnqueue before the HIP between-slot runs.
         LogicalExecuteScope logicalExecScope;
         ID3D12CommandList *first = producer;
+        if (producerSubmitted) *producerSubmitted = true;
         if (g_rawExecuteCommandLists)
             g_rawExecuteCommandLists(queue, 1, &first);
         else

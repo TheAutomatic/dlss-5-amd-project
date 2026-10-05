@@ -1,6 +1,7 @@
 #pragma once
 #include "Host.h"
 #include "LmxxfFrameDiagnostics.h"
+#include "LmxxfJobLifecycle.h"
 #include "LmxxfEvaluateCut.h"
 #include "LmxxfColorProbe.h"
 #include "LmxxfStagingProbe.h"
@@ -27,18 +28,12 @@ class LmxxfBackend final : public Host
     uint64_t frameId = 0;
     FrameDiagnostics frameDiagnostics;
     std::string status { "lmxxf: idle" };
+    mutable std::mutex statusMutex;
     // Function table copied from LmxxfNrGetApi (opaque here to keep header free of C ABI).
     struct Api;
     Api *api = nullptr;
-    struct PendingJobInfo
-    {
-        void *job = nullptr;
-        ID3D12CommandList *cmd = nullptr;
-        unsigned stalledEvaluations = 0; // Reset with this job on submission/replacement.
-    };
     mutable std::mutex recordMutex; // The runtime session has one active job.
-    mutable std::mutex jobMutex;
-    PendingJobInfo pendingJobInfo;
+    std::shared_ptr<JobLifecycle> jobLifecycle = std::make_shared<JobLifecycle>();
     LmxxfProbe::Mode diagnostic = LmxxfProbe::Mode::Off;
     LmxxfProbe::ColorCopy colorProbe;
     LmxxfProbe::StagingProbe stagingProbe;
@@ -83,6 +78,7 @@ class LmxxfBackend final : public Host
                            const AmdPreSr::Settings &) override;
     int PendingListIndex(UINT, ID3D12CommandList *const *) const override;
     void Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) override;
+    void SubmissionRejected(ID3D12CommandList *) override;
     void TraceBoundary(const std::string &) override;
     void Submitted(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) override;
     bool Shutdown() override;
