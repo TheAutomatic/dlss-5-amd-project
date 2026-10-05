@@ -142,6 +142,13 @@ NvAPI_Status __stdcall NvApiHooks::hkNvAPI_DRS_GetSetting(NvDRSSessionHandle hSe
             }
         }
 
+        // Upstream ed30706: driver OTA can override slInit's opt-out and crash
+        // the DLSSG output owned by this host. External FG retains its settings.
+        constexpr NvU32 dlssgOtaSetting = 0x10e41e06;
+        if (settingId == dlssgOtaSetting && pSetting->settingType == NVDRS_DWORD_TYPE &&
+            !State::Instance().externalFrameGeneration && State::Instance().activeFgOutput == FGOutput::DLSSG)
+            pSetting->u32CurrentValue = 0;
+
         if (settingId == NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION_ID)
         {
             State::Instance().dlssRenderPresetExternal = pSetting->u32CurrentValue;

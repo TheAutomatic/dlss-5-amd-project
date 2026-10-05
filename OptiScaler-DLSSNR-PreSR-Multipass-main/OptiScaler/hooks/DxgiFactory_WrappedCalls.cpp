@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Dx12InteropDesc.h"
 #include "DxgiFactory_WrappedCalls.h"
 
 #include "FG_Hooks.h"
@@ -27,49 +28,6 @@ static bool ShouldCreateDx11wDx12Swapchain()
 {
     return State::Instance().activeFgInput == FGInput::Upscaler && State::Instance().activeFgOutput != FGOutput::NoFG &&
            State::Instance().activeFgInput != FGInput::NvngxFG;
-}
-
-static bool PrepareDx12InteropDesc(DXGI_SWAP_CHAIN_DESC& desc)
-{
-    if (desc.SampleDesc.Count > 1)
-    {
-        LOG_WARN("Dx11wDx12 interop does not support MSAA swapchains!");
-        return false;
-    }
-
-    if (desc.BufferCount < 2)
-        desc.BufferCount = 2;
-
-    if (desc.SwapEffect == DXGI_SWAP_EFFECT_DISCARD)
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    else if (desc.SwapEffect == DXGI_SWAP_EFFECT_SEQUENTIAL)
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-
-    desc.SampleDesc.Count = 1;
-    desc.SampleDesc.Quality = 0;
-    desc.Windowed = TRUE;
-    return true;
-}
-
-static bool PrepareDx12InteropDesc1(DXGI_SWAP_CHAIN_DESC1& desc)
-{
-    if (desc.SampleDesc.Count > 1)
-    {
-        LOG_ERROR("Dx11wDx12 interop does not support MSAA swapchains!");
-        return false;
-    }
-
-    if (desc.BufferCount < 2)
-        desc.BufferCount = 2;
-
-    if (desc.SwapEffect == DXGI_SWAP_EFFECT_DISCARD)
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    else if (desc.SwapEffect == DXGI_SWAP_EFFECT_SEQUENTIAL)
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-
-    desc.SampleDesc.Count = 1;
-    desc.SampleDesc.Quality = 0;
-    return true;
 }
 
 HRESULT DxgiFactoryWrappedCalls::CreateSwapChain(IDXGIFactory* realFactory, WrappedIDXGIFactory7* wrappedFactory,
@@ -271,7 +229,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChain(IDXGIFactory* realFactory, Wrap
                     IDXGISwapChain4* fgSwapChain4 = nullptr;
                     bool fgSwapChainIsRealFG = false;
 
-                    if (SUCCEEDED(realScResult) && PrepareDx12InteropDesc(fgDesc))
+                    if (SUCCEEDED(realScResult) && Dx12InteropDesc::Prepare(fgDesc, Dx12InteropDesc::SupportsTearing(realFactory)))
                     {
                         {
                             ScopedSkipFGSCCreation skipFGSCCreation {};
@@ -296,7 +254,8 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChain(IDXGIFactory* realFactory, Wrap
 
                     if (SUCCEEDED(realScResult) && realDx11SwapChain != nullptr && fgSwapChain4 != nullptr)
                     {
-                        State::Instance().currentSwapchainDesc = localDesc;
+                        State::Instance().currentSwapchainDesc = fgDesc;
+                        State::Instance().currentFGSwapchain = fgSwapChain4;
                         State::Instance().currentRealSwapchain = realDx11SwapChain;
                         State::Instance().currentD3D11Device = device;
                         State::Instance().currentD3D12Device = WithDx12::GetD3D12Device();
@@ -657,7 +616,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
                     IDXGISwapChain4* fgSwapChain4 = nullptr;
                     bool fgSwapChainIsRealFG = false;
 
-                    if (SUCCEEDED(realScResult) && PrepareDx12InteropDesc1(fgDesc))
+                    if (SUCCEEDED(realScResult) && Dx12InteropDesc::Prepare(fgDesc, Dx12InteropDesc::SupportsTearing(realFactory)))
                     {
                         {
                             ScopedSkipFGSCCreation skipFGSCCreation {};
@@ -687,7 +646,8 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
 
                     if (SUCCEEDED(realScResult) && realDx11SwapChain1 != nullptr && fgSwapChain4 != nullptr)
                     {
-                        ((IDXGISwapChain*) realDx11SwapChain1)->GetDesc(&State::Instance().currentSwapchainDesc);
+                        fgSwapChain4->GetDesc(&State::Instance().currentSwapchainDesc);
+                        State::Instance().currentFGSwapchain = fgSwapChain4;
                         State::Instance().currentSwapchainDesc.OutputWindow = hWnd;
                         State::Instance().currentRealSwapchain = realDx11SwapChain1;
                         State::Instance().currentD3D11Device = device;

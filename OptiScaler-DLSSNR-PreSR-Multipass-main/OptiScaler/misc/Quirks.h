@@ -116,6 +116,9 @@ static const QuirkEntry quirkTable[] = {
     // Tainted Grail - Fall of Avalon
     QUIRK_ENTRY("fall of avalon.exe", GameQuirk::ForceAutoExposure),
 
+    // Granblue Fantasy Relink: FakeNVAPI breaks rendering (upstream quirk).
+    QUIRK_ENTRY("granblue_fantasy_relink.exe", GameQuirk::DisableFakenvapi),
+
     // Path of Exile 2
     QUIRK_ENTRY("pathofexile.exe", GameQuirk::LoadD3D12Manually, GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("pathofexile_x64.exe", GameQuirk::LoadD3D12Manually, GameQuirk::DisableDxgiSpoofing),
@@ -146,6 +149,9 @@ static const QuirkEntry quirkTable[] = {
 
     // Trails in the Sky 1st Chapter
     QUIRK_ENTRY("sora_1st.exe", GameQuirk::UseFsr2Dx11Inputs, GameQuirk::DisableDxgiSpoofing),
+
+    // Trails in the Sky 2nd Chapter
+    QUIRK_ENTRY("sora_2nd.exe", GameQuirk::UseFsr2Dx11Inputs, GameQuirk::DisableDxgiSpoofing),
 
     // NINJA GAIDEN 4
     // No spoof needed for DLSS inputs, Hudfix incompatible
@@ -424,6 +430,9 @@ static const QuirkEntry quirkTable[] = {
     // No spoof needed for DLSS inputs, no UE barriers to fix crash on upscaler init
     QUIRK_ENTRY_UE(dungeonhaven, GameQuirk::DisableDxgiSpoofing, GameQuirk::ForceAutoExposure,
                    GameQuirk::DontUseUnrealColorBarriers, GameQuirk::DontUseUnrealMVBarriers),
+
+    // Sword and Fairy 7: inferred Unreal barriers can crash upscaler initialization.
+    QUIRK_ENTRY_UE(pal7, GameQuirk::DontUseUnrealColorBarriers, GameQuirk::DontUseUnrealMVBarriers),
 
     // Watch Dogs: Legion
     // AE required to fix FSR4 ghosting
