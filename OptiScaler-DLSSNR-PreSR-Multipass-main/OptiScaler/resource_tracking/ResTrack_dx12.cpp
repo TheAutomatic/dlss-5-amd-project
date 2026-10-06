@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "DescriptorCopyRange.h"
 
 #include <dlssnr/DlssNr_ExposureScan.h>
 
@@ -990,40 +991,17 @@ void ResTrack_Dx12::hkCopyDescriptorsSimple(ID3D12Device* This, UINT NumDescript
 
     auto size = This->GetDescriptorHandleIncrementSize(DescriptorHeapsType);
 
-    for (size_t i = 0; i < NumDescriptors; i++)
-    {
-        std::shared_ptr<HeapInfo> srcHeap;
-        SIZE_T srcHandle = 0;
-
-        // source
-        if (SrcDescriptorRangeStart.ptr != 0)
-        {
-            srcHandle = SrcDescriptorRangeStart.ptr + i * size;
-            srcHeap = GetHeapByCpuHandle(srcHandle);
-        }
-
-        auto destHandle = DestDescriptorRangeStart.ptr + i * size;
-        auto dstHeap = GetHeapByCpuHandle(destHandle);
-
-        // destination
-        if (dstHeap == nullptr)
-            continue;
-
-        if (srcHeap == nullptr)
-        {
-            dstHeap->ClearByCpuHandle(destHandle);
-            continue;
-        }
-
-        ResourceInfo buffer {};
-        if (!srcHeap->GetByCpuHandle(srcHandle, buffer))
-        {
-            dstHeap->ClearByCpuHandle(destHandle);
-            continue;
-        }
-
-        dstHeap->SetByCpuHandle(destHandle, buffer);
-    }
+    DescriptorTracking::CopyRange(NumDescriptors, SrcDescriptorRangeStart.ptr, DestDescriptorRangeStart.ptr, size,
+        [](SIZE_T handle) { return GetHeapByCpuHandle(handle); },
+        [](const std::shared_ptr<HeapInfo>& srcHeap, SIZE_T srcHandle,
+           const std::shared_ptr<HeapInfo>& dstHeap, SIZE_T destHandle) {
+            if (!dstHeap) return;
+            ResourceInfo buffer{};
+            if (!srcHeap || !srcHeap->GetByCpuHandle(srcHandle, buffer))
+                dstHeap->ClearByCpuHandle(destHandle);
+            else
+                dstHeap->SetByCpuHandle(destHandle, buffer);
+        });
 }
 
 #pragma endregion

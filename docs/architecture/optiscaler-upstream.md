@@ -97,3 +97,17 @@ Tests exercise the production equivalence/transaction helpers, failed waits and 
 companion failures, controlled reader/writer exclusion, and a real WARP HWND swapchain
 with zero-size resize after a window-size change. This is not a real XeFG game test;
 DX11+XeFG resolution changes, Alt+Tab/fullscreen and exit remain required acceptance.
+
+## Round two C: per-call descriptor range lookup
+
+Design source: `a671371848bd32c78d631a396c4204f1a077b751` at the fixed upstream
+snapshot. The local port only caches source/destination HeapInfo ownership inside
+one CopyDescriptorsSimple call. Every reuse checks active/range; existing descriptor
+stripe locks, resource attach/detach bookkeeping and tracking enablement remain.
+Single-descriptor calls retain original source-then-destination lookup order.
+
+The production range helper has mapping-parity tests for boundaries, unknown/zero
+sources and clearing, overlapping traversal, retirement/address reuse, and independent
+calls. A controlled /O2 CPU fixture compares the same lookup/copy workload (not game
+FPS): 200,000 16-descriptor copies reduce lookups from 6,400,000 to 400,000. Single-item
+lookup counts remain unchanged. No persistent cache or HUD tracking rewrite is included.
