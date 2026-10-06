@@ -162,7 +162,7 @@ class ModulePackageTests(unittest.TestCase):
             cfg = configparser.ConfigParser(strict=False)
             cfg.read_string(ini)
             self.assertEqual(cfg['Menu']['Language'], 'en')
-            self.assertEqual(cfg['DlssNr']['LmxxfModelHistory'], 'false')
+            self.assertEqual(cfg['DlssNr']['LmxxfModelHistory'], 'true')
             self.assertTrue(cfg.getboolean('DlssNr', 'DLSS5_VIT_ADAPTIVE'))
             self.assertIn('Temporarily disables adaptive ViT reuse', ini)
             self.assertIn('the saved reuse preference is retained', ini)

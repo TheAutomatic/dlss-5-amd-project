@@ -27,7 +27,7 @@ class MenuLocalizationTests(unittest.TestCase):
         for literal in labels:
             self.assertIn(json.loads(literal), dict(ENTRIES))
         for text in ('Language', 'Input', 'Model', 'Output', 'Prepare NR input', 'NR model', 'Apply NR edit',
-                     'Temporal history', 'ViT adaptive reuse', 'Save Settings', 'Close'):
+                     'Temporal history', 'Temporal history (anti-flicker)', 'ViT adaptive reuse', 'Save Settings', 'Close'):
             self.assertIn(text, dict(ENTRIES))
 
     def test_language_is_host_owned_and_default_english(self):

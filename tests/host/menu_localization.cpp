@@ -126,7 +126,7 @@ int main(int argc, char** argv)
             auto page = DlssNr::PipelineUi::Section::Model;
             DlssNr::PipelineUi::Draw(view, page); within();
             DlssNr::PipelineUi::Navigation(page); within();
-            MenuUi::Checkbox("Temporal history", &enabled); within();
+            MenuUi::Checkbox("Temporal history (anti-flicker)", &enabled); within();
             bool adaptive = false;
             ImGui::BeginDisabled(true);
             MenuUi::Checkbox("ViT adaptive reuse", &adaptive); within();

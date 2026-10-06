@@ -12,7 +12,7 @@ Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单
 ### 1.10.3 更新
 
 - Ins 菜单增加 **Language / 语言**：English 与简体中文，默认英文；点击 **Save Settings / 保存设置** 后写入 `[Menu] Language=en` 或 `zh-CN`。内置中文字体，无需另装字体。
-- lmxxf 增加可选 **Temporal history / 时序历史**，默认关闭，目前仅支持 **SR 前、单层 NR**，需要有效运动矢量与深度。可改善部分闪烁，也会增加耗时，可能产生拖影；开启时 **ViT adaptive reuse / ViT 自适应复用** 及四项参数禁用，关闭历史后恢复原偏好。见 [实现与限制](docs/architecture/lmxxf-native-history.md)。
+- lmxxf 增加 **Temporal history (anti-flicker) / 时序历史（防闪烁）**，默认开启（已有 INI 选择优先），目前仅支持 **SR 前、单层 NR**，需要有效运动矢量与深度。可改善部分闪烁，也会增加耗时，可能产生拖影；开启时 **ViT adaptive reuse / ViT 自适应复用** 及四项参数禁用，关闭历史后恢复原偏好。见 [实现与限制](docs/architecture/lmxxf-native-history.md)。
 - 修正 SR → NR 的处理尺寸及保留录制间的临时资源复用，修复原生 4K 时序历史调度边界；加入 NR 专用 XeFG 倍率设置。
 - 定向跟进 OptiScaler 的 NVAPI/DXGI/HUD 捕获稳定性修复，保持三后端调度。已审阅上游 `97e99b4c`，并非全量合并；范围见 [上游跟进记录](docs/architecture/optiscaler-upstream.md)。
 

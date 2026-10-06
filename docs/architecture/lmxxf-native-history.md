@@ -10,10 +10,11 @@ There is no separate display-smoothing control in this implementation.
 
 ## Product contract
 
-`[DlssNr] LmxxfModelHistory` defaults to false. **Model > ViT / image reuse** exposes
-it as **Temporal history**, directly before adaptive reuse, with an inline help marker.
+`[DlssNr] LmxxfModelHistory` defaults to true. **Model > ViT / image reuse** exposes
+it as **Temporal history (anti-flicker)**, directly before adaptive reuse, with an inline help marker.
 It shares the group's reset button and the model-page/NR resets; there is no separate
-history foldout or reset button. Internal runtime status remains in Diagnostics.
+history foldout or reset button. Internal runtime status remains in Diagnostics;
+unavailable-history reasons remain visible alongside the compact NR status.
 The host passes its explicit value in FrameInfo; no flags-file/environment alias
 can override this product setting. Existing ini preferences are not overwritten.
 

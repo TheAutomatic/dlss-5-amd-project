@@ -46,6 +46,8 @@ call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 "%OUT%\fg_resource_readiness.exe" || goto fail
 %CXX% /utf-8 tests\host\nr_performance.cpp /Fe"%OUT%\nr_performance.exe" /Fo"%OUT%\nr_performance.obj" || goto fail
 "%OUT%\nr_performance.exe" || goto fail
+%CXX% /utf-8 tests\host\nr_status_display.cpp /Fe"%OUT%\nr_status_display.exe" /Fo"%OUT%\nr_status_display.obj" || goto fail
+"%OUT%\nr_status_display.exe" || goto fail
 %CXX% /utf-8 tests\host\upscaler_route_diagnostic.cpp /Fe"%OUT%\upscaler_route_diagnostic.exe" /Fo"%OUT%\upscaler_route_diagnostic.obj" || goto fail
 "%OUT%\upscaler_route_diagnostic.exe" || goto fail
 %CXX% /utf-8 tests\host\menu_window_layout.cpp /Fe"%OUT%\menu_window_layout.exe" /Fo"%OUT%\menu_window_layout.obj" || goto fail

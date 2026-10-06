@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "NrTimingDisplay.h"
+#include "NrStatusDisplay.h"
 #include "DlssNr_PipelineUi.h"
 #include "NrEffectsSettings.h"
 #include "amd/PresentExperimental.h"
@@ -242,9 +243,6 @@ static void RenderSharedOutputEffects(Config* config)
             HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
                        "\nThis does not reduce model computation. Disable NR to save that work."
                        "\nA pure-backend session may require a restart to enable the shared effect recording path.");
-            const bool isLmxxf = Backend::ActiveKindFromConfig() == Backend::Kind::Lmxxf;
-            if (isLmxxf && config->NrTimingEnabled.value_or_default() && overallIntensity != 1 && overallIntensity != 0)
-                MenuUi::TextWrapped("Blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_BLEND, GetTickCount64(), true).c_str());
             bool stabilizer = config->NrStabilizerEnabled.value_or_default();
             if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
                 config->NrStabilizerEnabled = stabilizer;
@@ -258,8 +256,6 @@ static void RenderSharedOutputEffects(Config* config)
                 if (MenuUi::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
                 if (MenuUi::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
                 HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
-                if (isLmxxf && config->NrTimingEnabled.value_or_default())
-                    MenuUi::TextWrapped("Stabilizer + blend GPU: %s", DlssNr::TimingValueText(DlssNr::AmdBridge::Timing(), NR_GPU_STABILIZER, GetTickCount64(), true).c_str());
             }
             if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
             HelpMarker("Resets Overall Intensity and Residual Stabilizer only.");
@@ -283,7 +279,7 @@ static void RenderEarlyCommandListWrap(Config* config)
                "\nSave and restart to apply. INI: LmxxfEarlyExeWrap.");
 }
 
-static void RenderMochizukiMenu(Config* config, PipelineUi::Section page)
+static void RenderMochizukiMenu(Config* config, PipelineUi::Section page, const std::string& status)
 {
     static const char* groups[] = {"Pass 1", "Quality", "Temporal history", "Preprocessing", "Advanced", "Pass 2", "Pass 3", "Output adjustment"};
     static constexpr int order[] = {1, 0, 5, 6, 7, 2, 3, 4};
@@ -326,6 +322,7 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page)
     }
     if (MenuUi::TreeNode("Diagnostics"))
     {
+        MenuUi::TextWrapped("%s", status.c_str());
         MenuUi::TextWrapped("Vulkan network timing uses completed timestamp queries. Median and p95 cover up to 120 samples; copies and whole-frame latency are separate.");
         bool logging = config->NrTimingLog.value_or_default();
         if (MenuUi::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
@@ -484,18 +481,25 @@ void RenderMenu(Config* config, float menuResScale)
             }
             if (MenuUi::CollapsingHeader("NR flow", ImGuiTreeNodeFlags_DefaultOpen)) PipelineUi::Draw(view, page);
             else PipelineUi::Navigation(page);
+            const auto status = AmdBridge::Status();
             if (!view.enabled) MenuUi::TextDisabled("NR is off. These nodes describe the configured path.");
-            else MenuUi::TextWrapped("%s", AmdBridge::Status().c_str());
+            else {
+                const auto summary = SummarizeNrStatus(status, AmdBridge::IsRunning());
+                MenuUi::TextWrapped("%s", summary.state.c_str());
+                if (!summary.historyIssue.empty())
+                    MenuUi::TextWrapped("Temporal history unavailable: %s", summary.historyIssue.c_str());
+            }
             if (State::Instance().currentFeature && State::Instance().currentFeature->GetUpscalerType() == Upscaler::DLSSD)
                 MenuUi::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
-            if (isLmxxf && config->NrTimingEnabled.value_or_default()) {
-                MenuUi::TextWrapped("Network GPU: %s (not whole NR/frame latency)",
+            if ((isLmxxf && config->NrTimingEnabled.value_or_default()) || kind == Backend::Kind::Mochizuki) {
+                MenuUi::TextWrapped("Network GPU: %s",
                     TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64()).c_str());
+                HelpMarker("Network execution only, not whole NR or frame latency. Detailed timing is in Diagnostics.");
             }
             MenuUi::SeparatorText(PipelineUi::SectionName(page));
             if (page == PipelineUi::Section::Output) RenderSharedOutputEffects(config);
             if (kind == Backend::Kind::Mochizuki) {
-                RenderMochizukiMenu(config, page);
+                RenderMochizukiMenu(config, page, status);
                 if (MenuUi::TreeNode("Compatibility & Scheduling")) {
                     bool convenience = config->NrConvenience.value_for_config().value_or(1) != 0;
                     if (MenuUi::Checkbox("Allow backend hot switching (restart)", &convenience))
@@ -946,7 +950,7 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nApplies on the next network rebuild.");
                 }
                 bool history = config->LmxxfModelHistory.value_or_default();
-                if (MenuUi::Checkbox("Temporal history", &history)) {
+                if (MenuUi::Checkbox("Temporal history (anti-flicker)", &history)) {
                     config->LmxxfModelHistory = history;
                     AmdBridge::InvalidateHistory();
                 }
@@ -954,7 +958,7 @@ void RenderMenu(Config* config, float menuResScale)
                            "\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost."
                            "\nCurrently supports one pass before upscaling with valid motion/depth guides."
                            "\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained."
-                           "\nUnsupported combinations keep your settings and run without history. Default: off.");
+                           "\nUnsupported combinations keep your settings and run without history. Default: on.");
                 const bool historyBlocksReuse = history;
                 bool adapt = !historyBlocksReuse && config->LmxxfVitAdaptive.value_or_default();
                 ImGui::BeginDisabled(historyBlocksReuse);
@@ -1416,7 +1420,7 @@ void RenderMenu(Config* config, float menuResScale)
             if (MenuUi::TreeNode("Diagnostics")) {
                 const auto effectsStatus = DlssNr::AmdBridge::EffectsStatus();
                 if (!effectsStatus.empty()) MenuUi::TextWrapped("%s", effectsStatus.c_str());
-                MenuUi::TextWrapped("%s", DlssNr::AmdBridge::Status().c_str());
+                MenuUi::TextWrapped("%s", status.c_str());
                 if (isLmxxf)
                 {
                     MenuUi::TextWrapped("lmxxf HIP backend. Same-frame execution at the selected processing stage.");
@@ -1431,6 +1435,11 @@ void RenderMenu(Config* config, float menuResScale)
                         MenuUi::TextWrapped("NR GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_NETWORK, now, true).c_str());
                         MenuUi::TextWrapped("Encode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_ENCODE, now, true).c_str());
                         MenuUi::TextWrapped("Decode GPU: %s", DlssNr::TimingValueText(snapshot, NR_GPU_DECODE, now, true).c_str());
+                        const auto intensity = OverallIntensity(config->NrOverallIntensity.value_or_default());
+                        if (intensity != 1 && intensity != 0)
+                            MenuUi::TextWrapped("Blend GPU: %s", TimingValueText(snapshot, NR_GPU_BLEND, now, true).c_str());
+                        if (config->NrStabilizerEnabled.value_or_default())
+                            MenuUi::TextWrapped("Stabilizer + blend GPU: %s", TimingValueText(snapshot, NR_GPU_STABILIZER, now, true).c_str());
                         if (MenuUi::TreeNode("CPU timing and sample diagnostics")) {
                             const char* labels[] = {"Prepare", "Enqueue", "Rebuild", "Drain"};
                             for (unsigned i = 0; i < 4; ++i)
