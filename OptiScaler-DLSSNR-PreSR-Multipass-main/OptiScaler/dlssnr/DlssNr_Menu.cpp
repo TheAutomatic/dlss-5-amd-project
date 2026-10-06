@@ -842,7 +842,6 @@ void RenderMenu(Config* config, float menuResScale)
                         if(MenuUi::SmallButton("Reset temporal history settings")) {
                             resetOption(config->LmxxfModelHistory);AmdBridge::InvalidateHistory();
                         }
-                        MenuUi::TextWrapped("%s",AmdBridge::Status().c_str());
                     }
                     int style = static_cast<int>(config->LmxxfStyle.value_or_default());
                     if (MenuUi::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))

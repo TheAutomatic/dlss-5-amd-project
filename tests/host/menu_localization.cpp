@@ -1,5 +1,7 @@
 // Real ImGui widgets, glyphs and WARP rendering; no game or visible window.
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/MenuUi.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/MenuFont.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/font/Hack_Compressed.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/DlssNr_PipelineUi.h"
 #include <imgui/imgui_impl_dx11.h>
 #include <d3d11.h>
@@ -49,14 +51,18 @@ int main(int argc, char** argv)
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
     Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
                            D3D11_SDK_VERSION, &device, nullptr, &context));
+    std::ifstream fontFile("OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/font/NotoSansSC-Menu.ttf", std::ios::binary);
+    std::vector<char> chineseFont((std::istreambuf_iterator<char>(fontFile)), {});
+    assert(!chineseFont.empty());
+    unsigned layouts = 0;
+    for (bool hq : {false, true})
+    {
     ImGui::CreateContext();
     auto& io = ImGui::GetIO(); io.IniFilename = nullptr; io.LogFilename = nullptr; io.DeltaTime = 1.f / 60;
-    io.Fonts->AddFontDefault();
-    ImFontConfig cjk; cjk.MergeMode = true;
-    static const ImWchar ranges[] = {0x2000, 0x206F, 0x3000, 0x9FFF, 0xFF00, 0xFFEF, 0};
-    assert(io.Fonts->AddFontFromFileTTF("OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/font/NotoSansSC-Menu.ttf", 14, &cjk, ranges));
+    if (hq) io.Fonts->AddFontFromMemoryCompressedBase85TTF(hack_compressed_compressed_data_base85, 14);
+    else io.Fonts->AddFontDefault();
+    assert(MenuFont::MergeChinese(io.Fonts, chineseFont.data(), static_cast<int>(chineseFont.size())));
     assert(ImGui_ImplDX11_Init(device.Get(), context.Get()));
-    unsigned layouts = 0;
     for (const auto lang : {Language::English, Language::SimplifiedChinese})
     for (float scale : {0.5f, 1.f, 1.5f, 2.f, 3.f, 4.f})
     for (int width : {320, 480, 960, 1920})
@@ -96,6 +102,20 @@ int main(int argc, char** argv)
                     }
             }
             MenuUi::SeparatorText("DLSS Neural Rendering");
+            if (scale >= 1)
+            {
+                const auto* latin = ImGui::GetFontBaked()->FindGlyph('N');
+                const float latinHeight = latin->Y1 - latin->Y0;
+                const float latinCenter = (latin->Y0 + latin->Y1) * .5f;
+                for (ImWchar codepoint : {ImWchar(0x795e), ImWchar(0x6a21), ImWchar(0x578b)})
+                {
+                    const auto* chinese = ImGui::GetFontBaked()->FindGlyphNoFallback(codepoint);
+                    assert(chinese);
+                    const float height = chinese->Y1 - chinese->Y0;
+                    assert(height >= latinHeight * .95f && height <= latinHeight * 1.3f);
+                    assert(std::abs((chinese->Y0 + chinese->Y1) * .5f - latinCenter) <= 1.5f * scale);
+                }
+            }
             bool enabled = true;
             MenuUi::Checkbox("Enable NR", &enabled); within();
             ImGui::SameLine(); MenuUi::Checkbox("Allow backend hot switching (restart)", &enabled); within();
@@ -126,6 +146,17 @@ int main(int argc, char** argv)
             assert(GImGui->LastItemData.ID == MenuUi::GetID("Extra skipped blocks in passes 2/3"));
             MenuUi::Button("Reset this page"); within(); ImGui::SameLine();
             MenuUi::Button("Save Settings"); within(); ImGui::SameLine(); MenuUi::Button("Close"); within();
+            int language = lang == Language::English ? 0 : 1;
+            const float footerWidth = MenuUi::LanguageSelectorWidth() + ImGui::GetStyle().ItemSpacing.x +
+                MenuUi::CalcTextSize("Save Settings").x + 2 * ImGui::GetStyle().FramePadding.x;
+            const bool footerFits = footerWidth <= ImGui::GetContentRegionAvail().x;
+            MenuUi::LanguageSelector(&language); within();
+            assert(GImGui->LastItemData.ID == MenuUi::GetID("Language"));
+            const float comboTop = ImGui::GetItemRectMin().y;
+            const float comboWidth = ImGui::GetItemRectSize().x;
+            assert(comboWidth <= MenuUi::LanguageComboWidth() + 1);
+            ImGui::SameLine(); MenuUi::Button("Save Settings"); within();
+            if (footerFits) assert(ImGui::GetItemRectMin().y == comboTop);
             // Framed headers deliberately extend into the window padding.
             MenuUi::CollapsingHeader("Compatibility & Scheduling"); within(ImGui::GetCurrentWindow()->WindowPadding.x * .5f);
             if (MenuUi::TreeNode("Advanced preset hints (effect unverified)")) ImGui::TreePop();
@@ -152,10 +183,11 @@ int main(int argc, char** argv)
             ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
             if (repeat == 1 && width == 480 && (scale == 1 || scale == 2))
                 SaveBmp(device.Get(), context.Get(), target.Get(), std::filesystem::path(argv[1]) /
-                    (std::string(Code(lang)) + "-" + std::to_string(int(scale)) + ".bmp"));
+                    (std::string(hq ? "hq-" : "default-") + Code(lang) + "-" + std::to_string(int(scale)) + ".bmp"));
         }
         ++layouts;
     }
     ImGui_ImplDX11_Shutdown(); ImGui::DestroyContext();
-    std::printf("Menu localization: PASS (%u language/width/scale layouts, glyph coverage, IDs, disabled controls, WARP)\n", layouts);
+    }
+    std::printf("Menu localization: PASS (%u font/language/width/scale layouts, mixed glyph metrics, footer, IDs, disabled controls, WARP)\n", layouts);
 }

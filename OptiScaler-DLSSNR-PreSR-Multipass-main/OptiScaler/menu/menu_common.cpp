@@ -5,6 +5,7 @@
 #include "menu_common.h"
 #include "UpscalerRouteDiagnostic.h"
 #include "MenuWindowLayout.h"
+#include "MenuFont.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/amd/AmdPreSr.h>
 
@@ -7305,12 +7306,6 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     auto& currentFeature = ctx.currentFeature;
     auto& menuResScale = ctx.menuResScale;
 
-    int language = MenuLocale::Parse(config->MenuLanguage.value_or_default()) == MenuLocale::Language::SimplifiedChinese ? 1 : 0;
-    const char* languages[] = {"English", "简体中文"};
-    ImGui::SetNextItemWidth(150.0f * menuResScale);
-    if (MenuUi::Combo("Language", &language, languages, 2))
-        config->MenuLanguage = language == 1 ? "zh-CN" : "en";
-
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     auto buttonWidth = [&](const char* label) {
@@ -7372,9 +7367,14 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
 
     ImGui::PopItemWidth();
     ImGui::EndGroup();
-    const float actionsWidth = buttonWidth("Save Settings") + buttonWidth("Close") + buttonWidth("...") + 2 * spacing;
+    const float actionsWidth = MenuUi::LanguageSelectorWidth() + buttonWidth("Save Settings") +
+        buttonWidth("Close") + buttonWidth("...") + 3 * spacing;
     nextGroup(actionsWidth, true);
     ImGui::BeginGroup();
+    int language = MenuLocale::Parse(config->MenuLanguage.value_or_default()) == MenuLocale::Language::SimplifiedChinese ? 1 : 0;
+    if (MenuUi::LanguageSelector(&language))
+        config->MenuLanguage = language == 1 ? "zh-CN" : "en";
+    ImGui::SameLine();
     if (MenuUi::Button("Save Settings"))
     {
         config->SaveIni();
@@ -8083,11 +8083,7 @@ void MenuCommon::Init(HWND InHwnd, bool isUWP)
         const auto bytes = SizeofResource(reinterpret_cast<HMODULE>(&__ImageBase), fontResource);
         if (resourceData && bytes)
         {
-            ImFontConfig cjk;
-            cjk.MergeMode = true;
-            cjk.FontDataOwnedByAtlas = false;
-            static const ImWchar ranges[] = {0x2000, 0x206F, 0x3000, 0x9FFF, 0xFF00, 0xFFEF, 0};
-            io.Fonts->AddFontFromMemoryTTF(LockResource(resourceData), static_cast<int>(bytes), fontSize, &cjk, ranges);
+            MenuFont::MergeChinese(io.Fonts, LockResource(resourceData), static_cast<int>(bytes));
         }
     }
 

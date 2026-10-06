@@ -2,6 +2,8 @@
 
 `[Menu] Language=en` is the default. The Ins menu offers English and 简体中文;
 changes apply on the next frame and **Save Settings** persists the selection.
+The bottom action row places the language label and a content-sized selector
+immediately before Save Settings, with wrapping only when the viewport cannot fit the row.
 The canonical Chinese code is `zh-CN`; `zh` and case-insensitive `zh-cn` are accepted
 on ini load. Unrecognized values use English. Language is a host UI key in ConfigKeys,
 not a runtime environment option, model parameter or translated ini key.
@@ -28,6 +30,10 @@ subset, merged with the current base font at context creation even with UseHQFon
 Both languages are available without rebuilding the atlas during rendering and without
 installing Windows language packs. The underlying DLL owns the resource bytes; ImGui
 must not free them (`FontDataOwnedByAtlas=false`).
+`MenuFont::MergeChinese` derives the merge size from the actual base font, adds
+8% optical size compensation for Noto's glyph face, and shares the base font's
+vertical offset. This keeps mixed Latin/CJK labels visually aligned with both
+Hack and the non-HQ fallback, without changing the menu's scale or saved font choice.
 
 Source: [google/fonts](https://github.com/google/fonts/tree/6e8069ff8ba3dab2a397fb30e7fbd243aba9b57a/ofl/notosanssc),
 `NotoSansSC[wght].ttf`, SHA256
@@ -52,7 +58,9 @@ overflow. The existing responsive one/two-column structure and NR Input/Model/Ou
 navigation remain. No additional settings category is introduced.
 
 `tests/host/menu-localization.cmd` renders real ImGui components with D3D11 WARP at
-0.5–4x scale and 320–1920 pixel widths in both languages. It checks glyph coverage,
-language/layout-independent IDs, disabled controls, modal identity and horizontal bounds.
+0.5–4x scale and 320–1920 pixel widths in both languages and both bundled base fonts
+(96 combinations). It checks glyph coverage, mixed-script height/alignment,
+language/layout-independent IDs, the compact language/save row, disabled controls,
+modal identity and horizontal bounds.
 Header background and selectable/tree hit-area padding are accounted for explicitly.
 It is a component/layout regression, not a substitute for in-game DPI and input testing.

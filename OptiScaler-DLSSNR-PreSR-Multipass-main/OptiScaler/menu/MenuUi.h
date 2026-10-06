@@ -179,6 +179,26 @@ inline bool Combo(const char* label, int* selected, const char* const items[], i
     for (int i = 0; i < count; ++i) translated.push_back(Translate(items[i]));
     return ImGui::Combo(ValueLabel(label).c_str(), selected, translated.data(), count, height);
 }
+inline float LanguageComboWidth()
+{
+    return std::max(ImGui::CalcTextSize("English").x, ImGui::CalcTextSize("简体中文").x) +
+        2 * ImGui::GetStyle().FramePadding.x + ImGui::GetFrameHeight();
+}
+inline float LanguageSelectorWidth()
+{
+    return CalcTextSize("Language").x + ImGui::GetStyle().ItemSpacing.x + LanguageComboWidth();
+}
+inline bool LanguageSelector(int* selected)
+{
+    ImGui::AlignTextToFramePadding();
+    Text("Language");
+    ImGui::SameLine();
+    FitSameLine(LanguageComboWidth());
+    ImGui::SetNextItemWidth(std::max(1.0f, std::min(LanguageComboWidth(), ImGui::GetContentRegionAvail().x)));
+    // Keep the existing language-control ID while moving the visible label before it.
+    static const char* languages[] = {"English", "简体中文"};
+    return ImGui::Combo(MenuLocale::IdSuffix("Language").c_str(), selected, languages, 2);
+}
 inline bool Combo(const char* label, int* selected, const char* items, int height = -1)
 {
     std::vector<const char*> values;
