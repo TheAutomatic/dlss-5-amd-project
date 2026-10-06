@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "dx11_with_dx12_sc.h"
+#include "dx11_with_dx12_sync.h"
 
 #include <with_dx12/with_dx12.h>
 
@@ -292,6 +293,9 @@ HRESULT STDMETHODCALLTYPE Dx11wDx12SC::GetDevice(REFIID riid, void** ppDevice)
 
 HRESULT STDMETHODCALLTYPE Dx11wDx12SC::Present(UINT SyncInterval, UINT Flags)
 {
+    std::lock_guard interopLock(_interopMutex);
+    if (FAILED(_companionError)) return _companionError;
+
     if (_real == nullptr || _fgSwapChain == nullptr)
         return DXGI_ERROR_DEVICE_REMOVED;
 
@@ -399,21 +403,54 @@ HRESULT STDMETHODCALLTYPE Dx11wDx12SC::GetDesc(DXGI_SWAP_CHAIN_DESC* pDesc)
 HRESULT STDMETHODCALLTYPE Dx11wDx12SC::ResizeBuffers(UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat,
                                                      UINT SwapChainFlags)
 {
+    std::lock_guard interopLock(_interopMutex);
     LOG_DEBUG("Dx11wDx12SC ResizeBuffers: count {}, size {}x{}, format {}, flags {:X}", BufferCount, Width, Height,
               (UINT) NewFormat, SwapChainFlags);
 
-    if (!_WaitForCopyQueueIdle())
-        LOG_WARN("continuing ResizeBuffers after copy fence wait failure");
-
-    MenuOverlayDx::CleanupRenderTarget(true, _handle);
-    _ReleaseInteropBackBuffers();
-
-    HRESULT realResult = _real != nullptr ? _real->ResizeBuffers(BufferCount, Width, Height, NewFormat, SwapChainFlags)
-                                          : DXGI_ERROR_DEVICE_REMOVED;
-
-    HRESULT fgResult = DXGI_ERROR_DEVICE_REMOVED;
-    if (SUCCEEDED(realResult) && _fgSwapChain != nullptr)
-        fgResult = _fgSwapChain->ResizeBuffers(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    const bool equivalent = Dx11wDx12Sync::Equivalent(_fgSwapChain, BufferCount, Width, Height,
+                                                        NewFormat, SwapChainFlags, _handle);
+    const bool synchronizePresent = equivalent && State::Instance().activeFgOutput == FGOutput::XeFG &&
+                                    State::Instance().swapchainInteropApi == SwapchainInteropApi::Dx11wDx12;
+    std::unique_lock<std::shared_mutex> presentLock(Dx11wDx12Sync::PresentResizeMutex(), std::defer_lock);
+    if (synchronizePresent)
+    {
+        // Deactivate before taking the native-present barrier: the SDK may drain
+        // its presenter during deactivation. Taking the writer first can deadlock.
+        auto fg = State::Instance().currentFG;
+        if (fg && fg->FrameGenerationContext() && fg->IsActive())
+        {
+            State::Instance().fgChanged = true;
+            fg->UpdateTarget();
+            fg->Deactivate();
+            if (fg->IsActive()) return DXGI_ERROR_WAS_STILL_DRAWING;
+        }
+        presentLock.lock();
+    }
+    HRESULT fgResult = _companionError;
+    const HRESULT realResult = Dx11wDx12Sync::ResizeTransaction(
+        [&] { return _WaitForCopyQueueIdle() && (!synchronizePresent || _WaitForPresentQueueIdle()); },
+        [&] { MenuOverlayDx::CleanupRenderTarget(true, _handle); _ReleaseInteropBackBuffers(); },
+        [&] { return _real != nullptr ? _real->ResizeBuffers(BufferCount, Width, Height, NewFormat, SwapChainFlags)
+                                : DXGI_ERROR_DEVICE_REMOVED; },
+        [&] {
+        DXGI_SWAP_CHAIN_DESC actual{};
+        // Re-read the game chain: the HWND may have changed between the initial
+        // equivalence check and the actual zero-size resize.
+        const bool confirmed = _real && SUCCEEDED(_real->GetDesc(&actual));
+        const bool skip = synchronizePresent && SUCCEEDED(_companionError) && confirmed &&
+            Dx11wDx12Sync::Equivalent(_fgSwapChain, BufferCount, actual.BufferDesc.Width,
+                                     actual.BufferDesc.Height, NewFormat, SwapChainFlags, nullptr);
+        if (skip) fgResult = S_OK;
+        else
+        {
+            // SDK ResizeBuffers can drain/reenter its native presenter.
+            if (presentLock.owns_lock()) presentLock.unlock();
+            fgResult = _fgSwapChain ? _fgSwapChain->ResizeBuffers(BufferCount, Width, Height,
+                                                                 NewFormat, SwapChainFlags)
+                                   : DXGI_ERROR_DEVICE_REMOVED;
+        }
+        return fgResult;
+    }, _companionError);
 
     LOG_DEBUG("Dx11wDx12SC ResizeBuffers results: real {:X}, fg {:X}", (UINT) realResult, (UINT) fgResult);
 
@@ -433,14 +470,20 @@ HRESULT STDMETHODCALLTYPE Dx11wDx12SC::ResizeBuffers(UINT BufferCount, UINT Widt
 
         if (State::Instance().currentFeature == nullptr)
         {
-            State::Instance().screenWidth = static_cast<float>(Width);
-            State::Instance().screenHeight = static_cast<float>(Height);
+            DXGI_SWAP_CHAIN_DESC resolved{};
+            if (_real && SUCCEEDED(_real->GetDesc(&resolved)))
+            {
+                State::Instance().screenWidth = static_cast<float>(resolved.BufferDesc.Width);
+                State::Instance().screenHeight = static_cast<float>(resolved.BufferDesc.Height);
+            }
             State::Instance().lastMipBias = 100.0f;
             State::Instance().lastMipBiasMax = -100.0f;
         }
     }
 
-    return FAILED(realResult) ? realResult : fgResult;
+    // Preserve the game's ResizeBuffers HRESULT. A failed companion resize
+    // is retained and reported by Present until a successful resize repairs it.
+    return realResult;
 }
 
 HRESULT STDMETHODCALLTYPE Dx11wDx12SC::ResizeTarget(const DXGI_MODE_DESC* pNewTargetParameters)
@@ -613,27 +656,57 @@ HRESULT STDMETHODCALLTYPE Dx11wDx12SC::ResizeBuffers1(UINT BufferCount, UINT Wid
                                                       UINT SwapChainFlags, const UINT* pCreationNodeMask,
                                                       IUnknown* const* ppPresentQueue)
 {
+    std::lock_guard interopLock(_interopMutex);
     LOG_DEBUG("Dx11wDx12SC ResizeBuffers1: count {}, size {}x{}, format {}, flags {:X}", BufferCount, Width, Height,
               (UINT) Format, SwapChainFlags);
 
     if (_real3 == nullptr)
         return ResizeBuffers(BufferCount, Width, Height, Format, SwapChainFlags);
 
-    if (!_WaitForCopyQueueIdle())
-        LOG_WARN("continuing ResizeBuffers1 after copy fence wait failure");
-
-    MenuOverlayDx::CleanupRenderTarget(true, _handle);
-    _ReleaseInteropBackBuffers();
-
-    HRESULT realResult = _real3->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags,
-                                                 pCreationNodeMask, ppPresentQueue);
-
-    HRESULT fgResult = DXGI_ERROR_DEVICE_REMOVED;
-    if (SUCCEEDED(realResult) && _fgSwapChain != nullptr)
+    const bool equivalent = Dx11wDx12Sync::Equivalent(_fgSwapChain, BufferCount, Width, Height,
+                                                        Format, SwapChainFlags, _handle);
+    const bool synchronizePresent = equivalent && State::Instance().activeFgOutput == FGOutput::XeFG &&
+                                    State::Instance().swapchainInteropApi == SwapchainInteropApi::Dx11wDx12;
+    std::unique_lock<std::shared_mutex> presentLock(Dx11wDx12Sync::PresentResizeMutex(), std::defer_lock);
+    if (synchronizePresent)
     {
-        // The game's ppPresentQueue is not valid for the DX12 FG swapchain. Use ResizeBuffers for phase 1.
-        fgResult = _fgSwapChain->ResizeBuffers(BufferCount, Width, Height, Format, SwapChainFlags);
+        // Deactivate before taking the native-present barrier: the SDK may drain
+        // its presenter during deactivation. Taking the writer first can deadlock.
+        auto fg = State::Instance().currentFG;
+        if (fg && fg->FrameGenerationContext() && fg->IsActive())
+        {
+            State::Instance().fgChanged = true;
+            fg->UpdateTarget();
+            fg->Deactivate();
+            if (fg->IsActive()) return DXGI_ERROR_WAS_STILL_DRAWING;
+        }
+        presentLock.lock();
     }
+    HRESULT fgResult = _companionError;
+    const HRESULT realResult = Dx11wDx12Sync::ResizeTransaction(
+        [&] { return _WaitForCopyQueueIdle() && (!synchronizePresent || _WaitForPresentQueueIdle()); },
+        [&] { MenuOverlayDx::CleanupRenderTarget(true, _handle); _ReleaseInteropBackBuffers(); },
+        [&] { return _real3->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags,
+                                      pCreationNodeMask, ppPresentQueue); },
+        [&] {
+        DXGI_SWAP_CHAIN_DESC actual{};
+        // Re-read the game chain: the HWND may have changed between the initial
+        // equivalence check and the actual zero-size resize.
+        const bool confirmed = _real && SUCCEEDED(_real->GetDesc(&actual));
+        const bool skip = synchronizePresent && SUCCEEDED(_companionError) && confirmed &&
+            Dx11wDx12Sync::Equivalent(_fgSwapChain, BufferCount, actual.BufferDesc.Width,
+                                     actual.BufferDesc.Height, Format, SwapChainFlags, nullptr);
+        if (skip) fgResult = S_OK;
+        else
+        {
+            // SDK ResizeBuffers can drain/reenter its native presenter.
+            if (presentLock.owns_lock()) presentLock.unlock();
+            fgResult = _fgSwapChain ? _fgSwapChain->ResizeBuffers(BufferCount, Width, Height,
+                                                                 Format, SwapChainFlags)
+                                   : DXGI_ERROR_DEVICE_REMOVED;
+        }
+        return fgResult;
+    }, _companionError);
 
     LOG_DEBUG("Dx11wDx12SC ResizeBuffers1 results: real {:X}, fg {:X}", (UINT) realResult, (UINT) fgResult);
 
@@ -652,7 +725,9 @@ HRESULT STDMETHODCALLTYPE Dx11wDx12SC::ResizeBuffers1(UINT BufferCount, UINT Wid
         State::Instance().SCAllowTearing = (SwapChainFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
     }
 
-    return FAILED(realResult) ? realResult : fgResult;
+    // Preserve the game's ResizeBuffers HRESULT. A failed companion resize
+    // is retained and reported by Present until a successful resize repairs it.
+    return realResult;
 }
 
 HRESULT STDMETHODCALLTYPE Dx11wDx12SC::SetHDRMetaData(DXGI_HDR_METADATA_TYPE Type, UINT Size, void* pMetaData)
@@ -1109,6 +1184,26 @@ bool Dx11wDx12SC::_WaitForInteropCopyOnPresentQueue()
     return true;
 }
 
+bool Dx11wDx12SC::_WaitForPresentQueueIdle()
+{
+    auto fg = State::Instance().currentFG;
+    auto queue = fg ? fg->GetCommandQueue() : _dx12CommandQueue;
+    if (!queue || !_dx12Device) return false;
+    if (!_presentIdleFence && FAILED(_dx12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                                             IID_PPV_ARGS(&_presentIdleFence)))) return false;
+    if (!_presentIdleEvent) _presentIdleEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!_presentIdleEvent) return false;
+    const auto value = ++_presentIdleValue;
+    if (FAILED(queue->Signal(_presentIdleFence, value))) return false;
+    auto completed = _presentIdleFence->GetCompletedValue();
+    if (completed == UINT64_MAX) return false;
+    if (completed >= value) return true;
+    if (FAILED(_presentIdleFence->SetEventOnCompletion(value, _presentIdleEvent))) return false;
+    if (WaitForSingleObject(_presentIdleEvent, 5000) != WAIT_OBJECT_0) return false;
+    completed = _presentIdleFence->GetCompletedValue();
+    return completed != UINT64_MAX && completed >= value;
+}
+
 bool Dx11wDx12SC::_WaitForCopyQueueIdle()
 {
     if (_copyFence == nullptr || _copyFenceEvent == nullptr)
@@ -1123,6 +1218,7 @@ bool Dx11wDx12SC::_WaitForCopyQueueIdle()
         return true;
 
     const auto completedValue = _copyFence->GetCompletedValue();
+    if (completedValue == UINT64_MAX) return false;
     if (completedValue >= waitValue)
         return true;
 
@@ -1192,6 +1288,8 @@ void Dx11wDx12SC::_ReleaseInteropObjects()
     _copyAllocators.clear();
     _copyAllocatorFenceValues.clear();
 
+    SafeRelease(_presentIdleFence);
+    SafeCloseHandle(_presentIdleEvent);
     SafeRelease(_copyFence);
     SafeCloseHandle(_copyFenceEvent);
     _copyFenceValue = 1;

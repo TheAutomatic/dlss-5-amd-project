@@ -74,3 +74,26 @@ The host CI fixture uses real DLL exports and Detours to cover two copies, rejec
 repeat notification, reference decrements, active-call leases, actual unload, reload,
 concurrent callbacks and capacity fallback. Streamline game startup/exit remains a game
 acceptance item; the fixture does not simulate the full proprietary plugin implementation.
+
+## Round two B: DX11 companion resize/present
+
+Sources at the same fixed snapshot: `4c682650f32e666c89a5a7885b2b12682fc3c27e`
+and `3bc197c297d8074f0793bcd33f3d382c9ff01021`. Only the confirmed equivalent
+XeFG/DX11-to-DX12 path skips companion recreation. Other outputs keep the existing
+SDK resize path. Width/height zero use the current HWND client size; after the game's
+resize the actual description is rechecked before skipping. Unknown descriptions,
+changed flags/format/count or a previous companion failure take normal resize.
+
+DX11 wrapper calls serialize interop buffer mutation. The equivalent XeFG path first
+deactivates FG, then excludes native presents, then waits for copy and present queues.
+The present queue has its own fence timeline. Wait/deactivation failure returns without
+releasing buffers; a device-removed fence sentinel is not successful completion. The
+writer barrier is released before calling the SDK's non-equivalent resize, which can
+drain/reenter its presenter. Original game HRESULTs are preserved; a companion failure
+is reported on Present until a later successful resize recovers it. DirectComposition,
+HDR and descriptor creation policies are unchanged.
+
+Tests exercise the production equivalence/transaction helpers, failed waits and original/
+companion failures, controlled reader/writer exclusion, and a real WARP HWND swapchain
+with zero-size resize after a window-size change. This is not a real XeFG game test;
+DX11+XeFG resolution changes, Alt+Tab/fullscreen and exit remain required acceptance.

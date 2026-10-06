@@ -70,6 +70,12 @@ class DECLSPEC_UUID("23b064bb-482d-416c-93b1-829acedfb3d0") Dx11wDx12SC final : 
     HRESULT STDMETHODCALLTYPE SetHDRMetaData(DXGI_HDR_METADATA_TYPE Type, UINT Size, void* pMetaData) override;
 
   private:
+    std::recursive_mutex _interopMutex;
+    HRESULT _companionError = S_OK;
+    ID3D12Fence* _presentIdleFence = nullptr;
+    HANDLE _presentIdleEvent = nullptr;
+    UINT64 _presentIdleValue = 0;
+    bool _WaitForPresentQueueIdle();
     bool _InitInteropObjects();
     bool _RequestSharedBackBuffer(UINT index);
     bool _CopyDx11BackBufferToShared(UINT index);

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <with_dx12/dx11_with_dx12_sync.h>
 #include "wrapped_swapchain.h"
 #include <hooks/DxgiSwapchainSizing.h>
 
@@ -160,6 +161,11 @@ static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         else
             return ((IDXGISwapChain1*) pSwapChain)->Present1(SyncInterval, Flags, pPresentParameters);
     }
+
+    std::shared_lock<std::shared_mutex> presentLock(Dx11wDx12Sync::PresentResizeMutex(), std::defer_lock);
+    if (State::Instance().swapchainInteropApi == SwapchainInteropApi::Dx11wDx12 &&
+        State::Instance().activeFgOutput == FGOutput::XeFG)
+        presentLock.lock();
 
     LOG_DEBUG("{}", _frameCounter);
 
