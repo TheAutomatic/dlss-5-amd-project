@@ -100,11 +100,9 @@ if not defined RUNTIME_HASH exit /b 1
 
 if not defined RUN_CI goto afterMochizuki
 if not exist exports\mochizuki-runtime\build-manifest.json (
-  call tools\build\build-mochizuki-runtime.cmd
-  if errorlevel 1 exit /b 1
+  call tools\build\build-mochizuki-runtime.cmd || exit /b 1
 )
-python -X utf8 tools\build\mochizuki-manifest.py exports\mochizuki-runtime
-if errorlevel 1 exit /b 1
+python -X utf8 tools\build\mochizuki-manifest.py exports\mochizuki-runtime || exit /b 1
 call tests\mochizuki\run.cmd abi
 call :Result "mochizuki abi" || goto done
 :afterMochizuki

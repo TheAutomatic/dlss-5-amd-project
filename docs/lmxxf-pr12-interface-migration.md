@@ -31,8 +31,9 @@ The History algorithm remains in product `NativeTemporalHistory.h`, with unchang
 HLSL versus local main. Only compiler injection and initialization validation change.
 `RequestDirectHistory`, `RequestPostAuxiliary(row)` and `SetAdaptiveReuseAllowed`
 are explicit upstream interfaces; the model row, temporal control, motion/depth checks,
-menu defaults and History/ViT exclusion remain product policy. Auxiliary output is
-MP1-only, two floats per pixel after RGB; selection checks the actual module exports,
+menu defaults and History/ViT exclusion remain product policy. At the original PR
+snapshot, auxiliary output was MP1-only (extended in the 1.10.4 follow-up below),
+with two floats per pixel after RGB; selection checks the actual module exports,
 including the optional normalization module. No upstream reference History is enabled.
 
 ## Final output and pool64
