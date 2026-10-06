@@ -956,7 +956,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
                 HelpMarker("Reprojects the previous model output and uses the model's temporal blend."
                            "\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost."
-                           "\nCurrently supports one pass before upscaling with valid motion/depth guides."
+                           "\nSupports 1-3 passes before upscaling with valid motion/depth guides.\nPredicted pass 3 uses the last real pass's temporal weight."
                            "\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained."
                            "\nUnsupported combinations keep your settings and run without history. Default: on.");
                 const bool historyBlocksReuse = history;

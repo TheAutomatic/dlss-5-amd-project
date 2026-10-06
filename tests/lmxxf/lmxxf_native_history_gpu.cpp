@@ -108,7 +108,11 @@ int main(int argc,char** argv)try {
     }
     Require(run(first,other.Get())==prime,"old chain replay after history-off rebuild");
     SetEnvironmentVariableA("DLSS5_MULTI_PASS","2");_putenv_s("DLSS5_MULTI_PASS","2");
-    auto* multi=record(8);status("history=unsupported-passes");run(multi,g.queue.Get());status("passes=2");
+    auto* multi=record(8);status("history=ready");auto multiPrime=run(multi,g.queue.Get());status("history=priming");status("passes=2");
+    auto* multiNext=record(9);auto multiActive=run(multiNext,other.Get());status("history=active");
+    Require(run(multi,g.queue.Get())==multiPrime,"multipass replay resets history deterministically");
+    Require(run(multiNext,other.Get())==multiActive,"multipass history resumes after replay");
+    Require(run(first,other.Get())==prime,"old single-pass chain retained across multipass rebuild");
     SetEnvironmentVariableA("DLSS5_MULTI_PASS","1");_putenv_s("DLSS5_MULTI_PASS","1");
     auto* restored=record(9);Require(run(restored,g.queue.Get())==prime,"single-pass restoration primes");
     if(adaptive) {
@@ -121,7 +125,24 @@ int main(int argc,char** argv)try {
         for(auto key:{"DLSS5_VIT_REUSE_GLOBAL","DLSS5_VIT_REUSE_LOCAL","DLSS5_VIT_REUSE_IMAGE"}){SetEnvironmentVariableA(key,"1000000");_putenv_s(key,"1000000");}
         run(record(15),g.queue.Get());
     }
-    for(auto& r:frames){r->p.Reset();r->c.Reset();ok(api.InvalidateRecording(session,r->token),"invalidate");ok(api.CollectRecording(session,r->token),"collect");}
+    auto collect=[&](){for(auto& r:frames){r->p.Reset();r->c.Reset();ok(api.InvalidateRecording(session,r->token),"invalidate");ok(api.CollectRecording(session,r->token),"collect");}frames.clear();};
+    if(norm900){
+        // Only keep one retired configuration at a time; each cycle exercises
+        // network/auxiliary/history retirement, not unbounded retained test jobs.
+        for(auto settings:{std::pair{3,1},std::pair{3,0},std::pair{2,0},std::pair{1,0}}){
+            collect();auto passes=std::to_string(settings.first),predict=std::to_string(settings.second);
+            SetEnvironmentVariableA("DLSS5_MULTI_PASS",passes.c_str());_putenv_s("DLSS5_MULTI_PASS",passes.c_str());
+            SetEnvironmentVariableA("DLSS5_MULTI_PASS_PREDICT",predict.c_str());_putenv_s("DLSS5_MULTI_PASS_PREDICT",predict.c_str());
+            const char* skin=settings.first==2?"1":"0";
+            SetEnvironmentVariableA("DLSS5_MULTI_PASS_SKIN_PROTECT",skin);_putenv_s("DLSS5_MULTI_PASS_SKIN_PROTECT",skin);
+            auto* a=record(20);auto hash=run(a,g.queue.Get());status("history=priming");
+            auto* b=record(21);run(b,other.Get());status("history=active");
+            Require(run(a,g.queue.Get())==hash,"pass/prediction/skin reset is deterministic");
+            run(b,other.Get(),false);status("history=reset-after-discard");
+            Require(run(record(22),g.queue.Get())==hash,"multipass discard cannot publish history");
+        }
+    }
+    collect();
     frames.clear();ok(api.Destroy(session),"destroy");g.NoErrors();FreeLibrary(dll);
     std::printf("native history runtime GPU PASS prime=%016llx active=%016llx\n",static_cast<unsigned long long>(prime),static_cast<unsigned long long>(active));return 0;
 }catch(const std::exception& e){std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}

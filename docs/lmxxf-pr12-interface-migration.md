@@ -288,3 +288,13 @@ then remove both active manifest lists in an isolated normal upstream integratio
 Reconcile now-obsolete overlay fixtures, rerun the affected review/tests, and only
 then record the new official completed pin. Keep product build macro arguments
 and source/artifact provenance; removing source pins does not remove review.
+
+## 1.10.4 follow-up boundary
+
+The subsequent final-pass History extension adds an optional auxiliary-output
+scheduling change beyond PR commit 304613aa. Its implementation and validation are
+in [native History](architecture/lmxxf-native-history.md#1104-final-pass-extension).
+The earlier zero-patch rehearsal remains evidence for that earlier snapshot only.
+Do not remove the current overlay just because 304613aa is accepted: the final-pass
+interface delta must also be upstreamed/verified, or retained explicitly. This local
+release-preparation task does not automatically publish new upstream PR changes.

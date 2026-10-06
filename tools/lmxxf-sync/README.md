@@ -41,7 +41,8 @@ feature tap 和 submit pulse 在产品 Options 中关闭。编码的预曝光与
 
 ## PR #12 合入后的零补丁切换
 
-PR 候选 `304613aa6e6c6d9e68e0b26ab978a57e7d4cef98` 已使当前源码闭包与 PR 原文一致。
+PR 候选 `304613aa6e6c6d9e68e0b26ab978a57e7d4cef98` 曾使当时源码闭包与 PR 原文一致。
+1.10.4 多层 History 又扩展了 final-pass 辅助接口，解除时必须一并核对，不能只检查该旧候选 SHA。
 热键、输入轮询、额外跳块和模块选择由产品 Options 接口控制，上游默认保持不变。
 详见 [零补丁就绪验证](../../docs/lmxxf-pr12-interface-migration.md#zero-patch-readiness-2026-10-07)。
 

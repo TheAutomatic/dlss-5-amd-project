@@ -654,7 +654,7 @@
 {"Relaxed Resource Check", "放宽资源检查"},
 {"Render Presets Override", "覆盖渲染预设"},
 {"Render Width", "渲染宽度"},
-{"Reprojects the previous model output and uses the model's temporal blend.\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost.\nCurrently supports one pass before upscaling with valid motion/depth guides.\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained.\nUnsupported combinations keep your settings and run without history. Default: on.", "重投影上一帧模型输出，交由模型进行时序混合。可能减少亮度闪烁，也可能增加拖影、柔化运动细节并增加 GPU 开销。\n目前仅支持超分前单层，且需有效的运动和深度输入。为避免闪烁，开启时暂时禁用 ViT 自适应复用，但保留复用设置。\n不支持的组合保留设置并使用无历史路径，默认开启。"},
+{"Reprojects the previous model output and uses the model's temporal blend.\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost.\nSupports 1-3 passes before upscaling with valid motion/depth guides.\nPredicted pass 3 uses the last real pass's temporal weight.\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained.\nUnsupported combinations keep your settings and run without history. Default: on.", "重投影上一帧模型输出，交由模型进行时序混合。可能减少亮度闪烁，也可能增加拖影、柔化运动细节并增加 GPU 开销。\n支持超分前 1–3 层，需有效的运动和深度输入。预测第 3 层时使用最后一次真实网络的时序权重。为避免闪烁，开启时暂时禁用 ViT 自适应复用，但保留复用设置。\n不支持的组合保留设置并使用无历史路径，默认开启。"},
 {"Requested %lluX exceeds current capability; target limited to %dX. Saved values are unchanged.", "请求 %lluX 超出当前能力，实际目标限制为 %dX，保存值不变。"},
 {"Required for Debug flags to work correctly", "调试标志正常工作所需。"},
 {"Requires measurement and file logging. At most one summary every five seconds.", "需开启耗时测量和文件日志，每 5 秒最多记录一次摘要。"},

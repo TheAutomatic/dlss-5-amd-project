@@ -1659,7 +1659,6 @@ void PrepareHistory(Session* s,const LmxxfNrFrameInfo* info,RecordingJob& j)
     auto disable=[&](const char* why){s->historyStatus=why;};
     if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)){disable("off");return;}
     if(j.codec_passthrough||j.hip_passthrough||(j.debug_view&0xFu)){disable("diagnostic-view");return;}
-    if(s->bridge->MultiPass()!=1){disable("unsupported-passes");return;}
     if(!s->bridge->PostAuxiliary().resource){disable("unsupported-post-layout");return;}
     if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_INPUTS_VALID)){disable("unknown-motion-contract");return;}
     auto* motion=static_cast<ID3D12Resource*>(info->motion);auto* depth=static_cast<ID3D12Resource*>(info->depth);
@@ -1865,7 +1864,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->InstallBridge(new hip_reference::D3D12Bridge());
             session->bridge->RequestDirectInput();
             session->bridge->RequestReleaseMarkers();
-            if (requestHistory && hip_reference::MultiPassFromEnvironment() == 1 &&
+            if (requestHistory &&
                 hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused)
             {
                 session->bridge->RequestDirectHistory();
@@ -2165,7 +2164,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->InstallBridge(new hip_reference::D3D12Bridge());
                 session->bridge->RequestDirectInput();
                 session->bridge->RequestReleaseMarkers();
-                if (requestHistory && hip_reference::MultiPassFromEnvironment() == 1 &&
+                if (requestHistory &&
                     hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused)
                 {
                     session->bridge->RequestDirectHistory();

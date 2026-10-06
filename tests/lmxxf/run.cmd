@@ -125,6 +125,8 @@ call :Runtime || goto fail
 "%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --history-excludes-adaptive || goto fail
 rem Optional fast 900-tier module must support the product auxiliary History output.
 "%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --history-900 || goto fail
+%CXX% /I"%REPO%\third_party\lmxxf\Development\HIP" /I"%REPO%\third_party\lmxxf\src" tests\lmxxf\lmxxf_multipass_aux_gpu.cpp /Fe"%OUT%\lmxxf_multipass_aux_gpu.exe" /Fo"%OUT%\lmxxf_multipass_aux_gpu.obj" /link user32.lib || goto fail
+"%OUT%\lmxxf_multipass_aux_gpu.exe" "%LMXXF_ASSETS%" "%MODS%" || goto fail
 rem The runtime resolves modules from its assets argument and weights from LMXXF_WEIGHTS_DIR.
 rem Passing the weights folder itself would make it prefer the (possibly stale) HIP\ copy beside
 rem the weights over this checkout's modules.

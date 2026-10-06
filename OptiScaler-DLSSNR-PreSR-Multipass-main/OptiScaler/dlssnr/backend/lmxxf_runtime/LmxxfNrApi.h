@@ -62,7 +62,7 @@ typedef struct LmxxfNrCapabilities
      * max_input_width*max_input_height (ultrawide). */
     uint32_t max_input_width;
     uint32_t max_input_height;
-    uint32_t history_supported; /* native single-pass history; query session for active/fallback status */
+    uint32_t history_supported; /* native final-pass history; query session for active/fallback status */
     uint32_t overlap_supported; /* first product version: 0 */
     uint32_t graph_supported;   /* first product version: 0; EnqueueHip must not graph-wait */
     /* [DEPRECATED] 1 = legacy single-target indicator; does not reflect active runtime GPU arch.

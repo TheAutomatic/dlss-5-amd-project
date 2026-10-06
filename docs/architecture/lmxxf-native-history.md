@@ -18,19 +18,30 @@ unavailable-history reasons remain visible alongside the compact NR status.
 The host passes its explicit value in FrameInfo; no flags-file/environment alias
 can override this product setting. Existing ini preferences are not overwritten.
 
-The first supported combination is a D3D12 recording lease before upscaling,
-one network pass, graph off, valid motion/depth guides, and wave-owned fused post.
+The supported combination is a D3D12 recording lease before upscaling,
+one to three passes, graph off, valid motion/depth guides, and wave-owned fused post.
 Both the float block69 input and the newer E4M3-byte input are supported. Fast
 numeric selection is preserved. Dormant prediction/skin options with one pass
 are preserved; they do not turn a one-pass network into a multi-pass network.
 
 Missing/unsupported guides, diagnostic views and unsupported network layouts
 leave the current-frame path active and report the reason in `GetStatus`.
-Two/three passes retain the configured pass count and report
-`history=unsupported-passes`; they do not secretly become one pass. Predicted
-third-pass/skin output needs a separate per-pass temporal contract, so it is not
-given the last real pass's history weight. Post-SR currently lacks this guide
-contract. Graph remains unsupported by the existing staged recording bridge.
+Multi-pass uses one final-output history chain, not one history allocation per pass.
+Intermediate passes receive only the current network tensor and keep their ordinary
+RGB/RGBA output path; they neither consume the final-output history nor write its
+auxiliary slot. The last real network pass consumes the reprojected previous final
+model frame and exports its logit. Temporal resolve runs once, after prediction or
+skin blending, and stores that final result. No-history upstream consumers retain
+their existing per-pass history-input behavior.
+
+Predicted pass 3 still executes two networks: its temporal confidence is explicitly
+the second real pass's logit, not a fictitious third-network projection. Skin blending
+also uses the last real network's confidence. These are approximate combinations,
+requiring game acceptance for trails/over-smoothing; no claim of equivalence to three
+real temporal networks is made. Pass/prediction/skin changes rebuild the recording
+chain and reset temporal continuity; old recorded jobs retain their original chain.
+Post-SR currently lacks the guide contract. Graph remains unsupported by the
+existing staged recording bridge.
 
 History can add ghosting, soften moving detail, and increase GPU time and memory.
 When enabled on a supported network, the shared post buffer grows from 12 to 20
@@ -191,3 +202,15 @@ whenever history is requested, including warmup and missing-guide fallbacks, wit
 overwriting saved reuse preferences. Future compatibility needs dynamic-sequence
 comparison against full inference, RGB/logit error measurements and game validation;
 threshold tightening or fixed seeds alone do not establish correctness.
+
+## 1.10.4 final-pass extension
+
+The host/INI switch and ABI are unchanged. `RunGraph` receives an explicit final-pass
+marker; auxiliary output is emitted only for its final RGB output. Intermediate
+RGBA kernels stay usable. NativeHistorySupported/SetMultiPass permit MP1/2/3 without
+changing the separate upstream experimental-feature-tap restriction.
+
+The GPU sentinel fixture verifies intermediate RGBA leaves auxiliary memory untouched,
+final RGB writes every float, and an auxiliary-enabled Network accepts live pass changes.
+Runtime regressions cover MP2 history activation, MP3 prediction/real modes, skin blend,
+old-chain replay, cross-queue execution, cancellation and restoration to MP1.

@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
   "to_commit": "297b032ac55f005d78568e684f30608651044f62",
-  "snapshot": "196c354de98ca57dc6af4549f5e17b7774210e01985bf1f1f7ea82a4ed7e99a3",
-  "reviewer": "Codex - targeted consumer/interface review and regression, 2026-10-07",
-  "summary": "Official297 scope unchanged; PR304613aa closes remaining raw-source differences with optional instance policies, preserving upstream defaults and local History/INI ownership. Production pins retained pending author merge.",
-  "validation": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07): MSVC/MinGW, upstream WARP/AMD interfaces, full product GPU, ABI/23 validation, 70 sync tests, eight unchanged output hashes, forced external exclusions and actual raw-PR zero-patch staging passed. Unchanged 80-module source/provenance reused; no game/release or gfx1200 hardware certification.",
+  "snapshot": "fa1e5102dcf4d8455a4a3ca7b183daa0f289ee725b1bc6c7602d1825bf390faa",
+  "reviewer": "Codex - 1.10.4 final-pass consumer review, 2026-10-07",
+  "summary": "Official297 scope unchanged; final-pass History extension for MP1/2/3 reviewed. Ordinary upstream defaults and menu/INI ownership preserved; active pins/patches retained.",
+  "validation": "MSVC runtime and host --fast BUILD_OK; full lmxxf GPU suite PASS including MP2/MP3 prediction/real/skin history, old-chain replay, reset/discard, cross-queue and sentinel auxiliary writes; raw patch replay PASS. Module sources/recipes unchanged; game visual acceptance pending.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "2756d95786a643dd6383133af631bc91b55ed9c681aa1d3b607f4bdd9d3c641e",
+      "fingerprint": "22d401d67177b84b546b18ce683f7f016e65c11543c9b4602a6d86e1001dd681",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Reviewed final consumer diff: local normalization and module selection use PR304613aa instance interfaces; codec identity fix belongs to new PR interface. Official297 pin and active overlays remain until author merge; raw PR source parity and zero-patch staging proved.",
-      "evidence": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07)",
-      "validation": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07): MSVC/MinGW, upstream WARP/AMD interfaces, full product GPU, ABI/23 validation, 70 sync tests, eight unchanged output hashes, forced external exclusions and actual raw-PR zero-patch staging passed. Unchanged 80-module source/provenance reused; no game/release or gfx1200 hardware certification.",
+      "reason": "Reviewed final-pass History extension: only auxiliary-enabled clients route history/logits to the final real pass; ordinary upstream callers unchanged. Product MP1/2/3 history, prediction and skin modes retain configured passes and recording ownership.",
+      "evidence": "docs/architecture/lmxxf-native-history.md - 1.10.4 final-pass extension",
+      "validation": "MSVC runtime and host --fast BUILD_OK; full lmxxf GPU suite PASS including MP2/MP3 prediction/real/skin history, old-chain replay, reset/discard, cross-queue and sentinel auxiliary writes; raw patch replay PASS. Module sources/recipes unchanged; game visual acceptance pending.",
       "next_step": ""
     },
     {
