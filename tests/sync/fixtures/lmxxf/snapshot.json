@@ -1,69 +1,69 @@
 {
   "upstream_repository": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
-  "note": "Raw 0.41 patch inputs; bridge patch retains product recording contracts and exclusions.",
-  "bridge_raw_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
-  "follow_raw_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
+  "commit": "297b032ac55f005d78568e684f30608651044f62",
+  "bridge_raw_commit": "297b032ac55f005d78568e684f30608651044f62",
+  "follow_raw_commit": "297b032ac55f005d78568e684f30608651044f62",
+  "note": "Raw official inputs for retained PR #12 interface overlay; PR not yet accepted.",
   "files": [
     {
-      "path": "Development/HIP/hip_d3d12_bridge.h",
-      "fixture": "hip_d3d12_bridge.upstream.h",
-      "sha256": "6844e714b2d5770a5937a6a521d790f8b4a8f087930dba3746685b06b9ca56bc"
-    },
-    {
-      "path": "Development/HIP/hip_reference_network.h",
-      "fixture": "hip_reference_network.upstream.h",
-      "sha256": "990cec0453eed345f597c6af75aa2b51eb1f09605ede12cd87be29e92927f4d7"
-    },
-    {
-      "path": "src/native_lab_paths.h",
-      "fixture": "native_lab_paths.upstream.h",
-      "sha256": "cdca62b5afa6f6e95a29380722567851c5b6765d2891a17007776a55707accca"
-    },
-    {
-      "path": "src/native_game_codec.h",
-      "fixture": "native_game_codec.upstream.h",
-      "sha256": "4497783e5f7ac39fed43113484a03798c01a5e269c078fdd4adad9e4ba9a65af"
-    },
-    {
-      "path": "shaders/native_codec_encode.hlsl",
-      "fixture": "native_codec_encode.upstream.hlsl",
-      "sha256": "237332c83235cba639053fd1b6d7030c75c699936449efc43a4a36243d78c2f9"
-    },
-    {
-      "path": "shaders/native_codec_decode.hlsl",
-      "fixture": "native_codec_decode.upstream.hlsl",
-      "sha256": "a70789a1449765a027edd735fac077360f1ba53045c2349377016568df9de437"
-    },
-    {
-      "path": "src/native_shader_cache.h",
-      "fixture": "native_shader_cache.upstream.h",
-      "sha256": "2f6c0cb74c25b9471cc7364e15a41e891a06930c88706ad370213d1669445426"
-    },
-    {
-      "path": "src/native_game_rgb_input.h",
-      "fixture": "native_game_rgb_input.upstream.h",
-      "sha256": "3ae01a907dd8a5288c1ec7185efc2b111169ac76f1aacfd06f58783517a7d8a0"
-    },
-    {
-      "path": "src/native_rgb_texture.h",
-      "fixture": "native_rgb_texture.upstream.h",
-      "sha256": "168ff0061ecc6bbafb351344eddc49ba518a0f2ee747b8d12658b0621ffabfe0"
-    },
-    {
       "path": "Development/HIP/hip_api.h",
-      "fixture": "hip_api.upstream.h",
+      "fixture": "Development__HIP__hip_api.h.raw",
       "sha256": "45c46c8ed6633c0094817f6392049bbf01eb355d55c9fd8c3d11fdff90e9b519"
     },
     {
-      "path": "hip/build-modules.ps1",
-      "fixture": "build-modules.upstream.txt",
-      "sha256": "64804487be8bdacc883190d2272694334e88ffff21d32f2e7f78bb3b95412bd7"
+      "path": "Development/HIP/hip_d3d12_bridge.h",
+      "fixture": "Development__HIP__hip_d3d12_bridge.h.raw",
+      "sha256": "49fa6ba9ed5f976774eb8e73e08f6e1b37dc4889bd3cc531062d88400fbb5a18"
+    },
+    {
+      "path": "Development/HIP/hip_reference_network.h",
+      "fixture": "Development__HIP__hip_reference_network.h.raw",
+      "sha256": "a2cb222bb8e63323b3f4d0fee0f1284c5c62c4dbdebd3da0dcb26b357362af2a"
+    },
+    {
+      "path": "src/native_game_codec.h",
+      "fixture": "src__native_game_codec.h.raw",
+      "sha256": "4497783e5f7ac39fed43113484a03798c01a5e269c078fdd4adad9e4ba9a65af"
+    },
+    {
+      "path": "src/native_game_rgb_input.h",
+      "fixture": "src__native_game_rgb_input.h.raw",
+      "sha256": "3ae01a907dd8a5288c1ec7185efc2b111169ac76f1aacfd06f58783517a7d8a0"
+    },
+    {
+      "path": "src/native_hip_network.h",
+      "fixture": "src__native_hip_network.h.raw",
+      "sha256": "c13b539966cfdd405fdd05177c7dc86ac66d8c623aed20c3b78be696c549f22e"
+    },
+    {
+      "path": "src/native_rgb_texture.h",
+      "fixture": "src__native_rgb_texture.h.raw",
+      "sha256": "168ff0061ecc6bbafb351344eddc49ba518a0f2ee747b8d12658b0621ffabfe0"
+    },
+    {
+      "path": "src/native_shader_cache.h",
+      "fixture": "src__native_shader_cache.h.raw",
+      "sha256": "2f6c0cb74c25b9471cc7364e15a41e891a06930c88706ad370213d1669445426"
     },
     {
       "path": "hip/wave_owned_c32.inc",
-      "fixture": "wave_owned_c32.upstream.inc",
-      "sha256": "df8270de897bdf619008d9da1d82c77149b3a09193175ea39df76e7eac9f2b34"
+      "fixture": "hip__wave_owned_c32.inc.raw",
+      "sha256": "8c86e4df1c9f9d4bed33fc351964247287e4f5fc4253e1d3fed4ccddfe27f9b1"
+    },
+    {
+      "path": "shaders/native_codec_decode.hlsl",
+      "fixture": "shaders__native_codec_decode.hlsl.raw",
+      "sha256": "a70789a1449765a027edd735fac077360f1ba53045c2349377016568df9de437"
+    },
+    {
+      "path": "shaders/native_codec_encode.hlsl",
+      "fixture": "shaders__native_codec_encode.hlsl.raw",
+      "sha256": "237332c83235cba639053fd1b6d7030c75c699936449efc43a4a36243d78c2f9"
+    },
+    {
+      "path": "hip/build-modules.ps1",
+      "fixture": "hip__build-modules.ps1.raw",
+      "sha256": "3a3d60023ca12cd96e7cca44841ec3deb5df45607f900fc44864749633c3c8b2"
     }
   ]
 }

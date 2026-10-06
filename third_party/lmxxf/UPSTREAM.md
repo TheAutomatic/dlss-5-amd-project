@@ -1,14 +1,14 @@
 # lmxxf runtime source pin
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3` (synced 2026-10-05)
-- **0.41**: 38 modules per architecture (76 total), five LLVM23.1.2 rows plus 33 COMGR rows each, original RowOpts and two maintained LINE_STORES overrides. Predict-third-pass and skin protection have product INI/menu controls; default 1 pass, prediction on, skin off, free resolution on. Product ABI2, recording/timing and SR placement are retained. Decisions and actual validation: [0.41 consumer review](../../docs/lmxxf-041-consumer-review.md). Source integration is not game/release acceptance.
+- Commit: `297b032ac55f005d78568e684f30608651044f62` (synced 2026-10-06)
+- **0.41 + official 297b032a follow-up**: 40 modules per architecture (80 total), six LLVM23.1.2 rows plus 34 COMGR rows each, original RowOpts and two LINE_STORES overrides. Scoped 900 normalization, 1440 Swin, pool64 byte edge and final output direct are integrated. Product History and History/ViT exclusion remain unchanged; reference History and submit pulse are disabled. PR #12 is not merged upstream: retain the bridge pin and the active interface/preservation overlay. [Current consumer review and validation](../../docs/lmxxf-pr12-interface-migration.md). Source integration is not game/release acceptance.
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
 - `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
 
 This is a **vendored source closure**, not a git submodule and not a nested clone.
-Files are copied byte-for-byte from that commit unless a later commit in this tree
-says otherwise.
+Files follow that commit with the explicit preservation patches listed in
+`tools/lmxxf-sync/manifest.json`; product policy remains in the local runtime.
 
 `tools/sync-lmxxf-upstream.ps1` resolves `-UpstreamRef` (default `origin/main`) once and
 uses that immutable commit for source extraction and integration review. The commit above
@@ -48,18 +48,18 @@ Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: au
 | `hip/*.hip`, `hip/build-modules.ps1`, `hip/rtc_compile.cpp`, upstream `hip/SHA256SUMS` recipe rows | gfx1201 HIP kernels (then local rebuild of modules) |
 | `Development/HIP/hip_api.h` | Loaded HIP ABI |
 | `Development/HIP/hip_device_properties.h` | Device props |
-| `Development/HIP/hip_reference_network.h` | HIP network (plus local `reference-network.patch`) |
+| `Development/HIP/hip_reference_network.h` | HIP network (plus active `pr12-integration-interfaces.patch`) |
 | `Development/HIP/packed_weights.h` | Weight packing |
 | `src/native_hip_network.h` | HIP entry |
 | `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers + Near() tier pick |
 | `src/native_input_geometry.h` | Ultrawide pixel-budget admission (upstream after PR #9) |
 | `src/native_rgb_reflect.h` | Codec reflection helper (upstream; no local include drop needed) |
 | `src/native_hip_env_options.h` | Shared `DLSS5_*` flag parser (add-on + LmxxfNrRuntime) |
-| `src/native_lab_paths.h` | Paths, typed views, weight IO (plus `r10g10b10a2.patch`) |
-| `src/native_game_codec.h` | Scene encode / decode host (plus `auto-white.patch`) |
+| `src/native_lab_paths.h` | Paths, typed views, weight IO (R10 uses the upstream format-fallback table) |
+| `src/native_game_codec.h` | Scene encode / decode host (plus active interface/preservation overlay) |
 | `src/native_game_rgb_input.h`, `src/native_rgb_texture.h` | RGB IO |
 | `src/native_device_identity.h`, `src/native_pinned_resource.h`, `src/native_pso.h`, `src/native_shader_cache.h` | Supporting glue |
-| `shaders/*.hlsl` (top-level live glue only) | D3D12 glue; mirror-cleaned; `dx12-network/` not vendored (plus `auto-white.patch`) |
+| `shaders/*.hlsl` (top-level live glue only) | D3D12 glue; mirror-cleaned; `dx12-network/` not vendored (plus active interface/preservation overlay) |
 
 ## Excluded on purpose (not vendored)
 

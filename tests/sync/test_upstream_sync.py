@@ -278,8 +278,8 @@ class SyncTests(Fixture):
     def test_patch_conflict_leaves_vendor_untouched(self):
         path = self.up / 'Development/HIP/hip_d3d12_bridge.h'
         text = path.read_text(encoding='utf-8')
-        self.assertIn('bool PdlActive()', text)
-        write(path, text.replace('bool PdlActive()', 'bool ChangedPdlActive()'))
+        self.assertIn('bool direct_input{};', text)
+        write(path, text.replace('bool direct_input{};', 'bool upstream_direct_input{};'))
         commit(self.up)
         before = (self.vendor / 'shaders/active.hlsl').read_bytes()
         result = self.sync(('-UpdateBridge',))
@@ -306,7 +306,7 @@ class SyncTests(Fixture):
         before = snapshot_files(self.vendor)
         result = self.sync()
         self.assert_failed(result)
-        self.assertIn('reference-network.patch', result.stdout)
+        self.assertIn('pr12-integration-interfaces.patch', result.stdout)
         self.assertEqual(snapshot_files(self.vendor), before)
 
     def test_local_shader_patch_conflict_fails_before_vendor_changes(self):
@@ -320,7 +320,7 @@ class SyncTests(Fixture):
         before = snapshot_files(self.vendor)
         result = self.sync()
         self.assert_failed(result)
-        self.assertIn('auto-white.patch', result.stdout)
+        self.assertIn('pr12-integration-interfaces.patch', result.stdout)
         self.assertEqual(snapshot_files(self.vendor), before)
 
     def test_audit_nonzero_never_advances_pin(self):

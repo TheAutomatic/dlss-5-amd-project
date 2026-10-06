@@ -13,8 +13,6 @@
     "src/native_config_layers.h",
     "src/native_device_identity.h",
     "src/native_experimental_history.h",
-    "src/native_fast_history.h",
-    "src/native_fast_history_support.h",
     "src/native_format_fallback.h",
     "src/native_frame_stats.h",
     "src/native_game_codec.h",
@@ -34,8 +32,37 @@
   "module_headers": [
     "Development/HIP/swin_persistent_types.h"
   ],
-  "pinned": [],
-  "local_patches": [],
+  "pinned": [
+    {
+      "path": "Development/HIP/hip_d3d12_bridge.h",
+      "switch": "UpdateBridge",
+      "patch": "bridge.patch",
+      "required": [
+        "zero_upload",
+        "clear_submission_unconfirmed",
+        "GetCompletedValue()<target",
+        "EnsureZeroClearResources",
+        "ClearOutputAsync",
+        "bool ClearOutput(",
+        "CancelUnsubmitted",
+        "CurrentPhase",
+        "PdlRequested",
+        "PdlEffective",
+        "EnableRecordingLeases",
+        "SealRecordedOutput",
+        "BeginRecordedExecution",
+        "EndRecordedExecution",
+        "recording_submission_unconfirmed"
+      ],
+      "patterns": [
+        "pending=true;\\s*phase=consumer_recorded\\?Phase::OutputRecorded:Phase::HipQueued;"
+      ],
+      "forbidden": []
+    }
+  ],
+  "local_patches": [
+    "pr12-integration-interfaces.patch"
+  ],
   "hip_files": [
     "build-modules.ps1",
     "rtc_compile.cpp",

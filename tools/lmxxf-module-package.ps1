@@ -16,7 +16,7 @@ function Get-LmxxfModuleNames {
         'multihead-fast-packed.hsaco', 'multihead-fast-padded-wave-packed.hsaco',
         'multihead-fast-padded-wave.hsaco', 'multihead-fast.hsaco', 'multihead-reference.hsaco',
         'multihead-tiled.hsaco', 'multihead-wmma.hsaco', 'multihead_fused_attention.hsaco',
-        'prefix_fast.hsaco', 'vit-wide-deep.hsaco', 'wave-pointwise.hsaco', 'vit-stream.hsaco', 'swin-persistent.hsaco'
+        'prefix_fast.hsaco', 'vit-wide-deep.hsaco', 'wave-pointwise.hsaco', 'vit-stream.hsaco', 'swin-persistent.hsaco', 'swin-persistent-fast.hsaco', 'c32-wave1-fast-norm900.hsaco'
     )
 }
 
@@ -82,7 +82,7 @@ function Read-LmxxfModuleSums([string]$Path, [string]$Arch = '') {
         if ($rows.ContainsKey($name)) { throw "Duplicate module checksum in ${Path}: $name" }
         $rows[$name] = $hash
     }
-    $expectedCount = if ($Arch) { 38 } else { 76 }
+    $expectedCount = if ($Arch) { 40 } else { 80 }
     if ($rows.Count -ne $expectedCount) { throw "Incomplete module SHA256SUMS in $Path (expected $expectedCount entries, got $($rows.Count))" }
     return $rows
 }
@@ -106,7 +106,7 @@ function Assert-LmxxfModulePackage([string]$Directory, [switch]$BuildOutput) {
             throw "Unknown or misplaced .hsaco module: $rel"
         }
     }
-    if ($hsacos.Count -ne 76) { throw "Module package must contain exactly 76 known .hsaco modules; got $($hsacos.Count)." }
+    if ($hsacos.Count -ne 80) { throw "Module package must contain exactly 80 known .hsaco modules; got $($hsacos.Count)." }
     $rootSums = Read-LmxxfModuleSums (Join-Path $full 'SHA256SUMS')
     foreach ($arch in $arches) {
         $leafDir = Join-Path $full $arch
@@ -129,15 +129,15 @@ function Assert-LmxxfModulePackage([string]$Directory, [switch]$BuildOutput) {
             }
             $seen[$name] = $true
         }
-        if ($seen.Count -ne 38) { throw "Incomplete modules.json for $arch (expected 38 modules)." }
+        if ($seen.Count -ne 40) { throw "Incomplete modules.json for $arch (expected 40 modules)." }
     }
     $manifestPath = Join-Path $full 'runtime-manifest.json'
     # Upstream build-modules.ps1 emits hashes + per-arch provenance. Product metadata
     # is added by Sync-LmxxfModules; release/install inputs must already contain it.
     if (-not $BuildOutput -or (Test-Path -LiteralPath $manifestPath)) {
         $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
-        if ($manifest.schema -ne 2 -or $manifest.runtime_abi -ne 1 -or $manifest.module_count -ne 76 -or
-            $manifest.module_count_per_arch -ne 38 -or @($manifest.targets).Count -ne 2 -or
+        if ($manifest.schema -ne 2 -or $manifest.runtime_abi -ne 1 -or $manifest.module_count -ne 80 -or
+            $manifest.module_count_per_arch -ne 40 -or @($manifest.targets).Count -ne 2 -or
             @($manifest.targets | Where-Object { $arches -cnotcontains $_ }).Count -or
             @($manifest.targets | Select-Object -Unique).Count -ne 2) {
             throw 'Invalid dual-architecture runtime-manifest.json (schema, ABI, targets or module counts).'
@@ -237,12 +237,12 @@ function New-LmxxfModuleStage([string]$Source, [string]$Destination, [string]$Co
             $manifest = if (Test-Path -LiteralPath $manifestPath) {
                 [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
             } else {
-                [pscustomobject]@{ schema = 2; runtime_abi = 1; targets = @('gfx1200', 'gfx1201'); module_count = 76; module_count_per_arch = 38 }
+                [pscustomobject]@{ schema = 2; runtime_abi = 1; targets = @('gfx1200', 'gfx1201'); module_count = 80; module_count_per_arch = 40 }
             }
             # Destination may already carry a stale manifest (strict staging copies it
             # first). Always re-assert the counts that this package actually contains.
-            $manifest | Add-Member -NotePropertyName module_count -NotePropertyValue 76 -Force
-            $manifest | Add-Member -NotePropertyName module_count_per_arch -NotePropertyValue 38 -Force
+            $manifest | Add-Member -NotePropertyName module_count -NotePropertyValue 80 -Force
+            $manifest | Add-Member -NotePropertyName module_count_per_arch -NotePropertyValue 40 -Force
             $manifest | Add-Member -NotePropertyName targets -NotePropertyValue @('gfx1200', 'gfx1201') -Force
             $manifest | Add-Member -NotePropertyName upstream_commit -NotePropertyValue $CommitHash -Force
             $llvmCount = 0

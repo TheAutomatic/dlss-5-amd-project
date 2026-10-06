@@ -20,7 +20,7 @@ MODULE_NAMES = (
     'multihead-reference', 'multihead-tiled', 'multihead-wmma',
     'multihead_fused_attention', 'prefix_fast', 'vit-wide-deep', 'wave-pointwise',
     'c32-wave1-rtz', 'c32-wave1-fast', 'c64-wave2-fast',
-    'c32-wave1', 'c64-wave2', 'c512-m32-mh', 'c512-m32-deep', 'vit-stream', 'swin-persistent',
+    'c32-wave1', 'c64-wave2', 'c512-m32-mh', 'c512-m32-deep', 'vit-stream', 'swin-persistent', 'swin-persistent-fast', 'c32-wave1-fast-norm900',
 )
 ARCHES = ('gfx1200', 'gfx1201')
 
@@ -45,8 +45,8 @@ def make_modules(directory, marker='fixture', runtime_manifest=True):
     (directory / 'SHA256SUMS').write_text('\n'.join(root_rows) + '\n', encoding='utf-8')
     if runtime_manifest:
         (directory / 'runtime-manifest.json').write_text(json.dumps(dict(
-            schema=2, runtime_abi=1, targets=list(ARCHES), module_count=76,
-            module_count_per_arch=38, upstream_commit='0' * 40)), encoding='utf-8')
+            schema=2, runtime_abi=1, targets=list(ARCHES), module_count=80,
+            module_count_per_arch=40, upstream_commit='0' * 40)), encoding='utf-8')
     return directory
 
 

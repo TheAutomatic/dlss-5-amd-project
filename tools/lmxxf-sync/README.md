@@ -25,6 +25,20 @@
 
 有意暂缓可以通过审阅，完成信息会显示暂缓数量；这表示“同步已审阅，后续工作有记录”，不表示所有上游功能已启用。解析器只收集文本证据，不能证明运行时可达性、性能收益或判断正确性。程序能阻止遗漏、空白决策和过期记录，判断质量仍由审阅者负责。
 
+## 当前 PR #12 接口迁移（2026-10-06）
+
+正式目标为 `297b032ac55f005d78568e684f30608651044f62`；是否完成以
+`third_party/lmxxf/sync-state.json` / `UPSTREAM.md` 为准。不得把 PR head 当作官方 pin。
+PR #12 尚未被作者接受，bridge 继续固定保留，FOLLOW 文件由
+`pr12-integration-interfaces.patch` 统一维护接口差异。原来的十二份补丁仅供历史查阅，
+不再逐个叠加；本次原始夹具直接取自官方 297b032a，不能反向生成。
+
+System32 编译器与 History 算法保留在产品侧，通过显式接口接入；上游参考 History、
+feature tap 和 submit pulse 在产品 Options 中关闭。编码的预曝光与色相策略在产品
+每次记录时显式开启，不改变上游默认值。完整范围、证据及验证见
+[本次接入审阅](../../docs/lmxxf-pr12-interface-migration.md)。解除 pin/patch 必须等作者合入
+后，再以合入后的正式 SHA 重放验证，不提前清空 manifest。
+
 ## 文件所有权
 
 `manifest.json` 是唯一头文件清单，归档和拷贝不再分别维护同一批路径。
@@ -37,9 +51,9 @@
 
 产品 `[DlssNr] DLSS5_SKIP_BLOCKS` 与 Advanced Kernels 内的 Base skipped blocks (all passes) 共用一个键。基础列表用于所有实际网络 pass；相邻的 Extra skipped blocks in passes 2/3 仅为后续实际网络 pass 追加跳块。两项一起收在原 Advanced Kernels 折叠组内、紧跟 High resolution，不新增 Block skipping 分类或第 2/3 层子组。默认 `none`（全71块）；`none` 表示不跳块，`auto` 恢复编译默认。列表允许 `1..38`、`40..69`，会去重排序；非法值在 ini 读取时警告并回退默认，菜单拒绝提交。改动在下一次网络重建时生效。当前模块不能跳过 C32 链末尾的 `4` 或 `69`（Runtime 明确拒绝，避免 raw-chain 格式不匹配）；完整支持须有匹配模块。与上游一样，跳过 `5..22` 或 `48..65` 时须关闭 MH byte stream。Config 设置该键后优先于 flags / 外部环境；直接使用 Runtime 时未设置的键仍可由 flags / 环境补齐。
 
-## 补丁维护
+## 历史补丁说明（0.41 基线；当前生效列表见上节）
 
-`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。恢复/清零逻辑自历史 pin `54e14de503431cd4536f8a7151b022af232178a9` 起已包含；当前 0.41 基线为 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`。补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询、分配失败清理，以及 adaptive ViT 历史重置的缓冲复用/流内异步清零；同尺寸重置不再重新 Upload 状态并释放旧缓冲，避免在外部 producer wait 之后同步排空 HIP。GPU bridge 回归覆盖 idle、seed、mode 和关闭/重开复用，普通张量池增长另行报告。
+`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。恢复/清零逻辑自历史 pin `54e14de503431cd4536f8a7151b022af232178a9` 起已包含；该历史 0.41 基线为 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`。补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询、分配失败清理，以及 adaptive ViT 历史重置的缓冲复用/流内异步清零；同尺寸重置不再重新 Upload 状态并释放旧缓冲，避免在外部 producer wait 之后同步排空 HIP。GPU bridge 回归覆盖 idle、seed、mode 和关闭/重开复用，普通张量池增长另行报告。
 
 测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入与 pinned bridge 均来自 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`（0.41 快照，完成 pin 以 UPSTREAM.md 为准）；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
 
@@ -70,7 +84,7 @@
 - `-SkipEnablementAudit` 仅供无 Python 机器准备源码以便后续审阅：返回 0 表示准备完成，状态仍为 pending，不构建、不前移完成 pin，也不打印同步完成。后续必须不带该开关重新执行。
 - `-SkipBuild`、`-SkipModules`、`-AllowStaleModules` 是明确的验证例外，必须在审阅中说明并安排后续验证。跳过构建绝不意味着产物已可发布。
 - 首次使用此流程还没有模块验证基线，需构建模块，或明确使用 `-AllowStaleModules` 并记录后续验证；不能仅因当次源码没有变化就认定已有模块有效。
-- `-ModulesPath` 只接受完整的 gfx1200 + gfx1201 构建树/模块包：两架构各 **$PerArch** 个受控模块（当前 **38**，以 `tools/release/check-module-contract.ps1` 为准）、根/叶子 `SHA256SUMS` 和两份 `modules.json` 必须一致。上游构建树可不含产品 `runtime-manifest.json`，同步时在候选目录补齐；安装和打包则必须已经包含它。缺少一个架构、清单不完整、哈希错配或链接路径均在目标改变前失败；`-AllowStaleModules` 不能绕过包完整性校验。旧扁平目标需先移出同步目录。增删模块时见 [docs/release.md](../../docs/release.md)「模块数量契约」。
+- `-ModulesPath` 只接受完整的 gfx1200 + gfx1201 构建树/模块包：两架构各 **$PerArch** 个受控模块（当前 **40**，以 `tools/release/check-module-contract.ps1` 为准）、根/叶子 `SHA256SUMS` 和两份 `modules.json` 必须一致。上游构建树可不含产品 `runtime-manifest.json`，同步时在候选目录补齐；安装和打包则必须已经包含它。缺少一个架构、清单不完整、哈希错配或链接路径均在目标改变前失败；`-AllowStaleModules` 不能绕过包完整性校验。旧扁平目标需先移出同步目录。增删模块时见 [docs/release.md](../../docs/release.md)「模块数量契约」。
 - `-ModulesPath` 把提供模块的实际内容绑定到审阅记录，校验提供目录的摘要并刷新模块；摘要只证明字节一致，不能证明这些字节由当前源码生成，构建来源也需人工/AI审阅。
 - 源码复制之后的失败会保留待审阅状态，方便分步接入。不要删除 `sync-state.json` 来清除失败；它保留失败前模块比较基线，防止第二次运行误把旧模块认作新源码的产物。审阅通过后也不会用一个允许旧模块的例外把这些模块标成已验证。
 - `UPSTREAM.md` 的 pin 是最近完成的同步。pending 时用 `sync-state.json` 的 `to_commit` 查看正在接入哪个版本。提交接入变更时同时保留审阅记录和状态记录，避免其他 checkout 丢失上下文。
@@ -103,7 +117,7 @@ python tools/audit-lmxxf-enablements.py <upstream-clone> <commit> --report-only
 
 ## LLVM23 与 RowOpts 构建
 
-生产同步启用原版配方的 RowOpts；每架构五个 LLVM23 行，其余33行 COMGR。
+生产同步启用原版配方的 RowOpts；每架构六个 LLVM23 行，其余34行 COMGR。
 先在 WSL/Linux 提取固定 pin 的 `hip/`、`Development/HIP/swin_persistent_types.h` 与
 `Development/tools/llvm-fork/`（使用 git archive，不能用作者克隆的不同工作树版本）。
 使用官方含 AMDGPU 的 Linux LLVM23.1.2 包或同版本源码构建，先核对归档哈希和
@@ -131,7 +145,7 @@ tools/sync-lmxxf-upstream.ps1 -UpstreamPath <clone> -UpstreamRef <full-pin> `
 `exports/lmxxf-modules/`。包装器保留产品 LINE_STORES 宏，并验证预编来源、
 两个阶段的 -real-true16 与 per-row opts，补齐 C64 的 HIP_BARRIER_FENCE 及源码哈希。
 缺失或过期预编产物必须重新构建，不静默用 COMGR 替代。
-`-ModulesPath` 仍可提供已验证的完整76模块树，照常经过人工来源审阅和双架构契约检查。
+`-ModulesPath` 仍可提供已验证的完整80模块树，照常经过人工来源审阅和双架构契约检查。
 WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 无需迁移。
 
 ## 审阅范围与工具测试复用
@@ -146,4 +160,4 @@ WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 �
 `--force` 强制全跑。缓存不改变实际同步审计、模块校验或pending语义。
 详见 [发版流程](../../docs/release.md#减少重复验证2026-10-05)。
 
-原生 temporal history 的本地接入见 [架构与验证](../../docs/architecture/lmxxf-native-history.md)。`native-post-history.patch` 增加 float/b8 post 第四行，`bridge.patch` 为开启时扩展共享输出；不移动 0.41 pin，不改其它模块或默认精度。
+原生 temporal history 的本地接入见 [架构与验证](../../docs/architecture/lmxxf-native-history.md)。当前 `pr12-integration-interfaces.patch` 保留 float/b8 post 辅助输出，`bridge.patch` 为开启时扩展共享输出；模型系数和 History 策略由产品侧提供。

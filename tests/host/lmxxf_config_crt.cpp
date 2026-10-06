@@ -25,6 +25,16 @@ extern "C" __declspec(dllexport) bool RuntimeRejectsChainFinishSkip()
     }
 }
 
+extern "C" __declspec(dllexport) bool RuntimeExcludesReferenceExperiments()
+{
+    _putenv_s("DLSS5_HIP_SUBMIT_PULSE", "1");
+    _putenv_s("DLSS5_TEMPORAL_HISTORY_EXPERIMENT", "1");
+    const auto options = LmxxfProductionOptions(1920, 1152, "modules", "assets");
+    _putenv_s("DLSS5_HIP_SUBMIT_PULSE", "");
+    _putenv_s("DLSS5_TEMPORAL_HISTORY_EXPERIMENT", "");
+    return options.submit_pulse == 0 && !options.experimental_temporal && !options.temporal_feature_tap;
+}
+
 extern "C" __declspec(dllexport) const char *ReadRuntimeEnvironment(const char *key)
 {
     return std::getenv(key);
@@ -122,6 +132,9 @@ int main(int argc, char **argv)
         Require(skips(expected), "Runtime did not use the host skip block selection");
     }
     CfgKey::PutEnvString(CfgKey::SkipBlocks, "auto");
+    sync();
+    const auto excludes = reinterpret_cast<bool (*)()>(GetProcAddress(dll, "RuntimeExcludesReferenceExperiments"));
+    Require(excludes && excludes(), "upstream reference experiments leaked into product defaults");
     CfgKey::PutEnvAlias(CfgKey::SwinRun, true);
     sync();
     Require(swin(1600, 960) && swin(1920, 1152), "Swin did not admit supported production tiers");

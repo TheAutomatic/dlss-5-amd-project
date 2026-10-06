@@ -398,7 +398,7 @@ bool CachedFileSha256(const std::wstring &path, std::string *outHex)
     return true;
 }
 
-static const char *const kKnownModuleNames[38] = {
+static const char *const kKnownModuleNames[40] = {
     "deep_fast-packed-fast.hsaco",
     "vit-stream-fast.hsaco",
     "multi-pass-skin.hsaco",
@@ -434,7 +434,7 @@ static const char *const kKnownModuleNames[38] = {
     "vit-wide-deep.hsaco",
     "wave-pointwise.hsaco",
     "vit-stream.hsaco",
-    "swin-persistent.hsaco",
+    "swin-persistent.hsaco", "swin-persistent-fast.hsaco", "c32-wave1-fast-norm900.hsaco",
 };
 
 bool IsKnownModuleName(const std::string &name)
@@ -829,7 +829,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         if (count1200 != std::size(kKnownModuleNames) || count1201 != std::size(kKnownModuleNames) || rootMap.size() != 2 * std::size(kKnownModuleNames))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: dual-architecture SHA256SUMS incomplete (expected 38 gfx1200 and 38 gfx1201 entries)");
+                        "Create: dual-architecture SHA256SUMS incomplete (expected 40 gfx1200 and 40 gfx1201 entries)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -951,7 +951,7 @@ int32_t ValidateModuleSet(const std::wstring &modulesDir, uint32_t *outCount)
         if (rootMap.size() != std::size(kKnownModuleNames))
         {
             return Fail(LMXXF_NR_UNAVAILABLE,
-                        "Create: SHA256SUMS incomplete (expected 38 hsaco modules)");
+                        "Create: SHA256SUMS incomplete (expected 40 hsaco modules)");
         }
         for (const char *known : kKnownModuleNames)
         {
@@ -1865,7 +1865,12 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->InstallBridge(new hip_reference::D3D12Bridge());
             session->bridge->RequestDirectInput();
             session->bridge->RequestReleaseMarkers();
-            if(requestHistory && hip_reference::MultiPassFromEnvironment()==1 && hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused && !opt.experimental_temporal && !opt.temporal_feature_tap){session->bridge->RequestDirectHistory();session->bridge->RequestPostAuxiliary(LmxxfNativePostWeights());}
+            if (requestHistory && hip_reference::MultiPassFromEnvironment() == 1 &&
+                hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused)
+            {
+                session->bridge->RequestDirectHistory();
+                session->bridge->RequestPostAuxiliary(LmxxfNativePostWeights());
+            }
             session->bridge->Create(session->queue, opt, {});
             session->bridge->SetAdaptiveReuseAllowed(!requestHistory);
             if (session->recordingLeases) session->bridge->EnableRecordingLeases();
@@ -2160,9 +2165,14 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->InstallBridge(new hip_reference::D3D12Bridge());
                 session->bridge->RequestDirectInput();
                 session->bridge->RequestReleaseMarkers();
-            if(requestHistory && hip_reference::MultiPassFromEnvironment()==1 && hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused && !opt.experimental_temporal && !opt.temporal_feature_tap){session->bridge->RequestDirectHistory();session->bridge->RequestPostAuxiliary(LmxxfNativePostWeights());}
-            session->bridge->Create(session->queue, opt, {});
-            session->bridge->SetAdaptiveReuseAllowed(!requestHistory);
+                if (requestHistory && hip_reference::MultiPassFromEnvironment() == 1 &&
+                    hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused)
+                {
+                    session->bridge->RequestDirectHistory();
+                    session->bridge->RequestPostAuxiliary(LmxxfNativePostWeights());
+                }
+                session->bridge->Create(session->queue, opt, {});
+                session->bridge->SetAdaptiveReuseAllowed(!requestHistory);
                 if (session->recordingLeases) session->bridge->EnableRecordingLeases();
                 ++session->bridgeCreates;
                 session->hipPrepared = true;
@@ -2413,6 +2423,9 @@ int32_t RecordInputs(void *context, void *job, void *command_list)
         // Encoder and decoder both follow the frame. LegacyParameters() would ignore the
         // menu and force Cyberpunk2077.exe colour strength to 0.
         NativeCodecParameters encParams;
+        // Product policies are explicit; upstream codec defaults remain unchanged.
+        encParams.use_pre_exposure = true;
+        encParams.hue_safe = true;
         encParams.transfer_strength = j->transfer_strength;
         encParams.color_strength = j->color_strength;
         encParams.pre_exposure = j->pre_exposure;
@@ -2631,6 +2644,9 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
         if (!session->decode)
             return Fail(LMXXF_NR_FAILED, "RecordOutputs: decode missing");
         NativeCodecParameters codecParams;
+        // Product policies are explicit; upstream codec defaults remain unchanged.
+        codecParams.use_pre_exposure = true;
+        codecParams.hue_safe = true;
         codecParams.transfer_strength = j->transfer_strength;
         codecParams.color_strength = j->color_strength;
         codecParams.debug_view = static_cast<NativeCodecDebugView>(j->debug_view & 0xFu);

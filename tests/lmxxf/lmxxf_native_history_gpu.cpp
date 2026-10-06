@@ -12,8 +12,12 @@ struct Recording {
     ComPtr<ID3D12Fence> fence;UINT64 value=0;
 };
 int main(int argc,char** argv)try {
-    Require(argc==3||(argc==4&&std::strcmp(argv[3],"--history-excludes-adaptive")==0),"runtime DLL, modules directory, optional --history-excludes-adaptive");
-    const bool adaptive=argc==4;
+    Require(argc==3||(argc==4&&(!std::strcmp(argv[3],"--history-excludes-adaptive")||!std::strcmp(argv[3],"--history-900"))),"runtime DLL, modules directory, optional --history-excludes-adaptive or --history-900");
+    const bool adaptive=argc==4&&!std::strcmp(argv[3],"--history-excludes-adaptive");
+    const bool norm900=argc==4&&!std::strcmp(argv[3],"--history-900");
+    if(norm900)for(auto kv:{std::pair{"DLSS5_FAST_NUMERIC","1"},{"DLSS5_NETWORK_FREE_RES","1"},{"DLSS5_SKIP_BLOCKS","none"}}){
+        SetEnvironmentVariableA(kv.first,kv.second);_putenv_s(kv.first,kv.second);
+    }
     const std::string decisions=std::string(argv[0])+".adaptive.csv";
     if(adaptive) {
         std::ofstream(decisions,std::ios::trunc).close();
@@ -35,7 +39,7 @@ int main(int argc,char** argv)try {
     std::string moduleArg=argv[2];std::wstring modules(moduleArg.begin(),moduleArg.end());
     LmxxfNrCreateInfo ci{};ci.struct_size=sizeof(ci);ci.device=g.device.Get();ci.queue=g.queue.Get();ci.assets_directory=modules.c_str();ci.flags=LMXXF_NR_CREATE_FLAG_RECORDING_LEASES;
     void* session=nullptr;ok(api.Create(&ci,&session),"create");ok(api.PrepareSession(session),"prepare session");
-    constexpr UINT w=1280,h=720;
+    const UINT w=norm900?1600:1280,h=norm900?900:720;
     auto colour=g.Texture(w,h,DXGI_FORMAT_R32G32B32A32_FLOAT),motion=g.Texture(w,h,DXGI_FORMAT_R32G32_FLOAT),depth=g.Texture(w,h,DXGI_FORMAT_R32_FLOAT);
     std::vector<float> pixels(w*h*4,.4f),mv(w*h*2,0.f),z(w*h,.5f);
     for(UINT i=0;i<w*h;++i){pixels[i*4]=.25f+.15f*float(i%w)/w;pixels[i*4+3]=1;}

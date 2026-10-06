@@ -123,6 +123,8 @@ call :Runtime || goto fail
 %CXX% tests\lmxxf\lmxxf_native_history_gpu.cpp /Fe"%OUT%\lmxxf_native_history_gpu.exe" /Fo"%OUT%\lmxxf_native_history_gpu.obj" /link %D3D% d3dcompiler.lib || goto fail
 "%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" || goto fail
 "%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --history-excludes-adaptive || goto fail
+rem Optional fast 900-tier module must support the product auxiliary History output.
+"%OUT%\lmxxf_native_history_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --history-900 || goto fail
 rem The runtime resolves modules from its assets argument and weights from LMXXF_WEIGHTS_DIR.
 rem Passing the weights folder itself would make it prefer the (possibly stale) HIP\ copy beside
 rem the weights over this checkout's modules.
@@ -151,6 +153,8 @@ rem 0.40 product defaults and live network rebuild/output checks.
 set "DLSS5_SKIP_BLOCKS=none"
 set "DLSS5_FAST_NUMERIC=1"
 set "DLSS5_NETWORK_FREE_RES=1"
+rem 1:1 active-size input must not enter bilinear fitting (PR12 interface regression).
+call :Hash 806dd30da2c516da --size 1920 1080 || goto fail
 "%AMD_TEST_PYTHON%" -B tests\lmxxf\test_shader_precedence.py "%OUT%\lmxxf_recording_runtime_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" "%OUT%" || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --040-controls || goto fail
 "%OUT%\lmxxf_nr_gpu.exe" "%LMXXF_TEST_RUNTIME%" "%MODS%" --041-controls || goto fail

@@ -1,37 +1,37 @@
 {
-  "schema": 2,
-  "runtime_abi": 1,
-  "upstream_repo": "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
-  "modules_dir": "third_party/lmxxf/modules",
-  "recipe": "third_party/lmxxf/hip/build-modules.ps1",
-  "target_isas": [
-    "amdgcn-amd-amdhsa--gfx1200",
-    "amdgcn-amd-amdhsa--gfx1201"
-  ],
-  "history": true,
-  "overlap": false,
-  "graph": false,
-  "color_abi": {
-    "input": "linear FP16",
-    "paper_white": 1.0,
-    "strength": [
-      1.0,
-      1.0
-    ],
-    "codec_srgb": 0
-  },
-  "notes": [
-    "Dual architecture modules tree: gfx1200 (Radeon 9060 series) and gfx1201 (Radeon 9070 series).",
-    "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
-    "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir.",
-    "Native temporal history requires package host/runtime ABI 3 and single-pass wave-owned post; both float and b8 input layouts export FP32 logit. runtime_abi above names the module schema, not the host C API."
-  ],
-  "module_count": 76,
-  "module_count_per_arch": 38,
-  "targets": [
-    "gfx1200",
-    "gfx1201"
-  ],
-  "upstream_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
-  "compiler": "System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK); 10 upstream LLVM23 prebuilt modules (per-module provenance in modules.json)"
+    "schema":  2,
+    "runtime_abi":  1,
+    "upstream_repo":  "https://github.com/lmxxf/dlss5-on-amd-9070xt-porting",
+    "modules_dir":  "third_party/lmxxf/modules",
+    "recipe":  "third_party/lmxxf/hip/build-modules.ps1",
+    "target_isas":  [
+                        "amdgcn-amd-amdhsa--gfx1200",
+                        "amdgcn-amd-amdhsa--gfx1201"
+                    ],
+    "history":  true,
+    "overlap":  false,
+    "graph":  false,
+    "color_abi":  {
+                      "input":  "linear FP16",
+                      "paper_white":  1.0,
+                      "strength":  [
+                                       1.0,
+                                       1.0
+                                   ],
+                      "codec_srgb":  0
+                  },
+    "notes":  [
+                  "Dual architecture modules tree: gfx1200 (Radeon 9060 series) and gfx1201 (Radeon 9070 series).",
+                  "hip_ready stays 0 until RecordInputs/EnqueueHip/RecordOutputs load HIP and the set.",
+                  "Weights (noise.f32 / tiled assets) are user-supplied; not in this modules dir.",
+                  "Native temporal history requires package host/runtime ABI 3 and single-pass wave-owned post; both float and b8 input layouts export FP32 logit. runtime_abi above names the module schema, not the host C API."
+              ],
+    "module_count":  80,
+    "module_count_per_arch":  40,
+    "targets":  [
+                    "gfx1200",
+                    "gfx1201"
+                ],
+    "upstream_commit":  "297b032ac55f005d78568e684f30608651044f62",
+    "compiler":  "System32 amd_comgr_3.dll via hip/rtc_compile.exe (no HIP SDK); 12 upstream LLVM23 prebuilt modules (per-module provenance in modules.json)"
 }

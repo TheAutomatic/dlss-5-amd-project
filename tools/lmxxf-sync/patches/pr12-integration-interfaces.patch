@@ -1,0 +1,752 @@
+--- a/Development/HIP/hip_api.h
++++ b/Development/HIP/hip_api.h
+@@ -66,12 +66,18 @@
+   std::ifstream f(std::filesystem::u8path(path),std::ios::binary|std::ios::ate);
+   if(!f)throw std::runtime_error(std::string("module file missing: ")+path);
+   auto n=f.tellg();if(n<=0)throw std::runtime_error("empty module");std::vector<char>bytes(static_cast<size_t>(n));f.seekg(0);if(!f.read(bytes.data(),n))throw std::runtime_error("module read failed");
+-  int r=hipModuleLoadData(module,bytes.data());
+-  if(!r&&style_feature>=0){
+-   if(!hipModuleGetGlobal)Load(hipModuleGetGlobal,"hipModuleGetGlobal");
+-   void*p=nullptr;size_t s=0;if(!hipModuleGetGlobal(&p,&s,*module,"dlss5_style_feature")&&p&&s==sizeof(float))Check(hipMemcpy(p,&style_feature,sizeof(float),1),"DLSS5_STYLE");
+-  }
+-  return r;
++  // Publish ownership only after optional module initialization succeeds.
++  *module=nullptr;Handle loaded=nullptr;
++  int r=hipModuleLoadData(&loaded,bytes.data());
++  if(r)return r;
++  try{
++   if(style_feature>=0){
++    if(!hipModuleGetGlobal)Load(hipModuleGetGlobal,"hipModuleGetGlobal");
++    void*p=nullptr;size_t s=0;if(!hipModuleGetGlobal(&p,&s,loaded,"dlss5_style_feature")&&p&&s==sizeof(float))Check(hipMemcpy(p,&style_feature,sizeof(float),1),"DLSS5_STYLE");
++   }
++  }catch(...){hipModuleUnload(loaded);throw;}
++  *module=loaded;
++  return 0;
+  }
+  void EnableVmm(){Load(hipMemAddressReserve,"hipMemAddressReserve");Load(hipMemAddressFree,"hipMemAddressFree");Load(hipMemCreate,"hipMemCreate");Load(hipMemRelease,"hipMemRelease");Load(hipMemMap,"hipMemMap");Load(hipMemUnmap,"hipMemUnmap");Load(hipMemSetAccess,"hipMemSetAccess");Load(hipMemGetAllocationGranularity,"hipMemGetAllocationGranularity");}
+  void EnableGraphs(){Load(hipStreamBeginCapture,"hipStreamBeginCapture");Load(hipStreamEndCapture,"hipStreamEndCapture");Load(hipGraphInstantiate,"hipGraphInstantiate");Load(hipGraphLaunch,"hipGraphLaunch");Load(hipGraphDestroy,"hipGraphDestroy");Load(hipGraphExecDestroy,"hipGraphExecDestroy");}
+--- a/Development/HIP/hip_reference_network.h
++++ b/Development/HIP/hip_reference_network.h
+@@ -164,7 +164,7 @@
+ /* DLSS5_MULTI_PASS_SKIP_BLOCKS (2026-10-03, results/multi-pass-skip-20261003): residual blocks skipped in passes 2..N only (same list
+    syntax as DLSS5_SKIP_BLOCKS); pass 1 always runs the configured network. Empty/unset = no extra skip (code path unchanged). LOSSY when
+    set. An unparsable list is reported and treated as empty; the network constructor also rejects blocks its pipeline cannot skip. */
+-inline std::set<U> MultiPassSkipFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI_PASS_SKIP_BLOCKS");if(!v||!*v)return {};
++inline std::set<U> MultiPassSkipFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI_PASS_SKIP_BLOCKS");if(!v||!*v||!std::strcmp(v,"none"))return {};
+  try{return ParseSkipBlocks(v);}catch(...){std::fprintf(stderr,"DLSS5_MULTI_PASS_SKIP_BLOCKS=%s invalid (block list), using none\n",v);return {};}}
+ /* Fixed processing geometries (tiers + the 512x512 test) and, since 2026-10-02, free ones (DLSS5_NETWORK_FREE_RES, native_network_geometry.h
+    NativeNetworkGeometry::Free): both axes multiples of 128, so every level is in the 1920x1152 divisibility class; the ViT grid is
+@@ -181,6 +181,7 @@
+ }
+ inline std::atomic<int> AdaptivePreviewState{0};
+ class Network {friend class D3D12Bridge;
++ Tensor native_post_row;void* native_post_output=nullptr;
+  bool sp1440_ready=false;bool final_direct_compatible=false;bool pool64_byte_available=false;
+  bool vit_contract_byte_edge=false; // paired exact representation of an already E4M3-valued edge
+  bool free_geometry=false; /* DLSS5_NETWORK_FREE_RES geometry (FreeGeometry): generic ViT grid, no 640-token cap */
+@@ -191,6 +192,7 @@
+     and cumulative targets stay exact; cleared only after a full drain before uint32 rollover. The last blocks' tensors are held so the pool cannot recycle a buffer
+     an in-flight launch still reads. Correctness audit and remaining acquire/scheduling conditions: results/pdl-audit-20260927. */
+  unsigned pdl_mode=0,pdl_calls=0;unsigned*pdl_flags=nullptr;bool pdl_anyorder=false;std::deque<Tensor>pdl_keep;
++ bool pdl_requested=false,pdl_effective=false;std::string pdl_reason;
+  struct PdlPrev{unsigned*flags=nullptr;unsigned epoch=0,ww=0,sx=0,sy=0;}pdl_prev;unsigned*pdl_ffn_flags=nullptr;unsigned pdl_ffn_epoch=0;
+  int(*ext_launch)(Handle,unsigned,unsigned,unsigned,unsigned,unsigned,unsigned,size_t,Handle,void**,void**,Handle,Handle,unsigned)=nullptr;
+  static constexpr unsigned PDL_SLOTS=16384,PDL_RING=64;
+@@ -205,7 +207,51 @@
+   }
+   pdl_total[s]+=waves;pdl_last_target=pdl_total[s];return pdl_flags+size_t(s)*PDL_SLOTS;}
+  static bool PdlChainHead(U block){return block==5||block==9||block==15||block==23||block==40||block==48||block==56||block==62;}
+- public: unsigned PdlCalls()const{return pdl_calls;} private:
++ void PreflightPdl(){
++  pdl_mode=0;pdl_effective=false;pdl_reason.clear();
++  if(!opt.pdl){pdl_requested=false;pdl_reason="pdl disabled by configuration";return;}
++  pdl_requested=true;
++  if(free_geometry&&size_t(W/4)*(H/4)/16>PDL_SLOTS){pdl_reason="processing geometry exceeds pdl counter capacity";return;}
++  if(opt.graph){pdl_reason="pdl requires graph off";return;}
++  ext_launch=reinterpret_cast<decltype(ext_launch)>(GetProcAddress(api.dll,"hipExtModuleLaunchKernel"));
++  if(!ext_launch){pdl_reason="driver extension hipExtModuleLaunchKernel missing";return;}
++  auto itFast=modules.find("mh_fast");auto itFused=modules.find("mh_fused");
++  if(itFast==modules.end()||itFused==modules.end()){pdl_reason="required modules for pdl missing";return;}
++  static const char* const kPdlFusedSymbols[]={
++   "c64_attention_project_fb_diag_pdl","c64_attention_project_fb_bout_diag_pdl",
++   "c128_attention_project_fb_diag_pdl","c128_attention_project_fb_bout_diag_pdl",
++   "c256_attention_project_fb_diag_pdl","c256_attention_project_fb_bout_diag_pdl"
++  };
++  for(const char* sym : kPdlFusedSymbols){
++   Handle fn{};
++   if(api.hipModuleGetFunction(&fn,itFused->second,sym)!=0||!fn){
++    pdl_reason=std::string("missing pdl symbol in mh_fused: ")+sym;return;
++   }
++  }
++  static const char* const kPdlFastSymbols[]={
++   "mh_ffn_fused_c64_project_g128_qkv_fb_pdl","mh_ffn_fused_c64_project_g128_qkv_bytein_fb_pdl",
++   "mh_ffn_fused_c64_project_mapped_g128_qkv_fb_pdl","mh_ffn_fused_c64_project_mapped_g128_qkv_bytein_fb_pdl",
++   "mh_ffn_fused_c128_project_g128_qkv_fb_pdl","mh_ffn_fused_c128_project_g128_qkv_bytein_fb_pdl",
++   "mh_ffn_fused_c128_project_mapped_g128_qkv_fb_pdl","mh_ffn_fused_c128_project_mapped_g128_qkv_bytein_fb_pdl",
++   "mh_ffn_fused_c256_frag_project_g128_qkv_fb_pdl","mh_ffn_fused_c256_frag_project_g128_qkv_bytein_fb_pdl",
++   "mh_ffn_fused_c256_frag_project_mapped_g128_qkv_fb_pdl","mh_ffn_fused_c256_frag_project_mapped_g128_qkv_bytein_fb_pdl"
++  };
++  for(const char* sym : kPdlFastSymbols){
++   Handle fn{};
++   if(api.hipModuleGetFunction(&fn,itFast->second,sym)!=0||!fn){
++    pdl_reason=std::string("missing pdl symbol in mh_fast: ")+sym;return;
++   }
++  }
++  api.Check(api.hipMalloc((void**)&pdl_flags,size_t(PDL_SLOTS)*PDL_RING*4),"pdl flags");
++  api.Check(api.hipMemsetAsync(pdl_flags,0,size_t(PDL_SLOTS)*PDL_RING*4,stream),"pdl flags zero");
++  pdl_mode=7;pdl_effective=true;pdl_reason="enabled";
++ }
++ public:
++ unsigned PdlCalls()const{return pdl_calls;}
++ bool PdlRequested()const{return pdl_requested;}
++ bool PdlEffective()const{return pdl_effective;}
++ const std::string& PdlReason()const{return pdl_reason;}
++ private:
+ #ifdef DLSS5_LAYER_BENCH
+  friend struct LayerBenchmark;
+  unsigned diagnostic_kernel_repeats=1;
+@@ -352,7 +398,7 @@
+  Handle Fn(const std::string&m,const std::string&name){static const std::string normkey="c32_norm900";const std::string&actual=m=="c32_wave1"&&C32Norm900Active()?normkey:m;std::string key=actual+":"+name;auto it=functions.find(key);if(it!=functions.end())return it->second;Handle f{};api.Check(api.hipModuleGetFunction(&f,modules.at(actual),name.c_str()),name.c_str());functions.emplace(key,f);return f;}
+  /* DLSS5_FAST_NUMERIC twin (2026-10-03 fast-vit-c512): <stem>.hsaco -> <stem>-fast.hsaco when the option is 1 and the file
+     exists; missing twin falls back to the exact module with one stderr line (same contract as the C32/C64 swap). */
+- std::string FastTwin(const std::string&stem)const{if(!fast_numeric)return stem;const std::string fast=stem+"-fast";
++ std::string FastTwin(const std::string&stem)const{if(!fast_numeric||(stem!="c32-wave1"&&stem!="c64-wave2"&&stem!="deep_fast-packed"&&stem!="vit-stream"))return stem;const std::string fast=stem+"-fast";
+   if(std::ifstream(std::filesystem::u8path(opt.modules+"/"+fast+".hsaco"),std::ios::binary).good())return fast;
+   std::fprintf(stderr,"DLSS5_FAST_NUMERIC=1: %s.hsaco missing, using %s.hsaco\n",fast.c_str(),stem.c_str());return stem;}
+  template<class...A>void Run(const char*m,const char*name,size_t n,A...args){
+@@ -412,7 +458,7 @@
+   }
+   if(module=="c32_fused"||module=="c32_fused_ffn"||module=="mh_fused"){groups=count;threads=128;}
+   if(module=="c64_wave2"){groups=count;threads=kernel.rfind("c64_",0)==0?64:kernel.rfind("c128_",0)==0?128:256;}
+-  if(module=="c32_wave1"&&(kernel=="c32_wave1_up"||kernel=="c32_wave1_up_b8"||kernel=="c32_wave1_up_lb"||kernel=="c32_wave1_up_b8_lb"||kernel=="c32_wave1_finish_dcrop_b8"||kernel=="c32_wave1_finish_dcrop_b8d"||kernel=="c32_wave1_prefix_b8d"||kernel=="c32_wave1_mapped_b8"||kernel=="c32_wave1_finish_b8"||(kernel=="c32_wave1_post_b8"||kernel=="c32_wave1_post_b8_rgba"||kernel=="c32_wave1_post_b8_features"))){groups=count;threads=32;}
++  if(module=="c32_wave1"&&(kernel=="c32_wave1_up"||kernel=="c32_wave1_up_b8"||kernel=="c32_wave1_up_lb"||kernel=="c32_wave1_up_b8_lb"||kernel=="c32_wave1_finish_dcrop_b8"||kernel=="c32_wave1_finish_dcrop_b8d"||kernel=="c32_wave1_prefix_b8d"||kernel=="c32_wave1_mapped_b8"||kernel=="c32_wave1_finish_b8"||(kernel=="c32_wave1_post_logit"||kernel=="c32_wave1_post_b8_logit"||kernel=="c32_wave1_post_b8"||kernel=="c32_wave1_post_b8_rgba"||kernel=="c32_wave1_post_b8_features"))){groups=count;threads=32;}
+   if(module=="c512_m32_mh"||module=="c512_m32_deep"){groups=count/1024;threads=32;}
+   if(kernel=="split_ffn_one_w2"||kernel=="split_ffn_one_w2f8")threads=64;
+   if(kernel=="split_ffn_proj_fused"){threads=256;groups=count/8192;}
+@@ -614,12 +660,10 @@
+  static long long AdaptiveIdleMs(){static const long long ms=[]{const char*v=std::getenv("DLSS5_VIT_ADAPTIVE_IDLE_MS");if(!v||!*v)return 500LL;char*e=nullptr;long long x=std::strtoll(v,&e,10);return (e&&!*e&&x>=0)?x:500LL;}();return ms;}
+  Tensor adaptive_image_anchor,adaptive_image_signature,adaptive_image_delta;void*adaptive_image=nullptr;
+  void*adaptive_prev_history=nullptr;void*adaptive_prev_input=nullptr;U adaptive_prev_seed=0;
+- bool adaptive_dirty=false,adaptive_key_down=false,adaptive_user_disabled=false;U adaptive_last_mode=0,adaptive_frame=0;
++ bool adaptive_allowed=true,adaptive_dirty=false;U adaptive_last_mode=0,adaptive_frame=0;
+  bool adaptive_active=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
+  Tensor AdaptiveVitGroup(Tensor input,U n){
+-  const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=mode_s?U(std::stoul(mode_s)):0;
+-  const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
+-  if(hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
++  const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=adaptive_allowed&&mode_s?U(std::stoul(mode_s)):0;
+   AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
+   if(multi_pass>1)mode=0;
+   if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
+@@ -634,7 +678,17 @@
+    else{std::vector<double>product(1024,1.);for(U block=31;block<=38;block++)for(const char*part:{"contract","projection"}){auto weight=ReadWeights(opt.assets+"/block"+std::to_string(block)+"-"+part+".f32");size_t matrix=!strcmp(part,"contract")?4194304:1048576;if(weight.size()!=matrix+1024)throw std::runtime_error("adaptive gain weight shape");for(U i=0;i<1024;i++)product[i]*=double(weight[matrix+i]);}for(U i=0;i<1024;i++)gain[i]=float(product[i]);}
+    for(float v:gain)if(!std::isfinite(v))throw std::runtime_error("adaptive gain nonfinite");adaptive_gain=Upload(gain.data(),4096,true);
+   }
+-  if(reset){U zero[8]{};adaptive_state=Upload(zero,sizeof(zero),true);adaptive_anchor_in=New(size_t(n)*1024);adaptive_anchor_out=New(size_t(n)*1024);adaptive_stats=New(size_t(n)*4);adaptive_n=n;U tiles=((W+31)/32)*((H+31)/32);adaptive_image_anchor=New(size_t(tiles)*3);adaptive_image_signature=New(size_t(tiles)*3);adaptive_image_delta=New(tiles);}
++  if(reset){
++   // PrepareStagedKernels warms the first allocation before producer waits.
++   // Same-geometry resets must not free old anchors or synchronously upload:
++   // queued frames may still use them, waiting for a producer not yet submitted.
++   if(!adaptive_state||adaptive_n!=n){
++    adaptive_state=std::make_shared<Allocation>(api,8*sizeof(U));
++    adaptive_anchor_in=New(size_t(n)*1024);adaptive_anchor_out=New(size_t(n)*1024);adaptive_stats=New(size_t(n)*4);adaptive_n=n;
++    U tiles=((W+31)/32)*((H+31)/32);adaptive_image_anchor=New(size_t(tiles)*3);adaptive_image_signature=New(size_t(tiles)*3);adaptive_image_delta=New(tiles);
++   }
++   api.Check(api.hipMemsetAsync(P(adaptive_state),0,8*sizeof(U),stream),"adaptive reset");
++  }
+   U stride=free_geometry?(W/64+3)/4*4:W==1920?32:W/64,tiles=((W+31)/32)*((H+31)/32);
+   if(!adaptive_image)throw std::runtime_error("adaptive image missing");
+   Run("deep","reuse_image_stats",size_t(tiles)*256,adaptive_image,P(adaptive_image_anchor),P(adaptive_state),P(adaptive_image_signature),P(adaptive_image_delta),W,H);
+@@ -705,7 +759,7 @@
+ if(wave_owned_active){
+  const bool rtz_tall=HIP_C32_RTZ_TALL&&W==1920&&(H==1152||H==1088)&&std::ifstream(std::filesystem::u8path(opt.modules+"/c32-wave1-rtz.hsaco"),std::ios::binary).good();
+  std::string extra[][2]={{"c64_wave2","c64-wave2"},{"c32_wave1",rtz_tall?"c32-wave1-rtz":"c32-wave1"}};
+- for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
++ if(fast_numeric||opt.experimental_temporal)for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
+  for(auto&entry:extra){entry[1]+=".hsaco";Handle m{};
+   api.Check(api.LoadModule(&m,(opt.modules+"/"+entry[1]).c_str()),entry[1].c_str());modules[entry[0]]=m;
+   if(entry[0]=="c32_wave1"){
+@@ -738,7 +792,7 @@
+ if(opt.fast_deep){const std::string deep_stem=opt.packed_weights?"deep_fast-packed":"deep_fast";Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+FastTwin(deep_stem)+".hsaco").c_str()),"deep fast module");modules["deep_fast"]=m;}
+ if(opt.fast_mh){const std::string mh_stem=opt.packed_weights?(opt.mh_wave?"multihead-fast-padded-wave-packed":"multihead-fast-packed"):(opt.mh_wave?"multihead-fast-padded-wave":"multihead-fast");Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+FastTwin(mh_stem)+".hsaco").c_str()),"MH fast module");modules["mh_fast"]=m;}
+  /* free geometry: the per-slot tile counters (PDL_SLOTS, one per 16 C64 tokens) cover processing surfaces up to 4.19M pixels; larger free sizes run without PDL */
+- if(opt.pdl&&!(free_geometry&&size_t(W/4)*(H/4)/16>PDL_SLOTS)){if(opt.graph)throw std::runtime_error("pdl requires graph off");api.Load(ext_launch,"hipExtModuleLaunchKernel");api.Check(api.hipMalloc((void**)&pdl_flags,size_t(PDL_SLOTS)*PDL_RING*4),"pdl flags");api.Check(api.hipMemsetAsync(pdl_flags,0,size_t(PDL_SLOTS)*PDL_RING*4,stream),"pdl flags zero");pdl_mode=7;}
++ PreflightPdl();
+ if(opt.fast_prefix){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/prefix_fast.hsaco").c_str()),"prefix fast module");modules["prefix_fast"]=m;}
+ if(opt.fused_c32){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/c32_fused_attention.hsaco").c_str()),"fused attention module");modules["c32_fused"]=m;}
+ if(opt.fast_c32){const char*f[][2]={{"c32_fast_ffn","c32_fast.hsaco"},{"c32_fast_attention","c32_fast_attention.hsaco"},{"boundary_fast","boundary-fast.hsaco"}};for(auto&v:f){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+v[1]).c_str()),v[1]);modules[v[0]]=m;}}if(opt.tiled){const char*t[][2]={{"c32_tiled","c32_tiled.hsaco"},{"mh_tiled","multihead-tiled.hsaco"}};for(auto&v:t){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+v[1]).c_str()),v[1]);modules[v[0]]=m;}}if(opt.wave){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/wave-pointwise.hsaco").c_str()),"wave module");modules["wave"]=m;}if(HIP_POOL64_BYTE_EDGE&&wave_owned_active&&opt.mh_byte_stream&&opt.mh_project_crop&&opt.mh_input_mapped&&opt.elide_identity_shift&&opt.grouped_mh_contract&&opt.packed_weights&&opt.mh_proj_diag_fb&&opt.pool32_h16w&&opt.fast_mh&&!opt.skip_blocks.count(5)&&!observer&&opt.dump_dir.empty()){
+@@ -762,7 +816,7 @@
+ }
+ 
+ if(wave_owned_active)HasFn("c32_wave1","c32_wave1_post_b8_rgba");if(multi_predict||std::ifstream(opt.modules+"/multi-pass-predict.hsaco").good())EnsurePredictModule();if(multi_pass>1)PrepareMultiPassFeeds();if(multi_skin)PrepareSkin();}catch(...){if(!pulse_lease.Close()){std::fprintf(stderr,"submit_pulse ctor cleanup retained owner stream\n");throw;}if(pdl_flags){api.hipStreamSynchronize(stream);api.hipFree(pdl_flags);pdl_flags=nullptr;}for(auto&m:modules)api.hipModuleUnload(m.second);api.hipStreamDestroy(stream);throw;}}
+- ~Network(){if(!pulse_lease.Close()){std::fprintf(stderr,"submit_pulse direct destructor retained owner stream; bridge must preclose\n");return;}std::fprintf(stderr,"submit_pulse resources create=%llu create_ok=%llu record=%llu record_ok=%llu destroy=%llu destroy_ok=%llu drain=%llu site_visits=%llu accepted=%llu reject_mask=%u lifetime_pdl_calls=%u\n",pulse_ops.create_calls,pulse_ops.create_ok,pulse_ops.record_calls,pulse_ops.record_ok,pulse_ops.destroy_calls,pulse_ops.destroy_ok,pulse_ops.drain_calls,pulse_site_visits,pulse_record_accepted,pulse_last_reject_mask,pdl_calls);api.hipSetDevice(int(opt.device));api.hipStreamSynchronize(stream);experimental_history.reset();experimental_prefix.reset();experimental_raw.reset();experimental_logit.reset();experimental_weights.reset();experimental_sig.reset();experimental_recip.reset();temporal_features.reset();SpReport();pdl_keep.clear();if(pdl_flags){api.hipFree(pdl_flags);pdl_flags=nullptr;}if(opt.graph)std::printf("graph_stats builds=%u replays=%u\n",graph_builds,graph_replays);ClearGraph();for(auto&t:timings){api.hipEventDestroy(t.begin);api.hipEventDestroy(t.end);}adaptive_image_anchor.reset();adaptive_image_signature.reset();adaptive_image_delta.reset();adaptive_anchor_in.reset();adaptive_anchor_out.reset();adaptive_gain.reset();adaptive_stats.reset();adaptive_state.reset();device_noise.reset();gather_maps[0].clear();gather_maps[1].clear();weights.clear();pool.clear();for(auto&m:modules)api.hipModuleUnload(m.second);api.hipStreamDestroy(stream);}
++ ~Network(){if(!pulse_lease.Close()){std::fprintf(stderr,"submit_pulse direct destructor retained owner stream; bridge must preclose\n");return;}std::fprintf(stderr,"submit_pulse resources create=%llu create_ok=%llu record=%llu record_ok=%llu destroy=%llu destroy_ok=%llu drain=%llu site_visits=%llu accepted=%llu reject_mask=%u lifetime_pdl_calls=%u\n",pulse_ops.create_calls,pulse_ops.create_ok,pulse_ops.record_calls,pulse_ops.record_ok,pulse_ops.destroy_calls,pulse_ops.destroy_ok,pulse_ops.drain_calls,pulse_site_visits,pulse_record_accepted,pulse_last_reject_mask,pdl_calls);api.hipSetDevice(int(opt.device));api.hipStreamSynchronize(stream);native_post_row.reset();experimental_history.reset();experimental_prefix.reset();experimental_raw.reset();experimental_logit.reset();experimental_weights.reset();experimental_sig.reset();experimental_recip.reset();temporal_features.reset();SpReport();pdl_keep.clear();if(pdl_flags){api.hipFree(pdl_flags);pdl_flags=nullptr;}if(opt.graph)std::printf("graph_stats builds=%u replays=%u\n",graph_builds,graph_replays);ClearGraph();for(auto&t:timings){api.hipEventDestroy(t.begin);api.hipEventDestroy(t.end);}adaptive_image_anchor.reset();adaptive_image_signature.reset();adaptive_image_delta.reset();adaptive_anchor_in.reset();adaptive_anchor_out.reset();adaptive_gain.reset();adaptive_stats.reset();adaptive_state.reset();device_noise.reset();gather_maps[0].clear();gather_maps[1].clear();weights.clear();pool.clear();for(auto&m:modules)api.hipModuleUnload(m.second);api.hipStreamDestroy(stream);}
+  void PrintMemory(){size_t bytes=0,free=0,total=0;std::set<void*>seen;auto add=[&](const Tensor&t){if(t&&t->owned&&seen.insert(t->ptr).second)bytes+=t->capacity;};for(auto&t:pool)add(t);for(auto&w:weights)add(w.second);for(auto&maps:gather_maps)for(auto&m:maps)add(m.second);add(device_noise);api.Check(api.hipMemGetInfo(&free,&total),"memory stats");std::printf("memory owned_MiB=%.1f allocations=%zu device_free_MiB=%.1f total_MiB=%.1f\n",bytes/1048576.,seen.size(),free/1048576.,total/1048576.);}
+  /* DLSS5_HIP_MEMORY=1 (diagnostic): device memory by category after the pool has warmed — weights by key, pool tensors by capacity, gather maps, noise, and the runtime's free/total. */
+  void MemoryReport(FILE*f){std::set<void*>seen;size_t wsum=0,psum=0,gsum=0,nsum=0;std::vector<std::pair<size_t,std::string>>w,p;
+@@ -809,7 +863,10 @@
+  else
+  {if(c32_skip_byte)throw std::runtime_error("byte C32 skip needs the wave-owned up");source=Up(source,skips[0],W/4,H/4,W/2,H/2,64,32,"block66-weights.f32");}skips[0].reset();c32_skip_byte=false;for(U b=c32_begin;b<=69;b++){if(opt.skip_blocks.count(b)){if(!opt.raw_chain)throw std::runtime_error("C32 skip needs the raw chain");if(b==69)SkipChainFinish(chain,W/2,H/2,false);if(chain.main)source=chain.main;continue;}chain=opt.raw_chain?C32Chain(source,chain.raw?&chain:nullptr,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"),b==69,false):C32(source,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"));source=chain.main;if(source)Stage("block"+std::to_string(b),source);}chain={};
+  C32Result post{};
+- if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){const bool lowb=c32_post_low_byte;const bool rgba=request_rgba&&lowb&&HasFn("c32_wave1","c32_wave1_post_b8_rgba");graph_output_stride=rgba?4:3;Tensor out;if(rgba){out=multi_feed[multi_next];multi_next^=1;if(!out)throw std::runtime_error("RGBA outputs must be prepared before producer wait");}else out=(final_rgb?std::make_shared<Allocation>(api,final_rgb,size_t(W)*H*12):New(size_t(W)*H*3));c32_post_low_byte=false;if(temporal_feature_tap_active){
++ if(opt.post_merge_fold){U sx=(opt.post_shift&1)?4:0,sy=(opt.post_shift&2)?4:0,ww=W+2*sx,hh=H+2*sy,windows=ww*hh/64;if(opt.post_head_fused){const bool lowb=c32_post_low_byte;const bool rgba=request_rgba&&lowb&&HasFn("c32_wave1","c32_wave1_post_b8_rgba");graph_output_stride=rgba?4:3;Tensor out;if(rgba){out=multi_feed[multi_next];multi_next^=1;if(!out)throw std::runtime_error("RGBA outputs must be prepared before producer wait");}else out=(final_rgb?std::make_shared<Allocation>(api,final_rgb,size_t(W)*H*12):New(size_t(W)*H*3));c32_post_low_byte=false;if(native_post_output){
++ if(rgba||multi_pass!=1)throw std::runtime_error("auxiliary post requires single pass RGB output");
++ Run("c32_wave1",lowb?"c32_wave1_post_b8_logit":"c32_wave1_post_logit",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f,P(native_post_row),native_post_output);
++ }else if(temporal_feature_tap_active){
+  if(!lowb||rgba)throw std::runtime_error("temporal feature tap post layout changed");
+  Run("c32_wave1","c32_wave1_post_b8_features",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f,P(temporal_features));
+ }else Run(lowb?"c32_wave1":"c32_fused_ffn",lowb?(rgba?"c32_wave1_post_b8_rgba":"c32_wave1_post_b8"):"c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);source.reset();skip0.reset();Stage("block70",out);return out;}
+@@ -850,6 +907,19 @@
+  bool PulseProfileCompatible()const noexcept{return opt.runtime==7&&opt.pooled&&opt.wmma&&opt.wave&&opt.fast_prefix&&opt.fast_c32&&opt.fast_mh&&opt.fast_deep&&opt.packed_weights&&opt.packed_c32&&opt.fp8_normalized&&opt.fp8_av&&opt.fp8_deep&&opt.raw_chain&&opt.prefix_inline&&opt.fused_qkv_norm&&opt.ffn_qkv&&opt.ffn_qkv_max_c==256&&opt.grouped_mh_contract&&opt.split_ffn_fused&&opt.split_mix_blocked&&opt.split_project_blocked&&opt.vit_qkv_fused&&opt.vit_attn_fused&&opt.vit_qkv_fp8&&opt.vit_contract_frag&&opt.vit_weight_mask==1&&opt.vit_pack_input&&opt.mh_project_crop&&opt.pool_project_group&&opt.wave_owned&&final_direct_compatible&&opt.dup_prefix.empty()&&opt.mh_byte_stream&&opt.mh_ffn_frag256&&opt.decoder_byte&&opt.c512_m32&&opt.vit_proj_n64&&opt.vit_stream==3&&opt.swin_run&&!opt.vit_byte_stream&&!opt.vit_half_stream&&!opt.vit_qkv_n4&&!opt.vit_split_k&&!opt.sparse_weights;}
+  unsigned PulseRejectMask(bool at_site=false)const noexcept{const char*ae=std::getenv("DLSS5_VIT_ADAPTIVE");return (pulse_frame_history?1u:0u)|(!pulse_platform_scope?131072u:0u)|(opt.submit_pulse==2&&!pulse_driver_validated?262144u:0u)|(!PulseProfileCompatible()||!pulse_capabilities_ok?524288u:0u)|(pulse_bridge_diagnostics?2097152u:0u)|(at_site&&!SwinRunActive()?1048576u:0u)|(opt.graph?2u:0u)|(opt.profile?4u:0u)|(opt.wall_profile?8u:0u)|(opt.experimental_temporal?16u:0u)|(opt.temporal_feature_tap?32u:0u)|(!opt.skip_blocks.empty()?64u:0u)|(multi_pass!=1?128u:0u)|(multi_pass==3&&multi_predict?256u:0u)|(multi_skin?512u:0u)|((ae&&*ae&&std::strcmp(ae,"0"))?1024u:0u)|(pdl_anyorder?2048u:0u)|(at_site&&!pulse_ordered_down_c256?65536u:0u)|(!opt.pool_project_group?32768u:0u)|(!fast_numeric?8192u:0u)|(!((W==1600&&H==960)||(W==1920&&H==1152))?16384u:0u);}
+  bool PulseEligible()const noexcept{return PulseRejectMask()==0;}
++ // Optional raster auxiliary output: two floats per processing pixel, FP32 logit
++ // followed by its half-RTZ diagnostic value. Caller owns the device buffer until
++ // all enqueued work completes; configuration is serialized before warm-up.
++ struct PostAuxiliary {void* data=nullptr;size_t bytes=0;U width=0,height=0;U pixel_stride=8;};
++ bool NativeHistorySupported()const{return wave_owned_active&&opt.post_merge_fold&&opt.post_head_fused&&!opt.graph&&multi_pass==1&&!opt.experimental_temporal&&!opt.temporal_feature_tap;}
++ void EnableNativePostHistory(const std::vector<float>&row,const PostAuxiliary&aux){
++  if(row.size()!=32||!aux.data||aux.bytes<size_t(W)*H*8||aux.width!=W||aux.height!=H||aux.pixel_stride!=8||native_post_row||!NativeHistorySupported())throw std::runtime_error("auxiliary post layout or network unsupported");
++  for(float v:row)if(!std::isfinite(v))throw std::runtime_error("auxiliary post nonfinite weight");
++  // Fn follows the actual selected module, including norm900. Never silently
++  // replace an optimized upstream module with a different numerical route.
++  Fn("c32_wave1","c32_wave1_post_logit");Fn("c32_wave1","c32_wave1_post_b8_logit");
++  native_post_row=Upload(row.data(),128,true);native_post_output=aux.data;
++ }
+  bool GraphEnabled()const{return opt.graph;}
+  bool WaveOwnedActive()const{return wave_owned_active;}
+  bool SwinRunActive()const{return SwinRunCompatible(opt)&&!sp_disabled&&(!sp_error_host||!sp_error_host[0].load(std::memory_order_acquire));}
+@@ -860,6 +930,10 @@
+  Handle Stream()const{return stream;}
+  Api& Runtime(){return api;}
+  void Synchronize(){api.Check(api.hipStreamSynchronize(stream),"network completion");}
++ // Serialize with Enqueue on this instance. Does not change environment/hotkey
++ // preferences; callers opt out when their temporal policy requires full ViT.
++ void SetAdaptiveReuseAllowed(bool allowed){if(adaptive_allowed!=allowed){adaptive_allowed=allowed;adaptive_dirty=true;}}
++
+  void Enqueue(void*rgba,void*history,void*rgb_output,U seed){pulse_ordered_down_c256=false;pulse_frame_pdl_start=pdl_calls;pulse_frame_history=history!=nullptr;if(adaptive_prev_history!=history||adaptive_prev_seed!=seed||adaptive_prev_input!=rgba){adaptive_dirty=true;adaptive_prev_history=history;adaptive_prev_seed=seed;adaptive_prev_input=rgba;}
+   if(!rgba||!rgb_output||(!device_noise&&!opt.fast_prefix)||!opt.pooled||opt.profile||opt.wall_profile||observer||!opt.dump_dir.empty())throw std::runtime_error("device graph requires initialized noise, pooled mode and no diagnostic readbacks");
+   if(opt.graph){
+@@ -924,7 +998,12 @@
+  using Memcpy2DFn=int(*)(void*,size_t,const void*,size_t,size_t,size_t,int,Handle);Memcpy2DFn memcpy2d{};
+  std::set<U> multi_skip;
+  U graph_output_stride=3,skin_first_stride=3;bool multi_predict=true,multi_skin=false;Tensor predict_gain,skin_first,skin_mask,skin_result;
+- __attribute__((noinline)) Tensor MultiPassRest(Tensor out,const Tensor&hist,const Tensor&original,U stride=3,void*final_rgb=nullptr){
++ #if defined(_MSC_VER)
++ __declspec(noinline)
++ #else
++ __attribute__((noinline))
++ #endif
++ Tensor MultiPassRest(Tensor out,const Tensor&hist,const Tensor&original,U stride=3,void*final_rgb=nullptr){
+   if(multi_skin){if(!skin_first)throw std::runtime_error("skin resources must be prepared before producer wait");skin_first_stride=stride;api.Check(api.hipMemcpyAsync(P(skin_first),P(out),size_t(W)*H*stride*4,3,stream),"save first pass for skin");}
+   /* passes 2..N: DLSS5_MULTI_PASS_SKIP_BLOCKS added to the configured skip set (restored after, also on a throw) */
+   std::set<U> saved;const bool swap=!multi_skip.empty();if(swap){saved=opt.skip_blocks;opt.skip_blocks.insert(multi_skip.begin(),multi_skip.end());}
+@@ -941,7 +1020,7 @@
+  public:
+  /* Pass count changed at run time (add-on hot reload / hotkey, 2026-10-03). Same value = no-op. A graph is rebuilt; feed buffers
+     are allocated on the next multi-pass frame (outside capture: the warm frame). */
+- void SetMultiPass(U n){if(temporal_feature_tap_active&&!opt.experimental_temporal&&n!=1)throw std::runtime_error("temporal feature tap is MP1-only");if(n<1||n>3||n==multi_pass)return;if(opt.experimental_temporal){experimental_ready=false;temporal_feature_tap_active=n==1;}if(n>1)PrepareMultiPassFeeds();multi_pass=n;adaptive_dirty=true;if(opt.graph){Synchronize();ClearGraph();graph_warmed=false;}}
++ void SetMultiPass(U n){if(native_post_output&&n!=1)throw std::runtime_error("auxiliary post output is MP1-only; recreate without auxiliary output to change passes");if(temporal_feature_tap_active&&!opt.experimental_temporal&&n!=1)throw std::runtime_error("temporal feature tap is MP1-only");if(n<1||n>3||n==multi_pass)return;if(opt.experimental_temporal){experimental_ready=false;temporal_feature_tap_active=n==1;}if(n>1)PrepareMultiPassFeeds();multi_pass=n;adaptive_dirty=true;if(opt.graph){Synchronize();ClearGraph();graph_warmed=false;}}
+  U MultiPass()const{return multi_pass;}
+  void SetMultiPassPredict(bool enabled){if(enabled==multi_predict)return;if(enabled){EnsurePredictModule();if(multi_pass>1)PrepareMultiPassFeeds();}multi_predict=enabled;std::fprintf(stderr,"multi_pass_predict=%u requested_passes=%u actual_network_passes=%u\n",unsigned(multi_predict),multi_pass,multi_predict&&multi_pass==3?2:multi_pass);if(opt.graph){Synchronize();ClearGraph();graph_warmed=false;}}
+  bool MultiPassPredict()const{return multi_predict;}
+--- a/src/native_game_codec.h
++++ b/src/native_game_codec.h
+@@ -16,6 +16,12 @@
+  float transfer_strength=1.f,color_strength=1.f;
+  NativeCodecDebugView debug_view=NativeCodecDebugView::Final;
+  float pre_exposure=1.f,exposure_scale=1.f;
++ // No usable game exposure texture: estimate white point from image mean.
++ // Packed into the debug_view cbuffer word high bit (0x10000).
++ bool auto_white=false;
++ // Opt-in integration policies; defaults preserve the legacy codec output.
++ bool use_pre_exposure=false; // no exposure texture: use the host pre-exposure
++ bool hue_safe=false; // CS 0..1 preserves game chroma; CS 2 reaches legacy CS 1
+  bool Valid()const{return std::isfinite(pre_exposure)&&pre_exposure>0&&std::isfinite(exposure_scale)&&exposure_scale>0&&ValidStrength();}
+  bool ValidStrength()const{return std::isfinite(transfer_strength)&&std::isfinite(color_strength)&&transfer_strength>=0.f&&transfer_strength<=3.f&&color_strength>=0.f&&color_strength<=3.f&&uint32_t(debug_view)<=4;}
+ };
+@@ -29,7 +35,7 @@
+  static constexpr size_t binding_limit=8;
+  void ClearBindings(){for(auto&b:bindings){b.heap->Release();for(auto*r:b.sources)if(r)r->Release();}bindings.clear();}
+  UINT count{};bool recorded{};NativeInputGeometry geometry{};UINT out_width{},out_height{},row_pitch{};
+- bool private_float_output{};
++ bool private_float_output{};DXGI_FORMAT rgba16_view=DXGI_FORMAT_UNKNOWN;
+  /* DLSS5_IO_FUSE=1 (decode only): the network's f32 RGB output buffer, read directly by the decoder instead of the neural texture */
+  ID3D12Resource*neural_buffer{};
+  bool unorm_out{},unorm8_out{},r11_out{};DXGI_FORMAT out_format{};
+@@ -43,13 +49,21 @@
+   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=exposure_texture->GetDesc().Format;sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;
+   auto cpu=h->GetCPUDescriptorHandleForHeapStart();cpu.ptr+=SIZE_T(count+1)*d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);d->CreateShaderResourceView(exposure_texture,&sv,cpu);
+  }
++ bool replayable_recording{};
+ public:
++ // Per-instance typeless interpretation, fixed before Create and rebinds.
++ void SetTypelessRgba16View(DXGI_FORMAT view){
++  if(count||(view!=DXGI_FORMAT_UNKNOWN&&view!=DXGI_FORMAT_R16G16B16A16_UNORM&&view!=DXGI_FORMAT_R16G16B16A16_FLOAT))throw std::runtime_error("typeless RGBA16 view contract");
++  rgba16_view=view;
++ }
++ void EnableReplayableRecording(){if(count)throw std::runtime_error("replayable recording must precede Create");replayable_recording=true;}
++
+  NativeGameCodec()=default;NativeGameCodec(const NativeGameCodec&)=delete;
+  ~NativeGameCodec(){if(neural_buffer)neural_buffer->Release();NativeUntrackResource(output);if(exposure_texture)exposure_texture->Release();ClearBindings();for(auto*r:source)if(r)r->Release();if(output)output->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+  /* SRV format of a codec input: the old mapping for every format accepted before 0.38; fallback-table formats (private FP16 output only) use their table view. */
+- static DXGI_FORMAT SourceView(DXGI_FORMAT f){return NativeIsGameColor(f)||f==DXGI_FORMAT_R9G9B9E5_SHAREDEXP||f==DXGI_FORMAT_R16G16B16A16_FLOAT?NativeViewFormat(f):NativeFallbackColorView(f)!=DXGI_FORMAT_UNKNOWN?NativeFallbackColorView(f):NativeViewFormat(f);}
++ DXGI_FORMAT SourceView(DXGI_FORMAT f)const{if(f==DXGI_FORMAT_R16G16B16A16_TYPELESS&&rgba16_view!=DXGI_FORMAT_UNKNOWN)return rgba16_view;return NativeIsGameColor(f)||f==DXGI_FORMAT_R9G9B9E5_SHAREDEXP||f==DXGI_FORMAT_R16G16B16A16_FLOAT?NativeViewFormat(f):NativeFallbackColorView(f)!=DXGI_FORMAT_UNKNOWN?NativeFallbackColorView(f):NativeViewFormat(f);}
+  // Encode: {linear original}. Decode: {encoded proxy, encoded neural, linear original}.
+- void Create(ID3D12Device*d,const std::vector<ID3D12Resource*>&inputs,const std::wstring&dir,bool privateFloatOutput=false,ID3D12Resource*exposure=nullptr){
++ void Create(ID3D12Device*d,const std::vector<ID3D12Resource*>&inputs,const std::wstring&dir,bool privateFloatOutput=false,ID3D12Resource*exposure=nullptr,unsigned activeWidth=0,unsigned activeHeight=0,NativeShaderCompiler*compiler=nullptr){
+   private_float_output=privateFloatOutput;
+   if(count||!d||(inputs.size()!=1&&inputs.size()!=3))throw std::runtime_error("codec initialization contract");
+   if(exposure){
+@@ -68,18 +82,20 @@
+   }
+   step(d,"inputs-checked");
+   count=UINT(inputs.size());for(UINT i=0;i<count;i++){source[i]=inputs[i];source[i]->AddRef();}
+-  auto external=source[count==3?2:0]->GetDesc();geometry=NativeInputGeometry::Make(unsigned(external.Width),external.Height,network.valid_width,network.valid_height,NativeAdmitLargeInput(),network.Free());
+-  out_width=count==3?geometry.width:network.valid_width;out_height=count==3?geometry.height:network.valid_height;
++  auto external=source[count==3?2:0]->GetDesc();
++  if((activeWidth==0)!=(activeHeight==0)||activeWidth>external.Width||activeHeight>external.Height)throw std::runtime_error("codec active input geometry");
++  geometry=NativeInputGeometry::Make(activeWidth?activeWidth:unsigned(external.Width),activeHeight?activeHeight:external.Height,network.valid_width,network.valid_height,NativeAdmitLargeInput(),network.Free());
++  out_width=count==3?unsigned(external.Width):network.valid_width;out_height=count==3?external.Height:network.valid_height;
+   auto desc=source[0]->GetDesc();desc.Width=out_width;desc.Height=out_height;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+   /* Typeless game textures: the encoder's output (our intermediate) is FP16; the decoder's output is copied raw into the game texture, so it takes the game's interpretation (UNORM for Ronin). */
+-  unorm_out=!private_float_output&&count==3&&NativeViewFormat(source[2]->GetDesc().Format)==DXGI_FORMAT_R16G16B16A16_UNORM;
++  unorm_out=!private_float_output&&count==3&&SourceView(source[2]->GetDesc().Format)==DXGI_FORMAT_R16G16B16A16_UNORM;
+   /* 8-bit UNORM game texture (Magpie): UNORM8 bits in a raw buffer (row pitch 1920*4), copied into the texture by the frame; BGRA order for B8G8R8A8. */
+-  unorm8_out=!private_float_output&&count==3&&NativeIsRgba8Unorm(source[2]->GetDesc().Format);r11_out=!private_float_output&&count==3&&NativeIsR11G11B10(source[2]->GetDesc().Format);out_format=private_float_output?DXGI_FORMAT_R16G16B16A16_FLOAT:count==3?NativeViewFormat(source[2]->GetDesc().Format):DXGI_FORMAT_UNKNOWN;
+-  row_pitch=geometry.RowPitch((unorm8_out||r11_out)?4:8);
++  unorm8_out=!private_float_output&&count==3&&NativeIsRgba8Unorm(source[2]->GetDesc().Format);r11_out=!private_float_output&&count==3&&NativeIsR11G11B10(source[2]->GetDesc().Format);out_format=private_float_output?DXGI_FORMAT_R16G16B16A16_FLOAT:count==3?SourceView(source[2]->GetDesc().Format):DXGI_FORMAT_UNKNOWN;
++  row_pitch=(out_width*((unorm8_out||r11_out)?4:8)+255u)&~255u;
+   desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+   if(unorm8_out||r11_out){desc={};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=UINT64(row_pitch)*out_height;desc.Height=1;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;}
+   else if(unorm_out){desc={};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=UINT64(row_pitch)*out_height;desc.Height=1;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;} /* UNORM bits in a raw buffer (this driver device-removes on non-float RGBA16 typed UAVs); the frame copies it into the game texture */ /* UNORM bits are written through a UINT UAV (the driver device-removes on a UNORM typed UAV) */
+-  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&output)),"output");step(d,"output-created");
++  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&desc,replayable_recording?D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&output)),"output");step(d,"output-created");
+   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,count+1+(exposure_texture?1u:0u),D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"heap");
+   UINT stride=d->GetDescriptorHandleIncrementSize(hd.Type);auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
+   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=NativeViewFormat(desc.Format);sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;
+@@ -91,9 +107,9 @@
+   D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=neural_buffer?3u:2u;rd.pParameters=params;ID3DBlob*b=nullptr,*err=nullptr;auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&b,&err);if(err)err->Release();check(hr,"rootsig-serialize");step(d,"rootsig-serialized");check(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)),"rootsig");step(d,"rootsig");b->Release();b=nullptr;err=nullptr;
+   /* DLSS5_CODEC_SRGB=1 (Magpie): the host texture is a display-referred sRGB picture: the encoder passes it through, the decoder linearizes and re-encodes. */
+   const char*srgb_io=(_wgetenv(L"DLSS5_CODEC_SRGB")&&!wcscmp(_wgetenv(L"DLSS5_CODEC_SRGB"),L"1"))?"1":"0";
+-  const char*fit=geometry.Adapted()?"1":"0";
++  const char*fit=(geometry.Adapted()||(count==3&&(out_width!=geometry.width||out_height!=geometry.height)))?"1":"0";
+   const D3D_SHADER_MACRO uint_out[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UINT_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},unorm8[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UNORM8_OUT","1"},{"NATIVE_CODEC_BGRA",(out_format==DXGI_FORMAT_B8G8R8A8_UNORM||out_format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)?"1":"0"},{"NATIVE_CODEC_DEBUG_TINT",(_wgetenv(L"DLSS5_DEBUG_TINT")&&!wcscmp(_wgetenv(L"DLSS5_DEBUG_TINT"),L"1"))?"1":"0"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},plain[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},r11[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_R11_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}}; /* DLSS5_DEBUG_TINT=1 (diagnostic): the UNORM8 path writes a magenta-tinted picture so the write-back is visible */std::vector<D3D_SHADER_MACRO>macros;for(const D3D_SHADER_MACRO*m=unorm8_out?unorm8:r11_out?r11:unorm_out?uint_out:plain;m->Name;m++)macros.push_back(*m);if(neural_buffer)macros.push_back({"NATIVE_CODEC_NEURAL_BUFFER","1"});if(count!=3&&network.Free()&&geometry.fit_width<geometry.network_width)macros.push_back({"NATIVE_CODEC_FIT_MIRROR","1"}); /* free geometry: mirror the input into the padded columns */macros.push_back({nullptr,nullptr});
+-  hr=CompileNativeShader(dir+(count==3?L"\\native_codec_decode.hlsl":L"\\native_codec_encode.hlsl"),macros.data(),"main",&b,&err);if(FAILED(hr)){std::string message=count==3?"codec decode compile failed: ":"codec encode compile failed: ";if(err)message.append(static_cast<const char*>(err->GetBufferPointer()),err->GetBufferSize());if(err)err->Release();if(b)b->Release();throw std::runtime_error(message+" HRESULT="+std::to_string(unsigned(hr)));}if(err)err->Release();step(d,"compiled");
++  hr=CompileNativeShader(dir+(count==3?L"\\native_codec_decode.hlsl":L"\\native_codec_encode.hlsl"),macros.data(),"main",&b,&err,compiler);if(FAILED(hr)){std::string message=count==3?"codec decode compile failed: ":"codec encode compile failed: ";if(err)message.append(static_cast<const char*>(err->GetBufferPointer()),err->GetBufferSize());if(err)err->Release();if(b)b->Release();throw std::runtime_error(message+" HRESULT="+std::to_string(unsigned(hr)));}if(err)err->Release();step(d,"compiled");
+   D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={b->GetBufferPointer(),b->GetBufferSize()};hr=NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso));b->Release();check(hr,"pso");
+  }
+  // Cached heaps are immutable and retain their resources. A full cache requires
+@@ -108,7 +124,7 @@
+   if(!pso||index>=count||!replacement)throw std::runtime_error("codec rebind contract");
+   if(replacement==source[index])return;
+   auto desc=replacement->GetDesc();
+-  if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.Width!=source[index]->GetDesc().Width||desc.Height!=source[index]->GetDesc().Height||desc.Format!=source[index]->GetDesc().Format||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||!(NativeIsGameColor(desc.Format)||(private_float_output&&desc.Format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP))||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error("codec rebind geometry/format");
++  if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.Width!=source[index]->GetDesc().Width||desc.Height!=source[index]->GetDesc().Height||desc.Format!=source[index]->GetDesc().Format||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||!(NativeIsGameColor(desc.Format)||(private_float_output&&(desc.Format==DXGI_FORMAT_R9G9B9E5_SHAREDEXP||NativeFallbackColor(desc.Format)!=DXGI_FORMAT_UNKNOWN)))||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error("codec rebind geometry/format");
+   if(replacement==output)throw std::runtime_error("codec rebind output alias");
+   for(UINT i=0;i<count;i++)if(i!=index&&source[i]==replacement)throw std::runtime_error("codec rebind input alias");
+   ID3D12Device*d=nullptr,*owner=nullptr;check(heap->GetDevice(IID_PPV_ARGS(&d)));
+@@ -152,11 +168,12 @@
+  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f){Record(c,before,paper_white,LegacyParameters());}
+  void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white,const NativeCodecParameters&parameters){
+   if(!c||!pso||before.size()!=count+(exposure_texture?1u:0u)||!(paper_white>0.f&&paper_white<=64.f&&paper_white==paper_white) /* 2026-09-24: any finite positive scale (DLSS5_PAPER_WHITE); was {0.5,1,2} */||!parameters.Valid())throw std::runtime_error("codec unverified record contract");
+-  if(recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  // Identical first/repeated recording barriers: CPU recording may be discarded.
++  if(replayable_recording||recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+   for(UINT i=0;i<count;i++)transition(c,source[i],before[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   if(exposure_texture)transition(c,exposure_texture,before.back(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   uint32_t words[20]={out_width,out_height,geometry.width,geometry.height,0,0,geometry.network_width,geometry.network_height,0,0x3f800000,0x3f800000,1};
+-  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
++  const float viewport[]={float(geometry.x),float(geometry.y),float(geometry.fit_width),float(geometry.fit_height)};std::memcpy(words+12,viewport,sizeof viewport);words[16]=row_pitch;std::memcpy(words+8,&paper_white,4);std::memcpy(words+9,&parameters.transfer_strength,4);std::memcpy(words+10,&parameters.color_strength,4);words[17]=uint32_t(parameters.debug_view)|(parameters.auto_white?0x10000u:0u)|(parameters.use_pre_exposure?0x20000u:0u)|(parameters.hue_safe?0x40000u:0u);std::memcpy(words+18,&parameters.pre_exposure,4);std::memcpy(words+19,&parameters.exposure_scale,4);
+   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);if(neural_buffer)c->SetComputeRootShaderResourceView(2,neural_buffer->GetGPUVirtualAddress());c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
+   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;
+@@ -165,6 +182,10 @@
+  void UseNeuralBuffer(ID3D12Resource*rgb){if(count||neural_buffer||!rgb||rgb->GetDesc().Dimension!=D3D12_RESOURCE_DIMENSION_BUFFER)throw std::runtime_error("codec neural buffer contract");neural_buffer=rgb;neural_buffer->AddRef();}
+  bool NeuralBuffer()const{return neural_buffer!=nullptr;}
+  const NativeInputGeometry&Geometry()const{return geometry;}
++ void PinRecording(std::vector<IUnknown*>&pins)const{
++  IUnknown*objects[]={heap,root,pso,output,exposure_texture,source[0],source[1],source[2],neural_buffer};
++  for(auto*p:objects)if(p){pins.push_back(p);p->AddRef();}
++ }
+  ID3D12Resource*Output()const{return output;}bool BufferOutput()const{return unorm_out||unorm8_out||r11_out;}
+  /* footprint of the raw output buffer for CopyTextureRegion into the game texture */
+  D3D12_SUBRESOURCE_FOOTPRINT BufferFootprint()const{return (unorm8_out||r11_out)?D3D12_SUBRESOURCE_FOOTPRINT{out_format,out_width,out_height,1,row_pitch}:D3D12_SUBRESOURCE_FOOTPRINT{DXGI_FORMAT_R16G16B16A16_UNORM,out_width,out_height,1,row_pitch};}
+--- a/src/native_game_rgb_input.h
++++ b/src/native_game_rgb_input.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <vector>
+ #include "native_pso.h"
+ #include "native_lab_paths.h"
+ #include "native_pinned_resource.h"
+@@ -18,11 +19,14 @@
+   if(a==b)return;D3D12_RESOURCE_BARRIER t{};t.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+   t.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,a,b};c->ResourceBarrier(1,&t);
+  }
++ bool replayable_recording{};
+ public:
++ void EnableReplayableRecording(){if(source)throw std::runtime_error("replayable recording must precede Create");replayable_recording=true;}
++
+  NativeGameRgbInput()=default;NativeGameRgbInput(const NativeGameRgbInput&)=delete;
+  ~NativeGameRgbInput(){for(auto*r:{tiles,color})NativeUntrackResource(r);for(auto*r:{source,tiles,color,external})if(r)r->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+  /* tiles=false (HIP backend): the tile-ordered copy is never read, so the shader skips it and the buffer is not allocated. */
+- void Create(ID3D12Device*d,ID3D12Resource*texture,const std::wstring&dir,bool tiles_needed=true){
++ void Create(ID3D12Device*d,ID3D12Resource*texture,const std::wstring&dir,bool tiles_needed=true,NativeShaderCompiler*compiler=nullptr){
+   if(source||!d||!texture)throw std::runtime_error("game RGB initialization");
+   geometry=NativeCurrentNetworkGeometry();auto desc=texture->GetDesc();
+   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.Width!=geometry.valid_width||desc.Height!=geometry.valid_height||desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))throw std::runtime_error("game RGB texture geometry");
+@@ -33,7 +37,7 @@
+   D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;D3D12_RESOURCE_DESC bd{};
+   bd.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;bd.Width=UINT64(geometry.processing_width)*geometry.processing_height*16;bd.Height=1;bd.DepthOrArraySize=bd.MipLevels=1;bd.SampleDesc.Count=1;bd.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;bd.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+   no_tiles=!tiles_needed;
+-  for(auto**r:{&tiles,&color})if(!(no_tiles&&r==&tiles))ck(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&bd,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(r)));
++  for(auto**r:{&tiles,&color})if(!(no_tiles&&r==&tiles))ck(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&bd,replayable_recording?D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(r)));
+   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};ck(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)));
+   D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=NativeViewFormat(desc.Format);sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;d->CreateShaderResourceView(source,&sv,heap->GetCPUDescriptorHandleForHeapStart());
+   D3D12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,0,0,0};D3D12_ROOT_PARAMETER p[3]{};
+@@ -42,7 +46,7 @@
+   D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=3;rd.pParameters=p;ID3DBlob*blob=nullptr,*error=nullptr;
+   auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error);if(error)error->Release();ck(hr);ck(d->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&root)));blob->Release();blob=nullptr;error=nullptr;
+   const D3D_SHADER_MACRO nt[]={{"NATIVE_RGB_NO_TILES","1"},{nullptr,nullptr}};const std::string ph=std::to_string(geometry.processing_height);const D3D_SHADER_MACRO fr[]={{"NATIVE_RGB_PROCESSING_HEIGHT",ph.c_str()},{no_tiles?"NATIVE_RGB_NO_TILES":nullptr,"1"},{nullptr,nullptr}}; /* free geometry: padded height from the host */
+-  hr=CompileNativeShader(dir+L"\\native_game_rgb_input.hlsl",geometry.Free()?fr:no_tiles?nt:nullptr,"main",&blob,&error);if(error)error->Release();ck(hr);
++  hr=CompileNativeShader(dir+L"\\native_game_rgb_input.hlsl",geometry.Free()?fr:no_tiles?nt:nullptr,"main",&blob,&error,compiler);if(error)error->Release();ck(hr);
+   D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={blob->GetBufferPointer(),blob->GetBufferSize()};ck(NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso)));blob->Release();
+  }
+  // before is supplied by the owner; the source returns to exactly that state.
+@@ -51,12 +55,12 @@
+   /* external (direct input): the shared network input rests in COMMON between frames (HIP reads it after the bridge fence) */
+   ID3D12Resource*out=external?external:color;const D3D12_RESOURCE_STATES rest=external?D3D12_RESOURCE_STATE_COMMON:D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+   if(external)transition(c,out,rest,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-  if(recorded)for(auto*r:{tiles,color})if(r&&!(external&&r==color))transition(c,r,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  if(replayable_recording||recorded)for(auto*r:{tiles,color})if(r&&!(external&&r==color))transition(c,r,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+   transition(c,source,before,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);
+   c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());
+   c->SetComputeRootUnorderedAccessView(1,(tiles?tiles:out)->GetGPUVirtualAddress());c->SetComputeRootUnorderedAccessView(2,out->GetGPUVirtualAddress());c->Dispatch(geometry.processing_width/8,geometry.processing_height/8,1);
+-  for(auto*r:{tiles,color})if(r&&!(external&&r==color))transition(c,r,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  if(replayable_recording||recorded)for(auto*r:{tiles,color})if(r&&!(external&&r==color))transition(c,r,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+   if(external)transition(c,out,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,rest);
+   transition(c,source,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before);recorded=true;
+  }
+@@ -68,5 +72,9 @@
+   external=shared;external->AddRef();
+  }
+  ID3D12Resource*Tiles()const{return tiles;}
++ void PinRecording(std::vector<IUnknown*>&pins)const{
++  IUnknown*objects[]={heap,root,pso,source,tiles,color,external};
++  for(auto*p:objects)if(p){pins.push_back(p);p->AddRef();}
++ }
+  ID3D12Resource*PostBase()const{return external?external:color;}
+ };
+--- a/src/native_hip_network.h
++++ b/src/native_hip_network.h
+@@ -12,19 +12,22 @@
+ public:
+  NativeHipNetwork()=default;NativeHipNetwork(const NativeHipNetwork&)=delete;
+  ~NativeHipNetwork(){if(!bridge.WaitForSubmittedWork())return;if(color)color->Release();if(history)history->Release();}
+- void Create(ID3D12CommandQueue*q,ID3D12Resource*rgb,const std::vector<float>&noise,const std::wstring&directory,ID3D12Resource*temporal,UINT post_shift,bool direct_input=false,bool experimental_temporal=false){
++ void Create(ID3D12CommandQueue*q,ID3D12Resource*rgb,const std::vector<float>&noise,const std::wstring&directory,ID3D12Resource*temporal,UINT post_shift,bool direct_input=false,bool experimental_temporal=false,const std::vector<float>&fast_history_row={}){
+   if(color||!rgb)throw std::runtime_error("HIP network initialization");auto g=NativeCurrentNetworkGeometry();hip_reference::Options o;o.width=g.processing_width;o.height=g.processing_height;o.post_shift=post_shift;o.fast_vit=true;o.wmma=o.wave=o.tiled=o.pooled=true;o.assets=Utf8(directory);if(const char*skip=std::getenv("DLSS5_SKIP_BLOCKS"))o.skip_blocks=hip_reference::ParseSkipBlocks(skip);
+   const bool fast=hip_reference::FastPrefixFromEnvironment();
+   if(fast)o.fast_c32=o.fused_c32=o.fused_ffn=o.fast_mh=o.fused_mh=o.mh_wave=o.fast_deep=o.fast_prefix=o.packed_weights=o.packed_c32=o.fp8_normalized=o.fp8_ffn=o.fp8_av=o.fp8_deep=o.fp8_middle=o.half_c32=o.crop_c32=o.fused_qkv_norm=o.fused_mh_ffn=o.tiled_mh_ffn=o.mapped_c32=o.vit_blocked=o.vit_contract_blocked=true;
+   o.tiled_ffn_min_c=256;
+   if(fast){o.vit_weight_mask=1;o.vit_pack_input=true;o.elide_identity_shift=true;o.raw_chain=true;o.pre_main8=true;o.post_merge_fold=true;o.fused_ffn_project=true;o.split_ffn_fused=true;o.split_mix_blocked=true;o.split_project_blocked=true;o.vit_qkv_blocked=true;o.vit_qkv_fused=true;o.mh_project_crop=true;o.mh_input_mapped=true;o.prefix_fused=true;o.direct_prefix_input=true;o.grouped_mh_contract=true;o.ffn_qkv=true;o.ffn_qkv_max_c=256;o.vit_attn_fused=true;o.vit_qkv_fp8=true;o.vit_expand_frag=true;/* 2026-09-16: fused ViT attention, byte ViT QKV, fragment-native expand weights (-0.23ms, bit-exact) */o.split_mix_h16w=true;/* 2026-09-16 21:50: C512 mix weights prepacked half (-0.12ms, bit-exact) */o.pool_project_h16w=true;/* 2026-09-16 22:20: downsample projection weights prepacked half/E4M3 (-0.21ms, bit-exact) */o.decoder_h16w=true;/* 2026-09-16 22:40: decoder up-projection weights prepacked half (-0.07ms, bit-exact) */o.c512_qkv_frag=true;/* 2026-09-16 20:45: C512 QKV from projection E4M3 tiles + fragment weights, no LDS (-0.37ms, bit-exact) */o.c512_proj_frag=true;o.c512_proj_tiles=true;o.mh_proj_diag=true;o.post_head_fused=true;o.c32_finish_fused=true;o.down_crop_fused=true;o.pool32_h16w=true;o.pool_project_group=true;o.vit_proj_frag=true;o.vit_qkv_frag=true;o.vit_contract_frag=true;/* 2026-09-16 21:55: C512 attention projection + split projection in the same shape (-0.31ms together, bit-exact) */o.prefix_inline=true;/* 2026-09-17 02:25: null on 09-17 00:21 while the block-0 kernel was issue-bound; -0.27ms once its F()/load serialization was fixed, bit-exact */}
+   NativeApplyHipEnvironment(o,fast);
+-  const wchar_t*modules=_wgetenv(L"DLSS5_HIP_MODULES");o.modules=modules&&*modules?Utf8(modules):Utf8(directory+L"\\HIP");o.experimental_temporal=experimental_temporal&&temporal&&NativeExperimentalTemporalCompatible()&&g.valid_width==g.processing_width;o.temporal_valid_height=g.valid_height;if(direct_input)bridge.RequestDirectInput();try{bridge.Create(q,o,noise);}catch(...){LogDevice();throw;}LogDevice();
++  const wchar_t*modules=_wgetenv(L"DLSS5_HIP_MODULES");o.modules=modules&&*modules?Utf8(modules):Utf8(directory+L"\\HIP");o.experimental_temporal=experimental_temporal&&temporal&&NativeExperimentalTemporalCompatible()&&g.valid_width==g.processing_width;o.temporal_valid_height=g.valid_height;if(direct_input)bridge.RequestDirectInput();if(!fast_history_row.empty()){bridge.RequestDirectHistory();bridge.RequestPostAuxiliary(fast_history_row);}
++  try{bridge.Create(q,o,noise);if(!fast_history_row.empty())bridge.SetAdaptiveReuseAllowed(false);}catch(...){LogDevice();throw;}LogDevice();
+   if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-hip.txt").c_str(),L"ab")){fprintf(f,"pid=%lu runtime=7 fast=%u packed_weights=%u packed_c32=%u fp8_normalized=%u fp8_ffn=%u fp8_av=%u fp8_deep=%u fp8_middle=%u half_c32=%u crop_c32=%u fused_qkv_norm=%u fused_mh_ffn=%u tiled_mh_ffn=%u tiled_ffn_min_c=%u mapped_c32=%u vit_blocked=%u vit_contract_blocked=%u vit_split_k=%u vit_weight_mask=%u vit_pack_input=%u elide_identity_shift=%u vit_qkv_fused=%u ffn_qkv=%u ffn_qkv_max_c=%u grouped_mh_contract=%u direct_prefix_input=%u prefix_fused=%u mh_input_mapped=%u mh_project_crop=%u vit_qkv_blocked=%u split_project_blocked=%u split_mix_blocked=%u split_ffn_fused=%u fused_ffn_project=%u post_merge_fold=%u pre_main8=%u raw_chain=%u graph=%u sparse_weights=%u processing=%ux%u modules=%s\n",GetCurrentProcessId(),unsigned(fast),unsigned(o.packed_weights),unsigned(o.packed_c32),unsigned(o.fp8_normalized),unsigned(o.fp8_ffn),unsigned(o.fp8_av),unsigned(o.fp8_deep),unsigned(o.fp8_middle),unsigned(o.half_c32),unsigned(o.crop_c32),unsigned(o.fused_qkv_norm),unsigned(o.fused_mh_ffn),unsigned(o.tiled_mh_ffn),o.tiled_ffn_min_c,unsigned(o.mapped_c32),unsigned(o.vit_blocked),unsigned(o.vit_contract_blocked),unsigned(o.vit_split_k),o.vit_weight_mask,unsigned(o.vit_pack_input),unsigned(o.elide_identity_shift),unsigned(o.vit_qkv_fused),unsigned(o.ffn_qkv),o.ffn_qkv_max_c,unsigned(o.grouped_mh_contract),unsigned(o.direct_prefix_input),unsigned(o.prefix_fused),unsigned(o.mh_input_mapped),unsigned(o.mh_project_crop),unsigned(o.vit_qkv_blocked),unsigned(o.split_project_blocked),unsigned(o.split_mix_blocked),unsigned(o.split_ffn_fused),unsigned(o.fused_ffn_project),unsigned(o.post_merge_fold),unsigned(o.pre_main8),unsigned(o.raw_chain),unsigned(o.graph),unsigned(o.sparse_weights),o.width,o.height,o.modules.c_str());fprintf(f,"pid=%lu swin_run_requested=%u swin_run_active=%u\n",GetCurrentProcessId(),unsigned(o.swin_run),unsigned(bridge.SwinRunActive()));fprintf(f,"pid=%lu vit_stream_requested=%u vit_stream_active=%u\n",GetCurrentProcessId(),o.vit_stream,hip_reference::VitStreamCompatible(o)?o.vit_stream:0);fprintf(f,"pid=%lu wave_owned_requested=%u wave_owned_active=%u\n",GetCurrentProcessId(),unsigned(o.wave_owned),unsigned(hip_reference::WaveOwnedCompatible(o)));if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-hip.txt").c_str(),L"ab")){fprintf(f,"pid=%lu c512_m32_requested=%u c512_m32_active=%u\n",GetCurrentProcessId(),unsigned(o.c512_m32),unsigned(hip_reference::C512M32Compatible(o)));fprintf(f,"pid=%lu vit_proj_n64_requested=%u vit_proj_n64_active=%u\n",GetCurrentProcessId(),unsigned(o.vit_proj_n64),unsigned(hip_reference::VitProjN64Compatible(o)));fclose(f);}fprintf(f,"pid=%lu hip_device=%d\n",GetCurrentProcessId(),bridge.hip_device);fclose(f);}
+   if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-hip.txt").c_str(),L"ab")){fprintf(f,"pid=%lu multi_pass=%u multi_pass_predict=%u predict_active=%u\n",GetCurrentProcessId(),bridge.MultiPass(),unsigned(bridge.MultiPassPredict()),unsigned(bridge.MultiPassPredict()&&bridge.MultiPass()==3));fclose(f);}
+   if(FILE*f=_wfopen(NativeLabPath(L"logs\\native-hip.txt").c_str(),L"ab")){fprintf(f,"pid=%lu multi_pass=%u multi_pass_skin_protect=%u skin_active=%u\n",GetCurrentProcessId(),bridge.MultiPass(),unsigned(bridge.MultiPassSkinProtect()),unsigned(bridge.MultiPassSkinProtect()&&bridge.MultiPass()>1));fclose(f);}
+-color=direct_input?bridge.DirectInput():rgb;color->AddRef();history=temporal;if(history)history->AddRef();
++color=direct_input?bridge.DirectInput():rgb;color->AddRef();history=fast_history_row.empty()?temporal:bridge.DirectHistory();if(history)history->AddRef();
+  }
++ ID3D12Resource* DirectHistory()const{return bridge.DirectHistory();}
++ auto PostAuxiliary()const{return bridge.PostAuxiliary();}
+  bool ExperimentalTemporalActive(){ApplyHotMultiPass();return bridge.ExperimentalTemporalActive();}
+  // The host submits both sides on the same queue. See D3D12Bridge's stage contract.
+  void RecordInputCopy(ID3D12GraphicsCommandList*c,bool use_history=false){if(use_history&&!history)throw std::runtime_error("HIP history not bound");bridge.RecordInputCopy(c,color,use_history?history:nullptr);}
+--- a/src/native_rgb_texture.h
++++ b/src/native_rgb_texture.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <vector>
+ #include "native_pso.h"
+ #include "native_pinned_resource.h"
+ #include "native_device_identity.h"
+@@ -11,27 +12,34 @@
+  ID3D12RootSignature*root{};ID3D12PipelineState*pso{};bool recorded{};
+  static void check(HRESULT hr){if(FAILED(hr))throw std::runtime_error("RGB texture HRESULT="+std::to_string(unsigned(hr)));}
+  static void transition(ID3D12GraphicsCommandList*c,ID3D12Resource*r,D3D12_RESOURCE_STATES a,D3D12_RESOURCE_STATES b){D3D12_RESOURCE_BARRIER t{};t.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;t.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,a,b};c->ResourceBarrier(1,&t);}
++ bool replayable_recording{};
+ public:
++ void EnableReplayableRecording(){if(input)throw std::runtime_error("replayable recording must precede Create");replayable_recording=true;}
++
+  NativeRgbTexture()=default;NativeRgbTexture(const NativeRgbTexture&)=delete;
+  ~NativeRgbTexture(){if(input)input->Release();if(output)output->Release();if(heap)heap->Release();if(root)root->Release();if(pso)pso->Release();}
+- void Create(ID3D12Device*d,ID3D12Resource*rgb,const std::wstring&dir){
++ void Create(ID3D12Device*d,ID3D12Resource*rgb,const std::wstring&dir,NativeShaderCompiler*compiler=nullptr){
+   if(input||!d||!rgb)throw std::runtime_error("RGB texture initialization");geometry=NativeCurrentNetworkGeometry();auto desc=rgb->GetDesc();
+   if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_BUFFER||desc.Width<UINT64(geometry.processing_width)*geometry.processing_height*12)throw std::runtime_error("RGB texture input capacity");
+   ID3D12Device*owner=nullptr;check(rgb->GetDevice(IID_PPV_ARGS(&owner)));bool same=NativeSameDevice(owner,d);owner->Release();if(!same)throw std::runtime_error("RGB texture device mismatch");input=rgb;input->AddRef();
+   D3D12_RESOURCE_DESC td{};td.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;td.Width=geometry.valid_width;td.Height=geometry.valid_height;td.DepthOrArraySize=td.MipLevels=1;td.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;td.SampleDesc.Count=1;td.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+-  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&td,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&output)));
++  D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;check(NativeCreateCommittedResource(d,&hp,D3D12_HEAP_FLAG_NONE,&td,replayable_recording?D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&output)));
+   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,1,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)));
+   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{};uv.Format=td.Format;uv.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;d->CreateUnorderedAccessView(output,nullptr,&uv,heap->GetCPUDescriptorHandleForHeapStart());
+   D3D12_DESCRIPTOR_RANGE range{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,0};D3D12_ROOT_PARAMETER p[2]{};p[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_SRV;p[0].Descriptor.ShaderRegister=0;p[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;p[1].DescriptorTable={1,&range};
+   D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=2;rd.pParameters=p;ID3DBlob*b=nullptr,*err=nullptr;auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&b,&err);if(err)err->Release();check(hr);check(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)));b->Release();b=nullptr;err=nullptr;
+-  hr=CompileNativeShader(dir+L"\\native_rgb_texture.hlsl",nullptr,"main",&b,&err);if(err)err->Release();check(hr);D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={b->GetBufferPointer(),b->GetBufferSize()};hr=NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso));b->Release();check(hr);
++  hr=CompileNativeShader(dir+L"\\native_rgb_texture.hlsl",nullptr,"main",&b,&err,compiler);if(err)err->Release();check(hr);D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={b->GetBufferPointer(),b->GetBufferSize()};hr=NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso));b->Release();check(hr);
+  }
+  // Input is the network output in NON_PIXEL_SHADER_RESOURCE throughout.
+  // Consumers must restore Output to NON_PIXEL_SHADER_RESOURCE after use.
+  void Record(ID3D12GraphicsCommandList*c){
+-  if(!c||!pso)throw std::runtime_error("RGB texture unavailable");if(recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  if(!c||!pso)throw std::runtime_error("RGB texture unavailable");if(replayable_recording||recorded)transition(c,output,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+   c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootShaderResourceView(0,input->GetGPUVirtualAddress());c->SetComputeRootDescriptorTable(1,heap->GetGPUDescriptorHandleForHeapStart());c->Dispatch((geometry.valid_width+15)/16,(geometry.valid_height+15)/16,1);
+   transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);recorded=true;
+  }
+  ID3D12Resource*Output()const{return output;}
++ void PinRecording(std::vector<IUnknown*>&pins)const{
++  IUnknown*objects[]={heap,root,pso,input,output};
++  for(auto*p:objects)if(p){pins.push_back(p);p->AddRef();}
++ }
+ };
+--- a/src/native_shader_cache.h
++++ b/src/native_shader_cache.h
+@@ -29,8 +29,21 @@
+  }
+  HRESULT STDMETHODCALLTYPE Close(const void*)override{return S_OK;}
+ };
+-inline HRESULT CompileNativeShader(const std::wstring&path,const D3D_SHADER_MACRO*macros,const char*entry,ID3DBlob**code,ID3DBlob**errors){
++// Optional per-creation compiler. The caller owns its lifetime for the call.
++// Providers own their cache policy; bypass the default cache so compiler identity,
++// includes and flags cannot collide with another provider or the default compiler.
++struct NativeShaderCompiler {
++ virtual ~NativeShaderCompiler()=default;
++ virtual HRESULT File(const std::wstring& path,const D3D_SHADER_MACRO* macros,const char* entry,ID3DBlob** code,ID3DBlob** errors)=0;
++ virtual HRESULT Blob(const void* source,SIZE_T size,const char* name,const D3D_SHADER_MACRO* macros,ID3DInclude* includes,const char* entry,const char* target,UINT flags,ID3DBlob** code,ID3DBlob** errors)=0;
++};
++inline HRESULT NativeCompileShaderBlob(const void* source,SIZE_T size,const char* name,const D3D_SHADER_MACRO* macros,ID3DInclude* includes,const char* entry,ID3DBlob** code,ID3DBlob** errors,const char* target="cs_5_1",UINT flags=D3DCOMPILE_OPTIMIZATION_LEVEL3,NativeShaderCompiler* compiler=nullptr){
++ if(!code||!source||!entry||!target)return E_INVALIDARG;*code=nullptr;if(errors)*errors=nullptr;
++ return compiler?compiler->Blob(source,size,name,macros,includes,entry,target,flags,code,errors):D3DCompile(source,size,name,macros,includes,entry,target,flags,0,code,errors);
++}
++inline HRESULT CompileNativeShader(const std::wstring&path,const D3D_SHADER_MACRO*macros,const char*entry,ID3DBlob**code,ID3DBlob**errors,NativeShaderCompiler*compiler=nullptr){
+  if(!code||!entry)return E_INVALIDARG;*code=nullptr;if(errors)*errors=nullptr;
++ if(compiler)return compiler->File(path,macros,entry,code,errors);
+  std::ifstream file(path.c_str(),std::ios::binary);if(!file)return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+  std::string source((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+  const bool has_include=source.find("include")!=std::string::npos;
+--- a/hip/wave_owned_c32.inc
++++ b/hip/wave_owned_c32.inc
+@@ -203,7 +203,7 @@
+ DEV float cw_up_F(float x){uint a=bits(x)&0x7fffffffu;float c=__builtin_fminf(__builtin_fmaxf(x,-448.f),448.f);float r=__builtin_amdgcn_cvt_f32_fp8(__builtin_amdgcn_cvt_pk_fp8_f32(c,0.f,0,false),0);return a==0?0.f:r;}
+ DEV float cw_up_shuffle(float v,uint lane){return __builtin_bit_cast(float,__builtin_amdgcn_ds_bpermute(lane*4,__builtin_bit_cast(int,v)));}
+ template<bool Chain,bool Finish=false,bool DownCrop=false,bool Post=false,bool Prefix=false,bool Up=false,bool Byte=false,bool DownByte=false,bool InByte=false,bool UpLowByte=false,bool PostRGBA=false,bool PostTap=false>
+-DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0,const float*upw=nullptr,_Float16*post_features=nullptr){fp8_sat_mode();
++DEV void cw_body(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py,float*main=nullptr,float*down=nullptr,const unsigned char*skip=nullptr,const float*scales=nullptr,const float*color=nullptr,const float*headw=nullptr,float*rgb=nullptr,float rgbscale=0.f,const float*history=nullptr,uint seed=0,uint temporal=0,const float*upw=nullptr,_Float16*post_features=nullptr,const float*logitw=nullptr,float*logit=nullptr){fp8_sat_mode();
+  constexpr uint cw_kind=Prefix?5:Post?4:Finish?(DownCrop?3:2):Chain?0:1;
+  uint win=bid();if(win>=windows)return;
+  __attribute__((shared)) _Float16 residual[4*2*32*8];
+@@ -425,6 +425,10 @@
+    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);sums[0]+=f*headw[c];sums[1]+=f*headw[32+c];sums[2]+=f*headw[64+c];}
+ #endif
+    for(uint c=0;c<3;c++){float acc=Hrtz(sums[c]),centered=color[p*4+c]*.125f-.0625f,v=(acc*rgbscale+centered)*8.f+.5f;rgb[p*(PostRGBA?4:3)+c]=cw_clampf(v,0.f,1.f);}if constexpr(PostRGBA)rgb[p*4+3]=1.f;
++   if(logit){float value=0.f;
++    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);value+=f*logitw[c];}
++    logit[p*2]=value;logit[p*2+1]=Hrtz(value);
++   }
+   }}};
+ #if CW_POST_FULL_TILE
+   if(tx>=sx&&ty>=sy&&tx+8<=width+sx&&ty+8<=height+sy)emit(cw_true{});else emit(cw_false{});
+@@ -441,6 +445,10 @@
+    if constexpr(PostTap)for(uint c=0;c<32;c++)post_features[p*32+c]=residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8];
+    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);sums[0]+=f*headw[c];sums[1]+=f*headw[32+c];sums[2]+=f*headw[64+c];}
+    for(uint c=0;c<3;c++){float acc=Hrtz(sums[c]),centered=color[p*4+c]*.125f-.0625f,v=(acc*rgbscale+centered)*8.f+.5f;rgb[p*(PostRGBA?4:3)+c]=cw_clampf(v,0.f,1.f);}if constexpr(PostRGBA)rgb[p*4+3]=1.f;
++   if(logit){float value=0.f;
++    for(uint c=0;c<32;c++){float f=float(residual[((t/16*2+c/16)*32+(c%16/8*16+t%16))*8+c%8]);value+=f*logitw[c];}
++    logit[p*2]=value;logit[p*2+1]=Hrtz(value);
++   }
+   }}
+  }
+ #endif
+@@ -543,6 +551,7 @@
+ CW_FINISH(c32_wave1_finish,false)
+ CW_FINISH(c32_wave1_finish_dcrop,true)
+ CW_ENTRY void c32_wave1_post(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
++CW_ENTRY void c32_wave1_post_logit(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale,const float*logitw,float*logit){cw_body<false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale,nullptr,0,0,nullptr,nullptr,logitw,logit);}
+ CW_ENTRY void c32_wave1_prefix(const unsigned char*rgba,const float*history,const float*fw,const float*w,float*main,float*down,uint windows,uint mode,uint raw,uint width,uint height,uint seed,uint temporal){cw_body<false,true,false,false,true>(rgba,fw,w,nullptr,windows,mode,raw,width,height,0,0,0,0,0,main,down,nullptr,nullptr,nullptr,nullptr,nullptr,0.f,history,seed,temporal);}
+ 
+ #if CW_SKIP_BYTE
+@@ -554,6 +563,7 @@
+ CW_ENTRY void c32_wave1_mapped_b8(const unsigned char*in,const float*fw,const float*w,unsigned char*out,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy){cw_body<false,false,false,false,false,false,false,false,true>(in,fw,w,out,windows,mode,raw,width,height,sx,sy,0,0,0);}
+ CW_ENTRY void c32_wave1_finish_b8(const unsigned char*in,const float*fw,const float*w,unsigned char*main,float*down,uint windows,uint mode,uint raw,uint width,uint height,uint sx,uint sy,uint prevw,uint px,uint py){cw_body<true,true,false,false,false,false,true>(in,fw,w,nullptr,windows,mode,raw,width,height,sx,sy,prevw,px,py,reinterpret_cast<float*>(main),down);}
+ CW_ENTRY void c32_wave1_post_b8(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true,false,false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
++CW_ENTRY void c32_wave1_post_b8_logit(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale,const float*logitw,float*logit){cw_body<false,false,false,true,false,false,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale,nullptr,0,0,nullptr,nullptr,logitw,logit);}
+ CW_ENTRY void c32_wave1_post_b8_rgba(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale){cw_body<false,false,false,true,false,false,false,false,true,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale);}
+ // Diagnostic/paired tap: final post features before the head. Old RGB ABI and arithmetic stay intact.
+ CW_ENTRY void c32_wave1_post_b8_features(const unsigned char*low,const unsigned char*skip,const float*scales,const float*fw,const float*w,const float*color,const float*headw,float*rgb,uint windows,uint width,uint height,uint sx,uint sy,float scale,_Float16*features){cw_body<false,false,false,true,false,false,false,false,true,false,false,true>(low,fw,w,nullptr,windows,0,1,width,height,sx,sy,0,0,0,nullptr,nullptr,skip,scales,color,headw,rgb,scale,nullptr,0,0,nullptr,features);}
+--- a/shaders/native_codec_decode.hlsl
++++ b/shaders/native_codec_decode.hlsl
+@@ -10,6 +10,31 @@
+ #if NATIVE_CODEC_EXPOSURE
+ Texture2D<float> GameExposure : register(t4);
+ #endif
++// Same meter as encode; sample the original game colour so both sides share the white point.
++Texture2D<float4> Proxy : register(t1);
++Texture2D<float4> Neural : register(t2);
++Texture2D<float4> OutputOriginal : register(t3);
++static const float kTargetEncodedMean = 0.45f;
++float WhitePointForMean(float meanLuma) {
++    float encoded = pow(kTargetEncodedMean, 2.2f);
++    float ratio = encoded / (1.0 - encoded);
++    float wp = meanLuma / ratio;
++    return clamp(wp, 0.01f, 10000.0f);
++}
++float SampleMeanLuma() {
++    uint w = max(SourceSize.x, 1u), h = max(SourceSize.y, 1u);
++    float sum = 0.0;
++    const int N = 5;
++    for (int y = 0; y < N; y++) {
++        for (int x = 0; x < N; x++) {
++            uint2 p = uint2(uint((x + 0.5) * (w - 1) / (N - 1)), uint((y + 0.5) * (h - 1) / (N - 1)));
++            p = min(p, uint2(w, h) - 1);
++            float3 c = max(OutputOriginal.Load(int3(p, 0)).rgb, 0.0);
++            sum += dot(c, float3(0.2126, 0.7152, 0.0722));
++        }
++    }
++    return max(sum / float(N * N), 1e-4);
++}
+ float EffectivePaperWhite() {
+ #if NATIVE_CODEC_EXPOSURE
+  float e=GameExposure.Load(int3(0,0,0));
+@@ -17,6 +42,11 @@
+  float exposure=e*scale/pre;
+  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+ #else
++ if ((Reserved.x & 0x10000u) != 0)
++     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
++ float preOnly=asfloat(Reserved.y);
++ if ((Reserved.x & 0x20000u) != 0 && isfinite(preOnly)&&preOnly>0&&abs(preOnly-1.0)>1e-3)
++     return PaperWhiteScale*preOnly;
+  return PaperWhiteScale;
+ #endif
+ }
+@@ -32,9 +62,6 @@
+ }
+ // Mode1 candidate. Oracle: captured codec-22724-36e36d370.dxbc.
+ // Host must reject other modes; GPU comparison required before integration.
+-Texture2D<float4> Proxy : register(t1);
+-Texture2D<float4> Neural : register(t2);
+-Texture2D<float4> OutputOriginal : register(t3);
+ #ifndef NATIVE_CODEC_UINT_OUT
+ #define NATIVE_CODEC_UINT_OUT 0
+ #endif
+@@ -159,9 +186,11 @@
+ [numthreads(16,16,1)]
+ void main(uint3 id:SV_DispatchThreadID) {
+  if(any(id.xy>=Size))return;
++ // Allocation padding is outside the host active render area.
++ if(any(id.xy>=SourceSize)){Store(id.xy,OutputOriginal.Load(int3(id.xy,0)));return;}
+  if(HdrMode!=1||PaperWhiteScale<=0){Store(id.xy,0);return;}
+  uint2 extent=max(ProxySize,uint2(1,1));
+- uint2 p=min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(Size)),extent-1);
++ uint2 p=min(uint2((float2(id.xy)+0.5)*float2(extent)/float2(SourceSize)),extent-1);
+  float4 source=OutputOriginal.Load(int3(id.xy,0));
+ #if NATIVE_CODEC_SRGB_IO
+  /* DLSS5_CODEC_SRGB (Magpie): the source is display-referred sRGB; linearize it for the blend and re-encode the result */
+@@ -170,23 +199,31 @@
+  float3 original=max(source.rgb,0)/EffectivePaperWhite();
+ #endif
+  #if NATIVE_CODEC_FIT
+- float2 network_p=Padding.xy+(float2(id.xy)+.5)*Padding.zw/float2(Size)-.5;
++ float2 network_p=Padding.xy+(float2(id.xy)+.5)*Padding.zw/float2(SourceSize)-.5;
+  float3 upgraded=Upgrade(original,Decode(ReadFitted(Proxy,network_p)),Decode(NEURAL_FITTED(network_p)));
+ #else
+  float3 upgraded=Upgrade(original,Decode(Proxy.Load(int3(p,0)).rgb),Decode(NEURAL_AT(id.xy)));
+ #endif
+  float oy=Luminance(original),uy=Luminance(upgraded);
+  float ratio=oy==0?1:clamp(uy/oy,0,4);
++ // Legacy CS=1 remains the upgraded result. Hosts explicitly opt into the
++ // alternative curve: CS=0 original, CS=1 game chroma/network luma, CS=2 upgraded.
+  float3 result=lerp(original*ratio,upgraded,ColorStrength);
++ if ((Reserved.x & 0x40000u) != 0) {
++  float3 hueSafe=original*ratio;
++  result=lerp(original,hueSafe,clamp(ColorStrength,0.0,1.0));
++  result=lerp(result,upgraded,max(ColorStrength-1.0,0.0));
++ }
++ uint view=Reserved.x & 0xFFFFu;
+  // Optional per-dispatch views; view 0 preserves the captured composition exactly.
+- if(Reserved.x==1||Reserved.x==2){
++ if(view==1||view==2){
+ #if NATIVE_CODEC_FIT
+-  result=Reserved.x==1?Decode(ReadFitted(Proxy,network_p)):Decode(NEURAL_FITTED(network_p));
+-#else
+-  result=Reserved.x==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(NEURAL_AT(id.xy));
+-#endif
+- }else if(Reserved.x==3)result=saturate(0.5+(upgraded-original)*20.0);
+- else if(Reserved.x==4)result*=float3(1.2,0.3,1.2);
++  result=view==1?Decode(ReadFitted(Proxy,network_p)):Decode(NEURAL_FITTED(network_p));
++#else
++  result=view==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(NEURAL_AT(id.xy));
++#endif
++ }else if(view==3)result=saturate(0.5+(upgraded-original)*20.0);
++ else if(view==4)result*=float3(1.2,0.3,1.2);
+ 
+ #if NATIVE_CODEC_SRGB_IO
+  result=saturate(result);result=result<=0.0031308?result*12.92:1.055*pow(result,1.0/2.4)-0.055;
+--- a/shaders/native_codec_encode.hlsl
++++ b/shaders/native_codec_encode.hlsl
+@@ -23,6 +23,28 @@
+ #if NATIVE_CODEC_EXPOSURE
+ Texture2D<float> GameExposure : register(t4);
+ #endif
++// Aim encoded mean at mid-grey (0.45) when estimating a white point.
++static const float kTargetEncodedMean = 0.45f;
++float WhitePointForMean(float meanLuma) {
++    float encoded = pow(kTargetEncodedMean, 2.2f);
++    float ratio = encoded / (1.0 - encoded);
++    float wp = meanLuma / ratio;
++    return clamp(wp, 0.01f, 10000.0f);
++}
++float SampleMeanLuma() {
++    uint w = max(SourceSize.x, 1u), h = max(SourceSize.y, 1u);
++    float sum = 0.0;
++    const int N = 5;
++    for (int y = 0; y < N; y++) {
++        for (int x = 0; x < N; x++) {
++            uint2 p = uint2(uint((x + 0.5) * (w - 1) / (N - 1)), uint((y + 0.5) * (h - 1) / (N - 1)));
++            p = min(p, uint2(w, h) - 1);
++            float3 c = max(Original.Load(int3(p, 0)).rgb, 0.0);
++            sum += dot(c, float3(0.2126, 0.7152, 0.0722));
++        }
++    }
++    return max(sum / float(N * N), 1e-4);
++}
+ float EffectivePaperWhite() {
+ #if NATIVE_CODEC_EXPOSURE
+  float e=GameExposure.Load(int3(0,0,0));
+@@ -30,6 +52,13 @@
+  float exposure=e*scale/pre;
+  return PaperWhiteScale / ((isfinite(exposure)&&exposure>0)?exposure:1.0);
+ #else
++ // No game exposure texture. auto_white (Reserved.x bit 0x10000): estimate from image mean.
++ // Otherwise prefer host pre-exposure; PaperWhiteScale is a fixed divisor (manual / legacy).
++ if ((Reserved.x & 0x10000u) != 0)
++     return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
++ float preOnly=asfloat(Reserved.y);
++ if ((Reserved.x & 0x20000u) != 0 && isfinite(preOnly)&&preOnly>0&&abs(preOnly-1.0)>1e-3)
++     return PaperWhiteScale*preOnly;
+  return PaperWhiteScale;
+ #endif
+ }
+--- a/hip/build-modules.ps1
++++ b/hip/build-modules.ps1
+@@ -1,4 +1,4 @@
+-param(
++﻿param(
+     [string]$OutputDir = (Join-Path $PSScriptRoot 'modules'),
+     [string]$Compiler = (Join-Path $PSScriptRoot 'rtc_compile.exe'),
+     [string]$SourceDir = $PSScriptRoot,

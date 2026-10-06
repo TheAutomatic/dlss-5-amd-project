@@ -14,10 +14,25 @@
 #include <cmath>
 
 namespace hip_reference {
+// Explicit instantiation may name private members (C++ access-control rule).
+// Keep fault injection in this test rather than requiring an upstream test friend.
+template<class Tag, typename Tag::type Member> struct TimingAccess {
+    friend typename Tag::type Access(Tag) { return Member; }
+};
+struct TimingQueryMember {
+    using Function = int (*)(Handle);
+    using type = Function D3D12Bridge::*;
+    friend type Access(TimingQueryMember);
+};
+struct TimingBeginMember {
+    using type = Handle (D3D12Bridge::*)[4];
+    friend type Access(TimingBeginMember);
+};
+template struct TimingAccess<TimingQueryMember, &D3D12Bridge::timing_query>;
+template struct TimingAccess<TimingBeginMember, &D3D12Bridge::timing_begin>;
 struct BridgeTimingTest {
-    static auto& Query(D3D12Bridge& bridge) { return bridge.timing_query; }
-    static bool NewEventsAllocated(const D3D12Bridge& bridge) { return bridge.timing_begin[0] != nullptr; }
-
+    static auto& Query(D3D12Bridge& bridge) { return bridge.*Access(TimingQueryMember{}); }
+    static bool NewEventsAllocated(const D3D12Bridge& bridge) { return (bridge.*Access(TimingBeginMember{}))[0] != nullptr; }
 };
 }
 

@@ -85,5 +85,10 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.vit_stream = 3;
     /* Same getenv parser as add-on / RE9; overrides the defaults above. */
     NativeApplyHipEnvironment(o, true);
+    // Reference History and submission pulse remain outside product policy.
+    // Our TemporalControl/NativeTemporalHistory owns temporal reconstruction.
+    o.submit_pulse = 0;
+    o.experimental_temporal = false;
+    o.temporal_feature_tap = false;
     return o;
 }

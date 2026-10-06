@@ -132,7 +132,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 
 ### 模块数量契约（追 lmxxf / 增删 hsaco 时最容易漏）
 
-**当前约定：每架构 38 / 双架构 76。**
+**当前约定：每架构 40 / 双架构 80。**
 唯一权威数字在 `tools/release/check-module-contract.ps1` 的 `$PerArch` / `$Dual`。追上游若 `hip/build-modules.ps1` 增删了 `name = '...'` 行，必须**同一次改动里**改完契约点，再跑该脚本；否则本地只重编 modules 会过，线上 install/ABI 仍按旧数断言。
 
 | 必须同步的位置 | 内容 |

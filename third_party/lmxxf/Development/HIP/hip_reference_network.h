@@ -164,7 +164,7 @@ inline unsigned MultiPassFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI
 /* DLSS5_MULTI_PASS_SKIP_BLOCKS (2026-10-03, results/multi-pass-skip-20261003): residual blocks skipped in passes 2..N only (same list
    syntax as DLSS5_SKIP_BLOCKS); pass 1 always runs the configured network. Empty/unset = no extra skip (code path unchanged). LOSSY when
    set. An unparsable list is reported and treated as empty; the network constructor also rejects blocks its pipeline cannot skip. */
-inline std::set<U> MultiPassSkipFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI_PASS_SKIP_BLOCKS");if(!v||!*v)return {};
+inline std::set<U> MultiPassSkipFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI_PASS_SKIP_BLOCKS");if(!v||!*v||!std::strcmp(v,"none"))return {};
  try{return ParseSkipBlocks(v);}catch(...){std::fprintf(stderr,"DLSS5_MULTI_PASS_SKIP_BLOCKS=%s invalid (block list), using none\n",v);return {};}}
 /* Fixed processing geometries (tiers + the 512x512 test) and, since 2026-10-02, free ones (DLSS5_NETWORK_FREE_RES, native_network_geometry.h
    NativeNetworkGeometry::Free): both axes multiples of 128, so every level is in the 1920x1152 divisibility class; the ViT grid is
@@ -398,7 +398,7 @@ class Network {friend class D3D12Bridge;
  Handle Fn(const std::string&m,const std::string&name){static const std::string normkey="c32_norm900";const std::string&actual=m=="c32_wave1"&&C32Norm900Active()?normkey:m;std::string key=actual+":"+name;auto it=functions.find(key);if(it!=functions.end())return it->second;Handle f{};api.Check(api.hipModuleGetFunction(&f,modules.at(actual),name.c_str()),name.c_str());functions.emplace(key,f);return f;}
  /* DLSS5_FAST_NUMERIC twin (2026-10-03 fast-vit-c512): <stem>.hsaco -> <stem>-fast.hsaco when the option is 1 and the file
     exists; missing twin falls back to the exact module with one stderr line (same contract as the C32/C64 swap). */
- std::string FastTwin(const std::string&stem)const{if(!fast_numeric)return stem;const std::string fast=stem+"-fast";
+ std::string FastTwin(const std::string&stem)const{if(!fast_numeric||(stem!="c32-wave1"&&stem!="c64-wave2"&&stem!="deep_fast-packed"&&stem!="vit-stream"))return stem;const std::string fast=stem+"-fast";
   if(std::ifstream(std::filesystem::u8path(opt.modules+"/"+fast+".hsaco"),std::ios::binary).good())return fast;
   std::fprintf(stderr,"DLSS5_FAST_NUMERIC=1: %s.hsaco missing, using %s.hsaco\n",fast.c_str(),stem.c_str());return stem;}
  template<class...A>void Run(const char*m,const char*name,size_t n,A...args){
@@ -660,12 +660,10 @@ class Network {friend class D3D12Bridge;
  static long long AdaptiveIdleMs(){static const long long ms=[]{const char*v=std::getenv("DLSS5_VIT_ADAPTIVE_IDLE_MS");if(!v||!*v)return 500LL;char*e=nullptr;long long x=std::strtoll(v,&e,10);return (e&&!*e&&x>=0)?x:500LL;}();return ms;}
  Tensor adaptive_image_anchor,adaptive_image_signature,adaptive_image_delta;void*adaptive_image=nullptr;
  void*adaptive_prev_history=nullptr;void*adaptive_prev_input=nullptr;U adaptive_prev_seed=0;
- bool adaptive_allowed=true,adaptive_dirty=false,adaptive_key_down=false,adaptive_user_disabled=false;U adaptive_last_mode=0,adaptive_frame=0;
+ bool adaptive_allowed=true,adaptive_dirty=false;U adaptive_last_mode=0,adaptive_frame=0;
  bool adaptive_active=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
  Tensor AdaptiveVitGroup(Tensor input,U n){
   const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=adaptive_allowed&&mode_s?U(std::stoul(mode_s)):0;
-  const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
-  if(hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
   AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
   if(multi_pass>1)mode=0;
   if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
@@ -761,7 +759,7 @@ std::fprintf(stderr,"vit_contract_byte_edge=%u\n",unsigned(vit_contract_byte_edg
 if(wave_owned_active){
  const bool rtz_tall=HIP_C32_RTZ_TALL&&W==1920&&(H==1152||H==1088)&&std::ifstream(std::filesystem::u8path(opt.modules+"/c32-wave1-rtz.hsaco"),std::ios::binary).good();
  std::string extra[][2]={{"c64_wave2","c64-wave2"},{"c32_wave1",rtz_tall?"c32-wave1-rtz":"c32-wave1"}};
- for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
+ if(fast_numeric||opt.experimental_temporal)for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
  for(auto&entry:extra){entry[1]+=".hsaco";Handle m{};
   api.Check(api.LoadModule(&m,(opt.modules+"/"+entry[1]).c_str()),entry[1].c_str());modules[entry[0]]=m;
   if(entry[0]=="c32_wave1"){
