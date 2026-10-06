@@ -54,7 +54,7 @@
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
 
-static float fontSize = 14.0f; // just changing this doesn't make other elements scale ideally
+static float fontSize = 16.0f; // just changing this doesn't make other elements scale ideally
 static ImVec2 overlaySize(0.0f, 0.0f);
 static ImVec2 overlayPosition(-1000.0f, -1000.0f);
 static bool _hdrTonemapApplied = false;
@@ -1789,7 +1789,10 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
 
         if (!config->OverlaysUseTheme.value_or_default())
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, toneMapColor(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
+            ImVec4 textColor(config->FpsOverlayColorR.value_or_default(),
+                             config->FpsOverlayColorG.value_or_default(),
+                             config->FpsOverlayColorB.value_or_default(), 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, toneMapColor(textColor));
             ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
         }
 
@@ -1971,17 +1974,6 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
             // Prepare Line 2
             if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
             {
-                if (config->FpsOverlayHorizontal.value_or_default())
-                {
-                    ImGui::SameLine(0.0f, 0.0f);
-                    MenuUi::Text(" | ");
-                    ImGui::SameLine(0.0f, 0.0f);
-                }
-                else
-                {
-                    ImGui::Spacing();
-                }
-
                 secondLine = StrFmt("Frame Time: %7.2f ms, Avg: %7.2f ms", state.frameTimes.back(), averageFrameTime);
             }
 
@@ -6750,6 +6742,35 @@ void MenuCommon::RenderFpsOverlaySettings(RenderMenuContext& ctx)
         bool useTheme = config->OverlaysUseTheme.value_or_default();
         if (MenuUi::Checkbox("Use Theme Colors", &useTheme))
             config->OverlaysUseTheme = useTheme;
+
+        if (useTheme)
+            ImGui::BeginDisabled();
+
+        float overlayColor[3] = { config->FpsOverlayColorR.value_or_default(),
+                                  config->FpsOverlayColorG.value_or_default(),
+                                  config->FpsOverlayColorB.value_or_default() };
+
+        if (MenuUi::ColorEdit3("Text Color", overlayColor))
+        {
+            config->FpsOverlayColorR = overlayColor[0];
+            config->FpsOverlayColorG = overlayColor[1];
+            config->FpsOverlayColorB = overlayColor[2];
+        }
+
+        ImGui::SameLine(0.0f, 6.0f);
+        if (MenuUi::Button("Reset##fps_color"))
+        {
+            config->FpsOverlayColorR.reset();
+            config->FpsOverlayColorG.reset();
+            config->FpsOverlayColorB.reset();
+        }
+
+        if (useTheme)
+        {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ShowTooltip("Only active when 'Use Theme Colors' is disabled");
+        }
     }
 }
 

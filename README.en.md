@@ -10,7 +10,7 @@ See [usage, limits and acceptance checks](docs/post-sr-nr.md) (Chinese).
 The Mochizuki backend supports Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Local game tests are available; other games and scenarios still need validation.
 
 
-# OptScaler(NR) 1.10.3
+# OptScaler(NR) 1.10.3.1
 
 **Special Thanks**: Thank you to all Bilibili users for your testing and feedback.
 

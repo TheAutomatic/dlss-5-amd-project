@@ -874,6 +874,15 @@ bool Config::Reload(std::filesystem::path iniPath)
             if (auto setting = readFloat("Menu", "FpsOverlayAlpha"); setting.has_value())
                 FpsOverlayAlpha.set_from_config(std::clamp(setting.value(), 0.0f, 1.0f));
 
+            if (auto setting = readFloat("Menu", CfgKey::FpsOverlayColorR); setting.has_value())
+                FpsOverlayColorR.set_from_config(std::clamp(setting.value(), 0.0f, 1.0f));
+
+            if (auto setting = readFloat("Menu", CfgKey::FpsOverlayColorG); setting.has_value())
+                FpsOverlayColorG.set_from_config(std::clamp(setting.value(), 0.0f, 1.0f));
+
+            if (auto setting = readFloat("Menu", CfgKey::FpsOverlayColorB); setting.has_value())
+                FpsOverlayColorB.set_from_config(std::clamp(setting.value(), 0.0f, 1.0f));
+
             if (auto setting = readFloat("Menu", "FpsScale"); setting.has_value())
                 FpsScale.set_from_config(std::clamp(setting.value(), 0.5f, 2.0f));
 
@@ -1932,6 +1941,12 @@ bool Config::SaveIni()
         ini.SetValue("Menu", "FpsOverlayHorizontal",
                      GetBoolValue(Instance()->FpsOverlayHorizontal.value_for_config()).c_str());
         ini.SetValue("Menu", "FpsOverlayAlpha", GetFloatValue(Instance()->FpsOverlayAlpha.value_for_config()).c_str());
+        ini.SetValue("Menu", CfgKey::FpsOverlayColorR,
+                     GetFloatValue(Instance()->FpsOverlayColorR.value_for_config()).c_str());
+        ini.SetValue("Menu", CfgKey::FpsOverlayColorG,
+                     GetFloatValue(Instance()->FpsOverlayColorG.value_for_config()).c_str());
+        ini.SetValue("Menu", CfgKey::FpsOverlayColorB,
+                     GetFloatValue(Instance()->FpsOverlayColorB.value_for_config()).c_str());
         ini.SetValue("Menu", "FpsScale", GetFloatValue(Instance()->FpsScale.value_for_config()).c_str());
         ini.SetValue("Menu", "FontSize", GetFloatValue(Instance()->FontSize.value_for_config()).c_str());
         ini.SetValue("Menu", "TTFFontPath",

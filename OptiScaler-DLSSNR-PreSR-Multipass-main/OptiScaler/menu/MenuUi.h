@@ -19,14 +19,18 @@ inline const char* Argument(char* value) { return Translate(value); }
 
 template<class... Args> inline void Text(const char* format, Args... args)
 {
+    if constexpr (sizeof...(args) == 0) ImGui::Text("%s", Translate(format));
+    else ImGui::Text(Translate(format), Argument(args)...);
+}
+template<class... Args> inline void TextWrapped(const char* format, Args... args)
+{
     if constexpr (sizeof...(args) == 0) ImGui::TextWrapped("%s", Translate(format));
     else ImGui::TextWrapped(Translate(format), Argument(args)...);
 }
-template<class... Args> inline void TextWrapped(const char* format, Args... args) { Text(format, args...); }
 inline void TextUnformatted(const char* text, const char* end = nullptr)
 {
     const std::string value = end ? std::string(text, end) : std::string(text ? text : "");
-    ImGui::TextWrapped("%s", Translate(value.c_str()));
+    ImGui::TextUnformatted(Translate(value.c_str()));
 }
 template<class... Args> inline void TextColored(const ImVec4& color, const char* format, Args... args)
 {

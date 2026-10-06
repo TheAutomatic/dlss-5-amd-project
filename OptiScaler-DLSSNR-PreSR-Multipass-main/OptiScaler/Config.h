@@ -845,10 +845,13 @@ class Config
     CustomOptional<int> FpsCycleShortcutKey { VK_NEXT };
     CustomOptional<bool> FpsOverlayHorizontal { false };
     CustomOptional<float> FpsOverlayAlpha { 0.4f };
+    CustomOptional<float> FpsOverlayColorR { 1.0f };
+    CustomOptional<float> FpsOverlayColorG { 1.0f };
+    CustomOptional<float> FpsOverlayColorB { 1.0f };
     CustomOptional<float, NoDefault> FpsScale; // No value means same as MenuScale
     CustomOptional<bool> UseHQFont { true };
     CustomOptional<bool> DisableSplash { false };
-    CustomOptional<float> FontSize { 14.0f };
+    CustomOptional<float> FontSize { 16.0f };
     CustomOptional<std::wstring, NoDefault> TTFFontPath;
     CustomOptional<int> FGShortcutKey { UnboundKey };
     CustomOptional<bool> LightTheme { false };
