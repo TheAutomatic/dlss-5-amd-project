@@ -34,7 +34,7 @@ bool SpEnabled(U c,bool decoder){
  }
  U bit=c==64?1:c==128?2:c==256?4:0;
  U sides=SpEnv("SP_SIDES",3);
- return !sp_disabled&&wave_owned_active&&opt.pooled&&!opt.graph&&!observer&&opt.dump_dir.empty()&&
+ return (!Sp1440Geometry(opt)||sp1440_ready)&&!sp_disabled&&wave_owned_active&&opt.pooled&&!opt.graph&&!observer&&opt.dump_dir.empty()&&
    (SpEnv("SP_CHANNELS",SwinRunCompatible(opt)?4u:0u)&bit)&&(sides&(decoder?2u:1u));
 }
 SpPlan &SpGetPlan(U w,U h,U c,U first,U layers){

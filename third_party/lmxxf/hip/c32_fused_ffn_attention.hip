@@ -202,6 +202,10 @@ DEV uint bid(){return __builtin_amdgcn_workgroup_id_x();}
 #endif
 // FAST TIER (lossy, 2026-10-01 fast-tier): CW_FAST_NUM bit0 = f32 activation path (Hrtz is the identity: no RTZ
 // round trip to half between f32 ops; half stores still convert), bit1 = softmax 1/sum as a single rcp (no Newton steps).
+// Norm WMMA rows are replicated; optional900 fast recipe reuses one rsqrt perlane.
+#ifndef CW_NORM_HOIST
+#define CW_NORM_HOIST 0
+#endif
 #ifndef CW_FAST_NUM
 #define CW_FAST_NUM 0
 #endif

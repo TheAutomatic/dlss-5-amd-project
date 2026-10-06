@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include "native_lab_paths.h"
 #include "native_format_fallback.h"
-#include "native_shader_cache.h"
+#include "LmxxfShaderCompiler.h"
 
 namespace LmxxfRuntime
 {
@@ -84,7 +84,7 @@ void main(uint3 t : SV_GroupThreadID, uint i : SV_GroupIndex)
 }
 )";
         ID3DBlob *code = nullptr, *errors = nullptr;
-        HRESULT hr = NativeCompileShaderBlob(kSource, sizeof kSource - 1, "lmxxf-exposure-meter", nullptr,
+        HRESULT hr = LmxxfShader::NativeCompileShaderBlob(kSource, sizeof kSource - 1, "lmxxf-exposure-meter", nullptr,
                                              nullptr, "main", &code, &errors, "cs_5_0");
         if (errors)
             errors->Release();

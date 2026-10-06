@@ -23,7 +23,7 @@ cbuffer CodecConstants : register(b0) {
 #if NATIVE_CODEC_EXPOSURE
 Texture2D<float> GameExposure : register(t4);
 #endif
-// Mirror daniel white-point meter: aim encoded mean at mid-grey (0.45).
+// Aim encoded mean at mid-grey (0.45) when estimating a white point.
 static const float kTargetEncodedMean = 0.45f;
 float WhitePointForMean(float meanLuma) {
     float encoded = pow(kTargetEncodedMean, 2.2f);
@@ -56,9 +56,9 @@ float EffectivePaperWhite() {
  // Otherwise prefer host pre-exposure; PaperWhiteScale is a fixed divisor (manual / legacy).
  if ((Reserved.x & 0x10000u) != 0)
      return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
- float pre=asfloat(Reserved.y);
- if (isfinite(pre)&&pre>0&&abs(pre-1.0)>1e-3)
-     return PaperWhiteScale*pre;
+ float preOnly=asfloat(Reserved.y);
+ if ((Reserved.x & 0x20000u) != 0 && isfinite(preOnly)&&preOnly>0&&abs(preOnly-1.0)>1e-3)
+     return PaperWhiteScale*preOnly;
  return PaperWhiteScale;
 #endif
 }

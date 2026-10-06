@@ -1,4 +1,5 @@
 #include "LmxxfNrApi.h"
+#include "LmxxfShaderCompiler.h"
 #include "NativeTemporalHistory.h"
 #include "NativePostWeights.h"
 #include "TemporalControl.h"
@@ -1659,7 +1660,7 @@ void PrepareHistory(Session* s,const LmxxfNrFrameInfo* info,RecordingJob& j)
     if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)){disable("off");return;}
     if(j.codec_passthrough||j.hip_passthrough||(j.debug_view&0xFu)){disable("diagnostic-view");return;}
     if(s->bridge->MultiPass()!=1){disable("unsupported-passes");return;}
-    if(!s->bridge->NativeHistoryEnabled()){disable("unsupported-post-layout");return;}
+    if(!s->bridge->PostAuxiliary().resource){disable("unsupported-post-layout");return;}
     if(!(info->temporal_flags&LMXXF_NR_TEMPORAL_INPUTS_VALID)){disable("unknown-motion-contract");return;}
     auto* motion=static_cast<ID3D12Resource*>(info->motion);auto* depth=static_cast<ID3D12Resource*>(info->depth);
     if(!motion||!depth||motion==depth||motion==j.color||depth==j.color){disable("missing-guides");return;}
@@ -1678,7 +1679,7 @@ void PrepareHistory(Session* s,const LmxxfNrFrameInfo* info,RecordingJob& j)
     auto ng=NativeCurrentNetworkGeometry();auto& chain=*j.chain;
     if(!chain.history){
         auto history=std::make_unique<LmxxfNativeTemporal::History>();
-        history->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height,s->bridge->DirectHistory());
+        history->Create(s->device,ng.valid_width,ng.valid_height,ng.processing_height,s->bridge->DirectHistory(),LmxxfCompiler());
         chain.control.Create(s->device);chain.history=std::move(history);
     }
     j.historyBinding=LmxxfNativeTemporal::History::Binding(s->device,motion,depth);
@@ -1863,7 +1864,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
             session->InstallBridge(new hip_reference::D3D12Bridge());
             session->bridge->RequestDirectInput();
-            session->bridge->Create(session->queue, opt, {}, requestHistory ? LmxxfNativePostWeights() : std::vector<float>{});
+            session->bridge->RequestReleaseMarkers();
+            if(requestHistory && hip_reference::MultiPassFromEnvironment()==1 && hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused && !opt.experimental_temporal && !opt.temporal_feature_tap){session->bridge->RequestDirectHistory();session->bridge->RequestPostAuxiliary(LmxxfNativePostWeights());}
+            session->bridge->Create(session->queue, opt, {});
+            session->bridge->SetAdaptiveReuseAllowed(!requestHistory);
             if (session->recordingLeases) session->bridge->EnableRecordingLeases();
             ++session->bridgeCreates;
             session->hipPrepared = true;
@@ -1929,23 +1933,15 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         // R16G16B16A16_TYPELESS: Wo Long HDR uses FLOAT views (daniel/FFX agree); Ronin LDR
         // needs UNORM. One flag shared by meter + codec SRVs/UAV. Product default FLOAT.
         // DLSS5_TYPELESS_RGBA16=unorm|float overrides (Ronin: unorm).
+        bool asFloat = true;
         if (cfmt == DXGI_FORMAT_R16G16B16A16_TYPELESS)
         {
-            bool asFloat = true;
             if (const wchar_t *e = _wgetenv(L"DLSS5_TYPELESS_RGBA16"))
             {
                 if (!_wcsicmp(e, L"unorm") || !wcscmp(e, L"0"))
                     asFloat = false;
                 else if (!_wcsicmp(e, L"float") || !wcscmp(e, L"1"))
                     asFloat = true;
-            }
-            if (NativeTypelessRgba16AsFloat() != asFloat)
-            {
-                NativeTypelessRgba16AsFloat() = asFloat;
-                char fmtMsg[96];
-                std::snprintf(fmtMsg, sizeof fmtMsg, "lmxxf: TYPELESS RGBA16 view=%s",
-                              asFloat ? "FLOAT16" : "UNORM16");
-                SetError(fmtMsg);
             }
         }
 
@@ -2163,7 +2159,10 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                     return Fail(LMXXF_NR_FAILED, "PrepareFrame: graph must stay off");
                 session->InstallBridge(new hip_reference::D3D12Bridge());
                 session->bridge->RequestDirectInput();
-                session->bridge->Create(session->queue, opt, {}, requestHistory ? LmxxfNativePostWeights() : std::vector<float>{});
+                session->bridge->RequestReleaseMarkers();
+            if(requestHistory && hip_reference::MultiPassFromEnvironment()==1 && hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused && !opt.experimental_temporal && !opt.temporal_feature_tap){session->bridge->RequestDirectHistory();session->bridge->RequestPostAuxiliary(LmxxfNativePostWeights());}
+            session->bridge->Create(session->queue, opt, {});
+            session->bridge->SetAdaptiveReuseAllowed(!requestHistory);
                 if (session->recordingLeases) session->bridge->EnableRecordingLeases();
                 ++session->bridgeCreates;
                 session->hipPrepared = true;
@@ -2211,17 +2210,23 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->allocWidth = cw;
                 session->allocHeight = ch;
                 enc = new NativeGameCodec();
+                enc->SetTypelessRgba16View(asFloat?DXGI_FORMAT_R16G16B16A16_FLOAT:DXGI_FORMAT_R16G16B16A16_UNORM);
+                if(session->recordingLeases)enc->EnableReplayableRecording();
                 enc->Create(session->device, {color}, session->shaderDir, privateFloatOutput, bindExposure,
-                            info->color_width, info->color_height);
+                            info->color_width, info->color_height,LmxxfCompiler());
                 rgbIn = new NativeGameRgbInput();
+                if(session->recordingLeases)rgbIn->EnableReplayableRecording();
                 // HIP consumes PostBase only; the tile-ordered duplicate has no reader.
-                rgbIn->Create(session->device, enc->Output(), session->shaderDir, false);
+                rgbIn->Create(session->device, enc->Output(), session->shaderDir, false,LmxxfCompiler());
                 rgbIn->RedirectOutput(session->bridge->DirectInput());
                 rgbOut = new NativeRgbTexture();
-                rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir);
+                if(session->recordingLeases)rgbOut->EnableReplayableRecording();
+                rgbOut->Create(session->device, session->bridge->Output(), session->shaderDir,LmxxfCompiler());
                 dec = new NativeGameCodec();
+                dec->SetTypelessRgba16View(asFloat?DXGI_FORMAT_R16G16B16A16_FLOAT:DXGI_FORMAT_R16G16B16A16_UNORM);
+                if(session->recordingLeases)dec->EnableReplayableRecording();
                 dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir,
-                            privateFloatOutput, bindExposure, info->color_width, info->color_height);
+                            privateFloatOutput, bindExposure, info->color_width, info->color_height,LmxxfCompiler());
                 if (dec->BufferOutput())
                 {
                     D3D12_RESOURCE_DESC td = cdesc;

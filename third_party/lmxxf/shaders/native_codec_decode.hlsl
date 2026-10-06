@@ -44,9 +44,9 @@ float EffectivePaperWhite() {
 #else
  if ((Reserved.x & 0x10000u) != 0)
      return WhitePointForMean(SampleMeanLuma()) * PaperWhiteScale;
- float pre=asfloat(Reserved.y);
- if (isfinite(pre)&&pre>0&&abs(pre-1.0)>1e-3)
-     return PaperWhiteScale*pre;
+ float preOnly=asfloat(Reserved.y);
+ if ((Reserved.x & 0x20000u) != 0 && isfinite(preOnly)&&preOnly>0&&abs(preOnly-1.0)>1e-3)
+     return PaperWhiteScale*preOnly;
  return PaperWhiteScale;
 #endif
 }
@@ -186,7 +186,7 @@ float3 ReadFittedNeural(float2 p) {
 [numthreads(16,16,1)]
 void main(uint3 id:SV_DispatchThreadID) {
  if(any(id.xy>=Size))return;
- // Preserve allocation padding outside the active render area, including alpha.
+ // Allocation padding is outside the host active render area.
  if(any(id.xy>=SourceSize)){Store(id.xy,OutputOriginal.Load(int3(id.xy,0)));return;}
  if(HdrMode!=1||PaperWhiteScale<=0){Store(id.xy,0);return;}
  uint2 extent=max(ProxySize,uint2(1,1));
@@ -206,19 +206,24 @@ void main(uint3 id:SV_DispatchThreadID) {
 #endif
  float oy=Luminance(original),uy=Luminance(upgraded);
  float ratio=oy==0?1:clamp(uy/oy,0,4);
- float3 hueSafe=original*ratio;
- /* CS<=0: original; 0..1: toward network luma with game chroma; >1: toy toward network colour. */
- float3 result=lerp(original,hueSafe,clamp(ColorStrength,0.0,1.0));
- result=lerp(result,upgraded,max(ColorStrength-1.0,0.0));
+ // Legacy CS=1 remains the upgraded result. Hosts explicitly opt into the
+ // alternative curve: CS=0 original, CS=1 game chroma/network luma, CS=2 upgraded.
+ float3 result=lerp(original*ratio,upgraded,ColorStrength);
+ if ((Reserved.x & 0x40000u) != 0) {
+  float3 hueSafe=original*ratio;
+  result=lerp(original,hueSafe,clamp(ColorStrength,0.0,1.0));
+  result=lerp(result,upgraded,max(ColorStrength-1.0,0.0));
+ }
+ uint view=Reserved.x & 0xFFFFu;
  // Optional per-dispatch views; view 0 preserves the captured composition exactly.
- if(Reserved.x==1||Reserved.x==2){
+ if(view==1||view==2){
 #if NATIVE_CODEC_FIT
-  result=Reserved.x==1?Decode(ReadFitted(Proxy,network_p)):Decode(NEURAL_FITTED(network_p));
+  result=view==1?Decode(ReadFitted(Proxy,network_p)):Decode(NEURAL_FITTED(network_p));
 #else
-  result=Reserved.x==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(NEURAL_AT(id.xy));
+  result=view==1?Decode(Proxy.Load(int3(p,0)).rgb):Decode(NEURAL_AT(id.xy));
 #endif
- }else if(Reserved.x==3)result=saturate(0.5+(upgraded-original)*20.0);
- else if(Reserved.x==4)result*=float3(1.2,0.3,1.2);
+ }else if(view==3)result=saturate(0.5+(upgraded-original)*20.0);
+ else if(view==4)result*=float3(1.2,0.3,1.2);
 
 #if NATIVE_CODEC_SRGB_IO
  result=saturate(result);result=result<=0.0031308?result*12.92:1.055*pow(result,1.0/2.4)-0.055;

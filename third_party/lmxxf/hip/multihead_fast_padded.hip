@@ -369,6 +369,16 @@ FASTWAVE void mh_pool_project_c32_b8(const unsigned char* pooled,const float* we
  for(uint e=0;e<8;e++)acc[e]=Hrtz(acc[e]+sum[e]);
  for(uint e=0;e<8;e++){uint p=first+g*8+e;if(p<M)output[p*N+col+rc]=(valid_width&&(p%width>=valid_width||p/width>=valid_height))?0.f:F(acc[e]);}
 }
+
+// Paired typed edge for block4 pool -> block5. Keep F and RTZ exactly;
+// encode its result, including negative underflow zero, without changing the reduction.
+FASTWAVE void mh_pool_project_c32_b8_out8(const unsigned char* pooled,const float* weights,unsigned char* output,uint width,uint height,uint valid_width,uint valid_height,uint channels){
+ uint M=width*height,N=64,tile=__builtin_amdgcn_workgroup_id_x(),nt=4;
+ if(channels!=32||tile>=((M+15)/16)*nt)return;uint first=tile/nt*16,col=tile%nt*16,l=__builtin_amdgcn_workitem_id_x(),rc=l&15,g=l>>4;f8 acc{},sum{};
+ for(uint half=0;half<2;half++){i2 a{},b;uint p=first+rc;if(p<M)__builtin_memcpy(&a,pooled+p*32+half*16+g*8,8);__builtin_memcpy(&b,reinterpret_cast<const unsigned char*>(weights)+(col+rc)*32+half*16+g*8,8);sum=__builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32_gfx12(a,b,sum);}
+ for(uint e=0;e<8;e++)acc[e]=Hrtz(acc[e]+sum[e]);
+ for(uint e=0;e<8;e++){uint p=first+g*8+e;if(p<M)output[p*N+col+rc]=(valid_width&&(p%width>=valid_width||p/width>=valid_height))?0u:static_cast<unsigned char>(q8(F(acc[e])));}
+}
 #endif
 
 // Fused 2x2 pool + channel-doubling projection (host option pool_project_fused, C=64/128/256): one wave produces 16
