@@ -39,6 +39,22 @@ feature tap 和 submit pulse 在产品 Options 中关闭。编码的预曝光与
 [本次接入审阅](../../docs/lmxxf-pr12-interface-migration.md)。解除 pin/patch 必须等作者合入
 后，再以合入后的正式 SHA 重放验证，不提前清空 manifest。
 
+## PR #12 合入后的零补丁切换
+
+PR 候选 `304613aa6e6c6d9e68e0b26ab978a57e7d4cef98` 已使当前源码闭包与 PR 原文一致。
+热键、输入轮询、额外跳块和模块选择由产品 Options 接口控制，上游默认保持不变。
+详见 [零补丁就绪验证](../../docs/lmxxf-pr12-interface-migration.md#zero-patch-readiness-2026-10-07)。
+
+当前 `pinned` / `local_patches` **仍保留**，不以 PR 推送代替作者接受。
+作者合入后，先确认合入 SHA 包含全部接口及本次修正，再在独立 worktree 将两数组设为
+`[]`，保持 `headers` 闭包不变，按正常追更流程同步正式 SHA、审阅最终 diff 并验证。
+脚本已接受零 pin / 零补丁；不要用 `-SkipEnablementAudit` 的源码演练冒充完成接入。
+原始补丁夹具与历史补丁的回归用途也要在解除时核对，不能让测试把旧夹具重新当成当前上游。
+
+解除的是固定保留文件和源文件补丁；正式 commit 记录、模块源码/产物哈希、
+配置优先级和追更审阅仍保留。产品模块宏参数、History 实现、菜单默认值仍归本侧。
+上游未来修改接口/模块布局时仍须审阅，不能承诺任意后续 commit 无验证自动接入。
+
 ## 文件所有权
 
 `manifest.json` 是唯一头文件清单，归档和拷贝不再分别维护同一批路径。

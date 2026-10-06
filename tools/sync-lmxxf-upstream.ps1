@@ -71,17 +71,17 @@ $configRoot = Join-Path $PSScriptRoot 'lmxxf-sync'
 . (Join-Path $configRoot 'Modules.ps1')
 $manifest = Read-SyncJson (Join-Path $configRoot 'manifest.json')
 $updates = @{ UpdateBridge = [bool]$UpdateBridge }
-# reflect / input-geometry follow upstream after PR #9; only the bridge keeps a product patch.
+# Only the bridge may remain pinned; an empty list follows fully merged upstream.
 $expectedPinned = @('Development/HIP/hip_d3d12_bridge.h')
 if ($manifest.schema -ne 1 -or @($manifest.headers | Select-Object -Unique).Count -ne $manifest.headers.Count) {
     throw 'Invalid or duplicate header entries in lmxxf-sync/manifest.json'
 }
-if (@($manifest.pinned).Count -ne 1 -or @(Compare-Object $expectedPinned @($manifest.pinned.path)).Count) {
+if (@($manifest.pinned).Count -gt 1 -or (@($manifest.pinned).Count -eq 1 -and $manifest.pinned[0].path -ne $expectedPinned[0])) {
     throw 'Only hip_d3d12_bridge.h may be pinned.'
 }
 # Local patches carry product changes to files that otherwise follow upstream (shaders and
 # unpinned headers). Without them a sync silently mirrors those files back to upstream.
-if (@($manifest.local_patches).Count -lt 1 -or @($manifest.local_patches | Select-Object -Unique).Count -ne @($manifest.local_patches).Count) {
+if (@($manifest.local_patches | Select-Object -Unique).Count -ne @($manifest.local_patches).Count) {
     throw 'Invalid or duplicate local_patches in lmxxf-sync/manifest.json'
 }
 foreach ($localPatch in $manifest.local_patches) {

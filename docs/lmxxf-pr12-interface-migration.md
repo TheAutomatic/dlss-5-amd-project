@@ -90,9 +90,9 @@ other research scripts/results are outside the manifest/build closure. Their cha
 are inventoried, not installed. The production diff/recipe was checked independently
 for promoted changes (the four groups above); directory names alone do not establish
 exclusion. Numeric/reference research is useful evidence, not a new product default.
-Input polling and the independent F8 reuse hotkey stay removed by the preservation
-overlay, as decided before this sync. Graph/diagnostic defaults and INI-owned selections
-are unchanged. Do not remove these hunks merely because the generic PR interfaces exist.
+Input polling and the independent F8 reuse hotkey remain disabled in the product.
+The 2026-10-07 follow-up replaces source deletion with per-instance permissions;
+upstream code stays intact. Graph/diagnostic defaults and INI-owned selections remain unchanged.
 No deployment profile changed between these two official commits.
 
 ## Build and validation
@@ -113,7 +113,7 @@ Validation on 2026-10-06, RX 9070 XT (gfx1201):
   private compiler cold/warm cache and error injection.
 - `tests/lmxxf/run.cmd gpu`: passed History, exclusion, format/exposure, recorded submission,
   adaptive resets, zero/recovery, source precedence, subrect, size and MP2/MP3 lifecycle checks.
-- After restoring the previously excluded input polling and F8 hotkey paths, final MSVC
+- After restoring the input-poll/F8 exclusions during the initial migration, final MSVC
   build plus History900, recording, bridge adaptive-reset1080 and forced-exclusion GPU
   checks passed. Setting external pulse/history-experiment/input-poll/hotkey flags did not
   enable these paths; pulse creation/record counts stayed zero.
@@ -139,10 +139,10 @@ The GPU tier now asserts the FAST1 1:1 baseline, in addition to its existing ada
 checks. `none` extra skips, FAST0 tall RTZ selection and the supported fast-twin list are
 also preserved rather than silently discarded by interface migration.
 
-These corrections remain in the local overlay. PR acceptance alone is insufficient to
-remove pin/patch rules: compare the author's merged interfaces **and these preservation
-hunks**, then replay the baseline and lifecycle tests before removing each rule.
-Our History implementation and compiler policy remain product-owned.
+At the initial integration these corrections remained local. The 2026-10-07
+follow-up below moves them behind upstream interfaces or fixes the new codec
+interface itself. Production pin/patch rules still remain until the author merges
+and the actual merge SHA is reviewed. Our History and compiler policy remain local.
 
 No gfx1200 hardware, D3D12 debug layer, game acceptance, full release CI or packaging
 was performed for this integration. Both architectures compile; only gfx1201 ran.
@@ -228,3 +228,63 @@ Cross-backend measurement/reference captures; no Mochizuki source or deployment 
 Timing, dispatch and comparison apparatus/results are outside production closure. Promoted output/pool/normalization/Swin changes were reviewed independently; measurement scripts themselves are not runtime features. See Excluded experiments and addon-only changes. Covered paths: 785.
 
 `c512-den-app-preparation-20261006`, `c512-den-repeat-20261006`, `c512-den-repeat-audit-20261006`, `c512-den-typed-basis-20261006`, `combined-vs041-20261006`, `dispatch-sequence-20261006`, `framework-single-event-20261006`, `framework-submit-pair-20261006`, `fullnn-spm-20261006`, `hw-window-comparability-20261006`, `pipeline-gap`, `pool-coldage-20261006`, `real-sequence`, `submission-pacing-20261006`, `submission-untimed-20261006`, `submit-boundary-audit-20261006`, `sync-network-gap-20261006`, `sync-network-gap1080-20261006`.
+
+## Zero-patch readiness (2026-10-07)
+
+Candidate PR #12 commit: `304613aa6e6c6d9e68e0b26ab978a57e7d4cef98`.
+Official completed pin stays `297b032ac55f005d78568e684f30608651044f62`.
+
+### Remaining-difference inventory and disposition
+
+| Previous local difference | Candidate interface / product ownership | Unmodified upstream default |
+| --- | --- | --- |
+| Accept `none` for extra MP skips | `IntegrationOptions::multi_pass_skip` optional parsed-set override; product uses ConfigKeys normalization | Existing env parser and empty default retained; no new upstream `none` syntax |
+| Delete F8 code | `allow_vit_hotkey=true`; product sets false | Existing `DLSS5_VIT_REUSE_HOTKEY=1` behavior retained |
+| Delete input polling | `allow_input_poll=true`; product sets false before bridge creation | Existing modes 0/1/2, watchdog and fence fallback retained |
+| Restrict FAST twin probing | Optional `select_module` callback; product owns four supported twins | Empty callback keeps generic twin probing and warnings |
+| Preserve FAST0 tall RTZ | Same callback receives original exact stem and resolved architecture directory | Empty callback retains existing C32 normalization; no upstream numerical-default change |
+| Codec identity extents caused interpolation | Fix the PR's new active-area fit predicate; explicit identity equals omitted extents | Legacy calls without extents retain their predicate and output |
+
+The per-instance permissions are capability constraints; they do not rewrite
+process-wide environment or add competing menu/INI keys. Product extra-skip values
+still arrive through the existing ConfigKeys/EnvAlias path. History/ViT exclusion,
+reference-History/pulse exclusions and System32 compiler policy remain unchanged.
+The module callback captures no external references and uses the bridge-resolved
+architecture directory; it is invoked during construction, not per dispatch.
+Existing Options members retain aggregate ordering; IntegrationOptions is appended.
+
+### Verification and limits
+
+- All 78 owned source/build/document files equal the raw PR commit, normalizing
+  CRLF only. `hip/SHA256SUMS` is generated artifact metadata and intentionally
+  differs from the author's binary hashes; module sources/recipes are unchanged.
+- An actual git-archive sync rehearsal with `pinned=[]` and `local_patches=[]`
+  staged this commit without changing any compiled source. This was explicitly
+  staging-only, not official acceptance; production manifest/state were restored.
+- Runtime MSVC build, full `tests/lmxxf/run.cmd gpu`, ABI/C checks and 23 runtime
+  validation tests passed. GPU includes History, replay, resize and teardown.
+- Eight comparisons against main `3fa5514a`'s tested Runtime match all output
+  hashes listed above: 900/1080/1440, MP2, predicted3+skin, real3, auto exposure, R10.
+- Forced external input-poll/hotkey/pulse/reference-history flags still produce the
+  unchanged 1080p hash, with no poll activation or pulse resource creation.
+- All 70 sync tests passed, including zero-pin/no-patch mirroring and raw patch
+  replay. Current official-297 overlay still exactly reconstructs the PR sources.
+- Upstream `Development/test_integration_interfaces.ps1 -Amd` and MinGW runtime
+  build passed. Identity encoding/decoding is compared with a varying pixel fixture;
+  legacy HDR/sRGB/R10 defaults and active-area padding remain covered.
+- Review caught and fixed an initial callback checking the pre-architecture directory;
+  the final GPU hash regression verifies FAST twins are selected. An old upstream
+  test fixture used a prohibited 2x history padding extent; its valid-padding smoke
+  fixture was corrected without relaxing the History contract.
+
+No module rebuild was needed: all module sources, recipes and macro arguments
+are unchanged from the previous verified dual-architecture bundle. No game run,
+installation, packaging, release CI or gfx1200 hardware validation was performed.
+These results establish the current raw-source migration, not arbitrary future
+upstream compatibility or a promise of no game-specific regressions.
+
+After author acceptance, verify the actual merge SHA contains these interfaces,
+then remove both active manifest lists in an isolated normal upstream integration.
+Reconcile now-obsolete overlay fixtures, rerun the affected review/tests, and only
+then record the new official completed pin. Keep product build macro arguments
+and source/artifact provenance; removing source pins does not remove review.

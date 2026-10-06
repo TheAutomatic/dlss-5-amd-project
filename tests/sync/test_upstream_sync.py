@@ -218,6 +218,20 @@ class Fixture(unittest.TestCase):
 
 @unittest.skipUnless(PS and os.name == 'nt', 'PowerShell/Windows required')
 class SyncTests(Fixture):
+    def test_merged_upstream_can_follow_with_no_pins_or_patches(self):
+        manifest_path = self.local / 'tools/lmxxf-sync/manifest.json'
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
+        manifest['pinned'] = []
+        manifest['local_patches'] = []
+        write(manifest_path, json.dumps(manifest))
+        bridge = 'Development/HIP/hip_d3d12_bridge.h'
+        write(self.up / bridge, '// merged upstream bridge; no local overlay\n')
+        commit(self.up)
+        result = self.sync()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.vendor / bridge).read_bytes(), (self.up / bridge).read_bytes())
+
+
     def test_mirrors_retired_files_and_preserves_pinned_headers(self):
         retired = ('src/retired.h', 'Development/HIP/retired.h', 'hip/retired.hip',
                    'hip/retired.inc', 'shaders/retired.hlsl')

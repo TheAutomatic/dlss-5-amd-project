@@ -90,5 +90,24 @@ inline hip_reference::Options LmxxfProductionOptions(unsigned processing_w, unsi
     o.submit_pulse = 0;
     o.experimental_temporal = false;
     o.temporal_feature_tap = false;
+    // Product input ownership and module bundle policy, never upstream defaults.
+    o.integration.allow_vit_hotkey = false;
+    o.integration.allow_input_poll = false;
+    std::string extraSkipped = CfgKey::kDefaultSkipBlocks;
+    if (const char *value = std::getenv(CfgKey::MultiPassSkipBlocks))
+        CfgKey::NormalizeSkipBlocks(value, extraSkipped);
+    o.integration.override_multi_pass_skip = true;
+    o.integration.multi_pass_skip = hip_reference::ParseSkipBlocks(extraSkipped == "none" ? "" : extraSkipped);
+    o.integration.select_module = [](const std::string &exact, bool fast, const std::string &moduleDirectory) {
+        if (!fast) return exact;
+        const std::string stem = exact == "c32-wave1-rtz" ? "c32-wave1" : exact;
+        if (stem != "c32-wave1" && stem != "c64-wave2" &&
+            stem != "deep_fast-packed" && stem != "vit-stream") return stem;
+        const std::string twin = stem + "-fast";
+        if (std::ifstream(std::filesystem::u8path(moduleDirectory + "/" + twin + ".hsaco"), std::ios::binary).good())
+            return twin;
+        std::fprintf(stderr, "DLSS5_FAST_NUMERIC=1: %s.hsaco missing, using %s.hsaco\n", twin.c_str(), stem.c_str());
+        return stem;
+    };
     return o;
 }

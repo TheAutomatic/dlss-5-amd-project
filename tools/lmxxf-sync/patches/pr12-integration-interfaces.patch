@@ -27,16 +27,24 @@
   void EnableGraphs(){Load(hipStreamBeginCapture,"hipStreamBeginCapture");Load(hipStreamEndCapture,"hipStreamEndCapture");Load(hipGraphInstantiate,"hipGraphInstantiate");Load(hipGraphLaunch,"hipGraphLaunch");Load(hipGraphDestroy,"hipGraphDestroy");Load(hipGraphExecDestroy,"hipGraphExecDestroy");}
 --- a/Development/HIP/hip_reference_network.h
 +++ b/Development/HIP/hip_reference_network.h
-@@ -164,7 +164,7 @@
- /* DLSS5_MULTI_PASS_SKIP_BLOCKS (2026-10-03, results/multi-pass-skip-20261003): residual blocks skipped in passes 2..N only (same list
-    syntax as DLSS5_SKIP_BLOCKS); pass 1 always runs the configured network. Empty/unset = no extra skip (code path unchanged). LOSSY when
-    set. An unparsable list is reported and treated as empty; the network constructor also rejects blocks its pipeline cannot skip. */
--inline std::set<U> MultiPassSkipFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI_PASS_SKIP_BLOCKS");if(!v||!*v)return {};
-+inline std::set<U> MultiPassSkipFromEnvironment(){const char*v=std::getenv("DLSS5_MULTI_PASS_SKIP_BLOCKS");if(!v||!*v||!std::strcmp(v,"none"))return {};
-  try{return ParseSkipBlocks(v);}catch(...){std::fprintf(stderr,"DLSS5_MULTI_PASS_SKIP_BLOCKS=%s invalid (block list), using none\n",v);return {};}}
- /* Fixed processing geometries (tiers + the 512x512 test) and, since 2026-10-02, free ones (DLSS5_NETWORK_FREE_RES, native_network_geometry.h
-    NativeNetworkGeometry::Free): both axes multiples of 128, so every level is in the 1920x1152 divisibility class; the ViT grid is
-@@ -181,6 +181,7 @@
+@@ -127,7 +127,15 @@
+ inline float StyleFeatureFromEnvironment(){const char*v=std::getenv("DLSS5_STYLE");if(!v||!*v)return -1;
+  if(!std::strcmp(v,"0"))return 0.f;if(!std::strcmp(v,"2"))return 2.f/128.f;if(std::strcmp(v,"1"))std::fprintf(stderr,"DLSS5_STYLE=%s invalid (0/1/2), using 1\n",v);return -1;}
+ inline bool FastPrefixFromEnvironment(){const char*v=std::getenv("DLSS5_HIP_FAST");if(!v)return false;if(std::strcmp(v,"0")&&std::strcmp(v,"1"))throw std::runtime_error("DLSS5_HIP_FAST must be 0 or 1");return !std::strcmp(v,"1");}
+-struct Options {unsigned submit_pulse=2; /* 0 off, 1 explicit same-arch experiment, 2 driver-scoped auto. Bridge only. */bool experimental_temporal=false;unsigned temporal_valid_height=0;bool temporal_feature_tap=false; /* Experimental MP1 diagnostic: retain post half32 for original-gate validation; default off. */bool swin_run=false;unsigned vit_stream=0; /* bit0: AV FP8, bit1: contract F16; explicit paired dispatch */bool wave_owned=false;bool c512_m32=false; /* 2026-09-26: C512 QKV+mix 32 tokens per wave (results/c512-ffn-20260926) */bool vit_proj_n64=false; /* 2026-09-26: ViT projection 16 tokens x 64 columns per wave (results/m32-sweep-20260926) */bool pdl=false; /* 2026-09-25: chain launches any-order + tile flags (results/pdl-chain-20260925) */ bool mh_ffn_frag256=false;bool decoder_byte=false;std::set<U>skip_blocks;U width=512,height=512,seed=0,post_shift=0;std::string assets,modules,dump_dir,dump_only;unsigned ffn_qkv_max_c=64,runtime=7,device=0/* HIP device index; the bridge picks the one matching the D3D12 adapter (multi-GPU / iGPU hosts) */,tiled_ffn_min_c=64,vit_weight_mask=0;bool mh_window_fused=false;/* 2026-09-17 experiment: C64 blocks as one kernel per 8x8 window (FFN+QKV+attention+projection, Development/HIP/c64_window_fused.hip, module c64-window-fused.hsaco) */bool mh_proj_diag_fb=false;/* 2026-09-17: residual scales as diagonal MMAs in the byte-feature attention-project kernels (c64/c128/c256 *_fb_diag) */bool sparse_weights=false;std::string sparse_filter;/* diagnostic: only keys ending with this go sparse */bool sparse_full=false;/* diagnostic: VMM path with every page backed (isolates mapping from dead-range accounting) *//* 2026-09-17 experiment, DO NOT SHIP: in-place packing leaves 3/4 of every E4M3 region (1/2 of every f16 region) dead in the f32 layout; this maps only the live 64 KiB pages of each weight through the VMM API (addresses unchanged; weights 607 -> 236 MiB). Copies work, but on driver 32.0.31007.2048 kernels hang (64 KiB chunks) or fail (2 MiB chunks) on any reservation backed by more than one physical chunk, and hipMemMap refuses partial mappings of one chunk; only reservation == one chunk is kernel-visible, which cannot skip holes. All three hashes change. Kept for re-testing on newer drivers (vmm_probe / vmm_kernel_probe). */bool vit_qkv_fused=false,ffn_qkv=false,grouped_mh_contract=false,direct_prefix_input=false,prefix_fused=false,mh_input_mapped=false,mh_project_crop=false,vit_qkv_blocked=false,split_project_blocked=false,split_mix_blocked=false,split_ffn_fused=false,fused_ffn_project=false,post_merge_fold=false,pre_main8=false,raw_chain=false,elide_identity_shift=false,fast_vit=false,wmma=false,pooled=false,profile=false,wall_profile=false,wave=false,tiled=false,fast_c32=false,fused_c32=false,fast_mh=false,fast_deep=false,fast_prefix=false,mh_wave=false,fused_ffn=false,fused_mh=false,packed_weights=false,packed_c32=false,fp8_normalized=false,fp8_ffn=false,fp8_av=false,fp8_deep=false,fp8_middle=false,half_c32=false,crop_c32=false,fused_qkv_norm=false,vit_pack_input=false,vit_contract_blocked=false,vit_blocked=false,vit_split_k=false,mapped_c32=false,fused_mh_ffn=false,tiled_mh_ffn=false,graph=false,vit_attn_fused=false,vit_qkv_fp8=false,mh_byte_stream=false,vit_expand_m4=false,vit_expand_frag=false,vit_byte_stream=false,vit_half_stream=false,vit_qkv_n4=false,ffn_qkv_batched_norm=false,pool_project_fused=false,qkv_norm_wave_c512=false,vit_expand_m2=false,vit_input_tiled=false,vit_ffn_fused=false,split_mix_fused=false,split_mix_h16w=false,pool_project_h16w=false,decoder_h16w=false,mh_attn_w16=false,c512_qkv_frag=false,c512_proj_frag=false,c512_proj_tiles=false,mh_feature_byte=false,mh_proj_diag=false,post_head_fused=false,c32_finish_fused=false,down_crop_fused=false,pool32_h16w=false,tiled_ffn_small=false,pool_project_group=false,prefix_inline=false,vit_proj_frag=false,vit_qkv_frag=false,vit_contract_frag=false,mh_ffn_frag=false;unsigned dup_count=2;std::string dup_prefix;/* diagnostic: launch matching kernels twice (pure kernels: identical output, frame delta = in-frame marginal cost) */};
++// Consumer-owned policy. Empty overrides preserve the addon/environment behavior.
++struct IntegrationOptions {
++ bool allow_vit_hotkey=true,allow_input_poll=true;
++ bool override_multi_pass_skip=false;std::set<U> multi_pass_skip;
++ // Called only during module selection. Return a module stem without .hsaco.
++ // The consumer owns its supported twin list and exact-module policy.
++ std::function<std::string(const std::string&,bool,const std::string&)> select_module;
++};
++struct Options {unsigned submit_pulse=2; /* 0 off, 1 explicit same-arch experiment, 2 driver-scoped auto. Bridge only. */bool experimental_temporal=false;unsigned temporal_valid_height=0;bool temporal_feature_tap=false; /* Experimental MP1 diagnostic: retain post half32 for original-gate validation; default off. */bool swin_run=false;unsigned vit_stream=0; /* bit0: AV FP8, bit1: contract F16; explicit paired dispatch */bool wave_owned=false;bool c512_m32=false; /* 2026-09-26: C512 QKV+mix 32 tokens per wave (results/c512-ffn-20260926) */bool vit_proj_n64=false; /* 2026-09-26: ViT projection 16 tokens x 64 columns per wave (results/m32-sweep-20260926) */bool pdl=false; /* 2026-09-25: chain launches any-order + tile flags (results/pdl-chain-20260925) */ bool mh_ffn_frag256=false;bool decoder_byte=false;std::set<U>skip_blocks;U width=512,height=512,seed=0,post_shift=0;std::string assets,modules,dump_dir,dump_only;unsigned ffn_qkv_max_c=64,runtime=7,device=0/* HIP device index; the bridge picks the one matching the D3D12 adapter (multi-GPU / iGPU hosts) */,tiled_ffn_min_c=64,vit_weight_mask=0;bool mh_window_fused=false;/* 2026-09-17 experiment: C64 blocks as one kernel per 8x8 window (FFN+QKV+attention+projection, Development/HIP/c64_window_fused.hip, module c64-window-fused.hsaco) */bool mh_proj_diag_fb=false;/* 2026-09-17: residual scales as diagonal MMAs in the byte-feature attention-project kernels (c64/c128/c256 *_fb_diag) */bool sparse_weights=false;std::string sparse_filter;/* diagnostic: only keys ending with this go sparse */bool sparse_full=false;/* diagnostic: VMM path with every page backed (isolates mapping from dead-range accounting) *//* 2026-09-17 experiment, DO NOT SHIP: in-place packing leaves 3/4 of every E4M3 region (1/2 of every f16 region) dead in the f32 layout; this maps only the live 64 KiB pages of each weight through the VMM API (addresses unchanged; weights 607 -> 236 MiB). Copies work, but on driver 32.0.31007.2048 kernels hang (64 KiB chunks) or fail (2 MiB chunks) on any reservation backed by more than one physical chunk, and hipMemMap refuses partial mappings of one chunk; only reservation == one chunk is kernel-visible, which cannot skip holes. All three hashes change. Kept for re-testing on newer drivers (vmm_probe / vmm_kernel_probe). */bool vit_qkv_fused=false,ffn_qkv=false,grouped_mh_contract=false,direct_prefix_input=false,prefix_fused=false,mh_input_mapped=false,mh_project_crop=false,vit_qkv_blocked=false,split_project_blocked=false,split_mix_blocked=false,split_ffn_fused=false,fused_ffn_project=false,post_merge_fold=false,pre_main8=false,raw_chain=false,elide_identity_shift=false,fast_vit=false,wmma=false,pooled=false,profile=false,wall_profile=false,wave=false,tiled=false,fast_c32=false,fused_c32=false,fast_mh=false,fast_deep=false,fast_prefix=false,mh_wave=false,fused_ffn=false,fused_mh=false,packed_weights=false,packed_c32=false,fp8_normalized=false,fp8_ffn=false,fp8_av=false,fp8_deep=false,fp8_middle=false,half_c32=false,crop_c32=false,fused_qkv_norm=false,vit_pack_input=false,vit_contract_blocked=false,vit_blocked=false,vit_split_k=false,mapped_c32=false,fused_mh_ffn=false,tiled_mh_ffn=false,graph=false,vit_attn_fused=false,vit_qkv_fp8=false,mh_byte_stream=false,vit_expand_m4=false,vit_expand_frag=false,vit_byte_stream=false,vit_half_stream=false,vit_qkv_n4=false,ffn_qkv_batched_norm=false,pool_project_fused=false,qkv_norm_wave_c512=false,vit_expand_m2=false,vit_input_tiled=false,vit_ffn_fused=false,split_mix_fused=false,split_mix_h16w=false,pool_project_h16w=false,decoder_h16w=false,mh_attn_w16=false,c512_qkv_frag=false,c512_proj_frag=false,c512_proj_tiles=false,mh_feature_byte=false,mh_proj_diag=false,post_head_fused=false,c32_finish_fused=false,down_crop_fused=false,pool32_h16w=false,tiled_ffn_small=false,pool_project_group=false,prefix_inline=false,vit_proj_frag=false,vit_qkv_frag=false,vit_contract_frag=false,mh_ffn_frag=false;unsigned dup_count=2;std::string dup_prefix;/* diagnostic: launch matching kernels twice (pure kernels: identical output, frame delta = in-frame marginal cost) */IntegrationOptions integration;};
+ // 2026-09-26: C512 QKV/mix 32-token kernels (DLSS5_HIP_C512_M32) replace only the production h16w-mix + frag-QKV configuration.
+ // 2026-09-26: the ViT projection 64-column kernel (DLSS5_HIP_VIT_PROJ_N64) replaces only the production fragment projection.
+ inline bool VitProjN64Compatible(const Options&opt){return opt.vit_proj_n64&&opt.fast_deep&&opt.packed_weights&&opt.vit_proj_frag;}
+@@ -181,6 +189,7 @@
  }
  inline std::atomic<int> AdaptivePreviewState{0};
  class Network {friend class D3D12Bridge;
@@ -44,7 +52,7 @@
   bool sp1440_ready=false;bool final_direct_compatible=false;bool pool64_byte_available=false;
   bool vit_contract_byte_edge=false; // paired exact representation of an already E4M3-valued edge
   bool free_geometry=false; /* DLSS5_NETWORK_FREE_RES geometry (FreeGeometry): generic ViT grid, no 640-token cap */
-@@ -191,6 +192,7 @@
+@@ -191,6 +200,7 @@
      and cumulative targets stay exact; cleared only after a full drain before uint32 rollover. The last blocks' tensors are held so the pool cannot recycle a buffer
      an in-flight launch still reads. Correctness audit and remaining acquire/scheduling conditions: results/pdl-audit-20260927. */
   unsigned pdl_mode=0,pdl_calls=0;unsigned*pdl_flags=nullptr;bool pdl_anyorder=false;std::deque<Tensor>pdl_keep;
@@ -52,7 +60,7 @@
   struct PdlPrev{unsigned*flags=nullptr;unsigned epoch=0,ww=0,sx=0,sy=0;}pdl_prev;unsigned*pdl_ffn_flags=nullptr;unsigned pdl_ffn_epoch=0;
   int(*ext_launch)(Handle,unsigned,unsigned,unsigned,unsigned,unsigned,unsigned,size_t,Handle,void**,void**,Handle,Handle,unsigned)=nullptr;
   static constexpr unsigned PDL_SLOTS=16384,PDL_RING=64;
-@@ -205,7 +207,51 @@
+@@ -205,7 +215,51 @@
    }
    pdl_total[s]+=waves;pdl_last_target=pdl_total[s];return pdl_flags+size_t(s)*PDL_SLOTS;}
   static bool PdlChainHead(U block){return block==5||block==9||block==15||block==23||block==40||block==48||block==56||block==62;}
@@ -105,16 +113,19 @@
  #ifdef DLSS5_LAYER_BENCH
   friend struct LayerBenchmark;
   unsigned diagnostic_kernel_repeats=1;
-@@ -352,7 +398,7 @@
+@@ -352,7 +406,10 @@
   Handle Fn(const std::string&m,const std::string&name){static const std::string normkey="c32_norm900";const std::string&actual=m=="c32_wave1"&&C32Norm900Active()?normkey:m;std::string key=actual+":"+name;auto it=functions.find(key);if(it!=functions.end())return it->second;Handle f{};api.Check(api.hipModuleGetFunction(&f,modules.at(actual),name.c_str()),name.c_str());functions.emplace(key,f);return f;}
   /* DLSS5_FAST_NUMERIC twin (2026-10-03 fast-vit-c512): <stem>.hsaco -> <stem>-fast.hsaco when the option is 1 and the file
      exists; missing twin falls back to the exact module with one stderr line (same contract as the C32/C64 swap). */
 - std::string FastTwin(const std::string&stem)const{if(!fast_numeric)return stem;const std::string fast=stem+"-fast";
-+ std::string FastTwin(const std::string&stem)const{if(!fast_numeric||(stem!="c32-wave1"&&stem!="c64-wave2"&&stem!="deep_fast-packed"&&stem!="vit-stream"))return stem;const std::string fast=stem+"-fast";
++ std::string FastTwin(const std::string&requested,bool wave_c32=false)const{
++  if(opt.integration.select_module)return opt.integration.select_module(requested,fast_numeric,opt.modules);
++  const std::string stem=wave_c32?"c32-wave1":requested;
++  if(!fast_numeric)return stem;const std::string fast=stem+"-fast";
    if(std::ifstream(std::filesystem::u8path(opt.modules+"/"+fast+".hsaco"),std::ios::binary).good())return fast;
    std::fprintf(stderr,"DLSS5_FAST_NUMERIC=1: %s.hsaco missing, using %s.hsaco\n",fast.c_str(),stem.c_str());return stem;}
   template<class...A>void Run(const char*m,const char*name,size_t n,A...args){
-@@ -412,7 +458,7 @@
+@@ -412,7 +469,7 @@
    }
    if(module=="c32_fused"||module=="c32_fused_ffn"||module=="mh_fused"){groups=count;threads=128;}
    if(module=="c64_wave2"){groups=count;threads=kernel.rfind("c64_",0)==0?64:kernel.rfind("c128_",0)==0?128:256;}
@@ -123,22 +134,23 @@
    if(module=="c512_m32_mh"||module=="c512_m32_deep"){groups=count/1024;threads=32;}
    if(kernel=="split_ffn_one_w2"||kernel=="split_ffn_one_w2f8")threads=64;
    if(kernel=="split_ffn_proj_fused"){threads=256;groups=count/8192;}
-@@ -614,12 +660,10 @@
+@@ -614,12 +671,12 @@
   static long long AdaptiveIdleMs(){static const long long ms=[]{const char*v=std::getenv("DLSS5_VIT_ADAPTIVE_IDLE_MS");if(!v||!*v)return 500LL;char*e=nullptr;long long x=std::strtoll(v,&e,10);return (e&&!*e&&x>=0)?x:500LL;}();return ms;}
   Tensor adaptive_image_anchor,adaptive_image_signature,adaptive_image_delta;void*adaptive_image=nullptr;
   void*adaptive_prev_history=nullptr;void*adaptive_prev_input=nullptr;U adaptive_prev_seed=0;
 - bool adaptive_dirty=false,adaptive_key_down=false,adaptive_user_disabled=false;U adaptive_last_mode=0,adaptive_frame=0;
-+ bool adaptive_allowed=true,adaptive_dirty=false;U adaptive_last_mode=0,adaptive_frame=0;
++ bool adaptive_allowed=true,adaptive_dirty=false,adaptive_key_down=false,adaptive_user_disabled=false;U adaptive_last_mode=0,adaptive_frame=0;
   bool adaptive_active=false;U adaptive_n=0;std::chrono::steady_clock::time_point adaptive_last{};
   Tensor AdaptiveVitGroup(Tensor input,U n){
 -  const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=mode_s?U(std::stoul(mode_s)):0;
--  const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
--  if(hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
 +  const char*mode_s=std::getenv("DLSS5_VIT_ADAPTIVE");U mode=adaptive_allowed&&mode_s?U(std::stoul(mode_s)):0;
+   const char*hotkey=std::getenv("DLSS5_VIT_REUSE_HOTKEY");
+-  if(hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
++  if(opt.integration.allow_vit_hotkey&&hotkey&&!strcmp(hotkey,"1")){bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;if(down&&!adaptive_key_down)adaptive_user_disabled=!adaptive_user_disabled;adaptive_key_down=down;if(adaptive_user_disabled)mode=0;}
    AdaptivePreviewState.store(mode?1:0);if(mode!=adaptive_last_mode){adaptive_dirty=true;adaptive_last_mode=mode;}
    if(multi_pass>1)mode=0;
    if(!mode){Tensor full=input;for(U b=31;b<=38;b++)full=Vit(full,n,b);return full;}++adaptive_frame;
-@@ -634,7 +678,17 @@
+@@ -634,7 +691,17 @@
     else{std::vector<double>product(1024,1.);for(U block=31;block<=38;block++)for(const char*part:{"contract","projection"}){auto weight=ReadWeights(opt.assets+"/block"+std::to_string(block)+"-"+part+".f32");size_t matrix=!strcmp(part,"contract")?4194304:1048576;if(weight.size()!=matrix+1024)throw std::runtime_error("adaptive gain weight shape");for(U i=0;i<1024;i++)product[i]*=double(weight[matrix+i]);}for(U i=0;i<1024;i++)gain[i]=float(product[i]);}
     for(float v:gain)if(!std::isfinite(v))throw std::runtime_error("adaptive gain nonfinite");adaptive_gain=Upload(gain.data(),4096,true);
    }
@@ -157,16 +169,25 @@
    U stride=free_geometry?(W/64+3)/4*4:W==1920?32:W/64,tiles=((W+31)/32)*((H+31)/32);
    if(!adaptive_image)throw std::runtime_error("adaptive image missing");
    Run("deep","reuse_image_stats",size_t(tiles)*256,adaptive_image,P(adaptive_image_anchor),P(adaptive_state),P(adaptive_image_signature),P(adaptive_image_delta),W,H);
-@@ -705,7 +759,7 @@
+@@ -687,7 +754,7 @@
+  static U Shift(U block){static constexpr U s[]={0,3,1,2,0,3,1,2,0,3,1,2,0,3,1,2,1,2,0,3,1,2,0,3,1,2,0,3,1,2};if(block<40||block>69)throw std::runtime_error("decoder shift");return s[block-40];}
+ public:
+  Network(const Network&)=delete;Network&operator=(const Network&)=delete;
+- explicit Network(Options o):api(o.runtime),pulse_ops{int(o.device),&stream,api.hipSetDevice,api.hipEventCreate,api.hipEventRecord,api.hipStreamSynchronize,api.hipEventDestroy},pulse_lease(pulse_ops),opt(std::move(o)),W(opt.width),H(opt.height){api.style_feature=StyleFeatureFromEnvironment();{const char*v=std::getenv("DLSS5_OVERLAP");final_direct_compatible=HIP_FINAL_OUTPUT_DIRECT&&!opt.graph&&(!v||!*v||!std::strcmp(v,"0"));}multi_pass=MultiPassFromEnvironment();multi_predict=MultiPredictFromEnvironment();multi_skin=MultiSkinFromEnvironment();multi_skip=MultiPassSkipFromEnvironment();std::fprintf(stderr,"multi_pass=%u multi_pass_predict=%u actual_network_passes=%u\n",multi_pass,unsigned(multi_predict),multi_predict&&multi_pass==3?2:multi_pass);fast_numeric=FastNumericFromEnvironment();if(opt.experimental_temporal){
++ explicit Network(Options o):api(o.runtime),pulse_ops{int(o.device),&stream,api.hipSetDevice,api.hipEventCreate,api.hipEventRecord,api.hipStreamSynchronize,api.hipEventDestroy},pulse_lease(pulse_ops),opt(std::move(o)),W(opt.width),H(opt.height){api.style_feature=StyleFeatureFromEnvironment();{const char*v=std::getenv("DLSS5_OVERLAP");final_direct_compatible=HIP_FINAL_OUTPUT_DIRECT&&!opt.graph&&(!v||!*v||!std::strcmp(v,"0"));}multi_pass=MultiPassFromEnvironment();multi_predict=MultiPredictFromEnvironment();multi_skin=MultiSkinFromEnvironment();multi_skip=opt.integration.override_multi_pass_skip?opt.integration.multi_pass_skip:MultiPassSkipFromEnvironment();std::fprintf(stderr,"multi_pass=%u multi_pass_predict=%u actual_network_passes=%u\n",multi_pass,unsigned(multi_predict),multi_predict&&multi_pass==3?2:multi_pass);fast_numeric=FastNumericFromEnvironment();if(opt.experimental_temporal){
+   const std::string tap=fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal";
+   bool assets=std::ifstream(opt.modules+"/"+tap+".hsaco").good()&&std::ifstream(opt.modules+"/temporal-history.hsaco").good()&&std::ifstream(opt.assets+"/post70-history-head.f16").good()&&std::ifstream(opt.assets+"/native-temporal-sigmoid.f32").good();
+   if(!NativeExperimentalTemporalCompatible()||!assets||opt.graph||multi_pass!=1||multi_skin||!opt.temporal_valid_height||opt.temporal_valid_height>H){opt.experimental_temporal=false;std::fprintf(stderr,"history_experiment requested=1 active=0 reason=incompatible_or_missing_assets\n");}
+@@ -705,7 +772,7 @@
  if(wave_owned_active){
   const bool rtz_tall=HIP_C32_RTZ_TALL&&W==1920&&(H==1152||H==1088)&&std::ifstream(std::filesystem::u8path(opt.modules+"/c32-wave1-rtz.hsaco"),std::ios::binary).good();
   std::string extra[][2]={{"c64_wave2","c64-wave2"},{"c32_wave1",rtz_tall?"c32-wave1-rtz":"c32-wave1"}};
 - for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
-+ if(fast_numeric||opt.experimental_temporal)for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[0]==std::string("c32_wave1")?"c32-wave1":entry[1]); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
++ for(auto&entry:extra)entry[1]=entry[0]==std::string("c32_wave1")&&opt.experimental_temporal?(fast_numeric?"c32-wave1-temporal-fast":"c32-wave1-temporal"):FastTwin(entry[1],entry[0]==std::string("c32_wave1")); /* c32: the rtz build of the fast C32 disassembles identically, so the twin stem is always c32-wave1 */
   for(auto&entry:extra){entry[1]+=".hsaco";Handle m{};
    api.Check(api.LoadModule(&m,(opt.modules+"/"+entry[1]).c_str()),entry[1].c_str());modules[entry[0]]=m;
    if(entry[0]=="c32_wave1"){
-@@ -738,7 +792,7 @@
+@@ -738,7 +805,7 @@
  if(opt.fast_deep){const std::string deep_stem=opt.packed_weights?"deep_fast-packed":"deep_fast";Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+FastTwin(deep_stem)+".hsaco").c_str()),"deep fast module");modules["deep_fast"]=m;}
  if(opt.fast_mh){const std::string mh_stem=opt.packed_weights?(opt.mh_wave?"multihead-fast-padded-wave-packed":"multihead-fast-packed"):(opt.mh_wave?"multihead-fast-padded-wave":"multihead-fast");Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+FastTwin(mh_stem)+".hsaco").c_str()),"MH fast module");modules["mh_fast"]=m;}
   /* free geometry: the per-slot tile counters (PDL_SLOTS, one per 16 C64 tokens) cover processing surfaces up to 4.19M pixels; larger free sizes run without PDL */
@@ -175,7 +196,7 @@
  if(opt.fast_prefix){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/prefix_fast.hsaco").c_str()),"prefix fast module");modules["prefix_fast"]=m;}
  if(opt.fused_c32){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/c32_fused_attention.hsaco").c_str()),"fused attention module");modules["c32_fused"]=m;}
  if(opt.fast_c32){const char*f[][2]={{"c32_fast_ffn","c32_fast.hsaco"},{"c32_fast_attention","c32_fast_attention.hsaco"},{"boundary_fast","boundary-fast.hsaco"}};for(auto&v:f){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+v[1]).c_str()),v[1]);modules[v[0]]=m;}}if(opt.tiled){const char*t[][2]={{"c32_tiled","c32_tiled.hsaco"},{"mh_tiled","multihead-tiled.hsaco"}};for(auto&v:t){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/"+v[1]).c_str()),v[1]);modules[v[0]]=m;}}if(opt.wave){Handle m{};api.Check(api.LoadModule(&m,(opt.modules+"/wave-pointwise.hsaco").c_str()),"wave module");modules["wave"]=m;}if(HIP_POOL64_BYTE_EDGE&&wave_owned_active&&opt.mh_byte_stream&&opt.mh_project_crop&&opt.mh_input_mapped&&opt.elide_identity_shift&&opt.grouped_mh_contract&&opt.packed_weights&&opt.mh_proj_diag_fb&&opt.pool32_h16w&&opt.fast_mh&&!opt.skip_blocks.count(5)&&!observer&&opt.dump_dir.empty()){
-@@ -762,7 +816,7 @@
+@@ -762,7 +829,7 @@
  }
  
  if(wave_owned_active)HasFn("c32_wave1","c32_wave1_post_b8_rgba");if(multi_predict||std::ifstream(opt.modules+"/multi-pass-predict.hsaco").good())EnsurePredictModule();if(multi_pass>1)PrepareMultiPassFeeds();if(multi_skin)PrepareSkin();}catch(...){if(!pulse_lease.Close()){std::fprintf(stderr,"submit_pulse ctor cleanup retained owner stream\n");throw;}if(pdl_flags){api.hipStreamSynchronize(stream);api.hipFree(pdl_flags);pdl_flags=nullptr;}for(auto&m:modules)api.hipModuleUnload(m.second);api.hipStreamDestroy(stream);throw;}}
@@ -184,7 +205,7 @@
   void PrintMemory(){size_t bytes=0,free=0,total=0;std::set<void*>seen;auto add=[&](const Tensor&t){if(t&&t->owned&&seen.insert(t->ptr).second)bytes+=t->capacity;};for(auto&t:pool)add(t);for(auto&w:weights)add(w.second);for(auto&maps:gather_maps)for(auto&m:maps)add(m.second);add(device_noise);api.Check(api.hipMemGetInfo(&free,&total),"memory stats");std::printf("memory owned_MiB=%.1f allocations=%zu device_free_MiB=%.1f total_MiB=%.1f\n",bytes/1048576.,seen.size(),free/1048576.,total/1048576.);}
   /* DLSS5_HIP_MEMORY=1 (diagnostic): device memory by category after the pool has warmed — weights by key, pool tensors by capacity, gather maps, noise, and the runtime's free/total. */
   void MemoryReport(FILE*f){std::set<void*>seen;size_t wsum=0,psum=0,gsum=0,nsum=0;std::vector<std::pair<size_t,std::string>>w,p;
-@@ -809,7 +863,10 @@
+@@ -809,7 +876,10 @@
   else
   {if(c32_skip_byte)throw std::runtime_error("byte C32 skip needs the wave-owned up");source=Up(source,skips[0],W/4,H/4,W/2,H/2,64,32,"block66-weights.f32");}skips[0].reset();c32_skip_byte=false;for(U b=c32_begin;b<=69;b++){if(opt.skip_blocks.count(b)){if(!opt.raw_chain)throw std::runtime_error("C32 skip needs the raw chain");if(b==69)SkipChainFinish(chain,W/2,H/2,false);if(chain.main)source=chain.main;continue;}chain=opt.raw_chain?C32Chain(source,chain.raw?&chain:nullptr,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"),b==69,false):C32(source,W/2,H/2,Shift(b),Block(b,"ffn"),Block(b,"attention"));source=chain.main;if(source)Stage("block"+std::to_string(b),source);}chain={};
   C32Result post{};
@@ -196,7 +217,7 @@
   if(!lowb||rgba)throw std::runtime_error("temporal feature tap post layout changed");
   Run("c32_wave1","c32_wave1_post_b8_features",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f,P(temporal_features));
  }else Run(lowb?"c32_wave1":"c32_fused_ffn",lowb?(rgba?"c32_wave1_post_b8_rgba":"c32_wave1_post_b8"):"c32_post_merge_head_half",windows,P(source),P(skip0),Weight("post70-scales.f32"),PackedC32Weight("post70-ffn.f32",false),PackedC32Weight("post70-attention.f32",true),P(color),Weight("post70-head.f32"),P(out),windows,W,H,sx,sy,.03125f);source.reset();skip0.reset();Stage("block70",out);return out;}
-@@ -850,6 +907,19 @@
+@@ -850,6 +920,19 @@
   bool PulseProfileCompatible()const noexcept{return opt.runtime==7&&opt.pooled&&opt.wmma&&opt.wave&&opt.fast_prefix&&opt.fast_c32&&opt.fast_mh&&opt.fast_deep&&opt.packed_weights&&opt.packed_c32&&opt.fp8_normalized&&opt.fp8_av&&opt.fp8_deep&&opt.raw_chain&&opt.prefix_inline&&opt.fused_qkv_norm&&opt.ffn_qkv&&opt.ffn_qkv_max_c==256&&opt.grouped_mh_contract&&opt.split_ffn_fused&&opt.split_mix_blocked&&opt.split_project_blocked&&opt.vit_qkv_fused&&opt.vit_attn_fused&&opt.vit_qkv_fp8&&opt.vit_contract_frag&&opt.vit_weight_mask==1&&opt.vit_pack_input&&opt.mh_project_crop&&opt.pool_project_group&&opt.wave_owned&&final_direct_compatible&&opt.dup_prefix.empty()&&opt.mh_byte_stream&&opt.mh_ffn_frag256&&opt.decoder_byte&&opt.c512_m32&&opt.vit_proj_n64&&opt.vit_stream==3&&opt.swin_run&&!opt.vit_byte_stream&&!opt.vit_half_stream&&!opt.vit_qkv_n4&&!opt.vit_split_k&&!opt.sparse_weights;}
   unsigned PulseRejectMask(bool at_site=false)const noexcept{const char*ae=std::getenv("DLSS5_VIT_ADAPTIVE");return (pulse_frame_history?1u:0u)|(!pulse_platform_scope?131072u:0u)|(opt.submit_pulse==2&&!pulse_driver_validated?262144u:0u)|(!PulseProfileCompatible()||!pulse_capabilities_ok?524288u:0u)|(pulse_bridge_diagnostics?2097152u:0u)|(at_site&&!SwinRunActive()?1048576u:0u)|(opt.graph?2u:0u)|(opt.profile?4u:0u)|(opt.wall_profile?8u:0u)|(opt.experimental_temporal?16u:0u)|(opt.temporal_feature_tap?32u:0u)|(!opt.skip_blocks.empty()?64u:0u)|(multi_pass!=1?128u:0u)|(multi_pass==3&&multi_predict?256u:0u)|(multi_skin?512u:0u)|((ae&&*ae&&std::strcmp(ae,"0"))?1024u:0u)|(pdl_anyorder?2048u:0u)|(at_site&&!pulse_ordered_down_c256?65536u:0u)|(!opt.pool_project_group?32768u:0u)|(!fast_numeric?8192u:0u)|(!((W==1600&&H==960)||(W==1920&&H==1152))?16384u:0u);}
   bool PulseEligible()const noexcept{return PulseRejectMask()==0;}
@@ -216,7 +237,7 @@
   bool GraphEnabled()const{return opt.graph;}
   bool WaveOwnedActive()const{return wave_owned_active;}
   bool SwinRunActive()const{return SwinRunCompatible(opt)&&!sp_disabled&&(!sp_error_host||!sp_error_host[0].load(std::memory_order_acquire));}
-@@ -860,6 +930,10 @@
+@@ -860,6 +943,10 @@
   Handle Stream()const{return stream;}
   Api& Runtime(){return api;}
   void Synchronize(){api.Check(api.hipStreamSynchronize(stream),"network completion");}
@@ -227,7 +248,7 @@
   void Enqueue(void*rgba,void*history,void*rgb_output,U seed){pulse_ordered_down_c256=false;pulse_frame_pdl_start=pdl_calls;pulse_frame_history=history!=nullptr;if(adaptive_prev_history!=history||adaptive_prev_seed!=seed||adaptive_prev_input!=rgba){adaptive_dirty=true;adaptive_prev_history=history;adaptive_prev_seed=seed;adaptive_prev_input=rgba;}
    if(!rgba||!rgb_output||(!device_noise&&!opt.fast_prefix)||!opt.pooled||opt.profile||opt.wall_profile||observer||!opt.dump_dir.empty())throw std::runtime_error("device graph requires initialized noise, pooled mode and no diagnostic readbacks");
    if(opt.graph){
-@@ -924,7 +998,12 @@
+@@ -924,7 +1011,12 @@
   using Memcpy2DFn=int(*)(void*,size_t,const void*,size_t,size_t,size_t,int,Handle);Memcpy2DFn memcpy2d{};
   std::set<U> multi_skip;
   U graph_output_stride=3,skin_first_stride=3;bool multi_predict=true,multi_skin=false;Tensor predict_gain,skin_first,skin_mask,skin_result;
@@ -241,7 +262,7 @@
    if(multi_skin){if(!skin_first)throw std::runtime_error("skin resources must be prepared before producer wait");skin_first_stride=stride;api.Check(api.hipMemcpyAsync(P(skin_first),P(out),size_t(W)*H*stride*4,3,stream),"save first pass for skin");}
    /* passes 2..N: DLSS5_MULTI_PASS_SKIP_BLOCKS added to the configured skip set (restored after, also on a throw) */
    std::set<U> saved;const bool swap=!multi_skip.empty();if(swap){saved=opt.skip_blocks;opt.skip_blocks.insert(multi_skip.begin(),multi_skip.end());}
-@@ -941,7 +1020,7 @@
+@@ -941,7 +1033,7 @@
   public:
   /* Pass count changed at run time (add-on hot reload / hotkey, 2026-10-03). Same value = no-op. A graph is rebuilt; feed buffers
      are allocated on the next multi-pass frame (outside capture: the warm frame). */
@@ -325,11 +346,13 @@
    D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,count+1+(exposure_texture?1u:0u),D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};check(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"heap");
    UINT stride=d->GetDescriptorHandleIncrementSize(hd.Type);auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
    D3D12_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=NativeViewFormat(desc.Format);sv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;sv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;sv.Texture2D.MipLevels=1;
-@@ -91,9 +107,9 @@
+@@ -91,9 +107,11 @@
    D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=neural_buffer?3u:2u;rd.pParameters=params;ID3DBlob*b=nullptr,*err=nullptr;auto hr=D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&b,&err);if(err)err->Release();check(hr,"rootsig-serialize");step(d,"rootsig-serialized");check(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)),"rootsig");step(d,"rootsig");b->Release();b=nullptr;err=nullptr;
    /* DLSS5_CODEC_SRGB=1 (Magpie): the host texture is a display-referred sRGB picture: the encoder passes it through, the decoder linearizes and re-encodes. */
    const char*srgb_io=(_wgetenv(L"DLSS5_CODEC_SRGB")&&!wcscmp(_wgetenv(L"DLSS5_CODEC_SRGB"),L"1"))?"1":"0";
 -  const char*fit=geometry.Adapted()?"1":"0";
++  // Explicit identity extents must not introduce interpolation/FP16 rounding.
++  // Decode still needs fitting to preserve pixels outside an active subrect.
 +  const char*fit=(geometry.Adapted()||(count==3&&(out_width!=geometry.width||out_height!=geometry.height)))?"1":"0";
    const D3D_SHADER_MACRO uint_out[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UINT_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},unorm8[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_UNORM8_OUT","1"},{"NATIVE_CODEC_BGRA",(out_format==DXGI_FORMAT_B8G8R8A8_UNORM||out_format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)?"1":"0"},{"NATIVE_CODEC_DEBUG_TINT",(_wgetenv(L"DLSS5_DEBUG_TINT")&&!wcscmp(_wgetenv(L"DLSS5_DEBUG_TINT"),L"1"))?"1":"0"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},plain[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}},r11[]={{"NATIVE_CODEC_EXPOSURE",exposure_texture?"1":"0"},{"NATIVE_CODEC_FIT",fit},{"NATIVE_CODEC_R11_OUT","1"},{"NATIVE_CODEC_SRGB_IO",srgb_io},{nullptr,nullptr}}; /* DLSS5_DEBUG_TINT=1 (diagnostic): the UNORM8 path writes a magenta-tinted picture so the write-back is visible */std::vector<D3D_SHADER_MACRO>macros;for(const D3D_SHADER_MACRO*m=unorm8_out?unorm8:r11_out?r11:unorm_out?uint_out:plain;m->Name;m++)macros.push_back(*m);if(neural_buffer)macros.push_back({"NATIVE_CODEC_NEURAL_BUFFER","1"});if(count!=3&&network.Free()&&geometry.fit_width<geometry.network_width)macros.push_back({"NATIVE_CODEC_FIT_MIRROR","1"}); /* free geometry: mirror the input into the padded columns */macros.push_back({nullptr,nullptr});
 -  hr=CompileNativeShader(dir+(count==3?L"\\native_codec_decode.hlsl":L"\\native_codec_encode.hlsl"),macros.data(),"main",&b,&err);if(FAILED(hr)){std::string message=count==3?"codec decode compile failed: ":"codec encode compile failed: ";if(err)message.append(static_cast<const char*>(err->GetBufferPointer()),err->GetBufferSize());if(err)err->Release();if(b)b->Release();throw std::runtime_error(message+" HRESULT="+std::to_string(unsigned(hr)));}if(err)err->Release();step(d,"compiled");
@@ -337,7 +360,7 @@
    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={b->GetBufferPointer(),b->GetBufferSize()};hr=NativeCreateComputePipelineState(d,&pd,IID_PPV_ARGS(&pso));b->Release();check(hr,"pso");
   }
   // Cached heaps are immutable and retain their resources. A full cache requires
-@@ -108,7 +124,7 @@
+@@ -108,7 +126,7 @@
    if(!pso||index>=count||!replacement)throw std::runtime_error("codec rebind contract");
    if(replacement==source[index])return;
    auto desc=replacement->GetDesc();
@@ -346,7 +369,7 @@
    if(replacement==output)throw std::runtime_error("codec rebind output alias");
    for(UINT i=0;i<count;i++)if(i!=index&&source[i]==replacement)throw std::runtime_error("codec rebind input alias");
    ID3D12Device*d=nullptr,*owner=nullptr;check(heap->GetDevice(IID_PPV_ARGS(&d)));
-@@ -152,11 +168,12 @@
+@@ -152,11 +170,12 @@
   void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white=1.f){Record(c,before,paper_white,LegacyParameters());}
   void Record(ID3D12GraphicsCommandList*c,const std::vector<D3D12_RESOURCE_STATES>&before,float paper_white,const NativeCodecParameters&parameters){
    if(!c||!pso||before.size()!=count+(exposure_texture?1u:0u)||!(paper_white>0.f&&paper_white<=64.f&&paper_white==paper_white) /* 2026-09-24: any finite positive scale (DLSS5_PAPER_WHITE); was {0.5,1,2} */||!parameters.Valid())throw std::runtime_error("codec unverified record contract");
@@ -361,7 +384,7 @@
    c->SetDescriptorHeaps(1,&heap);c->SetComputeRootSignature(root);c->SetPipelineState(pso);c->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());c->SetComputeRoot32BitConstants(1,20,words,0);if(neural_buffer)c->SetComputeRootShaderResourceView(2,neural_buffer->GetGPUVirtualAddress());c->Dispatch((out_width+15)/16,(out_height+15)/16,1);
    transition(c,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
    for(UINT i=0;i<count;i++)transition(c,source[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before[i]);if(exposure_texture)transition(c,exposure_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,before.back());recorded=true;
-@@ -165,6 +182,10 @@
+@@ -165,6 +184,10 @@
   void UseNeuralBuffer(ID3D12Resource*rgb){if(count||neural_buffer||!rgb||rgb->GetDesc().Dimension!=D3D12_RESOURCE_DIMENSION_BUFFER)throw std::runtime_error("codec neural buffer contract");neural_buffer=rgb;neural_buffer->AddRef();}
   bool NeuralBuffer()const{return neural_buffer!=nullptr;}
   const NativeInputGeometry&Geometry()const{return geometry;}

@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3",
   "to_commit": "297b032ac55f005d78568e684f30608651044f62",
-  "snapshot": "9e4c29ee4db9c5ebb7cb351973e6fb52a2ebc57a70d8088d153bb4f8036891db",
-  "reviewer": "Codex - source/consumer review and local regression, 2026-10-06",
-  "summary": "Official297 sync with scoped normalization,1440 Swin,pool64/final-output changes; PR12 interface overlay retained. Product History/compiler policies stay local, reference temporal/pulse disabled, input polling/F8 exclusions preserved.",
-  "validation": "docs/lmxxf-pr12-interface-migration.md - Build and validation: MSVC, dual-arch 80-module provenance, gfx1201 full GPU plus final exclusion/lifecycle checks, eight byte-identical baseline cases, WARP, ABI/config and patch/package/sync regression results. No gfx1200 or game/release certification.",
+  "snapshot": "196c354de98ca57dc6af4549f5e17b7774210e01985bf1f1f7ea82a4ed7e99a3",
+  "reviewer": "Codex - targeted consumer/interface review and regression, 2026-10-07",
+  "summary": "Official297 scope unchanged; PR304613aa closes remaining raw-source differences with optional instance policies, preserving upstream defaults and local History/INI ownership. Production pins retained pending author merge.",
+  "validation": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07): MSVC/MinGW, upstream WARP/AMD interfaces, full product GPU, ABI/23 validation, 70 sync tests, eight unchanged output hashes, forced external exclusions and actual raw-PR zero-patch staging passed. Unchanged 80-module source/provenance reused; no game/release or gfx1200 hardware certification.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "34171b323a4dfb808c3040c6031c0824a16eb93e4def97a88ebc7f1d77ad28bf",
+      "fingerprint": "2756d95786a643dd6383133af631bc91b55ed9c681aa1d3b607f4bdd9d3c641e",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Official b687 -> 297 final diff and retained PR12 overlay reviewed by feature; preserve bridge pin, product History and prior exclusions.",
-      "evidence": "docs/lmxxf-pr12-interface-migration.md - Scope and state",
-      "validation": "docs/lmxxf-pr12-interface-migration.md - Build and validation: MSVC, dual-arch 80-module provenance, gfx1201 full GPU plus final exclusion/lifecycle checks, eight byte-identical baseline cases, WARP, ABI/config and patch/package/sync regression results. No gfx1200 or game/release certification.",
+      "reason": "Reviewed final consumer diff: local normalization and module selection use PR304613aa instance interfaces; codec identity fix belongs to new PR interface. Official297 pin and active overlays remain until author merge; raw PR source parity and zero-patch staging proved.",
+      "evidence": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07)",
+      "validation": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07): MSVC/MinGW, upstream WARP/AMD interfaces, full product GPU, ABI/23 validation, 70 sync tests, eight unchanged output hashes, forced external exclusions and actual raw-PR zero-patch staging passed. Unchanged 80-module source/provenance reused; no game/release or gfx1200 hardware certification.",
       "next_step": ""
     },
     {
@@ -34679,12 +34679,12 @@
     },
     {
       "id": "pinned:Development/HIP/hip_d3d12_bridge.h",
-      "fingerprint": "2c0067da89e674e38b3412fc434cb96b1e44501637fc81602b94264773623fa5",
+      "fingerprint": "b364e4f694e7de12839b1fe094f040e2f057b2dc8c63a14ff1d64e632e0d1e89",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Pinned bridge explicitly refreshed from official297 plus reviewed queue/lease/auxiliary/PDL patch; input polling stays removed.",
-      "evidence": "docs/lmxxf-pr12-interface-migration.md - Interfaces and product policy",
-      "validation": "docs/lmxxf-pr12-interface-migration.md - Build and validation: MSVC, dual-arch 80-module provenance, gfx1201 full GPU plus final exclusion/lifecycle checks, eight byte-identical baseline cases, WARP, ABI/config and patch/package/sync regression results. No gfx1200 or game/release certification.",
+      "reason": "Restore original polling implementation; product explicitly denies it through per-instance allow_input_poll before Create. Existing queue/lease/auxiliary/PDL contracts unchanged; no polling activation under forced external mode2. Bridge remains preserved pending author acceptance.",
+      "evidence": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07)",
+      "validation": "docs/lmxxf-pr12-interface-migration.md - Zero-patch readiness (2026-10-07): MSVC/MinGW, upstream WARP/AMD interfaces, full product GPU, ABI/23 validation, 70 sync tests, eight unchanged output hashes, forced external exclusions and actual raw-PR zero-patch staging passed. Unchanged 80-module source/provenance reused; no game/release or gfx1200 hardware certification.",
       "next_step": ""
     },
     {
