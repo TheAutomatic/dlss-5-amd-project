@@ -264,6 +264,13 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           body: |
+            ### 1.10.4（相比 1.10.3.1）
+
+            - **lmxxf 时序历史（防闪烁）支持 SR 前的 1–3 层 NR**：中间层只传递网络结果，最后一次真实网络导出时序辅助量，最终画面统一平滑。预测第 3 层仍只运行两次真实网络；切换层数时重置历史。
+            - 定向同步 OptiScaler 上游的 **DLSS/DLSSG 多副本生命周期**：新副本接管失败不再撤销旧副本，返回回调按模块隔离，卸载后安全退休。
+            - 改进 **DX11 → DX12 + XeFG** 的交换链协调：确认参数等价时避免重复调整伴随交换链，正确处理窗口尺寸与 present 同步；GPU 等待失败时保留在用资源。
+            - 减少启用 HUD/描述符跟踪时批量复制的重复查堆开销；单个描述符保留原路径。
+
             ### 1.10.3.1（相比 1.10.3）
 
             - 修复 **Page Up 性能叠加层（Performance Overlay / FPS Overlay）** 布局折叠异常
@@ -283,13 +290,22 @@ jobs:
             **已知问题**
 
             - SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
-            - 时序历史与 ViT 自适应复用的兼容性仍待调查；多层或 SR 后路径暂不启用 lmxxf 时序历史。部分场景仍可能闪烁，可尝试 Mochizuki。
+            - 时序历史与 ViT 自适应复用继续互斥；SR 后路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差。部分场景仍可能闪烁，可尝试 Mochizuki。
             - 可能与 ReShade 冲突。
             - Unity 游戏如遇 NR 丢失带来的闪烁，请尝试开启对应实验性开关（伊莫已默认开启）。
 
             **特别感谢**：各位 Bilibili 用户的测试与反馈。
 
+            - 特别感谢 @Overclockers 贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能 (PR #3)：[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)
+
             ---
+
+            ### 1.10.4 (compared to 1.10.3.1)
+
+            - **lmxxf temporal history (anti-flicker) now supports 1–3 NR passes before SR**. Intermediate passes forward network results; only the final real network exports temporal auxiliary data, and smoothing applies to the final image. Predicted pass 3 still uses two real network executions. Changing the pass count resets history.
+            - Selectively integrated OptiScaler **DLSS/DLSSG plugin lifetime improvements**: a failed new hook preserves the older instance, callbacks remain module-specific, and unloaded instances retire safely.
+            - Improved swapchain coordination for **DX11 → DX12 + XeFG**: avoid redundant companion resize only when parameters are confirmed equivalent, handle window sizing and present synchronization, and preserve in-use resources when a GPU wait fails.
+            - Reduced repeated heap lookups in batched descriptor copies when HUD/descriptor tracking is enabled; single-descriptor copies retain their original path.
 
             ### 1.10.3.1 (compared to 1.10.3)
 
@@ -310,11 +326,13 @@ jobs:
             **Known issues**
 
             - SR → NR supports DX12 and the DX11/Vulkan-to-DX12 bridges; it does not add native RR/Vulkan support. Unsupported texture layouts preserve the SR image and report the reason.
-            - History/adaptive-ViT compatibility remains under investigation. lmxxf temporal history is unavailable with multiple passes or after SR. Some scenarios may still flicker; try Mochizuki if affected.
+            - Temporal history and adaptive ViT reuse remain mutually exclusive. lmxxf temporal history is unavailable after SR. Predicted pass 3 uses auxiliary data from the last real network execution and may introduce approximation artifacts. Some scenarios may still flicker; try Mochizuki if affected.
             - ReShade may conflict.
             - If NR dropping out causes flicker in a Unity game, try enabling the corresponding experimental option. It is enabled by default for Aniimo.
 
             **Special thanks** to all Bilibili users for testing and feedback.
+
+            - Special thanks to @Overclockers for contributing the NR-only XeFG multiplier override (PR #3): [PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)
 
             This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.
 
