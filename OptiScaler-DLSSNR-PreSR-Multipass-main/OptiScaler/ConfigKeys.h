@@ -308,11 +308,28 @@ inline bool NormalizeSkipBlocks(const std::string &input, std::string &result)
     const auto first = input.find_first_not_of(" \t\r\n");
     if (first == std::string::npos)
         return false;
-    const auto text = input.substr(first, input.find_last_not_of(" \t\r\n") - first + 1);
+    auto text = input.substr(first, input.find_last_not_of(" \t\r\n") - first + 1);
     if (_stricmp(text.c_str(), "auto") == 0 || _stricmp(text.c_str(), "none") == 0)
     {
         result = _stricmp(text.c_str(), "auto") == 0 ? kDefaultSkipBlocks : "none";
         return true;
+    }
+    // Normalize UTF-8 dashes (en-dash U+2013, em-dash U+2014) to ASCII '-'
+    for (size_t p = 0; (p = text.find("\xe2\x80\x93", p)) != std::string::npos; )
+    {
+        text.replace(p, 3, "-");
+        p += 1;
+    }
+    for (size_t p = 0; (p = text.find("\xe2\x80\x94", p)) != std::string::npos; )
+    {
+        text.replace(p, 3, "-");
+        p += 1;
+    }
+    // Normalize full-width comma (U+FF0C) to ASCII ','
+    for (size_t p = 0; (p = text.find("\xef\xbc\x8c", p)) != std::string::npos; )
+    {
+        text.replace(p, 3, ",");
+        p += 1;
     }
     bool blocks[70] {};
     size_t pos = 0;
@@ -324,18 +341,57 @@ inline bool NormalizeSkipBlocks(const std::string &input, std::string &result)
         const auto last = word.find_last_not_of(" \t\r\n");
         if (begin == std::string::npos)
             return false;
-        unsigned block = 0;
-        for (size_t i = begin; i <= last; ++i)
+        const auto dash = word.find('-', begin);
+        if (dash != std::string::npos && dash <= last)
         {
-            if (word[i] < '0' || word[i] > '9')
+            if (dash == begin || word.find('-', dash + 1) <= last)
                 return false;
-            block = block * 10 + unsigned(word[i] - '0');
-            if (block > 69)
+            const auto leftLast = word.find_last_not_of(" \t\r\n", dash - 1);
+            if (leftLast == std::string::npos || leftLast < begin)
                 return false;
+            unsigned startBlock = 0;
+            for (size_t i = begin; i <= leftLast; ++i)
+            {
+                if (word[i] < '0' || word[i] > '9')
+                    return false;
+                startBlock = startBlock * 10 + unsigned(word[i] - '0');
+                if (startBlock > 69)
+                    return false;
+            }
+            const auto rightBegin = word.find_first_not_of(" \t\r\n", dash + 1);
+            if (rightBegin == std::string::npos || rightBegin > last)
+                return false;
+            unsigned endBlock = 0;
+            for (size_t i = rightBegin; i <= last; ++i)
+            {
+                if (word[i] < '0' || word[i] > '9')
+                    return false;
+                endBlock = endBlock * 10 + unsigned(word[i] - '0');
+                if (endBlock > 69)
+                    return false;
+            }
+            if (startBlock == 0 || endBlock == 0 || startBlock > endBlock)
+                return false;
+            if (startBlock <= 39 && endBlock >= 39)
+                return false;
+            for (unsigned b = startBlock; b <= endBlock; ++b)
+                blocks[b] = true;
         }
-        if (block == 0 || block == 39)
-            return false;
-        blocks[block] = true;
+        else
+        {
+            unsigned block = 0;
+            for (size_t i = begin; i <= last; ++i)
+            {
+                if (word[i] < '0' || word[i] > '9')
+                    return false;
+                block = block * 10 + unsigned(word[i] - '0');
+                if (block > 69)
+                    return false;
+            }
+            if (block == 0 || block == 39)
+                return false;
+            blocks[block] = true;
+        }
         if (end == std::string::npos)
             break;
         pos = end + 1;

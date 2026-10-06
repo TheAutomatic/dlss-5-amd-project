@@ -1363,7 +1363,7 @@ void RenderMenu(Config* config, float menuResScale)
                                 }
                             }
                             if (skippedInvalid || !supported(skipped))
-                                MenuUi::TextWrapped("Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
+                                MenuUi::TextWrapped("Use none or comma-separated block numbers (1-38, 40-68), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65.");
                             HelpMarker("Upstream default since 0.40: none (all blocks). This base list applies to every real network pass."
                                        "\nOptional: enter 42,43,46 to skip the three blocks used by the pre-0.40 default. Enter none to run all blocks again."
                                        "\nThe field below adds skips only in passes 2/3. Skipping changes quality and style."
@@ -1385,7 +1385,7 @@ void RenderMenu(Config* config, float menuResScale)
                                     AmdBridge::InvalidateHistory();
                                 }
                             }
-                            if (invalid || !supported(current)) MenuUi::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-69), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
+                            if (invalid || !supported(current)) MenuUi::TextWrapped("Unsupported skip list. Use none or comma-separated block numbers (1-38, 40-68), excluding 4/69. With MH byte stream on, also exclude 5-22 and 48-65. Invalid INI combinations use no extra skipping.");
                             HelpMarker("Default none. Added to the base skip list only for real network passes 2/3; pass 1 is unchanged."
                                        "\nThis changes the style and usually saves little time. Not a cheaper equivalent of full multi-pass."
                                        "\nBlocks 4/69 and byte-stream C64/C128/C256 blocks are unsupported; invalid combinations fall back to no extra skipping."

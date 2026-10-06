@@ -104,7 +104,14 @@ int main(int argc, char **argv)
     std::string normalized;
     Require(CfgKey::NormalizeSkipBlocks(" 46,42,43,42 ", normalized) && normalized == "42,43,46",
             "skip block normalization failed");
-    for (const char *invalid : {"", "0", "39", "70", "1,,2", "1,", "-1", "4294967297", "1x"})
+    Require(CfgKey::NormalizeSkipBlocks("31-33,42", normalized) && normalized == "31,32,33,42",
+            "skip block range normalization failed");
+    Require(CfgKey::NormalizeSkipBlocks("31–33, 45 - 46", normalized) && normalized == "31,32,33,45,46",
+            "skip block dash/space normalization failed");
+    Require(CfgKey::NormalizeSkipBlocks("31-37", normalized) && normalized == "31,32,33,34,35,36,37",
+            "skip block 31-37 range expansion failed");
+    for (const char *invalid : {"", "0", "39", "70", "1,,2", "1,", "-1", "4294967297", "1x",
+                                "1-", "1--2", "38-40", "39-41", "35-31", "0-5", "68-70"})
         Require(!CfgKey::NormalizeSkipBlocks(invalid, normalized), "accepted invalid skip blocks");
     for (const char *value : {"1,2", "none", "auto", "bad"})
     {
