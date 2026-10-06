@@ -531,7 +531,6 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvAlias(CfgKey::MultiPassSkinProtect, config->LmxxfMultiPassSkinProtect.value_or_default());
                     CfgKey::PutEnvString(CfgKey::MultiPass, std::to_string(config->LmxxfMultiPass.value_or_default()).c_str());
                     CfgKey::PutEnvAlias(CfgKey::FastNumeric, config->LmxxfFastNumeric.value_or_default());
-                    resetOption(config->LmxxfModelHistory);
                     resetOption(config->LmxxfStyle);
                     CfgKey::PutEnvString(CfgKey::LmxxfStyle, std::to_string(config->LmxxfStyle.value_or_default()).c_str());
                 } else {
@@ -588,6 +587,7 @@ void RenderMenu(Config* config, float menuResScale)
                 AmdBridge::InvalidateHistory();
             };
             auto resetVit = [&]() {
+                resetOption(config->LmxxfModelHistory);
                 resetOption(config->LmxxfVitProjN64);
                 CfgKey::PutEnvAlias(CfgKey::VitProjN64, config->LmxxfVitProjN64.value_or_default());
                 resetOption(config->LmxxfVitStream);
@@ -829,20 +829,6 @@ void RenderMenu(Config* config, float menuResScale)
                     HelpMarker("On by default. 0.41 extends approximate math from C32/C64/C128 to ViT and C512 projection."
                                "\nOutput can differ from 0.40 even with 1/2 passes."
                                "\nOff selects the normal numeric modules. Changing this rebuilds the network next frame.");
-                    if(MenuUi::CollapsingHeader("Temporal history##lmxxf")) {
-                        bool history=config->LmxxfModelHistory.value_or_default();
-                        if(MenuUi::Checkbox("Temporal history",&history)) {
-                            config->LmxxfModelHistory=history;AmdBridge::InvalidateHistory();
-                        }
-                        HelpMarker("Reprojects the previous model output and uses the model's temporal blend."
-                                   "\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost."
-                                   "\nCurrently supports one pass before upscaling with valid motion/depth guides."
-                                   "\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained."
-                                   "\nUnsupported combinations keep your settings and run without history. Default: off.");
-                        if(MenuUi::SmallButton("Reset temporal history settings")) {
-                            resetOption(config->LmxxfModelHistory);AmdBridge::InvalidateHistory();
-                        }
-                    }
                     int style = static_cast<int>(config->LmxxfStyle.value_or_default());
                     if (MenuUi::Combo("lmxxf style", &style, "0\0" "1 (default)\0" "2\0"))
                     {
@@ -959,7 +945,17 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nEnabling ViT byte stream turns off adaptive reuse."
                                "\nApplies on the next network rebuild.");
                 }
-                const bool historyBlocksReuse = config->LmxxfModelHistory.value_or_default();
+                bool history = config->LmxxfModelHistory.value_or_default();
+                if (MenuUi::Checkbox("Temporal history", &history)) {
+                    config->LmxxfModelHistory = history;
+                    AmdBridge::InvalidateHistory();
+                }
+                HelpMarker("Reprojects the previous model output and uses the model's temporal blend."
+                           "\nMay reduce brightness flicker, but can add ghosting, soften moving detail and increase GPU cost."
+                           "\nCurrently supports one pass before upscaling with valid motion/depth guides."
+                           "\nTemporarily disables ViT adaptive reuse to avoid flicker; your reuse settings are retained."
+                           "\nUnsupported combinations keep your settings and run without history. Default: off.");
+                const bool historyBlocksReuse = history;
                 bool adapt = !historyBlocksReuse && config->LmxxfVitAdaptive.value_or_default();
                 ImGui::BeginDisabled(historyBlocksReuse);
                 if (MenuUi::Checkbox("ViT adaptive reuse", &adapt))
