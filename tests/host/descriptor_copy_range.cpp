@@ -42,7 +42,7 @@ struct Fixture
             if(retire && index++==0)
             { auto old=heaps[0]; old->active.store(false);auto next=std::make_shared<Heap>(old->cpuStart,16);std::fill(next->data.begin(),next->data.end(),77);heaps[0]=next; }
         };
-        if(cached)DescriptorTracking::CopyRange(count,src,dst,4,[&](size_t h){return Find(h);},copy);
+        if(cached && count != 1)DescriptorTracking::CopyRange(count,src,dst,4,[&](size_t h){return Find(h);},copy);
         else for(size_t i=0;i<count;i++) {auto sh=src?src+4*i:0;auto source=src?Find(sh):nullptr;auto dh=dst+4*i;auto dest=Find(dh);copy(source,sh,dest,dh);}
     }
 };

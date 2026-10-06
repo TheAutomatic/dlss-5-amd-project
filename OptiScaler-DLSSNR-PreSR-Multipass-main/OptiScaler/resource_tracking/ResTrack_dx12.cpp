@@ -991,9 +991,7 @@ void ResTrack_Dx12::hkCopyDescriptorsSimple(ID3D12Device* This, UINT NumDescript
 
     auto size = This->GetDescriptorHandleIncrementSize(DescriptorHeapsType);
 
-    DescriptorTracking::CopyRange(NumDescriptors, SrcDescriptorRangeStart.ptr, DestDescriptorRangeStart.ptr, size,
-        [](SIZE_T handle) { return GetHeapByCpuHandle(handle); },
-        [](const std::shared_ptr<HeapInfo>& srcHeap, SIZE_T srcHandle,
+    auto copy = [](const std::shared_ptr<HeapInfo>& srcHeap, SIZE_T srcHandle,
            const std::shared_ptr<HeapInfo>& dstHeap, SIZE_T destHandle) {
             if (!dstHeap) return;
             ResourceInfo buffer{};
@@ -1001,7 +999,17 @@ void ResTrack_Dx12::hkCopyDescriptorsSimple(ID3D12Device* This, UINT NumDescript
                 dstHeap->ClearByCpuHandle(destHandle);
             else
                 dstHeap->SetByCpuHandle(destHandle, buffer);
-        });
+        };
+    // Preserve the single-item route; only batches pay for local cache checks.
+    if (NumDescriptors == 1)
+    {
+        auto src = SrcDescriptorRangeStart.ptr ? GetHeapByCpuHandle(SrcDescriptorRangeStart.ptr) : nullptr;
+        auto dst = GetHeapByCpuHandle(DestDescriptorRangeStart.ptr);
+        copy(src, SrcDescriptorRangeStart.ptr, dst, DestDescriptorRangeStart.ptr);
+        return;
+    }
+    DescriptorTracking::CopyRange(NumDescriptors, SrcDescriptorRangeStart.ptr, DestDescriptorRangeStart.ptr, size,
+        [](SIZE_T handle) { return GetHeapByCpuHandle(handle); }, copy);
 }
 
 #pragma endregion

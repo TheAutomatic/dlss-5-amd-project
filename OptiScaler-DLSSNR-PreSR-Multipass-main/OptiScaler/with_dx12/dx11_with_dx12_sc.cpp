@@ -1191,17 +1191,22 @@ bool Dx11wDx12SC::_WaitForPresentQueueIdle()
     if (!queue || !_dx12Device) return false;
     if (!_presentIdleFence && FAILED(_dx12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                                              IID_PPV_ARGS(&_presentIdleFence)))) return false;
-    if (!_presentIdleEvent) _presentIdleEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (!_presentIdleEvent) return false;
     const auto value = ++_presentIdleValue;
     if (FAILED(queue->Signal(_presentIdleFence, value))) return false;
     auto completed = _presentIdleFence->GetCompletedValue();
     if (completed == UINT64_MAX) return false;
     if (completed >= value) return true;
-    if (FAILED(_presentIdleFence->SetEventOnCompletion(value, _presentIdleEvent))) return false;
-    if (WaitForSingleObject(_presentIdleEvent, 5000) != WAIT_OBJECT_0) return false;
-    completed = _presentIdleFence->GetCompletedValue();
-    return completed != UINT64_MAX && completed >= value;
+    // Resize is infrequent. Poll this private fence rather than leaving an event
+    // registration alive after a timed-out wait and closing its handle on teardown.
+    const auto start = GetTickCount64();
+    while (GetTickCount64() - start < 5000)
+    {
+        Sleep(1);
+        completed = _presentIdleFence->GetCompletedValue();
+        if (completed == UINT64_MAX) return false;
+        if (completed >= value) return true;
+    }
+    return false;
 }
 
 bool Dx11wDx12SC::_WaitForCopyQueueIdle()
@@ -1289,7 +1294,6 @@ void Dx11wDx12SC::_ReleaseInteropObjects()
     _copyAllocatorFenceValues.clear();
 
     SafeRelease(_presentIdleFence);
-    SafeCloseHandle(_presentIdleEvent);
     SafeRelease(_copyFence);
     SafeCloseHandle(_copyFenceEvent);
     _copyFenceValue = 1;
