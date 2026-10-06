@@ -233,9 +233,11 @@ foreach ($pair in @(
 # INI
 $iniSrc = Join-Path $source 'OptiScaler.ini'
 if (!(Test-Path $iniSrc)) { throw "Missing $iniSrc" }
-$ini = Get-Content -LiteralPath $iniSrc -Raw
+$ini = Get-Content -LiteralPath $iniSrc -Raw -Encoding UTF8
 $mochizukiDefaults = ([regex]::Matches($ini, '(?m)(?:^;[^\r\n]*\r?\n)*^Mochizuki\w+=[^\r\n]*') | ForEach-Object { $_.Value }) -join "`n"
 if (-not $mochizukiDefaults) { throw 'Mochizuki defaults missing from the source ini template.' }
+$lmxxfHistoryDefaults = [regex]::Match($ini, '(?m)(?:^;[^\r\n]*\r?\n)*^LmxxfModelHistory=[^\r\n]*').Value
+if (-not $lmxxfHistoryDefaults) { throw 'Native history default/comments missing from the source ini template.' }
 $ini = $ini -replace '(?m)^Dx12Upscaler=.*$', 'Dx12Upscaler=ffx'
 $ini = $ini -replace '(?m)^LogToFile=.*$', 'LogToFile=true'
 $ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
@@ -298,6 +300,7 @@ NrStabilizerThreshold=4.0
 ; lmxxf network style: 0 / 1 / 2. Default 1; other upstream numeric changes can still change the image.
 ; Separate from Daniel Style and shared NrOverallIntensity. Live change rebuilds the network.
 DLSS5_STYLE=1
+$lmxxfHistoryDefaults
 ; 1080-tier processing rows: 1152 (default), or 1088 (Compact 1080 network).
 ; 1088 changes the image, especially near the bottom edge. Live change rebuilds the network.
 DLSS5_NETWORK_1080_ROWS=1152
@@ -393,6 +396,7 @@ DLSS5_HIP_VIT_BYTE_STREAM=0
 ; Configure reuse in the Ins menu. No F8 polling; motion returns to full ViT.
 ; Default below is performance-oriented (looser than upstream 4 / 0.22 / 1 / 0.35):
 ; higher FPS when nearly still, more risk of stale detail / ghosting on subtle motion.
+; Inactive while LmxxfModelHistory is enabled; the saved reuse preference is retained.
 DLSS5_VIT_ADAPTIVE=1
 DLSS5_VIT_REUSE_PERIOD=16
 DLSS5_VIT_REUSE_GLOBAL=1

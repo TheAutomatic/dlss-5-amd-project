@@ -154,6 +154,19 @@ class ModulePackageTests(unittest.TestCase):
         self.assertIn('Missing runtime-ci.sha256', out)
         self.assertFalse(self.archive.exists())
 
+    def test_archive_preserves_language_and_history_defaults(self):
+        code, out = self.package()
+        self.assertEqual(code, 0, out)
+        with zipfile.ZipFile(self.archive) as archive:
+            ini = archive.read('OptiScaler.ini').decode('utf-8-sig')
+            cfg = configparser.ConfigParser(strict=False)
+            cfg.read_string(ini)
+            self.assertEqual(cfg['Menu']['Language'], 'en')
+            self.assertEqual(cfg['DlssNr']['LmxxfModelHistory'], 'false')
+            self.assertTrue(cfg.getboolean('DlssNr', 'DLSS5_VIT_ADAPTIVE'))
+            self.assertIn('Temporarily disables adaptive ViT reuse', ini)
+            self.assertIn('the saved reuse preference is retained', ini)
+
     def test_archive_preserves_nr_multiplier_default(self):
         code, out = self.package()
         self.assertEqual(code, 0, out)
