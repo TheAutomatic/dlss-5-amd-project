@@ -47,3 +47,30 @@ upstream's menu redesign is reference material, not a replacement for the NR wor
 The host CI entry includes descriptor acceptance/rejection and unchanged-on-failure
 tests plus existing cross-thread Vulkan scope tests. Build and CI establish software
 contracts; game startup, HDR and Alt+Tab/resize behavior still require game acceptance.
+
+## Round two A: DLSS/DLSSG plugin instance lifetimes (2026-10-07)
+
+Selective source: upstream **97e99b4c5d9e8af38f14e3b00e1b3f7b35ab5aed**, design from
+`4abfd7b65d5eb002b44801421837c69e04edfd6b`. DLSS and DLSSG now keep independent
+resolver and returned callback identities. A rejected/new plugin cannot evict a live
+older plugin. External FG bypass, OTA policy and the Steam original-function bypass remain.
+
+The local implementation deliberately differs from the snapshot: exact Windows DLL
+unload notifications only mark atomic retirement; they do not call the loader or acquire
+application locks. Callback leases hold the originating module while executing. Returned
+wrappers and bounded tombstones are never reassigned to another generation, including
+address reuse. Sixteen successful DLSS/DLSSG instances per process are supported; subsequent
+copies remain unmodified. This bounds unreclaimable detour storage after DLL unmap and
+avoids writing into a freed image. Restart resets the capacity. Initialization JSON/architecture
+patches do not wait across threads under loader lock; concurrent conflicting initialization
+is rejected rather than racing the shared spoofed system-capability state.
+
+Reflex/PCL/common and the host's private local DLSSG retain their existing paths in this
+round. Their parameter callbacks have separate lifetimes (notably common's setVoid detour)
+and need their own ownership tests before extending this registry. This is not a claim
+that all Streamline plugins or the complete upstream OTA rewrite have been merged.
+
+The host CI fixture uses real DLL exports and Detours to cover two copies, rejected attach,
+repeat notification, reference decrements, active-call leases, actual unload, reload,
+concurrent callbacks and capacity fallback. Streamline game startup/exit remains a game
+acceptance item; the fixture does not simulate the full proprietary plugin implementation.

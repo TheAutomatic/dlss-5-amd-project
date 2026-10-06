@@ -11,6 +11,9 @@
 #include "include/sl.param/parameters.h"
 
 #include "Hook_Utils.h"
+#include "PluginModuleSlots.h"
+#include <utility>
+#include <type_traits>
 
 struct Adapter
 {
@@ -144,10 +147,8 @@ class StreamlineHooks
     static void unhookInterposer();
     static void hookInterposer(HMODULE slInterposer);
 
-    static void unhookDlss();
     static void hookDlss(HMODULE slDlss);
 
-    static void unhookDlssg();
     static void hookDlssg(HMODULE slDlssg);
 
     static void unhookLocalDlssg();
@@ -236,23 +237,67 @@ class StreamlineHooks
 
     static sl::Result hkslSetD3DDevice(void* d3dDevice);
 
+    static constexpr size_t kPluginSlots = 16;
+    inline static PluginModuleSlots<kPluginSlots> pluginModules;
+    inline static std::recursive_mutex pluginConfigMutex;
+    struct PluginCalls
+    {
+        std::atomic<PFN_slGetPluginFunction> o_dlss_slGetPluginFunction{nullptr};
+        std::atomic<PFN_slOnPluginLoad> o_dlss_slOnPluginLoad{nullptr};
+        std::atomic<decltype(&slDLSSGetOptimalSettings)> o_slDLSSGetOptimalSettings{nullptr};
+        std::atomic<PFN_slGetPluginFunction> o_dlssg_slGetPluginFunction{nullptr};
+        std::atomic<PFN_slOnPluginLoad> o_dlssg_slOnPluginLoad{nullptr};
+        std::atomic<PFN_slGetPluginJSONConfig_sl1> o_dlssg_slGetPluginJSONConfig_sl1{nullptr};
+        std::atomic<decltype(&slDLSSGSetOptions)> o_slDLSSGSetOptions{nullptr};
+        std::atomic<decltype(&slDLSSGGetState)> o_slDLSSGGetState{nullptr};
+        std::string config, jsonConfig;
+        std::atomic<bool> modesBroken{false};
+        std::mutex optionsMutex;
+        sl::ViewportHandle viewport{};
+        sl::DLSSGOptions options{};
+    };
+    static PluginCalls pluginCalls[kPluginSlots];
+    inline static thread_local void* pluginCaller = nullptr;
+    inline static thread_local size_t currentPlugin = kPluginSlots;
+    inline static std::atomic<size_t> activeDlssg{kPluginSlots};
+    static PluginCalls& Calls() { return pluginCalls[currentPlugin]; }
+    static void hookPlugin(unsigned kind, HMODULE module);
+    template <size_t I, auto Hook> struct PluginCallback;
+    template <size_t I, typename R, typename... A, R (*Hook)(A...)>
+    struct PluginCallback<I, Hook>
+    {
+        static R Invoke(A... args)
+        {
+            typename PluginModuleSlots<kPluginSlots>::Lease lease(pluginModules.slots[I]);
+            if (!lease)
+            {
+                if constexpr (std::is_same_v<R, sl::Result>) return sl::Result::eErrorInvalidParameter;
+                else return R{};
+            }
+            const auto previous = currentPlugin;
+            const auto previousCaller = pluginCaller;
+            pluginCaller = _ReturnAddress();
+            currentPlugin = I;
+            struct Restore { size_t old; void* caller; ~Restore() { currentPlugin = old; pluginCaller = caller; } } restore{previous, previousCaller};
+            return Hook(args...);
+        }
+    };
+    template <auto Hook, size_t... I>
+    static auto CallbackAt(size_t index, std::index_sequence<I...>)
+    {
+        static constexpr decltype(Hook) table[] = { &PluginCallback<I, Hook>::Invoke... };
+        return table[index];
+    }
+    template <auto Hook> static auto Callback(size_t index)
+    { return CallbackAt<Hook>(index, std::make_index_sequence<kPluginSlots>{}); }
+
     // DLSS
-    inline static PFN_slGetPluginFunction o_dlss_slGetPluginFunction = nullptr;
-    inline static PFN_slOnPluginLoad o_dlss_slOnPluginLoad = nullptr;
-    inline static decltype(&slDLSSGetOptimalSettings) o_slDLSSGetOptimalSettings = nullptr;
 
     static bool hkdlss_slOnPluginLoad(sl::param::IParameters* params, const char* loaderJSON, const char** pluginJSON);
     static sl::Result hkslDLSSGetOptimalSettings(const sl::DLSSOptions& options, sl::DLSSOptimalSettings& settings);
     static void* hkdlss_slGetPluginFunction(const char* functionName);
 
     // DLSSG
-    inline static PFN_slGetPluginFunction o_dlssg_slGetPluginFunction = nullptr;
-    inline static PFN_slOnPluginLoad o_dlssg_slOnPluginLoad = nullptr;
-    inline static PFN_slGetPluginJSONConfig_sl1 o_dlssg_slGetPluginJSONConfig_sl1 = nullptr;
-    inline static decltype(&slDLSSGSetOptions) o_slDLSSGSetOptions = nullptr;
-    inline static decltype(&slDLSSGGetState) o_slDLSSGGetState = nullptr;
-    static inline sl::ViewportHandle lastDlssgViewport {}; // For updating options when we change them
-    static inline sl::DLSSGOptions lastDlssgOptions {};
 
     static bool hkdlssg_slOnPluginLoad(sl::param::IParameters* params, const char* loaderJSON, const char** pluginJSON);
     static sl::Result hkslSetConstants(const sl::Constants& values, const sl::FrameToken& frame,

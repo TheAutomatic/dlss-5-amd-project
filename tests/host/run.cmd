@@ -32,6 +32,10 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% /O2 /utf-8 /LD /DFIXTURE_ID=11 tests\host\streamline_plugin_fixture.cpp /Fe"%OUT%\sl_fixture_a.dll" /Fo"%OUT%\sl_fixture_a.obj" /link /IMPLIB:"%OUT%\sl_fixture_a.lib" || goto fail
+%CXX% /O2 /utf-8 /LD /DFIXTURE_ID=22 tests\host\streamline_plugin_fixture.cpp /Fe"%OUT%\sl_fixture_b.dll" /Fo"%OUT%\sl_fixture_b.obj" /link /IMPLIB:"%OUT%\sl_fixture_b.lib" || goto fail
+%CXX% /O2 /utf-8 /I"%INC%" tests\host\streamline_plugin_slots.cpp /Fe"%OUT%\streamline_plugin_slots.exe" /Fo"%OUT%\streamline_plugin_slots.obj" /link "%DETOURS%" || goto fail
+"%OUT%\streamline_plugin_slots.exe" "%OUT%\sl_fixture_a.dll" "%OUT%\sl_fixture_b.dll" || goto fail
 "%AMD_TEST_PYTHON%" -B tests\host\test_menu_localization.py || goto fail
 call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 %CXX% /utf-8 tests\host\dx12_interop_desc.cpp /Fe"%OUT%\dx12_interop_desc.exe" /Fo"%OUT%\dx12_interop_desc.obj" || goto fail
