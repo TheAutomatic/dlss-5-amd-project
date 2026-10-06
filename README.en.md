@@ -12,13 +12,6 @@ The Mochizuki backend supports Windows / RDNA4. See [installation, model require
 
 # OptScaler(NR) 1.10.3
 
-### What’s new in 1.10.3
-
-- The Ins menu adds **Language**: English (default) and Simplified Chinese. **Save Settings** persists `[Menu] Language=en` or `zh-CN`. The Chinese font is embedded.
-- Optional lmxxf **Temporal history** defaults to off and currently supports **one NR pass before SR**, with valid motion/depth guides. It may reduce flicker, at additional GPU cost and with possible ghosting. While enabled, **ViT adaptive reuse** and its four controls are disabled; turning history off restores the saved preference. See [implementation and limits](docs/architecture/lmxxf-native-history.md).
-- Corrected post-SR NR dimensions and scratch reuse across retained recordings, fixed native 4K history dispatch bounds, and added an NR-only XeFG multiplier setting.
-- Selectively ported OptiScaler NVAPI/DXGI/HUD capture stability fixes while preserving the three-backend lifecycle. Reviewed upstream `97e99b4c`; this is not a full merge. See [scope](docs/architecture/optiscaler-upstream.md).
-
 **Special Thanks**: Thank you to all Bilibili users for your testing and feedback.
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.

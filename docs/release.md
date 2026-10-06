@@ -9,6 +9,7 @@
 ## 版本号
 
 - 版本串来自仓库根的 `VERSION`；`PACKAGE_RELEASE.ps1` 未显式给 `-Version` 时读它，并把 `VERSION` 放进包里。
+- 日常发版只更新三语 README 的标题版本号，保留其 Release 更新日志入口，不再向 README 添加逐版更新摘要。中英文更新日志统一维护在 `.github/workflows/release.yml` 的发布正文中；安装说明等长期文档仅在功能用法确有变化时更新。
 - 当前产品名为 **OptScaler(NR)**。品牌仅用于安装/卸载窗口、README、包名等产品展示：窗口显示 `OptScaler(NR) <版本>`，正式 ZIP 为 `OptScaler-NR-<版本>.zip`，Actions artifact 名为 `OptScaler(NR)`。ZIP 使用连字符，避免 GitHub 上传附件时将括号改为点号、导致按文件名核验失败。同步修改名称时检查打包、上传和下载路径。`OptiScaler.dll` / INI、旧日志名、源码目录及注册表位置保持兼容，旧安装记录仍可识别，新记录写入 `project=OptScaler(NR)`。
 - **tag 与 GitHub Release 标题固定为 `v<版本>`**（例如 `v1.10.2`），不添加品牌或其他描述；workflow 的发布标题直接使用 `github.ref_name`。CI 在 tag 名含 `-alpha`、`-beta` 或 `-rc` 时发成 prerelease，否则是正式版（Latest）。只认这三个后缀。
 - 1.8.x 时代的形式是 `1.8.x-0.3.y`（本 fork 版本 + 支持的 daniel runtime 版本）；1.9 起双后端，不再带 runtime 后缀。

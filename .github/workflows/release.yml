@@ -266,9 +266,11 @@ jobs:
           body: |
             ### 1.10.3（相比 1.10.2）
 
-            - Ins 菜单支持 **English / 简体中文**，默认英文，内置中文字体；语言随“保存设置”写入 INI，并改善窄窗口与缩放下的标签排版。
+            - Ins 菜单新增 **English / 简体中文**，默认英文；语言选框位于“保存设置”旁，保存后下次启动继续使用。
+            - 默认菜单统一使用内嵌 **Noto Sans SC**，改善中文、英文和数字混排时的大小与风格差异，无需安装字体或中文语言包；保留自定义字体设置。
+            - 精简中文标签，补充选项说明，调整菜单布局与重置范围。三后端的详细状态集中到“诊断”，主界面保留简短状态、可用的网络耗时及失败／回退提示。
             - 新增 lmxxf **Temporal history (anti-flicker) / 时序历史（防闪烁）**，默认开启（已有 INI 选择优先）；目前支持 **SR 前的单层 NR**，需要有效运动矢量与深度。可减轻部分闪烁，也会增加 GPU 耗时，可能带来拖影。
-            - 开启时序历史时暂时禁用 **ViT adaptive reuse** 及四项参数，避免两者同开导致的严重闪烁；保留原偏好，关闭历史后恢复。保留历史缓冲直写与单次写入优化。
+            - 开启时序历史时暂时禁用 **ViT adaptive reuse** 及四项参数，避免组合启用导致严重闪烁；保留原偏好，关闭历史后恢复。减少历史处理中的拷贝和重复写入。
             - 修复 **SR → NR** 的处理尺寸错误与保留录制间临时资源复用造成的闪烁，修复原生 4K 时序历史的调度边界。
             - 增加 NR 专用 **XeFG 倍率**设置；修正后端初始化期间 Vulkan 调用保护的线程隔离。
             - 定向跟进 OptiScaler `97e99b4c` 的 NVAPI、DXGI SwapChain 和 HUD 捕获稳定性修复，保留三后端生命周期；并非全量合并。lmxxf 仍为 **0.41**。
@@ -295,9 +297,11 @@ jobs:
 
             ### 1.10.3 (compared to 1.10.2)
 
-            - Added **English / Simplified Chinese** to the Ins menu, with English as the default and an embedded Chinese font. Save Settings persists the language to the INI; labels adapt to narrow windows and UI scaling.
+            - Added **English / Simplified Chinese** to the Ins menu, with English as the default. The language selector sits beside Save Settings; saving retains the choice for the next launch.
+            - The default menu now uses embedded **Noto Sans SC** for Chinese, English and numerals, improving consistency in mixed text. No font or Chinese language-pack installation is required; custom font settings are preserved.
+            - Shortened Chinese labels, expanded help text, and refined menu layout and reset scopes. Detailed status for all three backends is grouped under Diagnostics; compact status, available network timings, and failure/fallback reasons remain visible in the main panel.
             - Added lmxxf **Temporal history (anti-flicker)**, enabled by default while preserving existing INI preferences. It currently supports **one NR pass before SR**, with valid motion/depth guides. It may reduce flicker, at additional GPU cost and with possible ghosting.
-            - Temporal history temporarily disables **ViT adaptive reuse** and its four controls to avoid severe flicker when combined. Saved preferences return when history is disabled. Retained direct history-buffer and single-store optimizations.
+            - Temporal history temporarily disables **ViT adaptive reuse** and its four controls to avoid severe flicker when combined. Saved preferences return when history is disabled. Reduced copies and redundant writes in history processing.
             - Fixed **SR → NR** processing dimensions and flicker from scratch-resource reuse across retained recordings; fixed native 4K history dispatch bounds.
             - Added an NR-only **XeFG multiplier** setting and isolated Vulkan call guards per thread during backend initialization.
             - Selectively ported NVAPI, DXGI swapchain and HUD capture stability fixes reviewed against OptiScaler `97e99b4c`, preserving the three-backend lifecycle. This is not a full upstream merge. lmxxf remains at **0.41**.
