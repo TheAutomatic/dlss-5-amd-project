@@ -28,7 +28,9 @@ def main():
     options.recalc_timestamp = False
     options.name_IDs = ['*']
     sub = subset.Subsetter(options=options)
-    sub.populate(unicodes=sorted({ord(c) for c in text if ord(c) >= 0x2000}))
+    # Keep Latin-1 as well as catalog Chinese: the default menu must not mix
+    # Hack's Latin/digits with Noto's Chinese. Numerals keep this family's metrics.
+    sub.populate(unicodes=sorted(set(range(0x20, 0x100)) | {ord(c) for c in text if ord(c) >= 0x2000}))
     sub.subset(font)
     # Distinct family for this modified subset. Keep original copyright/license records.
     for record in font['name'].names:

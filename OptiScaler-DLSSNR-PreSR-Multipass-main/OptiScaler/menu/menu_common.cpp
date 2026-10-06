@@ -8050,6 +8050,20 @@ void MenuCommon::Init(HWND InHwnd, bool isUWP)
         }
     }
 
+    // One embedded family covers both languages without Windows language packs.
+    void* menuFontData = nullptr;
+    int menuFontBytes = 0;
+    const auto fontResource = FindResourceW(reinterpret_cast<HMODULE>(&__ImageBase), MAKEINTRESOURCEW(201), RT_RCDATA);
+    if (fontResource)
+    {
+        const auto resourceData = LoadResource(reinterpret_cast<HMODULE>(&__ImageBase), fontResource);
+        if (resourceData)
+        {
+            menuFontData = LockResource(resourceData);
+            menuFontBytes = static_cast<int>(SizeofResource(reinterpret_cast<HMODULE>(&__ImageBase), fontResource));
+        }
+    }
+    bool unifiedFont = false;
     if (io.Fonts->Fonts.empty() && Config::Instance()->UseHQFont.value_or_default())
     {
         ImFontAtlas* atlas = io.Fonts;
@@ -8067,6 +8081,11 @@ void MenuCommon::Init(HWND InHwnd, bool isUWP)
                 atlas->AddFontFromFileTTF(wstring_to_string(Config::Instance()->TTFFontPath.value()).c_str(), fontSize,
                                           &fontConfig, io.Fonts->GetGlyphRangesDefault());
         }
+        else if (menuFontData && menuFontBytes)
+        {
+            io.FontDefault = MenuFont::AddUnified(atlas, menuFontData, menuFontBytes, fontSize);
+            unifiedFont = io.FontDefault != nullptr;
+        }
         else
         {
             io.FontDefault = atlas->AddFontFromMemoryCompressedBase85TTF(hack_compressed_compressed_data_base85,
@@ -8075,17 +8094,8 @@ void MenuCommon::Init(HWND InHwnd, bool isUWP)
     }
 
     if (io.Fonts->Fonts.empty()) io.FontDefault = io.Fonts->AddFontDefault();
-    // An embedded OFL subset makes Chinese available on Windows without optional language packs.
-    const auto fontResource = FindResourceW(reinterpret_cast<HMODULE>(&__ImageBase), MAKEINTRESOURCEW(201), RT_RCDATA);
-    if (fontResource)
-    {
-        const auto resourceData = LoadResource(reinterpret_cast<HMODULE>(&__ImageBase), fontResource);
-        const auto bytes = SizeofResource(reinterpret_cast<HMODULE>(&__ImageBase), fontResource);
-        if (resourceData && bytes)
-        {
-            MenuFont::MergeChinese(io.Fonts, LockResource(resourceData), static_cast<int>(bytes));
-        }
-    }
+    if (!unifiedFont && menuFontData && menuFontBytes)
+        MenuFont::MergeChinese(io.Fonts, menuFontData, menuFontBytes);
 
     if (!Config::Instance()->OverlayMenu.value_or_default())
     {

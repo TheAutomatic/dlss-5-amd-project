@@ -55,13 +55,17 @@ int main(int argc, char** argv)
     std::vector<char> chineseFont((std::istreambuf_iterator<char>(fontFile)), {});
     assert(!chineseFont.empty());
     unsigned layouts = 0;
-    for (bool hq : {false, true})
+    for (int fontMode : {0, 1, 2}) // unified default, explicit custom Hack, non-HQ
     {
     ImGui::CreateContext();
     auto& io = ImGui::GetIO(); io.IniFilename = nullptr; io.LogFilename = nullptr; io.DeltaTime = 1.f / 60;
-    if (hq) io.Fonts->AddFontFromMemoryCompressedBase85TTF(hack_compressed_compressed_data_base85, 14);
-    else io.Fonts->AddFontDefault();
-    assert(MenuFont::MergeChinese(io.Fonts, chineseFont.data(), static_cast<int>(chineseFont.size())));
+    if (fontMode == 0)
+        assert(MenuFont::AddUnified(io.Fonts, chineseFont.data(), static_cast<int>(chineseFont.size()), 14));
+    else {
+        if (fontMode == 1) io.Fonts->AddFontFromMemoryCompressedBase85TTF(hack_compressed_compressed_data_base85, 14);
+        else io.Fonts->AddFontDefault();
+        assert(MenuFont::MergeChinese(io.Fonts, chineseFont.data(), static_cast<int>(chineseFont.size())));
+    }
     assert(ImGui_ImplDX11_Init(device.Get(), context.Get()));
     for (const auto lang : {Language::English, Language::SimplifiedChinese})
     for (float scale : {0.5f, 1.f, 1.5f, 2.f, 3.f, 4.f})
@@ -102,6 +106,17 @@ int main(int argc, char** argv)
                     }
             }
             MenuUi::SeparatorText("DLSS Neural Rendering");
+            if (fontMode == 0) {
+                // Prevent a mixed-family regression, not merely similar bounding boxes.
+                assert(ImGui::GetFont()->Sources.Size == 1);
+                for (ImWchar cp : {ImWchar('N'), ImWchar('R'), ImWchar('0'), ImWchar(0x795e), ImWchar(0x6a21)}) {
+                    const auto* glyph = ImGui::GetFontBaked()->FindGlyphNoFallback(cp);
+                    assert(glyph && glyph->SourceIdx == 0);
+                }
+                const float digitWidth = ImGui::GetFontBaked()->FindGlyph('0')->AdvanceX;
+                for (ImWchar cp = '1'; cp <= '9'; ++cp)
+                    assert(std::abs(ImGui::GetFontBaked()->FindGlyph(cp)->AdvanceX - digitWidth) < .01f);
+            }
             if (scale >= 1)
             {
                 const auto* latin = ImGui::GetFontBaked()->FindGlyph('N');
@@ -112,7 +127,11 @@ int main(int argc, char** argv)
                     const auto* chinese = ImGui::GetFontBaked()->FindGlyphNoFallback(codepoint);
                     assert(chinese);
                     const float height = chinese->Y1 - chinese->Y0;
-                    assert(height >= latinHeight * .95f && height <= latinHeight * 1.3f);
+                    // A single Noto family has taller CJK faces than Latin caps.
+                    // At 21px, integer rasterization yields 15px vs 11px; allow
+                    // one rounding pixel without accepting undersized Chinese.
+                    const float rounding = fontMode == 0 ? 1.f : 0.f;
+                    assert(height >= latinHeight * .95f && height <= latinHeight * 1.3f + rounding);
                     assert(std::abs((chinese->Y0 + chinese->Y1) * .5f - latinCenter) <= 1.5f * scale);
                 }
             }
@@ -141,6 +160,10 @@ int main(int argc, char** argv)
             }
             ImGui::EndDisabled(); assert(!adaptive);
             MenuUi::TextWrapped("ViT adaptive reuse is unavailable while Temporal history is enabled. Your settings are retained."); within();
+            int stream = 3;
+            MenuUi::Combo("ViT stream (exp)", &stream, "Off\0AV FP8\0Contract F16\0Both\0"); within();
+            MenuUi::Checkbox("Override inherited controls", &enabled); within();
+            MenuUi::Checkbox("Skin structure follows structure", &enabled); within();
             char skips[64] = "42,43,46";
             MenuUi::InputText("Extra skipped blocks in passes 2/3", skips, sizeof(skips)); within();
             assert(GImGui->LastItemData.ID == MenuUi::GetID("Extra skipped blocks in passes 2/3"));
@@ -183,7 +206,7 @@ int main(int argc, char** argv)
             ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
             if (repeat == 1 && width == 480 && (scale == 1 || scale == 2))
                 SaveBmp(device.Get(), context.Get(), target.Get(), std::filesystem::path(argv[1]) /
-                    (std::string(hq ? "hq-" : "default-") + Code(lang) + "-" + std::to_string(int(scale)) + ".bmp"));
+                    (std::string(fontMode == 0 ? "unified-" : fontMode == 1 ? "custom-" : "legacy-") + Code(lang) + "-" + std::to_string(int(scale)) + ".bmp"));
         }
         ++layouts;
     }
