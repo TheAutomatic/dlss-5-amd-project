@@ -6,7 +6,7 @@
 
 1. 在独立 worktree 中工作，保留当前完成的 `third_party/lmxxf/UPSTREAM.md` pin。运行 `tools/sync-lmxxf-upstream.ps1`；可用 `-UpstreamPath` 指定本地作者仓库。脚本默认 fetch，然后只使用解析出的同一个 commit SHA。离线使用 `-SkipUpstreamFetch`，不要误把旧的 origin/main 当成刚拉到的代码。
 2. 第一次运行会准备源码，然后生成 `exports/lmxxf-upstream/report.md`、`report.json`、`upstream.diff`、`pinned-headers.diff` 和 `review.template.json`。审阅尚未完成时退出非零，这是待接入状态。`sync-state.json` 记录当前尝试；`UPSTREAM.md` 的完成 pin 此时不前移。补丁冲突、必需文件消失会在任何 vendor 拷贝或删除前失败，保留完整旧快照。
-3. 以上次完成接入的 pin 到目标 SHA 的最终 diff 为主，按功能归并审阅。清点所有变化路径，包括没有进入 vendor 的脚本、部署配置、测试和文档；先判断其与生产路径的关系，只对影响实际生产路径的实验深入追踪。报告为每个变化路径保留审阅项，防止新的配置位置、生成器或开关命名绕过文本扫描。无需逐条读中间 commit；只在最终 diff 无法解释意图、兼容行为或回归来源时追溯相关历史。检查 `hip_d3d12_bridge.h` 的 diff，决定继续保留还是 `-UpdateBridge` 更新（并重新套上 `Pdl*` 与本地契约）。
+3. 以上次完成接入的 pin 到目标 SHA 的最终 diff 为主，按功能归并审阅。清点所有变化路径，包括没有进入 vendor 的脚本、部署配置、测试和文档；先判断其与生产路径的关系，只对影响实际生产路径的实验深入追踪。报告为每个变化路径保留审阅项，防止新的配置位置、生成器或开关命名绕过文本扫描。无需逐条读中间 commit；只在最终 diff 无法解释意图、兼容行为或回归来源时追溯相关历史。检查 `hip_d3d12_bridge.h` 的 diff 及产品契约；PR #12 合入后它与其他闭包文件一样直接跟随上游，不再需要 `-UpdateBridge` 或重套补丁。
 4. 追踪相关功能的完整调用链：上游 Options/环境变量 → 本地 `LmxxfProductionOptions.h` 和 Runtime/C ABI → 模块选择和资源/尺寸前提 → 每个模块的编译宏 → 内核实际执行路径。对照作者的发布配置和 deployments；实验若改变生产默认、ABI、布局、生成配方或可达消费者，才深入核查其代码和相关记录。无生产关联的实验保留具体排除理由与位置，不要求逐份阅读原始 benchmark 输出。特别检查默认从 0 变 1、从 1 变 0、数值变化、参数删除、只在生成器中启用的优化，以及绕过/消融/诊断分支。
 5. 将模板复制到 `third_party/lmxxf/upstream-review.json`（或 `-ReviewFile` 指定的位置），按功能形成一次结论，再把覆盖项关联到该结论。现有 JSON 字段允许在 reason/evidence/validation/next_step 中简短引用受版本控制的功能审阅文档与章节；同组条目共用证据时不必复制正文，但分类、决策和指纹仍逐项保留，不能用同一结论覆盖不相关项。需要接入的功能按依赖分批修改、构建和验证；暂缓的功能保留明确的下一步和验收条件。不要用脚本把所有项批量填成已接入或不相关。已审阅且证据不变的决策会带入新模板；整体验证仍需重新填写。
 6. 修改本地接入代码、模块宏或补丁后，重新运行同步，使用新模板重新检查变化项；仅本地接入变化时保留原上游范围，补审本地最终 diff 与受影响的功能组，沿用未变的来源证据，不重写整份历史审阅。审阅绑定上游范围和本地接入内容；旧记录不能直接放行新源码。不要把普通 FOLLOW 文件中的手工改动当作已保存的接入成果：重新运行会用上游版本覆盖这些文件；持久兼容修正应有明确补丁和验证。
@@ -25,36 +25,26 @@
 
 有意暂缓可以通过审阅，完成信息会显示暂缓数量；这表示“同步已审阅，后续工作有记录”，不表示所有上游功能已启用。解析器只收集文本证据，不能证明运行时可达性、性能收益或判断正确性。程序能阻止遗漏、空白决策和过期记录，判断质量仍由审阅者负责。
 
-## 当前 PR #12 接口迁移（2026-10-06）
+## PR #12 合入后的零 pin / 零源补丁（2026-10-07）
 
-正式目标为 `297b032ac55f005d78568e684f30608651044f62`；是否完成以
-`third_party/lmxxf/sync-state.json` / `UPSTREAM.md` 为准。不得把 PR head 当作官方 pin。
-PR #12 尚未被作者接受，bridge 继续固定保留，FOLLOW 文件由
-`pr12-integration-interfaces.patch` 统一维护接口差异。原来的十二份补丁仅供历史查阅，
-不再逐个叠加；本次原始夹具直接取自官方 297b032a，不能反向生成。
+作者已在 `b3d05ab34beaea97fa7062b20e19f76398c287fd` 完整合入 PR #12，
+包括 1.10.4 的 final-pass 多层 History 接口。本次跟进其后续修正
+`48a41fccb89300cd6636b16bc7b86010384c4cc1`；完成状态以
+`third_party/lmxxf/sync-state.json` / `UPSTREAM.md` 为准。
 
-System32 编译器与 History 算法保留在产品侧，通过显式接口接入；上游参考 History、
-feature tap 和 submit pulse 在产品 Options 中关闭。编码的预曝光与色相策略在产品
-每次记录时显式开启，不改变上游默认值。完整范围、证据及验证见
-[本次接入审阅](../../docs/lmxxf-pr12-interface-migration.md)。解除 pin/patch 必须等作者合入
-后，再以合入后的正式 SHA 重放验证，不提前清空 manifest。
+`manifest.json` 的 `pinned` 与 `local_patches` 均为空。桥接、网络、codec 和
+着色器直接使用正式上游源码。新增 `native_fast_history_policy.h` 仅补齐 wrapper
+依赖；作者 addon 的 MP1 限制不影响产品直接调用 bridge 的多层 History。
+见 [合并后接入审阅](../../docs/lmxxf-pr12-merged-review.md)。
 
-## PR #12 合入后的零补丁切换
+上游提供可复用接口；History 算法、System32 编译器策略、热键/输入轮询权限、
+额外跳块、模块选择及菜单默认值由本侧显式配置。没有启用作者 addon 的
+`DLSS5_FAST_HISTORY` 或旧 reference History。产品配置优先级不变。
 
-PR 候选 `304613aa6e6c6d9e68e0b26ab978a57e7d4cef98` 曾使当时源码闭包与 PR 原文一致。
-1.10.4 多层 History 又扩展了 final-pass 辅助接口，解除时必须一并核对，不能只检查该旧候选 SHA。
-热键、输入轮询、额外跳块和模块选择由产品 Options 接口控制，上游默认保持不变。
-详见 [零补丁就绪验证](../../docs/lmxxf-pr12-interface-migration.md#zero-patch-readiness-2026-10-07)。
-
-当前 `pinned` / `local_patches` **仍保留**，不以 PR 推送代替作者接受。
-作者合入后，先确认合入 SHA 包含全部接口及本次修正，再在独立 worktree 将两数组设为
-`[]`，保持 `headers` 闭包不变，按正常追更流程同步正式 SHA、审阅最终 diff 并验证。
-脚本已接受零 pin / 零补丁；不要用 `-SkipEnablementAudit` 的源码演练冒充完成接入。
-原始补丁夹具与历史补丁的回归用途也要在解除时核对，不能让测试把旧夹具重新当成当前上游。
-
-解除的是固定保留文件和源文件补丁；正式 commit 记录、模块源码/产物哈希、
-配置优先级和追更审阅仍保留。产品模块宏参数、History 实现、菜单默认值仍归本侧。
-上游未来修改接口/模块布局时仍须审阅，不能承诺任意后续 commit 无验证自动接入。
+解除的是固定保留文件和源补丁；正式提交记录、模块源码/产物哈希及追更审阅
+继续保留。后续上游接口、布局、默认值变化仍须按上述流程验证。
+`patches/` 保留历史回归材料；`tests/sync/fixtures/lmxxf/patch-chain.json`
+独立冻结旧清单与预期输出，不再把旧补丁当成当前产品依赖。
 
 ## 文件所有权
 
@@ -63,35 +53,21 @@ PR 候选 `304613aa6e6c6d9e68e0b26ab978a57e7d4cef98` 曾使当时源码闭包与
 - 普通头文件：只维护 `src/*.h`、`Development/HIP/*.h` 的选定闭包。移出清单的旧头文件会删除。仍在必需清单中但上游消失的路径必须先修清单和调用者，不能留下混合快照后继续成功。
 - `hip/*.hip`、`hip/*.inc`、`shaders/*.hlsl`：按顶层镜像同步；上游删除或改名后，旧文件删除。子目录、缓存和其他扩展名不属于这个镜像。
 - HIP 的 `.hip` 和 `.inc` 都参与模块配方指纹、本地审阅指纹及发布新鲜度检查；片段变化同样需要重建模块和更新审阅。旧记录不含片段时，下一次同步会要求重新验证，不能直接改写已验证指纹放行。
-- 固定保留头文件现在只有 `hip_d3d12_bridge.h`（含产品 `Pdl*` 查询）。`native_rgb_reflect.h`、`native_input_geometry.h` 在 PR #9 合入后改为 FOLLOW。默认不覆盖 bridge，也不删除，并验证本地契约标记。
+- 当前没有固定保留头文件。`hip_d3d12_bridge.h` 的 PDL、录制租约和直写接口已在上游；与其他必需头文件一样镜像并检查缺失。
 - 本地 Runtime、模块构建输出及元数据属于各自流程，不属于头文件镜像。上游新依赖头文件需要审阅后加入闭包。
 
 产品 `[DlssNr] DLSS5_SKIP_BLOCKS` 与 Advanced Kernels 内的 Base skipped blocks (all passes) 共用一个键。基础列表用于所有实际网络 pass；相邻的 Extra skipped blocks in passes 2/3 仅为后续实际网络 pass 追加跳块。两项一起收在原 Advanced Kernels 折叠组内、紧跟 High resolution，不新增 Block skipping 分类或第 2/3 层子组。默认 `none`（全71块）；`none` 表示不跳块，`auto` 恢复编译默认。列表允许 `1..38`、`40..69`，会去重排序；非法值在 ini 读取时警告并回退默认，菜单拒绝提交。改动在下一次网络重建时生效。当前模块不能跳过 C32 链末尾的 `4` 或 `69`（Runtime 明确拒绝，避免 raw-chain 格式不匹配）；完整支持须有匹配模块。与上游一样，跳过 `5..22` 或 `48..65` 时须关闭 MH byte stream。Config 设置该键后优先于 flags / 外部环境；直接使用 Runtime 时未设置的键仍可由 flags / 环境补齐。
 
-## 历史补丁说明（0.41 基线；当前生效列表见上节）
+## 历史补丁回归
 
-`patches/bridge.patch` 是保留头 `hip_d3d12_bridge.h` 的 unified diff（更新该头时使用）。恢复/清零逻辑自历史 pin `54e14de503431cd4536f8a7151b022af232178a9` 起已包含；该历史 0.41 基线为 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`。补丁保留产品的 `PdlRequested`、`PdlEffective`、`PdlReason` 查询，并在 HIP 输出信号后记录可复用完成事件，让驱动回收启动记录，不增加 CPU 等待。完成事件及诊断事件在销毁 bridge 时释放。另含产品录制租约的显式 opt-in、输出 COMMON 状态封存、实际队列执行与完成凭证；这些改动维护在 pinned bridge.patch，不能放入每次都会应用的 local_patches，否则默认保留 bridge 的同步会重复套补丁。`reflect.patch`、`input-geometry.patch` 对应的本地改动已进上游，仅作历史留存，sync 不再依赖它们。`reference-network.patch` 维护本地 PDL preflight、状态查询、分配失败清理，以及 adaptive ViT 历史重置的缓冲复用/流内异步清零；同尺寸重置不再重新 Upload 状态并释放旧缓冲，避免在外部 producer wait 之后同步排空 HIP。GPU bridge 回归覆盖 idle、seed、mode 和关闭/重开复用，普通张量池增长另行报告。
+`patches/bridge.patch` 和 `patches/pr12-integration-interfaces.patch` 是合并前的
+接口差异，其他旧补丁也仅作历史留存。当前同步不应用任何一个。
+测试从 `snapshot.json` 指定的官方 297b032a 原始文件重放冻结清单，以合并前
+产品提交的独立 SHA256 为期望值，覆盖严格应用、冲突及同步失败不改 vendor。
+新的零补丁同步仍有独立回归；无需因上游正常演进而修改历史期望值。
 
-测试使用 `tests/sync/fixtures/lmxxf/` 中的原始快照：FOLLOW 补丁输入与 pinned bridge 均来自 `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3`（0.41 快照，完成 pin 以 UPSTREAM.md 为准）；`snapshot.json` 记录来源路径和 SHA256。测试覆盖所有生效补丁的目标文件，按 manifest 顺序逐个执行 `git apply --check` 和正常应用，并比较结果与现有 vendor 源码（仅规范化 checkout 换行）。不能反向应用待测补丁来生成夹具，也不能用已打补丁的 vendor 文件伪装上游输入。每次同步都对归档应用补丁；若未来上游吸收了部分或全部改动，必须重新审阅并重做补丁，不能仅凭方法名跳过。
-
-`manifest.json` 的 `local_patches` 列出「文件继续跟上游、只携带我们几处改动」的补丁，按顺序打在归档上，任何一个打不上都会在改动 vendor 之前失败：
-
-- `reference-network.patch`：见上。
-- `history-adaptive-exclusion.patch`：在 native history 补丁之后，按 history 请求禁止自适应 ViT 复用，保留用户配置，history 关闭后恢复。之前允许连续 seed 复用的实验在伊莫发生严重闪烁，已撤下，兼容性待进一步调查。配套 `bridge.patch` 保存请求级门控、共享 history UAV 直写及原有 COMMON/信号量/录制租约边界；功能与验证见 [native history](../../docs/architecture/lmxxf-native-history.md)。
-- `auto-white.patch`：`shaders/native_codec_encode.hlsl`、`shaders/native_codec_decode.hlsl`、`src/native_game_codec.h` 里无游戏曝光时的均值白点（`Reserved.x` 的 0x10000 位）。基于 `24986ae094bbd150f4d86a0ca76159a43f374884`。着色器目录本来会被整体镜像成上游版本，没有这个补丁，sync 会把它悄悄冲掉。当前线上路径是 runtime 侧 meter（带时间平滑），本侧不再设置 0x10000；补丁保留以固定着色器契约，并与 meter 互斥（有 meter 时不会同时开 shader 估白点）。
-- `r10g10b10a2.patch`：`src/native_lab_paths.h` 接受 R10G10B10A2 颜色输入（Horizon）。基于同一提交。
-- `typeless-float16.patch`：在前述格式补丁之后，为 `R16G16B16A16_TYPELESS` 增加产品可选的 FLOAT 解释，默认仍为上游的 UNORM。
-- `codec-hue-safe-preexp.patch`：在 `auto-white.patch` 之后，补齐编码/解码共用的主机 pre-exposure 回退，以及解码端保留游戏色相的 ColorStrength 混合。必须包含从原始快照到产品源码所需的完整改动，不能依赖未由前序补丁生成的中间版本。
-- `shader-compile-system32.patch`：私有加载绝对 System32 编译器并验证模块/符号来源；线程安全绑定供内存、文件和 blob 入口共用。缓存按编译器身份、目标及 flags 隔离；仅在明确 X3506 target 拒绝且宏组合通过生产着色器对照时降级到 cs_5_0。原始输入仍为 snapshot.json 中固定的 native_shader_cache.h，回归包含旧同名 DLL 预载、冷/热缓存、include、错误注入与 WARP 输出对照。
-
-- `recording-leases.patch`：codec/RGB 私有输出采用固定 NSR→UAV→NSR 录制状态，并提供精确资源/heap/root/PSO pin（包括可选 neural_buffer）；仅包含 FOLLOW 头。
-- `module-load-cleanup.patch`：HIP 模块成功加载但 Style 初始化抛异常时，卸载尚未交付给 Network 的模块；成功后才发布句柄。原始 hip_api.h 快照参与补丁重放，GPU tier 的故障注入测试覆盖 Style 拷贝失败、缺失导出、加载失败和正常所有权交付。
-- `module-script-encoding.patch`：0.41 上游构建脚本移除了 BOM，但注释含非 ASCII。只恢复 UTF-8 BOM，保留原配方/命令，确保 Windows PowerShell 5.1 编码与仓库约定一致；独立原始快照参与补丁重放。
-- `codec-active-subrect.patch`：codec 以宿主有效输入区域构建采样几何，输出仍保留整张纹理的分配尺寸及 raw-buffer 行距；decode 原样保留区域外像素。避免自由分辨率按有效区域建网、却用较大分配尺寸校验 codec 的冲突。GPU tier 覆盖固定/自由分辨率 subrect、2259×1271 有效区域与 3840×2160 分配、重复帧不重建及区域外逐字节一致。
-
-新增本地改动时，改 vendor 文件后必须同时生成补丁并加进 `local_patches`，否则下一次 sync 就会丢失这些改动。
-
-更新固定头文件时，先对临时归档执行 `git apply --check`，成功后应用，再检查本地契约。任何 hunk 对不上均停止，不使用模糊替换、`--reject` 或部分应用。上游挪动上下文、改变契约或吸收了补丁时，在临时干净副本中重新审阅和生成对应 `.patch`，检查 diff 仅含预期修改，再验证 Runtime/相关测试。主同步脚本中不再存放 C++ 代码替换字符串。
+优先在产品侧消费上游接口。确需修改上游闭包时应明确记录临时补丁并补充验证，
+不能只改 vendor 后假定下一次同步仍保留；也不能把历史夹具重新接入当前清单。
 
 `module-defines.json` 按模块维护本地明确启用的宏。目前保留两个 multihead-fast-padded-wave 模块的 `HIP_FFN_LINE_STORES 1`。单个模块启用了某宏，不能代表其他模块也启用。上游出现同名同值定义时不重复注入；值冲突会失败，要求审阅。
 
@@ -177,4 +153,4 @@ WSL 仅用于这些离线 GPU 模块；宿主/Runtime 的 MSVC 和备用 MSYS2 �
 `--force` 强制全跑。缓存不改变实际同步审计、模块校验或pending语义。
 详见 [发版流程](../../docs/release.md#减少重复验证2026-10-05)。
 
-原生 temporal history 的本地接入见 [架构与验证](../../docs/architecture/lmxxf-native-history.md)。当前 `pr12-integration-interfaces.patch` 保留 float/b8 post 辅助输出，`bridge.patch` 为开启时扩展共享输出；模型系数和 History 策略由产品侧提供。
+原生 temporal history 的本地接入见 [架构与验证](../../docs/architecture/lmxxf-native-history.md)。float/b8 post 辅助输出与共享输出扩展接口已合入上游；模型系数和 History 策略由产品侧提供。

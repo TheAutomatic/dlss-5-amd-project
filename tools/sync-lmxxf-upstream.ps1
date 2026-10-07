@@ -1,10 +1,10 @@
-<#
+﻿<#
 .SYNOPSIS
   Stage a pinned lmxxf source closure, require integration review, then verify the build.
 .DESCRIPTION
-  Reads one source manifest and applies independent unified patches in a temporary git
-  archive. hip_d3d12_bridge.h is preserved unless -UpdateBridge is supplied (product Pdl*
-  accessors + local patches). Other headers follow upstream after PR #9.
+  Reads one source manifest and optionally applies its unified patches in a temporary
+  git archive. The current post-PR12 manifest has no pinned files or source patches;
+  every selected header follows upstream, including hip_d3d12_bridge.h.
   Missing required files or patch conflicts fail before vendor files are touched.
   Ordinary headers, hip/*.hip + hip/*.inc and top-level shaders/*.hlsl are mirrored within their owners.
 
@@ -20,7 +20,8 @@
 .PARAMETER AllowOfflineUpstream
   Allow a failed fetch to use the local ref, with an explicit warning.
 .PARAMETER UpdateBridge
-  Refresh hip_d3d12_bridge.h and apply patches/bridge.patch; conflicts fail closed.
+  Refresh a manifest-pinned bridge and apply its patch; conflicts fail closed.
+  The current zero-pin manifest follows upstream without this legacy switch.
 .PARAMETER ReviewFile
   Reviewed JSON decisions. Default: third_party/lmxxf/upstream-review.json.
 .PARAMETER SkipEnablementAudit
@@ -44,7 +45,7 @@
 .EXAMPLE
   .\tools\sync-lmxxf-upstream.ps1 -SkipUpstreamFetch
 .EXAMPLE
-  .\tools\sync-lmxxf-upstream.ps1 -UpdateBridge -ReviewFile third_party/lmxxf/upstream-review.json
+  .\tools\sync-lmxxf-upstream.ps1 -ReviewFile third_party/lmxxf/upstream-review.json
 #>
 [CmdletBinding()]
 param(

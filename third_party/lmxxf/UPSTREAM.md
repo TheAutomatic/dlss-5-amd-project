@@ -1,164 +1,50 @@
-# lmxxf runtime source pin
+# lmxxf runtime source revision
 
 - Upstream: https://github.com/lmxxf/dlss5-on-amd-9070xt-porting
-- Commit: `297b032ac55f005d78568e684f30608651044f62` (synced 2026-10-06)
-- **0.41 + official 297b032a follow-up**: 40 modules per architecture (80 total), six LLVM23.1.2 rows plus 34 COMGR rows each, original RowOpts and two LINE_STORES overrides. Scoped 900 normalization, 1440 Swin, pool64 byte edge and final output direct are integrated. Product History and History/ViT exclusion remain unchanged; reference History and submit pulse are disabled. PR #12 is not merged upstream: retain the bridge pin and the active interface/preservation overlay. [Current consumer review and validation](../../docs/lmxxf-pr12-interface-migration.md). Source integration is not game/release acceptance.
+- Commit: `48a41fccb89300cd6636b16bc7b86010384c4cc1` (synced 2026-10-07)
 - License: MIT, Copyright (c) 2026 Kien (`LICENSE`)
-- `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1
+- `hip_api.h` also carries the AMD HIP runtime API MIT notice from ROCm 7.1.1.
 
-This is a **vendored source closure**, not a git submodule and not a nested clone.
-Files follow that commit with the explicit preservation patches listed in
-`tools/lmxxf-sync/manifest.json`; product policy remains in the local runtime.
+This is a vendored source closure, not a Git submodule. The commit above is the
+last completed integration; `sync-state.json` records any pending attempt.
+[Sync workflow](../../tools/lmxxf-sync/README.md) is the entry point for updates.
 
-`tools/sync-lmxxf-upstream.ps1` resolves `-UpstreamRef` (default `origin/main`) once and
-uses that immutable commit for source extraction and integration review. The commit above
-is the last **completed** sync; `sync-state.json` records any pending source staging.
-See [the sync and review workflow](../../tools/lmxxf-sync/README.md) before pulling upstream.
-A successful copy or build alone does not mean new features are wired into this product.
+## Current ownership after PR #12
 
-The single manifest in `tools/lmxxf-sync/manifest.json` owns the selected header closure.
-Ordinary headers, `hip/*.hip` and top-level `shaders/*.hlsl` are mirror-cleaned in their
-respective owners. Missing required upstream paths and patch conflicts fail before vendor
-mutation. Only `hip_d3d12_bridge.h` stays pinned unless explicitly refreshed.
+PR #12 was merged in `b3d05ab34beaea97fa7062b20e19f76398c287fd`, including the
+final-pass auxiliary interface. The current integration targets its corrective
+follow-up `48a41fccb89300cd6636b16bc7b86010384c4cc1`.
+[Review, exact-source proof and validation](../../docs/lmxxf-pr12-merged-review.md).
 
-The mandatory audit collects changed paths, runtime values, deployment/test switches and
-per-module compile gates, then requires a commit/content-bound review record. Review each
-feature as integrated, deliberately deferred with a next step, or excluded with evidence.
-Only after review and requested verification succeed does the completed commit advance.
-`-SkipEnablementAudit` is a source-staging-only escape hatch; it leaves the sync pending.
+`tools/lmxxf-sync/manifest.json` has no pinned files and no local source patches.
+All selected headers (including `hip_d3d12_bridge.h`), top-level HIP sources and
+includes, and top-level HLSL follow the resolved official SHA. Missing required
+files fail before vendor mutation. New dependencies must be reviewed and added
+to the manifest. Historical patches are independent regression fixtures only.
 
-## OURS (do not follow upstream on sync)
+| Owner | Responsibility |
+| --- | --- |
+| Upstream source closure | Network, bridge, codec, compiler callback and opt-in auxiliary interfaces; no preservation overlay |
+| Product `dlssnr/backend/lmxxf_runtime/` | C ABI, INI/menu policy, compiler binding, recording lifecycle, exposure, History algorithm and model coefficients |
+| Product `LmxxfProductionOptions` | Explicit interface permissions, module selection, extra skips; no change to upstream defaults |
+| `modules/` and `hip/SHA256SUMS` shipping rows | Locally verified 40 modules per architecture (80 total); generated binary metadata is not copied from upstream Git |
+| `module-defines.json` | Two reviewed LINE_STORES build arguments; no source patch |
 
-Local input transport update (2026-10-02): the product runtime requests the shared input UAV before Create and redirects the RGB producer into it, with unused tile output disabled. This is maintained in bridge.patch; it does not enable input polling or IO fusion. The earlier synchronization summary describes that sync's state, not this subsequent local change. See the input transport section of the [consumer review](../../docs/lmxxf-039-consumer-review.md#输入直写本地增量).
+The LLVM23.1.2/COMGR split, RowOpts, scoped 900 normalization, 1440 Swin and
+pool64/output routes remain unchanged. Module provenance and review are still
+mandatory. Zero source pins does not mean arbitrary future revisions are safe
+without review or that every upstream experiment is enabled.
 
-Local product / stability ownership. `tools/sync-lmxxf-upstream.ps1` **preserves** the vendor file below by default; pass the named switch only when intentionally refreshing from upstream and re-applying local patches (fail-closed). After PR #9 merged upstream, reflect / input-geometry no longer need pinning.
+## Intentionally separate consumers
 
-| Path | Owner note | Sync default |
-|---|---|---|
-| `Development/HIP/hip_d3d12_bridge.h` | Queue drain / ClearOutput / zero-residual + product `PdlRequested/Effective/Reason`; merge upstream VRAM pool when refreshing | **Preserve**; `-UpdateBridge` to overwrite + re-patch |
-| `OptiScaler-…/dlssnr/backend/lmxxf_runtime/` (`LmxxfNrRuntime.cpp`, `LmxxfNrApi.h`, …) | OptiScaler bridge + C-ABI runtime (this product; forks upstream runtime with auto-exposure meter etc.) | **Not in sync list** — never copied from upstream; merge deliberately |
-| `third_party/lmxxf/modules/` + local `hip/SHA256SUMS` dual-arch rows | Shipping LLVM23/COMGR `.hsaco` built here (upstream git has no hsaco) | Built/refreshed by sync modules path, not taken from upstream git |
+The product does not instantiate the upstream ReShade/MinHook addon, FFX replay,
+`NativeGameFrame`, `NativeGameOneshot`, upstream C ABI runtime or D3D12 network.
+Their host lifecycle, logging, profiles and deployment scripts are not copied.
+`DLSS5_FAST_HISTORY` is the author's opt-in addon policy (MP1), not our product
+History switch. The product retains its own multi-pass History and History/ViT
+exclusion; reference History, feature taps and submit pulse remain disabled.
 
-## FOLLOW (track upstream performance / recipe)
-
-Synced from `-UpstreamRef` (default `origin/main`) via `git archive`. Intent: author kernel / geometry / codec / glue improvements.
-
-| Path | Why |
-|---|---|
-| `hip/*.hip`, `hip/build-modules.ps1`, `hip/rtc_compile.cpp`, upstream `hip/SHA256SUMS` recipe rows | gfx1201 HIP kernels (then local rebuild of modules) |
-| `Development/HIP/hip_api.h` | Loaded HIP ABI |
-| `Development/HIP/hip_device_properties.h` | Device props |
-| `Development/HIP/hip_reference_network.h` | HIP network (plus active `pr12-integration-interfaces.patch`) |
-| `Development/HIP/packed_weights.h` | Weight packing |
-| `src/native_hip_network.h` | HIP entry |
-| `src/native_network_geometry.h` | 720 / 900 / 1080 tiers + FIT_LARGE helpers + Near() tier pick |
-| `src/native_input_geometry.h` | Ultrawide pixel-budget admission (upstream after PR #9) |
-| `src/native_rgb_reflect.h` | Codec reflection helper (upstream; no local include drop needed) |
-| `src/native_hip_env_options.h` | Shared `DLSS5_*` flag parser (add-on + LmxxfNrRuntime) |
-| `src/native_lab_paths.h` | Paths, typed views, weight IO (R10 uses the upstream format-fallback table) |
-| `src/native_game_codec.h` | Scene encode / decode host (plus active interface/preservation overlay) |
-| `src/native_game_rgb_input.h`, `src/native_rgb_texture.h` | RGB IO |
-| `src/native_device_identity.h`, `src/native_pinned_resource.h`, `src/native_pso.h`, `src/native_shader_cache.h` | Supporting glue |
-| `shaders/*.hlsl` (top-level live glue only) | D3D12 glue; mirror-cleaned; `dx12-network/` not vendored (plus active interface/preservation overlay) |
-
-## Excluded on purpose (not vendored)
-
-- `src/native_submission_order_probe.cpp`, ReShade / MinHook addon
-- `src/native_pre_upscale.h` (FFX replay; not a general splitter)
-- `src/native_text_overlay.h`, `src/native_game_oneshot.h`, F6 overlay
-- `src/native_game_frame.h` (`ProcessSubmittedFrame` convenience host)
-- D3D12 network body (`native_split.h`, `native_actual_network70.h`, vit/c32/preblock, `shaders/dx12-network/`, etc.)
-- `src/native_temporal_*.h` (first product version is history off)
-- `Development/` notes, benchmarks, and `.ps1` experiments
-- Upstream `OptiScaler-DLSS5-AMD-*` packages, weights, and gitignored `.hsaco`
-- Magpie packaging
-
-## Patches applied in this tree
-
-### General Headers
-1. `NativeLabRoot()` still matches upstream (may fall back to `D:\\DLSSNR-Lab` when no `DLSS5-AMD\\native-game-flags.txt` is found). Product installs write that flags file beside the game.
-2. `native_rgb_reflect.h`: follows upstream after PR #9 (no local include drop required).
-3. `SetNoise` skips the 201 MiB buffer when `fast_prefix` is on.
-4. `#include <algorithm>` for MinGW/MSVC `std::sort` / `std::min` in `hip_reference_network.h` and `hip_d3d12_bridge.h`.
-
-### Local patches on files that still follow upstream
-
-`tools/lmxxf-sync/manifest.json` `local_patches` are applied to every synced snapshot, in order, before
-any vendor file changes; a patch that no longer applies fails the sync closed. These files are NOT pinned:
-they take upstream changes and carry only our hunks.
-
-| Patch | Files | Why |
-|---|---|---|
-| `reference-network.patch` | `Development/HIP/hip_reference_network.h` | PDL preflight, status queries, allocation-failure cleanup |
-| `auto-white.patch` | `shaders/native_codec_encode.hlsl`, `shaders/native_codec_decode.hlsl`, `src/native_game_codec.h` | Mean-based white point when the game gives no usable exposure (`Reserved.x` bit 0x10000). The runtime meter (log-smoothed) is the live path and the host no longer sets this bit; the patch stays so a sync cannot silently revert the shader contract. Shaders are otherwise mirrored from upstream |
-| `r10g10b10a2.patch` | `src/native_lab_paths.h` | Accept R10G10B10A2 colour input (Horizon) |
-
-Any new product edit to a vendored file must ship with a patch in `local_patches`, or the next sync drops it.
-
-`history-adaptive-exclusion.patch` follows the native-history patch: requesting
-native history disables adaptive reuse without overwriting its saved preference.
-The attempted consecutive-seed reuse policy caused severe game flicker and was
-removed pending further investigation. The pinned `bridge.patch` also makes the native-history
-buffer a UAV so the producer can write it directly under the existing semaphore
-and recording-lease contract. See [native history](../../docs/architecture/lmxxf-native-history.md).
-
-### `Development/HIP/hip_d3d12_bridge.h` (Vendor-Pinned & Patched)
-> [!IMPORTANT]
-> See **OURS** above. Sync preserves this header by default; only pass `-UpdateBridge` when intentionally pulling upstream bridge changes and verifying re-applied patches (independent unified patch check + local contract check).
-
-### `src/native_input_geometry.h` (FOLLOW after PR #9)
-
-Upstream now carries the pixel-budget admission (`w <= 2560 && h <= 1080 && w*h <= 1920*1080` without
-`DLSS5_FIT_LARGE`). The file follows upstream; do not re-pin unless a new product-only rule appears.
-
-### `src/native_rgb_reflect.h` (FOLLOW after PR #9)
-
-Upstream no longer pulls `native_split.h` into this helper. Follow upstream; no local include drop.
-
-### `Development/HIP/hip_d3d12_bridge.h` (still Vendor-Pinned & Patched)
-
-1. **Queue Drain Completion Verification**: In `WaitForSubmittedWork()`, additionally checks `fence->GetCompletedValue() >= target` after `WaitForSingleObject` returns `WAIT_OBJECT_0`, preventing queue drain race conditions.
-2. **Zero-Residual Fallback Path**:
-   - `ClearOutputAsync()`: clears `output.mapped` via `hipMemsetAsync` and synchronizes the HIP stream.
-   - `ClearOutputD3D12(targetQueue)`: synchronizes HIP stream first, then stages a zero-clear to `output.resource` on the target queue via a dedicated upload staging buffer (`zero_upload`), fences completion, and waits safely.
-   - `ClearOutput(targetQueue)`: unified entry point for a submitted producer and an unsubmitted consumer. It validates the target queue, clears output, marks a later bridge-queue consumer pending for `WaitForSubmittedWork()`, and advances to the phase appropriate for whether the consumer was already recorded. The caller must drain other queues that previously used the output and a consumer submitted on a different queue.
-3. **Clear Resource Lifecycle Management**:
-   - Creates dedicated `zero_upload`, `clear_alloc`, and `clear_cmd` only on the first D3D12 fallback; normal `Create()` has no clear-only allocations.
-   - Releases resources in destructor only after ensuring all in-flight GPU work has completed (`clear_submission_unconfirmed` check and `WaitForSubmittedWork()`).
-4. **Failure State Recovery in Submit Notification**:
-   - In `NotifyOutputSubmittedIfRecorded()`, if `failed` is true, safely resets `phase = Phase::Ready` without asserting `QueueContract`, allowing safe teardown or re-initialization.
-5. **Runtime Opt-In and Consumer Queue Lifetime**:
-   - `LMXXF_NR_CREATE_FLAG_ZERO_OUTPUT_FALLBACK` enables recovery in the C ABI; the default keeps strict enqueue errors.
-   - Queue mismatch recovery waits for submitted work on both the original session queue and the queue supplied to `EnqueueHip` before zeroing. The Runtime retains and drains the supplied queue before frame reuse or destruction; callers must synchronize any additional queue that reads the output.
-
-## Shipping modules (`.hsaco`)
-
-Upstream **does not** publish `.hsaco` on git (`/release/` is gitignored; no GitHub release assets for modules).
-Release zips copy `third_party/lmxxf/modules` as-is; GitHub Actions does **not** rebuild HIP kernels.
-
-`tools/sync-lmxxf-upstream.ps1` therefore:
-
-- syncs hip *sources* and upstream's non-gfx1201 `SHA256SUMS` rows from upstream git. The `gfx1201/` rows stay local: after the module refresh they are rehashed from `third_party/lmxxf/modules`, because upstream's rows come from a different COMGR and never match local builds;
-- by default runs `hip/build-modules.ps1 -Targets gfx1201` into a local build dir, then copies into `third_party/lmxxf/modules`;
-- or accepts an explicit `-ModulesPath` to already-built flat gfx1201 `.hsaco`;
-- **fails closed** if hip recipes (`*.hip`, `build-modules.ps1`, `rtc_compile.cpp`) change but modules were neither rebuilt in the same run nor changed, if a module upstream lists is missing, or if source/module verification fails. A failed run retains its original recipe baseline so a retry cannot silently accept old modules.
-
-Use `-SkipModules -AllowStaleModules` only for intentional staged integration, with the exception and next steps recorded in the review. Use `-NoBuildModules` with `-ModulesPath` when modules were built offline.
-
-## Upstream Contribution & Decoupling Roadmap
-
-1. **Keep Recovery Policy in Runtime**:
-   - `network`, `output.mapped`, and `network->Stream()` are private within `D3D12Bridge`; its public `ClearOutput` is the minimal safe transport primitive.
-   - The C ABI Runtime decides when to invoke that primitive and owns the cross-queue drain contract. The upstream contribution should include both layers.
-2. **Instance Config Refactor**:
-   - Process-global geometry/env -> instance config.
-3. **Proxy Forwarding**:
-   - Host P1: List1-10 command-list proxy forward (then hooks). Not this vendor tree.
-
-## Runtime ABI (this tree)
-
-C ABI in `include/LmxxfNrApi.h`. MSVC (primary) or MinGW (fallback) `tools/build/build-lmxxf-runtime.cmd` compiles the HIP bridge and codec into `LmxxfNrRuntime.dll`.
-
-- Modules: `third_party/lmxxf/modules` (COMGR gfx1201 hsaco, tracked in git; built from current `hip/` + local COMGR (see modules/README.md Commit Base)).
-- Weights: `LMXXF_WEIGHTS_DIR` tiled assets (not 0.24.2 `HIP/`).
-- Product wiring lives in OptiScaler `lmxxf_runtime` / `LmxxfWired()` (not this vendor doc alone).
+The mandatory audit inventories the official final diff and requires decisions
+bound to source and local consumers. Only after review and requested verification
+succeed does the completed commit advance. `-SkipEnablementAudit` stages only.
+Source integration is not package, game or release acceptance.

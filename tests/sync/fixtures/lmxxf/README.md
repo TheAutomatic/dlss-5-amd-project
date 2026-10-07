@@ -1,28 +1,26 @@
-# Frozen upstream patch fixtures
+# Historical upstream patch fixtures
 
-The `*.upstream.*` files are unmodified source bytes from
+The `*.raw` files contain unmodified official source bytes from
 [lmxxf/dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)
-at the immutable commits recorded in `snapshot.json`: FOLLOW inputs at
-`c809efb0ea2960f148624730898da61b8fb55a45`, and the separately pinned bridge at
-`54e14de503431cd4536f8a7151b022af232178a9`.
-`snapshot.json` records each upstream path, fixture filename and raw SHA256.
-The snapshots were extracted with `git show <commit>:<path>`; `.gitattributes`
-preserves their LF line endings on Windows.
+at `297b032ac55f005d78568e684f30608651044f62`. `snapshot.json` records each
+source path, fixture filename, immutable commit and raw SHA256. Inputs were
+extracted with `git show <commit>:<path>`; `.gitattributes` preserves their bytes.
 
-`SourcePatchTests` in `tests/sync/test_upstream_sync.py` validates the hashes and
-coverage of every active patch target in `tools/lmxxf-sync/manifest.json`.
-It then checks and applies the bridge patch followed by every `local_patches`
-entry, in order, in a temporary source tree. The result must equal the current
-vendor files after checkout line-ending normalization. The orchestrator tests
-also use these raw inputs in their temporary upstream repositories.
+The active product manifest has no pins or source patches after PR #12 merged.
+`patch-chain.json` independently freezes the pre-merge manifest and expected
+LF-normalized output hashes from product commit
+`186ecd30` (full SHA is stored in that file). These hashes were read directly
+from Git, not computed by applying the patches under test.
 
-When the upstream baseline or maintained patches change, collect the affected
-raw files from an immutable upstream commit and update `snapshot.json` after
-reviewing the source diff. Never reconstruct inputs by reversing the tested
-patches or copy them from the patched vendor tree. Keep patch-conflict checks
-and output comparisons intact; they detect stale patches and unrecorded local
-changes.
+`SourcePatchTests` verifies raw hashes, exact target coverage, `git apply --check`
+and replay output against those independent hashes. The orchestrator fixtures
+reuse only that verified historical result as their starting vendor, and raw
+snapshots as upstream input. Thus patch preservation/conflict support remains
+covered without tying today's product sources to an obsolete overlay. Separate
+zero-pin/no-patch mirroring coverage verifies the active operating mode.
 
-These fixtures validate source transformations only. They do not approve an
-upstream integration or validate GPU behavior. The upstream license is retained
-at `third_party/lmxxf/LICENSE`.
+Do not update these frozen expectations merely because current upstream changes.
+A deliberate change to historical regression data requires independent raw and
+expected sources and review. Never reverse patches to manufacture their inputs.
+These tests prove source transformations, not GPU or integration acceptance.
+The upstream license is retained at `third_party/lmxxf/LICENSE`.

@@ -1,5 +1,12 @@
 # lmxxf official-source integration and PR #12 consumer migration
 
+> Current state (2026-10-07): PR #12, including the later multi-pass interface,
+> is merged upstream. The zero-pin/zero-patch integration targets official
+> `48a41fccb89300cd6636b16bc7b86010384c4cc1`; see the
+> [merged review](lmxxf-pr12-merged-review.md) and `sync-state.json` for completion.
+> The migration and readiness sections below record the pre-merge work.
+
+
 ## Scope and state
 
 Official comparison: `b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3` to

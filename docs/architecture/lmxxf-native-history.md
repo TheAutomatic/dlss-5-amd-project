@@ -115,14 +115,13 @@ FP32 logit plus its diagnostic half-rounded value; model blending reads FP32.
 The fourth-row weights preserve the established feature ordering and are not
 retuned. Missing exports refuse native history with a full-package error.
 
-`native-post-history.patch` applies after the existing FOLLOW patches;
-`history-adaptive-exclusion.patch` then preserves the network-level exclusion.
-`bridge.patch` remains the pinned bridge patch. The raw 0.41 fixture includes
-`wave_owned_c32.inc`; patch replay must reproduce every changed vendor file.
-The upstream pin remains b687e13a8fcb8efd5be905ebbd0c9d70e15d88e3.
-Only the three C32 module variants per architecture change; all other modules
-retain their existing validated bytes. LLVM23.1.2 RowOpts builds and the original
-provenance checker bind source, defines, scheduling flags and object hashes.
+The auxiliary exports, direct History output and adaptive-reuse permission
+interfaces were accepted upstream in PR #12, including the final-pass extension.
+The product now consumes the raw upstream closure without source patches;
+model coefficients, History policy and saved-setting handling stay in this
+product. See the [merged interface review](../lmxxf-pr12-merged-review.md).
+Historical patch replay is frozen independently of the active vendor sources.
+Module provenance still binds source, defines, scheduling flags and object hashes.
 
 ## Validation
 
@@ -132,10 +131,10 @@ plus 33 blocked/reversed control updates, cancellation and failed Signal proof.
 `tests/lmxxf/run.cmd gpu` includes `lmxxf_native_history_gpu`: actual HIP history,
 delayed recordings, repeated execution, cross-queue execution, reset of already
 recorded commands, control-only cancellation, missing guides, history off,
-old-chain replay and unsupported multi-pass fallback without changing passes.
+old-chain replay and multi-pass rebuild/reset without changing requested passes.
 The `--history-excludes-adaptive` variant verifies that a retained adaptive
 preference does not run the reuse path while history is requested, including
-warm-up, missing guides, replay/reset/cancel and unsupported passes. Turning
+warm-up, missing guides, replay/reset/cancel and multi-pass transitions. Turning
 history off must resume actual reuse, and turning it on again restores full ViT.
 The shader tests cover direct COMMON-state history writes at narrow padded,
 ultrawide and 4K dimensions as well as the original separate-buffer path.

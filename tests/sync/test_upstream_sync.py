@@ -1,5 +1,6 @@
 """Offline regression tests. Temporary Git repos only: no fetch or GPU builds."""
 import copy
+from functools import lru_cache
 import hashlib
 import importlib.util
 import json
@@ -49,6 +50,44 @@ def frozen_upstream_files():
     return files
 
 
+def historical_patch_chain():
+    # Frozen support for the pre-merge overlay; product manifest now follows upstream.
+    return audit.read_json(UPSTREAM_FIXTURES / 'patch-chain.json')
+
+
+def historical_patches():
+    manifest = historical_patch_chain()['manifest']
+    return [ROOT / audit.CONFIG / 'patches' / name for name in
+            [entry['patch'] for entry in manifest['pinned']] + manifest['local_patches']]
+
+
+@lru_cache(maxsize=1)
+def historical_patched_files():
+    raw = frozen_upstream_files()
+    expected = historical_patch_chain()['expected_lf_sha256']
+    if set(expected) != set(raw):
+        raise AssertionError('Historical expected hashes must cover every raw fixture')
+    with tempfile.TemporaryDirectory(prefix='lmxxf patch tests ') as temporary:
+        tree = Path(temporary).resolve()
+        if (tree.parent != Path(tempfile.gettempdir()).resolve() or
+                not tree.name.startswith('lmxxf patch tests ') or tree.is_symlink()):
+            raise AssertionError('Unexpected historical patch fixture directory')
+        for name, data in raw.items():
+            path = tree / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        for patch in historical_patches():
+            git(tree, 'apply', '--check', str(patch))
+            git(tree, 'apply', str(patch))
+        outputs = {}
+        for name in raw:
+            data = (tree / name).read_bytes().replace(b'\r\n', b'\n')
+            if hashlib.sha256(data).hexdigest() != expected[name]:
+                raise AssertionError(f'Patched fixture differs from frozen product commit: {name}')
+            outputs[name] = data
+        return outputs
+
+
 def commit(directory):
     git(directory, 'add', '-A')
     git(directory, '-c', 'user.name=Sync Test', '-c', 'user.email=sync-test@example.invalid',
@@ -82,10 +121,7 @@ class RecipeParserTests(unittest.TestCase):
 
 class SourcePatchTests(unittest.TestCase):
     def setUp(self):
-        config = ROOT / audit.CONFIG
-        manifest = audit.read_json(config / 'manifest.json')
-        self.patches = [config / 'patches' / name for name in
-            [entry['patch'] for entry in manifest['pinned']] + manifest['local_patches']]
+        self.patches = historical_patches()
         self.raw = frozen_upstream_files()
 
     def test_raw_snapshot_covers_all_maintained_patch_targets(self):
@@ -96,26 +132,10 @@ class SourcePatchTests(unittest.TestCase):
             targets.update(paths)
         self.assertEqual(set(self.raw), targets)
 
-    def test_patch_chain_reproduces_vendor_sources(self):
-        with tempfile.TemporaryDirectory(prefix='lmxxf patch tests ') as temporary:
-            tree = Path(temporary).resolve()
-            self.assertEqual(tree.parent, Path(tempfile.gettempdir()).resolve())
-            self.assertTrue(tree.name.startswith('lmxxf patch tests '))
-            self.assertFalse(tree.is_symlink())
-            for name, data in self.raw.items():
-                path = tree / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(data)
-            # Apply the same ordered patch chain as a sync with -UpdateBridge.
-            # The product tree is independent expected output, never fixture input.
-            for patch in self.patches:
-                git(tree, 'apply', '--check', str(patch))
-                git(tree, 'apply', str(patch))
-            for name in self.raw:
-                with self.subTest(path=name):
-                    actual = (tree / name).read_bytes().replace(b'\r\n', b'\n')
-                    expected = (ROOT / audit.VENDOR / name).read_bytes().replace(b'\r\n', b'\n')
-                    self.assertEqual(actual, expected, f'Patched snapshot differs from vendor: {name}')
+    def test_patch_chain_reproduces_frozen_product_sources(self):
+        # Expected hashes came directly from the recorded product Git commit,
+        # independently of patch replay. Current upstream may change these files.
+        self.assertEqual(set(historical_patched_files()), set(self.raw))
 
 
 class Fixture(unittest.TestCase):
@@ -131,16 +151,16 @@ class Fixture(unittest.TestCase):
         shutil.copy2(ROOT / 'tools/sync-lmxxf-upstream.ps1', self.local / 'tools')
         shutil.copy2(ROOT / 'tools/lmxxf-module-package.ps1', self.local / 'tools')
         shutil.copy2(ROOT / 'tools/audit-lmxxf-enablements.py', self.local / 'tools')
-        manifest = audit.read_json(self.config / 'manifest.json')
+        manifest = historical_patch_chain()['manifest']
+        write(self.config / 'manifest.json', json.dumps(manifest))
         for name in manifest['headers']:
             content = (ROOT / audit.VENDOR / name).read_text(encoding='utf-8')
             write(self.vendor / name, content)
             write(self.up / name, content)
-        # Product shaders are the expected output. Every patched upstream input comes
-        # from an independently frozen raw snapshot, never by reversing its own patch.
-        for shader in ('shaders/native_codec_encode.hlsl', 'shaders/native_codec_decode.hlsl'):
-            content = (ROOT / audit.VENDOR / shader).read_text(encoding='utf-8')
-            write(self.vendor / shader, content)
+        # Keep orchestrator tests on an explicit historical overlay. Its expected
+        # sources are hash-checked independently, not taken from today's vendor.
+        for name, data in historical_patched_files().items():
+            write(self.vendor / name, data.decode('utf-8'))
         for name, data in frozen_upstream_files().items():
             path = self.up / name
             path.parent.mkdir(parents=True, exist_ok=True)

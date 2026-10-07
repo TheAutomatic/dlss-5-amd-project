@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "description": "Historical PR12 overlay regression. Independent expected hashes from the last patched product commit; not the active sync manifest.",
+  "product_commit": "186ecd3011aaea9a1aea9344be91762477f42ac9",
+  "manifest": {
+    "schema": 1,
+    "headers": [
+      "Development/HIP/hip_api.h",
+      "Development/HIP/hip_d3d12_bridge.h",
+      "Development/HIP/hip_device_properties.h",
+      "Development/HIP/hip_reference_network.h",
+      "Development/HIP/packed_weights.h",
+      "Development/HIP/submit_pulse.h",
+      "Development/HIP/submit_pulse_hip.h",
+      "Development/HIP/swin_persistent_network.h",
+      "Development/HIP/swin_persistent_types.h",
+      "src/native_config_layers.h",
+      "src/native_device_identity.h",
+      "src/native_experimental_history.h",
+      "src/native_format_fallback.h",
+      "src/native_frame_stats.h",
+      "src/native_game_codec.h",
+      "src/native_game_rgb_input.h",
+      "src/native_hip_env_options.h",
+      "src/native_hip_network.h",
+      "src/native_hot_flags.h",
+      "src/native_input_geometry.h",
+      "src/native_lab_paths.h",
+      "src/native_network_geometry.h",
+      "src/native_pinned_resource.h",
+      "src/native_pso.h",
+      "src/native_rgb_reflect.h",
+      "src/native_rgb_texture.h",
+      "src/native_shader_cache.h"
+    ],
+    "module_headers": [
+      "Development/HIP/swin_persistent_types.h"
+    ],
+    "pinned": [
+      {
+        "path": "Development/HIP/hip_d3d12_bridge.h",
+        "switch": "UpdateBridge",
+        "patch": "bridge.patch",
+        "required": [
+          "zero_upload",
+          "clear_submission_unconfirmed",
+          "GetCompletedValue()<target",
+          "EnsureZeroClearResources",
+          "ClearOutputAsync",
+          "bool ClearOutput(",
+          "CancelUnsubmitted",
+          "CurrentPhase",
+          "PdlRequested",
+          "PdlEffective",
+          "EnableRecordingLeases",
+          "SealRecordedOutput",
+          "BeginRecordedExecution",
+          "EndRecordedExecution",
+          "recording_submission_unconfirmed"
+        ],
+        "patterns": [
+          "pending=true;\\s*phase=consumer_recorded\\?Phase::OutputRecorded:Phase::HipQueued;"
+        ],
+        "forbidden": []
+      }
+    ],
+    "local_patches": [
+      "pr12-integration-interfaces.patch"
+    ],
+    "hip_files": [
+      "build-modules.ps1",
+      "rtc_compile.cpp",
+      "README.md",
+      "SHA256SUMS"
+    ]
+  },
+  "expected_lf_sha256": {
+    "Development/HIP/hip_api.h": "88ba78c5f0700001ca744040fcde5f11cc4345f9350e0b9cf5577bae782f78c9",
+    "Development/HIP/hip_d3d12_bridge.h": "7838d827b1b4a6911b8059a2a0fd7eeeaf6a6a94f432e7c1f710bbd1614fc921",
+    "Development/HIP/hip_reference_network.h": "5aee0f53f1d4f4fd409f03f95f361f07039941bba542445648ea7b02c734cc7e",
+    "src/native_game_codec.h": "25148509f30d7952d3550e22471eb4907cc47ad86b7c4f3af091cb781b24e2a3",
+    "src/native_game_rgb_input.h": "818d3ab92c2012fe65ddba8215ddf7e694c4eeef10dc28cf83177bf4214af1ea",
+    "src/native_hip_network.h": "afdb2a4eb816f7a9cbbd0ff2e4f6c779c01eb94c90112b7e490225d128244518",
+    "src/native_rgb_texture.h": "9cd1dea30857ddde84c2820a081c46cdc7823e91b15dd324354d2c56d85373ed",
+    "src/native_shader_cache.h": "33d43c0935be75f407d2b96c24fceebd7a36d4eb4bcec980ad6424f012fd69ab",
+    "hip/wave_owned_c32.inc": "6bbb19e66d7690edf4456f65504f69ad5965fc0d6af41514b9a84af3e1c3e110",
+    "shaders/native_codec_decode.hlsl": "795a0ac650b8c3a1deefd3af5d53baca042ac169b0fcc0b6ffb5420e522f80e2",
+    "shaders/native_codec_encode.hlsl": "a758f19abf27f0f4f03966bb2dc50a4a9cc02c1eda81ada79f140438e60d97fd",
+    "hip/build-modules.ps1": "31a3fc6f89fb8b216d5000a96dcaee10059cb72dddc6ce5f202eac2df244ab93"
+  }
+}
