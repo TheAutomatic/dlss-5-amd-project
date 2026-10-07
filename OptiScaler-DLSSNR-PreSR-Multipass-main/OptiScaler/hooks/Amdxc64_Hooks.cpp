@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Amdxc64_Hooks.h"
+#include "RetryableDetour.h"
 
 #include <fsr4/FSR4Upgrade.h>
 #include <ffx_antilag2_dx12.h>
@@ -88,55 +89,45 @@ struct AmdExtD3DFactory : public IAmdExtD3DFactory
     }
 };
 
+namespace
+{
+HookInit::RetryableDetour<PFN_AmdExtD3DCreateInterface> createInterfaceHook;
+}
+
 void Amdxc64Hooks::Init()
 {
-    if (o_AmdExtD3DCreateInterface != nullptr)
-        return;
+    const auto result = createInterfaceHook.TryInstall([]() -> PFN_AmdExtD3DCreateInterface {
+        auto module = KernelBaseProxy::GetModuleHandleW_()(L"amdxc64.dll");
+        // Preserve INI policy: RDNA2 custom DLL selection belongs to the loader.
+        if (!module && !Config::Instance()->Fsr4DoNotLoadAmdxc64.value_or_default() &&
+            !Config::Instance()->LoadCustomAmdxc64OnRdna2.value_or_default())
+            module = NtdllProxy::LoadLibraryExW_Ldr(L"amdxc64.dll", nullptr, 0);
+        if (!module) return nullptr; // A later driver load may retry.
 
-    LOG_DEBUG("");
+        HMODULE pinned = nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                               reinterpret_cast<LPCWSTR>(module), &pinned))
+            return nullptr;
+        return reinterpret_cast<PFN_AmdExtD3DCreateInterface>(
+            KernelBaseProxy::GetProcAddress_()(pinned, "AmdExtD3DCreateInterface"));
+    }, &hkAmdExtD3DCreateInterface);
 
-    moduleAmdxc64 = KernelBaseProxy::GetModuleHandleW_()(L"amdxc64.dll");
-
-    // When LoadCustomAmdxc64OnRdna2 is set, don't blindly load any amdxc64.dll
-    // Wait for it to be loaded by d3d12 and at that point we know what GPU is RDNA 2
-    if (moduleAmdxc64 == nullptr && !Config::Instance()->Fsr4DoNotLoadAmdxc64.value_or_default() &&
-        !Config::Instance()->LoadCustomAmdxc64OnRdna2.value_or_default())
-    {
-        moduleAmdxc64 = NtdllProxy::LoadLibraryExW_Ldr(L"amdxc64.dll", NULL, 0);
-    }
-
-    if (moduleAmdxc64 != nullptr)
-    {
-        // Pin the dll so that our hooks stay valid, mainly for Linux
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN, L"amdxc64.dll", &moduleAmdxc64);
-
-        LOG_INFO("amdxc64.dll loaded");
-        o_AmdExtD3DCreateInterface = (PFN_AmdExtD3DCreateInterface) KernelBaseProxy::GetProcAddress_()(
-            moduleAmdxc64, "AmdExtD3DCreateInterface");
-
-        if (o_AmdExtD3DCreateInterface != nullptr)
-        {
-            LOG_DEBUG("Hooking AmdExtD3DCreateInterface");
-            DetourTransactionBegin();
-            DetourUpdateThread(GetCurrentThread());
-            DetourAttach(&(PVOID&) o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
-
-            auto detourResult = DetourTransactionCommit();
-            if (detourResult != NO_ERROR)
-            {
-                LOG_ERROR("Failed to attach detour: {:X}", detourResult);
-                o_AmdExtD3DCreateInterface = nullptr;
-            }
-        }
-    }
-    else
-    {
-        LOG_INFO("Failed to load amdxc64.dll");
-    }
+    if (result.stage == HookInit::Stage::Commit && result.error == NO_ERROR)
+        LOG_INFO("amdxc64.dll hook installed");
+    else if (result.stage != HookInit::Stage::Busy && result.stage != HookInit::Stage::Resolve &&
+             result.error != NO_ERROR)
+        LOG_ERROR("amdxc64 hook failed at {}: {:X}; a later Init can retry",
+                  HookInit::StageName(result.stage), result.error);
 }
 
 HRESULT STDMETHODCALLTYPE Amdxc64Hooks::hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID riid, void** ppvObject)
 {
+    const auto original = createInterfaceHook.Original();
+    if (!original)
+    {
+        if (ppvObject) *ppvObject = nullptr;
+        return E_NOINTERFACE;
+    }
     // We need to know D3D12 capabilities by now, one of them being FSR 4
     IdentifyGpu::updateD3d12Capabilities();
 
@@ -160,8 +151,8 @@ HRESULT STDMETHODCALLTYPE Amdxc64Hooks::hkAmdExtD3DCreateInterface(IUnknown* pOu
 
         LOG_INFO("IAmdExtD3DFactory queried, returning custom AmdExtD3DFactory");
 
-        if (o_AmdExtD3DCreateInterface != nullptr && o_amdExtD3DFactory == nullptr)
-            o_AmdExtD3DCreateInterface(pOuter, riid, (void**) &o_amdExtD3DFactory);
+        if (o_amdExtD3DFactory == nullptr)
+            original(pOuter, riid, (void**) &o_amdExtD3DFactory);
 
         return S_OK;
     }
@@ -208,8 +199,5 @@ HRESULT STDMETHODCALLTYPE Amdxc64Hooks::hkAmdExtD3DCreateInterface(IUnknown* pOu
     }
 #endif
 
-    else if (o_AmdExtD3DCreateInterface != nullptr)
-        return o_AmdExtD3DCreateInterface(pOuter, riid, ppvObject);
-
-    return E_NOINTERFACE;
+    return original(pOuter, riid, ppvObject);
 }

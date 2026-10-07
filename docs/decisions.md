@@ -605,3 +605,13 @@ ReShade 包在本项目代理外时，Evaluate 收到外层列表，队列提交
 ReShade 源码核对点为 `7bf9de8b33bcc76c3177007e65d73c72dd0f34c0` 的 `source/d3d12/d3d12_command_list.cpp::QueryInterface` 和 `d3d12_command_queue.cpp::ExecuteCommandLists`。作者的 [77889203 交接](https://github.com/MatheusFerreiraS/neural-amd-opti/commit/778892032382eaa6d09007f886db75480649f4c6) 记录了 Conan Exiles Enhanced / RX 9070 用户确认 NR 恢复运行；没有将启动崩溃或 Device Removed 归因于这一缺陷。
 
 验证：`lmxxf_wrapped_command_list` 已接入 lmxxf 的 WARP 层，覆盖无包装/一层/两层 COM 转发、查询拒绝、队列观察、分段前后字节一致性及引用回收；现有 recording lifecycle、same-frame boundary 专项与宿主编译通过。包装 fixture 只模拟 COM 查询边界，不能替代实际 ReShade、滤镜/add-on、加载顺序及游戏启动/退出验收；不据此宣称所有 ReShade 共存问题均已解决。
+
+## 2026-10-07：amdxc64 Hook 采用可重试、非阻塞初始化
+
+`getGpuInfo` 与驱动加载拦截都可能调用 `Amdxc64Hooks::Init`。以前以尚未提交的全局原函数指针判断初始化状态，两个调用者可以并发开启 Detours 事务，并在失败时清空对方使用的指针。改为 `RetryableDetour` 的 Idle/Installing/Ready 原子状态；并发或加载重入立即返回，不持有等待锁跨越 Windows 加载器。模块暂缺、配置要求延迟加载或安装失败都允许后续 Init 重试；不使用首次正常返回后就永久封闭的 `call_once`。
+
+每一步检查 Detours 返回值。Begin 的 `ERROR_INVALID_OPERATION` 表示其他事务已存在，直接退回，不碰它的 Attach/Commit/Abort；Begin 在取得所有权后遇到页保护错误、或本次 Update/Attach 失败，清理自己的事务。Commit 自行完成或回滚。没有加入忙等、后台无限重试或全进程 Hook 调度改造。
+
+原函数发布与 Detours 修改变量分离：AttachEx 准备跳板后，将其原子发布给 Hook，再提交入口跳转。这样提交刚生效、Init 尚未返回时也能正确转发；不把已被改跳转的入口当作原函数，避免递归。Detours 修改的变量只属于当前事务；安装成功后跳板永久保留。原有 Fsr4DoNotLoadAmdxc64/LoadCustomAmdxc64OnRdna2 配置和驱动接口功能保持不变，模块继续固定在进程内。
+
+CPU 专项 `tests/host/amdxc64_hook_init.cpp` 使用真实 Detours 和合成函数，覆盖 12 线程竞争、同线程重入、缺模块/异常后的重试、逐阶段故障、真实 Commit 回滚、保留同线程/跨线程的外部事务，以及提交窗口转发与并发调用；已接入 host CI。该验证确认初始化缺陷修复，不代替剑星重复冷启动或 GPU/模型验收。

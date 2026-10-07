@@ -341,6 +341,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="gpu_time\GpuTime_Dx11.h" />
     <ClInclude Include="gpu_time\GpuTime_Dx12.h" />
     <ClInclude Include="hooks\Amdxc64_Hooks.h" />
+    <ClInclude Include="hooks\RetryableDetour.h" />
     <ClInclude Include="DllNames.h" />
     <ClInclude Include="exports\d3d12.h" />
     <ClInclude Include="exports\dbghelp.h" />

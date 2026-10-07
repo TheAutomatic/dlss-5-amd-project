@@ -32,6 +32,8 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% /utf-8 /I"%INC%" tests\host\amdxc64_hook_init.cpp /Fe"%OUT%\amdxc64_hook_init.exe" /Fo"%OUT%\amdxc64_hook_init.obj" /link "%DETOURS%" || goto fail
+"%OUT%\amdxc64_hook_init.exe" || goto fail
 %CXX% /utf-8 tests\host\plugin_path.cpp /Fe"%OUT%\plugin_path.exe" /Fo"%OUT%\plugin_path.obj" || goto fail
 "%OUT%\plugin_path.exe" "%OUT%\plugin-path-fixture" || goto fail
 %CXX% /O2 /utf-8 tests\host\descriptor_copy_range.cpp /Fe"%OUT%\descriptor_copy_range.exe" /Fo"%OUT%\descriptor_copy_range.obj" || goto fail
