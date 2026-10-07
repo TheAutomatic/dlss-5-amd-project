@@ -1250,20 +1250,26 @@ function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collect
     [System.IO.File]::WriteAllLines($iniPath, $lines, [System.Text.UTF8Encoding]::new($true))
 }
 
+# Keep this standalone helper aligned with uninstall and PluginPath.h.
+# Relative paths are anchored to the game executable directory, never the launcher's CWD.
 function Get-PluginsTargetDirectory([string]$gameDir, [string]$iniPath) {
-    $targetDir = Join-Path $gameDir 'OptiScaler\plugins'
+    $gameDir = [IO.Path]::GetFullPath($gameDir)
+    $cfgPath = $null
+    $mainPath = $null
     if (Test-Path -LiteralPath $iniPath -PathType Leaf) {
         $cfgPath = Get-IniSetting $iniPath 'Plugins' 'Path'
-        if ($cfgPath -and $cfgPath -inotmatch '^(auto)?$') {
-            $candidate = if ([IO.Path]::IsPathRooted($cfgPath)) {
-                $cfgPath
-            } else {
-                Join-Path $gameDir $cfgPath
-            }
-            return [IO.Path]::GetFullPath($candidate)
-        }
+        $mainPath = Get-IniSetting $iniPath 'Libraries' 'OptiDllPath'
     }
-    return [IO.Path]::GetFullPath($targetDir)
+    if ($cfgPath -and $cfgPath -ine 'auto') {
+        # Setup creates an explicit plugin directory before the host checks it.
+        $target = if ([IO.Path]::IsPathRooted($cfgPath)) { $cfgPath } else { Join-Path $gameDir $cfgPath }
+        return [IO.Path]::GetFullPath($target)
+    }
+    if (-not $mainPath -or $mainPath -ieq 'auto') { $mainPath = 'OptiScaler' }
+    if (-not [IO.Path]::IsPathRooted($mainPath)) { $mainPath = Join-Path $gameDir $mainPath }
+    $mainPath = [IO.Path]::GetFullPath($mainPath)
+    if (-not (Test-Path -LiteralPath $mainPath -PathType Container)) { $mainPath = $gameDir }
+    return Join-Path $mainPath 'plugins'
 }
 
 Write-Host ''

@@ -2,6 +2,7 @@
 #include "dllmain.h"
 
 #include "Util.h"
+#include "PluginPath.h"
 #include "Config.h"
 #include "Logger.h"
 #include "resource.h"
@@ -1794,14 +1795,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         Config::Instance()->MainDllPath.set_volatile_value(
             std::filesystem::absolute(Config::Instance()->MainDllPath.value()));
 
-        // If path is not set or incorrect
-        if (!Config::Instance()->PluginPath.has_value() ||
-            (!std::filesystem::exists(Config::Instance()->PluginPath.value()) ||
-             !std::filesystem::is_directory(Config::Instance()->PluginPath.value())))
-        {
-            Config::Instance()->PluginPath.set_volatile_value(
-                std::filesystem::path(Config::Instance()->MainDllPath.value()) / L"plugins");
-        }
+        // Match Setup/Uninstall: relative plugin paths are relative to the EXE.
+        // Only update the runtime value; retain the user's original INI preference.
+        Config::Instance()->PluginPath.set_volatile_value(
+            PluginPath::Resolve(Config::Instance()->PluginPath.value_or(L""),
+                                Util::ExePath().parent_path(),
+                                Config::Instance()->MainDllPath.value()).wstring());
 
         CheckForExcludedProcess();
 

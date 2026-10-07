@@ -35,6 +35,9 @@
     <ClInclude Include="Util.h">
       <Filter>Util</Filter>
     </ClInclude>
+    <ClInclude Include="PluginPath.h">
+      <Filter>Util</Filter>
+    </ClInclude>
     <ClInclude Include="pch.h">
       <Filter>Other</Filter>
     </ClInclude>

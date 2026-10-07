@@ -32,6 +32,8 @@ echo usage: tests\host\run.cmd [ci^|device^|all] [out-dir]
 exit /b 2
 
 :ci
+%CXX% /utf-8 tests\host\plugin_path.cpp /Fe"%OUT%\plugin_path.exe" /Fo"%OUT%\plugin_path.obj" || goto fail
+"%OUT%\plugin_path.exe" "%OUT%\plugin-path-fixture" || goto fail
 %CXX% /O2 /utf-8 tests\host\descriptor_copy_range.cpp /Fe"%OUT%\descriptor_copy_range.exe" /Fo"%OUT%\descriptor_copy_range.obj" || goto fail
 "%OUT%\descriptor_copy_range.exe" || goto fail
 %CXX% /utf-8 tests\host\dx11_companion_resize.cpp /Fe"%OUT%\dx11_companion_resize.exe" /Fo"%OUT%\dx11_companion_resize.obj" /link d3d11.lib dxgi.lib user32.lib || goto fail

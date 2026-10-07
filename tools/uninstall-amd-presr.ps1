@@ -267,6 +267,41 @@ function Add-PlannedFile([string]$path, [string]$why) {
     }
 }
 
+function Get-IniSetting([string]$iniPath, [string]$sectionName, [string]$key) {
+    $inSection = $false
+    foreach ($line in [System.IO.File]::ReadAllLines($iniPath)) {
+        if ($line -match '^\s*\[([^\]]+)\]\s*$') {
+            if ($inSection) { break }
+            $inSection = ($Matches[1] -ieq $sectionName)
+        } elseif ($inSection -and $line -match ('^\s*' + [regex]::Escape($key) + '\s*=(.*)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+    return $null
+}
+
+# Keep this standalone helper aligned with uninstall and PluginPath.h.
+# Relative paths are anchored to the game executable directory, never the launcher's CWD.
+function Get-PluginsTargetDirectory([string]$gameDir, [string]$iniPath) {
+    $gameDir = [IO.Path]::GetFullPath($gameDir)
+    $cfgPath = $null
+    $mainPath = $null
+    if (Test-Path -LiteralPath $iniPath -PathType Leaf) {
+        $cfgPath = Get-IniSetting $iniPath 'Plugins' 'Path'
+        $mainPath = Get-IniSetting $iniPath 'Libraries' 'OptiDllPath'
+    }
+    if ($cfgPath -and $cfgPath -ine 'auto') {
+        # Setup creates an explicit plugin directory before the host checks it.
+        $target = if ([IO.Path]::IsPathRooted($cfgPath)) { $cfgPath } else { Join-Path $gameDir $cfgPath }
+        return [IO.Path]::GetFullPath($target)
+    }
+    if (-not $mainPath -or $mainPath -ieq 'auto') { $mainPath = 'OptiScaler' }
+    if (-not [IO.Path]::IsPathRooted($mainPath)) { $mainPath = Join-Path $gameDir $mainPath }
+    $mainPath = [IO.Path]::GetFullPath($mainPath)
+    if (-not (Test-Path -LiteralPath $mainPath -PathType Container)) { $mainPath = $gameDir }
+    return Join-Path $mainPath 'plugins'
+}
+
 # Setup only upserts one DLSS5_FIT_LARGE line; the file may also hold the user's own
 # upstream lmxxf flags. Remove our old line or an otherwise untouched seed template.
 function Get-FlagsRemainder([string]$path) {
@@ -307,6 +342,7 @@ if ((Test-UninstallPath $storage) -and (Test-Path -LiteralPath $storage -PathTyp
     $roots += $storage
 }
 
+$customPluginFiles = New-Object System.Collections.Generic.List[string]
 $legacyLogPaths = New-Object System.Collections.Generic.List[string]
 foreach ($root in $roots) {
     $legacyMark = Join-Path $root 'dlssnr-amd-install.txt'
@@ -344,22 +380,18 @@ foreach ($root in $roots) {
             Add-PlannedFile (Join-Path $deps $relative) 'project-dependency'
         }
     }
+    # Resolve once while the INI still exists; the deletion phase removes the INI first.
     $gameIni = Join-Path $root 'OptiScaler.ini'
-    if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
-        $customPluginAsi = $null
-        foreach ($line in [IO.File]::ReadAllLines($gameIni)) {
-            if ($line -match '^\s*Path\s*=\s*(.+)$') {
-                $pVal = $Matches[1].Trim()
-                if ($pVal -and $pVal -inotmatch '^(auto)?$') {
-                    $customTarget = if ([IO.Path]::IsPathRooted($pVal)) { $pVal } else { Join-Path $root $pVal }
-                    $customPluginAsi = Join-Path $customTarget 'OptiPatcher.asi'
-                    break
-                }
-            }
-        }
-        if ($customPluginAsi -and (Test-Path -LiteralPath $customPluginAsi -PathType Leaf)) {
+    try {
+        $pluginDir = Get-PluginsTargetDirectory $root $gameIni
+        $customPluginAsi = Join-Path $pluginDir 'OptiPatcher.asi'
+        if ((Test-Path -LiteralPath $customPluginAsi -PathType Leaf) -and
+            (Test-UninstallPath $customPluginAsi)) {
             Add-PlannedFile $customPluginAsi 'project-dependency'
+            $customPluginFiles.Add($customPluginAsi)
         }
+    } catch {
+        $kept.Add("unresolved plugin path in ${gameIni}: $($_.Exception.Message)")
     }
     $lmxxfMods = Join-Path $root 'lmxxf-modules'
     if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
@@ -640,6 +672,7 @@ foreach ($root in $roots) {
         }
     }
 }
+foreach ($path in ($customPluginFiles | Select-Object -Unique)) { Remove-SafeFile $path 'project-dependency' }
 foreach ($path in $legacyLogPaths) { Remove-SafeFile $path 'legacy-backend-log' }
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }

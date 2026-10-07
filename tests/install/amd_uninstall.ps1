@@ -269,6 +269,34 @@ public class UninstallProxyFixture { }
     $null = Run-Uninstall -Dir $legacyEmpty -RemoveBackups
     Assert-Removed (Join-Path $legacyEmpty 'dlssnr-amd-backup')
     Write-Host 'PASS legacy backup is optional; deleting it preserves every model and prunes empty folders'
+    # Capture custom targets before the INI is deleted, without adopting other sections/plugins.
+    foreach ($mode in @('relative', 'absolute', 'auto')) {
+        $customGame = Join-Path $testRoot ("custom-plugin-$mode")
+        $relative = if ($mode -eq 'auto') { 'CustomDeps/plugins' } else { 'mods' }
+        $pluginDir = Join-Path $customGame $relative
+        $setting = if ($mode -eq 'absolute') { $pluginDir } elseif ($mode -eq 'auto') { 'auto' } else { 'mods' }
+        Put-File (Join-Path $customGame 'OptiScaler.ini') ("[Unrelated]`r`nPath=other`r`n[Libraries]`r`nOptiDllPath=CustomDeps`r`n[Plugins]`r`nPath=$setting`r`n")
+        Put-File (Join-Path $pluginDir 'OptiPatcher.asi')
+        Put-File (Join-Path $pluginDir 'UserPlugin.asi')
+        Put-File (Join-Path $customGame 'other/OptiPatcher.asi') 'not the configured directory'
+        $null = Run-Uninstall $customGame
+        Assert-Removed (Join-Path $pluginDir 'OptiPatcher.asi')
+        Assert-Removed (Join-Path $customGame 'OptiScaler.ini')
+        Assert-Exists (Join-Path $pluginDir 'UserPlugin.asi')
+        Assert-Exists (Join-Path $customGame 'other/OptiPatcher.asi')
+    }
+    $outsideGame = Join-Path $testRoot 'outside-plugin-game'
+    $outsidePlugins = Join-Path $testRoot 'shared-plugins'
+    Put-File (Join-Path $outsidePlugins 'OptiPatcher.asi') 'shared, not owned by this game'
+    Put-File (Join-Path $outsideGame 'OptiScaler.ini') ("[Plugins]`r`nPath=$outsidePlugins`r`n")
+    $null = Run-Uninstall $outsideGame
+    Assert-Exists (Join-Path $outsidePlugins 'OptiPatcher.asi')
+    $linkedGame = Join-Path $testRoot 'linked-plugin-game'
+    Put-File (Join-Path $linkedGame 'OptiScaler.ini') "[Plugins]`r`nPath=mods`r`n"
+    Make-Junction (Join-Path $linkedGame 'mods') $outsidePlugins
+    $null = Run-Uninstall $linkedGame
+    Assert-Exists (Join-Path $outsidePlugins 'OptiPatcher.asi')
+    Write-Host 'PASS custom plugin deletion, section isolation, user plugins and outside/linked path preservation'
     Write-Host 'All uninstall regression checks passed.'
 } finally {
     # Remove junctions themselves before fixture cleanup. Never recursively
