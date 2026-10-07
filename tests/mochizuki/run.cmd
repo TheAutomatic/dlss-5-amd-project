@@ -11,10 +11,14 @@ if /i "%~1"=="hdr-shader" goto hdrshader
 cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /I OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler tests/mochizuki/runtime.cpp /Foexports/mochizuki-tests/runtime.obj /Feexports/mochizuki-tests/runtime.exe /link d3d12.lib dxgi.lib || exit /b 1
 if /i "%~1"=="destroy-tail" goto destroytail
 if /i "%~1"=="startup" goto startup
+if /i "%~1"=="profile" goto profile
+if /i "%~1"=="composition" goto composition
 if /i "%~1"=="shader-tail" goto shadertail
 if /i "%~1"=="pass-switch" goto passswitch
 if /i "%~1"=="gpu" (
   call tests\mochizuki\run.cmd hdr-shader || exit /b 1
+  exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --composition
+  if errorlevel 1 exit /b 1
   exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime"
 ) else (
   exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll"
@@ -60,4 +64,13 @@ cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS 
 set "MOCHI_HDR_SHADERS=%CD%\exports\mochizuki-runtime\dlssnr-amd\shaders\runtime"
 if not "%~2"=="" set "MOCHI_HDR_SHADERS=%~f2"
 exports\mochizuki-tests\hdr_shader.exe "%MOCHI_HDR_SHADERS%"
+exit /b %errorlevel%
+
+:profile
+rem profile output.raw width height scale passes preprocess compact enlarge (16 warmup + 64 samples)
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --profile "%~2" %3 %4 %5 %6 %7 %8 %9
+exit /b %errorlevel%
+
+:composition
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --composition
 exit /b %errorlevel%

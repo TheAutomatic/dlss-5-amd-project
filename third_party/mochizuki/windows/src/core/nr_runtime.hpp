@@ -65,6 +65,7 @@ struct Controls {
     float detail_strength = 1.0f;
     float colour_strength = 1.0f;
     float max_ratio = 2.0f;
+    uint32_t enlarge_mode = 0; // reduced model scale: 0 matched residual, 1 edge-aware
     // How many times the network runs on the frame, 1..RuntimeConfig::max_passes.
     // Pass k+1 takes pass k's output as its colour, with the same motion and
     // depth, and its own history; the transfer pass runs once at the end
@@ -125,6 +126,9 @@ struct RuntimeConfig {
     // the cost tracks scale^2 while the game's own resolution is untouched.
     // The "Model Resolution" of the NVIDIA-side mods.
     float model_scale = 1.0f;
+    // Reuse the private full-size input copy for final composition at reduced
+    // model resolution. Non-8-bit outputs only; false retains the separate image.
+    bool compact_transfer = true;
     // The most passes Controls::passes may ask for; each one above the first
     // costs a history image at the model extent.
     uint32_t max_passes = 1;
@@ -409,6 +413,10 @@ public:
     float last_gpu_ms() const;
     // Host bridge: count completed query reads so UI polling never invents samples.
     uint64_t gpu_timing_serial() const;
+    // Same completed sample as last_gpu_ms(): network includes fused history shaders;
+    // other is core input/history copies/composition. Excludes host/API bridge work.
+    float last_network_ms() const;
+    float last_other_ms() const;
     // The same, smoothed over recent frames - what to put in a UI, because the
     // instantaneous number moves too much to read.
     float average_gpu_ms() const;

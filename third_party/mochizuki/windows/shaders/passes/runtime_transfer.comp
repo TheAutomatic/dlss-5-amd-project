@@ -24,6 +24,7 @@ layout(push_constant) uniform Push {
     float colour;             // Colour strength, 0..4
     float max_ratio;          // Highlight guard, 1..8
     float white;              // linear light's white point
+    uint mode;               // 0 matched residual, 1 edge-aware (reduced model scale only)
 } pc;
 
 const vec3 kLuma = vec3(0.2126, 0.7152, 0.0722);
@@ -145,6 +146,55 @@ void model_pair(ivec2 xy, out vec3 m, out vec3 s) {
       + w.z * texelFetch(shown, ivec2(i0.x, i1.y), 0).rgb + w.w * texelFetch(shown, i1, 0).rgb;
 }
 
+// Edge-aware lighting + colour (the idea of carrying the change as lighting and colour is OptiScaler-NR's
+// "Lighting + colour", from its author's Display Filter). The model's change is measured at the model's
+// extent as a lighting gain (log2 luminance ratio) and a chromaticity change (luminance-normalised RGB),
+// enlarged, and applied to the full-resolution proxy `P`. With kGuided each of the 4x4 model texels is
+// weighted by how close its input luminance is to the pixel's (joint bilateral upsampling guided by P),
+// with plain spatial weights as the fallback. Near black the additive residual is used instead.
+const float kEps = 1.0 / 256.0;
+vec3 comp(vec3 v) { return pc.passthrough != 0u ? v : srgb_to_linear(v); }
+
+vec3 lighting(ivec2 xy, vec3 P) {
+    const bool guided = true;
+    const int r = guided ? 2 : 1;
+    const vec2 p = (vec2(xy) + 0.5) * (vec2(pc.model_w, pc.model_h) / vec2(pc.width, pc.height)) - 0.5;
+    const ivec2 base = ivec2(floor(p));
+    const vec2 f = p - vec2(base);
+    const ivec2 hi = ivec2(pc.model_w, pc.model_h) - 1;
+    const float yp = dot(P, kLuma);
+    const float lp = log2(yp + kEps);
+    const float inv2s2 = 1.0 / (2.0 * max(0.25 * 0.25, 1e-6));
+    float wg = 0.0, ws_sum = 0.0, g_g = 0.0, g_s = 0.0;
+    vec3 c_g = vec3(0.0), c_s = vec3(0.0), r_g = vec3(0.0), r_s = vec3(0.0);
+    for (int j = 1 - r; j <= r; ++j) {
+        for (int i = 1 - r; i <= r; ++i) {
+            const ivec2 q = clamp(base + ivec2(i, j), ivec2(0), hi);
+            const vec3 m = comp(imageLoad(result, q).rgb), s = comp(texelFetch(shown, q, 0).rgb);
+            const float ym = dot(m, kLuma), ys = dot(s, kLuma);
+            const float g = log2((ym + kEps) / (ys + kEps));
+            const vec3 dc = m / (ym + kEps) - s / (ys + kEps);
+            const vec3 res = m - s;
+            const vec2 d = abs(vec2(i, j) - f);
+            // plain: bilinear; guided: a Gaussian of 0.6 model texels over the 4x4, as local as bilinear
+            const float ws = guided ? exp(-dot(d, d) * (1.0 / (2.0 * 0.36)))
+                                    : max(0.0, 1.0 - d.x) * max(0.0, 1.0 - d.y);
+            const float dl = lp - log2(ys + kEps);
+            const float w = guided ? ws * exp(-dl * dl * inv2s2) : ws;
+            g_g += w * g; c_g += w * dc; r_g += w * res; wg += w;
+            g_s += ws * g; c_s += ws * dc; r_s += ws * res; ws_sum += ws;
+        }
+    }
+    float G; vec3 DC, RES;
+    if (wg > 1e-4 * ws_sum) { G = g_g / wg; DC = c_g / wg; RES = r_g / wg; }
+    else { G = g_s / ws_sum; DC = c_s / ws_sum; RES = r_s / ws_sum; }
+    // c = rgb / (Y + eps) for every picture, so P = c_P (Y_P + eps) and the rebuilt answer is
+    // (c_P + DC)(Y_P + eps) 2^G: P itself when nothing changed, the model's answer where P is what it saw.
+    const vec3 rebuilt = max(P + DC * (yp + kEps), vec3(0.0)) * exp2(G);
+    const vec3 added = P + RES;
+    return mix(added, rebuilt, smoothstep(kEps, 8.0 * kEps, yp));
+}
+
 void main() {
     const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
     if (xy.x >= int(pc.width) || xy.y >= int(pc.height)) return;
@@ -167,7 +217,7 @@ void main() {
         const vec3 full = pass_through ? clamp(original, 0.0, 1.0) : clamp(soft_knee(original), 0.0, 1.0);
         proxy = full;
         proxy_luma = dot(proxy, kLuma);
-        model = cube_scale_residual(full, full + edit);
+        model = cube_scale_residual(full, pc.mode == 1u ? lighting(xy, full) : full + edit);
     }
 
     // The model's answer is a picture in its own right, rescaled to sit where

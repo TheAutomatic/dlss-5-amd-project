@@ -28,6 +28,7 @@ struct MochizukiBackend::Impl
     std::string status = "mochizuki: idle";
     NrTimingSnapshot timing {};
     MochizukiNrBuildProgress progress {};
+    MochizukiNrInfo details {};
 
     void Status(const std::string& text) { std::lock_guard lock(mutex); status = text; }
     void Error(const char* phase)
@@ -77,6 +78,16 @@ struct MochizukiBackend::Impl
         LmxxfNrCreateInfo ci {sizeof ci, device.Get(), queue.Get(), directory.c_str(), LMXXF_NR_CREATE_FLAG_RECORDING_LEASES};
         void* session = nullptr;
         if (api.Create(&ci, &session) != LMXXF_NR_OK) { Error("Create failed"); return false; }
+        MochizukiNrInfo contract {sizeof contract};
+        const auto defaults = reinterpret_cast<PFN_MochizukiNrGetControlDefaults>(
+            GetProcAddress(module, "MochizukiNrGetControlDefaults"));
+        MochizukiNrControls controlContract {sizeof controlContract};
+        if (!defaults || defaults(&controlContract) != LMXXF_NR_OK || getInfo(session, &contract) != LMXXF_NR_OK) {
+            api.Destroy(session);
+            failed = true;
+            Status("mochizuki: host/runtime mismatch; overwrite with the complete current package");
+            return false;
+        }
         owner = LmxxfRecording::SessionOwner::Create(api, session);
         if (!owner) { api.Destroy(session); Status("mochizuki: session ownership allocation failed"); return false; }
         if (api.PrepareSession(session) != LMXXF_NR_OK)
@@ -111,12 +122,13 @@ struct MochizukiBackend::Impl
             gpu.frame_id = info.frames;
             gpu.last_tick_ms = now;
         }
-        { std::lock_guard lock(mutex); timing = next; }
+        { std::lock_guard lock(mutex); timing = next; details = info; }
         if (Config::Instance()->NrTimingLog.value_or_default() && now - logAt >= 10000)
         {
             logAt = now;
-            LOG_INFO("mochizuki network GPU median={:.3f} ms p95={:.3f} ms frames={}",
-                     info.gpu_ms_median, info.gpu_ms_p95, info.frames);
+            LOG_INFO("mochizuki Vulkan core GPU median={:.3f} ms p95={:.3f} ms; means: network={:.3f} other={:.3f} total={:.3f} ms; excludes bridge copies; frames={}",
+                     info.gpu_ms_median, info.gpu_ms_p95, info.gpu_ms_network_mean, info.gpu_ms_other_mean,
+                     info.gpu_ms_mean, info.frames);
         }
     }
 };
@@ -209,7 +221,7 @@ void MochizukiBackend::ReleaseSession()
     std::lock_guard lifetime(Submission::RecordingMutex());
     p->owner.reset(); p->failed = false; p->retryAt = p->infoAt = 0;
     LmxxfRecording::Collect();
-    { std::lock_guard lock(p->mutex); p->timing = {}; p->progress = {}; p->status = "mochizuki: NR off"; }
+    { std::lock_guard lock(p->mutex); p->timing = {}; p->progress = {}; p->details = {}; p->status = "mochizuki: NR off"; }
     if (!Config::Instance()->NrConvenience.value_or_default() && p->module)
     { FreeLibrary(p->module); p->module = nullptr; p->api = {}; }
 }
@@ -232,5 +244,6 @@ bool MochizukiBackend::IsRunning() const
            p->owner->activity.IsRunning();
 }
 NrTimingSnapshot MochizukiBackend::Timing() const { std::lock_guard lock(p->mutex); return p->timing; }
+MochizukiNrInfo MochizukiBackend::TimingDetails() const { std::lock_guard lock(p->mutex); return p->details; }
 MochizukiNrBuildProgress MochizukiBackend::BuildProgress() const { std::lock_guard lock(p->mutex); return p->progress; }
 }

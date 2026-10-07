@@ -21,8 +21,9 @@ Upstream **v0.0.4 is Linux-only**; its official Windows preview remains v0.0.3.
 This integration has reviewed the v0.0.4 source and ported its HDR hue fix: bright
 saturated linear-input colours are scaled together rather than clipped by channel,
 including the composition path when model resolution is below 100%. Existing weights,
-INI options and menu version remain valid. INT4 mixed and the Linux-only performance
-and ReShade route changes are not enabled; scope and follow-up are in the source record.
+INI options and menu version remain valid. The additional optional edge-aware
+composition, private output-buffer reuse and split timings are described below.
+INT4 mixed and the separate Linux/ReShade hosts are not included.
 
 ## Installation
 
@@ -137,11 +138,31 @@ preserving other backend controls, backend selection and hotkeys. Reset this pag
 resets only that page's mochizuki fields; on the model page this includes hidden
 later-pass overrides. Shared effects have their own reset.
 
-Ins and Page Up/Down can show completed Vulkan network GPU measurements. They do
-not include the D3D12 copies, upscaler, frame generation or whole-frame latency.
-The status shows median/p95; detailed telemetry shows last/mean/max. Display and
-timing log options default off; summaries are limited to one per ten seconds.
+Ins and Page Up/Down show completed **Vulkan core total** GPU measurements.
+The compact Mochizuki label is NR GPU. Diagnostics splits the same sample window
+into network and other core processing; their means sum to the total mean.
+The network includes fused temporal pre/post shaders. Other covers core copies,
+input conversion and composition. Adapter buffer/image copies, D3D12 copies,
+shared output effects, upscaling, frame generation and whole-frame latency are
+outside this measurement. Display and timing log options default off; summaries
+are limited to one per ten seconds, and query reads never wait for the GPU.
 `mochizuki_nr.log` respects file logging and stops appending at 4 MiB.
+
+Under **Apply NR edit → Output adjustment**, **Model enlargement**
+(`MochizukiEnlargeMode`) offers matched residual (0, default) or edge-aware
+lighting/colour (1). It applies only below 100% model scale. Edge-aware uses a 4×4
+neighbourhood guided by the original pixel's brightness, which can keep an edit on
+its side of an edge. It costs more GPU time and needs scene-by-scene comparison;
+it is not a general quality upgrade or a replacement for temporal history.
+
+**Reuse output buffer** (`MochizukiCompactTransfer=true`, default) reuses the
+private full-resolution input copy after all model/history work has finished.
+At reduced model resolution it removes one RGBA32F allocation and the redundant
+alpha pass for supported non-8-bit formats: 126.56 MiB of pixel storage at 4K.
+U8 output keeps its original rounding path. Model scale 100% is unchanged.
+Turning this off restores separate buffers and rebuilds the network. Both controls
+are owned by the INI/menu, reset with the output group/page and do not consult an
+upstream INI or environment override. Old recordings keep their original layout.
 
 The bridge does not sample the game's exposure texture on the CPU. WhitePoint is
 the manual linear-input setting; optional preprocessing has its own histogram
@@ -173,6 +194,19 @@ The other modes use test-only failure injection; they do not change product defa
 It executes the real input/transfer shaders and checks HDR RGB ratios, ordinary
 brightness, alpha, valid dispatch bounds and full/reduced model resolution.
 The `gpu` entrypoint also runs it.
+
+`tests/mochizuki/run.cmd composition` compares separate/reused output buffers on
+actual consecutive temporal frames, with one/three passes, preprocessing, both
+enlargement modes and FP16/sRGB. It checks replay of retained recordings after
+switching buffers. Warmup precedes history comparison because a cold driver's
+first dispatch can exceed the runtime's 250 ms continuity limit. This test is
+also included in `gpu`.
+
+`tests/mochizuki/run.cmd profile <output.raw> <width> <height> <scale> <passes> <preprocess> <compact> <enlarge>`
+uses deterministic R11G11B10 input, 16 warmup executions and 64 completed timing
+samples, and saves the final pixels. It excludes history (no motion input), CPU
+build time and adapter copies; use composition/GPU tests for temporal correctness.
+This is a warm GPU microbenchmark, not a game FPS measurement.
 
 For a focused 1080p R11G11B10 startup test, use
 `tests/mochizuki/run.cmd startup <asset-root> [output.raw]`. The asset root contains

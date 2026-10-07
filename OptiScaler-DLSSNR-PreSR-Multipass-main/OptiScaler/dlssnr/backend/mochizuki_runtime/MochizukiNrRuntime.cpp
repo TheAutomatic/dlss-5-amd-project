@@ -577,6 +577,7 @@ struct SessionControls
     float history = 1.f;     // Runtime::set_history_strength
     float white = 1.f;       // Runtime::set_white_point
     uint32_t linearMode = 0; // MochizukiNrControls::linear_input: 0 auto, 1 on, 2 off
+    bool compactTransfer = true;
     uint32_t maxPasses = 0;  // 0: the frame's passes
     uint32_t drsMode = 0;    // MochizukiNrControls::drs_mode: 0 exact, 1 auto, 2 always (Session::DrsExtent)
 };
@@ -605,6 +606,8 @@ void DefaultControls(MochizukiNrControls& c)
     c.preprocess_curve = uint32_t(prep.curve);
     c.preprocess_contrast = prep.contrast;
     c.preprocess_saturation = prep.saturation;
+    c.compact_transfer = nr::RuntimeConfig{}.compact_transfer;
+    c.enlarge_mode = model.enlarge_mode;
     for (MochizukiNrPassControls& p : c.pass)
     {
         p.style = uint32_t(pass.style);
@@ -629,6 +632,8 @@ SessionControls Sanitise(const MochizukiNrControls& c)
     m.automatic_mask = c.automatic_mask != 0;
     m.max_ratio = San(c.max_ratio, 1.f, 8.f, 2.f);
     m.apply_model = c.apply_model != 0;
+    m.enlarge_mode = c.enlarge_mode <= 1 ? c.enlarge_mode : 0;
+    out.compactTransfer = c.compact_transfer != 0;
     out.history = San(c.history_strength, 0.f, 1.f, 1.f);
     out.white = San(c.white_point, 0.01f, 100.f, 1.f);
     out.linearMode = c.linear_input <= 2 ? c.linear_input : 0;
@@ -1299,11 +1304,13 @@ struct NetworkKey
     uint32_t maxPasses = 1;
     bool linear = false;
     bool prep = false; // RuntimeConfig::preprocess
+    bool compactTransfer = true;
     bool operator==(const NetworkKey&) const = default;
     bool SameModel(const NetworkKey& other) const
     {
         return width == other.width && height == other.height && format == other.format &&
-               scale == other.scale && linear == other.linear && prep == other.prep;
+               scale == other.scale && linear == other.linear && prep == other.prep &&
+               compactTransfer == other.compactTransfer;
     }
 };
 
@@ -1625,6 +1632,7 @@ struct Session
     // runtime->last_gpu_ms() of the last kGpuSamples frames, for GetStatus. Pushed under submitMutex as well.
     std::mutex statsMutex;
     float gpuMs[kGpuSamples] {};
+    float networkMs[kGpuSamples] {}, otherMs[kGpuSamples] {};
     uint32_t gpuMsCount = 0, gpuMsNext = 0;
     nr::Runtime* statsNetwork = nullptr;
     uint64_t statsSerial = 0, gpuSamples = 0, gpuTick = 0;
@@ -2863,6 +2871,7 @@ struct Session
             config.model_scale = key.scale;
             config.max_passes = key.maxPasses;
             config.preprocess = key.prep;
+            config.compact_transfer = key.compactTransfer;
             // The linear path's frame is a proxy made with the soft knee, which the preprocess undoes first.
             config.preprocess_unknee = key.linear;
             nr::TemporalConfig temporal;
@@ -3554,6 +3563,8 @@ struct Session
             ++gpuSamples;
             gpuTick = GetTickCount64();
             gpuMs[gpuMsNext] = ms;
+            networkMs[gpuMsNext] = runtime->last_network_ms();
+            otherMs[gpuMsNext] = runtime->last_other_ms();
             gpuMsNext = (gpuMsNext + 1) % kGpuSamples;
             gpuMsCount = std::min(gpuMsCount + 1, kGpuSamples);
         }
@@ -3863,6 +3874,7 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             nr::Controls model;
             float history = 1.f, white = 1.f;
             uint32_t linearMode = 0, maxPassesSetting = 0, drsMode = 0;
+            bool compactTransfer = true;
             {
                 std::lock_guard lock(s->controlsMutex);
                 model = s->controls.model;
@@ -3873,6 +3885,7 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
                     white = std::clamp(white / e, 1e-4f, 1e4f);
                 maxPassesSetting = s->controls.maxPasses;
                 drsMode = s->controls.drsMode;
+                compactTransfer = s->controls.compactTransfer;
             }
             // Automatic capacity grows as needed and is retained when fewer passes run.
             // An explicit prebuild count requests that exact capacity, at least the frame's passes.
@@ -3891,7 +3904,7 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             // Neither a network nor buffers that cannot be had now fail the session: the frame goes without NR, and
             // they are tried again as their holds say.
             s->prepWanted = s->prepWanted || model.preprocess.active();
-            const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted };
+            const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted, compactTransfer };
             std::string why;
             s->infoRequestedPasses = passes;
             if (!s->EnsureNetwork(key, g, colour, why, maxPassesSetting == 0, drsMode != 0 && !g.bucketed))
@@ -4223,8 +4236,8 @@ int32_t GetLastError(char* buf, uint32_t chars)
 // MochizukiNrControls.h. Every Controls field is 4 bytes and 4-aligned and the struct ends at its last field, so the
 // whole fields a caller's struct holds are its first struct_size & ~3 bytes.
 static_assert(alignof(MochizukiNrControls) == 4 &&
-              sizeof(MochizukiNrControls) == offsetof(MochizukiNrControls, preprocess_saturation) +
-                                                 sizeof(MochizukiNrControls::preprocess_saturation) &&
+              sizeof(MochizukiNrControls) == offsetof(MochizukiNrControls, enlarge_mode) +
+                                                 sizeof(MochizukiNrControls::enlarge_mode) &&
               offsetof(MochizukiNrControls, pass) == 72 && offsetof(MochizukiNrControls, preprocess) == 136 &&
               sizeof(MochizukiNrPassControls) == 32);
 // Info has no implicit padding (reserved0 fills the gap before frames), so its offsets do not depend on packing; its
@@ -4297,12 +4310,19 @@ int32_t GetInfo(void* context, MochizukiNrInfo* out)
             info.gpu_samples = s->gpuSamples;
             info.gpu_tick = s->gpuTick;
             if (s->gpuMsCount) {
-                info.gpu_ms_last = s->gpuMs[(s->gpuMsNext + kGpuSamples - 1) % kGpuSamples];
+                const uint32_t last = (s->gpuMsNext + kGpuSamples - 1) % kGpuSamples;
+                info.gpu_ms_last = s->gpuMs[last];
+                info.gpu_ms_network_last = s->networkMs[last];
+                info.gpu_ms_other_last = s->otherMs[last];
                 for (uint32_t i = 0; i < s->gpuMsCount; ++i) {
                     info.gpu_ms_mean += s->gpuMs[i];
+                    info.gpu_ms_network_mean += s->networkMs[i];
+                    info.gpu_ms_other_mean += s->otherMs[i];
                     info.gpu_ms_max = std::max(info.gpu_ms_max, s->gpuMs[i]);
                 }
                 info.gpu_ms_mean /= s->gpuMsCount;
+                info.gpu_ms_network_mean /= s->gpuMsCount;
+                info.gpu_ms_other_mean /= s->gpuMsCount;
             }
         }
         info.build_seconds = s->infoBuildSeconds;

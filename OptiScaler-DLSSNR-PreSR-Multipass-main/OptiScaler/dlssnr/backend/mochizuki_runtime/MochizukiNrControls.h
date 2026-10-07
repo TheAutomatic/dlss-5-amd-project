@@ -79,6 +79,8 @@ extern "C"
         uint32_t preprocess_curve;    /* 0 none, 1 neutral, 2 reinhard, 3 filmic (default), 4 gt, 5 aces, 6 agx */
         float preprocess_contrast;    /* about mid grey, 0.5..2, default 1 */
         float preprocess_saturation;  /* 0.05..2, default 1 */
+        uint32_t compact_transfer; /* default 1; reduced-resolution non-U8 output buffer reuse; rebuilds */
+        uint32_t enlarge_mode;     /* 0 matched residual (default), 1 edge-aware; reduced model scale only */
     } MochizukiNrControls;
 
     /* What the session is doing, for a menu. Safe to ask from any thread, at any rate. */
@@ -90,7 +92,7 @@ extern "C"
         uint32_t model_w, model_h;    /* the extent the network runs at (model scale applied) */
         uint32_t max_passes;          /* the passes the current network was built for */
         uint32_t motion_refused_dxgi; /* DXGI format of motion vectors that were refused (running without history) */
-        float gpu_ms_median;          /* network GPU time over the last 120 frames */
+        float gpu_ms_median;          /* Vulkan core total over the last 120 samples; excludes bridge copies */
         float gpu_ms_p95;
         float build_seconds;           /* the last network build */
         uint32_t reserved0;            /* 0; keeps frames 8-aligned without implicit padding */
@@ -103,6 +105,10 @@ extern "C"
         float white_point; /* the white point the last frame used, the game's exposure applied (linear colour) */
         float gpu_ms_last, gpu_ms_mean, gpu_ms_max;
         uint64_t gpu_samples, gpu_tick;
+        /* Same sample window as gpu_ms_*: network + other = core total. Fused temporal
+         * pre/post shaders count as network. Other includes core copies/composition only. */
+        float gpu_ms_network_last, gpu_ms_other_last;
+        float gpu_ms_network_mean, gpu_ms_other_mean;
         /* struct_size includes the current definition's tail padding. */
     } MochizukiNrInfo;
 

@@ -1003,6 +1003,13 @@ NrTimingSnapshot Timing()
     }
     return snapshot;
 }
+MochizukiNrInfo MochizukiTimingDetails()
+{
+    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+        g_activeKind.load(std::memory_order_acquire) != int(DlssNr::Backend::Kind::Mochizuki)) return {};
+    if (auto* host = g_mochizuki.load(std::memory_order_acquire)) return host->TimingDetails();
+    return {};
+}
 MochizukiNrBuildProgress BuildProgress()
 {
     if (!Config::Instance()->DlssNrEnabled.value_or_default() ||

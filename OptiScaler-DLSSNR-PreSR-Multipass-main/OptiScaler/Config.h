@@ -406,6 +406,8 @@ class Config
     CustomOptional<float> MochizukiDetailStrength { 1.f };
     CustomOptional<float> MochizukiColourStrength { 1.f };
     CustomOptional<float> MochizukiMaxRatio { 2.f };
+    CustomOptional<bool> MochizukiCompactTransfer { true };
+    CustomOptional<uint32_t> MochizukiEnlargeMode { 0u };
     CustomOptional<float> MochizukiWhitePoint { 1.f };
     CustomOptional<float> MochizukiModelScale { 1.f };
     CustomOptional<uint32_t> MochizukiPasses { 1u };

@@ -414,6 +414,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             MochizukiDetailStrength.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiDetailStrength));
             MochizukiColourStrength.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiColourStrength));
             MochizukiMaxRatio.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiMaxRatio));
+            MochizukiEnlargeMode.set_from_config(readUInt(CfgKey::kSection, CfgKey::MochizukiEnlargeMode));
+            MochizukiCompactTransfer.set_from_config(readBool(CfgKey::kSection, CfgKey::MochizukiCompactTransfer));
             MochizukiWhitePoint.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiWhitePoint));
             MochizukiModelScale.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiModelScale));
             MochizukiPasses.set_from_config(readUInt(CfgKey::kSection, CfgKey::MochizukiPasses));
@@ -1660,6 +1662,8 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiDetailStrength, GetFloatValue(Instance()->MochizukiDetailStrength.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiColourStrength, GetFloatValue(Instance()->MochizukiColourStrength.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiMaxRatio, GetFloatValue(Instance()->MochizukiMaxRatio.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MochizukiEnlargeMode, GetIntValue(Instance()->MochizukiEnlargeMode.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::MochizukiCompactTransfer, GetBoolValue(Instance()->MochizukiCompactTransfer.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiWhitePoint, GetFloatValue(Instance()->MochizukiWhitePoint.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiModelScale, GetFloatValue(Instance()->MochizukiModelScale.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::MochizukiPasses, GetIntValue(Instance()->MochizukiPasses.value_for_config()).c_str());

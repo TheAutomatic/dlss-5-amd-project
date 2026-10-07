@@ -27,6 +27,7 @@ public:
     bool IsRunning() const override;
     NrTimingSnapshot Timing() const override;
     MochizukiNrBuildProgress BuildProgress() const;
+    MochizukiNrInfo TimingDetails() const;
     bool GraphicsRestartNeeded(UINT) const override { return false; }
 };
 }

@@ -911,3 +911,11 @@
 {"nvngx.ini detected: use OptiScaler.ini and remove the old config.", "检测到 nvngx.ini，请改用 OptiScaler.ini 并移除旧配置。"},
 {"| Input: %s", "| 输入：%s"},
 {"| Spoof: %s", "| 伪装：%s"},
+{"Vulkan core GPU: %.3f ms | Network: %.3f ms | Other: %.3f ms", "Vulkan 核心：%.3f ms | 网络：%.3f ms | 其他：%.3f ms"},
+{"Completed-sample means. Network includes fused temporal shaders; Other covers core input, history copies and composition. Bridge copies, shared effects and whole-frame latency are excluded.", "显示已完成样本的平均耗时。网络包含融合的时序着色器；其他包含核心输入处理、历史拷贝和合成。不含桥接拷贝、公共效果及整帧延迟。"},
+{"Mochizuki Vulkan core total, including its input and composition. Excludes bridge copies and shared effects. Timing breakdown is in Diagnostics.", "Mochizuki Vulkan 核心总耗时，包含其输入处理与合成，不含桥接拷贝和公共效果。耗时拆分见诊断。"},
+
+{"Model enlargement", "模型放大"},
+{"Edge-aware", "边缘引导"},
+{"Reuse output buffer", "复用输出缓冲"},
+{"Model enlargement applies below 100% model scale. Matched residual is the default; edge-aware costs more GPU time.\nReuse output buffer saves one full-resolution float image on supported formats. Switching rebuilds the network; turn off to use separate buffers.", "模型分辨率低于 100% 时生效。默认使用匹配残差；边缘引导更耗时。\n支持的格式可复用输出缓冲，省去一张全分辨率浮点纹理。切换会重建网络；关闭可退回独立缓冲。"},

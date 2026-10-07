@@ -28,14 +28,28 @@ and full/reduced model resolution. It is also included in the Mochizuki GPU entr
 |---|---|
 | INT4 mixed: Linux core, shaders, recipes, calibration tables, weight converter and Vulkan layer | Deferred. `nrvk::Kernel::create_iu4` captures driver binaries and rewrites WMMA opcodes via `VK_KHR_pipeline_binary`; this is not a portable GLSL precision switch. Requires separate Windows driver/output validation, model preparation and package contracts, and INI-owned controls before integration. No calibration data or extra model is shipped here. |
 | Pipeline robustness override | Not applicable to this bridge. Upstream removes inherited DXVK/vkd3d-proton robust access; `Session::InitVk` creates a private Vulkan device without those enabled features. Do not inherit the Linux path's assumption that physical support alone permits per-pipeline overrides on a borrowed device. |
-| ReShade enlargement (edge-aware/classic/Catmull-Rom/Lanczos/FSR1) and native-frame in-place I/O | Deferred. These add shader bindings, push constants, buffers and per-recording image views. Our retained recordings can be replayed after later frames, so an upstream fixed frame-ring retirement policy cannot replace the host's completion-based leases. Requires corresponding controls, ownership adaptation and replay/format tests. Existing matched-residual enlargement remains. |
-| Network/route split timings | Deferred. Upstream changes query stride/slot interpretation; the adapter's completion-based timing serial, public info ABI and menu would need coordinated updates. Existing timings remain unchanged. |
+| ReShade enlargement | Ported only the edge-aware lighting/colour function from the snapshot's Linux runtime_transfer.comp, with fixed guided weights and sigma 0.25. Optional host-owned MochizukiEnlargeMode=1; matched residual remains 0/default. Classic/Catmull-Rom/Lanczos/FSR1 remain deferred: separate quality/performance evidence and additional pipelines would be needed. |
+| Native-frame in-place I/O | Adapted narrowly: the private RGBA32F full-size copy may also receive final composition at reduced model resolution. MochizukiCompactTransfer defaults on; non-U8, non-native-compose paths only. Neighbour taps still read model-sized images; each full-size original pixel is read before its own store. No borrowed game texture views or fixed-frame retirement are introduced. Full native-format I/O remains deferred pending format/replay validation. |
+| Network/route split timings | Implemented locally for this bridge: per-pass network pairs plus core-total timestamps, nonblocking completed-query reads, masked timestamp wrap and the existing timing serial. Coordinated info ABI/host/UI changes report network and other core work over the same sample window. This does not measure bridge copies or total application latency. |
 | 32-bit staging/weight-memory reduction and host-memory retry | Deferred. This product is x64, and has its own budget/backoff/cancellation and retained-network logic. A future bounded-upload change should measure peak memory and build latency and validate failure cleanup; do not import the unrelated INT4 builder with it. |
 | Linux installer, Steam layer options, OptiScaler-NR 0.8.91 binary patches, DX10 ReShade routing, INI/hotkey/log controls | Not imported. These configure a different host and API route. Our three-backend host, native D3D12 bridge, authoritative INI/menu and bounded logging remain in control. |
 
 The model extraction scripts and 599-entry source model did not change. The source
 snapshot above records the reviewed version; it does **not** claim Windows INT4 or
 all v0.0.4 Linux features are available.
+
+The two new product controls live in ConfigKeys.h, Config, the existing output-menu
+group and OptiScaler.ini. The exact current controls/info ABI is checked before
+preparing a session; host and runtime must be updated together. The frame lease owns
+the selected runtime, including either output-buffer layout, until completion and
+invalidation. Alpha is already restored by transfer; U8 output retains the separate
+alpha/rounding pass.
+
+Validation includes real shader comparisons for both composition modes, HDR/SDR,
+no-edit invariants, edges and in-place/separate byte equality. The composition GPU
+test also compares consecutive temporal frames across one/three passes,
+preprocessing, FP16/sRGB and replays a retained old recording after buffer switching.
+Profile and composition entrypoints are documented in docs/mochizuki.md.
 
 ## Retained local adaptations
 

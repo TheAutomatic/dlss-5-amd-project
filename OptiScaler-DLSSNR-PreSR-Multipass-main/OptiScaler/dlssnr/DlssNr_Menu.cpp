@@ -152,7 +152,8 @@ static bool MochizukiOptionOnPage(std::string_view key, PipelineUi::Section page
         key == CfgKey::MochizukiPreprocessContrast || key == CfgKey::MochizukiPreprocessSaturation)
         return page == Section::Input;
     if (key == CfgKey::MochizukiDetailStrength || key == CfgKey::MochizukiColourStrength ||
-        key == CfgKey::MochizukiMaxRatio || key == CfgKey::MochizukiApplyModel)
+        key == CfgKey::MochizukiMaxRatio || key == CfgKey::MochizukiApplyModel ||
+        key == CfgKey::MochizukiEnlargeMode || key == CfgKey::MochizukiCompactTransfer)
         return page == Section::Output;
     return page == Section::Model;
 }
@@ -174,6 +175,8 @@ static bool MochizukiChoice(const char* label, std::string_view key, int* value,
 {
     if (key == CfgKey::MochizukiStyle || key == CfgKey::MochizukiPass2Style || key == CfgKey::MochizukiPass3Style)
         return MenuUi::Combo(label, value, "Standard\0Natural\0Cinematic\0");
+    if (key == CfgKey::MochizukiEnlargeMode)
+        return MenuUi::Combo(label, value, "Matched residual\0Edge-aware\0");
     if (key == CfgKey::MochizukiPreprocessExposure)
         return MenuUi::Combo(label, value, "Off\0Auto\0Fixed\0");
     if (key == CfgKey::MochizukiPreprocessCurve)
@@ -313,7 +316,11 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page, const 
             if (g == 4) MenuUi::TextWrapped(page == PipelineUi::Section::Input ?
                 "DRS buckets reduce rebuilds when the render size changes. White point controls linear-input brightness." :
                 "Automatic prebuild capacity grows as needed and is retained on pass reduction. Capacity is not the active pass count.");
-            if (g == 7) MenuUi::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
+            if (g == 7) {
+                MenuUi::TextWrapped("Detail and colour strength adjust the final correction. Apply model off still runs the network; disable NR to save GPU work.");
+                HelpMarker("Model enlargement applies below 100% model scale. Matched residual is the default; edge-aware costs more GPU time."
+                           "\nReuse output buffer saves one full-resolution float image on supported formats. Switching rebuilds the network; turn off to use separate buffers.");
+            }
             if (g == 5 || g == 6) MenuUi::TextWrapped("Without override, later passes inherit pass 1 with Local tone set to zero.");
             if (MenuUi::Button("Reset this group")) ResetMochizuki(config, g, page);
             ImGui::TreePop();
@@ -323,7 +330,12 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page, const 
     if (MenuUi::TreeNode("Diagnostics"))
     {
         MenuUi::TextWrapped("%s", status.c_str());
-        MenuUi::TextWrapped("Vulkan network timing uses completed timestamp queries. Median and p95 cover up to 120 samples; copies and whole-frame latency are separate.");
+        const auto timing = AmdBridge::MochizukiTimingDetails();
+        if (timing.gpu_samples && GetTickCount64() - timing.gpu_tick < 2000) {
+            MenuUi::TextWrapped("Vulkan core GPU: %.3f ms | Network: %.3f ms | Other: %.3f ms",
+                timing.gpu_ms_mean, timing.gpu_ms_network_mean, timing.gpu_ms_other_mean);
+        }
+        MenuUi::TextWrapped("Completed-sample means. Network includes fused temporal shaders; Other covers core input, history copies and composition. Bridge copies, shared effects and whole-frame latency are excluded.");
         bool logging = config->NrTimingLog.value_or_default();
         if (MenuUi::Checkbox("Write timing summary to log", &logging)) config->NrTimingLog = logging;
         MenuUi::TextWrapped("%s", AmdBridge::EffectsStatus().c_str());
@@ -492,9 +504,11 @@ void RenderMenu(Config* config, float menuResScale)
             if (State::Instance().currentFeature && State::Instance().currentFeature->GetUpscalerType() == Upscaler::DLSSD)
                 MenuUi::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
             if ((isLmxxf && config->NrTimingEnabled.value_or_default()) || kind == Backend::Kind::Mochizuki) {
-                MenuUi::TextWrapped("Network GPU: %s",
+                MenuUi::TextWrapped(kind == Backend::Kind::Mochizuki ? "NR GPU: %s" : "Network GPU: %s",
                     TimingValueText(AmdBridge::Timing(), NR_GPU_NETWORK, GetTickCount64()).c_str());
-                HelpMarker("Network execution only, not whole NR or frame latency. Detailed timing is in Diagnostics.");
+                HelpMarker(kind == Backend::Kind::Mochizuki ?
+                    "Mochizuki Vulkan core total, including its input and composition. Excludes bridge copies and shared effects. Timing breakdown is in Diagnostics." :
+                    "Network execution only, not whole NR or frame latency. Detailed timing is in Diagnostics.");
             }
             MenuUi::SeparatorText(PipelineUi::SectionName(page));
             if (page == PipelineUi::Section::Output) RenderSharedOutputEffects(config);

@@ -8,6 +8,8 @@ MZ_B(MochizukiAutomaticMask, true, 0, 1, 0, "Automatic character mask", controls
 MZ_F(MochizukiDetailStrength, 1.f, 0.f, 2.f, 7, "Detail strength", frame.transfer_strength)
 MZ_F(MochizukiColourStrength, 1.f, 0.f, 4.f, 7, "Colour strength", frame.color_strength)
 MZ_F(MochizukiMaxRatio, 2.f, 1.f, 8.f, 7, "Highlight guard", controls.max_ratio)
+MZ_U(MochizukiEnlargeMode, 0u, 0, 1, 7, "Model enlargement", controls.enlarge_mode)
+MZ_B(MochizukiCompactTransfer, true, 0, 1, 7, "Reuse output buffer", controls.compact_transfer)
 MZ_F(MochizukiWhitePoint, 1.f, .01f, 100.f, 4, "White point", controls.white_point)
 MZ_F(MochizukiModelScale, 1.f, .25f, 1.f, 1, "Model scale", frame.model_scale)
 MZ_U(MochizukiPasses, 1u, 1, 3, 1, "Passes", frame.passes)

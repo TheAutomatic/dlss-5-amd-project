@@ -338,6 +338,7 @@ struct Runtime::Impl {
     // pass writes the full-resolution answer; both are absent otherwise.
     uint32_t mw{}, mh{};
     bool scaled{};
+    bool compact_transfer{};
     bool native_compose{};   // RuntimeConfig::native_compose
     // The post block restores the frame's alpha (and the 8-bit rounding) in its
     // own store, so the alpha pass is skipped: native compose, one pass, no
@@ -373,17 +374,29 @@ struct Runtime::Impl {
     uint64_t timings_recorded{};
     float gpu_ms{}, gpu_ms_avg{};
     uint64_t gpu_timing_serial{};
+    uint32_t timing_stride{2};
+    uint32_t slot_passes[kTimingSlots]{};
+    uint64_t timestamp_mask{~uint64_t(0)};
+    float network_ms{}, other_ms{};
     // Read the oldest slot in the ring, if its recording has finished. Called
     // once per recording, from the thread that records.
     void read_timing() {
         if (!timing_ok || timings_recorded <= kTimingSlots) return;
         const uint32_t oldest = timing_slot;   // the next to be overwritten
-        uint64_t stamps[2] = {};
-        if (vkGetQueryPoolResults(session.ctx.device, timing, oldest * 2, 2, sizeof stamps, stamps,
-                                  sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
-            return;   // VK_NOT_READY: still running, ask again next frame
-        if (stamps[1] <= stamps[0]) return;
-        gpu_ms = float(double(stamps[1] - stamps[0]) * timestamp_ns / 1e6);
+        uint64_t stamps[2 + 2 * 16] = {};
+        const uint32_t count = 2 + 2 * slot_passes[oldest];
+        if (count > std::size(stamps) || count > timing_stride) return;
+        if (vkGetQueryPoolResults(session.ctx.device, timing, oldest * timing_stride, count,
+                                 count * sizeof(uint64_t), stamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
+            return; // never wait for telemetry
+        const uint64_t total = (stamps[1] - stamps[0]) & timestamp_mask;
+        uint64_t network = 0;
+        for (uint32_t p = 0; p < slot_passes[oldest]; ++p)
+            network += (stamps[3 + 2 * p] - stamps[2 + 2 * p]) & timestamp_mask;
+        if (!total || !slot_passes[oldest] || network > total) return;
+        gpu_ms = float(double(total) * timestamp_ns / 1e6);
+        network_ms = float(double(network) * timestamp_ns / 1e6);
+        other_ms = float(double(total - network) * timestamp_ns / 1e6);
         ++gpu_timing_serial;
         // A plain exponential average. Ten frames is enough to stop the last
         // digit dancing and short enough that a resolution change shows up
@@ -849,16 +862,19 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
     s.ctx.queue_lock = host.queue_lock; s.ctx.queue_unlock = host.queue_unlock;
     s.ctx.buffer_device_address = host.buffer_device_address;
     s.ctx.require_matrix_config();
-    // Where the pass's own cost is measured. Two queries per ring slot. A queue
+    // Core total plus one pair per network pass, in the same completed sample. A queue
     // family is allowed to report no timestamp bits - then there is no pool, and
     // every accessor answers zero rather than a number made up from a clock.
     if (props[host.queue_family].timestampValidBits && s.ctx.timestamp_period > 0.0f) {
         VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        qi.queryCount = Impl::kTimingSlots * 2;
+        impl_->timing_stride = 2 + 2 * config.max_passes;
+        qi.queryCount = Impl::kTimingSlots * impl_->timing_stride;
         if (vkCreateQueryPool(s.ctx.device, &qi, nullptr, &impl_->timing) == VK_SUCCESS) {
             impl_->timing_ok = true;
             impl_->timestamp_ns = s.ctx.timestamp_period;
+            const uint32_t bits = props[host.queue_family].timestampValidBits;
+            impl_->timestamp_mask = bits < 64 ? (uint64_t(1) << bits) - 1 : ~uint64_t(0);
         }
     }
     // Values share arena memory by lifetime (nr_graph.cpp, `reuse`): same
@@ -944,8 +960,11 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
         if (mask_config.width) throw std::invalid_argument("the control mask path does not support model_scale below 1");
         impl_->keep_full = s.ctx.image(config.width, config.height, VK_FORMAT_R32G32B32A32_SFLOAT, true);
         s.ctx.transition(impl_->keep_full, VK_IMAGE_LAYOUT_GENERAL);
-        impl_->full_out = s.ctx.image(config.width, config.height, VK_FORMAT_R32G32B32A32_SFLOAT, false);
-        s.ctx.transition(impl_->full_out, VK_IMAGE_LAYOUT_GENERAL);
+        impl_->compact_transfer = config.compact_transfer && !impl_->round_u8 && !config.native_compose;
+        if (!impl_->compact_transfer) {
+            impl_->full_out = s.ctx.image(config.width, config.height, VK_FORMAT_R32G32B32A32_SFLOAT, false);
+            s.ctx.transition(impl_->full_out, VK_IMAGE_LAYOUT_GENERAL);
+        }
         // The downscale is a blit from the RGBA32F keep; linear filtering on a
         // 32-bit float format is a feature bit, not a given.
         VkFormatProperties fp{}; vkGetPhysicalDeviceFormatProperties(host.physical, VK_FORMAT_R32G32B32A32_SFLOAT, &fp);
@@ -979,10 +998,16 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
     // The alpha pass restores the frame's own alpha onto the answer: the answer
     // is full_out when scaled, and the frame's alpha lives wherever the frame
     // was kept.
-    nrvk::Context::Image* answer = impl_->scaled ? &impl_->full_out : &s.surf0;
+    // Non-owning storage alias: each transfer invocation reads keep at exactly
+    // its output pixel before storing. Neighbour reads use model-sized images.
+    nrvk::Context::Image compact_answer = impl_->keep_full;
+    compact_answer.sampler = VK_NULL_HANDLE;
+    nrvk::Context::Image* answer = impl_->compact_transfer ? &compact_answer
+                                : impl_->scaled ? &impl_->full_out : &s.surf0;
     nrvk::Context::Image* frame_alpha = impl_->scaled ? &impl_->keep_full
                                         : (config.max_passes > 1 ? &impl_->shown_keep : &s.tex_in);
-    impl_->alpha.create(s.ctx, (adapters / "runtime_alpha.spv").string(), {}, 12, {answer, frame_alpha});
+    if (!impl_->compact_transfer)
+        impl_->alpha.create(s.ctx, (adapters / "runtime_alpha.spv").string(), {}, 12, {answer, frame_alpha});
     if (config.linear_input) {
         impl_->linear = true;
         impl_->white_point = config.white_point;
@@ -1010,7 +1035,7 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
         nrvk::Context::Image* shown = config.max_passes > 1 ? &impl_->shown_keep : &s.tex_in;
         nrvk::Context::Image* keep = impl_->scaled ? &impl_->keep_full
                                      : impl_->linear ? &impl_->keep : shown;
-        impl_->transfer_pass.create(s.ctx, (adapters / "runtime_transfer.spv").string(), {}, 36,
+        impl_->transfer_pass.create(s.ctx, (adapters / "runtime_transfer.spv").string(), {}, 40,
                                {&s.surf0, shown, keep, answer});
     }
     if (config.preprocess && !mask_config.width) {
@@ -1038,8 +1063,7 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
             // tex_in was also the frame as handed over, as `keep`.
             nrvk::Context::Image* keep = impl_->scaled ? &impl_->keep_full
                                          : impl_->linear ? &impl_->keep : &impl_->prep_keep;
-            nrvk::Context::Image* answer = impl_->scaled ? &impl_->full_out : &s.surf0;
-            impl_->transfer_prep.create(s.ctx, (adapters / "runtime_transfer.spv").string(), {}, 36,
+            impl_->transfer_prep.create(s.ctx, (adapters / "runtime_transfer.spv").string(), {}, 40,
                                         {&s.surf0, &impl_->prep_keep, keep, answer});
         }
     }
@@ -1372,8 +1396,8 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
     // Timed from here: a disabled pass records nothing and is not a cost.
     const uint32_t timing_slot = impl_->timing_slot;
     if (impl_->timing_ok) {
-        vkCmdResetQueryPool(cmd, impl_->timing, timing_slot * 2, 2);
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, impl_->timing, timing_slot * 2);
+        vkCmdResetQueryPool(cmd, impl_->timing, timing_slot * impl_->timing_stride, impl_->timing_stride);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, impl_->timing, timing_slot * impl_->timing_stride);
     }
     auto& s = impl_->session;
     Controls effective=c;
@@ -1459,7 +1483,7 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
     if (impl_->scaled) {
         colour_dst = impl_->keep_full.handle;
         barrier(cmd, impl_->keep_full.handle, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
     }
     if (ds) {
@@ -1505,7 +1529,7 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
                        s.tex_in.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &down, impl_->downscale_filter);
         barrier(cmd, impl_->keep_full.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
     }
     if (impl_->linear) {
         // Linear light: make the proxy in place and keep the original. The
@@ -1858,6 +1882,9 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
             if (temporal) copy_general(impl_->history_store[pass], t.history);
         }
+        const uint32_t network_query = timing_slot * impl_->timing_stride + 2 + 2 * pass;
+        if (impl_->timing_ok)
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, impl_->timing, network_query);
         for (size_t i = 0; i < s.steps.size(); ++i) {
             const auto& step = s.steps[i];
             const nrvk::Kernel* use = step.k;
@@ -1899,6 +1926,8 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
             compute_barrier(cmd, s.runner.exec_barrier && !last,
                             s.runner.inv_barrier && !last);
         }
+        if (impl_->timing_ok)
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, impl_->timing, network_query + 1);
         if (temporal && !t.pingpong) {
             // History is a copy of what the MODEL wrote - the temporal post variant
             // puts that on the second surface, before the application strength -
@@ -1974,17 +2003,20 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
             // The model's answer onto the frame, as OptiScaler DLSS-NR's
             // resolve; see the shader. At the frame extent; the model-sized
             // answer is sampled.
-            struct { uint32_t w, h, model_w, model_h, passthrough; float detail, colour, max_ratio, white; }
+            struct { uint32_t w, h, model_w, model_h, passthrough; float detail, colour, max_ratio, white; uint32_t mode; }
                 push{frame.width, frame.height, nw, nh, impl_->linear ? 0u : 1u,
-                     c.detail_strength, c.colour_strength, c.max_ratio, impl_->white_point};
+                     c.detail_strength, c.colour_strength, c.max_ratio, impl_->white_point, c.enlarge_mode};
             const nrvk::Kernel& transfer =
                 prep_on && impl_->transfer_prep.device ? impl_->transfer_prep : impl_->transfer_pass;
             dispatch(cmd, transfer, (frame.width + 7) / 8, (frame.height + 7) / 8, 1, &push, sizeof push);
             compute_barrier(cmd);
         }
-        const VkImage out = impl_->scaled ? impl_->full_out.handle : s.surf0.handle;
+        const VkImage out = impl_->compact_transfer ? impl_->keep_full.handle
+                          : impl_->scaled ? impl_->full_out.handle : s.surf0.handle;
         const uint32_t extent[] = {frame.width, frame.height, uint32_t(impl_->round_u8)};
-        if (!impl_->post_alpha || mask)
+        // Transfer already writes the original alpha; U8 rounding still uses
+        // the separate-image path and its alpha pass.
+        if (!impl_->compact_transfer && (!impl_->post_alpha || mask))
             dispatch(cmd, impl_->alpha, (frame.width + 7) / 8, (frame.height + 7) / 8, 1, extent, sizeof extent);
         barrier(cmd, out, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
@@ -2039,7 +2071,8 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
                 engine->motion.after_stage, engine->motion.after_access);
     if (impl_->timing_ok) {
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, impl_->timing,
-                            timing_slot * 2 + 1);
+                            timing_slot * impl_->timing_stride + 1);
+        impl_->slot_passes[timing_slot] = passes;
         ++impl_->timings_recorded;
         impl_->timing_slot = (timing_slot + 1) % Impl::kTimingSlots;
         // Collect whatever has finished. Never waits; the caller is a render
@@ -2051,6 +2084,8 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
 
 float Runtime::last_gpu_ms() const { return impl_->gpu_ms; }
 uint64_t Runtime::gpu_timing_serial() const { return impl_->gpu_timing_serial; }
+float Runtime::last_network_ms() const { return impl_->network_ms; }
+float Runtime::last_other_ms() const { return impl_->other_ms; }
 float Runtime::average_gpu_ms() const { return impl_->gpu_ms_avg; }
 std::pair<float, float> Runtime::preprocess_meter() const {
     const float* s = static_cast<const float*>(impl_->prep_state.mapped);

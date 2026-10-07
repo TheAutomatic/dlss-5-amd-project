@@ -130,7 +130,7 @@ int wmain(int argc,wchar_t**argv) try {
     MochizukiNrBuildProgress invalidProgress {sizeof invalidProgress};
     Require(getProgress(nullptr,&invalidProgress)==LMXXF_NR_INVALID_ARGUMENT,"progress accepted null session");
     Require(defaults&&set&&prepare&&getInfo,"missing controls/frame exports");Rc(defaults(&controls));
-    Require(controls.intensity==1&&controls.preprocess==0,"control defaults");
+    Require(controls.intensity==1&&controls.preprocess==0&&controls.compact_transfer==1&&controls.enlarge_mode==0,"control defaults");
     MochizukiNrControls oldControls {sizeof controls-4};
     Require(defaults(&oldControls)==LMXXF_NR_INVALID_ARGUMENT,"partial controls accepted");
     if(argc==2) {puts("MOCHIZUKI_ABI_OK");FreeLibrary(dll);return 0;}
@@ -149,7 +149,20 @@ int wmain(int argc,wchar_t**argv) try {
     Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
     MochizukiNrBuildProgress wrongProgress {sizeof(MochizukiNrBuildProgress)-4};
     Require(getProgress(context,&wrongProgress)==LMXXF_NR_INVALID_ARGUMENT,"partial progress struct accepted");
-    const bool startup=argc>3 && std::wstring(argv[3])==L"--startup";
+    MochizukiNrInfo oldInfo {sizeof(MochizukiNrInfo)-16};
+    Require(getInfo(context,&oldInfo)==LMXXF_NR_INVALID_ARGUMENT,"old info contract accepted");
+    const bool profile=argc>3 && std::wstring(argv[3])==L"--profile";
+    const bool startup=profile || (argc>3 && std::wstring(argv[3])==L"--startup");
+    const float profileScale=profile && argc>7 ? float(_wtof(argv[7])) : 1.f;
+    const uint32_t profilePasses=profile && argc>8 ? uint32_t(_wtoi(argv[8])) : 1u;
+    Require(std::isfinite(profileScale) && profileScale>=.25f && profileScale<=1.f &&
+            profilePasses>=1 && profilePasses<=3,"invalid profile scale/passes");
+    if(profile) {
+        controls.preprocess=argc>9 && _wtoi(argv[9])!=0;
+        controls.compact_transfer=argc>10 ? _wtoi(argv[10])!=0 : 1;
+        controls.enlarge_mode=argc>11 ? uint32_t(_wtoi(argv[11])) : 0;
+        Rc(set(context,&controls));
+    }
     UINT startupWidth=1920,startupHeight=1080;
     if(startup && argc>6) {
         startupWidth=UINT(_wtoi(argv[5]));startupHeight=UINT(_wtoi(argv[6]));
@@ -159,7 +172,7 @@ int wmain(int argc,wchar_t**argv) try {
     List upload(device.Get());frame.Upload(upload.cmd.Get());Hr(upload.cmd->Close());Submit(q[0].Get(),upload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
     auto make=[&](Frame& f,UINT validWidth=0) {
         MochizukiNrFrameInfo info {};info.struct_size=sizeof info;info.color=f.color.Get();info.color_width=validWidth?validWidth:f.width;info.color_height=f.height;
-        info.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;info.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;info.transfer_strength=info.color_strength=info.model_scale=1;info.passes=1;
+        info.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;info.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;info.transfer_strength=info.color_strength=1;info.model_scale=profileScale;info.passes=profilePasses;
         LmxxfNrJob job {sizeof job};const auto deadline=GetTickCount64()+300000;
         std::string lastStage;uint32_t lastCompleted=UINT32_MAX;
         for(;;) {
@@ -175,6 +188,127 @@ int wmain(int argc,wchar_t**argv) try {
         }
         return job;
     };
+    if(argc>3 && std::wstring(argv[3])==L"--composition") {
+        Frame motion(device.Get(),256,256);void* data=nullptr;
+        Hr(motion.upload->Map(0,nullptr,&data));
+        std::memset(data,0,size_t(motion.footprint.Footprint.RowPitch)*motion.height);
+        motion.upload->Unmap(0,nullptr);
+        List up(device.Get());motion.Upload(up.cmd.Get());Hr(up.cmd->Close());
+        Submit(q[0].Get(),up);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+        struct Recording {
+            LmxxfNrJob job {sizeof job};List in,out;
+            Recording(ID3D12Device* d):in(d),out(d) {}
+        };
+        uint64_t id=0;
+        for(auto format:{DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R8G8B8A8_UNORM_SRGB}) {
+            Frame f(device.Get(),256,256,format);List uploadFrame(device.Get());
+            f.Upload(uploadFrame.cmd.Get());Hr(uploadFrame.cmd->Close());Submit(q[0].Get(),uploadFrame);
+            Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+            const size_t inputRow=f.width*(format==DXGI_FORMAT_R16G16B16A16_FLOAT?8:4);
+            std::vector<unsigned char> original(inputRow*f.height);
+            void* source=nullptr;Hr(f.upload->Map(0,nullptr,&source));
+            for(UINT y=0;y<f.height;++y)
+                memcpy(original.data()+y*inputRow,static_cast<char*>(source)+y*f.footprint.Footprint.RowPitch,inputRow);
+            f.upload->Unmap(0,nullptr);
+            for(uint32_t passes:{1u,3u}) for(uint32_t mode:{0u,1u}) {
+                Rc(api.Destroy(context));context=nullptr;
+                Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));
+                std::vector<std::vector<unsigned char>> reference;
+                std::vector<std::unique_ptr<Recording>> held;
+                uint32_t lastConsumed=0;
+                auto execute=[&](Recording& r, unsigned queueIndex=0) {
+                    // Queue switches intentionally reset runtime history.
+                    // Keep the temporal comparison on one queue; switch for replay.
+                    auto* queue=q[queueIndex].Get();
+                    Rc(api.BeginRecordingExecution(context,r.job.handle,queue));Submit(queue,r.in);
+                    Rc(api.EnqueueHip(context,r.job.handle,queue));Submit(queue,r.out);
+                    auto hr=queue->Signal(tail.Get(),++value);
+                    Rc(api.EndRecordingExecution(context,r.job.handle,queue,3,tail.Get(),value,hr));Wait(tail.Get(),value);
+                    void* ptr=nullptr;Hr(f.readback->Map(0,nullptr,&ptr));
+                    const size_t row=f.width*(format==DXGI_FORMAT_R16G16B16A16_FLOAT?8:4);
+                    std::vector<unsigned char> result(row*f.height);
+                    for(UINT y=0;y<f.height;++y) memcpy(result.data()+y*row,static_cast<char*>(ptr)+y*f.footprint.Footprint.RowPitch,row);
+                    f.readback->Unmap(0,nullptr);return result;
+                };
+                for(uint32_t compact:{0u,1u}) {
+                    lastConsumed=0;
+                    controls.compact_transfer=compact;controls.enlarge_mode=mode;
+                    controls.apply_model=1;
+                    controls.preprocess=passes==3;controls.preprocess_exposure=2;
+                    Rc(set(context,&controls));Rc(api.ResetHistory(context));
+                    // Warm lazy driver work before comparing consecutive history:
+                    // the runtime intentionally resets after a >250 ms gap.
+                    for(unsigned n=0;n<7;++n) {
+                        if(n==3) Rc(api.ResetHistory(context));
+                        if(n==6) { controls.apply_model=0;Rc(set(context,&controls)); }
+                        auto r=std::make_unique<Recording>(device.Get());
+                        MochizukiNrFrameInfo fi{};fi.struct_size=sizeof fi;fi.frame_id=++id;
+                        fi.color=f.color.Get();fi.color_width=f.width;fi.color_height=f.height;
+                        fi.motion=motion.color.Get();fi.motion_width=motion.width;fi.motion_height=motion.height;
+                        fi.color_state=fi.motion_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                        fi.motion_scale_x=fi.motion_scale_y=1;
+                        fi.flags=LMXXF_NR_FRAME_FLAG_STRENGTH|MOCHIZUKI_NR_FRAME_FLAG_TEMPORAL;
+                        fi.model_scale=.5f;fi.passes=passes;fi.transfer_strength=fi.color_strength=1;
+                        auto deadline=GetTickCount64()+300000;
+                        for(;;) {
+                            int rc=prepare(context,&fi,&r->job);
+                            if(!rc) {
+                                MochizukiNrInfo ready{sizeof ready};Rc(getInfo(context,&ready));
+                                if(!ready.building) break;
+                                // The host may keep serving the old layout during
+                                // rebuild. Compare only after the new one is installed.
+                                Rc(api.InvalidateRecording(context,r->job.handle));
+                                Rc(api.CollectRecording(context,r->job.handle));
+                                rc=LMXXF_NR_UNAVAILABLE;
+                            }
+                            if(rc!=LMXXF_NR_UNAVAILABLE || GetTickCount64()>deadline)Rc(rc);
+                            Sleep(10);
+                        }
+                        Rc(api.RecordInputs(context,r->job.handle,r->in.cmd.Get()));
+                        Rc(api.RecordOutputs(context,r->job.handle,r->out.cmd.Get()));
+                        f.Read(r->out.cmd.Get(),static_cast<ID3D12Resource*>(r->job.private_output));
+                        Hr(r->in.cmd->Close());Hr(r->out.cmd->Close());
+                        auto bytes=execute(*r);
+                        MochizukiNrInfo sample{sizeof sample};Rc(getInfo(context,&sample));
+                        Require(sample.frames<64,"composition history observation exceeded its window");
+                        // History statistics reset on network replacement; the
+                        // session's overall frame counter does not.
+                        const auto consumed=uint32_t(std::lround(sample.history_consumed_pct*(n+1)/100.0));
+                        if(n>=3 && consumed!=lastConsumed+(n>3?1u:0u)) {
+                            fprintf(stderr,"HISTORY_MISMATCH format=%u passes=%u mode=%u compact=%u sample=%u frames=%llu pct=%u consumed=%u previous=%u\n",
+                                    unsigned(format),passes,mode,compact,n,static_cast<unsigned long long>(sample.frames),
+                                    sample.history_consumed_pct,consumed,lastConsumed);
+                            throw std::runtime_error("comparison did not use the intended temporal history");
+                        }
+                        lastConsumed=consumed;
+                        if(n==6) {
+                            Require(bytes==original,"Apply model off changed the original image");
+                            held.push_back(std::move(r));continue;
+                        }
+                        if(n<3) { held.push_back(std::move(r)); continue; }
+                        if(!compact) reference.push_back(bytes);
+                        else if(bytes!=reference[n-3]) {
+                            size_t changed=0;for(size_t k=0;k<bytes.size();++k) changed+=bytes[k]!=reference[n-3][k];
+                            MochizukiNrInfo state{sizeof state};Rc(getInfo(context,&state));
+                            fprintf(stderr,"MISMATCH format=%u passes=%u mode=%u frame=%u changed_bytes=%zu/%zu history_pct=%u\n",
+                                    unsigned(format),passes,mode,n,changed,bytes.size(),state.history_consumed_pct);
+                            throw std::runtime_error("compact/separate temporal output mismatch");
+                        }
+                        held.push_back(std::move(r));
+                    }
+                }
+                Rc(api.ResetHistory(context));
+                Require(execute(*held[3],1)==reference.front(),"retained old recording changed after buffer-mode switch");
+                for(auto& r:held) {
+                    Rc(api.InvalidateRecording(context,r->job.handle));Rc(api.CollectRecording(context,r->job.handle));
+                }
+                printf("COMPOSITION_OK format=%u passes=%u edge=%u preprocess=%u temporal_frames=3 old_recording=passed\n",
+                       unsigned(format),passes,mode,controls.preprocess);
+            }
+        }
+        Rc(api.Destroy(context));FreeLibrary(dll);
+        puts("MOCHIZUKI_COMPOSITION_OK");return 0;
+    }
     if(argc>3 && std::wstring(argv[3])==L"--pass-switch") {
         const std::wstring mode=argc>4?argv[4]:L"normal";
         Require(mode==L"normal" || mode==L"budget" || mode==L"oom" || mode==L"frame-budget","unknown pass-switch mode");
@@ -312,10 +446,26 @@ int wmain(int argc,wchar_t**argv) try {
     auto neverSubmitted=make(frame);Rc(api.InvalidateRecording(context,neverSubmitted.handle));Rc(api.CollectRecording(context,neverSubmitted.handle));
     Require(api.CollectRecording(context,neverSubmitted.handle)==LMXXF_NR_INVALID_ARGUMENT,"stale handle accepted");
     Require(api.Destroy(context)==LMXXF_NR_UNAVAILABLE,"live recording destroyed");
-    for(int i=0;i<8;i++) {
+    double totalProfile=0,networkProfile=0,otherProfile=0;uint32_t profileSamples=0;uint64_t profileSerial=0;
+    for(int i=0;i<(profile?80:8);i++) {
         auto* queue=q[i%2].Get();Rc(api.BeginRecordingExecution(context,job.handle,queue));Submit(queue,inputs);
         Rc(api.EnqueueHip(context,job.handle,queue));Submit(queue,outputs);HRESULT hr=queue->Signal(tail.Get(),++value);
         Rc(api.EndRecordingExecution(context,job.handle,queue,3,tail.Get(),value,hr));Wait(tail.Get(),value);
+        if(profile && i>=16) {
+            MochizukiNrInfo t {sizeof t};Rc(getInfo(context,&t));
+            if(t.gpu_samples!=profileSerial) {
+                Require(t.gpu_ms_network_last>0 && t.gpu_ms_other_last>=0 &&
+                    std::abs(t.gpu_ms_last-t.gpu_ms_network_last-t.gpu_ms_other_last)<1e-4f,"invalid split timing");
+                totalProfile+=t.gpu_ms_last;networkProfile+=t.gpu_ms_network_last;otherProfile+=t.gpu_ms_other_last;
+                ++profileSamples;profileSerial=t.gpu_samples;
+            }
+        }
+    }
+    if(profile) {
+        Require(profileSamples>=32,"not enough completed profile samples");
+        printf("PROFILE %ux%u scale=%.2f passes=%u preprocess=%u compact=%u enlarge=%u samples=%u core=%.4f network=%.4f other=%.4f ms\n",
+            frame.width,frame.height,profileScale,profilePasses,controls.preprocess,controls.compact_transfer,controls.enlarge_mode,profileSamples,
+            totalProfile/profileSamples,networkProfile/profileSamples,otherProfile/profileSamples);
     }
     frame.Check();
     if(argc>3 && std::wstring(argv[3])==L"--destroy-tail") {
@@ -335,6 +485,11 @@ int wmain(int argc,wchar_t**argv) try {
     }
     MochizukiNrInfo timing {sizeof timing};Rc(getInfo(context,&timing));
     Require(timing.gpu_samples>0 && std::isfinite(timing.gpu_ms_last) && timing.gpu_ms_last>0,"missing completed network timing");
+    Require(timing.gpu_ms_network_last>0 && timing.gpu_ms_other_last>=0 &&
+            std::abs(timing.gpu_ms_last-timing.gpu_ms_network_last-timing.gpu_ms_other_last)<1e-4f,
+            "split last timing is inconsistent");
+    Require(std::abs(timing.gpu_ms_mean-timing.gpu_ms_network_mean-timing.gpu_ms_other_mean)<1e-4f,
+            "split mean timing is inconsistent");
     const auto samples=timing.gpu_samples;Rc(getInfo(context,&timing));
     Require(timing.gpu_samples==samples,"status polling duplicated GPU samples");
     printf("TIMING samples=%llu last=%.3f ms repeated_poll=stable\n",static_cast<unsigned long long>(samples),timing.gpu_ms_last);
