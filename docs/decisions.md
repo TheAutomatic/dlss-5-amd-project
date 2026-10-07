@@ -595,3 +595,13 @@ lmxxf 与 Mochizuki 共用的早期接管补入 UnityPlayer.dll 调用方过滤�
 INI 键名不变，保存后重启。只接管 DIRECT，先确认提交钩子就绪再开放早期代理；
 保留正常交换链后的接管、内部创建抑制、录制与 Reset 生命周期。设备回归和宿主
 构建已通过，游戏验证待进行；此修复不代表消除所有 Unity 闪烁或模型历史问题。
+
+## 2026-10-07：NR 在外层命令列表包装下统一使用自身逻辑代理
+
+采用 MatheusFerreiraS/neural-amd-opti 的 [894c2dd0](https://github.com/MatheusFerreiraS/neural-amd-opti/commit/894c2dd0d640b0dd0146d143801e881416ab7cd9) 中的命令列表身份修复，适配到公共 `AmdBridge::Evaluate`，不带入该提交的旧版本推荐和安装器改动。
+
+ReShade 包在本项目代理外时，Evaluate 收到外层列表，队列提交收到本项目代理。入口通过 `ILogicalCommandList` 查询本项目的 `ID3D12GraphicsCommandList`，在获取设备、确认队列及后端录制之前统一身份。返回值用 `ComPtr` 持有至 Evaluate 结束，不沿用上游立即 Release 后借用指针的写法。保留代理的分段能力，不能替换成 producer/continuation 原生列表。不支持该私有接口的列表按原路径处理；无配置、ABI、Unity 接管或 Vulkan 调度变更。
+
+ReShade 源码核对点为 `7bf9de8b33bcc76c3177007e65d73c72dd0f34c0` 的 `source/d3d12/d3d12_command_list.cpp::QueryInterface` 和 `d3d12_command_queue.cpp::ExecuteCommandLists`。作者的 [77889203 交接](https://github.com/MatheusFerreiraS/neural-amd-opti/commit/778892032382eaa6d09007f886db75480649f4c6) 记录了 Conan Exiles Enhanced / RX 9070 用户确认 NR 恢复运行；没有将启动崩溃或 Device Removed 归因于这一缺陷。
+
+验证：`lmxxf_wrapped_command_list` 已接入 lmxxf 的 WARP 层，覆盖无包装/一层/两层 COM 转发、查询拒绝、队列观察、分段前后字节一致性及引用回收；现有 recording lifecycle、same-frame boundary 专项与宿主编译通过。包装 fixture 只模拟 COM 查询边界，不能替代实际 ReShade、滤镜/add-on、加载顺序及游戏启动/退出验收；不据此宣称所有 ReShade 共存问题均已解决。

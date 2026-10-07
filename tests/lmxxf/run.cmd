@@ -55,6 +55,8 @@ copy /Y "%LMXXF_TEST_RUNTIME%" "%OUT%\LmxxfNrRuntime.dll" >nul || goto fail
 goto pass
 
 :warp
+%CXX% /I"%INC%" tests\lmxxf\lmxxf_wrapped_command_list.cpp /Fe"%OUT%\lmxxf_wrapped_command_list.exe" /Fo"%OUT%\lmxxf_wrapped_command_list.obj" /link %D3D% "%DETOURS%" || goto fail
+"%OUT%\lmxxf_wrapped_command_list.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_temporal_control.cpp /Fe"%OUT%\lmxxf_temporal_control.exe" /Fo"%OUT%\lmxxf_temporal_control.obj" /link %D3D% d3dcompiler.lib || goto fail
 "%OUT%\lmxxf_temporal_control.exe" || goto fail
 %CXX% tests\lmxxf\lmxxf_native_temporal.cpp /Fe"%OUT%\lmxxf_native_temporal.exe" /Fo"%OUT%\lmxxf_native_temporal.obj" /link %D3D% d3dcompiler.lib || goto fail

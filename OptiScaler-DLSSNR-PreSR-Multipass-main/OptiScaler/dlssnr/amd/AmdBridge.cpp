@@ -501,6 +501,13 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
             Message("AMD NR: NrBackend=lmxxf is not wired; using daniel");
         }
     }
+    // Match the logical list that an outer wrapper (e.g. ReShade) submits to our
+    // queue hook. Resolve before GetDevice, queue discovery and backend Record,
+    // so all three use the same proxy identity. Retain it across early returns.
+    // Based on MatheusFerreiraS/neural-amd-opti 894c2dd0.
+    const auto logicalCmd = DlssNr::Submission::QueryLogicalCommandList(cmd);
+    if (logicalCmd)
+        cmd = logicalCmd.Get();
     ID3D12Device* device = nullptr;
     if (!cmd || !params || FAILED(cmd->GetDevice(IID_PPV_ARGS(&device))))
         return true;

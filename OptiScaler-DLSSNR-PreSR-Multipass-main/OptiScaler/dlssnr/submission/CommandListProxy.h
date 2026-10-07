@@ -5,6 +5,7 @@
 #include "QueryStateBook.h"
 #include <atomic>
 #include <memory>
+#include <wrl/client.h>
 // Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
 // Fail-closed default: split state does not model layout/access, so leave those lists off NR.
 inline std::atomic<bool> g_allowEnhancedBarriers { false };
@@ -941,6 +942,19 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         }
     }
 };
+// ReShade and similar outer layers may forward our private IID while exposing
+// their own standard command-list/device identity. Recover our logical proxy,
+// not its native producer (which changes at a split). Keep the returned COM
+// reference alive for the entire Evaluate call. No private interface: no change.
+inline Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> QueryLogicalCommandList(IUnknown* list)
+{
+    Microsoft::WRL::ComPtr<ILogicalCommandList> logical;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> proxy;
+    if (list && SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&logical))) && logical)
+        logical.As(&proxy);
+    return proxy;
+}
+
 // Borrowed for the duration of recording. The caller owns the proxy/list.
 inline ID3D12GraphicsCommandList* GraphicsRecordingList(ID3D12GraphicsCommandList* list)
 {
