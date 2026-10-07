@@ -267,6 +267,7 @@ jobs:
             ### 1.10.4（相比 1.10.3.1）
 
             - **lmxxf 时序历史（防闪烁）支持 SR 前的 1–3 层 NR**：中间层只传递网络结果，最后一次真实网络导出时序辅助量，最终画面统一平滑。预测第 3 层仍只运行两次真实网络；切换层数时重置历史。
+            - **完整同步 lmxxf 官方 PR12 主线闭包**：解除所有本地临时源码 Pin 与补丁覆盖，直接跟随官方最新合并提交，保留项目私有的时序历史算法与配置优先级。
             - 定向同步 OptiScaler 上游的 **DLSS/DLSSG 多副本生命周期**：新副本接管失败不再撤销旧副本，返回回调按模块隔离，卸载后安全退休。
             - 改进 **DX11 → DX12 + XeFG** 的交换链协调：确认参数等价时避免重复调整伴随交换链，正确处理窗口尺寸与 present 同步；GPU 等待失败时保留在用资源。
             - 减少启用 HUD/描述符跟踪时批量复制的重复查堆开销；单个描述符保留原路径。
@@ -304,6 +305,7 @@ jobs:
             ### 1.10.4 (compared to 1.10.3.1)
 
             - **lmxxf temporal history (anti-flicker) now supports 1–3 NR passes before SR**. Intermediate passes forward network results; only the final real network exports temporal auxiliary data, and smoothing applies to the final image. Predicted pass 3 still uses two real network executions. Changing the pass count resets history.
+            - **Synchronized with official lmxxf PR12 mainline closure**: Removed local temporary source pins and patches to follow the official merge, while preserving project-owned temporal history algorithms and configuration priority.
             - Selectively integrated OptiScaler **DLSS/DLSSG plugin lifetime improvements**: a failed new hook preserves the older instance, callbacks remain module-specific, and unloaded instances retire safely.
             - Improved swapchain coordination for **DX11 → DX12 + XeFG**: avoid redundant companion resize only when parameters are confirmed equivalent, handle window sizing and present synchronization, and preserve in-use resources when a GPU wait fails.
             - Reduced repeated heap lookups in batched descriptor copies when HUD/descriptor tracking is enabled; single-descriptor copies retain their original path.
