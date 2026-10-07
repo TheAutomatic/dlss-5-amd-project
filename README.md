@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptScaler(NR) 1.10.4.1
+# OptScaler(NR) 1.10.5-alpha
 
 **特别感谢**：各位 Bilibili 用户的测试与反馈意见。
 

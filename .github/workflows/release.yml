@@ -264,32 +264,16 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            ### 1.10.4.1（相比 1.10.3.1）
+            ### 1.10.5-alpha
 
-            - **内置并支持安装 DLSS 伪装增强（OptiPatcher 原生功能）**：安装结束时提示用户是否安装；支持自动获取官方最新脚本与组件并同步缓存，若超时（60s）或离线则自动回退至内置离线版本，并在 OptiScaler.ini 中自动开启 LoadAsiPlugins=true。
-            - **lmxxf 时序历史（防闪烁）支持 SR 前的 1–3 层 NR**：中间层只传递网络结果，最后一次真实网络导出时序辅助量，最终画面统一平滑。预测第 3 层仍只运行两次真实网络；切换层数时重置历史。
-            - **完整同步 lmxxf 官方 PR12 主线闭包**：解除所有本地临时源码 Pin 与补丁覆盖，直接跟随官方最新合并提交，保留项目私有的时序历史算法与配置优先级。
-            - 定向同步 OptiScaler 上游的 **DLSS/DLSSG 多副本生命周期**：新副本接管失败不再撤销旧副本，返回回调按模块隔离，卸载后安全退休。
-            - 改进 **DX11 → DX12 + XeFG** 的交换链协调：确认参数等价时避免重复调整伴随交换链，正确处理窗口尺寸与 present 同步；GPU 等待失败时保留在用资源。
-            - 减少启用 HUD/描述符跟踪时批量复制的重复查堆开销；单个描述符保留原路径。
-            - **尝试修复 Mochizuki 后端与 ReShade 不兼容问题**：恢复包装层背后的逻辑命令列表（感谢 @MatheusFerreiraS 的兼容思路参考）。
-            - 定向接入 **Mochizuki v0.0.4 的高亮饱和色色相修复**，同时覆盖模型输入和低于 100% 模型分辨率的合成。官方 v0.0.4 仅发布 Linux 版，本包仍基于 Windows v0.0.3，未引入 INT4 mixed 或 Linux 专用主程序，原有权重继续使用。
-            - **Mochizuki 合成与诊断改进**：降低模型分辨率时默认复用内部输出缓冲，减少显存和额外处理；可关闭回退。新增可选的边缘引导放大，默认仍为匹配残差。诊断页拆分网络与其他核心 GPU 耗时，外面保留简短总耗时；统计不包含桥接复制和整帧延迟。
-            - **修复 AMD 驱动扩展 Hook（amdxc64）并发初始化竞态**：安全串行化并安全发布 trampoline，彻底解决部分游戏开局偶发性闪退崩溃问题。
-
-            ### 1.10.3.1（相比 1.10.3）
-
-            - 修复 **Page Up 性能叠加层（Performance Overlay / FPS Overlay）** 布局折叠异常
-            - 默认字体大小由 `14.0` 调整为 `16.0`
-            - 性能叠加层新增**独立字体调色盘（Text Color）**与重置按钮（Reset）
-            - 勾选“跟随全局主题色（Use Theme Colors）”时，独立调色盘自动置灰禁用并提供悬浮说明
+            - 接入 mochi 0.0.4 部分特性（无重大更新）
 
             **安装与对应后端权重准备**
 
             - 请完整解压 ZIP 至任意文件夹并运行新包的 `Setup.bat`。更新时推荐选择 **Y 先卸载**，重新使用包内默认配置。
             - **Daniel 0.6.0**：运行文件请前往 [Daniel 官方发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取；`nvngx_dlssnr.dll` 310.8.0 请自行获取。
             - **lmxxf 0.41**：需自备 `native-game-tiled-assets` 权重目录，见 [原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [下载镜像](https://gofile.io/d/wRln0Pue)。
-            - **Mochizuki 0.0.3**：从 `nvngx_dlssnr.dll` 310.8.0（与 Daniel 使用同一文件）提取权重，需要 Python 3.10+。
+            - **Mochizuki 0.0.3（引入0.04部分特性）**：从 `nvngx_dlssnr.dll` 310.8.0（与 Daniel 使用同一文件）提取权重，需要 Python 3.10+。
             - 如本次安装目标游戏文件夹内留存曾安装过的三后端有效权重，执行 `Setup.bat` 后可自动利用，并补回安装包内缺失的权重，使得日常更新本插件时无需反复重新拷贝。
             - 本包不含 NVIDIA DLL、Daniel 安装器或模型权重。
 
@@ -308,32 +292,16 @@ jobs:
 
             ---
 
-            ### 1.10.4.1 (compared to 1.10.3.1)
+            ### 1.10.5-alpha
 
-            - **Integrated OptiPatcher (DLSS Spoofing Enhancement)**: Setup now prompts to install OptiPatcher, attempting to fetch the latest official rolling release with a 60-second timeout, falling back gracefully to the bundled offline version if offline, and automatically enabling LoadAsiPlugins=true.
-            - **lmxxf temporal history (anti-flicker) now supports 1–3 NR passes before SR**. Intermediate passes forward network results; only the final real network exports temporal auxiliary data, and smoothing applies to the final image. Predicted pass 3 still uses two real network executions. Changing the pass count resets history.
-            - **Synchronized with official lmxxf PR12 mainline closure**: Removed local temporary source pins and patches to follow the official merge, while preserving project-owned temporal history algorithms and configuration priority.
-            - Selectively integrated OptiScaler **DLSS/DLSSG plugin lifetime improvements**: a failed new hook preserves the older instance, callbacks remain module-specific, and unloaded instances retire safely.
-            - Improved swapchain coordination for **DX11 → DX12 + XeFG**: avoid redundant companion resize only when parameters are confirmed equivalent, handle window sizing and present synchronization, and preserve in-use resources when a GPU wait fails.
-            - Reduced repeated heap lookups in batched descriptor copies when HUD/descriptor tracking is enabled; single-descriptor copies retain their original path.
-            - **Attempted compatibility fix for Mochizuki backend with ReShade**: recovers logical command lists behind ReShade wrappers (special thanks to @MatheusFerreiraS for reference implementation).
-            - Ported **Mochizuki v0.0.4's bright saturated colour hue fix** for model input and composition below 100% model resolution. Upstream v0.0.4 is Linux-only; this package retains the Windows v0.0.3 baseline without INT4 mixed or the Linux-specific hosts. Existing weights remain valid.
-            - **Mochizuki composition and diagnostics**: reduced model resolution now reuses a private output buffer by default to reduce memory and processing cost, with an option to restore separate buffers. Optional edge-aware enlargement is available; matched residual remains the default. Diagnostics splits network and other core GPU time while retaining a compact total outside. Bridge copies and whole-frame latency are excluded.
-            - **Fixed concurrency race condition in AMD driver extension hook (amdxc64)**: serialized initialization and safely published trampolines, resolving intermittent startup crash in games like Stellar Blade.
-
-            ### 1.10.3.1 (compared to 1.10.3)
-
-            - Fixed layout collapse in the **Page Up Performance Overlay / FPS Overlay**
-            - Updated default font size from `14.0` to `16.0`
-            - Added an **independent Text Color picker** and Reset button for the Performance Overlay
-            - Grayed out the overlay color picker with a tooltip when "Use Theme Colors" is enabled
+            - Integrated partial features from Mochizuki v0.0.4 (no major changes)
 
             **Installation and backend model preparation**
 
             - Extract the complete ZIP into a folder of your choice and run the new package's `Setup.bat`. When upgrading, we recommend choosing **Y to uninstall first** and start with the package's default settings.
             - **Daniel 0.6.0**: obtain the runtime files from the [Daniel releases page](https://github.com/danielblnc/DLSS-NR-on-AMD/releases). Obtain `nvngx_dlssnr.dll` 310.8.0 separately.
             - **lmxxf 0.41**: provide `native-game-tiled-assets` weights from the [upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
-            - **Mochizuki 0.0.3**: extract the weights from `nvngx_dlssnr.dll` 310.8.0, the same file used by Daniel. Python 3.10+ is required.
+            - **Mochizuki 0.0.3 (includes partial 0.0.4 features)**: extract the weights from `nvngx_dlssnr.dll` 310.8.0, the same file used by Daniel. Python 3.10+ is required.
             - If the game folder selected for this installation still contains valid weights from previous installations of any of the three backends, `Setup.bat` can reuse them and copy missing weights back into the installer folder, so you do not need to copy them manually again for routine plugin updates.
             - NVIDIA DLLs, the Daniel installer and model weights are not included.
 
