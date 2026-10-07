@@ -166,6 +166,30 @@ function Test-OptiProxy([string]$path) {
     return $false
 }
 
+function Test-ValidPePlugin([string]$path) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    try {
+        $fs = [IO.File]::OpenRead($path)
+        try {
+            if ($fs.Length -lt 2048) { return $false }
+            $buf = New-Object byte[] 64
+            $read = $fs.Read($buf, 0, 64)
+            if ($read -lt 64 -or $buf[0] -ne 0x4D -or $buf[1] -ne 0x5A) { return $false }
+            $peOffset = [BitConverter]::ToInt32($buf, 0x3C)
+            if ($peOffset -le 0 -or $peOffset -ge ($fs.Length - 4)) { return $false }
+            [void]$fs.Seek($peOffset, [IO.SeekOrigin]::Begin)
+            $peSig = New-Object byte[] 4
+            $readSig = $fs.Read($peSig, 0, 4)
+            if ($readSig -lt 4) { return $false }
+            return ($peSig[0] -eq 0x50 -and $peSig[1] -eq 0x45 -and $peSig[2] -eq 0 -and $peSig[3] -eq 0)
+        } finally {
+            $fs.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
 function Ask-Choice([string]$title, [string[]]$options) {
     Write-Host ''
     Write-Host $title -ForegroundColor Yellow
@@ -1226,6 +1250,22 @@ function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collect
     [System.IO.File]::WriteAllLines($iniPath, $lines, [System.Text.UTF8Encoding]::new($true))
 }
 
+function Get-PluginsTargetDirectory([string]$gameDir, [string]$iniPath) {
+    $targetDir = Join-Path $gameDir 'OptiScaler\plugins'
+    if (Test-Path -LiteralPath $iniPath -PathType Leaf) {
+        $cfgPath = Get-IniSetting $iniPath 'Plugins' 'Path'
+        if ($cfgPath -and $cfgPath -inotmatch '^(auto)?$') {
+            $candidate = if ([IO.Path]::IsPathRooted($cfgPath)) {
+                $cfgPath
+            } else {
+                Join-Path $gameDir $cfgPath
+            }
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+    return [IO.Path]::GetFullPath($targetDir)
+}
+
 Write-Host ''
 Write-Host "Installing $productTitle as $Proxy ..." -ForegroundColor Cyan
 Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
@@ -1436,11 +1476,10 @@ if ($isInteractiveUser) {
         try {
             $curlCmd = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
             if ($curlCmd) {
-                & curl.exe -s -S -L --connect-timeout 10 --max-time 60 -o $tempDownload $optiPatcherUrl 2>$null
-                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tempDownload -PathType Leaf)) {
-                    if ((Get-Item -LiteralPath $tempDownload).Length -gt 1024) {
-                        $downloadSucceeded = $true
-                    }
+                # -f / --fail ensures non-zero exit on HTTP 4xx/5xx; Test-ValidPePlugin ensures valid PE
+                & curl.exe -f -s -S -L --connect-timeout 10 --max-time 60 -o $tempDownload $optiPatcherUrl 2>$null
+                if ($LASTEXITCODE -eq 0 -and (Test-ValidPePlugin $tempDownload)) {
+                    $downloadSucceeded = $true
                 }
             }
         } catch { }
@@ -1459,15 +1498,37 @@ if ($isInteractiveUser) {
                         finally { $fs.Dispose() }
                     } finally { $stream.Dispose() }
                 } finally { $resp.Dispose() }
-                if ((Test-Path -LiteralPath $tempDownload -PathType Leaf) -and (Get-Item -LiteralPath $tempDownload).Length -gt 1024) {
+                if (Test-ValidPePlugin $tempDownload) {
                     $downloadSucceeded = $true
                 }
             } catch { }
         }
 
+        # Resolve plugins destination following host [Plugins] Path resolution
+        $targetPluginsDir = Get-PluginsTargetDirectory $game $gameIni
+        $targetPluginFile = Join-Path $targetPluginsDir 'OptiPatcher.asi'
+        $gameFullPrefix = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
+        $displayDest = if ($targetPluginFile.StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $targetPluginFile.Substring($gameFullPrefix.Length)
+        } else {
+            $targetPluginFile
+        }
+
+        function Install-OptiPatcherFile([string]$sourcePath) {
+            if ([IO.Path]::GetFullPath($targetPluginFile).StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                $rel = [IO.Path]::GetFullPath($targetPluginFile).Substring($gameFullPrefix.Length)
+                Install-One $sourcePath $rel
+            } else {
+                if (-not (Test-Path -LiteralPath $targetPluginsDir -PathType Container)) {
+                    [void][IO.Directory]::CreateDirectory($targetPluginsDir)
+                }
+                Copy-Item -LiteralPath $sourcePath -Destination $targetPluginFile -Force
+            }
+        }
+
         if ($downloadSucceeded) {
             Write-Host 'Downloaded latest OptiPatcher.asi successfully.' -ForegroundColor Green
-            # Update cache in package
+            # Update cache in package only when PE validation succeeded
             $pkgPluginDirs = @((Join-Path $release 'plugins'), (Join-Path $release 'OptiScaler\plugins'))
             foreach ($pd in $pkgPluginDirs) {
                 if (Test-Path -LiteralPath $pd -PathType Container) {
@@ -1477,26 +1538,26 @@ if ($isInteractiveUser) {
                     } catch { }
                 }
             }
-            Install-One $tempDownload 'OptiScaler\plugins\OptiPatcher.asi'
+            Install-OptiPatcherFile $tempDownload
             $installedOptiPatcher = $true
-            Write-Host 'Installed latest OptiPatcher.asi to game OptiScaler\plugins directory.' -ForegroundColor Green
+            Write-Host "Installed latest OptiPatcher.asi to: $displayDest" -ForegroundColor Green
         } else {
-            Write-Host 'Network unavailable or timed out; using bundled offline version.' -ForegroundColor Yellow
-            Write-Host 'If ineffective, download from https://github.com/optiscaler/OptiPatcher/releases and replace OptiScaler\plugins\OptiPatcher.asi' -ForegroundColor Yellow
+            Write-Host 'Network unavailable, timed out, or invalid download; using bundled offline version.' -ForegroundColor Yellow
+            Write-Host "If ineffective, download from https://github.com/optiscaler/OptiPatcher/releases and replace $displayDest" -ForegroundColor Yellow
             $cachedPlugin = $null
             foreach ($cand in @(
                 (Join-Path $release 'plugins\OptiPatcher.asi'),
                 (Join-Path $release 'OptiScaler\plugins\OptiPatcher.asi')
             )) {
-                if (Test-Path -LiteralPath $cand -PathType Leaf) {
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Test-ValidPePlugin $cand)) {
                     $cachedPlugin = $cand
                     break
                 }
             }
             if ($cachedPlugin) {
-                Install-One $cachedPlugin 'OptiScaler\plugins\OptiPatcher.asi'
+                Install-OptiPatcherFile $cachedPlugin
                 $installedOptiPatcher = $true
-                Write-Host 'Installed bundled offline OptiPatcher.asi to game OptiScaler\plugins directory.' -ForegroundColor Green
+                Write-Host "Installed bundled offline OptiPatcher.asi to: $displayDest" -ForegroundColor Green
             } else {
                 Write-Host 'WARN: Bundled offline OptiPatcher.asi not found in package.' -ForegroundColor Yellow
             }

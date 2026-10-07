@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Remove this project from the folder this script sits in (the game folder after Setup).
   Double-click Uninstall_OptiScaler_NR.bat there. Tests may pass -GameDir.
@@ -342,6 +342,23 @@ foreach ($root in $roots) {
     if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
         foreach ($relative in $dependencyPaths) {
             Add-PlannedFile (Join-Path $deps $relative) 'project-dependency'
+        }
+    }
+    $gameIni = Join-Path $root 'OptiScaler.ini'
+    if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+        $customPluginAsi = $null
+        foreach ($line in [IO.File]::ReadAllLines($gameIni)) {
+            if ($line -match '^\s*Path\s*=\s*(.+)$') {
+                $pVal = $Matches[1].Trim()
+                if ($pVal -and $pVal -inotmatch '^(auto)?$') {
+                    $customTarget = if ([IO.Path]::IsPathRooted($pVal)) { $pVal } else { Join-Path $root $pVal }
+                    $customPluginAsi = Join-Path $customTarget 'OptiPatcher.asi'
+                    break
+                }
+            }
+        }
+        if ($customPluginAsi -and (Test-Path -LiteralPath $customPluginAsi -PathType Leaf)) {
+            Add-PlannedFile $customPluginAsi 'project-dependency'
         }
     }
     $lmxxfMods = Join-Path $root 'lmxxf-modules'
