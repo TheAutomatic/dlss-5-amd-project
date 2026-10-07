@@ -296,7 +296,7 @@ jobs:
 
             **补充感谢**
 
-            - 补充感谢 @Overclockers 在 1.10.3 版本贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)）。注：仍需自备 XeFG 补丁，参考 README 对应“可选功能：3倍及以上多帧生成（Frame Generation）”章节。
+            - 补充感谢 @Overclockers 在 1.10.3 版本贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)）。注：仍需自备 XeFG 补丁，参考 README 对应“可选：3倍及以上多帧生成 (XeFG/DLSSG)”章节。
             - 各位 Bilibili 用户的测试与反馈。
 
             ---
@@ -333,7 +333,7 @@ jobs:
 
             **Additional thanks**
 
-            - Special thanks to @Overclockers for contributing the NR-only XeFG multiplier override in version 1.10.3 ([PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)). Note: XeFG unlock files are still required; see the "Optional Feature: 3X and Higher Frame Generation" section in README for details.
+            - Special thanks to @Overclockers for contributing the NR-only XeFG multiplier override in version 1.10.3 ([PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)). Note: XeFG unlock files are still required; see the "Optional: 3x+ Frame Generation (XeFG/DLSSG)" section in README for details.
             - Thanks to all Bilibili users for testing and feedback.
 
             This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.

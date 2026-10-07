@@ -31,7 +31,7 @@ El registro de cambios detallado está disponible en la [página de Releases](ht
 - [2. Guía de instalación](#2-guía-de-instalación)
   - ├─► [⚡ Instalación rápida](#quick-start)
   - ├─► [Detalles completos de instalación y opciones avanzadas](#detalles-completos-de-instalación-y-opciones-avanzadas)
-  - └─► [Opcional: Generación de fotogramas 3x o superior](#opcional-generación-de-fotogramas-3x-o-superior)
+  - └─► [Opcional: Generación de fotogramas 3x o superior (XeFG/DLSSG)](#opcional-generación-de-fotogramas-3x-o-superior-xefgdlssg)
 - [3. Tres backends y pruebas históricas](#3-tres-backends-y-pruebas-históricas)
 - [4. Configuración y controles en el juego](#4-configuración-y-controles-en-el-juego)
 - [5. Solución de problemas, registros y desinstalación](#5-solución-de-problemas-registros-y-desinstalación)
@@ -161,36 +161,19 @@ Si prefiere colocar los archivos manualmente:
 
 ---
 
-### Opcional: Generación de fotogramas 3x o superior
+### Opcional: Generación de fotogramas 3x o superior (XeFG/DLSSG)
 
 <details>
-<summary><strong>👉 Haga clic para desplegar: Generación de fotogramas 3x o superior (Arturs DLSS Enabler / Intel XeFG)</strong></summary>
+<summary><strong>👉 Haga clic para desplegar: Generación de fotogramas 3x o superior (Intel XeFG / Arturs DLSS Enabler)</strong></summary>
 
 Estas opciones son independientes de DLSSNR. Los archivos requeridos no están incluidos; obténgalos por separado.
 **Nota**: Es necesario reiniciar el juego al modificar los ajustes INI. Mantenga `[FrameGen] External=false`. **No active ambas opciones a la vez**.
 
 ---
 
-#### Opción 1: Arturs (DLSS Enabler)
-1. Obtenga `dlss-enabler-headless.dll` del autor oficial:
-   [Releases de artur-graniszewski/DLSS-Enabler](https://github.com/artur-graniszewski/DLSS-Enabler/releases) o [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
-2. Coloque `dlss-enabler-headless.dll` en la subcarpeta **`OptiScaler\`** dentro del directorio del juego;
-3. Si el juego tiene **DLSSG nativo**, configure en `OptiScaler.ini`:
-   ```ini
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=nvngxfg
-   FGOutput=auto
-   FGNvngxReplacement=Arturs
-   ```
-   Si el juego solo tiene reescalado sin DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
-4. Compruebe `OptiScaler.log` para confirmar que aparece `Artur's initialized`.
-
----
-
-#### Opción 2: Intel XeFG (Generación de fotogramas múltiples XeMFG DP4A Unlocker)
-1. Coloque `XeFGUnlock.asi` y `XeFGUnlock.ini` en `OptiScaler\plugins\` (junto a `libxess_fg.dll`);
+#### Opción 1: Intel XeFG (Generación de fotogramas múltiples XeMFG DP4A Unlocker)
+`XeFGUnlock.asi` proviene de la comunidad de OptiScaler (la versión actual solo requiere `XeFGUnlock.asi`; el archivo ini ya no es necesario).
+1. Coloque `XeFGUnlock.asi` en `OptiScaler\plugins\` dentro del directorio del juego (junto a `libxess_fg.dll`), sin el parámetro `-loadlate`;
 2. Configure `OptiScaler.ini` en la raíz del juego:
    ```ini
    [Plugins]
@@ -206,7 +189,27 @@ Estas opciones son independientes de DLSSNR. Los archivos requeridos no están i
    InterpolationCount=1
    ```
    - `InterpolationCount`: `1` para 2x, `2` para 3x, etc.;
-3. Pruebe primero con 2x antes de aumentar el multiplicador. Presione **Re Pág (Page Up)** para la superposición de FPS y **Av Pág (Page Down)** para estadísticas detalladas.
+   - La tasa real está sujeta a la capacidad del hardware y a los límites del plugin;
+3. Guarde la configuración y reinicie el juego. Tenga en cuenta que algunos juegos pueden requerir habilitar **Ignorar comprobaciones previas de FG (Ignore FG pre-checks)** en el menú Ins para activarse correctamente;
+4. Pruebe primero con 2x antes de aumentar el multiplicador. Presione **Re Pág (Page Up)** para la superposición de FPS y **Av Pág (Page Down)** para estadísticas detalladas.
+
+---
+
+#### Opción 2: Arturs (DLSS Enabler)
+1. Obtenga `dlss-enabler-headless.dll` del autor oficial:
+   [Releases de artur-graniszewski/DLSS-Enabler](https://github.com/artur-graniszewski/DLSS-Enabler/releases) o [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
+2. Coloque `dlss-enabler-headless.dll` en la subcarpeta **`OptiScaler\`** dentro del directorio del juego;
+3. Si el juego tiene **DLSSG nativo**, configure en `OptiScaler.ini`:
+   ```ini
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=nvngxfg
+   FGOutput=auto
+   FGNvngxReplacement=Arturs
+   ```
+   Si el juego solo tiene reescalado sin DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
+4. Compruebe `OptiScaler.log` para confirmar que aparece `Artur's initialized`.
 
 </details>
 

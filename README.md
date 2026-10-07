@@ -28,7 +28,7 @@ Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单
 - [2. 安装指南 (Installation Guide)](#2-安装指南-installation-guide)
   - ├─► [⚡ 极速简易安装教程](#quick-start)
   - ├─► [完整详细安装说明与高级选项](#完整详细安装说明与高级选项)
-  - └─► [可选：3倍及以上多帧生成 (Frame Generation)](#可选功能3倍及以上多帧生成frame-generation)
+  - └─► [可选：3倍及以上多帧生成 (XeFG/DLSSG)](#可选3倍及以上多帧生成-xefgdlssg)
 - [3. 三后端架构与历史性能实测](#3-三后端架构与历史性能实测)
 - [4. 游戏内设置与控制](#4-游戏内设置与控制)
 - [5. 排错、日志定位与卸载](#5-排错日志定位与卸载)
@@ -159,37 +159,19 @@ Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单
 
 ---
 
-### 可选功能：3倍及以上多帧生成（Frame Generation）
+### 可选：3倍及以上多帧生成 (XeFG/DLSSG)
 
 <details>
-<summary><strong>👉 点击展开：3倍及以上多帧生成方案（Arturs DLSS Enabler / Intel XeFG）</strong></summary>
+<summary><strong>👉 点击展开：3倍及以上多帧生成方案（Intel XeFG / Arturs DLSS Enabler）</strong></summary>
 
 以下方案为外置可选增强（与 DLSSNR 相互独立），所需文件均不随本包分发，请自行获取。
 **注意**：在游戏运行中修改 ini 必须保存并重启游戏生效；保持 `[FrameGen] External=false`；**请勿同时开启两条方案**。
 
 ---
 
-#### 方案 1：Arturs（DLSS Enabler）
-1. 从 DLSS Enabler 官方发布页获取 `dlss-enabler-headless.dll`（请勿使用第三方整合修改版）：
-   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) 或 [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
-2. 将该 DLL 重命名为 `dlss-enabler-headless.dll`，放入游戏目录中与 `OptiScaler.ini` 并列的 **`OptiScaler\`** 子目录内；
-3. 游戏**已有 DLSSG** 时，在 `OptiScaler.ini` 中配置：
-   ```ini
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=nvngxfg
-   FGOutput=auto
-   FGNvngxReplacement=Arturs
-   ```
-   若游戏只有超分没有 DLSSG，使用 `FGInput=upscaler` + `FGOutput=dlssg`；
-4. 查看 `OptiScaler.log`，出现 `Artur's initialized` 即代表加载成功。
-
----
-
-#### 方案 2：Intel XeFG（XeMFG DP4A Unlocker 多倍插帧）
-`XeFGUnlock.asi` 与 `XeFGUnlock.ini` 来源于 OptiScaler 社区。
-1. 将这两个文件放入游戏目录的 `OptiScaler\plugins\` 子目录中（与 `libxess_fg.dll` 同级），不要加 `-loadlate` 参数；
+#### 方案 1：Intel XeFG（XeMFG DP4A Unlocker 多倍插帧）
+`XeFGUnlock.asi` 来源于 OptiScaler 社区（当前版本仅需 `XeFGUnlock.asi`，不再需要 ini 文件）。
+1. 将 `XeFGUnlock.asi` 放入游戏目录的 `OptiScaler\plugins\` 子目录中（与 `libxess_fg.dll` 同级），不要加 `-loadlate` 参数；
 2. 修改游戏根目录下的 **`OptiScaler.ini`**（非 plugins 内部的 ini）：
    ```ini
    [Plugins]
@@ -206,7 +188,26 @@ Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单
    ```
    - `InterpolationCount`：`1` 代表 2x 插帧，`2` 代表 3x 插帧，以此类推；
    - 实际倍率受硬件能力及插件解锁上限约束；
-3. 建议先以 2x 模式跑通，确认无异常后再调高倍率；游戏中可通过 **Page Up** 呼出帧率面板，按 **Page Down** 切换详情观察插帧状态。
+3. 保存 OptiScaler 设置并重启游戏生效；部分游戏可能需要在 Ins 菜单的帧生成（Frame Generation）设置中开启**忽略前置检查（Ignore FG pre-checks）**方可正常激活；
+4. 建议先以 2x 模式跑通，确认无异常后再调高倍率；游戏中可通过 **Page Up** 呼出帧率面板，按 **Page Down** 切换详情观察插帧状态。
+
+---
+
+#### 方案 2：Arturs（DLSS Enabler）
+1. 从 DLSS Enabler 官方发布页获取 `dlss-enabler-headless.dll`（请勿使用第三方整合修改版）：
+   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) 或 [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
+2. 将该 DLL 重命名为 `dlss-enabler-headless.dll`，放入游戏目录中与 `OptiScaler.ini` 并列的 **`OptiScaler\`** 子目录内；
+3. 游戏**已有 DLSSG** 时，在 `OptiScaler.ini` 中配置：
+   ```ini
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=nvngxfg
+   FGOutput=auto
+   FGNvngxReplacement=Arturs
+   ```
+   若游戏只有超分没有 DLSSG，使用 `FGInput=upscaler` + `FGOutput=dlssg`；
+4. 查看 `OptiScaler.log`，出现 `Artur's initialized` 即代表加载成功。
 
 </details>
 

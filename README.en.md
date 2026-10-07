@@ -31,7 +31,7 @@ See the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/relea
 - [2. Installation Guide](#2-installation-guide)
   - ├─► [⚡ Quick Start Installation](#quick-start)
   - ├─► [Full Installation Details & Advanced Options](#full-installation-details--advanced-options)
-  - └─► [Optional: 3x+ Frame Generation](#optional-3x-frame-generation)
+  - └─► [Optional: 3x+ Frame Generation (XeFG/DLSSG)](#optional-3x-frame-generation-xefgdlssg)
 - [3. Three Backends & Historical Benchmarks](#3-three-backends--historical-benchmarks)
 - [4. In-Game Settings & Controls](#4-in-game-settings--controls)
 - [5. Troubleshooting, Logs & Uninstallation](#5-troubleshooting-logs--uninstallation)
@@ -162,36 +162,19 @@ If you prefer manual file placement:
 
 ---
 
-### Optional: 3x+ Frame Generation
+### Optional: 3x+ Frame Generation (XeFG/DLSSG)
 
 <details>
-<summary><strong>👉 Click to expand: 3x+ Frame Generation (Arturs DLSS Enabler / Intel XeFG)</strong></summary>
+<summary><strong>👉 Click to expand: 3x+ Frame Generation (Intel XeFG / Arturs DLSS Enabler)</strong></summary>
 
 These options are independent of DLSSNR. Required files are not bundled; obtain them separately.
 **Note**: Game restarts are required when changing INI settings. Keep `[FrameGen] External=false`. **Do not enable both simultaneously**.
 
 ---
 
-#### Option 1: Arturs (DLSS Enabler)
-1. Obtain `dlss-enabler-headless.dll` from the official author:
-   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) or [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
-2. Place `dlss-enabler-headless.dll` into the **`OptiScaler\`** subfolder in the game directory;
-3. If the game has **native DLSSG**, configure in `OptiScaler.ini`:
-   ```ini
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=nvngxfg
-   FGOutput=auto
-   FGNvngxReplacement=Arturs
-   ```
-   If the game only has upscaling without DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
-4. Check `OptiScaler.log` for `Artur's initialized`.
-
----
-
-#### Option 2: Intel XeFG (XeMFG DP4A Unlocker Multi-Frame Generation)
-1. Place `XeFGUnlock.asi` and `XeFGUnlock.ini` into `OptiScaler\plugins\` (alongside `libxess_fg.dll`);
+#### Option 1: Intel XeFG (XeMFG DP4A Unlocker Multi-Frame Generation)
+`XeFGUnlock.asi` originates from the OptiScaler community (the current version only requires `XeFGUnlock.asi`; the ini file is no longer needed).
+1. Place `XeFGUnlock.asi` into `OptiScaler\plugins\` in the game directory (alongside `libxess_fg.dll`), without the `-loadlate` parameter;
 2. Configure `OptiScaler.ini` in the game root:
    ```ini
    [Plugins]
@@ -207,7 +190,27 @@ These options are independent of DLSSNR. Required files are not bundled; obtain 
    InterpolationCount=1
    ```
    - `InterpolationCount`: `1` for 2x, `2` for 3x, etc.;
-3. Test with 2x first before increasing multipliers. Press **Page Up** for FPS overlay and **Page Down** for detailed stats.
+   - Actual multiplier is subject to hardware capability and plugin unlock limits;
+3. Save settings and restart the game. Note that some games may require enabling **Ignore FG pre-checks** under Frame Generation in the Ins menu to activate properly;
+4. Test with 2x first before increasing multipliers. Press **Page Up** for FPS overlay and **Page Down** for detailed stats.
+
+---
+
+#### Option 2: Arturs (DLSS Enabler)
+1. Obtain `dlss-enabler-headless.dll` from the official author:
+   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) or [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
+2. Place `dlss-enabler-headless.dll` into the **`OptiScaler\`** subfolder in the game directory;
+3. If the game has **native DLSSG**, configure in `OptiScaler.ini`:
+   ```ini
+   [FrameGen]
+   External=false
+   Enabled=true
+   FGInput=nvngxfg
+   FGOutput=auto
+   FGNvngxReplacement=Arturs
+   ```
+   If the game only has upscaling without DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
+4. Check `OptiScaler.log` for `Artur's initialized`.
 
 </details>
 
