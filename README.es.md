@@ -173,6 +173,7 @@ Estas opciones son independientes de DLSSNR. Los archivos requeridos no están i
 
 #### Opción 1: Intel XeFG (Generación de fotogramas múltiples XeMFG DP4A Unlocker)
 `XeFGUnlock.asi` proviene de la comunidad de OptiScaler (la versión actual solo requiere `XeFGUnlock.asi`; el archivo ini ya no es necesario).
+Agradecimientos a [@Overclockers](https://github.com/Overclockers) por contribuir en PR #3 con la función de anulación de multiplicador XeFG independiente al activar NR (permite configurar un multiplicador de interpolación XeFG dedicado cuando NR está activo).
 1. Coloque `XeFGUnlock.asi` en `OptiScaler\plugins\` dentro del directorio del juego (junto a `libxess_fg.dll`), sin el parámetro `-loadlate`;
 2. Configure `OptiScaler.ini` en la raíz del juego:
    ```ini
@@ -313,6 +314,9 @@ Variables de entorno avanzadas (sin interruptor Ins): `DLSSNR_NO_REG`, `DLSSNR_C
 4. **Pesos conservados**: El script está diseñado para conservar los archivos de pesos del usuario (`native-game-tiled-assets/` y `dlssnr_on_amd_weights.bin`) y `nvngx_dlssnr.dll` de forma predeterminada, evitando descargas repetidas de varios gigabytes.
 
 ### 2. Ubicación de registros y diagnósticos
+
+> [!IMPORTANT]
+> **Solución primaria para cierres inesperados (crashes) / errores de inicio**: Si el juego se cierra al iniciar o muestra errores, **intente primero desactivar la generación de fotogramas XeFG** (desactívela en el menú Ins, o elimine `XeFGUnlock.asi` de `OptiScaler\plugins\` y reinicie el juego). La gran mayoría de los reportes de cierres están relacionados con la compatibilidad del plugin de terceros XeFG. **Este proyecto se centra en la canalización de Renderizado Neuronal (NR) y no acepta reportes de incompatibilidad relacionados con XeFG.**
 
 Revise los siguientes archivos de registro en el directorio del juego (o en `_storage_` para juegos de Microsoft Store / XBOX PC):
 - `OptiScaler.log`: Registro principal de inicialización, enganches y creación de backends;

@@ -174,6 +174,7 @@ These options are independent of DLSSNR. Required files are not bundled; obtain 
 
 #### Option 1: Intel XeFG (XeMFG DP4A Unlocker Multi-Frame Generation)
 `XeFGUnlock.asi` originates from the OptiScaler community (the current version only requires `XeFGUnlock.asi`; the ini file is no longer needed).
+Thanks to [@Overclockers](https://github.com/Overclockers) for contributing the NR-active independent XeFG frame generation multiplier override feature in PR #3 (allowing a dedicated XeFG interpolation multiplier when NR is active).
 1. Place `XeFGUnlock.asi` into `OptiScaler\plugins\` in the game directory (alongside `libxess_fg.dll`), without the `-loadlate` parameter;
 2. Configure `OptiScaler.ini` in the game root:
    ```ini
@@ -314,6 +315,9 @@ Advanced process env (no Ins toggle): `DLSSNR_NO_REG`, `DLSSNR_CHAIN`, `DLSSNR_N
 4. **Preserved Weights**: The script is designed to preserve user weight files (`native-game-tiled-assets/` and `dlssnr_on_amd_weights.bin`) and `nvngx_dlssnr.dll` by default, avoiding repeated multi-gigabyte downloads.
 
 ### 2. Log Locations & Diagnostics
+
+> [!IMPORTANT]
+> **Primary Crash / Startup Error Troubleshooting**: If the game crashes on startup or throws errors, **please first try disabling XeFG Frame Generation** (turn it off in the Ins menu, or remove `XeFGUnlock.asi` from `OptiScaler\plugins\` and restart the game). The vast majority of reported crashes are related to third-party XeFG plugin compatibility. **This project focuses on the Neural Rendering (NR) pipeline and does not accept compatibility reports regarding XeFG frame generation.**
 
 Inspect the following logs in the game directory (or `_storage_` for Microsoft Store / XBOX PC games):
 - `OptiScaler.log`: Main initialization, hooking, and backend creation log;

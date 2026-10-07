@@ -171,6 +171,7 @@ Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单
 
 #### 方案 1：Intel XeFG（XeMFG DP4A Unlocker 多倍插帧）
 `XeFGUnlock.asi` 来源于 OptiScaler 社区（当前版本仅需 `XeFGUnlock.asi`，不再需要 ini 文件）。
+感谢 [@Overclockers](https://github.com/Overclockers) 在 PR #3 中为本项目贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（支持在 NR 激活时独立设置专用的 XeFG 插帧倍率）。
 1. 将 `XeFGUnlock.asi` 放入游戏目录的 `OptiScaler\plugins\` 子目录中（与 `libxess_fg.dll` 同级），不要加 `-loadlate` 参数；
 2. 修改游戏根目录下的 **`OptiScaler.ini`**（非 plugins 内部的 ini）：
    ```ini
@@ -328,6 +329,9 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 4. **权重保留**：卸载脚本默认设计为保留权重文件夹（`native-game-tiled-assets/` 与 `dlssnr_on_amd_weights.bin`）以及 `nvngx_dlssnr.dll`，避免用户后续重装时需要重复下载大体积资产。
 
 ### 二、日志定位与排错
+
+> [!IMPORTANT]
+> **游戏闪退 / 启动报错首要排查**：若遇到游戏启动闪退或报错，**请首先尝试关闭 XeFG 帧生成**（在 Ins 菜单中关闭，或从 `OptiScaler\plugins\` 中移出 `XeFGUnlock.asi` 并重启游戏）。绝大多数崩溃反馈均与第三方 XeFG 插件兼容性有关。**本插件专注于神经渲染（NR）管线，不接受 XeFG 帧生成的不兼容反馈**。
 
 排查问题时，请查看游戏主程序目录（或 XBOX PC 的 `_storage_` 目录）生成的日志：
 - `OptiScaler.log`：OptiScaler 核心主日志（检查注入、初始化与各后端创建状态）；

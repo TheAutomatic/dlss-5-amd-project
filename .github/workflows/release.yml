@@ -293,11 +293,12 @@ jobs:
             - SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
             - lmxxf时序历史（抗闪烁）功能与 ViT 自适应复用继续互斥；SR 后NR路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差，建议关闭预测第 3 层。
             - 可能与 ReShade 冲突（已知Mochizuki）。
-            - Unity 游戏如遇 NR 丢失带来的闪烁，请尝试开启对应实验性开关（伊莫已默认开启）。
+            - 部分游戏如遇 NR 丢失带来闪烁或 hook 失效问题，请尝试开启实验性开关“提前接管”（Early command-list wrap / INI: LmxxfEarlyExeWrap，设为 force on，伊莫已默认开启）。
+            - 部分场景与 XeFG 插件冲突，请关闭 XeFG 后重新进入游戏。
 
             **补充感谢**
 
-            - 补充感谢 @Overclockers 在 1.10.3 版本贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)）。注：仍需自备 XeFG 补丁，参考 README 对应“可选：3倍及以上多帧生成 (XeFG/DLSSG)”章节。
+            - 补充感谢 [@Overclockers](https://github.com/Overclockers) 在 1.10.3 版本贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)）。注：仍需自备 XeFG 补丁，参考 README 对应“可选：3倍及以上多帧生成 (XeFG/DLSSG)”章节。
             - 各位 Bilibili 用户的测试与反馈。
 
             ---
@@ -331,11 +332,12 @@ jobs:
             - SR → NR supports DX12 and the DX11/Vulkan-to-DX12 bridges; it does not add native RR/Vulkan support. Unsupported texture layouts preserve the SR image and report the reason.
             - lmxxf temporal history (anti-flicker) and adaptive ViT reuse remain mutually exclusive; lmxxf temporal history is unavailable in the post-SR NR path. Predicted pass 3 uses auxiliary data from the last real network execution and may introduce approximation artifacts; disabling predicted pass 3 is recommended.
             - May conflict with ReShade (confirmed with Mochizuki).
-            - If NR dropping out causes flicker in a Unity game, try enabling the corresponding experimental option (enabled by default for Aniimo).
+            - If NR dropping out causes flicker or hook failure in some games, try enabling the experimental "Early command-list wrap" switch (INI: LmxxfEarlyExeWrap, set to force on; enabled by default for Aniimo).
+            - May conflict with the XeFG plugin in certain scenarios; please disable XeFG and restart the game if encountered.
 
             **Additional thanks**
 
-            - Special thanks to @Overclockers for contributing the NR-only XeFG multiplier override in version 1.10.3 ([PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)). Note: XeFG unlock files are still required; see the "Optional: 3x+ Frame Generation (XeFG/DLSSG)" section in README for details.
+            - Special thanks to [@Overclockers](https://github.com/Overclockers) for contributing the NR-only XeFG multiplier override in version 1.10.3 ([PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)). Note: XeFG unlock files are still required; see the "Optional: 3x+ Frame Generation (XeFG/DLSSG)" section in README for details.
             - Thanks to all Bilibili users for testing and feedback.
 
             This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.
