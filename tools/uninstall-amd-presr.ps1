@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Remove this project from the folder this script sits in (the game folder after Setup).
   Double-click Uninstall_OptiScaler_NR.bat there. Tests may pass -GameDir.
@@ -185,7 +185,8 @@ $dependencyPaths = @(
     'amd_fidelityfx_vk.dll',
     'libxess.dll', 'libxess_dx11.dll', 'libxess_fg.dll', 'libxell.dll',
     'D3D12_OptiScaler\D3D12Core.dll',
-    'D3D12_OptiScaler\d3d12SDKLayers.dll'
+    'D3D12_OptiScaler\d3d12SDKLayers.dll',
+    'plugins\OptiPatcher.asi'
 )
 $protectedNames = @(
     'nvngx_dlssnr.dll',

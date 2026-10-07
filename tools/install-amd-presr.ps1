@@ -1255,7 +1255,9 @@ if (Test-Path -LiteralPath $ini -PathType Leaf) {
 }
 $deps = Join-Path $release 'OptiScaler'
 if (Test-Path -LiteralPath $deps) {
-    Get-ChildItem -LiteralPath $deps -Recurse -File | ForEach-Object {
+    Get-ChildItem -LiteralPath $deps -Recurse -File | Where-Object {
+        $_.FullName.Substring($deps.Length) -notmatch '^[\\/]plugins[\\/].*OptiPatcher.*\.asi$'
+    } | ForEach-Object {
         $rel = Join-Path 'OptiScaler' $_.FullName.Substring($deps.Length).TrimStart('\','/')
         Install-One $_.FullName $rel
     }
@@ -1390,6 +1392,126 @@ if ($installLmxxf) {
         Write-Host "  seeded optional flags fallback: $flagsPath" -ForegroundColor Green
     } else {
         Write-Host "  kept existing $flagsPath (OptiScaler.ini wins on conflict)" -ForegroundColor Green
+    }
+}
+
+# --- Optional OptiPatcher (DLSS Spoofing Enhancement / OptiScaler native feature) ---
+$installedOptiPatcher = $false
+$isInteractiveUser = (-not $NonInteractive) -and (-not [Console]::IsInputRedirected -or [Console]::In.Peek() -ge 0)
+if ($isInteractiveUser) {
+    Write-Host ''
+    Write-Host '===================================================' -ForegroundColor Cyan
+    Write-Host '【可选组件】DLSS 伪装增强 (OptiScaler 原生功能 / OptiPatcher)' -ForegroundColor Yellow
+    Write-Host '说明：在支持的游戏中解锁原生 DLSS / DLSS-FG 选项，避免伪装开销与画面异常。' -ForegroundColor Gray
+    Write-Host '      官方原生支持 270+ 款虚幻引擎与主流游戏（如黑神话、Stellar Blade 等）。' -ForegroundColor Gray
+    Write-Host '---------------------------------------------------' -ForegroundColor Gray
+    Write-Host '是否安装 DLSS 伪装增强？' -ForegroundColor Yellow
+    Write-Host '  [1] 是 (Yes) - 推荐：自动获取官方最新版本，若超时则使用内置离线版本'
+    Write-Host '  [2] 否 (No)  - 跳过此组件'
+
+    $optiPatcherChoice = $false
+    $maxAttempts = if ([Console]::IsInputRedirected) { 1 } else { 5 }
+    $attempts = 0
+    while ($attempts -lt $maxAttempts) {
+        $attempts++
+        $rawAns = Read-Host '请输入选项 [1/2] (默认: 1)'
+        $ans = if ($null -ne $rawAns) { $rawAns.Trim() } else { '' }
+        if ([string]::IsNullOrWhiteSpace($ans) -or $ans -eq '1' -or $ans -match '^(?i)y(es)?$') {
+            $optiPatcherChoice = $true
+            break
+        } elseif ($ans -eq '2' -or $ans -match '^(?i)n(o)?$') {
+            $optiPatcherChoice = $false
+            break
+        } else {
+            Write-Host '输入无效，请输入 1 或 2 (或按回车默认选择 1)。' -ForegroundColor Yellow
+        }
+    }
+
+    if ($optiPatcherChoice) {
+        Write-Host ''
+        Write-Host '正在尝试获取官方最新 OptiPatcher.asi (超时限制: 60s)...' -ForegroundColor Cyan
+        $optiPatcherUrl = 'https://github.com/optiscaler/OptiPatcher/releases/download/rolling/OptiPatcher.asi'
+        $tempDownload = [IO.Path]::GetTempFileName()
+        $downloadSucceeded = $false
+        try {
+            $curlCmd = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
+            if ($curlCmd) {
+                & curl.exe -s -S -L --connect-timeout 10 --max-time 60 -o $tempDownload $optiPatcherUrl 2>$null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tempDownload -PathType Leaf)) {
+                    if ((Get-Item -LiteralPath $tempDownload).Length -gt 1024) {
+                        $downloadSucceeded = $true
+                    }
+                }
+            }
+        } catch { }
+        if (-not $downloadSucceeded) {
+            try {
+                $req = [System.Net.HttpWebRequest]::Create($optiPatcherUrl)
+                $req.Timeout = 60000
+                $req.ReadWriteTimeout = 60000
+                $req.UserAgent = 'OptScaler-Setup'
+                $resp = $req.GetResponse()
+                try {
+                    $stream = $resp.GetResponseStream()
+                    try {
+                        $fs = [IO.File]::Create($tempDownload)
+                        try { $stream.CopyTo($fs) }
+                        finally { $fs.Dispose() }
+                    } finally { $stream.Dispose() }
+                } finally { $resp.Dispose() }
+                if ((Test-Path -LiteralPath $tempDownload -PathType Leaf) -and (Get-Item -LiteralPath $tempDownload).Length -gt 1024) {
+                    $downloadSucceeded = $true
+                }
+            } catch { }
+        }
+
+        if ($downloadSucceeded) {
+            Write-Host '官方最新 OptiPatcher.asi 下载成功！' -ForegroundColor Green
+            # 替换我们的 plugins 文件夹里的老文件（更新包内缓存）
+            $pkgPluginDirs = @((Join-Path $release 'plugins'), (Join-Path $release 'OptiScaler\plugins'))
+            foreach ($pd in $pkgPluginDirs) {
+                if (Test-Path -LiteralPath $pd -PathType Container) {
+                    try {
+                        Copy-Item -LiteralPath $tempDownload -Destination (Join-Path $pd 'OptiPatcher.asi') -Force
+                        Write-Host "已更新包内插件缓存: $(Join-Path $pd 'OptiPatcher.asi')" -ForegroundColor Green
+                    } catch { }
+                }
+            }
+            # 帮用户装游戏里
+            Install-One $tempDownload 'OptiScaler\plugins\OptiPatcher.asi'
+            $installedOptiPatcher = $true
+            Write-Host '已安装最新 OptiPatcher.asi 至游戏 OptiScaler\plugins 目录。' -ForegroundColor Green
+        } else {
+            # 60s还没下好就装目前已有的最新版，然后提示用户说网络不畅，使用缓存方案，如无效请至XXXX下载后替换OptiScaler\plugins\OptiPatcher.asi
+            Write-Host '网络不畅，使用缓存方案，如无效请至 https://github.com/optiscaler/OptiPatcher/releases 下载后替换 OptiScaler\plugins\OptiPatcher.asi' -ForegroundColor Yellow
+            $cachedPlugin = $null
+            foreach ($cand in @(
+                (Join-Path $release 'plugins\OptiPatcher.asi'),
+                (Join-Path $release 'OptiScaler\plugins\OptiPatcher.asi')
+            )) {
+                if (Test-Path -LiteralPath $cand -PathType Leaf) {
+                    $cachedPlugin = $cand
+                    break
+                }
+            }
+            if ($cachedPlugin) {
+                Install-One $cachedPlugin 'OptiScaler\plugins\OptiPatcher.asi'
+                $installedOptiPatcher = $true
+                Write-Host '已安装内置缓存版 OptiPatcher.asi 至游戏 OptiScaler\plugins 目录。' -ForegroundColor Green
+            } else {
+                Write-Host '未找到内置缓存 OptiPatcher.asi 文件。' -ForegroundColor Yellow
+            }
+        }
+
+        if (Test-Path -LiteralPath $tempDownload) {
+            try { Remove-Item -LiteralPath $tempDownload -Force } catch { }
+        }
+
+        # 装好之后帮用户打开 LoadAsiPlugins=true（参照官方脚本的方案）
+        if ($installedOptiPatcher -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+            Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
+            Write-Host '已在 OptiScaler.ini 中开启 LoadAsiPlugins=true' -ForegroundColor Green
+        }
     }
 }
 
@@ -1565,6 +1687,9 @@ if ($installDaniel) {
 }
 if ($installMochizuki) {
     Write-Host "  Installed:      OptScaler(NR) + mochizuki runtime (MochizukiNrRuntime.dll, shaders)" -ForegroundColor Green
+}
+if ($installedOptiPatcher) {
+    Write-Host "  OptiPatcher:    Installed (DLSS spoofing enhancement, LoadAsiPlugins=true)" -ForegroundColor Green
 }
 if ($installDaniel) {
     if ($keptA -or $keptW) {

@@ -553,6 +553,14 @@ if (Test-Path $rtgiSrc) {
     Get-ChildItem -LiteralPath $rtgiSrc -Filter '*.cso' -File | Copy-Item -Destination $rtgiDst -Force
 }
 
+# Bundled plugins (OptiPatcher.asi: DLSS spoofing enhancement offline cache)
+$pluginSrc = Join-Path $root 'assets/plugins'
+if (Test-Path -LiteralPath $pluginSrc -PathType Container) {
+    $pluginDst = Join-Path $stage 'plugins'
+    New-Item -ItemType Directory -Path $pluginDst -Force | Out-Null
+    Get-ChildItem -LiteralPath $pluginSrc -Filter '*.asi' -File | Copy-Item -Destination $pluginDst -Force
+}
+
 # Explicit allowlist: never copy dlssnr.bin, the unpacked model or a local pipeline cache.
 Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll') -Destination $stage
 $mzAssets = Join-Path $stage 'dlssnr-amd'

@@ -1,12 +1,5 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-可选实验性 **SR → NR**：Ins 的 **Processing order** 可切换超分与 NR 的顺序，
-Daniel、lmxxf、Mochizuki 共用，默认仍为 NR → SR。SR 后按输出分辨率处理，可能增加显存和耗时；
-使用方法、限制及验收见 [SR 后 NR](docs/post-sr-nr.md)。
-
-Mochizuki 后端适用于 Windows / RDNA4，安装、模型来源、独立菜单和验证范围见 [mochizuki 说明](docs/mochizuki.md)。不附带 NVIDIA DLL 或模型；已有本地游戏测试，其他游戏与场景仍需验证。
-
-
 # OptScaler(NR) 1.10.4
 
 **特别感谢**：各位 Bilibili 用户的测试与反馈意见。

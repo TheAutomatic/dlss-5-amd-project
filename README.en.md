@@ -1,15 +1,5 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-Optional experimental **SR → NR** is available for Daniel, lmxxf and Mochizuki. Select
-**Processing order** in Ins; **NR → SR** remains the default. Post-SR processing uses
-the upscaled resolution and may cost more GPU time and VRAM. Save Settings persists
-`[DlssNr] RunBeforeSR=false`; restart if the status requests recording hooks.
-DX12 and the DX11/Vulkan-to-DX12 bridges are covered; native RR/Vulkan are unchanged.
-See [usage, limits and acceptance checks](docs/post-sr-nr.md) (Chinese).
-
-The Mochizuki backend supports Windows / RDNA4. See [installation, model requirements, controls and validation scope](docs/mochizuki.md). NVIDIA DLLs and model weights are not included. Local game tests are available; other games and scenarios still need validation.
-
-
 # OptScaler(NR) 1.10.4
 
 **Special Thanks**: Thank you to all Bilibili users for your testing and feedback.
