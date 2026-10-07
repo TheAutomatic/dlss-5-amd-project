@@ -264,7 +264,7 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            ### 1.10.4（相比 1.10.3.1）
+            ### 1.10.4.1（相比 1.10.3.1）
 
             - **内置并支持安装 DLSS 伪装增强（OptiPatcher 原生功能）**：安装结束时提示用户是否安装；支持自动获取官方最新脚本与组件并同步缓存，若超时（60s）或离线则自动回退至内置离线版本，并在 OptiScaler.ini 中自动开启 LoadAsiPlugins=true。
             - **lmxxf 时序历史（防闪烁）支持 SR 前的 1–3 层 NR**：中间层只传递网络结果，最后一次真实网络导出时序辅助量，最终画面统一平滑。预测第 3 层仍只运行两次真实网络；切换层数时重置历史。
@@ -272,6 +272,8 @@ jobs:
             - 定向同步 OptiScaler 上游的 **DLSS/DLSSG 多副本生命周期**：新副本接管失败不再撤销旧副本，返回回调按模块隔离，卸载后安全退休。
             - 改进 **DX11 → DX12 + XeFG** 的交换链协调：确认参数等价时避免重复调整伴随交换链，正确处理窗口尺寸与 present 同步；GPU 等待失败时保留在用资源。
             - 减少启用 HUD/描述符跟踪时批量复制的重复查堆开销；单个描述符保留原路径。
+            - **尝试修复 Mochizuki 后端与 ReShade 不兼容问题**：恢复包装层背后的逻辑命令列表（感谢 @MatheusFerreiraS 的兼容思路参考）。
+            - **修复 AMD 驱动扩展 Hook（amdxc64）并发初始化竞态**：安全串行化并安全发布 trampoline，彻底解决部分游戏开局偶发性闪退崩溃问题。
 
             ### 1.10.3.1（相比 1.10.3）
 
@@ -293,7 +295,7 @@ jobs:
 
             - SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
             - lmxxf时序历史（抗闪烁）功能与 ViT 自适应复用继续互斥；SR 后NR路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差，建议关闭预测第 3 层。
-            - 可能与 ReShade 冲突（已知Mochizuki）。
+            - 可能与 ReShade 冲突（Mochizuki 后端已在 1.10.4.1 尝试兼容修复；若仍遇冲突请暂时移除 ReShade）。
             - 部分游戏如遇 NR 丢失带来闪烁或 hook 失效问题，请尝试开启实验性开关“提前接管”（Early command-list wrap / INI: LmxxfEarlyExeWrap，设为 force on，伊莫已默认开启）。
             - 部分场景与 XeFG 插件冲突，请关闭 XeFG 后重新进入游戏。
 
@@ -304,7 +306,7 @@ jobs:
 
             ---
 
-            ### 1.10.4 (compared to 1.10.3.1)
+            ### 1.10.4.1 (compared to 1.10.3.1)
 
             - **Integrated OptiPatcher (DLSS Spoofing Enhancement)**: Setup now prompts to install OptiPatcher, attempting to fetch the latest official rolling release with a 60-second timeout, falling back gracefully to the bundled offline version if offline, and automatically enabling LoadAsiPlugins=true.
             - **lmxxf temporal history (anti-flicker) now supports 1–3 NR passes before SR**. Intermediate passes forward network results; only the final real network exports temporal auxiliary data, and smoothing applies to the final image. Predicted pass 3 still uses two real network executions. Changing the pass count resets history.
@@ -312,6 +314,8 @@ jobs:
             - Selectively integrated OptiScaler **DLSS/DLSSG plugin lifetime improvements**: a failed new hook preserves the older instance, callbacks remain module-specific, and unloaded instances retire safely.
             - Improved swapchain coordination for **DX11 → DX12 + XeFG**: avoid redundant companion resize only when parameters are confirmed equivalent, handle window sizing and present synchronization, and preserve in-use resources when a GPU wait fails.
             - Reduced repeated heap lookups in batched descriptor copies when HUD/descriptor tracking is enabled; single-descriptor copies retain their original path.
+            - **Attempted compatibility fix for Mochizuki backend with ReShade**: recovers logical command lists behind ReShade wrappers (special thanks to @MatheusFerreiraS for reference implementation).
+            - **Fixed concurrency race condition in AMD driver extension hook (amdxc64)**: serialized initialization and safely published trampolines, resolving intermittent startup crash in games like Stellar Blade.
 
             ### 1.10.3.1 (compared to 1.10.3)
 
@@ -333,7 +337,7 @@ jobs:
 
             - SR → NR supports DX12 and the DX11/Vulkan-to-DX12 bridges; it does not add native RR/Vulkan support. Unsupported texture layouts preserve the SR image and report the reason.
             - lmxxf temporal history (anti-flicker) and adaptive ViT reuse remain mutually exclusive; lmxxf temporal history is unavailable in the post-SR NR path. Predicted pass 3 uses auxiliary data from the last real network execution and may introduce approximation artifacts; disabling predicted pass 3 is recommended.
-            - May conflict with ReShade (confirmed with Mochizuki).
+            - May conflict with ReShade (attempted compatibility fix for Mochizuki in 1.10.4.1; remove ReShade temporarily if issues persist).
             - If NR dropping out causes flicker or hook failure in some games, try enabling the experimental "Early command-list wrap" switch (INI: LmxxfEarlyExeWrap, set to force on; enabled by default for Aniimo).
             - May conflict with the XeFG plugin in certain scenarios; please disable XeFG and restart the game if encountered.
 
