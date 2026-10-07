@@ -273,6 +273,7 @@ jobs:
             - 改进 **DX11 → DX12 + XeFG** 的交换链协调：确认参数等价时避免重复调整伴随交换链，正确处理窗口尺寸与 present 同步；GPU 等待失败时保留在用资源。
             - 减少启用 HUD/描述符跟踪时批量复制的重复查堆开销；单个描述符保留原路径。
             - **尝试修复 Mochizuki 后端与 ReShade 不兼容问题**：恢复包装层背后的逻辑命令列表（感谢 @MatheusFerreiraS 的兼容思路参考）。
+            - 定向接入 **Mochizuki v0.0.4 的高亮饱和色色相修复**，同时覆盖模型输入和低于 100% 模型分辨率的合成。官方 v0.0.4 仅发布 Linux 版，本包仍基于 Windows v0.0.3，不包含 INT4 mixed 或 Linux 专用优化，原有权重继续使用。
             - **修复 AMD 驱动扩展 Hook（amdxc64）并发初始化竞态**：安全串行化并安全发布 trampoline，彻底解决部分游戏开局偶发性闪退崩溃问题。
 
             ### 1.10.3.1（相比 1.10.3）
@@ -315,6 +316,7 @@ jobs:
             - Improved swapchain coordination for **DX11 → DX12 + XeFG**: avoid redundant companion resize only when parameters are confirmed equivalent, handle window sizing and present synchronization, and preserve in-use resources when a GPU wait fails.
             - Reduced repeated heap lookups in batched descriptor copies when HUD/descriptor tracking is enabled; single-descriptor copies retain their original path.
             - **Attempted compatibility fix for Mochizuki backend with ReShade**: recovers logical command lists behind ReShade wrappers (special thanks to @MatheusFerreiraS for reference implementation).
+            - Ported **Mochizuki v0.0.4's bright saturated colour hue fix** for model input and composition below 100% model resolution. Upstream v0.0.4 is Linux-only; this package retains the Windows v0.0.3 baseline without INT4 mixed or Linux-specific optimizations. Existing weights remain valid.
             - **Fixed concurrency race condition in AMD driver extension hook (amdxc64)**: serialized initialization and safely published trampolines, resolving intermittent startup crash in games like Stellar Blade.
 
             ### 1.10.3.1 (compared to 1.10.3)

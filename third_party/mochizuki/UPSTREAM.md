@@ -1,10 +1,43 @@
 # Mochizuki Vulkan NR core
 
 - Source: https://github.com/mochizuki0323/DLSSNR-AMD
-- Pin: `82560c4fbfaac347fc5e22c22025191402ae916b` (v0.0.3, current upstream at integration).
+- Source snapshot: `9e4574e1812d7d0632d6db02721a20c9617be434` (v0.0.4).
+- Windows baseline: v0.0.3 (`82560c4fbfaac347fc5e22c22025191402ae916b`); upstream v0.0.4 is a Linux-only release.
 - License: MIT; original LICENSE retained here.
 - Closure: Windows core, Windows shader sources/recipe/generators, Linux model extraction tools.
 - Not imported: the official vkd3d/ReShade hosts, installers, Vulkan loader or model weights.
+
+## v0.0.4 directed integration (2026-10-07)
+
+Reviewed the complete 337-path v0.0.3-to-v0.0.4 diff, including Linux calibration data,
+generators and hosts outside this closure. The four changed vendored Windows files
+only correct comments; there is no new Windows inference implementation in that tag.
+The Windows ReShade host's fifth changed file is also comment-only and is not vendored.
+Menu version and weight preparation remain on the official Windows v0.0.3 baseline.
+
+Ported the Linux HDR hue fix from `linux/shaders/passes/runtime_encode.comp` and the
+`soft_knee` function in `linux/shaders/passes/runtime_transfer.comp` to their Windows
+counterparts. After the luminance knee, RGB is scaled by its peak if a channel exceeds
+one, preserving RGB ratios instead of clipping channels separately. The reduced-model
+transfer uses the same rule. No descriptor layouts, controls, weights or history rules change.
+The standalone `tests/mochizuki/run.cmd hdr-shader` test executes both shipped shaders
+on GPU, covering saturated colours, ordinary brightness, white point, alpha, bounds,
+and full/reduced model resolution. It is also included in the Mochizuki GPU entrypoint.
+
+| Upstream module | Disposition and follow-up |
+|---|---|
+| INT4 mixed: Linux core, shaders, recipes, calibration tables, weight converter and Vulkan layer | Deferred. `nrvk::Kernel::create_iu4` captures driver binaries and rewrites WMMA opcodes via `VK_KHR_pipeline_binary`; this is not a portable GLSL precision switch. Requires separate Windows driver/output validation, model preparation and package contracts, and INI-owned controls before integration. No calibration data or extra model is shipped here. |
+| Pipeline robustness override | Not applicable to this bridge. Upstream removes inherited DXVK/vkd3d-proton robust access; `Session::InitVk` creates a private Vulkan device without those enabled features. Do not inherit the Linux path's assumption that physical support alone permits per-pipeline overrides on a borrowed device. |
+| ReShade enlargement (edge-aware/classic/Catmull-Rom/Lanczos/FSR1) and native-frame in-place I/O | Deferred. These add shader bindings, push constants, buffers and per-recording image views. Our retained recordings can be replayed after later frames, so an upstream fixed frame-ring retirement policy cannot replace the host's completion-based leases. Requires corresponding controls, ownership adaptation and replay/format tests. Existing matched-residual enlargement remains. |
+| Network/route split timings | Deferred. Upstream changes query stride/slot interpretation; the adapter's completion-based timing serial, public info ABI and menu would need coordinated updates. Existing timings remain unchanged. |
+| 32-bit staging/weight-memory reduction and host-memory retry | Deferred. This product is x64, and has its own budget/backoff/cancellation and retained-network logic. A future bounded-upload change should measure peak memory and build latency and validate failure cleanup; do not import the unrelated INT4 builder with it. |
+| Linux installer, Steam layer options, OptiScaler-NR 0.8.91 binary patches, DX10 ReShade routing, INI/hotkey/log controls | Not imported. These configure a different host and API route. Our three-backend host, native D3D12 bridge, authoritative INI/menu and bounded logging remain in control. |
+
+The model extraction scripts and 599-entry source model did not change. The source
+snapshot above records the reviewed version; it does **not** claim Windows INT4 or
+all v0.0.4 Linux features are available.
+
+## Retained local adaptations
 
 `windows/src/core/nr_runtime.hpp` and `nr_graph.cpp` carry the pipeline-build cancellation patch from
 [MatheusFerreiraS/neural-amd-opti](https://github.com/MatheusFerreiraS/neural-amd-opti)

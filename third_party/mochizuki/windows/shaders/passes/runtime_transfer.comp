@@ -42,6 +42,9 @@ vec3 srgb_to_linear(vec3 v) {
 vec3 soft_knee(vec3 display) {
     const float l = dot(display, kLuma);
     if (l > 0.75) display *= (0.75 + 0.25 * (1.0 - exp(-(l - 0.75) / 0.25))) / l;
+    // runtime_encode.comp's peak scalar, so the full-size proxy is what the model was shown
+    const float peak = max(display.r, max(display.g, display.b));
+    if (peak > 1.0) display /= peak;
     return display;
 }
 

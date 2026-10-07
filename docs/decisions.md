@@ -615,3 +615,20 @@ ReShade 源码核对点为 `7bf9de8b33bcc76c3177007e65d73c72dd0f34c0` 的 `sourc
 原函数发布与 Detours 修改变量分离：AttachEx 准备跳板后，将其原子发布给 Hook，再提交入口跳转。这样提交刚生效、Init 尚未返回时也能正确转发；不把已被改跳转的入口当作原函数，避免递归。Detours 修改的变量只属于当前事务；安装成功后跳板永久保留。原有 Fsr4DoNotLoadAmdxc64/LoadCustomAmdxc64OnRdna2 配置和驱动接口功能保持不变，模块继续固定在进程内。
 
 CPU 专项 `tests/host/amdxc64_hook_init.cpp` 使用真实 Detours 和合成函数，覆盖 12 线程竞争、同线程重入、缺模块/异常后的重试、逐阶段故障、真实 Commit 回滚、保留同线程/跨线程的外部事务，以及提交窗口转发与并发调用；已接入 host CI。该验证确认初始化缺陷修复，不代替剑星重复冷启动或 GPU/模型验收。
+
+## 2026-10-07：Mochizuki v0.0.4 按 Windows 适用范围定向接入
+
+官方 [v0.0.4](https://github.com/mochizuki0323/DLSSNR-AMD/releases/tag/v0.0.4)
+只发布 Linux 版，Windows 仍为 v0.0.3。已审阅 `82560c4f..9e4574e1` 完整差异，
+更新 vendor Windows 注释，并从 Linux 移植 HDR 高饱和色按峰值统一缩放的修复，
+同时覆盖模型输入和低模型分辨率的合成，防止分别裁切通道导致偏色。
+
+不为追版本号替换本地宿主/调度，不把 Linux INT4 混合精度和 robust access 优化
+标成 Windows 已支持。INT4 涉及驱动管线二进制 WMMA 指令改写及校准模型；robust
+access 优化针对借用 DXVK/vkd3d 设备，而本项目自建 Vulkan 设备未启用该特性。
+其余放大算法、内存和计时改动的边界与后续要求见
+[来源记录](../third_party/mochizuki/UPSTREAM.md#v004-directed-integration-2026-10-07)。
+
+无新增配置键、权重、ABI 或默认值；菜单保留官方 Windows 版本。GPU 着色器专项
+覆盖原始帧/alpha 不变、有效区域、高亮色相、普通亮度及缩放/原尺寸合成，且旧输入
+着色器与旧合成着色器分别触发对应失败；不把该验证等同游戏视觉或性能验收。

@@ -7,12 +7,14 @@ if /i "%~1"=="abi" (
 )
 call tests\_lib\msvc-env.cmd || exit /b 1
 if not exist exports\mochizuki-tests mkdir exports\mochizuki-tests
+if /i "%~1"=="hdr-shader" goto hdrshader
 cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /I OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler tests/mochizuki/runtime.cpp /Foexports/mochizuki-tests/runtime.obj /Feexports/mochizuki-tests/runtime.exe /link d3d12.lib dxgi.lib || exit /b 1
 if /i "%~1"=="destroy-tail" goto destroytail
 if /i "%~1"=="startup" goto startup
 if /i "%~1"=="shader-tail" goto shadertail
 if /i "%~1"=="pass-switch" goto passswitch
 if /i "%~1"=="gpu" (
+  call tests\mochizuki\run.cmd hdr-shader || exit /b 1
   exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime"
 ) else (
   exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll"
@@ -51,4 +53,11 @@ exit /b 0
 
 :destroytail
 exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --destroy-tail
+exit /b %errorlevel%
+
+:hdrshader
+cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS /I exports/mochizuki-toolchain/Vulkan-Headers-e3b1eec08173d6b825cd3ac88c885a63b621504a/include /I third_party/mochizuki/windows/src/core tests/mochizuki/hdr_shader.cpp /Foexports/mochizuki-tests/hdr_shader.obj /Feexports/mochizuki-tests/hdr_shader.exe /link OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib || exit /b 1
+set "MOCHI_HDR_SHADERS=%CD%\exports\mochizuki-runtime\dlssnr-amd\shaders\runtime"
+if not "%~2"=="" set "MOCHI_HDR_SHADERS=%~f2"
+exports\mochizuki-tests\hdr_shader.exe "%MOCHI_HDR_SHADERS%"
 exit /b %errorlevel%

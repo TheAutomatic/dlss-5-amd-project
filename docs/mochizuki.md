@@ -17,6 +17,13 @@ completion-based resource release. Its build-progress display and execution-hist
 handling are described below. Exact reused components, source pins, licenses and
 local changes are in [the source record](../third_party/mochizuki/UPSTREAM.md).
 
+Upstream **v0.0.4 is Linux-only**; its official Windows preview remains v0.0.3.
+This integration has reviewed the v0.0.4 source and ported its HDR hue fix: bright
+saturated linear-input colours are scaled together rather than clipped by channel,
+including the composition path when model resolution is below 100%. Existing weights,
+INI options and menu version remain valid. INT4 mixed and the Linux-only performance
+and ReShade route changes are not enabled; scope and follow-up are in the source record.
+
 ## Installation
 
 1. Install a current AMD display driver with Vulkan support. HIP is not used by this backend.
@@ -161,6 +168,11 @@ GPU output comparisons for capacity reuse, expansion, budget/OOM recovery,
 candidate-buffer refusal, retained recordings and incompatible geometry/format.
 The normal case also compares two/three-pass output with independent fresh sessions.
 The other modes use test-only failure injection; they do not change product defaults.
+
+`tests/mochizuki/run.cmd hdr-shader` needs the built shaders and AMD GPU, but no model.
+It executes the real input/transfer shaders and checks HDR RGB ratios, ordinary
+brightness, alpha, valid dispatch bounds and full/reduced model resolution.
+The `gpu` entrypoint also runs it.
 
 For a focused 1080p R11G11B10 startup test, use
 `tests/mochizuki/run.cmd startup <asset-root> [output.raw]`. The asset root contains

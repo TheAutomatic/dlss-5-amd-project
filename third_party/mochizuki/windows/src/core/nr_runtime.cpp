@@ -129,8 +129,8 @@ VkDescriptorSet kernel_set(VkDevice device, VkDescriptorPool pool, const nrvk::K
 //   identical   - RGBA32F: a plain copy, no conversion anywhere.
 //   through a   - the four 8-bit formats: the bits are copied into a private
 //   transfer      UNORM image and blitted from there, so an *_SRGB view never
-//   image         applies its transfer function to values the network was
-//                 trained on as plain [0,1]. This is the existing path.
+//   image         applies its transfer function to the stored values. This is
+//                 the existing path.
 //   direct blit - the wide formats a Wayland surface offers first: FP16, 16-bit
 //                 UNORM and the two 10-bit packed ones, plus the packed 11/11/10
 //                 float an engine renders into before its upscaler. None of them

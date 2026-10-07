@@ -29,10 +29,9 @@
 // (NR_NO_RESIDUAL).
 //
 // Accumulation is FP32 and that is deliberate. NVIDIA accumulates the MMA in
-// f16; RDNA4 has no f16-accumulate FP8 WMMA, so there is no choice to make, and
-// the network was trained in FP32 with fake-quant STE - our reduction is closer
-// to training-time semantics than the shipped one. The FP32 accumulator here
-// matches a *double* host reference exactly at all 524,288 outputs.
+// f16; RDNA4 has no f16-accumulate FP8 WMMA, so there is no choice to make. The
+// FP32 accumulator here matches a *double* host reference exactly at all 524,288
+// outputs.
 //
 // Layouts. Activations are this project's canonical raster NHWC (decision 1),
 // not NVIDIA's 4x4-pixel "tinlayout" - the harness converts at the boundary
@@ -555,13 +554,10 @@ shared float lds_e[NR_WAVES * 256];
 #else
 #define NR_EPI_DEBUG(i)
 #endif
-// Two epilogues, and the difference is the same argument as FP32 accumulation.
-// NR_EPILOGUE_NVIDIA is the model as measured off the shipping kernel:
-// f16(acc), then f16(g*r), then f16 of the sum. Both inner roundings are
-// artefacts of NVIDIA's f16 accumulator, not of the network. Measured: the f32
-// form agrees with their own output on 98.62% of bytes against their rounding's
-// 98.57%, so the faithful reading of the trained graph is also the one that
-// matches them more often.
+// Two epilogues. NR_EPILOGUE_NVIDIA is the model as measured off the shipping
+// kernel: f16(acc), then f16(g*r), then f16 of the sum. The other carries f32 to
+// the single e4m3 narrowing. Measured: the f32 form agrees with their own output
+// on 98.62% of bytes against their rounding's 98.57%.
 //
 // Spelled out rather than left to the compiler: written as two statements the
 // f16 form contracted into v_fmac_f16 and quietly became the f32 form for the

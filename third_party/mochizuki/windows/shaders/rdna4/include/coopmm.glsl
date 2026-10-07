@@ -669,8 +669,8 @@ float nr_mp_cubic_silu(float x) {
 // reference model that leans on an intermediate rounding therefore stops being
 // that model without anything in the source changing.
 //
-// This is validation machinery. Our own paths deliberately carry f32 to the
-// single narrowing the trained graph asks for; this exists to reproduce
+// This is validation machinery. Our own paths carry f32 to a single
+// narrowing; this exists to reproduce
 // NVIDIA's f16 accumulator when the question is what *they* computed - the
 // split-K f16 atomics and the attention softmax will both want it.
 //
