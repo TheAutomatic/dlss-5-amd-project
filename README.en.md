@@ -6,7 +6,7 @@
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
 
-This project is forked from **Matheus** and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
+This project is forked from [MatheusGViana / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project) and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
 
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -37,7 +37,7 @@ This project is built upon the collective achievements of pioneering developers 
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | Universal upscaling proxy framework (DLSS / FFX / XeSS) | Serves as the host and injection layer, providing hooking and GUI controls |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | First integrated DLSS-NR into OptiScaler; architected Pre-SR Multi-Pass pipeline | Inherits their OptiScaler codebase foundation and Pre-SR dispatch structure |
-| **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Bridged Pre-SR to AMD runtime: DLSS Input → AMD NR → FFX; integrated [RenoDX](https://github.com/clshortfuse/renodx) OkLab and two-branch tone mapping for specular highlight preservation | Pioneered **Multi-slot scheduling**, eliminating **8.7 ms/frame** of idle GPU stalls; adapted 0.3.1; restored D3D12 state freeze/restore; enhanced XBOX PC compatibility. **Bridge overhead measured at just 0.01–0.03 ms** |
+| **[MatheusGViana / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Bridged Pre-SR to AMD runtime: DLSS Input → AMD NR → FFX; integrated [RenoDX](https://github.com/clshortfuse/renodx) OkLab and two-branch tone mapping for specular highlight preservation | Pioneered **Multi-slot scheduling**, eliminating **8.7 ms/frame** of idle GPU stalls; adapted 0.3.1; restored D3D12 state freeze/restore; enhanced XBOX PC compatibility. **Bridge overhead measured at just 0.01–0.03 ms** |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Core AMD Neural Rendering runtime (0.3.0–0.6.0) | Calls standard runtime without core modifications; adds D3D12 state protection for 0.3.1+ 1-pixel draw wait |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | Reversed 71-block network ported to open-source AMD HIP kernels | **Integrated into OptiScaler universal proxy framework to support more DLSS / XeSS games**; implemented same-frame queue execution; developed standardized C-ABI standalone runtime (`LmxxfNrRuntime`); added real-time detail/color tuning sliders |
 | **[Mochizuki / DLSSNR-AMD](https://github.com/mochizuki0323/DLSSNR-AMD)** | Fully open-source Vulkan / RDNA4 neural rendering network core and SPIR-V shaders | Integrated into multi-backend architecture with overhauled lifecycle safety: eliminated stalls on unrelated game queues and memory leaks; integrated shader cancellation and driver 26.9.2+ fixes (provided by [@MatheusFerreiraS](https://github.com/MatheusFerreiraS)) |
@@ -58,7 +58,8 @@ RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
    > 💡 **Tip**: If you plan to use the **Mochizuki** backend, please make sure **Python 3.10+** is installed from the Microsoft Store beforehand.
 3. **Run Setup & Select Game Directory**:
    - Double-click `Setup.bat` and select the directory where the **actual game executable** is located (e.g. Unreal Engine games typically use `...\<GameName>\Binaries\Win64\`, not the platform launcher or shortcut folder);
-   - Follow prompts to select your proxy DLL (typically `dxgi.dll`; try `winmm.dll` or other injection methods if unavailable) and desired backend. When updating, **an overwrite installation is recommended**.
+   - Follow prompts to select your proxy DLL (typically `dxgi.dll`; try `winmm.dll` or other injection methods if unavailable) and desired backend. If an existing installation is detected, **Y (Recommended)** is suggested to uninstall first before installing (avoiding conflicts), or **N** to overwrite directly;
+   - At the end of installation, Setup prompts whether to install **OptiPatcher (DLSS Spoofing Enhancement)**: for games where DLSS cannot be enabled directly in settings, install it to enable ASI plugin loading automatically.
 4. **Note: Skip step 2 when upgrading**:
    - If you have previously installed this project and backend weights in a game, **you can skip step 2 when upgrading**; the installer will automatically detect existing weights and files from the game folder and copy them back into the setup directory for reuse.
 
@@ -76,10 +77,10 @@ RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
 |---|---|
 | `OptiScaler.dll` | Main binary (renamed during installation to your chosen proxy name) |
 | `OptiScaler.ini` | Core configuration file (contains `[DlssNr]` three-backend options) |
-| `OptiScaler\` | Core dependencies (FFX, XeSS, Agility SDK, plugins) |
+| `OptiScaler\` | Core dependencies (FFX, XeSS, Agility SDK, plugins including OptiPatcher) |
 | `LmxxfNrRuntime.dll` | lmxxf backend runtime (open-source HIP neural rendering) |
 | `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime, shaders and extraction tool; model supplied separately |
-| `lmxxf-modules\` | lmxxf dual-architecture compute modules (38 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
+| `lmxxf-modules\` | lmxxf dual-architecture compute modules (40 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
 | `shaders\` | lmxxf codec shaders (`native_codec_encode.hlsl` and others) |
 | `experimental_lighting\` | Precompiled shaders for the experimental lighting pass (`GatherCS.cso` / `ResolveCS.cso`) |
 | `Setup.bat` / `Setup.ps1` | Interactive installer (**Double-click `Setup.bat`**) |
@@ -100,7 +101,7 @@ Prepare either backend (or both for side-by-side coexistence):
 
 ##### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [Click Here](https://gofile.io/d/RyvcrDxz) to download weights
 - `LmxxfNrRuntime.dll` from this complete project package (do not substitute the upstream ABI1 runtime);
-- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 38 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 76 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
+- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 40 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 80 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
 - Shader folder `shaders\` (with `native_codec_encode.hlsl`);
 - Weights folder `native-game-tiled-assets\` (can be downloaded [here](https://gofile.io/d/RyvcrDxz));
 - Place these in the same extracted folder as `Setup.bat`.
@@ -252,7 +253,7 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
 ### 2. `lmxxf` Backend: Open-Source HIP Compute & Same-Frame Queue Execution
 
 - **Dual-Architecture Support & Auto-Selection**:
-  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**: Standard verified production architecture with 24 tuned compute modules;
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**: Standard verified production architecture with 40 tuned compute modules;
   - **AMD Radeon RX 9060 (`gfx1200`)**: Experimental support, verified through COMGR 3.0 compilation; real-device smoke test and PDL speedup pending hardware verification;
   - **Adaptive Architecture & Strict Verification**: Automatically selects matching arch subfolder based on D3D12 queue binding and HIP device LUID, with SHA-256 integrity verification and PDL twin symbol preflight;
 - **Open Source & Hardware Optimized**: All 71 ViT neural network modules are implemented in HIP, tuned for modern RDNA architectures with LDS workgroup fences and C32 CU mode;
@@ -268,7 +269,8 @@ This project introduced **Multi-Slot Scheduling**: allocating independent parall
 3. Locate the **DLSS Neural Rendering** section and check **Enable NR**.
    - The status line indicates the active runtime:
      - `AMD NR runtime: lmxxf` for lmxxf backend;
-     - `AMD NR runtime: 0.3.x` for danielblnc backend.
+     - `AMD NR runtime: 0.3.x` for danielblnc backend;
+     - `AMD NR runtime: mochizuki` for mochizuki backend.
 4. Active pipeline: **DLSS Inputs → Neural Denoising → FFX/FSR Upscaling**.
 
 ### Backend Controls
@@ -360,12 +362,12 @@ When reporting issues, please include:
 ## 6. Attributions & Licenses
 
 Codebase heritage (top to bottom):  
-[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → [**This Repository (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project).
+[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [MatheusGViana](https://github.com/MatheusGViana/dlss-5-amd-project) → [**This Repository (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project).
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**: Universal upscaling proxy framework;
 - [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) — **GPL-3.0 License**: Initial DLSS-NR integration;
 - [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) — **GPL-3.0 License**: Pre-SR and Multi-Pass architecture;
-- [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**: AMD Pre-SR bridge;
+- [**MatheusGViana / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**: AMD Pre-SR bridge;
 - [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**: Author retains all rights; redistribution prohibited; integrated via external detection;
 - [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**: Open-source HIP neural rendering core and 71-block network recovery;
 - [**Mochizuki / DLSSNR-AMD**](https://github.com/mochizuki0323/DLSSNR-AMD) — **MIT License**: Fully open-source Vulkan / RDNA4 neural rendering network core and SPIR-V shaders;

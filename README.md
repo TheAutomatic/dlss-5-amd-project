@@ -6,7 +6,7 @@
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。
 
-本项目 fork 自 **Matheus** 及上游社区。在上游成熟方案的基础上持续深度研发与维护。
+本项目 fork 自 [MatheusGViana / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project) 及上游社区。在上游成熟方案的基础上持续深度研发与维护。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -37,7 +37,7 @@
 |---|---|---|
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | 通用超分辨率代理框架（支持 DLSS / FFX / XeSS 输入输出） | 作为整体安装与运行主体，提供通用注入、Hook 与配置界面 |
 | **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | 首次把 DLSS 神经渲染接进 OptiScaler，并提出在超分前运行多 pass 的 Pre-SR 架构 | 继承其 OptiScaler 代码基底与 Pre-SR 调度管线 |
-| **[Matheus / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分；引入 [RenoDX](https://github.com/clshortfuse/renodx) 的 OkLab 与双分支色调映射改善高光偏色 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
+| **[MatheusGViana / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | 将 Pre-SR 接到 AMD 运行时：游戏 DLSS 输入 → AMD NR → FFX 超分；引入 [RenoDX](https://github.com/clshortfuse/renodx) 的 OkLab 与双分支色调映射改善高光偏色 | 在此基础上首创**多槽调度（Multi-slot）**，消除了单槽空等 **8.7 ms/帧** 的 GPU 挂起；适配 0.3.1；补全新等待 D3D12 状态冻结/恢复；增强 XBOX PC 兼容性。**桥接开销实测仅 0.01～0.03 ms** 量级 |
 | **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | AMD 神经渲染运行时本体（0.3.0–0.6.0） | **不改动其核心**，按规范接口调用；并针对 0.3.1+ 的 1 像素 Draw 等待补齐状态保护，确保在 DLSS/XeSS 游戏上安全运行 |
 | **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | 逆向恢复 71 块网络并移植到 AMD HIP 的开源神经渲染算力核心 | **接入 OptiScaler 通用代理框架以兼容更多纯 DLSS / XeSS 游戏**；实现主队列同帧同步执行；开发标准版本化 C-ABI 独立运行时（`LmxxfNrRuntime` 并反哺合并至上游）；增加动态色彩/细节无级滑条等 |
 | **[Mochizuki / DLSSNR-AMD](https://github.com/mochizuki0323/DLSSNR-AMD)** | 纯开源 Vulkan / RDNA4 神经渲染网络核心与 SPIR-V 着色器体系 | 深度接入多后端架构并重构生命周期安全：解决跨 API 在无关游戏队列上的死等卡顿与显存泄漏；整合着色器取消机制与 26.9.2+ 驱动修复（由 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 提供） |
@@ -58,7 +58,8 @@
    > 💡 **提示**：若计划使用 **Mochizuki** 后端，请提前在微软商店（Microsoft Store）搜索并安装 **Python 3.10+**。
 3. **运行安装器并选择游戏**：
    - 双击运行 `Setup.bat`，在弹出的窗口中选择**游戏的实际主程序运行目录**（注意：必须是游戏 exe 实际执行的所在目录，例如虚幻引擎游戏通常为 `...\<GameName>\Binaries\Win64\`，而非平台 Launcher 或外层快捷方式目录）；
-   - 按交互提示选择代理 DLL（通常可选 `dxgi.dll`，无法使用时可尝试 `winmm.dll` 或其他注入方式）与后端进行安装。若此前已安装过旧版本，升级推荐选择覆盖安装。
+   - 按交互提示选择代理 DLL（通常可选 `dxgi.dll`，无法使用时可尝试 `winmm.dll` 或其他注入方式）与后端进行安装。若检测到旧版本，推荐输入 **Y** 自动卸载后安装（避免新旧文件与配置冲突），亦可输入 **N** 直接覆盖安装；
+   - 安装结束前会提示是否安装 **DLSS 伪装增强 (OptiPatcher)**：对于部分在游戏设置中无法直接开启 DLSS 的游戏，可按提示安装并自动启用。
 4. **注：升级安装时无需执行步骤 2**：
    - 如果你曾经在目标游戏中安装过本项目及对应后端权重，后续升级新版本时无需执行步骤 2，安装工具将自动识别并带回安装工具所在文件夹。
 
@@ -76,10 +77,10 @@
 |---|---|
 | `OptiScaler.dll` | 本项目主体（安装时会自动重命名为你选择的代理名称） |
 | `OptiScaler.ini` | 核心配置文件（包含 `[DlssNr]` 三后端切换与参数选项） |
-| `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件等） |
+| `OptiScaler\` | 核心依赖库（FFX / XeSS / Agility SDK / 插件与 OptiPatcher 等） |
 | `LmxxfNrRuntime.dll` | lmxxf 后端运行时（开源 HIP 神经渲染） |
 | `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime、着色器及模型提取工具；模型另备 |
-| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 38 个 `.hsaco`，附 `SHA256SUMS` 清单） |
+| `lmxxf-modules\` | lmxxf 双架构算子模块（`gfx1200` / `gfx1201` 各 40 个 `.hsaco`，附 `SHA256SUMS` 清单） |
 | `shaders\` | lmxxf 编解码着色器（`native_codec_encode.hlsl` 等） |
 | `experimental_lighting\` | 实验性光照 pass 的预编译着色器（`GatherCS.cso` / `ResolveCS.cso`） |
 | `Setup.bat` / `Setup.ps1` | 交互式图形化安装器（**双击 `Setup.bat` 运行**） |
@@ -100,7 +101,7 @@
 
 ##### 选项 A：[准备 `lmxxf` 后端文件](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或[点击这里](https://gofile.io/d/RyvcrDxz)获取权重文件
 - 使用本项目完整包内配套的 `LmxxfNrRuntime.dll`（不要混用上游 ABI1 runtime）；
-- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 38 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 76 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
+- 算子模块目录 `lmxxf-modules\`（官方双架构两层目录结构，包含 `gfx1200` [9060 系列，实验性] 与 `gfx1201` [9070 系列，正式生产] 两个子目录，各含 40 个 `.hsaco` 算子模块、叶子清单与根 `SHA256SUMS` 清单，共 80 个模块；运行时由 D3D12/HIP 设备智能自动匹配，安装器校验完整双包并支持旧版覆盖升级）；
 - 着色器目录 `shaders\`（包含 `native_codec_encode.hlsl` 等）；
 - 模型权重目录 `native-game-tiled-assets\`（可[点击这里](https://gofile.io/d/RyvcrDxz)直接下载）；
 - 将上述文件/文件夹放在与 `Setup.bat` 相同的解压目录下。
@@ -252,7 +253,7 @@
 ### 二、`lmxxf` 后端：开源 HIP 算力核心与同帧同步调度
 
 - **双架构硬件支持与自动选择**：
-  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**：标准正式生产架构，包含经过完整验证与调优的 24 模块集合；
+  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**：标准正式生产架构，包含经过完整验证与调优的 40 模块集合；
   - **AMD Radeon RX 9060 (`gfx1200`)**：实验性支持，源码与离线 COMGR 3.0 编译验证完成，硬件实机冒烟与 PDL 表现待后续实机进一步验证；
   - **架构自适应与严格校验**：运行时基于 D3D12 渲染队列绑定与 HIP 设备 LUID 自动匹配对应架构子目录，严格执行 SHA-256 完整性校验与 PDL 孪生符号预检（Preflight）；
 - **开源透明**：71 块 ViT 神经网络算子全部由 HIP 实现，针对现代 RDNA 架构进行汇编级优化，引入 LDS 局部作用域栅栏与 C32 CU 模式；
@@ -268,7 +269,8 @@
 3. 找到 **DLSS Neural Rendering** 菜单区域，勾选 **Enable NR**。
    - 状态栏将显示当前正在运行的后端：
      - 若为 lmxxf：显示 `AMD NR runtime: lmxxf`；
-     - 若为 danielblnc：显示 `AMD NR runtime: 0.3.x`。
+     - 若为 danielblnc：显示 `AMD NR runtime: 0.3.x`；
+     - 若为 mochizuki：显示 `AMD NR runtime: mochizuki`。
 4. 画面即时生效：**DLSS 输入拦截 → 神经降噪核心 → FFX/FSR 超分重建**。
 
 ### 后端专属调节项说明
@@ -377,12 +379,12 @@ daniel 自有、未进 Ins 的键（含 **OverlayKey**、`PollSpacing`、`HipDev
 ## 6. 署名与许可 (Attributions & Licenses)
 
 代码链与开源传承（自上而下）：
-[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [Matheus](https://github.com/MatheusGViana/dlss-5-amd-project) → [**本仓库 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project)。
+[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [MatheusGViana](https://github.com/MatheusGViana/dlss-5-amd-project) → [**本仓库 (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project)。
 
 - [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**：通用超分辨率与神经渲染代理框架；
 - [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) — **GPL-3.0 License**：初始接入 DLSS-NR；
 - [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) — **GPL-3.0 License**：Pre-SR 超分前执行与 Multi-Pass 架构；
-- [**Matheus / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**：AMD Pre-SR 桥接方案；
+- [**MatheusGViana / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**：AMD Pre-SR 桥接方案；
 - [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**：danielblnc 保留所有权利，禁止未经授权重新分发，本项目不随包分发其二进制，采用外部检测安装方式对接；
 - [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**：开源 HIP 神经渲染算力核心与 71 块网络还原；
 - [**Mochizuki / DLSSNR-AMD**](https://github.com/mochizuki0323/DLSSNR-AMD) — **MIT License**：纯开源 Vulkan / RDNA4 神经渲染核心网络与 SPIR-V 着色器体系；
