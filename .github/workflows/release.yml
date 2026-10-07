@@ -290,13 +290,14 @@ jobs:
             **已知问题**
 
             - SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
-            - 时序历史与 ViT 自适应复用继续互斥；SR 后路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差。部分场景仍可能闪烁，可尝试 Mochizuki。
-            - 可能与 ReShade 冲突。
+            - lmxxf时序历史（抗闪烁）功能与 ViT 自适应复用继续互斥；SR 后NR路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差，建议关闭预测第 3 层。
+            - 可能与 ReShade 冲突（已知Mochizuki）。
             - Unity 游戏如遇 NR 丢失带来的闪烁，请尝试开启对应实验性开关（伊莫已默认开启）。
 
-            **特别感谢**：各位 Bilibili 用户的测试与反馈。
+            **补充感谢**
 
-            - 特别感谢 @Overclockers 贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能 (PR #3)：[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)
+            - 补充感谢 @Overclockers 在 1.10.3 版本贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)）。注：仍需自备 XeFG 补丁，参考 README 对应“可选功能：3倍及以上多帧生成（Frame Generation）”章节。
+            - 各位 Bilibili 用户的测试与反馈。
 
             ---
 
@@ -326,13 +327,14 @@ jobs:
             **Known issues**
 
             - SR → NR supports DX12 and the DX11/Vulkan-to-DX12 bridges; it does not add native RR/Vulkan support. Unsupported texture layouts preserve the SR image and report the reason.
-            - Temporal history and adaptive ViT reuse remain mutually exclusive. lmxxf temporal history is unavailable after SR. Predicted pass 3 uses auxiliary data from the last real network execution and may introduce approximation artifacts. Some scenarios may still flicker; try Mochizuki if affected.
-            - ReShade may conflict.
-            - If NR dropping out causes flicker in a Unity game, try enabling the corresponding experimental option. It is enabled by default for Aniimo.
+            - lmxxf temporal history (anti-flicker) and adaptive ViT reuse remain mutually exclusive; lmxxf temporal history is unavailable in the post-SR NR path. Predicted pass 3 uses auxiliary data from the last real network execution and may introduce approximation artifacts; disabling predicted pass 3 is recommended.
+            - May conflict with ReShade (confirmed with Mochizuki).
+            - If NR dropping out causes flicker in a Unity game, try enabling the corresponding experimental option (enabled by default for Aniimo).
 
-            **Special thanks** to all Bilibili users for testing and feedback.
+            **Additional thanks**
 
-            - Special thanks to @Overclockers for contributing the NR-only XeFG multiplier override (PR #3): [PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)
+            - Special thanks to @Overclockers for contributing the NR-only XeFG multiplier override in version 1.10.3 ([PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)). Note: XeFG unlock files are still required; see the "Optional Feature: 3X and Higher Frame Generation" section in README for details.
+            - Thanks to all Bilibili users for testing and feedback.
 
             This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.
 
