@@ -3,6 +3,7 @@
 #include "../dlssnr/NrTimingDisplay.h"
 #include "../dlssnr/backend/Selector.h"
 #include "menu_common.h"
+#include "MenuNavigation.h"
 #include "UpscalerRouteDiagnostic.h"
 #include "MenuWindowLayout.h"
 #include "MenuFont.h"
@@ -2332,15 +2333,24 @@ void MenuCommon::RenderMainMenuHeaderMessages(RenderMenuContext& ctx)
         //}
     }
 
+}
+
+void MenuCommon::RenderUpscalerStateMessage(RenderMenuContext& ctx)
+{
+    auto& state = ctx.state;
+    auto config = ctx.config;
+    auto& currentFeature = ctx.currentFeature;
+    auto& menuResScale = ctx.menuResScale;
+    auto& primaryGpu = *ctx.primaryGpu;
     // No active upscaler message
     if (currentFeature == nullptr || !currentFeature->IsInited())
     {
         ImGui::Spacing();
 
         if (config->UseHQFont.value_or_default())
-            ImGui::PushFontSize(std::round(fontSize * menuResScale * 2.5f));
+            ImGui::PushFontSize(std::round(fontSize * menuResScale * 1.0f));
         else
-            ImGui::SetWindowFontScale(menuResScale * 2.5f);
+            ImGui::SetWindowFontScale(menuResScale * 1.0f);
 
         if (state.nvngxExists || state.nvngxReplacement.has_value() ||
             (state.libxessExists || XeSSProxy::Module() != nullptr))
@@ -2362,7 +2372,7 @@ void MenuCommon::RenderMainMenuHeaderMessages(RenderMenuContext& ctx)
 
             std::string joinedUpscalers(joined.begin(), joined.end());
 
-            MenuUi::Text("Please select %s as upscaler from game\noptions and load a save game "
+            MenuUi::TextWrapped("Please select %s as upscaler from game\noptions and load a save game "
                         "to enable Opti settings.\nUpscalers don't always work in menus.",
                         joinedUpscalers.c_str());
 
@@ -2375,38 +2385,38 @@ void MenuCommon::RenderMainMenuHeaderMessages(RenderMenuContext& ctx)
 
             if (primaryGpu.dlssCapable)
             {
-                MenuUi::Text("nvngx_dlss : %s", state.NVNGX_DLSS_Path.has_value() ? "Exists" : "Doesn't Exist");
+                MenuUi::TextWrapped("nvngx_dlss : %s", state.NVNGX_DLSS_Path.has_value() ? "Exists" : "Doesn't Exist");
                 ImGui::SameLine(0.0f, 16.0f);
-                MenuUi::Text("nvngx_dlssd : %s", state.NVNGX_DLSSD_Path.has_value() ? "Exists" : "Doesn't Exist");
+                MenuUi::TextWrapped("nvngx_dlssd : %s", state.NVNGX_DLSSD_Path.has_value() ? "Exists" : "Doesn't Exist");
             }
             else
             {
-                MenuUi::Text("nvngx.dll: %s", state.nvngxExists ? "Exists" : "Doesn't Exist");
+                MenuUi::TextWrapped("nvngx.dll: %s", state.nvngxExists ? "Exists" : "Doesn't Exist");
                 ImGui::SameLine(0.0f, 16.0f);
-                MenuUi::Text("nvngx replacement: %s", state.nvngxReplacement.has_value() ? "Exists" : "Doesn't Exist");
+                MenuUi::TextWrapped("nvngx replacement: %s", state.nvngxReplacement.has_value() ? "Exists" : "Doesn't Exist");
             }
 
-            MenuUi::Text("libxess: %s",
+            MenuUi::TextWrapped("libxess: %s",
                         (state.libxessExists || XeSSProxy::Module() != nullptr) ? "Exists" : "Doesn't Exist");
 
-            MenuUi::Text("FSR Hooks: %s", state.fsrHooks ? "Exist" : "Don't Exist");
+            MenuUi::TextWrapped("FSR Hooks: %s", state.fsrHooks ? "Exist" : "Don't Exist");
             ImGui::SameLine(0.0f, 16.0f);
-            MenuUi::Text("FSR 3.1: %s", FfxApiProxy::Dx12Module() != nullptr ? "Exists" : "Doesn't Exist");
+            MenuUi::TextWrapped("FSR 3.1: %s", FfxApiProxy::Dx12Module() != nullptr ? "Exists" : "Doesn't Exist");
             ImGui::SameLine(0.0f, 16.0f);
-            MenuUi::Text("FSR 3.1 SR: %s", FfxApiProxy::Dx12Module_SR() != nullptr ? "Exists" : "Doesn't Exist");
+            MenuUi::TextWrapped("FSR 3.1 SR: %s", FfxApiProxy::Dx12Module_SR() != nullptr ? "Exists" : "Doesn't Exist");
             ImGui::SameLine(0.0f, 16.0f);
-            MenuUi::Text("FSR 3.1 FG: %s", FfxApiProxy::Dx12Module_FG() != nullptr ? "Exists" : "Doesn't Exist");
+            MenuUi::TextWrapped("FSR 3.1 FG: %s", FfxApiProxy::Dx12Module_FG() != nullptr ? "Exists" : "Doesn't Exist");
 
             ImGui::Spacing();
         }
         else
         {
             ImGui::Spacing();
-            MenuUi::Text("Can't find nvngx.dll and libxess.dll and FSR inputs\nUpscaling support will NOT work.");
+            MenuUi::TextWrapped("Can't find nvngx.dll and libxess.dll and FSR inputs\nUpscaling support will NOT work.");
             ImGui::Spacing();
 
             if (config->UseHQFont.value_or_default())
-                ImGui::PopFont();
+                ImGui::PopFontSize();
             else
                 ImGui::SetWindowFontScale(menuResScale);
         }
@@ -2416,15 +2426,15 @@ void MenuCommon::RenderMainMenuHeaderMessages(RenderMenuContext& ctx)
         ImGui::Spacing();
 
         if (config->UseHQFont.value_or_default())
-            ImGui::PushFontSize(std::round(fontSize * menuResScale * 3.0f));
+            ImGui::PushFontSize(std::round(fontSize * menuResScale * 1.0f));
         else
-            ImGui::SetWindowFontScale(menuResScale * 3.0f);
+            ImGui::SetWindowFontScale(menuResScale * 1.0f);
 
-        MenuUi::Text("%s is active, but not currently used by the game\nPlease enter the game",
+        MenuUi::TextWrapped("%s is active, but not currently used by the game\nPlease enter the game",
                     currentFeature->Name().c_str());
 
         if (config->UseHQFont.value_or_default())
-            ImGui::PopFont();
+            ImGui::PopFontSize();
         else
             ImGui::SetWindowFontScale(menuResScale);
     }
@@ -2441,7 +2451,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
     if (currentFeature != nullptr && !currentFeature->IsFrozen())
     {
         // UPSCALERS -----------------------------
-        MenuUi::SeparatorText("Upscalers");
+        MenuSectionTitle("Upscalers");
         ShowTooltip("Which copium do you choose?");
 
         GetCurrentBackendInfo(state.api, currentBackend, &currentBackendName);
@@ -2664,7 +2674,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         // FFX -----------------
         if (!usesDlssd && (currentBackend == Upscaler::FFX || currentBackend == Upscaler::FFX_on12))
         {
-            MenuUi::SeparatorText("FFX Settings");
+            MenuSectionTitle("FFX Settings");
 
             if (_ffxUpscalerIndex < 0)
                 _ffxUpscalerIndex = config->FfxUpscalerIndex.value_or_default();
@@ -2970,9 +2980,9 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         {
 
             if (usesDlssd)
-                MenuUi::SeparatorText("DLSSD Settings");
+                MenuSectionTitle("DLSSD Settings");
             else
-                MenuUi::SeparatorText("DLSS Settings");
+                MenuSectionTitle("DLSS Settings");
 
             auto overridden =
                 usesDlssd ? state.dlssdPresetsOverriddenExternally : state.dlssPresetsOverriddenExternally;
@@ -3333,7 +3343,7 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
 
     if (state.activeFgInput != FGInput::ForceXeLL)
     {
-        MenuUi::SeparatorText("Frame Generation");
+        MenuSectionTitle("Frame Generation");
 
         if (ImGui::BeginTable("fgSelection", 2, ImGuiTableFlags_SizingStretchSame))
         {
@@ -3701,7 +3711,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
         if (state.activeFgInput != FGInput::Upscaler ||
             (currentFeature != nullptr && !currentFeature->IsFrozen()) && FfxApiProxy::IsFGReady())
         {
-            MenuUi::SeparatorText("Frame Generation (FSR FG)");
+            MenuSectionTitle("Frame Generation (FSR FG)");
 
             if (_ffxFGIndex < 0)
                 _ffxFGIndex = config->FfxFGIndex.value_or_default();
@@ -3951,7 +3961,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
         state.activeFgInput != FGInput::ForceXeLL && state.currentFGSwapchain != nullptr && XeFGProxy::InitXeFG() &&
         fgOutput)
     {
-        MenuUi::SeparatorText("Frame Generation (XeFG)");
+        MenuSectionTitle("Frame Generation (XeFG)");
 
         bool ignoreChecks = config->FGXeFGIgnoreInitChecks.value_or_default();
 
@@ -4204,7 +4214,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
     if (state.activeFgOutput == FGOutput::DLSSG && state.activeFgInput != FGInput::NoFG &&
         state.currentFGSwapchain != nullptr && StreamlineProxy::LoadStreamline() && fgOutput)
     {
-        MenuUi::SeparatorText("Frame Generation (DLSSG)");
+        MenuSectionTitle("Frame Generation (DLSSG)");
 
         if (state.activeFgNvngx == FGNvngxReplacement::None && state.isHdrActive)
         {
@@ -5208,7 +5218,7 @@ void MenuCommon::RenderFakenvapiSettings(RenderMenuContext& ctx)
     auto config = ctx.config;
 
     // FAKENVAPI ---------------------------
-    MenuUi::SeparatorText("fakenvapi");
+    MenuSectionTitle("fakenvapi");
 
     // Using state.reflexLimitsFps as a detection for Reflex being used on Nvidia
     bool showLatencyFlex =
@@ -5295,7 +5305,7 @@ void MenuCommon::RenderLowLatencySettings(RenderMenuContext& ctx)
     auto config = ctx.config;
 
     // Low Latency ---------------------------
-    MenuUi::SeparatorText("Low Latency");
+    MenuSectionTitle("Low Latency");
 
     static std::vector<MenuOption<LowLatencyInput>> lowLatencyInput = {
         { LowLatencyInput::None, "None (Off)" },    { LowLatencyInput::Auto, "Auto" },
@@ -5397,7 +5407,7 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
     if (currentFeature != nullptr && !currentFeature->IsFrozen())
     {
         // SHARPNESS -----------------------------
-        MenuUi::SeparatorText("Sharpness");
+        MenuSectionTitle("Sharpness");
 
         if (bool overrideSharpness = config->OverrideSharpness.value_or_default();
             MenuUi::Checkbox("Override", &overrideSharpness))
@@ -5657,7 +5667,7 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
         auto minSliderLimit = config->ExtendedLimits.value_or_default() ? 0.1f : 1.0f;
         auto maxSliderLimit = config->ExtendedLimits.value_or_default() ? 6.0f : 3.0f;
 
-        MenuUi::SeparatorText("Upscale Ratio Override");
+        MenuSectionTitle("Upscale Ratio Override");
 
         if (bool upOverride = config->UpscaleRatioOverrideEnabled.value_or_default();
             MenuUi::Checkbox("Override all", &upOverride))
@@ -5728,7 +5738,7 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
                 ImGui::BeginDisabled(!currentFeature->LowResMV() &&
                                      currentFeature->RenderWidth() != currentFeature->DisplayWidth());
 
-                MenuUi::SeparatorText("Output Scaling");
+                MenuSectionTitle("Output Scaling");
 
                 float defaultRatio = 1.5f;
 
@@ -5840,8 +5850,20 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
             }
         }
 
+
+    }
+}
+
+void MenuCommon::RenderInitializationSettings(RenderMenuContext& ctx)
+{
+    auto& state = ctx.state;
+    auto config = ctx.config;
+    auto& currentFeature = ctx.currentFeature;
+    auto& menuResScale = ctx.menuResScale;
+    if (currentFeature != nullptr && !currentFeature->IsFrozen())
+    {
         // INIT -----------------------------
-        MenuUi::SeparatorText("Init Flags");
+        MenuSectionTitle("Init Flags");
         if (ImGui::BeginTable("init", 2, ImGuiTableFlags_SizingStretchProp))
         {
             ImGui::TableNextColumn();
@@ -6115,7 +6137,7 @@ void MenuCommon::RenderAdvancedSettings(RenderMenuContext& ctx)
         }
 
         // DRS
-        MenuUi::SeparatorText("DRS (Dynamic Resolution Scaling)");
+        MenuSectionTitle("DRS (Dynamic Resolution Scaling)");
         if (ImGui::BeginTable("drs", 2, ImGuiTableFlags_SizingStretchProp))
         {
             ImGui::TableNextColumn();
@@ -6232,6 +6254,21 @@ void MenuCommon::RenderThemeSettings(RenderMenuContext& ctx)
     if (auto ch = ScopedCollapsingHeader("Menu Theme and Color"); ch.IsHeaderOpen())
     {
         ScopedIndent indent {};
+        bool blur = config->MenuBlur.value_or_default();
+        if (MenuUi::Checkbox("Background blur", &blur)) config->MenuBlur = blur;
+        ImGui::BeginDisabled(!blur);
+        float blurStrength = config->MenuBlurStrength.value_or_default();
+        if (MenuUi::SliderFloat("Blur strength", &blurStrength, 0.0f, 4.0f, "%.1f"))
+            config->MenuBlurStrength = blurStrength;
+        ImGui::EndDisabled();
+        ShowHelpMarker("Blurs the game behind this menu. Requires a translucent background."
+                       "\nUnsupported swapchain formats keep the normal menu background.");
+        if (MenuUi::Button("Reset blur"))
+        {
+            config->MenuBlur.reset();
+            config->MenuBlurStrength.reset();
+        }
+
         ImGui::Spacing();
 
         bool lightTheme = config->LightTheme.value_or_default();
@@ -6258,7 +6295,7 @@ void MenuCommon::RenderThemeSettings(RenderMenuContext& ctx)
             ApplyThemeStyle();
         }
 
-        MenuUi::SeparatorText("Accent Colour");
+        MenuSectionTitle("Accent Colour");
 
         MenuUi::Text("Presets:");
         ImGui::SameLine(0.0f, 6.0f);
@@ -6464,7 +6501,7 @@ void MenuCommon::RenderThemeSettings(RenderMenuContext& ctx)
 
         ImGui::Spacing();
 
-        MenuUi::SeparatorText("Background Colour");
+        MenuSectionTitle("Background Colour");
 
         MenuUi::Text("Presets:");
         ImGui::SameLine(0.0f, 6.0f);
@@ -6824,7 +6861,7 @@ void MenuCommon::RenderUpscalerInputsSettings(RenderMenuContext& ctx)
     }
 }
 
-void MenuCommon::RenderApiAndTextureSettings(RenderMenuContext& ctx)
+void MenuCommon::RenderVsyncSettings(RenderMenuContext& ctx)
 {
     auto& state = ctx.state;
     auto config = ctx.config;
@@ -6937,6 +6974,19 @@ void MenuCommon::RenderApiAndTextureSettings(RenderMenuContext& ctx)
             }
         }
 
+    }
+}
+
+void MenuCommon::RenderApiAndTextureSettings(RenderMenuContext& ctx)
+{
+    auto& state = ctx.state;
+    auto config = ctx.config;
+    auto& currentFeature = ctx.currentFeature;
+    auto& menuResScale = ctx.menuResScale;
+
+    // DX11 & DX12 -----------------------------
+    if (state.swapchainApi != Vulkan)
+    {
         // MIPMAP BIAS & Anisotropy -----------------------------
         ImGui::Spacing();
         if (auto ch = ScopedCollapsingHeader("Mipmap Bias", (currentFeature == nullptr || currentFeature->IsFrozen())
@@ -7151,46 +7201,60 @@ void MenuCommon::RenderKeybindSettings(RenderMenuContext& ctx)
 
 void MenuCommon::RenderMainMenuTable(RenderMenuContext& ctx)
 {
-    auto left = [&] {
-        // Left column: active upscaler state, frame generation, FSR common, latency and fakenvapi controls.
-        RenderActiveUpscalerSettings(ctx);
-        RenderFrameGenerationSelection(ctx);
-        RenderFrameGenerationRuntimeSettings(ctx);
-        RenderFsrCommonSettings(ctx);
-        RenderFramerateSettings(ctx);
+    static MenuNavigation::Page page = MenuNavigation::Page::NR;
+    auto card = [&](auto render) { MenuCard frame; render(ctx); };
+    MenuNavigation::Render(page, ctx.menuResScale, [&](MenuNavigation::Page selected) {
+        switch (selected)
+        {
+        case MenuNavigation::Page::NR:
+            { MenuCard frame; DlssNr::RenderMenu(ctx.config, ctx.menuResScale); }
+            break;
+        case MenuNavigation::Page::Upscaling:
+            card(RenderActiveUpscalerSettings);
+            card(RenderActiveImageSettings);
+            break;
+        case MenuNavigation::Page::FrameGen:
+            card(RenderFrameGenerationSelection);
+            card(RenderFrameGenerationRuntimeSettings);
+            card(RenderFsrCommonSettings);
+            break;
+        case MenuNavigation::Page::Latency:
+            card(RenderFramerateSettings);
 #ifdef LOW_LATENCY_INPUTS
-        RenderLowLatencySettings(ctx);
+            card(RenderLowLatencySettings);
 #else
-        RenderFakenvapiSettings(ctx);
+            card(RenderFakenvapiSettings);
 #endif
-
-    };
-    auto right = [&] {
-        // Right column: image quality, initialization, advanced options, appearance, overlay and input settings.
-        RenderActiveImageSettings(ctx);
-        DlssNr::RenderMenu(ctx.config, ctx.menuResScale);
-        RenderMagnifierSettings(ctx);
-        RenderQuirksSettings(ctx);
-        RenderAdvancedSettings(ctx);
-        RenderLoggingSettings(ctx);
-        RenderThemeSettings(ctx);
-        RenderFpsOverlaySettings(ctx);
-        RenderUpscalerInputsSettings(ctx);
-        RenderApiAndTextureSettings(ctx);
-        RenderKeybindSettings(ctx);
-
-    };
-    if (ImGui::GetContentRegionAvail().x < 950.0f * ctx.menuResScale)
-    {
-        left();
-        right();
-    }
-    else if (ImGui::BeginTable("main", 2, ImGuiTableFlags_SizingStretchSame))
-    {
-        ImGui::TableNextColumn(); left();
-        ImGui::TableNextColumn(); right();
-        ImGui::EndTable();
-    }
+            card(RenderVsyncSettings);
+            break;
+        case MenuNavigation::Page::Textures:
+            card(RenderApiAndTextureSettings);
+            card(RenderMagnifierSettings);
+            break;
+        case MenuNavigation::Page::Compatibility:
+            card(RenderInitializationSettings);
+            card(RenderAdvancedSettings);
+            card(RenderQuirksSettings);
+            break;
+        case MenuNavigation::Page::Appearance:
+            card(RenderThemeSettings);
+            card(RenderFpsOverlaySettings);
+            card(RenderKeybindSettings);
+            break;
+        case MenuNavigation::Page::Status:
+            MenuUi::TextWrapped("GPU: %s", ctx.primaryGpu->name.c_str());
+            MenuUi::Text("API: %s", std::string(magic_enum::enum_name(ctx.state.api)).c_str());
+            if (ctx.currentFeature && ctx.currentFeature->IsInited())
+                MenuUi::Text("Upscaler: %s", ctx.currentFeature->Name().c_str());
+            card(RenderUpscalerStateMessage);
+            card(RenderUpscalerInputsSettings);
+            card(RenderLoggingSettings);
+            if (ctx.state.nvngxIniDetected)
+                MenuUi::TextWrapped("nvngx.ini detected: use OptiScaler.ini and remove the old config.");
+            break;
+        default: break;
+        }
+    });
 }
 
 void MenuCommon::RenderMainMenuGraphs(RenderMenuContext& ctx)
@@ -7795,18 +7859,16 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
     ImGui::SetWindowPos({bounded.pos.x, bounded.pos.y});
     if (visible)
     {
+        RenderMainMenuHeaderMessages(ctx);
         const float availableHeight = ImGui::GetContentRegionAvail().y;
         // Reuse the measured content height, not guessed button rows plus scrollbar padding.
         // Store logical pixels so a UI scale change does not retain the old physical height.
         static float footerLogicalHeight = 150.0f;
         const float footerHeight = std::min(footerLogicalHeight * menuResScale, availableHeight * .45f);
         if (ImGui::BeginChild("##menu_body", {0, std::max(1.0f, availableHeight - footerHeight - ImGui::GetStyle().ItemSpacing.y)},
-                              false, ImGuiWindowFlags_HorizontalScrollbar))
+                              false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
         {
-            RenderMainMenuHeaderMessages(ctx);
             RenderMainMenuTable(ctx);
-            if (state.nvngxIniDetected)
-                MenuUi::TextWrapped("nvngx.ini detected: use OptiScaler.ini and remove the old config.");
         }
         ImGui::EndChild();
         if (ImGui::BeginChild("##menu_footer", {0, 0}, false))
@@ -7819,6 +7881,17 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
                 ImGui::GetStyle().ItemSpacing.y + ImGui::GetStyle().WindowPadding.y) / menuResScale;
         }
         ImGui::EndChild();
+    }
+    if (visible && _bgBlurTexture != ImTextureID_Invalid && config->MenuBlur.value_or_default() &&
+        ImGui::GetStyleColorVec4(ImGuiCol_WindowBg).w < 1.0f && ctx.io.DisplaySize.x > 0 && ctx.io.DisplaySize.y > 0)
+    {
+        const auto lo = ImGui::GetWindowPos();
+        const ImVec2 hi {lo.x + ImGui::GetWindowWidth(), lo.y + ImGui::GetWindowHeight()};
+        const ImVec2 uv {_bgBlurUVScale.x / ctx.io.DisplaySize.x, _bgBlurUVScale.y / ctx.io.DisplaySize.y};
+        ImGui::GetBackgroundDrawList()->AddImageRounded(_bgBlurTexture, lo, hi,
+            {lo.x * uv.x, lo.y * uv.y}, {hi.x * uv.x, hi.y * uv.y},
+            IM_COL32_WHITE, ImGui::GetStyle().WindowRounding);
+        _bgBlurUsed = true;
     }
     ImGui::End();
 

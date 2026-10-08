@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Header Files">
@@ -1547,5 +1547,20 @@
       <Filter>Source Files</Filter>
     </None>
     <None Include="shaders\magnifier\precompile\Magnifier_Shader_Vk.spv" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="menu\MenuCard.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="menu\MenuNavigation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="shaders\menu_blur\MenuBlur_Common.h"><Filter>Header Files</Filter></ClInclude>
+    <ClCompile Include="shaders\menu_blur\MenuBlur_Dx11.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="shaders\menu_blur\MenuBlur_Dx11.h"><Filter>Header Files</Filter></ClInclude>
+    <ClCompile Include="shaders\menu_blur\MenuBlur_Dx12.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="shaders\menu_blur\MenuBlur_Dx12.h"><Filter>Header Files</Filter></ClInclude>
+    <ClCompile Include="shaders\menu_blur\MenuBlur_Vk.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="shaders\menu_blur\MenuBlur_Vk.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader_Dx11.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader_Vk.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
 </Project>

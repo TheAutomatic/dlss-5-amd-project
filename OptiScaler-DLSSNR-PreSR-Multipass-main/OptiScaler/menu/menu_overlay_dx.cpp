@@ -11,6 +11,10 @@
 #include <imgui/imgui_impl_dx12.h>
 #include <imgui/imgui_impl_win32.h>
 
+#include "menu_common.h"
+#include <shaders/menu_blur/MenuBlur_Dx11.h>
+#include <shaders/menu_blur/MenuBlur_Dx12.h>
+
 // menu
 static int const NUM_BACK_BUFFERS = 8;
 static int const SRV_HEAP_SIZE = 64;
@@ -21,6 +25,7 @@ static bool _dx12Device = false;
 static ID3D11Device* g_pd3dDevice = nullptr;
 static ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
 static ID3D11RenderTargetView* g_pd3dRenderTarget = nullptr;
+static std::unique_ptr<MenuBlur_Dx11> g_menuBlurDx11;
 
 // for dx12
 static ID3D12Device* g_pd3dDeviceParam = nullptr;
@@ -32,6 +37,34 @@ static ID3D12GraphicsCommandList* g_pd3dCommandList = nullptr;
 static ID3D12CommandAllocator* g_commandAllocators[NUM_BACK_BUFFERS] = {};
 static ID3D12Resource* g_mainRenderTargetResource[NUM_BACK_BUFFERS] = {};
 static D3D12_CPU_DESCRIPTOR_HANDLE g_mainRenderTargetDescriptor[NUM_BACK_BUFFERS] = {};
+static std::unique_ptr<MenuBlur_Dx12> g_menuBlur;
+// Menu-only fence: a backbuffer index alone does not prove allocator/descriptor completion.
+// Explicit cleanup only: do not release driver objects from CRT static destruction.
+static ID3D12Fence* g_menuFence = nullptr;
+static ID3D12CommandQueue* g_menuQueue = nullptr;
+static UINT64 g_menuSerial = 0;
+static UINT64 g_menuBufferSerial[NUM_BACK_BUFFERS] {};
+static bool g_menuSignalFailed = false;
+static bool g_menuResourcesRetained = false;
+
+static bool DrainMenuDx12()
+{
+    if (!g_menuFence) return true;
+    const auto deadline = GetTickCount64() + 2000;
+    for (;;)
+    {
+        const auto completed = g_menuFence->GetCompletedValue();
+        if (completed == UINT64_MAX) return true; // Removed device no longer executes commands.
+        if (!g_menuSignalFailed && completed >= g_menuSerial) return true;
+        if (GetTickCount64() >= deadline)
+        {
+            LOG_ERROR("Menu GPU completion unavailable; retaining in-flight menu resources");
+            return false;
+        }
+        Sleep(1);
+    }
+}
+
 
 // current command queue for dx12 swapchain
 static IUnknown* currentSCCommandQueue = nullptr;
@@ -90,6 +123,11 @@ static void CreateRenderTargetDx12(ID3D12Device* device, IDXGISwapChain* pSwapCh
         return;
     }
 
+    if (sd.BufferCount == 0 || sd.BufferCount > NUM_BACK_BUFFERS)
+    {
+        LOG_ERROR("Unsupported menu swapchain buffer count: {}", sd.BufferCount);
+        return;
+    }
     for (UINT i = 0; i < sd.BufferCount; ++i)
     {
         ID3D12Resource* pBackBuffer = nullptr;
@@ -118,12 +156,17 @@ static void CreateRenderTargetDx12(ID3D12Device* device, IDXGISwapChain* pSwapCh
     LOG_INFO("done!");
 }
 
-static void CleanupRenderTargetDx12(bool clearQueue)
+static bool CleanupRenderTargetDx12(bool clearQueue)
 {
-    if (!_isInited || !_dx12Device || State::Instance().isShuttingDown)
-        return;
+    if (State::Instance().isShuttingDown) return false;
+    if (!_dx12Device && !g_menuFence) return !g_menuResourcesRetained;
 
     LOG_TRACE("clearQueue: {}", clearQueue);
+
+    if (!DrainMenuDx12()) { g_menuResourcesRetained = true; return false; }
+    g_menuResourcesRetained = false;
+    MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
+    g_menuBlur.reset();
 
     for (UINT i = 0; i < NUM_BACK_BUFFERS; ++i)
     {
@@ -133,6 +176,7 @@ static void CleanupRenderTargetDx12(bool clearQueue)
 
     if (clearQueue)
     {
+        // Uses a descriptor from the ImGui heap, needs to go before it
         if (MenuOverlayBase::IsInited() && g_pd3dDeviceParam != nullptr && g_pd3dSrvDescHeap != nullptr &&
             ImGui::GetIO().BackendRendererUserData)
         {
@@ -154,12 +198,19 @@ static void CleanupRenderTargetDx12(bool clearQueue)
             g_pd3dCommandQueue = nullptr;
 
         g_pd3dSrvDescHeapAlloc.Destroy();
+        SAFE_RELEASE(g_menuFence);
+        SAFE_RELEASE(g_menuQueue);
+        g_menuSerial = 0;
+        std::fill(std::begin(g_menuBufferSerial), std::end(g_menuBufferSerial), 0);
+        g_menuSignalFailed = false;
+
 
         // SAFE_RELEASE(g_pd3dDeviceParam);
 
         _dx12Device = false;
         _isInited = false;
     }
+    return true;
 }
 
 static void CreateRenderTargetDx11(IDXGISwapChain* pSwapChain)
@@ -190,6 +241,9 @@ static void CleanupRenderTargetDx11(bool shutDown)
         LOG_FUNC();
 
     SAFE_RELEASE(g_pd3dRenderTarget);
+
+    MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
+    g_menuBlurDx11.reset();
 
     if (g_pd3dDevice != nullptr)
         g_pd3dDevice = nullptr;
@@ -250,19 +304,44 @@ static void RenderImGui_DX11(IDXGISwapChain* pSwapChain)
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
 
+            ID3D11Texture2D* backBuffer = nullptr;
+            pSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+
+            // Blur textures are only created once the menu is opened, menu decides if they are used
+            bool blurReady = false;
+            if (backBuffer != nullptr && (Config::Instance()->MenuBlur.value_or_default() && MenuOverlayBase::IsVisible()))
+            {
+                if (!g_menuBlurDx11)
+                    g_menuBlurDx11 = std::make_unique<MenuBlur_Dx11>("MenuBlur", g_pd3dDevice);
+
+                blurReady = g_menuBlurDx11->Prepare(backBuffer);
+            }
+
+            if (blurReady)
+                MenuCommon::SetBackgroundBlur(g_menuBlurDx11->TextureId(), g_menuBlurDx11->UVScale());
+            else
+                MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
+
             if (MenuOverlayBase::RenderMenu())
             {
                 ImGui::Render();
 
+                if (blurReady && MenuCommon::BackgroundBlurUsed())
+                    g_menuBlurDx11->Dispatch(g_pd3dDeviceContext, backBuffer);
+
                 g_pd3dDeviceContext->OMSetRenderTargets(1, &g_pd3dRenderTarget, NULL);
                 ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
             }
+
+            if (backBuffer != nullptr)
+                backBuffer->Release();
         }
     }
 }
 
 static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
 {
+    if (g_menuResourcesRetained) return;
     bool drawMenu = false;
     IDXGISwapChain3* pSwapChain = nullptr;
 
@@ -450,13 +529,63 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
         {
             _showRenderImGuiDebugOnce = true;
 
+            const UINT backBufferIdx = pSwapChain->GetCurrentBackBufferIndex();
+            if (backBufferIdx >= NUM_BACK_BUFFERS || !g_commandAllocators[backBufferIdx] ||
+                !g_mainRenderTargetResource[backBufferIdx])
+            {
+                pSwapChain->Release();
+                return;
+            }
+            auto queue = static_cast<ID3D12CommandQueue*>(currentSCCommandQueue);
+            if (!g_menuFence)
+            {
+                if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_menuFence))))
+                {
+                    pSwapChain->Release();
+                    return;
+                }
+                SAFE_RELEASE(g_menuQueue);
+                queue->AddRef();
+                g_menuQueue = queue;
+            }
+            if (g_menuQueue != queue)
+            {
+                if (!DrainMenuDx12()) { pSwapChain->Release(); return; }
+                SAFE_RELEASE(g_menuQueue);
+                queue->AddRef();
+                g_menuQueue = queue;
+            }
+            // Skip this overlay frame instead of waiting in the game's present hot path.
+            const auto completed = g_menuFence->GetCompletedValue();
+            if (g_menuSignalFailed || completed == UINT64_MAX || completed < g_menuBufferSerial[backBufferIdx])
+            {
+                pSwapChain->Release();
+                return;
+            }
+
             ImGui_ImplDX12_NewFrame();
+
+
+            // Blur textures are only created once the menu is opened, menu decides if they are used
+            bool blurReady = false;
+            if (Config::Instance()->MenuBlur.value_or_default() && MenuOverlayBase::IsVisible())
+            {
+                if (!g_menuBlur)
+                    g_menuBlur = std::make_unique<MenuBlur_Dx12>("MenuBlur", device, &g_pd3dSrvDescHeapAlloc);
+
+                blurReady = g_menuBlur->Prepare(g_mainRenderTargetResource[backBufferIdx]);
+            }
+
+            if (blurReady)
+                MenuCommon::SetBackgroundBlur(g_menuBlur->TextureId(), g_menuBlur->UVScale());
+            else
+                MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
 
             if (MenuOverlayBase::RenderMenu())
             {
                 ImGui::Render();
 
-                UINT backBufferIdx = pSwapChain->GetCurrentBackBufferIndex();
+                const bool blurMenu = blurReady && MenuCommon::BackgroundBlurUsed();
                 ID3D12CommandAllocator* commandAllocator = g_commandAllocators[backBufferIdx];
 
                 auto result = commandAllocator->Reset();
@@ -484,6 +613,17 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
                     return;
                 }
 
+                if (blurMenu)
+                {
+                    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                    g_pd3dCommandList->ResourceBarrier(1, &barrier);
+
+                    g_menuBlur->Dispatch(g_pd3dCommandList, g_mainRenderTargetResource[backBufferIdx], backBufferIdx);
+
+                    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                }
+
                 g_pd3dCommandList->ResourceBarrier(1, &barrier);
                 g_pd3dCommandList->OMSetRenderTargets(1, &g_mainRenderTargetDescriptor[backBufferIdx], FALSE, NULL);
                 g_pd3dCommandList->SetDescriptorHeaps(1, &g_pd3dSrvDescHeap);
@@ -505,6 +645,15 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
 
                 ID3D12CommandList* ppCommandLists[] = { g_pd3dCommandList };
                 ((ID3D12CommandQueue*) currentSCCommandQueue)->ExecuteCommandLists(1, ppCommandLists);
+                const auto signal = queue->Signal(g_menuFence, ++g_menuSerial);
+                if (FAILED(signal))
+                {
+                    g_menuSignalFailed = true;
+                    LOG_ERROR("Menu completion fence signal failed: {:X}", (UINT) signal);
+                }
+                else
+                    g_menuBufferSerial[backBufferIdx] = g_menuSerial;
+
             }
         }
         else
@@ -611,13 +760,13 @@ void MenuOverlayDx::Present(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
             if (g_pd3dDeviceParam != nullptr && device12 == nullptr)
                 device12 = g_pd3dDeviceParam;
 
-            CleanupRenderTargetDx12(true);
-
-            g_pd3dCommandQueue = cq;
-            g_pd3dDeviceParam = device12;
-
-            MenuOverlayBase::Dx12Ready();
-            _isInited = true;
+            if (CleanupRenderTargetDx12(true))
+            {
+                g_pd3dCommandQueue = cq;
+                g_pd3dDeviceParam = device12;
+                MenuOverlayBase::Dx12Ready();
+                _isInited = true;
+            }
         }
     }
 

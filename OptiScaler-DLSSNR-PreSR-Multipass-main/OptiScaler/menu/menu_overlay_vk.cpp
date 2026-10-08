@@ -9,6 +9,9 @@
 #include <imgui/imgui_impl_vulkan.h>
 #include <imgui/imgui_impl_win32.h>
 
+#include "menu_common.h"
+#include <shaders/menu_blur/MenuBlur_Vk.h>
+
 // Vulkan overlay code adopted from here:
 // https://gist.github.com/mem99/0ec31ca302927457f86b1d6756aaa8c4
 // Need to check resize & recreate fixes
@@ -26,6 +29,34 @@ static VkSemaphore* _ImVulkan_Semaphores = VK_NULL_HANDLE;
 static VkRenderPass _vkRenderPass = VK_NULL_HANDLE;
 static uint32_t _scImageCount;
 static ULONG64 _frameCount;
+
+// menu background blur
+// Raw pointer, static destruction at exit would use an already destroyed device
+static MenuBlur_Vk* _menuBlur = nullptr;
+static VkFormat _scFormat = VK_FORMAT_UNDEFINED;
+static VkExtent2D _scExtent {};
+static VkImageUsageFlags _scUsage = 0;
+static bool _menuBlurSupported = false;
+static bool _menuResourcesRetained = false;
+
+static bool WaitForMenuVk()
+{
+    if (_ImVulkan_Info.Device == VK_NULL_HANDLE) return true;
+    const auto result = vkDeviceWaitIdle(_ImVulkan_Info.Device);
+    if (result == VK_SUCCESS || result == VK_ERROR_DEVICE_LOST) return true;
+    _menuResourcesRetained = true;
+    LOG_WARN("Menu GPU completion unavailable: {0:X}; retaining menu resources", (UINT) result);
+    return false;
+}
+
+// Uses a descriptor from the ImGui pool, needs to go before ImGui_ImplVulkan_Shutdown
+static void DestroyMenuBlur()
+{
+    MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
+
+    delete _menuBlur;
+    _menuBlur = nullptr;
+}
 
 static void SetVkObjectName(VkDevice device, VkInstance instance, VkObjectType objectType, uint64_t objectHandle,
                             const char* name)
@@ -62,6 +93,10 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
     {
         LOG_DEBUG("_vulkanObjectsCreated, releasing objects");
 
+        if (!WaitForMenuVk()) return;
+
+        DestroyMenuBlur();
+
         if (ImGui::GetIO().BackendRendererUserData != nullptr)
             ImGui_ImplVulkan_Shutdown(false);
 
@@ -83,6 +118,11 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize.x = static_cast<float>(pCreateInfo->imageExtent.width);
     io.DisplaySize.y = static_cast<float>(pCreateInfo->imageExtent.height);
+
+    _scFormat = pCreateInfo->imageFormat;
+    _scExtent = pCreateInfo->imageExtent;
+    _scUsage = pCreateInfo->imageUsage;
+    _menuBlurSupported = false;
 
     VkResult result;
 
@@ -120,8 +160,8 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
         // get queues
         if (count > 0)
         {
-            VkQueueFamilyProperties queues[8];
-            vkGetPhysicalDeviceQueueFamilyProperties(pd, &count, queues);
+            std::vector<VkQueueFamilyProperties> queues(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(pd, &count, queues.data());
 
             // find graphic queue
             for (uint32_t i = 0; i < count; i++)
@@ -129,6 +169,8 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
                 if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
                 {
                     queueFamily = i;
+                    _menuBlurSupported = pCreateInfo->imageArrayLayers == 1 &&
+                                         (queues[i].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
                     break;
                 }
             }
@@ -426,6 +468,7 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
     }
 
     _vulkanObjectsCreated = true;
+    _menuResourcesRetained = false;
     LOG_FUNC_RESULT(_vulkanObjectsCreated);
 }
 
@@ -439,9 +482,9 @@ void MenuOverlayVk::DestroyVulkanObjects(bool shutdown)
 
     _vkCleanMutex.lock();
 
-    auto result = vkDeviceWaitIdle(_ImVulkan_Info.Device);
-    if (result != VK_SUCCESS && !shutdown)
-        LOG_WARN("vkDeviceWaitIdle error: {0:X}", (UINT) result);
+    if (!WaitForMenuVk()) { _vkCleanMutex.unlock(); return; }
+
+    DestroyMenuBlur();
 
     if (shutdown)
     {
@@ -502,7 +545,7 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
 {
     LOG_FUNC();
 
-    if (!_vulkanObjectsCreated)
+    if (!_vulkanObjectsCreated || _menuResourcesRetained)
         return true;
 
     if (!MenuOverlayBase::IsInited() || _ImVulkan_Info.Device == VK_NULL_HANDLE)
@@ -528,12 +571,28 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
         if (State::Instance().delayMenuRenderBy > 0)
             State::Instance().delayMenuRenderBy--;
 
+        // Blur images are only created once the menu is opened, menu decides if they are used
+        bool blurReady = false;
+        if (_menuBlurSupported && Config::Instance()->MenuBlur.value_or_default() && MenuOverlayBase::IsVisible())
+        {
+            if (!_menuBlur)
+                _menuBlur = new MenuBlur_Vk("MenuBlur", _ImVulkan_Info.Device, _ImVulkan_Info.PhysicalDevice);
+
+            blurReady = _menuBlur->Prepare(_scFormat, _scExtent, _scUsage);
+        }
+
+        if (blurReady)
+            MenuCommon::SetBackgroundBlur(_menuBlur->TextureId(), _menuBlur->UVScale());
+        else
+            MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
+
         if (MenuOverlayBase::RenderMenu())
         {
             if (State::Instance().delayMenuRenderBy == 0)
             {
                 uint32_t idx = pPresentInfo->pImageIndices[0];
                 ImGui_ImplVulkanH_Frame* fd = &_ImVulkan_Frames[idx];
+                const bool blurMenu = blurReady && MenuCommon::BackgroundBlurUsed();
 
                 vkWaitForFences(_ImVulkan_Info.Device, 1, &fd->Fence, VK_TRUE, UINT64_MAX);
                 vkResetFences(_ImVulkan_Info.Device, 1, &fd->Fence);
@@ -545,6 +604,10 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
                     info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
                     vkBeginCommandBuffer(fd->CommandBuffer, &info);
                 }
+
+                // Needs to be outside of the render pass
+                if (blurMenu)
+                    _menuBlur->Dispatch(fd->CommandBuffer, fd->Backbuffer);
 
                 {
                     VkRenderPassBeginInfo info = {};
@@ -570,13 +633,15 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
 
                 // Submit queue and semaphores
                 LOG_DEBUG("waitSemaphoreCount: {0}", pPresentInfo->waitSemaphoreCount);
-                VkPipelineStageFlags waitStages[8] = { VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
+                // Blur copies the image with a transfer, so everything has to wait for the game
+                std::vector<VkPipelineStageFlags> waitStages(pPresentInfo->waitSemaphoreCount,
+                    blurMenu ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
                 VkSubmitInfo submit_info = {};
                 submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 submit_info.commandBufferCount = 1;
                 submit_info.pCommandBuffers = &fd->CommandBuffer;
-                submit_info.pWaitDstStageMask = waitStages;
+                submit_info.pWaitDstStageMask = waitStages.data();
                 submit_info.waitSemaphoreCount = pPresentInfo->waitSemaphoreCount;
                 submit_info.pWaitSemaphores = pPresentInfo->pWaitSemaphores;
                 submit_info.signalSemaphoreCount = 1;
@@ -615,6 +680,9 @@ void MenuOverlayVk::CreateSwapchain(VkDevice device, VkPhysicalDevice pd, VkInst
 
         if (MenuOverlayBase::IsInited())
         {
+            if (!WaitForMenuVk()) return;
+
+            DestroyMenuBlur();
             ImGui_ImplVulkan_Shutdown(false);
             LOG_DEBUG("MenuOverlayBase::Shutdown();");
             MenuOverlayBase::Shutdown();

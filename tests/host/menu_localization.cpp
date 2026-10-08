@@ -3,6 +3,8 @@
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/MenuFont.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/font/Hack_Compressed.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/DlssNr_PipelineUi.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/MenuNavigation.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/menu/MenuCard.h"
 #include <imgui/imgui_impl_dx11.h>
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -209,6 +211,66 @@ int main(int argc, char** argv)
                     (std::string(fontMode == 0 ? "unified-" : fontMode == 1 ? "custom-" : "legacy-") + Code(lang) + "-" + std::to_string(int(scale)) + ".bmp"));
         }
         ++layouts;
+    }
+    // The actual sidebar/card components: every page, both languages and compact/full layout.
+    for (auto lang : {Language::English, Language::SimplifiedChinese})
+    for (int width : {560, 1100})
+    for (float scale : {1.f, 2.f})
+    for (int selected = 0; selected < int(MenuNavigation::Page::Count); ++selected)
+    for (int repeat = 0; repeat < 2; ++repeat)
+    {
+        current = lang;
+        io.DisplaySize = {float(width), 780};
+        ImGui_ImplDX11_NewFrame(); ImGui::NewFrame(); ImGui::PushFontSize(14 * scale);
+        ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("Navigation audit", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+        const float workRight = ImGui::GetCurrentWindow()->WorkRect.Max.x;
+        auto page = MenuNavigation::Page(selected);
+        int calls = 0;
+        MenuNavigation::Render(page, scale, [&](MenuNavigation::Page actual) {
+            assert(actual == MenuNavigation::Page(selected));
+            assert(ImGui::GetContentRegionAvail().x > 200);
+            if (ImGui::GetCurrentWindow()->WorkRect.Max.x > workRight)
+                std::fprintf(stderr, "navigation overflow font=%d lang=%s width=%d scale=%.1f page=%d repeat=%d childWork=%.2f parentWork=%.2f inner=%.2f content=%.2f\n",
+                    fontMode, Code(lang), width, scale, selected, repeat,
+                    ImGui::GetCurrentWindow()->WorkRect.Max.x, workRight,
+                    ImGui::GetCurrentWindow()->InnerRect.Max.x, ImGui::GetCurrentWindow()->ContentSize.x);
+            assert(ImGui::GetCurrentWindow()->WorkRect.Max.x <= workRight);
+            ++calls;
+            const auto before = ImGui::GetCurrentWindow()->WorkRect;
+            {
+                MenuCard card;
+                MenuSectionTitle("DLSS Neural Rendering");
+                bool enabled = true; int passes = 2; float strength = 1;
+                MenuUi::Checkbox("Enable NR", &enabled);
+                DlssNr::PipelineUi::View view {"lmxxf", "Native input resolution", "NR model", "Strength / colour"};
+                auto section = DlssNr::PipelineUi::Section::Model;
+                DlssNr::PipelineUi::Draw(view, section);
+                DlssNr::PipelineUi::Navigation(section);
+                MenuUi::SliderInt("Passes", &passes, 1, 3);
+                MenuUi::SliderFloat("Strength", &strength, 0, 2);
+                MenuUi::Checkbox("Temporal history (anti-flicker)", &enabled);
+                MenuUi::TextWrapped("ViT adaptive reuse is unavailable while Temporal history is enabled. Your settings are retained.");
+            }
+            const auto after = ImGui::GetCurrentWindow()->WorkRect;
+            assert(before.Min.x == after.Min.x && before.Max.x == after.Max.x);
+        });
+        assert(calls == 1 && page == MenuNavigation::Page(selected));
+        ImGui::End(); ImGui::PopFontSize(); ImGui::Render();
+        if (fontMode == 0 && selected == 0 && repeat == 1 && scale == 1)
+        {
+            D3D11_TEXTURE2D_DESC desc {}; desc.Width = width; desc.Height = 780; desc.MipLevels = 1;
+            desc.ArraySize = 1; desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; desc.SampleDesc.Count = 1;
+            desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+            ComPtr<ID3D11Texture2D> target; ComPtr<ID3D11RenderTargetView> rtv;
+            Check(device->CreateTexture2D(&desc, nullptr, &target));
+            Check(device->CreateRenderTargetView(target.Get(), nullptr, &rtv));
+            ID3D11RenderTargetView* raw = rtv.Get(); context->OMSetRenderTargets(1, &raw, nullptr);
+            const float clear[] = {.07f, .07f, .08f, 1}; context->ClearRenderTargetView(rtv.Get(), clear);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            SaveBmp(device.Get(), context.Get(), target.Get(), std::filesystem::path(argv[1]) /
+                ("navigation-" + std::string(Code(lang)) + "-" + std::to_string(width) + ".bmp"));
+        }
     }
     ImGui_ImplDX11_Shutdown(); ImGui::DestroyContext();
     }

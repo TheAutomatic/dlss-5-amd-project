@@ -5,6 +5,7 @@
 
 #include <imgui/imgui.h>
 #include "MenuUi.h"
+#include "MenuCard.h"
 
 class ScopedIndent
 {
@@ -22,6 +23,11 @@ class ScopedCollapsingHeader
   public:
     explicit ScopedCollapsingHeader(const char* label, ImGuiTreeNodeFlags flags = 0)
     {
+        if (MenuCard::TryTitle(label))
+        {
+            _headerOpen = true;
+            return;
+        }
         ImGui::PushID(label);
 
         ImGui::BeginChild("##CollapsingHeaderChild", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY,
@@ -117,6 +123,9 @@ class MenuCommon
     inline static bool _dx11Ready = false;
     inline static bool _dx12Ready = false;
     inline static bool _vulkanReady = false;
+    inline static ImTextureID _bgBlurTexture = ImTextureID_Invalid;
+    inline static ImVec2 _bgBlurUVScale {1, 1};
+    inline static bool _bgBlurUsed = false;
 
     inline static void ShowTooltip(const char* tip);
 
@@ -162,6 +171,9 @@ class MenuCommon
     // without changing the existing ImGui layout, labels, or setting side effects.
     static void RenderMainMenuHeaderMessages(RenderMenuContext& ctx);
     static void RenderMainMenuTable(RenderMenuContext& ctx);
+    static void RenderUpscalerStateMessage(RenderMenuContext& ctx);
+    static void RenderInitializationSettings(RenderMenuContext& ctx);
+    static void RenderVsyncSettings(RenderMenuContext& ctx);
     static void RenderActiveUpscalerSettings(RenderMenuContext& ctx);
     static void RenderFrameGenerationSelection(RenderMenuContext& ctx);
     static void RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx);
@@ -193,6 +205,13 @@ class MenuCommon
     static bool IsInited() { return _isInited; }
     static bool IsVisible() { return _isVisible; }
     static HWND Handle() { return _handle; }
+    static void SetBackgroundBlur(ImTextureID texture, ImVec2 uvScale = {1, 1})
+    {
+        _bgBlurTexture = texture;
+        _bgBlurUVScale = uvScale;
+        _bgBlurUsed = false;
+    }
+    static bool BackgroundBlurUsed() { return _bgBlurUsed; }
 
     static bool RenderMenu();
     static void Init(HWND InHwnd, bool isUWP);
