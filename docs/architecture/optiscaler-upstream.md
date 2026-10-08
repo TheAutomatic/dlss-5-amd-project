@@ -6,6 +6,34 @@ Reviewed snapshot: **97e99b4c5d9e8af38f14e3b00e1b3f7b35ab5aed**, from
 
 ## Selected changes
 
+### Follow-up snapshot (2026-10-09)
+
+Reviewed through **434b9555d960e6e471a461c2b0d98b8e1fdacfa2**
+([upstream](https://github.com/optiscaler/OptiScaler/commit/434b9555d960e6e471a461c2b0d98b8e1fdacfa2)).
+This remains a selective integration; the older baseline and rounds below describe
+previously integrated work.
+
+- HWND swapchains with a zero width or height use the current window dimensions
+  (`a676a402`). Both wrapped and detoured paths avoid misclassifying these as
+  overlay windows. Only local descriptor copies change; CoreWindow and
+  DirectComposition retain their own policies. Legacy and DESC1 sizing share a helper.
+- FFX version discovery rejects failed calls, empty lists, invalid names and a
+  count that outgrows its allocation (`b040666` / reviewed snapshot). It publishes
+  only complete results and stops callers before indexing an empty list. This does
+  not import upstream's temporary-device discovery or global spoofing scope.
+- FakeNVAPI has no new API coverage in this interval. The upstream DX11 timing
+  subtraction fix does not apply to our direct-forwarding implementation.
+
+Deferred: game-follow FG/DMFG and SL1 resolver changes affect our external FG
+ownership, NR-only XeFG override and per-plugin callback leases. Late latching,
+projection overrides, zero-frame-ID HUD rotation and Vulkan timestamps require
+resource/queue and real-game validation. Linux/DXVK paths need that platform;
+GameConfigs/dllmain restructuring has no benefit sufficient to justify moving our
+Unity early-wrap and per-game defaults in this update. SDK pins are unchanged.
+
+The real descriptor helper tests and host build pass. Full CI/GPU was explicitly
+outside this follow-up's validation scope; game resize/exit acceptance is still required.
+
 - NVAPI DRS DLSSG OTA protection (`ed30706`): only the output owned by this host,
   with the external-frame-generation bypass and DWORD validation preserved.
 - DXGI factory calls use our existing thread-local D3D creation scope. No global

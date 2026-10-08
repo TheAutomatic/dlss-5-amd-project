@@ -394,7 +394,6 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
 
     if (pDesc != nullptr)
         memcpy(&localDesc, pDesc, sizeof(DXGI_SWAP_CHAIN_DESC1));
-    ResolveWindowSizedSwapchain(localDesc, hWnd);
 
     static bool firstCall = static_cast<bool>(State::Instance().gameQuirks & GameQuirk::NoFSRFGFirstSwapchain);
     if (firstCall)
@@ -439,6 +438,8 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
 
         return result;
     }
+
+    ResolveWindowSizedSwapchain(localDesc, hWnd);
 
     if (IsSmallHwndSwapchain(pDesc->Width, pDesc->Height))
     {

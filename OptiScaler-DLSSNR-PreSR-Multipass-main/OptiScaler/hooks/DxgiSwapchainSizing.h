@@ -26,19 +26,12 @@ inline bool ResolveWindowSizedSwapchain(DXGI_SWAP_CHAIN_DESC1& desc, HWND window
 // Window visibility is not a size test: games often create the swapchain before showing the window.
 inline bool ResolveWindowSizedSwapchain(DXGI_SWAP_CHAIN_DESC& desc)
 {
-    if (desc.BufferDesc.Width != 0 || desc.BufferDesc.Height != 0 || desc.OutputWindow == nullptr)
-        return false;
-
-    RECT rect {};
-    if (!GetClientRect(desc.OutputWindow, &rect))
-        return false;
-    const LONG width = rect.right - rect.left;
-    const LONG height = rect.bottom - rect.top;
-    if (width < 100 || height < 100)
-        return false;
-
-    desc.BufferDesc.Width = (UINT) width;
-    desc.BufferDesc.Height = (UINT) height;
+    DXGI_SWAP_CHAIN_DESC1 size {};
+    size.Width = desc.BufferDesc.Width;
+    size.Height = desc.BufferDesc.Height;
+    if (!ResolveWindowSizedSwapchain(size, desc.OutputWindow)) return false;
+    desc.BufferDesc.Width = size.Width;
+    desc.BufferDesc.Height = size.Height;
     return true;
 }
 
