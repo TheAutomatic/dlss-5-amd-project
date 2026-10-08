@@ -202,6 +202,14 @@ jobs:
           ./tools/build/build-ci.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Create ephemeral package signing certificate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tools/release/package-signing.ps1
+          $cert = Get-PackageSigningCertificate -Ephemeral
+          "PACKAGE_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Package user zip
         shell: pwsh
         run: |
@@ -210,11 +218,22 @@ jobs:
           powershell -ExecutionPolicy Bypass -File tools\release\PACKAGE_RELEASE.ps1 `
             -Version $ver `
             -OptiDll "$env:BUILD_OUT\OptiScaler.dll" `
+            -SigningThumbprint "$env:PACKAGE_SIGNING_THUMBPRINT" `
             -OutDir dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path "dist\OptScaler-NR-$ver.zip")) {
             throw "Package zip missing for $ver"
           }
+
+      - name: Remove ephemeral signing key
+        if: ${{ always() && env.PACKAGE_SIGNING_THUMBPRINT != '' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:PACKAGE_SIGNING_THUMBPRINT -notmatch '^[0-9a-fA-F]{40}$') { throw 'Invalid ephemeral certificate identity' }
+          Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1')
+          Get-Item -LiteralPath "Cert:/CurrentUser/My/$env:PACKAGE_SIGNING_THUMBPRINT" -ErrorAction Stop | Out-Null
+          Remove-Item -LiteralPath "Cert:/CurrentUser/My/$env:PACKAGE_SIGNING_THUMBPRINT" -DeleteKey -ErrorAction Stop
 
       - name: Guard against proprietary files
         shell: pwsh

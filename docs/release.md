@@ -159,6 +159,32 @@ if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
 
 ## 包内容
 
+### 自动 Authenticode 自签名
+
+本地与 Actions 共用 `tools/release/package-signing.ps1`。先完成原始 host/runtime
+的测试凭证、源码新鲜度、复制哈希和禁止内容检查，再签署 staging 内所有 DLL、EXE、
+ASI、OCX，最后生成 `SHA256SUMS.txt` 和 ZIP。`exports/` 中的已测试产物及其凭证不变；
+`SIGNATURES.json` 记录每个二进制的原始/签后 SHA256、证书指纹和验证结果。签名后只允许
+PE checksum、安全目录和末尾证书变化，其余原始字节必须一致。ZIP 校验使用签后字节。
+
+有效的已有嵌入签名保留原字节，不用开发证书覆盖第三方发布者。只有本机目录信任的
+catalog 签名不随文件分发，所以按未嵌入签名处理。坏摘要、非法 PE、签名失败均中止打包。
+`WinVerifyTrust` 离线校验不下载吊销信息；允许缺少可信根/证书链，并将结果写入清单。
+
+本地默认复用 CurrentUser/My 中 `CN=OptiScaler Dev SelfSign` 的有效代码签名证书；
+缺失则生成 RSA3072/SHA256、私钥不可导出的五年证书。可用
+`PACKAGE_RELEASE.ps1 -SigningThumbprint <指纹>` 显式选择有效证书。不导入 Root 或
+TrustedPublisher，也不需管理员权限。自签名符合 Authenticode 格式，但**不等于 Windows
+信任的发布者**，不保证所有 Loader/杀软放行。没有时间戳服务，证书到期后需更新包。
+
+Actions 每次创建独立证书，打包步骤传入其指纹，随后的 `always()` 步骤删除证书及私钥；
+不上传私钥，不把证书写入源码。临时的是私钥持有时间，证书有效期仍是五年。失败或强制
+终止的 runner 随 GitHub 托管环境销毁。专项入口 `tests/install/package-signing.ps1`
+已接入安装领域测试，检查真实签名、别名、保留签名、重复调用、篡改拒绝和 manifest 哈希。
+
+本地 `BUILD_LOCAL_PACKAGE.ps1` 在构建成功后取得证书，再调用同一打包器；支持
+`1.10.5-alpha` 等版本。`-PlanOnly` 不创建证书。LocalTest 与完整发版验证的区别不变。
+
 `PACKAGE_RELEASE.ps1 -OutDir dist` 在 `dist/` 生成 `OptScaler-NR-<版本>/` 打包目录和同名 `.zip`，本地测试与正式发布统一使用这一位置。Actions 在独立 runner 的 `dist/` 生成附件；线上发布仍须使用通过远端验证的产物。
 
 包根目录：

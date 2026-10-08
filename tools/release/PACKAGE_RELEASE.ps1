@@ -17,6 +17,7 @@ param(
     [string]$Name = '',
     [string]$OptiDll = '',
     [string]$DepsRoot = '',
+    [string]$SigningThumbprint = '',
     # Local smoke package only: does not certify full release validation.
     [switch]$LocalTest,
     [switch]$AllowMissingDeps
@@ -691,6 +692,10 @@ if ($LocalTest) {
         [Text.UTF8Encoding]::new($false))
 }
 if (Test-Path (Join-Path $stage 'dlssnr-amd/dlssnr.bin')) { throw 'User model must never be packaged.' }
+# Source identity/freshness gates above certify the original build. Only staged copies are signed.
+# The signing helper proves executable bytes are unchanged and records original -> signed hashes.
+. (Join-Path $PSScriptRoot 'package-signing.ps1')
+Invoke-PackageSigning -Stage $stage -Thumbprint $SigningThumbprint
 $expectedEntries = @{}
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |

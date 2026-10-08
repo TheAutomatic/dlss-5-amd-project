@@ -21,7 +21,7 @@ try {
     }
     if (!$Version) { $Version = Read-Host 'Package version (example: 1.9.10.3)' }
     $Version = $Version.Trim()
-    if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?$') { throw 'Use a numeric version such as 1.9.10.3.' }
+    if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$') { throw 'Use a version such as 1.9.10.3 or 1.10.5-alpha.' }
     $roots = @($Root)
     $common = & git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot read checkout Git identity.' }
@@ -84,9 +84,12 @@ exit /b 0
             [IO.File]::WriteAllText($versionPath,"$Version`r`n",[Text.Encoding]::ASCII)
             & $env:ComSpec /d /c "`"$batchPath`"" 2>&1 | Tee-Object -FilePath (Join-Path $logs 'build.log')
             if ($LASTEXITCODE -ne 0) { throw "Compilation failed; see $logs\build.log" }
+            . (Join-Path $Root 'tools/release/package-signing.ps1')
+            $signingCertificate = Get-PackageSigningCertificate
             $ps = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
             & $ps -NoProfile -ExecutionPolicy Bypass -File tools/release/PACKAGE_RELEASE.ps1 `
                 -LocalTest -Version $Version -Name $name -OutDir dist `
+                -SigningThumbprint $signingCertificate.Thumbprint `
                 -OptiDll exports/release-local/OptiScaler.dll -DepsRoot $deps 2>&1 |
                 Tee-Object -FilePath (Join-Path $logs 'package.log')
             if ($LASTEXITCODE -ne 0) { throw "Packaging failed; see $logs\package.log" }

@@ -51,6 +51,11 @@ class LocalPackageTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.root / 'VERSION').read_bytes(), b'1.0.0\r\n')
 
+    def test_prerelease_plan(self):
+        result = self.run_script('-Version', '1.10.5-alpha', '-PlanOnly')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.root / 'exports').exists())
+
     def test_failure_stops_and_restores_version(self):
         result = self.run_script('-Version', '1.9.10.3')
         self.assertNotEqual(result.returncode, 0)

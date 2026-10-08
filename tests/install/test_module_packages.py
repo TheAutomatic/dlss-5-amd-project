@@ -1,4 +1,4 @@
-"""Run the real packaging/staging entrypoints with tiny, non-executable inputs."""
+"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
 import os
 import configparser
 import hashlib
@@ -21,8 +21,35 @@ PS = os.environ.get('LMXXF_TEST_POWERSHELL', shutil.which('powershell.exe'))
 
 @unittest.skipUnless(os.name == 'nt' and PS, 'Windows PowerShell required')
 class ModulePackageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        scratch = REPO / 'work/scratch'
+        scratch.mkdir(parents=True, exist_ok=True)
+        cls.signing_temp = tempfile.TemporaryDirectory(prefix='package-signing-fixture-', dir=scratch)
+        cls.addClassCleanup(cls.signing_temp.cleanup)
+        env = dict(os.environ, PACKAGE_FIXTURE_DIR=cls.signing_temp.name,
+                   PACKAGE_SIGNING_HELPER=str(REPO / 'tools/release/package-signing.ps1'))
+        script = '''$ErrorActionPreference = 'Stop'
+. $env:PACKAGE_SIGNING_HELPER
+Add-Type -TypeDefinition 'public static class PackageFixture { public static int Value() { return 42; } }' -OutputAssembly (Join-Path $env:PACKAGE_FIXTURE_DIR 'fixture.dll')
+(Get-PackageSigningCertificate -Ephemeral).Thumbprint
+'''
+        result = subprocess.run([PS, '-NoProfile', '-Command', script], env=env,
+                                capture_output=True, check=True, timeout=60)
+        cls.thumbprint = result.stdout.decode().strip()
+        cls.addClassCleanup(cls.remove_certificate)
+        cls.pe_bytes = (Path(cls.signing_temp.name) / 'fixture.dll').read_bytes()
+
+    @classmethod
+    def remove_certificate(cls):
+        subprocess.run([PS, '-NoProfile', '-Command',
+                        'Import-Module (Join-Path $PSHOME "Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1"); '
+                        'Get-Item -LiteralPath ("Cert:/CurrentUser/My/" + $env:PACKAGE_TEST_CERT) -ErrorAction Stop | Out-Null; '
+                        'Remove-Item -LiteralPath ("Cert:/CurrentUser/My/" + $env:PACKAGE_TEST_CERT) -DeleteKey -ErrorAction Stop'],
+                       env=dict(os.environ, PACKAGE_TEST_CERT=cls.thumbprint), check=True)
+
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='lmxxf package entrypoints ')
+        self.temp = tempfile.TemporaryDirectory(prefix='lmxxf package entrypoints ', dir=REPO / 'work/scratch')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / 'tools/release').mkdir(parents=True)
@@ -30,7 +57,7 @@ class ModulePackageTests(unittest.TestCase):
         for name in ('release/PACKAGE_RELEASE.ps1', 'install-amd-presr.ps1', 'uninstall-amd-presr.ps1',
                      'lmxxf-module-package.ps1', 'stage-lmxxf-beside-optiscaler.cmd',
                      'stage-lmxxf-beside-optiscaler.ps1', 'release/check-module-contract.ps1',
-                     'release/check-release-freshness.ps1', 'lmxxf-sync/manifest.json'):
+                     'release/check-release-freshness.ps1', 'release/package-signing.ps1', 'lmxxf-sync/manifest.json'):
             shutil.copy2(REPO / 'tools' / name, self.root / 'tools' / name)
         # Both real gates run against this synthetic checkout. Carry their source inputs
         # along with the entrypoint instead of replacing a new gate with a success stub.
@@ -52,10 +79,10 @@ class ModulePackageTests(unittest.TestCase):
         shutil.copy2(REPO / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler.ini',
                      self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler.ini')
         self.opti = self.root / 'fixture-opti.dll'
-        self.opti.write_bytes(b'fixture proxy, not executable')
+        self.opti.write_bytes(self.pe_bytes)
         runtime = self.root / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
         runtime.parent.mkdir(parents=True)
-        runtime.write_bytes(b'fixture runtime, not executable')
+        runtime.write_bytes(self.pe_bytes)
         (runtime.parent / 'runtime-ci.sha256').write_text(hashlib.sha256(runtime.read_bytes()).hexdigest())
         self.modules = make_modules(self.root / 'third_party/lmxxf/modules')
         shaders = self.root / 'third_party/lmxxf/shaders'
@@ -64,7 +91,7 @@ class ModulePackageTests(unittest.TestCase):
         self.env = {k.upper(): v for k, v in os.environ.items()}
         self.env.pop('PSMODULEPATH', None)
         self.archive = self.root / 'dist/package.zip'
-        # Real Mochizuki source/hash gate, with explicitly non-executable fixture artifacts.
+        # Real Mochizuki source/hash gate; PE is signable, never executed as a runtime.
         for directory in ('third_party/mochizuki',
                           'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime'):
             shutil.copytree(REPO / directory, self.root / directory, ignore=shutil.ignore_patterns('__pycache__'))
@@ -79,7 +106,7 @@ class ModulePackageTests(unittest.TestCase):
             shutil.copy2(REPO / name, target)
         mz = self.root / 'exports/mochizuki-runtime'
         (mz / 'dlssnr-amd/shaders').mkdir(parents=True)
-        (mz / 'MochizukiNrRuntime.dll').write_bytes(b'fixture Vulkan runtime, not executable')
+        (mz / 'MochizukiNrRuntime.dll').write_bytes(self.pe_bytes)
         (mz / 'dlssnr-amd/shaders/test.spv').write_bytes(b'fixture SPIR-V, not executable')
         runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))['write'](mz)
         (mz / 'abi-ci.sha256').write_text(hashlib.sha256((mz / 'MochizukiNrRuntime.dll').read_bytes()).hexdigest())
@@ -99,7 +126,8 @@ class ModulePackageTests(unittest.TestCase):
 
     def package(self):
         return self.run_ps(['-File', str(self.root / 'tools/release/PACKAGE_RELEASE.ps1'),
-                           '-OptiDll', str(self.opti), '-AllowMissingDeps', '-Name', 'package'])
+                           '-OptiDll', str(self.opti), '-AllowMissingDeps', '-Name', 'package',
+                           '-SigningThumbprint', self.thumbprint])
 
     def assert_rejected(self, fault):
         damage_modules(self.modules, fault)

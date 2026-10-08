@@ -87,6 +87,8 @@ tests\run-all.cmd --tier ci|device|gpu|all [--out 目录] [--skip-sync] [--keep-
 
 ## Mochizuki 工具
 
+- `tools/release/package-signing.ps1`：本地/Actions staging 自签名与 Authenticode 校验；用法、证书寿命及哈希顺序见 [发版流程](release.md#自动-authenticode-自签名)。
+
 - `tools/build/build-mochizuki-runtime.cmd`：MSVC runtime 与固定版本 glslang shaders。
 - `tools/build/mochizuki-manifest.py`：源码及可分发产物哈希验证。
 - `tools/install/mochizuki-model.py`：仅从用户提供的指定版本 DLL 提取模型。
