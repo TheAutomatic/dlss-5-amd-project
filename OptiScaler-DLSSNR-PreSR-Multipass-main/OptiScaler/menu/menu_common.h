@@ -25,6 +25,9 @@ class ScopedCollapsingHeader
     {
         if (MenuCard::TryTitle(label))
         {
+            // Removing a visual foldout must not remove its control ID namespace.
+            ImGui::PushID(label);
+            _titleOnly = true;
             _headerOpen = true;
             return;
         }
@@ -46,10 +49,13 @@ class ScopedCollapsingHeader
             ImGui::EndChild();
             ImGui::PopID();
         }
+        else if (_titleOnly)
+            ImGui::PopID();
     }
 
   private:
     bool _active = false;
+    bool _titleOnly = false;
     bool _headerOpen = false;
 };
 
