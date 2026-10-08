@@ -343,6 +343,10 @@ class Config
     CustomOptional<float> NrStabilizerAlpha { .8f };
     CustomOptional<float> NrStabilizerThreshold { 4.f };
     CustomOptional<float> NrOverallIntensity { 1.0f };
+    CustomOptional<float> NrResidualLowGain { 1.0f };
+    CustomOptional<float> NrResidualDetailGain { 1.0f };
+    CustomOptional<float> NrResidualSkinProtection { 0.0f };
+    CustomOptional<float> NrResidualEdgeProtection { 0.0f };
     // NR host: daniel or lmxxf. Missing / auto pick an installed host.
     // Config load migrates legacy off/none to Enabled=false.
     // Explicit choice missing its files falls back to the other. Enable NR is the on/off.

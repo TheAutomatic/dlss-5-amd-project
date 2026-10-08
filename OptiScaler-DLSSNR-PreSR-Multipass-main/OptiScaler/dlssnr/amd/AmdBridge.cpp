@@ -912,7 +912,9 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
              f.motionScaleX, f.motionScaleY, f.jitterX, f.jitterY, f.preExposure, f.exposureScale,
              f.depthInverted, f.motionJittered, f.reset},
             {cfg.NrStabilizerEnabled.value_or_default(), cfg.NrStabilizerAlpha.value_or_default(),
-             cfg.NrStabilizerThreshold.value_or_default()});
+             cfg.NrStabilizerThreshold.value_or_default()},
+            {cfg.NrResidualLowGain.value_or_default(), cfg.NrResidualDetailGain.value_or_default(),
+             cfg.NrResidualSkinProtection.value_or_default(), cfg.NrResidualEdgeProtection.value_or_default()});
         if (beforeUpscale)
         {
             originalColour = f.colour;

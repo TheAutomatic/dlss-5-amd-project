@@ -63,10 +63,11 @@ class ConfigPriorityTests(unittest.TestCase):
                 "LmxxfModelHistory",  # Host-owned FrameInfo flag, not an upstream environment key.
                 "NrStabilizerEnabled", "NrStabilizerAlpha", "NrStabilizerThreshold",
                 "NrOverallIntensity",  # Shared final-output blend, no runtime environment alias.
+                "NrResidualLowGain", "NrResidualDetailGain", "NrResidualSkinProtection", "NrResidualEdgeProtection",
                 "kSection",
                 "kDanielSection",
                 "kMenuSection",  # Host window settings do not cross the runtime boundary.
-                "MenuLanguage", "MenuWindowWidth", "MenuWindowHeight", "MenuWindowAnchor",
+                "MenuLanguage", "MenuBlur", "MenuBlurStrength", "MenuWindowWidth", "MenuWindowHeight", "MenuWindowAnchor",
                 "FpsOverlayColorR", "FpsOverlayColorG", "FpsOverlayColorB",
                 "ToneCurve",
                 "ToneLift",
@@ -85,6 +86,27 @@ class ConfigPriorityTests(unittest.TestCase):
     def test_env_alias_is_identity_for_unified_keys(self):
         self.assertIn("if (std::strncmp(iniKey, \"DLSS5_\", 6) == 0)", KEYS)
         self.assertNotIn('return "DLSS5_FIT_LARGE"', KEYS)
+
+    def test_shared_residual_controls_are_host_owned_and_neutral(self):
+        product = ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main"
+        header = (product / "OptiScaler/Config.h").read_text(encoding="utf-8")
+        ini = (product / "OptiScaler.ini").read_text(encoding="utf-8")
+        packager = (ROOT / "tools/release/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8")
+        reset = MENU.split("static void ResetSharedEffectsDefaults", 1)[1].split("static void ResetSharedNrDefaults", 1)[0]
+        for key, value in (("NrResidualLowGain", "1.0"), ("NrResidualDetailGain", "1.0"),
+                           ("NrResidualSkinProtection", "0.0"), ("NrResidualEdgeProtection", "0.0")):
+            with self.subTest(key=key):
+                self.assertIn(f'{key} = "{key}"', KEYS)
+                self.assertIn(f"    {key},", KEYS.split("kKnown[]", 1)[1])
+                self.assertIn(f"{key} {{ {value}f }}", header)
+                self.assertIn(f"{key}.set_from_config(readFloat(CfgKey::kSection, CfgKey::{key}))", CONFIG)
+                self.assertIn(f"ini.SetValue(CfgKey::kSection, CfgKey::{key},", CONFIG)
+                self.assertIn(f"Instance()->{key}.value_for_config()", CONFIG)
+                self.assertNotRegex(CONFIG, rf"PutEnv\w*\(CfgKey::{key}")
+                self.assertNotIn(key, RUNTIME)
+                self.assertIn(f"config->{key} = std::optional<float>{{}}", reset)
+                for source in (ini, packager):
+                    self.assertRegex(source, rf"(?m)^{key}={value}$")
 
     def test_nr_multiplier_has_separate_persistent_key(self):
         self.assertIn('XeFGInterpolationCount = "XeFGInterpolationCount"', KEYS)

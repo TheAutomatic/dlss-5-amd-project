@@ -1,6 +1,13 @@
 #include "nr_effects_test_utils.h"
 int main()
 {
+    for (const auto* source : {&Effects::BlendShader, &Effects::StabilizerShader}) {
+        Ptr<ID3DBlob> blob, errors;
+        const HRESULT hr = NativeCompileShaderBlob(source->c_str(), source->size(), "NR output effects",
+            nullptr, nullptr, "main", &blob, &errors);
+        if (FAILED(hr) && errors) std::fprintf(stderr, "%s\n", static_cast<const char*>(errors->GetBufferPointer()));
+        Check(hr, "compile output shaders");
+    }
     Ptr<ID3D12Debug> debug;if(SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))debug->EnableDebugLayer();
     Ptr<IDXGIFactory4> factory;Ptr<IDXGIAdapter> adapter;Ptr<ID3D12Device> device;
     Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory");SelectEffectsAdapter(factory.Get(), &adapter);

@@ -291,6 +291,16 @@ NrTimingLog=false
 ; Shared final-output blend for either AMD backend. 0..2, default 1.
 ; 0 shows the original but still runs NR; disable NR to save model computation.
 NrOverallIntensity=1.0
+; Experimental shared spatial residual shaping, after backend history, before overall intensity.
+; Low/detail gains: 0..2, default 1/1. Does not add network passes or blur original detail.
+; Skin/edge detail protection: 0..1, default 0/0 (off). Only constrains introduced fine detail.
+; Skin is a colour heuristic, NOT person detection; warm scenery may also be affected.
+; These are not temporal anti-flicker. Test HDR/fast motion before enabling by default.
+; Neutral 1/1/0/0 keeps the old output path. Pure-backend sessions may need a restart.
+NrResidualLowGain=1.0
+NrResidualDetailGain=1.0
+NrResidualSkinProtection=0.0
+NrResidualEdgeProtection=0.0
 ; Shared temporal residual filtering; requires motion/depth. Off by default.
 ; May soften moving detail or trail; adds GPU work and history memory.
 ; Alpha 0..0.95; threshold 0..16 (compressed-colour units of 1/255). Either zero bypasses it.

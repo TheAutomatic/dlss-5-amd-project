@@ -1,4 +1,7 @@
 #pragma once
+#include "../NrEffectsSettings.h"
+#include "NrResidualShader.h"
+#include <string>
 
 namespace DlssNr::Effects
 {
@@ -8,7 +11,7 @@ namespace DlssNr::Effects
 // Local shader changes add depth-weighted bilinear history, invalid-guide
 // rejection, and Overall Intensity after storing the unscaled residual.
 // NrOutputEffects owns product recording lifetimes and history publication.
-inline constexpr char StabilizerShader[] = R"(
+inline const std::string StabilizerShader = std::string(R"(
 Texture2D<float4> original:register(t0),result:register(t1);
 Texture2D<float2> motion:register(t2);
 Texture2D<float> depth:register(t3);
@@ -19,6 +22,7 @@ cbuffer Params:register(b0){
  float2 mvScale,jitterStep;
  float alpha,threshold,preExposure;uint flags;
  float intensity;float3 padding;
+ float lowGain,detailGain,skinProtection,edgeProtection;
 }
 float3 Encode(float3 c){
  float3 t=clamp(c,0,65504)/preExposure;t=t/(1+t);
@@ -39,10 +43,9 @@ void Accumulate(int2 p,float weight,float key,inout float3 sum,inout float total
   sum+=h.rgb*weight;total+=weight;
  }
 }
-[numthreads(8,8,1)]void main(uint3 id:SV_DispatchThreadID){
- if(id.x>=width||id.y>=height)return;
- int2 p=int2(id.xy),tap=p;
- float4 b=original.Load(int3(p,0)),r=result.Load(int3(p,0));
+float3 ReadCorrection(int2 p,out float4 b,out float4 next){
+ int2 tap=p;
+ b=original.Load(int3(p,0));float4 r=result.Load(int3(p,0));
  bool colourValid=all(isfinite(b))&&all(isfinite(r))&&all(b.rgb>=0)&&all(r.rgb>=0);
  if(!all(isfinite(b)))b=0;
  if(!all(isfinite(r)))r=b;
@@ -68,14 +71,12 @@ void Accumulate(int2 p,float weight,float key,inout float3 sum,inout float total
   if(valid)filtered=lerp(residual,clamp(sum/total,residual-threshold,residual+threshold),alpha);
  }
  // Invalid motion/colour cannot seed a usable history on the next frame.
- nextHistory[p]=float4(filtered,colourValid&&all(isfinite(mv))?key:-1);
+ next=float4(filtered,colourValid&&all(isfinite(mv))?key:-1);
  float3 corrected=valid?Decode(e+filtered):r.rgb;
- float3 c=lerp(b.rgb,corrected,min(intensity,1));
- if(intensity>1){float3 limit=.5*max(max(abs(b.rgb),abs(corrected)),.001);
-  c=corrected+clamp(corrected-b.rgb,-limit,limit)*(intensity-1);}
- output[p]=float4(clamp(c,-65504,65504),b.a);
+ return corrected;
 }
-)";
+void WriteHistory(int2 p,float4 h){nextHistory[p]=h;}
+)") + ResidualComposeShader;
 struct StabilizerConstants
 {
     unsigned width, height, mvWidth, mvHeight;
@@ -83,6 +84,7 @@ struct StabilizerConstants
     float alpha, threshold, preExposure;
     unsigned flags;
     float intensity, padding[3] {};
+    ResidualSettings residual;
 };
-static_assert(sizeof(StabilizerConstants) == 64);
+static_assert(sizeof(StabilizerConstants) == 80);
 }

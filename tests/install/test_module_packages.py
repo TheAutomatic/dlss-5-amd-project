@@ -229,6 +229,8 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         expected = {
             'NrTimingEnabled': 'false', 'NrTimingLog': 'false',
             'NrOverallIntensity': '1.0', 'NrStabilizerEnabled': 'false',
+            'NrResidualLowGain': '1.0', 'NrResidualDetailGain': '1.0',
+            'NrResidualSkinProtection': '0.0', 'NrResidualEdgeProtection': '0.0',
             'NrStabilizerAlpha': '0.8', 'NrStabilizerThreshold': '4.0',
             'MochizukiStyle': '0', 'MochizukiModelScale': '1.0',
             'MochizukiTemporal': 'true', 'MochizukiPreprocess': 'false',

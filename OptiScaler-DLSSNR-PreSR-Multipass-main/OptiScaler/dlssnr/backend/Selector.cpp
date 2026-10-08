@@ -144,7 +144,11 @@ bool ProxyWrapWanted()
     // This requests only the proxy; it never instantiates the inactive backend.
     if (!Config::Instance()->DlssNrRunBeforeSr.value_or_default() ||
         Config::Instance()->NrStabilizerEnabled.value_or_default() ||
-        DlssNr::OverallIntensity(Config::Instance()->NrOverallIntensity.value_or_default()) != 1.0f)
+        DlssNr::OverallIntensity(Config::Instance()->NrOverallIntensity.value_or_default()) != 1.0f ||
+        DlssNr::ResidualSettings {Config::Instance()->NrResidualLowGain.value_or_default(),
+            Config::Instance()->NrResidualDetailGain.value_or_default(),
+            Config::Instance()->NrResidualSkinProtection.value_or_default(),
+            Config::Instance()->NrResidualEdgeProtection.value_or_default()}.Active())
         return true;
     if (!LmxxfWired())
         return false;

@@ -33,6 +33,10 @@ namespace DlssNr
 static void ResetSharedEffectsDefaults(Config* config)
 {
     config->NrOverallIntensity = std::optional<float>{};
+    config->NrResidualLowGain = std::optional<float>{};
+    config->NrResidualDetailGain = std::optional<float>{};
+    config->NrResidualSkinProtection = std::optional<float>{};
+    config->NrResidualEdgeProtection = std::optional<float>{};
     config->NrStabilizerEnabled = std::optional<bool>{};
     config->NrStabilizerAlpha = std::optional<float>{};
     config->NrStabilizerThreshold = std::optional<float>{};
@@ -50,9 +54,10 @@ static void ResetSharedNrDefaults(Config* config)
 static void HelpMarker(const char* tip)
 {
     ImGui::SameLine();
+    MenuUi::FitSameLine(MenuUi::CalcTextSize("(?)").x);
     MenuUi::TextDisabled("(?)");
 
-    if (ImGui::IsItemHovered())
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
@@ -240,28 +245,42 @@ static bool MochizukiFloatControl(const char* label, std::string_view key, float
 
 static void RenderSharedOutputEffects(Config* config)
 {
-            float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
-            if (MenuUi::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
-                config->NrOverallIntensity = overallIntensity;
-            HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
-                       "\nThis does not reduce model computation. Disable NR to save that work."
-                       "\nA pure-backend session may require a restart to enable the shared effect recording path.");
-            bool stabilizer = config->NrStabilizerEnabled.value_or_default();
-            if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
-                config->NrStabilizerEnabled = stabilizer;
-                DlssNr::AmdBridge::InvalidateHistory();
-            }
-            HelpMarker("Reduces temporal variation in the NR correction using motion and depth."
-                       "\nMay soften moving detail; disabled by default. Requires valid motion and depth inputs.");
-            if (stabilizer) {
-                float alpha = config->NrStabilizerAlpha.value_or_default();
-                float threshold = config->NrStabilizerThreshold.value_or_default();
-                if (MenuUi::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
-                if (MenuUi::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
-                HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
-            }
-            if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
-            HelpMarker("Resets Overall Intensity and Residual Stabilizer only.");
+    float overallIntensity = DlssNr::OverallIntensity(config->NrOverallIntensity.value_or_default());
+    if (MenuUi::SliderFloat("Overall Intensity", &overallIntensity, 0.0f, 2.0f, "%.2f"))
+        config->NrOverallIntensity = overallIntensity;
+    HelpMarker("Blends the final NR correction for all backends. 0 = original, 1 = full effect, above 1 amplifies it."
+               "\nThis does not reduce model computation. Disable NR to save that work."
+               "\nA pure-backend session may require a restart to enable the shared effect recording path.");
+    auto residual = DlssNr::ResidualSettings {
+        config->NrResidualLowGain.value_or_default(), config->NrResidualDetailGain.value_or_default(),
+        config->NrResidualSkinProtection.value_or_default(), config->NrResidualEdgeProtection.value_or_default()
+    }.Bounded();
+    ImGui::BeginDisabled(overallIntensity == 0);
+    if (MenuUi::SliderFloat("Low-frequency gain", &residual.lowGain, 0.f, 2.f, "%.2f")) config->NrResidualLowGain = residual.lowGain;
+    HelpMarker("Adjusts broad changes in NR lighting and colour. 1 = unchanged. Shared by all backends, after their history.\nNo additional network pass; spatial processing still has a GPU cost.");
+    if (MenuUi::SliderFloat("Fine-detail gain", &residual.detailGain, 0.f, 2.f, "%.2f")) config->NrResidualDetailGain = residual.detailGain;
+    HelpMarker("Adjusts fine-scale NR changes without blurring original detail. Below 1 reduces fine residual noise; above 1 can increase flicker.\nThis strengthens an existing pass, not a real second pass.");
+    if (MenuUi::SliderFloat("Skin detail protection", &residual.skinProtection, 0.f, 1.f, "%.2f")) config->NrResidualSkinProtection = residual.skinProtection;
+    HelpMarker("Experimental: limits new fine-scale NR changes in skin-like colours, guided by original detail. 0 = off.\nA colour heuristic, not person detection: warm backgrounds can also be affected. HDR appearance needs testing.");
+    if (MenuUi::SliderFloat("Edge detail protection", &residual.edgeProtection, 0.f, 1.f, "%.2f")) config->NrResidualEdgeProtection = residual.edgeProtection;
+    HelpMarker("Experimental: limits new fine-scale NR changes near strong original edges. 0 = off. Keeps original edges and alpha.\nCan weaken intended NR detail; this is spatial protection, not temporal anti-flicker.");
+    ImGui::EndDisabled();
+    bool stabilizer = config->NrStabilizerEnabled.value_or_default();
+    if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
+        config->NrStabilizerEnabled = stabilizer;
+        DlssNr::AmdBridge::InvalidateHistory();
+    }
+    HelpMarker("Reduces temporal variation in the NR correction using motion and depth."
+               "\nMay soften moving detail; disabled by default. Requires valid motion and depth inputs.");
+    if (stabilizer) {
+        float alpha = config->NrStabilizerAlpha.value_or_default();
+        float threshold = config->NrStabilizerThreshold.value_or_default();
+        if (MenuUi::SliderFloat("History blend", &alpha, 0.f, .95f, "%.2f")) config->NrStabilizerAlpha = alpha;
+        if (MenuUi::SliderFloat("Residual threshold", &threshold, 0.f, 16.f, "%.1f")) config->NrStabilizerThreshold = threshold;
+        HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
+    }
+    if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
+    HelpMarker("Resets Overall Intensity, residual gains and protections, and Residual Stabilizer.");
 
 }
 

@@ -405,6 +405,10 @@ bool Config::Reload(std::filesystem::path iniPath)
             NrStabilizerAlpha.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrStabilizerAlpha));
             NrStabilizerThreshold.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrStabilizerThreshold));
             NrOverallIntensity.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrOverallIntensity));
+            NrResidualLowGain.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrResidualLowGain));
+            NrResidualDetailGain.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrResidualDetailGain));
+            NrResidualSkinProtection.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrResidualSkinProtection));
+            NrResidualEdgeProtection.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrResidualEdgeProtection));
             MochizukiIntensity.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiIntensity));
             MochizukiStyle.set_from_config(readUInt(CfgKey::kSection, CfgKey::MochizukiStyle));
             MochizukiLocalTone.set_from_config(readFloat(CfgKey::kSection, CfgKey::MochizukiLocalTone));
@@ -1648,6 +1652,10 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::NrStabilizerAlpha, GetFloatValue(Instance()->NrStabilizerAlpha.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrStabilizerThreshold, GetFloatValue(Instance()->NrStabilizerThreshold.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrOverallIntensity, GetFloatValue(Instance()->NrOverallIntensity.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrResidualLowGain, GetFloatValue(Instance()->NrResidualLowGain.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrResidualDetailGain, GetFloatValue(Instance()->NrResidualDetailGain.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrResidualSkinProtection, GetFloatValue(Instance()->NrResidualSkinProtection.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrResidualEdgeProtection, GetFloatValue(Instance()->NrResidualEdgeProtection.value_for_config()).c_str());
     // Write the active menu choice even when it equals the default. Leaving an
     // older lmxxf key untouched would undo a switch back to daniel on restart.
     std::string nrBackend;

@@ -46,6 +46,10 @@ inline constexpr const char *NrStabilizerEnabled = "NrStabilizerEnabled";
 inline constexpr const char *NrStabilizerAlpha = "NrStabilizerAlpha";
 inline constexpr const char *NrStabilizerThreshold = "NrStabilizerThreshold";
 inline constexpr const char *NrOverallIntensity = "NrOverallIntensity";
+inline constexpr const char *NrResidualLowGain = "NrResidualLowGain";
+inline constexpr const char *NrResidualDetailGain = "NrResidualDetailGain";
+inline constexpr const char *NrResidualSkinProtection = "NrResidualSkinProtection";
+inline constexpr const char *NrResidualEdgeProtection = "NrResidualEdgeProtection";
 inline constexpr const char *MochizukiIntensity = "MochizukiIntensity";
 inline constexpr const char *MochizukiStyle = "MochizukiStyle";
 inline constexpr const char *MochizukiLocalTone = "MochizukiLocalTone";
@@ -196,6 +200,10 @@ inline constexpr const char *const kKnown[] = {
     NrStabilizerAlpha,
     NrStabilizerThreshold,
     NrOverallIntensity,
+    NrResidualLowGain,
+    NrResidualDetailGain,
+    NrResidualSkinProtection,
+    NrResidualEdgeProtection,
     MochizukiIntensity,
     MochizukiStyle,
     MochizukiLocalTone,

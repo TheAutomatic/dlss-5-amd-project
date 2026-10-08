@@ -161,6 +161,15 @@ int main(int argc, char** argv)
                 assert(GImGui->LastItemData.ItemFlags & ImGuiItemFlags_Disabled);
             }
             ImGui::EndDisabled(); assert(!adaptive);
+            for (const char* label : {"Low-frequency gain", "Fine-detail gain",
+                                      "Skin detail protection", "Edge detail protection"}) {
+                float value = 1.f;
+                ImGui::SetNextItemWidth(300 * scale);
+                MenuUi::SliderFloat(label, &value, 0.f, 2.f); within();
+                assert(GImGui->LastItemData.ID == MenuUi::GetID(label));
+                ImGui::SameLine(); MenuUi::FitSameLine(MenuUi::CalcTextSize("(?)").x);
+                MenuUi::TextDisabled("(?)"); within();
+            }
             MenuUi::TextWrapped("ViT adaptive reuse is unavailable while Temporal history is enabled. Your settings are retained."); within();
             int stream = 3;
             MenuUi::Combo("ViT stream (exp)", &stream, "Off\0AV FP8\0Contract F16\0Both\0"); within();

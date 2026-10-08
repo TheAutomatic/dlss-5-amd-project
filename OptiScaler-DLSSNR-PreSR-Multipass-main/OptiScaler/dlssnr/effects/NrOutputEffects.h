@@ -13,26 +13,30 @@
 namespace DlssNr::Effects
 {
 using Microsoft::WRL::ComPtr;
-inline constexpr char BlendShader[] = R"(
+inline const std::string BlendShader = std::string(R"(
 Texture2D<float4> original:register(t0);
 Texture2D<float4> result:register(t1);
 RWTexture2D<float4> output:register(u0);
-cbuffer Params:register(b0){uint width,height;float intensity;uint reserved;}
-[numthreads(8,8,1)]void main(uint3 p:SV_DispatchThreadID){
- if(p.x>=width||p.y>=height)return;
- float4 b=original.Load(int3(p.xy,0)),r=result.Load(int3(p.xy,0));
+cbuffer Params:register(b0){
+ uint width,height;float intensity;uint reserved;
+ float lowGain,detailGain,skinProtection,edgeProtection;
+}
+float3 ReadCorrection(int2 p,out float4 b,out float4 h){
+ b=original.Load(int3(p,0));float4 r=result.Load(int3(p,0));h=0;
  if(!all(isfinite(b)))b=0;
  if(!all(isfinite(r)))r=b;
- float3 c=lerp(b.rgb,r.rgb,min(intensity,1));
- if(intensity>1){
-  float3 d=r.rgb-b.rgb;
-  // Bound only the extra extrapolation; ordinary attenuation stays linear.
-  float3 limit=.5*max(max(abs(b.rgb),abs(r.rgb)),.001);
-  c=r.rgb+clamp(d,-limit,limit)*(intensity-1);
- }
- output[p.xy]=float4(clamp(c,-65504,65504),b.a);
+ return r.rgb;
 }
-)";
+void WriteHistory(int2 p,float4 h){}
+)") + ResidualComposeShader;
+struct BlendConstants
+{
+    UINT width, height;
+    float intensity;
+    UINT reserved = 0;
+    ResidualSettings residual;
+};
+static_assert(sizeof(BlendConstants) == 32);
 inline DXGI_FORMAT ReadFormat(DXGI_FORMAT f)
 {
     switch (f) {
@@ -113,7 +117,7 @@ struct Pipeline
 {
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12RootSignature> root;
-    ComPtr<ID3D12PipelineState> blend;
+    ComPtr<ID3D12PipelineState> blend, shaped;
     bool temporal = false, unconfirmed = false;
     std::shared_ptr<LmxxfRuntime::RecordingCompletion> chain;
     static std::shared_ptr<Pipeline> Create(ID3D12Device* device, bool temporal = false)
@@ -126,17 +130,29 @@ struct Pipeline
         params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[0].DescriptorTable = {2, ranges};
         params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        params[1].Constants = {0, 0, temporal ? 16u : 4u};
+        params[1].Constants = {0, 0, temporal ? 20u : 8u};
         D3D12_ROOT_SIGNATURE_DESC desc {2, params, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE};
         ComPtr<ID3DBlob> root, error, code;
         if (FAILED(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &root, &error)) ||
             FAILED(device->CreateRootSignature(0, root->GetBufferPointer(), root->GetBufferSize(), IID_PPV_ARGS(&p->root)))) return {};
-        if (FAILED(NativeCompileShaderBlob(temporal ? StabilizerShader : BlendShader, temporal ? sizeof StabilizerShader - 1 : sizeof BlendShader - 1, "NR output effects", nullptr,
-                                           nullptr, "main", &code, &error))) return {};
+        const auto& source = temporal ? StabilizerShader : BlendShader;
+        if (FAILED(NativeCompileShaderBlob(source.c_str(), source.size(), "NR output effects", nullptr,
+                                           nullptr, "point_main", &code, &error))) return {};
         D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline {}; pipeline.pRootSignature = p->root.Get();
         pipeline.CS = {code->GetBufferPointer(), code->GetBufferSize()};
         if (FAILED(device->CreateComputePipelineState(&pipeline, IID_PPV_ARGS(&p->blend)))) return {};
         return p;
+    }
+    bool EnsureShaped()
+    {
+        if (shaped) return true;
+        const auto& source = temporal ? StabilizerShader : BlendShader;
+        ComPtr<ID3DBlob> code, error;
+        if (FAILED(NativeCompileShaderBlob(source.c_str(), source.size(), "NR output effects", nullptr,
+                                           nullptr, "main", &code, &error))) return false;
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc {}; desc.pRootSignature = root.Get();
+        desc.CS = {code->GetBufferPointer(), code->GetBufferSize()};
+        return SUCCEEDED(device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&shaped)));
     }
 };
 struct Storage
@@ -336,9 +352,14 @@ inline void Reset()
 inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* original, ID3D12Resource* result,
                               D3D12_RESOURCE_STATES originalState, UINT width, UINT height,
                               float requestedIntensity, bool timingEnabled,
-                              const Guides& guides = {}, StabilizerSettings settings = {})
+                              const Guides& guides = {}, StabilizerSettings settings = {},
+                              ResidualSettings residual = {})
 {
     const float intensity = OverallIntensity(requestedIntensity);
+    residual = residual.Bounded();
+    const bool spatial = residual.Active();
+    const bool neighbourhood = residual.lowGain != residual.detailGain ||
+                               residual.skinProtection > 0 || residual.edgeProtection > 0;
     if (!cmd || !original || !result) return result;
     std::lock_guard lock(Submission::RecordingMutex());
     auto& s = Global();
@@ -356,9 +377,9 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
         // Normal exposure adaptation therefore does not invalidate its colour domain.
         s.historyGuides.exposureScale != guides.exposureScale ||
         GetTickCount64() - s.historyTick > 1000) s.ClearHistory();
-    s.performance.SetEnabled(timingEnabled && intensity != 0 && (intensity != 1 || temporal) && original != result);
+    s.performance.SetEnabled(timingEnabled && intensity != 0 && (intensity != 1 || temporal || spatial) && original != result);
     CollectLocked();
-    if ((intensity == 1 && !temporal) || original == result) { s.ClearHistory(); s.storage.clear();
+    if ((intensity == 1 && !temporal && !spatial) || original == result) { s.ClearHistory(); s.storage.clear();
         s.Status(requestedTemporal ? "Stabilizer bypassed: unsupported guides or no NR output" : ""); return result; }
     if (intensity == 0) { s.ClearHistory(); s.storage.clear(); s.Status("Overall Intensity: original image (NR still runs)"); return original; }
     try {
@@ -380,6 +401,9 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
         if (!s.pipeline || s.pipeline->device.Get() != device.Get() || s.pipeline->temporal != temporal || s.pipeline->unconfirmed) {
             s.ClearHistory(); s.storage.clear(); s.pipeline = Pipeline::Create(device.Get(), temporal);
             if (!s.pipeline) { s.Status("Overall Intensity unavailable: shader initialization failed"); return result; }
+        }
+        if (neighbourhood && !s.pipeline->EnsureShaped()) {
+            s.Status("Residual shaping unavailable: shader initialization failed"); return result;
         }
         s.storage.erase(std::remove_if(s.storage.begin(), s.storage.end(), [&](const auto& item) {
             return item.use_count() == 1 && (item->width != width || item->height != height);
@@ -443,9 +467,10 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
         }
         Barrier(cmd, storage->output.Get(), read, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         auto* heap = storage->heap.Get(); cmd->SetDescriptorHeaps(1, &heap);
-        cmd->SetComputeRootSignature(s.pipeline->root.Get()); cmd->SetPipelineState(s.pipeline->blend.Get());
+        cmd->SetComputeRootSignature(s.pipeline->root.Get());
+        cmd->SetPipelineState(neighbourhood ? s.pipeline->shaped.Get() : s.pipeline->blend.Get());
         cmd->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
-        struct { UINT width, height; float intensity; UINT reserved; } constants {width, height, intensity, 0};
+        BlendConstants constants {width, height, intensity, 0, residual};
         if (temporal) {
             const auto& previous = s.historyGuides;
             StabilizerConstants stable {width, height, guides.motionWidth, guides.motionHeight,
@@ -454,8 +479,9 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
                 lease->previous && !guides.jittered ? previous.jitterY - guides.jitterY : 0.f,
                 settings.alpha, settings.threshold / 255.f, guides.preExposure,
                 (lease->previous ? 1u : 0u) | (guides.inverted ? 2u : 0u), intensity};
-            cmd->SetComputeRoot32BitConstants(1, 16, &stable, 0);
-        } else cmd->SetComputeRoot32BitConstants(1, 4, &constants, 0);
+            stable.residual = residual;
+            cmd->SetComputeRoot32BitConstants(1, sizeof(stable) / sizeof(UINT), &stable, 0);
+        } else cmd->SetComputeRoot32BitConstants(1, sizeof(constants) / sizeof(UINT), &constants, 0);
         cmd->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
         Barrier(cmd, storage->output.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
         Barrier(cmd, original, read, originalState);
