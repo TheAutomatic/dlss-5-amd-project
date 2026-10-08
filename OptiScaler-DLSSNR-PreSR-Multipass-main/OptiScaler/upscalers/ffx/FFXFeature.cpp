@@ -17,42 +17,52 @@ double FFXFeature::GetDeltaTime()
     return deltaTime;
 }
 
-void FFXFeature::QueryVersionsDx12(ID3D12Device* device)
+// Query into private storage; do not index or publish partial/failed query results.
+// Selective port of upstream 434b955 (b040666), without its menu-created probe device.
+template<class Query>
+static bool QueryFfxVersions(ffxQueryDescGetVersions& desc, Query query)
 {
-    // Get number of versions for allocation
-    ffxQueryDescGetVersions versionQuery {};
-    versionQuery.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
-    versionQuery.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-    versionQuery.device = device;
-    uint64_t versionCount = 0;
-    versionQuery.outputCount = &versionCount;
-    FfxApiProxy::D3D12_Query(nullptr, &versionQuery.header);
+    uint64_t count = 0;
+    desc.outputCount = &count;
+    if (query(&desc.header) != FFX_API_RETURN_OK || count == 0)
+        return false;
 
-    // Fill version ids and names arrays
-    State::Instance().ffxUpscalerVersionIds.resize(versionCount);
-    State::Instance().ffxUpscalerVersionNames.resize(versionCount);
-    versionQuery.versionIds = State::Instance().ffxUpscalerVersionIds.data();
-    versionQuery.versionNames = State::Instance().ffxUpscalerVersionNames.data();
-    FfxApiProxy::D3D12_Query(nullptr, &versionQuery.header);
+    std::vector<uint64_t> ids(count);
+    std::vector<const char*> names(count);
+    const auto capacity = count;
+    desc.versionIds = ids.data();
+    desc.versionNames = names.data();
+    if (query(&desc.header) != FFX_API_RETURN_OK || count == 0 || count > capacity)
+        return false;
+    ids.resize(count);
+    names.resize(count);
+    if (std::any_of(names.begin(), names.end(), [](const char* name) { return !name || !*name; }))
+        return false;
+
+    State::Instance().ffxUpscalerVersionIds = std::move(ids);
+    State::Instance().ffxUpscalerVersionNames = std::move(names);
+    return true;
 }
 
-void FFXFeature::QueryVersionsVulkan()
+bool FFXFeature::QueryVersionsDx12(ID3D12Device* device)
 {
-    // Get number of versions for allocation
-    ffxQueryDescGetVersions versionQuery {};
-    versionQuery.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
-    versionQuery.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-    // versionQuery.device = Device; // only for DirectX 12 applications
-    uint64_t versionCount = 0;
-    versionQuery.outputCount = &versionCount;
-    FfxApiProxy::VULKAN_Query()(nullptr, &versionQuery.header);
+    ffxQueryDescGetVersions desc {};
+    desc.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    desc.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    desc.device = device;
+    return QueryFfxVersions(desc, [](ffxQueryDescHeader* header) {
+        return FfxApiProxy::D3D12_Query(nullptr, header);
+    });
+}
 
-    // Fill version ids and names arrays
-    State::Instance().ffxUpscalerVersionIds.resize(versionCount);
-    State::Instance().ffxUpscalerVersionNames.resize(versionCount);
-    versionQuery.versionIds = State::Instance().ffxUpscalerVersionIds.data();
-    versionQuery.versionNames = State::Instance().ffxUpscalerVersionNames.data();
-    FfxApiProxy::VULKAN_Query()(nullptr, &versionQuery.header);
+bool FFXFeature::QueryVersionsVulkan()
+{
+    const auto query = FfxApiProxy::VULKAN_Query();
+    if (!query) return false;
+    ffxQueryDescGetVersions desc {};
+    desc.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    desc.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    return QueryFfxVersions(desc, [query](ffxQueryDescHeader* header) { return query(nullptr, header); });
 }
 
 void FFXFeature::InitFlags()

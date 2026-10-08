@@ -150,7 +150,11 @@ bool FFXFeatureVk::InitFFX(const NVSDK_NGX_Parameter* InParameters)
     {
         ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
 
-        QueryVersionsVulkan();
+        if (!QueryVersionsVulkan())
+        {
+            LOG_ERROR("No valid FFX Vulkan upscaler versions reported");
+            return false;
+        }
 
         InitFlags();
 

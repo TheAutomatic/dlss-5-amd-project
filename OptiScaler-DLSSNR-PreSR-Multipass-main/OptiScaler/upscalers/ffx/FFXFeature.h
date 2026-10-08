@@ -22,8 +22,8 @@ class FFXFeature : public virtual IFeature
 
     double GetDeltaTime();
 
-    void QueryVersionsDx12(ID3D12Device* device);
-    void QueryVersionsVulkan();
+    bool QueryVersionsDx12(ID3D12Device* device);
+    bool QueryVersionsVulkan();
 
     void InitFlags();
 

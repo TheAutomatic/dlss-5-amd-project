@@ -661,7 +661,11 @@ bool FFXFeatureDx12::InitFFX(const NVSDK_NGX_Parameter* InParameters)
     {
         ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
 
-        QueryVersionsDx12(Device);
+        if (!QueryVersionsDx12(Device))
+        {
+            LOG_ERROR("No valid FFX DX12 upscaler versions reported");
+            return false;
+        }
 
         InitFlags();
 
