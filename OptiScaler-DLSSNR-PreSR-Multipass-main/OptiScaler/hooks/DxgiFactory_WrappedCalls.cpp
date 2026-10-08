@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Dx12InteropDesc.h"
+#include "DxgiSwapchainSizing.h"
 #include "DxgiFactory_WrappedCalls.h"
 
 #include "FG_Hooks.h"
@@ -68,7 +69,9 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChain(IDXGIFactory* realFactory, Wrap
         return res;
     }
 
-    if (pDesc->BufferDesc.Height < 100 || pDesc->BufferDesc.Width < 100)
+    ResolveWindowSizedSwapchain(localDesc);
+
+    if (IsSmallHwndSwapchain(localDesc.BufferDesc.Width, localDesc.BufferDesc.Height))
     {
         LOG_WARN("Overlay call!");
 
@@ -391,6 +394,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
 
     if (pDesc != nullptr)
         memcpy(&localDesc, pDesc, sizeof(DXGI_SWAP_CHAIN_DESC1));
+    ResolveWindowSizedSwapchain(localDesc, hWnd);
 
     static bool firstCall = static_cast<bool>(State::Instance().gameQuirks & GameQuirk::NoFSRFGFirstSwapchain);
     if (firstCall)
@@ -436,7 +440,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
         return result;
     }
 
-    if (pDesc->Height < 100 || pDesc->Width < 100)
+    if (IsSmallHwndSwapchain(pDesc->Width, pDesc->Height))
     {
         LOG_WARN("Overlay call!");
         HRESULT result;

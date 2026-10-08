@@ -232,7 +232,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
     DXGI_SWAP_CHAIN_DESC localDesc = *pDesc;
     const bool sizeToWindow = ResolveWindowSizedSwapchain(localDesc);
 
-    if (localDesc.BufferDesc.Height < 100 || localDesc.BufferDesc.Width < 100)
+    if (IsSmallHwndSwapchain(localDesc.BufferDesc.Width, localDesc.BufferDesc.Height))
     {
         LOG_WARN("Overlay call! Width: {}, Height: {}, Format: {}, Count: {}, Hwnd: {:X}, Windowed: {}",
                  pDesc->BufferDesc.Width, pDesc->BufferDesc.Height, (UINT) pDesc->BufferDesc.Format,
@@ -616,7 +616,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
         return result;
     }
 
-    if (pDesc->Height < 100 || pDesc->Width < 100)
+    if (IsSmallHwndSwapchain(pDesc->Width, pDesc->Height))
     {
         LOG_WARN("Overlay call! Width: {}, Height: {}", pDesc->Width, pDesc->Height);
         HRESULT result;
@@ -636,6 +636,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
 
     DXGI_SWAP_CHAIN_DESC1 localDesc {};
     memcpy(&localDesc, pDesc, sizeof(DXGI_SWAP_CHAIN_DESC1));
+    ResolveWindowSizedSwapchain(localDesc, hWnd);
 
     LOG_DEBUG("Width: {}, Height: {}, Format: {}, Count: {}, Flags: {:X}, Hwnd: {:X}, SkipWrapping: {}",
               localDesc.Width, localDesc.Height, (UINT) localDesc.Format, localDesc.BufferCount, localDesc.Flags,
@@ -1185,7 +1186,7 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChain(IDXGIFactory* realFactory, IUnkno
     DXGI_SWAP_CHAIN_DESC localDesc = *pDesc;
     ResolveWindowSizedSwapchain(localDesc);
 
-    if (localDesc.BufferDesc.Height < 100 || localDesc.BufferDesc.Width < 100)
+    if (IsSmallHwndSwapchain(localDesc.BufferDesc.Width, localDesc.BufferDesc.Height))
     {
         LOG_WARN("Overlay call! Width: {}, Height: {}", pDesc->BufferDesc.Width, pDesc->BufferDesc.Height);
 
@@ -1476,7 +1477,7 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChainForHwnd(IDXGIFactory2* realFactory
         return result;
     }
 
-    if (pDesc->Height < 100 || pDesc->Width < 100)
+    if (IsSmallHwndSwapchain(pDesc->Width, pDesc->Height))
     {
         LOG_WARN("Overlay call! Width: {}, Height: {}", pDesc->Width, pDesc->Height);
         HRESULT result;
@@ -1496,6 +1497,7 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChainForHwnd(IDXGIFactory2* realFactory
 
     DXGI_SWAP_CHAIN_DESC1 localDesc {};
     memcpy(&localDesc, pDesc, sizeof(DXGI_SWAP_CHAIN_DESC1));
+    ResolveWindowSizedSwapchain(localDesc, hWnd);
 
     LOG_DEBUG("Width: {}, Height: {}, Format: {}, Count: {}, Flags: {:X}, Hwnd: {:X}, SkipWrapping: {}",
               localDesc.Width, localDesc.Height, (UINT) localDesc.Format, localDesc.BufferCount, localDesc.Flags,

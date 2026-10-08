@@ -2,6 +2,24 @@
 
 #include <windows.h>
 #include <dxgi.h>
+#include <dxgi1_2.h>
+
+// DXGI accepts zero dimensions for HWND chains; zero is not an overlay size.
+// Do not apply this rule to CoreWindow or DirectComposition descriptors.
+inline bool IsSmallHwndSwapchain(UINT width, UINT height)
+{
+    return (width != 0 && width < 100) || (height != 0 && height < 100);
+}
+
+inline bool ResolveWindowSizedSwapchain(DXGI_SWAP_CHAIN_DESC1& desc, HWND window)
+{
+    if ((desc.Width != 0 && desc.Height != 0) || !window) return false;
+    RECT rect {};
+    if (!GetClientRect(window, &rect) || rect.right <= rect.left || rect.bottom <= rect.top) return false;
+    if (desc.Width == 0) desc.Width = UINT(rect.right - rect.left);
+    if (desc.Height == 0) desc.Height = UINT(rect.bottom - rect.top);
+    return true;
+}
 
 // Resolve DXGI's 0x0 "use the window's client size" descriptor before the small-swapchain
 // heuristic and before FG/interop can substitute a different HWND. Only modify our local copy.

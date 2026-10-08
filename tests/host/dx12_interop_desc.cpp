@@ -1,4 +1,5 @@
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/hooks/Dx12InteropDesc.h"
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/hooks/DxgiSwapchainSizing.h"
 #include <cassert>
 #include <cstring>
 #include <cstdio>
@@ -6,6 +7,12 @@
 
 int main()
 {
+    assert(!IsSmallHwndSwapchain(0, 0));
+    assert(!IsSmallHwndSwapchain(0, 1080));
+    assert(!IsSmallHwndSwapchain(1920, 0));
+    assert(IsSmallHwndSwapchain(0, 64));
+    assert(IsSmallHwndSwapchain(99, 2160));
+    assert(!IsSmallHwndSwapchain(100, 100));
     DXGI_SWAP_CHAIN_DESC1 base {};
     base.Width = 1920; base.Height = 1080;
     base.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
