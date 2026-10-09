@@ -32,6 +32,7 @@
 // them; a frame the network fails on passes its colour through.
 #define MOCHIZUKI_NR_RUNTIME_EXPORTS
 #include "MochizukiNrApi.h"
+#include "RecordingDeviceIdentity.h"
 #include <unordered_map>
 #include <wrl/client.h>
 

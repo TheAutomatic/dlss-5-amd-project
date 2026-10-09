@@ -3,23 +3,28 @@
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/LmxxfRecordingOwner.h"
 #include <cassert>
 #include <iostream>
+#include <thread>
+#include <cstring>
 
 namespace Recording = DlssNr::Backend::LmxxfRecording;
 namespace Submission = DlssNr::Submission;
 static int32_t enqueueResult = LMXXF_NR_OK;
 static int32_t endResult = LMXXF_NR_OK;
 static bool recovered = false;
+static int32_t beginResult = LMXXF_NR_OK;
+static thread_local const char* callbackError = "";
+static unsigned failureReports = 0;
 
 static std::shared_ptr<Recording::SessionOwner> Owner()
 {
     auto owner = std::make_shared<Recording::SessionOwner>();
-    owner->api.BeginRecordingExecution = [](void*, void*, void*) -> int32_t { return LMXXF_NR_OK; };
+    owner->api.BeginRecordingExecution = [](void*, void*, void*) -> int32_t { return beginResult; };
     owner->api.EnqueueHip = [](void*, void*, void*) { return enqueueResult; };
-    owner->api.GetLastError = [](char* buffer, uint32_t) -> int32_t {
-        buffer[0] = recovered ? 'R' : '\0';
-        buffer[1] = '\0';
+    owner->api.GetLastError = [](char* buffer, uint32_t size) -> int32_t {
+        std::snprintf(buffer, size, "%s", recovered ? "R" : callbackError);
         return LMXXF_NR_OK;
     };
+    owner->onFailure = [](const Recording::SessionOwner::Failure&) noexcept { ++failureReports; };
     owner->api.EndRecordingExecution = [](void*, void*, void*, uint32_t, void*, uint64_t, int32_t) {
         return endResult;
     };
@@ -85,5 +90,42 @@ int main()
     endResult = LMXXF_NR_INVALID_ARGUMENT;
     Execute(endFailed);
     assert(endFailedOwner->failed && !endFailedOwner->activity.IsRunning());
+    assert(std::strcmp(endFailedOwner->failure.phase, "EndRecordingExecution") == 0);
+
+    // The menu runs on another thread: preserve the original TLS error, not
+    // whatever GetLastError happens to contain on the later reader's thread.
+    endResult = LMXXF_NR_OK;
+    auto beginFailedOwner = Owner();
+    Recording::Lease beginFailed(beginFailedOwner, nullptr, { 4, 1 });
+    beginFailed.ready = beginFailed.neural = true;
+    beginResult = LMXXF_NR_INVALID_ARGUMENT;
+    const auto reportsBefore = failureReports;
+    std::thread submit([&] {
+        std::lock_guard lock(Submission::RecordingMutex());
+        callbackError = "Begin queue: device mismatch";
+        Submission::RecordingExecution execution;
+        execution.identity = beginFailed.identity;
+        assert(FAILED(beginFailed.BeforeExecute(execution)));
+        execution.status = E_FAIL;
+        beginFailed.Executed(execution);
+        callbackError = "unrelated later error";
+    });
+    submit.join();
+    assert(callbackError[0] == '\0');
+    assert(beginFailedOwner->failed && failureReports == reportsBefore + 1);
+    assert(std::strcmp(beginFailedOwner->failure.phase, "BeginRecordingExecution") == 0);
+    assert(std::strcmp(beginFailedOwner->failure.error.data(), "Begin queue: device mismatch") == 0);
+    assert(beginFailedOwner->failure.result == LMXXF_NR_INVALID_ARGUMENT);
+
+    // Close/fence creation can fail before Begin is called at all.
+    auto rejectedOwner = Owner();
+    Recording::Lease rejected(rejectedOwner, nullptr, { 5, 1 });
+    Submission::RecordingExecution execution;
+    execution.identity = rejected.identity;
+    execution.status = E_OUTOFMEMORY;
+    rejected.Executed(execution);
+    assert(!rejectedOwner->failed && !rejectedOwner->activity.IsRunning());
+    assert(std::strcmp(rejectedOwner->failure.phase, "ExecuteCommandLists") == 0);
+    assert(rejectedOwner->failure.result == E_OUTOFMEMORY);
     std::cout << "NR activity: real submission, diagnostics, failures and retired owners: PASS\n";
 }

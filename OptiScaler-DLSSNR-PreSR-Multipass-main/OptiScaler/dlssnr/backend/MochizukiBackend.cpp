@@ -8,6 +8,22 @@
 
 namespace DlssNr::Backend
 {
+namespace
+{
+void SubmissionFailure(const LmxxfRecording::SessionOwner::Failure& failure) noexcept
+{
+    try {
+        LOG_WARN("mochizuki submission stopped: phase={} result={} queue={:p}: {}",
+                 failure.phase, failure.result, failure.queue, failure.error.data());
+    } catch (...) {}
+}
+void SubmissionTrace(uint64_t frame, const char* phase, const void* object, int32_t result) noexcept
+{
+    try {
+        LOG_INFO("mochizuki submission frame={} phase={} object={:p} result={}", frame, phase, object, result);
+    } catch (...) {}
+}
+}
 struct MochizukiBackend::Impl
 {
     Microsoft::WRL::ComPtr<ID3D12Device> device;
@@ -24,6 +40,7 @@ struct MochizukiBackend::Impl
     uint64_t frameId = 0, retryAt = 0, infoAt = 0, logAt = 0;
     bool failed = false;
     unsigned errors = 0;
+    unsigned tracedRecordings = 0;
     mutable std::mutex mutex;
     std::string status = "mochizuki: idle";
     NrTimingSnapshot timing {};
@@ -90,12 +107,24 @@ struct MochizukiBackend::Impl
         }
         owner = LmxxfRecording::SessionOwner::Create(api, session);
         if (!owner) { api.Destroy(session); Status("mochizuki: session ownership allocation failed"); return false; }
+        owner->onFailure = SubmissionFailure;
         if (api.PrepareSession(session) != LMXXF_NR_OK)
         { Error("Vulkan unavailable"); owner.reset(); return false; }
         return true;
     }
     void Info()
     {
+        if (!owner) return;
+        if (owner->failed.load(std::memory_order_acquire))
+        {
+            const auto& failure = owner->failure;
+            std::lock_guard lock(mutex);
+            progress.active = 0; timing = {};
+            status = std::string("mochizuki: submission failed at ") +
+                (failure.phase ? failure.phase : "unknown stage") + ": " + failure.error.data();
+            return;
+        }
+        if (failed) return; // Keep a synchronous Record error until the session is replaced.
         const auto now = GetTickCount64();
         if (now - infoAt < 500) return;
         infoAt = now;
@@ -149,6 +178,9 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
     if (first) *first = nullptr;
     std::lock_guard lifetime(Submission::RecordingMutex());
     LmxxfRecording::Collect();
+    // Callback failures and background progress must remain visible even when
+    // this frame is rejected before PrepareFrame/Record.
+    p->Info();
     // Include frames rejected before PrepareFrame (for example an active render
     // pass), so the next accepted frame cannot consume history across that gap.
     const auto frameId = ++p->frameId;
@@ -211,6 +243,12 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
     auto lease = LmxxfRecording::Attach(p->owner, job.handle, logical.Get());
     if (!lease) { p->Status("mochizuki: this recording already owns NR work"); return nullptr; }
     lease->neural = true;
+    if (p->tracedRecordings < 2)
+    {
+        ++p->tracedRecordings;
+        lease->traceId = frameId; lease->trace = SubmissionTrace;
+        SubmissionTrace(frameId, "record.begin", cmd, 0);
+    }
     auto* invocation = AmdPreSr::GraphicsSnap::GraphicsInvocationFor(reinterpret_cast<uint64_t>(cmd));
     if (invocation) { invocation->commandsRecorded = true; invocation->outcome = "recording_attempted"; }
     if (p->api.RecordInputs(p->owner->context, job.handle, cmd) != LMXXF_NR_OK ||
@@ -218,6 +256,7 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
         p->api.RecordOutputs(p->owner->context, job.handle, cmd) != LMXXF_NR_OK)
     { p->failed = true; p->Error("recording failed"); return nullptr; }
     lease->ready = true;
+    if (lease->trace) SubmissionTrace(frameId, "record.ready", cmd, 0);
     if (invocation) invocation->outcome = "recorded";
     p->Info();
     if (first) *first = static_cast<ID3D12Resource*>(job.first_pass_output);
@@ -229,6 +268,7 @@ void MochizukiBackend::ReleaseSession()
 {
     std::lock_guard lifetime(Submission::RecordingMutex());
     p->owner.reset(); p->failed = false; p->retryAt = p->infoAt = 0;
+    p->tracedRecordings = 0;
     LmxxfRecording::Collect();
     { std::lock_guard lock(p->mutex); p->timing = {}; p->progress = {}; p->details = {}; p->status = "mochizuki: NR off"; }
     if (!Config::Instance()->NrConvenience.value_or_default() && p->module)

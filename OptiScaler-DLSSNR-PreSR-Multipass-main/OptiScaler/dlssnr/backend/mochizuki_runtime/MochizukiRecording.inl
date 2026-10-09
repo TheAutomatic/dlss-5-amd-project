@@ -84,11 +84,21 @@ int32_t RecordInputs(void* context, void* token, void* list)
 int32_t RecordOutputs(void* context, void* token, void* list)
 { return WithRecording(context, token, [list](Session* s, void* j) { return CoreRecordOutputs(s, j, list); }); }
 
-bool OwnsQueue(Session* s, ID3D12CommandQueue* q)
+int32_t CheckExecutionDevice(Session* s, ID3D12DeviceChild* object, const char* phase)
 {
     Microsoft::WRL::ComPtr<ID3D12Device> dev;
-    return q && q->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT &&
-        SUCCEEDED(q->GetDevice(IID_PPV_ARGS(&dev))) && dev.Get() == s->device;
+    const HRESULT hr = object ? object->GetDevice(IID_PPV_ARGS(&dev)) : E_POINTER;
+    if (SUCCEEDED(hr) && DlssNr::Backend::IsRecordingDevice(s->device, s->toVk.fence, dev.Get()))
+        return LMXXF_NR_OK;
+    Microsoft::WRL::ComPtr<IUnknown> expected, observed;
+    if (s->device) s->device->QueryInterface(IID_PPV_ARGS(&expected));
+    if (dev) dev->QueryInterface(IID_PPV_ARGS(&observed));
+    char text[256] {};
+    std::snprintf(text, sizeof text,
+                  "%s: device mismatch object=%p expected=%p actual=%p identities=%p/%p GetDevice=0x%08lX",
+                  phase, static_cast<void*>(object), static_cast<void*>(s->device), static_cast<void*>(dev.Get()),
+                  static_cast<void*>(expected.Get()), static_cast<void*>(observed.Get()), static_cast<unsigned long>(hr));
+    return Fail(LMXXF_NR_INVALID_ARGUMENT, text);
 }
 
 int32_t BeginRecordingExecution(void* context, void* token, void* queue)
@@ -96,8 +106,11 @@ int32_t BeginRecordingExecution(void* context, void* token, void* queue)
     auto* s = static_cast<Session*>(context);
     auto* r = FindRecording(s, token);
     auto* q = static_cast<ID3D12CommandQueue*>(queue);
-    if (!r || r->invalidated || s->executing || !OwnsQueue(s, q))
-        return Fail(LMXXF_NR_INVALID_ARGUMENT, "Begin: invalid recording or execution queue");
+    if (!r || r->invalidated || s->executing)
+        return Fail(LMXXF_NR_INVALID_ARGUMENT, "Begin: unknown/invalidated recording or execution already active");
+    if (!q || q->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        return Fail(LMXXF_NR_INVALID_ARGUMENT, "Begin: a direct execution queue is required");
+    if (const auto rc = CheckExecutionDevice(s, q, "Begin queue"); rc != LMXXF_NR_OK) return rc;
     if (s->uncertainExecution || s->failed)
         return Fail(LMXXF_NR_UNAVAILABLE, "Begin: previous execution unresolved");
     // This must precede producer submission: it protects shared input and output
@@ -161,11 +174,10 @@ int32_t EndRecordingExecution(void* context, void* token, void* queue, uint32_t 
             return Fail(LMXXF_NR_UNAVAILABLE, "End: submitted work has no proven tail signal");
         }
         auto* f = static_cast<ID3D12Fence*>(fence);
-        Microsoft::WRL::ComPtr<ID3D12Device> dev;
-        if (FAILED(f->GetDevice(IID_PPV_ARGS(&dev))) || dev.Get() != s->device)
+        if (const auto rc = CheckExecutionDevice(s, f, "End fence"); rc != LMXXF_NR_OK)
         {
             r->uncertain = s->uncertainExecution = true;
-            return Fail(LMXXF_NR_INVALID_ARGUMENT, "End: fence belongs to another device");
+            return rc;
         }
         r->tail = f;
         r->tailValue = value;

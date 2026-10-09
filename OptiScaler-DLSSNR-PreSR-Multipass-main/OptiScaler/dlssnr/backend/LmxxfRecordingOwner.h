@@ -4,16 +4,42 @@
 #include "lmxxf_runtime/LmxxfNrApi.h"
 #include <memory>
 #include <vector>
+#include <array>
+#include <cstdio>
 
 namespace DlssNr::Backend::LmxxfRecording
 {
 struct SessionOwner
 {
+    struct Failure
+    {
+        const char* phase = nullptr;
+        int32_t result = 0;
+        const void* queue = nullptr;
+        std::array<char, 256> error {};
+    };
     LmxxfNrApi api {};
     void* context = nullptr;
     HMODULE module = nullptr;
     std::atomic<bool> failed { false };
     NrSessionActivity activity;
+    // Accessed under RecordingMutex. Preserve the first error on the callback
+    // thread: GetLastError is thread-local and cannot be queried by the menu.
+    Failure failure {};
+    void (*onFailure)(const Failure&) noexcept = nullptr;
+    void RecordFailure(const char* phase, int32_t result, const void* queue,
+                       const char* error = nullptr) noexcept
+    {
+        activity.Reset();
+        if (!failure.phase)
+        {
+            failure.phase = phase; failure.result = result; failure.queue = queue;
+            if (error) std::snprintf(failure.error.data(), failure.error.size(), "%s", error);
+            else if (api.GetLastError) api.GetLastError(failure.error.data(), uint32_t(failure.error.size()));
+            failure.error.back() = '\0';
+            if (onFailure) onFailure(failure);
+        }
+    }
     ~SessionOwner()
     {
         if (context && api.Destroy(context) != LMXXF_NR_OK)
@@ -64,12 +90,16 @@ struct Lease final : Submission::RecordingObserver
         : owner(std::move(session)), job(token), identity(id), activityToken(owner->activity.Token()) {}
     HRESULT BeforeExecute(const Submission::RecordingExecution& e) noexcept override
     {
-        if (invalidated || !(e.identity == identity)) return E_UNEXPECTED;
+        if (invalidated || !(e.identity == identity)) {
+            owner->RecordFailure("identity", E_UNEXPECTED, e.queue, "invalidated or mismatched recording");
+            return E_UNEXPECTED;
+        }
         tracing = traceId && traceExecutions < 2;
         if (tracing) ++traceExecutions;
         Trace("execute.begin", e.queue);
         enqueued = false;
         const int32_t rc = owner->api.BeginRecordingExecution(owner->context, job, e.queue);
+        if (rc != LMXXF_NR_OK) owner->RecordFailure("BeginRecordingExecution", rc, e.queue);
         Trace("execute.admitted", e.queue, rc);
         begun = rc == LMXXF_NR_OK;
         if (!begun) owner->failed = true;
@@ -89,7 +119,10 @@ struct Lease final : Submission::RecordingObserver
         enqueued = rc == LMXXF_NR_OK && error[0] == '\0';
         if (neural && !enqueued)
             owner->activity.Reset();
-        if (rc != LMXXF_NR_OK) owner->failed = true;
+        if (rc != LMXXF_NR_OK) {
+            owner->RecordFailure("EnqueueHip", rc, e.queue, error.data());
+            owner->failed = true;
+        }
         std::lock_guard lock(diagnostic.mutex);
         diagnostic.lastEnqueueRc.store(rc, std::memory_order_relaxed);
         diagnostic.lastEnqueueError = error;
@@ -98,13 +131,23 @@ struct Lease final : Submission::RecordingObserver
     }
     void Executed(const Submission::RecordingExecution& e) noexcept override
     {
-        if (!begun) return;
+        if (!begun) {
+            if (FAILED(e.status))
+                owner->RecordFailure("ExecuteCommandLists", e.status, e.queue,
+                                     "submission rejected before runtime execution; see first failure");
+            return;
+        }
         const uint32_t flags = (e.producerSubmitted ? LMXXF_NR_SUBMITTED_PRODUCER : 0) |
                                (e.continuationSubmitted ? LMXXF_NR_SUBMITTED_CONSUMER : 0);
         Trace("retire.begin", e.queue, e.status);
         const int32_t rc = owner->api.EndRecordingExecution(owner->context, job, e.queue,
                                                           flags, e.fence, e.fenceValue, e.status);
-        if (rc != LMXXF_NR_OK) owner->failed = true;
+        if (rc != LMXXF_NR_OK) {
+            owner->RecordFailure("EndRecordingExecution", rc, e.queue);
+            owner->failed = true;
+        }
+        else if (FAILED(e.status))
+            owner->RecordFailure("ExecuteCommandLists", e.status, e.queue, "producer/consumer submission or tail signal failed");
         Trace("retire.end", e.queue, rc);
         tracing = false;
         begun = false;
@@ -118,7 +161,11 @@ struct Lease final : Submission::RecordingObserver
     {
         if (invalidated || !(id == identity)) return;
         invalidated = true;
-        if (owner->api.InvalidateRecording(owner->context, job) != LMXXF_NR_OK) owner->failed = true;
+        const int32_t rc = owner->api.InvalidateRecording(owner->context, job);
+        if (rc != LMXXF_NR_OK) {
+            owner->RecordFailure("InvalidateRecording", rc, nullptr);
+            owner->failed = true;
+        }
         if (CollectLocked()) ScheduleCollectionLocked();
     }
 };
