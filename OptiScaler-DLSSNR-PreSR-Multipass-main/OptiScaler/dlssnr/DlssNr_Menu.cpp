@@ -3,6 +3,7 @@
 #include "NrStatusDisplay.h"
 #include "DlssNr_PipelineUi.h"
 #include "NrEffectsSettings.h"
+#include "person/PersonSettings.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
@@ -33,6 +34,8 @@ namespace DlssNr
 static void ResetSharedEffectsDefaults(Config* config)
 {
     config->NrPersonPartition = std::optional<bool>{};
+    config->NrPersonDetailGain = std::optional<float>{};
+    config->NrPersonStrength = std::optional<float>{};
     config->NrOverallIntensity = std::optional<float>{};
     config->NrResidualLowGain = std::optional<float>{};
     config->NrResidualDetailGain = std::optional<float>{};
@@ -269,16 +272,30 @@ static void RenderSharedOutputEffects(Config* config)
     const auto personKind = Backend::ActiveKindFromConfig();
     const auto personPasses = personKind == Backend::Kind::Lmxxf ? config->LmxxfMultiPass.value_or_default() :
         personKind == Backend::Kind::Mochizuki ? config->MochizukiPasses.value_or_default() : 0;
-    const bool personSupported = personPasses > 1;
+    const bool personSupported = personKind == Backend::Kind::Lmxxf || personKind == Backend::Kind::Mochizuki;
     bool person = config->NrPersonPartition.value_or_default();
     ImGui::BeginDisabled(!personSupported);
-    if (MenuUi::Checkbox("Person first pass", &person)) {
+    if (MenuUi::Checkbox("Person protection", &person)) {
         config->NrPersonPartition = person;
         AmdBridge::InvalidateHistory();
     }
     ImGui::EndDisabled();
-    HelpMarker("Experimental: person uses the first NR pass; scene uses the final pass. Requires person-model/onnxruntime.dll and yolo11n-seg.onnx (COCO FP32 640).\nCPU inference is asynchronous. Missing, stale or misaligned masks preserve final NR. Does not reduce network passes.");
-    if (!personSupported) MenuUi::TextDisabled("Available with lmxxf and Mochizuki multi-pass.");
+    HelpMarker("Experimental: single pass uses final NR; multi-pass keeps pass 1 for people. Scene uses final NR. Requires the person model and ONNX Runtime.\nThis does not change backend character/skin controls or reduce network passes. Missing or invalid masks preserve final NR.");
+    if (person) {
+        ImGui::BeginDisabled(!personSupported || overallIntensity == 0);
+        const auto bounded = Person::Settings {
+            config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default() }.Bounded();
+        float strength = bounded.strength;
+        float detail = bounded.detail;
+        if (MenuUi::SliderFloat("Person NR strength", &strength, 0.f, 1.f, "%.2f")) config->NrPersonStrength = strength;
+        HelpMarker("1 keeps the selected NR pass. 0 keeps the NR input inside a reliable person mask, before shared output effects.\nBackend character controls and Overall Intensity still apply; combining protections can weaken the result.");
+        if (MenuUi::SliderFloat("Person detail", &detail, 0.f, 1.f, "%.2f")) config->NrPersonDetailGain = detail;
+        HelpMarker("Reduces fine NR changes on people while retaining broad lighting changes and original detail. 1 = unchanged.\nThis uses the full person mask, not precise face or skin detection. Shared residual gains still apply afterwards.");
+        ImGui::EndDisabled();
+        if (personSupported && personPasses == 1 && strength == 1.f && detail == 1.f)
+            MenuUi::TextWrapped("Single pass: lower person strength or detail to apply protection.");
+    }
+    if (!personSupported) MenuUi::TextDisabled("Available with lmxxf and Mochizuki.");
     else if (person) {
         // Translate each fixed status independently; preserve diagnostic details
         // and the numeric CPU timing instead of treating a joined line as a key.
@@ -308,7 +325,7 @@ static void RenderSharedOutputEffects(Config* config)
         HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
     }
     if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
-    HelpMarker("Resets Overall Intensity, residual gains and protections, Person first pass, and Residual Stabilizer.");
+    HelpMarker("Resets Overall Intensity, residual gains and protections, Person protection, and Residual Stabilizer.");
 
 }
 

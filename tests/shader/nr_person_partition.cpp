@@ -29,8 +29,8 @@ int main(){
  for(auto&v:pixels)v={.7f,.7f,.7f,.9f};Transfer(d.Get(),q.Get(),final.Get(),&pixels);
  UploadGuide(d.Get(),q.Get(),depth.Get(),.5f,1);UploadGuide(d.Get(),q.Get(),motion.Get(),0,2);
  Effects::Guides guides{motion.Get(),depth.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,w,h};
- auto record=[&](std::shared_ptr<Person::Mask>mask={}){
-  auto r=NewRecording(d.Get());r.output=Person::Record(r.proxy.Get(),base.Get(),first.Get(),final.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,w,h,guides,mask);
+ auto record=[&](std::shared_ptr<Person::Mask>mask={},Person::Settings settings={},bool single=false){
+  auto r=NewRecording(d.Get());r.output=Person::Record(r.proxy.Get(),base.Get(),single?final.Get():first.Get(),final.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,w,h,guides,mask,settings);
   Require(r.output!=final.Get(),"person recording prepared");Check(r.proxy->Close(),"close");return r;
  };
  auto check=[&](Recording&r,ID3D12CommandQueue*queue,float left,float right){
@@ -69,6 +69,40 @@ int main(){
  auto reset=record(mask);check(reset,q.Get(),.7f,.7f);guides.reset=false;
  motionSeed.proxy.Reset();between.proxy.Reset();moving.proxy.Reset();expired.proxy.Reset();reset.proxy.Reset();Person::Reset();
  Require(Person::Global().leases.empty(),"motion test resources retired");
+ // The same host compositor handles both backends without additional network work.
+ UploadGuide(d.Get(),q.Get(),motion.Get(),0,2);guides.motionScaleY=1;
+ auto fresh=[&]{
+  auto m=std::make_shared<Person::Mask>(*mask);m->epoch=Person::Global().epoch;
+  m->frame=Person::Global().frame;m->tick=GetTickCount64();return m;
+ };
+ {auto r=record();check(r,q.Get(),.7f,.7f);}
+ {auto r=record(fresh(),{0,1});check(r,q.Get(),.2f,.7f);}
+ {auto r=record(fresh(),{.5f,1});check(r,q.Get(),.25f,.7f);}
+ {auto r=record(fresh(),{1,0});check(r,q.Get(),.3f,.7f);} // Constant correction survives detail suppression.
+ {auto r=record(fresh(),{.5f,1},true);check(r,q.Get(),.45f,.7f);}
+ {auto r=record(fresh(),{},true);check(r,q.Get(),.7f,.7f);}
+ // A mask can expire between recording and submission while the recording itself
+ // is still young. Its original capture time, not the record time, is the limit.
+ {auto m=fresh();m->tick-=225;auto r=record(m);Sleep(40);check(r,q.Get(),.7f,.7f);}
+ Person::Reset();
+ // Suppress an invented fine impulse on the person; do not modify the scene.
+ pixels.assign(w*h,Pixel{.3f,.3f,.3f,.9f});pixels[h/2*w+w/4]={1,1,1,.9f};
+ Transfer(d.Get(),q.Get(),first.Get(),&pixels);
+ {auto r=record();check(r,q.Get(),.7f,.7f);}
+ {auto r=record(fresh(),{1,0});Check(r.proxy->ExecuteOn(q.Get()),"detail execute");WaitQueue(d.Get(),q.Get());
+  auto out=Transfer(d.Get(),q.Get(),r.output);
+  Require(out[h/2*w+w/4][0]<.6f&&out[h/2*w+w/4][0]>.3f,"invented person detail reduced");
+  Require(std::abs(out[h/2*w+3*w/4][0]-.7f)<.002f,"scene detail unchanged");
+ }
+ Person::Reset();
+ // HDR strength interpolation must not clip to SDR or modify alpha.
+ pixels.assign(w*h,Pixel{4,4,4,.37f});Transfer(d.Get(),q.Get(),base.Get(),&pixels);
+ pixels.assign(w*h,Pixel{8,8,8,.9f});Transfer(d.Get(),q.Get(),first.Get(),&pixels);
+ pixels.assign(w*h,Pixel{16,16,16,.9f});Transfer(d.Get(),q.Get(),final.Get(),&pixels);
+ {auto r=record();check(r,q.Get(),16,16);}
+ {auto r=record(fresh(),{.5f,1});check(r,q.Get(),6,16);}
+ Person::Reset();
+ Require(Person::Global().leases.empty(),"person controls resources retired");
  Ptr<ID3D12InfoQueue>info;if(SUCCEEDED(d.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;info->GetMessage(i,nullptr,&bytes);std::vector<char>data(bytes);auto*m=reinterpret_cast<D3D12_MESSAGE*>(data.data());info->GetMessage(i,m,&bytes);if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)std::fprintf(stderr,"%s\n",m->pDescription);Require(m->Severity>D3D12_MESSAGE_SEVERITY_ERROR,"D3D12 debug");}
  puts("person partition: PASS (first/final, alpha, two-frame motion, time/reset rejection, stale/replay, disocclusion, closed-list lifetime)");
 }

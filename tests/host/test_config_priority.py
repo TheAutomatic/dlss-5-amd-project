@@ -63,7 +63,7 @@ class ConfigPriorityTests(unittest.TestCase):
                 "LmxxfModelHistory",  # Host-owned FrameInfo flag, not an upstream environment key.
                 "NrStabilizerEnabled", "NrStabilizerAlpha", "NrStabilizerThreshold",
                 "NrOverallIntensity",  # Shared final-output blend, no runtime environment alias.
-                "NrPersonPartition",  # Host mask/compositor; first output uses an explicit ABI flag.
+                "NrPersonPartition", "NrPersonStrength", "NrPersonDetailGain",  # Host mask/compositor.
                 "NrResidualLowGain", "NrResidualDetailGain", "NrResidualSkinProtection", "NrResidualEdgeProtection",
                 "kSection",
                 "kDanielSection",
@@ -94,7 +94,7 @@ class ConfigPriorityTests(unittest.TestCase):
         ini = (product / "OptiScaler.ini").read_text(encoding="utf-8")
         packager = (ROOT / "tools/release/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8")
         reset = MENU.split("static void ResetSharedEffectsDefaults", 1)[1].split("static void ResetSharedNrDefaults", 1)[0]
-        for key, value in (("NrResidualLowGain", "1.0"), ("NrResidualDetailGain", "1.0"),
+        for key, value in (("NrPersonStrength", "1.0"), ("NrPersonDetailGain", "1.0"), ("NrResidualLowGain", "1.0"), ("NrResidualDetailGain", "1.0"),
                            ("NrResidualSkinProtection", "0.0"), ("NrResidualEdgeProtection", "0.0")):
             with self.subTest(key=key):
                 self.assertIn(f'{key} = "{key}"', KEYS)

@@ -18,7 +18,7 @@ cbuffer Params:register(b0){
  float2 mvScale,jitterStep;
  float preExposure;uint captureEnabled,age,maskEnabled;
  float2 contentScale,contentOffset;
- uint inverted;float3 reserved;
+ uint inverted;float personStrength,personDetail,maskFreshness;
 }
 cbuffer Execution:register(b1){uint executionValid;uint3 padding;}
 float Key(float value){return isfinite(value)&&value>=0&&value<=1?(inverted?value:1-value):-1;}
@@ -66,12 +66,36 @@ float Warp(float2 uv){
  int2 lo=clamp(int2(floor(p)),0,159),hi=min(lo+1,159);float2 f=frac(p);
  float value=lerp(lerp(rawMask[lo.y*160+lo.x],rawMask[lo.y*160+hi.x],f.x),
                   lerp(rawMask[hi.y*160+lo.x],rawMask[hi.y*160+hi.x],f.x),f.y);
- return isfinite(value)?smoothstep(.4,.8,value):0;
+ return isfinite(value)?smoothstep(.4,.8,value)*maskFreshness:0;
 }
 [numthreads(8,8,1)]
 void warp_main(uint3 id:SV_DispatchThreadID){
  if(any(id.xy>=160))return;
  nextMask[id.xy]=Warp((float2(id.xy)+.5)/160);
+}
+// Reduce only the fine component of the person's NR correction. The original
+// image supplies the edge weights and is never itself blurred.
+float3 PersonColour(int2 pixel,float3 base,float3 nr) {
+ float3 delta=nr-base;
+ if(personDetail!=1) {
+  float3 low=0;float total=0;
+  float scale=max(max(abs(base.r),max(abs(base.g),abs(base.b))),1e-6);
+  [unroll]for(int y=-1;y<=1;++y)[unroll]for(int x=-1;x<=1;++x) {
+   int2 p=clamp(pixel+int2(x,y),0,int2(width-1,height-1));
+   float3 b=original.Load(int3(p,0)).rgb,r=firstPass.Load(int3(p,0)).rgb;
+   if(!all(isfinite(b))||!all(isfinite(r)))continue;
+   float3 difference=abs(b-base);
+   float denominator=max(scale,max(max(abs(b.r),abs(b.g)),abs(b.b)));
+   float relative=max(max(difference.r,difference.g),difference.b)/denominator;
+   float weight=(x==0?2.:1.)*(y==0?2.:1.)/(1+64*relative*relative);
+   low+=(r-b)*weight;total+=weight;
+  }
+  low=total>0?low/total:delta;
+  delta=low+personDetail*(delta-low);
+ }
+ // Preserve the legacy first-pass colour exactly at neutral settings.
+ if(personStrength==1&&personDetail==1)return nr;
+ return clamp(base+personStrength*delta,-65504,65504);
 }
 [numthreads(8,8,1)]
 void compose_main(uint3 id:SV_DispatchThreadID){
@@ -89,7 +113,8 @@ void compose_main(uint3 id:SV_DispatchThreadID){
   if(g.w>.5&&key>=0&&abs(g.z-key)<=.08*max(max(g.z,key),1e-6)){mask+=warpedMask.Load(int3(q,0))*w;total+=w;}
  }
  mask=total>0?saturate(mask/total):0;
- output[id.xy]=float4(lerp(final.rgb,first.rgb,mask),isfinite(base.a)?base.a:0);
+ float3 person=mask>0&&all(isfinite(base.rgb))?PersonColour(int2(id.xy),base.rgb,first.rgb):first.rgb;
+ output[id.xy]=float4(lerp(final.rgb,person,mask),isfinite(base.a)?base.a:0);
 }
 )";
 struct Constants {
@@ -97,7 +122,7 @@ struct Constants {
  float mvScaleX,mvScaleY,jitterX,jitterY;
  float preExposure; unsigned captureEnabled,age,maskEnabled;
  float scaleX,scaleY,offsetX,offsetY;
- unsigned inverted;float reserved[3]{};
+ unsigned inverted;float personStrength=1.f,personDetail=1.f,maskFreshness=1.f;
 };
 static_assert(sizeof(Constants)==80);
 }

@@ -1,7 +1,15 @@
 #include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonInference.h"
+#include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonSettings.h"
 #include <cstdio>
 int wmain(int argc,wchar_t**argv){
  try {
+  using DlssNr::Person::Settings;
+  using DlssNr::Person::MaskFreshness;
+  if(Settings{}.ChangesSinglePass()||!Settings{.5f,1.f}.ChangesSinglePass())return 5;
+  auto bounded=Settings{std::numeric_limits<float>::quiet_NaN(),-1}.Bounded();
+  if(bounded.strength!=1||bounded.detail!=0)return 6;
+  if(MaskFreshness(200)!=1||MaskFreshness(225)!=.5f||MaskFreshness(250)!=0||
+     MaskFreshness(UINT64_MAX)!=0)return 7;
   std::vector<float>d(116*8400),p(32*160*160,1.f);
   d[0]=d[8400]=320;d[2*8400]=d[3*8400]=160;d[4*8400]=.9f;d[84*8400]=5;
   auto mask=DlssNr::Person::Decode(d.data(),p.data());

@@ -1,6 +1,7 @@
 #pragma once
 #include "PersonInference.h"
 #include "PersonShader.h"
+#include "PersonSettings.h"
 #include "../effects/NrOutputEffects.h"
 #include "../backend/lmxxf_runtime/TemporalControl.h"
 
@@ -78,7 +79,7 @@ struct Lease final:Submission::RecordingObserver {
  ComPtr<ID3D12Resource> original,first,final,motion,depth;
  std::vector<std::shared_ptr<Completion>> completions;
  Submission::RecordingIdentity identity{};
- uint64_t epoch=0,frame=0,previous=0,tick=0;
+ uint64_t epoch=0,frame=0,previous=0,tick=0,maskTick=0;
  bool invalidated=false,unconfirmed=false,sent=false,continuation=false;
  unsigned executions=0;
  HRESULT BeforeExecute(const Submission::RecordingExecution&e)noexcept override{
@@ -91,7 +92,8 @@ struct Lease final:Submission::RecordingObserver {
    done(completions);done(p.completions);
    // Bound auxiliary submissions as well as retained game recordings.
    if(p.completions.size()>=64)return E_OUTOFMEMORY;
-   uint32_t valid=executions==0&&epoch==s.epoch&&previous==s.submitted&&GetTickCount64()-tick<=250;
+   const auto now=GetTickCount64();
+   uint32_t valid=executions==0&&epoch==s.epoch&&previous==s.submitted&&now-tick<=250&&now-maskTick<=250;
    if(!valid)s.Invalidate();
    ++executions;unconfirmed=p.unconfirmed=true;
    p.control.Submit(p.device.Get(),e.queue,&valid,sizeof(valid),completions,p.completions);
@@ -162,7 +164,8 @@ inline bool Prepare(bool enabled,const std::filesystem::path& directory){
 }
 inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*original,ID3D12Resource*first,ID3D12Resource*final,
  D3D12_RESOURCE_STATES originalState,unsigned width,unsigned height,const Effects::Guides& guides,
- std::shared_ptr<const Mask> mask = Worker().Latest()){
+ std::shared_ptr<const Mask> mask = Worker().Latest(), Settings settings = {}){
+ settings=settings.Bounded();
  std::lock_guard lock(Submission::RecordingMutex());auto&s=Global();
  if(!cmd||cmd->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT||!first||!final||!Effects::ValidGuides(guides,width,height)||guides.jittered){
   s.Invalidate();s.status="Person partition bypassed: first pass or reliable motion/depth unavailable";return final;
@@ -206,6 +209,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
    }
   }
   if(!accepted){age=0;lease->history.clear();}
+  lease->maskTick=accepted?mask->tick:lease->tick;
   void*mapped=nullptr;D3D12_RANGE noRead{0,0};Check(storage->maskUpload->Map(0,&noRead,&mapped));
   if(accepted)memcpy(mapped,mask->values.data(),160*160*4);else memset(mapped,0,160*160*4);storage->maskUpload->Unmap(0,nullptr);
   auto pending=s.pendingCapture.lock();
@@ -234,7 +238,8 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   const auto prev=s.history.empty()?nullptr:s.history.back();
   Constants constants{width,height,guides.motionWidth,guides.motionHeight,guides.motionScaleX/guides.motionWidth,guides.motionScaleY/guides.motionHeight,
    prev?(prev->jitterX-guides.jitterX)/width:0,prev?(prev->jitterY-guides.jitterY)/height:0,guides.preExposure,unsigned(capture),age,unsigned(accepted),
-   scaleX,scaleY,(1-scaleX)*.5f,(1-scaleY)*.5f,unsigned(guides.inverted)};
+   scaleX,scaleY,(1-scaleX)*.5f,(1-scaleY)*.5f,unsigned(guides.inverted),settings.strength,settings.detail,
+   accepted?MaskFreshness(lease->tick-mask->tick):0.f};
   cmd->SetComputeRoot32BitConstants(1,20,&constants,0);cmd->SetComputeRootConstantBufferView(2,s.pipeline->control.Address());
   Effects::Barrier(cmd,storage->guide->texture.Get(),read,write);cmd->SetPipelineState(s.pipeline->capture.Get());cmd->Dispatch(capture?80:20,capture?80:20,1);
   Effects::Barrier(cmd,storage->guide->texture.Get(),write,read);
@@ -242,7 +247,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   Effects::Barrier(cmd,storage->mask.Get(),read,write);cmd->SetPipelineState(s.pipeline->warp.Get());cmd->Dispatch(20,20,1);Effects::Barrier(cmd,storage->mask.Get(),write,read);
   Effects::Barrier(cmd,storage->output.Get(),read,write);cmd->SetPipelineState(s.pipeline->compose.Get());cmd->Dispatch((width+7)/8,(height+7)/8,1);Effects::Barrier(cmd,storage->output.Get(),write,read);
   Effects::Barrier(cmd,original,read,originalState);Effects::Barrier(cmd,guides.motion,read,guides.motionState);Effects::Barrier(cmd,guides.depth,read,guides.depthState);
-  s.status=accepted?"Person: first pass / scene: final pass":"Person partition: waiting for a current mask";
+  s.status=accepted?"Person protection active":"Person partition: waiting for a current mask";
   return storage->output.Get();
  }catch(const std::exception&e){s.Invalidate();s.status=e.what();return final;}catch(...){s.Invalidate();s.status="person preparation failed";return final;}
 }

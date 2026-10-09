@@ -905,19 +905,29 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     const auto kind = static_cast<DlssNr::Backend::Kind>(g_activeKind.load(std::memory_order_acquire));
     const auto personPasses = kind == DlssNr::Backend::Kind::Lmxxf ? cfg.LmxxfMultiPass.value_or_default() :
         kind == DlssNr::Backend::Kind::Mochizuki ? cfg.MochizukiPasses.value_or_default() : cfg.DlssNrPasses.value_or_default();
-    const bool person = DlssNr::Person::Prepare(cfg.NrPersonPartition.value_or_default() && kind != DlssNr::Backend::Kind::Daniel && personPasses > 1, Directory());
+    const auto personSettings = DlssNr::Person::Settings {
+        cfg.NrPersonStrength.value_or_default(), cfg.NrPersonDetailGain.value_or_default() }.Bounded();
+    const bool personWanted = cfg.NrPersonPartition.value_or_default() && kind != DlssNr::Backend::Kind::Daniel &&
+        (personPasses > 1 || personSettings.ChangesSinglePass()) && cfg.NrOverallIntensity.value_or_default() != 0.f;
+    // This runs under frameMutex. A new display setting must not retain the old
+    // composite in the downstream stabilizer; backend/model history is untouched.
+    static DlssNr::Person::Settings previousPersonSettings;
+    if (!(previousPersonSettings == personSettings)) DlssNr::Effects::InvalidateHistory();
+    previousPersonSettings = personSettings;
+    const bool person = DlssNr::Person::Prepare(personWanted, Directory());
     ID3D12Resource* firstPass = nullptr;
-    if (auto replacement = b->RecordLayers(cmd, f, s, person ? &firstPass : nullptr))
+    if (auto replacement = b->RecordLayers(cmd, f, s, person && personPasses > 1 ? &firstPass : nullptr))
     {
         postReport.recorded = true;
         effectRecorded = true;
         const bool isLmxxf = g_activeKind.load(std::memory_order_acquire) == static_cast<int>(DlssNr::Backend::Kind::Lmxxf);
+        if (person && personPasses == 1) firstPass = replacement;
         if (person) replacement = DlssNr::Person::Record(cmd, f.colour, firstPass, replacement,
             f.colourState, f.width, f.height,
             {f.motion, f.depth, f.motionState, f.depthState,
              f.motionWidth ? f.motionWidth : f.width, f.motionHeight ? f.motionHeight : f.height,
              f.motionScaleX, f.motionScaleY, f.jitterX, f.jitterY, f.preExposure, f.exposureScale,
-             f.depthInverted, f.motionJittered, f.reset});
+             f.depthInverted, f.motionJittered, f.reset}, DlssNr::Person::Worker().Latest(), personSettings);
         replacement = DlssNr::Effects::Record(cmd, f.colour, replacement, f.colourState, f.width, f.height,
             cfg.NrOverallIntensity.value_or_default(), isLmxxf && cfg.NrTimingEnabled.value_or_default(),
             {f.motion, f.depth, f.motionState, f.depthState,

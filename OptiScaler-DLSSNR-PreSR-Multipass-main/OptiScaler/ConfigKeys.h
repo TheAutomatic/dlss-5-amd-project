@@ -43,6 +43,8 @@ inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
 inline constexpr const char *NrTimingEnabled = "NrTimingEnabled";
 inline constexpr const char *NrTimingLog = "NrTimingLog";
 inline constexpr const char *NrPersonPartition = "NrPersonPartition";
+inline constexpr const char *NrPersonDetailGain = "NrPersonDetailGain";
+inline constexpr const char *NrPersonStrength = "NrPersonStrength";
 inline constexpr const char *NrStabilizerEnabled = "NrStabilizerEnabled";
 inline constexpr const char *NrStabilizerAlpha = "NrStabilizerAlpha";
 inline constexpr const char *NrStabilizerThreshold = "NrStabilizerThreshold";
@@ -198,6 +200,8 @@ inline constexpr const char *const kKnown[] = {
     NrTimingEnabled,
     NrTimingLog,
     NrPersonPartition,
+    NrPersonDetailGain,
+    NrPersonStrength,
     NrStabilizerEnabled,
     NrStabilizerAlpha,
     NrStabilizerThreshold,

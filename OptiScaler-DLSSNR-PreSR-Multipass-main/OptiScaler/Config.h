@@ -340,6 +340,8 @@ class Config
     CustomOptional<bool> NrTimingEnabled { false };
     CustomOptional<bool> NrTimingLog { false };
     CustomOptional<bool> NrPersonPartition { false };
+    CustomOptional<float> NrPersonDetailGain { 1.0f };
+    CustomOptional<float> NrPersonStrength { 1.0f };
     CustomOptional<bool> NrStabilizerEnabled { false };
     CustomOptional<float> NrStabilizerAlpha { .8f };
     CustomOptional<float> NrStabilizerThreshold { 4.f };
