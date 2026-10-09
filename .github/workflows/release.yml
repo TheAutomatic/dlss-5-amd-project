@@ -303,36 +303,44 @@ jobs:
           body: |
             ### 1.11.0（相较于 1.10.5-alpha）
 
-            - **定向整合上游 OptiScaler UI升级及稳定性修复**：
+            - **定向整合上游 OptiScaler UI 升级、稳定性与字体排版修复**：
               - 采用响应式卡片分类布局，菜单在各类窗口及分辨率下自适应排版。
               - 保留三后端独立控制、分组 reset 与中英双语本地化支持，增加可选背景模糊（`MenuBlur`）。
               - 页面切换渲染前主动刷新活动后端状态，彻底解决换页后状态滞后。
-              - 修复零尺寸 HWND 交换链包装问题，修复窗口调整大小时的潜在崩溃。
-              - 修复 FFX 超分辨率版本查询在空列表或失败情况下的空指针问题。
+              - 修复零尺寸 HWND 交换链包装问题，修复窗口调整大小时的潜在崩溃；修复 FFX 超分辨率版本查询在空列表或失败情况下的空指针问题。
+              - 重构并扩充 `NotoSansSC-Menu.ttf` 中文字体子集，增补 Mochizuki 专属分项耗时（融/拆/张/浮）与人物保护全部字符，实测 144 种界面布局 0 乱码/豆腐块。
             - **增加 Authenticode 自签名**：
               - 签署 staging 二进制并生成 `SIGNATURES.json` 强绑定清单，提升兼容性与防篡改验证。
             - **实验性：公共残差分频与细节/肤色保护**：
               - 新增低频增益、细节增益及肤色/边缘保护启发式控制（`NrResidualLowGain`、`NrResidualDetailGain`、`NrResidualSkinProtection`、`NrResidualEdgeProtection`）。
               - 适用于三后端统一输出，在保持原始色域与 alpha 基础上增强画面立体感与边缘细节。
-            - **实验性：人物/场景分区分割与第一层复用**：
+            - **实验性：人物/场景分区分割、双后端通用保护与时序抗鬼影**：
               - 引入基于 ONNX Runtime CPU 的异步轻量推理通道（`NrPersonPartition`）。
-              - 为 lmxxf 与 Mochizuki 提供可选第一层 Pass 导出与时序运动对齐合成，保护前景免受多层过度降噪影响。
-              - 安装包内置 ONNX Runtime (MIT) 与 YOLO11n-seg (AGPL-3.0) 权重，解压安装即用，支持自备模型覆盖。
+              - 通用打通 lmxxf 与 Mochizuki 双后端的人物保护控制（`PersonProtectionStrength` 强度 / `PersonProtectionDetail` 细节保留）。
+              - 不仅支持多 Pass 第一层导出，更支持**单 Pass 直接前景保护与细节回退**（无须强制要求多 Pass 导出）。
+              - 引入历史掩码时序淡化与过期掩码剔除机制，消除快速镜头或人物移动时的边缘拖尾与重影。
+              - 扩展历史录制内存预算至 2GB，解决高分辨率渲染下的缓冲溢出与未确认标志残留。
+            - **开箱即用体验与安装器自愈能力增强**：
+              - 安装包正式直接内置 ONNX Runtime 动态库 (MIT) 与 YOLO11n-seg 权重 (AGPL-3.0)，解压即可直接开箱启用人物保护，支持自备模型无缝覆盖。
+              - `Setup.bat` 重装/升级防丢：更新时选择 **Y 先卸载** 也会智能保留并继承已存在的 `person-model`，避免重复下载与意外清空。
+              - 游戏 VC++ 运行库自适应修复：安装脚本自动检测目标环境 Visual C++ 运行库版本，若旧于 14.30 (VS 2022) 自动修补安装，杜绝 ONNX Runtime 报缺少依赖崩溃。
+            - **Mochizuki 后端与 ReShade 设备穿透兼容**：
+              - 彻底修复了在 ReShade 代理环境下的底层 Native Fence 穿透与设备归属校验，Mochizuki 与主流 ReShade 现可稳定并存。
 
             **安装与对应后端权重准备**
 
-            - 请完整解压 ZIP 至任意文件夹并运行新包的 `Setup.bat`。更新时推荐选择 **Y 先卸载**，重新使用包内默认配置。
+            - 请完整解压 ZIP 至任意文件夹并运行新包的 `Setup.bat`。更新时推荐选择 **Y 先卸载**，重新使用包内默认配置（已自带人物模型保留规则）。
             - **Daniel 0.6.0**：运行文件请前往 [Daniel 官方发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取；`nvngx_dlssnr.dll` 310.8.0 请自行获取。
             - **lmxxf 0.41**：需自备 `native-game-tiled-assets` 权重目录，见 [原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [下载镜像](https://gofile.io/d/wRln0Pue)。
             - **Mochizuki 0.0.3（引入0.04部分特性）**：从 `nvngx_dlssnr.dll` 310.8.0（与 Daniel 使用同一文件）提取权重，需要 Python 3.10+。
             - 如本次安装目标游戏文件夹内留存曾安装过的三后端有效权重，执行 `Setup.bat` 后可自动利用，并补回安装包内缺失的权重，使得日常更新本插件时无需反复重新拷贝。
-            - 本包内置人物分割模型权重（AGPL-3.0，见 Licenses/）；不含 NVIDIA DLL、Daniel 安装器或全图专有模型权重。
+            - 本包已内置人物分割模型权重（AGPL-3.0，见 Licenses/）；不含 NVIDIA DLL、Daniel 安装器或全图专有神经渲染权重。
 
             **已知问题**
 
             - SR → NR 支持 DX12 及 DX11/Vulkan 转 DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
             - lmxxf 时序历史（抗闪烁）功能与 ViT 自适应复用继续互斥；SR 后 NR 路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差，建议关闭预测第 3 层。
-            - 可能与 ReShade 冲突（Mochizuki 后端已在 1.10.4.1 尝试兼容修复；若仍遇冲突请暂时移除 ReShade）。
+            - ReShade 兼容性：Mochizuki 后端已支持底层 Native Fence 穿透识别，可与常规 ReShade 稳定并存；若遇极特殊第三方注入器仍报设备不匹配，请尝试暂时移除 ReShade。
             - 部分游戏如遇 NR 丢失带来闪烁或 hook 失效问题，请尝试开启实验性开关“提前接管”（Early command-list wrap / INI: LmxxfEarlyExeWrap，设为 force on，伊莫已默认开启）。
             - 部分场景与 XeFG 插件冲突，请关闭 XeFG 后重新进入游戏。
 
@@ -342,25 +350,32 @@ jobs:
 
             ### 1.11.0 (compared to 1.10.5-alpha)
 
-            - **Selective Upstream OptiScaler UI Upgrade and Stability Fixes**:
+            - **Selective Upstream OptiScaler UI Upgrade, Stability and Chinese Typographic Fixes**:
               - Responsive card categorization layout adapting across window sizes and resolutions.
               - Retains dedicated controls for all three backends, group reset, bilingual localization, and optional background blur (`MenuBlur`).
               - Actively refreshes active backend state before rendering any page to prevent UI display lag.
-              - Fixed zero-sized HWND swapchain wrapping to prevent window resize crashes.
-              - Rejected failed or empty upscaler version queries in FFX discovery.
+              - Fixed zero-sized HWND swapchain wrapping to prevent window resize crashes; rejected failed or empty upscaler version queries in FFX discovery.
+              - Rebuilt and expanded Chinese font subset (`NotoSansSC-Menu.ttf`) with Mochizuki timing metrics glyphs (融/拆/张/浮) and person protection terminology for complete 100% coverage with zero tofu characters.
             - **Added Authenticode Self-Signing**:
               - Signs staged binaries and records bound hash manifests in `SIGNATURES.json` for tamper-resistance and loader compatibility.
             - **Experimental: Shared Residual Shaping and Detail/Skin Protection**:
               - Added low/detail gain and skin/edge protection heuristics (`NrResidualLowGain`, `NrResidualDetailGain`, `NrResidualSkinProtection`, `NrResidualEdgeProtection`).
               - Applied across all backends' common outputs while keeping original color space and alpha intact.
-            - **Experimental: Person/Scene Partition and First-Pass Export**:
+            - **Experimental: Person/Scene Partition, Shared Detail Controls & Anti-Ghosting**:
               - Asynchronous CPU inference path via ONNX Runtime supporting standard YOLO11-seg (`NrPersonPartition`).
-              - Provides optional first-pass export and temporal motion alignment for lmxxf and Mochizuki to protect foreground figures from multi-pass over-smoothing.
-              - Bundles ONNX Runtime (MIT) and YOLO11n-seg (AGPL-3.0) weights for out-of-the-box evaluation.
+              - Shared person protection controls across lmxxf and Mochizuki (`PersonProtectionStrength` and `PersonProtectionDetail`), supporting both multi-pass first-pass export and direct single-pass foreground protection without mandatory extra passes.
+              - Added temporal mask aging fade and expired mask rejection at submission to eliminate motion ghosting and edge trailing behind moving characters.
+              - Expanded recording memory budget to 2GB to prevent buffer exhaustion at high resolutions.
+            - **Out-of-the-Box Packaging & Installer Self-Healing**:
+              - Bundles ONNX Runtime (MIT) and YOLO11n-seg (AGPL-3.0) directly in the package under `person-model/` for immediate out-of-the-box evaluation with custom model override support.
+              - `Setup.bat` preserves existing `person-model` assets when upgrading with `uninstallFirst` (selecting Y to uninstall).
+              - Automatically detects and repairs outdated VC++ runtimes (< 14.30) in game directories to prevent ONNX Runtime loading crashes.
+            - **Mochizuki & ReShade Native Fence Penetration**:
+              - Resolves D3D12 device wrapper mismatches behind ReShade by safely extracting native device identities through session fences (`accept proven native fence identity behind ReShade`).
 
             **Installation and backend model preparation**
 
-            - Extract the complete ZIP into a folder of your choice and run the new package's `Setup.bat`. When upgrading, we recommend choosing **Y to uninstall first** and start with the package's default settings.
+            - Extract the complete ZIP into a folder of your choice and run the new package's `Setup.bat`. When upgrading, we recommend choosing **Y to uninstall first** and start with the package's default settings (existing person models are preserved automatically).
             - **Daniel 0.6.0**: obtain the runtime files from the [Daniel releases page](https://github.com/danielblnc/DLSS-NR-on-AMD/releases). Obtain `nvngx_dlssnr.dll` 310.8.0 separately.
             - **lmxxf 0.41**: provide `native-game-tiled-assets` weights from the [upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
             - **Mochizuki 0.0.3 (includes partial 0.0.4 features)**: extract the weights from `nvngx_dlssnr.dll` 310.8.0, the same file used by Daniel. Python 3.10+ is required.
@@ -371,7 +386,7 @@ jobs:
 
             - SR → NR supports DX12 and the DX11/Vulkan-to-DX12 bridges; it does not add native RR/Vulkan support. Unsupported texture layouts preserve the SR image and report the reason.
             - lmxxf temporal history (anti-flicker) and adaptive ViT reuse remain mutually exclusive; lmxxf temporal history is unavailable in the post-SR NR path. Predicted pass 3 uses auxiliary data from the last real network execution and may introduce approximation artifacts; disabling predicted pass 3 is recommended.
-            - May conflict with ReShade (attempted compatibility fix for Mochizuki in 1.10.4.1; remove ReShade temporarily if issues persist).
+            - ReShade compatibility: Mochizuki now safely penetrates ReShade wrapper fences to acquire native device identities. If issues still persist with exotic injector configurations, temporarily remove ReShade.
             - If NR dropping out causes flicker or hook failure in some games, try enabling the experimental "Early command-list wrap" switch (INI: LmxxfEarlyExeWrap, set to force on; enabled by default for Aniimo).
             - May conflict with the XeFG plugin in certain scenarios; please disable XeFG and restart the game if encountered.
 
