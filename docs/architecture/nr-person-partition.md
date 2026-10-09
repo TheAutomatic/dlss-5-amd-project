@@ -1,8 +1,10 @@
 # Person / scene partition
 
-The optional `[DlssNr] NrPersonPartition=false` control keeps a detected person's
-first NR pass and uses the final NR pass for the rest of the frame. It follows
-NR's shared output settings and reset button. It does not save background network
+The optional `[DlssNr] NrPersonPartition=false` control uses a detected person's
+first NR pass in multi-pass mode, or the final result in single-pass mode, and
+uses final NR for the rest of the frame. The host can attenuate the person's
+correction and its fine detail. These controls share NR's output reset button;
+the common output effects run after person composition. It does not save background network
 work. It is experimental; semantic quality, HDR, fast motion and game performance
 still require real-game acceptance.
 
@@ -13,8 +15,8 @@ Put a CPU x64 ONNX Runtime (C API 23 or newer) at
 Put a separately obtained YOLO11n-seg FP32 COCO export at
 `person-model/yolo11n-seg.onnx`. Required tensor shapes are
 `[1,3,640,640]` -> `[1,116,8400]` and `[1,32,160,160]`.
-Other exports are rejected explicitly. No weights or inference DLL are included
-or downloaded. Observe the model's own license; compatibility does not grant
+Other exports are rejected explicitly. Model availability depends on the installed
+package; the provider never downloads missing files. Observe the model's own license; compatibility does not grant
 redistribution rights. All classes other than COCO person are ignored.
 
 The Microsoft MIT C headers are pinned to v1.23.2. The implementation independently
@@ -31,7 +33,10 @@ people, not a persistent player identity.
 The host captures a letterboxed 640 RGB input and 160-square motion/depth guides.
 Only completed readback is submitted to the worker. Masks carry source frame,
 dimensions, monotonic capture time and stream epoch. At most 24 guide frames and
-250 ms are accepted. Motion is traced through each intervening frame; invalid,
+250 ms are accepted. A valid mask fades out smoothly during its last 50 ms; this
+does not extend its lifetime. Submission checks the mask's original capture time
+as well as the recording time, so a delayed command cannot reuse an expired mask.
+Motion is traced through each intervening frame; invalid,
 offscreen and depth-inconsistent samples are rejected. A depth-aware feather
 avoids copying foreground colour across disocclusions. Missing reliable guides
 or jittered vectors bypass the effect.
@@ -44,14 +49,54 @@ Recording observers retain textures, descriptors and dependencies through both
 recording invalidation and execution completion. Each execution uses the existing
 GPU temporal-control mechanism to reject replay, delayed or reordered recordings.
 Cross-queue execution waits for the previous consumer on the GPU. Guide textures
-are immutable while referenced. Retained output sets are capped at eight and
-512 MiB including conservative per-set overhead. Optional first-pass backend
+are immutable while referenced. Retained output sets are capped at 24 and
+2 GiB including conservative per-set overhead. Optional first-pass backend
 allocations and ORT's model working set are additional memory.
 
 The worker callback and delayed resource collection retain the host module.
 Unknown submission completion retains resources instead of freeing GPU-owned
 objects. Off/rebuild resets the mask epoch immediately; a running inference may
 finish but cannot publish into a new stream.
+
+## Shared person controls
+
+| INI key | Range | Default | Meaning |
+|---|---|---|---|
+| `NrPersonPartition` | boolean | false | Enable person composition on lmxxf or Mochizuki |
+| `NrPersonStrength` | 0..1 | 1 | Scale the chosen person's NR correction |
+| `NrPersonDetailGain` | 0..1 | 1 | Scale only its fine residual; preserve broad correction and original detail |
+
+Both floats are host-owned and finite-clamped; nonfinite values become 1.
+They do not alter backend settings, model history, pass count or ABI. New values
+invalidate downstream output-stabilizer history without rebuilding the NR model.
+With one pass and both values at 1 there is no person processing or inference;
+the menu explains why. With multiple passes, 1/1 preserves the prior first-pass
+selection for fresh masks. Single-pass uses final NR directly and requests no
+extra first-pass output from either runtime.
+
+For original input `b` and person source `p`, split `p-b` into a 3x3
+original-guided low component `L` and fine component `H`. Person colour is
+`b + strength * (L + detail * H)`, blended with the final scene colour by the
+motion/depth-aligned mask. At detail=1 the neighbourhood reads are skipped; at
+1/1 the original source is retained directly. No additional network evaluation
+or composition dispatch is introduced. Active masking/inference and extra shader
+work still have a cost. Shared spatial/temporal output effects and Overall
+Intensity follow this step, so their settings can further change the result.
+
+Mochizuki's `automatic_mask/skin_structure` conditions the network and may also
+be set per pass. It is not equivalent to a host-controlled final correction under
+an independent person mask. Both remain available, with no automatic changes to
+the native controls; users should compare them separately before combining.
+Multi-pass paths without an exported first output continue to bypass person
+composition, including the runtime's existing preprocess/control-mask/native-
+composition restrictions. Daniel remains out of scope.
+
+Colour-specific person protection is deferred: the common sampling RGB contract
+does not establish one physical colour space for SDR, linear HDR, PQ and signed
+scRGB. Applying a guessed hue/chroma transform would not be a general solution.
+Inter-pass conditioning is also deferred: it changes the input to later network
+evaluations and must be validated independently against model history and
+predicted-third-pass scheduling. Final compositing does not claim to implement it.
 
 ## lmxxf interface and source ownership
 
@@ -95,6 +140,11 @@ person inference provider. Existing Daniel behavior is unchanged.
 
 ## Verification and remaining acceptance
 
+- Shared-controls extension: host build, configuration/CRT checks, translated
+  menu checks and 144 font/language/layout cases passed. CPU tests cover neutral
+  settings, finite bounds and mask fading. WARP covers single/multi-pass strength,
+  fine-detail attenuation, unchanged scene pixels, HDR-range interpolation,
+  alpha and masks that expire between recording and submission.
 - MSVC host and both open-source runtimes built; Mochizuki ABI checks passed.
   Mochizuki reused unchanged shaders for this C++ iteration; no release build
   receipt or fresh shader-generation validation is claimed.

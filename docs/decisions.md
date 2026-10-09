@@ -653,3 +653,15 @@ access 优化针对借用 DXVK/vkd3d 设备，而本项目自建 Vulkan 设备�
 中性和等比例增益用独立逐像素入口，避免默认路径增加组共享内存和同步屏障。
 肤色仅是颜色启发式，不表示已实现人物识别或“人物单层、场景多层”。
 算法、范围、验证与后续边界见[公共输出效果](architecture/nr-output-effects.md)。
+
+## 2026-10-09: Share final person controls with Mochizuki and lmxxf
+
+Use the host person compositor for optional person strength and fine-detail
+attenuation in single- and multi-pass modes. Mochizuki's native automatic mask
+and skin-structure settings condition its network; retain those independently
+rather than rewriting them when host protection changes. Single-pass needs no
+extra first-pass export. Keep new controls neutral and the feature default-off.
+This is a mechanism/compatibility decision, not a claim of improved game quality.
+Colour-specific protection and inter-pass conditioning require separate colour
+contracts and model/history validation and remain deferred. See
+[person partition](architecture/nr-person-partition.md) for the active contract.
