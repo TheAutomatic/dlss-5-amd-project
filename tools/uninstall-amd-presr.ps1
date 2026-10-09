@@ -217,6 +217,7 @@ $lmxxfShaderFiles = @(
 $planned = New-Object System.Collections.Generic.List[string]
 $kept = New-Object System.Collections.Generic.List[string]
 $deleted = New-Object System.Collections.Generic.List[string]
+$restored = New-Object System.Collections.Generic.List[string]
 $errors = New-Object System.Collections.Generic.List[string]
 
 function Test-UninstallPath([string]$path) {
@@ -673,7 +674,7 @@ foreach ($root in $roots) {
             }
         }
     }
-}
+
     # Restore original game CRT if upgraded during installation
     foreach ($crtDll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
         $orig = Join-Path $root ($crtDll + '.orig')
@@ -687,6 +688,7 @@ foreach ($root in $roots) {
             }
         }
     }
+}
 foreach ($path in ($customPluginFiles | Select-Object -Unique)) { Remove-SafeFile $path 'project-dependency' }
 foreach ($path in $legacyLogPaths) { Remove-SafeFile $path 'legacy-backend-log' }
 foreach ($root in $roots) {
@@ -740,6 +742,10 @@ if ($deleted.Count -gt 0) {
 if ($kept.Count -gt 0) {
     Write-Host 'Kept on purpose:' -ForegroundColor Cyan
     foreach ($k in $kept) { Write-Host "  - $k" }
+}
+if ($restored.Count -gt 0) {
+    Write-Host 'Restored:' -ForegroundColor Green
+    foreach ($r in $restored) { Write-Host "  - $r" }
 }
 if ($errors.Count -gt 0) {
     Write-Host 'Errors:' -ForegroundColor Red
