@@ -22,19 +22,14 @@ Read [docs/workspace.md](docs/workspace.md) before creating any file outside pro
 
 Before release preparation, read [docs/release.md](docs/release.md), the single release workflow.
 Use an explicit host path and `-OutDir dist` for local packaging, matching the packager default.
-A local package in `dist/` is not a published release; record its validation status separately.
-A standalone ABI pass or `--fast` build does not replace full CI or its runtime hash proof.
+A local package in `dist/` is for local testing; authoritative releases are certified by GitHub Actions.
 
 Routine changes start with code review. Do not run the full suite merely because a file
 under installer/packaging/sync changed. Use focused tests for concrete ABI, GPU ordering,
 resource lifetime, installer or packaging risks. Text and simple menu edits need no full run.
-Before a release, run [tests/RELEASE-TESTS.md](tests/RELEASE-TESTS.md) once against the final
-artifacts (`tests\run-all.cmd --tier ci`, plus applicable device/GPU checks). Reuse valid
-results when the relevant source and artifacts are unchanged; never run duplicate suites
-just to follow multiple entry points. The packager checks freshness; it does not run tests.
-The CI entrypoint may reuse a matching successful tooling-suite receipt within the current UTC
-week; source/environment changes force a full run. Runtime/ABI and package checks still run.
-See docs/release.md for cache inputs and force-run commands; --skip-sync cannot certify a release.
+Before pushing a release commit, perform local lightweight verification (`tools/release/check-module-contract.ps1`
+and `tests\host\run.cmd ci`). Full release regression suites are authoritatively run in GitHub Actions
+prior to creating the release tag. See docs/release.md for the complete checklist.
 
 ## Package compatibility
 

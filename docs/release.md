@@ -1,10 +1,12 @@
 # 发版
 
-本页是发版流程的唯一入口（2026-10-01 整理），统一维护构建、测试、试包、远端预验证、发布与故障处理。此前单独的构建一致性说明已合并到本页。
+本页是发版流程的唯一入口（2026-10-09 优化更新），统一维护构建、契约核验、本地试包、远端预验证、GitHub Actions 权威发布与故障处理。
 
-日常开发先审最终 diff；文案和简单菜单修改不要求全测，ABI/GPU 同步/资源生命周期等风险只做相关专项验证。发版前对最终产物完整跑一次；已有且仍适用的结果不因进入另一个流程入口而重复执行。宿主与 runtime 整包配套安装，不维护旧 ABI 降级。
+发版采用**“本地轻量自测与契约核验 + 远端 GitHub Actions 权威全量 CI”**的高效分工模式：
+- **本地端（核心自测）**：仅执行秒级模块契约核查、产物新鲜度检查与核心宿主/ABI 测试（几秒至十几秒）；若需实机试玩，直接使用一键本地出包脚本。无需在本地开发机耗时数分钟模拟跑完 70+ 项系统安装器与全套卸载回归。
+- **远端 GitHub Actions（权威发包）**：在干净的云端 runner 环境中执行完整发版 CI（涵盖完整 ABI、Shader 矩阵、70+ 项真实安装/升级/卸载/多进程模块包回归、代码签名与强绑定哈希生成），作为正式发布的唯一权威门禁。
 
-无卡回归测试（安装、卸载、模块包、runtime 校验、sync）只写在 [tests/RELEASE-TESTS.md](../tests/RELEASE-TESTS.md)，这里不重复。本页是打包前后要核对的规则。`PACKAGE_RELEASE.ps1` 不跑那些测试，检查模块契约并做新鲜度门禁（`tools/release/check-release-freshness.ps1`：打包用的 DLL 或 `.hsaco` 比源码旧就中止）。
+无卡回归测试（安装、卸载、模块包、runtime 校验、sync）细节见 [tests/RELEASE-TESTS.md](../tests/RELEASE-TESTS.md)。本页是打包前后要核对的规则。`PACKAGE_RELEASE.ps1` 检查模块契约并做新鲜度门禁（`tools/release/check-release-freshness.ps1`：打包用的 DLL 或 `.hsaco` 比源码旧就中止）。
 
 ## 版本号
 
@@ -79,44 +81,50 @@ Actions按精确键缓存上述Mochizuki产物及工具测试记录，不使用�
 最终包模块契约、Mochizuki构建清单、源码新鲜度、DLL配套及ZIP逐文件哈希均保留。
 缓存仅减少重复工作，不能代替上游接入审阅、当前产物检查、游戏验收或远端验证。
 
-## 本地发版清单（与 CI 对齐）
-
-完整 CI 测试成功后，统一入口在输出目录生成 `runtime-ci.sha256`，同时检查
-runtime 在测试期间没有变动；失败或 `--skip-sync` 不生成此凭证。同步工具测试允许使用上方严格匹配的本周成功记录；这属于已验证结果复用，不等同跳过。
-本地完整构建和 Actions 将已测试 DLL 与凭证一起复制到 `exports/lmxxf-runtime/`。
-打包在替换 staging 之前检查两者匹配，并复核 staging DLL 与所选 host/runtime 字节一致；
-实际 zip 的逐文件校验继续执行。手动组合构建时也须复制同一次成功 CI 的 DLL 和凭证，
-不能在测试后重新编译 runtime 再沿用旧凭证。
-此哈希只绑定测试产物，不能替代源码审阅、GPU 或游戏验证。
+## 发版清单（本地核心核对 + 远端权威 CI）
 
 ### 执行顺序
 
-1. **固定待发布源码。** 更新 `VERSION`、各语言 README 和 release workflow 的发布正文，确认描述与实际验证一致。修复和版本变更提交后记录完整 SHA；检查 `git status --short` 和 `git submodule status --recursive`。发布验证用干净检出及完整子模块；仅按上方内容校验规则恢复指定缓存，不继承其他旧 `exports`。修改源码后重新构建受影响产物，不能继续沿用旧验证结果。
-2. **完成上游接入再发版。** 涉及 lmxxf 同步时先按 [同步流程](../tools/lmxxf-sync/README.md) 审阅、补丁重放、模块来源与契约检查，确认 `sync-state.json` 为 reviewed 且审计针对当前接入内容有效。不能只看历史 reviewed 字样；pending、非零退出或仅 report-only 都不放行。发布 job 只使用提交的模块，不临时追移动的上游分支。
-3. **构建并测同一 runtime。** 有 D3D12 设备的本机运行下方完整构建命令，已包含 `ci,device`，不用在前面再重复跑一次 CI。无设备时在非 tag Actions 上跑完整 CI/构建，并如实记录 device/GPU SKIP。根据改动补充 GPU、双后端烟测；已有验证仅在源码、配置和产物身份适用时沿用。
-4. **本地试包与正式安装包统一放 dist。** 使用下方显式 host 路径和输出路径。打包器自动校验 runtime-ci 凭证、源码新鲜度、模块契约、包内容及实际 zip 哈希。`--fast`、`--skip-sync`、`-AllowMissingDeps`、`-WarnOnly`、`-AllowStaleModules` 不能作为发版通过依据。构建后不要再同步模块或重编 runtime 然后沿用旧测试凭证。
-5. **先验证远端非 tag ref。** 推送待验证分支后，在该分支触发 release workflow 的 `workflow_dispatch`，核对 run 的 `head_sha`。这条路径构建并上传 Actions artifact，不创建 GitHub Release。检查完整 job 结果，下载该 run 的 artifact，核对 zip 与包内 SHA256SUMS；本地通过不能代替远端通过。若无法执行，明确记为待验证，不宣称两端一致。
-6. **确认发布后再创建 tag。** `v<VERSION>` 指向已验证的同一提交，推送后 tag workflow 会重新构建并发布。若又修改了版本或正文，应先把新的提交验证好。tag run 是新的构建，核对它的 commit、测试结果和产物，不假定 zip 字节与预验证 run 相同。
-7. **核验实际线上附件。** 以成功 tag run 的 zip 为准；核对 Release tag、run `head_sha`、版本与正文源码链接，并把下载附件的 SHA256 与该 run 产物对照。上传失败按已有暂存/哈希重试机制处理；不同内容的同名附件禁止覆盖，不强推旧 tag。记录最终 run URL、zip SHA 和跳过的实测项。
+1. **固定待发布源码与文案。** 更新 `VERSION`、各语言 README 标题和 `.github/workflows/release.yml` 的发布正文，确认版本一致且描述准确。检查 `git status --short` 确认工作区无未跟踪/未提交的脏改动。
+2. **本地核心契约与新鲜度核验（~5 秒）。**
+   在本地运行模块契约与产物新鲜度检查，确保 40/80 模块契约与当前源码匹配：
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/check-module-contract.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/check-release-freshness.ps1
+   ```
+3. **本地核心宿主与 ABI 快速自测（~15 秒）。**
+   运行轻量宿主 CI 单元测试（校验 ABI 兼容、配置优先级、字体字形覆盖与设备判定）：
+   ```powershell
+   cmd /c "tests\host\run.cmd ci"
+   ```
+4. **（可选）本地快速试玩打包（~1 分钟）。**
+   若开发者或测试人员需要在本地实机试玩验证，直接调用本地出包工具（自带 LocalTest，1 分钟内重编 runtime 与宿主并生成带签名测试 zip，跳过耗时的安装器场景模拟）：
+   ```powershell
+   pwsh -File tools/release/BUILD_LOCAL_PACKAGE.ps1 -Root . -Version <VERSION>
+   ```
+   产物输出至 `dist/OptScaler-NR-<VERSION>-local-<时间>.zip`。
+5. **推送分支并触发 GitHub Actions 远端全量预验证。**
+   推送待验证分支到 GitHub。在 GitHub 仓库的 **Actions** 页面，找到 `Release` 工作流，点击 **Run workflow**（`workflow_dispatch` 模式，不创建 tag/Release）。
+   - GitHub Actions 在独立的纯净 Windows 环境中自动跑完包含全部 70+ 项安装回归、模块契约、真实自签名与包校验的完整 CI 流程；
+   - 验证通过后（绿勾），下载该 Run 生成的 Release Artifact，核对 zip 与 `SHA256SUMS.txt`。
+6. **确认发布并创建 tag。**
+   远端 Actions 预验证全绿后，在已验证的提交上创建并推送 tag：
+   ```bash
+   git tag v<VERSION>
+   git push origin v<VERSION>
+   ```
+   tag workflow 会自动触发全量构建、复核并发布 GitHub Release，正式挂载 release zip 附件。
+7. **核验线上正式 Release 附件。**
+   以成功 tag run 生成的 zip 为准，核对 GitHub Release 页面上的附件、SHA256 哈希、Release Notes 与版本号一致性。
 
-用户要求“走到本地测试停”时，在第 4 步交付已经校验的整包及验收清单；`VERSION`、
-三语 README 和 `release.yml` 发布正文也应准备完整。记录最终提交、包哈希、有效的
-CI/device/GPU 结果及未测范围，等待用户游戏验收，不启动第 5～7 步。仅更新版本和
-发布文案且构建输入未变时，保留已验证 DLL 与凭证，只重新打包、核对版本/文案和
-逐文件哈希；不能把“本地包已完成”写成已发布或已通过远端 Actions。
-
-在仓库根目录执行（PowerShell）：
-
-```powershell
-cmd /d /c tools\build\build-release-local.cmd
-if ($LASTEXITCODE -ne 0) { throw 'Release build or regression failed' }
-
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/PACKAGE_RELEASE.ps1 `
-    -OptiDll exports/release-local/OptiScaler.dll -OutDir dist
-if ($LASTEXITCODE -ne 0) { throw 'Release package validation failed' }
-```
-
-第二条命令默认读取 `VERSION`，输出目录与脚本默认值一致，均为 `dist/`。编译和测试仍在 `exports/`；交付用户测试或发布的打包目录与 zip 统一放 `dist/`。保护其他版本、第三方安装器和权重；重新打同版本包前核对目标及已保留的校验记录。已有同版本目录若含用户配置、权重或第三方 runtime，不得将其作为临时 staging 清空；在独立检出打包后只交付 zip。独立检出生成的包交付时也放到主工作区的 `dist/` 并复核哈希。目录不表示发布状态：本地试包须注明待游戏测试或待 Actions 验证。
+> **注：离线/全本地完整构建后门（旧流程备用）**
+> 若遇断网或特殊离线环境必须完全在本地生成 `runtime-ci.sha256` 凭证并正式打包，可仍按旧流程执行（耗时约 5~8 分钟）：
+> ```powershell
+> cmd /d /c tools\build\build-release-local.cmd
+> powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/PACKAGE_RELEASE.ps1 `
+>     -OptiDll exports/release-local/OptiScaler.dll -OutDir dist
+> ```
+> 日常开发与正式发包均推荐采用上方 GitHub Actions 远端权威流程，避免在本地开发机重复跑 70+ 项耗时测试。
 
 ### 失败时怎样继续
 
