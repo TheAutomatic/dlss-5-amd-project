@@ -11,7 +11,11 @@
 
 | 工具 | 用途 |
 |---|---|
-| `tools/build/build-release-local.cmd [--fast]` | 与 CI 对齐的发行构建，输出 `exports/release-local/`；默认跑 ci+device 层测试，`--fast` 只编 `OptiScaler.dll` |
+| `tools/build/build-release-local.cmd [--fast]` | 与 CI 对齐的发行构建，输出 `exports/release-local/`；默认跑 ci+device 层测试，`--fast` 编宿主与配套人物 Worker |
+| `tools/build/build-person-worker.cmd [输出目录]` | 独立构建人物推理 Worker，并生成源码/二进制绑定清单 |
+| `tools/release/check-person-worker.ps1 -WorkerExe <路径>` | 检查所选 Worker 与源码/构建清单匹配；纳入新鲜度及打包流程 |
+| `tools/release/prepare-person-assets.ps1 [-CrtDir <MSVC x64 CRT目录>]` | 为干净 runner 准备 API 23+ ONNX、固定导出参数模型与私有 CRT，不修改游戏 |
+| `tools/diag/benchmark_person_models.py --models <JSON> --images <图片...> --out <结果目录>` | 实际 CPU 模型对照，记录来源/哈希、线程数、预处理/推理/解码耗时与蒙版图；不推导游戏帧率 |
 | `tools/build/build-lmxxf-runtime.cmd [输出目录]` | 编 `LmxxfNrRuntime.dll`：有 `cl.exe` 用 MSVC，否则 MinGW（`LMXXF_GXX`）。旧路径 `tools/build-lmxxf-runtime.cmd` 暂留一个转发脚本，等安装/同步脚本迁移后删除 |
 | `tools/build/build-rtgi-shaders.cmd` | 由 `assets/experimental_lighting/Lighting.hlsl` 重建两个 `.cso`（逐字节一致） |
 | `tools/build/write-amd-graphics-source-id.ps1` | 生成日志里的宿主源码指纹（MSBuild 自动调用） |
