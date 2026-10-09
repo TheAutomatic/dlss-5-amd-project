@@ -75,12 +75,33 @@ History/ViT exclusion remains. This interface does not repair the previously
 reported predicted-third-pass flicker. First-pass history is not independently
 added by the partition feature.
 
+## Mochizuki adapter
+
+The default-off `RuntimeConfig::first_pass_output` uses a separate full-frame
+RGBA32F image and the existing transfer shader after pass one. It resolves the
+same detail, colour, white point and model-scale controls as the final transfer.
+The Vulkan adapter converts to the game's colour format and copies both outputs
+through one recording lease and producer/consumer fence chain. Bucketed DRS crops
+the valid subrect from both outputs. Optional allocations are included in network
+and frame budgets and keys, and retired with the existing geometry owner.
+
+Active preprocessing, control masks and native composition do not export a first
+pass. During a rebuild, a network without a valid multi-pass first output also
+bypasses partition. This preserves the user's final NR settings.
+
+Daniel is intentionally deferred at the user's request. Its menu control is
+disabled without altering the stored preference, and its frames never start the
+person inference provider. Existing Daniel behavior is unchanged.
+
 ## Verification and remaining acceptance
 
-- MSVC host and lmxxf runtime built.
+- MSVC host and both open-source runtimes built; Mochizuki ABI checks passed.
+  Mochizuki reused unchanged shaders for this C++ iteration; no release build
+  receipt or fresh shader-generation validation is claimed.
 - Actual CPU model smoke: first inference about 79 ms locally; a constant input
   verified inference, dimensions and finite output, not person recognition quality.
-- WARP: person/background numeric composition, alpha, stale epochs, cross-queue
+- WARP: person/background numeric composition, alpha, two-frame backward-motion
+  alignment, offscreen rejection, time expiry/camera reset, stale epochs, cross-queue
   replay, depth disocclusion and closed-list lifetime; D3D12 debug checks passed.
 - Shader tests and CPU decoder tests are wired into their area run.cmd.
 - No game deployment, hardware HIP image/performance test or release certification.
@@ -91,3 +112,27 @@ sizes and history states. Measure extra copies/decoding, worker latency, VRAM,
 fast turns, near hair, occlusion, DRS and HDR. CPU/WARP evidence does not substitute
 for this acceptance.
 
+
+Mochizuki additionally needs an AMD Vulkan first/final comparison for FP16 and
+sRGB, scale 1 and reduced scale, passes 2/3, history on/off, dynamic buckets,
+preprocess enable/disable and old-recording replay. Measure the extra full-frame
+transfer and format conversion as well as memory. None of these hardware/game
+checks was run in this implementation phase.
+
+## Local sync review
+
+The same-pin audit uses the previous official integration range
+`297b032ac55f005d78568e684f30608651044f62` to
+`48a41fccb89300cd6636b16bc7b86010384c4cc1`. The `integration` decision explicitly
+remains deferred for the hardware acceptance above, with completed code/CPU/WARP
+evidence retained. It needs no custom skipped-check or external module-bundle
+argument: no module build/supply was requested for this local interface change.
+`sync-state.json` still describes the earlier full upstream synchronization;
+this local audit does not certify new GPU artifacts or advance that baseline.
+
+At matching full-frame extents, Mochizuki's extra first-pass storage is roughly
+79 MiB at 1080p or 316 MiB at 4K with FP16 game colour (one RGBA32F core image,
+one Vulkan colour image, shared buffer and D3D colour texture). Alignment,
+bucket/allocation differences and retained recordings add overhead. Host masks,
+composition and the CPU model are additional. This is a storage estimate, not a
+measured hardware VRAM or latency result.

@@ -2,20 +2,20 @@
   "schema": 1,
   "from_commit": "297b032ac55f005d78568e684f30608651044f62",
   "to_commit": "48a41fccb89300cd6636b16bc7b86010384c4cc1",
-  "snapshot": "c6e687cea53868b9244828656bfc6896b859c50ba1b10ac662c11f55f6fafc6e",
+  "snapshot": "e12cb0614a84b5d3647db487cfe57108234ec2f483ecab5970c40d54fa841f27",
   "reviewer": "Codex",
-  "summary": "Unchanged official PR12 base with a new opt-in first-pass output interface patch and host-owned person partition. No file pins. Existing history/ViT and upstream defaults retained. Hardware first-pass acceptance is explicitly deferred.",
-  "validation": "MSVC host/runtime build; ABI4 C/C++ and23 runtime cases; 8 config/CRT cases; WARP person/final composition, alpha, stale/replay/depth and closed-recording retirement; actual CPU model smoke;144 menu layouts and catalog; exact official-source patch replay. Module contract40/80, no module or recipe changes. See docs/architecture/nr-person-partition.md. No hardware/game/release certification.",
+  "summary": "Official PR12 base remains unchanged. Minimal optional first-pass interface and host person partition are implemented and compile/CPU/WARP verified. Hardware first-pass acceptance remains deferred. No file pins or inference-default changes. Mochizuki shares the host pipeline; Daniel is intentionally not implemented.",
+  "validation": "MSVC host and lmxxf runtime; ABI4 C/C++ and 23 runtime cases; configuration/CRT; 144 menu layouts and catalog; WARP first/final/alpha, two-frame motion, age/reset/stale/replay/depth and closed-list lifetime; local CPU model smoke; exact official-source patch replay; existing module contract 40/80. No module recipe changes. See docs/architecture/nr-person-partition.md. No game/hardware/release certification.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "f4356a64bad5bf4217171372d7f78cbfcb9e9a776aaf3257ea943bf87d132536",
+      "fingerprint": "1e5b74cc982fa1ad0d4d0be32097c629b586732534e2be00e0a7870861824844",
       "classification": "production",
-      "decision": "integrated",
-      "reason": "Minimal opt-in first output, same recording lease and colour codec. Host owns segmentation/composition, defaults off. Existing unrelated baseline decisions remain unchanged.",
-      "evidence": "docs/architecture/nr-person-partition.md; explicit first-pass-output.patch; official48a41f raw-source replay matches both vendored headers.",
-      "validation": "MSVC host/runtime build; ABI4 C/C++ and23 runtime cases; 8 config/CRT cases; WARP person/final composition, alpha, stale/replay/depth and closed-recording retirement; actual CPU model smoke;144 menu layouts and catalog; exact official-source patch replay. Module contract40/80, no module or recipe changes. See docs/architecture/nr-person-partition.md. No hardware/game/release certification.",
-      "next_step": ""
+      "decision": "deferred",
+      "reason": "The opt-in implementation is complete at code/CPU/WARP level, including same-recording first-pass ownership and decode. Hardware first-pass correctness/performance and actual semantic mask quality remain acceptance work; default stays off.",
+      "evidence": "docs/architecture/nr-person-partition.md; tools/lmxxf-sync/patches/first-pass-output.patch; first sink exact replay against official 48a41f files. AmdBridge and DlssNr_Menu gate unsupported Daniel without clearing the stored setting. No changes to existing HIP modules, recipes or upstream defaults. Final UI review: multi-pass capability gates the control while preserving its INI value; fixed person-status strings are translated separately from timing/error details. 144-layout/glyph test and final MSVC host build passed.",
+      "validation": "MSVC host and lmxxf runtime; ABI4 C/C++ and 23 runtime cases; configuration/CRT; 144 menu layouts and catalog; WARP first/final/alpha, two-frame motion, age/reset/stale/replay/depth and closed-list lifetime; local CPU model smoke; exact official-source patch replay; existing module contract 40/80. No module recipe changes. See docs/architecture/nr-person-partition.md. No game/hardware/release certification.",
+      "next_step": "On an idle supported AMD GPU compare the first sink to independent MP1 for RGB/RGBA, actual MP2/3 and predicted MP3, history on/off, HDR and resize. Measure GPU copy/decode, CPU latency and VRAM. Validate person boundaries, occlusion and fast motion in games before enabling by default or release certification."
     },
     {
       "id": "file:Development/DevHistory.md",
@@ -6116,26 +6116,6 @@
       "evidence": "c32-wave1 (hip/c32_fused_ffn_attention.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; c32_fused_ffn_attention (hip/c32_fused_ffn_attention.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; c32_fused_ffn_attention-packed (hip/c32_fused_ffn_attention.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; c512-m32-deep (hip/deep_fast.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; c512-m32-mh (hip/multihead_fast_padded.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; c64-wave2 (hip/multihead_fast_padded.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; deep_fast (hip/deep_fast.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; deep_fast-packed (hip/deep_fast.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; multihead-fast-padded-wave (hip/multihead_fast_padded.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; multihead-fast-padded-wave-packed (hip/multihead_fast_padded.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; multihead_fused_attention (hip/multihead_fused_attention.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; swin-persistent (hip/multihead_fast_padded.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; vit-stream (hip/deep_fast.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; vit-wide-deep (hip/deep_fast.hip): recipe [], source ['(k) __builtin_amdgcn_fence(k,\"workgroup\",\"local\")', '(k) __builtin_amdgcn_fence(k,\"workgroup\")']; 0.40 semantic recheck: docs/lmxxf-040-consumer-review.md — 其余候选与沿用决策 / 数值模块与编译器（暂缓项）. Source diff adds RTZ builtin/fusion/fence branches; other existing gates retain their individual prior decisions, including disabled/deferred paths.; docs/lmxxf-041-consumer-review.md - 全路径清点与沿用证据 / 数值、布局与编译; docs/lmxxf-pr12-interface-migration.md - Unchanged switches and recipe scope",
       "validation": "RX9070XT: COMGR 68 modules and runtime build passed; full existing GPU suite under explicit 0.39 controls preserved all three goldens; --040-controls live changes/repeats/restoration, free 2560x1440 and two-pass recording/timing passed. RuntimeConfigTests 4 and SourcePatchTests 2 passed. See docs/lmxxf-040-consumer-review.md validation section; final CI/game acceptance recorded separately.; docs/lmxxf-041-consumer-review.md - 本地验证: MSVC runtime, config CRT6, raw patch replay2, controls041, RGB/RGBA and native1440 layout comparisons, cold3 predict+skin recording PASS. Complete release CI/game validation recorded separately.; docs/lmxxf-pr12-interface-migration.md - Build and validation: MSVC, dual-arch 80-module provenance, gfx1201 full GPU plus final exclusion/lifecycle checks, eight byte-identical baseline cases, WARP, ABI/config and patch/package/sync regression results. No gfx1200 or game/release certification.",
       "next_step": ""
-    },
-    {
-      "id": "modules:external",
-      "fingerprint": "fbe313756f7fad9e6039a1f6a714cfaa2ae393be2f699c54201bcbefa2d82b8f",
-      "classification": "production",
-      "decision": "integrated",
-      "reason": "Retain the current tracked module bundle; the new interface only copies outputs on the existing stream and introduces no HIP kernel or recipe change.",
-      "evidence": "docs/architecture/nr-person-partition.md; no diff in modules/, hip/, module-defines or recipes from6ccc461e; existing build provenance is unchanged.",
-      "validation": "check-module-contract.ps1:40 per architecture/80 dual PASS. No module changes or new module build claimed.",
-      "next_step": ""
-    },
-    {
-      "id": "validation:person-first-pass-hardware",
-      "fingerprint": "fa42ee0085741e7fe7d7740a93e2457c8a56f1bad2a73f59f204f3bd3a2b19a0",
-      "classification": "production",
-      "decision": "deferred",
-      "reason": "This implementation phase uses CPU/WARP and compilation; hardware HIP numerical and performance validation was not run.",
-      "evidence": "docs/architecture/nr-person-partition.md#verification-and-remaining-acceptance",
-      "validation": "",
-      "next_step": "On an idle supported AMD GPU compare first sink with MP1 under RGB/RGBA, MP1/2/3, prediction, history, HDR and resize; record extra GPU/VRAM cost and then game mask alignment before enabling or releasing."
     }
   ]
 }

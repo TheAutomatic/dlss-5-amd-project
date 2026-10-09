@@ -51,7 +51,25 @@ int main(){
  auto closed=record();Person::Reset();check(closed,q.Get(),.7f,.7f);
  seed.proxy.Reset();active.proxy.Reset();stale.proxy.Reset();disoccluded.proxy.Reset();closed.proxy.Reset();Person::Reset();
  Require(Person::Global().leases.empty(),"retired resources released");
+ // A two-frame-old mask must follow both intervening backward motion fields.
+ // The object moves right four pixels per frame; y motion stays zero.
+ UploadGuide(d.Get(),q.Get(),depth.Get(),.5f,1);
+ UploadGuide(d.Get(),q.Get(),motion.Get(),-4,2);guides.motionScaleY=0;
+ auto motionSeed=record();check(motionSeed,q.Get(),.7f,.7f);
+ mask->epoch=Person::Global().epoch;mask->frame=Person::Global().frame;mask->tick=GetTickCount64();
+ auto between=record();check(between,q.Get(),.7f,.7f);
+ auto moving=record(mask);Check(moving.proxy->ExecuteOn(q.Get()),"moving execute");WaitQueue(d.Get(),q.Get());
+ auto moved=Transfer(d.Get(),q.Get(),moving.output);
+ Require(std::abs(moved[h/2*w+20][0]-.3f)<.002f,"two-frame mask follows object");
+ Require(std::abs(moved[h/2*w+4][0]-.7f)<.002f,"offscreen reprojection rejects mask");
+ // Time expiry and a camera reset must each reject an otherwise matching mask.
+ mask->tick=GetTickCount64()-251;
+ auto expired=record(mask);check(expired,q.Get(),.7f,.7f);
+ mask->tick=GetTickCount64();guides.reset=true;
+ auto reset=record(mask);check(reset,q.Get(),.7f,.7f);guides.reset=false;
+ motionSeed.proxy.Reset();between.proxy.Reset();moving.proxy.Reset();expired.proxy.Reset();reset.proxy.Reset();Person::Reset();
+ Require(Person::Global().leases.empty(),"motion test resources retired");
  Ptr<ID3D12InfoQueue>info;if(SUCCEEDED(d.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;info->GetMessage(i,nullptr,&bytes);std::vector<char>data(bytes);auto*m=reinterpret_cast<D3D12_MESSAGE*>(data.data());info->GetMessage(i,m,&bytes);if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)std::fprintf(stderr,"%s\n",m->pDescription);Require(m->Severity>D3D12_MESSAGE_SEVERITY_ERROR,"D3D12 debug");}
- puts("person partition: PASS (first/final, alpha, stale/replay, disocclusion, closed-list lifetime)");
+ puts("person partition: PASS (first/final, alpha, two-frame motion, time/reset rejection, stale/replay, disocclusion, closed-list lifetime)");
 }
 

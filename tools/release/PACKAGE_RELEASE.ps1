@@ -298,6 +298,7 @@ NrOverallIntensity=1.0
 ; These are not temporal anti-flicker. Test HDR/fast motion before enabling by default.
 ; Neutral 1/1/0/0 keeps the old output path. Pure-backend sessions may need a restart.
 ; Experimental person partition: person uses first NR pass, scene uses final pass.
+; lmxxf/Mochizuki multi-pass only; Daniel is not supported.
 ; Requires person-model/onnxruntime.dll (CPU x64 API 23+) and yolo11n-seg.onnx
 ; (COCO FP32, input 1x3x640x640). Weights/runtime are optional, not bundled.
 ; Missing/stale masks or unreliable motion/depth preserve final NR. Default off.

@@ -266,13 +266,33 @@ static void RenderSharedOutputEffects(Config* config)
     if (MenuUi::SliderFloat("Edge detail protection", &residual.edgeProtection, 0.f, 1.f, "%.2f")) config->NrResidualEdgeProtection = residual.edgeProtection;
     HelpMarker("Experimental: limits new fine-scale NR changes near strong original edges. 0 = off. Keeps original edges and alpha.\nCan weaken intended NR detail; this is spatial protection, not temporal anti-flicker.");
     ImGui::EndDisabled();
+    const auto personKind = Backend::ActiveKindFromConfig();
+    const auto personPasses = personKind == Backend::Kind::Lmxxf ? config->LmxxfMultiPass.value_or_default() :
+        personKind == Backend::Kind::Mochizuki ? config->MochizukiPasses.value_or_default() : 0;
+    const bool personSupported = personPasses > 1;
     bool person = config->NrPersonPartition.value_or_default();
+    ImGui::BeginDisabled(!personSupported);
     if (MenuUi::Checkbox("Person first pass", &person)) {
         config->NrPersonPartition = person;
         AmdBridge::InvalidateHistory();
     }
+    ImGui::EndDisabled();
     HelpMarker("Experimental: person uses the first NR pass; scene uses the final pass. Requires person-model/onnxruntime.dll and yolo11n-seg.onnx (COCO FP32 640).\nCPU inference is asynchronous. Missing, stale or misaligned masks preserve final NR. Does not reduce network passes.");
-    if (person) MenuUi::TextWrapped("%s", AmdBridge::PersonStatus().c_str());
+    if (!personSupported) MenuUi::TextDisabled("Available with lmxxf and Mochizuki multi-pass.");
+    else if (person) {
+        // Translate each fixed status independently; preserve diagnostic details
+        // and the numeric CPU timing instead of treating a joined line as a key.
+        const auto status = AmdBridge::PersonStatus();
+        std::string display;
+        for (size_t begin = 0; begin < status.size();) {
+            const auto end = status.find(" | ", begin);
+            if (!display.empty()) display += " | ";
+            display += MenuLocale::Translate(status.substr(begin, end - begin).c_str());
+            if (end == std::string::npos) break;
+            begin = end + 3;
+        }
+        MenuUi::TextWrapped("%s", display.c_str());
+    }
     bool stabilizer = config->NrStabilizerEnabled.value_or_default();
     if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
         config->NrStabilizerEnabled = stabilizer;
@@ -288,7 +308,7 @@ static void RenderSharedOutputEffects(Config* config)
         HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
     }
     if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
-    HelpMarker("Resets Overall Intensity, residual gains and protections, and Residual Stabilizer.");
+    HelpMarker("Resets Overall Intensity, residual gains and protections, Person first pass, and Residual Stabilizer.");
 
 }
 

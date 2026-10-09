@@ -905,7 +905,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     const auto kind = static_cast<DlssNr::Backend::Kind>(g_activeKind.load(std::memory_order_acquire));
     const auto personPasses = kind == DlssNr::Backend::Kind::Lmxxf ? cfg.LmxxfMultiPass.value_or_default() :
         kind == DlssNr::Backend::Kind::Mochizuki ? cfg.MochizukiPasses.value_or_default() : cfg.DlssNrPasses.value_or_default();
-    const bool person = DlssNr::Person::Prepare(cfg.NrPersonPartition.value_or_default() && personPasses > 1, Directory());
+    const bool person = DlssNr::Person::Prepare(cfg.NrPersonPartition.value_or_default() && kind != DlssNr::Backend::Kind::Daniel && personPasses > 1, Directory());
     ID3D12Resource* firstPass = nullptr;
     if (auto replacement = b->RecordLayers(cmd, f, s, person ? &firstPass : nullptr))
     {
