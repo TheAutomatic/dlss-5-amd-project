@@ -283,9 +283,22 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            ### 1.10.5-alpha
+            ### 1.11.0（相较于 1.10.5-alpha）
 
-            - 接入 mochi 0.0.4 部分特性（无重大更新）
+            - **定向整合上游 OptiScaler UI升级及稳定性修复**：
+              - 采用响应式卡片分类布局，菜单在各类窗口及分辨率下自适应排版。
+              - 保留三后端独立控制、分组 reset 与中英双语本地化支持，增加可选背景模糊（`MenuBlur`）。
+              - 页面切换渲染前主动刷新活动后端状态，彻底解决换页后状态滞后。
+              - 修复零尺寸 HWND 交换链包装问题，修复窗口调整大小时的潜在崩溃。
+              - 修复 FFX 超分辨率版本查询在空列表或失败情况下的空指针问题。
+            - **增加 Authenticode 自签名**：
+              - 签署 staging 二进制并生成 `SIGNATURES.json` 强绑定清单，提升兼容性与防篡改验证。
+            - **实验性：公共残差分频与细节/肤色保护**：
+              - 新增低频增益、细节增益及肤色/边缘保护启发式控制（`NrResidualLowGain`、`NrResidualDetailGain`、`NrResidualSkinProtection`、`NrResidualEdgeProtection`）。
+              - 适用于三后端统一输出，在保持原始色域与 alpha 基础上增强画面立体感与边缘细节。
+            - **实验性：人物/场景分区分割与第一层复用**：
+              - 引入基于 ONNX Runtime CPU 的异步轻量推理通道（`NrPersonPartition`）。
+              - 为 lmxxf 与 Mochizuki 提供可选第一层 Pass 导出与时序运动对齐合成，保护前景免受多层过度降噪影响。
 
             **安装与对应后端权重准备**
 
@@ -298,22 +311,32 @@ jobs:
 
             **已知问题**
 
-            - SR → NR 支持 DX12 及 DX11/Vulkan → DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
-            - lmxxf时序历史（抗闪烁）功能与 ViT 自适应复用继续互斥；SR 后NR路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差，建议关闭预测第 3 层。
+            - SR → NR 支持 DX12 及 DX11/Vulkan 转 DX12 桥接，不扩展原生 RR/Vulkan；不支持的纹理布局保留 SR 图像并显示原因。
+            - lmxxf 时序历史（抗闪烁）功能与 ViT 自适应复用继续互斥；SR 后 NR 路径暂不启用 lmxxf 时序历史。预测第 3 层使用最后一次真实网络的辅助量，画面仍可能存在近似误差，建议关闭预测第 3 层。
             - 可能与 ReShade 冲突（Mochizuki 后端已在 1.10.4.1 尝试兼容修复；若仍遇冲突请暂时移除 ReShade）。
             - 部分游戏如遇 NR 丢失带来闪烁或 hook 失效问题，请尝试开启实验性开关“提前接管”（Early command-list wrap / INI: LmxxfEarlyExeWrap，设为 force on，伊莫已默认开启）。
             - 部分场景与 XeFG 插件冲突，请关闭 XeFG 后重新进入游戏。
 
-            **补充感谢**
-
-            - 补充感谢 [@Overclockers](https://github.com/Overclockers) 在 1.10.3 版本贡献的 NR 激活时独立 XeFG 插帧倍率覆盖功能（[PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)）。注：仍需自备 XeFG 补丁，参考 README 对应“可选：3倍及以上多帧生成 (XeFG/DLSSG)”章节。
-            - 各位 Bilibili 用户的测试与反馈。
+            感谢各位 Bilibili 用户的测试与反馈。
 
             ---
 
-            ### 1.10.5-alpha
+            ### 1.11.0 (compared to 1.10.5-alpha)
 
-            - Integrated partial features from Mochizuki v0.0.4 (no major changes)
+            - **Selective Upstream OptiScaler UI Upgrade and Stability Fixes**:
+              - Responsive card categorization layout adapting across window sizes and resolutions.
+              - Retains dedicated controls for all three backends, group reset, bilingual localization, and optional background blur (`MenuBlur`).
+              - Actively refreshes active backend state before rendering any page to prevent UI display lag.
+              - Fixed zero-sized HWND swapchain wrapping to prevent window resize crashes.
+              - Rejected failed or empty upscaler version queries in FFX discovery.
+            - **Added Authenticode Self-Signing**:
+              - Signs staged binaries and records bound hash manifests in `SIGNATURES.json` for tamper-resistance and loader compatibility.
+            - **Experimental: Shared Residual Shaping and Detail/Skin Protection**:
+              - Added low/detail gain and skin/edge protection heuristics (`NrResidualLowGain`, `NrResidualDetailGain`, `NrResidualSkinProtection`, `NrResidualEdgeProtection`).
+              - Applied across all backends' common outputs while keeping original color space and alpha intact.
+            - **Experimental: Person/Scene Partition and First-Pass Export**:
+              - Asynchronous CPU inference path via ONNX Runtime supporting standard YOLO11-seg (`NrPersonPartition`).
+              - Provides optional first-pass export and temporal motion alignment for lmxxf and Mochizuki to protect foreground figures from multi-pass over-smoothing.
 
             **Installation and backend model preparation**
 
@@ -332,10 +355,7 @@ jobs:
             - If NR dropping out causes flicker or hook failure in some games, try enabling the experimental "Early command-list wrap" switch (INI: LmxxfEarlyExeWrap, set to force on; enabled by default for Aniimo).
             - May conflict with the XeFG plugin in certain scenarios; please disable XeFG and restart the game if encountered.
 
-            **Additional thanks**
-
-            - Special thanks to [@Overclockers](https://github.com/Overclockers) for contributing the NR-only XeFG multiplier override in version 1.10.3 ([PR #3](https://github.com/TheAutomatic/dlss-5-amd-project/pull/3)). Note: XeFG unlock files are still required; see the "Optional: 3x+ Frame Generation (XeFG/DLSSG)" section in README for details.
-            - Thanks to all Bilibili users for testing and feedback.
+            Thanks to all Bilibili users for testing and feedback.
 
             This archive does not include NVIDIA proprietary binaries, the danielblnc installer, or unauthorized model weights.
 
