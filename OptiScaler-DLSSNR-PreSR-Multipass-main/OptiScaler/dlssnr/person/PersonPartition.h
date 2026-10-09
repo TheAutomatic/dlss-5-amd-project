@@ -93,8 +93,9 @@ struct Lease final:Submission::RecordingObserver {
    // Bound auxiliary submissions as well as retained game recordings.
    if(p.completions.size()>=64)return E_OUTOFMEMORY;
    const auto now=GetTickCount64();
-   uint32_t valid=executions==0&&epoch==s.epoch&&previous==s.submitted&&now-tick<=250&&now-maskTick<=250;
-   if(!valid)s.Invalidate();
+   const bool temporalValid=executions==0&&epoch==s.epoch&&previous==s.submitted&&now-tick<=250;
+   if(!temporalValid)s.Invalidate();
+   const uint32_t valid=temporalValid&&(now-maskTick<=250);
    ++executions;unconfirmed=p.unconfirmed=true;
    p.control.Submit(p.device.Get(),e.queue,&valid,sizeof(valid),completions,p.completions);
    unconfirmed=p.unconfirmed=false;return S_OK;
@@ -202,8 +203,8 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   lease->identity=logical->Identity();lease->continuation=observer->InContinuation();lease->epoch=s.epoch;lease->frame=s.frame;lease->previous=s.submitted;lease->tick=GetTickCount64();
   unsigned age=0;bool accepted=false;
   if(mask&&mask->values.size()==160*160&&mask->epoch==s.epoch&&mask->width==width&&mask->height==height&&lease->tick-mask->tick<=250&&mask->frame<=s.frame){
-   age=unsigned(s.frame-mask->frame);
-   if(age<=HistoryCount&&age<=s.history.size()){
+   age=(std::min)(unsigned(s.frame-mask->frame),HistoryCount);
+   if(age<=s.history.size()){
     accepted=true;
     for(unsigned i=0;i<age;++i){auto h=s.history[s.history.size()-1-i];if(h->frame!=s.frame-1-i||h->epoch!=s.epoch){accepted=false;break;}lease->history.push_back(h);}
    }

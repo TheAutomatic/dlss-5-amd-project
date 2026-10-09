@@ -56,17 +56,18 @@ float Warp(float2 uv){
  if(!maskEnabled||!executionValid||age>24)return 0;
  float4 g=GuideAt(0,uv);if(g.w<.5)return 0;
  [loop]for(uint i=0;i<age;++i){
-  uv+=g.xy;
-  if(any(uv<0)||any(uv>=1))return 0;
-  float4 prev=GuideAt(i+1,uv);
-  if(prev.w<.5||abs(g.z-prev.z)>.08*max(max(g.z,prev.z),1e-6))return 0;
+  float2 nextUv=uv+g.xy;
+  if(any(nextUv<0)||any(nextUv>=1))break;
+  float4 prev=GuideAt(i+1,nextUv);
+  if(prev.w<.5||abs(g.z-prev.z)>0.35*max(max(g.z,prev.z),1e-4)+0.05)break;
+  uv=nextUv;
   g=prev;
  }
  float2 p=(uv*contentScale+contentOffset)*160-.5;
  int2 lo=clamp(int2(floor(p)),0,159),hi=min(lo+1,159);float2 f=frac(p);
  float value=lerp(lerp(rawMask[lo.y*160+lo.x],rawMask[lo.y*160+hi.x],f.x),
                   lerp(rawMask[hi.y*160+lo.x],rawMask[hi.y*160+hi.x],f.x),f.y);
- return isfinite(value)?smoothstep(.4,.8,value)*maskFreshness:0;
+ return isfinite(value)?smoothstep(.2,.8,value)*maskFreshness:0;
 }
 [numthreads(8,8,1)]
 void warp_main(uint3 id:SV_DispatchThreadID){
@@ -109,10 +110,18 @@ void compose_main(uint3 id:SV_DispatchThreadID){
  float mask=0,total=0;
  [unroll]for(int y=-1;y<=1;++y)[unroll]for(int x=-1;x<=1;++x){
   int2 q=clamp(center+int2(x,y),0,159);float4 g=guides[0].Load(int3(q,0));
-  float w=max(0,1.5-abs(p.x-q.x))*max(0,1.5-abs(p.y-q.y));
-  if(g.w>.5&&key>=0&&abs(g.z-key)<=.08*max(max(g.z,key),1e-6)){mask+=warpedMask.Load(int3(q,0))*w;total+=w;}
+  float spatialW=max(0.0,1.5-abs(p.x-q.x))*max(0.0,1.5-abs(p.y-q.y));
+  float depthDiff=abs(g.z-key);
+  float depthTol=0.35*max(max(g.z,key),1e-4)+0.05;
+  float depthW=(g.w>.5&&key>=0)?saturate(1.0-depthDiff/depthTol):0.0;
+  float w=spatialW*depthW;
+  mask+=warpedMask.Load(int3(q,0))*w;total+=w;
  }
- mask=total>0?saturate(mask/total):0;
+ float4 centerG=guides[0].Load(int3(center,0));
+ float centerDepthDiff=abs(centerG.z-key);
+ float centerDepthTol=0.35*max(max(centerG.z,key),1e-4)+0.05;
+ float fallbackMask=(key>=0&&centerG.w>.5&&centerDepthDiff<=centerDepthTol)?warpedMask.Load(int3(center,0)):0.0;
+ mask=total>0.01?saturate(mask/total):fallbackMask;
  float3 person=mask>0&&all(isfinite(base.rgb))?PersonColour(int2(id.xy),base.rgb,first.rgb):first.rgb;
  output[id.xy]=float4(lerp(final.rgb,person,mask),isfinite(base.a)?base.a:0);
 }

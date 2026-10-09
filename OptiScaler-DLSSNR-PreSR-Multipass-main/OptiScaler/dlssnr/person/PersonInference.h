@@ -1,4 +1,5 @@
 #pragma once
+#include "PersonIpc.h"
 #include "../../../../third_party/onnxruntime/onnxruntime_c_api.h"
 #include <Windows.h>
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace DlssNr::Person
@@ -98,13 +100,15 @@ public:
         if(dll)FreeLibrary(dll);
     }
     void Open(const std::filesystem::path& directory) {
-        // Explicit app-relative dependency. Never search PATH/the current game directory.
         const auto library=std::filesystem::absolute(directory/L"onnxruntime.dll");
         if(!std::filesystem::is_regular_file(library))throw std::runtime_error("missing person-model/onnxruntime.dll (ONNX Runtime 1.23+ CPU x64)");
         const auto model=directory/L"yolo11n-seg.onnx";
         if(!std::filesystem::is_regular_file(model))throw std::runtime_error("missing person-model/yolo11n-seg.onnx (FP32 640, COCO)");
         dll=LoadLibraryExW(library.c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
-        if(!dll)throw std::runtime_error("cannot load ONNX Runtime CPU x64");
+        if(!dll){
+            dll=LoadLibraryW(library.c_str());
+            if(!dll)throw std::runtime_error("cannot load ONNX Runtime CPU x64");
+        }
         const auto get=reinterpret_cast<const OrtApiBase*(ORT_API_CALL*)()>(GetProcAddress(dll,"OrtGetApiBase"));
         api=get?get()->GetApi(ORT_API_VERSION):nullptr;
         if(!api)throw std::runtime_error("ONNX Runtime C API 23 unavailable");
@@ -140,63 +144,310 @@ public:
         mask.milliseconds=double(GetTickCount64()-start);return mask;
     }
 };
-// One process-lifetime state, one work item; render threads never join inference.
-// Each callback retains this module until return, including model loading/failure.
+
 class Provider
 {
-    std::mutex mutex;
-    std::unique_ptr<Inference> inference;
-    std::shared_ptr<Mask> result;
+    mutable std::mutex mutex;
     std::filesystem::path directory;
-    uint64_t generation=0,loadedGeneration=0;
-    bool active=false,busy=false,failed=false;
-    std::string status="off";
-    struct Work { Provider* owner; HMODULE module; uint64_t generation; std::filesystem::path directory; std::shared_ptr<Image> image; bool enabled; };
-    static void CALLBACK RunWork(PTP_CALLBACK_INSTANCE instance,void* context) {
-        std::unique_ptr<Work> work(static_cast<Work*>(context));auto& p=*work->owner;
-        std::unique_ptr<Inference> local;std::shared_ptr<Mask> mask;std::string error;
-        {std::lock_guard lock(p.mutex);local=std::move(p.inference);}
-        try {
-            if(!work->enabled)local.reset();
-            else {
-                if(p.loadedGeneration!=work->generation)local.reset();
-                if(!local){local=std::make_unique<Inference>();local->Open(work->directory);}
-                if(work->image)mask=std::make_shared<Mask>(local->Run(*work->image));
-            }
-        }catch(const std::exception& e){error=e.what();}catch(...){error="person inference failed";}
-        {
-            std::lock_guard lock(p.mutex);
-            if(work->generation==p.generation&&p.active&&work->enabled) {
-                if(error.empty()){p.inference=std::move(local);p.loadedGeneration=work->generation;}
-                if(mask)p.result=std::move(mask);
-                p.failed=!error.empty();p.status=p.failed?error:(p.result?"person mask ready":"person model ready");
-            } else {p.loadedGeneration=0;p.result.reset();}
-            p.busy=false;
-        }
-        // Potentially expensive ORT teardown is confined to this worker.
-        local.reset();
-        FreeLibraryWhenCallbackReturns(instance,work->module);
-    }
-    bool Start(std::shared_ptr<Image> image) {
-        HMODULE module=nullptr;
-        if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,reinterpret_cast<LPCWSTR>(&RunWork),&module))return false;
-        auto work=std::make_unique<Work>(Work{this,module,generation,directory,std::move(image),active});
-        busy=true;
-        if(!TrySubmitThreadpoolCallback(&RunWork,work.get(),nullptr)){busy=false;FreeLibrary(module);return false;}
-        work.release();return true;
-    }
-public:
-    void Configure(bool enabled,const std::filesystem::path& dir) {
-        std::lock_guard lock(mutex);
-        if(enabled!=active||directory!=dir){active=enabled;directory=dir;++generation;result.reset();failed=false;status=enabled?"loading person model":"off";}
-        if(!busy&&((active&&loadedGeneration!=generation&&!failed)||(!active&&inference)))Start({});
-    }
-    bool Available() {std::lock_guard lock(mutex);return active&&!failed&&loadedGeneration==generation;}
-    bool Ready() {std::lock_guard lock(mutex);return active&&!busy&&!failed&&loadedGeneration==generation&&inference!=nullptr;}
-    bool Submit(std::shared_ptr<Image> image) {std::lock_guard lock(mutex);return active&&!busy&&!failed&&loadedGeneration==generation&&inference&&Start(std::move(image));}
-    std::shared_ptr<const Mask> Latest() {std::lock_guard lock(mutex);return result;}
-    std::string Status() {std::lock_guard lock(mutex);return status+(result?" | CPU "+std::to_string(unsigned(result->milliseconds))+" ms":"");}
-};
-inline Provider& Worker(){static auto* provider=new Provider;return *provider;}
-}
+    bool active = false;
+    bool busy = false;
+    bool failed = false;
+    std::string status = "off";
+    std::shared_ptr<Mask> result;
 
+    HANDLE hShm = nullptr;
+    void* shmBase = nullptr;
+    Ipc::ShmHeader* header = nullptr;
+    HANDLE hReqEvent = nullptr;
+    HANDLE hRespEvent = nullptr;
+    HANDLE hStopEvent = nullptr;
+    HANDLE hJob = nullptr;
+    PROCESS_INFORMATION processInfo{};
+
+    std::thread receiverThread;
+    std::atomic<bool> stopping{false};
+
+    void StopWorker()
+    {
+        stopping.store(true, std::memory_order_relaxed);
+        if (hStopEvent) SetEvent(hStopEvent);
+        if (receiverThread.joinable())
+        {
+            receiverThread.join();
+        }
+        if (processInfo.hProcess)
+        {
+            WaitForSingleObject(processInfo.hProcess, 500);
+            CloseHandle(processInfo.hProcess);
+            processInfo.hProcess = nullptr;
+        }
+        if (processInfo.hThread)
+        {
+            CloseHandle(processInfo.hThread);
+            processInfo.hThread = nullptr;
+        }
+        if (hJob) { CloseHandle(hJob); hJob = nullptr; }
+        if (hReqEvent) { CloseHandle(hReqEvent); hReqEvent = nullptr; }
+        if (hRespEvent) { CloseHandle(hRespEvent); hRespEvent = nullptr; }
+        if (hStopEvent) { CloseHandle(hStopEvent); hStopEvent = nullptr; }
+        if (shmBase) { UnmapViewOfFile(shmBase); shmBase = nullptr; header = nullptr; }
+        if (hShm) { CloseHandle(hShm); hShm = nullptr; }
+    }
+
+    bool StartWorker()
+    {
+        uint32_t pid = GetCurrentProcessId();
+        std::wstring shmName = Ipc::ShmName(pid);
+        std::wstring reqName = Ipc::ReqEventName(pid);
+        std::wstring respName = Ipc::RespEventName(pid);
+        std::wstring stopName = Ipc::StopEventName(pid);
+
+        hShm = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, static_cast<DWORD>(Ipc::TotalShmSize), shmName.c_str());
+        if (!hShm)
+        {
+            status = "cannot create person shm";
+            failed = true;
+            return false;
+        }
+
+        shmBase = MapViewOfFile(hShm, FILE_MAP_ALL_ACCESS, 0, 0, Ipc::TotalShmSize);
+        if (!shmBase)
+        {
+            status = "cannot map person shm";
+            failed = true;
+            return false;
+        }
+
+        memset(shmBase, 0, sizeof(Ipc::ShmHeader));
+        header = reinterpret_cast<Ipc::ShmHeader*>(shmBase);
+        header->magic = Ipc::ShmMagic;
+        header->version = Ipc::ShmVersion;
+        header->state = static_cast<uint32_t>(Ipc::WorkerState::Uninitialized);
+        header->reqRgbOffset = static_cast<uint32_t>(Ipc::InputRgbOffset);
+        header->reqRgbBytes = static_cast<uint32_t>(Ipc::InputRgbSize);
+        header->respMaskOffset = static_cast<uint32_t>(Ipc::OutputMaskOffset);
+        header->respMaskBytes = static_cast<uint32_t>(Ipc::OutputMaskSize);
+
+        hReqEvent = CreateEventW(nullptr, FALSE, FALSE, reqName.c_str());
+        hRespEvent = CreateEventW(nullptr, FALSE, FALSE, respName.c_str());
+        hStopEvent = CreateEventW(nullptr, TRUE, FALSE, stopName.c_str());
+        if (!hReqEvent || !hRespEvent || !hStopEvent)
+        {
+            status = "cannot create person events";
+            failed = true;
+            return false;
+        }
+
+        hJob = CreateJobObjectW(nullptr, nullptr);
+        if (hJob)
+        {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
+            jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+        }
+
+        std::filesystem::path workerExe = directory / L"person-worker.exe";
+        if (!std::filesystem::is_regular_file(workerExe))
+        {
+            status = "missing person-model/person-worker.exe";
+            failed = true;
+            return false;
+        }
+
+        unsigned hw = std::thread::hardware_concurrency();
+        unsigned threads = (std::max)(2u, (std::min)(8u, hw ? (hw / 2) : 4u));
+        std::wstring cmd = L"\"" + workerExe.wstring() + L"\" --pid " + std::to_wstring(pid) +
+                           L" --threads " + std::to_wstring(threads);
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+
+        DWORD flags = CREATE_NO_WINDOW;
+        if (hJob) flags |= CREATE_SUSPENDED;
+
+        std::vector<wchar_t> cmdLine(cmd.begin(), cmd.end());
+        cmdLine.push_back(0);
+
+        if (!CreateProcessW(workerExe.c_str(), cmdLine.data(), nullptr, nullptr, FALSE, flags, nullptr, directory.c_str(), &si, &processInfo))
+        {
+            DWORD err = GetLastError();
+            status = "failed to start person worker (" + std::to_string(err) + ")";
+            failed = true;
+            return false;
+        }
+
+        if (hJob)
+        {
+            AssignProcessToJobObject(hJob, processInfo.hProcess);
+            ResumeThread(processInfo.hThread);
+        }
+
+        stopping.store(false, std::memory_order_relaxed);
+        receiverThread = std::thread(&Provider::ReceiverLoop, this);
+        return true;
+    }
+
+    void ReceiverLoop()
+    {
+        HANDLE handles[3] = { hRespEvent, processInfo.hProcess, hStopEvent };
+        while (!stopping.load(std::memory_order_relaxed))
+        {
+            DWORD wr = WaitForMultipleObjects(3, handles, FALSE, 200);
+            if (wr == WAIT_OBJECT_0) // Response received
+            {
+                std::lock_guard lock(mutex);
+                if (!header) break;
+
+                if (header->state == static_cast<uint32_t>(Ipc::WorkerState::Ready))
+                {
+                    if (header->respFrame > 0 && header->respMaskBytes == Ipc::OutputMaskSize)
+                    {
+                        auto mask = std::make_shared<Mask>();
+                        mask->epoch = header->respEpoch;
+                        mask->frame = header->respFrame;
+                        mask->tick = header->respTick;
+                        mask->width = header->respWidth;
+                        mask->height = header->respHeight;
+                        mask->milliseconds = header->computeMilliseconds;
+                        mask->values.resize(MaskSize * MaskSize);
+                        memcpy(mask->values.data(),
+                               reinterpret_cast<const uint8_t*>(shmBase) + header->respMaskOffset,
+                               Ipc::OutputMaskSize);
+                        result = std::move(mask);
+                        status = "person mask ready";
+                    }
+                    else
+                    {
+                        status = header->statusMessage[0] ? header->statusMessage : "person model ready";
+                    }
+                    failed = false;
+                }
+                else if (header->state == static_cast<uint32_t>(Ipc::WorkerState::Error))
+                {
+                    failed = true;
+                    status = header->statusMessage[0] ? header->statusMessage : "person worker error";
+                }
+                busy = false;
+            }
+            else if (wr == WAIT_OBJECT_0 + 1) // Worker process died
+            {
+                std::lock_guard lock(mutex);
+                DWORD exitCode = 0;
+                if (processInfo.hProcess) GetExitCodeProcess(processInfo.hProcess, &exitCode);
+                failed = true;
+                busy = false;
+                status = "person worker exited (" + std::to_string(exitCode) + ")";
+                break;
+            }
+            else if (wr == WAIT_OBJECT_0 + 2) // Stop event signaled
+            {
+                break;
+            }
+            else if (wr == WAIT_TIMEOUT)
+            {
+                continue;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+public:
+    ~Provider()
+    {
+        StopWorker();
+    }
+
+    void Configure(bool enabled, const std::filesystem::path& dir)
+    {
+        std::lock_guard lock(mutex);
+        if (enabled == active && directory == dir && (!enabled || (!failed && processInfo.hProcess)))
+        {
+            return;
+        }
+
+        active = enabled;
+        directory = dir;
+        result.reset();
+        busy = false;
+
+        if (!enabled)
+        {
+            StopWorker();
+            status = "off";
+            failed = false;
+        }
+        else
+        {
+            StopWorker();
+            failed = false;
+            status = "loading person model";
+            StartWorker();
+        }
+    }
+
+    bool Available()
+    {
+        std::lock_guard lock(mutex);
+        return active && !failed && processInfo.hProcess != nullptr && header &&
+               (header->state == static_cast<uint32_t>(Ipc::WorkerState::Ready) ||
+                header->state == static_cast<uint32_t>(Ipc::WorkerState::Processing));
+    }
+
+    bool Ready()
+    {
+        std::lock_guard lock(mutex);
+        return active && !busy && !failed && processInfo.hProcess != nullptr && header &&
+               (header->state == static_cast<uint32_t>(Ipc::WorkerState::Ready));
+    }
+
+    bool Submit(std::shared_ptr<Image> image)
+    {
+        if (!image) return false;
+        std::lock_guard lock(mutex);
+        if (!active || busy || failed || !processInfo.hProcess || !header ||
+            header->state != static_cast<uint32_t>(Ipc::WorkerState::Ready))
+        {
+            return false;
+        }
+        if (image->rgb.size() * sizeof(float) != Ipc::InputRgbSize)
+        {
+            return false;
+        }
+
+        header->reqEpoch = image->epoch;
+        header->reqFrame = image->frame;
+        header->reqTick = image->tick;
+        header->reqWidth = image->width;
+        header->reqHeight = image->height;
+
+        memcpy(reinterpret_cast<uint8_t*>(shmBase) + header->reqRgbOffset,
+               image->rgb.data(), Ipc::InputRgbSize);
+
+        busy = true;
+        SetEvent(hReqEvent);
+        return true;
+    }
+
+    std::shared_ptr<const Mask> Latest()
+    {
+        std::lock_guard lock(mutex);
+        return result;
+    }
+
+    std::string Status()
+    {
+        std::lock_guard lock(mutex);
+        return status + (result ? " | CPU " + std::to_string(unsigned(result->milliseconds)) + " ms" : "");
+    }
+};
+
+inline Provider& Worker()
+{
+    static auto* provider = new Provider;
+    return *provider;
+}
+}

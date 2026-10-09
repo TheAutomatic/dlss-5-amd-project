@@ -589,6 +589,10 @@ if (Test-Path -LiteralPath $personSrc -PathType Container) {
     $personDst = Join-Path $stage 'person-model'
     New-Item -ItemType Directory -Path $personDst -Force | Out-Null
     Get-ChildItem -LiteralPath $personSrc -File | Copy-Item -Destination $personDst -Force
+    $freshWorker = Join-Path $root 'exports/release-local/person-model/person-worker.exe'
+    if (Test-Path -LiteralPath $freshWorker -PathType Leaf) {
+        Copy-Item -LiteralPath $freshWorker -Destination (Join-Path $personDst 'person-worker.exe') -Force
+    }
     if (Test-Path -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE')) {
         Copy-Item -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE') -Destination (Join-Path $stage 'Licenses/ONNXRuntime_MIT.txt') -Force
     }

@@ -148,7 +148,18 @@ function Invoke-PackageSigning {
         $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
         # Catalog trust belongs to the installed OS, not to a portable copied PE.
         # Only an embedded signature travels with the package and is preserved.
-        $preserved = $null -ne $signature.SignerCertificate -and $signature.SignatureType -eq 'Authenticode'
+        $hasEmbeddedCert = $false
+        $peBytes = [IO.File]::ReadAllBytes($file.FullName)
+        if ($peBytes.Length -ge 256 -and $peBytes[0] -eq 77 -and $peBytes[1] -eq 90) {
+            $peOffset = [BitConverter]::ToInt32($peBytes, 0x3c)
+            if ($peOffset -ge 64 -and $peOffset + 184 -le $peBytes.Length) {
+                $magic = [BitConverter]::ToUInt16($peBytes, $peOffset + 24)
+                $secOffset = $peOffset + 24 + $(if ($magic -eq 0x20b) { 144 } else { 128 })
+                if ([BitConverter]::ToUInt64($peBytes, $secOffset) -ne 0) { $hasEmbeddedCert = $true }
+            }
+        }
+        $preserved = ($null -ne $signature.SignerCertificate -and $signature.SignatureType -eq 'Authenticode') -or
+                     ($hasEmbeddedCert -and $null -ne $signature.SignerCertificate)
         if (!$preserved) {
             if ($signature.Status -ne 'NotSigned' -and
                 !($signature.SignatureType -eq 'Catalog' -and $signature.Status -eq 'Valid')) {
