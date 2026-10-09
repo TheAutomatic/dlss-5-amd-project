@@ -1007,7 +1007,7 @@ Run dlssnr_on_amd_setup.exe (with nvngx_dlssnr.dll available), then retry.
 if ($uninstallFirst) {
     try {
         $optiSource = Save-ReinstallSource (Join-Path $release 'OptiScaler.dll')
-        foreach ($name in @('OptiScaler.ini', 'OptiScaler')) {
+        foreach ($name in @('OptiScaler.ini', 'OptiScaler', 'person-model')) {
             $path = Join-Path $release $name
             if (Test-Path -LiteralPath $path) { $null = Save-ReinstallSource $path }
         }
