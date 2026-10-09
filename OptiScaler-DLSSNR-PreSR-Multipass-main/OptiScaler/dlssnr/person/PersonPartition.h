@@ -4,6 +4,7 @@
 #include "PersonSettings.h"
 #include "../effects/NrOutputEffects.h"
 #include "../backend/lmxxf_runtime/TemporalControl.h"
+#include "../backend/lmxxf_runtime/LmxxfShaderCompiler.h"
 
 namespace DlssNr::Person
 {
@@ -39,7 +40,7 @@ struct Pipeline {
   Check(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error));
   Check(d->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&p->root)));
   auto shader=[&](const char*entry,ComPtr<ID3D12PipelineState>& out){
-   blob.Reset();error.Reset();Check(NativeCompileShaderBlob(Shader,strlen(Shader),"person partition",nullptr,nullptr,entry,&blob,&error));
+   blob.Reset();error.Reset();Check(NativeCompileShaderBlob(Shader,strlen(Shader),"person partition",nullptr,nullptr,entry,&blob,&error,"cs_5_1",D3DCOMPILE_OPTIMIZATION_LEVEL3,::LmxxfCompiler()));
    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=p->root.Get();pd.CS={blob->GetBufferPointer(),blob->GetBufferSize()};
    Check(d->CreateComputePipelineState(&pd,IID_PPV_ARGS(&out)));
   };
