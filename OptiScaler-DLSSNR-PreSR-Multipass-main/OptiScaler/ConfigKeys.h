@@ -42,6 +42,7 @@ inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
 inline constexpr const char *NrTimingEnabled = "NrTimingEnabled";
 inline constexpr const char *NrTimingLog = "NrTimingLog";
+inline constexpr const char *NrPersonPartition = "NrPersonPartition";
 inline constexpr const char *NrStabilizerEnabled = "NrStabilizerEnabled";
 inline constexpr const char *NrStabilizerAlpha = "NrStabilizerAlpha";
 inline constexpr const char *NrStabilizerThreshold = "NrStabilizerThreshold";
@@ -196,6 +197,7 @@ inline constexpr const char *const kKnown[] = {
     "NrConvenience",
     NrTimingEnabled,
     NrTimingLog,
+    NrPersonPartition,
     NrStabilizerEnabled,
     NrStabilizerAlpha,
     NrStabilizerThreshold,

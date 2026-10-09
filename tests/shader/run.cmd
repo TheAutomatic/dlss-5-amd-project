@@ -20,6 +20,8 @@ call :BuildAndRun shader_dx12_srv
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun shader_dx11_ownership
 if not "%errorlevel%"=="0" goto fail
+call :BuildAndRun nr_person_partition
+if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun nr_output_effects
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun nr_residual_shaping

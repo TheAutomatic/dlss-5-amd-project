@@ -30,6 +30,7 @@ NrTimingSnapshot Timing();
 MochizukiNrBuildProgress BuildProgress();
 MochizukiNrInfo MochizukiTimingDetails();
 std::string EffectsStatus();
+std::string PersonStatus();
 bool GraphicsRestartNeeded(UINT activePasses);
 // pass1 SHA name ("0.3.0" / "0.3.1" / "0.3.2" / …) or nullptr if missing/unknown.
 // Cached for menu display until the DLL path, size, or write time changes.

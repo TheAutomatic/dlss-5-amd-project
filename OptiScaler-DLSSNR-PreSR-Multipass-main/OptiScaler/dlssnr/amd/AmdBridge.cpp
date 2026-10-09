@@ -7,6 +7,7 @@
 #include "PresentExperimental.h"
 #include "../backend/DanielBackend.h"
 #include "../effects/NrOutputEffects.h"
+#include "../person/PersonPartition.h"
 #include "../PostSr.h"
 #include "../backend/LmxxfBackend.h"
 #include "../backend/MochizukiBackend.h"
@@ -406,6 +407,7 @@ bool HasFiles()
 void SyncBackendWithConfig()
 {
     DlssNr::Effects::Reset();
+    DlssNr::Person::Reset();
     // Hot switch: both hosts stay alive. Drop temporal history and force the
     // warm-up window so the new host does not inherit stability.
     DlssNr::Backend::InvalidateInstallProbe();
@@ -485,7 +487,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     bool effectRecorded = false;
     struct EffectHistoryGuard {
         bool& recorded;
-        ~EffectHistoryGuard() { if (!recorded) DlssNr::Effects::InvalidateHistory(); }
+        ~EffectHistoryGuard() { if (!recorded) { DlssNr::Effects::InvalidateHistory(); DlssNr::Person::Invalidate(); } }
     } effectHistoryGuard {effectRecorded};
     DlssNr::Backend::LmxxfProbe::CurrentEvidence() = {};
     if (!HasFiles())
@@ -621,7 +623,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         lastBefore = beforeUpscale;
         lastFrame = {}; stableFrames = 0;
         b->InvalidateHistory();
-        DlssNr::Effects::InvalidateHistory();
+        DlssNr::Effects::InvalidateHistory(); DlssNr::Person::Invalidate();
         DlssNr::PostSr::Reset();
         LOG_INFO("AMD NR order: {}", beforeUpscale ? "NR -> SR" : "SR -> NR (experimental)");
     }
@@ -900,11 +902,22 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         if (!post) { b->InvalidateHistory(); Message(reason.c_str()); return true; }
         postReport.prepared = true;
     }
-    if (auto replacement = b->Record(cmd, f, s))
+    const auto kind = static_cast<DlssNr::Backend::Kind>(g_activeKind.load(std::memory_order_acquire));
+    const auto personPasses = kind == DlssNr::Backend::Kind::Lmxxf ? cfg.LmxxfMultiPass.value_or_default() :
+        kind == DlssNr::Backend::Kind::Mochizuki ? cfg.MochizukiPasses.value_or_default() : cfg.DlssNrPasses.value_or_default();
+    const bool person = DlssNr::Person::Prepare(cfg.NrPersonPartition.value_or_default() && personPasses > 1, Directory());
+    ID3D12Resource* firstPass = nullptr;
+    if (auto replacement = b->RecordLayers(cmd, f, s, person ? &firstPass : nullptr))
     {
         postReport.recorded = true;
         effectRecorded = true;
         const bool isLmxxf = g_activeKind.load(std::memory_order_acquire) == static_cast<int>(DlssNr::Backend::Kind::Lmxxf);
+        if (person) replacement = DlssNr::Person::Record(cmd, f.colour, firstPass, replacement,
+            f.colourState, f.width, f.height,
+            {f.motion, f.depth, f.motionState, f.depthState,
+             f.motionWidth ? f.motionWidth : f.width, f.motionHeight ? f.motionHeight : f.height,
+             f.motionScaleX, f.motionScaleY, f.jitterX, f.jitterY, f.preExposure, f.exposureScale,
+             f.depthInverted, f.motionJittered, f.reset});
         replacement = DlssNr::Effects::Record(cmd, f.colour, replacement, f.colourState, f.width, f.height,
             cfg.NrOverallIntensity.value_or_default(), isLmxxf && cfg.NrTimingEnabled.value_or_default(),
             {f.motion, f.depth, f.motionState, f.depthState,
@@ -927,7 +940,7 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
             if (!postReport.copied) Message("SR -> NR: unsupported NR result; keeping the SR output");
         }
     }
-    else DlssNr::Effects::InvalidateHistory();
+    else { DlssNr::Effects::InvalidateHistory(); DlssNr::Person::Invalidate(); }
     return true;
 }
 bool HasReplacement(NVSDK_NGX_Parameter* params)
@@ -945,7 +958,7 @@ void Restore(NVSDK_NGX_Parameter* params)
 }
 void InvalidateHistory()
 {
-    DlssNr::Effects::InvalidateHistory();
+    DlssNr::Effects::InvalidateHistory(); DlssNr::Person::Invalidate();
     if (auto b = ActiveHost())
         b->InvalidateHistory();
 }
@@ -953,14 +966,17 @@ void PollReleases()
 {
     DlssNr::PostSr::Poll();
     DlssNr::Effects::Poll();
+    DlssNr::Person::Poll();
     if (auto b = g_daniel.load(std::memory_order_acquire)) b->PollRelease();
     if (auto b = g_lmxxf.load(std::memory_order_acquire)) b->PollRelease();
     if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->PollRelease();
 }
 void OnNrDisabled()
 {
+    DlssNr::Person::Worker().Configure(false, Directory()/L"person-model");
     DlssNr::PostSr::Reset();
     DlssNr::Effects::Reset();
+    DlssNr::Person::Reset();
     // Both hosts are released so the inactive one is not left holding VRAM either.
     if (auto b = g_daniel.load(std::memory_order_acquire))
     {
@@ -1019,6 +1035,7 @@ MochizukiNrBuildProgress BuildProgress()
     if (auto* host = g_mochizuki.load(std::memory_order_acquire)) return host->BuildProgress();
     return {};
 }
+std::string PersonStatus() { return DlssNr::Person::Status(); }
 std::string EffectsStatus() { return DlssNr::Effects::Status(); }
 std::string Status()
 {

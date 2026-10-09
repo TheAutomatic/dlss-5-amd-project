@@ -32,6 +32,7 @@ namespace DlssNr
 
 static void ResetSharedEffectsDefaults(Config* config)
 {
+    config->NrPersonPartition = std::optional<bool>{};
     config->NrOverallIntensity = std::optional<float>{};
     config->NrResidualLowGain = std::optional<float>{};
     config->NrResidualDetailGain = std::optional<float>{};
@@ -265,6 +266,13 @@ static void RenderSharedOutputEffects(Config* config)
     if (MenuUi::SliderFloat("Edge detail protection", &residual.edgeProtection, 0.f, 1.f, "%.2f")) config->NrResidualEdgeProtection = residual.edgeProtection;
     HelpMarker("Experimental: limits new fine-scale NR changes near strong original edges. 0 = off. Keeps original edges and alpha.\nCan weaken intended NR detail; this is spatial protection, not temporal anti-flicker.");
     ImGui::EndDisabled();
+    bool person = config->NrPersonPartition.value_or_default();
+    if (MenuUi::Checkbox("Person first pass", &person)) {
+        config->NrPersonPartition = person;
+        AmdBridge::InvalidateHistory();
+    }
+    HelpMarker("Experimental: person uses the first NR pass; scene uses the final pass. Requires person-model/onnxruntime.dll and yolo11n-seg.onnx (COCO FP32 640).\nCPU inference is asynchronous. Missing, stale or misaligned masks preserve final NR. Does not reduce network passes.");
+    if (person) MenuUi::TextWrapped("%s", AmdBridge::PersonStatus().c_str());
     bool stabilizer = config->NrStabilizerEnabled.value_or_default();
     if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
         config->NrStabilizerEnabled = stabilizer;

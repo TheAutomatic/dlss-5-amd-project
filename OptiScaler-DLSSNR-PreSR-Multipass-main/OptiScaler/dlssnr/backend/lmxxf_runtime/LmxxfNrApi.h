@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define LMXXF_NR_ABI_VERSION 3u
+#define LMXXF_NR_ABI_VERSION 4u
 
 
 /* Optional recovery when HIP enqueue or the session queue contract fails.
@@ -96,6 +96,9 @@ typedef struct LmxxfNrCreateInfo
 #define LMXXF_NR_TEMPORAL_MV_JITTERED (1u << 3)
 #define LMXXF_NR_TEMPORAL_DEPTH_INVERTED (1u << 4)
 
+#define LMXXF_NR_FRAME_FLAG_FIRST_PASS (1u << 5)
+
+/* Optional first layer, same codec/color domain; valid for the recording lease. */
 typedef struct LmxxfNrFrameInfo
 {
     uint32_t struct_size;
@@ -133,6 +136,7 @@ typedef struct LmxxfNrJob
     uint32_t struct_size;
     void *handle;
     void *private_output; /* ID3D12Resource* for SR; null until PrepareFrame succeeds */
+    void *first_pass_output; /* Optional FP16, NON_PIXEL_SHADER_RESOURCE; same lease as private_output. */
 } LmxxfNrJob;
 
 /* Upstream fe4d1d73 timing payload. Non-blocking, latest completed frame.

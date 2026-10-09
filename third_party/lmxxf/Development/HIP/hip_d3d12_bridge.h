@@ -19,12 +19,12 @@ namespace hip_reference {
 class D3D12Bridge {
  struct Shared {ID3D12Resource*resource{};HANDLE handle{};Handle imported{};void*mapped{};};
  Network*network{};ID3D12Device*device{};ID3D12CommandQueue*queue{};ID3D12Fence*fence{};
- HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
+ HANDLE fence_handle{},event{};Handle semaphore{};Shared input,history,output,first_output;UINT64 value{};size_t pixels{};bool readable{},pending{},failed{};
  ID3D12Resource* zero_upload{};ID3D12CommandAllocator* clear_alloc{};ID3D12GraphicsCommandList* clear_cmd{};
  size_t zero_upload_bytes{};bool clear_submission_unconfirmed{};
  /* Direct input (2026-09-28): the host producer writes the network input straight into the shared buffer (UAV) and leaves it in
     COMMON; RecordInput then skips the 35 MB D3D12 copy. Requested before Create; the bytes the network reads are unchanged. */
- bool direct_input{},direct_history{};std::vector<float> post_auxiliary_row;
+ bool direct_input{},direct_history{},first_output_requested{};std::vector<float> post_auxiliary_row;
  using PassthroughCopyFn=int(*)(void*,size_t,const void*,size_t,size_t,size_t,int,Handle);
  PassthroughCopyFn passthrough_copy{};void*passthrough_rgb{};unsigned long long passthrough_queued{};
  Handle release_mark{};bool release_marker_requested{};unsigned long long release_marks{},release_mark_failures{};
@@ -200,7 +200,7 @@ public:
  ~D3D12Bridge(){
   if(!WaitForSubmittedWork()||(network&&!network->CloseSubmitPulse()))return;
   if(clear_cmd)clear_cmd->Release();if(clear_alloc)clear_alloc->Release();if(zero_upload)zero_upload->Release();
-  if(network){DestroyTiming();TeardownPoll();auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);if(passthrough_rgb)api.hipFree(passthrough_rgb);Release(input);Release(history);Release(output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
+  if(network){DestroyTiming();TeardownPoll();auto&api=network->Runtime();for(auto h:{release_mark,span_begin,span_end})if(h)api.hipEventDestroy(h);if(passthrough_rgb)api.hipFree(passthrough_rgb);Release(input);Release(history);Release(output);Release(first_output);if(semaphore)network->Runtime().hipDestroyExternalSemaphore(semaphore);delete network;}
   if(fence_handle)CloseHandle(fence_handle);if(event)CloseHandle(event);if(fence)fence->Release();if(queue)queue->Release();if(device)device->Release();
  }
  void Create(ID3D12CommandQueue*q,Options options,const std::vector<float>&noise){
@@ -226,6 +226,7 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   if(!post_auxiliary_row.empty()&&!network->NativeHistorySupported())throw std::runtime_error("auxiliary post unsupported network");
   Share(input,pixels*16,direct_input);Share(history,pixels*16,direct_history);Share(output,pixels*(post_auxiliary_row.empty()?12:20),true);
   if(!post_auxiliary_row.empty())network->EnableNativePostHistory(post_auxiliary_row,{static_cast<char*>(output.mapped)+pixels*12,pixels*8,network->W,network->H,8});
+  if(first_output_requested){Share(first_output,pixels*12);network->EnableFirstPassOutput(first_output.mapped,pixels*12);}
   Check(device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence)),"shared fence");Check(device->CreateSharedHandle(fence,nullptr,GENERIC_ALL,nullptr,&fence_handle),"fence handle");hip_probe::SemaphoreDesc sd{};sd.type=4;sd.handle.win32.handle=fence_handle;api.Check(api.hipImportExternalSemaphore(&semaphore,&sd),"import fence");event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("bridge completion event");if(const char*v=std::getenv("DLSS5_HIP_SPAN_PROBE"))span_probe=!strcmp(v,"1");if(span_probe){api.Check(api.hipEventCreate(&span_begin),"span begin event");api.Check(api.hipEventCreate(&span_end),"span end event");fprintf(stderr,"hip_span probe enabled\n");}if(release_marker_requested)api.Check(api.hipEventCreate(&release_mark),"release marker event");network->SetNoise(noise);
   {const char*v=std::getenv("DLSS5_HIP_POST_SIGNAL_QUERY");if(!(v&&!strcmp(v,"0")))post_query=reinterpret_cast<EventQueryFn>(GetProcAddress(api.dll,"hipStreamQuery"));}
   if(const char*v=std::getenv("DLSS5_NET_TIMING");v&&!strcmp(v,"1"))EnableNetworkTiming();
@@ -238,6 +239,17 @@ probe.Check(probe.hipSetDevice(chosen),"select device");size_t total=0;if(probe.
   network->pulse_bridge_diagnostics=timing_on||span_probe||poll||poll_inline;network->ConfigureSubmitPulse(pulse_arch,pulse_validated);
  }
  ID3D12Resource*Output()const{return output.resource;}
+ void RequestFirstPassOutput(){if(network||queue)throw std::runtime_error("first pass output must precede Create");first_output_requested=true;}
+ ID3D12Resource*FirstPassOutput()const{return first_output.resource;}
+ // Same producer/consumer and lease lifetime as Output. Readers restore COMMON.
+ void RecordFirstPassReadable(ID3D12GraphicsCommandList*c){
+  ListContract(c);if(!first_output.resource)throw std::runtime_error("first pass output unavailable");
+  Barrier(c,first_output.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+ }
+ void SealFirstPassOutput(ID3D12GraphicsCommandList*c){
+  ListContract(c);if(!first_output.resource)throw std::runtime_error("first pass output unavailable");
+  Barrier(c,first_output.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
+ }
  void RequestDirectInput(){if(network)throw std::runtime_error("direct input must be requested before Create");direct_input=true;}
  ID3D12Resource*DirectInput()const{return direct_input?input.resource:nullptr;}
  // Request before Create. The producer must leave shared history in COMMON;

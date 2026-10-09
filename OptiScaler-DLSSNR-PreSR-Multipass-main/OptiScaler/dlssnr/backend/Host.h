@@ -13,6 +13,11 @@ class Host
     virtual ~Host() = default;
     virtual ID3D12Resource* Record(ID3D12GraphicsCommandList*, const AmdPreSr::Frame&,
                                    const AmdPreSr::Settings&) = 0;
+    // Optional same-frame first pass. The returned textures remain owned by the
+    // recording observer until invalidation plus GPU completion.
+    virtual ID3D12Resource* RecordLayers(ID3D12GraphicsCommandList* cmd, const AmdPreSr::Frame& frame,
+                                        const AmdPreSr::Settings& settings, ID3D12Resource** first)
+    { if(first)*first=nullptr; return Record(cmd,frame,settings); }
     virtual int PendingListIndex(UINT, ID3D12CommandList* const*) const = 0;
     virtual void Submitting(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) = 0;
     virtual void TraceBoundary(const std::string&) = 0;

@@ -81,7 +81,7 @@ class RuntimeConfigTests(unittest.TestCase):
                 api = LmxxfNrApi()
                 api.struct_size = ctypes.sizeof(api)
                 dll.LmxxfNrGetApi.argtypes = [ctypes.c_uint32, ctypes.POINTER(LmxxfNrApi)]
-                assert dll.LmxxfNrGetApi(3, ctypes.byref(api)) == 0
+                assert dll.LmxxfNrGetApi(4, ctypes.byref(api)) == 0
                 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
                 kernel.SetEnvironmentVariableW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
                 kernel.GetEnvironmentVariableW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
@@ -155,7 +155,7 @@ class RuntimeValidationTests(unittest.TestCase):
 
         cls.api = LmxxfNrApi()
         cls.api.struct_size = ctypes.sizeof(LmxxfNrApi)
-        rc = cls.get_api(3, ctypes.byref(cls.api))
+        rc = cls.get_api(4, ctypes.byref(cls.api))
         assert rc == 0, f"GetApi failed: {rc}"
 
         cls.resolve_arch = cls.dll.LmxxfNrResolveArchModules
@@ -319,7 +319,7 @@ class RuntimeValidationTests(unittest.TestCase):
         caps.struct_size = ctypes.sizeof(LmxxfNrCapabilities)
         rc = self.api.QueryCapabilities(ctypes.byref(caps))
         self.assertEqual(rc, 0)
-        self.assertEqual(caps.abi_version, 3)
+        self.assertEqual(caps.abi_version, 4)
         self.assertEqual(caps.history_supported, 1)
         self.assertEqual(caps.overlap_supported, 0)
         self.assertEqual(caps.graph_supported, 0)

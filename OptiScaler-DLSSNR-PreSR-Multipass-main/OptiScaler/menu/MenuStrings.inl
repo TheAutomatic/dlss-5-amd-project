@@ -679,7 +679,7 @@
 {"Reset to defaults", "恢复默认"},
 {"Reset window layout", "重置窗口布局"},
 {"Resets Frame generation rectangle", "恢复默认帧生成区域。"},
-{"Resets Overall Intensity, residual gains and protections, and Residual Stabilizer.", "重置整体强度、残差增益与保护，以及残差稳定器。"},
+{"Resets Overall Intensity, residual gains and protections, and Residual Stabilizer.", "重置整体强度、残差增益与保护、人物首层和残差稳定器。"},
 {"Resets mochizuki and shared NR controls. Keeps other backends, selection and hotkeys.", "重置 Mochizuki 和公共 NR 设置，保留其他后端、后端选择和快捷键。"},
 {"Resets this backend and shared NR controls. Keeps backend selection, hot-switch preference, keybinds and the other backend settings.", "重置当前后端与公共 NR 参数，保留后端选择、热切换偏好、快捷键和其他后端设置。"},
 {"Resets this page's mochizuki controls, including hidden later-pass overrides on the model page. Keeps shared effects and other backends.", "重置本页的 Mochizuki 参数，包括模型页中隐藏的后续层覆盖。保留公共效果和其他后端参数。"},
@@ -948,3 +948,7 @@
 {"Experimental: limits new fine-scale NR changes in skin-like colours, guided by original detail. 0 = off.\nA colour heuristic, not person detection: warm backgrounds can also be affected. HDR appearance needs testing.", "实验性：参考原图细节，限制肤色区域新增的细碎变化。0 为关闭。\n只按颜色判断，不是人物识别，暖色背景也可能受影响。HDR 观感仍需实测。"},
 {"Edge detail protection", "边缘细节保护"},
 {"Experimental: limits new fine-scale NR changes near strong original edges. 0 = off. Keeps original edges and alpha.\nCan weaken intended NR detail; this is spatial protection, not temporal anti-flicker.", "实验性：限制原图强边缘附近新增的细碎变化。0 为关闭，保留原图边缘和透明度。\n也可能减弱需要的 NR 细节；这是空间保护，不是时序抗闪烁。"},
+
+{"Person first pass", "人物保留首层"},
+
+{"Experimental: person uses the first NR pass; scene uses the final pass. Requires person-model/onnxruntime.dll and yolo11n-seg.onnx (COCO FP32 640).\nCPU inference is asynchronous. Missing, stale or misaligned masks preserve final NR. Does not reduce network passes.", "实验功能：人物使用第一层 NR，场景使用最后一层。需自行准备 person-model/onnxruntime.dll 和 yolo11n-seg.onnx（COCO FP32 640）。\n人物识别在 CPU 后台运行。蒙版缺失、过期或无法对齐时保留最终 NR；不会减少网络计算层数。"},

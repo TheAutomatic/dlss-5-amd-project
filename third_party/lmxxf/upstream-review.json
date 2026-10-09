@@ -2,19 +2,19 @@
   "schema": 1,
   "from_commit": "297b032ac55f005d78568e684f30608651044f62",
   "to_commit": "48a41fccb89300cd6636b16bc7b86010384c4cc1",
-  "snapshot": "14bd7d419a9646c3fd60135b3d6b4f11981b5fea64fca07899470bec179217d3",
+  "snapshot": "c6e687cea53868b9244828656bfc6896b859c50ba1b10ac662c11f55f6fafc6e",
   "reviewer": "Codex",
-  "summary": "Official PR12 merge and corrective follow-up integrated with zero file pins and zero source patches. Product policies/defaults remain local; addon Fast History and reference experiments are not enabled.",
-  "validation": "Official sync completed without verification waivers: MSVC runtime build; all80 dual-architecture module checks. ABI/C exports +23 runtime validation tests, WARP tier and all7 config-priority cases (including separately executed MSVC CRT case) passed. Exact79-file source/bridge proof and full45-path review; final GPU/tooling results and limitations in docs/lmxxf-pr12-merged-review.md.",
+  "summary": "Unchanged official PR12 base with a new opt-in first-pass output interface patch and host-owned person partition. No file pins. Existing history/ViT and upstream defaults retained. Hardware first-pass acceptance is explicitly deferred.",
+  "validation": "MSVC host/runtime build; ABI4 C/C++ and23 runtime cases; 8 config/CRT cases; WARP person/final composition, alpha, stale/replay/depth and closed-recording retirement; actual CPU model smoke;144 menu layouts and catalog; exact official-source patch replay. Module contract40/80, no module or recipe changes. See docs/architecture/nr-person-partition.md. No hardware/game/release certification.",
   "decisions": [
     {
       "id": "integration",
-      "fingerprint": "3b3cb0a3dd84c8ed2c3b10d97bcb28d726c6f74fe2d168c7068810acbec2fa92",
+      "fingerprint": "f4356a64bad5bf4217171372d7f78cbfcb9e9a776aaf3257ea943bf87d132536",
       "classification": "production",
       "decision": "integrated",
-      "reason": "Complete PR12 merge verified, including final-pass interfaces. Remove all file pins/source patches; retain local policy and source/module provenance. Include official addon/RGB corrective follow-up.",
-      "evidence": "docs/lmxxf-pr12-merged-review.md (all sections); 79 owned files match raw official48, 75 equal product186ecd30; bridge byte-equivalent after LF normalization.",
-      "validation": "Official sync completed without verification waivers: MSVC runtime build; all80 dual-architecture module checks. ABI/C exports +23 runtime validation tests, WARP tier and all7 config-priority cases (including separately executed MSVC CRT case) passed. Exact79-file source/bridge proof and full45-path review; final GPU/tooling results and limitations in docs/lmxxf-pr12-merged-review.md.",
+      "reason": "Minimal opt-in first output, same recording lease and colour codec. Host owns segmentation/composition, defaults off. Existing unrelated baseline decisions remain unchanged.",
+      "evidence": "docs/architecture/nr-person-partition.md; explicit first-pass-output.patch; official48a41f raw-source replay matches both vendored headers.",
+      "validation": "MSVC host/runtime build; ABI4 C/C++ and23 runtime cases; 8 config/CRT cases; WARP person/final composition, alpha, stale/replay/depth and closed-recording retirement; actual CPU model smoke;144 menu layouts and catalog; exact official-source patch replay. Module contract40/80, no module or recipe changes. See docs/architecture/nr-person-partition.md. No hardware/game/release certification.",
       "next_step": ""
     },
     {
@@ -6119,13 +6119,23 @@
     },
     {
       "id": "modules:external",
-      "fingerprint": "81b672418c645166787211c9c8167733aaf1488846f8eee21a948e52445ffde2",
+      "fingerprint": "fbe313756f7fad9e6039a1f6a714cfaa2ae393be2f699c54201bcbefa2d82b8f",
       "classification": "production",
       "decision": "integrated",
-      "reason": "80 modules built from current patched HIP sources, six LLVM23.1.2 RowOpts plus34 COMGR per arch; source hashes/defines/real-true16/LINE_STORES verified; gfx1201 executed.",
-      "evidence": "docs/lmxxf-pr12-interface-migration.md - Build and validation",
-      "validation": "docs/lmxxf-pr12-interface-migration.md - Build and validation: MSVC, dual-arch 80-module provenance, gfx1201 full GPU plus final exclusion/lifecycle checks, eight byte-identical baseline cases, WARP, ABI/config and patch/package/sync regression results. No gfx1200 or game/release certification.",
+      "reason": "Retain the current tracked module bundle; the new interface only copies outputs on the existing stream and introduces no HIP kernel or recipe change.",
+      "evidence": "docs/architecture/nr-person-partition.md; no diff in modules/, hip/, module-defines or recipes from6ccc461e; existing build provenance is unchanged.",
+      "validation": "check-module-contract.ps1:40 per architecture/80 dual PASS. No module changes or new module build claimed.",
       "next_step": ""
+    },
+    {
+      "id": "validation:person-first-pass-hardware",
+      "fingerprint": "fa42ee0085741e7fe7d7740a93e2457c8a56f1bad2a73f59f204f3bd3a2b19a0",
+      "classification": "production",
+      "decision": "deferred",
+      "reason": "This implementation phase uses CPU/WARP and compilation; hardware HIP numerical and performance validation was not run.",
+      "evidence": "docs/architecture/nr-person-partition.md#verification-and-remaining-acceptance",
+      "validation": "",
+      "next_step": "On an idle supported AMD GPU compare first sink with MP1 under RGB/RGBA, MP1/2/3, prediction, history, HDR and resize; record extra GPU/VRAM cost and then game mask alignment before enabling or releasing."
     }
   ]
 }

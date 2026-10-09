@@ -339,6 +339,7 @@ class Config
     CustomOptional<int> NrConvenience { 1 };
     CustomOptional<bool> NrTimingEnabled { false };
     CustomOptional<bool> NrTimingLog { false };
+    CustomOptional<bool> NrPersonPartition { false };
     CustomOptional<bool> NrStabilizerEnabled { false };
     CustomOptional<float> NrStabilizerAlpha { .8f };
     CustomOptional<float> NrStabilizerThreshold { 4.f };

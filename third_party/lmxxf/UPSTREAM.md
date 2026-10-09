@@ -11,6 +11,12 @@ last completed integration; `sync-state.json` records any pending attempt.
 
 ## Current ownership after PR #12
 
+The person-partition experiment adds one explicit, opt-in interface patch
+(`first-pass-output.patch`) on this unchanged upstream base. No file pins are
+restored. The zero-source-patch description below records the PR #12 baseline;
+current ownership and hardware acceptance limits are documented in
+[person partition](../../docs/architecture/nr-person-partition.md).
+
 PR #12 was merged in `b3d05ab34beaea97fa7062b20e19f76398c287fd`, including the
 final-pass auxiliary interface. The current integration targets its corrective
 follow-up `48a41fccb89300cd6636b16bc7b86010384c4cc1`.

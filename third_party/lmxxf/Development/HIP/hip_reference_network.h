@@ -190,6 +190,7 @@ inline bool SwinRunCompatible(const Options&o){
 inline std::atomic<int> AdaptivePreviewState{0};
 class Network {friend class D3D12Bridge;
  Tensor native_post_row;void* native_post_output=nullptr;
+ void* first_pass_output=nullptr;
  bool sp1440_ready=false;bool final_direct_compatible=false;bool pool64_byte_available=false;
  bool vit_contract_byte_edge=false; // paired exact representation of an already E4M3-valued edge
  bool free_geometry=false; /* DLSS5_NETWORK_FREE_RES geometry (FreeGeometry): generic ViT grid, no 640-token cap */
@@ -943,6 +944,14 @@ if(wave_owned_active)HasFn("c32_wave1","c32_wave1_post_b8_rgba");if(multi_predic
   Fn("c32_wave1","c32_wave1_post_logit");Fn("c32_wave1","c32_wave1_post_b8_logit");
   native_post_row=Upload(row.data(),128,true);native_post_output=aux.data;
  }
+ // Optional caller-owned packed RGB32F sink. Configure before warm-up; retain
+ // through completion. No graph/experimental scheduling; defaults are unchanged.
+ void EnableFirstPassOutput(void*data,size_t bytes){
+  if(first_pass_output||!data||bytes<size_t(W)*H*12||opt.graph||opt.experimental_temporal||opt.temporal_feature_tap)
+   throw std::runtime_error("first pass output layout or scheduling unsupported");
+  if(!memcpy2d){memcpy2d=reinterpret_cast<Memcpy2DFn>(GetProcAddress(api.dll,"hipMemcpy2DAsync"));if(!memcpy2d)throw std::runtime_error("first pass output requires hipMemcpy2DAsync");}
+  first_pass_output=data;
+ }
  bool GraphEnabled()const{return opt.graph;}
  bool WaveOwnedActive()const{return wave_owned_active;}
  bool SwinRunActive()const{return SwinRunCompatible(opt)&&!sp_disabled&&(!sp_error_host||!sp_error_host[0].load(std::memory_order_acquire));}
@@ -996,12 +1005,23 @@ if(wave_owned_active)HasFn("c32_wave1","c32_wave1_post_b8_rgba");if(multi_predic
  bool ExperimentalTemporalConfigured()const{return opt.experimental_temporal;}
  bool ExperimentalTemporalActive()const{return opt.experimental_temporal&&multi_pass==1&&!multi_skin&&!opt.graph&&NativeExperimentalTemporalCompatible();}
  private:
+ void CaptureFirstPass(const Tensor&out,U stride){
+  if(!first_pass_output)return;
+  if(stride==3){api.Check(api.hipMemcpyAsync(first_pass_output,P(out),size_t(W)*H*12,3,stream),"first pass RGB copy");return;}
+  if(stride!=4)throw std::runtime_error("first pass output stride");
+  // Windows HIP limits strided-copy row counts; a pixel is one row here.
+  for(size_t start=0,total=size_t(W)*H;start<total;start+=size_t(1)<<19){
+   size_t count=std::min(total-start,size_t(1)<<19);
+   api.Check(memcpy2d(static_cast<char*>(first_pass_output)+start*12,12,
+     static_cast<char*>(P(out))+start*16,16,12,count,3,stream),"first pass RGBA copy");
+  }
+ }
  void EnqueueRaw(void*rgba,void*history,void*rgb_output,U seed){
   opt.seed=seed;auto color=std::make_shared<Allocation>(api,rgba,size_t(W)*H*16);auto hist=history?std::make_shared<Allocation>(api,history,size_t(W)*H*16):Tensor{};
 #ifdef HIP_MP_RAW_EXPORT
   const char*export_dir=std::getenv("DLSS5_MP_RAW_EXPORT");bool export_raw=export_dir&&*export_dir;
   auto save_raw=[&](const char*name,const Tensor&t,size_t channels){if(!export_raw)return;Synchronize();std::vector<float>v(size_t(W)*H*channels);api.Check(api.hipMemcpy(v.data(),P(t),v.size()*4,2),"raw export");std::string path=std::string(export_dir)+"/"+name+".f32";FILE*f=fopen(path.c_str(),"wb");if(!f)throw std::runtime_error("raw export open");fwrite(v.data(),4,v.size(),f);fclose(f);};
-  save_raw("x",color,4);auto out=RunGraph(color,device_noise,multi_pass==1||!native_post_output?hist:Tensor{},false,nullptr,multi_pass==1);save_raw("y1",out,3);if(export_raw&&multi_pass==3&&!multi_predict&&!multi_skin){auto f=MultiPassFeed(out);out=RunGraph(f,device_noise,native_post_output?Tensor{}:hist,false,nullptr,false);save_raw("y2",out,3);f=MultiPassFeed(out);out=RunGraph(f,device_noise,hist);save_raw("y3",out,3);}else if(multi_pass>1){out=MultiPassRest(out,hist,color);color.reset();}
+  save_raw("x",color,4);auto out=RunGraph(color,device_noise,multi_pass==1||!native_post_output?hist:Tensor{},false,nullptr,multi_pass==1);CaptureFirstPass(out,3);save_raw("y1",out,3);if(export_raw&&multi_pass==3&&!multi_predict&&!multi_skin){auto f=MultiPassFeed(out);out=RunGraph(f,device_noise,native_post_output?Tensor{}:hist,false,nullptr,false);save_raw("y2",out,3);f=MultiPassFeed(out);out=RunGraph(f,device_noise,hist);save_raw("y3",out,3);}else if(multi_pass>1){out=MultiPassRest(out,hist,color);color.reset();}
   save_raw("final",out,3);
 #else
   // Borrow the bridge-owned final RGB sink. Intermediate multi-pass tensors stay private.
@@ -1009,7 +1029,7 @@ if(wave_owned_active)HasFn("c32_wave1","c32_wave1_post_b8_rgba");if(multi_predic
   // Allocation(api, pointer, bytes) has owned=false; it never frees or synchronizes this pointer.
   auto overlaps_output=[&](void*input){if(!input)return false;const auto a=reinterpret_cast<uintptr_t>(input),b=reinterpret_cast<uintptr_t>(rgb_output);return a<b+size_t(W)*H*12&&b<a+size_t(W)*H*16;};
   void*final_rgb=final_direct_compatible&&!overlaps_output(rgba)&&!overlaps_output(history)?rgb_output:nullptr;
-  auto out=RunGraph(color,device_noise,multi_pass==1||!native_post_output?hist:Tensor{},multi_pass>1&&DirectRgbaAllowed(),multi_pass==1?final_rgb:nullptr,multi_pass==1);const U first_stride=graph_output_stride;if(multi_pass>1){out=MultiPassRest(out,hist,color,first_stride,final_rgb);color.reset();}
+  auto out=RunGraph(color,device_noise,multi_pass==1||!native_post_output?hist:Tensor{},multi_pass>1&&DirectRgbaAllowed(),multi_pass==1?final_rgb:nullptr,multi_pass==1);const U first_stride=graph_output_stride;CaptureFirstPass(out,first_stride);if(multi_pass>1){out=MultiPassRest(out,hist,color,first_stride,final_rgb);color.reset();}
 #endif
   for(unsigned repeat=0;P(out)!=rgb_output&&repeat<HIP_FINAL_COPY_REPEAT;repeat++)
    api.Check(api.hipMemcpyAsync(rgb_output,P(out),size_t(W)*H*12,3,stream),"device output copy");

@@ -555,6 +555,12 @@ ID3D12Resource *LmxxfBackend::FinishRecord(ID3D12GraphicsCommandList *recordCmd,
 ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPreSr::Frame &frame,
                                      const AmdPreSr::Settings &settings)
 {
+    return RecordLayers(cmd, frame, settings, nullptr);
+}
+ID3D12Resource* LmxxfBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, const AmdPreSr::Frame& frame,
+                                         const AmdPreSr::Settings& settings, ID3D12Resource** first)
+{
+    if(first)*first=nullptr;
     std::lock_guard recordLock(LmxxfCut::LifecycleMutex());
     ++frameId; // Include bypassed evaluations in temporal continuity.
     if (!PollRelease()) return nullptr;
@@ -617,6 +623,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     fi.color = frame.colour;
     fi.color_state = static_cast<uint32_t>(frame.colourState);
     fi.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW;
+    if(first)fi.flags |= LMXXF_NR_FRAME_FLAG_FIRST_PASS;
     fi.transfer_strength = CodecStrength(Config::Instance()->DlssNrTransferStrength.value_or_default());
     fi.color_strength = CodecStrength(Config::Instance()->DlssNrColourStrength.value_or_default());
     fi.model_scale = settings.modelScale;
@@ -756,6 +763,7 @@ ID3D12Resource *LmxxfBackend::Record(ID3D12GraphicsCommandList *cmd, const AmdPr
     }
 
     ID3D12Resource *result = FinishRecord(cmd, job.handle, job.private_output);
+    if(result && first)*first=static_cast<ID3D12Resource*>(job.first_pass_output);
     static uint64_t recordEvalCount = 0;
     const auto rEval = ++recordEvalCount;
     auto &p = LmxxfCut::Pending();

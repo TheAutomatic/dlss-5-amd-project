@@ -1082,6 +1082,12 @@ struct RecordingJob : Job
     ~RecordingJob() { if (executionQueue) executionQueue->Release(); }
 };
 
+struct FirstPassDecode
+{
+    std::unique_ptr<NativeRgbTexture> rgb;
+    std::unique_ptr<NativeGameCodec> decode;
+    void Pin(std::vector<IUnknown*>& pins) const { rgb->PinRecording(pins); decode->PinRecording(pins); }
+};
 struct Session
 {
     ID3D12Device *device = nullptr;
@@ -1102,6 +1108,7 @@ struct Session
     NativeGameRgbInput *rgbInput = nullptr;
     NativeRgbTexture *rgbTex = nullptr;
     NativeGameCodec *decode = nullptr;
+    std::unique_ptr<FirstPassDecode> firstPass;
     ID3D12Resource *decodeDisplay = nullptr;
     Job job {};
     bool recordingLeases = false;
@@ -1277,6 +1284,7 @@ struct Session
             decodeDisplay->Release();
             decodeDisplay = nullptr;
         }
+        firstPass.reset();
         delete decode;
         decode = nullptr;
         delete rgbTex;
@@ -1360,6 +1368,7 @@ struct Session
         recordingChain.reset();
         decodeDisplay = nullptr;
         decode = nullptr;
+        firstPass.release(); // Failed submission: retain GPU-referenced objects.
         rgbTex = nullptr;
         rgbInput = nullptr;
         encode = nullptr;
@@ -1417,6 +1426,7 @@ struct Session
             decodeDisplay->Release();
             decodeDisplay = nullptr;
         }
+        firstPass.reset();
         delete decode;
         decode = nullptr;
         delete rgbTex;
@@ -1736,6 +1746,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: struct_size mismatch");
         job->handle = nullptr;
         job->private_output = nullptr;
+        job->first_pass_output = nullptr;
         if (session->fallbackConsumerQueue && FAILED(session->DrainGpu()))
         {
             session->failed = true;
@@ -1760,7 +1771,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         }
         const uint32_t allowedFlags = LMXXF_NR_FRAME_FLAG_STRENGTH | LMXXF_NR_FRAME_FLAG_DEBUG_VIEW |
                                       LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_AUTO_EXPOSURE |
-                                      LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH;
+                                      LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_FIRST_PASS;
         if ((info->flags & ~allowedFlags) != 0)
             return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: unknown flags");
         if ((info->flags & LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH) &&
@@ -1845,6 +1856,9 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         if(!session->recordingLeases)session->historyStatus=(info->temporal_flags&LMXXF_NR_TEMPORAL_MODEL_HISTORY)?"unsupported-lifecycle":"off";
         const bool requestHistory=(info->temporal_flags & LMXXF_NR_TEMPORAL_MODEL_HISTORY)!=0 && session->recordingLeases;
         requestedOptions += requestHistory ? "history=1;" : "history=0;";
+        const bool requestFirst = (info->flags & LMXXF_NR_FRAME_FLAG_FIRST_PASS) && session->recordingLeases &&
+            !(info->flags & (LMXXF_NR_FRAME_FLAG_CODEC_PASSTHROUGH | LMXXF_NR_FRAME_FLAG_HIP_PASSTHROUGH));
+        requestedOptions += requestFirst ? "first=1;" : "first=0;";
         const char* styleValue = std::getenv(CfgKey::LmxxfStyle);
         // Match the upstream fallback without printing an invalid external value every frame.
         const float requestedStyle = styleValue && std::strcmp(styleValue, "0") == 0 ? 0.f :
@@ -1864,6 +1878,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->InstallBridge(new hip_reference::D3D12Bridge());
             session->bridge->RequestDirectInput();
             session->bridge->RequestReleaseMarkers();
+            if (requestFirst) session->bridge->RequestFirstPassOutput();
             if (requestHistory &&
                 hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused)
             {
@@ -2164,6 +2179,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->InstallBridge(new hip_reference::D3D12Bridge());
                 session->bridge->RequestDirectInput();
                 session->bridge->RequestReleaseMarkers();
+            if (requestFirst) session->bridge->RequestFirstPassOutput();
                 if (requestHistory &&
                     hip_reference::WaveOwnedCompatible(opt) && opt.post_merge_fold && opt.post_head_fused)
                 {
@@ -2236,6 +2252,20 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 if(session->recordingLeases)dec->EnableReplayableRecording();
                 dec->Create(session->device, {enc->Output(), rgbOut->Output(), color}, session->shaderDir,
                             privateFloatOutput, bindExposure, info->color_width, info->color_height,LmxxfCompiler());
+                if (requestFirst)
+                {
+                    auto first = std::make_unique<FirstPassDecode>();
+                    first->rgb = std::make_unique<NativeRgbTexture>();
+                    first->rgb->EnableReplayableRecording();
+                    first->rgb->Create(session->device, session->bridge->FirstPassOutput(), session->shaderDir, LmxxfCompiler());
+                    first->decode = std::make_unique<NativeGameCodec>();
+                    first->decode->SetTypelessRgba16View(asFloat ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R16G16B16A16_UNORM);
+                    first->decode->EnableReplayableRecording();
+                    // Private FP16 removes raw-buffer output restrictions, preserving the same codec/exposure domain.
+                    first->decode->Create(session->device, {enc->Output(), first->rgb->Output(), color},
+                        session->shaderDir, true, bindExposure, info->color_width, info->color_height, LmxxfCompiler());
+                    session->firstPass = std::move(first);
+                }
                 if (dec->BufferOutput())
                 {
                     D3D12_RESOURCE_DESC td = cdesc;
@@ -2253,6 +2283,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             {
                 if (disp)
                     disp->Release();
+                session->firstPass.reset();
                 delete dec;
                 delete rgbOut;
                 delete rgbIn;
@@ -2277,6 +2308,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
                 session->encode->RebindInputAfterCompletion(0, color);
                 if (session->decode)
                     session->decode->RebindInputAfterCompletion(2, color);
+                if (session->firstPass) session->firstPass->decode->RebindInputAfterCompletion(2, color);
             }
             catch (const std::exception &ex)
             {
@@ -2337,6 +2369,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
             session->rgbInput->PinRecording(lease->pins.objects);
             session->rgbTex->PinRecording(lease->pins.objects);
             session->decode->PinRecording(lease->pins.objects);
+            if (session->firstPass) session->firstPass->Pin(lease->pins.objects);
             lease->pins.Add(color); lease->pins.Add(frameExposure);
             lease->pins.Add(session->exposureCopy); lease->pins.Add(session->decodeDisplay);
             static std::atomic<uintptr_t> nextHandle {0};
@@ -2355,6 +2388,7 @@ int32_t PrepareFrame(void *context, const LmxxfNrFrameInfo *info, LmxxfNrJob *jo
         job->private_output = session->decode->BufferOutput()
                                    ? static_cast<void *>(session->decodeDisplay)
                                    : static_cast<void *>(session->decode->Output());
+        job->first_pass_output = session->firstPass ? session->firstPass->decode->Output() : nullptr;
         if (!keepLastError)
             SetError("");
         return static_cast<int32_t>(LMXXF_NR_OK);
@@ -2638,6 +2672,12 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
                     t->historyParams,t->historyBinding.Get(),chain.control.Address());
             }}
             session->rgbTex->Record(list);
+            if (session->firstPass)
+            {
+                session->bridge->RecordFirstPassReadable(list);
+                session->firstPass->rgb->Record(list);
+                session->bridge->SealFirstPassOutput(list);
+            }
             if (session->recordingLeases) session->bridge->SealRecordedOutput(list);
         }
         if (!session->decode)
@@ -2657,6 +2697,11 @@ int32_t RecordOutputs(void *context, void *job, void *command_list)
                                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                                       j->colorState}),
                                 j->paper_white, codecParams);
+        if (session->firstPass)
+            session->firstPass->decode->Record(list,
+                session->CodecStates({D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, j->colorState}),
+                j->paper_white, codecParams);
         if (session->decode->BufferOutput())
         {
             if (!session->decodeDisplay)

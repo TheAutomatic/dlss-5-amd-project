@@ -78,6 +78,8 @@ class LmxxfBackend final : public Host
 
     ID3D12Resource *Record(ID3D12GraphicsCommandList *, const AmdPreSr::Frame &,
                            const AmdPreSr::Settings &) override;
+    ID3D12Resource* RecordLayers(ID3D12GraphicsCommandList*, const AmdPreSr::Frame&,
+                                const AmdPreSr::Settings&, ID3D12Resource**) override;
     int PendingListIndex(UINT, ID3D12CommandList *const *) const override;
     void Submitting(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) override;
     void TraceBoundary(const std::string &) override;

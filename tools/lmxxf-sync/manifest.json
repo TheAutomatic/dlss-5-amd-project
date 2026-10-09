@@ -34,7 +34,9 @@
     "Development/HIP/swin_persistent_types.h"
   ],
   "pinned": [],
-  "local_patches": [],
+  "local_patches": [
+    "first-pass-output.patch"
+  ],
   "hip_files": [
     "build-modules.ps1",
     "rtc_compile.cpp",
