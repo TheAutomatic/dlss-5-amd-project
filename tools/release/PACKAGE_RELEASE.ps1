@@ -578,6 +578,21 @@ if (Test-Path -LiteralPath $pluginSrc -PathType Container) {
     Get-ChildItem -LiteralPath $pluginSrc -Filter '*.asi' -File | Copy-Item -Destination $pluginDst -Force
 }
 
+# Bundled person segmentation model & ONNX Runtime (optional feature)
+$personSrc = Join-Path $root 'assets/person-model'
+if (Test-Path -LiteralPath $personSrc -PathType Container) {
+    $personDst = Join-Path $stage 'person-model'
+    New-Item -ItemType Directory -Path $personDst -Force | Out-Null
+    Get-ChildItem -LiteralPath $personSrc -File | Copy-Item -Destination $personDst -Force
+    if (Test-Path -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE')) {
+        Copy-Item -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE') -Destination (Join-Path $stage 'Licenses/ONNXRuntime_MIT.txt') -Force
+    }
+    $agplSrc = Join-Path $root 'third_party/onnxruntime/YOLO11_AGPL-3.0.txt'
+    if (Test-Path -LiteralPath $agplSrc) {
+        Copy-Item -LiteralPath $agplSrc -Destination (Join-Path $stage 'Licenses/YOLO11_AGPL-3.0.txt') -Force
+    }
+}
+
 # Explicit allowlist: never copy dlssnr.bin, the unpacked model or a local pipeline cache.
 Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll') -Destination $stage
 $mzAssets = Join-Path $stage 'dlssnr-amd'

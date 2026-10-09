@@ -163,6 +163,8 @@ $projectLeafNames = @(
     'dlssnr-amd/shaders/temporal/shader-constants.txt',
     'dlssnr-amd/shaders/temporal/temporal_post_fp32.spv',
     'dlssnr-amd/shaders/temporal/temporal_pre_fp32.spv',
+    'person-model/onnxruntime.dll',
+    'person-model/yolo11n-seg.onnx',
     'Uninstall.bat','Uninstall.ps1'
 )
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
@@ -652,7 +654,7 @@ foreach ($root in $roots) {
     }
     Remove-EmptyDirectory (Join-Path $root 'lmxxf-modules')
     foreach ($relative in @('dlssnr-amd/shaders/runtime', 'dlssnr-amd/shaders/temporal',
-            'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd')) {
+            'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd', 'person-model')) {
         Remove-EmptyDirectory (Join-Path $root $relative)
     }
 

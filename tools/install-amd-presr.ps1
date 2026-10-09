@@ -1309,6 +1309,14 @@ if (Test-Path -LiteralPath $deps) {
     }
 }
 
+$personModelSrc = Join-Path $release 'person-model'
+if (Test-Path -LiteralPath $personModelSrc -PathType Container) {
+    Write-Host 'Installing person partition model & ONNX Runtime (person-model)...' -ForegroundColor Cyan
+    Get-ChildItem -LiteralPath $personModelSrc -File | ForEach-Object {
+        Install-One $_.FullName (Join-Path 'person-model' $_.Name)
+    }
+}
+
 # --- Install selected backends ---
 if ($installDaniel) {
     Write-Host 'Installing danielblnc runtime (dlssnr_amd_pass1-3.dll) + weights.bin...' -ForegroundColor Cyan

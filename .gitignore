@@ -104,3 +104,6 @@ third_party/lmxxf/hip/*.hsaco.s
 
 # Product banner version generated from VERSION by MSBuild.
 /OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/resource_build_product.h
+
+assets/person-model/
+

@@ -210,6 +210,24 @@ jobs:
           $cert = Get-PackageSigningCertificate -Ephemeral
           "PACKAGE_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Fetch person segmentation assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force assets/person-model | Out-Null
+          if (-not (Test-Path assets/person-model/onnxruntime.dll)) {
+            Write-Host 'Fetching ONNX Runtime CPU x64...'
+            Invoke-WebRequest -Uri 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip' -OutFile ort.zip
+            Expand-Archive ort.zip -DestinationPath ort_tmp -Force
+            Copy-Item (Get-ChildItem ort_tmp -Recurse -Filter onnxruntime.dll).FullName assets/person-model/onnxruntime.dll -Force
+            Remove-Item ort.zip, ort_tmp -Recurse -Force
+          }
+          if (-not (Test-Path assets/person-model/yolo11n-seg.onnx)) {
+            Write-Host 'Exporting official YOLO11n-seg ONNX model...'
+            pip install ultralytics onnx
+            yolo export model=yolo11n-seg.pt format=onnx imgsz=640
+            Copy-Item yolo11n-seg.onnx assets/person-model/yolo11n-seg.onnx -Force
+          }
+
       - name: Package user zip
         shell: pwsh
         run: |
@@ -299,6 +317,7 @@ jobs:
             - **实验性：人物/场景分区分割与第一层复用**：
               - 引入基于 ONNX Runtime CPU 的异步轻量推理通道（`NrPersonPartition`）。
               - 为 lmxxf 与 Mochizuki 提供可选第一层 Pass 导出与时序运动对齐合成，保护前景免受多层过度降噪影响。
+              - 安装包内置 ONNX Runtime (MIT) 与 YOLO11n-seg (AGPL-3.0) 权重，解压安装即用，支持自备模型覆盖。
 
             **安装与对应后端权重准备**
 
@@ -307,7 +326,7 @@ jobs:
             - **lmxxf 0.41**：需自备 `native-game-tiled-assets` 权重目录，见 [原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [下载镜像](https://gofile.io/d/wRln0Pue)。
             - **Mochizuki 0.0.3（引入0.04部分特性）**：从 `nvngx_dlssnr.dll` 310.8.0（与 Daniel 使用同一文件）提取权重，需要 Python 3.10+。
             - 如本次安装目标游戏文件夹内留存曾安装过的三后端有效权重，执行 `Setup.bat` 后可自动利用，并补回安装包内缺失的权重，使得日常更新本插件时无需反复重新拷贝。
-            - 本包不含 NVIDIA DLL、Daniel 安装器或模型权重。
+            - 本包内置人物分割模型权重（AGPL-3.0，见 Licenses/）；不含 NVIDIA DLL、Daniel 安装器或全图专有模型权重。
 
             **已知问题**
 
@@ -337,6 +356,7 @@ jobs:
             - **Experimental: Person/Scene Partition and First-Pass Export**:
               - Asynchronous CPU inference path via ONNX Runtime supporting standard YOLO11-seg (`NrPersonPartition`).
               - Provides optional first-pass export and temporal motion alignment for lmxxf and Mochizuki to protect foreground figures from multi-pass over-smoothing.
+              - Bundles ONNX Runtime (MIT) and YOLO11n-seg (AGPL-3.0) weights for out-of-the-box evaluation.
 
             **Installation and backend model preparation**
 
@@ -345,7 +365,7 @@ jobs:
             - **lmxxf 0.41**: provide `native-game-tiled-assets` weights from the [upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
             - **Mochizuki 0.0.3 (includes partial 0.0.4 features)**: extract the weights from `nvngx_dlssnr.dll` 310.8.0, the same file used by Daniel. Python 3.10+ is required.
             - If the game folder selected for this installation still contains valid weights from previous installations of any of the three backends, `Setup.bat` can reuse them and copy missing weights back into the installer folder, so you do not need to copy them manually again for routine plugin updates.
-            - NVIDIA DLLs, the Daniel installer and model weights are not included.
+            - Bundles the person partition model (AGPL-3.0, see Licenses/); NVIDIA DLLs, the Daniel installer and full-frame neural rendering weights are not included.
 
             **Known issues**
 
