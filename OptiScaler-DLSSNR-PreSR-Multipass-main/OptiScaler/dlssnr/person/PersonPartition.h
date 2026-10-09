@@ -101,7 +101,7 @@ struct Lease final:Submission::RecordingObserver {
  void Executed(const Submission::RecordingExecution&e)noexcept override{
   if(!e.producerSubmitted)return;
   auto&p=*storage->pipeline;unconfirmed=p.unconfirmed=true;
-  if(FAILED(e.status)||!e.fence||!e.fenceValue||e.fenceValue==UINT64_MAX)return;
+  if(FAILED(e.status)||!e.fence||!e.fenceValue||e.fenceValue==UINT64_MAX){unconfirmed=p.unconfirmed=false;return;}
   try {
    auto proof=std::make_shared<Completion>(e.fence,e.queue,e.fenceValue);completions.push_back(proof);p.chain=proof;
    auto&s=Global();
@@ -110,7 +110,7 @@ struct Lease final:Submission::RecordingObserver {
     if(s.history.size()>HistoryCount)s.history.erase(s.history.begin());
    }else s.Invalidate();
    unconfirmed=p.unconfirmed=false;
-  }catch(...){}
+  }catch(...){unconfirmed=p.unconfirmed=false;}
  }
  void Invalidated(Submission::RecordingIdentity id)noexcept override{
   if(id==identity){invalidated=true;try{Collect();ScheduleCollection();}catch(...){}}
@@ -185,7 +185,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   for(auto&st:s.pool)if(st.use_count()==1&&st->width==width&&st->height==height){storage=st;break;}
   if(!storage){
    const auto desc=Effects::Storage::Description(width,height);const auto estimate=device->GetResourceAllocationInfo(0,1,&desc).SizeInBytes+16ull*1024*1024;
-   if(seen.size()>=8||bytes+estimate>512ull*1024*1024)throw std::runtime_error("person recording memory budget busy");
+   if(seen.size()>=24||bytes+estimate>2048ull*1024*1024)throw std::runtime_error("person recording memory budget busy");
    storage=std::make_shared<Storage>();storage->pipeline=s.pipeline;storage->width=width;storage->height=height;storage->bytes=estimate;
    storage->output=Texture(device.Get(),width,height,DXGI_FORMAT_R16G16B16A16_FLOAT);
    storage->mask=Texture(device.Get(),160,160,DXGI_FORMAT_R32_FLOAT);
