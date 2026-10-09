@@ -2454,8 +2454,6 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         MenuSectionTitle("Upscalers");
         ShowTooltip("Which copium do you choose?");
 
-        GetCurrentBackendInfo(state.api, currentBackend, &currentBackendName);
-
         std::string spoofingText;
 
         ImGui::PushItemWidth(180.0f * menuResScale);
@@ -7201,6 +7199,9 @@ void MenuCommon::RenderKeybindSettings(RenderMenuContext& ctx)
 
 void MenuCommon::RenderMainMenuTable(RenderMenuContext& ctx)
 {
+    // Compatibility and frame-generation controls also consume this state.
+    // Refresh every menu frame, regardless of which page was visited first.
+    GetCurrentBackendInfo(ctx.state.api, currentBackend, &currentBackendName);
     static MenuNavigation::Page page = MenuNavigation::Page::NR;
     auto card = [&](auto render) { MenuCard frame; render(ctx); };
     MenuNavigation::Render(page, ctx.menuResScale, [&](MenuNavigation::Page selected) {
