@@ -1,3 +1,10 @@
+## 2026-10-09 — ReShade 包装设备与 Mochizuki Fence 归属
+
+通过本会话亲自创建的同步 Fence 证明底层设备身份，允许 ReShade 队列的包装设备与原生
+Fence 共存；不以显卡 LUID 代替设备身份，不取消跨设备与完成信号校验。回调线程保存首次
+错误，避免菜单读取另一个线程的 GetLastError 并一直显示旧构建状态。真实 ReShade 离线
+对照和燕云游戏验收通过，适用范围见 [Mochizuki 兼容说明](mochizuki.md#reshade-compatibility)。
+
 ## 2026-10-09 — 菜单独立NR页面与staging自签名
 
 菜单采用稳定页面ID和自适应侧栏/窄窗选择框；NR保留现有输入、模型、输出分组，不随

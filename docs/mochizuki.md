@@ -66,6 +66,22 @@ To extract from a source checkout:
 python -X utf8 tools/install/mochizuki-model.py <user-DLL-or-ZIP> <output>/dlssnr-amd/dlssnr.bin --work work/scratch
 ```
 
+## ReShade compatibility
+
+ReShade as `dxgi.dll` with OptiScaler as `winmm.dll` has been validated in
+Where Winds Meet (DX12) with ReShade 6.8. The list-identity fix alone was insufficient:
+ReShade's queue exposes its device wrapper, while its fences expose the native
+device. Comparing those pointers stopped the session at `EndRecordingExecution`.
+The runtime now also accepts the device identity proven by a synchronization fence
+created by that same session. Foreign devices and unresolved submissions remain
+rejected; synchronization and resource-retirement rules are unchanged.
+
+`network ready` means construction completed, not that NR rendered a frame.
+Confirm an increasing frame count and nonzero timings alongside the image effect.
+Submission failures preserve their originating-thread error and replace stale
+building status; bounded logs trace the first two recordings of each session.
+This validation does not cover every game, ReShade add-on or loading arrangement.
+
 ## Controls
 
 All keys below are in `[DlssNr]`, prefixed `Mochizuki`, independent of Daniel and
