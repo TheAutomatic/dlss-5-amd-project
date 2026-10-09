@@ -3,6 +3,7 @@
 #include "NrStabilizerShader.h"
 #include "../submission/CommandListProxy.h"
 #include "../backend/lmxxf_runtime/RecordingGpuTiming.h"
+#include "../backend/lmxxf_runtime/LmxxfShaderCompiler.h"
 #include "../../../../third_party/lmxxf/src/native_shader_cache.h"
 #include <wrl/client.h>
 #include <algorithm>
@@ -137,7 +138,7 @@ struct Pipeline
             FAILED(device->CreateRootSignature(0, root->GetBufferPointer(), root->GetBufferSize(), IID_PPV_ARGS(&p->root)))) return {};
         const auto& source = temporal ? StabilizerShader : BlendShader;
         if (FAILED(NativeCompileShaderBlob(source.c_str(), source.size(), "NR output effects", nullptr,
-                                           nullptr, "point_main", &code, &error))) return {};
+                                           nullptr, "point_main", &code, &error, "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, ::LmxxfCompiler()))) return {};
         D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline {}; pipeline.pRootSignature = p->root.Get();
         pipeline.CS = {code->GetBufferPointer(), code->GetBufferSize()};
         if (FAILED(device->CreateComputePipelineState(&pipeline, IID_PPV_ARGS(&p->blend)))) return {};
@@ -149,7 +150,7 @@ struct Pipeline
         const auto& source = temporal ? StabilizerShader : BlendShader;
         ComPtr<ID3DBlob> code, error;
         if (FAILED(NativeCompileShaderBlob(source.c_str(), source.size(), "NR output effects", nullptr,
-                                           nullptr, "main", &code, &error))) return false;
+                                           nullptr, "main", &code, &error, "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, ::LmxxfCompiler()))) return false;
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc {}; desc.pRootSignature = root.Get();
         desc.CS = {code->GetBufferPointer(), code->GetBufferSize()};
         return SUCCEEDED(device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&shaped)));

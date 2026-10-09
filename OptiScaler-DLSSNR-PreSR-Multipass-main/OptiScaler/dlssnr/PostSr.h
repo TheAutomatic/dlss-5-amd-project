@@ -84,7 +84,7 @@ struct Pipeline
         auto compile = [&](const char* source, size_t size, ID3D12PipelineState** out)
         {
             ComPtr<ID3DBlob> code;
-            if (FAILED(NativeCompileShaderBlob(source, size, "Post-SR NR", nullptr, nullptr, "main", &code, &error)))
+            if (FAILED(NativeCompileShaderBlob(source, size, "Post-SR NR", nullptr, nullptr, "main", &code, &error, "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, ::LmxxfCompiler())))
                 return false;
             D3D12_COMPUTE_PIPELINE_STATE_DESC ps {};
             ps.pRootSignature = p->root.Get();
