@@ -129,6 +129,8 @@ struct RuntimeConfig {
     // Reuse the private full-size input copy for final composition at reduced
     // model resolution. Non-8-bit outputs only; false retains the separate image.
     bool compact_transfer = true;
+    // Optional decoded first pass for host person/scene composition. Default has no allocation.
+    bool first_pass_output = false;
     // The most passes Controls::passes may ask for; each one above the first
     // costs a history image at the model extent.
     uint32_t max_passes = 1;
@@ -375,6 +377,8 @@ public:
     // number of later recordings on, which is the same reasoning as OptiScaler's
     // own 32-evaluate parking of a retired feature. Never blocks.
     void release_feature(uint64_t feature);
+    // Full-frame RGBA32F in GENERAL, same decode domain as final output. No preprocess/mask/native-compose.
+    VkImage first_pass_output() const;
     // How many features currently hold temporal state, for the log.
     uint32_t live_features() const;
 

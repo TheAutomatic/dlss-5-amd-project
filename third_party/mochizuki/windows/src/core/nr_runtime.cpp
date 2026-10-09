@@ -310,7 +310,8 @@ struct Runtime::Impl {
     nrvk::Kernel alpha, mask_pre, mask_resolve;
     // The linear-light path: the proxy is made in place on tex_in and the
     // original kept here for the decode. Only when RuntimeConfig::linear_input.
-    nrvk::Kernel encode, transfer_pass;
+    nrvk::Kernel encode, transfer_pass, first_transfer;
+    nrvk::Context::Image first_full{};
     nrvk::Context::Image keep{};
     bool linear{};
     // Preprocess (RuntimeConfig::preprocess): runtime_prep.comp's meter,
@@ -659,6 +660,8 @@ struct Runtime::Impl {
         if (alpha.device) alpha.destroy();
         if (encode.device) encode.destroy();
         if (transfer_pass.device) transfer_pass.destroy();
+        if (first_transfer.device) first_transfer.destroy();
+        if (first_full.handle) session.ctx.destroy(first_full);
         if (prep_k.device) prep_k.destroy();
         if (prep_back_k.device) prep_back_k.destroy();
         if (transfer_prep.device) transfer_prep.destroy();
@@ -1037,6 +1040,14 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
                                      : impl_->linear ? &impl_->keep : shown;
         impl_->transfer_pass.create(s.ctx, (adapters / "runtime_transfer.spv").string(), {}, 40,
                                {&s.surf0, shown, keep, answer});
+        if (config.first_pass_output) {
+            if (config.native_compose || mask_config.width || config.max_passes < 2)
+                throw std::runtime_error("first pass output requires ordinary multi-pass transfer");
+            impl_->first_full = s.ctx.image(config.width, config.height, VK_FORMAT_R32G32B32A32_SFLOAT, false);
+            s.ctx.transition(impl_->first_full, VK_IMAGE_LAYOUT_GENERAL);
+            impl_->first_transfer.create(s.ctx, (adapters / "runtime_transfer.spv").string(), {}, 40,
+                                        {&s.surf0, shown, keep, &impl_->first_full});
+        }
     }
     if (config.preprocess && !mask_config.width) {
         impl_->prep = true;
@@ -1311,6 +1322,8 @@ Runtime::TemporalHistoryView Runtime::temporal_history() const {
     v.format = h.format; v.layout = h.layout;
     return v;
 }
+
+VkImage Runtime::first_pass_output() const { return impl_->first_full.handle; }
 
 RecordResult Runtime::record(VkCommandBuffer cmd, const ColourFrame& frame, const Controls& c) {
     return record(cmd,frame,c,nullptr).frame;
@@ -1951,6 +1964,14 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                     VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+        }
+        if (pass == 0 && impl_->first_transfer.device && !prep_on && !mask && c.apply_model) {
+            // Before later passes overwrite surf0 or compact transfer overwrites keep_full.
+            struct { uint32_t w,h,mw,mh,passthrough; float detail,colour,max_ratio,white; uint32_t mode; }
+                push{frame.width,frame.height,nw,nh,impl_->linear?0u:1u,
+                     c.detail_strength,c.colour_strength,c.max_ratio,impl_->white_point,c.enlarge_mode};
+            dispatch(cmd,impl_->first_transfer,(frame.width+7)/8,(frame.height+7)/8,1,&push,sizeof push);
+            compute_barrier(cmd);
         }
     }
     if (temporal) {

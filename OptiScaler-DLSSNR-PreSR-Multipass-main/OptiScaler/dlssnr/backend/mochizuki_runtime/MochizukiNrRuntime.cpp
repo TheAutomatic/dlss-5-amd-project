@@ -1260,6 +1260,7 @@ struct Job
         Rescaled,
     };
     uint32_t state = LMXXF_NR_JOB_NONE;
+    bool firstPass = false;
     bool enqueued = false; // EnqueueHip ran for it: a second call does nothing
     ID3D12Resource* colour {};
     D3D12_RESOURCE_STATES colourState {};
@@ -1290,6 +1291,7 @@ struct Geometry
     UINT colourHeight = 0;
     DXGI_FORMAT motionFormat = DXGI_FORMAT_UNKNOWN;
     UINT motionWidth = 0, motionHeight = 0;
+    bool firstPass = false;
     bool bucketed = false; // the motion buffer is the allocation's, and a bucket-sized motion image is made too
     bool operator==(const Geometry&) const = default;
 };
@@ -1305,12 +1307,13 @@ struct NetworkKey
     bool linear = false;
     bool prep = false; // RuntimeConfig::preprocess
     bool compactTransfer = true;
+    bool firstPass = false;
     bool operator==(const NetworkKey&) const = default;
     bool SameModel(const NetworkKey& other) const
     {
         return width == other.width && height == other.height && format == other.format &&
                scale == other.scale && linear == other.linear && prep == other.prep &&
-               compactTransfer == other.compactTransfer;
+               compactTransfer == other.compactTransfer && firstPass == other.firstPass;
     }
 };
 
@@ -1344,9 +1347,10 @@ struct FrameBuffers
     D3D12_RESOURCE_DESC resultDesc {};
     Footprint colourFootprint, motionFootprint;
     VkFormat colourVk = VK_FORMAT_UNDEFINED, motionVk = VK_FORMAT_UNDEFINED;
-    SharedBuffer input, output, motionBuffer;
-    Image colourImage, motionImage;
+    SharedBuffer input, output, motionBuffer, firstOutput;
+    Image colourImage, motionImage, firstColour;
     Image motionScaled; // bucketed geometry with motion: the vectors laid over the subrect, at the bucket's extent
+    ID3D12Resource* firstResult {};
     ID3D12Resource* result {};
 
     void Release(VkDevice device)
@@ -1356,11 +1360,15 @@ struct FrameBuffers
         {
             input.Release(device);
             output.Release(device);
+            firstOutput.Release(device);
+            firstColour.Release(device);
             motionBuffer.Release(device);
             colourImage.Release(device);
             motionImage.Release(device);
             motionScaled.Release(device);
         }
+        if (firstResult) firstResult->Release();
+        firstResult = nullptr;
         if (result)
             result->Release();
         result = nullptr;
@@ -1663,8 +1671,9 @@ struct Session
     Geometry geometry;
     Footprint colourFootprint, motionFootprint;
     VkFormat colourVk = VK_FORMAT_UNDEFINED, motionVk = VK_FORMAT_UNDEFINED;
-    SharedBuffer input, output, motionBuffer;
-    Image colourImage, motionImage, motionScaled;
+    SharedBuffer input, output, motionBuffer, firstOutput;
+    Image colourImage, motionImage, motionScaled, firstColour;
+    ID3D12Resource* firstResult {};
     ID3D12Resource* result {}; // what Super Resolution gets in place of the game's colour
 
     // Dynamic resolution (DrsExtent), render thread only: the bucket, and what it has seen.
@@ -2353,7 +2362,7 @@ struct Session
         std::lock_guard lock(jobMutex);
         if (!orphaned)
             return;
-        for (ID3D12Resource* r : { input.resource, motionBuffer.resource, output.resource, result })
+        for (ID3D12Resource* r : { input.resource, motionBuffer.resource, output.resource, result, firstOutput.resource, firstResult })
             if (r)
             {
                 r->AddRef();
@@ -2407,6 +2416,9 @@ struct Session
         b.motionVk = motionVk;
         b.input = std::exchange(input, {});
         b.output = std::exchange(output, {});
+        b.firstOutput = std::exchange(firstOutput, {});
+        b.firstColour = std::exchange(firstColour, {});
+        b.firstResult = std::exchange(firstResult, nullptr);
         b.motionBuffer = std::exchange(motionBuffer, {});
         b.colourImage = std::exchange(colourImage, {});
         b.motionImage = std::exchange(motionImage, {});
@@ -2430,7 +2442,8 @@ struct Session
         const double passes = kPassFactor[std::clamp(key.maxPasses, 1u, kMaxPasses) - 1];
         const UINT64 activations = UINT64(double(kModelPixelBytes * model(key.width) * model(key.height)) * passes);
         const UINT64 scaled = key.scale < 1.f ? kScaledFramePixelBytes * key.width * key.height : 0;
-        return kNetworkFixedBytes + activations + scaled;
+        return kNetworkFixedBytes + activations + scaled +
+               (key.firstPass ? UINT64(key.width) * key.height * 16 + 65536 : 0);
     }
 
     // What the network for `key` costs in VRAM: the estimate, or what building or releasing it measured when that was
@@ -2445,7 +2458,17 @@ struct Session
     static UINT64 FrameBytes(const Geometry& g)
     {
         const UINT64 scaled = g.bucketed ? MotionFormat(g.motionFormat).bytes : 0;
-        return (kFramePixelBytes + scaled) * g.width * g.height;
+        UINT64 first = 0;
+        if (g.firstPass)
+        {
+            const UINT64 pixelBytes = ColourFormat(g.colourFormat).bytes;
+            const UINT64 pitch = (UINT64(g.width) * pixelBytes + 255) & ~UINT64(255);
+            // The shared buffer/Vulkan image use the bucket, but the returned
+            // D3D texture preserves the game's full colour allocation extent.
+            first = pitch * g.height + pixelBytes * g.width * g.height +
+                    pixelBytes * g.colourWidth * g.colourHeight + 3 * 65536;
+        }
+        return (kFramePixelBytes + scaled) * g.width * g.height + first;
     }
 
     // A network measured: `bytes` is what it took, or gave back, in this process's VRAM.
@@ -2503,6 +2526,7 @@ struct Session
         VkCheck(vkResetCommandBuffer(c, 0), "vkResetCommandBuffer (passthrough)");
         VkCheck(vkBeginCommandBuffer(c, &bi), "vkBeginCommandBuffer (passthrough)");
         vkCmdCopyBuffer(c, input.buffer, output.buffer, 1, &region);
+        if (firstOutput.buffer) vkCmdCopyBuffer(c, input.buffer, firstOutput.buffer, 1, &region);
         VkCheck(vkEndCommandBuffer(c), "vkEndCommandBuffer (passthrough)");
         fallbackCurrent[k] = true;
     }
@@ -2534,6 +2558,13 @@ struct Session
                                               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
                                               IID_PPV_ARGS(&b.result)),
               "output texture");
+        if (g.firstPass) {
+            b.firstOutput.Create(device, vk, b.colourFootprint.bytes);
+            b.firstColour.Create(vk, cf.vk, g.width, g.height);
+            Check(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &desc,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&b.firstResult)),
+                "first pass output texture");
+        }
         // The active geometry and all closed recordings share this one allocation.
         auto* raw = new FrameBuffers(b);
         b.allocation = std::shared_ptr<FrameBuffers>(raw, [dev = vk.device](FrameBuffers* p) {
@@ -2551,6 +2582,9 @@ struct Session
         motionVk = b.motionVk;
         input = std::exchange(b.input, {});
         output = std::exchange(b.output, {});
+        firstOutput = std::exchange(b.firstOutput, {});
+        firstColour = std::exchange(b.firstColour, {});
+        firstResult = std::exchange(b.firstResult, nullptr);
         motionBuffer = std::exchange(b.motionBuffer, {});
         colourImage = std::exchange(b.colourImage, {});
         motionImage = std::exchange(b.motionImage, {});
@@ -2872,6 +2906,7 @@ struct Session
             config.max_passes = key.maxPasses;
             config.preprocess = key.prep;
             config.compact_transfer = key.compactTransfer;
+            config.first_pass_output = key.firstPass;
             // The linear path's frame is a proxy made with the soft knee, which the preprocess undoes first.
             config.preprocess_unknee = key.linear;
             nr::TemporalConfig temporal;
@@ -3544,6 +3579,34 @@ struct Session
         else
             dispatches.store(runtime->record(c, frame.colour, job.controls).network_dispatches,
                              std::memory_order_relaxed);
+        if (job.firstPass)
+        {
+            const VkImage first = runtime->first_pass_output();
+            if (!first) throw std::runtime_error("first pass output missing");
+            ImageBarrier(c, first, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            ImageBarrier(c, firstColour.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+            // The network ran on the padded bucket. Export the same valid w x h
+            // subrect as the final output, without rescaling that subrect.
+            VkImageBlit region {};
+            region.srcSubresource = region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            region.srcOffsets[1] = region.dstOffsets[1] = { int32_t(w), int32_t(h), 1 };
+            vkCmdBlitImage(c, first, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                          firstColour.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
+            ImageBarrier(c, firstColour.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            VkBufferImageCopy copy = colourFootprint.vk;
+            copy.imageExtent = { w, h, 1 };
+            vkCmdCopyImageToBuffer(c, firstColour.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   firstOutput.buffer, 1, &copy);
+            ImageBarrier(c, first, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
+        }
         const nr::Preprocess& prep = job.controls.preprocess;
         float prepEv = NAN;
         if (prep.active() && prep.exposure == 1)
@@ -3812,6 +3875,7 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
         return Fail(LMXXF_NR_INVALID_ARGUMENT, "PrepareFrame: bad arguments");
     job->handle = nullptr;
     job->private_output = nullptr;
+    job->first_pass_output = nullptr;
     return Guard(
         s,
         [&]
@@ -3904,7 +3968,9 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             // Neither a network nor buffers that cannot be had now fail the session: the frame goes without NR, and
             // they are tried again as their holds say.
             s->prepWanted = s->prepWanted || model.preprocess.active();
-            const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted, compactTransfer };
+            g.firstPass = (info->flags & LMXXF_NR_FRAME_FLAG_FIRST_PASS) && passes > 1 &&
+                model.apply_model && !model.preprocess.active() && s->Blittable(cf.vk);
+            const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted, compactTransfer, g.firstPass };
             std::string why;
             s->infoRequestedPasses = passes;
             if (!s->EnsureNetwork(key, g, colour, why, maxPassesSetting == 0, drsMode != 0 && !g.bucketed))
@@ -3994,6 +4060,8 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             }
             else
                 s->resetPending = true; // record() neither updates the history nor consumes a reset
+            next.firstPass = g.firstPass && s->net.firstPass && served > 1 && s->firstResult;
+            job->first_pass_output = next.firstPass ? s->firstResult : nullptr;
             next.state = LMXXF_NR_JOB_PREPARED;
             {
                 // A new generation: whatever still holds the last job's handle can no longer reach this one.
@@ -4097,6 +4165,16 @@ int32_t CoreRecordOutputs(void* context, void* job, void* command_list)
             c->CopyTextureRegion(&dst, 0, 0, 0, &src, whole ? nullptr : &box);
             Transition(c, s->result, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             Transition(c, s->output.resource, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+            if (j.firstPass)
+            {
+                Transition(c, s->firstOutput.resource, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                Transition(c, s->firstResult, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+                dst.pResource = s->firstResult;
+                src.pResource = s->firstOutput.resource;
+                c->CopyTextureRegion(&dst, 0, 0, 0, &src, whole ? nullptr : &box);
+                Transition(c, s->firstResult, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                Transition(c, s->firstOutput.resource, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+            }
             if (j.state == LMXXF_NR_JOB_PRODUCER_SUBMITTED)
                 j.state = LMXXF_NR_JOB_CONSUMER_COMPLETE;
             return int32_t(LMXXF_NR_OK);

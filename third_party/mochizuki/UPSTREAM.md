@@ -97,3 +97,18 @@ shader recipe documents. See tools/build/build-mochizuki-runtime.cmd.
 
 The 599-entry `dlssnr.bin` model must be extracted from a user's own `nvngx_dlssnr.dll` 310.8.0;
 neither that DLL nor the extracted model is part of this repository or public package.
+
+## Optional first-pass export
+
+The local core adds `RuntimeConfig::first_pass_output` (default false) and
+`Runtime::first_pass_output()`. An independent runtime_transfer dispatch preserves
+the first pass in frame-space RGBA32F before later passes overwrite surf0. It uses
+the same detail, colour, white point and enlargement controls as the final transfer.
+The host converts it to the frame format and retains both outputs in the same
+recording lease. No shader recipe or default inference path changes.
+
+This is for the host's opt-in person/scene partition. Preprocess, control-mask and
+native-compose paths do not export it. The host refuses export for active
+preprocessing and while the requested multi-pass network is still unavailable.
+Allocation size, model key and buffer retirement include the optional output.
+Local C++ build and ABI checks are separate from pending Vulkan image validation.

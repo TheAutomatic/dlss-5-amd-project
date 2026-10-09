@@ -138,8 +138,15 @@ MochizukiBackend::MochizukiBackend(ID3D12Device* d, ID3D12CommandQueue* q, const
 MochizukiBackend::~MochizukiBackend() { Shutdown(); }
 
 ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const AmdPreSr::Frame& input,
-                                       const AmdPreSr::Settings&)
+                                       const AmdPreSr::Settings& settings)
 {
+    return RecordLayers(cmd, input, settings, nullptr);
+}
+
+ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, const AmdPreSr::Frame& input,
+                                              const AmdPreSr::Settings&, ID3D12Resource** first)
+{
+    if (first) *first = nullptr;
     std::lock_guard lifetime(Submission::RecordingMutex());
     LmxxfRecording::Collect();
     // Include frames rejected before PrepareFrame (for example an active render
@@ -167,7 +174,8 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
 #undef MZ_B
     frame.struct_size = sizeof frame;
     frame.frame_id = frameId;
-    frame.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | (temporal ? MOCHIZUKI_NR_FRAME_FLAG_TEMPORAL : 0);
+    frame.flags = LMXXF_NR_FRAME_FLAG_STRENGTH | (temporal ? MOCHIZUKI_NR_FRAME_FLAG_TEMPORAL : 0) |
+        (first ? LMXXF_NR_FRAME_FLAG_FIRST_PASS : 0);
     const auto desc = input.colour->GetDesc();
     frame.color = input.colour;
     frame.color_width = input.width && input.width <= desc.Width ? input.width : UINT(desc.Width);
@@ -212,6 +220,7 @@ ID3D12Resource* MochizukiBackend::Record(ID3D12GraphicsCommandList* cmd, const A
     lease->ready = true;
     if (invocation) invocation->outcome = "recorded";
     p->Info();
+    if (first) *first = static_cast<ID3D12Resource*>(job.first_pass_output);
     return static_cast<ID3D12Resource*>(job.private_output);
 }
 void MochizukiBackend::Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) { LmxxfRecording::Collect(); }
