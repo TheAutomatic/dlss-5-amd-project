@@ -22,6 +22,23 @@ int wmain(int argc,wchar_t**argv){
    auto output=model.Run(image);
    if(output.values.size()!=160*160)return 4;
    std::printf("actual CPU model: %.0f ms, finite mask %zu\n",output.milliseconds,output.values.size());
+   DlssNr::Person::Provider provider;
+   provider.Configure(true,argv[1]);
+   auto start=GetTickCount64();
+   while(!provider.Ready()){
+    if(GetTickCount64()-start>10000)throw std::runtime_error(provider.Status());
+    Sleep(1);
+   }
+   image.tick=GetTickCount64();
+   if(!provider.Submit(std::make_shared<DlssNr::Person::Image>(image)))return 8;
+   while(!provider.Latest()){
+    if(GetTickCount64()-start>15000)throw std::runtime_error(provider.Status());
+    Sleep(1);
+   }
+   auto remote=provider.Latest();
+   if(remote->epoch!=image.epoch||remote->frame!=image.frame||remote->values!=output.values)return 9;
+   std::printf("isolated real worker: %.0f ms; direct/IPC output identical\n",remote->milliseconds);
+   provider.Configure(false,argv[1]);
   }
   puts("person inference: PASS");return 0;
  }catch(const std::exception&e){std::fprintf(stderr,"%s\n",e.what());return 1;}

@@ -8,10 +8,10 @@ Texture2D<float2> motion:register(t3);
 Texture2D<float> depth:register(t4);
 Texture2D<float4> guides[25]:register(t5);
 Buffer<float> rawMask:register(t30);
-Texture2D<float> warpedMask:register(t31);
+Texture2D<float2> warpedMask:register(t31), previousMask:register(t32);
 RWBuffer<float> capture:register(u0);
 RWTexture2D<float4> nextGuide:register(u1);
-RWTexture2D<float> nextMask:register(u2);
+RWTexture2D<float2> nextMask:register(u2);
 RWTexture2D<float4> output:register(u3);
 cbuffer Params:register(b0){
  uint width,height,mvWidth,mvHeight;
@@ -19,6 +19,7 @@ cbuffer Params:register(b0){
  float preExposure;uint captureEnabled,age,maskEnabled;
  float2 contentScale,contentOffset;
  uint inverted;float personStrength,personDetail,maskFreshness;
+ uint historyEnabled;float riseBlend,fallBlend,unused;
 }
 cbuffer Execution:register(b1){uint executionValid;uint3 padding;}
 float Key(float value){return isfinite(value)&&value>=0&&value<=1?(inverted?value:1-value):-1;}
@@ -52,14 +53,14 @@ float4 GuideAt(uint index,float2 uv){
  [unroll]for(uint i=0;i<25;++i)if(index==i)value=guides[i].Load(int3(p,0));
  return value;
 }
-float Warp(float2 uv){
+float2 Warp(float2 uv){
  if(!maskEnabled||!executionValid||age>24)return 0;
  float4 g=GuideAt(0,uv);if(g.w<.5)return 0;
  [loop]for(uint i=0;i<age;++i){
   float2 nextUv=uv+g.xy;
-  if(any(nextUv<0)||any(nextUv>=1))break;
+  if(any(nextUv<0)||any(nextUv>=1))return 0;
   float4 prev=GuideAt(i+1,nextUv);
-  if(prev.w<.5||abs(g.z-prev.z)>0.35*max(max(g.z,prev.z),1e-4)+0.05)break;
+  if(prev.w<.5||abs(g.z-prev.z)>0.35*max(max(g.z,prev.z),1e-4)+0.05)return 0;
   uv=nextUv;
   g=prev;
  }
@@ -67,12 +68,31 @@ float Warp(float2 uv){
  int2 lo=clamp(int2(floor(p)),0,159),hi=min(lo+1,159);float2 f=frac(p);
  float value=lerp(lerp(rawMask[lo.y*160+lo.x],rawMask[lo.y*160+hi.x],f.x),
                   lerp(rawMask[hi.y*160+lo.x],rawMask[hi.y*160+hi.x],f.x),f.y);
- return isfinite(value)?smoothstep(.2,.8,value)*maskFreshness:0;
+ return isfinite(value)?float2(smoothstep(.2,.8,value),1):0;
 }
 [numthreads(8,8,1)]
 void warp_main(uint3 id:SV_DispatchThreadID){
  if(any(id.xy>=160))return;
- nextMask[id.xy]=Warp((float2(id.xy)+.5)/160);
+ float2 uv=(float2(id.xy)+.5)/160;
+ float2 current=Warp(uv);
+ // Smooth only successful reprojections, never a disoccluded or expired mask.
+ // The source is the previous submitted frame, not the last inference result.
+ if(current.y>.5&&historyEnabled){
+  float4 g=GuideAt(0,uv);float2 previousUv=uv+g.xy;
+  if(all(previousUv>=0)&&all(previousUv<1)){
+   float2 p=previousUv*160-.5;int2 lo=int2(floor(p));float2 f=frac(p);
+   float value=0,weight=0;
+   [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
+    int2 q=clamp(lo+int2(x,y),0,159);
+    float4 oldGuide=guides[1].Load(int3(q,0));float2 old=previousMask.Load(int3(q,0));
+    float w=(x?f.x:1-f.x)*(y?f.y:1-f.y);
+    if(old.y>.5&&oldGuide.w>.5&&abs(g.z-oldGuide.z)<=0.35*max(max(g.z,oldGuide.z),1e-4)+0.05){value+=old.x*w;weight+=w;}
+   }
+   if(weight>.5){value/=weight;current.x=lerp(value,current.x,current.x>value?riseBlend:fallBlend);}
+  }
+ }
+ // Keep history unfaded; expiry fade is applied once in composition.
+ nextMask[id.xy]=current;
 }
 // Reduce only the fine component of the person's NR correction. The original
 // image supplies the edge weights and is never itself blurred.
@@ -115,13 +135,14 @@ void compose_main(uint3 id:SV_DispatchThreadID){
   float depthTol=0.35*max(max(g.z,key),1e-4)+0.05;
   float depthW=(g.w>.5&&key>=0)?saturate(1.0-depthDiff/depthTol):0.0;
   float w=spatialW*depthW;
-  mask+=warpedMask.Load(int3(q,0))*w;total+=w;
+  mask+=warpedMask.Load(int3(q,0)).x*w;total+=w;
  }
  float4 centerG=guides[0].Load(int3(center,0));
  float centerDepthDiff=abs(centerG.z-key);
  float centerDepthTol=0.35*max(max(centerG.z,key),1e-4)+0.05;
- float fallbackMask=(key>=0&&centerG.w>.5&&centerDepthDiff<=centerDepthTol)?warpedMask.Load(int3(center,0)):0.0;
- mask=total>0.01?saturate(mask/total):fallbackMask;
+ float fallbackWeight=(key>=0&&centerG.w>.5)?saturate(1-centerDepthDiff/centerDepthTol):0;
+ float fallbackMask=warpedMask.Load(int3(center,0)).x*fallbackWeight;
+ mask=(total>0.01?saturate(mask/total):fallbackMask)*maskFreshness;
  float3 person=mask>0&&all(isfinite(base.rgb))?PersonColour(int2(id.xy),base.rgb,first.rgb):first.rgb;
  output[id.xy]=float4(lerp(final.rgb,person,mask),isfinite(base.a)?base.a:0);
 }
@@ -132,7 +153,8 @@ struct Constants {
  float preExposure; unsigned captureEnabled,age,maskEnabled;
  float scaleX,scaleY,offsetX,offsetY;
  unsigned inverted;float personStrength=1.f,personDetail=1.f,maskFreshness=1.f;
+ unsigned historyEnabled=0;float riseBlend=1.f,fallBlend=1.f,unused=0;
 };
-static_assert(sizeof(Constants)==80);
+static_assert(sizeof(Constants)==96);
 }
 

@@ -121,6 +121,12 @@ if (Test-Path -LiteralPath $optiDll -PathType Leaf) {
     $warnings.Add("OptiScaler.dll not found at $optiDll (PACKAGE will use -DepsRoot or release-local)")
 }
 
+# The helper process is versioned with the host; stale local assets are not a fallback.
+if (Test-Path -LiteralPath (Join-Path $optiSrcRoot 'dlssnr/person/worker/person_worker.cpp')) {
+    $worker = Join-Path (Split-Path -Parent $optiDll) 'person-model/person-worker.exe'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-person-worker.ps1') -WorkerExe $worker
+    if ($LASTEXITCODE -ne 0) { $failures.Add('Person worker missing or stale; rebuild it beside the selected host.') }
+}
 foreach ($w in $warnings) { Write-Issue $w $false }
 foreach ($f in $failures) { Write-Issue $f $true }
 

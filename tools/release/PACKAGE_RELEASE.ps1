@@ -299,7 +299,8 @@ NrOverallIntensity=1.0
 ; Neutral 1/1/0/0 keeps the old output path. Pure-backend sessions may need a restart.
 ; Experimental person protection: scene uses final NR; multi-pass people use pass 1.
 ; lmxxf/Mochizuki single/multi-pass. Single pass needs a control below 1; Daniel is not supported.
-; Requires person-model/onnxruntime.dll (CPU x64 API 23+) and yolo11n-seg.onnx
+; Requires matching person-model/person-worker.exe, ONNX Runtime CPU x64 API 23+
+; and yolo11n-seg.onnx. The worker uses private CRT DLLs; game-root CRT is untouched.
 ; (COCO FP32, input 1x3x640x640). Model availability depends on the installed package.
 ; Missing/stale masks or unreliable motion/depth preserve final NR. Default off.
 NrPersonPartition=false
@@ -588,11 +589,23 @@ $personSrc = Join-Path $root 'assets/person-model'
 if (Test-Path -LiteralPath $personSrc -PathType Container) {
     $personDst = Join-Path $stage 'person-model'
     New-Item -ItemType Directory -Path $personDst -Force | Out-Null
-    Get-ChildItem -LiteralPath $personSrc -File | Copy-Item -Destination $personDst -Force
-    $freshWorker = Join-Path $root 'exports/release-local/person-model/person-worker.exe'
-    if (Test-Path -LiteralPath $freshWorker -PathType Leaf) {
-        Copy-Item -LiteralPath $freshWorker -Destination (Join-Path $personDst 'person-worker.exe') -Force
+    foreach ($required in @('onnxruntime.dll','yolo11n-seg.onnx','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+        if (!(Test-Path -LiteralPath (Join-Path $personSrc $required))) { throw "Incomplete person-model assets: $required" }
     }
+    $ortVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $personSrc 'onnxruntime.dll'))
+    if ($ortVersion.FileMajorPart -lt 1 -or ($ortVersion.FileMajorPart -eq 1 -and $ortVersion.FileMinorPart -lt 23)) {
+        throw 'Person worker requires ONNX Runtime 1.23+ CPU x64. Update the complete person-model assets.'
+    }
+    # Build outputs accompany the selected host in both local and CI builds.
+    # Never silently ship assets/person-model/person-worker.exe from another build.
+    $freshWorker = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $OptiDll).Path) 'person-model/person-worker.exe'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-person-worker.ps1') -WorkerExe $freshWorker
+    if ($LASTEXITCODE -ne 0) { throw 'Person worker build validation failed.' }
+    Get-ChildItem -LiteralPath $personSrc -File | Where-Object {
+        $_.Name -eq 'yolo11n-seg.onnx' -or $_.Name -eq 'onnxruntime.dll' -or
+        $_.Name -match '^(msvcp140(_1|_2|_atomic_wait|_codecvt_ids)?|vcruntime140(_1|_threads)?|concrt140|vccorlib140)\.dll$'
+    } | Copy-Item -Destination $personDst -Force
+    Copy-Item -LiteralPath $freshWorker -Destination (Join-Path $personDst 'person-worker.exe') -Force
     if (Test-Path -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE')) {
         Copy-Item -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE') -Destination (Join-Path $stage 'Licenses/ONNXRuntime_MIT.txt') -Force
     }

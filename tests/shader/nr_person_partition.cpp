@@ -103,6 +103,27 @@ int main(){
  {auto r=record(fresh(),{.5f,1});check(r,q.Get(),6,16);}
  Person::Reset();
  Require(Person::Global().leases.empty(),"person controls resources retired");
+ // Mask refresh pulses must be smoothed on a continuous surface, while an
+ // expired source must still bypass. Exercise actual submitted GPU history.
+ pixels.assign(w*h,Pixel{.2f,.2f,.2f,.37f});Transfer(d.Get(),q.Get(),base.Get(),&pixels);
+ pixels.assign(w*h,Pixel{.3f,.3f,.3f,.9f});Transfer(d.Get(),q.Get(),first.Get(),&pixels);
+ pixels.assign(w*h,Pixel{.7f,.7f,.7f,.9f});Transfer(d.Get(),q.Get(),final.Get(),&pixels);
+ {auto r=record();check(r,q.Get(),.7f,.7f);}
+ {auto r=record(fresh());check(r,q.Get(),.3f,.7f);}
+ {
+  auto empty=fresh();std::fill(empty->values.begin(),empty->values.end(),0.f);
+  auto r=record(empty);Check(r.proxy->ExecuteOn(q.Get()),"mask refresh execute");WaitQueue(d.Get(),q.Get());
+  auto out=Transfer(d.Get(),q.Get(),r.output);const float value=out[h/2*w+w/4][0];
+  Require(value>.3f&&value<.699f,"refresh pulse reduced without freezing the mask");
+ }
+ Person::Reset();
+ {auto r=record();check(r,q.Get(),.7f,.7f);}
+ auto tooOld=fresh();
+ for(unsigned i=0;i<Person::HistoryCount;++i){auto r=record();check(r,q.Get(),.7f,.7f);}
+ tooOld->tick=GetTickCount64(); // Time still valid; intervening guide count is not.
+ {auto r=record(tooOld);check(r,q.Get(),.7f,.7f);}
+ Person::Reset();
+ Require(Person::Global().leases.empty(),"temporal mask history resources retired");
  Ptr<ID3D12InfoQueue>info;if(SUCCEEDED(d.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;info->GetMessage(i,nullptr,&bytes);std::vector<char>data(bytes);auto*m=reinterpret_cast<D3D12_MESSAGE*>(data.data());info->GetMessage(i,m,&bytes);if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)std::fprintf(stderr,"%s\n",m->pDescription);Require(m->Severity>D3D12_MESSAGE_SEVERITY_ERROR,"D3D12 debug");}
  puts("person partition: PASS (first/final, alpha, two-frame motion, time/reset rejection, stale/replay, disocclusion, closed-list lifetime)");
 }

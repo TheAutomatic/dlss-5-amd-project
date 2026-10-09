@@ -55,6 +55,15 @@ function Test-OptiProxy([string]$path) {
     } catch { return $false }
 }
 
+function Get-CrtHash([string]$path) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($path)
+        try { return [BitConverter]::ToString($sha.ComputeHash($stream)) }
+        finally { $stream.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
 # The launcher owns the final pause when -NoPause is supplied. Direct script
 # invocation must also keep unexpected errors visible and return failure.
 trap {
@@ -165,6 +174,11 @@ $projectLeafNames = @(
     'dlssnr-amd/shaders/temporal/temporal_pre_fp32.spv',
     'person-model/onnxruntime.dll',
     'person-model/yolo11n-seg.onnx',
+    'person-model/person-worker.exe', 'person-model/person-worker.log', 'person-model/person-worker.1.log',
+    'person-model/msvcp140.dll', 'person-model/msvcp140_1.dll', 'person-model/msvcp140_2.dll',
+    'person-model/msvcp140_atomic_wait.dll', 'person-model/msvcp140_codecvt_ids.dll',
+    'person-model/vcruntime140.dll', 'person-model/vcruntime140_1.dll', 'person-model/vcruntime140_threads.dll',
+    'person-model/concrt140.dll', 'person-model/vccorlib140.dll',
     'Uninstall.bat','Uninstall.ps1'
 )
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
@@ -679,8 +693,20 @@ foreach ($root in $roots) {
     foreach ($crtDll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
         $orig = Join-Path $root ($crtDll + '.orig')
         $target = Join-Path $root $crtDll
-        if ((Test-UninstallPath $orig) -and (Test-Path -LiteralPath $orig -PathType Leaf)) {
+        if ((Test-UninstallPath $orig) -and (Test-UninstallPath $target) -and (Test-Path -LiteralPath $orig -PathType Leaf)) {
             try {
+                # Old installers copied System32 CRTs but left no ownership receipt.
+                # Only restore an old backup over that same system payload; a
+                # launcher/user may since have installed a different game version.
+                $oldVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($orig)
+                $systemCrt = Join-Path ([Environment]::GetFolderPath('System')) $crtDll
+                $mayRestore = $oldVersion.FileMajorPart -eq 14 -and $oldVersion.FileMinorPart -lt 30 -and
+                    (Test-Path -LiteralPath $target -PathType Leaf) -and (Test-Path -LiteralPath $systemCrt -PathType Leaf) -and
+                    ((Get-CrtHash $target) -eq (Get-CrtHash $systemCrt))
+                if (!$mayRestore) {
+                    $kept.Add("$orig (legacy CRT backup ownership uncertain; game runtime left unchanged)")
+                    continue
+                }
                 Move-Item -LiteralPath $orig -Destination $target -Force
                 $restored.Add("$target  (restored original game $crtDll from .orig backup)")
             } catch {

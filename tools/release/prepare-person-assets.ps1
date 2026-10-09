@@ -1,0 +1,42 @@
+# Prepare optional model dependencies for a clean release runner. Never writes a game directory.
+[CmdletBinding()]
+param([string]$CrtDir='')
+$ErrorActionPreference='Stop'
+$root=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$assets=Join-Path $root 'assets/person-model'
+$scratch=Join-Path $root 'work/scratch/person-release-assets'
+New-Item -ItemType Directory -Force $assets,$scratch | Out-Null
+$ort=Join-Path $assets 'onnxruntime.dll'
+if(!(Test-Path -LiteralPath $ort)) {
+    $zip=Join-Path $scratch 'onnxruntime-win-x64-1.23.2.zip'
+    Invoke-WebRequest 'https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip' -OutFile $zip
+    if((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne '0B38DF9AF21834E41E73D602D90DB5CB06DBD1CA618948B8F1D66D607AC9F3CD') {
+        throw 'ONNX Runtime archive checksum mismatch.'
+    }
+    Expand-Archive -LiteralPath $zip -DestinationPath $scratch -Force
+    Copy-Item -LiteralPath (Join-Path $scratch 'onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll') -Destination $ort
+}
+$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($ort)
+if($version.FileMajorPart -lt 1 -or ($version.FileMajorPart -eq 1 -and $version.FileMinorPart -lt 23)) {
+    throw 'person-model/onnxruntime.dll is too old for API 23. Replace it with CPU x64 1.23.2 or newer.'
+}
+if(!(Test-Path -LiteralPath (Join-Path $assets 'yolo11n-seg.onnx'))) {
+    Push-Location $scratch
+    try {
+        python -m pip install ultralytics==8.3.215 onnx==1.19.1
+        if($LASTEXITCODE -ne 0){throw 'Unable to install the fixed YOLO export dependencies.'}
+        python -c "from ultralytics import YOLO; YOLO('yolo11n-seg.pt').export(format='onnx', imgsz=640, opset=17, simplify=False, dynamic=False, half=False)"
+        if($LASTEXITCODE -ne 0){throw 'Person model export failed.'}
+        Copy-Item -LiteralPath (Join-Path $scratch 'yolo11n-seg.onnx') -Destination $assets
+    } finally { Pop-Location }
+}
+if(!$CrtDir) {
+    if(!$env:VCToolsRedistDir){throw 'Set CrtDir to the installed MSVC x64 redistributable CRT directory.'}
+    $CrtDir=Get-ChildItem -LiteralPath (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' |
+        Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+}
+foreach($name in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+    if(!(Test-Path -LiteralPath (Join-Path $CrtDir $name))){throw "Missing x64 redistributable CRT: $name"}
+}
+Get-ChildItem -LiteralPath $CrtDir -File -Filter '*.dll' | Copy-Item -Destination $assets -Force
+Write-Host 'Person dependencies ready; CRT DLLs remain private to person-model.'

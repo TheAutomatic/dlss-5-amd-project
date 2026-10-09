@@ -59,6 +59,7 @@ public class UninstallProxyFixture { }
     $roots = @($game, (Join-Path $game '_storage_'))
     $preserved = @(
         'version.dll', 'unknown-game.dll', 'nvngx_dlssnr.dll',
+        'msvcp140.dll', 'msvcp140.dll.orig', 'person-model/user-notes.txt',
         'dlssnr_on_amd_weights.bin', 'dlssnr_on_amd_setup.exe',
         'OptiScaler\plugins\XeFGUnlock.asi', 'OptiScaler\plugins\XeFGUnlock.ini',
         'OptiScaler\unknown.dll', 'OptiScaler\libxess_custom.dll', 'OptiScaler\user.ini',
@@ -79,6 +80,8 @@ public class UninstallProxyFixture { }
         'backup-amd-presr-fixture\OptiScaler\libxess.dll'
     )
     $removed = @('dlssnr_core.dll', 'dlss-enabler.log', 'dlss-enabler.1.log', 'dlss-enabler.log.2',
+        'person-model/person-worker.exe', 'person-model/person-worker.log', 'person-model/person-worker.1.log',
+        'person-model/onnxruntime.dll', 'person-model/msvcp140.dll', 'person-model/vcruntime140.dll',
         'dlssnr_on_amd.log', 'dlssnr_on_amd.1.log', 'dlssnr_on_amd.ini',
         'dlssnr-amd.log', 'dlssnr-amd.log.1', 'dlssnr-amd-crash.dmp', 'dlssnr-amd.ini', 'dlssnr-amd-install.txt',
         'dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',

@@ -22,8 +22,17 @@ redistribution rights. All classes other than COCO person are ignored.
 The Microsoft MIT C headers are pinned to v1.23.2. The implementation independently
 decodes detections, applies NMS and reconstructs masks.
 
-A single asynchronous CPU worker uses two intra-op threads, one inter-op thread
-and no DirectML queue. Capture and inference queues have one in-flight item each.
+`person-model/person-worker.exe` runs ONNX in a separate process with its own
+app-local VC++ CRT DLLs. The installer does not replace the game's root CRTs.
+The host and worker acknowledge IPC version 2; an old worker is rejected with a
+complete-package update message. A kill-on-close job and parent-process handle
+bound its lifetime to the game. Protocol offsets, sizes and frame identities are
+validated before consuming responses. The receiver acknowledges initialization
+before the host can submit; teardown never joins the receiver under its mutex.
+
+The worker uses `clamp(logical_cpu_count / 4, 2, 4)` intra-op threads, one inter-op
+thread, normal process priority and disabled ORT thread spinning. There is no
+CPU-model whitelist, affinity mask or DirectML queue. Capture and inference queues have one in-flight item each.
 Loading, inference and ORT teardown occur outside rendering. Missing dependencies
 latch an explanatory state; toggling off/on retries them. Detection covers all
 people, not a persistent player identity.
@@ -33,11 +42,23 @@ people, not a persistent player identity.
 The host captures a letterboxed 640 RGB input and 160-square motion/depth guides.
 Only completed readback is submitted to the worker. Masks carry source frame,
 dimensions, monotonic capture time and stream epoch. At most 24 guide frames and
-250 ms are accepted. A valid mask fades out smoothly during its last 50 ms; this
+250 ms are accepted. A valid mask fades out during its last 50 ms or last four guide frames; this
 does not extend its lifetime. Submission checks the mask's original capture time
 as well as the recording time, so a delayed command cannot reuse an expired mask.
 Motion is traced through each intervening frame; invalid,
-offscreen and depth-inconsistent samples are rejected. A depth-aware feather
+offscreen and depth-inconsistent samples are rejected. Missing guide frames are
+never hidden by clamping a mask's source age. A failed warp never samples the
+original mask at a partially traced coordinate.
+
+The existing 160-square warp dispatch also reprojects the previous submitted
+mask and smooths valid probabilities with time-based 30 ms rise / 50 ms fall
+constants. This history is immutable while recordings refer to it and is kept
+with the guide frame as RG32F (probability and validity). Reprojection failure,
+reset, replay and expiry do not blend stale history. Fading is applied once at
+composition, independently of stored probabilities. This adds small guide-size
+textures and reads, not another network evaluation or full-resolution copy.
+It reduces refresh pulses; it cannot recover motion absent from the game's
+vectors or guarantee all fast-motion flicker is eliminated. A depth-aware feather
 avoids copying foreground colour across disocclusions. Missing reliable guides
 or jittered vectors bypass the effect.
 
@@ -54,6 +75,9 @@ are immutable while referenced. Retained output sets are capped at 24 and
 allocations and ORT's model working set are additional memory.
 
 The worker callback and delayed resource collection retain the host module.
+Worker failures latch until off/on, rather than spawning a process every render
+frame. Logs rotate at 64 KiB and contain startup policy/dependency paths, the first
+three frame timings and a shutdown summary, not continuous per-frame output.
 Unknown submission completion retains resources instead of freeing GPU-owned
 objects. Off/rebuild resets the mask epoch immediately; a running inference may
 finish but cannot publish into a new stream.
@@ -139,6 +163,17 @@ disabled without altering the stored preference, and its frames never start the
 person inference provider. Existing Daniel behavior is unchanged.
 
 ## Verification and remaining acceptance
+
+- Worker isolation repair: the real CPU model produces identical direct/IPC
+  masks on a constant input, with dependency paths inside the worker directory.
+  IPC regression covers startup handshakes (including legacy workers), repeated
+  stop/response races, invalid offsets/frame identities and failure latching.
+- Mask repair: existing WARP disocclusion regression failed before the repair
+  and passes afterwards. Added refresh-pulse smoothing and guide-history
+  exhaustion coverage; the shader suite also exercises shared effects/Post-SR.
+- Build/packaging uses a freshly compiled worker beside the selected host and
+  checks its source/binary receipt. Clean CI supplies ONNX 1.23.2 and app-local
+  MSVC redistributables. Never ship an incidental worker executable from assets.
 
 - Shared-controls extension: host build, configuration/CRT checks, translated
   menu checks and 144 font/language/layout cases passed. CPU tests cover neutral

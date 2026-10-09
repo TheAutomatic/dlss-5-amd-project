@@ -98,6 +98,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO%\tests\host\hip_load.
 "%AMD_TEST_PYTHON%" -B tests\host\test_config_priority.py || goto fail
 
 call tests\host\person-inference.cmd || goto fail
+call tests\host\person-worker.cmd || goto fail
 
 echo host ci: PASS
 if /i not "%TIER%"=="all" exit /b 0

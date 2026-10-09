@@ -16,7 +16,7 @@ constexpr size_t InputRgbSize = ModelChannels * ModelWidth * ModelHeight * sizeo
 constexpr size_t OutputMaskSize = MaskWidth * MaskHeight * sizeof(float);
 
 constexpr uint32_t ShmMagic = 0x50455253; // 'PERS'
-constexpr uint32_t ShmVersion = 1;
+constexpr uint32_t ShmVersion = 2;
 
 enum class WorkerState : uint32_t
 {
@@ -33,7 +33,7 @@ struct ShmHeader
     uint32_t magic;           // ShmMagic
     uint32_t version;         // ShmVersion
     uint32_t state;           // WorkerState
-    uint32_t flags;
+    uint32_t flags;           // Worker acknowledges ShmVersion before first response.
 
     // Parent -> Worker request
     uint64_t reqEpoch;
@@ -62,6 +62,13 @@ constexpr size_t HeaderOffset = 0;
 constexpr size_t InputRgbOffset = 4096;
 constexpr size_t OutputMaskOffset = 4096 + InputRgbSize; // 4,919,296
 constexpr size_t TotalShmSize = OutputMaskOffset + OutputMaskSize; // 5,021,696 bytes
+static_assert(sizeof(ShmHeader) <= InputRgbOffset);
+inline bool ValidHeader(const ShmHeader& h)
+{
+    return h.magic==ShmMagic && h.version==ShmVersion &&
+        h.reqRgbOffset==InputRgbOffset && h.reqRgbBytes==InputRgbSize &&
+        h.respMaskOffset==OutputMaskOffset && h.respMaskBytes==OutputMaskSize;
+}
 
 inline std::wstring ShmName(uint32_t pid)
 {

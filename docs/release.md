@@ -41,17 +41,25 @@ HIP `.hsaco` 使用该分支已提交模块，不另行追更或重编 HIP 实�
 
 | 项 | 规则 |
 |---|---|
-| 入口 | `tools\build\build-release-local.cmd`：先构建或按内容校验复用 Mochizuki，再编 lmxxf runtime，通过 LMXXF_TEST_RUNTIME 让 `tests\run-all.cmd --tier ci,device` 验证同一 DLL，最后 MSBuild。输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译本体时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
+| 入口 | `tools\build\build-release-local.cmd`：先构建或按内容校验复用 Mochizuki，再编 lmxxf runtime，通过 LMXXF_TEST_RUNTIME 让 `tests\run-all.cmd --tier ci,device` 验证同一 DLL，最后 MSBuild。输出 `exports/release-local/OptiScaler.dll` 与 `LmxxfNrRuntime.dll`，成功打印 `BUILD_OK`。仅编译宿主及配套人物 Worker 时可用 `tools\build\build-release-local.cmd --fast`（不替代测试） |
 | 工具集 | 本地与 CI 均固定 `PlatformToolset=v145`、MSVC `14.44.35207`、Windows SDK `10.0.26100.0`。runtime、测试和宿主使用同一环境；Actions 检查实际环境，缺失就失败。升级时同时改本地构建入口、`tests/_lib/msvc-env.cmd` 和 workflow，再验证 |
 | 宏 | 发行构建不定义诊断宏（`AMD_RETIRE_DIAGNOSTICS`、`AMD_TIMING_DIAGNOSTICS` 等）。诊断构建只用于取证，不能拿去打包或报数 |
 | 记录 | 记录源码 SHA、子模块状态、host/runtime/模块清单及最终 zip 的 SHA256、测试命令与结果；引用帧率时附构建脚本与 host SHA（见 [measurement.md](measurement.md)） |
 | modules | 流程要求使用**已提交**的 `third_party/lmxxf/modules`；打包器读取工作树，故本地必须先检查干净状态。CI 不重编 HIP 内核。发版前确认 modules 与当前 `hip/` 源码一致（sync 负责重编，见 [tools/lmxxf-sync/README.md](../tools/lmxxf-sync/README.md)） |
 | shader-cache | `shader-cache/*.dxbc` 不进 git、不进包。runtime 私有加载 System32 编译器；缓存身份包含编译器、目标、flags、源码及 include。冷/热编译和曝光等实际变体由 shader 回归验证，不从本机缓存复制预编译结果 |
 
+## 人物 Worker 与运行库打包
+
+- `build-release-local.cmd --fast`、本地打包器和 `build-ci.ps1` 均调用 `build-person-worker.cmd`，Worker 输出在所选宿主旁的 `person-model/`。
+- `check-person-worker.ps1` 通过源码及二进制 SHA256 清单拒绝漏编、陈旧或替换过的 Worker；新鲜度检查和打包器均执行此门禁。`assets/person-model` 中偶然遗留的旧 EXE 不能作为后备。
+- Actions 的 `prepare-person-assets.ps1` 下载并校验 ONNX 1.23.2（当前代码要求 API 23），按固定参数导出 YOLO，复制 MSVC x64 可再发行 CRT 到 `person-model/`。本地已有模型可继续使用，缺失依赖应先运行该准备脚本。
+- Worker 与宿主 IPC 必须匹配；更新使用完整包。安装器不再替换游戏根目录 CRT。卸载会清除私有 Worker、CRT 与轮转日志，保留未知用户文件；历史 `.orig` 只有在能确认目标仍是系统替换副本时才恢复，否则保留备份并提示。
+- 以上为构建/完整性门禁，不等同人物识别质量、跑动防闪烁或游戏帧率验收。
+
 ## 减少重复验证（2026-10-05）
 
 日常小修运行受影响领域的专项，不把默认完整构建入口当作每次编辑后的检查。
-发布前仍运行 `tests\run-all.cmd --tier ci`：当前 DLL 的 ABI、host/WARP、shader、
+发布前在 GitHub Actions 运行 `tests\run-all.cmd --tier ci`：当前 DLL 的 ABI、host/WARP、shader、
 安装升级/卸载、包内容和凭证检查每次执行；GPU/device 按实际改动补充，不被缓存替代。
 
 同步工具完整回归与本地试包启动器回归由 `tests\sync\run.cmd` 统一管理。
@@ -86,19 +94,19 @@ Actions按精确键缓存上述Mochizuki产物及工具测试记录，不使用�
 ### 执行顺序
 
 1. **固定待发布源码与文案。** 更新 `VERSION`、各语言 README 标题和 `.github/workflows/release.yml` 的发布正文，确认版本一致且描述准确。检查 `git status --short` 确认工作区无未跟踪/未提交的脏改动。
-2. **本地核心契约与新鲜度核验（~5 秒）。**
+2. **本地核心契约与新鲜度核验。**
    在本地运行模块契约与产物新鲜度检查，确保 40/80 模块契约与当前源码匹配：
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/check-module-contract.ps1
    powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/check-release-freshness.ps1
    ```
-3. **本地核心宿主与 ABI 快速自测（~15 秒）。**
+3. **本地核心宿主与 ABI 自测。**
    运行轻量宿主 CI 单元测试（校验 ABI 兼容、配置优先级、字体字形覆盖与设备判定）：
    ```powershell
    cmd /c "tests\host\run.cmd ci"
    ```
-4. **（可选）本地快速试玩打包（~1 分钟）。**
-   若开发者或测试人员需要在本地实机试玩验证，直接调用本地出包工具（自带 LocalTest，1 分钟内重编 runtime 与宿主并生成带签名测试 zip，跳过耗时的安装器场景模拟）：
+4. **（可选）本地试玩打包。**
+   若开发者或测试人员需要在本地实机试玩验证，直接调用本地出包工具（自带 LocalTest，重编 runtime、宿主和人物 Worker 并生成带签名测试 zip，跳过完整安装器场景模拟；耗时取决于机器与缓存）：
    ```powershell
    pwsh -File tools/release/BUILD_LOCAL_PACKAGE.ps1 -Root . -Version <VERSION>
    ```

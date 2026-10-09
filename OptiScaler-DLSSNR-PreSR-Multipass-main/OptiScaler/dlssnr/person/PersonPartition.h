@@ -32,9 +32,9 @@ struct Pipeline {
  bool unconfirmed=false;
  static std::shared_ptr<Pipeline> Create(ID3D12Device*d){
   auto p=std::make_shared<Pipeline>();p->device=d;p->control.Create(d);
-  D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,32,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,4,0,0,32}};
+  D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,33,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,4,0,0,33}};
   D3D12_ROOT_PARAMETER params[3]{};params[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;params[0].DescriptorTable={2,ranges};
-  params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;params[1].Constants={0,0,20};
+  params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;params[1].Constants={0,0,24};
   params[2].ParameterType=D3D12_ROOT_PARAMETER_TYPE_CBV;params[2].Descriptor.ShaderRegister=1;
   D3D12_ROOT_SIGNATURE_DESC desc{3,params,0,nullptr,D3D12_ROOT_SIGNATURE_FLAG_NONE};ComPtr<ID3DBlob> blob,error;
   Check(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error));
@@ -48,13 +48,14 @@ struct Pipeline {
  }
 };
 struct Guide {
- ComPtr<ID3D12Resource> texture;
- uint64_t frame=0,epoch=0;float jitterX=0,jitterY=0;
+ ComPtr<ID3D12Resource> texture,mask;
+ uint64_t frame=0,epoch=0,tick=0;float jitterX=0,jitterY=0;
+ bool maskAccepted=false;
 };
 struct Storage {
  std::shared_ptr<Pipeline> pipeline;
  std::shared_ptr<Guide> guide;
- ComPtr<ID3D12Resource> output,mask,maskUpload,input,readback;
+ ComPtr<ID3D12Resource> output,maskUpload,input,readback;
  ComPtr<ID3D12DescriptorHeap> heap;
  unsigned width=0,height=0;
  UINT64 bytes=0;
@@ -77,6 +78,7 @@ inline void ScheduleCollection();
 struct Lease final:Submission::RecordingObserver {
  std::shared_ptr<Storage> storage;
  std::vector<std::shared_ptr<Guide>> history;
+ std::shared_ptr<Guide> previousGuide;
  ComPtr<ID3D12Resource> original,first,final,motion,depth;
  std::vector<std::shared_ptr<Completion>> completions;
  Submission::RecordingIdentity identity{};
@@ -193,24 +195,27 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
    if(seen.size()>=24||bytes+estimate>2048ull*1024*1024)throw std::runtime_error("person recording memory budget busy");
    storage=std::make_shared<Storage>();storage->pipeline=s.pipeline;storage->width=width;storage->height=height;storage->bytes=estimate;
    storage->output=Texture(device.Get(),width,height,DXGI_FORMAT_R16G16B16A16_FLOAT);
-   storage->mask=Texture(device.Get(),160,160,DXGI_FORMAT_R32_FLOAT);
    storage->maskUpload=Buffer(device.Get(),160*160*4,D3D12_HEAP_TYPE_UPLOAD);
-   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,36,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
+   D3D12_DESCRIPTOR_HEAP_DESC hd{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,37,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
    Check(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&storage->heap)));s.pool.push_back(storage);
   }
   storage->guide=std::make_shared<Guide>();storage->guide->texture=Texture(device.Get(),160,160,DXGI_FORMAT_R32G32B32A32_FLOAT);
+  storage->guide->mask=Texture(device.Get(),160,160,DXGI_FORMAT_R32G32_FLOAT);
   storage->guide->frame=++s.frame;storage->guide->epoch=s.epoch;storage->guide->jitterX=guides.jitterX;storage->guide->jitterY=guides.jitterY;
   auto lease=std::make_shared<Lease>();lease->storage=storage;lease->original=original;lease->first=first;lease->final=final;lease->motion=guides.motion;lease->depth=guides.depth;
   lease->identity=logical->Identity();lease->continuation=observer->InContinuation();lease->epoch=s.epoch;lease->frame=s.frame;lease->previous=s.submitted;lease->tick=GetTickCount64();
+  storage->guide->tick=lease->tick;
+  if(!s.history.empty()&&s.history.back()->frame+1==s.frame&&s.history.back()->epoch==s.epoch)lease->previousGuide=s.history.back();
   unsigned age=0;bool accepted=false;
-  if(mask&&mask->values.size()==160*160&&mask->epoch==s.epoch&&mask->width==width&&mask->height==height&&lease->tick-mask->tick<=250&&mask->frame<=s.frame){
-   age=(std::min)(unsigned(s.frame-mask->frame),HistoryCount);
+  if(mask&&mask->values.size()==160*160&&mask->epoch==s.epoch&&mask->width==width&&mask->height==height&&lease->tick-mask->tick<=250&&mask->frame<=s.frame&&s.frame-mask->frame<=HistoryCount){
+   age=unsigned(s.frame-mask->frame);
    if(age<=s.history.size()){
     accepted=true;
     for(unsigned i=0;i<age;++i){auto h=s.history[s.history.size()-1-i];if(h->frame!=s.frame-1-i||h->epoch!=s.epoch){accepted=false;break;}lease->history.push_back(h);}
    }
   }
   if(!accepted){age=0;lease->history.clear();}
+  storage->guide->maskAccepted=accepted;
   lease->maskTick=accepted?mask->tick:lease->tick;
   void*mapped=nullptr;D3D12_RANGE noRead{0,0};Check(storage->maskUpload->Map(0,&noRead,&mapped));
   if(accepted)memcpy(mapped,mask->values.data(),160*160*4);else memset(mapped,0,160*160*4);storage->maskUpload->Unmap(0,nullptr);
@@ -226,27 +231,30 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   srv(original,Effects::ReadFormat(a.Format));srv(first,Effects::ReadFormat(b.Format));srv(final,Effects::ReadFormat(c.Format));
   srv(guides.motion,Effects::MotionFormat(guides.motion->GetDesc().Format));srv(guides.depth,Effects::DepthFormat(guides.depth->GetDesc().Format));
   srv(storage->guide->texture.Get(),DXGI_FORMAT_R32G32B32A32_FLOAT);
-  for(unsigned i=0;i<HistoryCount;++i)srv(i<lease->history.size()?lease->history[i]->texture.Get():nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);
+  for(unsigned i=0;i<HistoryCount;++i)srv(i<lease->history.size()?lease->history[i]->texture.Get():(i==0&&lease->previousGuide?lease->previousGuide->texture.Get():nullptr),DXGI_FORMAT_R32G32B32A32_FLOAT);
   D3D12_SHADER_RESOURCE_VIEW_DESC bv{};bv.Format=DXGI_FORMAT_R32_FLOAT;bv.ViewDimension=D3D12_SRV_DIMENSION_BUFFER;bv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;bv.Buffer.NumElements=160*160;
-  device->CreateShaderResourceView(storage->maskUpload.Get(),&bv,cpu);cpu.ptr+=stride;srv(storage->mask.Get(),DXGI_FORMAT_R32_FLOAT);
+  device->CreateShaderResourceView(storage->maskUpload.Get(),&bv,cpu);cpu.ptr+=stride;srv(storage->guide->mask.Get(),DXGI_FORMAT_R32G32_FLOAT);
+  srv(lease->previousGuide?lease->previousGuide->mask.Get():nullptr,DXGI_FORMAT_R32G32_FLOAT);
   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{};uv.Format=DXGI_FORMAT_R32_FLOAT;uv.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;uv.Buffer.NumElements=3*640*640;
   device->CreateUnorderedAccessView(storage->input.Get(),nullptr,&uv,cpu);cpu.ptr+=stride;
   auto uav=[&](ID3D12Resource*r,DXGI_FORMAT fmt){D3D12_UNORDERED_ACCESS_VIEW_DESC v{};v.Format=fmt;v.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;device->CreateUnorderedAccessView(r,nullptr,&v,cpu);cpu.ptr+=stride;};
-  uav(storage->guide->texture.Get(),DXGI_FORMAT_R32G32B32A32_FLOAT);uav(storage->mask.Get(),DXGI_FORMAT_R32_FLOAT);uav(storage->output.Get(),DXGI_FORMAT_R16G16B16A16_FLOAT);
+  uav(storage->guide->texture.Get(),DXGI_FORMAT_R32G32B32A32_FLOAT);uav(storage->guide->mask.Get(),DXGI_FORMAT_R32G32_FLOAT);uav(storage->output.Get(),DXGI_FORMAT_R16G16B16A16_FLOAT);
   const auto read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,write=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
   Effects::Barrier(cmd,original,originalState,read);Effects::Barrier(cmd,guides.motion,guides.motionState,read);Effects::Barrier(cmd,guides.depth,guides.depthState,read);
   auto*heap=storage->heap.Get();cmd->SetDescriptorHeaps(1,&heap);cmd->SetComputeRootSignature(s.pipeline->root.Get());cmd->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());
   const float scaleX=float(width)/(std::max)(width,height),scaleY=float(height)/(std::max)(width,height);
-  const auto prev=s.history.empty()?nullptr:s.history.back();
+  const auto prev=lease->previousGuide;
+  const float deltaMs=prev?float(std::clamp<uint64_t>(lease->tick-prev->tick,1,100)):100.f;
   Constants constants{width,height,guides.motionWidth,guides.motionHeight,guides.motionScaleX/guides.motionWidth,guides.motionScaleY/guides.motionHeight,
    prev?(prev->jitterX-guides.jitterX)/width:0,prev?(prev->jitterY-guides.jitterY)/height:0,guides.preExposure,unsigned(capture),age,unsigned(accepted),
    scaleX,scaleY,(1-scaleX)*.5f,(1-scaleY)*.5f,unsigned(guides.inverted),settings.strength,settings.detail,
-   accepted?MaskFreshness(lease->tick-mask->tick):0.f};
-  cmd->SetComputeRoot32BitConstants(1,20,&constants,0);cmd->SetComputeRootConstantBufferView(2,s.pipeline->control.Address());
+   accepted?(std::min)(MaskFreshness(lease->tick-mask->tick),age<=20?1.f:float(24-age)/4.f):0.f,
+   unsigned(accepted&&prev&&prev->maskAccepted),1.f-std::exp(-deltaMs/30.f),1.f-std::exp(-deltaMs/50.f),0};
+  cmd->SetComputeRoot32BitConstants(1,24,&constants,0);cmd->SetComputeRootConstantBufferView(2,s.pipeline->control.Address());
   Effects::Barrier(cmd,storage->guide->texture.Get(),read,write);cmd->SetPipelineState(s.pipeline->capture.Get());cmd->Dispatch(capture?80:20,capture?80:20,1);
   Effects::Barrier(cmd,storage->guide->texture.Get(),write,read);
   if(capture){Effects::Barrier(cmd,storage->input.Get(),write,D3D12_RESOURCE_STATE_COPY_SOURCE);cmd->CopyBufferRegion(storage->readback.Get(),0,storage->input.Get(),0,3*640*640*4);Effects::Barrier(cmd,storage->input.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,write);}
-  Effects::Barrier(cmd,storage->mask.Get(),read,write);cmd->SetPipelineState(s.pipeline->warp.Get());cmd->Dispatch(20,20,1);Effects::Barrier(cmd,storage->mask.Get(),write,read);
+  Effects::Barrier(cmd,storage->guide->mask.Get(),read,write);cmd->SetPipelineState(s.pipeline->warp.Get());cmd->Dispatch(20,20,1);Effects::Barrier(cmd,storage->guide->mask.Get(),write,read);
   Effects::Barrier(cmd,storage->output.Get(),read,write);cmd->SetPipelineState(s.pipeline->compose.Get());cmd->Dispatch((width+7)/8,(height+7)/8,1);Effects::Barrier(cmd,storage->output.Get(),write,read);
   Effects::Barrier(cmd,original,read,originalState);Effects::Barrier(cmd,guides.motion,read,guides.motionState);Effects::Barrier(cmd,guides.depth,read,guides.depthState);
   s.status=accepted?"Person protection active":"Person partition: waiting for a current mask";

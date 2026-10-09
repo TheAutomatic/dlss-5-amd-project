@@ -3,7 +3,7 @@ rem Local release build matching CI: ordinary Release, multi-slot default, no di
 rem Usage: tools\build\build-release-local.cmd [--fast]
 rem   default  LmxxfNrRuntime.dll, tests\run-all.cmd --tier ci,device against that DLL, then OptiScaler.dll
 rem            with exports\release-local\build.log.
-rem   --fast   OptiScaler.dll only: no tests, no runtime build, no build.log.
+rem   --fast   Host + person worker only: no tests, no NR runtime build, no build.log.
 setlocal
 cd /d "%~dp0..\.."
 set "FAST="
@@ -38,5 +38,6 @@ if not exist "exports\release-local\OptiScaler.dll" (
   echo FAIL: OptiScaler.dll not produced
   exit /b 1
 )
+call tools\build\build-person-worker.cmd exports\release-local\person-model || exit /b 1
 echo BUILD_OK exports\release-local\OptiScaler.dll
 exit /b 0
