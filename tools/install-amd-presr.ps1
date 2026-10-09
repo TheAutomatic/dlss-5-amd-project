@@ -1315,6 +1315,29 @@ if (Test-Path -LiteralPath $personModelSrc -PathType Container) {
     Get-ChildItem -LiteralPath $personModelSrc -File | ForEach-Object {
         Install-One $_.FullName (Join-Path 'person-model' $_.Name)
     }
+    # Guard against outdated VC++ runtime in game folder (< 14.30) which causes ONNX Runtime Error 1114
+    foreach ($crtDll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+        $gameCrt = Join-Path $game $crtDll
+        if (Test-Path -LiteralPath $gameCrt -PathType Leaf) {
+            try {
+                $ver = (Get-Item -LiteralPath $gameCrt).VersionInfo
+                if ($ver.FileMajorPart -eq 14 -and $ver.FileMinorPart -lt 30) {
+                    $sysCrt = Join-Path ([Environment]::GetFolderPath('System')) $crtDll
+                    if (Test-Path -LiteralPath $sysCrt -PathType Leaf) {
+                        $sysVer = (Get-Item -LiteralPath $sysCrt).VersionInfo
+                        if ($sysVer.FileMajorPart -ge 14 -and $sysVer.FileMinorPart -ge 30) {
+                            $backupCrt = Join-Path $game ($crtDll + '.orig')
+                            if (-not (Test-Path -LiteralPath $backupCrt)) {
+                                Copy-Item -LiteralPath $gameCrt -Destination $backupCrt -Force
+                            }
+                            Copy-Item -LiteralPath $sysCrt -Destination $gameCrt -Force
+                            Write-Host ('Upgraded outdated game {0} ({1}) -> system ({2}) for ONNX Runtime compatibility (backup saved as {0}.orig)' -f $crtDll, $ver.FileVersion, $sysVer.FileVersion) -ForegroundColor Yellow
+                        }
+                    }
+                }
+            } catch { }
+        }
+    }
 }
 
 # --- Install selected backends ---

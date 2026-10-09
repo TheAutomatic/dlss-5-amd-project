@@ -674,6 +674,19 @@ foreach ($root in $roots) {
         }
     }
 }
+    # Restore original game CRT if upgraded during installation
+    foreach ($crtDll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+        $orig = Join-Path $root ($crtDll + '.orig')
+        $target = Join-Path $root $crtDll
+        if ((Test-UninstallPath $orig) -and (Test-Path -LiteralPath $orig -PathType Leaf)) {
+            try {
+                Move-Item -LiteralPath $orig -Destination $target -Force
+                $restored.Add("$target  (restored original game $crtDll from .orig backup)")
+            } catch {
+                $errors.Add("$orig : $($_.Exception.Message)")
+            }
+        }
+    }
 foreach ($path in ($customPluginFiles | Select-Object -Unique)) { Remove-SafeFile $path 'project-dependency' }
 foreach ($path in $legacyLogPaths) { Remove-SafeFile $path 'legacy-backend-log' }
 foreach ($root in $roots) {
