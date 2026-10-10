@@ -277,7 +277,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   void*mapped=nullptr;D3D12_RANGE noRead{0,0};Check(storage->maskUpload->Map(0,&noRead,&mapped));
   if(accepted)memcpy(mapped,mask->values.data(),160*160*4);else memset(mapped,0,160*160*4);storage->maskUpload->Unmap(0,nullptr);
   const auto pending=std::count_if(s.leases.begin(),s.leases.end(),[](auto& l){return !l->sent&&l->storage->readback;});
-  const bool capture=s.captureSchedule.Request(lease->tick,size_t(pending),Worker().Available());
+  const bool capture=s.captureSchedule.Request(CaptureClock(),size_t(pending),Worker().Available());
   if(capture){if(!storage->input)storage->input=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_DEFAULT,true);
    if(!storage->readback)storage->readback=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_READBACK);
   }else lease->sent=true;
