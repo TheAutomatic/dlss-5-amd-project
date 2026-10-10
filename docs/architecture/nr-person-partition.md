@@ -12,15 +12,20 @@ still require real-game acceptance.
 
 Put a CPU x64 ONNX Runtime (C API 23 or newer) at
 `person-model/onnxruntime.dll`, beside the loaded OptScaler DLL's directory.
-Put a separately obtained YOLO11n-seg FP32 COCO export at
-`person-model/yolo11n-seg.onnx`. Required tensor shapes are
-`[1,3,640,640]` -> `[1,116,8400]` and `[1,32,160,160]`.
+`[DlssNr] NrPersonModel=0` selects the default PP-HumanSeg FP32 model at
+`person-model/pphumanseg.onnx`: `[1,3,192,192]` -> `[1,2,192,192]`.
+The worker removes capture letterboxing before PP inference and restores it in
+the returned mask. `NrPersonModel=1` selects YOLO11n-seg FP32 COCO at
+`person-model/yolo11n-seg.onnx`: `[1,3,640,640]` -> `[1,116,8400]` and
+`[1,32,160,160]`. The menu/INI choice wins; changing the model restarts the worker
+and resets host mask history. Existing explicit YOLO choices are preserved.
 Other exports are rejected explicitly. Model availability depends on the installed
 package; the provider never downloads missing files. Observe the model's own license; compatibility does not grant
-redistribution rights. All classes other than COCO person are ignored.
+redistribution rights. PP segments people; YOLO ignores COCO classes other than
+person. Neither identifies a particular player or detects only faces.
 
-The Microsoft MIT C headers are pinned to v1.23.2. The implementation independently
-decodes detections, applies NMS and reconstructs masks.
+The Microsoft MIT C headers are pinned to v1.23.2. PP uses its foreground
+probability output; the YOLO decoder applies NMS and reconstructs instance masks.
 
 `person-model/person-worker.exe` runs ONNX in a separate process with its own
 app-local VC++ CRT DLLs. The installer does not replace the game's root CRTs.

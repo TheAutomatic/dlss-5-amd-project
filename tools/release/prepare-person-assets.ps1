@@ -20,6 +20,16 @@ $version=[Diagnostics.FileVersionInfo]::GetVersionInfo($ort)
 if($version.FileMajorPart -lt 1 -or ($version.FileMajorPart -eq 1 -and $version.FileMinorPart -lt 23)) {
     throw 'person-model/onnxruntime.dll is too old for API 23. Replace it with CPU x64 1.23.2 or newer.'
 }
+$pp=Join-Path $assets 'pphumanseg.onnx'
+if(!(Test-Path -LiteralPath $pp)) {
+    # OpenCV Zoo's fixed FP32 192x192 model. Hash/size come from its Git LFS pointer.
+    $download=Join-Path $scratch 'pphumanseg.onnx'
+    Invoke-WebRequest 'https://media.githubusercontent.com/media/opencv/opencv_zoo/2027dd2f5a8a5746b5d4964900a0465afc6d3a53/models/human_segmentation_pphumanseg/human_segmentation_pphumanseg_2023mar.onnx' -OutFile $download
+    if((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ne '552D8A984054E59B5D773D24B9B12022B22046CEB2BBC4C9AAEACEB36A9DDF24') {
+        throw 'PP-HumanSeg model checksum mismatch.'
+    }
+    Copy-Item -LiteralPath $download -Destination $pp
+}
 if(!(Test-Path -LiteralPath (Join-Path $assets 'yolo11n-seg.onnx'))) {
     Push-Location $scratch
     try {

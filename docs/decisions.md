@@ -672,3 +672,15 @@ This is a mechanism/compatibility decision, not a claim of improved game quality
 Colour-specific protection and inter-pass conditioning require separate colour
 contracts and model/history validation and remain deferred. See
 [person partition](architecture/nr-person-partition.md) for the active contract.
+
+## 2026-10-10: Default person segmentation to PP-HumanSeg
+
+Keep PP-HumanSeg as `NrPersonModel=0`, with YOLO available as model 1 and explicit
+INI/menu preferences preserved. Offline comparisons and the user's Where Winds
+Meet test support this CPU/quality tradeoff: nearby people are useful protection
+targets, while occasional distant-NPC misses are acceptable for the default.
+This is whole-person segmentation, not face detection. The user's two-pass test
+was satisfactory; three-pass clothing flicker remains unresolved and is not
+claimed fixed. Shared Overall Intensity still applies after person composition.
+The release asset preparer fetches the fixed OpenCV Zoo PP model with SHA256
+verification; both models and their licenses remain in the package.

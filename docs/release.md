@@ -52,7 +52,7 @@ HIP `.hsaco` 使用该分支已提交模块，不另行追更或重编 HIP 实�
 
 - `build-release-local.cmd --fast`、本地打包器和 `build-ci.ps1` 均调用 `build-person-worker.cmd`，Worker 输出在所选宿主旁的 `person-model/`。
 - `check-person-worker.ps1` 通过源码及二进制 SHA256 清单拒绝漏编、陈旧或替换过的 Worker；新鲜度检查和打包器均执行此门禁。`assets/person-model` 中偶然遗留的旧 EXE 不能作为后备。
-- Actions 的 `prepare-person-assets.ps1` 下载并校验 ONNX 1.23.2（当前代码要求 API 23），按固定参数导出 YOLO，复制 MSVC x64 可再发行 CRT 到 `person-model/`。本地已有模型可继续使用，缺失依赖应先运行该准备脚本。
+- Actions 的 `prepare-person-assets.ps1` 下载并校验 ONNX 1.23.2（当前代码要求 API 23）及固定版本 PP-HumanSeg，按固定参数导出可选 YOLO，复制 MSVC x64 可再发行 CRT 到 `person-model/`。默认模型为 PP（`NrPersonModel=0`），两种模型均入包；本地已有模型可继续使用，缺失依赖应先运行该准备脚本。
 - Worker 与宿主 IPC 必须匹配；更新使用完整包。安装器不再替换游戏根目录 CRT。卸载会清除私有 Worker、CRT 与轮转日志，保留未知用户文件；历史 `.orig` 只有在能确认目标仍是系统替换副本时才恢复，否则保留备份并提示。
 - 以上为构建/完整性门禁，不等同人物识别质量、跑动防闪烁或游戏帧率验收。
 
