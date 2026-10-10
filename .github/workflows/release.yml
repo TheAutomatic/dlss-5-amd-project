@@ -302,16 +302,14 @@ jobs:
             - **实验性：公共残差分频与细节/肤色保护**：
               - 新增低频增益、细节增益及肤色/边缘保护启发式控制（`NrResidualLowGain`、`NrResidualDetailGain`、`NrResidualSkinProtection`、`NrResidualEdgeProtection`）。
               - 适用于三后端统一输出，在保持原始色域与 alpha 基础上增强画面立体感与边缘细节。
-            - **实验性：人物/场景分区分割、双后端通用保护与时序抗鬼影**：
+            - **实验性：人物/场景分区分割、双后端通用保护与时序抗鬼影**（支持 Mochizuki 与 lmxxf 后端，当前仅使用 Mochizuki 在《燕云十六声》游戏中做了多轮测试）：
               - 引入基于 ONNX Runtime CPU 的异步轻量推理通道（`NrPersonPartition`）。
               - 通用打通 lmxxf 与 Mochizuki 双后端的人物保护控制（`NrPersonStrength` 强度 / `NrPersonDetailGain` 细节保留）。
-              - 不仅支持多 Pass 第一层导出，更支持**单 Pass 直接前景保护与细节回退**（无须强制要求多 Pass 导出）。
               - 加入运动对齐的蒙版时序平滑、过期淡出与遮挡拒绝，减轻蒙版刷新时的跳变；快速运动效果仍需游戏验证。
-              - 扩展历史录制内存预算至 2GB，解决高分辨率渲染下的缓冲溢出与未确认标志残留。
             - **开箱即用体验与安装器自愈能力增强**：
-              - 安装包正式直接内置 ONNX Runtime 动态库 (MIT) 与 YOLO11n-seg 权重 (AGPL-3.0)，解压即可直接开箱启用人物保护，支持自备模型无缝覆盖。
+              - 安装包正式直接内置 ONNX Runtime 动态库 (MIT) 以及 PP-HumanSeg (Apache-2.0) 与 YOLO11n-seg (AGPL-3.0) 权重，默认启用 PP-HumanSeg（支持在菜单内自由切换），解压即可直接开箱启用人物保护，支持自备模型无缝覆盖。
               - `Setup.bat` 重装/升级防丢：更新时选择 **Y 先卸载** 也会智能保留并继承已存在的 `person-model`，避免重复下载与意外清空。
-              - 人物推理使用独立 `person-worker.exe`，ONNX 与新版 VC++ 运行库放在 `person-model/`，不再替换游戏根目录运行库；使用普通优先级与 2–4 个 CPU 线程。
+              - 人物推理使用独立 `person-worker.exe`，ONNX 与新版 VC++ 运行库放在 `person-model/`；使用普通优先级与 2–4 个 CPU 线程。
             - **Mochizuki 后端与 ReShade 设备穿透兼容**：
               - 修复 ReShade 包装设备与原生 Fence 设备身份不同导致 Mochizuki 提交被拒绝的问题，已在燕云组合测试通过；其他加载顺序及插件仍需验证。
 
@@ -322,7 +320,7 @@ jobs:
             - **lmxxf 0.41**：需自备 `native-game-tiled-assets` 权重目录，见 [原仓库](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) 或 [下载镜像](https://gofile.io/d/wRln0Pue)。
             - **Mochizuki 0.0.3（引入0.04部分特性）**：从 `nvngx_dlssnr.dll` 310.8.0（与 Daniel 使用同一文件）提取权重，需要 Python 3.10+。
             - 如本次安装目标游戏文件夹内留存曾安装过的三后端有效权重，执行 `Setup.bat` 后可自动利用，并补回安装包内缺失的权重，使得日常更新本插件时无需反复重新拷贝。
-            - 本包已内置人物分割模型权重（AGPL-3.0，见 Licenses/）；不含 NVIDIA DLL、Daniel 安装器或全图专有神经渲染权重。
+            - 本包已内置 PP-HumanSeg 与 YOLO11n-seg 人物分割模型权重（见 Licenses/）；不含 NVIDIA DLL、Daniel 安装器或全图专有神经渲染权重。
 
             **已知问题**
 
@@ -349,15 +347,14 @@ jobs:
             - **Experimental: Shared Residual Shaping and Detail/Skin Protection**:
               - Added low/detail gain and skin/edge protection heuristics (`NrResidualLowGain`, `NrResidualDetailGain`, `NrResidualSkinProtection`, `NrResidualEdgeProtection`).
               - Applied across all backends' common outputs while keeping original color space and alpha intact.
-            - **Experimental: Person/Scene Partition, Shared Detail Controls & Anti-Ghosting**:
-              - Asynchronous CPU inference path via ONNX Runtime supporting standard YOLO11-seg (`NrPersonPartition`).
-              - Shared person protection controls across lmxxf and Mochizuki (`NrPersonStrength` and `NrPersonDetailGain`), supporting both multi-pass first-pass export and direct single-pass foreground protection without mandatory extra passes.
+            - **Experimental: Person/Scene Partition, Shared Detail Controls & Anti-Ghosting** (supports Mochizuki and lmxxf backends; currently multi-round tested only on Mochizuki in Where Winds Meet):
+              - Asynchronous CPU inference path via ONNX Runtime supporting selectable PP-HumanSeg (default) and YOLO11n-seg models (`NrPersonPartition`).
+              - Shared person protection controls across lmxxf and Mochizuki (`NrPersonStrength` and `NrPersonDetailGain`).
               - Added motion-aligned temporal mask smoothing, expiry fading and disocclusion rejection to reduce mask refresh pulses. Fast-motion results still need game validation.
-              - Expanded recording memory budget to 2GB to prevent buffer exhaustion at high resolutions.
             - **Out-of-the-Box Packaging & Installer Self-Healing**:
-              - Bundles ONNX Runtime (MIT) and YOLO11n-seg (AGPL-3.0) directly in the package under `person-model/` for immediate out-of-the-box evaluation with custom model override support.
+              - Bundles ONNX Runtime (MIT) along with PP-HumanSeg (Apache-2.0) and YOLO11n-seg (AGPL-3.0) weights under `person-model/`, defaulting to PP-HumanSeg (with in-menu switching) for out-of-the-box evaluation with custom model override support.
               - `Setup.bat` preserves existing `person-model` assets when upgrading with `uninstallFirst` (selecting Y to uninstall).
-              - Runs person inference in a separate `person-worker.exe` with private ONNX/VC++ dependencies under `person-model/`, leaving game-root runtimes unchanged. Uses normal priority and 2–4 CPU threads.
+              - Runs person inference in a separate `person-worker.exe` with private ONNX/VC++ dependencies under `person-model/`. Uses normal priority and 2–4 CPU threads.
             - **Mochizuki & ReShade Native Fence Penetration**:
               - Resolves D3D12 device wrapper mismatches behind ReShade by safely extracting native device identities through session fences (`accept proven native fence identity behind ReShade`).
 
@@ -368,7 +365,7 @@ jobs:
             - **lmxxf 0.41**: provide `native-game-tiled-assets` weights from the [upstream repository](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) or [download mirror](https://gofile.io/d/wRln0Pue).
             - **Mochizuki 0.0.3 (includes partial 0.0.4 features)**: extract the weights from `nvngx_dlssnr.dll` 310.8.0, the same file used by Daniel. Python 3.10+ is required.
             - If the game folder selected for this installation still contains valid weights from previous installations of any of the three backends, `Setup.bat` can reuse them and copy missing weights back into the installer folder, so you do not need to copy them manually again for routine plugin updates.
-            - Bundles the person partition model (AGPL-3.0, see Licenses/); NVIDIA DLLs, the Daniel installer and full-frame neural rendering weights are not included.
+            - Bundles PP-HumanSeg and YOLO11n-seg person partition models (see Licenses/); NVIDIA DLLs, the Daniel installer and full-frame neural rendering weights are not included.
 
             **Known issues**
 
