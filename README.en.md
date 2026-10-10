@@ -11,8 +11,7 @@ This project is forked from [MatheusGViana / dlss-5-amd-project](https://github.
 **Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 ## Changelog
-
-See the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) for detailed changelogs.
+UI upgrades, NR intensity, face protection and more; see the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) for details.
 
 ---
 

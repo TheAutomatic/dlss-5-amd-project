@@ -11,8 +11,7 @@
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 ## 更新日志
-
-更新日志详见 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases)
+UI升级、NR强度及人脸保护等多重更新，详见 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases)
 
 ---
 

@@ -11,8 +11,7 @@ Este proyecto es un fork de [MatheusGViana / dlss-5-amd-project](https://github.
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 ## Registro de cambios
-
-El registro de cambios detallado está disponible en la [página de Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases).
+Mejoras de interfaz, intensidad de NR, protección facial y más; consulte la [página de Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases).
 
 ---
 
