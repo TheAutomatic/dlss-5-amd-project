@@ -58,6 +58,7 @@ int main(){
  auto motionSeed=record();check(motionSeed,q.Get(),.7f,.7f);
  mask->epoch=Person::Global().epoch;mask->frame=Person::Global().frame;mask->tick=GetTickCount64();
  auto between=record();check(between,q.Get(),.7f,.7f);
+ mask->tick=GetTickCount64();
  auto moving=record(mask);Check(moving.proxy->ExecuteOn(q.Get()),"moving execute");WaitQueue(d.Get(),q.Get());
  auto moved=Transfer(d.Get(),q.Get(),moving.output);
  Require(std::abs(moved[h/2*w+20][0]-.3f)<.002f,"two-frame mask follows object");
