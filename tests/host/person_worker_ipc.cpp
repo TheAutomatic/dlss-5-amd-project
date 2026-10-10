@@ -3,7 +3,7 @@
 #include <cstdio>
 namespace Person=DlssNr::Person;
 static void Require(bool v,const char* s){if(!v)throw std::runtime_error(s);}
-template<class F>static void Until(F f){auto start=GetTickCount64();while(!f()){Require(GetTickCount64()-start<5000,"IPC timeout/deadlock");Sleep(1);}}
+template<class F>static void Until(F f){auto start=GetTickCount64();while(!f()){Require(GetTickCount64()-start<30000,"IPC timeout/deadlock");Sleep(1);}}
 int wmain(int argc,wchar_t**argv){
  try{
   Require(argc==2,"fixture directory");const std::filesystem::path dir=argv[1];

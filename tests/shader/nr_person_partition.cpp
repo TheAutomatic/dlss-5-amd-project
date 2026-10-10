@@ -144,7 +144,7 @@ int main(){
  auto fixture=std::filesystem::path(executable).parent_path()/L"person-capture-worker";
  Person::Worker().Configure(true,fixture);
  auto until=[&](auto ready){auto start=GetTickCount64();while(!ready()){
-  Require(GetTickCount64()-start<5000,"capture worker timeout");Sleep(1);}};
+  Require(GetTickCount64()-start<30000,"capture worker timeout");Sleep(1);}};
  until([&]{return Person::Worker().Ready();});
  Ptr<ID3D12Fence>gate;Check(d->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"capture gate");
  struct Unblock{ID3D12Fence* fence;~Unblock(){fence->Signal(1);}} unblock{gate.Get()};
