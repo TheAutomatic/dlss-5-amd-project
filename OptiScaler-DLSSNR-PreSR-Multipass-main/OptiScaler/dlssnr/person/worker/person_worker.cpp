@@ -47,6 +47,7 @@ using DlssNr::Person::Inference;
 int RunWorker(int argc, wchar_t* argv[])
 {
     uint32_t parentPid = 0;
+    std::wstring modelOverride;
     unsigned hw = std::thread::hardware_concurrency();
     unsigned threadCount = DlssNr::Person::WorkerThreads(hw);
 
@@ -62,6 +63,10 @@ int RunWorker(int argc, wchar_t* argv[])
             const int requested=_wtoi(argv[++i]);
             if(requested<1||requested>8)return 1;
             threadCount=static_cast<unsigned>(requested);
+        }
+        else if ((arg == L"--model" || arg == L"-m") && i + 1 < argc)
+        {
+            modelOverride = argv[++i];
         }
     }
 
@@ -139,7 +144,7 @@ int RunWorker(int argc, wchar_t* argv[])
     try
     {
         inference = std::make_unique<Inference>();
-        inference->Open(g_exeDir, threadCount);
+        inference->Open(g_exeDir, threadCount, modelOverride);
     }
     catch (const std::exception& e)
     {
@@ -170,7 +175,7 @@ int RunWorker(int argc, wchar_t* argv[])
         return 6;
     }
 
-    Log("Model loaded successfully. Entering inference loop.");
+    Log("Model loaded successfully: " + std::string(inference->ModelName()) + ". Entering inference loop.");
     for(auto name:{L"onnxruntime.dll",L"msvcp140.dll",L"vcruntime140.dll",L"vcruntime140_1.dll"}){
         wchar_t path[32768]{};
         if(auto module=GetModuleHandleW(name);module&&GetModuleFileNameW(module,path,32768)){
@@ -178,7 +183,8 @@ int RunWorker(int argc, wchar_t* argv[])
             Log("Loaded dependency: "+std::string(utf8.begin(),utf8.end()));
         }
     }
-    strncpy_s(header->statusMessage, "person model ready", sizeof(header->statusMessage) - 1);
+    const std::string readyMsg = "person model ready (" + std::string(inference->ModelName()) + ")";
+    strncpy_s(header->statusMessage, readyMsg.c_str(), sizeof(header->statusMessage) - 1);
     header->state = static_cast<uint32_t>(DlssNr::Person::Ipc::WorkerState::Ready);
     SetEvent(hResp);
 
@@ -196,7 +202,7 @@ int RunWorker(int argc, wchar_t* argv[])
             try
             {
                 if(!DlssNr::Person::Ipc::ValidHeader(*header))throw std::runtime_error("person worker protocol changed");
-                auto mask=inference->RunRgb(inputRgb);
+                auto mask=inference->RunRgb(inputRgb, header->reqWidth, header->reqHeight);
                 memcpy(outputMask,mask.values.data(),DlssNr::Person::Ipc::OutputMaskSize);
                 ++completed;totalMs+=mask.milliseconds;
                 if(completed<=3)Log("frame="+std::to_string(header->reqFrame)+" CPU="+std::to_string(mask.milliseconds)+" ms");

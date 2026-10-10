@@ -590,9 +590,11 @@ $personSrc = Join-Path $root 'assets/person-model'
 if (Test-Path -LiteralPath $personSrc -PathType Container) {
     $personDst = Join-Path $stage 'person-model'
     New-Item -ItemType Directory -Path $personDst -Force | Out-Null
-    foreach ($required in @('onnxruntime.dll','yolo11n-seg.onnx','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+    foreach ($required in @('onnxruntime.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
         if (!(Test-Path -LiteralPath (Join-Path $personSrc $required))) { throw "Incomplete person-model assets: $required" }
     }
+    $hasModel = (Test-Path -LiteralPath (Join-Path $personSrc 'pphumanseg.onnx')) -or (Test-Path -LiteralPath (Join-Path $personSrc 'yolo11n-seg.onnx'))
+    if (!$hasModel) { throw 'Incomplete person-model assets: missing pphumanseg.onnx or yolo11n-seg.onnx' }
     $ortVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $personSrc 'onnxruntime.dll'))
     if ($ortVersion.FileMajorPart -lt 1 -or ($ortVersion.FileMajorPart -eq 1 -and $ortVersion.FileMinorPart -lt 23)) {
         throw 'Person worker requires ONNX Runtime 1.23+ CPU x64. Update the complete person-model assets.'
@@ -603,7 +605,7 @@ if (Test-Path -LiteralPath $personSrc -PathType Container) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-person-worker.ps1') -WorkerExe $freshWorker
     if ($LASTEXITCODE -ne 0) { throw 'Person worker build validation failed.' }
     Get-ChildItem -LiteralPath $personSrc -File | Where-Object {
-        $_.Name -eq 'yolo11n-seg.onnx' -or $_.Name -eq 'onnxruntime.dll' -or
+        $_.Name -eq 'pphumanseg.onnx' -or $_.Name -eq 'yolo11n-seg.onnx' -or $_.Name -eq 'onnxruntime.dll' -or
         $_.Name -match '^(msvcp140(_1|_2|_atomic_wait|_codecvt_ids)?|vcruntime140(_1|_threads)?|concrt140|vccorlib140)\.dll$'
     } | Copy-Item -Destination $personDst -Force
     Copy-Item -LiteralPath $freshWorker -Destination (Join-Path $personDst 'person-worker.exe') -Force
@@ -613,6 +615,10 @@ if (Test-Path -LiteralPath $personSrc -PathType Container) {
     $agplSrc = Join-Path $root 'third_party/onnxruntime/YOLO11_AGPL-3.0.txt'
     if (Test-Path -LiteralPath $agplSrc) {
         Copy-Item -LiteralPath $agplSrc -Destination (Join-Path $stage 'Licenses/YOLO11_AGPL-3.0.txt') -Force
+    }
+    $ppLicense = Join-Path $root 'third_party/onnxruntime/PPHumanSeg_Apache-2.0.txt'
+    if (Test-Path -LiteralPath $ppLicense) {
+        Copy-Item -LiteralPath $ppLicense -Destination (Join-Path $stage 'Licenses/PPHumanSeg_Apache-2.0.txt') -Force
     }
 }
 
