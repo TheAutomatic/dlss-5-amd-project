@@ -18,7 +18,7 @@ The worker removes capture letterboxing before PP inference and restores it in
 the returned mask. `NrPersonModel=1` selects YOLO11n-seg FP32 COCO at
 `person-model/yolo11n-seg.onnx`: `[1,3,640,640]` -> `[1,116,8400]` and
 `[1,32,160,160]`. `NrPersonModel=2` selects YuNet at `person-model/yunet.onnx`:
-the official dynamic FP32 export is evaluated at `[1,3,320,320]` BGR `[0,255]`.
+the official dynamic FP32 export is evaluated at `[1,3,S,S]` with `[DlssNr] NrFaceInputSize=320` (default), 384 or 416 BGR `[0,255]`.
 Its 12 named outputs (cls/obj/bbox/kps at strides 8/16/32) are validated at load
 and inference. Scores use `sqrt(cls*obj)` with a 0.6 threshold and 0.3-IoU NMS,
 bounded to 256 candidates and 16 faces. A soft ellipse inside each face box
@@ -43,7 +43,7 @@ probability output; the YOLO decoder applies NMS and reconstructs instance masks
 
 `person-model/person-worker.exe` runs ONNX in a separate process with its own
 app-local VC++ CRT DLLs. The installer does not replace the game's root CRTs.
-The host and worker acknowledge IPC version 2; an old worker is rejected with a
+The host and worker acknowledge IPC version 3; an old worker is rejected with a
 complete-package update message. A kill-on-close job and parent-process handle
 bound its lifetime to the game. Protocol offsets, sizes and frame identities are
 validated before consuming responses. The receiver acknowledges initialization
@@ -270,3 +270,8 @@ one Vulkan colour image, shared buffer and D3D colour texture). Alignment,
 bucket/allocation differences and retained recordings add overhead. Host masks,
 composition and the CPU model are additional. This is a storage estimate, not a
 measured hardware VRAM or latency result.
+
+The size control is shown only for YuNet. Other models ignore it. Invalid sizes
+fall back to 320. Switching size restarts the single worker and resets host mask
+history; source dimensions and the 160-square motion/mask grid remain unchanged.
+IPC v3 rejects older workers that cannot honor the new input size.

@@ -199,10 +199,10 @@ inline std::string DiagnosticReport(bool enabled)noexcept{
  try{std::lock_guard lock(Submission::RecordingMutex());auto& d=Global().diagnostic;
   const auto now=GetTickCount64();d.Enable(enabled,now);return d.Report(now);}catch(...){return {};}
 }
-inline bool Prepare(bool enabled,const std::filesystem::path& directory, int modelIndex = 0){
+inline bool Prepare(bool enabled,const std::filesystem::path& directory, int modelIndex = 0, unsigned faceSize = 320){
  try {
   const auto modelFile = DlssNr::Person::ModelFileName(modelIndex);
-  Worker().Configure(enabled,directory/L"person-model", modelFile);
+  Worker().Configure(enabled,directory/L"person-model", modelFile,modelIndex==2?faceSize:320);
   std::lock_guard lock(Submission::RecordingMutex());Collect();
   if(!enabled){auto&s=Global();if(s.pipeline||!s.history.empty())Reset();return false;}
   return Worker().Available();

@@ -12,6 +12,7 @@ class Provider
     mutable std::mutex mutex;
     std::filesystem::path directory;
     std::wstring targetModel;
+    unsigned targetFaceSize=320;
     bool active=false, busy=false, failed=false, initialized=false;
     std::string status="off";
     std::shared_ptr<Mask> result;
@@ -69,6 +70,7 @@ class Provider
         if(!targetModel.empty()){
             command+=L" --model \""+targetModel+L"\"";
         }
+        command+=L" --face-size "+std::to_wstring(targetFaceSize);
         STARTUPINFOW startup{};startup.cb=sizeof(startup);
         require(CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW|CREATE_SUSPENDED|NORMAL_PRIORITY_CLASS,
             nullptr,directory.c_str(),&startup,&process),"cannot start person worker");
@@ -125,21 +127,22 @@ class Provider
     }
 public:
     ~Provider(){StopWorker();}
-    void Configure(bool enabled,const std::filesystem::path& dir,const std::wstring& modelName=L"")
+    void Configure(bool enabled,const std::filesystem::path& dir,const std::wstring& modelName=L"", unsigned faceSize=320)
     {
+        faceSize=Face::BoundedSize(faceSize);
         std::lock_guard serial(lifecycle);
         const auto absolute=std::filesystem::absolute(dir);
         {
             std::lock_guard lock(mutex);
             // Failures latch. Rendering must not launch a new process every frame.
-            if(enabled==active&&directory==absolute&&targetModel==modelName)return;
+            if(enabled==active&&directory==absolute&&targetModel==modelName&&targetFaceSize==faceSize)return;
             active=false;
         }
         StopWorker();
         bool cleanup=false;
         {
             std::lock_guard lock(mutex);
-            directory=absolute;targetModel=modelName;active=enabled;failed=busy=initialized=false;result.reset();request.reset();
+            directory=absolute;targetModel=modelName;targetFaceSize=faceSize;active=enabled;failed=busy=initialized=false;result.reset();request.reset();
             status=enabled?"loading person model":"off";
             if(enabled)try{StartWorker();}catch(const std::exception&e){Fail(e.what());cleanup=true;}
         }

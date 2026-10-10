@@ -4,6 +4,7 @@
 #include "DlssNr_PipelineUi.h"
 #include "NrEffectsSettings.h"
 #include "person/PersonSettings.h"
+#include "person/FaceModel.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
@@ -35,6 +36,7 @@ static void ResetSharedEffectsDefaults(Config* config)
 {
     config->NrPersonPartition = std::optional<bool>{};
     config->NrPersonModel = std::optional<int>{};
+    config->NrFaceInputSize = std::optional<int>{};
     config->NrPersonDetailGain = std::optional<float>{};
     config->NrPersonStrength = std::optional<float>{};
     config->NrPersonDebugMask = std::optional<bool>{};
@@ -290,7 +292,16 @@ static void RenderSharedOutputEffects(Config* config)
             config->NrPersonModel = model;
             AmdBridge::InvalidateHistory();
         }
-        HelpMarker("Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet uses a lightweight 320 input. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.");
+        HelpMarker("Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet offers 320, 384 and 416 inputs. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.");
+        if(model==2) {
+            const auto size=Person::Face::BoundedSize(config->NrFaceInputSize.value_or_default());
+            int choice=size==384?1:size==416?2:0;
+            if(MenuUi::Combo("Face input size", &choice, "320\0" "384\0" "416\0")) {
+                config->NrFaceInputSize=choice==1?384:choice==2?416:320;
+                AmdBridge::InvalidateHistory();
+            }
+            HelpMarker("Full-frame YuNet input. Larger sizes can detect smaller faces but use more CPU time. Default 320. Changing size resets the face mask.");
+        }
         const auto bounded = Person::Settings {
             config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default(),
             config->NrPersonDebugMask.value_or_default() }.Bounded();

@@ -16,7 +16,7 @@ constexpr size_t InputRgbSize = ModelChannels * ModelWidth * ModelHeight * sizeo
 constexpr size_t OutputMaskSize = MaskWidth * MaskHeight * sizeof(float);
 
 constexpr uint32_t ShmMagic = 0x50455253; // 'PERS'
-constexpr uint32_t ShmVersion = 2;
+constexpr uint32_t ShmVersion = 3;
 
 enum class WorkerState : uint32_t
 {

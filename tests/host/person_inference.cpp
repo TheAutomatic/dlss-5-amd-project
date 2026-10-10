@@ -29,6 +29,16 @@ static void TestFaceDecode() {
  std::fill_n(rgb.data(),640*640,1.f);std::fill_n(rgb.data()+640*640,640*640,.5f);
  Face::Prepare(rgb.data(),input);
  if(input[0]!=0||input[320*320]!=127.5f||input[2*320*320]!=255)throw std::runtime_error("face BGR scale");
+ for(unsigned size:{320u,384u,416u}) {
+  std::array<std::vector<float>,3> cs,os,bs;std::array<Face::Head,3> hs;
+  for(unsigned l=0;l<3;++l){const unsigned side=size/(8u<<l),n=side*side;cs[l].resize(n);os[l].resize(n);bs[l].resize(n*4);hs[l]={cs[l],os[l],bs[l]};}
+  const unsigned side=size/8,idx=(side/2)*side+side/2;cs[0][idx]=os[0][idx]=.9f;
+  bs[0][4*idx+2]=std::log(float(size)/32);bs[0][4*idx+3]=std::log(float(size)/32);
+  auto m=Face::Decode(hs,size);if(m[80*160+80]<.99f||m[0]!=0)throw std::runtime_error("face size mapping");
+  std::vector<float> prep(3*size*size);Face::Prepare(rgb.data(),prep,size);
+  if(prep[0]!=0||prep[size*size]!=127.5f||prep[2*size*size]!=255)throw std::runtime_error("face resize colours");
+ }
+ if(Face::BoundedSize(400)!=320||Face::BoundedSize(UINT_MAX)!=320)throw std::runtime_error("invalid size default");
  puts("face model: PASS (selection, oval, NMS, invalid tensors, BGR)");
 }
 int wmain(int argc,wchar_t**argv){
@@ -62,13 +72,14 @@ int wmain(int argc,wchar_t**argv){
   mask=DlssNr::Person::Decode(d.data(),p.data());if(mask[80*160+80]!=0)return 3;
   if(argc>1){
    const std::wstring file=argc>2?argv[2]:L"";
-   DlssNr::Person::Inference model;model.Open(argv[1],2,file);
+   DlssNr::Person::Inference model;const unsigned size=argc>3?std::stoul(argv[3]):320;
+   model.Open(argv[1],2,file,size);
    DlssNr::Person::Image image{1,1,GetTickCount64(),1920,1080,std::vector<float>(3*640*640,.5f)};
    auto output=model.Run(image);
    if(output.values.size()!=160*160)return 4;
    std::printf("actual CPU model: %.0f ms, finite mask %zu\n",output.milliseconds,output.values.size());
    DlssNr::Person::Provider provider;
-   provider.Configure(true,argv[1],file);
+   provider.Configure(true,argv[1],file,size);
    auto start=GetTickCount64();
    while(!provider.Ready()){
     if(GetTickCount64()-start>10000)throw std::runtime_error(provider.Status());

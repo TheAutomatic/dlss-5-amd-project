@@ -990,7 +990,10 @@
 {"PP-HumanSeg (Fast ~8ms)", "PP-HumanSeg（极速 ~8ms）"},
 {"YOLO11n-seg (Baseline ~64ms)", "YOLO11n-seg（基准 ~64ms）"},
 {"YuNet (Face only)", "YuNet（仅面部）"},
-{"Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet uses a lightweight 320 input. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.", "只运行选中的模型。PP-HumanSeg 和 YOLO 识别全身；YuNet 用柔边椭圆保护检测到的脸部。\nYuNet 使用较省算力的 320 输入。小脸、侧脸或被遮挡的脸可能漏检；不保护头发和衣服。\n耗时取决于 CPU。本选项不修复后端输出本身的闪烁。"},
+{"Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet offers 320, 384 and 416 inputs. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.", "只运行选中的模型。PP-HumanSeg 和 YOLO 识别全身；YuNet 用柔边椭圆保护检测到的脸部。\nYuNet 可选 320、384 和 416 输入尺寸。小脸、侧脸或被遮挡的脸可能漏检；不保护头发和衣服。\n耗时取决于 CPU。本选项不修复后端输出本身的闪烁。"},
 {"person model ready (PP-HumanSeg)", "人物模型已就绪 (PP-HumanSeg)"},
 {"person model ready (YOLO11n-seg)", "人物模型已就绪 (YOLO11n-seg)"},
 {"person model ready (YuNet (Face only))", "人物模型已就绪（YuNet，仅面部）"},
+
+{"Face input size", "人脸输入尺寸"},
+{"Full-frame YuNet input. Larger sizes can detect smaller faces but use more CPU time. Default 320. Changing size resets the face mask.", "YuNet 全画面检测的输入尺寸。较大尺寸有助于识别小脸，但 CPU 耗时更高。默认 320，切换后重置脸部蒙版。"},

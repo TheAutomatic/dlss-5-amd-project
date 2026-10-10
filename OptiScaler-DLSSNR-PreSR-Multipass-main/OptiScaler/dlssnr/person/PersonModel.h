@@ -97,6 +97,7 @@ class Inference
     ModelKind kind = ModelKind::Yolo;
     std::vector<float> ppInput;
     std::vector<float> faceInput;
+    unsigned faceSize = 320;
     void Check(OrtStatus* status) {
         if(!status)return;
         std::string message=api->GetErrorMessage(status); api->ReleaseStatus(status); throw std::runtime_error(message);
@@ -115,8 +116,8 @@ class Inference
     }
     Mask RunFace(const float* rgb) {
         const auto start = std::chrono::steady_clock::now();
-        Face::Prepare(rgb, faceInput);
-        const int64_t dims[] = {1,3,Face::InputSize,Face::InputSize};
+        Face::Prepare(rgb, faceInput, faceSize);
+        const int64_t dims[] = {1,3,faceSize,faceSize};
         OrtValue* input=nullptr; std::array<OrtValue*,12> output{};
         struct Guard { const OrtApi* a; OrtValue*& in; std::array<OrtValue*,12>& out;
             ~Guard(){if(in)a->ReleaseValue(in);for(auto* p:out)if(p)a->ReleaseValue(p);}
@@ -134,7 +135,7 @@ class Inference
             if(rank!=3)throw std::runtime_error("unsupported face output rank");
             int64_t actual[3];Check(api->GetDimensions(shape,actual,3));
             ONNXTensorElementDataType type;Check(api->GetTensorElementType(shape,&type));
-            const int64_t side=Face::InputSize/(8u<<(i%3)),channels=i<6?1:i<9?4:10;
+            const int64_t side=faceSize/(8u<<(i%3)),channels=i<6?1:i<9?4:10;
             if(type!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT||actual[0]!=1||actual[1]!=side*side||actual[2]!=channels)
                 throw std::runtime_error("unsupported face output dimensions");
             float* data=nullptr;Check(api->GetTensorMutableData(output[i],reinterpret_cast<void**>(&data)));
@@ -142,7 +143,7 @@ class Inference
         }
         std::array<Face::Head,3> heads;
         for(unsigned i=0;i<3;++i)heads[i]={values[i],values[i+3],values[i+6]};
-        Mask mask;mask.values=Face::Decode(heads);
+        Mask mask;mask.values=Face::Decode(heads,faceSize);
         mask.milliseconds=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
         return mask;
     }
@@ -254,7 +255,7 @@ public:
         if(api){if(memory)api->ReleaseMemoryInfo(memory);if(session)api->ReleaseSession(session);if(env)api->ReleaseEnv(env);}
         if(dll)FreeLibrary(dll);
     }
-    void Open(const std::filesystem::path& directory, unsigned threads = 2, const std::wstring& modelFile = L"") {
+    void Open(const std::filesystem::path& directory, unsigned threads = 2, const std::wstring& modelFile = L"", unsigned inputSize = 320) {
         const auto library=std::filesystem::absolute(directory/L"onnxruntime.dll");
         if(!std::filesystem::is_regular_file(library))throw std::runtime_error("missing person-model/onnxruntime.dll (ONNX Runtime 1.23+ CPU x64)");
         std::filesystem::path model;
@@ -314,7 +315,8 @@ public:
                     throw std::runtime_error("unsupported YuNet output names");
                 Shape(false,i,{1,-1,i<6?1:i<9?4:10});
             }
-            faceInput.resize(3*Face::InputSize*Face::InputSize);
+            faceSize=Face::BoundedSize(inputSize);
+            faceInput.resize(3*faceSize*faceSize);
         } else {
             throw std::runtime_error("unsupported person model output count");
         }

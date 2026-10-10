@@ -48,6 +48,7 @@ int RunWorker(int argc, wchar_t* argv[])
 {
     uint32_t parentPid = 0;
     std::wstring modelOverride;
+    unsigned faceSize=320;
     unsigned hw = std::thread::hardware_concurrency();
     unsigned threadCount = DlssNr::Person::WorkerThreads(hw);
 
@@ -63,6 +64,11 @@ int RunWorker(int argc, wchar_t* argv[])
             const int requested=_wtoi(argv[++i]);
             if(requested<1||requested>8)return 1;
             threadCount=static_cast<unsigned>(requested);
+        }
+        else if (arg == L"--face-size" && i+1<argc) {
+            const unsigned requested=static_cast<unsigned>(_wtoi(argv[++i]));
+            if(requested!=DlssNr::Person::Face::BoundedSize(requested))return 1;
+            faceSize=requested;
         }
         else if ((arg == L"--model" || arg == L"-m") && i + 1 < argc)
         {
@@ -144,7 +150,7 @@ int RunWorker(int argc, wchar_t* argv[])
     try
     {
         inference = std::make_unique<Inference>();
-        inference->Open(g_exeDir, threadCount, modelOverride);
+        inference->Open(g_exeDir, threadCount, modelOverride,faceSize);
     }
     catch (const std::exception& e)
     {
@@ -175,6 +181,7 @@ int RunWorker(int argc, wchar_t* argv[])
         return 6;
     }
 
+    if(modelOverride==L"yunet.onnx")Log("YuNet input size="+std::to_string(faceSize));
     Log("Model loaded successfully: " + std::string(inference->ModelName()) + ". Entering inference loop.");
     for(auto name:{L"onnxruntime.dll",L"msvcp140.dll",L"vcruntime140.dll",L"vcruntime140_1.dll"}){
         wchar_t path[32768]{};

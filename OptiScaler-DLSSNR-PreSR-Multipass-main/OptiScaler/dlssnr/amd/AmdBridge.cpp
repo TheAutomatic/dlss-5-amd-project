@@ -911,17 +911,20 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     const bool personWanted = cfg.NrPersonPartition.value_or_default() && kind != DlssNr::Backend::Kind::Daniel &&
         (personPasses > 1 || personSettings.ChangesSinglePass()) && cfg.NrOverallIntensity.value_or_default() != 0.f;
     const int personModel = cfg.NrPersonModel.value_or_default();
+    const unsigned faceSize=personModel==2?DlssNr::Person::Face::BoundedSize(cfg.NrFaceInputSize.value_or_default()):320;
     // This runs under frameMutex. A new display setting must not retain the old
     // composite in the downstream stabilizer; backend/model history is untouched.
     static DlssNr::Person::Settings previousPersonSettings;
     static int previousPersonModel = -1;
-    if (!(previousPersonSettings == personSettings) || previousPersonModel != personModel) {
+    static unsigned previousFaceSize=320;
+    if (!(previousPersonSettings == personSettings) || previousPersonModel != personModel || previousFaceSize!=faceSize) {
         DlssNr::Effects::InvalidateHistory();
         DlssNr::Person::Invalidate();
     }
     previousPersonSettings = personSettings;
     previousPersonModel = personModel;
-    const bool person = DlssNr::Person::Prepare(personWanted, Directory(), personModel);
+    previousFaceSize=faceSize;
+    const bool person = DlssNr::Person::Prepare(personWanted, Directory(), personModel,faceSize);
     ID3D12Resource* firstPass = nullptr;
     if (auto replacement = b->RecordLayers(cmd, f, s, person && personPasses > 1 ? &firstPass : nullptr))
     {

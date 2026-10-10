@@ -307,6 +307,10 @@ NrPersonPartition=false
 ; Person model: 0 = PP-HumanSeg (body, default), 1 = YOLO11n-seg (body), 2 = YuNet (face only).
 ; Only one model runs. YuNet uses yunet.onnx and soft face ovals; small/turned/occluded faces may be missed.
 NrPersonModel=0
+
+; YuNet full-frame input: 320 (default), 384 or 416. Larger inputs cost more CPU but can detect smaller faces.
+; Other models ignore this setting. Invalid sizes use 320.
+NrFaceInputSize=320
 ; Person controls: 0..1, default 1. Single pass uses final NR; multi-pass uses pass 1.
 ; Strength 0 retains the NR input inside the mask, before shared output effects.
 ; Detail reduces only fine NR changes. Backend character/skin settings are not modified.
