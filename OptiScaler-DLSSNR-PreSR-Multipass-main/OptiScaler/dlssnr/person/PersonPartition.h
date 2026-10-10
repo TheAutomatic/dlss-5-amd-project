@@ -158,9 +158,10 @@ inline void Reset(){
  std::lock_guard lock(Submission::RecordingMutex());auto&s=Global();s.Invalidate();s.pool.clear();s.pipeline.reset();s.status.clear();Collect();ScheduleCollection();
 }
 inline std::string Status(){std::lock_guard lock(Submission::RecordingMutex());return Global().status+" | "+Worker().Status();}
-inline bool Prepare(bool enabled,const std::filesystem::path& directory){
+inline bool Prepare(bool enabled,const std::filesystem::path& directory, int modelIndex = 0){
  try {
-  Worker().Configure(enabled,directory/L"person-model");
+  const auto modelFile = DlssNr::Person::ModelFileName(modelIndex);
+  Worker().Configure(enabled,directory/L"person-model", modelFile);
   std::lock_guard lock(Submission::RecordingMutex());Collect();
   if(!enabled){auto&s=Global();if(s.pipeline||!s.history.empty())Reset();return false;}
   return Worker().Available();

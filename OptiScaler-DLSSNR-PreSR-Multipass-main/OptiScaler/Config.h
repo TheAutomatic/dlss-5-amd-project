@@ -340,6 +340,7 @@ class Config
     CustomOptional<bool> NrTimingEnabled { false };
     CustomOptional<bool> NrTimingLog { false };
     CustomOptional<bool> NrPersonPartition { false };
+    CustomOptional<int> NrPersonModel { 0 };
     CustomOptional<float> NrPersonDetailGain { 1.0f };
     CustomOptional<float> NrPersonStrength { 1.0f };
     CustomOptional<bool> NrPersonDebugMask { false };

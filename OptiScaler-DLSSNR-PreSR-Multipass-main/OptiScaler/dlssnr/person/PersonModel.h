@@ -15,6 +15,10 @@
 namespace DlssNr::Person
 {
 constexpr unsigned ModelSize = 640, MaskSize = 160;
+inline std::wstring ModelFileName(int modelIndex)
+{
+    return modelIndex == 1 ? L"yolo11n-seg.onnx" : L"pphumanseg.onnx";
+}
 struct Image
 {
     uint64_t epoch = 0, frame = 0, tick = 0;

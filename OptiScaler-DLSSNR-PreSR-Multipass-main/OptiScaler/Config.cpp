@@ -402,6 +402,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             NrTimingEnabled.set_from_config(readBool(CfgKey::kSection, CfgKey::NrTimingEnabled));
             NrTimingLog.set_from_config(readBool(CfgKey::kSection, CfgKey::NrTimingLog));
             NrPersonPartition.set_from_config(readBool(CfgKey::kSection, CfgKey::NrPersonPartition));
+            NrPersonModel.set_from_config(readInt(CfgKey::kSection, CfgKey::NrPersonModel));
             NrPersonDetailGain.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrPersonDetailGain));
             NrPersonStrength.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrPersonStrength));
             NrPersonDebugMask.set_from_config(readBool(CfgKey::kSection, CfgKey::NrPersonDebugMask));
@@ -1653,6 +1654,7 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::NrTimingEnabled, GetBoolValue(Instance()->NrTimingEnabled.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrTimingLog, GetBoolValue(Instance()->NrTimingLog.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrPersonPartition, GetBoolValue(Instance()->NrPersonPartition.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrPersonModel, GetIntValue(Instance()->NrPersonModel.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrPersonDetailGain, GetFloatValue(Instance()->NrPersonDetailGain.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrPersonStrength, GetFloatValue(Instance()->NrPersonStrength.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrPersonDebugMask, GetBoolValue(Instance()->NrPersonDebugMask.value_for_config()).c_str());

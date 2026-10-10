@@ -304,6 +304,8 @@ NrOverallIntensity=1.0
 ; (COCO FP32, input 1x3x640x640). Model availability depends on the installed package.
 ; Missing/stale masks or unreliable motion/depth preserve final NR. Default off.
 NrPersonPartition=false
+; Person model: 0 = PP-HumanSeg (~8ms CPU, fast), 1 = YOLO11n-seg (~64ms CPU, baseline). Default 0.
+NrPersonModel=0
 ; Person controls: 0..1, default 1. Single pass uses final NR; multi-pass uses pass 1.
 ; Strength 0 retains the NR input inside the mask, before shared output effects.
 ; Detail reduces only fine NR changes. Backend character/skin settings are not modified.
@@ -590,11 +592,9 @@ $personSrc = Join-Path $root 'assets/person-model'
 if (Test-Path -LiteralPath $personSrc -PathType Container) {
     $personDst = Join-Path $stage 'person-model'
     New-Item -ItemType Directory -Path $personDst -Force | Out-Null
-    foreach ($required in @('onnxruntime.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+    foreach ($required in @('onnxruntime.dll','pphumanseg.onnx','yolo11n-seg.onnx','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
         if (!(Test-Path -LiteralPath (Join-Path $personSrc $required))) { throw "Incomplete person-model assets: $required" }
     }
-    $hasModel = (Test-Path -LiteralPath (Join-Path $personSrc 'pphumanseg.onnx')) -or (Test-Path -LiteralPath (Join-Path $personSrc 'yolo11n-seg.onnx'))
-    if (!$hasModel) { throw 'Incomplete person-model assets: missing pphumanseg.onnx or yolo11n-seg.onnx' }
     $ortVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $personSrc 'onnxruntime.dll'))
     if ($ortVersion.FileMajorPart -lt 1 -or ($ortVersion.FileMajorPart -eq 1 -and $ortVersion.FileMinorPart -lt 23)) {
         throw 'Person worker requires ONNX Runtime 1.23+ CPU x64. Update the complete person-model assets.'

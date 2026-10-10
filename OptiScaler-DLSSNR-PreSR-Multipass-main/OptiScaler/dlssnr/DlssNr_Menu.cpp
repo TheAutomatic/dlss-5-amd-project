@@ -34,6 +34,7 @@ namespace DlssNr
 static void ResetSharedEffectsDefaults(Config* config)
 {
     config->NrPersonPartition = std::optional<bool>{};
+    config->NrPersonModel = std::optional<int>{};
     config->NrPersonDetailGain = std::optional<float>{};
     config->NrPersonStrength = std::optional<float>{};
     config->NrPersonDebugMask = std::optional<bool>{};
@@ -284,6 +285,12 @@ static void RenderSharedOutputEffects(Config* config)
     HelpMarker("Experimental: single pass uses final NR; multi-pass keeps pass 1 for people. Scene uses final NR. Requires the person model and ONNX Runtime.\nThis does not change backend character/skin controls or reduce network passes. Missing or invalid masks preserve final NR.");
     if (person) {
         ImGui::BeginDisabled(!personSupported || overallIntensity == 0);
+        int model = config->NrPersonModel.value_or_default();
+        if (MenuUi::Combo("Person model", &model, "PP-HumanSeg (Fast ~8ms)\0YOLO11n-seg (Baseline ~64ms)\0")) {
+            config->NrPersonModel = model;
+            AmdBridge::InvalidateHistory();
+        }
+        HelpMarker("Select the CPU neural network used for human segmentation.\nPP-HumanSeg: extremely fast (7-8 ms CPU), minimizes latency.\nYOLO11n-seg: baseline COCO segmentation model (64 ms CPU).");
         const auto bounded = Person::Settings {
             config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default(),
             config->NrPersonDebugMask.value_or_default() }.Bounded();
