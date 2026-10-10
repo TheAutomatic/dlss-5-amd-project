@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 if not (ROOT / 'VERSION').is_file():
     ROOT = Path.cwd()
-STAGES = ('vcvarsall.bat', 'build-mochizuki-runtime.cmd', 'build-lmxxf-runtime.cmd', 'tests\\run-all.cmd', 'MSBuild.exe')
+STAGES = ('vcvarsall.bat', 'build-mochizuki-runtime.cmd', 'build-lmxxf-runtime.cmd', 'tests\\run-all.cmd', 'MSBuild.exe', 'build-person-worker.cmd')
 
 class ReleaseExitTests(unittest.TestCase):
     def exercise(self, failing, code):
