@@ -906,7 +906,8 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     const auto personPasses = kind == DlssNr::Backend::Kind::Lmxxf ? cfg.LmxxfMultiPass.value_or_default() :
         kind == DlssNr::Backend::Kind::Mochizuki ? cfg.MochizukiPasses.value_or_default() : cfg.DlssNrPasses.value_or_default();
     const auto personSettings = DlssNr::Person::Settings {
-        cfg.NrPersonStrength.value_or_default(), cfg.NrPersonDetailGain.value_or_default() }.Bounded();
+        cfg.NrPersonStrength.value_or_default(), cfg.NrPersonDetailGain.value_or_default(),
+        cfg.NrPersonDebugMask.value_or_default() }.Bounded();
     const bool personWanted = cfg.NrPersonPartition.value_or_default() && kind != DlssNr::Backend::Kind::Daniel &&
         (personPasses > 1 || personSettings.ChangesSinglePass()) && cfg.NrOverallIntensity.value_or_default() != 0.f;
     // This runs under frameMutex. A new display setting must not retain the old

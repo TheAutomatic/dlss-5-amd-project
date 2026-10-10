@@ -36,6 +36,7 @@ static void ResetSharedEffectsDefaults(Config* config)
     config->NrPersonPartition = std::optional<bool>{};
     config->NrPersonDetailGain = std::optional<float>{};
     config->NrPersonStrength = std::optional<float>{};
+    config->NrPersonDebugMask = std::optional<bool>{};
     config->NrOverallIntensity = std::optional<float>{};
     config->NrResidualLowGain = std::optional<float>{};
     config->NrResidualDetailGain = std::optional<float>{};
@@ -284,15 +285,19 @@ static void RenderSharedOutputEffects(Config* config)
     if (person) {
         ImGui::BeginDisabled(!personSupported || overallIntensity == 0);
         const auto bounded = Person::Settings {
-            config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default() }.Bounded();
+            config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default(),
+            config->NrPersonDebugMask.value_or_default() }.Bounded();
         float strength = bounded.strength;
         float detail = bounded.detail;
         if (MenuUi::SliderFloat("Person NR strength", &strength, 0.f, 1.f, "%.2f")) config->NrPersonStrength = strength;
         HelpMarker("1 keeps the selected NR pass. 0 keeps the NR input inside a reliable person mask, before shared output effects.\nBackend character controls and Overall Intensity still apply; combining protections can weaken the result.");
         if (MenuUi::SliderFloat("Person detail", &detail, 0.f, 1.f, "%.2f")) config->NrPersonDetailGain = detail;
         HelpMarker("Reduces fine NR changes on people while retaining broad lighting changes and original detail. 1 = unchanged.\nThis uses the full person mask, not precise face or skin detection. Shared residual gains still apply afterwards.");
+        bool debugMask = bounded.debugMask;
+        if (MenuUi::Checkbox("Show person mask overlay", &debugMask)) config->NrPersonDebugMask = debugMask;
+        HelpMarker("Displays a green overlay on detected person areas for alignment and stability diagnostics.");
         ImGui::EndDisabled();
-        if (personSupported && personPasses == 1 && strength == 1.f && detail == 1.f)
+        if (personSupported && personPasses == 1 && strength == 1.f && detail == 1.f && !debugMask)
             MenuUi::TextWrapped("Single pass: lower person strength or detail to apply protection.");
     }
     if (!personSupported) MenuUi::TextDisabled("Available with lmxxf and Mochizuki.");

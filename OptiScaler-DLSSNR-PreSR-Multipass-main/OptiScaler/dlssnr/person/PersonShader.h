@@ -19,7 +19,7 @@ cbuffer Params:register(b0){
  float preExposure;uint captureEnabled,age,maskEnabled;
  float2 contentScale,contentOffset;
  uint inverted;float personStrength,personDetail,maskFreshness;
- uint historyEnabled;float riseBlend,fallBlend,unused;
+ uint historyEnabled;float riseBlend,fallBlend,debugMask;
 }
 cbuffer Execution:register(b1){uint executionValid;uint3 padding;}
 float Key(float value){return isfinite(value)&&value>=0&&value<=1?(inverted?value:1-value):-1;}
@@ -144,7 +144,12 @@ void compose_main(uint3 id:SV_DispatchThreadID){
  float fallbackMask=warpedMask.Load(int3(center,0)).x*fallbackWeight;
  mask=(total>0.01?saturate(mask/total):fallbackMask)*maskFreshness;
  float3 person=mask>0&&all(isfinite(base.rgb))?PersonColour(int2(id.xy),base.rgb,first.rgb):first.rgb;
- output[id.xy]=float4(lerp(final.rgb,person,mask),isfinite(base.a)?base.a:0);
+ float3 composed=lerp(final.rgb,person,mask);
+ if(debugMask>0.5){
+  float3 tint=float3(0.08,0.92,0.33);
+  composed=lerp(composed,tint,mask*0.7);
+ }
+ output[id.xy]=float4(composed,isfinite(base.a)?base.a:0);
 }
 )";
 struct Constants {
@@ -153,7 +158,7 @@ struct Constants {
  float preExposure; unsigned captureEnabled,age,maskEnabled;
  float scaleX,scaleY,offsetX,offsetY;
  unsigned inverted;float personStrength=1.f,personDetail=1.f,maskFreshness=1.f;
- unsigned historyEnabled=0;float riseBlend=1.f,fallBlend=1.f,unused=0;
+ unsigned historyEnabled=0;float riseBlend=1.f,fallBlend=1.f,debugMask=0.f;
 };
 static_assert(sizeof(Constants)==96);
 }

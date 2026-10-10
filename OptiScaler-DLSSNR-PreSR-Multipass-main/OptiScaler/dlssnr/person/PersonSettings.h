@@ -10,12 +10,13 @@ struct Settings
 {
     float strength = 1.f;
     float detail = 1.f;
+    bool debugMask = false;
     Settings Bounded() const
     {
         auto clamp = [](float value) { return std::isfinite(value) ? std::clamp(value, 0.f, 1.f) : 1.f; };
-        return {clamp(strength), clamp(detail)};
+        return {clamp(strength), clamp(detail), debugMask};
     }
-    bool ChangesSinglePass() const { auto s = Bounded(); return s.strength != 1.f || s.detail != 1.f; }
+    bool ChangesSinglePass() const { auto s = Bounded(); return s.strength != 1.f || s.detail != 1.f || s.debugMask; }
     bool operator==(const Settings&) const = default;
 };
 

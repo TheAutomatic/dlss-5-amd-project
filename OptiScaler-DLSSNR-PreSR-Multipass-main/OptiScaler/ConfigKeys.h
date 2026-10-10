@@ -45,6 +45,7 @@ inline constexpr const char *NrTimingLog = "NrTimingLog";
 inline constexpr const char *NrPersonPartition = "NrPersonPartition";
 inline constexpr const char *NrPersonDetailGain = "NrPersonDetailGain";
 inline constexpr const char *NrPersonStrength = "NrPersonStrength";
+inline constexpr const char *NrPersonDebugMask = "NrPersonDebugMask";
 inline constexpr const char *NrStabilizerEnabled = "NrStabilizerEnabled";
 inline constexpr const char *NrStabilizerAlpha = "NrStabilizerAlpha";
 inline constexpr const char *NrStabilizerThreshold = "NrStabilizerThreshold";
@@ -202,6 +203,7 @@ inline constexpr const char *const kKnown[] = {
     NrPersonPartition,
     NrPersonDetailGain,
     NrPersonStrength,
+    NrPersonDebugMask,
     NrStabilizerEnabled,
     NrStabilizerAlpha,
     NrStabilizerThreshold,

@@ -249,7 +249,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
    prev?(prev->jitterX-guides.jitterX)/width:0,prev?(prev->jitterY-guides.jitterY)/height:0,guides.preExposure,unsigned(capture),age,unsigned(accepted),
    scaleX,scaleY,(1-scaleX)*.5f,(1-scaleY)*.5f,unsigned(guides.inverted),settings.strength,settings.detail,
    accepted?(std::min)(MaskFreshness(lease->tick-mask->tick),age<=20?1.f:float(24-age)/4.f):0.f,
-   unsigned(accepted&&prev&&prev->maskAccepted),1.f-std::exp(-deltaMs/30.f),1.f-std::exp(-deltaMs/50.f),0};
+   unsigned(accepted&&prev&&prev->maskAccepted),1.f-std::exp(-deltaMs/30.f),1.f-std::exp(-deltaMs/50.f),settings.debugMask?1.f:0.f};
   cmd->SetComputeRoot32BitConstants(1,24,&constants,0);cmd->SetComputeRootConstantBufferView(2,s.pipeline->control.Address());
   Effects::Barrier(cmd,storage->guide->texture.Get(),read,write);cmd->SetPipelineState(s.pipeline->capture.Get());cmd->Dispatch(capture?80:20,capture?80:20,1);
   Effects::Barrier(cmd,storage->guide->texture.Get(),write,read);

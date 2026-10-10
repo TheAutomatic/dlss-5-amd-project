@@ -309,6 +309,7 @@ NrPersonPartition=false
 ; Detail reduces only fine NR changes. Backend character/skin settings are not modified.
 NrPersonStrength=1.0
 NrPersonDetailGain=1.0
+NrPersonDebugMask=false
 NrResidualLowGain=1.0
 NrResidualDetailGain=1.0
 NrResidualSkinProtection=0.0
