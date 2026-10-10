@@ -3,6 +3,7 @@
 #include "PersonShader.h"
 #include "PersonSettings.h"
 #include "PersonDiagnostics.h"
+#include "PersonCapture.h"
 #include "../effects/NrOutputEffects.h"
 #include "../backend/lmxxf_runtime/TemporalControl.h"
 #include "../backend/lmxxf_runtime/LmxxfShaderCompiler.h"
@@ -69,12 +70,12 @@ struct State {
  std::vector<std::shared_ptr<Storage>> pool;
  std::vector<std::shared_ptr<Guide>> history;
  std::shared_ptr<Pipeline> pipeline;
- std::weak_ptr<Lease> pendingCapture;
+ CaptureSchedule captureSchedule;
  uint64_t epoch=1,frame=0,submitted=0;
  unsigned width=0,height=0;
  std::string status;
  PersonDiagnostics diagnostic;
- void Invalidate(ResetReason reason=ResetReason::External){diagnostic.Reset(reason);++epoch;submitted=0;history.clear();pendingCapture.reset();}
+ void Invalidate(ResetReason reason=ResetReason::External){diagnostic.Reset(reason);++epoch;submitted=0;history.clear();captureSchedule={};}
 };
 inline State& Global(){static auto*s=new State;return *s;}
 inline void Collect();
@@ -133,6 +134,10 @@ struct Lease final:Submission::RecordingObserver {
 };
 inline void Collect(){
  auto&s=Global();
+ // Retain only the newest completed source for this collection. The shared
+ // lease keeps its readback alive even if the game has already reset its list.
+ std::shared_ptr<Lease> newest;
+ uint64_t completedCaptures=0;
  for(auto it=s.leases.begin();it!=s.leases.end();){
   auto&l=**it;const bool removed=FAILED(l.storage->pipeline->device->GetDeviceRemovedReason());
   auto&v=l.completions;v.erase(std::remove_if(v.begin(),v.end(),[](auto&p){return p->Complete();}),v.end());
@@ -154,16 +159,21 @@ inline void Collect(){
    l.sent=true;
    const auto elapsed=GetTickCount64()-l.tick;
    if(s.diagnostic.enabled)s.diagnostic.captureAge.Add(elapsed);
-   bool submitted=false;
-   if(l.epoch==s.epoch&&elapsed<=250&&Worker().Ready()){
-    auto image=std::make_shared<Image>();image->epoch=l.epoch;image->frame=l.frame;image->tick=l.tick;image->width=l.storage->width;image->height=l.storage->height;
-    image->rgb.resize(3*ModelSize*ModelSize);void*data=nullptr;D3D12_RANGE range{0,image->rgb.size()*sizeof(float)};
-    if(SUCCEEDED(l.storage->readback->Map(0,&range,&data))){memcpy(image->rgb.data(),data,range.End);D3D12_RANGE written{0,0};l.storage->readback->Unmap(0,&written);submitted=Worker().Submit(image);}
-   }
-   if(s.diagnostic.enabled){if(submitted)++s.diagnostic.captureSubmitted;else ++s.diagnostic.captureDiscarded;}
+   ++completedCaptures;
+   if(l.epoch==s.epoch&&elapsed<=250&&s.captureSchedule.Newer(l.frame)&&(!newest||l.frame>newest->frame))newest=*it;
   }
   if(l.invalidated&&(removed||(!l.unconfirmed&&v.empty())))it=s.leases.erase(it);else ++it;
  }
+ bool submitted=false;
+ if(newest&&Worker().Ready()){
+  auto& l=*newest;
+  auto image=std::make_shared<Image>();image->epoch=l.epoch;image->frame=l.frame;image->tick=l.tick;image->width=l.storage->width;image->height=l.storage->height;
+  image->rgb.resize(3*ModelSize*ModelSize);void*data=nullptr;D3D12_RANGE range{0,image->rgb.size()*sizeof(float)};
+  if(SUCCEEDED(l.storage->readback->Map(0,&range,&data))){memcpy(image->rgb.data(),data,range.End);D3D12_RANGE written{0,0};l.storage->readback->Unmap(0,&written);submitted=Worker().Submit(image);}
+  if(submitted)s.captureSchedule.Submitted(l.frame);
+ }
+ // Busy workers drop completed sources instead of building a stale CPU queue.
+ if(s.diagnostic.enabled){s.diagnostic.captureSubmitted+=submitted;s.diagnostic.captureDiscarded+=completedCaptures-submitted;}
 }
 struct TimerState {PTP_TIMER timer=nullptr;HMODULE module=nullptr;};
 inline TimerState& Timer(){static TimerState timer;return timer;}
@@ -266,10 +276,10 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   lease->maskTick=accepted?mask->tick:lease->tick;
   void*mapped=nullptr;D3D12_RANGE noRead{0,0};Check(storage->maskUpload->Map(0,&noRead,&mapped));
   if(accepted)memcpy(mapped,mask->values.data(),160*160*4);else memset(mapped,0,160*160*4);storage->maskUpload->Unmap(0,nullptr);
-  auto pending=s.pendingCapture.lock();
-  const bool capture=Worker().Ready()&&(!pending||pending->sent||pending->epoch!=s.epoch);
+  const auto pending=std::count_if(s.leases.begin(),s.leases.end(),[](auto& l){return !l->sent&&l->storage->readback;});
+  const bool capture=s.captureSchedule.Request(lease->tick,size_t(pending),Worker().Available());
   if(capture){if(!storage->input)storage->input=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_DEFAULT,true);
-   if(!storage->readback)storage->readback=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_READBACK);s.pendingCapture=lease;
+   if(!storage->readback)storage->readback=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_READBACK);
   }else lease->sent=true;
   if(s.diagnostic.Sample(lease->tick))try{
    if(!storage->maskReadback){auto desc=storage->guide->mask->GetDesc();

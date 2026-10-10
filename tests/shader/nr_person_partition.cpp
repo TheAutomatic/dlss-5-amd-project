@@ -136,6 +136,33 @@ int main(){
   Person::Poll();Require(diagnostic.warpedCoverage.count==1,"diagnostic sample collected once");
  }
  Person::Reset();Require(Person::Global().leases.empty(),"diagnostic resources retired");
+ // Hold the GPU behind a fence: four recordings may capture without waiting
+ // for any prior result. On release, only the newest completed image goes to
+ // the real isolated IPC provider; older images cannot form a stale queue.
+ wchar_t executable[32768]{};GetModuleFileNameW(nullptr,executable,32768);
+ auto fixture=std::filesystem::path(executable).parent_path()/L"person-capture-worker";
+ Person::Worker().Configure(true,fixture);
+ auto until=[&](auto ready){auto start=GetTickCount64();while(!ready()){
+  Require(GetTickCount64()-start<5000,"capture worker timeout");Sleep(1);}};
+ until([&]{return Person::Worker().Ready();});
+ Ptr<ID3D12Fence>gate;Check(d->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"capture gate");
+ struct Unblock{ID3D12Fence* fence;~Unblock(){fence->Signal(1);}} unblock{gate.Get()};
+ Check(q->Wait(gate.Get(),1),"hold capture GPU");
+ std::vector<Recording>pending;
+ uint64_t newestCapture=0;
+ for(unsigned i=0;i<5;++i){
+  if(i)Sleep(64); // Leave margin for GetTickCount64's ~16 ms quantization.
+  pending.push_back(record());
+  Check(pending.back().proxy->ExecuteOn(q.Get()),"pipelined capture execute");
+  if(i<4)newestCapture=Person::Global().frame;
+ }
+ auto pendingCount=std::count_if(Person::Global().leases.begin(),Person::Global().leases.end(),[](auto& l){return !l->sent&&l->storage->readback;});
+ Require(pendingCount==4,"four pending GPU captures, fifth bounded");
+ Check(gate->Signal(1),"release captures");WaitQueue(d.Get(),q.Get());Person::Poll();
+ until([&]{return Person::Worker().Latest()!=nullptr;});
+ Require(Person::Worker().Latest()->frame==newestCapture,"latest completed GPU capture wins");
+ pending.clear();Person::Worker().Configure(false,fixture);Person::Reset();
+ Require(Person::Global().leases.empty(),"pipeline captures released after fence");
  Ptr<ID3D12InfoQueue>info;if(SUCCEEDED(d.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;info->GetMessage(i,nullptr,&bytes);std::vector<char>data(bytes);auto*m=reinterpret_cast<D3D12_MESSAGE*>(data.data());info->GetMessage(i,m,&bytes);if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)std::fprintf(stderr,"%s\n",m->pDescription);Require(m->Severity>D3D12_MESSAGE_SEVERITY_ERROR,"D3D12 debug");}
  puts("person partition: PASS (first/final, alpha, two-frame motion, time/reset rejection, stale/replay, disocclusion, closed-list lifetime)");
 }

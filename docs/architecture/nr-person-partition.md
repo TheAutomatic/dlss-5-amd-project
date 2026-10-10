@@ -37,7 +37,12 @@ before the host can submit; teardown never joins the receiver under its mutex.
 
 The worker uses `clamp(logical_cpu_count / 4, 2, 4)` intra-op threads, one inter-op
 thread, normal process priority and disabled ORT thread spinning. There is no
-CPU-model whitelist, affinity mask or DirectML queue. Capture and inference queues have one in-flight item each.
+CPU-model whitelist, affinity mask or DirectML queue. GPU capture overlaps the single
+CPU inference request: at most four readbacks are in flight, at most 20 captures
+per second. Collection submits only the newest completed, current-epoch source;
+busy workers discard completed sources instead of queuing stale CPU work. A source
+older than the last submitted frame is never sent after a late fence observation.
+The existing recording lease retains each buffer until its GPU work completes.
 Loading, inference and ORT teardown occur outside rendering. Missing dependencies
 latch an explanatory state; toggling off/on retries them. Detection covers all
 people, not a persistent player identity.
