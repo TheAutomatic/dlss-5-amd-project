@@ -9,7 +9,7 @@
 namespace DlssNr::Person::Face
 {
 inline constexpr unsigned InputSize = 320, OutputSize = 160;
-inline unsigned BoundedSize(unsigned size) { return size==384||size==416?size:320; }
+inline unsigned BoundedSize(unsigned size) { return size==384||size==416||size==448?size:320; }
 // YuNet FP32: BGR [0,255], from the same centered 640-square RGB capture as PP/YOLO.
 // Keep letterboxing: stretching faces changes their geometry and the decoded mask grid.
 inline void Prepare(const float* rgb, std::span<float> input, unsigned size = InputSize)
@@ -48,7 +48,7 @@ inline std::vector<float> Decode(const std::array<Head, 3>& heads, unsigned size
 {
     if(size!=BoundedSize(size)) throw std::runtime_error("unsupported face input size");
     std::vector<Box> candidates;
-    // Supported input sizes bound this to at most 3549 anchors, then 256 candidates / 16 faces.
+    // Supported input sizes bound this to at most 4116 anchors, then 256 candidates / 16 faces.
     for (unsigned level = 0; level < heads.size(); ++level) {
         const unsigned stride = 8u << level, side = size / stride, count = side * side;
         const auto& h = heads[level];

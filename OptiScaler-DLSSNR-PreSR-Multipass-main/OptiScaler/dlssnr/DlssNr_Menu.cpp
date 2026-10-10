@@ -292,12 +292,12 @@ static void RenderSharedOutputEffects(Config* config)
             config->NrPersonModel = model;
             AmdBridge::InvalidateHistory();
         }
-        HelpMarker("Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet offers 320, 384 and 416 inputs. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.");
+        HelpMarker("Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet offers 320, 384, 416 and 448 inputs. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.");
         if(model==2) {
             const auto size=Person::Face::BoundedSize(config->NrFaceInputSize.value_or_default());
-            int choice=size==384?1:size==416?2:0;
-            if(MenuUi::Combo("Face input size", &choice, "320\0" "384\0" "416\0")) {
-                config->NrFaceInputSize=choice==1?384:choice==2?416:320;
+            int choice=size==384?1:size==416?2:size==448?3:0;
+            if(MenuUi::Combo("Face input size", &choice, "320\0" "384\0" "416\0" "448\0")) {
+                config->NrFaceInputSize=choice==1?384:choice==2?416:choice==3?448:320;
                 AmdBridge::InvalidateHistory();
             }
             HelpMarker("Full-frame YuNet input. Larger sizes can detect smaller faces but use more CPU time. Default 320. Changing size resets the face mask.");

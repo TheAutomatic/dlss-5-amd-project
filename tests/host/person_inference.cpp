@@ -29,7 +29,7 @@ static void TestFaceDecode() {
  std::fill_n(rgb.data(),640*640,1.f);std::fill_n(rgb.data()+640*640,640*640,.5f);
  Face::Prepare(rgb.data(),input);
  if(input[0]!=0||input[320*320]!=127.5f||input[2*320*320]!=255)throw std::runtime_error("face BGR scale");
- for(unsigned size:{320u,384u,416u}) {
+ for(unsigned size:{320u,384u,416u,448u}) {
   std::array<std::vector<float>,3> cs,os,bs;std::array<Face::Head,3> hs;
   for(unsigned l=0;l<3;++l){const unsigned side=size/(8u<<l),n=side*side;cs[l].resize(n);os[l].resize(n);bs[l].resize(n*4);hs[l]={cs[l],os[l],bs[l]};}
   const unsigned side=size/8,idx=(side/2)*side+side/2;cs[0][idx]=os[0][idx]=.9f;

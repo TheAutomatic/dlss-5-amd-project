@@ -18,7 +18,7 @@ The worker removes capture letterboxing before PP inference and restores it in
 the returned mask. `NrPersonModel=1` selects YOLO11n-seg FP32 COCO at
 `person-model/yolo11n-seg.onnx`: `[1,3,640,640]` -> `[1,116,8400]` and
 `[1,32,160,160]`. `NrPersonModel=2` selects YuNet at `person-model/yunet.onnx`:
-the official dynamic FP32 export is evaluated at `[1,3,S,S]` with `[DlssNr] NrFaceInputSize=320` (default), 384 or 416 BGR `[0,255]`.
+the official dynamic FP32 export is evaluated at `[1,3,S,S]` with `[DlssNr] NrFaceInputSize=320` (default), 384, 416 or 448 BGR `[0,255]`.
 Its 12 named outputs (cls/obj/bbox/kps at strides 8/16/32) are validated at load
 and inference. Scores use `sqrt(cls*obj)` with a 0.6 threshold and 0.3-IoU NMS,
 bounded to 256 candidates and 16 faces. A soft ellipse inside each face box
