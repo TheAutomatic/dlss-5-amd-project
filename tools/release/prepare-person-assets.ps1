@@ -30,6 +30,16 @@ if(!(Test-Path -LiteralPath $pp)) {
     }
     Copy-Item -LiteralPath $download -Destination $pp
 }
+$face=Join-Path $assets 'yunet.onnx'
+if(!(Test-Path -LiteralPath $face)) {
+    # Official dynamic FP32 export; the worker uses a fixed 320x320 input.
+    $download=Join-Path $scratch 'yunet.onnx'
+    Invoke-WebRequest 'https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2026may.onnx' -OutFile $download
+    if((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ne 'EBAFCE4E3C118D6554634BE5C27AB333B4C047A9A8C3FAF1D7CF93101C22F0F0') {
+        throw 'YuNet model checksum mismatch.'
+    }
+    Copy-Item -LiteralPath $download -Destination $face
+}
 if(!(Test-Path -LiteralPath (Join-Path $assets 'yolo11n-seg.onnx'))) {
     Push-Location $scratch
     try {

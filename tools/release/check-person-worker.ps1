@@ -3,7 +3,7 @@ param([Parameter(Mandatory=$true)][string]$WorkerExe, [switch]$WriteReceipt)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $source='OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person'
-$paths=@("$source/PersonIpc.h", "$source/PersonModel.h", "$source/WorkerPolicy.h", "$source/worker/person_worker.cpp",
+$paths=@("$source/PersonIpc.h", "$source/PersonModel.h", "$source/FaceModel.h", "$source/WorkerPolicy.h", "$source/worker/person_worker.cpp",
     "$source/worker/person_worker.vcxproj", 'tools/build/build-person-worker.cmd', 'tools/release/check-person-worker.ps1',
     'third_party/onnxruntime/onnxruntime_c_api.h')
 function Hash([string]$path) {

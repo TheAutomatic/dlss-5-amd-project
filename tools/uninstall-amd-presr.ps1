@@ -175,6 +175,7 @@ $projectLeafNames = @(
     'person-model/onnxruntime.dll',
     'person-model/yolo11n-seg.onnx',
     'person-model/pphumanseg.onnx',
+    'person-model/yunet.onnx',
     'person-model/person-worker.exe', 'person-model/person-worker.log', 'person-model/person-worker.1.log',
     'person-model/msvcp140.dll', 'person-model/msvcp140_1.dll', 'person-model/msvcp140_2.dll',
     'person-model/msvcp140_atomic_wait.dll', 'person-model/msvcp140_codecvt_ids.dll',

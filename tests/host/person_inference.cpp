@@ -2,8 +2,38 @@
 #include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonSettings.h"
 #include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonDiagnostics.h"
 #include <cstdio>
+static void TestFaceDecode() {
+ using namespace DlssNr::Person;
+ if(ModelFileName(0)!=L"pphumanseg.onnx"||ModelFileName(1)!=L"yolo11n-seg.onnx"||ModelFileName(2)!=L"yunet.onnx")throw std::runtime_error("model selection");
+ std::array<std::vector<float>,3> cls,obj,box;
+ std::array<Face::Head,3> heads;
+ for(unsigned l=0;l<3;++l){const unsigned side=Face::InputSize/(8u<<l),n=side*side;
+  cls[l].resize(n);obj[l].resize(n);box[l].resize(n*4);heads[l]={cls[l],obj[l],box[l]};}
+ auto face=[&](unsigned index,float score){cls[0][index]=obj[0][index]=score;
+  box[0][4*index+2]=std::log(10.f);box[0][4*index+3]=std::log(12.f);};
+ constexpr unsigned center=20*40+20;face(center,.9f);
+ auto mask=Face::Decode(heads);
+ if(mask[80*160+80]<.99f||mask[120*160+80]!=0||mask[80*160+110]!=0)throw std::runtime_error("face mask extent");
+ // A duplicate box cannot broaden or darken the selected face.
+ face(center+1,.8f);box[0][4*(center+1)]=-1;
+ if(Face::Decode(heads)!=mask)throw std::runtime_error("face NMS");
+ cls[0][center+1]=0;
+ cls[0][center]=std::numeric_limits<float>::quiet_NaN();
+ auto invalid=Face::Decode(heads);if(std::any_of(invalid.begin(),invalid.end(),[](float v){return v!=0;}))throw std::runtime_error("nonfinite face score");
+ cls[0][center]=.9f;box[0][4*center+2]=10000;
+ invalid=Face::Decode(heads);if(std::any_of(invalid.begin(),invalid.end(),[](float v){return v!=0;}))throw std::runtime_error("unbounded face box");
+ heads[0].box=heads[0].box.first(1);bool rejected=false;
+ try{Face::Decode(heads);}catch(const std::runtime_error&){rejected=true;}
+ if(!rejected)throw std::runtime_error("face output size guard");
+ std::vector<float> rgb(3*640*640),input(3*320*320);
+ std::fill_n(rgb.data(),640*640,1.f);std::fill_n(rgb.data()+640*640,640*640,.5f);
+ Face::Prepare(rgb.data(),input);
+ if(input[0]!=0||input[320*320]!=127.5f||input[2*320*320]!=255)throw std::runtime_error("face BGR scale");
+ puts("face model: PASS (selection, oval, NMS, invalid tensors, BGR)");
+}
 int wmain(int argc,wchar_t**argv){
  try {
+  TestFaceDecode();
   using DlssNr::Person::Settings;
   using DlssNr::Person::MaskFreshness;
   if(Settings{}.ChangesSinglePass()||!Settings{.5f,1.f}.ChangesSinglePass())return 5;
@@ -31,13 +61,14 @@ int wmain(int argc,wchar_t**argv){
   d[4*8400]=std::numeric_limits<float>::quiet_NaN();
   mask=DlssNr::Person::Decode(d.data(),p.data());if(mask[80*160+80]!=0)return 3;
   if(argc>1){
-   DlssNr::Person::Inference model;model.Open(argv[1]);
+   const std::wstring file=argc>2?argv[2]:L"";
+   DlssNr::Person::Inference model;model.Open(argv[1],2,file);
    DlssNr::Person::Image image{1,1,GetTickCount64(),1920,1080,std::vector<float>(3*640*640,.5f)};
    auto output=model.Run(image);
    if(output.values.size()!=160*160)return 4;
    std::printf("actual CPU model: %.0f ms, finite mask %zu\n",output.milliseconds,output.values.size());
    DlssNr::Person::Provider provider;
-   provider.Configure(true,argv[1]);
+   provider.Configure(true,argv[1],file);
    auto start=GetTickCount64();
    while(!provider.Ready()){
     if(GetTickCount64()-start>10000)throw std::runtime_error(provider.Status());

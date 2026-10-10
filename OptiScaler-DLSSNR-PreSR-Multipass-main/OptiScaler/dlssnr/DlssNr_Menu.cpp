@@ -286,11 +286,11 @@ static void RenderSharedOutputEffects(Config* config)
     if (person) {
         ImGui::BeginDisabled(!personSupported || overallIntensity == 0);
         int model = config->NrPersonModel.value_or_default();
-        if (MenuUi::Combo("Person model", &model, "PP-HumanSeg (Fast ~8ms)\0YOLO11n-seg (Baseline ~64ms)\0")) {
+        if (MenuUi::Combo("Person model", &model, "PP-HumanSeg (Fast ~8ms)\0YOLO11n-seg (Baseline ~64ms)\0YuNet (Face only)\0")) {
             config->NrPersonModel = model;
             AmdBridge::InvalidateHistory();
         }
-        HelpMarker("Select the CPU neural network used for human segmentation.\nPP-HumanSeg: extremely fast (7-8 ms CPU), minimizes latency.\nYOLO11n-seg: baseline COCO segmentation model (64 ms CPU).");
+        HelpMarker("Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet uses a lightweight 320 input. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.");
         const auto bounded = Person::Settings {
             config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default(),
             config->NrPersonDebugMask.value_or_default() }.Bounded();

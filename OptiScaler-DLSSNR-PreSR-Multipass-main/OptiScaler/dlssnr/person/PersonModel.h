@@ -5,18 +5,21 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+#include "FaceModel.h"
 
 namespace DlssNr::Person
 {
 constexpr unsigned ModelSize = 640, MaskSize = 160;
 inline std::wstring ModelFileName(int modelIndex)
 {
+    if (modelIndex == 2) return L"yunet.onnx";
     return modelIndex == 1 ? L"yolo11n-seg.onnx" : L"pphumanseg.onnx";
 }
 struct Image
@@ -89,10 +92,11 @@ class Inference
     OrtSession* session = nullptr;
     OrtMemoryInfo* memory = nullptr;
     std::string inputName;
-    std::array<std::string,2> outputNames;
-    enum class ModelKind { Yolo, PpHumanSeg };
+    std::array<std::string,12> outputNames;
+    enum class ModelKind { Yolo, PpHumanSeg, YuNet };
     ModelKind kind = ModelKind::Yolo;
     std::vector<float> ppInput;
+    std::vector<float> faceInput;
     void Check(OrtStatus* status) {
         if(!status)return;
         std::string message=api->GetErrorMessage(status); api->ReleaseStatus(status); throw std::runtime_error(message);
@@ -108,6 +112,39 @@ class Inference
         if(rank!=expected.size()||element!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT)throw std::runtime_error("requires FP32 person model export");
         std::vector<int64_t> dims(rank);Check(api->GetDimensions(tensor,dims.data(),dims.size()));
         if(!std::equal(dims.begin(),dims.end(),expected.begin()))throw std::runtime_error("unsupported person model dimensions");
+    }
+    Mask RunFace(const float* rgb) {
+        const auto start = std::chrono::steady_clock::now();
+        Face::Prepare(rgb, faceInput);
+        const int64_t dims[] = {1,3,Face::InputSize,Face::InputSize};
+        OrtValue* input=nullptr; std::array<OrtValue*,12> output{};
+        struct Guard { const OrtApi* a; OrtValue*& in; std::array<OrtValue*,12>& out;
+            ~Guard(){if(in)a->ReleaseValue(in);for(auto* p:out)if(p)a->ReleaseValue(p);}
+        } guard{api,input,output};
+        Check(api->CreateTensorWithDataAsOrtValue(memory,faceInput.data(),faceInput.size()*sizeof(float),
+              dims,4,ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,&input));
+        const char* inputs[]={inputName.c_str()};const OrtValue* in=input;
+        std::array<const char*,12> outputs;for(size_t i=0;i<outputs.size();++i)outputs[i]=outputNames[i].c_str();
+        Check(api->Run(session,nullptr,inputs,&in,1,outputs.data(),outputs.size(),output.data()));
+        std::array<std::span<const float>,12> values;
+        for (unsigned i=0;i<output.size();++i) {
+            OrtTensorTypeAndShapeInfo* shape=nullptr;Check(api->GetTensorTypeAndShape(output[i],&shape));
+            struct ShapeGuard{const OrtApi* a;OrtTensorTypeAndShapeInfo* p;~ShapeGuard(){a->ReleaseTensorTypeAndShapeInfo(p);}} release{api,shape};
+            size_t rank=0;Check(api->GetDimensionsCount(shape,&rank));
+            if(rank!=3)throw std::runtime_error("unsupported face output rank");
+            int64_t actual[3];Check(api->GetDimensions(shape,actual,3));
+            ONNXTensorElementDataType type;Check(api->GetTensorElementType(shape,&type));
+            const int64_t side=Face::InputSize/(8u<<(i%3)),channels=i<6?1:i<9?4:10;
+            if(type!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT||actual[0]!=1||actual[1]!=side*side||actual[2]!=channels)
+                throw std::runtime_error("unsupported face output dimensions");
+            float* data=nullptr;Check(api->GetTensorMutableData(output[i],reinterpret_cast<void**>(&data)));
+            values[i]={data,size_t(side*side*channels)};
+        }
+        std::array<Face::Head,3> heads;
+        for(unsigned i=0;i<3;++i)heads[i]={values[i],values[i+3],values[i+6]};
+        Mask mask;mask.values=Face::Decode(heads);
+        mask.milliseconds=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+        return mask;
     }
     Mask RunPpHumanSeg(const float* rgb, unsigned reqWidth, unsigned reqHeight) {
         const auto start=GetTickCount64();
@@ -265,12 +302,26 @@ public:
             OrtAllocator* allocator=nullptr;Check(api->GetAllocatorWithDefaultOptions(&allocator));
             char* name=nullptr;Check(api->SessionGetInputName(session,0,allocator,&name)); inputName=name;allocator->Free(allocator,name);
             for(size_t i=0;i<2;++i){name=nullptr;Check(api->SessionGetOutputName(session,i,allocator,&name));outputNames[i]=name;allocator->Free(allocator,name);}
+        } else if(outCount==12) {
+            kind=ModelKind::YuNet;
+            Shape(true,0,{1,3,-1,-1});
+            OrtAllocator* allocator=nullptr;Check(api->GetAllocatorWithDefaultOptions(&allocator));
+            char* name=nullptr;Check(api->SessionGetInputName(session,0,allocator,&name));inputName=name;allocator->Free(allocator,name);
+            const char* groups[]={"cls_","obj_","bbox_","kps_"};
+            for(unsigned i=0;i<12;++i) {
+                Check(api->SessionGetOutputName(session,i,allocator,&name));outputNames[i]=name;allocator->Free(allocator,name);
+                if(outputNames[i]!=std::string(groups[i/3])+std::to_string(8u<<(i%3)))
+                    throw std::runtime_error("unsupported YuNet output names");
+                Shape(false,i,{1,-1,i<6?1:i<9?4:10});
+            }
+            faceInput.resize(3*Face::InputSize*Face::InputSize);
         } else {
             throw std::runtime_error("unsupported person model output count");
         }
         Check(api->CreateCpuMemoryInfo(OrtArenaAllocator,OrtMemTypeDefault,&memory));
     }
     Mask RunRgb(float* rgb, unsigned reqWidth = 0, unsigned reqHeight = 0) {
+        if (kind == ModelKind::YuNet) return RunFace(rgb);
         if (kind == ModelKind::PpHumanSeg) {
             return RunPpHumanSeg(rgb, reqWidth, reqHeight);
         }
@@ -293,7 +344,7 @@ public:
         mask.width=image.width;mask.height=image.height;return mask;
     }
     bool IsPpHumanSeg() const { return kind == ModelKind::PpHumanSeg; }
-    const char* ModelName() const { return kind == ModelKind::PpHumanSeg ? "PP-HumanSeg" : "YOLO11n-seg"; }
+    const char* ModelName() const { return kind == ModelKind::YuNet ? "YuNet (Face only)" : kind == ModelKind::PpHumanSeg ? "PP-HumanSeg" : "YOLO11n-seg"; }
 };
 
 }

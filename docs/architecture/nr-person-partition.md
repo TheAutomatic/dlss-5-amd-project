@@ -17,12 +17,26 @@ Put a CPU x64 ONNX Runtime (C API 23 or newer) at
 The worker removes capture letterboxing before PP inference and restores it in
 the returned mask. `NrPersonModel=1` selects YOLO11n-seg FP32 COCO at
 `person-model/yolo11n-seg.onnx`: `[1,3,640,640]` -> `[1,116,8400]` and
-`[1,32,160,160]`. The menu/INI choice wins; changing the model restarts the worker
+`[1,32,160,160]`. `NrPersonModel=2` selects YuNet at `person-model/yunet.onnx`:
+the official dynamic FP32 export is evaluated at `[1,3,320,320]` BGR `[0,255]`.
+Its 12 named outputs (cls/obj/bbox/kps at strides 8/16/32) are validated at load
+and inference. Scores use `sqrt(cls*obj)` with a 0.6 threshold and 0.3-IoU NMS,
+bounded to 256 candidates and 16 faces. A soft ellipse inside each face box
+produces the same 160-square letterboxed mask. It is not skin/hair segmentation;
+small, turned or occluded faces may be missed, and clothing is not protected.
+Only the selected model runs: YuNet does not load PP or add a second worker.
+The menu/INI choice wins; changing the model restarts the worker
 and resets host mask history. Existing explicit YOLO choices are preserved.
 Other exports are rejected explicitly. Model availability depends on the installed
 package; the provider never downloads missing files. Observe the model's own license; compatibility does not grant
 redistribution rights. PP segments people; YOLO ignores COCO classes other than
-person. Neither identifies a particular player or detects only faces.
+person. YuNet detects faces without identifying a person. None tracks player identity.
+
+YuNet source: OpenCV Zoo commit `47534e27c9851bb1128ccc0102f1145e27f23f98`,
+`models/face_detection_yunet/face_detection_yunet_2026may.onnx` (229738 bytes),
+SHA256 `ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0`.
+The directory and weights are MIT licensed; the package includes `Licenses/YuNet_MIT.txt`.
+This option narrows the protection area; it does not repair a backend's own temporal flicker.
 
 The Microsoft MIT C headers are pinned to v1.23.2. PP uses its foreground
 probability output; the YOLO decoder applies NMS and reconstructs instance masks.
