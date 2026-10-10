@@ -2,6 +2,7 @@
 #include "PersonInference.h"
 #include "PersonShader.h"
 #include "PersonSettings.h"
+#include "PersonDiagnostics.h"
 #include "../effects/NrOutputEffects.h"
 #include "../backend/lmxxf_runtime/TemporalControl.h"
 #include "../backend/lmxxf_runtime/LmxxfShaderCompiler.h"
@@ -55,7 +56,9 @@ struct Guide {
 struct Storage {
  std::shared_ptr<Pipeline> pipeline;
  std::shared_ptr<Guide> guide;
- ComPtr<ID3D12Resource> output,maskUpload,input,readback;
+ ComPtr<ID3D12Resource> output,maskUpload,input,readback,maskReadback;
+ D3D12_PLACED_SUBRESOURCE_FOOTPRINT maskFootprint{};
+ UINT64 maskReadbackBytes=0;
  ComPtr<ID3D12DescriptorHeap> heap;
  unsigned width=0,height=0;
  UINT64 bytes=0;
@@ -70,7 +73,8 @@ struct State {
  uint64_t epoch=1,frame=0,submitted=0;
  unsigned width=0,height=0;
  std::string status;
- void Invalidate(){++epoch;submitted=0;history.clear();pendingCapture.reset();}
+ PersonDiagnostics diagnostic;
+ void Invalidate(ResetReason reason=ResetReason::External){diagnostic.Reset(reason);++epoch;submitted=0;history.clear();pendingCapture.reset();}
 };
 inline State& Global(){static auto*s=new State;return *s;}
 inline void Collect();
@@ -84,6 +88,8 @@ struct Lease final:Submission::RecordingObserver {
  Submission::RecordingIdentity identity{};
  uint64_t epoch=0,frame=0,previous=0,tick=0,maskTick=0;
  bool invalidated=false,unconfirmed=false,sent=false,continuation=false;
+ bool diagnosticCaptured=false,diagnosticCollected=false;
+ uint64_t diagnosticGeneration=0;
  unsigned executions=0;
  HRESULT BeforeExecute(const Submission::RecordingExecution&e)noexcept override{
   try {
@@ -97,8 +103,11 @@ struct Lease final:Submission::RecordingObserver {
    if(p.completions.size()>=64)return E_OUTOFMEMORY;
    const auto now=GetTickCount64();
    const bool temporalValid=executions==0&&epoch==s.epoch&&previous==s.submitted&&now-tick<=250;
-   if(!temporalValid)s.Invalidate();
+   if(!temporalValid)s.Invalidate(executions?ResetReason::Replay:epoch!=s.epoch?ResetReason::Epoch:
+      previous!=s.submitted?ResetReason::Order:ResetReason::Delayed);
    const uint32_t valid=temporalValid&&(now-maskTick<=250);
+   if(s.diagnostic.enabled){++s.diagnostic.executed;s.diagnostic.submitDelay.Add(now-tick);
+    if(temporalValid&&now-maskTick>250)++s.diagnostic.executionExpired;}
    ++executions;unconfirmed=p.unconfirmed=true;
    p.control.Submit(p.device.Get(),e.queue,&valid,sizeof(valid),completions,p.completions);
    unconfirmed=p.unconfirmed=false;return S_OK;
@@ -114,7 +123,7 @@ struct Lease final:Submission::RecordingObserver {
    if(epoch==s.epoch&&executions==1&&(!continuation||e.continuationSubmitted)){
     s.submitted=frame;s.history.push_back(storage->guide);
     if(s.history.size()>HistoryCount)s.history.erase(s.history.begin());
-   }else s.Invalidate();
+   }else s.Invalidate(epoch!=s.epoch?ResetReason::Epoch:executions!=1?ResetReason::Replay:ResetReason::Continuation);
    unconfirmed=p.unconfirmed=false;
   }catch(...){unconfirmed=p.unconfirmed=false;}
  }
@@ -127,13 +136,31 @@ inline void Collect(){
  for(auto it=s.leases.begin();it!=s.leases.end();){
   auto&l=**it;const bool removed=FAILED(l.storage->pipeline->device->GetDeviceRemovedReason());
   auto&v=l.completions;v.erase(std::remove_if(v.begin(),v.end(),[](auto&p){return p->Complete();}),v.end());
+  if(!removed&&l.diagnosticCaptured&&!l.diagnosticCollected&&l.executions==1&&!l.unconfirmed&&v.empty()){
+   l.diagnosticCollected=true;
+   if(s.diagnostic.enabled&&l.diagnosticGeneration==s.diagnostic.generation){
+    void* data=nullptr;D3D12_RANGE range{0,SIZE_T(l.storage->maskReadbackBytes)};
+    if(SUCCEEDED(l.storage->maskReadback->Map(0,&range,&data))){
+     uint64_t coverage=0,valid=0;
+     for(unsigned y=0;y<160;++y){auto* row=reinterpret_cast<const float*>(static_cast<const char*>(data)+
+       l.storage->maskFootprint.Offset+y*l.storage->maskFootprint.Footprint.RowPitch);
+      for(unsigned x=0;x<160;++x){coverage+=row[2*x]>.5f;valid+=row[2*x+1]>.5f;}}
+     D3D12_RANGE written{0,0};l.storage->maskReadback->Unmap(0,&written);
+     s.diagnostic.warpedCoverage.Add(coverage*10000/(160*160));s.diagnostic.warpValid.Add(valid*10000/(160*160));
+    }
+   }
+  }
   if(!removed&&!l.sent&&l.storage->readback&&l.executions==1&&!l.unconfirmed&&v.empty()){
    l.sent=true;
-   if(l.epoch==s.epoch&&GetTickCount64()-l.tick<=250&&Worker().Ready()){
+   const auto elapsed=GetTickCount64()-l.tick;
+   if(s.diagnostic.enabled)s.diagnostic.captureAge.Add(elapsed);
+   bool submitted=false;
+   if(l.epoch==s.epoch&&elapsed<=250&&Worker().Ready()){
     auto image=std::make_shared<Image>();image->epoch=l.epoch;image->frame=l.frame;image->tick=l.tick;image->width=l.storage->width;image->height=l.storage->height;
     image->rgb.resize(3*ModelSize*ModelSize);void*data=nullptr;D3D12_RANGE range{0,image->rgb.size()*sizeof(float)};
-    if(SUCCEEDED(l.storage->readback->Map(0,&range,&data))){memcpy(image->rgb.data(),data,range.End);D3D12_RANGE written{0,0};l.storage->readback->Unmap(0,&written);Worker().Submit(image);}
+    if(SUCCEEDED(l.storage->readback->Map(0,&range,&data))){memcpy(image->rgb.data(),data,range.End);D3D12_RANGE written{0,0};l.storage->readback->Unmap(0,&written);submitted=Worker().Submit(image);}
    }
+   if(s.diagnostic.enabled){if(submitted)++s.diagnostic.captureSubmitted;else ++s.diagnostic.captureDiscarded;}
   }
   if(l.invalidated&&(removed||(!l.unconfirmed&&v.empty())))it=s.leases.erase(it);else ++it;
  }
@@ -158,6 +185,10 @@ inline void Reset(){
  std::lock_guard lock(Submission::RecordingMutex());auto&s=Global();s.Invalidate();s.pool.clear();s.pipeline.reset();s.status.clear();Collect();ScheduleCollection();
 }
 inline std::string Status(){std::lock_guard lock(Submission::RecordingMutex());return Global().status+" | "+Worker().Status();}
+inline std::string DiagnosticReport(bool enabled)noexcept{
+ try{std::lock_guard lock(Submission::RecordingMutex());auto& d=Global().diagnostic;
+  const auto now=GetTickCount64();d.Enable(enabled,now);return d.Report(now);}catch(...){return {};}
+}
 inline bool Prepare(bool enabled,const std::filesystem::path& directory, int modelIndex = 0){
  try {
   const auto modelFile = DlssNr::Person::ModelFileName(modelIndex);
@@ -172,8 +203,9 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
  std::shared_ptr<const Mask> mask = Worker().Latest(), Settings settings = {}){
  settings=settings.Bounded();
  std::lock_guard lock(Submission::RecordingMutex());auto&s=Global();
+ s.diagnostic.Enable(settings.debugMask,GetTickCount64());
  if(!cmd||cmd->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT||!first||!final||!Effects::ValidGuides(guides,width,height)||guides.jittered){
-  s.Invalidate();s.status="Person partition bypassed: first pass or reliable motion/depth unavailable";return final;
+  s.Invalidate(ResetReason::Guides);s.status="Person partition bypassed: first pass or reliable motion/depth unavailable";return final;
  }
  try {
   Collect();ComPtr<ID3D12Device>device;Check(cmd->GetDevice(IID_PPV_ARGS(&device)));
@@ -181,8 +213,8 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   for(auto desc:{a,b,c})if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.DepthOrArraySize!=1||desc.SampleDesc.Count!=1||
     desc.Width<width||desc.Height<height||(desc.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)||!Effects::ColorFormat(desc.Format))
      throw std::runtime_error("unsupported person colour texture");
-  if(guides.reset||s.width!=width||s.height!=height){s.Invalidate();s.width=width;s.height=height;s.pool.clear();}
-  if(!s.pipeline||s.pipeline->device.Get()!=device.Get()||s.pipeline->unconfirmed){s.Invalidate();s.pool.clear();s.pipeline=Pipeline::Create(device.Get());}
+  if(guides.reset||s.width!=width||s.height!=height){s.Invalidate(ResetReason::Resize);s.width=width;s.height=height;s.pool.clear();}
+  if(!s.pipeline||s.pipeline->device.Get()!=device.Get()||s.pipeline->unconfirmed){s.Invalidate(ResetReason::Device);s.pool.clear();s.pipeline=Pipeline::Create(device.Get());}
   ComPtr<Submission::ILogicalCommandList>logical;ComPtr<Submission::IRecordingResources>observer;
   Check(cmd->QueryInterface(IID_PPV_ARGS(&logical)));Check(cmd->QueryInterface(IID_PPV_ARGS(&observer)));
   if(!observer->CanAppendCompute())throw std::runtime_error("person recording state");
@@ -216,6 +248,20 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
    }
   }
   if(!accepted){age=0;lease->history.clear();}
+  if(s.diagnostic.enabled){
+   auto reason=accepted?MaskDecision::Accepted:!mask?MaskDecision::Missing:
+    mask->epoch!=s.epoch?MaskDecision::Epoch:mask->values.size()!=160*160||mask->width!=width||mask->height!=height?MaskDecision::Size:
+    lease->tick-mask->tick>250?MaskDecision::Expired:mask->frame>s.frame||s.frame-mask->frame>HistoryCount?MaskDecision::FrameAge:MaskDecision::Guides;
+   s.diagnostic.Mask(reason);
+   if(mask){s.diagnostic.maskAge.Add(lease->tick-mask->tick);
+    if(mask->epoch!=s.diagnostic.rawEpoch||mask->frame!=s.diagnostic.rawFrame){
+     s.diagnostic.rawEpoch=mask->epoch;s.diagnostic.rawFrame=mask->frame;
+     s.diagnostic.arrivalAge.Add(lease->tick-mask->tick);
+     if(!mask->values.empty())s.diagnostic.rawCoverage.Add(
+      uint64_t(std::count_if(mask->values.begin(),mask->values.end(),[](float v){return v>.5f;}))*10000/mask->values.size());
+    }
+   }
+  }
   storage->guide->maskAccepted=accepted;
   lease->maskTick=accepted?mask->tick:lease->tick;
   void*mapped=nullptr;D3D12_RANGE noRead{0,0};Check(storage->maskUpload->Map(0,&noRead,&mapped));
@@ -225,6 +271,12 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   if(capture){if(!storage->input)storage->input=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_DEFAULT,true);
    if(!storage->readback)storage->readback=Buffer(device.Get(),3*640*640*4,D3D12_HEAP_TYPE_READBACK);s.pendingCapture=lease;
   }else lease->sent=true;
+  if(s.diagnostic.Sample(lease->tick))try{
+   if(!storage->maskReadback){auto desc=storage->guide->mask->GetDesc();
+    device->GetCopyableFootprints(&desc,0,1,0,&storage->maskFootprint,nullptr,nullptr,&storage->maskReadbackBytes);
+    storage->maskReadback=Buffer(device.Get(),storage->maskReadbackBytes,D3D12_HEAP_TYPE_READBACK);}
+   lease->diagnosticCaptured=true;lease->diagnosticGeneration=s.diagnostic.generation;
+  }catch(...){/* Optional diagnostics must not bypass person protection. */}
   s.leases.push_back(lease);if(FAILED(observer->ObserveResources(lease))){lease->invalidated=true;Collect();return final;}
   const auto stride=device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
   auto cpu=storage->heap->GetCPUDescriptorHandleForHeapStart();
@@ -256,11 +308,17 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   Effects::Barrier(cmd,storage->guide->texture.Get(),write,read);
   if(capture){Effects::Barrier(cmd,storage->input.Get(),write,D3D12_RESOURCE_STATE_COPY_SOURCE);cmd->CopyBufferRegion(storage->readback.Get(),0,storage->input.Get(),0,3*640*640*4);Effects::Barrier(cmd,storage->input.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,write);}
   Effects::Barrier(cmd,storage->guide->mask.Get(),read,write);cmd->SetPipelineState(s.pipeline->warp.Get());cmd->Dispatch(20,20,1);Effects::Barrier(cmd,storage->guide->mask.Get(),write,read);
+  if(lease->diagnosticCaptured){
+   Effects::Barrier(cmd,storage->guide->mask.Get(),read,D3D12_RESOURCE_STATE_COPY_SOURCE);
+   D3D12_TEXTURE_COPY_LOCATION src{},dst{};src.pResource=storage->guide->mask.Get();src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+   dst.pResource=storage->maskReadback.Get();dst.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;dst.PlacedFootprint=storage->maskFootprint;
+   cmd->CopyTextureRegion(&dst,0,0,0,&src,nullptr);Effects::Barrier(cmd,storage->guide->mask.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,read);
+  }
   Effects::Barrier(cmd,storage->output.Get(),read,write);cmd->SetPipelineState(s.pipeline->compose.Get());cmd->Dispatch((width+7)/8,(height+7)/8,1);Effects::Barrier(cmd,storage->output.Get(),write,read);
   Effects::Barrier(cmd,original,read,originalState);Effects::Barrier(cmd,guides.motion,read,guides.motionState);Effects::Barrier(cmd,guides.depth,read,guides.depthState);
   s.status=accepted?"Person protection active":"Person partition: waiting for a current mask";
   return storage->output.Get();
- }catch(const std::exception&e){s.Invalidate();s.status=e.what();return final;}catch(...){s.Invalidate();s.status="person preparation failed";return final;}
+ }catch(const std::exception&e){s.Invalidate(ResetReason::Error);s.status=e.what();return final;}catch(...){s.Invalidate(ResetReason::Error);s.status="person preparation failed";return final;}
 }
 }
 

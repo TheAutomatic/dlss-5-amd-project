@@ -124,6 +124,18 @@ int main(){
  {auto r=record(tooOld);check(r,q.Get(),.7f,.7f);}
  Person::Reset();
  Require(Person::Global().leases.empty(),"temporal mask history resources retired");
+ // Overlay diagnostics read only completed recordings and do not extend their
+ // lifetime. The half-image fixture is present both before and after warping.
+ {auto r=record();check(r,q.Get(),.7f,.7f);}
+ {
+  auto r=record(fresh(),{1,1,true});Check(r.proxy->ExecuteOn(q.Get()),"diagnostic execute");WaitQueue(d.Get(),q.Get());
+  Person::Poll();auto& diagnostic=Person::Global().diagnostic;
+  Require(diagnostic.rawCoverage.count==1&&diagnostic.rawCoverage.Mean()==5000,"raw diagnostic coverage");
+  Require(diagnostic.warpedCoverage.count==1&&diagnostic.warpedCoverage.Mean()==5000,"GPU diagnostic coverage");
+  Require(diagnostic.warpValid.count==1&&diagnostic.warpValid.Mean()==10000,"GPU diagnostic validity");
+  Person::Poll();Require(diagnostic.warpedCoverage.count==1,"diagnostic sample collected once");
+ }
+ Person::Reset();Require(Person::Global().leases.empty(),"diagnostic resources retired");
  Ptr<ID3D12InfoQueue>info;if(SUCCEEDED(d.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;info->GetMessage(i,nullptr,&bytes);std::vector<char>data(bytes);auto*m=reinterpret_cast<D3D12_MESSAGE*>(data.data());info->GetMessage(i,m,&bytes);if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)std::fprintf(stderr,"%s\n",m->pDescription);Require(m->Severity>D3D12_MESSAGE_SEVERITY_ERROR,"D3D12 debug");}
  puts("person partition: PASS (first/final, alpha, two-frame motion, time/reset rejection, stale/replay, disocclusion, closed-list lifetime)");
 }

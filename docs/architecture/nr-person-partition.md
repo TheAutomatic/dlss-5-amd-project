@@ -209,6 +209,26 @@ preprocess enable/disable and old-recording replay. Measure the extra full-frame
 transfer and format conversion as well as memory. None of these hardware/game
 checks was run in this implementation phase.
 
+## Diagnosing intermittent masks
+
+The existing **Show person mask** overlay also enables a summary in OptiScaler.log
+at most once every two seconds. `Person mask diagnostic` separates record-time
+rejections (missing result, epoch, dimensions, 250 ms expiry, 24-frame limit,
+missing guides), submission-time expiry, history resets and capture delivery.
+Age begins when the source image is recorded, not when CPU inference finishes;
+`arrival_age_ms` is the age when the render thread first observes that result.
+
+Coverage is counted above 0.5 on the 160x160 mask grid, in ten-thousandths
+(10000 = the entire grid). Raw coverage describes model output; warped coverage
+and validity describe the GPU reprojection **before** expiry fade and final
+depth-aware upsampling. Their difference is diagnostic, not a direct quality
+score. The log records sample count, minimum, mean and maximum.
+GPU readbacks are sampled at most ten times per second, collected only after
+the existing completion fence, and retained by the existing recording lease.
+No new GPU wait, model change, lifetime extension or relaxed rejection is used.
+Disabling the overlay disables sampling and summaries. These measurements still
+require game reproduction; an empty overlay alone does not identify the cause.
+
 ## Local sync review
 
 The same-pin audit uses the previous official integration range

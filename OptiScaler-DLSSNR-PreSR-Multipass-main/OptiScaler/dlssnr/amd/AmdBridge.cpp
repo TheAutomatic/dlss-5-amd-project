@@ -958,6 +958,8 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
         }
     }
     else { DlssNr::Effects::InvalidateHistory(); DlssNr::Person::Invalidate(); }
+    if (auto report = DlssNr::Person::DiagnosticReport(personWanted && personSettings.debugMask); !report.empty())
+        LOG_INFO("{}", report);
     return true;
 }
 bool HasReplacement(NVSDK_NGX_Parameter* params)

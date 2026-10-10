@@ -1,5 +1,6 @@
 #include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonInference.h"
 #include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonSettings.h"
+#include "../../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/person/PersonDiagnostics.h"
 #include <cstdio>
 int wmain(int argc,wchar_t**argv){
  try {
@@ -10,6 +11,19 @@ int wmain(int argc,wchar_t**argv){
   if(bounded.strength!=1||bounded.detail!=0)return 6;
   if(MaskFreshness(200)!=1||MaskFreshness(225)!=.5f||MaskFreshness(250)!=0||
      MaskFreshness(UINT64_MAX)!=0)return 7;
+  DlssNr::Person::PersonDiagnostics diagnostic;
+  diagnostic.Enable(true,1000);
+  diagnostic.Mask(DlssNr::Person::MaskDecision::Expired);
+  diagnostic.maskAge.Add(270);
+  if(!diagnostic.Sample(1000)||diagnostic.Sample(1050)||!diagnostic.Sample(1100)||
+     !diagnostic.Report(2999).empty())return 10;
+  auto report=diagnostic.Report(3000);
+  if(report.find("=0/0/0/0/1/0/0")==std::string::npos||
+     report.find("mask_age_ms[n/min/mean/max]=1/270/270/270")==std::string::npos||
+     diagnostic.maskAge.count||!diagnostic.Report(3001).empty())return 11;
+  const auto generation=diagnostic.generation;
+  diagnostic.Enable(false,3001);
+  if(diagnostic.Sample(6000)||!diagnostic.Report(6000).empty()||diagnostic.generation==generation)return 12;
   std::vector<float>d(116*8400),p(32*160*160,1.f);
   d[0]=d[8400]=320;d[2*8400]=d[3*8400]=160;d[4*8400]=.9f;d[84*8400]=5;
   auto mask=DlssNr::Person::Decode(d.data(),p.data());
