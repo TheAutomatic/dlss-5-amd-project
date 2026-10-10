@@ -17,7 +17,7 @@ inline const char* SectionName(Section section)
     switch (section) {
     case Section::Input: return "Prepare NR input";
     case Section::Model: return "NR model";
-    case Section::Output: return "Apply NR edit";
+    case Section::Output: return "Apply NR edit (experimental)";
     }
     return "NR model";
 }
@@ -42,7 +42,7 @@ inline void Draw(const View& view, Section& selected)
     const std::array<Node, 3> nodes {{
         {MenuLocale::Translate("Prepare NR input"), MenuLocale::Translate(view.input.c_str()), int(Section::Input)},
         {MenuLocale::Translate("NR model"), MenuLocale::Translate(view.model.c_str()), int(Section::Model)},
-        {MenuLocale::Translate("Apply NR edit"), MenuLocale::Translate(view.output.c_str()), int(Section::Output)}
+        {MenuLocale::Translate("Apply NR edit (experimental)"), MenuLocale::Translate(view.output.c_str()), int(Section::Output)}
     }};
     float height = 0;
     for (const auto& node : nodes)

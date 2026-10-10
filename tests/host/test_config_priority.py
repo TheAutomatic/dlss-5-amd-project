@@ -63,7 +63,7 @@ class ConfigPriorityTests(unittest.TestCase):
                 "LmxxfModelHistory",  # Host-owned FrameInfo flag, not an upstream environment key.
                 "NrStabilizerEnabled", "NrStabilizerAlpha", "NrStabilizerThreshold",
                 "NrOverallIntensity",  # Shared final-output blend, no runtime environment alias.
-                "NrPersonPartition", "NrPersonStrength", "NrPersonDetailGain", "NrPersonDebugMask",  # Host mask/compositor.
+                "NrPersonPartition", "NrPersonModel", "NrPersonStrength", "NrPersonDetailGain", "NrPersonDebugMask", "NrFaceInputSize",  # Host mask/compositor.
                 "NrResidualLowGain", "NrResidualDetailGain", "NrResidualSkinProtection", "NrResidualEdgeProtection",
                 "kSection",
                 "kDanielSection",

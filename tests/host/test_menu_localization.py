@@ -27,6 +27,7 @@ class MenuLocalizationTests(unittest.TestCase):
         for literal in labels:
             self.assertIn(json.loads(literal), dict(ENTRIES))
         for text in ('Language', 'Input', 'Model', 'Output', 'Prepare NR input', 'NR model', 'Apply NR edit',
+                     'Apply NR edit (experimental)',
                      'Temporal history', 'Temporal history (anti-flicker)', 'ViT adaptive reuse', 'Save Settings', 'Close',
                      'Low-frequency gain', 'Fine-detail gain', 'Skin detail protection', 'Edge detail protection',
                      'Person protection', 'Person NR strength', 'Person detail'):
