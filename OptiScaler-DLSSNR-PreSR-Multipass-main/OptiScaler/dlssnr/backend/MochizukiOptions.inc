@@ -13,6 +13,8 @@ MZ_B(MochizukiCompactTransfer, true, 0, 1, 7, "Reuse output buffer", controls.co
 MZ_F(MochizukiWhitePoint, 1.f, .01f, 100.f, 4, "White point", controls.white_point)
 MZ_F(MochizukiModelScale, 1.f, .25f, 1.f, 1, "Model scale", frame.model_scale)
 MZ_U(MochizukiPasses, 1u, 1, 3, 1, "Passes", frame.passes)
+MZ_B(MochizukiAco, false, 0, 1, 1, "ACO mode", controls.aco)
+MZ_B(MochizukiAcoExplicitBarriers, true, 0, 1, 1, "ACO explicit barriers", controls.aco_explicit_barriers)
 MZ_B(MochizukiTemporal, true, 0, 1, 2, "Temporal history", temporal)
 MZ_F(MochizukiHistoryStrength, 1.f, 0.f, 1.f, 2, "History strength", controls.history_strength)
 MZ_B(MochizukiPreprocess, false, 0, 1, 3, "Enable preprocessing", controls.preprocess)

@@ -43,6 +43,7 @@
 #include <d3dkmthk.h> // D3DKMTQueryVideoMemoryInfo, for the VRAM check (VideoMemory)
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
+#include <nr_pipeline_binary.hpp>
 
 #include "mz_interpose.h"
 #include "nr_log.hpp"
@@ -59,6 +60,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -579,6 +581,8 @@ struct SessionControls
     float white = 1.f;       // Runtime::set_white_point
     uint32_t linearMode = 0; // MochizukiNrControls::linear_input: 0 auto, 1 on, 2 off
     bool compactTransfer = true;
+    bool aco = false;
+    bool acoExplicitBarriers = true;
     uint32_t maxPasses = 0;  // 0: the frame's passes
     uint32_t drsMode = 0;    // MochizukiNrControls::drs_mode: 0 exact, 1 auto, 2 always (Session::DrsExtent)
 };
@@ -608,6 +612,7 @@ void DefaultControls(MochizukiNrControls& c)
     c.preprocess_contrast = prep.contrast;
     c.preprocess_saturation = prep.saturation;
     c.compact_transfer = nr::RuntimeConfig{}.compact_transfer;
+    c.aco_explicit_barriers = nr::RuntimeConfig{}.aco_explicit_barriers;
     c.enlarge_mode = model.enlarge_mode;
     for (MochizukiNrPassControls& p : c.pass)
     {
@@ -635,6 +640,8 @@ SessionControls Sanitise(const MochizukiNrControls& c)
     m.apply_model = c.apply_model != 0;
     m.enlarge_mode = c.enlarge_mode <= 1 ? c.enlarge_mode : 0;
     out.compactTransfer = c.compact_transfer != 0;
+    out.aco = c.aco != 0;
+    out.acoExplicitBarriers = c.aco_explicit_barriers != 0;
     out.history = San(c.history_strength, 0.f, 1.f, 1.f);
     out.white = San(c.white_point, 0.01f, 100.f, 1.f);
     out.linearMode = c.linear_input <= 2 ? c.linear_input : 0;
@@ -680,6 +687,7 @@ struct Vulkan
     PFN_vkGetMemoryWin32HandlePropertiesKHR memoryHandleProperties {};
     PFN_vkImportSemaphoreWin32HandleKHR importSemaphore {};
     std::string name;
+    std::string acoUnavailable;
 
     // Throws "[unsupported] ..." for what cannot change while the process lives (no Vulkan 1.3 driver, no device
     // for the adapter, a missing extension or feature), anything else for a failure that may pass. What is absent is
@@ -853,9 +861,23 @@ struct Vulkan
         di.pQueueCreateInfos = &qi;
         di.enabledExtensionCount = uint32_t(enabled.size());
         di.ppEnabledExtensionNames = enabled.data();
+        const auto nativeExtensions = enabled;
+        const auto nativeNext = di.pNext;
+        nr::binary::Features acoFeatures;
+        acoFeatures.prepare(physical, di, enabled, true);
         VkDevice createdDevice {};
-        VkCheck(vkCreateDevice(physical, &di, nullptr, &createdDevice), "vkCreateDevice");
+        auto result = vkCreateDevice(physical, &di, nullptr, &createdDevice);
+        if (result != VK_SUCCESS && acoFeatures.active) {
+            acoFeatures.reject("the driver refused a device with pipeline binaries");
+            di.pNext = nativeNext;
+            di.enabledExtensionCount = uint32_t(nativeExtensions.size());
+            di.ppEnabledExtensionNames = nativeExtensions.data();
+            result = vkCreateDevice(physical, &di, nullptr, &createdDevice);
+        }
+        VkCheck(result, "vkCreateDevice");
         device = createdDevice;
+        acoUnavailable = acoFeatures.reason;
+        if (acoFeatures.active) nr::binary::mark(device, acoFeatures.device_id);
         probe.Report(device, physical);
         vkGetDeviceQueue(device, family, 0, &queue);
         buildQueue = queue;
@@ -884,7 +906,10 @@ struct Vulkan
     void Destroy()
     {
         if (device)
+        {
+            nr::binary::forget(device);
             vkDestroyDevice(device, nullptr);
+        }
         if (instance)
             vkDestroyInstance(instance, nullptr);
         device = {};
@@ -1309,12 +1334,15 @@ struct NetworkKey
     bool prep = false; // RuntimeConfig::preprocess
     bool compactTransfer = true;
     bool firstPass = false;
+    bool aco = false;
+    bool acoExplicitBarriers = true;
     bool operator==(const NetworkKey&) const = default;
     bool SameModel(const NetworkKey& other) const
     {
         return width == other.width && height == other.height && format == other.format &&
                scale == other.scale && linear == other.linear && prep == other.prep &&
-               compactTransfer == other.compactTransfer && firstPass == other.firstPass;
+               compactTransfer == other.compactTransfer && firstPass == other.firstPass && aco == other.aco &&
+               acoExplicitBarriers == other.acoExplicitBarriers;
     }
 };
 
@@ -1588,6 +1616,8 @@ struct Session
     // submitMutex. Only EnsureNetwork and ~Session join the builder, under buildMutex once buildDone is set.
     std::shared_ptr<nr::Runtime> runtime;
     NetworkKey net, buildKey;
+    struct AcoStatus { uint32_t state = 0, pipelines = 0, explicitBarriers = 0; char reason[192] {}; };
+    AcoStatus installedAco, builtAco; // installed: statsMutex; built: buildMutex publication
     // Auto DRS can still use exact extents (whole allocations, or no blit support).
     // A transient request must not take the working network away from normal frames.
     NetworkKey extentCandidate;
@@ -2721,6 +2751,7 @@ struct Session
         {
             std::lock_guard stats(statsMutex);
             gpuMsCount = gpuMsNext = 0;
+            installedAco = builtAco;
         }
         infoFrameWidth = net.width;
         infoFrameHeight = net.height;
@@ -2908,6 +2939,8 @@ struct Session
             config.preprocess = key.prep;
             config.compact_transfer = key.compactTransfer;
             config.first_pass_output = key.firstPass;
+            config.aco = key.aco;
+            config.aco_explicit_barriers = key.acoExplicitBarriers;
             // The linear path's frame is a proxy made with the soft knee, which the preprocess undoes first.
             config.preprocess_unknee = key.linear;
             nr::TemporalConfig temporal;
@@ -2990,6 +3023,7 @@ struct Session
         }
         std::shared_ptr<nr::Runtime> made;
         char error[sizeof buildError] {};
+        AcoStatus acoStatus;
         NrError::Kind kind = NrError::Other;
         try
         {
@@ -3007,22 +3041,80 @@ struct Session
                 throw std::runtime_error("vkAllocateMemory (MZ_TEST_UPGRADE_OOM_ONCE test hook): VkResult=-2");
             if (hooks.buildOomOnce && !g_buildOomInjected.exchange(true))
                 throw std::runtime_error("vkAllocateMemory (MZ_TEST_BUILD_OOM_ONCE test hook): VkResult=-2");
-            // The pipelines an earlier build recorded are compiled on several threads first, into the pipeline.cache
-            // the core then loads; the capture records this build's for the next one, and Finish saves what the core
-            // compiled after its own save (mz_interpose.h).
-            mzi::Capture pipelines(host.device, host.physical, assets);
-            ReportProgress(this, "Prewarming cached shader descriptions", 0, 0);
-            pipelines.Prewarm(&abandon);
-            if (abandon)
-                throw std::runtime_error("stopped: the session is being destroyed");
-            {
-                const nr::BuildCancelScope cancel(&abandon);
-                const nr::BuildProgressScope report(ReportProgress, this);
+            // The compiler choice is local to this build. Old recordings retain their
+            // pipelines; a fallback builds an entire native graph, never a mixed graph.
+            struct ClearAco { ~ClearAco() { nr::binary::configure("", {}, "", {}); } } clearAco;
+            nr::binary::configure("", {}, "", {});
+            auto fallback = [&](const std::string& reason) {
+                acoStatus.state = 2;
+                acoStatus.pipelines = 0;
+                std::snprintf(acoStatus.reason, sizeof acoStatus.reason, "%s", reason.c_str());
+                nr::logf("[mochizuki] ACO unavailable: %s; using the driver compiler", reason.c_str());
+                nr::binary::configure("", {}, "", {});
+            };
+            if (config.aco) try {
+                if (!nr::binary::enabled(host.device)) fallback(vk.acoUnavailable.empty()
+                    ? "this device does not support pipeline binaries" : vk.acoUnavailable);
+                else {
+                    const auto data = std::filesystem::path(config.root) / "dlssnr-amd";
+                    const auto bundle = data / "aco";
+                    if (!std::filesystem::is_directory(bundle / "shaders") ||
+                        !std::filesystem::is_directory(bundle / "records"))
+                        fallback("ACO assets are missing; update the complete package");
+                    else {
+                        std::map<std::string, std::string> aliases;
+                        std::ifstream aliasFile(bundle / "shell-aliases.txt");
+                        if (!aliasFile) throw std::runtime_error("ACO template aliases are missing; update the complete package");
+                        std::string name, target;
+                        while (aliasFile >> name) {
+                            if (!(aliasFile >> target)) throw std::runtime_error("incomplete ACO template alias");
+                            if (name.find_first_of("/\\:") != std::string::npos ||
+                                target.find_first_of("/\\:") != std::string::npos ||
+                                !name.ends_with(".spv") || !target.ends_with(".spv"))
+                                throw std::runtime_error("invalid ACO template alias");
+                            if (!aliases.emplace(name, target).second)
+                                throw std::runtime_error("duplicate ACO template alias");
+                        }
+                        std::error_code cacheError;
+                        const auto cache = data / "aco-cache";
+                        std::filesystem::create_directories(cache, cacheError);
+                        nr::binary::configure(bundle.string(),
+                            {(data / "shaders").string(), (data / "shaders/temporal").string()},
+                            cacheError ? std::string() : cache.string(), std::move(aliases));
+                    }
+                }
+            } catch (const std::exception& e) {
+                if (abandon || KindOf(e) != NrError::Other) throw;
+                fallback(e.what());
+            }
+            const nr::BuildCancelScope cancel(&abandon);
+            const nr::BuildProgressScope report(ReportProgress, this);
+            if (!nr::binary::directory().empty()) {
+                try {
+                    ReportProgress(this, "Building ACO network", 0, 0);
+                    made = std::make_shared<nr::Runtime>(host, config, nr::ControlMaskConfig {}, temporal);
+                    acoStatus.pipelines = nr::binary::mode().imported;
+                    if (!acoStatus.pipelines) throw std::runtime_error("no ACO pipelines were imported");
+                    acoStatus.state = 1;
+                    acoStatus.explicitBarriers = config.aco_explicit_barriers;
+                    nr::logf("[mochizuki] ACO network ready: %u imported pipelines, barriers=%s", acoStatus.pipelines,
+                             acoStatus.explicitBarriers ? "explicit" : "upstream");
+                } catch (const std::exception& e) {
+                    if (abandon || KindOf(e) != NrError::Other) throw;
+                    made.reset();
+                    fallback(e.what());
+                }
+            }
+            if (!made) {
+                mzi::Capture pipelines(host.device, host.physical, assets);
+                ReportProgress(this, "Prewarming cached shader descriptions", 0, 0);
+                pipelines.Prewarm(&abandon);
+                if (abandon) throw std::runtime_error("stopped: the session is being destroyed");
                 ReportProgress(this, "Preparing network graph", 0, 0);
                 made = std::make_shared<nr::Runtime>(host, config, nr::ControlMaskConfig {}, temporal);
+                ReportProgress(this, "Saving shader cache", 0, 0);
+                pipelines.Finish();
             }
-            ReportProgress(this, "Saving shader cache", 0, 0);
-            pipelines.Finish();
         }
         catch (const std::exception& e)
         {
@@ -3095,6 +3187,7 @@ struct Session
         std::memcpy(buildError, error, sizeof error);
         buildErrorKind = kind;
         buildSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        builtAco = acoStatus;
         buildDone = true;
         buildEnded.notify_all();
         if (!builderOwnsSession)
@@ -3939,7 +4032,7 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             nr::Controls model;
             float history = 1.f, white = 1.f;
             uint32_t linearMode = 0, maxPassesSetting = 0, drsMode = 0;
-            bool compactTransfer = true;
+            bool compactTransfer = true, aco = false, acoExplicitBarriers = true;
             {
                 std::lock_guard lock(s->controlsMutex);
                 model = s->controls.model;
@@ -3951,6 +4044,8 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
                 maxPassesSetting = s->controls.maxPasses;
                 drsMode = s->controls.drsMode;
                 compactTransfer = s->controls.compactTransfer;
+                aco = s->controls.aco;
+                acoExplicitBarriers = !aco || s->controls.acoExplicitBarriers;
             }
             // Automatic capacity grows as needed and is retained when fewer passes run.
             // An explicit prebuild count requests that exact capacity, at least the frame's passes.
@@ -3971,7 +4066,8 @@ int32_t CorePrepareFrame(void* context, const MochizukiNrFrameInfo* info, LmxxfN
             s->prepWanted = s->prepWanted || model.preprocess.active();
             g.firstPass = (info->flags & LMXXF_NR_FRAME_FLAG_FIRST_PASS) && passes > 1 &&
                 model.apply_model && !model.preprocess.active() && s->Blittable(cf.vk);
-            const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted, compactTransfer, g.firstPass };
+            const NetworkKey key { g.width, g.height, cf.vk, scale, maxPasses, linear, s->prepWanted, compactTransfer,
+                                   g.firstPass, aco, acoExplicitBarriers };
             std::string why;
             s->infoRequestedPasses = passes;
             if (!s->EnsureNetwork(key, g, colour, why, maxPassesSetting == 0, drsMode != 0 && !g.bucketed))
@@ -4315,8 +4411,8 @@ int32_t GetLastError(char* buf, uint32_t chars)
 // MochizukiNrControls.h. Every Controls field is 4 bytes and 4-aligned and the struct ends at its last field, so the
 // whole fields a caller's struct holds are its first struct_size & ~3 bytes.
 static_assert(alignof(MochizukiNrControls) == 4 &&
-              sizeof(MochizukiNrControls) == offsetof(MochizukiNrControls, enlarge_mode) +
-                                                 sizeof(MochizukiNrControls::enlarge_mode) &&
+              sizeof(MochizukiNrControls) == offsetof(MochizukiNrControls, aco_explicit_barriers) +
+                                                 sizeof(MochizukiNrControls::aco_explicit_barriers) &&
               offsetof(MochizukiNrControls, pass) == 72 && offsetof(MochizukiNrControls, preprocess) == 136 &&
               sizeof(MochizukiNrPassControls) == 32);
 // Info has no implicit padding (reserved0 fills the gap before frames), so its offsets do not depend on packing; its
@@ -4386,6 +4482,10 @@ int32_t GetInfo(void* context, MochizukiNrInfo* out)
         s->NetworkMs(info.gpu_ms_median, info.gpu_ms_p95);
         {
             std::lock_guard stats(s->statsMutex);
+            info.aco_state = s->installedAco.state;
+            info.aco_pipelines = s->installedAco.pipelines;
+            info.aco_explicit_barriers = s->installedAco.explicitBarriers;
+            std::memcpy(info.aco_reason, s->installedAco.reason, sizeof info.aco_reason);
             info.gpu_samples = s->gpuSamples;
             info.gpu_tick = s->gpuTick;
             if (s->gpuMsCount) {

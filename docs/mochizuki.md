@@ -17,8 +17,8 @@ completion-based resource release. Its build-progress display and execution-hist
 handling are described below. Exact reused components, source pins, licenses and
 local changes are in [the source record](../third_party/mochizuki/UPSTREAM.md).
 
-Upstream **v0.0.4 is Linux-only**; its official Windows preview remains v0.0.3.
-This integration has reviewed the v0.0.4 source and ported its HDR hue fix: bright
+The original Windows baseline is v0.0.3; the v0.0.4 review ported its Linux HDR hue fix. This integration now also includes the directed Windows ACO changes from
+`a9b13dd4cdb5f4bf43db358492d72e6e5e2acd67` (see below). Bright
 saturated linear-input colours are scaled together rather than clipped by channel,
 including the composition path when model resolution is below 100%. Existing weights,
 INI options and menu version remain valid. The additional optional edge-aware
@@ -29,7 +29,7 @@ INT4 mixed and the separate Linux/ReShade hosts are not included.
 
 1. Install a current AMD display driver with Vulkan support. HIP is not used by this backend.
 2. Extract the complete OptiScaler package. It contains `MochizukiNrRuntime.dll` and
-   `dlssnr-amd/shaders/`; both must match the host in that package.
+   `dlssnr-amd/shaders/` and `dlssnr-amd/aco/`; all must match the host in that package.
 3. Supply your own `nvngx_dlssnr.dll` **310.8.0**. Its SHA-256 is
    `e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`.
    The DLL and extracted weights are **not included** in our package.
@@ -65,6 +65,67 @@ To extract from a source checkout:
 ```powershell
 python -X utf8 tools/install/mochizuki-model.py <user-DLL-or-ZIP> <output>/dlssnr-amd/dlssnr.bin --work work/scratch
 ```
+
+## Optional ACO mode
+
+Set `[DlssNr] MochizukiAco=true`, or use **Model → Model passes → ACO mode**.
+The default is false. Save Settings persists the choice. Switching rebuilds the
+network asynchronously; existing recordings retain their original pipelines until
+completion. The menu reports the installed compiler, imported pipeline count, and
+the reason when ACO falls back to native. During rebuilding it still reports the
+currently installed network. Environment variables cannot enable ACO or replace its
+asset paths over this setting.
+
+ACO uses the pinned Linux network SPIR-V and 58 ACO machine-code records, imported
+through AMD's Windows Vulkan driver. The device must expose `VK_KHR_pipeline_binary`
+and maintenance5. Unsupported devices, missing resources or rejected imports build
+a complete native network. `dlssnr-amd/aco-cache/` is optional machine/driver-specific
+cache data; it is neither required nor packaged. The shipped native shader templates,
+ACO shaders, records and aliases are all included in the build hash proof.
+
+**ACO explicit barriers** is a separate checkbox beside ACO mode (Chinese:
+**ACO 显式同步**). Its INI key is `MochizukiAcoExplicitBarriers=true` by default.
+Uncheck it, or set the key to `false`, to test upstream tile-counter scheduling.
+This only affects ACO; the control is disabled while ACO mode is off. Changing it
+rebuilds the network, and the menu reports the barrier policy of the installed
+network while old recordings retain their original policy. Save Settings persists
+the choice. To return to the validated default, check it again.
+
+Explicit inter-dispatch barriers remain the default: upstream counter-only ordering
+failed temporal output equality on the local driver. See the [source review](../third_party/mochizuki/UPSTREAM.md#windows-aco-directed-integration-2026-10-11)
+for the reproducible failure and conditions for making it the default later. ACO still uses
+the upstream optimized machine code. It is not bit-identical to native compilation.
+
+Local validation used RX 9070 XT and driver 32.0.31041.1004. Eight FP16/sRGB,
+one/three-pass, preprocessing and enlargement combinations preserved byte equality
+between compact/separate buffers, including temporal history and retained recording
+replay. Missing bundle, missing aliases and corrupted records all returned to native.
+This does not establish visual acceptance in individual games or on other drivers.
+
+With the final explicit-barrier implementation, deterministic R11G11B10 input,
+100% model scale, one pass and no history (16 warmups + 64 GPU samples per run):
+
+| Resolution | Native core | ACO core | Core time reduction |
+|---|---:|---:|---:|
+| 1920x1080 (mean of two runs) | 7.585 ms | 6.275 ms | 17.3% |
+| 2560x1440 | 13.260 ms | 10.852 ms | 18.2% |
+
+These are warm Vulkan-core timings, excluding bridge copies, CPU build time and
+the rest of the game frame. ACO imported 29/30 pipelines respectively. On the
+1080p input, native versus ACO RGB MAE was 0.001086, RMSE 0.002488 and max absolute
+error 0.023438 (unit-range PSNR 52.08 dB). ACO/native output is not byte-identical;
+this synthetic comparison is not a visual-quality guarantee for game content.
+
+`tests/mochizuki/run.cmd abi` includes the no-GPU ACO parser/cache/isolation tests.
+After a full runtime build and supplying the user model, `tests/mochizuki/run.cmd aco`
+checks actual import, compiler switching, temporal composition and asset fallback.
+It also compares the first-pass output exported from three-pass inference against
+independent single-pass output at 100% and 50% model resolution.
+Use `aco-profile` with the same arguments as `profile` for a matched performance run;
+it asserts that imported pipelines are actually active.
+`aco-upstream-profile` uses the same arguments with explicit barriers disabled.
+`aco-barriers` checks on/off/on switching at the same frame size and retained
+recordings. It does not assert temporal image equivalence for the experimental mode.
 
 ## ReShade compatibility
 

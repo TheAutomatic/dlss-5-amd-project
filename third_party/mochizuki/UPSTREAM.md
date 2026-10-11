@@ -1,11 +1,51 @@
 # Mochizuki Vulkan NR core
 
 - Source: https://github.com/mochizuki0323/DLSSNR-AMD
-- Source snapshot: `9e4574e1812d7d0632d6db02721a20c9617be434` (v0.0.4).
+- Latest directed source snapshot: `a9b13dd4cdb5f4bf43db358492d72e6e5e2acd67` (Windows ACO, 2026-10-11 integration).
 - Windows baseline: v0.0.3 (`82560c4fbfaac347fc5e22c22025191402ae916b`); upstream v0.0.4 is a Linux-only release.
 - License: MIT; original LICENSE retained here.
-- Closure: Windows core, Windows shader sources/recipe/generators, Linux model extraction tools.
+- Closure: Windows core, Windows shader sources/recipe/generators, Windows ACO records, Linux FP32 RDNA4 network/temporal shader closure and model extraction tools.
 - Not imported: the official vkd3d/ReShade hosts, installers, Vulkan loader or model weights.
+
+## Windows ACO directed integration (2026-10-11)
+
+Reviewed the 115-path delta from `9e4574e1812d7d0632d6db02721a20c9617be434`
+to `a9b13dd4cdb5f4bf43db358492d72e6e5e2acd67`. Disposition by feature:
+
+| Paths / feature | Integration |
+|---|---|
+| `windows/data/aco/`, `nr_pal_binary.hpp`, `nr_pipeline_binary.hpp` | All 58 pinned PAL records and template aliases; checked import through optional pipeline-binary/maintenance5 device features. Builder-local mode and per-device cache identity replace process/environment-owned activation. |
+| `windows/shaders/rdna4/`, `windows/build/{arch/rdna4.sh,unroll_glsl.py}` | New native kernels/recipes and cooperative-matrix loop/tail fixes. Keep local `NR_EDGE_BODIES=0` startup optimization and explicit compiler path. |
+| `linux/shaders/rdna4/` and motion passes | FP32 SPIR-V inputs for the exact record hashes, plus temporal variants. No INT4/iu4 closure. The new build tool checks all 58 SPIR-V hashes against their records. |
+| `nr_graph.cpp`, `nrvk.hpp`, shader manifest and logging | New graph/push layouts, arena lifetimes, pipeline import and bounded weight uploads. Keep local cancellation/progress hooks and borrowed-device feature restrictions. |
+| `nr_runtime.cpp/.hpp` | Targeted shader routing, NH pre-input control handling and temporal variant selection. Keep local HDR composition, timing splits, first-pass export and recording ownership. |
+| Official hosts, FSR1/enlargement expansion, direct ReShade input/output, capture/diagnostic tooling, deployment/README changes | Reviewed but not imported: different host, output and configuration contracts. Additional enlargement choices need separate controls and GPU comparisons. Input capture is not required for this bridge. |
+
+ACO is default-off and owned by `MochizukiAco` in the host. A failed optional import
+rebuilds the complete native graph; it does not mix native and imported network
+kernels. OOM/device loss retain their original error handling. Existing recordings
+keep their original pipelines while compiler switching builds a replacement.
+Native adapter/composition shaders are used in both modes.
+
+**Experimental: ACO counter-only inter-dispatch ordering.** On RX 9070 XT, driver
+32.0.31041.1004, upstream barrier omission failed the temporal compact/separate
+buffer equality test (7,634 differing bytes in a 256x256 FP16 frame at model scale
+0.5). Disabling tile chains, or keeping explicit inter-dispatch barriers with the
+same imported code and chain layout, restored byte equality. The product retains
+explicit barriers for ACO by default in `Runtime::record_all`; native scheduling follows the
+new graph. `MochizukiAcoExplicitBarriers=false` opts into upstream ordering for user
+comparison, with network rebuild and installed-mode reporting. Before disabling
+these barriers by default, identify the dependency/driver cause
+and pass the same temporal, multipass, retained-recording and dynamic-input tests
+on supported drivers. Do not infer safety from a successful flat-input benchmark.
+
+Validation: MSVC host/runtime builds, record parser/corruption/cache/thread isolation,
+ABI and resource hash checks; actual ACO import, compiler switching with retained
+recordings, eight temporal/composition combinations, first-pass export at full/half
+model resolution, and missing/corrupt-asset
+fallback on GPU. Packaging/install/uninstall checks include ACO assets. Timings and
+output-equivalence limits are recorded in [the backend guide](../../docs/mochizuki.md).
+No full release certification or new game acceptance is implied.
 
 ## v0.0.4 directed integration (2026-10-07)
 
@@ -111,4 +151,6 @@ This is for the host's opt-in person/scene partition. Preprocess, control-mask a
 native-compose paths do not export it. The host refuses export for active
 preprocessing and while the requested multi-pass network is still unavailable.
 Allocation size, model key and buffer retirement include the optional output.
-Local C++ build and ABI checks are separate from pending Vulkan image validation.
+The ACO GPU suite compares the three-pass first-pass export against an independent
+single-pass result at full and half model resolution; both are byte-identical on
+the validated local driver. Individual-game person-mask integration remains separate.

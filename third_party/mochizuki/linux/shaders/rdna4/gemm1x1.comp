@@ -1,0 +1,2086 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+// NR_WAVE_UNIFORM: tid/32 is one value per wave (a wave is 32
+// consecutive invocations), but NIR sees a divergent value and keeps every
+// quantity derived from it in VGPRs. Reading it through readfirstlane makes
+// the same value scalar.
+#ifndef NR_WAVE_UNIFORM
+#define NR_WAVE_UNIFORM 0
+#endif
+#if NR_WAVE_UNIFORM
+#extension GL_KHR_shader_subgroup_ballot : require
+#define NR_WAVE_OF(t) subgroupBroadcastFirst((t) / 32u)
+#else
+#define NR_WAVE_OF(t) ((t) / 32u)
+#endif
+#include "coopmm.glsl"
+
+// The first real kernel of the port: the pointwise projection that
+// `CCSplitSwin16HFfwdProj`, `CCSplitSwin16HProj`, `CCSplitSwin16HProjPool`,
+// `CCSplitSwin16HFinalHead` and the two ViT-1D projections all are.
+//
+//     out[t][n] = q_e4m3( f16( sum_k W[n][k] * x[t][k] + g[n]*r[t][n] ) )
+//
+// with W the canonical [N][K] e4m3 matrix, g the trailing FP16[N] skip weight
+// and r the residual tensor, which arrives through a *separate* pointer and is
+// N channels wide. The model is not a guess: it reproduces NVIDIA's own kernel
+// to 98.62% of bytes on a seeded gold, essentially every difference exactly one
+// e4m3 ulp. FinalHead is the same thing with the residual dropped
+// (NR_NO_RESIDUAL).
+//
+// Accumulation is FP32 and that is deliberate. NVIDIA accumulates the MMA in
+// f16; RDNA4 has no f16-accumulate FP8 WMMA, so there is no choice to make. The
+// FP32 accumulator here matches a *double* host reference exactly at all 524,288
+// outputs.
+//
+// Layouts. Activations are this project's canonical raster NHWC (decision 1),
+// not NVIDIA's 4x4-pixel "tinlayout" - the harness converts at the boundary
+// (linux/src/core/tinlayout.hpp). Weights are [N][K] e4m3 loaded ColumnMajor (decision 2).
+// Buffers are decision 6's two arenas, each bound several times under different
+// element types, with every offset in a push constant; no
+// buffer-device-address, so this maps onto a D3D12 ByteAddressBuffer with root
+// constants.
+//
+// ---- Structure, and why it is this one -------------------------------------
+//
+// Both operands are staged in LDS and shared by a **2D grid of waves**. That is
+// not a detail; it is what makes the kernel possible at all. The arithmetic:
+// one wave holding an MFRAG x NFRAG register tile issues MFRAG*NFRAG MMAs per
+// k step and needs MFRAG+NFRAG fragments to do it, at 256 B per fragment per
+// wave and 16 cycles per MMA. At the 4x4 tile that is 8 B/cycle/wave, and with
+// two waves per SIMD across 64 CUs it is about 12 TB/s of operand delivery.
+// LDS can serve that. **L2 cannot**, which is why an earlier version of this
+// kernel that streamed B straight from global stalled at 7% of the FP8 issue
+// rate no matter how the tile was shaped, and why raising occupancy or shrinking
+// the register tile only ever moved it between 5% and 8%.
+//
+// Global to LDS is amortised by the *workgroup* tile: (MTILE + NTILE) * KCHUNK
+// bytes per chunk against MTILE*NTILE*KCHUNK/4096 MMAs, which at 128x128 is
+// under 400 GB/s for the whole GPU. So the wave grid, not the register tile, is
+// the thing that has to be right.
+//
+// Software pipelining, two levels, because every stall here is a full memory
+// latency: the next chunk's global loads are issued into registers before the
+// current chunk's MMAs, and within a chunk each k step's fragment loads are
+// issued a step ahead into a two-deep register ping-pong. With NR_DBUF = 2 the
+// spill into the other LDS buffer needs only **one barrier per chunk**: a wave
+// still reading buffer c&1 cannot collide with a writer of buffer (c+1)&1,
+// which was last read a whole chunk earlier.
+//
+// Register ceiling, measured rather than assumed: an accumulator fragment is
+// 8 VGPRs, so MFRAG*NFRAG = 16 costs 128 of the 256 architectural VGPRs and
+// compiles to 192 with everything else. **MFRAG*NFRAG = 32 spills** - 479
+// scratch instructions - and 64 spills catastrophically at 3355. Sixteen is the
+// ceiling on RDNA4, and the sweep must not be read as if the larger tiles were
+// merely slower.
+//
+// Shape contract, checked by the host and never worked around here: M is a
+// multiple of NR_MTILE, N of NR_NTILE, K of NR_KCHUNK. Decision 1 pads spatial
+// dimensions to 16 per level and decision 4 pads N and K in the weight
+// container, so a padded tail is the graph planner's job, not a per-kernel
+// branch.
+
+// **The tile is per shape, and the defaults here are the narrow one.** Swept at
+// 1080p sizes, which is the re-run at matched occupancy that had long been
+// wanted - and the old conclusion that
+// wide register tiles lose was an artefact of the shapes it was measured on:
+//
+//   tile        ViT 2560x4096x1024    proj 2560x512x512   VGPRs
+//   64x128        131.1 us / 164 TF     **12.15 us**        68   <- default
+//   128x128       119.1                   12.67            116
+//   64x256        123.0                   13.17            116
+//   128x256       111.7 / 192             15.06            196
+//   +NR_KFRAG=4 **108.6 us / 198 TF**      14.66            196
+//   256x256       541.6                   91.89            356   spills
+//
+// **1.21x on the ViT feed-forward and a 1.24x regression on the projection**,
+// for the same reason in both directions: N=512 over a 256-wide tile is two
+// column blocks, so the wide tile starves a shape that was already small. All
+// four ViT shapes want the wide one - expand 131.5 -> 108.9, QKV 99.1 -> 84.4,
+// contract 132.2 -> 116.6, projection 36.5 -> 34.9 - and the C=512 layers want
+// this default. MFRAG*NFRAG = 32 spills to 356 VGPRs and collapses by 5x, so 16
+// is the ceiling and that part of the old note stands.
+//
+//   ViT layers:  -DNR_MFRAG=4 -DNR_NFRAG=4 -DNR_KFRAG=4, mtile 128, ntile 256
+//   C=512 layers: the defaults below,                    mtile  64, ntile 128
+//
+// ---- variant parameters; the generator owns instantiation (decision 7) -----
+#ifndef NR_WM
+#define NR_WM 2                 // waves along M
+#endif
+#ifndef NR_WN
+#define NR_WN 4                 // waves along N
+#endif
+#ifndef NR_MFRAG
+#define NR_MFRAG 2              // 16-token fragments per wave
+#endif
+#ifndef NR_NFRAG
+#define NR_NFRAG 2              // 16-channel fragments per wave
+#endif
+#ifndef NR_KFRAG
+#define NR_KFRAG 8              // 16-channel k steps per LDS chunk
+#endif
+#ifndef NR_DBUF
+#define NR_DBUF 2               // LDS chunk buffers; 2 costs one barrier per chunk
+#endif
+// How many k steps ahead the fragment prefetch runs, as a count of register
+// banks. Two banks means one step of cover, which is NR_MFRAG*NR_NFRAG MMAs -
+// 128 cycles at the default tile - against a measured ~131 cycle wait on an L2
+// hit. That is short by construction, and it showed up as 32 s_wait_loadcnt for
+// 64 WMMAs in the emitted loop. Three banks doubles the cover for eight more
+// VGPRs of A and B fragments.
+//
+// **"128 cycles at the default tile" was arithmetic at 32 cycles a WMMA, and a
+// WMMA is 8** (measured: FP8 402.6 against f16 201.1 TFLOP/s, exactly 2.00x, so the
+// dense K=16 op issues in 8). One step of cover at MFRAG=NFRAG=2 is therefore
+// **32** cycles, not 128, and three banks buy 64 against that ~131 cycle wait -
+// so the paragraph above understates its own case by 4x and the knob looks
+// underset. **It is not, and going deeper is refused by the register file**:
+// at NR_PIPE=5 the two ViT tiles are unchanged at 240 VGPRs and 6
+// subgroups a SIMD and gain three instructions, i.e. ACO did not honour the
+// extra banks at all, while the narrow pipelines go 96 -> 120 VGPRs and **16 ->
+// 12 subgroups a SIMD** to buy cover they then have fewer waves to need. In the
+// frame, interleaved, both PNGs byte-identical at both extents:
+//
+//     1080p  21.37 vs 21.41 Mcyc (+0.2%)    4K  76.51 vs 76.43 (-0.1%)
+//
+// i.e. nothing, in both directions. The pipeline depth is not the lever here.
+#ifndef NR_PIPE
+#define NR_PIPE 3
+#endif
+// `NR_SITER_A` / `NR_SITER_B` - staging registers per lane - used to be
+// defaulted here, above the point where `NR_VECA` and the tile constants they
+// are computed from exist. Their defaults are down beside the check that they
+// cover the tile, after those constants; see "the staging counts have to cover
+// the tile" below.
+// NR_A_E4M3: the matmul input is already e4m3 in the arena, so staging it is a
+// byte copy instead of a load plus two conversions per element. It is a
+// *decision 3* question, not a tuning knob - the residual stays f16 either way,
+// and the two are different tensors through different pointers - so both are
+// built and scored.
+//
+// NR_A_DIRECT / NR_B_DIRECT: load that operand's fragments straight from global
+// instead of staging it in LDS. **Which is faster is not obvious and was got
+// wrong twice**, so it is an axis the sweep measures rather than a structure
+// this file picks. The reasoning that says LDS must win - a 4x4 register tile
+// needs 8 B/cycle/wave of operands, about 12 TB/s across the machine, which is
+// far past any L2 - ignores that the weight matrix is 256 KB and lives in cache
+// permanently. Measured on the FfwdProj shape, B straight from global beat B
+// through LDS by more than 2x. A direct requires NR_A_E4M3, since a fragment
+// cannot be loaded from f16 memory.
+//
+// ---- re-tested on the wide register tile, which is what the ViT runs --------
+//
+// "measured only on the FfwdProj shape and needs re-testing on others" is
+// answered. The four `$WIDE` pipelines (`NR_MFRAG=NR_NFRAG=NR_KFRAG=4`, so
+// 128x256 over a 64-channel k chunk, against FfwdProj's 64x128 over 128) were
+// rebuilt with each staging variant and dropped into the shipping frame; this
+// is the ViT's own M, N and K and its own launch, not a harness shape. The
+// staged builds could not be compiled at all before this round - their
+// `NR_SITER` literals were wrong - which is why this cell stayed open.
+//
+// 1080p, `--per-layer`, us a layer, two interleaved passes:
+//
+//     pipeline            direct   A_LDS   B_LDS   both     n
+//     Vit1DFfnContract      42.5   102.2   111.4   148.3     8
+//     Vit1DFfnExpand        32.1    54.6    61.0    81.1     8
+//     Vit1DQKV              21.9    28.3    33.5    43.9     8
+//     Vit1DProjection       14.7    29.4    33.0    42.8     8
+//     ------------------------------------------------ ms a frame
+//     family total         0.890   1.716   1.911   2.529
+//     whole frame           7.962   8.697   8.881   9.470 ms
+//     at                     2685    2759    2775    2824 MHz
+//     i.e. Mcycles          21.38   23.99   24.64   26.74
+//
+// **Both defaults are confirmed and the margin is larger here than on
+// FfwdProj**: 1.9x on A, 2.1x on B, 2.8x on both, and +12% to +25% of the whole
+// frame in cycles. The ISA agrees without ranking it - on `g_gemmvact` the
+// staged builds are 1844 / 2054 / 2076 instructions against 1715, 256 VGPRs
+// against 240, and **5 subgroups a SIMD against 6** - but occupancy differs, so
+// the cost model does not apply and this was settled by dispatch.
+// Defaults are the measured winner on the FfwdProj shape: both operands load
+// straight from global, and the matmul input is e4m3 in the arena so its
+// fragments can. Opting back out:
+//   NR_A_F16  the input crosses the dispatch boundary in f16 as decision 3
+//             says, which forces LDS staging and a narrowing per element
+//   NR_A_LDS / NR_B_LDS  stage that operand through LDS anyway
+// Every LDS variant measured slower - see the note above - so they exist to be
+// re-measured on other shapes, not as a fallback.
+#ifndef NR_A_F16
+#define NR_A_E4M3
+#endif
+#if defined(NR_A_E4M3) && !defined(NR_A_LDS)
+#define NR_A_DIRECT
+#endif
+#ifndef NR_B_LDS
+#define NR_B_DIRECT
+#endif
+// Tile-blocked operands are the default: decision 4's own load-time relayout,
+// worth 11% on its own and 33% off the main loop's slope. NR_CANONICAL_A /
+// NR_CANONICAL_B opt back out for A/B tensors a producer has not laid out yet.
+#ifndef NR_CANONICAL_A
+#define NR_TILED_A
+#endif
+#ifndef NR_CANONICAL_B
+#define NR_TILED_B
+#endif
+#if defined(NR_A_DIRECT) && !defined(NR_A_E4M3)
+#error "NR_A_DIRECT needs NR_A_E4M3: an A fragment cannot be loaded from f16"
+#endif
+// Is anything staged through LDS? When nothing is, the k loop has no barrier
+// and the fragment prefetch can wrap freely across chunk boundaries.
+#if defined(NR_A_DIRECT) && defined(NR_B_DIRECT)
+#define NR_STAGED 0
+#else
+#define NR_STAGED 1
+#endif
+// NR_EPI_WMMA: fold the residual into the accumulator as a second matrix
+// product and store the narrowed accumulator whole.
+//
+//     acc += R . diag(g)      R is the 16x16 residual tile as an f16 A fragment,
+//                             diag(g) a 16x16 f16 B fragment with the skip
+//                             weights on the diagonal, prebuilt in the weight
+//                             container - which we own (decision 4).
+//
+// Fifteen of the sixteen products in each dot are exactly zero, so the term
+// added is exactly r[t][n]*g[n] in f32: **numerically identical** to the
+// default f32 epilogue, and the 100.00% agreement with the host model has to
+// survive it. What it removes is the whole per-element path - `lds_e`, two
+// subgroup barriers per tile, and eight serialised naked residual latencies -
+// at a cost of one f16 WMMA per output tile.
+//
+// It cannot produce an e4m3 output: there is no e4m3 accumulator to store. The
+// e4m3 build keeps the old epilogue, which is fine, because the scored path
+// narrows on the host from f16 and already agrees byte for byte.
+#if defined(NR_EPI_WMMA) && defined(NR_OUT_E4M3)
+#error "NR_EPI_WMMA stores a narrowed accumulator; it cannot write e4m3"
+#endif
+#if defined(NR_EPI_WMMA) && defined(NR_DEBUG_F32)
+#error "NR_EPI_WMMA has no per-element stage to dump the f32 accumulator from"
+#endif
+// NR_ACTIVATION: apply MpCubicSiluActivation before the narrowing. With
+// NR_NO_RESIDUAL this is exactly `cc_vit_1d_ffn_expand_fp8`,
+// `q_e4m3(MpCubicSilu(W.x))` - the same kernel, 8 more layers. Dropping the
+// activation from that layer takes it from 98.35% to 0.06% against the gold,
+// which is the sharpest confirmation of the polynomial the corpus has produced.
+#ifdef NR_ACTIVATION
+#define NR_ACT_APPLY(x) nr_mp_cubic_silu(x)
+#else
+#define NR_ACT_APPLY(x) (x)
+#endif
+// `cc_split_swin_16h_proj_pool_512_fp8` writes a **second output**: the 2x2
+// mean of this projection's own output, at half resolution, in the tinlayout.
+// Measured on the shipping kernel rather than fitted - one live pixel of a
+// block gives 0.25 of the value, two 0.5, four 1.0, and with all four equal the
+// pool reproduces the projection byte for byte. Off unless the layer has the
+// branch; it needs `pc.W` and `pc.p_off`.
+//
+// The four source tokens of an output pixel are slots {s, s+1, s+4, s+5} of one
+// 4x4-pixel tile under the measured order `slot = 4*(y%4) + (x%4)`, so a block
+// never crosses a tile and the whole reduction is inside the 16-token fragment
+// the epilogue already has staged in `lds_e`.
+#ifndef NR_POOL
+#define NR_POOL 0
+#endif
+// Whether the mean is over the e4m3 output or the f16 value behind it. The
+// probe that established the mean used four equal values and could not separate
+// these; the gold can, and it is not close - **97.82% for the mean over f16
+// against 62.16% for the mean over the quantised byte**. So the pool is taken
+// before the e4m3 quantiser, and 1 is kept only so that can be re-measured.
+#ifndef NR_POOL_Q
+#define NR_POOL_Q 0
+#endif
+#if NR_POOL && defined(NR_EPI_WMMA)
+#error "NR_POOL needs the per-element epilogue; NR_EPI_WMMA has no lds_e stage"
+#endif
+
+#ifndef NR_GEMM_REMAP_PC
+#define NR_GEMM_REMAP_PC 0
+#endif
+#ifndef NR_TC_WG_SIGNAL
+#define NR_TC_WG_SIGNAL 0
+#endif
+#if NR_TC_WG_SIGNAL && NR_WM != 1
+#error "NR_TC_WG_SIGNAL: one wave row a workgroup (NR_WM == 1)"
+#endif
+#ifndef NR_ABLATE_STAGE
+#define NR_ABLATE_STAGE 0       // 1: stage constants, no global load
+#endif
+#ifndef NR_ABLATE_EPI
+#define NR_ABLATE_EPI 0         // 1: sum the accumulators, write one tile
+#endif
+// 1: load the fragments once and never again, so the k loop is nothing but
+// coopMatMulAdd. This is the measurement that separates "operand delivery is
+// slow" from "the matrix pipe is not being fed enough independent work", and
+// there is no way to tell those apart from the total.
+#ifndef NR_ABLATE_LOADS
+#define NR_ABLATE_LOADS 0
+#endif
+// 1: keep every load instruction but pin its address, so the fragments still
+// come from memory and are never loop-invariant, while every access hits one
+// cache line. NR_ABLATE_LOADS makes the fragments constant, which lets ACO
+// rematerialise them with v_perm_b32 byte gathers *inside* the loop - so that
+// ablation measures a loop nobody wrote. This one does not have that problem
+// and is the honest way to ask what the matrix pipe alone is doing.
+#ifndef NR_ABLATE_ADDR
+#define NR_ABLATE_ADDR 0
+#endif
+// 1: drop the two subgroup barriers that bracket each accumulator tile's LDS
+// round trip. Wrong - the read can race the store - but it prices the barriers,
+// and there are two per tile times NR_MFRAG*NR_NFRAG tiles.
+#ifndef NR_ABLATE_BARRIER
+#define NR_ABLATE_BARRIER 0
+#endif
+#if NR_ABLATE_BARRIER == 1
+#define NR_EPI_SYNC
+#else
+#define NR_EPI_SYNC subgroupBarrier();
+#endif
+
+#define NR_WAVES   (NR_WM * NR_WN)
+#define NR_THREADS (NR_WAVES * 32)
+#define NR_KCHUNK  (NR_KFRAG * 16)
+#define NR_MTILE   (NR_WM * NR_MFRAG * 16)      // tokens per workgroup
+#define NR_NTILE   (NR_WN * NR_NFRAG * 16)      // channels per workgroup
+#define NR_VECB    16                           // e4m3 bytes a lane stages at once
+
+#ifdef NR_A_E4M3
+#define NR_A_SCALAR NR_E4M3
+#define NR_A_VIEW   act_e4m3
+#define NR_A_NARROW(x) (x)
+#define NR_VECA     NR_VECB
+#else
+#define NR_A_SCALAR NR_F16
+#define NR_A_VIEW   act_f16
+#define NR_A_NARROW(x) nr_quant_e4m3(x)
+#define NR_VECA     8                           // 8 f16 is one buffer_load_b128
+#endif
+
+// ---- the staging counts have to cover the tile, and did not ---------------
+//
+// `NR_SITER_A`/`NR_SITER_B` are how many vector loads a lane issues to stage its
+// operand, and the fetch macro walks `NR_SITER * NR_THREADS * NR_VEC` elements.
+// That has to be exactly the tile: `NR_MTILE * NR_KCHUNK` for A and
+// `NR_NTILE * NR_KCHUNK` for B.
+//
+// **The defaults did not, and were the wrong way round.** At the default shape -
+// MTILE 64, NTILE 128, KCHUNK 128, THREADS 256, VECA = VECB = 16 - the formula
+// gives A=2 and B=4, and the file said A=4 and B=2. With `NR_A_LDS` the A fetch
+// therefore walks **twice** the tile: `sb / NR_KCHUNK` reaches `2 * NR_MTILE`,
+// so `src` reads MTILE rows past the end of the A matrix and the spill writes
+// past the end of `lds_a`. An out-of-bounds global read faults the GPU, the
+// driver resets it, and on a machine whose GPU also drives the display that
+// takes the session with it - which it did, twice, on 2026-09-11, leaving the
+// framebuffer corrupted through a re-login.
+//
+// **Nobody noticed because the default build never executes either path.** A
+// and B both load straight from global, `NR_STAGED` is 0, and the two literals
+// are dead code - the same shape as every other bug found that day: a value
+// only exercised in a configuration nobody runs.
+//
+// They have to stay literals, because the unroller pastes them into a macro
+// name. But they can be *checked*, and a configuration that cannot be built
+// cannot fault a GPU.
+//
+// **This defuses it rather than only checking it.** The literals now sit here,
+// below `NR_VECA` and the tile constants, and carry the value the formula
+// gives. The A count is the one that depends on the operand's width - an f16 A
+// stages 8 elements a load where an e4m3 A stages 16 - which is the whole
+// reason the pair looked "the wrong way round": 4 is right for the f16 A and 2
+// for the e4m3 one, and only the e4m3 default was ever reachable. Both of the
+// two shapes this file is built at agree on the pair:
+//
+//     shape                    MTILE NTILE KCHUNK THREADS   SITER_A   SITER_B
+//     default  2x4 waves, 2/2/8   64   128    128     256   2 (4 f16)       4
+//     WIDE     2x4 waves, 4/4/4  128   256     64     256   2 (4 f16)       4
+//
+// The `_ds` and `_upsample` pipelines are neither, and pass their own -DNR_SITER
+// pair; they are `NR_STAGED 0` builds, so those values are dead too and the
+// check below does not look at them.
+#ifndef NR_SITER_A
+#ifdef NR_A_E4M3
+#define NR_SITER_A 2
+#else
+#define NR_SITER_A 4
+#endif
+#endif
+#ifndef NR_SITER_B
+#define NR_SITER_B 4
+#endif
+#if NR_STAGED
+#ifndef NR_A_DIRECT
+#if (NR_SITER_A) * (NR_THREADS) * (NR_VECA) != (NR_MTILE) * (NR_KCHUNK)
+#error "NR_SITER_A must equal NR_MTILE*NR_KCHUNK/(NR_THREADS*NR_VECA): the A staging fetch would run off the end of the matrix"
+#endif
+#endif
+#ifndef NR_B_DIRECT
+#if (NR_SITER_B) * (NR_THREADS) * (NR_VECB) != (NR_NTILE) * (NR_KCHUNK)
+#error "NR_SITER_B must equal NR_NTILE*NR_KCHUNK/(NR_THREADS*NR_VECB): the B staging fetch would run off the end of the matrix"
+#endif
+#endif
+#endif
+
+layout(local_size_x = NR_THREADS) in;
+
+// Two arenas, five views. Aliasing one VkBuffer under several element types is
+// what keeps decision 6's binding model expressible without pointers.
+layout(set = 0, binding = 0, std430) NR_COH    buffer ActF16  { NR_F16  act_f16[]; };
+layout(set = 0, binding = 1, std430) NR_COH    buffer ActE4M3 { NR_E4M3 act_e4m3[]; };
+layout(set = 0, binding = 2, std430) NR_COH    buffer ActF32  { float   act_f32[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WgtE4M3 { NR_E4M3 wgt_e4m3[]; };
+#ifdef NR_PACKED_WEIGHT_N2
+#if !defined(NR_B_DIRECT) || !defined(NR_TILED_B) || NR_NFRAG % 2 != 0
+#error "N-pair weights require direct tiled B and an even number of output fragments"
+#endif
+layout(set = 0, binding = 3, std430) readonly buffer WgtPair4 { fe4m3vec4 wgt_pair4[]; };
+#endif
+layout(set = 0, binding = 4, std430) readonly buffer WgtF16  { NR_F16  wgt_f16[]; };
+// Wide views of the same two arenas. The epilogue touches eight contiguous
+// channels per lane, and without these that is eight separate narrow accesses
+// each: 63 buffer_store_b8 and 12 buffer_load_d16_b16 in the emitted code, with
+// every store instruction scattering 32 lanes across 16 token rows 512 B apart.
+layout(set = 0, binding = 5, std430) NR_COH    buffer ActF16x4 { f16vec4 act_f16x4[]; };
+layout(set = 0, binding = 6, std430) readonly buffer WgtF16x4 { f16vec4 wgt_f16x4[]; };
+// Packed e4m3 view of the activation arena. This is the interface a *fused*
+// chain actually needs: the next layer's A operand is e4m3 and wants to be
+// tile-blocked, so a producer that writes linear f16 has hidden a conversion
+// and a relayout outside every per-layer timing in this project. NR_OUT_E4M3
+// plus NR_OUT_TILED is that producer.
+layout(set = 0, binding = 7, std430) NR_COH    buffer ActE4M3x4 { fe4m3vec4 act_e4m3x4[]; };
+#include "nr_prof.glsl"
+#if NR_XPIPE
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+layout(set = 0, binding = 7, std430) NR_COH readonly buffer ActU32V { uint act_u32v[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WgtU32V { uint wgt_u32v[]; };
+#endif
+// NR_I4 / NR_I4_OUT: the ViT FFN hidden split into pc K4 int4 channels and the rest
+// e4m3 (see the producer epilogue and the consumer's int4 phase). Raw views for the packed nibbles
+// and the float quantiser / dequantiser tables in the weight buffer.
+#ifndef NR_I4_SIDE
+#define NR_I4_SIDE 0
+#endif
+// x * (+-1) + y with the sign taken from the lane half (the last H16 butterfly): the sign by XOR, one rounding in the add
+#define NR_I4_BFLY(x, y) (uintBitsToFloat(floatBitsToUint(x) ^ ((lane & 16u) << 27u)) + (y))
+#if defined(NR_I4) || defined(NR_I4_OUT) || NR_I4_SIDE
+#if NR_XPIPE || NR_A_KPAIR || NR_OUT_KPAIR || NR_OUT_PERM || NR_POOL || defined(NR_CANONICAL_A)
+#error "NR_I4: tile-blocked A, plain pipeline"
+#endif
+#if (defined(NR_I4_OUT) || NR_I4_SIDE) && (!defined(NR_OUT_E4M3) || !defined(NR_OUT_TILED))
+#error "NR_I4_OUT / NR_I4_SIDE: the tiled e4m3 producer"
+#endif
+#extension GL_EXT_control_flow_attributes : require
+layout(set = 0, binding = 7, std430) NR_COH buffer ActU32I4W { uint act_u32i4w[]; };
+layout(set = 0, binding = 1, std430) NR_COH buffer ActU8I4 { uint8_t act_u8i4[]; };
+layout(set = 0, binding = 7, std430) NR_COH readonly buffer ActU32I4 { uint act_u32i4[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WgtU32I4 { uint wgt_u32i4[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WgtF32I4 { float wgt_f32i4[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WgtV2I4 { vec2 wgt_v2i4[]; };
+#endif
+
+#define NR_TC_WBIND 3   // NR_TCHAIN reads its records from the weight buffer
+#include "nr_chain.glsl"
+#include "occ_pad.glsl"
+layout(push_constant) uniform Push {
+    uint gd_off;    // diag(g) tiles, in f16 elements (NR_EPI_WMMA)
+    uint x_off;     // matmul input, in elements of its own view (f16, or e4m3
+                    // under NR_A_E4M3) - the host divides by the element size
+    uint r_off;     // residual, in f16 elements
+    uint o_off;     // output, in elements of whichever view NR_OUT_* selects
+    uint d_off;     // raw f32 accumulator dump, in f32 elements (NR_DEBUG_F32)
+    uint w_off;     // matrix, in e4m3 elements
+    uint g_off;     // skip weight, in f16 elements
+    uint M;
+    uint N;
+    uint K;
+    uint p_off;     // pooled output, in e4m3 elements (NR_POOL)
+    uint W;         // image width in pixels, so the pool can find its tile grid
+    // The `_ds` store's shear, used only under NR_DS_SHEAR: the output tile
+    // grid, the producer's view raster, the consumer's row and the row count.
+    uint otx, raster, crow, rows;
+    uint ds_raster;   // 0 = view replay; 1 = window tokens; 2 = canonical spatial DS
+    uint writer_rows; // 0 uses rows; C32 DS stores the unrounded half height.
+    // C>=64 DS: the real output extent inside the padded view (0: none). The
+    // native epilogue writes zero outside it; see the store below.
+    uint clear_x, clear_y;
+#if NR_GEMM_REMAP_PC
+    uint remap;       // workgroup order, 0 = launch order (see mg0 below)
+#endif
+    NR_CHAIN_FIELDS
+    NR_TCHAIN_FIELDS
+} pc;
+
+// A shader lint sizes these statically against decision 12's 32 KB.
+#ifndef NR_A_DIRECT
+shared NR_E4M3 lds_a[NR_DBUF * NR_MTILE * NR_KCHUNK];
+#endif
+#ifndef NR_B_DIRECT
+shared NR_E4M3 lds_b[NR_DBUF * NR_NTILE * NR_KCHUNK];
+#endif
+// One accumulator tile per wave. What forces the memory round trip is narrower
+// than an earlier note here claimed: KHR cooperative matrix *does* allow
+// reading and writing a fragment's own components (`m[i]`, `m.length()`), so
+// anything elementwise that needs no coordinates - an activation, a narrowing,
+// a clamp - can stay in registers. Two things cannot. The mapping from a
+// component index to (row, column) is implementation-defined, so this
+// epilogue's residual, which is indexed by (token, channel), needs addresses;
+// and **converting between Uses is not permitted at all** - an Accumulator
+// cannot be constructed as an A - so any value that has to become the next
+// matmul's operand must go through memory. Both were probed on the pinned
+// toolchain.
+shared float lds_e[NR_WAVES * 256];
+
+// ---- epilogue ----------------------------------------------------------
+// One lane owns NR_VEC contiguous channels of one token, not NR_VEC channels
+// 32 apart: same instruction count, adjacent addresses, so the residual and the
+// skip weight are one wide load each.
+// The index has to be threaded through explicitly. An object-like NR_EPI_BODY
+// picked up `v` from the enclosing scope, which worked only as long as the
+// value happened to be named `v` there - a coupling that broke silently the
+// first time the epilogue was restructured.
+#define NR_EPI_ONE(i) { \
+        const uint ch = ch0 + col0 + uint(i); \
+        const float raw = lds_e[wave * 256u + row * 16u + col0 + uint(i)]; \
+        NR_EPI_DEBUG(i) \
+        NR_EPI_VALUE(i) \
+        NR_EPI_STORE(i) \
+        outv[i] = vv; \
+    }
+#ifdef NR_DEBUG_F32
+#define NR_EPI_DEBUG(i) act_f32[pc.d_off + tok * pc.N + ch] = raw;
+#else
+#define NR_EPI_DEBUG(i)
+#endif
+// Two epilogues. NR_EPILOGUE_NVIDIA is the model as measured off the shipping
+// kernel: f16(acc), then f16(g*r), then f16 of the sum. The other carries f32 to
+// the single e4m3 narrowing. Measured: the f32 form agrees with their own output
+// on 98.62% of bytes against their rounding's 98.57%.
+//
+// Spelled out rather than left to the compiler: written as two statements the
+// f16 form contracted into v_fmac_f16 and quietly became the f32 form for the
+// multiply, moving the gold score with nothing in the source saying so.
+#ifdef NR_NO_RESIDUAL
+#define NR_EPI_VALUE(i) const NR_F16 vv = NR_F16(NR_ACT_APPLY(raw));
+#elif defined(NR_EPILOGUE_NVIDIA)
+#define NR_EPI_VALUE(i) \
+    const float gr = nr_round_f16(float(gw[(i) / 4][(i) % 4]) * \
+                                  float(rv[(i) / 4][(i) % 4])); \
+    const NR_F16 vv = NR_F16(nr_round_f16(raw) + gr);
+#else
+#define NR_EPI_VALUE(i) \
+    const NR_F16 vv = NR_F16(NR_ACT_APPLY(raw + float(gw[(i) / 4][(i) % 4]) * \
+                                                float(rv[(i) / 4][(i) % 4])));
+#endif
+// **Two corrections, both found by reading the ISA rather than by reasoning.**
+//
+// First: an earlier note here said e4m3 has no GLSL vector type. It does - the
+// spelling is `fe4m3vec4`, not `f8vec4`, and four wrong spellings were tried
+// before that got written down. `coopMatLoad` accepts a vector-typed array too.
+//
+// Second, and this is the part that matters: **writing one does not make the
+// store wide.** ACO vectorises `fe4m3vec4` in LDS - `ds_store_b32`, four bytes
+// an instruction, which is real and is part of why ffwd3 got 1.9x - but for an
+// SSBO it still emits eight `buffer_store_b8` per lane. So the packed form is
+// worth having for shared memory and buys nothing for the global output on this
+// driver. Do not quote it as a store-width win without checking the disassembly.
+// Written as two `fe4m3vec4` stores. ACO scalarises them back to eight
+// `buffer_store_b8` for an SSBO, so this is about *addresses*, not width:
+// tile-blocked, a lane's eight bytes and the whole 16x16 tile's 256 bytes are
+// contiguous, where the linear form scattered 32 lanes over 16 rows a
+// pc.N stride apart.
+#define NR_EPI_STORE(i)
+
+void nr_finish_tile(uint tok0, uint ch0, uint wave, uint lane) {   // NOLINT
+    if (tok0 >= pc.M) return; // whole 16-token fragment, uniform within a wave
+    const uint per_row = 16u / 8u;                 // lanes covering one tile row
+    const uint row = lane / per_row, col0 = (lane % per_row) * 8u;
+    const uint tok = tok0 + row;
+    // Eight contiguous channels, gathered and scattered four at a time. Every
+    // index below is a multiple of four elements: ch0 is a multiple of 16,
+    // col0 is 0 or 8, and the host aligns every arena offset to 16 bytes.
+    const uint q = (tok * pc.N + ch0 + col0) / 4u;
+#ifdef NR_NO_RESIDUAL
+    const f16vec4 rv[2] = f16vec4[2](f16vec4(0.0), f16vec4(0.0));
+    const f16vec4 gw[2] = f16vec4[2](f16vec4(0.0), f16vec4(0.0));
+#elif defined(NR_R_E4M3)
+    // **The residual is e4m3, not f16, and that is measured rather than
+    // chosen.** Every output in the shipping graph is exactly tokens x channels
+    // *bytes* - `frame_plan.json`'s `out_sizes` for all 152 layers - so there is
+    // no f16 activation anywhere in the network and NVIDIA's own kernels read
+    // their residual out of the same single-format arena their matmul input
+    // comes from. The f16 residual this file was written against was a harness
+    // convenience: the host had the values in f16 and handed them over that way.
+    //
+    // Reading it from the tile-blocked e4m3 arena is also what makes a chain
+    // possible without a second arena and a second store per layer.
+    const uint rb = (pc.r_off + ((tok0 / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u
+                     + row * 16u + col0) / 4u;
+    const fe4m3vec4 r0 = act_e4m3x4[rb], r1 = act_e4m3x4[rb + 1u];
+    const f16vec4 rv[2] = f16vec4[2](
+        f16vec4(NR_F16(r0.x), NR_F16(r0.y), NR_F16(r0.z), NR_F16(r0.w)),
+        f16vec4(NR_F16(r1.x), NR_F16(r1.y), NR_F16(r1.z), NR_F16(r1.w)));
+    const uint gq = (ch0 + col0) / 4u;
+    const f16vec4 gw[2] = f16vec4[2](wgt_f16x4[pc.g_off / 4u + gq],
+                                     wgt_f16x4[pc.g_off / 4u + gq + 1u]);
+#else
+    const f16vec4 rv[2] = f16vec4[2](act_f16x4[pc.r_off / 4u + q],
+                                     act_f16x4[pc.r_off / 4u + q + 1u]);
+    const uint gq = (ch0 + col0) / 4u;
+    const f16vec4 gw[2] = f16vec4[2](wgt_f16x4[pc.g_off / 4u + gq],
+                                     wgt_f16x4[pc.g_off / 4u + gq + 1u]);
+#endif
+    NR_F16 outv[8];
+    NR_FOR_V(8, NR_EPI_ONE)
+#ifdef NR_OUT_E4M3
+#if defined(NR_DS_SHEAR)
+    // **The `_ds` output's producer raster and its consumer's row are two
+    // different numbers below 135 columns**, and the view layout puts the
+    // difference in *both* the row term and the 16-channel plane term:
+    //
+    //     g*crow*rows + dy*crow + dx  ==  g*raster*rows + py*raster + px
+    //
+    // so each channel group of the same pixel lands at a different place. That
+    // is why this cannot be done in the 2x2 pool - the resample mixes channels
+    // after it - and why composing only the row fixed 16 of 256 channels.
+    // Identity when `raster == crow`, which is every level above the fifth.
+    const uint dtile0 = tok0 / 16u;
+    const uint spx = (dtile0 % pc.otx) * 4u + (row % 4u);
+    const uint spy = (dtile0 / pc.otx) * 4u + (row / 4u);
+    const uint sg  = ch0 / 16u;
+    // **The token order changes at this boundary, and the PTX says so.**
+    // `cc_split_swin_16h_ffwd_inpview_512_fp8` addresses its input as
+    //
+    //     element = ((c/16) * W + y) * H + x ,  W = param+24, H = param+28
+    //
+    // - a plain raster with a row stride of `H` and a 16-channel plane, with
+    // `y >= W` or `x >= H` reading zero. So below the fifth level a token is
+    // `y * H + x`, not the tinlayout tile index every level above uses, and
+    // `attn_pos_bias` is indexed by that order, so it is not ours to choose.
+    // `NR_DS_RASTER` writes it; the shear below was an attempt to reach the same
+    // place by permuting tinlayout tokens and it only ever moved the error.
+    // **The token is the raster index itself, and it must not be re-encoded.**
+    // The consumer reads token `t` at `((t/16)*(N/16)+g)*256 + (t%16)*16`, a flat
+    // index; converting the raster position back through the tinlayout tile map
+    // (which the first attempt did) lands it somewhere else entirely.
+    uint sdx, sdy; bool s_oob;
+    if (pc.ds_raster == 1u) {
+        // **Window-major, which is what the consumer's own launch shape says.**
+        // `cc_split_swin_16h_ffwd_inpview_512_fp8` takes `ctaid.x*8` and
+        // `ctaid.y*8` as the origin of an 8x8 block of view pixels and stages 64
+        // tokens from it, so a token index *is* that grouping: window row-major
+        // over `ceil(raster/8)` windows, then the 4x4 quadrant, then the pixel.
+        // The token domain is the 8x8-padded grid (40x64 = 2560 here) while the
+        // data stops at the view raster (36x60), which is why the slot is larger
+        // than the picture.
+        const uint gxw = (pc.raster + 7u) / 8u;
+        const uint tokr = ((spy / 8u) * gxw + spx / 8u) * 64u
+                        + ((spy % 8u) / 4u) * 32u + ((spx % 8u) / 4u) * 16u
+                        + 4u * (spy % 4u) + (spx % 4u);
+        const bool oob = spx >= pc.raster || spy >= pc.rows;
+        if (!oob) {
+            const uint obr = (pc.o_off
+                              + ((tokr / 16u) * (pc.N / 16u) + sg) * 256u
+                              + (tokr % 16u) * 16u + col0) / 4u;
+            act_e4m3x4[obr]      = fe4m3vec4(nr_quant_e4m3(outv[0]), nr_quant_e4m3(outv[1]),
+                                             nr_quant_e4m3(outv[2]), nr_quant_e4m3(outv[3]));
+            act_e4m3x4[obr + 1u] = fe4m3vec4(nr_quant_e4m3(outv[4]), nr_quant_e4m3(outv[5]),
+                                             nr_quant_e4m3(outv[6]), nr_quant_e4m3(outv[7]));
+        }
+        return;
+    }
+    // Preserve the absolute view address, including crossings into another
+    // 16-channel plane. The inpview read is ((group * H + y) * W + x)*16;
+    // see 00bd0990.ptx, cc_split_swin_16h_ffwd_inpview_512_fp8.
+    const uint writer_rows = pc.writer_rows == 0u ? pc.rows : pc.writer_rows;
+    // Mode 2 preserves spatial coordinates for the provisional spatial diagnostic.
+    // Production retains mode 0's native view contract; the image entry aligns
+    // the network working extent first, as the original host does. Unaligned
+    // standalone plans can shift channel planes and are not full-runtime gold.
+    const uint linear = pc.ds_raster == 2u ? (sg * pc.rows + spy) * pc.crow + spx
+        : (sg * writer_rows + spy) * pc.raster + spx;
+    const uint dst_group = linear / (pc.crow * pc.rows);
+    const uint pixel = linear % (pc.crow * pc.rows);
+    sdx = pixel % pc.crow; sdy = pixel / pc.crow;
+    s_oob = (pc.ds_raster != 2u && (spy >= writer_rows || spx >= pc.raster)) ||
+        sdx >= pc.otx * 4u || dst_group >= pc.N / 16u;
+    // C32's native DS epilogue clears the padded output rectangle using the
+    // consumer's padded plane stride, after storing with the unpadded stride.
+    // A value crossing channel planes can otherwise occupy this padding and
+    // leak into later attention windows. Each mapped destination has one
+    // writer here, so clear it at that writer rather than racing a second store.
+    if (pc.writer_rows != 0u && (sdy >= pc.writer_rows || sdx >= pc.raster))
+        for (int v = 0; v < 8; ++v) outv[v] = NR_F16(0.0);
+    // **C>=64 has padding too, and native zeroes it.** The view is the pooled
+    // extent rounded up to 4 in each axis; at 960x540 the fifth level is 30x18
+    // real inside a 32x20 view. The original's store leaves all 100 padded
+    // tokens at zero (NVIDIA replay at the DLL working extent); ours wrote
+    // the two padded columns from the pool of the level above's own padding,
+    // and the C=512 bottleneck's windows - then the ViT's global attention -
+    // carried those 36 tokens into a warm cast over the whole picture. Rows
+    // were already zero, so extents whose width/32 is a multiple of 4 (1920,
+    // 2560, 3840) never showed it; render resolutions such as 960 or 1344 did.
+    if (pc.clear_x != 0u && (sdx >= pc.clear_x || sdy >= pc.clear_y))
+        for (int v = 0; v < 8; ++v) outv[v] = NR_F16(0.0);
+    const uint ob = (pc.o_off
+                     + (((sdy / 4u) * pc.otx + sdx / 4u) * (pc.N / 16u) + dst_group) * 256u
+                     + (4u * (sdy % 4u) + sdx % 4u) * 16u + col0) / 4u;
+#elif defined(NR_OUT_TILED)
+    // The whole 16x16 tile is 256 contiguous bytes, so a lane's eight are too.
+    const uint ob = (pc.o_off + ((tok0 / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u
+                     + row * 16u + col0) / 4u;
+#else
+    const uint ob = (pc.o_off + tok * pc.N + ch0 + col0) / 4u;
+#endif
+#define NR_QO(v) nr_quant_e4m3(outv[v])
+#if defined(NR_DS_SHEAR)
+    if (!s_oob) {
+#endif
+    act_e4m3x4[ob]      = fe4m3vec4(NR_QO(0), NR_QO(1), NR_QO(2), NR_QO(3));
+    act_e4m3x4[ob + 1u] = fe4m3vec4(NR_QO(4), NR_QO(5), NR_QO(6), NR_QO(7));
+#if defined(NR_DS_SHEAR)
+    }
+#endif
+#undef NR_QO
+#else
+#ifdef NR_OUT_TILED
+    const uint hq = (pc.o_off + ((tok0 / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u
+                     + row * 16u + col0) / 4u;
+#else
+    const uint hq = pc.o_off/4u + q;
+#endif
+    act_f16x4[hq]      = f16vec4(outv[0], outv[1], outv[2], outv[3]);
+    act_f16x4[hq + 1u] = f16vec4(outv[4], outv[5], outv[6], outv[7]);
+#endif
+
+#if NR_POOL
+    // Publish the finished values back into the staging tile. A lane owns one
+    // row and the 2x2 block needs four, and `lds_e` is dead from here on, so
+    // this is a rewrite of the buffer rather than a second one.
+    subgroupBarrier();
+    for (int i = 0; i < 8; ++i)
+        lds_e[wave * 256u + row * 16u + col0 + uint(i)] =
+#if NR_POOL_Q
+            float(nr_quant_e4m3(outv[i]));
+#else
+            float(outv[i]);
+#endif
+    subgroupBarrier();
+    // Rows 0, 2, 8 and 10 are the top-left slots of the four 2x2 pixel blocks
+    // in a 4x4-pixel tile: even x, even y under slot = 4*(y%4) + (x%4).
+    if ((row & 1u) == 0u && (row & 4u) == 0u) {
+        const uint tiles_x = pc.W / 4u;
+        const uint tx = (tok0 / 16u) % tiles_x, ty = (tok0 / 16u) / tiles_x;
+        const uint ox = 2u * tx + (row % 4u) / 2u;      // output pixel
+        const uint oy = 2u * ty + (row / 4u) / 2u;
+        const uint ow = ((pc.W + 1u) / 2u + 3u) & ~3u;
+        // M includes 8-row padding; the pooled allocation only has 4-row
+        // padding. Its last source tile can therefore exceed this output.
+        const uint oh = ((pc.rows + 1u) / 2u + 3u) & ~3u;
+        if (pc.rows != 0u && oy >= oh) return;
+        const uint otok = ((oy / 4u) * (ow / 4u) + ox / 4u) * 16u
+                        + 4u * (oy % 4u) + (ox % 4u);
+        NR_F16 pv[8];
+        for (int i = 0; i < 8; ++i) {
+            const uint b = wave * 256u + col0 + uint(i);
+            const NR_F16 a = NR_F16(lds_e[b + row * 16u] + lds_e[b + (row + 1u) * 16u]);
+            const NR_F16 c = NR_F16(lds_e[b + (row + 4u) * 16u] + lds_e[b + (row + 5u) * 16u]);
+            pv[i] = NR_F16(NR_F16(a + c) * NR_F16(0.25));
+        }
+        const uint pq = (pc.p_off + ((otok / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u
+                         + (otok % 16u) * 16u + col0) / 4u;
+#define NR_QP(v) nr_quant_e4m3(pv[v])
+        act_e4m3x4[pq]      = fe4m3vec4(NR_QP(0), NR_QP(1), NR_QP(2), NR_QP(3));
+        act_e4m3x4[pq + 1u] = fe4m3vec4(NR_QP(4), NR_QP(5), NR_QP(6), NR_QP(7));
+#undef NR_QP
+    }
+#endif
+}
+
+// Bypass the shared-memory epilogue for the two FP32 residual projections.
+// gfx1201/RADV wave32 accumulator component c in lane l is row 8*(l/16)+c,
+// column l%16 (see coopmm.glsl). This is a device-specific fragment layout.
+// Keep the original half conversion and mode-specific FP8 quantization.
+// Other projections, pooling and explicit accumulation rounding use the old path.
+#ifndef NR_EPI_FRAGMENT
+#define NR_EPI_FRAGMENT 0
+#endif
+// **The no-residual pipelines get this too, and they are the ones it was
+// cheapest for.** The gate used to require `NR_R_E4M3` and forbid
+// `NR_NO_RESIDUAL`, so `gemmvact`, `gemmvnores` and `gemmvqkv` kept the shared
+// epilogue - and a no-residual epilogue is the *easiest* case, not a harder
+// one: there is nothing to fetch, only the activation and the narrowing. What
+// it was paying for the coordinate it did not need was, per accumulator
+// fragment, four `ds_store_2addr_b32`, four `ds_load_b64`, two
+// `subgroupBarrier`s and the addressing for both, sixteen fragments a wave.
+// In `gemmvact` that epilogue was **2024 of the 5736 instructions a wave
+// executes** at K=1024, against 232 for a whole k chunk of sixteen MMAs.
+// It also holds the only LDS this pipeline allocates, so deleting it moves
+// `lds_e` and the residency it costs.
+// The untiled output is reachable too, and only for f16: `gemmvqkv` writes the
+// plain `[token][3C]` block `vit_qkv_norm.comp` reads, so the fragment store is
+// the same RowMajor store at stride `pc.N` instead of 16. It is **not** free the
+// way the tiled one is - a lane's eight components are eight rows, so this is
+// eight `buffer_store_b16` where the per-element epilogue wrote two `b64` - but
+// each of those eight is still two contiguous 32-byte runs across the wave, and
+// sixteen fragments of LDS round trip is the larger number. Measured, not
+// assumed; see the round doc.
+// NR_SWAP_AB: multiply W x X^T instead of X x W^T (see nr_finish_fragment).
+#ifndef NR_SWAP_AB
+#define NR_SWAP_AB 0
+#endif
+// NR_OUT_PERM: 0 off, 1 raster->tile store, 2 tiled store + raster copy
+// (see nr_finish_fragment). E4M3 tiled fragment epilogue only.
+#ifndef NR_OUT_PERM
+#define NR_OUT_PERM 0
+#endif
+#ifndef NR_OUT_KPAIR
+#define NR_OUT_KPAIR 0
+#endif
+#if NR_OUT_KPAIR && (NR_SWAP_AB || NR_OUT_PERM || NR_POOL_FRAG || !defined(NR_OUT_TILED))
+#error "NR_OUT_KPAIR: the unswapped tiled e4m3 fragment epilogue"
+#endif
+// NR_POOL_FRAG: gemmpool on the fragment epilogue. The 2x2 block whose
+// top-left token row is r reads rows r, r+1, r+4, r+5 - components c0, c0+1,
+// c0+4, c0+5 (c0 = 0, 2) of the lane holding rows row0..row0+7 - so the pool
+// needs no LDS round trip. Same arithmetic as the lds_e pool below.
+#ifndef NR_POOL_FRAG
+#define NR_POOL_FRAG 0
+#endif
+#if NR_POOL_FRAG && (!NR_POOL || NR_POOL_Q || !defined(NR_R_E4M3) || NR_SWAP_AB || NR_OUT_PERM)
+#error "NR_POOL_FRAG: gemmpool's shape only (NR_POOL, no NR_POOL_Q, e4m3 residual)"
+#endif
+#if NR_EPI_FRAGMENT && NR_ACC_F16 == 0 && (!NR_POOL || NR_POOL_FRAG) \
+    && (defined(NR_OUT_TILED) || !defined(NR_OUT_E4M3)) \
+    && (defined(NR_NO_RESIDUAL) || defined(NR_R_E4M3)) \
+    && !defined(NR_DS_SHEAR) && !defined(NR_DEBUG_F32) && !defined(NR_EPI_WMMA)
+#define NR_USE_FRAGMENT_EPI 1
+#if NR_SWAP_AB
+// NR_SWAP_AB: the MMA is W x X^T, so the accumulator's rows are output
+// channels and its columns tokens. A lane holds token tok0 + lane%16 and the
+// eight channels ch0 + 8*(lane/16) + 0..7 - eight contiguous bytes of the
+// tile-blocked arena - so the residual is one 8-byte load, the output one
+// 8-byte store and the fp8 conversions pair up. Per element the arithmetic is
+// the unswapped epilogue's, on the same (token, channel) element.
+#if NR_I4_SIDE
+// NR_I4_SIDE: the caller passes this fragment's eight side quantisers (loaded once per channel fragment).
+void nr_finish_fragment(NR_FRAG_ACC a, uint tok0, uint ch0, uint lane, vec2 qa[8]) {
+#else
+void nr_finish_fragment(NR_FRAG_ACC a, uint tok0, uint ch0, uint lane) {
+#endif
+    if (tok0 >= pc.M) return;
+    const uint tk = lane % 16u, c8 = 8u * (lane / 16u);
+    const uint tile = ((tok0 / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u;
+#ifndef NR_NO_RESIDUAL
+    const uint gq = (pc.g_off + ch0 + c8) / 4u;
+    const f16vec4 g0 = wgt_f16x4[gq], g1 = wgt_f16x4[gq + 1u];
+    const uint rq = (pc.r_off + tile + tk * 16u + c8) / 4u;
+    const fe4m3vec4 r0 = act_e4m3x4[rq], r1 = act_e4m3x4[rq + 1u];
+#endif
+    NR_E4M3 qv[8];
+#if NR_I4_SIDE
+    NR_F16 i4v[8];
+#endif
+    for (int c = 0; c < 8; ++c) {
+        float raw = a[c];
+#ifdef NR_NO_RESIDUAL
+        NR_F16 v = NR_F16(NR_ACT_APPLY(raw));
+#else
+        const NR_F16 g = c < 4 ? g0[c] : g1[c - 4];
+        const NR_F16 r = NR_F16(c < 4 ? r0[c] : r1[c - 4]);
+#ifdef NR_EPILOGUE_NVIDIA
+        float gr = nr_round_f16(float(g) * float(r));
+        NR_F16 v = NR_F16(nr_round_f16(raw) + gr);
+#else
+        NR_F16 v = NR_F16(NR_ACT_APPLY(raw + float(g) * float(r)));
+#endif
+#endif
+        qv[c] = nr_quant_e4m3(v);
+#if NR_I4_SIDE
+        i4v[c] = v;
+#endif
+    }
+    const fe4m3vec4 q0 = fe4m3vec4(qv[0], qv[1], qv[2], qv[3]), q1 = fe4m3vec4(qv[4], qv[5], qv[6], qv[7]);
+#if NR_I4_SIDE
+    // NR_I4_SIDE: the output also as the next GEMM's int4 A operand, after the M x N e4m3
+    // output in the same slot (o_off + Mt*N): the f16 value of each element, the 16 channels of the fragment
+    // rotated by H16 (unnormalised: c by butterflies in the lane, the lane/16 half by one shuffle), then
+    // q = med3(fma(r, a, z + 1.5*2^23)) with (a, z + magic) at pc.raster (vec2 index), eight nibbles a u32 in
+    // the NR_I4_PAIR record layout (the consumer's K4 = N).
+    {
+        float r_[8];
+        [[unroll]] for (int c = 0; c < 8; ++c) r_[c] = float(i4v[c]);
+        [[unroll]] for (int sb = 1; sb < 8; sb <<= 1) [[unroll]] for (int c = 0; c < 8; ++c)
+            if ((c & sb) == 0) { const float x_ = r_[c], y_ = r_[c + sb]; r_[c] = x_ + y_; r_[c + sb] = x_ - y_; }
+        const float sg = (lane & 16u) != 0u ? -1.0 : 1.0;
+        uint u_ = 0u, mk_ = 0u;
+        [[unroll]] for (int c = 0; c < 8; ++c) {
+            const float rr = NR_I4_BFLY(r_[c], subgroupShuffleXor(r_[c], 16u));
+            u_ += floatBitsToUint(clamp(fma(rr, qa[c].x, qa[c].y), 12582912.0, 12582927.0)) << (4u * uint(c));
+            mk_ += floatBitsToUint(12582912.0) << (4u * uint(c));
+        }
+        u_ = (u_ - mk_) ^ 0x88888888u;
+        const uint k4s = pc.N, c_ = ch0 + c8;
+        act_u32i4w[(pc.o_off + ((pc.M + 15u) / 16u) * 16u * pc.N + ((tok0 / 16u) * (k4s / 64u) + c_ / 64u) * 512u
+                    + (tk + 16u * ((c_ % 32u) / 16u)) * 16u + ((c_ / 32u) & 1u) * 8u + ((c_ % 32u) / 2u) % 8u) / 4u] = u_;
+    }
+#endif
+    const uint t = tok0 + tk;
+#if NR_OUT_PERM == 1
+    // Raster token -> tile position (see the unswapped NR_OUT_PERM note).
+    const uint y = t / pc.W, x = t % pc.W;
+    const uint d = ((y / 4u) * (pc.W / 4u) + x / 4u) * 16u + (y % 4u) * 4u + x % 4u;
+    if (y < pc.rows) {
+        const uint oq = (pc.o_off + ((d / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u + (d % 16u) * 16u + c8) / 4u;
+        act_e4m3x4[oq] = q0; act_e4m3x4[oq + 1u] = q1;
+    }
+#else
+    const uint oq = (pc.o_off + tile + tk * 16u + c8) / 4u;
+    act_e4m3x4[oq] = q0; act_e4m3x4[oq + 1u] = q1;
+#if NR_OUT_PERM == 2
+    const uint tt = t / 16u;
+    const uint y = (tt / (pc.W / 4u)) * 4u + (t % 16u) / 4u, x = (tt % (pc.W / 4u)) * 4u + t % 4u;
+    const uint d = y * pc.W + x;
+    if (y < pc.rows) {
+        const uint pq = (pc.p_off + ((d / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u + (d % 16u) * 16u + c8) / 4u;
+        act_e4m3x4[pq] = q0; act_e4m3x4[pq + 1u] = q1;
+    }
+#endif
+#endif
+}
+#if defined(NR_I4_OUT)
+#if !NR_SWAP_AB || NR_NFRAG != 4 || !defined(NR_NO_RESIDUAL)
+#error "NR_I4_OUT: the swapped producer, four output fragments a wave, no residual"
+#endif
+// NR_I4_OUT: the whole wave's epilogue in one pass (main() calls it with acc), so each output
+// position's quantiser is loaded once a wave, not once a token row. Positions < K4: activation in f32, H64
+// unnormalised (the host folds the 1/8 into a), then q = med3(fma(r, a, z + 1.5*2^23), 1.5*2^23, +15): the
+// fma's one rounding at ulp 1 is rint, the low mantissa bits are q; eight q a u32 by shift-add, the constant
+// removed once, ^0x88888888 = q - 8 as signed nibbles. (a, z + 1.5*2^23) f32 pairs at pc.g_off (vec2 index).
+#define NR_I4_MAGIC 12582912.0
+#define NR_I4_V(i, j, c) acc[i][j][c]
+#define NR_I4_ROW_ACT(i) [[unroll]] for (int c = 0; c < 8; ++c) { \
+    acc[i][0][c] = NR_ACT_APPLY(acc[i][0][c]); acc[i][1][c] = NR_ACT_APPLY(acc[i][1][c]); \
+    acc[i][2][c] = NR_ACT_APPLY(acc[i][2][c]); acc[i][3][c] = NR_ACT_APPLY(acc[i][3][c]); }
+#define NR_I4_ROW_ROT(i) { \
+    [[unroll]] for (int j = 0; j < 4; ++j) [[unroll]] for (int sb = 1; sb < 8; sb <<= 1) [[unroll]] for (int c = 0; c < 8; ++c) \
+        if ((c & sb) == 0) { const float x_ = acc[i][j][c], y_ = acc[i][j][c + sb]; acc[i][j][c] = x_ + y_; acc[i][j][c + sb] = x_ - y_; } \
+    [[unroll]] for (int c = 0; c < 8; ++c) { \
+        const float b0 = acc[i][0][c] + acc[i][1][c], b1 = acc[i][0][c] - acc[i][1][c]; \
+        const float b2 = acc[i][2][c] + acc[i][3][c], b3 = acc[i][2][c] - acc[i][3][c]; \
+        acc[i][0][c] = b0 + b2; acc[i][1][c] = b1 + b3; acc[i][2][c] = b0 - b2; acc[i][3][c] = b1 - b3; } \
+    [[unroll]] for (int j = 0; j < 4; ++j) [[unroll]] for (int c = 0; c < 8; ++c) \
+        acc[i][j][c] = NR_I4_BFLY(acc[i][j][c], subgroupShuffleXor(acc[i][j][c], 16u)); }
+#define NR_I4_ROW_Q(i) if (mg0 + mloc + uint(i) * 16u < pc.M) { \
+    uint u_ = 0u; \
+    [[unroll]] for (int c = 0; c < 8; ++c) \
+        u_ += floatBitsToUint(clamp(fma(acc[i][j][c], qa[c].x, qa[c].y), NR_I4_MAGIC, NR_I4_MAGIC + 15.0)) << (4u * uint(c)); \
+    u_ = (u_ - i4mk) ^ 0x88888888u; \
+    const uint tok0_ = mg0 + mloc + uint(i) * 16u; \
+    act_u32i4w[NR_I4_XADDR(tok0_, ch)] = u_; }
+// X4 in records of two k steps (32 positions each): record ((tok/16)*(K4/64) + ch/64)*512,
+// lane l's 16 bytes at l*16 = [step 2s: row l%16, bytes 8(l/16)..+7][step 2s+1: the same], so the consumer
+// loads both steps' fragments with one 16-byte load. A u32 of 8 positions (bytes b..b+3 of its step's row,
+// b = (ch%32)/2) goes to (row + 16*(b/8))*16 + ((ch/32)&1)*8 + b%8.
+#define NR_I4_XADDR(t0, c_) ((pc.o_off + ((t0) / 16u * (k4 / 64u) + (c_) / 64u) * 512u \
+    + ((lane % 16u) + 16u * (((c_) % 32u) / 16u)) * 16u + (((c_) / 32u) & 1u) * 8u + (((c_) % 32u) / 2u) % 8u) / 4u)
+#define NR_I4_ROW_F8(i) if (mg0 + mloc + uint(i) * 16u < pc.M) { \
+    const uint tok0_ = mg0 + mloc + uint(i) * 16u; \
+    [[unroll]] for (int j = 0; j < 4; ++j) { \
+        const uint ch8 = chb + uint(j) * 16u + 8u * (lane / 16u) - k4; \
+        const uint oq = (pc.o_off + pc.p_off + ((tok0_ / 16u) * ((pc.N - k4) / 16u) + ch8 / 16u) * 256u + (lane % 16u) * 16u + ch8 % 16u) / 4u; \
+        NR_E4M3 e_[8]; \
+        [[unroll]] for (int c = 0; c < 8; ++c) e_[c] = nr_quant_e4m3(NR_F16(NR_ACT_APPLY(acc[i][j][c]))); \
+        act_e4m3x4[oq] = fe4m3vec4(e_[0], e_[1], e_[2], e_[3]); act_e4m3x4[oq + 1u] = fe4m3vec4(e_[4], e_[5], e_[6], e_[7]); } }
+#define NR_I4_EPILOGUE { \
+    const uint k4 = pc.r_off, chb = ng0 + nloc; \
+    if (chb < k4) { \
+        const float i4sgn = (lane & 16u) != 0u ? -1.0 : 1.0; \
+        uint i4mk = 0u; \
+        [[unroll]] for (int c = 0; c < 8; ++c) i4mk += floatBitsToUint(NR_I4_MAGIC) << (4u * uint(c)); \
+        NR_FOR_I(NR_MFRAG, NR_I4_ROW_ACT) \
+        NR_FOR_I(NR_MFRAG, NR_I4_ROW_ROT) \
+        [[unroll]] for (int j = 0; j < 4; ++j) { \
+            const uint ch = chb + uint(j) * 16u + 8u * (lane / 16u); \
+            vec2 qa[8]; \
+            [[unroll]] for (int c = 0; c < 8; ++c) qa[c] = wgt_v2i4[pc.g_off + ch + uint(c)]; \
+            NR_FOR_I(NR_MFRAG, NR_I4_ROW_Q) } \
+    } else { NR_FOR_I(NR_MFRAG, NR_I4_ROW_F8) } }
+#endif
+#else
+#ifndef NR_EPI_LANEBYTE
+#define NR_EPI_LANEBYTE 0
+#endif
+void nr_finish_fragment(NR_FRAG_ACC a, uint tok0, uint ch0, uint lane) {
+    if (tok0 >= pc.M) return;
+    uint col = lane % 16u, row0 = 8u * (lane / 16u);
+    uint tile = ((tok0 / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u;
+#if NR_EPI_LANEBYTE
+    // element c of the lane's column is byte (row0 + c)*16 + col of the tile. The lane
+    // term first, the constant 16c last, so the eight loads/stores share one address and carry
+    // 16c in the instruction's offset field (the old tree added it in the middle: 2 VALU each).
+    const uint nr_lb = ((lane & 16u) << 3u) | (lane & 15u);
+#endif
+#ifndef NR_NO_RESIDUAL
+    NR_F16 g = wgt_f16[pc.g_off + ch0 + col];
+#endif
+#ifdef NR_OUT_E4M3
+    NR_FRAG_E4M3 result;
+#if NR_OUT_PERM
+    NR_E4M3 qv[8];
+#endif
+#if NR_POOL_FRAG
+    NR_F16 pvv[8];
+#endif
+#else
+    NR_FRAG_ACC16 result;
+#endif
+    for (int c = 0; c < 8; ++c) {
+        float raw = a[c];
+#ifdef NR_NO_RESIDUAL
+        // `NR_EPI_VALUE`'s own no-residual arm, unchanged: the LDS it read
+        // `raw` back from was an identity round trip on an f32.
+        NR_F16 v = NR_F16(NR_ACT_APPLY(raw));
+#else
+#if NR_EPI_LANEBYTE
+        NR_F16 r = NR_F16(act_e4m3[(pc.r_off + tile + nr_lb) + uint(c) * 16u]);
+#else
+        NR_F16 r = NR_F16(act_e4m3[pc.r_off + tile +
+                                  (row0 + uint(c)) * 16u + col]);
+#endif
+#ifdef NR_EPILOGUE_NVIDIA
+        float gr = nr_round_f16(float(g) * float(r));
+        NR_F16 v = NR_F16(nr_round_f16(raw) + gr);
+#else
+        NR_F16 v = NR_F16(NR_ACT_APPLY(raw + float(g) * float(r)));
+#endif
+#endif
+#ifdef NR_OUT_E4M3
+#if NR_OUT_PERM
+        const NR_E4M3 qc = nr_quant_e4m3(v);
+        qv[c] = qc;
+#if NR_OUT_PERM == 2
+        result[c] = qc;
+#endif
+#else
+        result[c] = nr_quant_e4m3(v);
+#endif
+#if NR_POOL_FRAG
+        pvv[c] = v;
+#endif
+#else
+        result[c] = v;
+#endif
+    }
+    // Each store is the address the per-element epilogue writes, restated as a
+    // RowMajor Accumulator store: tiled is element (r, c) at
+    // `o_off + tile + r*16 + c`, untiled is `o_off + (tok0+r)*N + ch0 + c`.
+#if NR_OUT_PERM
+    // The ViT's token-order repack (repack_tokens.comp) folded into the
+    // store. A lane owns rows row0..row0+7 of one column: two runs of four
+    // tokens, each a 4-aligned run that is one row of a 4x4 tile in tile order
+    // and four consecutive raster tokens (W % 4 == 0), i.e. four bytes 16 apart
+    // at either end. Mode 1 writes raster tokens at their tile position instead
+    // of the tiled store (the inverse repack after the last ViT layer); mode 2
+    // keeps the tiled store and adds the raster copy at p_off (the forward
+    // repack after FinalHead). pc.W/pc.rows are the ViT raster; rows == 0 turns
+    // the copy off. Same bytes as the repack, which moves y < rows only.
+    for (uint g = 0u; g < 2u; ++g) {
+        const uint t = tok0 + row0 + 4u * g;
+#if NR_OUT_PERM == 1
+        const uint y = t / pc.W, x = t % pc.W;
+        const uint d = ((y / 4u) * (pc.W / 4u) + x / 4u) * 16u + (y % 4u) * 4u;
+        const uint base = pc.o_off + ((d / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u + (d % 16u) * 16u + col;
+#else
+        const uint tt = t / 16u;
+        const uint y = (tt / (pc.W / 4u)) * 4u + (t % 16u) / 4u, x = (tt % (pc.W / 4u)) * 4u;
+        const uint d = y * pc.W + x;
+        const uint base = pc.p_off + ((d / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u + (d % 16u) * 16u + col;
+#endif
+        if (y < pc.rows)
+            for (uint c = 0u; c < 4u; ++c) act_e4m3[base + 16u * c] = qv[4u * g + c];
+    }
+#endif
+#if NR_POOL_FRAG
+    for (uint b = 0u; b < 2u; ++b) {
+        const uint row = row0 + 2u * b, c0 = 2u * b;
+        const uint tiles_x = pc.W / 4u;
+        const uint tx = (tok0 / 16u) % tiles_x, ty = (tok0 / 16u) / tiles_x;
+        const uint ox = 2u * tx + (row % 4u) / 2u;
+        const uint oy = 2u * ty + (row / 4u) / 2u;
+        const uint ow = ((pc.W + 1u) / 2u + 3u) & ~3u;
+        const uint oh = ((pc.rows + 1u) / 2u + 3u) & ~3u;
+        if (pc.rows != 0u && oy >= oh) continue;
+        const uint otok = ((oy / 4u) * (ow / 4u) + ox / 4u) * 16u + 4u * (oy % 4u) + (ox % 4u);
+        const NR_F16 pa = NR_F16(float(pvv[c0]) + float(pvv[c0 + 1u]));
+        const NR_F16 pc2 = NR_F16(float(pvv[c0 + 4u]) + float(pvv[c0 + 5u]));
+        const NR_F16 pv = NR_F16(NR_F16(pa + pc2) * NR_F16(0.25));
+        act_e4m3[pc.p_off + ((otok / 16u) * (pc.N / 16u) + ch0 / 16u) * 256u + (otok % 16u) * 16u + col] =
+            nr_quant_e4m3(pv);
+    }
+#endif
+#if defined(NR_OUT_E4M3) && NR_OUT_PERM == 1
+#elif defined(NR_OUT_E4M3) && NR_OUT_KPAIR
+    // NR_OUT_KPAIR: element (t, c) of the tile goes to record
+    // ((tok0/16)*(N/32) + ch0/32)*512 at (t + 16*(c/8))*16 + ((ch0/16)&1)*8 + c%8
+    // (the consumer's NR_A_KPAIR layout). A lane owns column `col`, rows row0..+7.
+    {
+        const uint kpb = pc.o_off + ((tok0 / 16u) * (pc.N / 32u) + ch0 / 32u) * 512u
+                       + ((ch0 / 16u) & 1u) * 8u + (col >> 3u) * 256u + (col & 7u);
+        for (int c = 0; c < 8; ++c) act_e4m3[kpb + (row0 + uint(c)) * 16u] = result[c];
+    }
+#elif defined(NR_OUT_E4M3) && NR_EPI_LANEBYTE && !NR_OUT_PERM
+    for (int c = 0; c < 8; ++c) act_e4m3[(pc.o_off + tile + nr_lb) + uint(c) * 16u] = result[c];
+#elif defined(NR_OUT_E4M3)
+    NR_STORE_ACC(result, act_e4m3, pc.o_off + tile, 16u);
+#elif defined(NR_OUT_TILED)
+    NR_STORE_ACC(result, act_f16, pc.o_off + tile, 16u);
+#else
+    NR_STORE_ACC(result, act_f16, pc.o_off + tok0 * pc.N + ch0, pc.N);
+#endif
+}
+#endif
+#else
+#define NR_USE_FRAGMENT_EPI 0
+#endif
+#if NR_SWAP_AB && (!NR_USE_FRAGMENT_EPI || !defined(NR_OUT_E4M3) || !defined(NR_OUT_TILED) || NR_QKV_FUSED_NORM \
+    || !defined(NR_PACKED_WEIGHT_N2) || !(NR_KOFF_SPLIT && defined(NR_TILED_A) && defined(NR_A_DIRECT)) \
+    || defined(NR_OPERAND_F16) || NR_XPIPE || NR_KPAIR_ABL || NR_STAGED)
+#error "NR_SWAP_AB: element-filled A (tiled, direct) and packed B, tiled e4m3 fragment epilogue only"
+#endif
+#if NR_OUT_PERM && (!NR_USE_FRAGMENT_EPI || !defined(NR_OUT_E4M3) || !defined(NR_OUT_TILED))
+#error "NR_OUT_PERM needs the tiled e4m3 fragment epilogue"
+#endif
+
+// Fuse the separate ViT QKV normalization into the GEMM epilogue.
+// Each pair of adjacent 16-channel fragments owns a complete 32-channel head.
+// The first add pairs channel d with d+16, then reproduces the original
+// butterfly 8,4,2,1. Two independent token sums share packed half shuffles.
+#ifndef NR_QKV_FUSED_NORM
+#define NR_QKV_FUSED_NORM 0
+#endif
+#if NR_QKV_FUSED_NORM
+// After the xor butterfly every lane of a 16-lane half already holds the
+// same bits (each stage's pair computes a+b and b+a, and IEEE addition
+// commutes exactly), so the broadcast from lane 0/16 moves nothing.
+#ifndef NR_QKV_NO_BCAST
+#define NR_QKV_NO_BCAST 0
+#endif
+#ifndef NR_QKV_SOURCE_ORDER
+#define NR_QKV_SOURCE_ORDER 0
+#endif
+#if !NR_USE_FRAGMENT_EPI || NR_NFRAG % 2 != 0 || !defined(NR_NO_RESIDUAL)
+#error "Fused QKV requires the no-residual, even-fragment FP32 GEMM epilogue"
+#endif
+layout(set=0, binding=3, std430) readonly buffer QkvScale { float qkv_scale[]; };
+#define NR_QKV_FOLD_PAIR(s) { \
+    f16vec2 other = unpackFloat2x16(subgroupShuffleXor(packFloat2x16(sum), (s))); \
+    sum = f16vec2(NR_F16(sum.x + other.x), NR_F16(sum.y + other.y)); }
+void nr_finish_qkv_pair(NR_FRAG_ACC a, NR_FRAG_ACC b, uint tok0, uint ch0, uint lane) {
+    if (tok0 >= pc.M) return;
+    NR_FRAG_E4M3 out0, out1;
+    for (int c=0;c<8;c+=2) {
+#if NR_QKV_SOURCE_ORDER
+        f16vec2 x=f16vec2(a[c], a[c+1]), y=f16vec2(b[c], b[c+1]);
+#else
+        precise f16vec2 x=f16vec2(a[c], a[c+1]), y=f16vec2(b[c], b[c+1]);
+#endif
+        if (ch0 < 2048u) {
+            precise f16vec2 sx=x*x, sy=y*y;
+            f16vec2 sum=sx+sy;
+            NR_QKV_FOLD_PAIR(8u)
+            NR_QKV_FOLD_PAIR(4u)
+            NR_QKV_FOLD_PAIR(2u)
+            NR_QKV_FOLD_PAIR(1u)
+#if !NR_QKV_NO_BCAST
+            sum=unpackFloat2x16(subgroupShuffle(packFloat2x16(sum),lane & 16u));
+#endif
+            f16vec2 inv=f16vec2(inversesqrt(vec2(max(sum,f16vec2(NR_F16(0.000062))))));
+#if NR_QKV_SOURCE_ORDER
+            x=x*inv; y=y*inv;
+            if (ch0 < 1024u) {
+                x=x*f16vec2(NR_F16(sqrt(32.0))); y=y*f16vec2(NR_F16(sqrt(32.0)));
+                NR_F16 scale=NR_F16(qkv_scale[pc.r_off+ch0/32u]);
+                x=x*f16vec2(scale); y=y*f16vec2(scale);
+            }
+#else
+            // The retained GPU reference actually multiplies q by sqrt(32)
+            // BEFORE the reciprocal norm, despite the order in its GLSL.
+            // Spell that emitted order and prevent further reassociation.
+            if (ch0 < 1024u) {
+                x=x*f16vec2(NR_F16(sqrt(32.0))); y=y*f16vec2(NR_F16(sqrt(32.0)));
+            }
+            x=x*inv; y=y*inv;
+            if (ch0 < 1024u) {
+                NR_F16 scale=NR_F16(qkv_scale[pc.r_off+ch0/32u]);
+                x=x*f16vec2(scale); y=y*f16vec2(scale);
+            }
+#endif
+        }
+        out0[c]=nr_quant_e4m3(x.x); out0[c+1]=nr_quant_e4m3(x.y);
+        out1[c]=nr_quant_e4m3(y.x); out1[c+1]=nr_quant_e4m3(y.y);
+    }
+    uint tile=((tok0/16u)*(pc.N/16u)+ch0/16u)*256u;
+    NR_STORE_ACC(out0,act_e4m3,pc.o_off+tile,16u);
+    NR_STORE_ACC(out1,act_e4m3,pc.o_off+tile+256u,16u);
+}
+#endif
+
+// ---- inner loop --------------------------------------------------------
+// Unrolled by NR_FOR_* rather than by any optimiser. See the note in
+// coopmm.glsl: left as loops, `acc` is dynamically indexed and ACO spills every
+// accumulator fragment to scratch.
+// NR_TILED_A / NR_TILED_B: the operand is stored tile-blocked as
+// [rows/16][K/16][16 rows][16 k], so one 16x16 fragment is 256 contiguous
+// bytes. This is decision 4's own prescribed relayout, and it changes only the
+// address arithmetic - same instruction count, same bytes.
+//
+// Why it should matter: with the canonical [N][K] layout the fragment stride is
+// pc.K = 512 B, so a fragment is sixteen 16-byte row segments 512 B apart and a
+// single buffer_load_b64 touches **sixteen 128-byte cache lines to use 16 bytes
+// of each**. Tile-blocked, it touches two lines and uses all of both.
+#if defined(NR_TILED_A) && defined(NR_I4)
+// the e4m3 part of K (X8) sits pc.p_off bytes after the int4 part (X4) at pc.x_off.
+#define NR_ABASE_I(i) abase_g[i] = pc.x_off + pc.p_off + \
+        ((mg0 + mloc + uint((i) * 16)) / 16u) * (pc.K / 16u) * 256u;
+#define NR_ASTRIDE 16u
+#define NR_AKOFF(k) (((k) / 16u) * 256u)
+#elif defined(NR_TILED_A)
+#define NR_ABASE_I(i) abase_g[i] = pc.x_off + \
+        ((mg0 + mloc + uint((i) * 16)) / 16u) * (pc.K / 16u) * 256u;
+#define NR_ASTRIDE 16u
+#define NR_AKOFF(k) (((k) / 16u) * 256u)
+#else
+#define NR_ABASE_I(i) abase_g[i] = pc.x_off + (mg0 + mloc + uint((i) * 16)) * pc.K;
+#define NR_ASTRIDE pc.K
+#define NR_AKOFF(k) (k)
+#endif
+#ifdef NR_PACKED_WEIGHT_N2
+#define NR_BBASE_J(j) bbase_g[j] = pc.w_off/4u + \
+        ((ng0+nloc+uint((j)*16))/32u)*(pc.K/16u)*128u + lane*4u;
+#define NR_BSTRIDE 16u
+#define NR_BKOFF(k) (((k)/16u)*128u)
+#elif defined(NR_TILED_B)
+#define NR_BBASE_J(j) bbase_g[j] = pc.w_off + \
+        ((ng0 + nloc + uint((j) * 16)) / 16u) * (pc.K / 16u) * 256u;
+#define NR_BSTRIDE 16u
+#define NR_BKOFF(k) (((k) / 16u) * 256u)
+#else
+#define NR_BBASE_J(j) bbase_g[j] = pc.w_off + (ng0 + nloc + uint((j) * 16)) * pc.K;
+#define NR_BSTRIDE pc.K
+#define NR_BKOFF(k) (k)
+#endif
+#ifndef NR_KOFF_SPLIT
+#define NR_KOFF_SPLIT 0
+#endif
+#if NR_KOFF_SPLIT && NR_ABLATE_ADDR == 0
+#ifndef NR_DIAG_BFOLDG
+#define NR_DIAG_BFOLDG 0
+#endif
+#if NR_DIAG_BFOLDG
+// diagnostic (wrong picture): every packed B (weight) read of the dispatch
+// inside the matrix's first NR_DIAG_BFOLDG u32 words - same loads, B data still
+// real weights (B values do not move WMMA power, ), L2/DRAM traffic ~gone.
+#define NR_BADDR(j) ((pc.w_off / 4u) + ((((bbase_g[j] + bkc) + NR_BKOFF(kknext)) - pc.w_off / 4u) & uint(NR_DIAG_BFOLDG - 1)))
+#else
+#define NR_BADDR(j) ((bbase_g[j] + bkc) + NR_BKOFF(kknext))
+#endif
+#else
+#undef NR_KOFF_SPLIT
+#define NR_KOFF_SPLIT 0
+#define NR_BADDR(j) (bbase_g[j] + NR_BKOFF(kglob))
+#endif
+#define NR_ZERO_J(j)  acc[ii][j] = NR_ACC_ZERO;
+#define NR_ZERO_I(i)  { const int ii = i; NR_FOR_J(NR_NFRAG, NR_ZERO_J) }
+
+// Fragment loads write the *other* half of a two-deep ping-pong, so they are
+// issued a whole k step before their s_waitcnt.
+#ifdef NR_OPERAND_F16
+#define NR_A_GLOBAL act_f16
+#define NR_B_GLOBAL wgt_f16
+#else
+#define NR_A_GLOBAL act_e4m3
+#define NR_B_GLOBAL wgt_e4m3
+#endif
+
+#ifdef NR_A_DIRECT
+// Per-fragment base addresses are hoisted into registers before the loop. Left
+// as an expression, ACO recomputed them every iteration - seven v_mul_lo_u32
+// and forty-odd adds per sixteen WMMAs - because pc.K is a push constant and it
+// would not strength-reduce the row offset.
+#if NR_KOFF_SPLIT && defined(NR_TILED_A) && !defined(NR_OPERAND_F16)
+// The same A fragment coopMatLoad(RowMajor, stride 16) produces - lane l
+// holds row l%16 and the eight k values starting at (l/16)*8, which in the
+// tile-blocked layout are eight contiguous bytes - loaded through the packed
+// view with the lane term hoisted out of the loop, so each step is the
+// hoisted pointer plus the chunk offset plus a literal.
+#define NR_LDA_I(i) { \
+    const uint nrq = (alane4[i] + akc4) + NR_AKOFF(kknext) / 4u; \
+    const fe4m3vec4 r0 = act_e4m3x4[nrq], r1 = act_e4m3x4[nrq + 1u]; \
+    for (int v = 0; v < 4; ++v) { fa[cur][i][v] = r0[v]; fa[cur][i][v + 4] = r1[v]; } }
+#elif NR_KOFF_SPLIT
+// k0 is a multiple of NR_KCHUNK, so (k0 + kk)/16 == k0/16 + kk/16. Adding
+// the per-chunk part once (akc/bkc) and the per-step part as a literal lets
+// ACO put the step into the buffer instruction's immediate offset instead of
+// rebuilding every fragment address in VALU each step.
+#define NR_LDA_I(i)  NR_LOAD_A(fa[cur][i], NR_A_GLOBAL, (abase_g[i] + akc) + NR_AKOFF(kknext), NR_ASTRIDE);
+#else
+#define NR_LDA_I(i)  NR_LOAD_A(fa[cur][i], NR_A_GLOBAL, abase_g[i] + NR_AKOFF(kglob), NR_ASTRIDE);
+#endif
+#else
+#define NR_LDA_I(i)  NR_LOAD_A(fa[cur][i], lds_a, \
+        abase + (mloc + uint((i) * 16)) * uint(NR_KCHUNK) + kknext, uint(NR_KCHUNK));
+#endif
+#ifdef NR_PACKED_WEIGHT_N2
+#define NR_LDB_J(j) if (((j)&1)==0) { \
+    const uint nrq=NR_BADDR(j); \
+    const fe4m3vec4 w0=wgt_pair4[nrq],w1=wgt_pair4[nrq+1u]; \
+    const fe4m3vec4 w2=wgt_pair4[nrq+2u],w3=wgt_pair4[nrq+3u]; \
+    for(int v=0;v<4;++v) { \
+        fb[cur][j][v]=w0[v]; fb[cur][j][v+4]=w1[v]; \
+        fb[cur][((j)+1)%NR_NFRAG][v]=w2[v]; fb[cur][((j)+1)%NR_NFRAG][v+4]=w3[v]; \
+    } }
+#elif defined(NR_B_DIRECT)
+#define NR_LDB_J(j)  NR_LOAD_B(fb[cur][j], NR_B_GLOBAL, NR_BADDR(j), NR_BSTRIDE);
+#else
+#define NR_LDB_J(j)  NR_LOAD_B(fb[cur][j], lds_b, \
+        bbase + (nloc + uint((j) * 16)) * uint(NR_KCHUNK) + kknext, uint(NR_KCHUNK));
+#endif
+#define NR_LOADS     NR_FOR_I(NR_MFRAG, NR_LDA_I) NR_FOR_J(NR_NFRAG, NR_LDB_J)
+
+// NR_A_LDSV: with NR_WM = 1 every wave of a workgroup multiplies the same A
+// (token) fragments, and each loaded them itself (buffer_load_b64, ~4 SIMD
+// cycles of write-back each, ). Here the workgroup copies a chunk's A tiles
+// once - 16-byte loads spread over its threads - into a double-buffered LDS
+// copy, and the waves read their fragments with ds_load_b64 (~1.6 cycles).
+// Same bytes, same fragments, same k order: byte-identical. One barrier a chunk.
+#ifndef NR_A_LDSV
+#define NR_A_LDSV 0
+#endif
+#if NR_A_LDSV
+#if !(NR_KOFF_SPLIT && defined(NR_TILED_A) && defined(NR_A_DIRECT) && !defined(NR_OPERAND_F16)) || NR_WM != 1 \
+    || NR_XPIPE || NR_STAGED || NR_SWAP_AB || NR_ABLATE_LOADS || NR_KPAIR_ABL
+#error "NR_A_LDSV: tile-blocked e4m3 A, direct loads, NR_WM = 1, no XPIPE/staging/swap/ablation"
+#endif
+#define NR_LDSV_V4 (NR_MFRAG * NR_KFRAG * 64)          // fe4m3vec4 a chunk (256 B a tile)
+#define NR_LDSV_U (NR_MFRAG * NR_KFRAG * 16 / NR_THREADS) // 16-byte units a thread
+#if NR_LDSV_U < 1 || NR_LDSV_U * NR_THREADS != NR_MFRAG * NR_KFRAG * 16
+#error "NR_A_LDSV: the chunk's 16-byte units must divide over the workgroup"
+#endif
+shared fe4m3vec4 lds_av[2 * NR_LDSV_V4];
+#undef NR_LDA_I
+#define NR_LDA_I(i) { \
+    const uint nrq = lbuf + (uint(i) * uint(NR_KFRAG) + kknext / 16u) * 64u + ldsv_lane4; \
+    const fe4m3vec4 r0 = lds_av[nrq], r1 = lds_av[nrq + 1u]; \
+    for (int v = 0; v < 4; ++v) { fa[cur][i][v] = r0[v]; fa[cur][i][v + 4] = r1[v]; } }
+// unit u = tile t (= i * NR_KFRAG + kt) * 16 + e; tile (i, kt) is 256 contiguous
+// bytes at token tile mg0/16 + i, k tile k0/16 + kt of the tile-blocked arena.
+#define NR_LDSV_FETCH(kc0) \
+    for (int q = 0; q < NR_LDSV_U; ++q) { \
+        const uint u = tid + uint(q) * uint(NR_THREADS), t = u / 16u, e = u % 16u; \
+        const uint g = (pc.x_off / 4u) + ((mg0 / 16u + t / uint(NR_KFRAG)) * (pc.K / 16u) \
+                     + (kc0) / 16u + t % uint(NR_KFRAG)) * 64u + e * 4u; \
+        for (int v = 0; v < 4; ++v) ldsv_r[q][v] = act_e4m3x4[g + uint(v)]; }
+#define NR_LDSV_SPILL(b0) \
+    for (int q = 0; q < NR_LDSV_U; ++q) { \
+        const uint u = tid + uint(q) * uint(NR_THREADS); \
+        for (int v = 0; v < 4; ++v) lds_av[(b0) + u * 4u + uint(v)] = ldsv_r[q][v]; }
+#endif
+
+// NR_B_LDSV: with NR_WM > 1 the NR_WM waves of a workgroup that share an
+// N range read the same packed weight records. The workgroup copies a chunk's
+// records once (16-byte loads over its threads) into a double-buffered LDS
+// copy; the waves read fragment pairs from it. L2 weight traffic / NR_WM, same
+// bytes and k order: byte-identical. One barrier a chunk (shared with A_LDSV).
+#ifndef NR_B_LDSV
+#define NR_B_LDSV 0
+#endif
+#if NR_B_LDSV
+#if !(NR_KOFF_SPLIT && defined(NR_PACKED_WEIGHT_N2) && defined(NR_B_DIRECT)) || NR_WM < 2 || NR_XPIPE || NR_STAGED \
+    || NR_SWAP_AB || NR_ABLATE_LOADS || (NR_NFRAG % 2) || NR_DIAG_BFOLDG
+#error "NR_B_LDSV: N-pair packed weights, direct loads, NR_WM >= 2"
+#endif
+#define NR_BLDSV_V4 ((NR_NTILE / 32) * NR_KFRAG * 128)          // fe4m3vec4 a chunk (512 B a record)
+#define NR_BLDSV_U ((NR_NTILE / 32) * NR_KFRAG * 32 / NR_THREADS) // 16-byte units a thread
+#if NR_BLDSV_U < 1 || NR_BLDSV_U * NR_THREADS != (NR_NTILE / 32) * NR_KFRAG * 32
+#error "NR_B_LDSV: the chunk's 16-byte units must divide over the workgroup"
+#endif
+shared fe4m3vec4 lds_bv[2 * NR_BLDSV_V4];
+#undef NR_LDB_J
+#define NR_LDB_J(j) if (((j)&1)==0) { \
+    const uint nrq = blbuf + ((nloc / 32u + uint(j) / 2u) * uint(NR_KFRAG) + kknext / 16u) * 128u + lane * 4u; \
+    const fe4m3vec4 w0=lds_bv[nrq],w1=lds_bv[nrq+1u],w2=lds_bv[nrq+2u],w3=lds_bv[nrq+3u]; \
+    for(int v=0;v<4;++v) { \
+        fb[cur][j][v]=w0[v]; fb[cur][j][v+4]=w1[v]; \
+        fb[cur][((j)+1)%NR_NFRAG][v]=w2[v]; fb[cur][((j)+1)%NR_NFRAG][v+4]=w3[v]; \
+    } }
+// unit u = record r (= pl * NR_KFRAG + kt) * 32 + e: record (pair ng0/32 + pl, k tile k0/16 + kt)
+#define NR_BLDSV_FETCH(kc0) \
+    for (int q = 0; q < NR_BLDSV_U; ++q) { \
+        const uint u = tid + uint(q) * uint(NR_THREADS), r = u / 32u, e = u % 32u; \
+        const uint g = (pc.w_off / 4u) + ((ng0 / 32u + r / uint(NR_KFRAG)) * (pc.K / 16u) \
+                     + (kc0) / 16u + r % uint(NR_KFRAG)) * 128u + e * 4u; \
+        for (int v = 0; v < 4; ++v) bldsv_r[q][v] = wgt_pair4[g + uint(v)]; }
+#define NR_BLDSV_SPILL(b0) \
+    for (int q = 0; q < NR_BLDSV_U; ++q) { \
+        const uint u = tid + uint(q) * uint(NR_THREADS); \
+        for (int v = 0; v < 4; ++v) lds_bv[(b0) + u * 4u + uint(v)] = bldsv_r[q][v]; }
+#endif
+
+#if NR_SWAP_AB == 2
+// Swapped and loop-transposed: NR_MMA_I(x) runs weight fragment x against every
+// token fragment, so the A operand stays fixed across the inner loop.
+#if NR_MFRAG != NR_NFRAG
+#error "NR_SWAP_AB=2 needs NR_MFRAG == NR_NFRAG"
+#endif
+#define NR_MMA_J(i)  NR_MMA(acc[i][jj], fb[pp][jj], fa[pp][i]);
+#elif NR_SWAP_AB
+#define NR_MMA_J(j)  NR_MMA(acc[ii][j], fb[pp][j], fa[pp][ii]);
+#else
+#define NR_MMA_J(j)  NR_MMA(acc[ii][j], fa[pp][ii], fb[pp][j]);
+#endif
+#if NR_SWAP_AB == 2
+#define NR_MMA_I(j)  { const int jj = j; NR_FOR_J(NR_MFRAG, NR_MMA_J) }
+#else
+#define NR_MMA_I(i)  { const int ii = i; NR_FOR_J(NR_NFRAG, NR_MMA_J) }
+#endif
+
+#ifndef NR_ACC_F16
+#define NR_ACC_F16 0
+#endif
+#if NR_ACC_F16 > 0
+#define NR_ROUND_J(j) { for (int z=0; z<acc[ii][j].length(); ++z) \
+    acc[ii][j][z]=nr_round_f16(float(acc[ii][j][z])); }
+#define NR_ROUND_I(i) { const int ii=i; NR_FOR_J(NR_NFRAG, NR_ROUND_J) }
+#ifdef NR_OPERAND_F16
+#define NR_ROUND_STEP(kf) { NR_FOR_I(NR_MFRAG, NR_ROUND_I) }
+#else
+#define NR_ROUND_STEP(kf) if (((kf)+1)%NR_ACC_F16==0) { NR_FOR_I(NR_MFRAG, NR_ROUND_I) }
+#endif
+#else
+#define NR_ROUND_STEP(kf)
+#endif
+
+// The prefetch has to wrap. Stopping at the last k step of a chunk meant the
+// chunk prologue reloaded the same fragments and used them immediately, so one
+// step in NR_KFRAG paid a full memory latency: the emitted loop body had
+// **eight s_wait_loadcnt for sixteen WMMAs**. With both operands direct there
+// is no staging to wait for, so the last step simply prefetches the first step
+// of the next chunk and the wrap is free. `kwrap` keeps the address in range on
+// the final chunk, where the prefetched value is never used.
+// Step kf multiplies from bank kf % NR_PIPE and issues the loads for step
+// kf + NR_PIPE - 1 into the bank that step will read. Every index is a literal,
+// so the banks are real registers rather than an indexable array.
+//
+// An earlier variant let the last steps of a chunk prefetch into the next chunk
+// instead of stopping. It measured worse on every configuration on an idle GPU
+// - the select on the address and the extra loads in flight cost more than the
+// stall it removed - and is not kept.
+#ifndef NR_DIAG_APAIR
+#define NR_DIAG_APAIR 0
+#endif
+#if NR_DIAG_APAIR
+// timing diagnostic (wrong values): the A-operand instruction profile of a
+// K-pair A layout - one 16-byte load a fragment on even k steps, none on odd
+// steps, whose MMAs reuse the even step's bank.
+#if !(NR_KOFF_SPLIT && defined(NR_TILED_A) && defined(NR_A_DIRECT)) || (NR_KFRAG % 2) || NR_A_LDSV || NR_XPIPE
+#error "NR_DIAG_APAIR: direct tile-blocked A, even NR_KFRAG"
+#endif
+#undef NR_LDA_I
+#define NR_LDA_I(i) if (((kknext / 16u) & 1u) == 0u) { \
+    const uint nrq = (alane4[i] + akc4) + NR_AKOFF(kknext) / 4u; \
+    const fe4m3vec4 r0 = act_e4m3x4[nrq], r1 = act_e4m3x4[nrq + 1u], r2 = act_e4m3x4[nrq + 2u], r3 = act_e4m3x4[nrq + 3u]; \
+    const int cur2 = (cur + 1) % NR_PIPE; \
+    for (int v = 0; v < 4; ++v) { fa[cur][i][v] = r0[v]; fa[cur][i][v + 4] = r1[v]; \
+                                  fa[cur2][i][v] = r2[v]; fa[cur2][i][v + 4] = r3[v]; } }
+#endif
+// NR_A_KPAIR: A (tokens) stored K-pair interleaved by its producer
+// (NR_OUT_KPAIR): 512-byte records of two 16-channel tiles, lane l's 16 bytes
+// = [tile 2p: row l%16, k 8(l/16)..+7][tile 2p+1: the same]. An even k step
+// loads both steps' fragments with one 16-byte load; the odd step's half goes
+// to its bank after this step's MMAs (that bank is this step's until then).
+// Record and chunk offsets equal the tile layout's; only the lane term moves.
+#ifndef NR_A_KPAIR
+#define NR_A_KPAIR 0
+#endif
+#if NR_A_KPAIR
+#if !(NR_KOFF_SPLIT && defined(NR_TILED_A) && defined(NR_A_DIRECT) && !defined(NR_OPERAND_F16)) || (NR_KFRAG % 2) \
+    || NR_PIPE < 2 || NR_A_LDSV || NR_XPIPE || NR_STAGED || NR_SWAP_AB || NR_ABLATE_LOADS || NR_KPAIR_ABL || NR_DIAG_APAIR
+#error "NR_A_KPAIR: direct tile-blocked e4m3 A, even NR_KFRAG, plain pipeline"
+#endif
+#undef NR_LDA_I
+#define NR_LDA_I(i) if (((kknext / 16u) & 1u) == 0u) { \
+    const uint nrq = (alane4[i] + akc4) + NR_AKOFF(kknext) / 4u; \
+    const fe4m3vec4 r0 = act_e4m3x4[nrq], r1 = act_e4m3x4[nrq + 1u], r2 = act_e4m3x4[nrq + 2u], r3 = act_e4m3x4[nrq + 3u]; \
+    for (int v = 0; v < 4; ++v) { fa[cur][i][v] = r0[v]; fa[cur][i][v + 4] = r1[v]; \
+                                  kpa_hi[i][v] = r2[v]; kpa_hi[i][v + 4] = r3[v]; } }
+#define NR_KPA_DECL NR_FRAG_A kpa_hi[NR_MFRAG];
+#define NR_KPA_PUT(bank) for (int i = 0; i < NR_MFRAG; ++i) fa[bank][i] = kpa_hi[i];
+#else
+#define NR_KPA_DECL
+#endif
+#if NR_A_KPAIR
+#define NR_KSTEP(kf) { \
+        const int pp = (kf) % NR_PIPE; \
+        const int cur = ((kf) + NR_PIPE - 1) % NR_PIPE; \
+        const uint kknext = uint(((kf) + NR_PIPE - 1) * 16); \
+        const uint kglob = (NR_ABLATE_ADDR == 1) ? 0u : (k0 + kknext); \
+        NR_KPA_DECL \
+        if ((kf) + NR_PIPE - 1 < NR_KFRAG) { NR_LOADS } \
+        NR_FOR_I(NR_MFRAG, NR_MMA_I) \
+        if ((kf) + NR_PIPE - 1 < NR_KFRAG && (((kf) + NR_PIPE - 1) & 1) == 0) { NR_KPA_PUT(pp) } \
+        NR_ROUND_STEP(kf) \
+    }
+#else
+#define NR_KSTEP(kf) { \
+        const int pp = (kf) % NR_PIPE; \
+        const int cur = ((kf) + NR_PIPE - 1) % NR_PIPE; \
+        const uint kknext = uint(((kf) + NR_PIPE - 1) * 16); \
+        const uint kglob = (NR_ABLATE_ADDR == 1) ? 0u : (k0 + kknext); \
+        if (NR_ABLATE_LOADS == 0 && (kf) + NR_PIPE - 1 < NR_KFRAG) { NR_LOADS } \
+        NR_FOR_I(NR_MFRAG, NR_MMA_I) \
+        NR_ROUND_STEP(kf) \
+    }
+#endif
+// Prime banks 0 .. NR_PIPE-2 with steps 0 .. NR_PIPE-2. The guard is a constant
+// so the steps beyond the pipe depth fold away.
+// The index is taken modulo the pipe depth even though the guard already
+// excludes the larger steps: GLSL rejects an out-of-range constant array index
+// in a statically dead branch just as firmly as in a live one.
+// Normally banks 0 .. NR_PIPE-2 are primed and step 0 fills the last one for
+// step NR_PIPE-1. Under NR_ABLATE_LOADS nothing refills anything, so **every**
+// bank has to be primed - otherwise step NR_PIPE-1 multiplies an uninitialised
+// register and the ablation measures nothing meaningful. Caught in review; the
+// full kernel was never affected.
+#define NR_PRIME_N (NR_ABLATE_LOADS == 1 ? NR_PIPE : NR_PIPE - 1)
+#ifndef NR_KPAIR_ABL
+#define NR_KPAIR_ABL 0
+#endif
+#if NR_KPAIR_ABL
+// Diagnostic (wrong values): the A fragments of k steps 0 and 1 from one
+// 16-byte load a lane, to price a K-pair operand layout before building it.
+#if NR_KFRAG != 2 || NR_PIPE < 2 || !(NR_KOFF_SPLIT && defined(NR_TILED_A))
+#error "NR_KPAIR_ABL: the KFRAG=2 wide GEMM only"
+#endif
+#define NR_KPA_I(i) { \
+    const uint nrq = (alane4[i] + akc4); \
+    const fe4m3vec4 r0 = act_e4m3x4[nrq], r1 = act_e4m3x4[nrq + 1u], r2 = act_e4m3x4[nrq + 2u], r3 = act_e4m3x4[nrq + 3u]; \
+    for (int v = 0; v < 4; ++v) { fa[0][i][v] = r0[v]; fa[0][i][v + 4] = r1[v]; fa[1][i][v] = r2[v]; fa[1][i][v + 4] = r3[v]; } }
+#define NR_PRIME(kf) if ((kf) < NR_PRIME_N) { \
+        const int cur = (kf) % NR_PIPE; \
+        const uint kknext = uint((kf) * 16); \
+        const uint kglob = k0 + kknext; \
+        if ((kf) == 0) { NR_FOR_I(NR_MFRAG, NR_KPA_I) } \
+        NR_FOR_J(NR_NFRAG, NR_LDB_J) \
+    }
+#elif NR_A_KPAIR
+#define NR_PRIME(kf) if ((kf) < NR_PRIME_N) { \
+        const int cur = (kf) % NR_PIPE; \
+        const uint kknext = uint((kf) * 16); \
+        const uint kglob = k0 + kknext; \
+        NR_KPA_DECL \
+        NR_LOADS \
+        if (((kf) & 1) == 0) { NR_KPA_PUT(((kf) + 1) % NR_PIPE) } \
+    }
+#else
+#define NR_PRIME(kf) if ((kf) < NR_PRIME_N) { \
+        const int cur = (kf) % NR_PIPE; \
+        const uint kknext = uint((kf) * 16); \
+        const uint kglob = k0 + kknext; \
+        NR_LOADS \
+    }
+#endif
+
+// NR_XPIPE: the fragment prefetch wraps across chunk boundaries, so a
+// wave always has NR_PIPE-1 k steps of loads in flight - including the last
+// waves of a dispatch, which run with one or two waves on their SIMD and had
+// no other wave to cover the per-chunk load latency (in-kernel clock records:
+// ViT expand waves end 11..27 us in launch order; the tail is latency-bound).
+// Banks are step % NR_PIPE, a literal because NR_KFRAG % NR_PIPE == 0. The
+// last chunk prefetches itself again (clamped) and never uses it. Same
+// fragments, same k order per accumulator: byte-identical.
+#ifndef NR_XPIPE
+#define NR_XPIPE 0
+#endif
+#if NR_XPIPE && (NR_STAGED || !NR_KOFF_SPLIT || (NR_KFRAG % NR_PIPE) != 0 || NR_ABLATE_LOADS || NR_PIPE > NR_KFRAG)
+#error "NR_XPIPE: direct operands, NR_KOFF_SPLIT, NR_KFRAG a multiple of NR_PIPE"
+#endif
+#if NR_XPIPE && !(defined(NR_TILED_A) && defined(NR_PACKED_WEIGHT_N2) && !defined(NR_OPERAND_F16))
+#error "NR_XPIPE carries raw u32 fragments: tile-blocked e4m3 A and N-pair packed B only"
+#endif
+// The banks cross the loop's back edge, and a phi of an e4m3 coopmat is copied
+// byte by byte (four v_perm_b32 a dword, the byte-vector phi trap): carried as raw u32
+// pairs, a fragment is built at its MMA with no instruction at all.
+#define NR_XLDA_I(i) { \
+    const uint nrq = (alane4[i] + akc4) + NR_AKOFF(kknext) / 4u; \
+    fau[cur][i] = uvec2(act_u32v[nrq], act_u32v[nrq + 1u]); }
+#define NR_XLDB_J(j) if (((j)&1)==0) { \
+    const uint nrq = NR_BADDR(j); \
+    fbu[cur][j] = uvec2(wgt_u32v[nrq], wgt_u32v[nrq + 1u]); \
+    fbu[cur][((j)+1)%NR_NFRAG] = uvec2(wgt_u32v[nrq + 2u], wgt_u32v[nrq + 3u]); }
+#define NR_XLOADS NR_FOR_I(NR_MFRAG, NR_XLDA_I) NR_FOR_J(NR_NFRAG, NR_XLDB_J)
+#define NR_XFRAG(dst, u) { \
+    const fe4m3vec4 x0_ = uintBitsToFloate4m3EXT(unpack8((u).x)), x1_ = uintBitsToFloate4m3EXT(unpack8((u).y)); \
+    for (int v = 0; v < 4; ++v) { dst[v] = x0_[v]; dst[v + 4] = x1_[v]; } }
+#define NR_XMMA_J(j) { NR_FRAG_B b_; NR_XFRAG(b_, fbu[pp][j]) NR_MMA(acc[ii][j], a_, b_); }
+#define NR_XMMA_I(i) { const int ii = i; NR_FRAG_A a_; NR_XFRAG(a_, fau[pp][ii]) NR_FOR_J(NR_NFRAG, NR_XMMA_J) }
+#ifndef NR_XABL
+#define NR_XABL 0     // diagnostic: every bank primed once, no loads in the k loop
+#endif
+#if NR_XABL
+#undef NR_XLOADS
+#define NR_XLOADS
+#define NR_XPRIME(kf) if ((kf) < NR_PIPE) { \
+        const int cur = (kf) % NR_PIPE; \
+        const uint kknext = uint((kf) * 16); \
+        NR_FOR_I(NR_MFRAG, NR_XLDA_I) NR_FOR_J(NR_NFRAG, NR_XLDB_J) \
+    }
+#else
+#define NR_XPRIME(kf) if ((kf) < NR_PIPE - 1) { \
+        const int cur = (kf) % NR_PIPE; \
+        const uint kknext = uint((kf) * 16); \
+        NR_XLOADS \
+    }
+#endif
+#define NR_XKSTEP(kf) { \
+        const int pp = (kf) % NR_PIPE; \
+        const int cur = ((kf) + NR_PIPE - 1) % NR_PIPE; \
+        if ((kf) + NR_PIPE - 1 < NR_KFRAG) { \
+            const uint kknext = uint(((kf) + NR_PIPE - 1) * 16); \
+            NR_XLOADS \
+        } else { \
+            const uint kknext = uint(((kf) + NR_PIPE - 1 - NR_KFRAG) * 16); \
+            const uint akc = akn, bkc = bkn, akc4 = akn4; \
+            NR_XLOADS \
+        } \
+        NR_FOR_I(NR_MFRAG, NR_XMMA_I) \
+        NR_ROUND_STEP(kf) \
+    }
+
+#if NR_QKV_FUSED_NORM
+#define NR_EPI_J(j) { if ((j)%2==0) nr_finish_qkv_pair(acc[ii][j], acc[ii][((j)+1)%NR_NFRAG], mg0+mloc+uint(ii)*16u, ng0+nloc+uint(j)*16u, lane); }
+#elif NR_USE_FRAGMENT_EPI
+#define NR_EPI_J(j) { nr_finish_fragment(acc[ii][j], mg0 + mloc + uint(ii) * 16u, ng0 + nloc + uint(j) * 16u, lane); }
+#elif defined(NR_EPI_WMMA)
+#define NR_EPI_J(j)   { \
+        const uint tok0 = mg0 + mloc + uint(ii) * 16u; \
+        const uint ch0  = ng0 + nloc + uint(j) * 16u; \
+        NR_FRAG_A16 rf; \
+        NR_FRAG_B16 gf; \
+        NR_LOAD_A(rf, act_f16, pc.r_off + tok0 * pc.N + ch0, pc.N); \
+        NR_LOAD_B(gf, wgt_f16, pc.gd_off + (ch0 / 16u) * 256u, 16u); \
+        NR_MMA(acc[ii][j], rf, gf); \
+        NR_STORE_ACC(NR_NARROW_ACC(acc[ii][j]), act_f16, \
+                     pc.o_off + tok0 * pc.N + ch0, pc.N); \
+    }
+#else
+#define NR_EPI_J(j)   { \
+        NR_EPI_SYNC \
+        NR_STORE_ACC(acc[ii][j], lds_e, wave * 256u, 16u); \
+        NR_EPI_SYNC \
+        nr_finish_tile(mg0 + mloc + uint(ii) * 16u, ng0 + nloc + uint(j) * 16u, wave, lane); \
+    }
+#endif
+#if defined(NR_I4_OUT)
+#define NR_EPI_I(i)
+#elif NR_I4_SIDE && NR_SWAP_AB && NR_USE_FRAGMENT_EPI
+// Channel fragments outer, token fragments inner: each fragment's side quantisers are loaded once.
+#define NR_EPI_I(i)
+#define NR_SIDE_I(i) nr_finish_fragment(acc[i][jj], mg0 + mloc + uint(i) * 16u, ng0 + nloc + uint(jj) * 16u, lane, qa_);
+#define NR_SIDE_J(j) { const int jj = j; vec2 qa_[8]; \
+    const uint chq_ = pc.raster + ng0 + nloc + uint(j) * 16u + 8u * (lane / 16u); \
+    [[unroll]] for (int c = 0; c < 8; ++c) qa_[c] = wgt_v2i4[chq_ + uint(c)]; \
+    NR_FOR_I(NR_MFRAG, NR_SIDE_I) }
+#define NR_SIDE_EPILOGUE NR_FOR_J(NR_NFRAG, NR_SIDE_J)
+#else
+#define NR_EPI_I(i)   { const int ii = i; NR_FOR_J(NR_NFRAG, NR_EPI_J) }
+#endif
+#define NR_SUM_J(j)   s = s + acc[ii][j];
+#define NR_SUM_I(i)   { const int ii = i; NR_FOR_J(NR_NFRAG, NR_SUM_J) }
+
+// ---- staging -----------------------------------------------------------
+// Global to registers and registers to LDS as two separate passes, so the loads
+// for chunk c+1 stay in flight across the whole of chunk c's compute. NR_VECA /
+// NR_VECB contiguous elements per lane per step, with compile-time adjacent
+// addresses so they issue together: the strided one-element form this replaced
+// cost 590 cycles per element.
+#if NR_ABLATE_STAGE == 1
+#define NR_FA_V(v)  areg[soff + uint(v)] = NR_A_SCALAR(1.0);
+#define NR_FB_V(v)  breg[soff + uint(v)] = NR_E4M3(1.0);
+#else
+#define NR_FA_V(v)  areg[soff + uint(v)] = NR_A_VIEW[src + uint(v)];
+#define NR_FB_V(v)  breg[soff + uint(v)] = wgt_e4m3[src + uint(v)];
+#endif
+#define NR_FA_S(s)  { \
+        const uint soff = uint(s) * uint(NR_VECA); \
+        const uint sb = tid * uint(NR_VECA) + uint(s) * uint(NR_THREADS * NR_VECA); \
+        const uint src = pc.x_off + (mg0 + sb / uint(NR_KCHUNK)) * pc.K \
+                       + kfetch + sb % uint(NR_KCHUNK); \
+        NR_FOR_V(NR_VECA, NR_FA_V) \
+    }
+#define NR_FB_S(s)  { \
+        const uint soff = uint(s) * uint(NR_VECB); \
+        const uint sb = tid * uint(NR_VECB) + uint(s) * uint(NR_THREADS * NR_VECB); \
+        const uint src = pc.w_off + (ng0 + sb / uint(NR_KCHUNK)) * pc.K \
+                       + kfetch + sb % uint(NR_KCHUNK); \
+        NR_FOR_T(NR_VECB, NR_FB_V) \
+    }
+#define NR_SA_V(v)  lds_a[wa + uint(v)] = NR_A_NARROW(areg[soff + uint(v)]);
+#define NR_SB_V(v)  lds_b[wb + uint(v)] = breg[soff + uint(v)];
+#define NR_SA_S(s)  { \
+        const uint soff = uint(s) * uint(NR_VECA); \
+        const uint wa = wabase + tid * uint(NR_VECA) + uint(s) * uint(NR_THREADS * NR_VECA); \
+        NR_FOR_V(NR_VECA, NR_SA_V) \
+    }
+#define NR_SB_S(s)  { \
+        const uint soff = uint(s) * uint(NR_VECB); \
+        const uint wb = wbbase + tid * uint(NR_VECB) + uint(s) * uint(NR_THREADS * NR_VECB); \
+        NR_FOR_T(NR_VECB, NR_SB_V) \
+    }
+#if defined(NR_A_DIRECT) && defined(NR_B_DIRECT)
+#define NR_FETCH
+#define NR_SPILL
+#elif defined(NR_A_DIRECT)
+#define NR_FETCH    NR_FOR_S(NR_SITER_B, NR_FB_S)
+#define NR_SPILL    NR_FOR_S(NR_SITER_B, NR_SB_S)
+#elif defined(NR_B_DIRECT)
+#define NR_FETCH    NR_FOR_S(NR_SITER_A, NR_FA_S)
+#define NR_SPILL    NR_FOR_S(NR_SITER_A, NR_SA_S)
+#else
+#define NR_FETCH    NR_FOR_S(NR_SITER_A, NR_FA_S) NR_FOR_S(NR_SITER_B, NR_FB_S)
+#define NR_SPILL    NR_FOR_S(NR_SITER_A, NR_SA_S) NR_FOR_S(NR_SITER_B, NR_SB_S)
+#endif
+
+#if defined(NR_I4)
+#define NR_I4ZERO_J(j) ia[ii][j] = NR_IACC_ZERO;
+#define NR_I4ZERO_I(i) { const int ii = i; NR_FOR_J(NR_NFRAG, NR_I4ZERO_J) }
+#define NR_I4FRAG(dst, u) { \
+    const i8vec4 x0_ = unpack8(int((u).x)), x1_ = unpack8(int((u).y)); \
+    for (int v = 0; v < 4; ++v) { dst[v] = x0_[v]; dst[v + 4] = x1_[v]; } }
+#if NR_SWAP_AB
+// Swapped: lane l holds token l%16 and channels 8(l/16) + e of the fragment.
+#define NR_I4FOLD_J(j) { \
+    const uint n_ = ng0 + nloc + uint(j) * 16u + 8u * (lane / 16u); \
+    for (int e = 0; e < 8; ++e) \
+        acc[ii][j][e] = float(ia[ii][j][e]) * wgt_f32i4[pc.gd_off + n_ + uint(e)] + wgt_f32i4[pc.gd_off + pc.N + n_ + uint(e)]; }
+#else
+#define NR_I4FOLD_J(j) { \
+    const uint n_ = ng0 + nloc + uint(j) * 16u + (lane & 15u); \
+    const float s_ = wgt_f32i4[pc.gd_off + n_], c_ = wgt_f32i4[pc.gd_off + pc.N + n_]; \
+    for (int e = 0; e < 8; ++e) acc[ii][j][e] = float(ia[ii][j][e]) * s_ + c_; }
+#endif
+#define NR_I4FOLD_I(i) { const int ii = i; NR_FOR_J(NR_NFRAG, NR_I4FOLD_J) }
+#define NR_I4PABASE_I(i) a4[i] = (pc.x_off + ((mg0 + mloc + uint((i) * 16)) / 16u) * nrec * 512u) / 4u + lane * 4u;
+#define NR_I4PBBASE_J(j) b4[j] = (pc.d_off + ((ng0 + nloc + uint((j) * 16)) / 16u) * nrec * 512u) / 4u + lane * 4u;
+#define NR_I4PLD(dst, arr, b) dst = uvec4(arr[(b) + ko], arr[(b) + ko + 1u], arr[(b) + ko + 2u], arr[(b) + ko + 3u]);
+#define NR_I4PLDA0_I(i) NR_I4PLD(ua0[i], act_u32i4, a4[i])
+#define NR_I4PLDB0_J(j) NR_I4PLD(ub0[j], wgt_u32i4, b4[j])
+#define NR_I4PLDA1_I(i) NR_I4PLD(ua1[i], act_u32i4, a4[i])
+#define NR_I4PLDB1_J(j) NR_I4PLD(ub1[j], wgt_u32i4, b4[j])
+// One k step over every (i, j): the four MMAs of a step are independent, the two steps of a record follow.
+#if NR_SWAP_AB
+// W x X^T: the weight fragment is the A operand, the activation the B one (same element fill).
+#define NR_I4PMMA_J(j, UB, H) { NR_FRAG_I8A b_; NR_I4FRAG(b_, UB[j].H) ia[ii][j] = coopMatMulAdd(b_, a_, ia[ii][j]); }
+#define NR_I4PS_I(i, UA, UB, H, JM) { const int ii = i; NR_FRAG_I8B a_; NR_I4FRAG(a_, UA[i].H) NR_FOR_J(NR_NFRAG, JM) }
+#else
+#define NR_I4PMMA_J(j, UB, H) { NR_FRAG_I8B b_; NR_I4FRAG(b_, UB[j].H) ia[ii][j] = coopMatMulAdd(a_, b_, ia[ii][j]); }
+#define NR_I4PS_I(i, UA, UB, H, JM) { const int ii = i; NR_FRAG_I8A a_; NR_I4FRAG(a_, UA[i].H) NR_FOR_J(NR_NFRAG, JM) }
+#endif
+#define NR_I4PM0XY_J(j) NR_I4PMMA_J(j, ub0, xy)
+#define NR_I4PM0ZW_J(j) NR_I4PMMA_J(j, ub0, zw)
+#define NR_I4PM1XY_J(j) NR_I4PMMA_J(j, ub1, xy)
+#define NR_I4PM1ZW_J(j) NR_I4PMMA_J(j, ub1, zw)
+#define NR_I4PS0XY_I(i) NR_I4PS_I(i, ua0, ub0, xy, NR_I4PM0XY_J)
+#define NR_I4PS0ZW_I(i) NR_I4PS_I(i, ua0, ub0, zw, NR_I4PM0ZW_J)
+#define NR_I4PS1XY_I(i) NR_I4PS_I(i, ua1, ub1, xy, NR_I4PM1XY_J)
+#define NR_I4PS1ZW_I(i) NR_I4PS_I(i, ua1, ub1, zw, NR_I4PM1ZW_J)
+#define NR_I4PLDA2_I(i) NR_I4PLD(ua2[i], act_u32i4, a4[i])
+#define NR_I4PLDB2_J(j) NR_I4PLD(ub2[j], wgt_u32i4, b4[j])
+#define NR_I4PLDA3_I(i) NR_I4PLD(ua3[i], act_u32i4, a4[i])
+#define NR_I4PLDB3_J(j) NR_I4PLD(ub3[j], wgt_u32i4, b4[j])
+#define NR_I4PM2XY_J(j) NR_I4PMMA_J(j, ub2, xy)
+#define NR_I4PM2ZW_J(j) NR_I4PMMA_J(j, ub2, zw)
+#define NR_I4PM3XY_J(j) NR_I4PMMA_J(j, ub3, xy)
+#define NR_I4PM3ZW_J(j) NR_I4PMMA_J(j, ub3, zw)
+#define NR_I4PS2XY_I(i) NR_I4PS_I(i, ua2, ub2, xy, NR_I4PM2XY_J)
+#define NR_I4PS2ZW_I(i) NR_I4PS_I(i, ua2, ub2, zw, NR_I4PM2ZW_J)
+#define NR_I4PS3XY_I(i) NR_I4PS_I(i, ua3, ub3, xy, NR_I4PM3XY_J)
+#define NR_I4PS3ZW_I(i) NR_I4PS_I(i, ua3, ub3, zw, NR_I4PM3ZW_J)
+#define NR_I4PMMA2 NR_FOR_I(NR_MFRAG, NR_I4PS2XY_I) NR_FOR_I(NR_MFRAG, NR_I4PS2ZW_I)
+#define NR_I4PMMA3 NR_FOR_I(NR_MFRAG, NR_I4PS3XY_I) NR_FOR_I(NR_MFRAG, NR_I4PS3ZW_I)
+// NR_I4_PD=4: four record banks in rotation (each reloaded right after its MMAs, three records ahead).
+// NR_I4DEPV: the reload's address depends (by a zero the compiler cannot prove: pc.crow < 2^31) on the bank's
+// last MMA, so ACO can neither hoist the loads above those MMAs nor give them new registers (back-edge copies
+// that wait for every load).
+#define NR_I4DEPV (uint(ia[NR_MFRAG - 1][NR_NFRAG - 1][7]) & (pc.crow >> 31u))
+#define NR_I4PBANK(K, rec) { const uint ko = min(rec, rc1 - 1u) * 128u + NR_I4DEPV; \
+    NR_FOR_I(NR_MFRAG, NR_I4PLDA##K##_I) NR_FOR_J(NR_NFRAG, NR_I4PLDB##K##_J) }
+#define NR_I4PMMA0 NR_FOR_I(NR_MFRAG, NR_I4PS0XY_I) NR_FOR_I(NR_MFRAG, NR_I4PS0ZW_I)
+#define NR_I4PMMA1 NR_FOR_I(NR_MFRAG, NR_I4PS1XY_I) NR_FOR_I(NR_MFRAG, NR_I4PS1ZW_I)
+#endif
+
+void main() {
+    NR_PROF_BEGIN()
+    nr_chain_wait()
+    NR_TC_PROLOGUE
+#if NR_COHERENT_ACT
+    // Keep every activation view both read and written; see coherent_act.glsl.
+    if (NR_COH_NEVER) {
+        act_f16[0]    = act_f16[1];
+        act_e4m3[0]   = act_e4m3[1];
+        act_f16x4[0]  = act_f16x4[1];
+        act_e4m3x4[0] = act_e4m3x4[1];
+    }
+#endif
+
+    const uint tid  = gl_LocalInvocationID.x;
+    const uint wave = NR_WAVE_OF(tid);
+    const uint lane = tid % 32u;
+#ifndef NR_WAVE_MFIRST
+#define NR_WAVE_MFIRST 0
+#endif
+#if NR_WAVE_MFIRST
+    // waves that share an N range (the same weights) are adjacent: w = n * NR_WM + m
+    const uint mloc = (wave % uint(NR_WM)) * uint(NR_MFRAG * 16);
+    const uint nloc = (wave / uint(NR_WM)) * uint(NR_NFRAG * 16);
+#else
+    const uint mloc = (wave / uint(NR_WN)) * uint(NR_MFRAG * 16);
+    const uint nloc = (wave % uint(NR_WN)) * uint(NR_NFRAG * 16);
+#endif
+#if NR_GEMM_REMAP_PC
+    // Workgroup order from the host (pc.remap = G): G M tiles are consecutive
+    // workgroups, then every N tile, then the next G M tiles; 0 is the launch
+    // order. Which tile a workgroup computes changes, not how. The ViT FFN
+    // contraction at 1080p ran 29 -> 25 us under G = 2 (nr_graph.cpp).
+    uint nr_gm = gl_WorkGroupID.x, nr_gn = gl_WorkGroupID.y;
+    if (pc.remap != 0u) {
+        const uint gx = gl_NumWorkGroups.x, gy = gl_NumWorkGroups.y;
+        const uint lin = gl_WorkGroupID.x + gx * gl_WorkGroupID.y;
+        const uint G = pc.remap;
+        const uint grp = lin / (G * gy), bm = grp * G, gt = min(G, gx - bm);
+        const uint r = lin - grp * G * gy;
+        nr_gm = bm + r % gt; nr_gn = r / gt;
+    }
+    const uint mg0 = nr_gm * uint(NR_MTILE);
+    const uint ng0 = nr_gn * uint(NR_NTILE);
+#else
+    const uint mg0 = gl_WorkGroupID.x * uint(NR_MTILE);
+    const uint ng0 = gl_WorkGroupID.y * uint(NR_NTILE);
+#endif
+#ifdef NR_KCONST
+    // K fixed at build for this pipeline (every dispatch alike): the chunk loop unrolls, no back-edge load waits.
+    const uint nchunk = uint(NR_KCONST) / uint(NR_KCHUNK);
+#else
+    const uint nchunk = pc.K / uint(NR_KCHUNK);
+#endif
+    nr_tchain_wait(mg0 / 16u, NR_MTILE / 16)   // NR_TCHAIN: the M tile's token tiles
+    NR_PROF_ITEM_START()   // the wave's work starts here (after the tile-counter wait)
+
+#if defined(NR_A_DIRECT) || defined(NR_B_DIRECT)
+    uint abase_g[NR_MFRAG];
+    uint bbase_g[NR_NFRAG];
+    NR_FOR_I(NR_MFRAG, NR_ABASE_I)
+    NR_FOR_J(NR_NFRAG, NR_BBASE_J)
+#if NR_KOFF_SPLIT && defined(NR_TILED_A) && !defined(NR_OPERAND_F16)
+    uint alane4[NR_MFRAG];
+    for (int i = 0; i < NR_MFRAG; ++i)
+#if NR_A_KPAIR
+        alane4[i] = (abase_g[i] + lane * 16u) / 4u;
+#else
+        alane4[i] = (abase_g[i] + (lane & 15u) * 16u + (lane >> 4u) * 8u) / 4u;
+#endif
+#endif
+#endif
+    NR_FRAG_ACC acc[NR_MFRAG][NR_NFRAG];
+    NR_FOR_I(NR_MFRAG, NR_ZERO_I)
+#if defined(NR_I4)
+    // the int4 part of K first. X4 at pc.x_off (pc.crow = K4/2 bytes a token row,
+    // tile-blocked) against W4 at pc.d_off (tile-blocked [N/16][K4/32][16 n][16 bytes]); one 16x16
+    // int8 fragment is 16x32 int4 once the host rewrote the WMMA. Raw u32 pairs cross the loop's
+    // back edge (a phi of a byte fragment is copied byte by byte), two banks, two k steps a trip.
+    // Then acc = float(int acc) * s_n + c_n (pc.gd_off: s[N], c[N]; c carries the zero points and
+    // the bias correction), and the unchanged e4m3 loop adds the K8 = pc.K channels of X8.
+    {
+        // records of two k steps, one 16-byte load a fragment a record (lane l at l*16 bytes);
+        // W4 alike ([N/16][K4/64] records, host). Two banks of records, two records a trip.
+        const uint nrec = pc.crow / 32u;                             // records, even
+        uint a4[NR_MFRAG], b4[NR_NFRAG];
+        NR_FOR_I(NR_MFRAG, NR_I4PABASE_I)
+        NR_FOR_J(NR_NFRAG, NR_I4PBBASE_J)
+        NR_FRAG_IACC ia[NR_MFRAG][NR_NFRAG];
+        NR_FOR_I(NR_MFRAG, NR_I4ZERO_I)
+        uvec4 ua0[NR_MFRAG], ub0[NR_NFRAG], ua1[NR_MFRAG], ub1[NR_NFRAG];
+#if defined(NR_I4_NREC)
+        // the record count fixed at build (all ViT layers alike): the loop unrolls fully, so no
+        // loop-carried load registers (ACO waits for every load at a back edge whose phis carry them).
+        const uint rc0 = 0u, rc1 = uint(NR_I4_NREC);
+#else
+        const uint rc0 = 0u, rc1 = nrec;
+#endif
+#ifndef NR_I4_PD
+#define NR_I4_PD 2
+#endif
+#if NR_I4_PD == 4
+        uvec4 ua2[NR_MFRAG], ub2[NR_NFRAG], ua3[NR_MFRAG], ub3[NR_NFRAG];
+        NR_I4PBANK(0, rc0) NR_I4PBANK(1, rc0 + 1u) NR_I4PBANK(2, rc0 + 2u) NR_I4PBANK(3, rc0 + 3u)
+#if defined(NR_I4_NREC)
+        [[unroll]]
+#endif
+        for (uint rc = rc0; rc < rc1; rc += 4u) {   // (rc1 - rc0) % 4 == 0 (host)
+            NR_I4PMMA0
+            NR_I4PBANK(0, rc + 4u)
+            NR_I4PMMA1
+            NR_I4PBANK(1, rc + 5u)
+            NR_I4PMMA2
+            NR_I4PBANK(2, rc + 6u)
+            NR_I4PMMA3
+            NR_I4PBANK(3, rc + 7u)
+        }
+        if (false)
+#endif
+        { const uint ko = rc0 * 128u; NR_FOR_I(NR_MFRAG, NR_I4PLDA0_I) NR_FOR_J(NR_NFRAG, NR_I4PLDB0_J) }
+        if (NR_I4_PD != 4)
+#if defined(NR_I4_NREC)
+        [[unroll]]
+#endif
+        for (uint rc = rc0; rc < rc1; rc += 2u) {
+            { const uint ko = (rc + 1u) * 128u; NR_FOR_I(NR_MFRAG, NR_I4PLDA1_I) NR_FOR_J(NR_NFRAG, NR_I4PLDB1_J) }
+            NR_I4PMMA0
+            { const uint ko = min(rc + 2u, rc1 - 1u) * 128u; NR_FOR_I(NR_MFRAG, NR_I4PLDA0_I) NR_FOR_J(NR_NFRAG, NR_I4PLDB0_J) }
+            NR_I4PMMA1
+        }
+        NR_FOR_I(NR_MFRAG, NR_I4FOLD_I)
+    }
+#endif
+#if NR_SWAP_AB
+    // Same element fill (lane%16 = row/column, (lane/16)*8+v = k) for both uses.
+    NR_FRAG_B fa[NR_PIPE][NR_MFRAG];
+    NR_FRAG_A fb[NR_PIPE][NR_NFRAG];
+#else
+    NR_FRAG_A fa[NR_PIPE][NR_MFRAG];
+    NR_FRAG_B fb[NR_PIPE][NR_NFRAG];
+#endif
+#ifndef NR_A_DIRECT
+    NR_A_SCALAR areg[NR_SITER_A * NR_VECA];
+#endif
+#ifndef NR_B_DIRECT
+    NR_E4M3     breg[NR_SITER_B * NR_VECB];
+#endif
+
+#if NR_STAGED
+    { const uint kfetch = 0u; NR_FETCH }
+    { const uint wabase = 0u, wbbase = 0u; NR_SPILL }
+    barrier();
+#endif
+
+#if NR_XPIPE
+    uvec2 fau[NR_PIPE][NR_MFRAG], fbu[NR_PIPE][NR_NFRAG];
+    { const uint akc = 0u, bkc = 0u, akc4 = 0u; NR_FOR_K(NR_KFRAG, NR_XPRIME) }
+    for (uint c = 0u; c < nchunk; ++c) {
+        const uint k0 = c * uint(NR_KCHUNK);
+        const uint akc = NR_AKOFF(k0), bkc = NR_BKOFF(k0);
+        const uint akc4 = akc / 4u;
+        const uint k0n = min(c + 1u, nchunk - 1u) * uint(NR_KCHUNK);
+        const uint akn = NR_AKOFF(k0n), bkn = NR_BKOFF(k0n);
+        const uint akn4 = akn / 4u;
+        NR_FOR_K(NR_KFRAG, NR_XKSTEP)
+    }
+#else
+#if NR_A_LDSV
+    const uint ldsv_lane4 = (lane & 15u) * 4u + (lane >> 4u) * 2u;
+    fe4m3vec4 ldsv_r[NR_LDSV_U][4];
+    NR_LDSV_FETCH(0u)
+    NR_LDSV_SPILL(0u)
+#endif
+#if NR_B_LDSV
+    fe4m3vec4 bldsv_r[NR_BLDSV_U][4];
+    NR_BLDSV_FETCH(0u)
+    NR_BLDSV_SPILL(0u)
+#endif
+#if NR_A_LDSV || NR_B_LDSV
+    barrier();
+#endif
+    for (uint c = 0u; c < nchunk; ++c) {
+        const uint k0 = c * uint(NR_KCHUNK);
+#if NR_KOFF_SPLIT
+        const uint akc = NR_AKOFF(k0), bkc = NR_BKOFF(k0);
+        const uint akc4 = akc / 4u;
+#endif
+#if NR_A_LDSV
+        const uint lbuf = (c & 1u) * uint(NR_LDSV_V4);
+        if (c + 1u < nchunk) { NR_LDSV_FETCH(k0 + uint(NR_KCHUNK)) }
+#endif
+#if NR_B_LDSV
+        const uint blbuf = (c & 1u) * uint(NR_BLDSV_V4);
+        if (c + 1u < nchunk) { NR_BLDSV_FETCH(k0 + uint(NR_KCHUNK)) }
+#endif
+#if NR_STAGED
+        // Issue the next chunk's global loads before this chunk's MMAs. Their
+        // s_waitcnt then lands on the spill below, a whole chunk of matrix work
+        // later, instead of immediately.
+        if (c + 1u < nchunk) {
+            const uint kfetch = (c + 1u) * uint(NR_KCHUNK);
+            NR_FETCH
+        }
+#endif
+        const uint abase = (c % uint(NR_DBUF)) * uint(NR_MTILE * NR_KCHUNK);
+        const uint bbase = (c % uint(NR_DBUF)) * uint(NR_NTILE * NR_KCHUNK);
+        if (NR_ABLATE_LOADS == 0 || c == 0u) { NR_FOR_K(NR_KFRAG, NR_PRIME) }
+        NR_FOR_K(NR_KFRAG, NR_KSTEP)
+#if NR_A_LDSV
+        if (c + 1u < nchunk) { NR_LDSV_SPILL(((c + 1u) & 1u) * uint(NR_LDSV_V4)) }
+#endif
+#if NR_B_LDSV
+        if (c + 1u < nchunk) { NR_BLDSV_SPILL(((c + 1u) & 1u) * uint(NR_BLDSV_V4)) }
+#endif
+#if NR_A_LDSV || NR_B_LDSV
+        barrier();
+#endif
+
+#if NR_STAGED
+        if (c + 1u < nchunk) {
+#if NR_DBUF == 1
+            // Single buffered: the writers have to wait for every reader.
+            barrier();
+#endif
+            const uint wabase = ((c + 1u) % uint(NR_DBUF)) * uint(NR_MTILE * NR_KCHUNK);
+            const uint wbbase = ((c + 1u) % uint(NR_DBUF)) * uint(NR_NTILE * NR_KCHUNK);
+            NR_SPILL
+            barrier();
+        }
+#endif
+    }
+#endif  // NR_XPIPE
+
+#if NR_ABLATE_EPI == 1
+    NR_FRAG_ACC s = NR_ACC_ZERO;
+    NR_FOR_I(NR_MFRAG, NR_SUM_I)
+    NR_STORE_ACC(s, lds_e, wave * 256u, 16u);
+    subgroupBarrier();
+    nr_finish_tile(mg0 + mloc, ng0 + nloc, wave, lane);
+#else
+    NR_FOR_I(NR_MFRAG, NR_EPI_I)
+#if defined(NR_I4_OUT)
+    NR_I4_EPILOGUE
+#endif
+#ifdef NR_SIDE_EPILOGUE
+    NR_SIDE_EPILOGUE
+#endif
+#endif
+    NR_OCC_USE(pc.K == 0u, act_f32[0] = 0.0)
+    nr_chain_signal()
+#if NR_TC_WG_SIGNAL
+    // one increment a token tile a workgroup instead of one a wave - with
+    // NR_WM == 1 every wave finishes the same token span. The host then needs gy, not gy*WN
+    // (it keys on the SPV directory's tc_wgsig marker). Same release pattern as nr_tchain_signal.
+    if (nr_tc_sig != 0xFFFFFFFFu) {
+        memoryBarrier(gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+        barrier();
+        if (gl_LocalInvocationIndex < uint(NR_MFRAG))
+            atomicAdd(nr_tc_u[nr_tc_sig + mg0 / 16u + gl_LocalInvocationIndex], 1u, gl_ScopeDevice,
+                      gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+    }
+#else
+    nr_tchain_signal_wave((mg0 + mloc) / 16u, NR_MFRAG)
+#endif
+    NR_PROF_ITEM_END(pc.o_off | 0x80000000u, 0u)
+    NR_PROF_END(pc.o_off)
+}

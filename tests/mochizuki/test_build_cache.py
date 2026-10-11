@@ -1,5 +1,6 @@
 """Validate reuse against actual source/artifact changes, never just file dates."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -22,14 +23,38 @@ class BuildCacheTests(unittest.TestCase):
         paths = [self.source, *(self.root / (product + p) for p in (
             'dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h', 'dlssnr/NrPerformance.h', 'library/vulkan/vulkan-1.lib')),
             *(self.root / 'tools/build' / f for f in ('build-mochizuki-runtime.py',
-              'build-mochizuki-runtime.cmd', 'mochizuki-deps.py', 'mochizuki-manifest.py'))]
+              'build-mochizuki-runtime.cmd', 'mochizuki-deps.py', 'mochizuki-manifest.py', 'mochizuki-aco.py'))]
         for p in paths:
             p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(b'fixture source')
+        self.recipe = self.root / 'third_party/mochizuki/linux/shaders/rdna4/pipelines.json'
+        self.recipe.parent.mkdir(parents=True)
+        self.recipe.write_text(json.dumps({'pipelines': {'test': {}}, 'variants': {},
+                                          'markers': {'shader-constants.txt': 'fixture'}}))
+        record = self.root / 'third_party/mochizuki/windows/data/aco/records/test.nrp'
+        record.parent.mkdir(parents=True); record.write_bytes(b'fixture record')
         self.out = self.root / 'exports/mochizuki-runtime'
         self.shader = self.out / 'dlssnr-amd/shaders/test.spv'
         self.shader.parent.mkdir(parents=True); self.shader.write_bytes(b'fixture shader')
         self.dll = self.out / 'MochizukiNrRuntime.dll'; self.dll.write_bytes(b'fixture DLL')
+        for relative in manifest.aco_paths():
+            target = self.out / relative
+            target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(b'fixture ACO asset')
         manifest.write(self.out)
+
+    def test_linux_source_and_aco_assets_invalidate(self):
+        self.recipe.write_text(self.recipe.read_text() + '\n')
+        self.assertFalse(manifest.reusable(self.out))
+        manifest.write(self.out)
+        for relative in manifest.aco_paths():
+            target = self.out / relative
+            original = target.read_bytes()
+            target.write_bytes(b'changed')
+            self.assertFalse(manifest.reusable(self.out), relative)
+            target.unlink()
+            self.assertFalse(manifest.reusable(self.out), relative)
+            with self.assertRaises(ValueError):
+                manifest.write(self.out)
+            target.write_bytes(original)
 
     def test_identical_build_reuses(self):
         self.assertTrue(manifest.reusable(self.out))

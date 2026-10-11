@@ -97,7 +97,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
             shutil.copytree(REPO / directory, self.root / directory, ignore=shutil.ignore_patterns('__pycache__'))
         for name in ('OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib',
                      'tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
-                     'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
+                     'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py', 'tools/build/mochizuki-aco.py',
                      'tools/install/mochizuki-model.py', 'tools/install/mochizuki-python.ps1', 'docs/mochizuki.md',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):
@@ -108,7 +108,11 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         (mz / 'dlssnr-amd/shaders').mkdir(parents=True)
         (mz / 'MochizukiNrRuntime.dll').write_bytes(self.pe_bytes)
         (mz / 'dlssnr-amd/shaders/test.spv').write_bytes(b'fixture SPIR-V, not executable')
-        runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))['write'](mz)
+        manifest = runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))
+        for relative in manifest['aco_paths']():
+            target = mz / relative
+            target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(b'non-executable ACO fixture')
+        manifest['write'](mz)
         (mz / 'abi-ci.sha256').write_text(hashlib.sha256((mz / 'MochizukiNrRuntime.dll').read_bytes()).hexdigest())
 
     def test_mochizuki_runtime_changed_after_abi_is_rejected(self):
@@ -235,6 +239,8 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
             'MochizukiStyle': '0', 'MochizukiModelScale': '1.0',
             'MochizukiTemporal': 'true', 'MochizukiPreprocess': 'false',
             'MochizukiDynamicResolution': '1', 'MochizukiPass2Override': 'false',
+            'MochizukiAco': 'false',
+            'MochizukiAcoExplicitBarriers': 'true',
             'DLSS5_STYLE': '1', 'DLSS5_NETWORK_1080_ROWS': '1152',
             'DLSS5_NETWORK_FREE_RES': 'true', 'DLSS5_FAST_NUMERIC': 'true',
             'DLSS5_MULTI_PASS': '1', 'DLSS5_MULTI_PASS_SKIP_BLOCKS': 'none',
@@ -293,19 +299,31 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         model.write_bytes(b'NRMODEL1' + (599).to_bytes(4, 'little') + b'user-owned model fixture')
         game = self.root / 'mochizuki game'
         game.mkdir()
+        aliases = extracted / 'dlssnr-amd/aco/shell-aliases.txt'
+        alias_bytes = aliases.read_bytes(); aliases.unlink()
+        code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game),
+                                '-Backend', 'mochizuki', '-NonInteractive'])
+        self.assertNotEqual(code, 0, out)
+        self.assertFalse((game / 'MochizukiNrRuntime.dll').exists())
+        aliases.write_bytes(alias_bytes)
         code, out = self.run_ps(['-File', str(extracted / 'Setup.ps1'), '-GameDir', str(game),
                                 '-Backend', 'mochizuki', '-NonInteractive'])
         self.assertEqual(code, 0, out)
         self.assertTrue((game / 'MochizukiNrRuntime.dll').is_file())
+        self.assertTrue((game / 'dlssnr-amd/aco/shell-aliases.txt').is_file())
         self.assertFalse((game / 'LmxxfNrRuntime.dll').exists())
         self.assertFalse((game / 'dlssnr_amd_pass1.dll').exists())
         parsed = configparser.ConfigParser()
         parsed.read(game / 'OptiScaler.ini', encoding='utf-8-sig')
         self.assertEqual(parsed['DlssNr']['NrBackend'], 'mochizuki')
         self.assertEqual((game / 'dlssnr-amd/dlssnr.bin').read_bytes(), model.read_bytes())
+        user_file = game / 'dlssnr-amd/aco/user-notes.txt'
+        user_file.write_text('keep this file')
         code, out = self.run_ps(['-File', str(extracted / 'Uninstall_OptiScaler_NR.ps1'), '-GameDir', str(game), '-NonInteractive'])
         self.assertEqual(code, 0, out)
         self.assertFalse((game / 'MochizukiNrRuntime.dll').exists())
+        self.assertFalse((game / 'dlssnr-amd/aco/shell-aliases.txt').exists())
+        self.assertEqual(user_file.read_text(), 'keep this file')
         self.assertEqual((game / 'dlssnr-amd/dlssnr.bin').read_bytes(), model.read_bytes())
 
     def test_corrupt_module_never_produces_zip(self):

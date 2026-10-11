@@ -104,6 +104,8 @@ struct HostDevice {
 };
 
 struct RuntimeConfig {
+    bool aco = false; // host request; the builder installs a thread-local validated bundle
+    bool aco_explicit_barriers = true; // ACO only; false enables upstream tile-counter ordering for comparison
     std::string root;
     std::string plan;  // empty: compiled native planner; optional file must match it
     std::string accumulation = "fp32";

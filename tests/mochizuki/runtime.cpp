@@ -130,10 +130,22 @@ int wmain(int argc,wchar_t**argv) try {
     MochizukiNrBuildProgress invalidProgress {sizeof invalidProgress};
     Require(getProgress(nullptr,&invalidProgress)==LMXXF_NR_INVALID_ARGUMENT,"progress accepted null session");
     Require(defaults&&set&&prepare&&getInfo,"missing controls/frame exports");Rc(defaults(&controls));
-    Require(controls.intensity==1&&controls.preprocess==0&&controls.compact_transfer==1&&controls.enlarge_mode==0,"control defaults");
+    Require(controls.intensity==1&&controls.preprocess==0&&controls.compact_transfer==1&&controls.enlarge_mode==0&&controls.aco==0,"control defaults");
+    Require(controls.aco_explicit_barriers==1,"explicit ACO barriers must default on");
     MochizukiNrControls oldControls {sizeof controls-4};
     Require(defaults(&oldControls)==LMXXF_NR_INVALID_ARGUMENT,"partial controls accepted");
     if(argc==2) {puts("MOCHIZUKI_ABI_OK");FreeLibrary(dll);return 0;}
+    bool aco=false,acoFallback=false,acoSwitch=false,firstPass=false;
+    bool acoBarrierSwitch=false;
+    for(int i=3;i<argc;++i) {
+        aco |= std::wstring(argv[i])==L"--aco";
+        acoFallback |= std::wstring(argv[i])==L"--aco-fallback";
+        acoSwitch |= std::wstring(argv[i])==L"--aco-switch";
+        firstPass |= std::wstring(argv[i])==L"--first-pass";
+        acoBarrierSwitch |= std::wstring(argv[i])==L"--aco-barrier-switch";
+        if(std::wstring(argv[i])==L"--aco-upstream-barriers") {aco=true;controls.aco_explicit_barriers=0;}
+    }
+    controls.aco=aco || acoFallback || acoSwitch || acoBarrierSwitch;
     reinterpret_cast<void(*)(uint32_t)>(GetProcAddress(dll,"MochizukiNrSetLogging"))(1);
     ComPtr<IDXGIFactory6> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
     ComPtr<IDXGIAdapter1> adapter;ComPtr<ID3D12Device> device;
@@ -149,8 +161,17 @@ int wmain(int argc,wchar_t**argv) try {
     Rc(api.Create(&ci,&context));Rc(api.PrepareSession(context));Rc(set(context,&controls));
     MochizukiNrBuildProgress wrongProgress {sizeof(MochizukiNrBuildProgress)-4};
     Require(getProgress(context,&wrongProgress)==LMXXF_NR_INVALID_ARGUMENT,"partial progress struct accepted");
-    MochizukiNrInfo oldInfo {sizeof(MochizukiNrInfo)-16};
+    MochizukiNrInfo oldInfo {sizeof(MochizukiNrInfo)-8};
     Require(getInfo(context,&oldInfo)==LMXXF_NR_INVALID_ARGUMENT,"old info contract accepted");
+    Require(set(context,&oldControls)==LMXXF_NR_INVALID_ARGUMENT,"old controls contract accepted");
+    auto checkAco=[&] {
+        MochizukiNrInfo state{sizeof state};Rc(getInfo(context,&state));
+        printf("COMPILER state=%u pipelines=%u explicit_barriers=%u reason=%s\n",state.aco_state,state.aco_pipelines,state.aco_explicit_barriers,state.aco_reason);
+        Require(state.aco_state==(acoFallback?2u:controls.aco?1u:0u),"requested compiler did not become active");
+        Require(controls.aco && !acoFallback ? state.aco_pipelines>0 : state.aco_pipelines==0,"incorrect imported pipeline count");
+        if(acoFallback)Require(state.aco_reason[0],"fallback reason missing");
+        Require(state.aco_explicit_barriers==(state.aco_state==1?controls.aco_explicit_barriers:0u),"installed barrier mode differs from request");
+    };
     const bool profile=argc>3 && std::wstring(argv[3])==L"--profile";
     const bool startup=profile || (argc>3 && std::wstring(argv[3])==L"--startup");
     const float profileScale=profile && argc>7 ? float(_wtof(argv[7])) : 1.f;
@@ -173,6 +194,7 @@ int wmain(int argc,wchar_t**argv) try {
     auto make=[&](Frame& f,UINT validWidth=0) {
         MochizukiNrFrameInfo info {};info.struct_size=sizeof info;info.color=f.color.Get();info.color_width=validWidth?validWidth:f.width;info.color_height=f.height;
         info.color_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;info.flags=LMXXF_NR_FRAME_FLAG_STRENGTH;info.transfer_strength=info.color_strength=1;info.model_scale=profileScale;info.passes=profilePasses;
+        if(firstPass) info.flags|=LMXXF_NR_FRAME_FLAG_FIRST_PASS;
         LmxxfNrJob job {sizeof job};const auto deadline=GetTickCount64()+300000;
         std::string lastStage;uint32_t lastCompleted=UINT32_MAX;
         for(;;) {
@@ -183,9 +205,20 @@ int wmain(int argc,wchar_t**argv) try {
                 printf("BUILD_PROGRESS %.1fs %s %u/%u\n",double(GetTickCount64()-progress.start_tick)/1000,progress.stage,progress.completed,progress.total);
                 fflush(stdout);lastStage=progress.stage;lastCompleted=progress.completed;
             }
+            if(!rc && acoBarrierSwitch) {
+                // The worker may not have published progress yet, or may have finished
+                // before PrepareFrame installs it. Wait for the installed policy itself.
+                MochizukiNrInfo ready{sizeof ready};Rc(getInfo(context,&ready));
+                if(ready.building || ready.aco_state!=1 || ready.aco_explicit_barriers!=controls.aco_explicit_barriers) {
+                    Rc(api.InvalidateRecording(context,job.handle));Rc(api.CollectRecording(context,job.handle));
+                    rc=LMXXF_NR_UNAVAILABLE;
+                }
+            }
             if(!rc) {Require(!progress.active,"progress still active after ready");break;}
             if(rc!=LMXXF_NR_UNAVAILABLE||GetTickCount64()>deadline)Rc(rc);Sleep(100);
         }
+        checkAco();
+        if(firstPass)Require(job.first_pass_output!=nullptr,"first-pass output missing");
         return job;
     };
     if(argc>3 && std::wstring(argv[3])==L"--composition") {
@@ -304,6 +337,7 @@ int wmain(int argc,wchar_t**argv) try {
                 }
                 printf("COMPOSITION_OK format=%u passes=%u edge=%u preprocess=%u temporal_frames=3 old_recording=passed\n",
                        unsigned(format),passes,mode,controls.preprocess);
+                checkAco();
             }
         }
         Rc(api.Destroy(context));FreeLibrary(dll);
@@ -441,7 +475,7 @@ int wmain(int argc,wchar_t**argv) try {
         Require(!forcedRelease,"Destroy waited for unrelated game work after owned tails completed");
         puts("MOCHIZUKI_DESTROY_OWNED_TAILS_OK");
     };
-    auto job=make(frame);List inputs(device.Get()),outputs(device.Get());Rc(api.RecordInputs(context,job.handle,inputs.cmd.Get()));Rc(api.RecordOutputs(context,job.handle,outputs.cmd.Get()));frame.Read(outputs.cmd.Get(),static_cast<ID3D12Resource*>(job.private_output));Hr(inputs.cmd->Close());Hr(outputs.cmd->Close());
+    auto job=make(frame);List inputs(device.Get()),outputs(device.Get());Rc(api.RecordInputs(context,job.handle,inputs.cmd.Get()));Rc(api.RecordOutputs(context,job.handle,outputs.cmd.Get()));frame.Read(outputs.cmd.Get(),static_cast<ID3D12Resource*>(firstPass?job.first_pass_output:job.private_output));Hr(inputs.cmd->Close());Hr(outputs.cmd->Close());
     // A second Prepare must not invalidate the first closed recording.
     auto neverSubmitted=make(frame);Rc(api.InvalidateRecording(context,neverSubmitted.handle));Rc(api.CollectRecording(context,neverSubmitted.handle));
     Require(api.CollectRecording(context,neverSubmitted.handle)==LMXXF_NR_INVALID_ARGUMENT,"stale handle accepted");
@@ -468,6 +502,40 @@ int wmain(int argc,wchar_t**argv) try {
             totalProfile/profileSamples,networkProfile/profileSamples,otherProfile/profileSamples);
     }
     frame.Check();
+    if(acoBarrierSwitch) {
+        auto snapshot=[&] {
+            void* pixels=nullptr;Hr(frame.readback->Map(0,nullptr,&pixels));
+            const size_t row=frame.width*8;
+            std::vector<unsigned char> bytes(row*frame.height);
+            for(UINT y=0;y<frame.height;++y)
+                memcpy(bytes.data()+y*row,static_cast<char*>(pixels)+y*frame.footprint.Footprint.RowPitch,row);
+            frame.readback->Unmap(0,nullptr);return bytes;
+        };
+        const auto original=snapshot();
+        std::vector<std::pair<void*,std::pair<std::unique_ptr<List>,std::unique_ptr<List>>>> kept;
+        for(uint32_t explicitMode:{0u,1u}) {
+            controls.aco_explicit_barriers=explicitMode;Rc(set(context,&controls));
+            auto next=make(frame);
+            auto in=std::make_unique<List>(device.Get()),out=std::make_unique<List>(device.Get());
+            Rc(api.RecordInputs(context,next.handle,in->cmd.Get()));Rc(api.RecordOutputs(context,next.handle,out->cmd.Get()));
+            frame.Read(out->cmd.Get(),static_cast<ID3D12Resource*>(next.private_output));
+            Hr(in->cmd->Close());Hr(out->cmd->Close());
+            for(unsigned i=0;i<4;++i) {
+                const bool old=i%2!=0;
+                auto token=old?job.handle:next.handle;auto* queue=q[i%2].Get();
+                Rc(api.BeginRecordingExecution(context,token,queue));Submit(queue,old?inputs:*in);
+                Rc(api.EnqueueHip(context,token,queue));Submit(queue,old?outputs:*out);
+                auto hr=queue->Signal(tail.Get(),++value);
+                Rc(api.EndRecordingExecution(context,token,queue,3,tail.Get(),value,hr));Wait(tail.Get(),value);
+                if(old)Require(snapshot()==original,"retained recording changed after barrier switch");
+                else frame.Check();
+            }
+            kept.emplace_back(next.handle,std::make_pair(std::move(in),std::move(out)));
+        }
+        for(auto& entry:kept) {Rc(api.InvalidateRecording(context,entry.first));Rc(api.CollectRecording(context,entry.first));}
+        Rc(api.InvalidateRecording(context,job.handle));Rc(api.CollectRecording(context,job.handle));Rc(api.Destroy(context));
+        FreeLibrary(dll);puts("MOCHIZUKI_ACO_BARRIER_SWITCH_OK on_off_on_same_extent retained_recording=passed");return 0;
+    }
     if(argc>3 && std::wstring(argv[3])==L"--destroy-tail") {
         Rc(api.InvalidateRecording(context,job.handle));Rc(api.CollectRecording(context,job.handle));
         destroyAfterOwnedTails();FreeLibrary(dll);return 0;
@@ -495,6 +563,7 @@ int wmain(int argc,wchar_t**argv) try {
     printf("TIMING samples=%llu last=%.3f ms repeated_poll=stable\n",static_cast<unsigned long long>(samples),timing.gpu_ms_last);
     // Switch geometry while the first executable recording still owns its network.
     Frame resized(device.Get(),320,256);List resizeUpload(device.Get());resized.Upload(resizeUpload.cmd.Get());Hr(resizeUpload.cmd->Close());Submit(q[0].Get(),resizeUpload);Hr(q[0]->Signal(tail.Get(),++value));Wait(tail.Get(),value);
+    if(acoSwitch) {controls.aco=0;Rc(set(context,&controls));}
     auto resizedJob=make(resized);List resizedIn(device.Get()),resizedOut(device.Get());
     Rc(api.RecordInputs(context,resizedJob.handle,resizedIn.cmd.Get()));Rc(api.RecordOutputs(context,resizedJob.handle,resizedOut.cmd.Get()));
     resized.Read(resizedOut.cmd.Get(),static_cast<ID3D12Resource*>(resizedJob.private_output));Hr(resizedIn.cmd->Close());Hr(resizedOut.cmd->Close());

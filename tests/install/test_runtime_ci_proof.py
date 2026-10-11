@@ -33,13 +33,13 @@ class RuntimeProofTests(unittest.TestCase):
         self.env['LMXXF_TEST_RUNTIME'] = str(self.runtime)
         # Exercise the real source/artifact gate. Only suite execution is stubbed;
         # this fixture tests the entrypoint's proof orchestration, not GPU code.
-        for directory in ('third_party/mochizuki/windows',
+        for directory in ('third_party/mochizuki/windows', 'third_party/mochizuki/linux/shaders',
                           'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime'):
             shutil.copytree(ROOT / directory, self.root / directory,
                             ignore=shutil.ignore_patterns('__pycache__'))
         for name in ('OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib',
                      'tools/build/mochizuki-manifest.py', 'tools/build/build-mochizuki-runtime.py',
-                     'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py',
+                     'tools/build/build-mochizuki-runtime.cmd', 'tools/build/mochizuki-deps.py', 'tools/build/mochizuki-aco.py',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):
             target = self.root / name
@@ -49,7 +49,11 @@ class RuntimeProofTests(unittest.TestCase):
         (self.mochizuki / 'dlssnr-amd/shaders').mkdir(parents=True)
         (self.mochizuki / 'MochizukiNrRuntime.dll').write_bytes(b'non-executable Mochizuki fixture')
         (self.mochizuki / 'dlssnr-amd/shaders/test.spv').write_bytes(b'non-executable shader fixture')
-        runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))['write'](self.mochizuki)
+        manifest = runpy.run_path(str(self.root / 'tools/build/mochizuki-manifest.py'))
+        for relative in manifest['aco_paths']():
+            target = self.mochizuki / relative
+            target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(b'non-executable ACO fixture')
+        manifest['write'](self.mochizuki)
 
     def run_entrypoint(self, *args):
         return subprocess.run(

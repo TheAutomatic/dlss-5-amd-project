@@ -181,6 +181,7 @@ jobs:
             exports/mochizuki-runtime/MochizukiNrRuntime.dll
             exports/mochizuki-runtime/build-manifest.json
             exports/mochizuki-runtime/dlssnr-amd/shaders
+            exports/mochizuki-runtime/dlssnr-amd/aco
           key: mochi-${{ runner.os }}-${{ steps.cache_keys.outputs.mochi }}
 
       - name: Restore tooling test receipt
