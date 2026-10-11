@@ -388,7 +388,15 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page, const 
             bool changed = false;
 #define MZ_F(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { float v = config->name.value_or_default(); if (MochizukiFloatControl(label, CfgKey::name, &v, low, high)) { config->name = v; changed = true; } }
 #define MZ_U(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { int v = static_cast<int>(config->name.value_or_default()); if (MochizukiIntegerControl(label, CfgKey::name, &v, low, high)) { config->name = static_cast<uint32_t>(v); changed = true; } }
-#define MZ_B(name, def, low, high, group, label, target) if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { bool v = config->name.value_or_default(); if (MenuUi::Checkbox(label, &v)) { config->name = v; changed = true; } }
+#define MZ_B(name, def, low, high, group, label, target) \
+            if (g == group && MochizukiOptionOnPage(CfgKey::name, page)) { \
+                const bool barriers = std::string_view(CfgKey::name) == CfgKey::MochizukiAcoExplicitBarriers; \
+                ImGui::BeginDisabled(barriers && !config->MochizukiAco.value_or_default()); \
+                bool v = config->name.value_or_default(); \
+                if (MenuUi::Checkbox(label, &v)) { config->name = v; changed = true; } \
+                ImGui::EndDisabled(); \
+                if (barriers) HelpMarker("On: retain explicit barriers (default). Off: test upstream scheduling, which may change the image. ACO only; switching rebuilds the network."); \
+            }
 #include "backend/MochizukiOptions.inc"
 #undef MZ_F
 #undef MZ_U
@@ -398,6 +406,22 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page, const 
             if (g == 1) MenuUi::TextWrapped(page == PipelineUi::Section::Input ?
                 "Resolution edits apply when editing finishes. 50% halves width and height." :
                 "Pass edits apply when editing finishes. More passes increase GPU cost and memory.");
+            if (g == 1 && page == PipelineUi::Section::Model) {
+                HelpMarker("ACO mode is off by default. Switching rebuilds the network. Unsupported drivers or failed imports use the native compiler.");
+                const auto info = AmdBridge::MochizukiTimingDetails();
+                if (info.building) MenuUi::TextDisabled("Rebuilding network...");
+                if (info.model_w) {
+                    if (info.aco_state == 1) {
+                        MenuUi::TextDisabled("Active compiler: ACO (%u pipelines)", info.aco_pipelines);
+                        MenuUi::TextDisabled(info.aco_explicit_barriers ? "Active ACO barriers: explicit" :
+                                                                        "Active ACO barriers: upstream (experimental)");
+                    }
+                    else if (info.aco_state == 2) {
+                        MenuUi::TextWrapped("Active compiler: native (ACO unavailable)");
+                        MenuUi::TextWrapped("%s", info.aco_reason);
+                    } else MenuUi::TextDisabled("Active compiler: native");
+                }
+            }
             if (g == 2) MenuUi::TextWrapped("History needs unjittered motion vectors. The separate Residual Stabilizer filters the final correction.");
             if (g == 3) MenuUi::TextWrapped("Preprocessing changes what the model sees and reverses that transform from its answer.");
             if (g == 4) MenuUi::TextWrapped(page == PipelineUi::Section::Input ?

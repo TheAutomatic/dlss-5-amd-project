@@ -1,8 +1,12 @@
 // The key-block loop of vit_attn.comp's NR_VTRANS path, included twice.
-// NR_VT_GUARD 1: a chunk that may run past `pc.tokens` (tiles beyond it read
-// zero K and contribute no probability to P.V). NR_VT_GUARD 0: a full chunk,
-// where both tests are constant and the zero-or-load phi they created - which
-// ACO copied with four byte-inserting `v_perm_b32` a dword - does not exist.
+// NR_VT_GUARD 1: a chunk that may run past `pc.tokens`. A key tile beyond it
+// reads the last real tile's K (as V does below) and is taken out where its
+// numbers are scalars: logit 0, which is what a zero K tile gave and what the
+// padding subtraction after the loop removes, and probability 0 in P.V. No
+// cooperative matrix is chosen between a load and zeros.
+// NR_VT_GUARD 0: a full chunk, where both tests are constant and the
+// zero-or-load phi they created - which ACO copied with four byte-inserting
+// `v_perm_b32` a dword - does not exist.
         for (uint kb = 0u; kb < uint(NR_KC); kb += 16u) {
             // K as the A operand: the same addresses its ColumnMajor B load read.
             NR_FRAG_A kfr[2];
@@ -19,10 +23,6 @@
                 NR_LOAD_A_ACT(kfr[d],
                               nr_at16(pc.x_off, j0 + kb, kbase + d * 16u, X3), 16u);
 #else
-                // A padding tile loads the last live one and is killed in the
-                // f16 values below. AMD's Windows driver 32.0.32015 miscompiles
-                // the select between a loaded and a zero fragment (a partial
-                // chunk: 720p, 635p, 360p).
                 NR_LOAD_A_ACT(kfr[d],
                               nr_at16(pc.x_off, min(j0 + kb, jlast), kbase + d * 16u, X3), 16u);
 #endif
@@ -68,7 +68,6 @@
                               lds_ki[kb + row0 + uint(c) + 1u]);
 #endif
 #if NR_VT_GUARD
-                    // A padding key's logit is the zero a zero K tile gave.
                     if (j0 + kb >= pc.tokens) a = vec2(0.0);
 #endif
                     f16vec2 pp = nr_vit_exp2(a);
@@ -78,9 +77,8 @@
 #endif
                     pv[c >> 1] = pp;
 #if NR_VT_GUARD
-                    // ... and its probability is zero in P.
-                    const NR_F16 live = NR_F16(j0 + kb < pc.tokens ? 1.0 : 0.0);
-                    ph[c] = pp.x * live; ph[c+1] = pp.y * live;
+                    const NR_F16 kin = NR_F16(j0 + kb < pc.tokens ? 1.0 : 0.0);   // 0 past the last token
+                    ph[c] = pp.x * kin; ph[c+1] = pp.y * kin;
 #else
                     ph[c] = pp.x; ph[c+1] = pp.y;
 #endif
@@ -139,8 +137,8 @@
                 // **P^T is the B operand with no memory in between.** An
                 // Accumulator's components and a B operand's are the same map
                 // (coopmm.glsl's probe table), so this copy moves no data - it
-                // is the whole point of the orientation. A padding key tile was
-                // zeroed in `ph` above.
+                // is the whole point of the orientation. A padding key tile is
+                // already 0 in `ph`.
 #if NR_VPB16
                 NR_FRAG_B pf = NR_FRAG_B(ph);
 #else

@@ -81,6 +81,8 @@ extern "C"
         float preprocess_saturation;  /* 0.05..2, default 1 */
         uint32_t compact_transfer; /* default 1; reduced-resolution non-U8 output buffer reuse; rebuilds */
         uint32_t enlarge_mode;     /* 0 matched residual (default), 1 edge-aware; reduced model scale only */
+        uint32_t aco;              /* default 0; request packaged ACO network, rebuilds; driver fallback on failure */
+        uint32_t aco_explicit_barriers; /* default 1; ACO only, 0 tests upstream tile-counter ordering; rebuilds */
     } MochizukiNrControls;
 
     /* What the session is doing, for a menu. Safe to ask from any thread, at any rate. */
@@ -109,6 +111,11 @@ extern "C"
          * pre/post shaders count as network. Other includes core copies/composition only. */
         float gpu_ms_network_last, gpu_ms_other_last;
         float gpu_ms_network_mean, gpu_ms_other_mean;
+        uint32_t aco_state;         /* installed network: 0 driver, 1 ACO, 2 requested ACO fell back */
+        uint32_t aco_pipelines;     /* successfully imported pipelines in that network */
+        char aco_reason[192];       /* fallback explanation; empty when off or active */
+        uint32_t aco_explicit_barriers; /* installed ACO network: 1 explicit, 0 upstream; 0 when not ACO */
+        uint32_t reserved1;         /* 0; grows the info contract beyond any previous tail padding */
         /* struct_size includes the current definition's tail padding. */
     } MochizukiNrInfo;
 

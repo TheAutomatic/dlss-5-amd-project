@@ -52,6 +52,8 @@ def main():
     if not args.skip_shaders:
         subprocess.run([sys.executable, str(up / 'windows/build/build_network.py'), 'rdna4',
                         '--glslang', str(glslang), '--out', str(out / 'dlssnr-amd/shaders')], check=True)
+        subprocess.run([sys.executable, str(repo / 'tools/build/mochizuki-aco.py'),
+                        '--glslang', str(glslang), '--out', str(out / 'dlssnr-amd/aco')], check=True)
     if not args.skip_shaders:
         if source_hashes != manifest['sources']():
             raise SystemExit('Sources changed during build; rebuild before using these artifacts')

@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "ACO_PROFILE="
 cd /d "%~dp0..\.."
 if /i "%~1"=="abi" (
   python -B tests\mochizuki\test_build_cache.py
@@ -7,12 +8,20 @@ if /i "%~1"=="abi" (
 )
 call tests\_lib\msvc-env.cmd || exit /b 1
 if not exist exports\mochizuki-tests mkdir exports\mochizuki-tests
+if /i "%~1"=="aco-unit" goto acounit
+if /i "%~1"=="abi" call :acounit || exit /b 1
 if /i "%~1"=="hdr-shader" goto hdrshader
 cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /I OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler tests/mochizuki/runtime.cpp /Foexports/mochizuki-tests/runtime.obj /Feexports/mochizuki-tests/runtime.exe /link d3d12.lib dxgi.lib || exit /b 1
 if /i "%~1"=="destroy-tail" goto destroytail
 if /i "%~1"=="startup" goto startup
 if /i "%~1"=="profile" goto profile
+if /i "%~1"=="aco-profile" set "ACO_PROFILE=--aco"
+if /i "%~1"=="aco-profile" goto profile
+if /i "%~1"=="aco-upstream-profile" set "ACO_PROFILE=--aco-upstream-barriers"
+if /i "%~1"=="aco-upstream-profile" goto profile
+if /i "%~1"=="aco-barriers" goto acobarriers
 if /i "%~1"=="composition" goto composition
+if /i "%~1"=="aco" goto aco
 if /i "%~1"=="shader-tail" goto shadertail
 if /i "%~1"=="pass-switch" goto passswitch
 if /i "%~1"=="gpu" (
@@ -68,9 +77,28 @@ exit /b %errorlevel%
 
 :profile
 rem profile output.raw width height scale passes preprocess compact enlarge (16 warmup + 64 samples)
-exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --profile "%~2" %3 %4 %5 %6 %7 %8 %9
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --profile "%~2" %3 %4 %5 %6 %7 %8 %9 %ACO_PROFILE%
 exit /b %errorlevel%
 
 :composition
-exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --composition
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --composition %2
+exit /b %errorlevel%
+
+:acounit
+cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS /I exports/mochizuki-toolchain/Vulkan-Headers-e3b1eec08173d6b825cd3ac88c885a63b621504a/include /I third_party/mochizuki/windows/src/core tests/mochizuki/aco.cpp /Foexports/mochizuki-tests/aco.obj /Feexports/mochizuki-tests/aco.exe || exit /b 1
+exports\mochizuki-tests\aco.exe third_party\mochizuki\windows\data\aco\records exports\mochizuki-tests\aco-test.nrb
+exit /b %errorlevel%
+
+:aco
+rem GPU: ACO execution, history, resize/replay and compiler switching with retained recordings.
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --aco-switch || exit /b 1
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --composition --aco
+if errorlevel 1 exit /b 1
+python -X utf8 -B tests\mochizuki\aco_fallback.py
+if errorlevel 1 exit /b 1
+python -X utf8 -B tests\mochizuki\aco_first_pass.py
+exit /b %errorlevel%
+
+:acobarriers
+exports\mochizuki-tests\runtime.exe "%CD%\exports\mochizuki-runtime\MochizukiNrRuntime.dll" "%CD%\exports\mochizuki-runtime" --aco-barrier-switch
 exit /b %errorlevel%

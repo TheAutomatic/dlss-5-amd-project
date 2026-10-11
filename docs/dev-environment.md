@@ -95,9 +95,12 @@ tests\run-all.cmd --tier ci|device|gpu|all [--out 目录] [--skip-sync] [--keep-
 
 - `tools/build/build-mochizuki-runtime.cmd`：MSVC runtime 与固定版本 glslang shaders。
 - `tools/build/mochizuki-manifest.py`：源码及可分发产物哈希验证。
+- `tools/build/mochizuki-aco.py`：编译固定 Linux FP32 SPIR-V，校验与 58 个 ACO 记录的哈希匹配，生成 Windows 可选 ACO 资源。
 - `tools/install/mochizuki-model.py`：仅从用户提供的指定版本 DLL 提取模型。
 - `tools/install/mochizuki-python.ps1`：Setup 与独立模型工具共用的 Python 3.10+ 探测；缺失或不可用时提示到 Windows 商店搜索 Python 安装。
 - `tests/mochizuki/run.cmd abi|gpu`：无 GPU ABI 与实际 D3D12/Vulkan 生命周期回归。
+- `tests/mochizuki/run.cmd aco|aco-profile`：实际 ACO 导入、切换及回退 GPU 专项；ACO 性能参数与 `profile` 相同。
+- `tests/mochizuki/run.cmd aco-barriers|aco-upstream-profile`：显式同步开关及旧录制 GPU 回归；后者用于关闭显式 barrier 的对照计时，参数与 `profile` 相同。
 
 - `tools/build/build-ci.ps1`：Actions的宿主/CI并行入口，需已配置MSVC环境与pwsh。
 - `tools/lmxxf-sync/test-cache.py`：同步工具回归的内容/环境/UTC周成功记录；通过tests/sync/run.cmd使用。

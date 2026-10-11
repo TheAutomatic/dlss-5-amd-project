@@ -314,6 +314,7 @@ struct Runtime::Impl {
     nrvk::Context::Image first_full{};
     nrvk::Context::Image keep{};
     bool linear{};
+    bool aco_explicit_barriers{};
     // Preprocess (RuntimeConfig::preprocess): runtime_prep.comp's meter,
     // forward and back modes, the frame as it came in (`prep_keep`, model
     // sized) and the meter's state. `prep_back` is `prep` itself unless later
@@ -723,14 +724,14 @@ struct Runtime::Impl {
     // push, so a later pass costs four small blobs rather than a copy of the
     // whole table.
     static bool carries_controls(const std::string& kern) {
-        return kern == "fswinimagepreds32" || kern.rfind("imgin", 0) == 0 ||
+        return (kern == "fswinimagepreds32" || kern == "fswinimagepreds32nh") || kern.rfind("imgin", 0) == 0 ||
                kern == "fswinimagepost32" || kern.rfind("imgout", 0) == 0;
     }
 
     void patch_push(std::vector<uint8_t>& blob, const std::string& kern, const Resolved& r) const {
         const float skin = r.mask ? (r.skin_in < 0 ? r.structure : r.skin_in) : -1.0f;
         const float background = r.mask ? r.structure : -1.0f;
-        if (kern == "fswinimagepreds32") {
+        if ((kern == "fswinimagepreds32" || kern == "fswinimagepreds32nh")) {
             PushPreImage p{};
             std::memcpy(&p, blob.data() + sizeof(PushFSwin), sizeof p);
             p.style = float(r.style) / 128; p.tone = r.tone;
@@ -807,7 +808,10 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
     // development tree has build/ and artifacts/ at its root instead.
     const auto data = std::filesystem::is_directory(root / "dlssnr-amd") ? root / "dlssnr-amd" : root;
     const bool installed = data != root;
-    const auto network_shaders = installed ? data / "shaders" : root / "build";
+    const std::string aco = config.aco ? nr::binary::directory() : std::string();
+    impl_->aco_explicit_barriers = !aco.empty() && config.aco_explicit_barriers;
+    const auto native_shaders = installed ? data / "shaders" : root / "build";
+    const auto network_shaders = aco.empty() ? native_shaders : std::filesystem::path(aco) / "shaders";
     if (!std::isfinite(config.model_scale) || config.model_scale <= 0.f || config.model_scale > 1.f)
         throw std::invalid_argument("model_scale must be in (0, 1]");
     if (config.max_passes < 1 || config.max_passes > 16)
@@ -955,7 +959,7 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
     report_build_progress("Preparing image and temporal pipelines");
     impl_->width = config.width; impl_->height = config.height;
     const auto adapters = std::filesystem::canonical(config.adapter_shaders.empty()
-        ? network_shaders / "runtime" : std::filesystem::path(config.adapter_shaders));
+        ? native_shaders / "runtime" : std::filesystem::path(config.adapter_shaders));
     const auto adapter_rel = adapters.lexically_relative(root);
     if (adapter_rel.empty() || *adapter_rel.begin() == "..")
         throw std::invalid_argument("adapter shaders must be inside NR root");
@@ -1113,15 +1117,17 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
     if (temporal_config.enable) {
         auto& t = impl_->temporal;
         const auto shaders = std::filesystem::canonical(temporal_config.shaders.empty()
-            ? (installed ? data / "shaders/temporal" : root / "build/windows/rdna4/network/temporal")
+            ? (!aco.empty() ? std::filesystem::path(aco) / "shaders/temporal" : installed ? data / "shaders/temporal" : root / "build/windows/rdna4/network/temporal")
             : std::filesystem::path(temporal_config.shaders));
         require_variant_profile(shaders);
         const auto temporal_rel = shaders.lexically_relative(root);
         if (temporal_rel.empty() || *temporal_rel.begin() == "..")
             throw std::invalid_argument("temporal shaders must be inside NR root");
-        if (!s.kern.count("fswinimagepreds32") || !s.kern.count("fswinimagepost32"))
+        const bool pre_nh = s.kern.count("fswinimagepreds32nh") != 0;
+        const std::string pre_name = pre_nh ? "fswinimagepreds32nh" : "fswinimagepreds32";
+        if (!s.kern.count(pre_name) || !s.kern.count("fswinimagepost32"))
             throw std::runtime_error("the temporal path requires the fused FP32 image kernels");
-        t.original_pre = &s.kern.at("fswinimagepreds32");
+        t.original_pre = &s.kern.at(pre_name);
         t.original_post = &s.kern.at("fswinimagepost32");
         t.lw[0] = (mw + kTemporalBase - 1) / kTemporalBase;
         t.lh[0] = (mh + kTemporalBase - 1) / kTemporalBase;
@@ -1216,7 +1222,8 @@ Runtime::Runtime(const HostDevice& host, const RuntimeConfig& config, const Cont
         for (unsigned c = 0; c < (t.pingpong ? 2u : 1u); ++c) {
             nrvk::Kernel& pre = t.pingpong ? t.pre_pp[c] : t.pre;
             nrvk::Kernel& post = t.pingpong ? t.post_pp[c] : t.post;
-            pre.create(s.ctx, (shaders / "temporal_pre_fp32.spv").string(),
+            const bool temporal_nh = pre_nh && std::filesystem::exists(shaders / "temporal_pre_fp32nh.spv");
+            pre.create(s.ctx, (shaders / (temporal_nh ? "temporal_pre_fp32nh.spv" : "temporal_pre_fp32.spv")).string(),
                        {s.act.handle, s.act.handle, s.wgt.handle, s.wgt.handle, s.wgt.handle,
                         s.act.handle, t.params.handle},
                        sizeof(PushFSwin) + sizeof(PushPreImage),
@@ -1936,6 +1943,11 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
             // either contract - they were not built with device-scoped loads
             // and the arena is not the only thing they read.
             const bool last = i + 1 >= s.steps.size();
+            // The graph extends arena lifetimes across each tile-counter chain.
+            // ACO tile-only ordering fails the retained-network composition invariant
+            // on the validated Windows driver. Explicit dependencies remain the default;
+            // the host may opt into upstream ordering for comparison on an immutable network.
+            if (!impl_->aco_explicit_barriers && !last && i < s.runner.no_barrier_after.size() && s.runner.no_barrier_after[i]) continue;
             compute_barrier(cmd, s.runner.exec_barrier && !last,
                             s.runner.inv_barrier && !last);
         }

@@ -633,6 +633,7 @@ Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll') -Des
 $mzAssets = Join-Path $stage 'dlssnr-amd'
 New-Item -ItemType Directory -Force $mzAssets | Out-Null
 Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'dlssnr-amd/shaders') -Destination $mzAssets -Recurse
+Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'dlssnr-amd/aco') -Destination $mzAssets -Recurse
 Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt')
 Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/UPSTREAM.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_SOURCES.md')
 New-Item -ItemType Directory -Force (Join-Path $stage 'model-tools'), (Join-Path $stage 'docs') | Out-Null

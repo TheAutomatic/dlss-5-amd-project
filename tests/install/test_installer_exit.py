@@ -439,6 +439,16 @@ class InstallerExitTests(unittest.TestCase):
         shaders = self.package / "dlssnr-amd/shaders"
         shaders.mkdir(parents=True)
         (shaders / "fixture.spv").write_bytes(b"fixture shader")
+        # Installation copies these assets without executing GPU code.
+        for relative, data in {
+            "aco/shaders/shader-constants.txt": b"fixture ACO constants",
+            "aco/shaders/fixture.spv": b"fixture ACO shader",
+            "aco/records/fixture.bin": b"fixture ACO pipeline record",
+            "aco/shell-aliases.txt": b"fixture ACO shell aliases",
+        }.items():
+            path = shaders.parent / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
         if model:
             (shaders.parent / "dlssnr.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
 
@@ -586,12 +596,29 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_mochizuki_existing_model_needs_no_extraction(self):
         self.ready_mochizuki(model=True)
-        expected = (self.package / "dlssnr-amd/dlssnr.bin").read_bytes()
+        expected = snapshot_files(self.package / "dlssnr-amd")
         code, output = self.run_direct(flags=("-NonInteractive", "-Backend", "mochizuki"))
         self.assertEqual(code, 0, output)
         self.assertIn("Install SUCCEEDED.", output)
         self.assertNotIn("Extracting Mochizuki model", output)
-        self.assertEqual((self.game / "dlssnr-amd/dlssnr.bin").read_bytes(), expected)
+        self.assertEqual(snapshot_files(self.game / "dlssnr-amd"), expected)
+
+    def test_mochizuki_incomplete_aco_rejected_before_install_changes(self):
+        self.ready_mochizuki(model=True)
+        (self.game / "dxgi.dll").write_bytes(b"existing proxy")
+        (self.game / "OptiScaler.ini").write_text("[DlssNr]\nMochizukiAco=false\n", encoding="utf-8")
+        before = snapshot_files(self.game)
+        for relative in ("aco/shaders/shader-constants.txt", "aco/records", "aco/shell-aliases.txt"):
+            with self.subTest(missing=relative):
+                path = self.package / "dlssnr-amd" / relative
+                saved = path.rename(self.root / "removed-aco-asset")
+                try:
+                    code, output = self.run_direct(flags=("-NonInteractive", "-Backend", "mochizuki"))
+                    self.assertEqual(code, 1, output)
+                    self.assertIn("Incomplete Mochizuki package", output)
+                    self.assertEqual(snapshot_files(self.game), before)
+                finally:
+                    saved.rename(path)
 
     def test_mochizuki_reuses_game_model(self):
         self.ready_mochizuki()

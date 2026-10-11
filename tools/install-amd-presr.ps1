@@ -705,6 +705,12 @@ $srcA = Find-AuthorRuntime
 $mochizukiRuntime = Find-FirstFile @((Join-Path $release 'MochizukiNrRuntime.dll'), (Join-Path $Root 'exports/mochizuki-runtime/MochizukiNrRuntime.dll'))
 $mochizukiAssets = if ($mochizukiRuntime) { Join-Path (Split-Path -Parent $mochizukiRuntime) 'dlssnr-amd' } else { $null }
 $canMochizuki = [bool]($mochizukiRuntime -and (Test-Path -LiteralPath (Join-Path $mochizukiAssets 'shaders') -PathType Container))
+if ($canMochizuki -and (
+    -not (Test-Path -LiteralPath (Join-Path $mochizukiAssets 'aco/shaders/shader-constants.txt') -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $mochizukiAssets 'aco/records') -PathType Container) -or
+    -not (Test-Path -LiteralPath (Join-Path $mochizukiAssets 'aco/shell-aliases.txt') -PathType Leaf))) {
+    Fail 'Incomplete Mochizuki package: runtime, native shaders and ACO assets must be supplied together. Re-extract the complete update.'
+}
 $installMochizuki = $false
 $canLmxxf  = [bool]($lmxxfRuntime -and $lmxxfMods -and $lmxxfShaders)
 # Code and shaders must come from this update, even when Y will uninstall first.
@@ -1391,10 +1397,12 @@ if ($installLmxxf) {
 # --- Configure OptiScaler.ini [DlssNr] ---
 if ($installMochizuki) {
     Install-One $mochizukiRuntime 'MochizukiNrRuntime.dll'
-    $shaderRoot = Join-Path $mochizukiAssets 'shaders'
-    foreach ($file in @(Get-LmxxfUnlinkedFiles $shaderRoot)) {
-        $relative = $file.FullName.Substring($shaderRoot.Length).TrimStart('\','/')
-        Install-One $file.FullName (Join-Path 'dlssnr-amd/shaders' $relative)
+    foreach ($assetFolder in @('shaders', 'aco')) {
+        $shaderRoot = Join-Path $mochizukiAssets $assetFolder
+        foreach ($file in @(Get-LmxxfUnlinkedFiles $shaderRoot)) {
+            $relative = $file.FullName.Substring($shaderRoot.Length).TrimStart('\','/')
+            Install-One $file.FullName (Join-Path (Join-Path 'dlssnr-amd' $assetFolder) $relative)
+        }
     }
     if ($mochizukiModel) { Install-One $mochizukiModel 'dlssnr-amd/dlssnr.bin' }
     if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin'))) {

@@ -1,3 +1,17 @@
+## 2026-10-11 — Mochizuki Windows ACO 定向适配
+
+接入 `a9b13dd4` 的 ACO 二进制、FP32 shader 闭包及配套 graph 布局，由
+`MochizukiAco` INI／菜单开关独占控制，默认关闭；构建线程隔离模式，记录租约保留
+旧管线，导入失败时重建完整原生网络。资源、宿主及 Runtime 必须整包更新。
+
+RX 9070 XT／32.0.31041.1004 实测发现上游 tile-counter 省略 barrier 时 temporal
+缓冲切换输出不一致，因此 ACO 暂保留显式 barrier；8 组组合测试恢复逐字节一致后
+才纳入本地验证。按用户对照测试需求，增加 `MochizukiAcoExplicitBarriers` 开关：
+默认 true，false 使用上游调度；仅对 ACO 生效，切换重建网络，菜单显示已生效模式。
+将 counter-only 调度设为默认前需要定位原因并重新通过这些测试。
+实现与验证边界见 [Mochizuki](mochizuki.md#optional-aco-mode) 及
+[来源记录](../third_party/mochizuki/UPSTREAM.md#windows-aco-directed-integration-2026-10-11)。
+
 ## 2026-10-09 — ReShade 包装设备与 Mochizuki Fence 归属
 
 通过本会话亲自创建的同步 Fence 证明底层设备身份，允许 ReShade 队列的包装设备与原生

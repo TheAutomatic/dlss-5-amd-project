@@ -67,6 +67,8 @@ inline constexpr const char *MochizukiColourStrength = "MochizukiColourStrength"
 inline constexpr const char *MochizukiMaxRatio = "MochizukiMaxRatio";
 inline constexpr const char *MochizukiEnlargeMode = "MochizukiEnlargeMode";
 inline constexpr const char *MochizukiCompactTransfer = "MochizukiCompactTransfer";
+inline constexpr const char *MochizukiAco = "MochizukiAco";
+inline constexpr const char *MochizukiAcoExplicitBarriers = "MochizukiAcoExplicitBarriers";
 inline constexpr const char *MochizukiWhitePoint = "MochizukiWhitePoint";
 inline constexpr const char *MochizukiModelScale = "MochizukiModelScale";
 inline constexpr const char *MochizukiPasses = "MochizukiPasses";
@@ -227,6 +229,8 @@ inline constexpr const char *const kKnown[] = {
     MochizukiMaxRatio,
     MochizukiEnlargeMode,
     MochizukiCompactTransfer,
+    MochizukiAco,
+    MochizukiAcoExplicitBarriers,
     MochizukiWhitePoint,
     MochizukiModelScale,
     MochizukiPasses,

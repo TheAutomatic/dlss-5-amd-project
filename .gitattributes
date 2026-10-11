@@ -15,3 +15,5 @@ tests/sync/fixtures/lmxxf/*.raw text eol=lf
 third_party/lmxxf/** text=auto eol=lf
 # GPU modules are opaque binaries even when they happen to contain CRLF bytes.
 third_party/lmxxf/**/*.hsaco -text
+# ACO pipeline records are opaque binaries and must survive checkout unchanged.
+third_party/mochizuki/**/*.nrp -text
