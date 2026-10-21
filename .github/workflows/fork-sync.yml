@@ -1,0 +1,168 @@
+name: Fork Release and Wiki
+
+on:
+  workflow_dispatch:  # 手动触发，也可加 schedule 实现定时同步
+  # schedule: #定时1.5小时触发一次
+  # - cron: "0 0,3,6,9,12,15,18,21 * * *"    # 00:00/03:00/…/21:00 UTC
+  # - cron: "30 1,4,7,10,13,16,19,22 * * *"  # 01:30/04:30/…/22:30 UTC
+
+env:
+  RELEASE_LIMIT: 1000 # release同步的数量 最新的几个
+  FORK_REPO: ${{ github.repository }}
+  TEMP_DIR: ~/temp
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 开启错误详细
+      run: |
+        set -euxo pipefail
+
+    - name: 安装 GitHub CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gh
+
+    - name: 登录 GH CLI(使用 GITHUB_TOKEN 或 自行添加 PAT_TOKEN)
+      run: |
+        echo "${{ secrets.PAT_TOKEN != '' && secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+        echo "GH_TOKEN=${{ secrets.PAT_TOKEN != '' && secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+
+    - name: checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 获取上游仓库名
+      run: |
+        echo "UPSTREAM_REPO=$(gh repo view --json parent | jq -r '"\(.parent.owner.login)/\(.parent.name)"')" >> $GITHUB_ENV
+
+    - name: 仓库名
+      run: |
+        echo "FORK_REPO=$FORK_REPO"
+        echo "UPSTREAM_REPO=$UPSTREAM_REPO"
+
+    - name: 清理/准备临时目录
+      run: |
+        rm -rf $TEMP_DIR
+        # 准备临时目录
+        mkdir -p $TEMP_DIR/wiki
+        mkdir -p $TEMP_DIR/repo
+        mkdir -p $TEMP_DIR/releases
+
+    - name: 同步 Wiki
+      run: |
+        # 克隆上游 Wiki(Wiki 是独立的 .wiki 仓库)
+        if ! git clone https://x-access-token:$GH_TOKEN@github.com/$UPSTREAM_REPO.wiki.git $TEMP_DIR/wiki; then
+          echo "上游 Wiki 仓库不存在 跳过wiki同步"
+        else
+          cd $TEMP_DIR/wiki
+
+          # 切换远程地址到自己仓库的 Wiki
+          git remote set-url origin https://x-access-token:$GH_TOKEN@github.com/$FORK_REPO.wiki.git
+            # 强制推送所有分支和标签
+          if ! git push origin --all --force; then
+            echo "自己的 Wiki 仓库不存在 跳过wiki同步"
+          else
+            git push origin --tags --force
+          fi
+        fi
+
+    - name: 同步 Releases
+      run: |
+        # 添加统计变量
+        RELEASE_CREATE_SUCCESS=0
+        RELEASE_CREATE_FAILURE=0
+        RELEASE_SKIP=0
+
+        # 遍历上游所有 Release 按 tag 名称同步
+        for tag in $(gh release list -R "$UPSTREAM_REPO" --limit "$RELEASE_LIMIT" --json tagName --jq '.[].tagName' | tac); do
+          # 跳过已有的 Release
+          if gh release view -R $FORK_REPO $tag > /dev/null 2>&1; then
+            echo "跳过已存在 Release: $tag"
+            RELEASE_SKIP=$((RELEASE_SKIP+1))          # 统计跳过
+            continue
+          fi
+
+          echo "=== 同步 Release: $tag ==="
+          # 下载上游 Release 的所有附件
+          gh release download -R $UPSTREAM_REPO --pattern '*' -D $TEMP_DIR/releases $tag || true
+
+          # 获取上游 Release 的元信息
+          release=$(gh release view -R "$UPSTREAM_REPO" "$tag" --json name,body,isPrerelease)
+          title=$(jq -r .name <<<"$release")
+          body=$(jq -r .body <<<"$release")
+          isPrerelease=$(jq -r .isPrerelease <<<"$release")
+
+          if ! ls $TEMP_DIR/releases/* 1> /dev/null 2>&1; then
+            # 尝试仅同步说明  创建 Release(不带附件)
+            if gh release create -R $FORK_REPO $tag \
+              --title "$title" \
+              --notes "$body" \
+              $( [ "$isPrerelease" = "true" ] && echo "--prerelease" ); then
+              RELEASE_CREATE_SUCCESS=$((RELEASE_CREATE_SUCCESS+1)) # 统计成功
+            else
+              echo "create Release $tag 失败，跳过"
+              RELEASE_CREATE_FAILURE=$((RELEASE_CREATE_FAILURE+1)) # 统计失败
+            fi
+          else
+            # 创建 Release
+            if gh release create -R $FORK_REPO $tag $TEMP_DIR/releases/* \
+              --title "$title" \
+              --notes "$body" \
+              $( [ "$isPrerelease" = "true" ] && echo "--prerelease" ); then
+              RELEASE_CREATE_SUCCESS=$((RELEASE_CREATE_SUCCESS+1)) # 统计成功
+            else
+              echo "create Release $tag 失败，跳过"
+              RELEASE_CREATE_FAILURE=$((RELEASE_CREATE_FAILURE+1)) # 统计失败
+            fi
+          fi
+
+          rm -rf $TEMP_DIR $TEMP_DIR/releases/*
+        done
+
+        # 打印统计结果
+        echo "===== Releases 同步统计 ====="
+        echo "成功: $RELEASE_CREATE_SUCCESS"
+        echo "跳过: $RELEASE_SKIP"
+        echo "失败: $RELEASE_CREATE_FAILURE"
+
+    - name: 同步 普通 Git Tags
+      run: |
+        # 修改-添加统计变量
+        TAG_PUSH_SUCCESS=0
+        TAG_PUSH_FAILURE=0
+        TAG_PUSH_SKIP=0
+
+        # 克隆上游主仓库以获取所有 tag
+        git clone https://x-access-token:$GH_TOKEN@github.com/$UPSTREAM_REPO.git $TEMP_DIR/repo
+        cd $TEMP_DIR/repo
+        git fetch --tags
+        # 将 origin 指向自己的仓库
+        git remote set-url origin https://x-access-token:$GH_TOKEN@github.com/$FORK_REPO.git
+        # 遍历所有上游 tag 存在就跳过 不存在才推
+        for tag in $(git tag); do
+          if git ls-remote --exit-code --tags origin $tag >/dev/null; then
+            echo "跳过已存在 tag: $tag"
+            TAG_PUSH_SKIP=$((TAG_PUSH_SKIP+1)) # 统计跳过
+          else
+            if git push origin $tag; then
+              TAG_PUSH_SUCCESS=$((TAG_PUSH_SUCCESS+1)) #统计成功
+            else
+              echo "push $tag 失败，跳过"
+              TAG_PUSH_FAILURE=$((TAG_PUSH_FAILURE+1)) #统计失败
+            fi
+          fi
+        done
+
+        echo "===== Git Tags 同步统计 ====="
+        echo "成功: $TAG_PUSH_SUCCESS"
+        echo "跳过: $TAG_PUSH_SKIP"
+        echo "失败: $TAG_PUSH_FAILURE"
+
+    - name: 清理临时目录
+      if: always()
+      run: |
+        rm -rf $TEMP_DIR
