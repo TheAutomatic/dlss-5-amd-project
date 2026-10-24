@@ -88,7 +88,7 @@ class InstallerExitTests(unittest.TestCase):
         # to runneradmin. Compare file identity, still rejecting the old copy.
         self.assertTrue(Path(paths[0].strip()).samefile(expected), output)
 
-    def run_process(self, args, stdin=""):
+    def run_process(self, args, stdin="", timeout=30):
         # A timeout must end Setup.bat's PowerShell too. Killing only cmd.exe
         # leaves that child holding stdout, and the test then waits forever.
         proc = subprocess.Popen(
@@ -96,7 +96,7 @@ class InstallerExitTests(unittest.TestCase):
             stderr=subprocess.STDOUT, cwd=self.package, env=self.env,
         )
         try:
-            out, _ = proc.communicate(stdin.encode("ascii"), timeout=30)
+            out, _ = proc.communicate(stdin.encode("ascii"), timeout=timeout)
         except subprocess.TimeoutExpired:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
@@ -107,7 +107,7 @@ class InstallerExitTests(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 out = b""
             text = out.decode("mbcs", errors="replace")
-            raise AssertionError("timed out after 30 seconds\n" + text) from None
+            raise AssertionError(f"timed out after {timeout} seconds\n" + text) from None
         return proc.returncode, out.decode("mbcs", errors="replace")
 
     def run_batch(self, name="Setup", game=None, proxy="dxgi.dll", stdin=""):
@@ -890,6 +890,69 @@ class InstallerExitTests(unittest.TestCase):
         self.assertFalse((self.game / 'dlssnr-amd/dlssnr-small.bin').exists())
         self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
 
+    def test_launcher_update_reuses_game_models_after_package_cache_deleted(self):
+        self.ready_mochizuki(model=True)
+        self.ready_lmxxf_dual_arch()
+        # Synthetic Small inventory exercises production copy/validation without real weights.
+        tensor = b'lmxxf Small fixture'
+        manifest_path = self.package / 'lmxxf-small-manifest.json'
+        manifest = json.loads(manifest_path.read_text())
+        manifest['files'] = {'fixture.f16': dict(bytes=len(tensor), sha256=hashlib.sha256(tensor).hexdigest())}
+        manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+        small_root = self.package / 'native-game-tiled-assets/small'
+        small_root.mkdir()
+        (small_root / 'fixture.f16').write_bytes(tensor)
+        (small_root / 'model-manifest.json').write_text(json.dumps(dict(model='small',
+            source_dll_sha256=manifest['source_dll_sha256'])), encoding='utf-8')
+        small = b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20)
+        (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(small)
+        # Substitute only the canonical source pin; keep real hash/worker/install paths.
+        helper = self.package / 'mochizuki-int4.ps1'
+        canonical = hashlib.sha256((self.package / 'dlssnr-amd/dlssnr.bin').read_bytes()).hexdigest()
+        source = helper.read_text(encoding='utf-8-sig')
+        self.assertEqual(source.count('2b41c888cf4155b8958c665ba64018ab0bd25c85fc71a2b6db86d0d04d1f7fbd'), 1)
+        write_ps(helper, source.replace('2b41c888cf4155b8958c665ba64018ab0bd25c85fc71a2b6db86d0d04d1f7fbd', canonical))
+        decisions = self.root / 'initial-models.json'
+        decisions.write_text(json.dumps(dict(backends=['mochizuki', 'lmxxf'], existingIni='keep',
+            mochizukiModels='both', lmxxfModels='both')), encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-DecisionJson', str(decisions)))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Preparing INT4 weights', output, 'Fresh installs must still generate INT4')
+        models = [self.game / ('dlssnr-amd/' + name) for name in ('dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin')]
+        models += [self.game / 'native-game-tiled-assets/small' / name for name in ('fixture.f16', 'model-manifest.json')]
+        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in models}
+        for name in ('dlssnr.bin', 'dlssnr-small.bin'):
+            (self.package / 'dlssnr-amd' / name).unlink()
+        shutil.rmtree(self.package / 'native-game-tiled-assets')
+        # A converter invocation is now fatal: a successful update proves real reuse.
+        (self.package / 'model-tools/dlssnr-int4-weights.exe').write_bytes(b'converter must not run')
+        (self.package / 'OptiScaler.dll').write_bytes(b'version-mismatched package proxy')
+        exe = self.game / 'reuse-game.exe'
+        shutil.copy2(Path(os.environ['SystemRoot']) / 'System32/whoami.exe', exe)
+        for name in ('launcher-worker.ps1', 'proxy-probe.ps1', 'install-capabilities.ps1'):
+            shutil.copy2(REPO / 'tools/install' / name, self.package)
+        request = self.root / 'request.json'
+        request.write_text(json.dumps(dict(schema=1, requestId='reuse-update', action='update',
+            gameExe=str(exe), proxyChoice='dxgi.dll', packageRoot=str(self.package),
+            backends=['mochizuki', 'lmxxf'], activeBackend='mochizuki', explicitDecisions=dict(
+                existingInstall='overwrite', existingIni='keep', mochizukiModels='both', lmxxfModels='both',
+                foreignProxy={'dxgi.dll': 'backup'}))), encoding='utf-8')
+        result = self.root / 'result.json'
+        events = self.root / 'events.jsonl'
+        code, output = self.run_process([str(PS), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-File', str(self.package / 'launcher-worker.ps1'), '-RequestJson', str(request),
+            '-EventsJsonl', str(events), '-ResultJson', str(result)], timeout=120)
+        body = json.loads(result.read_text(encoding='utf-8-sig'))
+        log = events.read_text(encoding='utf-8-sig')
+        self.assertEqual(code, 0, output + log)
+        self.assertEqual(body['status'], 'success', body)
+        self.assertIn('INT4 weights already match', log)
+        self.assertNotIn('Preparing INT4 weights', log)
+        self.assertNotIn('Extracting Mochizuki', log)
+        self.assertNotIn('Preparing lmxxf', log)
+        self.assertEqual((self.game / 'dxgi.dll').read_bytes(), b'version-mismatched package proxy')
+        self.assertEqual({p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in models}, before)
+
     def test_mochizuki_int4_reuse_and_failed_conversion_preserve_weights(self):
         self.ready_mochizuki(model=True)
         flags = ('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original')
@@ -900,6 +963,7 @@ class InstallerExitTests(unittest.TestCase):
         code, output = self.run_direct(flags=flags)
         self.assertEqual(code, 0, output)
         self.assertIn('INT4 weights already match', output)
+        self.assertIn('Preparing INT4 weights', output, 'Noncanonical sources must still be converted')
         self.assertEqual(output_model.stat().st_mtime_ns, first_time)
         (self.package / 'model-tools/dlssnr-int4.sha256').write_text('0' * 64)
         before = self.game_snapshot()

@@ -215,10 +215,12 @@ try {
         Invoke-Controller $window 'SetActiveBackend' @('mochizuki')
         Invoke-Controller $window 'ToggleLanguage'
         Assert-True ($window.FindName('LmxxfReason').Text -eq '就绪') 'Inspected badges did not switch to Chinese'
+        Assert-True ($window.FindName('DanielReason').Text -eq '未选择' -and $window.FindName('DanielHint').Visibility -eq 'Collapsed') 'Unchecked backend did not stay neutral in Chinese'
         Invoke-Controller $window 'ToggleLanguage'
         Assert-English $window 'after inspection and toggling'
         Assert-True ($window.FindName('PillWinmm').IsChecked -eq $true) 'Locale change reset proxy choice'
         Assert-True ($window.FindName('DanielCheck').IsChecked -eq $false) 'Locale change reset backend choice'
+        Assert-True ($window.FindName('DanielReason').Text -eq 'Not selected' -and $window.FindName('DanielHint').Text -eq '') 'Unchecked backend did not retranslate neutrally'
         Assert-True ($window.FindName('ReplaceIni').IsChecked -eq $false) 'Locale change reset INI choice'
         Assert-True ($controllerType.GetField('_activeBackend', $flags).GetValue($window.Tag) -eq 'mochizuki') 'Locale change reset active backend'
         foreach ($theme in @('light', 'dark', 'auto')) {
@@ -282,6 +284,12 @@ try {
         Invoke-Controller $window 'ApplyInspect' @($result)
         Invoke-Controller $window 'SetLanguage' @('en')
         Assert-English $window 'missing input hints'
+        foreach ($prefix in @('Lmxxf', 'Daniel', 'Mochi')) {
+            Assert-True ($window.FindName($prefix + 'Reason').Text -eq 'Not selected') "$prefix unchecked missing status was not neutral"
+            Assert-True ($window.FindName($prefix + 'Hint').Text -eq '' -and $window.FindName($prefix + 'Hint').Visibility -eq 'Collapsed') "$prefix unchecked missing hint was visible"
+        }
+        Assert-True ($window.FindName('BackendDetailsText').Text -eq '' -and $window.FindName('BackendDetails').Visibility -eq 'Collapsed') 'Unchecked missing components were exposed'
+        foreach ($prefix in @('Lmxxf', 'Daniel', 'Mochi')) { $window.FindName($prefix + 'Check').IsChecked = $true }
         Assert-True ($window.FindName('DanielHint').Text.Contains('version.dll')) 'Daniel runtime filename missing'
         Assert-True ($window.FindName('MochiHint').Text.Contains('nvngx_dlssnr.dll')) 'Mochi source filename missing'
         Assert-True ($window.FindName('BackendPackagePath').Text.Contains($result.PackageRoot)) 'Actual package directory missing'
@@ -291,6 +299,8 @@ try {
         Save-BackendPreview $window 'english-backend-cards.png'
         Invoke-Controller $window 'SetLanguage' @('zh')
         Assert-True ($window.FindName('MochiHint').Text -match '[\u3400-\u9fff]') 'Chinese source hint missing'
+        Assert-True ($window.FindName('DanielHint').Text -match '[\u3400-\u9fff]' -and $window.FindName('LmxxfHint').Text -match '[\u3400-\u9fff]') 'Selected missing backend hints did not retranslate'
+        Assert-True ($window.FindName('DanielCheck').IsChecked -eq $true -and $window.FindName('LmxxfCheck').IsChecked -eq $true) 'Hint retranslation reset selected missing backends'
         Save-Preview $window 'chinese-backend-hints.png'
         Save-BackendPreview $window 'chinese-backend-cards.png'
         foreach ($backend in $result.Backends) { $backend.Hints = [string[]]@(); $backend.MissingPackageFiles = [string[]]@() }

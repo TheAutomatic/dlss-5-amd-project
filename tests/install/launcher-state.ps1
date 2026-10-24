@@ -268,6 +268,102 @@ try {
     Check ((Call 'CheckedBackends').Count -eq 0) 'Inspection ignored the deliberate empty backend selection'
     Check ((Field '_activeBackend') -eq '') 'Empty selection retained a misleading active marker'
 
+    # Check first, then judge: exercise actual checkbox events against cached capabilities.
+    $presentationGame = [Activator]::CreateInstance($gameType)
+    $presentationGame.Id = 'backend-presentation'; $presentationGame.Name = 'Backend presentation'
+    $presentationGame.Exe = $assembly.Location
+    $controllerType.GetField('_selectedGame', $flags).SetValue($controller, $presentationGame)
+    $presentation = [Activator]::CreateInstance($resultType)
+    $presentation.Status = 'success'; $presentation.PackageRoot = $out
+    $presentation.Backends = [Array]::CreateInstance($backendType, 3)
+    for ($i = 0; $i -lt $ids.Count; $i++) {
+        $presentation.Backends[$i] = [Activator]::CreateInstance($backendType)
+        $presentation.Backends[$i].Id = $ids[$i]
+    }
+    $lmxxf = $presentation.Backends[0]
+    $lmxxf.ReasonCode = 'missing-runtime'; $lmxxf.RuntimeState = 'missing'
+    $lmxxf.OriginalState = 'missing'; $lmxxf.SmallState = 'missing'
+    $lmxxf.Hints = [string[]]@('lmxxf-original', 'lmxxf-small')
+    $lmxxf.MissingPackageFiles = [string[]]@('LmxxfNrRuntime.dll')
+    $daniel = $presentation.Backends[1]
+    $daniel.ReasonCode = 'missing-runtime'; $daniel.RuntimeState = 'missing'; $daniel.ModelState = 'missing'
+    $daniel.Hints = [string[]]@('daniel-runtime', 'daniel-weights')
+    $daniel.MissingPackageFiles = [string[]]@('dlssnr_on_amd.dll')
+    $mochi = $presentation.Backends[2]
+    $mochi.Enabled = $true; $mochi.ReasonCode = 'ready'; $mochi.RuntimeState = 'ready'
+    $mochi.OriginalState = 'ready'; $mochi.SmallState = 'ready'; $mochi.ModelState = 'ready'
+    Call 'SetLanguage' @('en') | Out-Null
+    Call 'ApplyInspect' @($presentation) | Out-Null
+    foreach ($prefix in @('Lmxxf', 'Daniel')) {
+        Check ($window.FindName($prefix + 'Check').IsChecked -eq $false) "$prefix missing backend was selected automatically"
+        Check ($window.FindName($prefix + 'Reason').Text -eq 'Not selected') "$prefix unchecked backend displayed a complaint"
+        Check ([object]::ReferenceEquals($window.FindName($prefix + 'Reason').Foreground, $themeResources['ThemeMuted'])) "$prefix unchecked status was not neutral"
+        Check ([object]::ReferenceEquals($window.FindName($prefix + 'Badge').Background, $themeResources['ThemeSubtle'])) "$prefix unchecked badge was not neutral"
+        Check ([object]::ReferenceEquals($window.FindName($prefix + 'Badge').BorderBrush, $themeResources['ThemeBorder'])) "$prefix unchecked badge retained an error border"
+        Check ($window.FindName($prefix + 'Hint').Text -eq '' -and $window.FindName($prefix + 'Hint').Visibility -eq 'Collapsed') "$prefix unchecked hint was visible"
+    }
+    Check ($window.FindName('BackendDetailsText').Text -eq '' -and $window.FindName('BackendDetails').Visibility -eq 'Collapsed') 'Unchecked backends leaked missing component details'
+    Check ($window.FindName('BackendPackagePath').Visibility -eq 'Collapsed') 'Unchecked hints retained a package path'
+    Check ((Call 'BackendHintText' @($lmxxf)) -eq '' -and (Call 'BackendHintText' @($daniel)) -eq '') 'Hint formatter bypassed selection gating'
+    foreach ($prefix in @('Lmxxf', 'Daniel')) {
+        $window.FindName($prefix + 'Check').IsChecked = $true
+        Check ($window.FindName($prefix + 'Reason').Text -eq 'Missing Runtime') "$prefix selection did not immediately show missing status"
+        Check ($window.FindName($prefix + 'Hint').Visibility -eq 'Visible') "$prefix selection did not immediately reveal hints"
+    }
+    Check ($window.FindName('LmxxfHint').Text.Contains('lmxxf Original') -and $window.FindName('LmxxfHint').Text.Contains('lmxxf Small')) 'lmxxf missing model hints were ambiguous'
+    Check ($window.FindName('DanielHint').Text.Contains('version.dll') -and $window.FindName('DanielHint').Text.Contains('weights')) 'Selected Daniel omitted runtime or model hints'
+    Check ($window.FindName('BackendDetailsText').Text.Contains('LmxxfNrRuntime.dll') -and $window.FindName('BackendDetailsText').Text.Contains('dlssnr_on_amd.dll')) 'Selected missing package details were hidden'
+    $window.FindName('DanielCheck').IsChecked = $false
+    Check ($window.FindName('DanielReason').Text -eq 'Not selected' -and $window.FindName('DanielHint').Text -eq '') 'Deselecting Daniel retained missing status or hints'
+    Check (-not $window.FindName('BackendDetailsText').Text.Contains('daniel:') -and $window.FindName('BackendDetailsText').Text.Contains('lmxxf:')) 'Deselecting Daniel did not filter component details'
+
+    # Mochizuki Small is ready while the independent lmxxf Small still requires preparation.
+    $lmxxf.Enabled = $true; $lmxxf.ReasonCode = 'partial'; $lmxxf.RuntimeState = 'ready'
+    $lmxxf.OriginalState = 'ready'; $lmxxf.SmallState = 'preparable'
+    $lmxxf.Hints = [string[]]@('lmxxf-small-preparable'); $lmxxf.MissingPackageFiles = [string[]]@()
+    Call 'ApplyInspect' @($presentation) | Out-Null
+    Check ($window.FindName('LmxxfReason').Text -eq 'Some Models Ready') 'Selected lmxxf partial readiness was hidden'
+    Check ($window.FindName('LmxxfHint').Text.Contains('lmxxf Small') -and $window.FindName('LmxxfHint').Text.Contains('extracted')) 'Selected preparable lmxxf Small hint missing or ambiguous'
+    Check ($window.FindName('MochiReason').Text -eq 'Ready' -and $window.FindName('MochiHint').Text -eq '') 'lmxxf Small preparation was attributed to ready Mochizuki'
+    Check ($window.FindName('BackendDetails').Visibility -eq 'Collapsed') 'Cleared package components retained stale details'
+    foreach ($language in @('zh', 'en')) {
+        Call 'SetLanguage' @($language) | Out-Null
+        # Keep this BOM-less script ASCII so Windows PowerShell 5.1 decodes it consistently.
+        $notSelected = if ($language -eq 'zh') { -join ([char[]]@(0x672A, 0x9009, 0x62E9)) } else { 'Not selected' }
+        Check ($window.FindName('DanielReason').Text -eq $notSelected) 'Unselected status did not retranslate'
+        Check ($window.FindName('LmxxfHint').Text.Contains('lmxxf Small')) 'Retranslation lost qualified lmxxf Small hint'
+        Check ($window.FindName('LmxxfCheck').IsChecked -eq $true -and $window.FindName('MochiCheck').IsChecked -eq $true -and $window.FindName('DanielCheck').IsChecked -eq $false) 'Presentation refresh reset backend selections'
+        Check ([object]::ReferenceEquals((Field '_lastInspectResult'), $presentation)) 'Presentation refresh reapplied or replaced inspection'
+    }
+    $window.FindName('LmxxfCheck').IsChecked = $false
+    Check ($window.FindName('LmxxfReason').Text -eq 'Not selected' -and $window.FindName('LmxxfHint').Text -eq '' -and $window.FindName('LmxxfHint').Visibility -eq 'Collapsed') 'Deselecting preparable lmxxf retained status or hints'
+    Check ($window.FindName('BackendPackagePath').Visibility -eq 'Collapsed') 'Deselecting preparable lmxxf retained the hint package path'
+    $lmxxf.ReasonCode = 'preparable'
+    $lmxxf.OriginalState = 'preparable'; $lmxxf.Hints = [string[]]@('lmxxf-original-preparable', 'lmxxf-small-preparable')
+    Call 'ApplyInspect' @($presentation) | Out-Null
+    Check ($window.FindName('LmxxfCheck').IsChecked -eq $false -and $window.FindName('LmxxfHint').Text -eq '') 'Inspection reselected or revealed unchecked preparable lmxxf'
+    $window.FindName('LmxxfCheck').IsChecked = $true
+    Check ($window.FindName('LmxxfReason').Text -eq 'Preparation Required') 'Selecting preparable lmxxf did not show full readiness'
+    Check ($window.FindName('LmxxfHint').Text.Contains('lmxxf Original') -and $window.FindName('LmxxfHint').Text.Contains('lmxxf Small')) 'Combined preparable lmxxf hint omitted qualified model names'
+
+    # Missing EXE and failed/pending inspection must also leave every unchecked chip neutral.
+    $presentationGame.Exe = ''
+    Call 'RefreshInspectionText' | Out-Null
+    Check ($window.FindName('LmxxfReason').Text -eq 'Select EXE first' -and $window.FindName('DanielReason').Text -eq 'Not selected') 'Missing EXE status ignored checkbox selection'
+    foreach ($prefix in @('Lmxxf', 'Daniel', 'Mochi')) { $window.FindName($prefix + 'Check').IsChecked = $false }
+    Check ($window.FindName('LmxxfHint').Text -eq '' -and $window.FindName('BackendDetailsText').Text -eq '') 'Deselecting with missing EXE retained hints or components'
+    $presentationGame.Exe = $assembly.Location
+    $presentation.Status = 'failed'; $presentation.Error = 'fixture inspection failure'
+    Call 'ApplyInspect' @($presentation) | Out-Null
+    foreach ($prefix in @('Lmxxf', 'Daniel', 'Mochi')) {
+        Check ($window.FindName($prefix + 'Reason').Text -eq 'Not selected') "$prefix unchecked backend complained after inspection failure"
+    }
+    $controllerType.GetField('_lastInspectResult', $flags).SetValue($controller, $null)
+    Call 'RefreshInspectionText' | Out-Null
+    foreach ($prefix in @('Lmxxf', 'Daniel', 'Mochi')) {
+        Check ($window.FindName($prefix + 'Reason').Text -eq 'Not selected') "$prefix unchecked backend complained before inspection"
+    }
+
     # Compatibility repair is independent of backend/model/proxy installation choices.
     Call 'SelectGame' @($a) | Out-Null
     $jsonType = $assembly.GetType('OptScalerNR.Launcher.JsonUtil', $true)

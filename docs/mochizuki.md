@@ -162,8 +162,11 @@ variables cannot replace the selected model or picture options.
    `dlssnr-amd/dlssnr-small.bin` (new). Models extracted with the official tools
    are also usable at these paths. Setup and the standalone model tool derive
    `dlssnr-int4.bin` from it, verify the upstream SHA-256, and only then replace
-   an outdated INT4 model. Valid existing INT4 weights are reused. All three model
-   packs are supplied locally; uninstall preserves them.
+   an outdated INT4 model. Updates reuse a matching installed INT4 hash without
+   converting again when `dlssnr.bin` also matches the canonical Original SHA-256.
+   Other source packs still undergo conversion and output-pin validation. All three
+   model packs persist in the game directory independently of the extracted package;
+   uninstall preserves them. Launcher status and model hints appear only for checked backends.
    If no working Python 3.10+ is found, Setup and the standalone model tool explain
    how to open Microsoft Store (Windows Store), search for **Python**, and install
    version 3.10 or newer. Close and reopen the installer afterward. They also try

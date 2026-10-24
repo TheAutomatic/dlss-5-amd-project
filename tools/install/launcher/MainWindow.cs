@@ -372,7 +372,7 @@ namespace OptScalerNR.Launcher
 
             RoutedEventHandler backendChanged = (s, e) => {
                 if (_updatingBackends) return;
-                UpdateActiveCombo(); SaveBackendChoice(); UpdatePrimaryButtonState(); RefreshModelImportBar();
+                UpdateActiveCombo(); SaveBackendChoice(); UpdatePrimaryButtonState(); RefreshInspectionText();
             };
             if (_lmxxfCheck != null) { _lmxxfCheck.Checked += backendChanged; _lmxxfCheck.Unchecked += backendChanged; }
             if (_danielCheck != null) { _danielCheck.Checked += backendChanged; _danielCheck.Unchecked += backendChanged; }
@@ -811,6 +811,33 @@ namespace OptScalerNR.Launcher
             if (content != null) content.Content = L(zh, en);
         }
 
+        bool IsBackendSelected(string id)
+        {
+            var check = id == "lmxxf" ? _lmxxfCheck : id == "daniel" ? _danielCheck : id == "mochizuki" ? _mochiCheck : null;
+            return check != null && check.IsChecked == true;
+        }
+
+        void RefreshBackendStatus(string id, bool ready, string reason)
+        {
+            if (!IsBackendSelected(id))
+            {
+                ready = false;
+                reason = L("未选择", "Not selected");
+            }
+            var label = id == "lmxxf" ? _lmxxfReason : id == "daniel" ? _danielReason : _mochiReason;
+            var badge = id == "lmxxf" ? _lmxxfBadge : id == "daniel" ? _danielBadge : _mochiBadge;
+            if (label != null)
+            {
+                label.Text = reason;
+                label.Foreground = ready ? ReadyBrush : MissingBrush;
+            }
+            if (badge != null)
+            {
+                badge.Background = ready ? ReadyBg : MissingBg;
+                badge.BorderBrush = ready ? ReadyBorder : MissingBorder;
+            }
+        }
+
         void RefreshInspectionText()
         {
             // Refresh presentation only. Reapplying inspection would reset the user's choices.
@@ -819,8 +846,8 @@ namespace OptScalerNR.Launcher
             if (_selectedGame != null && !_selectedGame.HasExecutable) {
                 if (_injectText != null) _injectText.Text = L("尚未定位启动程序。可以保留文件夹条目，扫描或选择 EXE 后再安装。", "Executable not selected. Keep this folder entry and find or choose its EXE before installing.");
                 UpdateProxyRecommendation();
-                foreach (var label in new[] { _lmxxfReason, _danielReason, _mochiReason }) if (label != null) { label.Text = L("待选择 EXE", "Select EXE first"); label.Foreground = MissingBrush; }
-                foreach (var badge in new[] { _lmxxfBadge, _danielBadge, _mochiBadge }) if (badge != null) { badge.Background = MissingBg; badge.BorderBrush = MissingBorder; }
+                foreach (var id in new[] { "lmxxf", "daniel", "mochizuki" })
+                    RefreshBackendStatus(id, false, L("待选择 EXE", "Select EXE first"));
                 RefreshBackendHints();
                 RefreshModelImportBar();
                 return;
@@ -848,18 +875,7 @@ namespace OptScalerNR.Launcher
                 var ready = capability != null && capability.Enabled;
                 var reason = capability != null ? GetReasonText(capability.ReasonCode, capability.Reason, _language == "zh")
                     : failed ? L("检查失败", "Check failed") : L("未检查", "Not checked");
-                var label = id == "lmxxf" ? _lmxxfReason : id == "daniel" ? _danielReason : _mochiReason;
-                var badge = id == "lmxxf" ? _lmxxfBadge : id == "daniel" ? _danielBadge : _mochiBadge;
-                if (label != null)
-                {
-                    label.Text = reason;
-                    label.Foreground = ready ? ReadyBrush : MissingBrush;
-                }
-                if (badge != null)
-                {
-                    badge.Background = ready ? ReadyBg : MissingBg;
-                    badge.BorderBrush = ready ? ReadyBorder : MissingBorder;
-                }
+                RefreshBackendStatus(id, ready, reason);
             }
             RefreshBackendHints();
             RefreshModelImportBar();
@@ -868,18 +884,19 @@ namespace OptScalerNR.Launcher
 
         string BackendHintText(BackendInfo backend)
         {
+            if (backend == null || !IsBackendSelected(backend.Id)) return "";
             var lines = new List<string>();
             if (backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0)
                 lines.Add(L("安装包组件不完整，详见组件详情。", "Package components incomplete; see component details."));
             var hintSet = new HashSet<string>(backend.Hints ?? new string[0], StringComparer.OrdinalIgnoreCase);
             if (hintSet.Contains("lmxxf-original") && hintSet.Contains("lmxxf-small"))
             {
-                lines.Add(L("缺少模型：请将 nvngx_dlssnr.dll 放到安装包目录（也支持已解压的 native-game-tiled-assets）。",
-                    "Models missing: place nvngx_dlssnr.dll beside Setup.bat (or supply native-game-tiled-assets)."));
+                lines.Add(L("缺少 lmxxf Original / lmxxf Small 模型：请将 nvngx_dlssnr.dll 放到安装包目录（也支持已解压的 native-game-tiled-assets）。",
+                    "lmxxf Original / lmxxf Small models missing: place nvngx_dlssnr.dll beside Setup.bat (or supply native-game-tiled-assets)."));
             }
             else if (hintSet.Contains("lmxxf-original-preparable") && hintSet.Contains("lmxxf-small-preparable"))
             {
-                lines.Add(L("已找到模型来源，安装时自动提取。", "Model source found. Selected models will be extracted during installation."));
+                lines.Add(L("已找到 lmxxf Original / lmxxf Small 模型来源，安装时自动提取。", "lmxxf Original / lmxxf Small model source found. Selected models will be extracted during installation."));
             }
             foreach (var hint in backend.Hints ?? new string[0])
             {
@@ -888,19 +905,19 @@ namespace OptScalerNR.Launcher
                     case "lmxxf-weights": lines.Add(L("缺少模型：请将 nvngx_dlssnr.dll 放到安装包目录。", "lmxxf weights are missing. Place nvngx_dlssnr.dll beside Setup.bat.")); break;
                     case "lmxxf-original":
                         if (!hintSet.Contains("lmxxf-small"))
-                            lines.Add(L("Original 未安装：放入 nvngx_dlssnr.dll 即可提取。", "Original not installed: place nvngx_dlssnr.dll beside Setup.bat to extract."));
+                            lines.Add(L("lmxxf Original 未安装：放入 nvngx_dlssnr.dll 即可提取。", "lmxxf Original not installed: place nvngx_dlssnr.dll beside Setup.bat to extract."));
                         break;
                     case "lmxxf-original-preparable":
                         if (!hintSet.Contains("lmxxf-small-preparable"))
-                            lines.Add(L("Original 未安装：选择后将自动提取。", "Original not installed: will be extracted if selected."));
+                            lines.Add(L("lmxxf Original 未安装：选择后将自动提取。", "lmxxf Original not installed: will be extracted if selected."));
                         break;
                     case "lmxxf-small":
                         if (!hintSet.Contains("lmxxf-original"))
-                            lines.Add(L("Small 未安装：需要 nvngx_dlssnr.dll (310.9.16)。", "Small not installed: requires nvngx_dlssnr.dll (310.9.16)."));
+                            lines.Add(L("lmxxf Small 未安装：需要 nvngx_dlssnr.dll (310.9.16)。", "lmxxf Small not installed: requires nvngx_dlssnr.dll (310.9.16)."));
                         break;
                     case "lmxxf-small-preparable":
                         if (!hintSet.Contains("lmxxf-original-preparable"))
-                            lines.Add(L("Small 未安装：选择后将自动提取。", "Small not installed: will be extracted if selected."));
+                            lines.Add(L("lmxxf Small 未安装：选择后将自动提取。", "lmxxf Small not installed: will be extracted if selected."));
                         break;
                     case "mochi-source": lines.Add(L("缺少 Mochi 模型：请将 nvngx_dlssnr.dll 放到安装包目录。", "Mochi models are missing. Place nvngx_dlssnr.dll beside Setup.bat.")); break;
                     case "mochi-preparable": lines.Add(L("已找到模型来源，安装时自动提取。", "Model source found. Models will be prepared during installation.")); break;
@@ -933,7 +950,7 @@ namespace OptScalerNR.Launcher
                     foreach (var item in _lastInspectResult.Backends)
                         if (item != null && item.Id == id) { backend = item; break; }
                 var text = backend != null ? BackendHintText(backend) : "";
-                if (backend != null && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0)
+                if (IsBackendSelected(id) && backend != null && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0)
                     details.Add(id + ": " + string.Join(", ", backend.MissingPackageFiles));
                 var label = _window.FindName(id == "mochizuki" ? "MochiHint" : id == "lmxxf" ? "LmxxfHint" : "DanielHint") as TextBlock;
                 if (label != null)
@@ -2460,15 +2477,6 @@ namespace OptScalerNR.Launcher
                 RefreshModelImportBar();
                 return;
             }
-            var isZh = _language == "zh";
-            UpdateProxyRecommendation();
-
-            if (_injectText != null)
-            {
-                _injectText.Text = isZh
-                    ? "分析完成，请确认注入代理与后端配置："
-                    : "Analysis complete, please confirm proxy DLL and backends:";
-            }
 
             // Checkbox events can temporarily fall back while capabilities are applied
             // in worker order. Resolve the preferred backend after the complete batch.
@@ -2482,23 +2490,12 @@ namespace OptScalerNR.Launcher
                     foreach (var b in result.Backends)
                     {
                         if (b == null) continue;
-                        var reasonText = GetReasonText(b.ReasonCode, b.Reason, isZh);
                         if (b.Id == "lmxxf")
                         {
                             if (_lmxxfCheck != null)
                             {
                                 _lmxxfCheck.IsEnabled = true;
                                 if (!hasUserChoice) _lmxxfCheck.IsChecked = b.Enabled;
-                            }
-                            if (_lmxxfReason != null)
-                            {
-                                _lmxxfReason.Text = reasonText;
-                                _lmxxfReason.Foreground = b.Enabled ? ReadyBrush : MissingBrush;
-                            }
-                            if (_lmxxfBadge != null)
-                            {
-                                _lmxxfBadge.Background = b.Enabled ? ReadyBg : MissingBg;
-                                _lmxxfBadge.BorderBrush = b.Enabled ? ReadyBorder : MissingBorder;
                             }
                         }
                         else if (b.Id == "daniel")
@@ -2508,16 +2505,6 @@ namespace OptScalerNR.Launcher
                                 _danielCheck.IsEnabled = true;
                                 if (!hasUserChoice) _danielCheck.IsChecked = b.Enabled;
                             }
-                            if (_danielReason != null)
-                            {
-                                _danielReason.Text = reasonText;
-                                _danielReason.Foreground = b.Enabled ? ReadyBrush : MissingBrush;
-                            }
-                            if (_danielBadge != null)
-                            {
-                                _danielBadge.Background = b.Enabled ? ReadyBg : MissingBg;
-                                _danielBadge.BorderBrush = b.Enabled ? ReadyBorder : MissingBorder;
-                            }
                         }
                         else if (b.Id == "mochizuki")
                         {
@@ -2525,16 +2512,6 @@ namespace OptScalerNR.Launcher
                             {
                                 _mochiCheck.IsEnabled = true;
                                 if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled;
-                            }
-                            if (_mochiReason != null)
-                            {
-                                _mochiReason.Text = reasonText;
-                                _mochiReason.Foreground = b.Enabled ? ReadyBrush : MissingBrush;
-                            }
-                            if (_mochiBadge != null)
-                            {
-                                _mochiBadge.Background = b.Enabled ? ReadyBg : MissingBg;
-                                _mochiBadge.BorderBrush = b.Enabled ? ReadyBorder : MissingBorder;
                             }
                         }
                     }
@@ -2544,7 +2521,7 @@ namespace OptScalerNR.Launcher
                 UpdateActiveCombo();
             }
             finally { _updatingBackends = false; }
-            RefreshBackendHints();
+            RefreshInspectionText();
             UpdatePrimaryButtonState();
             DetectPackageUpdate(_selectedGame, result, requestedPackageRoot);
 

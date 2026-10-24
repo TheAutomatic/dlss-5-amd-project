@@ -15,10 +15,11 @@ Small 的独立历史投影行仍是必需资产。
 只选 Small 时不要求同时安装 Original；新建或覆盖 INI 默认选 Small。
 保留 INI 时保留显式模型偏好，若缺少该偏好需要的模型，会在写入前明确拒绝。
 现成 Small 权重位于 `native-game-tiled-assets/small`，复用不需要 Python。
-检测到受支持 DLL 或模型包时显示“Small 未安装（可提取）”，不代表已存在 Small 权重。
+仅勾选 lmxxf 后才显示该后端的状态与提示；“lmxxf Small 未安装（可提取）”不代表 Mochizuki Small 缺失。
 仅选择 Original 会直接复用 Original，不提取 Small。
 选择 Small 且只有本地 `dlssnr-small.bin` 或受支持 DLL 时，安装器会先转换、校验，
-再写入游戏目录。转换需要 Python3.10+，只使用标准库，与是否安装 Mochizuki 无关。
+再写入游戏目录 `native-game-tiled-assets/small`。安装器原生转换、校验，不需要 Python，与是否安装 Mochizuki 无关。
+后续更新直接复用游戏目录中校验通过的模型；删除旧安装包不影响复用。
 没有该包时，可从用户自己提供的受支持 `nvngx_dlssnr.dll`（310.9.16）离线准备：
 
 ```powershell

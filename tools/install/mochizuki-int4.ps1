@@ -17,10 +17,10 @@ function Get-MochizukiInt4FileHash([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-# Returns $null when $Existing already holds this package's weights AND $Model generates
-# the same pin; otherwise the path of a verified candidate in $WorkDir. A conversion
-# failure or hash mismatch throws an exception whose Data['MochizukiInt4Mismatch'] is
-# $true (Expected/Actual/Model set). Matching Existing alone never skips the Model check.
+# Returns $null when $Existing already holds this package's weights and $Model is
+# the canonical Original pack or generates the same pin. Otherwise returns a
+# verified candidate in $WorkDir. Noncanonical sources still require conversion;
+# a mismatch throws with Data['MochizukiInt4Mismatch'] (Expected/Actual/Model set).
 function New-MochizukiInt4Candidate {
     param([Parameter(Mandatory=$true)][string]$Model,
           [Parameter(Mandatory=$true)][string]$Data,
@@ -34,11 +34,14 @@ function New-MochizukiInt4Candidate {
         }
     }
     $expected = Get-MochizukiInt4ExpectedHash $Tools
-    # Existing matching the pin is not enough: a wrong dlssnr.bin can sit beside a
-    # previously installed matching int4. Always generate from $Model; reuse Existing
-    # only when this model produces the same pin (return $null), else throw mismatch.
+    # Check the smaller installed artifact first. A matching INT4 pin alone cannot
+    # validate a different source, but the canonical Original pack needs no rebuild.
     $existingMatches = [bool]($Existing -and (Test-Path -LiteralPath $Existing -PathType Leaf) -and
         ((Get-MochizukiInt4FileHash $Existing) -eq $expected))
+    if ($existingMatches -and (Get-MochizukiInt4FileHash $Model) -eq
+        '2b41c888cf4155b8958c665ba64018ab0bd25c85fc71a2b6db86d0d04d1f7fbd') {
+        return $null
+    }
     $temporary = Join-Path $WorkDir ('.mochizuki-int4-' + [Guid]::NewGuid().ToString('N') + '.tmp')
     $ok = $false
     try {
