@@ -566,17 +566,23 @@ struct Runtime::Impl {
     }
     float net_ms{}, net_ms_avg{};
     uint64_t gpu_timing_serial{};
+    uint64_t recording_timing_reads{}, recording_timing_rejected{};
     uint64_t timestamp_mask{~uint64_t(0)};
     float network_ms{}, other_ms{};
     // The same acceptance rules for the ordinary ring and recipe-owned pools.
     // False means not ready; true means the sample was consumed (possibly invalid).
     bool read_timing_sample(VkQueryPool pool, uint32_t first, uint32_t passes, uint8_t stages) {
         const uint32_t n = 2 + 2 * passes;
+        struct Query { uint64_t stamp, available; } queries[2 + 2 * 30] = {};
         uint64_t stamps[2 + 2 * 30] = {};
         if (n > sizeof stamps / sizeof stamps[0]) return true;
-        if (vkGetQueryPoolResults(session.ctx.device, pool, first, n, n * sizeof(uint64_t), stamps,
-                                  sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
+        if (vkGetQueryPoolResults(session.ctx.device, pool, first, n, n * sizeof(Query), queries,
+                                  sizeof(Query), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT) != VK_SUCCESS)
             return false;   // VK_NOT_READY: still running, ask again next frame
+        for (uint32_t i = 0; i < n; ++i) {
+            if (!queries[i].available) return false;
+            stamps[i] = queries[i].stamp;
+        }
         {
             encode_ms = (stages & 1) ? stage_pair_ms(pool, first, 0) : -1.0f;
             transfer_ms = (stages & 2) ? stage_pair_ms(pool, first, 1) : -1.0f;
@@ -3866,7 +3872,25 @@ float Runtime::last_gpu_ms() const { return impl_->gpu_ms; }
 float Runtime::average_gpu_ms() const { return impl_->gpu_ms_avg; }
 float Runtime::average_network_ms() const { return impl_->split_timing ? impl_->net_ms_avg : 0.0f; }
 uint64_t Runtime::gpu_timing_serial() const { return impl_->gpu_timing_serial; }
-void Runtime::harvest_recording_timings() { impl_->read_recording_timings(); }
+void Runtime::harvest_recording_timings(const std::shared_ptr<void>& resources) {
+    if (!resources) return;
+    const auto& scope = *std::static_pointer_cast<Impl::RecordingResources>(resources);
+    for (const auto& sample : scope.timings) {
+        // Retained command lists rewrite their pools on every replay. Remove
+        // the recording-time queue entry and read this certified execution.
+        auto& pending = impl_->pending_recording_timings;
+        pending.erase(std::remove_if(pending.begin(), pending.end(), [&](const auto& entry) {
+            const auto owner = entry.lock();
+            return !owner || owner == sample;
+        }), pending.end());
+        ++impl_->recording_timing_reads;
+        const auto serial = impl_->gpu_timing_serial;
+        impl_->read_timing_sample(sample->pool, 0, sample->passes, sample->stages);
+        if (serial == impl_->gpu_timing_serial) ++impl_->recording_timing_rejected;
+    }
+}
+uint64_t Runtime::recording_timing_reads() const { return impl_->recording_timing_reads; }
+uint64_t Runtime::recording_timing_rejected() const { return impl_->recording_timing_rejected; }
 bool Runtime::recording_timing_available() const { return impl_->recording_timing_available; }
 void Runtime::set_stage_timing(bool on) { impl_->stage_timing = on; }
 float Runtime::last_encode_ms() const { return impl_->encode_ms; }

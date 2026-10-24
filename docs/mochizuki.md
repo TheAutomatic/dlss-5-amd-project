@@ -69,8 +69,13 @@ if submitted, the real tail completion. Such executions never certify NR output.
 Motion-vector rescaling defines a one-texel replicated edge ring before linear
 blitting a DRS valid rectangle inside a larger allocation.
 
-Core timestamps are harvested at certified direct completion, before collection
-can release their recipe-owned query pools (patch 32). Harvest serials belong to
+Core timestamps are harvested from the certified recipe's resource scope on every
+direct execution, including retained-command-list replays, before collection can
+release its query pools (patch 32). The recording-time pending queue alone is
+one-shot and cannot supply replay timings. Reads are nonblocking and require every
+query's availability bit; unavailable or invalid samples do not refresh the display.
+RenoDX direct recipes preserve their timestamp mask and callback count across
+harvests, so replays retain the same timing boundary. Harvest serials belong to
 each network generation; replacing the network or changing pass capacity retains
 the session's last-known timing window and normal freshness expiry. It does not
 reset the display to zero while the new generation starts producing samples.
@@ -341,8 +346,10 @@ total/other sample and zero network time. Pending entries are not reused before
 Vulkan completion, and polling does not duplicate samples or refresh their age.
 Changing between standard and RenoDX routes clears the reported timing window.
 Display and timing log options default off; summaries are limited to one per ten
-seconds, and query reads never wait for the GPU. `mochizuki_nr.log` respects file
-logging and rotates to `mochizuki_nr.1.log` at 4 MiB.
+seconds and include accepted sample counts plus current-core certified-harvest and
+unavailable/invalid-read counters for field supply-cadence diagnosis. Query reads
+never wait for the GPU. `mochizuki_nr.log` respects file logging and rotates to
+`mochizuki_nr.1.log` at 4 MiB.
 
 Local verification on 2026-10-20 after removal of the product style-grade toggle:
 the matching runtime and Release host compiled successfully (existing local shader

@@ -217,6 +217,10 @@ extern "C"
         uint32_t network_requested, network_effective; /* 0 original, 1 small; effective valid after frame_w > 0 */
         /* Route-specific network-scope quantiles from the same completed-frame window as total. */
         float gpu_ms_network_median, gpu_ms_network_p95;
+        /* Direct recording timing supply for the current core runtime (zero before it exists):
+         * certified harvest scope rereads, and rereads rejected as unavailable or invalid.
+         * gpu_samples above remains the session's cumulative accepted-sample count. */
+        uint64_t recording_timing_reads, recording_timing_rejected;
         /* struct_size includes the current definition's tail padding. */
     } MochizukiNrInfo;
 

@@ -73,6 +73,29 @@ public:
             slot = {};
         }
     }
+
+    // A direct recipe replays its recorded timestamp writes without Begin().
+    // Keep its mask/pass metadata and consume only the submission marker.
+    template<class Accept> void HarvestRecording(uint32_t index, uint64_t completed, Accept accept)
+    {
+        if (!pool_ || index >= kSlots || completed == UINT64_MAX) return;
+        auto& slot = slots_[index];
+        if (!slot.finished || slot.finished > completed) return;
+        struct Query { uint64_t stamp, available; } queries[kQueries] {};
+        uint64_t stamps[kQueries] {};
+        const uint32_t n = 2 + 2 * slot.passes;
+        const auto result = vkGetQueryPoolResults(device_, pool_, index * kQueries, n,
+            n * sizeof(Query), queries, sizeof(Query),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (result != VK_SUCCESS) return;
+        for (uint32_t i = 0; i < n; ++i) {
+            if (!queries[i].available) return;
+            stamps[i] = queries[i].stamp;
+        }
+        Sample sample {};
+        if (!slot.discard && Decode(stamps, slot.passes, slot.mask, period_, sample)) accept(sample);
+        slot.finished = 0;
+    }
     uint32_t Begin(VkCommandBuffer cmd, bool compute)
     {
         const uint32_t bits = bits_[compute ? 1 : 0];

@@ -2,6 +2,10 @@
 #include "../lmxxf_runtime/LmxxfNrApi.h"
 #include "MochizukiNrControls.h"
 
+// MochizukiNrInfo (declared in MochizukiNrControls.h) is an exact-size package contract.
+// Its additive recording_timing_* diagnostics report core certified-harvest rereads/rejections;
+// they do not include RenoDX timing. Host/runtime headers must be updated together.
+
 // Separate frame contract; the shared v2 table supplies recording ownership and
 // submission operations. It never reinterprets lmxxf's frame or the older fork ABI.
 #define MOCHIZUKI_NR_FRAME_FLAG_TEMPORAL (1u << 8)

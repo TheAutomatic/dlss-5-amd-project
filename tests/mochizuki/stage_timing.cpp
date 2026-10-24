@@ -6,6 +6,7 @@
 static uint32_t resets = 0, reads = 0, writes = 0, destroyed = 0;
 static VkResult readResult = VK_SUCCESS;
 static uint64_t values[MochizukiStageTiming::kQueries] {};
+static bool available = true;
 extern "C" {
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateQueryPool(VkDevice, const VkQueryPoolCreateInfo* info, const VkAllocationCallbacks*, VkQueryPool* pool) {
     assert(info->queryCount == 8 * (2 + 2 * 30)); *pool = (VkQueryPool)1; return VK_SUCCESS;
@@ -14,8 +15,15 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyQueryPool(VkDevice, VkQueryPool, const VkAll
 VKAPI_ATTR void VKAPI_CALL vkCmdResetQueryPool(VkCommandBuffer, VkQueryPool, uint32_t, uint32_t count) { assert(count == 62); ++resets; }
 VKAPI_ATTR void VKAPI_CALL vkCmdWriteTimestamp(VkCommandBuffer, VkPipelineStageFlagBits, VkQueryPool, uint32_t) { ++writes; }
 VKAPI_ATTR VkResult VKAPI_CALL vkGetQueryPoolResults(VkDevice, VkQueryPool, uint32_t, uint32_t count, size_t, void* data, VkDeviceSize stride, VkQueryResultFlags flags) {
-    assert(flags == VK_QUERY_RESULT_64_BIT); assert(stride == sizeof(uint64_t)); ++reads;
-    auto* out = static_cast<uint64_t*>(data); for (uint32_t i = 0; i < count; ++i) out[i] = values[i];
+    ++reads;
+    auto* out = static_cast<uint64_t*>(data);
+    if (flags & VK_QUERY_RESULT_WITH_AVAILABILITY_BIT) {
+        assert(stride == 2 * sizeof(uint64_t));
+        for (uint32_t i = 0; i < count; ++i) { out[2*i] = values[i]; out[2*i+1] = available; }
+    } else {
+        assert(flags == VK_QUERY_RESULT_64_BIT && stride == sizeof(uint64_t));
+        for (uint32_t i = 0; i < count; ++i) out[i] = values[i];
+    }
     return readResult;
 }
 }
@@ -72,5 +80,30 @@ int main() {
         ring.Harvest(10, [&](const auto&) { ++samples; }); assert(samples == 9);
     }
     assert(destroyed == 1);
+    {
+        Ring recipe; recipe.Create((VkDevice)1, 1000, 8, 0);
+        const auto slot = recipe.Begin((VkCommandBuffer)1, false);
+        recipe.BeginNetwork((VkCommandBuffer)1, slot);
+        recipe.EndNetwork((VkCommandBuffer)1, slot);
+        recipe.End((VkCommandBuffer)1, slot);
+        uint32_t replaySamples = 0;
+        values[0] = 250; values[1] = 14; values[2] = 252; values[3] = 4;
+        for (uint64_t execution = 1; execution <= 500; ++execution) {
+            recipe.Submitted(slot, execution);
+            available = false; // A later replay has reset a query: never publish a torn read.
+            recipe.HarvestRecording(slot, execution, [&](const auto&) { assert(false); });
+            available = true;
+            readResult = VK_NOT_READY;
+            recipe.HarvestRecording(slot, execution, [&](const auto&) { assert(false); });
+            readResult = VK_SUCCESS;
+            recipe.HarvestRecording(slot, execution - 1, [&](const auto&) { assert(false); });
+            recipe.HarvestRecording(slot, execution, [&](const auto& s) {
+                assert(s.total == .02f && s.network == .008f); ++replaySamples;
+            });
+            recipe.HarvestRecording(slot, execution, [&](const auto&) { assert(false); });
+        }
+        assert(replaySamples == 500); // No new recording, mask and network passes survive every harvest.
+    }
+    assert(destroyed == 2);
     std::puts("mochizuki stage timing: PASS (frame ring, 0/30 callbacks, no wait, completion, wrap, lifetime)");
 }

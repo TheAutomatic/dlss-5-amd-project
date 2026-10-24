@@ -234,9 +234,10 @@ struct MochizukiBackend::Impl
         if (Config::Instance()->NrTimingLog.value_or_default() && now - logAt >= 10000)
         {
             logAt = now;
-            LOG_INFO("mochizuki Vulkan core GPU median={:.3f} ms p95={:.3f} ms; means: network={:.3f} other={:.3f} total={:.3f} ms; excludes bridge copies; frames={}",
+            LOG_INFO("mochizuki Vulkan core GPU median={:.3f} ms p95={:.3f} ms; means: network={:.3f} other={:.3f} total={:.3f} ms; excludes bridge copies; frames={}; accepted_samples={}; core_certified_harvest_reads={}; core_unavailable_invalid_rejected_reads={}",
                      info.gpu_ms_median, info.gpu_ms_p95, info.gpu_ms_network_mean, info.gpu_ms_other_mean,
-                     info.gpu_ms_mean, info.frames);
+                     info.gpu_ms_mean, info.frames, info.gpu_samples, info.recording_timing_reads,
+                     info.recording_timing_rejected);
         }
     }
 };

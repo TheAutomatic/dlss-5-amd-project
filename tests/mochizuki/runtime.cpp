@@ -324,6 +324,11 @@ int wmain(int argc,wchar_t**argv) try {
     Require(getInfo(context,&oldInfo)==LMXXF_NR_INVALID_ARGUMENT,"old info contract accepted");
     MochizukiNrInfo previousInfo {static_cast<uint32_t>(offsetof(MochizukiNrInfo, gpu_ms_network_median))};
     Require(getInfo(context,&previousInfo)==LMXXF_NR_INVALID_ARGUMENT,"previous timing ABI accepted");
+    MochizukiNrInfo previousSupplyInfo {static_cast<uint32_t>(offsetof(MochizukiNrInfo, recording_timing_reads))};
+    Require(getInfo(context,&previousSupplyInfo)==LMXXF_NR_INVALID_ARGUMENT,"previous timing supply ABI accepted");
+    MochizukiNrInfo initialSupplyInfo {sizeof initialSupplyInfo}; Rc(getInfo(context,&initialSupplyInfo));
+    Require(initialSupplyInfo.recording_timing_reads==0 && initialSupplyInfo.recording_timing_rejected==0,
+            "timing supply counters nonzero before a runtime exists");
     const bool profile=argc>3 && std::wstring(argv[3])==L"--profile";
     // The frame-side strengths, which the image mode may override: MochizukiDetailStrength / MochizukiColourStrength
     // reach the model here, while Controls::intensity reaches it through the control block.

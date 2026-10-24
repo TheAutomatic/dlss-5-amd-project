@@ -184,9 +184,9 @@ class DirectRecordingContract(unittest.TestCase):
         observe = body(lifecycle, "ObserveDirectCompletions")
         for gate in ("r.tail", "r.executingQueue", "r.uncertain", "r.completedExecutions == r.executions", "completed == UINT64_MAX", "completed < r.tailValue"):
             self.assertIn(gate, observe)
-        self.assertLess(observe.index("completed < r.tailValue"), observe.index("r.directTiming->Harvest"))
+        self.assertLess(observe.index("completed < r.tailValue"), observe.index("r.directTiming->HarvestRecording"))
         self.assertIn("ObserveDirectCompletions(s)", body(lifecycle, "PrepareFrame"))
-        self.assertLess(observe.index("completed < r.tailValue"), observe.index("harvest_recording_timings()"))
+        self.assertLess(observe.index("completed < r.tailValue"), observe.index("harvest_recording_timings(r.coreResources)"))
         self.assertIn("r.network->harvestedTimingSerial", observe)
         self.assertNotIn("gpuMsCount =", body(runtime, "Install"))
         self.assertNotIn("gpuTick = 0", body(direct, "RecordDirect"))
@@ -195,6 +195,23 @@ class DirectRecordingContract(unittest.TestCase):
         self.assertIn("directTimingUnavailable.store", direct)
         self.assertIn("!s->runtime->recording_timing_available()", direct)
         self.assertIn("info.reserved0 = s->directTimingUnavailable.load() ? 1u : 0u", runtime)
+
+
+    def test_certified_replay_rereads_recipe_queries(self):
+        vendor = source(ROOT / "third_party/mochizuki/windows/src/core/nr_runtime.cpp")
+        harvest = body(vendor, "Runtime::harvest_recording_timings")
+        self.assertIn("scope.timings", harvest)
+        self.assertIn("read_timing_sample(sample->pool", harvest)
+        self.assertIn("pending.erase", harvest)
+        self.assertNotIn("scope.timings.clear", harvest)
+        read = body(vendor, "read_timing_sample")
+        self.assertIn("VK_QUERY_RESULT_WITH_AVAILABILITY_BIT", read)
+        self.assertLess(read.index("!queries[i].available"), read.index("++gpu_timing_serial"))
+        self.assertNotIn("VK_QUERY_RESULT_WAIT_BIT", read)
+        stage = body(source(RUNTIME / "MochizukiStageTiming.h"), "HarvestRecording")
+        self.assertIn("VK_QUERY_RESULT_WITH_AVAILABILITY_BIT", stage)
+        self.assertIn("slot.finished = 0", stage)
+        self.assertNotIn("slot = {}", stage)
 
     def test_motion_linear_filter_has_defined_edge_ring(self):
         direct = source(RUNTIME / "MochizukiDirectRecording.inl")

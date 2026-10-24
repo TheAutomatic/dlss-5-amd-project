@@ -59,10 +59,14 @@ void ObserveDirectCompletions(Session* s)
         if (completed == UINT64_MAX || completed < r.tailValue) continue;
         if (!r.directRecordFailed) s->directCompleted += r.executions - r.completedExecutions;
         r.completedExecutions = r.executions;
-        // Harvest while this completed recipe still owns its query pools. Reset
-        // can collect it before the next record_all, whose pending queue is weak.
+        // Replays rewrite recipe-owned pools: harvest each certified execution,
+        // not just the recording-time pending queue's first successful sample.
         if (!r.directRecordFailed && !r.network->reno) {
-            r.network->harvest_recording_timings();
+            r.network->harvest_recording_timings(r.coreResources);
+            if (r.network == s->runtime) {
+                s->infoRecordingTimingReads.store(r.network->recording_timing_reads(), std::memory_order_relaxed);
+                s->infoRecordingTimingRejected.store(r.network->recording_timing_rejected(), std::memory_order_relaxed);
+            }
             const auto serial = r.network->gpu_timing_serial();
             if (r.network == s->runtime && serial != r.network->harvestedTimingSerial && r.network->last_gpu_ms() > 0) {
                 r.network->harvestedTimingSerial = serial;
@@ -71,7 +75,7 @@ void ObserveDirectCompletions(Session* s)
             }
         }
         if (r.directTiming)
-            r.directTiming->Harvest(r.directSerial, [s](const MochizukiStageTiming::Sample& sample) {
+            r.directTiming->HarvestRecording(r.directTimingSlot, r.directSerial, [s](const MochizukiStageTiming::Sample& sample) {
                 s->PushGpuSample(sample.total, sample.network, -1.f, -1.f);
             });
         if (s->directCompleted <= 2 || s->directCompleted % 3600 == 0)

@@ -3123,6 +3123,7 @@ struct Session
     std::atomic<bool> infoBuilding { false };
     std::atomic<uint32_t> infoModelWidth { 0 }, infoModelHeight { 0 }, infoFrameWidth { 0 }, infoFrameHeight { 0 },
         infoMaxPasses { 0 }, infoPasses { 1 }, motionRefused { 0 }, dispatches { 0 };
+    std::atomic<uint64_t> infoRecordingTimingReads { 0 }, infoRecordingTimingRejected { 0 };
     std::atomic<float> infoBuildSeconds { 0 };
     std::atomic<float> infoPrepEv { NAN };
     std::atomic<float> infoWhite { 1.f };
@@ -4793,6 +4794,7 @@ struct Session
         LogNetworkTime(why);
         finished = lastFinished.load();
         infoInt4 = infoReno = infoNetwork = 0;
+        infoRecordingTimingReads = infoRecordingTimingRejected = 0;
         exposureSnapshot = runtime && runtime->reno ? runtime->reno->exposure_state() : nullptr;
         return std::move(runtime);
     }
@@ -4817,6 +4819,7 @@ struct Session
             if (runtime)
                 old = TakeNetwork("replacing the network", oldFinished);
             runtime = std::move(built);
+            infoRecordingTimingReads = infoRecordingTimingRejected = 0;
             if (runtime->reno && runtime->reno->seed_from(exposureSnapshot))
                 nr::logf("[mochizuki] network #%llu inherited shared scalar exposure state", static_cast<unsigned long long>(runtime->id));
             exposureSnapshot.reset();
@@ -5008,6 +5011,7 @@ struct Session
                     exposureSnapshot = runtime->reno ? runtime->reno->exposure_state() : nullptr;
                     runtime->destroyReason = "vram_reclaim";
                     runtime.reset();
+                    infoRecordingTimingReads = infoRecordingTimingRejected = 0;
                 }
                 if (freeGeometry)
                     ReleaseGeometry();
@@ -5487,6 +5491,7 @@ struct Session
             exposureSnapshot = runtime && runtime->reno ? runtime->reno->exposure_state() : nullptr;
             if (runtime) runtime->destroyReason = "vram_refused";
             runtime.reset();
+            infoRecordingTimingReads = infoRecordingTimingRejected = 0;
         }
         const UINT64 freed = known && vram.Read(after, budget) && before > after ? before - after : 0;
         if (freed)
@@ -6649,6 +6654,7 @@ struct Session
         if (runtime) runtime->destroyReason = sessionEndReason;
         if (built) built->destroyReason = sessionEndReason;
         runtime.reset();
+        infoRecordingTimingReads = infoRecordingTimingRejected = 0;
         built.reset();
         exposureSnapshot.reset();
         retired.clear();
@@ -7560,6 +7566,8 @@ int32_t GetInfo(void* context, MochizukiNrInfo* out)
         info.max_passes = s->infoMaxPasses;
         info.motion_refused_dxgi = s->motionRefused;
         info.reserved0 = s->directTimingUnavailable.load() ? 1u : 0u;
+        info.recording_timing_reads = s->infoRecordingTimingReads.load(std::memory_order_relaxed);
+        info.recording_timing_rejected = s->infoRecordingTimingRejected.load(std::memory_order_relaxed);
         {
             std::lock_guard stats(s->statsMutex);
             info.gpu_samples = s->gpuSamples;
