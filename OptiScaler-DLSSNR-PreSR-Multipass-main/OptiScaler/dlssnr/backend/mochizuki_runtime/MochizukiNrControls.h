@@ -188,7 +188,7 @@ extern "C"
         float gpu_ms_median;          /* Vulkan core total over the last 120 samples; excludes bridge copies */
         float gpu_ms_p95;
         float build_seconds;           /* the last network build */
-        uint32_t reserved0;            /* 0; keeps frames 8-aligned without implicit padding */
+        uint32_t reserved0;            /* bit 0: current direct recording has no timestamp sampler */
         uint64_t frames;               /* frames run in this session */
         uint32_t history_consumed_pct; /* of the last 64 frames, those that used the history */
         uint32_t failed;               /* 1: the session failed; last_error says why */

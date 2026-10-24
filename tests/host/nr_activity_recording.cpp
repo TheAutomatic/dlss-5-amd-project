@@ -92,6 +92,23 @@ static void DirectExecutionContracts()
     assert(owner->coverage->directAccepted == 1 && owner->coverage->splitAccepted == 0);
     assert(owner->coverage->enqueues == 0 && owner->activity.IsRunning());
 
+    // RecordDirect failed after writing commands: Attach retains the observer,
+    // but ready stays false. Preserve the game batch and its real tail proof
+    // without certifying an NR output or enqueueing a second submission.
+    auto partialOwner = Owner();
+    partialOwner->coverage = std::make_shared<DlssNr::Coverage::Counters>();
+    Recording::Lease partial(partialOwner, nullptr, { 12, 1 });
+    partial.directRecording = partial.neural = true;
+    execution.identity = partial.identity;
+    execution.serial = 150;
+    assert(SUCCEEDED(partial.BeforeExecute(execution)));
+    partial.Between(execution);
+    partial.Executed(execution);
+    assert(endFlags == LMXXF_NR_SUBMITTED_PRODUCER);
+    assert(endQueue == execution.queue && endFence == execution.fence && endValue == execution.fenceValue);
+    assert(!partialOwner->failed && !partialOwner->activity.IsRunning());
+    assert(partialOwner->coverage->directAccepted == 0 && enqueueCalls == enqueuesBefore);
+
     // The actual failed tail Signal status goes to End unchanged, poisoning retirement.
     auto failedOwner = Owner();
     failedOwner->coverage = std::make_shared<DlssNr::Coverage::Counters>();

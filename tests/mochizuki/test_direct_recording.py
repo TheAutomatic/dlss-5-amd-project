@@ -103,8 +103,11 @@ class DirectRecordingContract(unittest.TestCase):
         self.assertLess(record, host.index("p->api.RecordInputs(", record))
         direct = host[host.rfind("if (directRecording)", attach, record):host.index("p->api.RecordInputs(", record)]
         self.assertIn("InvalidateDirectComputeBindings()", direct)
-        self.assertIn("p->api.InvalidateRecording(p->owner->context, job.handle)", direct)
-        self.assertIn("p->api.CollectRecording(p->owner->context, job.handle)", direct)
+        self.assertNotIn("p->api.InvalidateRecording(p->owner->context, job.handle)", direct)
+        self.assertNotIn("p->api.CollectRecording(p->owner->context, job.handle)", direct)
+        runtime = source(RUNTIME / "MochizukiRecording.inl")
+        self.assertIn("s->failed && !r->directRecordFailed", runtime)
+        self.assertIn("!r->job.enqueued && !r->directRecordFailed", runtime)
         self.assertIn("rc == LMXXF_NR_DEVICE_LOST", direct)
         self.assertIn("return", direct)
         for forbidden in ("RecordOutputs(", "EnqueueHip(", "Split(", "ApplyTo(", "SetPipelineState(", "SetComputeRootSignature("):
@@ -183,6 +186,25 @@ class DirectRecordingContract(unittest.TestCase):
             self.assertIn(gate, observe)
         self.assertLess(observe.index("completed < r.tailValue"), observe.index("r.directTiming->Harvest"))
         self.assertIn("ObserveDirectCompletions(s)", body(lifecycle, "PrepareFrame"))
+        self.assertLess(observe.index("completed < r.tailValue"), observe.index("harvest_recording_timings()"))
+        self.assertIn("r.network->harvestedTimingSerial", observe)
+        self.assertNotIn("gpuMsCount =", body(runtime, "Install"))
+        self.assertNotIn("gpuTick = 0", body(direct, "RecordDirect"))
+        self.assertLess(body(lifecycle, "CollectRecording").index("ObserveDirectCompletions(s)"),
+                        body(lifecycle, "CollectRecording").index("recordings.erase"))
+        self.assertIn("directTimingUnavailable.store", direct)
+        self.assertIn("!s->runtime->recording_timing_available()", direct)
+        self.assertIn("info.reserved0 = s->directTimingUnavailable.load() ? 1u : 0u", runtime)
+
+    def test_motion_linear_filter_has_defined_edge_ring(self):
+        direct = source(RUNTIME / "MochizukiDirectRecording.inl")
+        start = direct.index("copy(motion, s->motionImage.image")
+        end = direct.index("VK_FILTER_LINEAR", start)
+        motion = direct[start:end]
+        self.assertIn("Pad(c, s->motionImage.image", motion)
+        self.assertIn("std::min(j.motionWidth + 1, s->geometry.motionWidth)", motion)
+        self.assertIn("std::min(j.motionHeight + 1, s->geometry.motionHeight)", motion)
+        self.assertLess(motion.index("TransferBarrier(c, s->motionImage.image)"), motion.index("Blit("))
 
     def test_real_tail_credentials_and_retirement(self):
         recording = source(RUNTIME / "MochizukiRecording.inl")

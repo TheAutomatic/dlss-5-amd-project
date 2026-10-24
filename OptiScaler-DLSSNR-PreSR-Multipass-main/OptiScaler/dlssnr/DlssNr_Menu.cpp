@@ -604,7 +604,12 @@ static void RenderMochizukiTiming()
     const char* routePlaceholder = timing.renodx_effective
         ? "RenoDX processing:  --.-- ms | Total:  --.-- ms ( --- FPS)"
         : "OptiScaler route:  --.-- ms | Total:  --.-- ms ( --- FPS)";
-    if (!timing.gpu_samples)
+    if (timing.reserved0 & 1u)
+    {
+        MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: N/A" : "NR cost: N/A");
+        MenuUi::TextWrapped(routePlaceholder);
+    }
+    else if (!timing.gpu_samples)
     {
         MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: N/A (waiting)" : "NR cost: N/A (waiting)");
         MenuUi::TextWrapped(routePlaceholder);

@@ -641,6 +641,10 @@ public:
     // Increases only when a timestamp sample is accepted. Hosts use it to avoid
     // counting one GPU sample twice. Zero until the first accepted sample.
     uint64_t gpu_timing_serial() const;
+    // Nonblocking: call before releasing completed recording resources, whose
+    // query pools are weakly referenced by the pending harvest queue.
+    void harvest_recording_timings();
+    bool recording_timing_available() const;
     // Optional stage timing, off by default (a host diagnostic): a timestamp pair around the
     // linear-input encode and one around the transfer pass, read with the ring above (never waits).
     // last_*_ms: the last read slot's stage, -1 when it did not run there or timing is off.

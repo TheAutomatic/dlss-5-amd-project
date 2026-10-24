@@ -586,8 +586,9 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
         const int32_t rc = p->recordDirect(p->owner->context, job.handle, nativeList, commandBuffer);
         resources->InvalidateDirectComputeBindings();
         if (rc != LMXXF_NR_OK) {
-            p->api.InvalidateRecording(p->owner->context, job.handle);
-            p->api.CollectRecording(p->owner->context, job.handle);
+            // Attach already owns this recipe. Partial native commands cannot be
+            // rolled back: keep their resources through submit/tail or list Reset.
+            // ready stays false, so this execution is never certified as NR output.
             coverage.Set(Coverage::Outcome::RecordFailed, "direct_recording_failed");
             if (rc == LMXXF_NR_DEVICE_LOST) p->failed = true;
             p->Error("direct recording failed");

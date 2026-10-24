@@ -57,8 +57,19 @@ void ObserveDirectCompletions(Session* s)
             r.completedExecutions == r.executions) continue;
         const auto completed = r.tail->GetCompletedValue();
         if (completed == UINT64_MAX || completed < r.tailValue) continue;
-        s->directCompleted += r.executions - r.completedExecutions;
+        if (!r.directRecordFailed) s->directCompleted += r.executions - r.completedExecutions;
         r.completedExecutions = r.executions;
+        // Harvest while this completed recipe still owns its query pools. Reset
+        // can collect it before the next record_all, whose pending queue is weak.
+        if (!r.directRecordFailed && !r.network->reno) {
+            r.network->harvest_recording_timings();
+            const auto serial = r.network->gpu_timing_serial();
+            if (r.network == s->runtime && serial != r.network->harvestedTimingSerial && r.network->last_gpu_ms() > 0) {
+                r.network->harvestedTimingSerial = serial;
+                s->PushGpuSample(r.network->last_gpu_ms(), r.network->last_network_ms(),
+                                 r.network->last_encode_ms(), r.network->last_transfer_ms());
+            }
+        }
         if (r.directTiming)
             r.directTiming->Harvest(r.directSerial, [s](const MochizukiStageTiming::Sample& sample) {
                 s->PushGpuSample(sample.total, sample.network, -1.f, -1.f);
@@ -212,9 +223,11 @@ int32_t BeginRecordingExecution(void* context, void* token, void* queue)
         return Fail(LMXXF_NR_INVALID_ARGUMENT, "Begin: a direct execution queue is required");
     if (const auto rc = CheckExecutionDevice(s, q, "Begin queue"); rc != LMXXF_NR_OK) return rc;
     if (r->job.directRecording) {
-        if (s->uncertainExecution || s->failed)
+        // A failed recording may already contain native commands. Session failure
+        // stops new NR work, not submission of the game's already-written batch.
+        if (s->uncertainExecution || (s->failed && !r->directRecordFailed))
             return Fail(LMXXF_NR_UNAVAILABLE, "direct Begin: previous execution unresolved");
-        if (!r->job.enqueued || r->executingQueue)
+        if ((!r->job.enqueued && !r->directRecordFailed) || r->executingQueue)
             return Fail(LMXXF_NR_UNAVAILABLE, "direct Begin: recording unavailable or overlapping replay");
         if (r->tail && r->tail->GetCompletedValue() == UINT64_MAX)
             return Fail(LMXXF_NR_DEVICE_LOST, "direct Begin: device removed");
@@ -359,7 +372,7 @@ int32_t EndRecordingExecution(void* context, void* token, void* queue, uint32_t 
         }
         s->previousTail = f;
         s->previousTailValue = value;
-        if (r->job.directRecording) {
+        if (r->job.directRecording && !r->directRecordFailed) {
             ++s->frames;
             ++s->directSubmitted;
             if (r->directTiming)

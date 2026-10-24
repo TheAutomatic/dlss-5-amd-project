@@ -528,6 +528,7 @@ struct Runtime::Impl {
     static constexpr uint32_t kTimingSlots = 4;
     VkQueryPool timing{};
     bool timing_ok{};
+    bool recording_timing_available{};
     struct RecordingTiming {
         VkDevice device;
         VkQueryPool pool{};
@@ -2926,6 +2927,7 @@ ControlMaskResult Runtime::record_all(VkCommandBuffer cmd, const ColourFrame& fr
         } catch (...) {}
     }
     const bool timing_active = impl_->timing_ok && timing_pool != VK_NULL_HANDLE;
+    impl_->recording_timing_available = timing_active;
     const uint32_t timing_slot = recording_timing ? 0 : impl_->timing_slot;
     const bool time_stages = timing_active && impl_->split_timing && impl_->stage_timing;
     const uint32_t stage_query = timing_slot * impl_->timing_stride + impl_->stage_base;
@@ -3864,6 +3866,8 @@ float Runtime::last_gpu_ms() const { return impl_->gpu_ms; }
 float Runtime::average_gpu_ms() const { return impl_->gpu_ms_avg; }
 float Runtime::average_network_ms() const { return impl_->split_timing ? impl_->net_ms_avg : 0.0f; }
 uint64_t Runtime::gpu_timing_serial() const { return impl_->gpu_timing_serial; }
+void Runtime::harvest_recording_timings() { impl_->read_recording_timings(); }
+bool Runtime::recording_timing_available() const { return impl_->recording_timing_available; }
 void Runtime::set_stage_timing(bool on) { impl_->stage_timing = on; }
 float Runtime::last_encode_ms() const { return impl_->encode_ms; }
 float Runtime::last_transfer_ms() const { return impl_->transfer_ms; }

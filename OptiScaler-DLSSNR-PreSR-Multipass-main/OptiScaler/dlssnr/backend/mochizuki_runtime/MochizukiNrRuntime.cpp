@@ -2507,6 +2507,7 @@ struct ProductRuntime : nr::Runtime
     MochizukiStageTiming stageTiming;
     uint32_t renoPasses = 0;
     uint64_t id = 0;
+    uint64_t harvestedTimingSerial = 0; // generation-local; never compare serials across networks
     bool graphAco = false; // Actual compiler provenance, not requested ACO mode.
     CompilePolicy graphPolicy = CompilePolicy::WindowsDefault;
     NetworkKey key {};
@@ -2799,6 +2800,7 @@ struct Recording
     uint64_t completedExecutions = 0;
     uint64_t directSerial = 0;
     bool invalidated = false, uncertain = false;
+    bool directRecordFailed = false;
     // inlineExecution is this recording's mode, not the create-time INLINE_QUEUE bit.
     // privateBuffers is a checked-out set. Split recordings share the session set.
     bool inlineExecution = false, privateBuffers = false, ended = false;
@@ -3096,7 +3098,8 @@ struct Session
     float encodeMsLast = -1.f, transferMsLast = -1.f; // stage timing, last accepted sample (statsMutex)
     uint32_t gpuMsCount = 0, gpuMsNext = 0;
     uint64_t statsSerial = 0, gpuSamples = 0, gpuTick = 0;
-    uint64_t statsNetworkId = 0;
+    uint64_t statsNetworkId = 0; // legacy bridge aggregation only
+    std::atomic<bool> directTimingUnavailable {false};
     ProductRuntime* pendingTimingNetwork = nullptr;
     uint32_t pendingTimingSlot = MochizukiStageTiming::kUnavailable;
 
@@ -4862,13 +4865,9 @@ struct Session
         }
         buildHold = {};
         SetNetworkDeferred("");
-        {
-            std::lock_guard stats(statsMutex);
-            gpuMsCount = gpuMsNext = 0;
-            gpuTick = 0;
-            encodeMsLast = transferMsLast = -1.f;
-            statsNetworkId = statsSerial = 0;
-        }
+        // Keep the session timing window across network/pass-capacity changes.
+        // Each ProductRuntime tracks its own harvest serial, so a new generation
+        // starts accepting samples immediately without invalidating the display.
         infoFrameWidth = net.width;
         infoFrameHeight = net.height;
         infoInt4 = runtime->int4_mixed();
@@ -7560,6 +7559,7 @@ int32_t GetInfo(void* context, MochizukiNrInfo* out)
         info.model_h = s->infoModelHeight;
         info.max_passes = s->infoMaxPasses;
         info.motion_refused_dxgi = s->motionRefused;
+        info.reserved0 = s->directTimingUnavailable.load() ? 1u : 0u;
         {
             std::lock_guard stats(s->statsMutex);
             info.gpu_samples = s->gpuSamples;

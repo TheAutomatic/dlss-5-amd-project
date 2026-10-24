@@ -2470,7 +2470,9 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                 else if (kind == DlssNr::Backend::Kind::Mochizuki) {
                     const auto timing = DlssNr::AmdBridge::MochizukiTimingDetails();
                     const auto now = GetTickCount64();
-                    if (!timing.gpu_samples)
+                    if (timing.reserved0 & 1u)
+                        firstLine += MenuLocale::Translate(" | NR: N/A");
+                    else if (!timing.gpu_samples)
                         firstLine += MenuLocale::Translate(" | NR: N/A (waiting)");
                     else if (now < timing.gpu_tick || now - timing.gpu_tick > 2000)
                         firstLine += MenuLocale::Translate(" | NR: N/A (stale)");

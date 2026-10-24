@@ -120,6 +120,10 @@ int32_t RecordDirect(void* context, void* token, void* nativeList, uint64_t comm
     auto* r = FindRecording(s, token);
     if (!r || r->invalidated || !r->job.directRecording || r->job.state != LMXXF_NR_JOB_PREPARED)
         return Fail(LMXXF_NR_INVALID_ARGUMENT, "direct record: recipe not prepared");
+    // Even a pre-write refusal still has an attached observer. It must remain
+    // submit-safe until Reset; after the first exposure/native command, this
+    // recipe additionally pins every resource referenced by the partial stream.
+    r->directRecordFailed = true;
     uint64_t current = 0;
     if (const auto rc = GetDirectCommandBuffer(context, nativeList, &current); rc != LMXXF_NR_OK) return rc;
     if (!current || current != commandBuffer)
@@ -211,6 +215,14 @@ int32_t RecordDirect(void* context, void* token, void* nativeList, uint64_t comm
                 engine.motion_texture_width = motion.width; engine.motion_texture_height = motion.height;
             } else {
                 copy(motion, s->motionImage.image, j.motionWidth, j.motionHeight);
+                // LINEAR clamps to the image, not the valid source rectangle.
+                // Define its one-texel filter ring just like RunNetwork does.
+                if (j.motionWidth < s->geometry.motionWidth || j.motionHeight < s->geometry.motionHeight) {
+                    Pad(c, s->motionImage.image, j.motionWidth, j.motionHeight,
+                        std::min(j.motionWidth + 1, s->geometry.motionWidth),
+                        std::min(j.motionHeight + 1, s->geometry.motionHeight));
+                    TransferBarrier(c, s->motionImage.image);
+                }
                 imageBarrier(s->motionScaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
                 Blit(c, s->motionImage.image, s->motionScaled.image, {0, 0}, {int32_t(j.motionWidth), int32_t(j.motionHeight)},
                      {0, 0}, {int32_t(w), int32_t(h)}, VK_FILTER_LINEAR);
@@ -333,6 +345,7 @@ int32_t RecordDirect(void* context, void* token, void* nativeList, uint64_t comm
         everything(VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
         ForgetDirectPipeline(s, list);
         restoreCompute.restored = true;
+        r->directRecordFailed = false;
         j.enqueued = true; j.state = LMXXF_NR_JOB_CONSUMER_COMPLETE;
         r->directSerial = ++s->directRecorded;
         s->historyNetwork = r->network; s->historyFrame = r->frameId; s->historyTick = GetTickCount64();
@@ -341,18 +354,8 @@ int32_t RecordDirect(void* context, void* token, void* nativeList, uint64_t comm
         s->historyBits.store((s->historyBits.load() << 1) | uint64_t(consumed));
         s->historyCount.store(std::min(s->historyCount.load() + 1, kHistorySamples));
         s->infoInlinePath.store(3);
-        if (!s->runtime->reno) {
-            if (s->statsNetworkId != s->runtime->id) {
-                std::lock_guard stats(s->statsMutex);
-                s->gpuMsCount = s->gpuMsNext = 0; s->gpuTick = 0;
-                s->encodeMsLast = s->transferMsLast = -1.f;
-                s->statsNetworkId = s->runtime->id; s->statsSerial = 0;
-            }
-            if (const float ms = s->runtime->last_gpu_ms(); ms > 0 && s->statsSerial != s->runtime->gpu_timing_serial()) {
-                s->statsSerial = s->runtime->gpu_timing_serial();
-                s->PushGpuSample(ms, s->runtime->last_network_ms(), s->runtime->last_encode_ms(), s->runtime->last_transfer_ms());
-            }
-        }
+        s->directTimingUnavailable.store(s->runtime->reno ?
+            r->directTimingSlot == MochizukiStageTiming::kUnavailable : !s->runtime->recording_timing_available());
         float prepEv = NAN;
         if (j.controls.preprocess.active() && j.controls.preprocess.exposure == 1)
             prepEv = s->runtime->preprocess_meter().first + j.controls.preprocess.bias_ev;

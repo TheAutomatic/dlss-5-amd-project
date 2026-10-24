@@ -63,6 +63,22 @@ released only after invalidation plus the actual game-tail certificate.
 Game-queue waits serialize shared activation/history GPU use; recording count
 alone never certifies descriptor or image retirement on this path.
 
+Failed direct recording does not cancel the game's submission batch: its attached
+lease retains partial native commands and all recipe resources until Reset and,
+if submitted, the real tail completion. Such executions never certify NR output.
+Motion-vector rescaling defines a one-texel replicated edge ring before linear
+blitting a DRS valid rectangle inside a larger allocation.
+
+Core timestamps are harvested at certified direct completion, before collection
+can release their recipe-owned query pools (patch 32). Harvest serials belong to
+each network generation; replacing the network or changing pass capacity retains
+the session's last-known timing window and normal freshness expiry. It does not
+reset the display to zero while the new generation starts producing samples.
+If timestamp support or query-pool creation is unavailable, both menu and overlay
+show plain N/A rather than misclassifying it as waiting or an expired sample;
+the fixed two-line menu geometry is preserved.
+
+
 Known divergence risk: retained-recipe replay temporal continuity is pending
 real-machine acceptance. Like the official recording model, CPU history parity
 advances when commands are recorded; an old recipe replays its fixed parity.

@@ -864,6 +864,14 @@
         "windows/src/core/nr_renodx.cpp",
         "windows/src/core/nr_renodx.hpp"
       ]
+    },
+    {
+      "feature": "recording-timing-harvest",
+      "path": "patches/32-recording-timing-harvest.patch",
+      "files": [
+        "windows/src/core/nr_runtime.cpp",
+        "windows/src/core/nr_runtime.hpp"
+      ]
     }
   ],
   "added_files": [
