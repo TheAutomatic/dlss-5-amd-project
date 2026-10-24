@@ -591,14 +591,34 @@ static void RenderMochizukiTiming()
 {
     const auto timing = AmdBridge::MochizukiTimingDetails();
     const auto now = GetTickCount64();
+    // The block must render the SAME line count in every state: the sample flaps
+    // valid/stale (2s window) while the Proton harvest cadence is lazier, and a
+    // 1<->2 line toggle reflows the whole auto-sized menu (field-reported jump).
+    const bool stale = timing.gpu_samples && (now < timing.gpu_tick || now - timing.gpu_tick > 2000);
+    const bool valid = timing.gpu_samples && !stale &&
+        std::isfinite(timing.gpu_ms_network_mean) && timing.gpu_ms_network_mean >= 0 &&
+        std::isfinite(timing.gpu_ms_other_mean) && timing.gpu_ms_other_mean >= 0 &&
+        std::isfinite(timing.gpu_ms_mean) && timing.gpu_ms_mean >= 0;
+    // Mirrors the "%6.2f ... (%4.0f FPS)" geometry so the placeholders keep the
+    // block width stable too.
+    const char* routePlaceholder = timing.renodx_effective
+        ? "RenoDX processing:  --.-- ms | Total:  --.-- ms ( --- FPS)"
+        : "OptiScaler route:  --.-- ms | Total:  --.-- ms ( --- FPS)";
     if (!timing.gpu_samples)
+    {
         MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: N/A (waiting)" : "NR cost: N/A (waiting)");
-    else if (now < timing.gpu_tick || now - timing.gpu_tick > 2000)
+        MenuUi::TextWrapped(routePlaceholder);
+    }
+    else if (stale)
+    {
         MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: N/A (stale)" : "NR cost: N/A (stale)");
-    else if (!std::isfinite(timing.gpu_ms_network_mean) || timing.gpu_ms_network_mean < 0 ||
-             !std::isfinite(timing.gpu_ms_other_mean) || timing.gpu_ms_other_mean < 0 ||
-             !std::isfinite(timing.gpu_ms_mean) || timing.gpu_ms_mean < 0)
+        MenuUi::TextWrapped(routePlaceholder);
+    }
+    else if (!valid)
+    {
         MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: N/A" : "NR cost: N/A");
+        MenuUi::TextWrapped(routePlaceholder);
+    }
     else
     {
         // Fixed-width numbers keep the auto-sized menu from reflowing while the
