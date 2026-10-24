@@ -34,6 +34,9 @@ class Host
     // PollRelease also runs while disabled. A later Record can rebuild.
     // Fault latches (recoveryDisabled / failed) are NOT set here.
     virtual void ReleaseSession() = 0;
+    // Same release, with the reason for the release log (release_reason=...).
+    // Backends that log override this; the default ignores the reason.
+    virtual void ReleaseSession(const char* reason) { (void)reason; ReleaseSession(); }
     virtual bool PollRelease() = 0;
     // Backend switch / re-enable: clear compute-first history so new wait can re-init.
     virtual void ResetGraphicsWaitState() = 0;

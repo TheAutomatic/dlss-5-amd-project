@@ -2510,6 +2510,9 @@ struct ProductRuntime : nr::Runtime
     bool graphAco = false; // Actual compiler provenance, not requested ACO mode.
     CompilePolicy graphPolicy = CompilePolicy::WindowsDefault;
     NetworkKey key {};
+    // Set by whoever tears the network down, logged once in the destructor; a network
+    // destroyed by nothing but the last shared_ptr going (session end) keeps the default.
+    const char* destroyReason = "session_end";
     VkQueue queue {};
 
     ProductRuntime(const nr::HostDevice& host, const nr::RuntimeConfig& config,
@@ -2547,7 +2550,8 @@ struct ProductRuntime : nr::Runtime
 
     ~ProductRuntime()
     {
-        nr::logf("[mochizuki] network #%llu destroy.begin (%ux%u)", static_cast<unsigned long long>(id), key.width, key.height);
+        nr::logf("[mochizuki] network #%llu destroy.begin (%ux%u, reason=%s)", static_cast<unsigned long long>(id),
+                 key.width, key.height, destroyReason);
     }
 };
 
@@ -4852,6 +4856,8 @@ struct Session
         const char* const kept = old ? "; the frames ran on the old one meanwhile" : "";
         if (old)
         {
+            old->destroyReason = old->key.networkModel != buildKey.networkModel ? "model_change"
+                : (old->key.width != buildKey.width || old->key.height != buildKey.height) ? "extent" : "settings";
             ReleaseLater(std::move(old), oldFinished);
         }
         buildHold = {};
@@ -5001,6 +5007,7 @@ struct Session
                     std::lock_guard lock(submitMutex);
                     LogNetworkTime("replacing the network");
                     exposureSnapshot = runtime->reno ? runtime->reno->exposure_state() : nullptr;
+                    runtime->destroyReason = "vram_reclaim";
                     runtime.reset();
                 }
                 if (freeGeometry)
@@ -5037,6 +5044,8 @@ struct Session
         {
             std::lock_guard lock(submitMutex);
             old = TakeNetwork("replacing the network", oldFinished);
+            old->destroyReason = old->key.networkModel != key.networkModel ? "model_change"
+                : (old->key.width != key.width || old->key.height != key.height) ? "extent" : "settings";
         }
         buildKey = key;
         StartBuild(std::move(old), oldFinished, std::move(buffers), keep);
@@ -5477,6 +5486,7 @@ struct Session
         {
             std::lock_guard lock(submitMutex);
             exposureSnapshot = runtime && runtime->reno ? runtime->reno->exposure_state() : nullptr;
+            if (runtime) runtime->destroyReason = "vram_refused";
             runtime.reset();
         }
         const UINT64 freed = known && vram.Read(after, budget) && before > after ? before - after : 0;
@@ -6636,6 +6646,9 @@ struct Session
             vkDeviceWaitIdle(vk.device); // returns at once: all of this session's work has finished
         if (runtime)
             LogNetworkTime("session end");
+        const char* const sessionEndReason = deviceLost ? "device_lost" : "session_end";
+        if (runtime) runtime->destroyReason = sessionEndReason;
+        if (built) built->destroyReason = sessionEndReason;
         runtime.reset();
         built.reset();
         exposureSnapshot.reset();
@@ -7432,7 +7445,9 @@ int32_t GetStatus(void* context, char* buf, uint32_t chars)
             std::snprintf(text, sizeof text, "mochizuki %ux%u: requested %u passes, using %u (capacity %u); %s",
                           s->net.width, s->net.height, s->infoRequestedPasses.load(), passes, s->net.maxPasses, deferred);
         else
-            std::snprintf(text, sizeof text, "mochizuki %ux%u%s%s, network %.2f ms (p95 %.2f), %llu frames", s->net.width,
+            // Fixed-width numbers: this line is the menu's live status, and a value that
+            // changes digit count every refresh reflows the auto-sized menu layout.
+            std::snprintf(text, sizeof text, "mochizuki %ux%u%s%s, network %6.2f ms (p95 %6.2f), %8llu frames", s->net.width,
                           s->net.height, model, frame, median, p95, static_cast<unsigned long long>(s->frames.load()));
     }
     else

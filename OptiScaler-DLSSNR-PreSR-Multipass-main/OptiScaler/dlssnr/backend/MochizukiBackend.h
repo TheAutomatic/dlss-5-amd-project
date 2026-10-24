@@ -21,7 +21,8 @@ public:
     void Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) override;
     void TraceBoundary(const std::string&) override {}
     bool Shutdown() override;
-    void ReleaseSession() override;
+    void ReleaseSession() override { ReleaseSession(nullptr); }
+    void ReleaseSession(const char* reason) override;
     bool PollRelease() override;
     void ResetGraphicsWaitState() override {}
     void InvalidateHistory() override;

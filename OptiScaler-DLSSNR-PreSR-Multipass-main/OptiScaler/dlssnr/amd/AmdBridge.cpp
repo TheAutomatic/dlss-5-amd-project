@@ -425,7 +425,7 @@ void SyncBackendWithConfig()
     const auto selected = DlssNr::Backend::ActiveKindFromConfig();
     const auto previous = ActiveKindCached();
     if (previous != selected)
-        if (auto old = ActiveHost()) old->ReleaseSession();
+        if (auto old = ActiveHost()) old->ReleaseSession("backend_switch");
     g_activeKind.store(static_cast<int>(selected), std::memory_order_release);
     {
         std::lock_guard fl(frameMutex);
@@ -1070,7 +1070,7 @@ void OnNrDisabled()
     }
     if (auto b = g_lmxxf.load(std::memory_order_acquire))
         b->ReleaseSession();
-    if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->ReleaseSession();
+    if (auto b = g_mochizuki.load(std::memory_order_acquire)) b->ReleaseSession("menu_toggle");
 }
 void TraceContextRelease(unsigned int handle, bool after)
 {

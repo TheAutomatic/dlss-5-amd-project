@@ -3038,7 +3038,8 @@ static void HookToDevice(ID3D12Device* InDevice)
             else
             {
                 LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
-                // Game rules: Unreal/Forza/ACMirage/007FirstLight EXE calls and Aniimo's UnityPlayer calls.
+                // Game rules: Unreal/Forza/ACMirage/007FirstLight EXE calls, Aniimo's UnityPlayer calls,
+                // and Dying Light's any-module boot lists (renderer rd3d12_x64_rwdi.dll).
                 // Other engines can crash with early ArmCreate + wrap (e.g. Yan Yun).
                 // LmxxfEarlyExeWrap=true/false forces the decision; missing keeps the whitelist.
                 {

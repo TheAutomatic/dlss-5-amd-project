@@ -186,9 +186,9 @@ struct MochizukiBackend::Impl
 #undef MZ_B
         frame.passes = Config::Instance()->MochizukiEffectivePasses();
         if (setControls(session, &controls) != LMXXF_NR_OK)
-        { Error("controls rejected"); owner.reset(); return false; }
+        { Error("controls rejected"); LOG_INFO("mochizuki release_reason=create_failed:controls_rejected model=0 frames=0 last_network_ms=0.00"); owner.reset(); return false; }
         if (api.PrepareSession(session) != LMXXF_NR_OK)
-        { Error("Vulkan unavailable"); owner.reset(); return false; }
+        { Error("Vulkan unavailable"); LOG_INFO("mochizuki release_reason=create_failed:vulkan_unavailable model=0 frames=0 last_network_ms=0.00"); owner.reset(); return false; }
         return true;
     }
     void Info()
@@ -649,9 +649,20 @@ bool MochizukiBackend::PollRelease()
     // AmdBridge::PollReleases walks the shared registry once for every backend.
     return true;
 }
-void MochizukiBackend::ReleaseSession()
+void MochizukiBackend::ReleaseSession(const char* reason)
 {
     std::lock_guard lifetime(Submission::RecordingMutex());
+    // One line per release, before the cached details go: the tester-facing answer
+    // to "the network destroyed itself and nothing said why".
+    if (p->owner)
+    {
+        const auto& d = p->details;
+        const unsigned model = d.frame_w ? d.network_effective : d.network_requested;
+        LOG_INFO("mochizuki release_reason={} model={} frames={} last_network_ms={:.2f}",
+                 reason && *reason ? reason : "unspecified", model,
+                 static_cast<unsigned long long>(d.frames),
+                 double(d.gpu_samples ? (d.gpu_ms_network_last > 0.f ? d.gpu_ms_network_last : d.gpu_ms_last) : 0.f));
+    }
     FrameDiag::AutoSpinPresentRing().SetActive(false);
     p->coverage.counters->prepared.store(false, std::memory_order_relaxed);
     p->owner.reset(); p->failed = false; p->retryAt = p->infoAt = 0;
@@ -667,7 +678,7 @@ void MochizukiBackend::ReleaseSession()
 }
 bool MochizukiBackend::Shutdown()
 {
-    ReleaseSession();
+    ReleaseSession("shutdown");
     if (p->module) { FreeLibrary(p->module); p->module = nullptr; p->api = {}; }
     InlineRecording::StopAbortWatchdog(); // owned thread joined here, not at static destruction
     return true;

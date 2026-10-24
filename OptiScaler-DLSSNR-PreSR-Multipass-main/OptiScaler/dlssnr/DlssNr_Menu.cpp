@@ -556,8 +556,8 @@ static void RenderEarlyCommandListWrap(Config* config)
         if (anyIndex == 0) config->LmxxfEarlyAnyModuleWrap.reset();
         else config->LmxxfEarlyAnyModuleWrap = (anyIndex == 1);
     }
-    HelpMarker("Also wrap command lists created by any module (Streamline, dxgi proxies, overlays)."
-               "\nOnly effective before the swapchain is created. Auto: on for Forza only."
+    HelpMarker("Also wrap command lists created by any module (Streamline, dxgi proxies, overlays, game renderer DLLs)."
+               "\nOnly effective before the swapchain is created. Auto: on for Forza and Dying Light."
                "\nMay crash other games; try only if the log shows many 'missing recording proxy'."
                "\nSave and restart to apply. INI: LmxxfEarlyAnyModuleWrap.");
     if (config->LmxxfEarlyAnyModuleWrap.value_for_config() != CompatibilityMenuBaseline(config).earlyAny)
@@ -601,21 +601,23 @@ static void RenderMochizukiTiming()
         MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: N/A" : "NR cost: N/A");
     else
     {
+        // Fixed-width numbers keep the auto-sized menu from reflowing while the
+        // live values tick (a changing digit count shifts every line below).
         if (timing.gpu_ms_network_mean > 0)
-            MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: %.2f ms (%.0f FPS)" : "NR cost: %.2f ms (%.0f FPS)",
+            MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: %6.2f ms (%4.0f FPS)" : "NR cost: %6.2f ms (%4.0f FPS)",
                 timing.gpu_ms_network_mean, 1000.0 / timing.gpu_ms_network_mean);
         else
-            MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: %.2f ms (FPS N/A: no network work)" : "NR cost: %.2f ms (FPS N/A: no network work)",
+            MenuUi::TextWrapped(timing.renodx_effective ? "RenoDX network callbacks: %6.2f ms (FPS N/A: no network work)" : "NR cost: %6.2f ms (FPS N/A: no network work)",
                 timing.gpu_ms_network_mean);
         if (timing.gpu_ms_mean > 0)
             MenuUi::TextWrapped(timing.renodx_effective ?
-                "RenoDX processing: %.2f ms | Total: %.2f ms (%.0f FPS)" :
-                "OptiScaler route: %.2f ms | Total: %.2f ms (%.0f FPS)",
+                "RenoDX processing: %6.2f ms | Total: %6.2f ms (%4.0f FPS)" :
+                "OptiScaler route: %6.2f ms | Total: %6.2f ms (%4.0f FPS)",
                 timing.gpu_ms_other_mean, timing.gpu_ms_mean, 1000.0 / timing.gpu_ms_mean);
         else
             MenuUi::TextWrapped(timing.renodx_effective ?
-                "RenoDX processing: %.2f ms | Total: %.2f ms (FPS N/A)" :
-                "OptiScaler route: %.2f ms | Total: %.2f ms (FPS N/A)", timing.gpu_ms_other_mean, timing.gpu_ms_mean);
+                "RenoDX processing: %6.2f ms | Total: %6.2f ms (FPS N/A)" :
+                "OptiScaler route: %6.2f ms | Total: %6.2f ms (FPS N/A)", timing.gpu_ms_other_mean, timing.gpu_ms_mean);
     }
     HelpMarker("Completed-sample means from the same window. Standard NR cost measures the core network kernel loop, including fused temporal shaders. RenoDX network callbacks sum every record_engine callback, including its core preparation and composition, not just network kernels. Other processing is the total minus that route's measured network scope. Equivalent throughput is 1000 / GPU ms, not game Present FPS. Excludes the D3D12 bridge, host post-processing and whole-frame latency. A zero-network RenoDX stage is a valid sample.");
 }

@@ -116,6 +116,8 @@ call :Xefg || goto fail
 "%OUT%\amd_model_settings.exe" || goto fail
 %CXX% tests\host\nr_backend_selector.cpp /Fe"%OUT%\nr_backend_selector.exe" /Fo"%OUT%\nr_backend_selector.obj" || goto fail
 "%OUT%\nr_backend_selector.exe" || goto fail
+%CXX% /utf-8 tests\host\nr_release_reason.cpp /Fe"%OUT%\nr_release_reason.exe" /Fo"%OUT%\nr_release_reason.obj" /link dxguid.lib d3d12.lib || goto fail
+"%OUT%\nr_release_reason.exe" || goto fail
 %CXX% /utf-8 /I"%INC%" tests\host\nr_session_lifecycle.cpp /Fe"%OUT%\nr_session_lifecycle.exe" /Fo"%OUT%\nr_session_lifecycle.obj" /link "%DETOURS%" dxguid.lib || goto fail
 "%OUT%\nr_session_lifecycle.exe" || goto fail
 %CXX% tests\host\amd_submission_state.cpp /Fe"%OUT%\amd_submission_state.exe" /Fo"%OUT%\amd_submission_state.obj" || goto fail
@@ -161,7 +163,7 @@ exit /b 1
 
 :release
 rem Stable shipping contracts; full diagnostic/UI/loader fixtures stay in ci.
-for %%T in (nr_backend_selector nr_recording_admission amd_submission_state nr_session_lifecycle) do (
+for %%T in (nr_backend_selector nr_recording_admission amd_submission_state nr_session_lifecycle nr_release_reason) do (
   %CXX% /utf-8 /I"%INC%" tests\host\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" /link "%DETOURS%" dxguid.lib || goto fail
   "%OUT%\%%T.exe" || goto fail
 )

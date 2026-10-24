@@ -23,6 +23,11 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
     static constexpr Entry entries[] = {
         { "forza", Match::Contains, { true, true, true, false } },
         { "acmirage.exe", Match::Exact, { true, false, false, false } },
+        // Dying Light (The Beast): the renderer rd3d12_x64_rwdi.dll creates boot DIRECT
+        // command lists before the swapchain; the exe-only early whitelist never matches
+        // them, they stay unwrapped forever, and NR bypasses every frame recorded into
+        // them (linux2422: ~2.7% proxy-missing frames = the visible NR flicker).
+        { "dyinglight", Match::Contains, { false, true, false, false } },
         { "007firstlight.exe", Match::Exact, { true, false, false, false } },
         { "aniimo.exe", Match::Exact, { false, false, false, true } },
         { {}, Match::Unreal, { true, false, false, false } },
