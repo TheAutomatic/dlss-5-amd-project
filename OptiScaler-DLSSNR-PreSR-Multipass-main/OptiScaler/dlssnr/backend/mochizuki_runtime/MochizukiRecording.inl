@@ -48,41 +48,63 @@ void LogAdmission(Session* s, const char* mode, const char* event)
              mode, event, s->RecipeCount(), s->InFlightRecordings(), s->recordingBuffersOutstanding);
 }
 
-void ObserveDirectCompletions(Session* s)
+void ObserveDirectCompletion(Session* s, Recording& r)
 {
-    if (!s->vk.adoptedVkd3d) return;
-    for (auto& [token, record] : s->recordings) {
-        auto& r = *record;
-        if (!r.job.directRecording || !r.tail || r.executingQueue || r.uncertain ||
-            r.completedExecutions == r.executions) continue;
-        const auto completed = r.tail->GetCompletedValue();
-        if (completed == UINT64_MAX || completed < r.tailValue) continue;
-        if (!r.directRecordFailed) s->directCompleted += r.executions - r.completedExecutions;
-        r.completedExecutions = r.executions;
-        // Replays rewrite recipe-owned pools: harvest each certified execution,
-        // not just the recording-time pending queue's first successful sample.
-        if (!r.directRecordFailed && !r.network->reno) {
+    if (!r.job.directRecording || !r.tail || r.executingQueue || r.uncertain ||
+        r.completedExecutions == r.submittedExecutions) return;
+    const auto completed = r.tail->GetCompletedValue();
+    if (completed == UINT64_MAX || completed < r.tailValue) return;
+    if (!r.directRecordFailed) s->directCompleted += r.submittedExecutions - r.completedExecutions;
+    r.completedExecutions = r.submittedExecutions;
+    // One pool contains only the latest execution. Certification is not a claim
+    // that every covered execution supplied a timing sample.
+    const auto pending = r.completedExecutions - r.harvestedExecutionOrdinal;
+    if (!r.directRecordFailed && pending) {
+        r.coalescedExecutions += pending - 1;
+        ++r.harvestAttempts;
+        bool accepted = false;
+        if (!r.network->reno) {
+            const auto before = r.network->gpu_timing_serial();
             r.network->harvest_recording_timings(r.coreResources);
+            const auto serial = r.network->gpu_timing_serial();
+            accepted = serial != before;
             if (r.network == s->runtime) {
                 s->infoRecordingTimingReads.store(r.network->recording_timing_reads(), std::memory_order_relaxed);
                 s->infoRecordingTimingRejected.store(r.network->recording_timing_rejected(), std::memory_order_relaxed);
+                if (accepted && serial != r.network->harvestedTimingSerial && r.network->last_gpu_ms() > 0) {
+                    r.network->harvestedTimingSerial = serial;
+                    s->PushGpuSample(r.network->last_gpu_ms(), r.network->last_network_ms(),
+                                     r.network->last_encode_ms(), r.network->last_transfer_ms());
+                }
             }
-            const auto serial = r.network->gpu_timing_serial();
-            if (r.network == s->runtime && serial != r.network->harvestedTimingSerial && r.network->last_gpu_ms() > 0) {
-                r.network->harvestedTimingSerial = serial;
-                s->PushGpuSample(r.network->last_gpu_ms(), r.network->last_network_ms(),
-                                 r.network->last_encode_ms(), r.network->last_transfer_ms());
-            }
+        } else if (r.directTiming) {
+            r.directTiming->HarvestRecording(r.directTimingSlot, r.directSerial,
+                [s, &r, &accepted](const MochizukiStageTiming::Sample& sample) {
+                    accepted = true;
+                    if (r.network == s->runtime) s->PushGpuSample(sample.total, sample.network, -1.f, -1.f);
+                });
         }
-        if (r.directTiming)
-            r.directTiming->HarvestRecording(r.directTimingSlot, r.directSerial, [s](const MochizukiStageTiming::Sample& sample) {
-                s->PushGpuSample(sample.total, sample.network, -1.f, -1.f);
-            });
-        if (s->directCompleted <= 2 || s->directCompleted % 3600 == 0)
-            nr::logf("[mochizuki] direct consumer-completion frame=%llu tail=%llu completed=%llu",
-                     (unsigned long long)r.frameId, (unsigned long long)r.tailValue,
-                     (unsigned long long)s->directCompleted);
+        if (accepted) ++r.acceptedSamples;
+        else ++r.rejectedSamples; // Optional/unavailable/invalid timing never fails execution.
+        r.harvestedExecutionOrdinal = r.completedExecutions;
     }
+    if (s->directTimingLog)
+        nr::logf("[mochizuki] direct timing-supply session_id=%p recipe_id=%llu submitted_executions=%llu certified_executions=%llu harvested_execution_ordinal=%llu harvest_attempts=%llu accepted_samples=%llu rejected_samples=%llu coalesced_executions=%llu tail_value=%llu completed=%llu last_prepare_tick=%llu",
+                 static_cast<void*>(s), (unsigned long long)r.directSerial, (unsigned long long)r.submittedExecutions,
+                 (unsigned long long)r.completedExecutions, (unsigned long long)r.harvestedExecutionOrdinal,
+                 (unsigned long long)r.harvestAttempts, (unsigned long long)r.acceptedSamples,
+                 (unsigned long long)r.rejectedSamples, (unsigned long long)r.coalescedExecutions,
+                 (unsigned long long)r.tailValue, (unsigned long long)completed, (unsigned long long)s->lastFrameTick);
+    if (s->directCompleted <= 2 || s->directCompleted % 3600 == 0)
+        nr::logf("[mochizuki] direct consumer-completion frame=%llu tail=%llu completed=%llu",
+                 (unsigned long long)r.frameId, (unsigned long long)r.tailValue,
+                 (unsigned long long)s->directCompleted);
+}
+
+void ObserveDirectCompletions(Session* s)
+{
+    if (!s->vk.adoptedVkd3d) return;
+    for (auto& [token, record] : s->recordings) ObserveDirectCompletion(s, *record);
 }
 
 
@@ -237,6 +259,9 @@ int32_t BeginRecordingExecution(void* context, void* token, void* queue)
             return Fail(LMXXF_NR_DEVICE_LOST, "direct Begin: device removed");
         if (r->tail && r->tail->GetCompletedValue() < r->tailValue)
             return Fail(LMXXF_NR_UNAVAILABLE, "direct Begin: previous replay has not completed");
+        // The preceding tail is complete. Read its pool before this retained
+        // command list can reset/overwrite the timestamps in native submission.
+        ObserveDirectCompletion(s, *r);
         if (s->previousTail && FAILED(q->Wait(s->previousTail.Get(), s->previousTailValue)))
             return Fail(LMXXF_NR_FAILED, "direct Begin: previous game consumer wait failed");
         r->executingQueue = q;
@@ -367,6 +392,7 @@ int32_t EndRecordingExecution(void* context, void* token, void* queue, uint32_t 
         }
         r->tail = f;
         r->tailValue = value;
+        ++r->submittedExecutions;
         // Do not publish measurements for executions that never enqueued. Legacy GPU-armed mode
         // can still enqueue after a missed capture: this check alone does not certify its predicated
         // measurement or input contents. See docs/architecture/nr-capture-proof-deferral.md.
@@ -379,11 +405,21 @@ int32_t EndRecordingExecution(void* context, void* token, void* queue, uint32_t 
         if (r->job.directRecording && !r->directRecordFailed) {
             ++s->frames;
             ++s->directSubmitted;
+            s->dispatches.store(r->recordedDispatches);
+            s->historyBits.store((s->historyBits.load() << 1) | uint64_t(r->recordedHistoryConsumed));
+            s->historyCount.store(std::min(s->historyCount.load() + 1, kHistorySamples));
+            if (s->directTimingLog)
+                nr::logf("[mochizuki] direct executed-generation session_id=%p recipe_id=%llu record_network_id=%llu record_model=%u current_network_id=%llu current_model=%u execution_ordinal=%llu admission_ordinal=%llu tail_value=%llu record_history_consumed=%u record_dispatches=%u",
+                         static_cast<void*>(s), (unsigned long long)r->directSerial,
+                         (unsigned long long)r->network->id, unsigned(r->net.networkModel),
+                         (unsigned long long)(s->runtime ? s->runtime->id : 0), unsigned(s->net.networkModel),
+                         (unsigned long long)r->submittedExecutions, (unsigned long long)r->executions,
+                         (unsigned long long)value, unsigned(r->recordedHistoryConsumed), r->recordedDispatches);
             if (r->directTiming)
                 r->directTiming->Submitted(r->directTimingSlot, r->directSerial);
             if (s->directSubmitted <= 2 || s->directSubmitted % 3600 == 0)
                 nr::logf("[mochizuki] direct game-submission frame=%llu execution=%llu tail=%llu actual_nr_frames=%llu",
-                         (unsigned long long)r->frameId, (unsigned long long)r->executions,
+                         (unsigned long long)r->frameId, (unsigned long long)r->submittedExecutions,
                          (unsigned long long)value, (unsigned long long)s->frames.load());
         }
     }

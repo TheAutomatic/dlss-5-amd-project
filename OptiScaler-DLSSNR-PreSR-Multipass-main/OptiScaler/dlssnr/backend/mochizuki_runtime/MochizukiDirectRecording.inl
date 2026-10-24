@@ -304,11 +304,11 @@ int32_t RecordDirect(void* context, void* token, void* nativeList, uint64_t comm
                 });
                 r->renoResources = s->runtime->reno->end_recording_resources();
                 if (r->directTiming) r->directTiming->End(c, r->directTimingSlot);
-                s->dispatches.store(dispatches);
+                r->recordedDispatches = dispatches;
             } else if (motion.image) {
                 const auto result = s->runtime->record_engine(c, engine, j.controls);
-                s->dispatches.store(result.frame.network_dispatches); consumed = result.history_consumed;
-            } else s->dispatches.store(s->runtime->record(c, engine.colour, j.controls, j.reset).network_dispatches);
+                r->recordedDispatches = result.frame.network_dispatches; consumed = result.history_consumed;
+            } else r->recordedDispatches = s->runtime->record(c, engine.colour, j.controls, j.reset).network_dispatches;
             r->coreResources = s->runtime->end_recording_resources();
         } catch (...) {
             r->coreResources = s->runtime->end_recording_resources();
@@ -351,8 +351,7 @@ int32_t RecordDirect(void* context, void* token, void* nativeList, uint64_t comm
         s->historyNetwork = r->network; s->historyFrame = r->frameId; s->historyTick = GetTickCount64();
         s->historyMotion = motion.image != VK_NULL_HANDLE;
         s->historyWidth = w; s->historyHeight = h; s->historyPasses = j.controls.passes;
-        s->historyBits.store((s->historyBits.load() << 1) | uint64_t(consumed));
-        s->historyCount.store(std::min(s->historyCount.load() + 1, kHistorySamples));
+        r->recordedHistoryConsumed = consumed;
         s->infoInlinePath.store(3);
         s->directTimingUnavailable.store(s->runtime->reno ?
             r->directTimingSlot == MochizukiStageTiming::kUnavailable : !s->runtime->recording_timing_available());

@@ -20,10 +20,12 @@ int wmain(int argc,wchar_t**argv) try {
     auto getProgress=reinterpret_cast<PFN_MochizukiNrGetBuildProgress>(GetProcAddress(dll,"MochizukiNrGetBuildProgress"));
     auto directHandle = reinterpret_cast<PFN_MochizukiNrGetDirectCommandBuffer>(GetProcAddress(dll, "MochizukiNrGetDirectCommandBuffer"));
     auto directRecord = reinterpret_cast<PFN_MochizukiNrRecordDirect>(GetProcAddress(dll, "MochizukiNrRecordDirect"));
-    Require(directHandle && directRecord, "missing direct recording exports; replace complete package");
+    auto pollDirect = reinterpret_cast<PFN_MochizukiNrPollDirectCompletions>(GetProcAddress(dll, "MochizukiNrPollDirectCompletions"));
+    Require(directHandle && directRecord && pollDirect, "missing direct recording exports; replace complete package");
     uint64_t invalidHandle = UINT64_MAX;
     Require(directHandle(nullptr, nullptr, &invalidHandle) == LMXXF_NR_INVALID_ARGUMENT, "direct handle accepted null session");
     Require(directRecord(nullptr, nullptr, nullptr, 0) == LMXXF_NR_INVALID_ARGUMENT, "direct record accepted null recipe");
+    Require(pollDirect(nullptr, 0) == LMXXF_NR_INVALID_ARGUMENT, "direct completion poll accepted null session");
     // The level the game shows the frame at. The runtime exports it and nothing has ever called it, so the image
     // mode names it on the command line to see what the network does when the frame is levelled like the other lanes.
     auto setExposure=reinterpret_cast<PFN_MochizukiNrSetExposure>(GetProcAddress(dll,"MochizukiNrSetExposure"));
@@ -310,6 +312,7 @@ int wmain(int argc,wchar_t**argv) try {
         uint64_t nativeHandle = UINT64_MAX;
         Rc(directHandle(context, nullptr, &nativeHandle));
         Require(nativeHandle == 0, "Windows unexpectedly selected direct game command stream");
+        Rc(pollDirect(context, 0)); // A non-adopted session has no direct completions to harvest.
     }
     {
         MochizukiNrControls aco=controls; aco.aco_mode=1; Rc(set(context,&aco));

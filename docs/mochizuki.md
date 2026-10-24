@@ -69,19 +69,35 @@ if submitted, the real tail completion. Such executions never certify NR output.
 Motion-vector rescaling defines a one-texel replicated edge ring before linear
 blitting a DRS valid rectangle inside a larger allocation.
 
-Core timestamps are harvested from the certified recipe's resource scope on every
-direct execution, including retained-command-list replays, before collection can
-release its query pools (patch 32). The recording-time pending queue alone is
-one-shot and cannot supply replay timings. Reads are nonblocking and require every
-query's availability bit; unavailable or invalid samples do not refresh the display.
-RenoDX direct recipes preserve their timestamp mask and callback count across
-harvests, so replays retain the same timing boundary. Harvest serials belong to
-each network generation; replacing the network or changing pass capacity retains
-the session's last-known timing window and normal freshness expiry. It does not
-reset the display to zero while the new generation starts producing samples.
+Core timestamps are harvested from the certified recipe's resource scope for direct
+executions, including retained-command-list replays, before collection can release
+its query pools (patch 32). The recording-time pending queue alone is one-shot and
+cannot supply replay timings. The host requires the current-package
+`MochizukiNrPollDirectCompletions(context, timingLog)` export and calls it from the
+normal per-frame `PollRelease` seam under `RecordingMutex`, independently of a new
+recording or recipe invalidation. It then refreshes the cached menu/overlay info at
+the existing 500 ms cadence. `GetInfo` remains an atomic-only snapshot read; polling
+does not record or submit GPU work, change recipe ownership, or wait for the GPU.
+Before admitting another execution of a retained recipe, the runtime also harvests
+its completed predecessor before replay can reset the recipe's timestamp queries.
+Reads require every query's availability bit; unavailable or invalid samples do not
+refresh the display. RenoDX direct recipes preserve their timestamp mask and
+callback count across harvests, so replays retain the same timing boundary.
+Harvest serials belong to each network generation; replacing the network or
+changing pass capacity retains the session's last-known timing window and normal
+freshness expiry. It does not reset the display to zero while the new generation
+starts producing samples.
 If timestamp support or query-pool creation is unavailable, both menu and overlay
 show plain N/A rather than misclassifying it as waiting or an expired sample;
 the fixed two-line menu geometry is preserved.
+
+Direct execution diagnostics distinguish Begin admissions from successfully
+submitted executions and real-tail-certified completions. An admission canceled
+before submission must not advance the submitted/completed ordinals. The recorded
+history-consumption bit and network-dispatch count belong to each recipe and are
+published when that recipe is submitted, including replay; they describe executed
+work rather than the most recently recorded list. These observations do not change
+the fixed temporal parity or reset commands embedded in a retained recipe.
 
 
 Known divergence risk: retained-recipe replay temporal continuity is pending
@@ -347,9 +363,14 @@ Vulkan completion, and polling does not duplicate samples or refresh their age.
 Changing between standard and RenoDX routes clears the reported timing window.
 Display and timing log options default off; summaries are limited to one per ten
 seconds and include accepted sample counts plus current-core certified-harvest and
-unavailable/invalid-read counters for field supply-cadence diagnosis. Query reads
-never wait for the GPU. `mochizuki_nr.log` respects file logging and rotates to
-`mochizuki_nr.1.log` at 4 MiB.
+unavailable/invalid-read counters for field supply-cadence diagnosis. `NrTimingLog`
+also gates runtime replay execution/harvest diagnostics through the poll export's
+`timingLog` argument; toggles propagate on the normal poll even without recording.
+It enables the runtime log sink alongside `LogToFile` and `NrFlickerDiag`, without
+requiring either of those options. Execution/harvest markers distinguish submitted
+and certified ordinals from admissions and report timing supply for retained
+recipes; they do not establish temporal-history correctness. Query reads never
+wait for the GPU. `mochizuki_nr.log` rotates to `mochizuki_nr.1.log` at 4 MiB.
 
 Local verification on 2026-10-20 after removal of the product style-grade toggle:
 the matching runtime and Release host compiled successfully (existing local shader

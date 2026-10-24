@@ -58,11 +58,14 @@ typedef struct MochizukiNrFrameInfo
 
 typedef int32_t (*PFN_MochizukiNrPrepareFrame)(void*, const MochizukiNrFrameInfo*, LmxxfNrJob*);
 typedef int32_t (*PFN_MochizukiNrGetApi)(uint32_t, LmxxfNrApi*);
-// Both exports are required by the current package, alongside the exact-size frame ABI.
+// These direct exports are required by the current package, alongside the exact-size frame ABI.
 // Get returns OK + nonzero for an adopted vkd3d device, OK + zero on Windows,
 // and an error when the adopted device cannot expose its current command buffer.
 typedef int32_t (*PFN_MochizukiNrGetDirectCommandBuffer)(void* context, void* native_list, uint64_t* command_buffer);
 typedef int32_t (*PFN_MochizukiNrRecordDirect)(void* context, void* job, void* native_list, uint64_t command_buffer);
+// Observational only. Host holds RecordingMutex, as for Begin/End/Collect;
+// timingLog gates per-recipe supply/generation markers, not timing collection.
+typedef int32_t (*PFN_MochizukiNrPollDirectCompletions)(void* context, uint32_t timingLog);
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,6 +74,7 @@ MOCHIZUKI_NR_EXPORT int32_t MochizukiNrGetApi(uint32_t version, LmxxfNrApi* out)
 MOCHIZUKI_NR_EXPORT int32_t MochizukiNrPrepareFrame(void*, const MochizukiNrFrameInfo*, LmxxfNrJob*);
 MOCHIZUKI_NR_EXPORT int32_t MochizukiNrGetDirectCommandBuffer(void* context, void* native_list, uint64_t* command_buffer);
 MOCHIZUKI_NR_EXPORT int32_t MochizukiNrRecordDirect(void* context, void* job, void* native_list, uint64_t command_buffer);
+MOCHIZUKI_NR_EXPORT int32_t MochizukiNrPollDirectCompletions(void* context, uint32_t timingLog);
 #ifdef __cplusplus
 }
 #endif

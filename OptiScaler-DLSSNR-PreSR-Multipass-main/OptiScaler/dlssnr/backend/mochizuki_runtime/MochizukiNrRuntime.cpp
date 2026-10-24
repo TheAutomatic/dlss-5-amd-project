@@ -2798,6 +2798,12 @@ struct Recording
     std::unique_ptr<MochizukiStageTiming> directTiming;
     uint32_t directTimingSlot = MochizukiStageTiming::kUnavailable;
     uint64_t completedExecutions = 0;
+    // Begin admissions include batches aborted before native submission. Only End's
+    // proven submissions may be certified against the published tail.
+    uint64_t submittedExecutions = 0, harvestedExecutionOrdinal = 0;
+    uint64_t harvestAttempts = 0, acceptedSamples = 0, rejectedSamples = 0, coalescedExecutions = 0;
+    uint32_t recordedDispatches = 0;
+    bool recordedHistoryConsumed = false;
     uint64_t directSerial = 0;
     bool invalidated = false, uncertain = false;
     bool directRecordFailed = false;
@@ -2833,6 +2839,7 @@ struct Session
     std::atomic<bool> frameAbiRejected { false };
     std::atomic<bool> adoptedLegacyRejected { false };
     uint64_t directRecorded = 0, directSubmitted = 0, directCompleted = 0;
+    bool directTimingLog = false; // Set by the serialized host poll; no marker work when disabled.
     std::shared_ptr<FrameBuffers> allocation;
     std::shared_ptr<ImageInput> colourInput;
     std::shared_ptr<ImageInput> motionInput;
@@ -7702,6 +7709,16 @@ extern "C" __declspec(dllexport) int32_t MochizukiNrSetControls(void* context, c
 extern "C" __declspec(dllexport) int32_t MochizukiNrGetInfo(void* context, MochizukiNrInfo* info)
 {
     return GetInfo(context, info);
+}
+
+// Serialized lifecycle poll, unlike the atomic-only GetInfo snapshot.
+extern "C" __declspec(dllexport) int32_t MochizukiNrPollDirectCompletions(void* context, uint32_t timingLog)
+{
+    auto* s = static_cast<Session*>(context);
+    if (!s) return LMXXF_NR_INVALID_ARGUMENT;
+    s->directTimingLog = timingLog != 0;
+    ObserveDirectCompletions(s);
+    return LMXXF_NR_OK;
 }
 
 extern "C" __declspec(dllexport) int32_t MochizukiNrGetControlDefaults(MochizukiNrControls* controls)

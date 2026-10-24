@@ -44,6 +44,41 @@ class DirectRecordingContract(unittest.TestCase):
         runtime = source(RUNTIME / "MochizukiNrRuntime.cpp")
         self.assertRegex(runtime, r"struct_size\s*!=\s*sizeof\(MochizukiNrFrameInfo\)")
 
+    def test_pure_replay_poll_export_and_atomic_info_contract(self):
+        api = source(RUNTIME / "MochizukiNrApi.h")
+        self.assertRegex(api, r"int32_t\s*\(\s*\*PFN_MochizukiNrPollDirectCompletions\)\s*\(\s*void\s*\*\s*\w*\s*,\s*uint32_t\s+\w+\s*\)")
+        self.assertRegex(api, r"int32_t\s+MochizukiNrPollDirectCompletions\(\s*void\s*\*\s*\w+\s*,\s*uint32_t\s+\w+\s*\)")
+        runtime = source(RUNTIME / "MochizukiNrRuntime.cpp")
+        poll = body(runtime, "MochizukiNrPollDirectCompletions")
+        self.assertIn("LMXXF_NR_INVALID_ARGUMENT", poll)
+        self.assertIn("ObserveDirectCompletions(s)", poll)
+        self.assertNotIn("PrepareFrame(", poll)
+        self.assertNotIn("InvalidateRecording(", poll)
+        self.assertNotIn("CollectRecording(", poll)
+        self.assertIn("s->directTimingLog = timingLog != 0", poll)
+        self.assertLess(poll.index("s->directTimingLog ="), poll.index("ObserveDirectCompletions(s)"))
+        info = body(runtime, "GetInfo")
+        for forbidden in ("ObserveDirectCompletions", "PollDirectCompletions", "GetCompletedValue",
+                          "harvest_recording_timings", "HarvestRecording", "s->recordings", "s->runtime"):
+            self.assertNotIn(forbidden, info, "GetInfo must remain an atomic-only snapshot")
+
+    def test_host_polls_and_refreshes_without_a_new_recording(self):
+        host = source(SRC / "dlssnr/backend/MochizukiBackend.cpp")
+        self.assertIn("PFN_MochizukiNrPollDirectCompletions", host)
+        self.assertIn('GetProcAddress(module, "MochizukiNrPollDirectCompletions")', host)
+        self.assertIn("!pollDirectCompletions", host, "An old runtime must fail complete-package negotiation")
+        poll = body(host, "MochizukiBackend::PollRelease")
+        self.assertIn("Submission::RecordingMutex()", poll)
+        self.assertIn("p->owner", poll)
+        self.assertIn("p->pollDirectCompletions(", poll)
+        self.assertIn("NrTimingLog.value_or_default()", poll)
+        self.assertIn("p->setLogging(", poll)
+        self.assertLess(poll.index("p->setLogging("), poll.index("p->pollDirectCompletions("))
+        self.assertLess(poll.index("Submission::RecordingMutex()"), poll.index("p->pollDirectCompletions("))
+        self.assertLess(poll.index("p->pollDirectCompletions("), poll.index("p->Info()"))
+        for forbidden in ("PrepareFrame(", "recordDirect(", "Invalidated("):
+            self.assertNotIn(forbidden, poll)
+
     def test_pinned_command_list_extension_vtable(self):
         interop = source(RUNTIME / "MochizukiVkd3dInterop.h")
         self.assertIn('MIDL_INTERFACE("77a86b09-2bea-4801-b89a-37648e104af1")', interop)
@@ -181,8 +216,8 @@ class DirectRecordingContract(unittest.TestCase):
         self.assertNotIn("recording profile queries", reno)
         self.assertIn("2 + 2 * kMaxUnlockedPasses", reno)
         self.assertIn("return std::move(impl_->recording_resources)", reno)
-        observe = body(lifecycle, "ObserveDirectCompletions")
-        for gate in ("r.tail", "r.executingQueue", "r.uncertain", "r.completedExecutions == r.executions", "completed == UINT64_MAX", "completed < r.tailValue"):
+        observe = body(lifecycle, "ObserveDirectCompletion")
+        for gate in ("r.tail", "r.executingQueue", "r.uncertain", "r.completedExecutions == r.submittedExecutions", "completed == UINT64_MAX", "completed < r.tailValue"):
             self.assertIn(gate, observe)
         self.assertLess(observe.index("completed < r.tailValue"), observe.index("r.directTiming->HarvestRecording"))
         self.assertIn("ObserveDirectCompletions(s)", body(lifecycle, "PrepareFrame"))
@@ -212,6 +247,76 @@ class DirectRecordingContract(unittest.TestCase):
         self.assertIn("VK_QUERY_RESULT_WITH_AVAILABILITY_BIT", stage)
         self.assertIn("slot.finished = 0", stage)
         self.assertNotIn("slot = {}", stage)
+
+    def test_replay_harvest_precedes_query_reset_admission(self):
+        lifecycle = source(RUNTIME / "MochizukiRecording.inl")
+        begin = body(lifecycle, "BeginRecordingExecution")
+        direct = begin[begin.index("if (r->job.directRecording)"):begin.index("if (s->uncertainExecution || s->failed)")]
+        harvest = direct.index("ObserveDirectCompletion(s, *r)")
+        self.assertLess(direct.index("GetCompletedValue() < r->tailValue"), harvest)
+        self.assertLess(harvest, direct.index("q->Wait("))
+        self.assertLess(harvest, direct.index("r->executingQueue = q"))
+        self.assertLess(harvest, direct.index("++r->executions"))
+        observe_all = body(lifecycle, "ObserveDirectCompletions")
+        self.assertIn("s->recordings", observe_all)
+        self.assertIn("ObserveDirectCompletion(s, *record)", observe_all)
+        self.assertNotIn("invalidated", observe_all)
+
+    def test_measurement_accounting_is_separate_from_completion(self):
+        runtime = source(RUNTIME / "MochizukiNrRuntime.cpp")
+        for field in ("submittedExecutions", "completedExecutions", "harvestedExecutionOrdinal",
+                      "harvestAttempts", "acceptedSamples", "rejectedSamples", "coalescedExecutions"):
+            self.assertRegex(runtime, r"\b" + field + r"\s*=\s*0")
+        observe = body(source(RUNTIME / "MochizukiRecording.inl"), "ObserveDirectCompletion")
+        self.assertIn("s->directCompleted += r.submittedExecutions - r.completedExecutions", observe)
+        self.assertIn("r.completedExecutions = r.submittedExecutions", observe)
+        self.assertIn("r.completedExecutions - r.harvestedExecutionOrdinal", observe)
+        self.assertIn("r.coalescedExecutions += pending - 1", observe)
+        self.assertIn("++r.harvestAttempts", observe)
+        self.assertIn("accepted = serial != before", observe)
+        self.assertIn("&accepted", observe)
+        self.assertIn("accepted = true", observe)
+        self.assertRegex(observe, r"if\s*\(accepted\)\s*\+\+r.acceptedSamples;\s*else\s*\+\+r.rejectedSamples;")
+        watermark = observe.index("r.harvestedExecutionOrdinal = r.completedExecutions")
+        self.assertLess(observe.index("++r.rejectedSamples"), watermark)
+        self.assertLess(observe.index("++r.acceptedSamples"), watermark)
+        self.assertIn("if (s->directTimingLog)", observe)
+        for marker in ("submitted_executions=", "certified_executions=", "harvested_execution_ordinal=",
+                       "harvest_attempts=", "accepted_samples=", "rejected_samples=", "coalesced_executions="):
+            self.assertIn(marker, observe)
+
+    def test_aborted_admission_never_advances_submitted_ordinal(self):
+        lifecycle = source(RUNTIME / "MochizukiRecording.inl")
+        begin = body(lifecycle, "BeginRecordingExecution")
+        self.assertNotIn("++r->submittedExecutions", begin)
+        self.assertNotIn("submittedExecutions =", begin)
+        end = body(lifecycle, "EndRecordingExecution")
+        start = end.index("if (submitted)")
+        submitted = end[start:]
+        self.assertNotIn("submittedExecutions", end[:start])
+        ordinal = submitted.index("++r->submittedExecutions")
+        self.assertEqual(submitted.count("++r->submittedExecutions"), 1)
+        self.assertLess(submitted.index("FAILED(signalStatus)"), ordinal)
+        self.assertLess(submitted.index('CheckExecutionDevice(s, f, "End fence")'), ordinal)
+        self.assertLess(submitted.index("r->tailValue = value"), ordinal)
+        observe = body(lifecycle, "ObserveDirectCompletion")
+        self.assertNotRegex(observe, r"\br\.executions\b")
+
+    def test_diagnostics_follow_each_accepted_submitted_recipe(self):
+        record = body(source(RUNTIME / "MochizukiDirectRecording.inl"), "RecordDirect")
+        for field in ("recordedDispatches", "recordedHistoryConsumed"):
+            self.assertIn("r->" + field, record)
+        for forbidden in ("s->dispatches.store", "s->historyBits.store", "s->historyCount.store"):
+            self.assertNotIn(forbidden, record)
+        end = body(source(RUNTIME / "MochizukiRecording.inl"), "EndRecordingExecution")
+        accepted = end[end.index("if (r->job.directRecording && !r->directRecordFailed)"):]
+        self.assertLess(end.index("if (submitted)"), end.index("if (r->job.directRecording && !r->directRecordFailed)"))
+        self.assertIn("s->dispatches.store(r->recordedDispatches)", accepted)
+        self.assertIn("uint64_t(r->recordedHistoryConsumed)", accepted)
+        self.assertIn("s->historyCount.load() + 1", accepted)
+        self.assertIn("if (s->directTimingLog)", accepted)
+        for marker in ("recipe_id=", "record_network_id=", "current_network_id=", "execution_ordinal=", "admission_ordinal="):
+            self.assertIn(marker, accepted)
 
     def test_motion_linear_filter_has_defined_edge_ring(self):
         direct = source(RUNTIME / "MochizukiDirectRecording.inl")

@@ -67,6 +67,7 @@ struct MochizukiBackend::Impl
     PFN_MochizukiNrRecordDirect recordDirect = nullptr;
     PFN_MochizukiNrSetControls setControls = nullptr;
     PFN_MochizukiNrGetInfo getInfo = nullptr;
+    PFN_MochizukiNrPollDirectCompletions pollDirectCompletions = nullptr;
     PFN_MochizukiNrGetBuildProgress getBuildProgress = nullptr;
     void (*setLogging)(uint32_t) = nullptr;
     // Optional exposure exports (absent in an older runtime: the lane keeps its manual white point).
@@ -123,13 +124,15 @@ struct MochizukiBackend::Impl
             recordDirect = reinterpret_cast<PFN_MochizukiNrRecordDirect>(GetProcAddress(module, "MochizukiNrRecordDirect"));
             setControls = reinterpret_cast<PFN_MochizukiNrSetControls>(GetProcAddress(module, "MochizukiNrSetControls"));
             getInfo = reinterpret_cast<PFN_MochizukiNrGetInfo>(GetProcAddress(module, "MochizukiNrGetInfo"));
+            pollDirectCompletions = reinterpret_cast<PFN_MochizukiNrPollDirectCompletions>(
+                GetProcAddress(module, "MochizukiNrPollDirectCompletions"));
             getBuildProgress = reinterpret_cast<PFN_MochizukiNrGetBuildProgress>(GetProcAddress(module, "MochizukiNrGetBuildProgress"));
             setLogging = reinterpret_cast<void (*)(uint32_t)>(GetProcAddress(module, "MochizukiNrSetLogging"));
             setExposure = reinterpret_cast<PFN_MochizukiNrSetExposure>(GetProcAddress(module, "MochizukiNrSetExposure"));
             setAutoExposure = reinterpret_cast<PFN_MochizukiNrSetAutoExposure>(GetProcAddress(module, "MochizukiNrSetAutoExposure"));
             setExposureTexture = reinterpret_cast<PFN_MochizukiNrSetExposureTexture>(GetProcAddress(module, "MochizukiNrSetExposureTexture"));
             api.struct_size = sizeof api;
-            if (!getApi || !prepare || !getDirectCommandBuffer || !recordDirect || !setControls || !getInfo || !getBuildProgress || !setLogging ||
+            if (!getApi || !prepare || !getDirectCommandBuffer || !recordDirect || !setControls || !getInfo || !pollDirectCompletions || !getBuildProgress || !setLogging ||
                 getApi(LMXXF_NR_ABI_VERSION, &api) != LMXXF_NR_OK || !api.Create || !api.Destroy ||
                 !api.PrepareSession || !api.RecordInputs || !api.RecordOutputs || !api.EnqueueHip ||
                 !api.BeginRecordingExecution || !api.EndRecordingExecution || !api.InvalidateRecording ||
@@ -147,7 +150,8 @@ struct MochizukiBackend::Impl
                     GetProcAddress(module, "MochizukiNrSetVulkanDeviceQuery")))
                 setQuery(&mz::device::QueryCreatedDevice);
         }
-        setLogging((Config::Instance()->LogToFile.value_or_default() || Config::Instance()->NrFlickerDiag.value_or_default()));
+        setLogging(Config::Instance()->LogToFile.value_or_default() || Config::Instance()->NrFlickerDiag.value_or_default() ||
+                   Config::Instance()->NrTimingLog.value_or_default());
         if (!HasMochizukiSelectedModel(directory, Config::Instance()->MochizukiNetworkModel.value_or_default()))
         { Status("mochizuki: selected model missing; run Setup to install the selected model (see docs/mochizuki.md)"); return false; }
         LmxxfNrCreateInfo ci {sizeof ci, device.Get(), queue.Get(), directory.c_str(),
@@ -374,7 +378,7 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
         return nullptr;
     }
     auto* cfg = Config::Instance();
-    p->setLogging((cfg->LogToFile.value_or_default() || cfg->NrFlickerDiag.value_or_default()));
+    p->setLogging(cfg->LogToFile.value_or_default() || cfg->NrFlickerDiag.value_or_default() || cfg->NrTimingLog.value_or_default());
     MochizukiNrFrameInfo frame {};
     MochizukiNrControls controls {};
     controls.struct_size = sizeof controls;
@@ -648,7 +652,20 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
 void MochizukiBackend::Submitted(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*) { LmxxfRecording::Collect(); }
 bool MochizukiBackend::PollRelease()
 {
-    // AmdBridge::PollReleases walks the shared registry once for every backend.
+    std::lock_guard lifetime(Submission::RecordingMutex());
+    // Collection only visits invalidated recipes. Poll live retained recordings as
+    // well, without requiring another Evaluate or changing their ownership.
+    if (p->owner)
+    {
+        const auto* cfg = Config::Instance();
+        const uint32_t timingLog = cfg->NrTimingLog.value_or_default() ? 1u : 0u;
+        p->setLogging(cfg->LogToFile.value_or_default() || cfg->NrFlickerDiag.value_or_default() || timingLog);
+        if (p->pollDirectCompletions(p->owner->context, timingLog) != LMXXF_NR_OK)
+            p->Error("direct completion poll failed");
+        else
+            p->Info(); // Refresh the cached menu/overlay snapshot after harvesting.
+    }
+    // AmdBridge::PollReleases already walks the shared collection registry.
     return true;
 }
 void MochizukiBackend::ReleaseSession(const char* reason)
