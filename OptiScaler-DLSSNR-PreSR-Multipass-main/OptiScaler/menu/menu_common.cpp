@@ -8750,8 +8750,8 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
     {
         std::string_view commit { VER_BUILD_COMMIT };
         commit = commit.substr(0, 7); // GitHub-style short hash
-        windowTitle = StrFmt("OptiScaler(NR) v%s (%.*s) (%s) - %s %s %s%s", NR_PRODUCT_VERSION,
-            (int) commit.size(), commit.data(), VER_BUILD_DATE, state.gameExe.c_str(),
+        windowTitle = StrFmt("OptiScaler(NR) v%s (%.*s) - %s %s %s%s", NR_PRODUCT_VERSION,
+            (int) commit.size(), commit.data(), state.gameExe.c_str(),
             state.detectedQuirks.empty() ? "" : "(Q)", state.isOptiPatcherSucceed ? "(OP)" : "",
             MenuDocking::WindowIdentity);
     }
