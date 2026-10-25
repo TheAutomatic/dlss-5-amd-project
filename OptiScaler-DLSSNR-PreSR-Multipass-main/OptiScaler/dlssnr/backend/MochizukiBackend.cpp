@@ -292,6 +292,16 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
                      missing, offered - missing, offered, missing * 100 / (offered ? offered : 1),
                      p->lastProxiedList, static_cast<void*>(p->device.Get()), origin);
         }
+        // Self-diagnosis: a sustained miss rate with lists owned by non-exe modules is the
+        // boot-list pattern (renderer DLL creates DIRECT lists before the swapchain; the
+        // exe-only early whitelist never matches them — Dying Light linux2422, 逆水寒 AB
+        // runs). Point the user at the one-line remedy instead of leaving them to grep.
+        if (missing == 10)
+        {
+            LOG_WARN("mochizuki missing recording proxy 10 times: if these lists belong to a"
+                     " renderer DLL created before the swapchain, set [DlssNr] LmxxfEarlyAnyModuleWrap=true"
+                     " (or ask for the game to be added to the wrap policy table)");
+        }
         // Half the lists unwrapped means NR and the original colour alternate frame by
         // frame, which is exactly the flicker. Rather than keep flipping, stop NR for
         // this session once the miss rate is clearly too high. Opt-in only.
