@@ -186,6 +186,7 @@ echo host release: PASS
 exit /b 0
 
 :Xefg
+"%AMD_TEST_PYTHON%" -B tests\host\test_xefg_present_lifetime.py || exit /b 1
 %CXX% tests\host\nr_multiplier.cpp /Fe"%OUT%\nr_multiplier.exe" /Fo"%OUT%\nr_multiplier.obj" || exit /b 1
 "%OUT%\nr_multiplier.exe" || exit /b 1
 %CXX% tests\host\xefg_dynamic_count.cpp /Fe"%OUT%\xefg_dynamic_count.exe" /Fo"%OUT%\xefg_dynamic_count.obj" || exit /b 1

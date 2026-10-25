@@ -735,7 +735,7 @@ bool XeFG_Dx12::Shutdown()
     return true;
 }
 
-bool XeFG_Dx12::Dispatch()
+bool XeFG_Dx12::Dispatch(PresentResourceReference& presentResource)
 {
     LOG_FUNC();
 
@@ -981,13 +981,30 @@ bool XeFG_Dx12::Dispatch()
 
     if (!_noHudless[fIndex])
     {
-        auto res = &_frameResources[fIndex][FG_ResourceType::HudlessColor];
-        if (res->validity != FG_ResourceValidity::ValidNow)
+        Dx12Resource retagged;
+        bool retag = false;
         {
-            res->validity = FG_ResourceValidity::UntilPresentFromDispatch;
-            res->frameIndex = fIndex;
-            SetResource(res);
+            std::unique_lock<std::shared_mutex> lock(_resourceMutex[fIndex]);
+            auto it = _frameResources[fIndex].find(FG_ResourceType::HudlessColor);
+            if (it != _frameResources[fIndex].end() && it->second.validity != FG_ResourceValidity::ValidNow)
+            {
+                auto& res = it->second;
+                // Extending validity requires ownership, unlike the initial borrowed tag.
+                if (res.resource != nullptr)
+                {
+                    res.resource->AddRef();
+                    presentResource.resource = res.resource;
+                    presentResource.mutex = &_resourceMutex[fIndex];
+                }
+                res.validity = FG_ResourceValidity::UntilPresentFromDispatch;
+                res.frameIndex = fIndex;
+                retagged = res;
+                retag = true;
+            }
         }
+        // SetResource takes the same mutex; use the owned snapshot after unlocking.
+        if (retag)
+            SetResource(&retagged);
     }
 
     if (!_noDistortionField[fIndex])
@@ -1502,6 +1519,8 @@ void XeFG_Dx12::CreateObjects(ID3D12Device* InDevice)
 
 bool XeFG_Dx12::Present()
 {
+    // Releases on every exit, including Dispatch errors, independently of cache clears.
+    PresentResourceReference presentResource;
     auto fIndex = GetIndexWillBeDispatched();
     LOG_DEBUG("fIndex: {}", fIndex);
 
@@ -1614,7 +1633,7 @@ bool XeFG_Dx12::Present()
 
     _fgFramePresentId++;
 
-    return Dispatch();
+    return Dispatch(presentResource);
 }
 
 bool XeFG_Dx12::SetResource(Dx12Resource* inputResource)

@@ -17,6 +17,18 @@
 3. **`hk_K32_GetModuleHandleExA/W` 过滤 `GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS`**
    - 当 `dwFlags` 含 `GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS` 时，`lpModuleName` 是内存地址而非模块名字符串，直接透传给原函数早退。
 
+
+### HudlessColor Present retag lifetime
+
+The initial `XeFG_Dx12::SetResource` cache remains borrowed under the input lifetime contract.
+When `Dispatch` extends HudlessColor validity to `UntilPresentFromDispatch`, it takes one
+`AddRef` under that frame slot's `_resourceMutex`, before changing validity. A non-copyable
+stack owner in `Present` releases it under the same mutex on every exit, including failed
+dispatch/tagging. The retag uses a snapshot rather than an unlocked pointer into the cache.
+Ownership is deliberately independent of `_frameResources`: `NewFrame` slot reuse and
+`ReleaseResourceCopies` can clear entries without losing the outstanding reference or
+releasing it prematurely; the scoped owner still performs exactly one `Release`.
+
 ## 2. 动态多帧生成（Dynamic MFG）
 
 在 [XeFG_DynamicCount.h](../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/framegen/xefg/XeFG_DynamicCount.h) 与 [XeFG_Dx12.cpp](../OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/framegen/xefg/XeFG_Dx12.cpp) 中，宿主实现了基于目标帧率的动态多帧生成控制器：
