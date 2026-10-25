@@ -10,7 +10,9 @@ int wmain(int argc,wchar_t**argv){
  if(argc<3)return 2;
  const auto pid=static_cast<unsigned>(_wtoi(argv[2]));
  wchar_t exe[32768];GetModuleFileNameW(nullptr,exe,32768);auto dir=std::filesystem::path(exe).parent_path();
- std::ofstream(dir/L"launches.txt",std::ios::app)<<"start\n";
+ // "launched", not "start": a text file of bare `start` lines matches the classic
+// Joke:BAT fork-bomb signature and Defender flags it (field report 2026-10-25).
+std::ofstream(dir/L"launches.txt",std::ios::app)<<"launched\n";
  std::string mode;std::ifstream(dir/L"mode.txt")>>mode;
  HANDLE map=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,Ipc::ShmName(pid).c_str());if(!map)return 3;
  auto*h=static_cast<Ipc::ShmHeader*>(MapViewOfFile(map,FILE_MAP_ALL_ACCESS,0,0,Ipc::TotalShmSize));if(!h)return 4;

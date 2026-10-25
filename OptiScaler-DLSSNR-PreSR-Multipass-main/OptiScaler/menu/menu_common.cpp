@@ -8738,7 +8738,7 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
     if (windowTitle.empty())
     {
         std::string_view commit { VER_BUILD_COMMIT };
-        commit = commit.substr(0, 12);
+        commit = commit.substr(0, 7); // GitHub-style short hash
         windowTitle = StrFmt("OptiScaler(NR) v%s (%.*s) (%s) - %s %s %s%s", NR_PRODUCT_VERSION,
             (int) commit.size(), commit.data(), VER_BUILD_DATE, state.gameExe.c_str(),
             state.detectedQuirks.empty() ? "" : "(Q)", state.isOptiPatcherSucceed ? "(OP)" : "",
