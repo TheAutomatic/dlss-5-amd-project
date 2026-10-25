@@ -22,6 +22,42 @@ struct VkwDx12Image
     ID3D12Resource* resource = nullptr;
 };
 
+// Queue family ownership transfers for the images shared with D3D12. They are
+// VK_SHARING_MODE_EXCLUSIVE and the timeline semaphores only order the execution across the API
+// boundary: these barriers move the ownership between the interop's Vulkan queue family and
+// VK_QUEUE_FAMILY_EXTERNAL, whose accesses are D3D12's. The release goes into the submit whose
+// timeline signal D3D12 waits before its read, the acquire into the copy that already waited
+// D3D12's completion (the copiedValue timeline wait or WaitForInputSlot).
+inline void VkwDx12AcquireFromD3D12(VkImageMemoryBarrier& barrier, VkImage image, uint32_t queueFamily,
+                                    VkImageLayout writeLayout, VkAccessFlags writeAccess)
+{
+    barrier = VkImageMemoryBarrier { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.image = image;
+    // D3D12 is done with the image and its contents are rewritten
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = writeLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+    barrier.dstQueueFamilyIndex = queueFamily;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = writeAccess;
+    barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+}
+
+inline void VkwDx12ReleaseToD3D12(VkImageMemoryBarrier& barrier, VkImage image, uint32_t queueFamily,
+                                  VkImageLayout writeLayout, VkAccessFlags writeAccess)
+{
+    barrier = VkImageMemoryBarrier { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.image = image;
+    // GENERAL is the layout the shared resource is handed to D3D12 in
+    barrier.oldLayout = writeLayout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = queueFamily;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+    barrier.srcAccessMask = writeAccess;
+    barrier.dstAccessMask = 0;
+    barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+}
+
 // The game's Vulkan swapchain for the DX12 FG outputs, what Dx11wDx12SC is for DX11 games.
 // The game renders to a real swapchain on a hidden window, its presented image is copied to a texture shared with
 // D3D12 and presented through the DX12 FG swapchain on the game's window.
@@ -58,6 +94,9 @@ class VkwDx12SC
 
     // The devices the FG inputs are shared between, false without an FG swapchain
     static bool InteropDevices(VkDevice& device, VkPhysicalDevice& physicalDevice, ID3D12Device*& dx12Device);
+
+    // The family of the queue the interop copies run on, UINT32_MAX before the first present
+    static uint32_t InteropQueueFamily();
 
     // Formats the FG inputs can be shared in
     static bool CanShare(VkFormat format);

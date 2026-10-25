@@ -188,6 +188,23 @@ void UseDevices(VkDevice device, VkPhysicalDevice physicalDevice, ID3D12Device* 
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, _queueFamilies.data());
 }
 
+// The family of the queue the game's evaluate command buffers submit on: the interop's
+// presenting queue once it presented, before that the first compute-capable family, the input
+// copies dispatch compute shaders in those buffers
+uint32_t EvaluateFamily()
+{
+    if (auto family = VkwDx12SC::InteropQueueFamily(); family != UINT32_MAX)
+        return family;
+
+    for (uint32_t i = 0; i < _queueFamilies.size(); i++)
+    {
+        if (_queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT)
+            return i;
+    }
+
+    return UINT32_MAX;
+}
+
 // The frame's shared texture of the input type, recreated when the format or size changed
 bool PrepareShared(VkwDx12Image& shared, VkFormat format, uint32_t width, uint32_t height)
 {
@@ -207,7 +224,8 @@ bool PrepareShared(VkwDx12Image& shared, VkFormat format, uint32_t width, uint32
 
 // Copies the whole input into the shared texture. Inputs in a known layout are moved to the one the copy reads and
 // back, the upscaler's come without one and are read as they are.
-bool CopyToShared(VkCommandBuffer cmdBuffer, const VkFGResource& input, const CopyTarget& target, VkwDx12Image& shared)
+bool CopyToShared(VkCommandBuffer cmdBuffer, const VkFGResource& input, const CopyTarget& target, VkwDx12Image& shared,
+                  uint32_t queueFamily)
 {
     const bool transfer = target.method == CopyMethod::Transfer;
     const auto readLayout = transfer ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -215,6 +233,7 @@ bool CopyToShared(VkCommandBuffer cmdBuffer, const VkFGResource& input, const Co
     const VkAccessFlags readAccess = transfer ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_SHADER_READ_BIT;
     const VkAccessFlags writeAccess = transfer ? VK_ACCESS_TRANSFER_WRITE_BIT : VK_ACCESS_SHADER_WRITE_BIT;
     const bool transition = input.layout != VK_IMAGE_LAYOUT_UNDEFINED && input.layout != readLayout;
+    const bool ownership = queueFamily != UINT32_MAX;
 
     VkMemoryBarrier inputBarrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
     inputBarrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
@@ -227,7 +246,22 @@ bool CopyToShared(VkCommandBuffer cmdBuffer, const VkFGResource& input, const Co
         ImageBarrier(cmdBuffer, input.image, input.format, input.layout, readLayout, VK_ACCESS_MEMORY_WRITE_BIT,
                      readAccess);
 
-    ImageBarrier(cmdBuffer, shared.image, shared.format, VK_IMAGE_LAYOUT_UNDEFINED, writeLayout, 0, writeAccess);
+    VkImageMemoryBarrier sharedBarrier {};
+
+    if (ownership)
+    {
+        // D3D12 released the shared texture after its last read, the slot's completion fence
+        // was already waited before this copy was recorded
+        VkwDx12AcquireFromD3D12(sharedBarrier, shared.image, queueFamily, writeLayout, writeAccess);
+        vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &sharedBarrier);
+    }
+    else
+    {
+        // No family to own the transfer, only the layout moves
+        LOG_WARN("No queue family for the FG input's D3D12 ownership transfer");
+        ImageBarrier(cmdBuffer, shared.image, shared.format, VK_IMAGE_LAYOUT_UNDEFINED, writeLayout, 0, writeAccess);
+    }
 
     const VkExtent2D extent { input.imageWidth, input.imageHeight };
     bool copied = false;
@@ -269,8 +303,17 @@ bool CopyToShared(VkCommandBuffer cmdBuffer, const VkFGResource& input, const Co
         copied = true;
     }
 
-    ImageBarrier(cmdBuffer, shared.image, shared.format, writeLayout, VK_IMAGE_LAYOUT_GENERAL, writeAccess,
-                 VK_ACCESS_MEMORY_READ_BIT);
+    if (ownership)
+    {
+        // The submit running this copy is what D3D12 waits before the FG reads the texture, the
+        // release hands it over
+        VkwDx12ReleaseToD3D12(sharedBarrier, shared.image, queueFamily, writeLayout, writeAccess);
+        vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &sharedBarrier);
+    }
+    else
+        ImageBarrier(cmdBuffer, shared.image, shared.format, writeLayout, VK_IMAGE_LAYOUT_GENERAL, writeAccess,
+                     VK_ACCESS_MEMORY_READ_BIT);
 
     if (transition)
         ImageBarrier(cmdBuffer, input.image, input.format, readLayout, input.layout, readAccess,
@@ -349,7 +392,7 @@ bool VkwDx12Inputs::SetResource(const VkFGResource& input)
     // Inputs only valid now are copied with their command buffer, the present copies the others
     const bool copyNow = input.validity == FG_ResourceValidity::ValidNow && input.cmdBuffer != VK_NULL_HANDLE;
 
-    if (copyNow && !CopyToShared(input.cmdBuffer, input, target, shared))
+    if (copyNow && !CopyToShared(input.cmdBuffer, input, target, shared, EvaluateFamily()))
         return false;
 
     // The FG copies it at present, after D3D12 waited for the Vulkan frame
@@ -404,7 +447,7 @@ void VkwDx12Inputs::RecordPresentCopies(VkCommandBuffer cmdBuffer, uint32_t queu
         CopyTarget target {};
 
         if (!SharedTarget(*pending, target) || (!compute && target.method != CopyMethod::Transfer) ||
-            !CopyToShared(cmdBuffer, *pending, target, _shared[index][i]))
+            !CopyToShared(cmdBuffer, *pending, target, _shared[index][i], queueFamily))
         {
             LOG_WARN("{} isn't copied for FG slot {}", magic_enum::enum_name((FG_ResourceType) i), index);
         }

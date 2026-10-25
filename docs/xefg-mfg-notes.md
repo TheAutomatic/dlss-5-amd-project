@@ -161,3 +161,19 @@ Streamline 输入经 `VkwDx12Inputs::SetResource` 进桥后仍向
 `StreamlineFGActivationGate` 上报就绪信号(ReportDepth/MotionVectors 在路由
 之后无条件执行)——这些就是喂给 FG 交换链的 DLSSG 输入本体,门控语义不变,
 无需豁免。
+
+**队列族所有权交接(2026-10-25 修复)。** 共享纹理均为 `VK_SHARING_MODE_EXCLUSIVE`,
+时间线信号量只保证跨 API 的执行顺序,不替代队列族所有权操作(Vulkan 规范将 D3D12
+的访问视作 `VK_QUEUE_FAMILY_EXTERNAL` 的访问)。每个跨边界纹理现在带成对的
+release/acquire barrier(`vk_with_dx12_sc.h` 的 `VkwDx12ReleaseToD3D12` /
+`VkwDx12AcquireFromD3D12`,契约测试 `tests/host/vkw_dx12_ownership.cpp`,host ci):
+Vulkan→D3D12 在信号 `_vkDone` 的同一提交末尾以互操作队列族 release 到
+EXTERNAL、布局落 GENERAL、`dstAccessMask=0`;复用时(下一帧 Vulkan 重写)在已等过
+D3D12 完成的拷贝前从 EXTERNAL acquire 回同一队列族、`oldLayout=UNDEFINED`(内容
+整体重写)。呈现图像的执行锚是该提交对 `_dxDone`@`copiedValue` 的时间线等待,
+FG 输入的执行锚是 `SetResource` 里的 `WaitForInputSlot` CPU 等待。队列族用真实
+索引不硬编码:呈现路径(`RecordCopy` 与 present 拷贝)用呈现队列族
+(`Present` 经 `DeviceCreated` 建立的 queue→family 表解析);evaluate 命令缓冲里的
+ValidNow 输入(首次呈现前)用 `VkwDx12SC::InteropQueueFamily()`——已呈现过即呈现
+队列族,否则设备首个 compute 族(拷贝 shader 本就要求 compute)。不切
+CONCURRENT,信号量/栅栏原样保留只提供执行顺序。

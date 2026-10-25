@@ -454,6 +454,13 @@ bool VkwDx12SC::InteropDevices(VkDevice& device, VkPhysicalDevice& physicalDevic
     return true;
 }
 
+uint32_t VkwDx12SC::InteropQueueFamily()
+{
+    std::scoped_lock lock(_mutex);
+
+    return _current != nullptr ? _current->_commandPoolFamily : UINT32_MAX;
+}
+
 bool VkwDx12SC::CreateSharedImage(VkDevice device, VkPhysicalDevice physicalDevice, ID3D12Device* dx12Device,
                                   VkwDx12Image& image, VkFormat format, uint32_t width, uint32_t height,
                                   VkImageUsageFlags usage)
@@ -1351,10 +1358,10 @@ bool VkwDx12SC::RecordCopy(PresentImage& presentImage, VkImage swapchainImage)
     barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-    barriers[1].image = presentImage.shared.image;
-    barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    // D3D12 released the shared texture after its last read, this submit's _dxDone wait at
+    // copiedValue ordered the reuse before the copy
+    VkwDx12AcquireFromD3D12(barriers[1], presentImage.shared.image, _commandPoolFamily,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 
     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
                          nullptr, 0, nullptr, 2, barriers);
@@ -1372,10 +1379,9 @@ bool VkwDx12SC::RecordCopy(PresentImage& presentImage, VkImage swapchainImage)
     barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     barriers[0].dstAccessMask = 0;
 
-    barriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barriers[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    barriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barriers[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    // D3D12 reads the texture once this submit signalled _vkDone, the release hands it over
+    VkwDx12ReleaseToD3D12(barriers[1], presentImage.shared.image, _commandPoolFamily,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 
     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
                          nullptr, 0, nullptr, 2, barriers);
