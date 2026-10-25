@@ -149,6 +149,7 @@ class IFGFeature
     bool IsJitteredMVs();
     bool IsInvertedDepth();
     bool IsInfiniteDepth();
+    void CancelPendingActivation() { _waitingNewFrameData = false; }
 
     void SetFrameCount(UINT64 frameId);
     void SetJitter(float x, float y, int index = -1);

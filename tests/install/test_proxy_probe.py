@@ -122,7 +122,8 @@ class ProxyProbeTests(unittest.TestCase):
         exe = d / "game.exe"
         write_pe(exe, imports=("dxgi.dll",))
         data = self.run_probe(exe)
-        self.assertEqual(Path(data["gameDir"]), d)
+        # PowerShell expands aliases such as Actions' RUNNER~1 TEMP path.
+        self.assertTrue(Path(data["gameDir"]).samefile(d))
 
     def test_import_dxgi_ranks_medium(self):
         d = Path(tempfile.mkdtemp(prefix="probe-imp-"))

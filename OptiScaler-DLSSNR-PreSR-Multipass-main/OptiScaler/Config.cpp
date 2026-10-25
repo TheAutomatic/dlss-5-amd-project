@@ -258,6 +258,11 @@ bool Config::Reload(std::filesystem::path iniPath)
 
             FGDLSSGUseGamesReflexMarkers.set_from_config(readBool("DLSSG", "UseGamesReflexMarkers"));
 
+            FGDLSSGRequiredReadyFrames.set_from_config(readInt(CfgKey::kDLSSGSection, CfgKey::DLSSGRequiredReadyFrames));
+            if (FGDLSSGRequiredReadyFrames.has_value() &&
+                (FGDLSSGRequiredReadyFrames.value() < 0 || FGDLSSGRequiredReadyFrames.value() > 300))
+                FGDLSSGRequiredReadyFrames.reset();
+
             FGDLSSGOverrideInterpolationCount.set_from_config(readInt("DLSSG", "OverrideInterpolationCount"));
             if (FGDLSSGOverrideInterpolationCount.has_value() &&
                 (FGDLSSGOverrideInterpolationCount.value() < 0 || FGDLSSGOverrideInterpolationCount.value() > 6))
@@ -1731,6 +1736,8 @@ bool Config::SaveIni()
     {
         ini.SetValue("DLSSG", "InterpolationCount",
                      GetIntValue(Instance()->FGDLSSGInterpolationCount.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kDLSSGSection, CfgKey::DLSSGRequiredReadyFrames,
+                     GetIntValue(Instance()->FGDLSSGRequiredReadyFrames.value_for_config()).c_str());
         ini.SetValue("DLSSG", "UseGamesReflexMarkers",
                      GetBoolValue(Instance()->FGDLSSGUseGamesReflexMarkers.value_for_config()).c_str());
         ini.SetValue("DLSSG", "OverrideInterpolationCount",

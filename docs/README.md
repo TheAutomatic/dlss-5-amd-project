@@ -7,6 +7,7 @@
 | 文件 | 内容 |
 |---|---|
 | [architecture/menu-navigation.md](architecture/menu-navigation.md) | 独立NR页面、窄窗口导航、卡片布局与菜单背景模糊的资源约束 |
+| [architecture/streamline-fg-activation.md](architecture/streamline-fg-activation.md) | 可选的 Streamline 帧生成就绪帧等待、默认值及验证范围 |
 | [architecture/optiscaler-upstream.md](architecture/optiscaler-upstream.md) | OptiScaler定向整合来源、已接模块、生命周期边界与延期 |
 | [mochizuki.md](mochizuki.md) | 第三后端：安装、模型提取、菜单、生命周期、构建和验证范围 |
 | [architecture/mochizuki-upstream-extensions.md](architecture/mochizuki-upstream-extensions.md) | Mochizuki 核心扩展的必要性、固定来源补丁与上游提案边界 |

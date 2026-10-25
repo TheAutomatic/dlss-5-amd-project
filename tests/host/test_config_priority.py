@@ -464,6 +464,7 @@ int main() {
                 "Quality",
                 "XeFGInterpolationCount",
                 "kXeFGSection",
+                "kDLSSGSection", "DLSSGRequiredReadyFrames",  # Host FG activation policy, no runtime alias.
                 "XeFGDynamicMFG",
                 "XeFGFramerateTargetDMFG",
                 "XeFGRoundingDMFG",
@@ -589,6 +590,7 @@ int main() {
         known = KEYS.split("kKnown[]", 1)[1]
         for key, ini_name in [
             ("XeFGTargetAsCapDMFG", "TargetAsCapDMFG"),
+            ("DLSSGRequiredReadyFrames", "RequiredReadyFrames"),
             ("LowLatencyInput", "LowLatencyInput"),
             ("LowLatencyOutput", "LowLatencyOutput"),
             ("HudfixUITexture", "HUDFixUITexture"),

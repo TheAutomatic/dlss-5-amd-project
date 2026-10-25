@@ -272,6 +272,8 @@ inline constexpr const char *XeFGRoundingDMFG = "RoundingDMFG";
 inline constexpr const char *XeFGDynamicAllow1X = "DynamicAllow1X";
 inline constexpr const char *XeFGTargetAsCapDMFG = "TargetAsCapDMFG";
 inline constexpr const char *XeFGOverrideInterpolationCount = "OverrideInterpolationCount";
+inline constexpr const char *kDLSSGSection = "DLSSG";
+inline constexpr const char *DLSSGRequiredReadyFrames = "RequiredReadyFrames";
 inline constexpr const char *LowLatencyInput = "LowLatencyInput";
 inline constexpr const char *LowLatencyOutput = "LowLatencyOutput";
 inline constexpr const char *HudfixUITexture = "HUDFixUITexture";
@@ -299,6 +301,7 @@ inline constexpr const char *const kKnown[] = {
     XeFGInterpolationCount,
     XeFGDynamicMFG, XeFGFramerateTargetDMFG, XeFGRoundingDMFG, XeFGDynamicAllow1X,
     XeFGTargetAsCapDMFG, XeFGOverrideInterpolationCount,
+    DLSSGRequiredReadyFrames,
     LowLatencyInput, LowLatencyOutput, HudfixUITexture, HudfixUIUnblend, HudfixPersistentBindings,
     "RunBeforeSR",
     "ApplyAfterRR",

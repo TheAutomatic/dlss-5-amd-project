@@ -315,7 +315,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build host and run release checks concurrently
-        timeout-minutes: 25
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 45 || 25 }}
         shell: pwsh
         run: |
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {

@@ -1,6 +1,7 @@
 #pragma once
 #include "SysUtils.h"
 #include <sl.h>
+#include "Streamline_FG_ActivationGate.h"
 
 class IFGFeature;
 
@@ -21,11 +22,15 @@ class Sl_Inputs
 
     uint64_t mvsWidth = 0;
     uint32_t mvsHeight = 0;
+    StreamlineFGActivationGate _activationGate { false };
 
-    void CheckForFrame(IFGFeature* fg, uint32_t frameId);
+    bool UseActivationGate();
+    uint32_t CheckForFrame(IFGFeature* fg, uint32_t frameId);
     int IndexForFrameId(uint32_t frameId) const;
 
   public:
+    void SetFGRequested(bool requested) { _activationGate.SetRequested(requested); }
+    void ReportEvaluate(uint32_t frameId);
     bool setConstants(const sl::Constants& constants, uint32_t frameId);
     bool evaluateState();
     // cmdBuffer is ID3D12GraphicsCommandList* or VkCommandBuffer

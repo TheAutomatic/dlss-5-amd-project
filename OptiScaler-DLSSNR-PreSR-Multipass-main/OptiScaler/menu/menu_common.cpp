@@ -4189,6 +4189,20 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
                     }
                 }
 
+                if (state.activeFgInput == FGInput::DLSSG)
+                {
+                    auto requiredReadyFrames = config->FGDLSSGRequiredReadyFrames.value_or_default();
+                    ImGui::PushItemWidth(160.0f * menuResScale);
+                    if (MenuUi::SliderInt("Ready Frames", &requiredReadyFrames, 0, 300,
+                                         requiredReadyFrames == 0 ? "0 (Off)" : "%d", ImGuiSliderFlags_AlwaysClamp))
+                        config->FGDLSSGRequiredReadyFrames = requiredReadyFrames;
+                    ImGui::PopItemWidth();
+
+                    ShowHelpMarker("Wait for consecutive frames with depth, motion vectors and camera data before enabling FG.\n"
+                                   "Applies to Streamline / DLSSG input. 0 keeps normal activation.\n"
+                                   "Positive values also require the game to request FG. Changes apply on the next activation.");
+                }
+
                 if (showHudCutoff)
                 {
                     float fgHudCutoff = config->FGHudCutoff.value_or_default();

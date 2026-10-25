@@ -325,7 +325,7 @@ class InstallerExitTests(unittest.TestCase):
         )
         ini = self.game / "OptiScaler.ini"
         ini.write_text("[DlssNr]\nLmxxfFitLarge=false\nLmxxfPdl=false\n", encoding="utf-8")
-        code, output = self.run_batch(stdin="n\n2\n")
+        code, output = self.run_batch(stdin="n\n3\n2\n")
         self.assertEqual(code, 0, output)
         text = ini.read_text(encoding="utf-8-sig")
         self.assertIn("DLSS5_FIT_LARGE = false", text)
@@ -1344,7 +1344,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_setup_no_overwrites_legacy_without_uninstall_or_second_proxy_prompt(self):
         self.ready_legacy_install()
-        code, output = self.run_batch(stdin="n\n")
+        code, output = self.run_batch(stdin="n\n3\n2\n")
         self.assertEqual(code, 0, output)
         self.assertEqual(output.count("Existing OptiScaler installation detected"), 1, output)
         self.assertIn("Recommended: uninstall before installing this version", output)
@@ -1376,7 +1376,7 @@ class InstallerExitTests(unittest.TestCase):
         backup = self.game / "backup-amd-presr-existing"
         backup.mkdir()
         (backup / "keep.bin").write_bytes(b"old backup")
-        code, output = self.run_batch(stdin="Y\n")
+        code, output = self.run_batch(stdin="Y\n3\n1\n")
         self.assertEqual(code, 0, output)
         self.assertIn("Uninstall SUCCEEDED.", output)
         self.assertIn("Install SUCCEEDED.", output)
@@ -1402,7 +1402,7 @@ class InstallerExitTests(unittest.TestCase):
         (self.package / 'OptiScaler.dll').rename(release / 'OptiScaler.dll')
         shutil.copy2(self.package / 'Uninstall_OptiScaler_NR.ps1', release / 'Uninstall_OptiScaler_NR.ps1')
         write_ps(self.package / 'Uninstall_OptiScaler_NR.ps1', "throw 'stale root uninstaller ran'\n")
-        code, output = self.run_batch(stdin='Y\n')
+        code, output = self.run_batch(stdin='Y\n3\n1\n')
         self.assertEqual(code, 0, output)
         self.assert_uninstaller_path(output, release / 'Uninstall_OptiScaler_NR.ps1')
         self.assertNotIn('stale root uninstaller ran', output)
@@ -1413,7 +1413,8 @@ class InstallerExitTests(unittest.TestCase):
         self.ready_legacy_install()
         args = [str(PS), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                 str(self.package / "Setup.ps1"), "-GameDir", str(self.game), "-NoPause"]
-        code, output = self.run_process(args, "NO\n1\n")
+        # Overwrite installation, dxgi proxy, Original model, then overwrite INI.
+        code, output = self.run_process(args, "NO\n1\n3\n1\n")
         self.assertEqual(code, 0, output)
         self.assertLess(output.index("Existing OptiScaler installation detected"), output.index("Which proxy DLL"))
 
@@ -1432,7 +1433,7 @@ class InstallerExitTests(unittest.TestCase):
         write_ps(self.package / "Uninstall_OptiScaler_NR.ps1",
                  "param($GameDir, [switch]$NonInteractive, [switch]$NoPause)\nexit 7\n")
         before = snapshot_files(self.game)
-        code, output = self.run_batch(stdin="Y\n")
+        code, output = self.run_batch(stdin="Y\n3\n1\n")
         self.assertEqual(code, 1, output)
         self.assertIn("Uninstall failed (exit code 7)", output)
         self.assertNotIn("Install SUCCEEDED", output)
@@ -1488,7 +1489,7 @@ class InstallerExitTests(unittest.TestCase):
     def test_setup_clean_reinstall_from_package_in_game_preserves_its_sources(self):
         self.ready_lmxxf_dual_arch()
         (self.package / "dxgi.dll").write_bytes(b"fixture proxy")
-        code, output = self.run_batch(game=self.package, stdin="Y\n")
+        code, output = self.run_batch(game=self.package, stdin="Y\n3\n")
         self.assertEqual(code, 0, output)
         self.assertIn("Uninstall SUCCEEDED.", output)
         self.assertTrue((self.package / "LmxxfNrRuntime.dll").is_file())

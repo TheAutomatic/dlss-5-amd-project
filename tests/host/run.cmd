@@ -1,6 +1,7 @@
 @echo off
 rem Host-contract tests. Every *.cpp in tests\host belongs to exactly one tier below.
-rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|all] [out-dir]
+rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|all] [out-dir]
+rem   streamline : standalone CPU Streamline FG activation-gate tests only (also included in ci).
 rem   ci     : CPU only, no GPU. nr_backend_selector, amd_submission_state, amd_graphics_{snapshot,
 rem            tracker,restore,restore_dx12,invocation,native_hooks}, amd_runtime_host_load (+ its
 rem            generated fixture PE), amd_retirement_diagnostics, and hip_load.ps1 (amd_hip_load +
@@ -35,7 +36,8 @@ if /i "%TIER%"=="release" goto release
 if /i "%TIER%"=="xefg" goto Xefg
 if /i "%TIER%"=="nr-coverage" goto NrCoverage
 if /i "%TIER%"=="input-menu" goto InputMenu
-echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|all] [out-dir]
+if /i "%TIER%"=="streamline" goto Streamline
+echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|all] [out-dir]
 exit /b 2
 
 :InputMenu
@@ -49,6 +51,7 @@ echo host input-menu: PASS
 exit /b 0
 
 :ci
+call :Streamline || goto fail
 call :NrCoverage || goto fail
 "%AMD_TEST_PYTHON%" -B tests\mochizuki\test_direct_recording.py || goto fail
 %CXX% /utf-8 tests\host\mochizuki_network_shortcut.cpp /Fe"%OUT%\mochizuki_network_shortcut.exe" /Fo"%OUT%\mochizuki_network_shortcut.obj" || goto fail
@@ -150,6 +153,12 @@ if /i not "%TIER%"=="all" exit /b 0
 %CXX% /utf-8 tests\host\amd_graphics_d3.cpp /Fe"%OUT%\amd_graphics_d3.exe" /Fo"%OUT%\amd_graphics_d3.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\amd_graphics_d3.exe" || goto fail
 echo host device: PASS
+exit /b 0
+
+:Streamline
+%CXX% /utf-8 tests\host\streamline_fg_activation_gate.cpp /Fe"%OUT%\streamline_fg_activation_gate.exe" /Fo"%OUT%\streamline_fg_activation_gate.obj" || exit /b 1
+"%OUT%\streamline_fg_activation_gate.exe" || exit /b 1
+echo host streamline: PASS
 exit /b 0
 
 :NrCoverage

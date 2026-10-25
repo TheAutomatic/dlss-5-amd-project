@@ -4,6 +4,7 @@
 #include <sl1.h>
 #include <d3d12.h>
 #include <framegen/IFGFeature_Dx12.h>
+#include "Streamline_FG_ActivationGate.h"
 
 #include <mutex>
 #include <unordered_map>
@@ -37,7 +38,9 @@ class Sl1_Inputs_Dx12
 
     uint64_t mvsWidth = 0;
     uint32_t mvsHeight = 0;
+    StreamlineFGActivationGate _activationGate { false };
 
+    bool UseActivationGate();
     static uint64_t TagKey(uint32_t id, sl1::BufferType type);
     static bool IsTrue(sl1::Boolean value) { return value == sl1::eTrue; }
 
@@ -52,5 +55,6 @@ class Sl1_Inputs_Dx12
     bool setTag(const sl1::Resource* resource, sl1::BufferType type, uint32_t id, const sl1::Extent* extent);
     bool evaluateFeature(sl1::CommandBuffer* cmdBuffer, sl1::Feature feature, uint32_t frameIndex, uint32_t id);
     bool evaluateState();
+    void ReportEvaluate(uint32_t frameIndex);
     void markPresent(uint64_t frameIndex);
 };

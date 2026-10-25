@@ -79,6 +79,32 @@ class WorkerTests(unittest.TestCase):
     def test_failure_still_joins_other_worker_and_fails_parent(self):
         self.exercise(True)
 
+    def test_test_worker_restores_windows_powershell_module_discovery(self):
+        with tempfile.TemporaryDirectory(prefix='ci modules ') as temp:
+            root = Path(temp)
+            script = root / 'tools/build/build-ci.ps1'
+            script.parent.mkdir(parents=True)
+            shutil.copy2(ROOT / 'tools/build/build-ci.ps1', script)
+            tests = root / 'tests'
+            tests.mkdir()
+            # Replace the expensive suite; retain the real worker environment and result handling.
+            (tests / 'run-all.cmd').write_text('''@echo off
+if defined PSModulePath exit /b 17
+powershell -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; $null=Get-Command Get-FileHash; Write-Output 'PS51_MODULE_DISCOVERY_OK'"
+if errorlevel 1 exit /b 18
+mkdir exports\\release-ci\\tests\\runtime
+echo test-fixture>exports\\release-ci\\tests\\runtime\\LmxxfNrRuntime.dll
+echo test-fixture>exports\\release-ci\\tests\\runtime-ci.sha256
+exit /b 0
+''', encoding='ascii')
+            env = {key.upper(): value for key, value in os.environ.items()}
+            env['PSMODULEPATH'] = str(root / 'incompatible-modules')
+            result = subprocess.run(['pwsh', '-NoProfile', '-File', str(script), '-Worker', 'tests'],
+                                    env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('PS51_MODULE_DISCOVERY_OK', result.stdout)
+            self.assertEqual((root / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll').read_bytes().strip(), b'test-fixture')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

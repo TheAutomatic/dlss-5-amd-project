@@ -6,6 +6,13 @@
 #include <resource_tracking/ResTrack_dx12.h>
 #include <sl1_reflex.h>
 
+bool Sl1_Inputs_Dx12::UseActivationGate()
+{
+    const bool enabled = Config::Instance()->FGDLSSGRequiredReadyFrames.value_or_default() > 0;
+    _activationGate.SetEnabled(enabled);
+    return enabled;
+}
+
 uint64_t Sl1_Inputs_Dx12::TagKey(uint32_t id, sl1::BufferType type)
 {
     return (static_cast<uint64_t>(id) << 32) | static_cast<uint32_t>(type);
@@ -13,6 +20,9 @@ uint64_t Sl1_Inputs_Dx12::TagKey(uint32_t id, sl1::BufferType type)
 
 void Sl1_Inputs_Dx12::CheckForFrame(IFGFeature_Dx12* fg, uint32_t frameIndex)
 {
+    if (UseActivationGate())
+        fg->CancelPendingActivation();
+
     std::scoped_lock lock(_frameBoundaryMutex);
 
     if (frameIndex != 0)
@@ -75,6 +85,9 @@ bool Sl1_Inputs_Dx12::setTag(const sl1::Resource* resource, sl1::BufferType type
 
 bool Sl1_Inputs_Dx12::setConstants(const sl1::Constants& constants, uint32_t frameIndex, uint32_t id)
 {
+    // Keep the latest game request even when the readiness wait or the FG output is disabled.
+    _activationGate.SetRequested(!IsTrue(constants.notRenderingGameFrames));
+
     {
         std::scoped_lock lock(_mutex);
         lastConstants = constants;
@@ -93,6 +106,10 @@ bool Sl1_Inputs_Dx12::applyConstants(const sl1::Constants& values, uint32_t fram
 
     auto data = values;
     auto config = Config::Instance();
+    const bool useActivationGate = UseActivationGate();
+
+    if (useActivationGate)
+        _activationGate.ReportConstants(frameIndex, IsTrue(data.reset));
 
     FG_Constants fgConstants {};
     fgConstants.displayWidth = 0;
@@ -127,7 +144,19 @@ bool Sl1_Inputs_Dx12::applyConstants(const sl1::Constants& values, uint32_t fram
         config->SaveXeFG();
     }
 
+    if (useActivationGate)
+        fgOutput->CancelPendingActivation();
+    const bool wasActiveBeforeEvaluate = useActivationGate && fgOutput->IsActive();
+
     fgOutput->EvaluateState(State::Instance().currentD3D12Device, fgConstants);
+
+    // Context creation may activate the provider before the readiness threshold is reached.
+    if (useActivationGate && !wasActiveBeforeEvaluate)
+    {
+        if (fgOutput->IsActive())
+            fgOutput->Deactivate();
+        fgOutput->CancelPendingActivation();
+    }
 
     if (!config->IsFGEnabled())
     {
@@ -135,20 +164,23 @@ bool Sl1_Inputs_Dx12::applyConstants(const sl1::Constants& values, uint32_t fram
         return true;
     }
 
-    if (fgOutput->IsActive() && IsTrue(lastConstants.notRenderingGameFrames))
+    if (!useActivationGate)
     {
-        fgOutput->Deactivate();
-        fgOutput->UpdateTarget();
-        return true;
-    }
-    else if (!fgOutput->IsActive() && !fgOutput->IsPaused() && !IsTrue(lastConstants.notRenderingGameFrames))
-    {
-        fgOutput->Activate();
-    }
-    else if (!fgOutput->IsActive() || fgOutput->IsPaused())
-    {
-        LOG_TRACE("SL1 FG not active or paused (A:{}, P:{})", fgOutput->IsActive(), fgOutput->IsPaused());
-        return true;
+        if (fgOutput->IsActive() && IsTrue(lastConstants.notRenderingGameFrames))
+        {
+            fgOutput->Deactivate();
+            fgOutput->UpdateTarget();
+            return true;
+        }
+        else if (!fgOutput->IsActive() && !fgOutput->IsPaused() && !IsTrue(lastConstants.notRenderingGameFrames))
+        {
+            fgOutput->Activate();
+        }
+        else if (!fgOutput->IsActive() || fgOutput->IsPaused())
+        {
+            LOG_TRACE("SL1 FG not active or paused (A:{}, P:{})", fgOutput->IsActive(), fgOutput->IsPaused());
+            return true;
+        }
     }
 
     auto loadCameraMatrix = [&]()
@@ -298,6 +330,9 @@ bool Sl1_Inputs_Dx12::reportCachedResource(const CachedTag& tag, ID3D12GraphicsC
 
         res.type = FG_ResourceType::Depth;
         fgOutput->SetResource(&res);
+
+        if (UseActivationGate())
+            _activationGate.ReportDepth(frameIndex, res.width, res.height);
     }
     else if (tag.type == sl1::eBufferTypeMVec)
     {
@@ -316,6 +351,9 @@ bool Sl1_Inputs_Dx12::reportCachedResource(const CachedTag& tag, ID3D12GraphicsC
         mvsWidth = res.width;
         mvsHeight = res.height;
         fgOutput->SetResource(&res);
+
+        if (UseActivationGate())
+            _activationGate.ReportMotionVectors(frameIndex, res.width, res.height);
     }
     else if (tag.type == sl1::eBufferTypeHUDLessColor)
     {
@@ -333,6 +371,9 @@ bool Sl1_Inputs_Dx12::reportCachedResource(const CachedTag& tag, ID3D12GraphicsC
         res.type = FG_ResourceType::HudlessColor;
         fgOutput->SetInterpolationRect(res.width, res.height);
         fgOutput->SetResource(&res);
+
+        if (UseActivationGate())
+            _activationGate.ReportInterpolationSize(res.width, res.height);
     }
     else
     {
@@ -429,6 +470,32 @@ bool Sl1_Inputs_Dx12::evaluateState()
 
     LOG_FUNC();
 
+    if (UseActivationGate())
+    {
+        auto& state = State::Instance();
+        auto config = Config::Instance();
+        const auto requiredReadyFrames = static_cast<uint32_t>(config->FGDLSSGRequiredReadyFrames.value_or_default());
+        fgOutput->CancelPendingActivation();
+
+        const auto action = _activationGate.Evaluate(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+                                                     fgOutput->IsActive(), fgOutput->IsPaused(), requiredReadyFrames);
+        if (action == StreamlineFGActivationGate::Action::Deactivate)
+        {
+            LOG_INFO("Streamline FG activation gate disabling SL1 FG");
+            fgOutput->Deactivate();
+            fgOutput->UpdateTarget();
+        }
+        else if (action == StreamlineFGActivationGate::Action::Activate &&
+                 _activationGate.ConfirmActivation(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+                                                    fgOutput->IsPaused(), requiredReadyFrames))
+        {
+            LOG_INFO("Streamline FG activation gate enabling SL1 FG after {} ready frames",
+                     _activationGate.ReadyFrameCount());
+            fgOutput->Activate();
+            _activationGate.ReportActivationResult(fgOutput->IsActive());
+        }
+    }
+
     static UINT64 lastFrameCount = 0;
     static UINT64 repeatsInRow = 0;
     if (lastFrameCount == fgOutput->FrameCount())
@@ -452,12 +519,21 @@ bool Sl1_Inputs_Dx12::evaluateState()
     return true;
 }
 
+void Sl1_Inputs_Dx12::ReportEvaluate(uint32_t frameIndex)
+{
+    if (UseActivationGate())
+        _activationGate.ReportEvaluate(frameIndex);
+}
+
 void Sl1_Inputs_Dx12::markPresent(uint64_t frameIndex)
 {
     std::scoped_lock lock(_frameBoundaryMutex);
     LOG_TRACE("SL1 frameIndex: {}", frameIndex);
     _isFrameFinished = true;
     _lastPresentFrameId = static_cast<uint32_t>(frameIndex);
+
+    if (UseActivationGate())
+        _activationGate.ReportPresent(static_cast<uint32_t>(frameIndex));
 
     if (State::Instance().currentFG != nullptr)
         State::Instance().currentFG->SetFrameCount(frameIndex);

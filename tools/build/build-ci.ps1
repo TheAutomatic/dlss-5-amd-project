@@ -23,6 +23,8 @@ if ($Worker -eq 'host') {
     exit 0
 }
 if ($Worker -eq 'tests') {
+    # Let Windows PowerShell 5.1 children discover their own modules instead of inheriting pwsh's modules.
+    $env:PSModulePath = $null
     # This entrypoint always tests its own newly built lmxxf DLL.
     $env:LMXXF_TEST_RUNTIME = $null
     $tier = if ($FullRegression) { 'ci' } else { 'release' }

@@ -212,7 +212,7 @@ class LauncherWorkerTests(unittest.TestCase):
         pkg, game, exe = self.standalone_worker()
         code, result, events = self.invoke(pkg / WORKER.name, "inspect", exe)
         self.assertEqual(code, 0, events + str(result))
-        self.assertEqual(Path(result["packageRoot"]), pkg)
+        self.assertTrue(Path(result["packageRoot"]).samefile(pkg))
         backends = {b["id"]: b for b in result["backends"]}
         self.assertEqual(backends["lmxxf"]["hints"], ["lmxxf-original", "lmxxf-small"])
         self.assertEqual(set(backends["lmxxf"]["missingPackageFiles"]), {
@@ -384,7 +384,7 @@ class LauncherWorkerTests(unittest.TestCase):
                 self.assertEqual(code, 0, events + str(result))
                 marker = game / "used-script.txt"
                 self.assertTrue(marker.exists(), events)
-                self.assertEqual(Path(marker.read_text()), update / script_name)
+                self.assertTrue(Path(marker.read_text()).samefile(update / script_name))
                 marker.unlink()
 
     def test_empty_or_invalid_backend_selection_stops_before_setup(self):
@@ -426,7 +426,7 @@ class LauncherWorkerTests(unittest.TestCase):
         self.assertEqual(code, 0, events)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["schema"], 1)
-        self.assertEqual(result["effectiveGameDir"], str(d))
+        self.assertTrue(Path(result["effectiveGameDir"]).samefile(d))
         self.assertIn("version.dll", [c["name"] for c in result["candidates"]])
         self.assertNotIn("dinput8.dll", [c["name"] for c in result["candidates"]])
 
@@ -498,7 +498,7 @@ class LauncherWorkerTests(unittest.TestCase):
         shutil.copy2(Path(os.environ["SystemRoot"]) / "System32/whoami.exe", exe)
         code, result, events = self.invoke(WORKER, "inspect", exe)
         self.assertEqual(code, 0, events)
-        self.assertEqual(Path(result["effectiveGameDir"]), folder)
+        self.assertTrue(Path(result["effectiveGameDir"]).samefile(folder))
 
     def test_foreign_proxy_key_value_array_is_accepted(self):
         d = Path(tempfile.mkdtemp(prefix="launcher-kv-"))

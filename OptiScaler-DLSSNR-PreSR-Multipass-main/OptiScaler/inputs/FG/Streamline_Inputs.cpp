@@ -4,8 +4,19 @@
 #include <resource_tracking/ResTrack_dx12.h>
 #include <magic_enum.hpp>
 
-void Sl_Inputs::CheckForFrame(IFGFeature* fg, uint32_t frameId)
+bool Sl_Inputs::UseActivationGate()
 {
+    const bool enabled = Config::Instance()->FGDLSSGRequiredReadyFrames.value_or_default() > 0;
+    _activationGate.SetEnabled(enabled);
+    return enabled;
+}
+
+uint32_t Sl_Inputs::CheckForFrame(IFGFeature* fg, uint32_t frameId)
+{
+    // NewFrame can otherwise reactivate a pending FG context before evaluateState sees the gate.
+    if (UseActivationGate())
+        fg->CancelPendingActivation();
+
     std::scoped_lock lock(_frameBoundaryMutex);
 
     const bool presentMarked = _isFrameFinished && _lastPresentFrameId == _currentFrameId;
@@ -37,6 +48,9 @@ void Sl_Inputs::CheckForFrame(IFGFeature* fg, uint32_t frameId)
         _currentFrameId = frameId;
         _frameIdIndex[_currentIndex] = _currentFrameId;
     }
+
+    // Preserve explicit tokens: a delayed resource callback can belong to an older frame.
+    return frameId != 0 ? frameId : _currentFrameId;
 }
 
 int Sl_Inputs::IndexForFrameId(uint32_t frameId) const
@@ -84,6 +98,10 @@ bool Sl_Inputs::setConstants(const sl::Constants& values, uint32_t frameId)
     if (dataFound)
     {
         auto config = Config::Instance();
+        const bool useActivationGate = UseActivationGate();
+
+        if (useActivationGate)
+            _activationGate.ReportConstants(frameId, data.reset == sl::Boolean::eTrue);
 
         // FG Evaluate part
         FG_Constants fgConstants {};
@@ -125,17 +143,30 @@ bool Sl_Inputs::setConstants(const sl::Constants& values, uint32_t frameId)
             config->SaveXeFG();
         }
 
+        if (useActivationGate)
+            fgOutput->CancelPendingActivation();
+        const bool wasActiveBeforeEvaluate = useActivationGate && fgOutput->IsActive();
+
         if (state.currentFG != nullptr)
             state.currentFG->EvaluateState(state.currentD3D12Device, fgConstants);
         else
             state.currentVkFG->EvaluateState(fgConstants);
+
+        // FSR can auto-activate during context creation/recreation, before the input gate permits it.
+        // An already-running output remains uninterrupted when the user enables the wait at runtime.
+        if (useActivationGate && !wasActiveBeforeEvaluate)
+        {
+            if (fgOutput->IsActive())
+                fgOutput->Deactivate();
+            fgOutput->CancelPendingActivation();
+        }
 
         if (!config->IsFGEnabled())
         {
             LOG_TRACE("FG not enabled");
             return true;
         }
-        else
+        else if (!useActivationGate)
         {
             if (!fgOutput->IsActive() && !fgOutput->IsPaused())
             {
@@ -261,6 +292,32 @@ bool Sl_Inputs::evaluateState()
 
     LOG_FUNC();
 
+    if (UseActivationGate())
+    {
+        auto& state = State::Instance();
+        auto config = Config::Instance();
+        const auto requiredReadyFrames = static_cast<uint32_t>(config->FGDLSSGRequiredReadyFrames.value_or_default());
+        fgOutput->CancelPendingActivation();
+
+        const auto action = _activationGate.Evaluate(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+                                                     fgOutput->IsActive(), fgOutput->IsPaused(), requiredReadyFrames);
+        if (action == StreamlineFGActivationGate::Action::Deactivate)
+        {
+            LOG_INFO("Streamline FG activation gate disabling SL2 FG");
+            fgOutput->Deactivate();
+            fgOutput->UpdateTarget();
+        }
+        else if (action == StreamlineFGActivationGate::Action::Activate &&
+                 _activationGate.ConfirmActivation(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+                                                    fgOutput->IsPaused(), requiredReadyFrames))
+        {
+            LOG_INFO("Streamline FG activation gate enabling SL2 FG after {} ready frames",
+                     _activationGate.ReadyFrameCount());
+            fgOutput->Activate();
+            _activationGate.ReportActivationResult(fgOutput->IsActive());
+        }
+    }
+
     static UINT64 lastFrameCount = 0;
     static UINT64 repeatsInRow = 0;
     if (lastFrameCount == fgOutput->FrameCount())
@@ -282,6 +339,12 @@ bool Sl_Inputs::evaluateState()
     }
 
     return true;
+}
+
+void Sl_Inputs::ReportEvaluate(uint32_t frameId)
+{
+    if (UseActivationGate())
+        _activationGate.ReportEvaluate(frameId);
 }
 
 static std::optional<FG_ResourceType> GetResourceType(sl::BufferType type)
@@ -325,7 +388,7 @@ bool Sl_Inputs::reportResource(const sl::ResourceTag& tag, void* cmdBuffer, uint
     LOG_DEBUG("Reporting SL resource type: {} lifecycle: {} frameId: {}", tag.type,
               magic_enum::enum_name(tag.lifecycle), frameId);
 
-    CheckForFrame(fgOutput, frameId);
+    const auto trackedFrameId = CheckForFrame(fgOutput, frameId);
 
     if (tag.resource->native == nullptr)
     {
@@ -443,6 +506,16 @@ bool Sl_Inputs::reportResource(const sl::ResourceTag& tag, void* cmdBuffer, uint
         state.currentFG->SetResource(&res);
     }
 
+    if (UseActivationGate())
+    {
+        if (type == FG_ResourceType::Depth)
+            _activationGate.ReportDepth(trackedFrameId, width, height);
+        else if (type == FG_ResourceType::Velocity)
+            _activationGate.ReportMotionVectors(trackedFrameId, width, height);
+        else if (type == FG_ResourceType::HudlessColor || type == FG_ResourceType::UIColor)
+            _activationGate.ReportInterpolationSize(width, height);
+    }
+
     return true;
 }
 
@@ -458,6 +531,9 @@ void Sl_Inputs::markPresent(uint64_t frameId)
     LOG_TRACE("frameId: {}", frameId);
     _isFrameFinished = true;
     _lastPresentFrameId = static_cast<uint32_t>(frameId);
+
+    if (UseActivationGate())
+        _activationGate.ReportPresent(static_cast<uint32_t>(frameId));
 
     if (auto fg = State::Instance().CurrentFG(); fg != nullptr)
         fg->SetFrameCount(frameId);
