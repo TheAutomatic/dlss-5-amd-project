@@ -220,6 +220,17 @@ shader 本体与 class instances(深度转换会改掉)、常量缓冲区区间�
 
 菜单虚基下转崩溃(bdd11179)与 `_ffxFGIndex` 越界是**我们集成时引入**(上游无此代码/上游本有上界保护),不属于上游问题,已在 decisions.md 记录。
 
+
+## 上游状态核对(2026-10-25,c2876a76e)
+
+上游 master 自 990ff98 新增 20 提交。与 U 台账相关的:
+- 8f0b7d875 修 XeLL Cyberprank static 缓存(非 U2 版本校验)
+- f903b2c64 修 amdxc64 钩子并发(部分缓解 U8;FSR4Models flipMeter/SDK 预热仍无锁)
+- 8f2a94358 修 Vk 侧 amdxcffx64 伪装(与 U6 无关)
+
+**结论:U1-U10 十条在上游 master@c2876a76e 全部仍存在(部分缓解不计已修)。**
+审核材料: work/scratch/upstream-issues-review.md(纯 U1-U10 抽取版,含逐条上游代码比对)。
+
 ## U10 FG 输出缓存借用资源并在不持引用的情况下延长有效期(XeFG/DLSSG/FSR-FG)
 
 **Title**: FG outputs cache borrowed resources and extend validity without holding references (XeFG/DLSSG/FSR-FG)
