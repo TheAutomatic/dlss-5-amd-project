@@ -15,7 +15,7 @@ int main()
     buffer << file.rdbuf();
     const std::string source = buffer.str();
 
-    // The expensive scan runs only in the cached helper and in Hook (explicit selection)
+    // The expensive scan runs only in the cached helper and in Hook (when hooks are allowed).
     size_t scans = 0, pos = 0;
     while ((pos = source.find("rtti::FindVtable", pos)) != std::string::npos)
     {

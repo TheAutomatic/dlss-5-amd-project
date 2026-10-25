@@ -45,6 +45,19 @@ only models exposed by the loaded provider; DX12 and Vulkan availability differs
 A model change recreates the upscaler. A capability override or an FSR4 label alone
 does not prove that the provider did not fall back to FSR3.
 
+`[FSR] Fsr4DisableDriverHooks` defaults to `false` (`auto`). Normally both preset
+and model hooks are installed even with Auto selections: `DetectedModel` drives
+INT8 support bypass/FP8 rejection, while preset correction changes preset 0 to 1
+at render ratio >= 1.49 and tracks the active preset. Set this key to `true` before
+launching an anti-cheat-sensitive game to skip both hooks in driver and SDK
+providers. Automatic model-selection support checks, preset correction/tracking,
+and explicit model/preset overrides are then unavailable; the menu and log warn
+about this. Model enumeration remains read-only and cached when unhooked.
+Explicit menu selections never bypass the opt-out. Set it to `false` and restart
+to restore hooks; late attachment on explicit selection remains available when
+hooks are allowed. This switch does not disable unrelated hooks or guarantee
+anti-cheat compatibility.
+
 AMD driver libraries are discovered from the installed driver. The intended future
 bundling of `amdxcffx64.dll`/`amdvkffx64.dll` is **not licensed for distribution on
 the evidence available**: [26.10.1 release notes](https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-10-1.html)

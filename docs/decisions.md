@@ -183,7 +183,7 @@ docs/upstream-issues.md U4);D3 INI 注释对齐新语义;D4 安装器进程检�
 纳入 `preparable`(Small 需 `small || (canExtract && smallPreparable)`)。D1/D2 上游
 同款(dllmain.cpp:1160-1168 / Config.h:484),已入上游台账 docs/upstream-issues.md。
 
-## 2026-10-22 — HSR(D3D11 + ffx_12)被内核反作弊击杀:FSR4 驱动 DLL 补丁改为显式覆盖才挂
+## 2026-10-22 — HSR 内核反作弊与 FSR4 驱动补丁（2026-10-25 改为显式 opt-out）
 
 崩坏:星穹铁道(kernel AC HoYoKProtect)上 1.13.2 起开 FSR4 超分,超分初始化与首帧
 交接全部成功后约 85ms 进程被外部终止(异常码 0x00000000、模块 unknown、无栈无 dump)。
@@ -193,12 +193,14 @@ docs/upstream-issues.md U4);D3 INI 注释对齐新语义;D4 安装器进程检�
 对内核反作弊进程修改驱动签名模块 = 击杀;与 DX11/DX12 无关(D3D12 游戏同样被钩但无
 内核 AC 故存活)。
 
-修复:两处 Hook 仅在用户显式选择(`Fsr4Preset` / `Fsr4Model` 均为 NoDefault optional)
-时执行;`FSR4Models::SelectableModels` 增加只读 RTTI 枚举分支(未挂钩模块照常列出可
-选模型,不写任何字节)并新增锁保护的 `IsModuleHooked`;菜单在首次显式选择预设/模型时
-对已加载模块延迟补挂,`(Failed to hook)` 文案区分"未请求挂钩(驱动默认)"。默认配置
-下不再触碰 amdxcffx64.dll 的代码页与虚表,恢复 1.13.1 的 AC 安全线;显式选择覆盖属
-用户自担。构建 BUILD_OK(build-release-local --fast)。实机复现待上报者验证。
+初版 `e9767600` 用 `Fsr4Preset` / `Fsr4Model.has_value()` 决定是否安装钩子，
+但这使 Auto 模式失去 `DetectedModel` 的 INT8 支持绕过/FP8 拒绝，以及 preset 0→1
+（render ratio >= 1.49）修正与 active preset 跟踪。2026-10-25 改为 `[FSR]`
+`Fsr4DisableDriverHooks`（默认 false）：正常模式无条件安装 preset/model 钩子；
+true 同时跳过驱动和 SDK DLL 的两类钩子，日志/菜单明确提示自动策略及显式覆盖不可用。
+显式菜单选择尊重 opt-out，不偷偷补挂；false 时保留延迟补挂路径。只读 RTTI 模型列表
+和按模块缓存不变。启用/关闭该启动选项需重启；并非全面关闭其它钩子或 AC 安全保证。
+原始反作弊游戏复现证据不变，本次不声称已完成游戏实测。
 
 ## 2026-10-22 — 启动器恢复 OptiPatcher 推荐安装（下载限时 + 包内回退 + CI 刷新）
 

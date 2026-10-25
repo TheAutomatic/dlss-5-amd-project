@@ -202,14 +202,18 @@ HMODULE FSR4DriverDll::Load(std::optional<LUID> actualLuid)
                            }
                        }
 
-                       // The preset hook detours code inside this driver-signed module; the model hook rewrites its
-                       // provider vtables. Kernel anti-cheat protected games (seen: Honkai Star Rail / HoYoKProtect)
-                       // terminate the process for that, so patch only on explicit user override. The menu attaches
-                       // on first explicit selection.
-                       if (Config::Instance()->Fsr4Preset.has_value())
+                       // Auto still needs DetectedModel support checks and preset correction. Only an explicit
+                       // opt-out skips these code/vtable patches for anti-cheat-sensitive games.
+                       if (!Config::Instance()->Fsr4DisableDriverHooks.value_or_default())
+                       {
                            FSR4Presets::Hook(module);
-                       if (Config::Instance()->Fsr4Model.has_value())
                            FSR4Models::Hook(module);
+                       }
+                       else
+                       {
+                           LOG_WARN("FSR4 driver hooks disabled: automatic model selection and preset correction "
+                                    "are disabled; model/preset overrides will not be applied");
+                       }
 
                        _module = module;
                    });

@@ -3184,6 +3184,15 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                    "Non-Linear / sRGB: Might improve FSR4 upscaling quality, might increase ghosting.\n"
                                    "PQ: Rarest, might increase ghosting and break lights.");
 
+                    const bool driverHooksDisabled = config->Fsr4DisableDriverHooks.value_or_default();
+                    if (driverHooksDisabled)
+                    {
+                        MenuUi::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)),
+                                            "FSR4 driver hooks disabled: automatic model selection and preset correction disabled.");
+                        ShowHelpMarker("Fsr4DisableDriverHooks=true also prevents explicit model/preset overrides.\n"
+                                       "Model listing remains read-only. Set it to false in [FSR] and restart to enable hooks.");
+                    }
+
                     // FSR 4 Presets
                     const char* presets[] = { "Default",  "Preset 0", "Preset 1", "Preset 2",
                                               "Preset 3", "Preset 4", "Preset 5" };
@@ -3200,11 +3209,9 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         else
                             config->Fsr4Preset = currentPresetIdx - 1;
 
-                        // Defer patching until an explicit override to avoid kernel anti-cheat termination.
-                        // Hook whichever module is actually serving FSR4 for this session: the driver DLL
-                        // (amdxcffx64.dll) or the SDK copy (amd_fidelityfx_upscaler_dx12.dll). Hook is
-                        // idempotent per module; hooking both is safe and covers provider switches.
-                        if (config->Fsr4Preset.has_value())
+                        // Late attach stays available unless the user explicitly opted out of all FSR4 hooks.
+                        // Hook both the driver DLL and SDK copy to cover provider switches.
+                        if (config->Fsr4Preset.has_value() && !driverHooksDisabled)
                         {
                             if (FSR4DriverProviderDx12::LoadedModule() != nullptr)
                                 FSR4Presets::Hook(FSR4DriverProviderDx12::LoadedModule());
@@ -3227,12 +3234,14 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
 
                     // Display the active preset right next to the combo box instead of using a table
                     ImGui::SameLine();
-                    if (state.currentFsr4Preset.has_value())
+                    if (driverHooksDisabled)
+                        MenuUi::TextDisabled("(Driver hooks disabled; overrides inactive)");
+                    else if (state.currentFsr4Preset.has_value())
                         MenuUi::TextDisabled("(Active: %d)", state.currentFsr4Preset.value());
                     else if (FSR4Presets::IsAnyModuleHooked())
                         MenuUi::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)), "(Potential FSR3 fallback)");
                     else if (!config->Fsr4Preset.has_value())
-                        MenuUi::TextDisabled("(Auto · follows game preset)");
+                        MenuUi::TextDisabled("(Auto · preset correction unavailable)");
                     else
                         MenuUi::TextDisabled("(Failed to hook)");
 
@@ -3269,8 +3278,8 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         }
                         if (modelChanged)
                         {
-                            // Keep provider vtables untouched until the user explicitly selects a model.
-                            if (selectedModel.has_value())
+                            // Respect the opt-out even for explicit selections; the warning explains why overrides are inactive.
+                            if (selectedModel.has_value() && !driverHooksDisabled)
                             {
                                 if (upscalerModule != nullptr && !FSR4Models::IsModuleHooked(upscalerModule))
                                     FSR4Models::Hook(upscalerModule);
@@ -3284,7 +3293,9 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         }
                         ShowHelpMarker("FSR 4 network to run. Auto lets FFX pick the best model supported by the GPU.");
                         ImGui::SameLine();
-                        if (auto activeModel = FSR4Models::ActiveModel(upscalerModule))
+                        if (driverHooksDisabled)
+                            MenuUi::TextDisabled("(Driver hooks disabled; overrides inactive)");
+                        else if (auto activeModel = FSR4Models::ActiveModel(upscalerModule))
                             MenuUi::TextDisabled("(Active: %s)", FSR4Models::Name(*activeModel));
                         else
                             MenuUi::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)), "(Auto · FFX picks)");

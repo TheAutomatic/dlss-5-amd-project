@@ -17,6 +17,116 @@ MENU = (ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/DlssNr_
 
 
 class ConfigPriorityTests(unittest.TestCase):
+    def test_fsr4_driver_hooks_opt_out_registration_and_menu(self):
+        product = ROOT / 'OptiScaler-DLSSNR-PreSR-Multipass-main'
+        header = (product / 'OptiScaler/Config.h').read_text(encoding='utf-8')
+        menu = (product / 'OptiScaler/menu/menu_common.cpp').read_text(encoding='utf-8')
+        ini = (product / 'OptiScaler.ini').read_text(encoding='utf-8')
+        key = 'Fsr4DisableDriverHooks'
+        self.assertIn(f'{key} = "{key}"', KEYS)
+        self.assertIn(f'    {key},', KEYS.split('kKnown[]', 1)[1])
+        self.assertIn(f'CustomOptional<bool> {key} {{ false }};', header)
+        self.assertRegex(ini, rf'(?m)^{key}=auto$')
+        self.assertIn('const bool driverHooksDisabled = config->Fsr4DisableDriverHooks.value_or_default();', menu)
+        self.assertIn('config->Fsr4Preset.has_value() && !driverHooksDisabled', menu)
+        self.assertIn('selectedModel.has_value() && !driverHooksDisabled', menu)
+        self.assertIn('Fsr4DisableDriverHooks=true also prevents explicit model/preset overrides.', menu)
+        self.assertIn('automatic model selection and preset correction disabled.', menu)
+        self.assertIn('FSR4Models::SelectableModels(upscalerModule)', menu)
+
+    @unittest.skipUnless(os.name == 'nt' and shutil.which('cl'), 'requires MSVC')
+    def test_fsr4_driver_hooks_config_round_trip_and_auto_installation(self):
+        product = ROOT / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler'
+        header = (product / 'Config.h').read_text(encoding='utf-8')
+        optional = header[header.index('enum HasDefaultValue'):header.index('constexpr inline int UnboundKey')]
+        field = re.search(r'    CustomOptional<bool> Fsr4DisableDriverHooks[^;]+;', header).group(0)
+        load = re.search(r'            Fsr4DisableDriverHooks.set_from_config[^;]+;', CONFIG).group(0)
+        save = re.search(r'        ini.SetValue\("FSR", CfgKey::Fsr4DisableDriverHooks,[^;]+;', CONFIG).group(0)
+        read_bool = CONFIG[CONFIG.index('std::optional<bool> Config::readBool('):CONFIG.index('// Only use for unsigned enums')]
+        get_bool = CONFIG[CONFIG.index('std::string GetBoolValue('):CONFIG.index('template <typename T> std::string GetIntValue')]
+        hook_pattern = r'if \(!Config::Instance\(\)->Fsr4DisableDriverHooks.value_or_default\(\)\)\s*\{[^{}]*\}\s*else\s*\{[^{}]*\}'
+        driver = (product / 'fsr4/FSR4DriverProvider.cpp').read_text(encoding='utf-8')
+        sdk = (product / 'proxies/FfxApi_Proxy.h').read_text(encoding='utf-8')
+        hooks = re.findall(hook_pattern, driver) + re.findall(hook_pattern, sdk)
+        self.assertEqual(len(hooks), 3, 'driver and both SDK installation paths share one opt-out')
+        source = '''
+#include <optional>
+#include <concepts>
+#include <utility>
+#include <string>
+#include <cassert>
+#include "ConfigKeys.h"
+#include "SimpleIni.h"
+''' + optional + '''
+CSimpleIniA ini;
+struct Config {
+''' + field + '''
+static Config* Instance() { static Config c; return &c; }
+std::optional<std::string> readString(std::string section, std::string key, bool) {
+    auto text = ini.GetValue(section.c_str(), key.c_str(), nullptr);
+    return text ? std::optional<std::string>(text) : std::nullopt;
+}
+std::optional<bool> readBool(std::string, std::string);
+void Read() {
+''' + load + '''
+}
+};
+''' + read_bool + get_bool + '''
+void Save() {
+''' + save.replace('Instance()->', 'Config::Instance()->') + '''
+}
+int presetHooks = 0, modelHooks = 0, warnings = 0;
+namespace FSR4Presets {void Hook(void*) { ++presetHooks; }}
+namespace FSR4Models {void Hook(void*) { ++modelHooks; }}
+#define LOG_WARN(...) (++warnings)
+void Install() {
+void* module = nullptr;
+struct {void* dll;} main_dx12{}, upscaling_dx12{};
+''' + '\n'.join(hooks) + '''
+}
+int main() {
+    for (const char* value : {"", "auto", "false", "true"}) {
+        ini.Reset();
+        auto& option = Config::Instance()->Fsr4DisableDriverHooks;
+        option.reset();
+        assert(!option.value_or_default());
+        if (*value) ini.SetValue("FSR", CfgKey::Fsr4DisableDriverHooks, value);
+        Config::Instance()->Read();
+        const bool disabled = std::string(value) == "true";
+        assert(option.value_or_default() == disabled);
+        Save();
+        assert(std::string(ini.GetValue("FSR", CfgKey::Fsr4DisableDriverHooks)) == (disabled ? "true" : "auto"));
+        option.reset();
+        Config::Instance()->Read();
+        assert(option.value_or_default() == disabled);
+        presetHooks = modelHooks = warnings = 0;
+        Install(); // Auto model/preset: no explicit selection is required to install.
+        assert(presetHooks == (disabled ? 0 : 3));
+        assert(modelHooks == (disabled ? 0 : 3));
+        assert(warnings == (disabled ? 3 : 0));
+    }
+    auto& option = Config::Instance()->Fsr4DisableDriverHooks;
+    for (bool explicitChoice : {false, true}) {
+        option = explicitChoice;
+        ini.SetValue("FSR", CfgKey::Fsr4DisableDriverHooks, explicitChoice ? "false" : "true");
+        Config::Instance()->Read();
+        assert(option.value_or_default() == explicitChoice);
+    }
+}
+'''
+        work = ROOT / 'work/scratch/config-fsr4-hooks'
+        out = ROOT / 'exports/tests/config-fsr4-hooks'
+        work.mkdir(parents=True, exist_ok=True)
+        out.mkdir(parents=True, exist_ok=True)
+        cpp, exe = work / 'hooks.cpp', out / 'hooks.exe'
+        cpp.write_text(source, encoding='utf-8')
+        build = subprocess.run(['cl', '/nologo', '/std:c++20', '/EHsc', '/utf-8', str(cpp),
+                                '/Fo' + str(out / 'hooks.obj'), '/Fe' + str(exe)],
+                               capture_output=True, text=True, errors='replace', timeout=60)
+        self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
+        run = subprocess.run([str(exe)], capture_output=True, text=True, errors='replace', timeout=10)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     @unittest.skipUnless(os.name == "nt" and shutil.which("cl"), "requires MSVC")
     def test_proxy_library_relative_override_uses_game_exe_not_working_directory(self):
         product = ROOT / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler'
@@ -474,7 +584,7 @@ int main() {
                 "XeFGFlipQueue",  # Read by MFG Unlocker 1.7.0+ (plugin-owned semantics, our ini).
                 # Host-owned public INI keys (foundation A1/A2, D1-D3, LL input, HUDless binding
                 # capture): no upstream runtime environment aliases cross the boundary.
-                "Fsr4GpuSupport", "Fsr4Model",
+                "Fsr4GpuSupport", "Fsr4Model", "Fsr4DisableDriverHooks",
                 "DynamicResolution",
                 "ReprojectionDepthCutoff", "ReprojectionFillMode", "ReprojectionCutoffExpand", "ReprojectionLateLatch",
                 "ReprojectionDirectionCache", "ReprojectionParallaxAuto", "ReprojectionParallaxScale",

@@ -334,6 +334,7 @@ bool Config::Reload(std::filesystem::path iniPath)
                     Fsr4GpuSupport.set_from_config(*v);
             }
             Fsr4Model.set_from_config(readEnum<FSR4Model>("FSR", "Fsr4Model"));
+            Fsr4DisableDriverHooks.set_from_config(readBool("FSR", CfgKey::Fsr4DisableDriverHooks));
 
             Fsr4EnableWatermark.set_from_config(readBool("FSR", "Fsr4EnableWatermark"));
             Fsr4DoNotLoadAmdxc64.set_from_config(readBool("FSR", "Fsr4DoNotLoadAmdxc64"));
@@ -1876,6 +1877,8 @@ bool Config::SaveIni()
         ini.SetValue("FSR", "Fsr4Model", GetIntValue(Instance()->Fsr4Model.value_for_config()).c_str());
         ini.Delete("FSR", "Fsr4ForceModel");
         ini.SetValue("FSR", "Fsr4Preset", GetIntValue(Instance()->Fsr4Preset.value_for_config()).c_str());
+        ini.SetValue("FSR", CfgKey::Fsr4DisableDriverHooks,
+                     GetBoolValue(Instance()->Fsr4DisableDriverHooks.value_for_config()).c_str());
         ini.SetValue("FSR", "Fsr4EnableWatermark",
                      GetBoolValue(Instance()->Fsr4EnableWatermark.value_for_config()).c_str());
         ini.SetValue("FSR", "Fsr4DoNotLoadAmdxc64",

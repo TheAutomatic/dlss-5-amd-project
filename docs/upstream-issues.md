@@ -2,12 +2,12 @@
 
 记录随上游集成带入、已在下游修复或仍待处理的缺陷,供向上游提 issue 时取证据。每条含:上游位置(9df512d 快照)、下游修复提交或状态、复现证据。
 
-## U1 FSR4 驱动签名 DLL 无条件补丁 → 内核反作弊击杀(已修)
+## U1 FSR4 驱动签名 DLL 无条件补丁 → 内核反作弊击杀（提供显式 opt-out）
 
 - 上游:`fsr4/FSR4DriverProvider.cpp:144-145` 加载 amdxcffx64.dll 后无条件 `FSR4Presets::Hook`(代码页 Detours)+ `FSR4Models::Hook`(provider 虚表改写)。
 - 危害:崩坏:星穹铁道(HoYoKProtect 内核反作弊)超分首帧交接后 ~85ms 进程被外部终止(异常码 0x00000000、无栈、无 dump);1.13.1-alpha 同 DLL 不补丁存活 9.5 分钟。
-- 下游修复:`e9767600`——仅 `Fsr4Preset`/`Fsr4Model` 显式设置才挂钩;`SelectableModels` 只读 RTTI 枚举 + `IsModuleHooked`;菜单首次选择延迟补挂。
-- 建议:上游对 driver-signed 模块默认零补丁,或至少提供开关。
+- 当前修复（2026-10-25）：`[FSR] Fsr4DisableDriverHooks` 默认 false，驱动/SDK 的 preset/model 钩子照常安装，包括 Auto。true 才跳过两类钩子，菜单/日志告知自动模型选择支持检查、预设修正/跟踪及显式覆盖不可用；显式选择不绕过 opt-out。
+- 旧 `e9767600`/`85df65da` 的 has_value 门会破坏 Auto 的 DetectedModel/CorrectedPreset 行为，现已替换。只读 RTTI 枚举及 `e4f05d79` 模块扫描缓存保留；false 时保留菜单延迟补挂。建议上游采用同一 opt-out，而非默认零补丁；该键不保证全面 AC 兼容。
 
 ## U2 XeLL 配对缺校验 → 旧 XeSS 栈游戏 XeFG 启动崩(已修;**需对上游复验,暂缓提交**)
 
@@ -72,23 +72,23 @@ OptiPatcher 成功(dllmain:301/361,关)、Luma/Sekiro TSR(1349/1378,关)、游�
 
 ## 上游同步审计(2026-10-23,9df512d → 990ff98,19 commits)
 
-上游快照落后 19 个提交,已全量比对。结论:**我们修复的 5 个问题上游全部未修**(still-broken),
-上游有 3 个新修复我们缺(we-lack)。无一方方案需替换——上游的新代码不与我们的门控冲突,
-我们的 5 个修复保持不动。
+上游快照落后 19 个提交,已全量比对。当时的 5 个问题上游全部未修，另有 3 个新修复。
+2026-10-25 勘误：U1/U1b 的 has_value 门与 Auto 策略确有冲突，已替换为统一 opt-out；
+其余修复不变。下表保留提交溯源并标明当前方案。
 
 ### A. 我们已修、上游仍未修(提 issue 的候选,附下游证据)
 
 | # | 问题 | 上游位置(990ff98) | 下游修复 |
 |---|---|---|---|
-| U1 | 驱动 DLL 无条件钩子 → AC 击杀 | fsr4/FSR4DriverProvider.cpp:181-182 | e9767600(Fsr4Preset/Fsr4Model has_value 门) |
-| U1b | SDK DLL 无条件钩子(同 AC 面 + ZZZ 卡顿源) | proxies/FfxApi_Proxy.h:285-286,433-434 | 85df65da(同款门控,双 DLL 四处) |
+| U1 | 驱动 DLL 无条件钩子 → AC 击杀 | fsr4/FSR4DriverProvider.cpp:181-182 | e9767600 的 has_value 门已替换为 Fsr4DisableDriverHooks opt-out |
+| U1b | SDK DLL 无条件钩子(同 AC 面 + ZZZ 卡顿源) | proxies/FfxApi_Proxy.h:285-286,433-434 | 85df65da 的 has_value 门已替换为同一 opt-out，两处 SDK 加载路径均生效 |
 | U2 | XeLL 配对无版本校验 → 旧栈崩 | framegen/xefg/XeFG_Dx12.cpp:110-112 | 3182b248(BundledVersion 比对) |
 | U3 | Win10 Agility 0<615 陷阱 | dllmain.cpp:1160-1167(无 >0 下限) | 2138e127(gameAgilityVersion > 0 门) |
 | U4 | FsrAgilitySDKUpgrade WithDefault{false} 显式值存不住 | Config.h:485 | 2138e127(改 NoDefault) |
 
 注:上游 d8aebe4 "Improve auto model selection" 给 hkIsSupported 加了 DetectedModel() 回退,
 **不是** ZZZ 卡顿修复——它仍每次调用 o_IsSupported、无缓存、钩子仍无条件安装;只改了
-Auto 时的模型选择策略(INT8 检测到就当已选)。与我们的门控不冲突,也不构成替换方案。
+Auto 时的模型选择策略(INT8 检测到就当已选)。旧 has_value 门使该 Auto 分支不可达；现在默认安装钩子以保留它，只有显式 opt-out 才关闭。
 
 ### B. 上游新修复、我们缺(移植候选)
 
@@ -100,19 +100,19 @@ Auto 时的模型选择策略(INT8 检测到就当已选)。与我们的门控�
 | P4 | d8aebe4 FSR4 Auto 模型选择改进 | DetectedModel() 回退 + FP8 抑制 | **策略层已移植**(a7537612,见下);IdentifyGpu.cpp 检测精化跳过(与 65ee5d6 重叠,待同步窗口) |
 
 
-### P4 移植说明(2026-10-23,与门控并存)
+### P4 移植说明（2026-10-23；2026-10-25 更新 opt-out 语义）
 
 d8aebe4 三部分,移植两部分、跳过一部分:
 
 1. **FSR4Models.cpp `DetectedModel()` + `hkIsSupported` 策略**——已移植。INT8/INT8_2/INT8Lite 检测值
-   映射为模型;selected 未设置时回退检测值(门控下不可达,保留与上游行为一致);FP8 抑制分支(显式
-   选择跑不动时不让 FFX 落到 FP8);device==nullptr 跳过 lastReportedSupport。
+   映射为模型；selected 未设置时回退检测值（默认安装钩子时可达）；FP8 抑制分支（显式
+   选择跑不动时不让 FFX 落到 FP8）；device==nullptr 跳过 lastReportedSupport。
 2. **FSR4DriverProviderDx12.cpp FP8 仿真门**——已移植。仿真 FP8 wave matrix 只对 FG 模块和显式 FP8
    超分开放(INT8 GPU 上 FFX 默认选 FP8 质量差/慢)。
 3. **IdentifyGpu.cpp 140 行**——跳过。与 65ee5d6 重叠,无 GPU 实测不整体搬;现有检测喂同一枚举,
    策略层已完整生效。
 
-卡顿不受影响:门控不变,Auto(未显式选模型)依然零挂钩。
+卡顿规避现在需显式设置 `Fsr4DisableDriverHooks=true`，Auto 本身不再隐式禁钩。该 opt-out 同时关闭预设修正和显式覆盖，菜单会提示；未新增游戏性能/AC 实测结论。
 ### C. 剩余提交处理记录(二批 + 三批)
 
 勘误(2026-10-24):初版把 b686ef4/824a7b7/62887bf(Vulkan FSR4 支持、FG 隐藏、VK 管线 workaround)

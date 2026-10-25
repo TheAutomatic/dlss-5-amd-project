@@ -28,6 +28,7 @@ inline constexpr const char *FpsOverlayShowRatio = "FpsOverlayShowRatio";
 inline constexpr const char *kSection = "DlssNr";
 inline constexpr const char *Fsr4GpuSupport = "Fsr4GpuSupport";
 inline constexpr const char *Fsr4Model = "Fsr4Model";
+inline constexpr const char *Fsr4DisableDriverHooks = "Fsr4DisableDriverHooks";
 inline constexpr const char *DynamicResolution = "DynamicResolution";
 inline constexpr const char *ReprojectionDepthCutoff = "DepthCutoff";
 inline constexpr const char *ReprojectionFillMode = "FillMode";
@@ -292,6 +293,7 @@ inline constexpr const char *Async = "Async";
 inline constexpr const char *const kKnown[] = {
     Fsr4GpuSupport,
     Fsr4Model,
+    Fsr4DisableDriverHooks,
     DynamicResolution,
     ReprojectionDepthCutoff,
     ReprojectionFillMode, ReprojectionCutoffExpand, ReprojectionLateLatch, ReprojectionDirectionCache,
