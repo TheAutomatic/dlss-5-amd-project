@@ -48,24 +48,7 @@ class XeFG_Dx12 : public virtual IFGFeature_Dx12
     bool DestroySwapchainContext();
     xefg_swapchain_d3d12_resource_data_t GetResourceData(FG_ResourceType type, int index = -1);
 
-    // Separate from the borrowed cache so slot reuse cannot orphan the reference.
-    struct PresentResourceReference
-    {
-        ID3D12Resource* resource = nullptr;
-        std::shared_mutex* mutex = nullptr;
-
-        PresentResourceReference() = default;
-        PresentResourceReference(const PresentResourceReference&) = delete;
-        PresentResourceReference& operator=(const PresentResourceReference&) = delete;
-        ~PresentResourceReference()
-        {
-            if (resource != nullptr)
-            {
-                std::unique_lock<std::shared_mutex> lock(*mutex);
-                resource->Release();
-            }
-        }
-    };
+    // PresentResourceReference now lives in IFGFeature_Dx12.h, shared with DLSSG and FSR-FG.
 
     bool Dispatch(PresentResourceReference& presentResource);
     void UpdateInterpolationCount();

@@ -67,7 +67,7 @@ class FSRFG_Dx12 : public virtual IFGFeature_Dx12
     }
 
     bool ExecuteCommandList(int index);
-    bool Dispatch();
+    bool Dispatch(PresentResourceReference& presentResource);
     void ConfigureFramePaceTuning();
     bool HudlessFormatTransfer(int index, ID3D12Device* device, DXGI_FORMAT targetFormat, Dx12Resource* resource);
     bool UIFormatTransfer(int index, ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, DXGI_FORMAT targetFormat,

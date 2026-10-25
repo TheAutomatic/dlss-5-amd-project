@@ -10,6 +10,7 @@
 
 #include <dxgi1_6.h>
 #include <d3d12.h>
+#include <array>
 
 struct Dx12Resource
 {
@@ -40,6 +41,60 @@ struct LockedDx12Resource
     Dx12Resource& operator*() { return *resource; }
 
     explicit operator bool() const { return resource != nullptr; }
+};
+
+// Present-path ownership for cached resources whose validity is extended past
+// the game's borrowed window (the UntilPresentFromDispatch retag, or handing a
+// borrowed UntilPresent resource to the FG SDK). Separate from the borrowed
+// cache so slot reuse cannot orphan the reference.
+struct PresentResourceReference
+{
+    static constexpr size_t EntryCount = 2; // HudlessColor + Distortion
+
+    struct Entry
+    {
+        ID3D12Resource* resource = nullptr;
+        std::shared_mutex* mutex = nullptr;
+    };
+
+    std::array<Entry, EntryCount> entries {};
+
+    PresentResourceReference() = default;
+    PresentResourceReference(const PresentResourceReference&) = delete;
+    PresentResourceReference& operator=(const PresentResourceReference&) = delete;
+
+    // Takes one AddRef. Caller must already hold the frame slot mutex.
+    void Acquire(ID3D12Resource* resource, std::shared_mutex* mutex)
+    {
+        for (auto& entry : entries)
+        {
+            if (resource != nullptr && entry.resource == resource && entry.mutex == mutex)
+                return; // already owned
+        }
+        for (auto& entry : entries)
+        {
+            if (entry.resource == nullptr)
+            {
+                resource->AddRef();
+                entry.resource = resource;
+                entry.mutex = mutex;
+                return;
+            }
+        }
+    }
+
+    // Releases every entry under its slot mutex, including Dispatch error exits.
+    ~PresentResourceReference()
+    {
+        for (auto& entry : entries)
+        {
+            if (entry.resource != nullptr)
+            {
+                std::unique_lock<std::shared_mutex> lock(*entry.mutex);
+                entry.resource->Release();
+            }
+        }
+    }
 };
 
 class IFGFeature_Dx12 : public virtual IFGFeature

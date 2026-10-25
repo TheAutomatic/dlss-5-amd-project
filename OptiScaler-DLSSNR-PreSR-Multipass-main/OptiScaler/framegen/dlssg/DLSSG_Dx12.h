@@ -17,7 +17,7 @@ class DLSSG_Dx12 : public virtual IFGFeature_Dx12, public DLSSG_Common
     ID3D12Fence* dlssgFence[BUFFER_COUNT] = {};
     UINT64 lastOptionFrame = 0;
 
-    bool Dispatch();
+    bool Dispatch(PresentResourceReference& presentResource);
 
   protected:
     void ReleaseObjects() override final;

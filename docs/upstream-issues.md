@@ -219,3 +219,32 @@ shader 本体与 class instances(深度转换会改掉)、常量缓冲区区间�
 ## 非上游问题的说明
 
 菜单虚基下转崩溃(bdd11179)与 `_ffxFGIndex` 越界是**我们集成时引入**(上游无此代码/上游本有上界保护),不属于上游问题,已在 decisions.md 记录。
+
+## U10 FG 输出缓存借用资源并在不持引用的情况下延长有效期(XeFG/DLSSG/FSR-FG)
+
+**Title**: FG outputs cache borrowed resources and extend validity without holding references (XeFG/DLSSG/FSR-FG)
+
+三个 Dx12 FG 输出共享同一从上游(FakeMichau 97e99b4c,2026-10-05)继承的模式:`SetResource`
+初始缓存保持借用(符合输入生命周期契约),但 Present/Dispatch 路径把有效期延长到
+`UntilPresentFromDispatch`(或以 `UntilPresent` 借用状态直接交给 FG SDK)而不 AddRef:
+
+- **XeFG**(XeFG_Dx12.cpp):Dispatch 把 HudlessColor 重标记为 UntilPresentFromDispatch;
+  Present 路径 `GetResource()->GetDesc()`(现场崩溃点 :1803,C0000005 命中已释放 vtable)
+- **DLSSG**(DLSSG_Dx12.cpp):Dispatch 同时重标记 HudlessColor **和** Distortion
+  (:267/:279);SetResource HudlessColor 分支同样 `GetResource()->GetDesc()`(:793 一带)
+- **FSR-FG**(FSRFG_Dx12.cpp):无 Dispatch 重标记,但 SetResource 把借用资源以
+  UntilPresent 有效期缓存(FGOnlyAcceptFirstHudless 检查 :1475 一带),随后 Dispatch 把
+  `hudless->GetResource()` 直接交给 FFX API;SetResource HudlessColor 分支
+  `GetResource()->GetDesc().Format`(:1546 一带)是同一崩溃形态
+
+**现场证据**:yysls + MFG Unlocker 1.7.0,6 个 minidump,全部 C0000005,命中已释放资源的
+vtable(XeFG_Dx12.cpp:1803 的 GetDesc)。
+
+**我们的修复**:`PresentResourceReference` RAII(IFGFeature_Dx12.h,三处共享)——Present
+栈上持有,延长的 FG 输出在帧槽 `_resourceMutex` 锁内 AddRef,所有退出路径(含 Dispatch
+失败)在锁内 Release;重标记用快照而非缓存裸指针。XeFG 于 0cc2ba5e,DLSSG+FSR-FG 本次
+提交。初始 SetResource 缓存语义不变(保持借用)。
+
+**风险**:三个 FG 输出全部在列;任何第三方注入器或游戏侧提前释放都可能触发。
+可提上游:"FG outputs retag borrowed HudlessColor/Distortion to UntilPresentFromDispatch
+without AddRef — use-after-free on GetDesc/FFX handoff"。

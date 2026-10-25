@@ -319,7 +319,7 @@ static void fgLogCallback(uint32_t type, const wchar_t* message)
         spdlog::warn("FFX FG Callback: {}", message_str);
 }
 
-bool FSRFG_Dx12::Dispatch()
+bool FSRFG_Dx12::Dispatch(PresentResourceReference& presentResource)
 {
     LOG_FUNC();
 
@@ -354,6 +354,28 @@ bool FSRFG_Dx12::Dispatch()
             LOG_DEBUG("Depth or Velocity is not ready, skipping");
         return false;
     }
+
+    // FSR-FG does not retag on the dispatch path; SetResource already cached the
+    // hudless/distortion entries as UntilPresent while they stay borrowed. Owning
+    // a reference for this dispatch/present keeps the FFX API from touching freed
+    // memory when the game releases the resource early.
+    auto acquireIfExtended = [&](FG_ResourceType type)
+    {
+        std::unique_lock<std::shared_mutex> lock(_resourceMutex[fIndex]);
+        auto it = _frameResources[fIndex].find(type);
+        if (it == _frameResources[fIndex].end())
+            return;
+        auto& res = it->second;
+        if (res.resource == nullptr)
+            return;
+        if (res.validity == FG_ResourceValidity::UntilPresent ||
+            res.validity == FG_ResourceValidity::UntilPresentFromDispatch)
+            presentResource.Acquire(res.resource, &_resourceMutex[fIndex]);
+    };
+    if (!_noHudless[fIndex])
+        acquireIfExtended(FG_ResourceType::HudlessColor);
+    if (!_noDistortionField[fIndex])
+        acquireIfExtended(FG_ResourceType::Distortion);
 
     ffxConfigureDescFrameGeneration fgConfig = {};
     fgConfig.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -1771,6 +1793,8 @@ void FSRFG_Dx12::CreateObjects(ID3D12Device* InDevice)
 
 bool FSRFG_Dx12::Present()
 {
+    // Releases on every exit, including Dispatch errors, independently of cache clears.
+    PresentResourceReference presentResource;
     auto fIndex = GetIndexWillBeDispatched();
 
     if (Config::Instance()->FGDrawUIOverFG.value_or_default())
@@ -1848,5 +1872,5 @@ bool FSRFG_Dx12::Present()
 
     _fgFramePresentId++;
 
-    return Dispatch();
+    return Dispatch(presentResource);
 }

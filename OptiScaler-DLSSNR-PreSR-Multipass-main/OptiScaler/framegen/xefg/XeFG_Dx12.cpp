@@ -991,11 +991,7 @@ bool XeFG_Dx12::Dispatch(PresentResourceReference& presentResource)
                 auto& res = it->second;
                 // Extending validity requires ownership, unlike the initial borrowed tag.
                 if (res.resource != nullptr)
-                {
-                    res.resource->AddRef();
-                    presentResource.resource = res.resource;
-                    presentResource.mutex = &_resourceMutex[fIndex];
-                }
+                    presentResource.Acquire(res.resource, &_resourceMutex[fIndex]);
                 res.validity = FG_ResourceValidity::UntilPresentFromDispatch;
                 res.frameIndex = fIndex;
                 retagged = res;
