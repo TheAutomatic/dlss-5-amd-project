@@ -84,35 +84,35 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
-### v1.13.3.3 (对比 v1.13.3)
+          ### v1.13.3.3 (对比 v1.13.3)
 
-**Linux / Steam Proton 正式支持（实验性）**：AMD 显卡在 Proton 下运行 DX12 游戏现已可用 DLSS 神经渲染降噪——NR 命令直接录制进游戏渲染流，配合 RADV 驱动编译，性能与 Windows 持平。实测通过：Dying Light The Beast（RX 9070 XT）。已知边界：需要 Mesa RADV；Mochizuki 小/原版模型均可用。感谢 @mochizuki0323 的开源实现与连日来的实测支持。
+          **Linux / Steam Proton 正式支持（实验性）**：AMD 显卡在 Proton 下运行 DX12 游戏现已可用 DLSS 神经渲染降噪——NR 命令直接录制进游戏渲染流，配合 RADV 驱动编译，性能与 Windows 持平。实测通过：Dying Light The Beast（RX 9070 XT）。已知边界：需要 Mesa RADV；Mochizuki 小/原版模型均可用。感谢 @mochizuki0323 的开源实现与连日来的实测支持。
 
-**帧生成与 NR 共存问题**：修复多款游戏"开帧生成后 NR 静默失效"的问题——天国：拯救2（任意 FG 输出）、极限竞速：地平线 6（OptiFG 输入）、逆水寒（现已自动免闪，无需手动配置）。
+          **帧生成与 NR 共存问题**：修复多款游戏"开帧生成后 NR 静默失效"的问题——天国：拯救2（任意 FG 输出）、极限竞速：地平线 6（OptiFG 输入）、逆水寒（现已自动免闪，无需手动配置）。
 
-**Vulkan 游戏双升级**：博德之门 3 Vulkan 模式 NR 修复；新增 Vulkan 游戏 XeFG 帧生成通路（Windows，隐藏窗口互操作）。
+          **Vulkan 游戏双升级**：博德之门 3 Vulkan 模式 NR 修复；新增 Vulkan 游戏 XeFG 帧生成通路（Windows，隐藏窗口互操作）。
 
-**帧生成质量**：动态 MFG 卡顿跳帧速度提升 2.5 倍；修复游戏自带 FSR-FG 时 XeFG 接管崩溃（使命召唤类）；FSR-FG 界面在 FG 暂停时保持存活；新增 Streamline FG 就绪帧数门槛（默认关闭，高级用户可选）。感谢 @dashdogy 的改进。
+          **帧生成质量**：动态 MFG 卡顿跳帧速度提升 2.5 倍；修复游戏自带 FSR-FG 时 XeFG 接管崩溃（使命召唤类）；FSR-FG 界面在 FG 暂停时保持存活；新增 Streamline FG 就绪帧数门槛（默认关闭，高级用户可选）。感谢 @dashdogy 的改进。
 
-**安装与界面**：更新安装最快提速约 16 秒（INT4 权重智能复用）；后端面板只对勾选中的后端显示提示；菜单 NR 计时不再跳动，新增会话销毁原因日志；日志每行自带版本标识，报障更容易。
+          **安装与界面**：更新安装最快提速约 16 秒（INT4 权重智能复用）；后端面板只对勾选中的后端显示提示；菜单 NR 计时不再跳动，新增会话销毁原因日志；日志每行自带版本标识，报障更容易。
 
-**MFG Unlocker 1.7.0 兼容**：正确识别 16 缓冲菜单；新节奏 `XeFGFlipQueue` 默认关闭（经典节奏为已验证基线），搭配 1.7.0 版插件可尝试打开，以获得更好的多帧生成下帧节奏——详见 [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0)。
+          **MFG Unlocker 1.7.0 兼容**：正确识别 16 缓冲菜单；新节奏 `XeFGFlipQueue` 默认关闭（经典节奏为已验证基线），搭配 1.7.0 版插件可尝试打开，以获得更好的多帧生成下帧节奏——详见 [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0)。
 
----
+          ---
 
-### v1.13.3.3 (vs v1.13.3)
+          ### v1.13.3.3 (vs v1.13.3)
 
-**Linux / Steam Proton support (experimental)**: DLSS neural-render denoising now works on DX12 games under Proton with AMD GPUs — NR commands record directly into the game's render stream with RADV driver compilation, matching Windows performance. Field-verified on Dying Light The Beast (RX 9070 XT). Requires Mesa RADV; both Mochizuki Small and Original models supported. Our thanks to @mochizuki0323 for the open-source implementation and days of hands-on testing.
+          **Linux / Steam Proton support (experimental)**: DLSS neural-render denoising now works on DX12 games under Proton with AMD GPUs — NR commands record directly into the game's render stream with RADV driver compilation, matching Windows performance. Field-verified on Dying Light The Beast (RX 9070 XT). Requires Mesa RADV; both Mochizuki Small and Original models supported. Our thanks to @mochizuki0323 for the open-source implementation and days of hands-on testing.
 
-**Frame generation + NR coexistence**: fixed "NR silently dies when FG is on" in multiple titles — Kingdom Come: Deliverance II (any FG output), Forza Horizon 6 (OptiFG input), and Justice/逆水寒 (now flicker-free automatically, zero configuration).
+          **Frame generation + NR coexistence**: fixed "NR silently dies when FG is on" in multiple titles — Kingdom Come: Deliverance II (any FG output), Forza Horizon 6 (OptiFG input), and Justice/逆水寒 (now flicker-free automatically, zero configuration).
 
-**Vulkan games, twice over**: Baldur's Gate 3 Vulkan NR fixed; new XeFG frame-generation path for Vulkan games (Windows, hidden-window interop).
+          **Vulkan games, twice over**: Baldur's Gate 3 Vulkan NR fixed; new XeFG frame-generation path for Vulkan games (Windows, hidden-window interop).
 
-**Frame-generation quality**: Dynamic MFG hitch recovery 2.5x faster; XeFG no longer crashes over a game's own FSR-FG; FSR-FG UI stays alive while FG is paused; new opt-in Streamline FG readiness gate (off by default). Thanks to @dashdogy for the improvements.
+          **Frame-generation quality**: Dynamic MFG hitch recovery 2.5x faster; XeFG no longer crashes over a game's own FSR-FG; FSR-FG UI stays alive while FG is paused; new opt-in Streamline FG readiness gate (off by default). Thanks to @dashdogy for the improvements.
 
-**Installer & UI**: updates install up to ~16 s faster (smart INT4 reuse); the backend panel only advises on backends you actually selected; the menu NR timing readout no longer jumps; sessions log their release reason; every log line carries the build version for easier bug reports.
+          **Installer & UI**: updates install up to ~16 s faster (smart INT4 reuse); the backend panel only advises on backends you actually selected; the menu NR timing readout no longer jumps; sessions log their release reason; every log line carries the build version for easier bug reports.
 
-**MFG Unlocker 1.7.0 compatibility**: the menu's 16-buffer capacity is now detected correctly; the new `XeFGFlipQueue` pacing defaults to off (the classic pacing is the verified baseline) — with plugin v1.7.0 you can try enabling it for smoother multi-frame-gen pacing; details at [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0).
+          **MFG Unlocker 1.7.0 compatibility**: the menu's 16-buffer capacity is now detected correctly; the new `XeFGFlipQueue` pacing defaults to off (the classic pacing is the verified baseline) — with plugin v1.7.0 you can try enabling it for smoother multi-frame-gen pacing; details at [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0).
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
