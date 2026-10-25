@@ -1408,7 +1408,10 @@ static ULONG STDMETHODCALLTYPE hkHeapRelease(ID3D12DescriptorHeap* This)
 
         if (deactivated)
         {
-            LOG_INFO("Heap released: {:X}", (size_t) This);
+            // DEBUG by default: NetEase-style clients release heaps thousands of times per minute and
+            // this single INFO line starves the 8MB x2 log rotation, evicting the identity header
+            // users need for bug reports (逆水寒 rotated the build banner out within minutes).
+            LOG_DEBUG("Heap released: {:X}", (size_t) This);
             gHeapGeneration.fetch_add(1, std::memory_order_release);
         }
     }

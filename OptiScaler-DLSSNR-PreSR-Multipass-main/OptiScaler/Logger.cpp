@@ -5,6 +5,15 @@
 
 #include "spdlog/async.h"
 #include "spdlog/sinks/rotating_file_sink.h"
+// Every line self-identifies: rotation can evict the startup banner (chatty games fill
+// 8MB x2 within minutes), and a support log without build identity is undiagnosable.
+// Version only — the full commit/source banner stays at startup; per-line cost is kept
+// at ~13 bytes. Generated header, same definition dllmain uses (resource.h's STRINGIZE
+// chain is RC-oriented and does not compile cleanly here).
+#include "resource_build_product.h"
+// No surrounding parens: adjacent string-literal concatenation requires literal-literal;
+// a parenthesized expansion parses as a call expression and breaks set_pattern("...").
+#define LOG_IDENTITY_TAG "[v" NR_PRODUCT_VERSION "] "
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/callback_sink.h"
 #include <include/spdlog_sink/debug_sink.h>
@@ -119,9 +128,9 @@ void PrepareLogger()
                     Config::Instance()->LogFileName.value_or_default(), 8 * 1024 * 1024, 2, true);
                 file_sink->set_level(spdlog::level::level_enum::trace);
 #ifdef LOG_ASYNC
-                file_sink->set_pattern("%H:%M:%S.%f\t%L\t%v");
+                file_sink->set_pattern("%H:%M:%S.%f\t%L\t" LOG_IDENTITY_TAG "%v");
 #else
-                file_sink->set_pattern("[%H:%M:%S.%f] [%L] %v");
+                file_sink->set_pattern("[%H:%M:%S.%f] [%L] " LOG_IDENTITY_TAG "%v");
                 // file_sink->set_pattern("[%H:%M:%S.%f] [thread %t] [%L] %v");
 #endif // LOG_ASYNC
 

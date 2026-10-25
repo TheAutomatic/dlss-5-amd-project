@@ -239,6 +239,8 @@ assert(GetNrGamePolicy("other.exe",true).earlyExeWrap);
 assert(!GetNrGamePolicy("other.exe").earlyExeWrap);
 auto dl=GetNrGamePolicy("DyingLightGame_TheBeast_x64_rwdi.exe");
 assert(!dl.earlyExeWrap&&dl.earlyAnyModuleWrap&&!dl.enhancedBarriers&&!dl.earlyUnityPlayerWrap);
+auto nsmc=GetNrGamePolicy("GacRunnerNG.exe");
+assert(!nsmc.earlyExeWrap&&nsmc.earlyAnyModuleWrap&&!nsmc.enhancedBarriers&&!nsmc.earlyUnityPlayerWrap);
 assert(!GetNrGamePolicy("othergame.exe").earlyAnyModuleWrap);
 CustomOptional<bool,NoDefault> preference; assert(!preference.has_value());
 assert(preference.value_or(forza.earlyExeWrap)); preference=false; assert(!preference.value_or(forza.earlyExeWrap));
