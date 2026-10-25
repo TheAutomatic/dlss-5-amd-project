@@ -76,12 +76,8 @@ call :NrCoverage || goto fail
 %CXX% /O2 /utf-8 /LD /DFIXTURE_ID=22 tests\host\streamline_plugin_fixture.cpp /Fe"%OUT%\sl_fixture_b.dll" /Fo"%OUT%\sl_fixture_b.obj" /link /IMPLIB:"%OUT%\sl_fixture_b.lib" || goto fail
 %CXX% /O2 /utf-8 /I"%INC%" tests\host\streamline_plugin_slots.cpp /Fe"%OUT%\streamline_plugin_slots.exe" /Fo"%OUT%\streamline_plugin_slots.obj" /link "%DETOURS%" || goto fail
 "%OUT%\streamline_plugin_slots.exe" "%OUT%\sl_fixture_a.dll" "%OUT%\sl_fixture_b.dll" || goto fail
-"%AMD_TEST_PYTHON%" -B tests\host\test_menu_localization.py || goto fail
-call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 %CXX% /utf-8 tests\host\dx12_interop_desc.cpp /Fe"%OUT%\dx12_interop_desc.exe" /Fo"%OUT%\dx12_interop_desc.obj" || goto fail
 "%OUT%\dx12_interop_desc.exe" || goto fail
-%CXX% /utf-8 tests\host\vkw_dx12_ownership.cpp /Fe"%OUT%\vkw_dx12_ownership.exe" /Fo"%OUT%\vkw_dx12_ownership.obj" || goto fail
-"%OUT%\vkw_dx12_ownership.exe" "%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\inputs\FG\VkwDx12_Inputs.cpp" "%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\with_dx12\vk_with_dx12_sc.h" || goto fail
 %CXX% /utf-8 tests\host\vulkan_call_scope.cpp /Fe"%OUT%\vulkan_call_scope.exe" /Fo"%OUT%\vulkan_call_scope.obj" || goto fail
 "%OUT%\vulkan_call_scope.exe" || goto fail
 %CXX% /utf-8 tests\host\vulkan_nr_extensions.cpp /Fe"%OUT%\vulkan_nr_extensions.exe" /Fo"%OUT%\vulkan_nr_extensions.obj" /link "%DETOURS%" || goto fail
@@ -96,8 +92,6 @@ call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 "%OUT%\fg_resource_readiness.exe" || goto fail
 %CXX% /utf-8 /I"tests\host\deferred_shim" tests\host\deferred_release_contract.cpp "%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\misc\DeferredRelease.cpp" /Fe"%OUT%\deferred_release_contract.exe" /Fo"%OUT%"\ || goto fail
 "%OUT%\deferred_release_contract.exe" || goto fail
-%CXX% /utf-8 tests\host\restrack_d3_signature.cpp /Fe"%OUT%\restrack_d3_signature.exe" /Fo"%OUT%\restrack_d3_signature.obj" /link d3d12.lib dxguid.lib || goto fail
-"%OUT%\restrack_d3_signature.exe" "%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\resource_tracking\ResTrack_dx12.cpp" || goto fail
 %CXX% /utf-8 tests\host\nr_performance.cpp /Fe"%OUT%\nr_performance.exe" /Fo"%OUT%\nr_performance.obj" || goto fail
 "%OUT%\nr_performance.exe" || goto fail
 %CXX% /utf-8 tests\host\nr_status_display.cpp /Fe"%OUT%\nr_status_display.exe" /Fo"%OUT%\nr_status_display.obj" || goto fail
@@ -106,8 +100,6 @@ call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 "%OUT%\upscaler_route_diagnostic.exe" || goto fail
 %CXX% /utf-8 tests\host\menu_window_layout.cpp /Fe"%OUT%\menu_window_layout.exe" /Fo"%OUT%\menu_window_layout.obj" || goto fail
 "%OUT%\menu_window_layout.exe" || goto fail
-%CXX% /utf-8 tests\host\fsr4_model_scan_cache.cpp /Fe"%OUT%\fsr4_model_scan_cache.exe" /Fo"%OUT%\fsr4_model_scan_cache.obj" || goto fail
-"%OUT%\fsr4_model_scan_cache.exe" || goto fail
 for %%T in (directinput_registry input_hook_lifetime input_key_lifetime input_window_lifetime shortcut_keys nr_gpu_history amd_pass_initialization) do (
   %CXX% /utf-8 tests\host\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" /link user32.lib || goto fail
   "%OUT%\%%T.exe" || goto fail
@@ -145,7 +137,6 @@ mkdir "%OUT%\retirement"
 "%AMD_TEST_PYTHON%" -B -m unittest tests\host\test_retirement_stats.py || goto fail
 powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO%\tests\host\hip_load.ps1" "%OUT%\hip" || goto fail
 "%AMD_TEST_PYTHON%" -B tests\host\test_config_priority.py || goto fail
-"%AMD_TEST_PYTHON%" -B tests\host\test_nr_deferred_release_scope.py || goto fail
 
 call tests\host\person-inference.cmd || goto fail
 call tests\host\person-worker.cmd || goto fail

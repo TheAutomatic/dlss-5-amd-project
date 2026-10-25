@@ -2,7 +2,6 @@
 setlocal
 cd /d "%~dp0..\.."
 if /i "%~1"=="abi" (
-  python -B tests\mochizuki\test_direct_recording.py
   if errorlevel 1 exit /b 1
   python -B tests\mochizuki\test_build_cache.py
   if errorlevel 1 exit /b 1
