@@ -98,3 +98,36 @@ OptiScaler 负责每帧选择倍率。菜单按 `xefgSwapChainSetNumInterpolated
 NR 倍率上限与就绪判定（`_nrMultiplier` / `ResolveInterpolation`）不依赖 XeLL 输入路径，
 不受此互斥影响。分析记录见
 `wt-opti-low-latency/work/notes/2026-10-21-xefg-mfg-unlocker-xell-input-blocker.md`。
+
+## MFG-Unlocker 1.7.0（DLSS 5）兼容指引
+
+研究基线：插件仓库 v1.7.0（`b97deee`）与 `main`（+`7523faa`）、dashdogy/OptiScaler
+`mfgunlocker` 分支（=上游 `83e18f1a` + 5 提交，tag `mfgunlocker-v1.7.0`）。本仓库实机
+验证锚点为插件 **1.6.1**；1.6.2 内部测试线（alpha/beta 20+ 里程碑）被压成单提交发布，
+无中间源码可查。
+
+**DLSS 5 是 N 卡专属，无需任何兼容动作。** 插件通过 D3DKMT 内核 PCI VendorId
+（`0x10DE`）硬门控（`dlss5.cpp:1078-1085`），该判定在 OptiScaler 的 DXGI 伪装之下，
+AMD 宿主上无法开启也无法被伪装骗开。其本体是插件自带的 DLSS-NR 注入器
+（驱动 `nvngx_dlssnr.dll`，RenoDX 式特性集），与本项目 `dlssnr/` 互为独立实现；
+在 N 卡宿主上两者会同时驱动同一 NGX feature-18 并同钩 Evaluate/Present，
+属 N 卡用户需自行二选一的问题，本项目不为其做兼容。
+
+**AMD 宿主上 >1.6.1 的两处高风险行为与规避：**
+
+1. UI 默认改为 Shared：插件在我们的宿主下也会包裹 DXGI factory/swapchain/输入
+   （1.6.1 检测到宿主即不包）。规避：`RTXMFG-Universal.json` 中
+   `"optiScalerUi": "optiscaler"`（等于 1.6.2 行为：无插件菜单、无包裹、无 DLSS 5）。
+2. 翻转队列节奏默认注册到宿主创建的 XeFG 上下文（RX 7000/9000 + Adrenalin
+   ≥26.10.1），经 `AmdExtD3DCreateInterface` 驱动 AMD 翻转队列，与 XeLL sleep
+   存在已知死锁形态。规避：`OptiScaler.ini` `[XeFG] XeFGFlipQueue=off`。
+
+未规避而运行 1.7.0 Shared 模式属于未验证组合；如需支持需按上文 XeFG 实测锚点
+重新验证。插件新增读取我们 INI 的键（`XeFGAmdFlipMeter`、`XeFGOutputRing`、
+`XeFGHdr10Flag`、`XeFGFlipQueue*`、`XeFGNativeBuffers`）与本项目键零冲突。
+宿主已采用上游 `d06f31e9` 的菜单容量标记行（`menu_overlay_dx.cpp`：
+"Swapchain has {} buffers, menu supports {}"），插件据此识别本菜单支持 16 缓冲，
+不再默认按 8 缓冲封顶 `XeFGNativeBuffers`（`91df0082`）。
+
+XeLL 互锁（`hostLatency` 熔断）、kernel32 FirstCreate 同步、GetModuleHandleEx 用法
+经逐字比对与 1.6.1 一致；XeMFG standalone 在检测到 OptiScaler 时硬关闭。
