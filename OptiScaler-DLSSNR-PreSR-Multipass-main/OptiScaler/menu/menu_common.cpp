@@ -4222,6 +4222,21 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
                                    "Positive values also require the game to request FG. Changes apply on the next activation.");
                 }
 
+                if (state.activeFgOutput == FGOutput::XeFG)
+                {
+                    bool flipQueue = config->FGXeFGFlipQueue.value_or_default();
+                    if (MenuUi::Checkbox("Flip-Queue Pacing (MFG Unlocker 1.7.0+)", &flipQueue))
+                        config->FGXeFGFlipQueue = flipQueue;
+
+                    if (config->FGXeFGFlipQueue.has_value() && config->FGXeFGFlipQueue.value_for_config())
+                        MenuUi::TextWrapped("Save Settings and restart the game to apply flip-queue pacing.");
+
+                    ShowHelpMarker("MFG Unlocker 1.7.0's flip-queue pacing for XeFG: presents each batch of generated frames on an even cadence.\n"
+                                   "Reads/writes [XeFG] XeFGFlipQueue in OptiScaler.ini; older MFG Unlocker builds ignore it.\n"
+                                   "Off is the verified baseline (classic pacing); on may smooth multi-frame-gen pacing but is unverified with OptiScaler and has known instability cases with XeLL.\n"
+                                   "Decided once per process at FG startup - restart the game after changing.");
+                }
+
                 if (showHudCutoff)
                 {
                     float fgHudCutoff = config->FGHudCutoff.value_or_default();

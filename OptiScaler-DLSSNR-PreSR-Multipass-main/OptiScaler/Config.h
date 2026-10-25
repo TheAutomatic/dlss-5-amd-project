@@ -1291,6 +1291,9 @@ class Config
     CustomOptional<bool> FGXeFGDepthInverted { true };
     CustomOptional<bool> FGXeFGJitteredMV { false };
     CustomOptional<bool> FGXeFGHighResMV { false };
+    // MFG Unlocker 1.7.0+ reads [XeFG] XeFGFlipQueue (decided once per process at FG
+    // startup). Our default = the verified classic pacing baseline.
+    CustomOptional<bool> FGXeFGFlipQueue { false };
     CustomOptional<bool> FGXeFGDebugView { false };
     CustomOptional<bool, SoftDefault> FGXeFGForceBorderless { false };
     CustomOptional<bool> FGXeFGDynamicMFG { false };          // Count picked up to FGXeFGInterpolationCount

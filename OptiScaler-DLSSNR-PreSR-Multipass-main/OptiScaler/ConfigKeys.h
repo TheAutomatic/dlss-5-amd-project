@@ -270,6 +270,8 @@ inline constexpr const char *XeFGDynamicMFG = "DynamicMFG";
 inline constexpr const char *XeFGFramerateTargetDMFG = "FramerateTargetDMFG";
 inline constexpr const char *XeFGRoundingDMFG = "RoundingDMFG";
 inline constexpr const char *XeFGDynamicAllow1X = "DynamicAllow1X";
+// Read by MFG Unlocker 1.7.0+ (flip-queue pacing); owned key in OUR ini per docs/xefg-mfg-notes.md.
+inline constexpr const char *XeFGFlipQueue = "XeFGFlipQueue";
 inline constexpr const char *XeFGTargetAsCapDMFG = "TargetAsCapDMFG";
 inline constexpr const char *XeFGOverrideInterpolationCount = "OverrideInterpolationCount";
 inline constexpr const char *kDLSSGSection = "DLSSG";
@@ -299,7 +301,7 @@ inline constexpr const char *const kKnown[] = {
     FpsOverlayShowRatio,                                   // [Menu], overlay upscale ratio display
     "Enabled",
     XeFGInterpolationCount,
-    XeFGDynamicMFG, XeFGFramerateTargetDMFG, XeFGRoundingDMFG, XeFGDynamicAllow1X,
+    XeFGDynamicMFG, XeFGFramerateTargetDMFG, XeFGRoundingDMFG, XeFGDynamicAllow1X, XeFGFlipQueue,
     XeFGTargetAsCapDMFG, XeFGOverrideInterpolationCount,
     DLSSGRequiredReadyFrames,
     LowLatencyInput, LowLatencyOutput, HudfixUITexture, HudfixUIUnblend, HudfixPersistentBindings,

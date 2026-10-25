@@ -234,6 +234,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGXeFGDepthInverted.set_from_config(readBool("XeFG", "DepthInverted"));
             FGXeFGJitteredMV.set_from_config(readBool("XeFG", "JitteredMV"));
             FGXeFGHighResMV.set_from_config(readBool("XeFG", "HighResMV"));
+            FGXeFGFlipQueue.set_from_config(readBool("XeFG", "XeFGFlipQueue"));
             FGXeFGDebugView.set_from_config(readBool("XeFG", "DebugView"));
             FGXeFGForceBorderless.set_from_config(readBool("XeFG", "ForceBorderless"));
             FGXeFGDynamicMFG.set_from_config(readBool(CfgKey::kXeFGSection, CfgKey::XeFGDynamicMFG));
@@ -1716,6 +1717,7 @@ bool Config::SaveIni()
         ini.SetValue("XeFG", "DepthInverted", GetBoolValue(Instance()->FGXeFGDepthInverted.value_for_config()).c_str());
         ini.SetValue("XeFG", "JitteredMV", GetBoolValue(Instance()->FGXeFGJitteredMV.value_for_config()).c_str());
         ini.SetValue("XeFG", "HighResMV", GetBoolValue(Instance()->FGXeFGHighResMV.value_for_config()).c_str());
+        ini.SetValue("XeFG", "XeFGFlipQueue", GetBoolValue(Instance()->FGXeFGFlipQueue.value_for_config()).c_str());
         ini.SetValue("XeFG", "DebugView", GetBoolValue(Instance()->FGXeFGDebugView.value_for_config()).c_str());
         ini.SetValue("XeFG", "ForceBorderless",
                      GetBoolValue(Instance()->FGXeFGForceBorderless.value_for_config()).c_str());
@@ -2771,6 +2773,7 @@ bool Config::SaveXeFG()
     ini.SetValue("XeFG", "DepthInverted", GetBoolValue(Instance()->FGXeFGDepthInverted.value_for_config()).c_str());
     ini.SetValue("XeFG", "JitteredMV", GetBoolValue(Instance()->FGXeFGJitteredMV.value_for_config()).c_str());
     ini.SetValue("XeFG", "HighResMV", GetBoolValue(Instance()->FGXeFGHighResMV.value_for_config()).c_str());
+        ini.SetValue("XeFG", "XeFGFlipQueue", GetBoolValue(Instance()->FGXeFGFlipQueue.value_for_config()).c_str());
 
     auto pathWStr = absoluteFileName.wstring();
     LOG_INFO("Trying to save ini to: {0}", wstring_to_string(pathWStr));
