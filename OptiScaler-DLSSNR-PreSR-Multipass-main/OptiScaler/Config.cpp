@@ -1732,8 +1732,12 @@ bool Config::SaveIni()
         ini.SetValue("XeFG", "DepthInverted", GetBoolValue(Instance()->FGXeFGDepthInverted.value_for_config()).c_str());
         ini.SetValue("XeFG", "JitteredMV", GetBoolValue(Instance()->FGXeFGJitteredMV.value_for_config()).c_str());
         ini.SetValue("XeFG", "HighResMV", GetBoolValue(Instance()->FGXeFGHighResMV.value_for_config()).c_str());
-        if (Instance()->FGXeFGFlipQueue.has_value())
-            ini.SetValue("XeFG", "XeFGFlipQueue", Instance()->FGXeFGFlipQueue.value() ? "on" : "off");
+        // Always write: skipping leaves a stale on/off in the file after the user
+        // switched back to Auto, silently restoring the old choice after restart.
+        // "auto" reads back as unset (plugin default), matching the menu state.
+        ini.SetValue("XeFG", "XeFGFlipQueue",
+            Instance()->FGXeFGFlipQueue.has_value()
+                ? (Instance()->FGXeFGFlipQueue.value() ? "on" : "off") : "auto");
         ini.SetValue("XeFG", "DebugView", GetBoolValue(Instance()->FGXeFGDebugView.value_for_config()).c_str());
         ini.SetValue("XeFG", "ForceBorderless",
                      GetBoolValue(Instance()->FGXeFGForceBorderless.value_for_config()).c_str());
@@ -2789,8 +2793,12 @@ bool Config::SaveXeFG()
     ini.SetValue("XeFG", "DepthInverted", GetBoolValue(Instance()->FGXeFGDepthInverted.value_for_config()).c_str());
     ini.SetValue("XeFG", "JitteredMV", GetBoolValue(Instance()->FGXeFGJitteredMV.value_for_config()).c_str());
     ini.SetValue("XeFG", "HighResMV", GetBoolValue(Instance()->FGXeFGHighResMV.value_for_config()).c_str());
-        if (Instance()->FGXeFGFlipQueue.has_value())
-            ini.SetValue("XeFG", "XeFGFlipQueue", Instance()->FGXeFGFlipQueue.value() ? "on" : "off");
+        // Always write: skipping leaves a stale on/off in the file after the user
+        // switched back to Auto, silently restoring the old choice after restart.
+        // "auto" reads back as unset (plugin default), matching the menu state.
+        ini.SetValue("XeFG", "XeFGFlipQueue",
+            Instance()->FGXeFGFlipQueue.has_value()
+                ? (Instance()->FGXeFGFlipQueue.value() ? "on" : "off") : "auto");
 
     auto pathWStr = absoluteFileName.wstring();
     LOG_INFO("Trying to save ini to: {0}", wstring_to_string(pathWStr));
