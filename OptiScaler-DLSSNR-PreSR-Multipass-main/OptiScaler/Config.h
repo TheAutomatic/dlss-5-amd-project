@@ -1309,6 +1309,7 @@ class Config
     // DLSSG
     CustomOptional<int> FGDLSSGInterpolationCount { 1 }; // For Opti's own SL instance
     CustomOptional<int> FGDLSSGRequiredReadyFrames { 0 }; // 0 preserves the normal Streamline FG activation path
+                                                            // Read it through FGRequiredReadyFramesEffective()
     CustomOptional<bool> FGDLSSGUseGamesReflexMarkers { true };
     CustomOptional<int, NoDefault>
         FGDLSSGOverrideInterpolationCount; // For overriding game's value sent to SL, could be Nvngx FG, could be noFG
@@ -1365,8 +1366,10 @@ class Config
 
     bool LoadFromPath(const wchar_t* InPath);
     bool SaveIni();
-    // LmxxfAllowEnhancedBarriers resolved: the explicit value, else auto (on for Forza).
     bool AllowEnhancedBarriersEffective();
+    // FGDLSSGRequiredReadyFrames resolved: the explicit value, else the per-game policy
+    // default (NrGamePolicy::fgReadyFrames, e.g. 30 for GacRunnerNG.exe), else 0.
+    int FGRequiredReadyFramesEffective();
     // The host exe's file name contains "forza" (case-insensitive). Cached.
     static bool ExeIsForza();
     // EXE-only early wrapping; UnityPlayer and any-module policies remain independent.

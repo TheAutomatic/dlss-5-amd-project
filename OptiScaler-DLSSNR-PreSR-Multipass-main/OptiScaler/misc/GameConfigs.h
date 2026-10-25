@@ -14,6 +14,8 @@ struct NrGamePolicy
     bool earlyAnyModuleWrap = false;
     bool enhancedBarriers = false;
     bool earlyUnityPlayerWrap = false;
+    // Per-game default for FGDLSSGRequiredReadyFrames when the user hasn't set it.
+    int fgReadyFrames = 0;
 };
 
 inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine = false)
@@ -28,12 +30,15 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
         // them, they stay unwrapped forever, and NR bypasses every frame recorded into
         // them (linux2422: ~2.7% proxy-missing frames = the visible NR flicker).
         { "dyinglight", Match::Contains, { false, true, false, false } },
-        // 逆水寒 / Justice (GacRunnerNG.exe): same boot-list pattern as Dying Light — with
-        // defaults the renderer's pre-swapchain DIRECT lists stay unwrapped and proxy_missing
-        // grows to ~10/5s window as the game rotates onto them (visible NR flicker); the
-        // A/B field runs confirmed EarlyAnyModuleWrap removes it. Self-diagnosis hint added
-        // in MochizukiBackend for games not yet in this table.
-        { "gacrunnerng.exe", Match::Exact, { false, true, false, false } },
+        // 逆水寒 / Justice, 燕云十六声 / Where Winds Meet (GacRunnerNG.exe): same boot-list
+        // pattern as Dying Light — with defaults the renderer's pre-swapchain DIRECT lists
+        // stay unwrapped and proxy_missing grows to ~10/5s window as the game rotates onto
+        // them (visible NR flicker); the A/B field runs confirmed EarlyAnyModuleWrap removes
+        // it. Self-diagnosis hint added in MochizukiBackend for games not yet in this table.
+        // fgReadyFrames=30: XeFG already active during the entry phase can crash or corrupt
+        // visuals there, so default to the 30-frame readiness gate when the user hasn't set
+        // FGDLSSGRequiredReadyFrames.
+        { "gacrunnerng.exe", Match::Exact, { false, true, false, false, 30 } },
         { "007firstlight.exe", Match::Exact, { true, false, false, false } },
         { "aniimo.exe", Match::Exact, { false, false, false, true } },
         { {}, Match::Unreal, { true, false, false, false } },
@@ -64,6 +69,8 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
         result.earlyAnyModuleWrap |= entry.policy.earlyAnyModuleWrap;
         result.enhancedBarriers |= entry.policy.enhancedBarriers;
         result.earlyUnityPlayerWrap |= entry.policy.earlyUnityPlayerWrap;
+        if (entry.policy.fgReadyFrames > result.fgReadyFrames)
+            result.fgReadyFrames = entry.policy.fgReadyFrames;
     }
     return result;
 }

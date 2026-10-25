@@ -7,7 +7,7 @@
 
 bool Sl_Inputs::UseActivationGate()
 {
-    const bool enabled = Config::Instance()->FGDLSSGRequiredReadyFrames.value_or_default() > 0;
+    const bool enabled = Config::Instance()->FGRequiredReadyFramesEffective() > 0;
     _activationGate.SetEnabled(enabled);
     return enabled;
 }
@@ -294,11 +294,10 @@ void Sl_Inputs::DispatchGatedActivation()
         return;
 
     auto& state = State::Instance();
-    auto config = Config::Instance();
-    const auto requiredReadyFrames = static_cast<uint32_t>(config->FGDLSSGRequiredReadyFrames.value_or_default());
+    const auto requiredReadyFrames = static_cast<uint32_t>(Config::Instance()->FGRequiredReadyFramesEffective());
     fgOutput->CancelPendingActivation();
 
-    const auto action = _activationGate.Evaluate(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+    const auto action = _activationGate.Evaluate(Config::Instance()->IsFGEnabled(), state.fgChanged || state.scChanged,
                                                  fgOutput->IsActive(), fgOutput->IsPaused(), requiredReadyFrames);
     if (action == StreamlineFGActivationGate::Action::Deactivate)
     {
@@ -307,7 +306,7 @@ void Sl_Inputs::DispatchGatedActivation()
         fgOutput->UpdateTarget();
     }
     else if (action == StreamlineFGActivationGate::Action::Activate &&
-             _activationGate.ConfirmActivation(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+             _activationGate.ConfirmActivation(Config::Instance()->IsFGEnabled(), state.fgChanged || state.scChanged,
                                                 fgOutput->IsPaused(), requiredReadyFrames))
     {
         LOG_INFO("Streamline FG activation gate enabling SL2 FG after {} ready frames",

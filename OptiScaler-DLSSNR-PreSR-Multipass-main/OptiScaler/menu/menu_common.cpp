@@ -4221,7 +4221,7 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
 
                 if (state.activeFgInput == FGInput::DLSSG)
                 {
-                    auto requiredReadyFrames = config->FGDLSSGRequiredReadyFrames.value_or_default();
+                    auto requiredReadyFrames = config->FGRequiredReadyFramesEffective();
                     ImGui::PushItemWidth(160.0f * menuResScale);
                     if (MenuUi::SliderInt("Ready Frames", &requiredReadyFrames, 0, 300,
                                          requiredReadyFrames == 0 ? "0 (Off)" : "%d", ImGuiSliderFlags_AlwaysClamp))

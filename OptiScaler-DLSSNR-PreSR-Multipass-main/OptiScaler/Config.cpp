@@ -1579,6 +1579,12 @@ bool Config::EarlyExeWrapEffective()
     return LmxxfEarlyExeWrap.has_value() ? *LmxxfEarlyExeWrap : EarlyExeWrapAuto();
 }
 
+int Config::FGRequiredReadyFramesEffective()
+{
+    return FGDLSSGRequiredReadyFrames.value_or(
+        GetNrGamePolicy(State::Instance().gameExe).fgReadyFrames);
+}
+
 bool Config::AllowEnhancedBarriersEffective()
 {
     if (LmxxfAllowEnhancedBarriers.has_value())

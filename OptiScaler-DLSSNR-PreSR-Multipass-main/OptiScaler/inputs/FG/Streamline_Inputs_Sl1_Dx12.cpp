@@ -8,7 +8,7 @@
 
 bool Sl1_Inputs_Dx12::UseActivationGate()
 {
-    const bool enabled = Config::Instance()->FGDLSSGRequiredReadyFrames.value_or_default() > 0;
+    const bool enabled = Config::Instance()->FGRequiredReadyFramesEffective() > 0;
     _activationGate.SetEnabled(enabled);
     return enabled;
 }
@@ -474,7 +474,7 @@ bool Sl1_Inputs_Dx12::evaluateState()
     {
         auto& state = State::Instance();
         auto config = Config::Instance();
-        const auto requiredReadyFrames = static_cast<uint32_t>(config->FGDLSSGRequiredReadyFrames.value_or_default());
+        const auto requiredReadyFrames = static_cast<uint32_t>(config->FGRequiredReadyFramesEffective());
         fgOutput->CancelPendingActivation();
 
         const auto action = _activationGate.Evaluate(config->IsFGEnabled(), state.fgChanged || state.scChanged,
