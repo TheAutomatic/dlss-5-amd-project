@@ -9,11 +9,18 @@
 - 下游修复:`e9767600`——仅 `Fsr4Preset`/`Fsr4Model` 显式设置才挂钩;`SelectableModels` 只读 RTTI 枚举 + `IsModuleHooked`;菜单首次选择延迟补挂。
 - 建议:上游对 driver-signed 模块默认零补丁,或至少提供开关。
 
-## U2 XeLL 配对缺校验 → 旧 XeSS 栈游戏 XeFG 启动崩(已修)
+## U2 XeLL 配对缺校验 → 旧 XeSS 栈游戏 XeFG 启动崩(已修;**需对上游复验,暂缓提交**)
 
-- 上游:LOW_LATENCY_INPUTS 设计把全进程 XeLL 调用引流到最先加载的 libxell("The first one becomes the real XeLL"),`XeFG_Dx12::CreateSwapchainContext` 直接把该上下文喂给 XeFG,无版本校验,违反其自身注释 "XeFG and XeLL contexts must come from the same pair of libraries"。
-- 危害:巫师 3 + MFG unlocker(游戏目录旧 libxell 1.2.1)× Opti libxess_fg 1.3.1 → XeFG 首次 present 崩溃;鸣潮(libxell 1.3.2)正常。
-- 下游修复:`3182b248`——真实 libxell 不得旧于捆绑副本(`XeLLProxy::BundledVersion()` 读文件版本资源)才挂;不配对则 XeFG 无延迟加速运行。注:Intel 按 SDK 整套配对 fg/xell、版本号独立演化(官方 3.0.2 即 fg 1.3.4 + xell 1.3.2),下游校验以捆绑副本为基线,勿照搬"XeLL minor ≥ XeFG minor"。
+- 上游:`XeFG_Dx12::CreateSwapchainContext` 把选中的 libxell 上下文直接喂给 XeFG,无版本校验,
+  违反其自身注释 "XeFG and XeLL contexts must come from the same pair of libraries"。
+- **需复验(2026-10-25)**:上游 8f0b7d875 已把 XeLL 选择改为优先 OptiScaler 捆绑的 libxell——
+  旧描述"全进程引流到最先加载的 libxell(first one becomes the real XeLL)"的前提可能已不存在。
+  须先在当前上游 master 复验"游戏目录旧 libxell 仍可胜出"是否成立,再决定是否提 issue;当前不提交。
+- 危害(旧前提下的现场):巫师 3 + MFG unlocker(游戏目录旧 libxell 1.2.1)× Opti libxess_fg 1.3.1
+  → XeFG 首次 present 崩溃;鸣潮(libxell 1.3.2)正常。
+- 下游修复:`3182b248`——真实 libxell 不得旧于捆绑副本(`XeLLProxy::BundledVersion()` 读文件版本
+  资源)才挂;不配对则 XeFG 无延迟加速运行。注:Intel 按 SDK 整套配对 fg/xell、版本号独立演化
+  (官方 3.0.2 即 fg 1.3.4 + xell 1.3.2),下游校验以捆绑副本为基线,勿照搬"XeLL minor ≥ XeFG minor"。
 
 ## U3 Win10 Agility 自动升级误伤非 Agility 游戏(已修)
 
@@ -36,31 +43,32 @@
 - 建议:上游为会被运行时自动调整的键一律使用 SoftDefault/NoDefault;`FsrAgilitySDKUpgrade` 是唯一的
   WithDefault 漏网(下游已改 NoDefault)。
 
-## U5 XeFG passthrough 输入的 XeLL 配对(未修,待上游讨论)
+## U5 XeFG passthrough 输入的 XeLL 配对(未修;**与 U2 同前提取决于上游复验,暂缓**)
 
-- 上游:LL 构建下 `XeFGInputs::Hook` 把游戏旧 libxess_fg 的导出重定向到 Opti 副本,而游戏的 XeLL 上下文仍落在最先加载的旧 libxell;非 LL 构建是整对交换(正确),LL 构建不是。
-- 状态:无现场报告(FGInput=XeFG+FGOutput=XeFG 组合);正确修法需 XeLL 输入在 passthrough 重定向时改用 Opti 配对,涉及引流设计,留待与上游讨论。
+- 上游:LL 构建下 `XeFGInputs::Hook` 把游戏旧 libxess_fg 的导出重定向到 Opti 副本,而游戏的
+  XeLL 上下文按旧设计落在最先加载的旧 libxell;非 LL 构建是整对交换(正确),LL 构建不是。
+- **需复验(2026-10-25)**:与 U2 共享同一过时前提——上游 8f0b7d875 已改为优先捆绑 libxell,
+  "游戏 XeLL 落在旧 libxell" 可能不再成立。随 U2 一并复验,当前不提交。
+- 状态:无现场报告(FGInput=XeFG+FGOutput=XeFG 组合);正确修法需 XeLL 输入在 passthrough
+  重定向时改用 Opti 配对,涉及引流设计,留待与上游讨论。
 
 
-## U6 DxgiSpoofing 自动改写的观感问题(下游已加提示日志,建议上游跟进)
+## U6 DxgiSpoofing 无提示强制覆盖(仅剩 UX 问题;持久化上游已修)
 
-用户反馈"spoofing 选项被自动改掉"。全部 7 处运行时改写点核验(2026-10-22):
+**勘误(2026-10-25)**:上游 cf6da0010 已把 `DxgiSpoofing` 改为 `SoftDefault`——显式值持久化
+问题(下游旧记录"用户显式值存不住"的担忧)上游已修复,不再作为 issue 内容。**剩余问题只有一处**:
+FSR4-Int8 GPU 分支(dllmain ~1510)**无门强制开启**且**零提示**地覆盖用户显式 false——
+Int8 跑 FFX 必须伪装是上游故意,但覆盖时没有任何日志,用户观感即"设置被吞"。
 
-| 触发 | 方向 | 门控 |
-|---|---|---|
-| OptiPatcher 打补丁成功(dllmain:301/361) | 关 | `!has_value()` |
-| 检测到 Luma / Sekiro TSR(1349/1378) | 关 | `!has_value()` |
-| 游戏不用 DLSS、伪装无服务对象(1783) | 关 | `!has_value()` |
-| nvngx 替换缺失且无 nvngx.dll(1858) | 关 | `!has_value()`(外层整块) + 已有日志 |
-| **FSR4-Int8 GPU**(1510) | **强制开** | **无门,覆盖显式值** |
-
-结论:除 Int8 外全部只在用户未显式设置(auto)时调整——设计行为;DxgiSpoofing 为
-SoftDefault,显式值持久化并在此后启动被尊重。唯一无门的是 FSR4-Int8(Int8 跑 FFX
-必须伪装,上游故意),但**零提示**地覆盖显式 false,用户观感即"设置被吞"。下游已在
-该处加日志("forces DxgiSpoofing on ... your explicit ini value is kept")。建议上游:
-无门强制处补同款提示,或评估 Int8 也改为带门+醒目警告。判别口径(供支持):ini 值为
+下游已在该处加日志("forces DxgiSpoofing on ... your explicit ini value is kept")。
+建议上游:无门强制处补同款提示(纯 UX,低风险)。判别口径(供支持):ini 值为
 auto=从未显式设置(门控自动调整,显式设一次即固定);ini 显式值仍在而行为相反=Int8
 强制(看日志);两者皆非=新问题,收日志。
+
+原 7 处改写点核验表(2026-10-22,门控结论仍有效,其余 6 处均为 `!has_value()` 门控的设计行为):
+OptiPatcher 成功(dllmain:301/361,关)、Luma/Sekiro TSR(1349/1378,关)、游戏不用 DLSS
+且伪装无服务对象(1783,关)、nvngx 替换缺失且无 nvngx.dll(1858,关,外层整块 `!has_value()`
++ 已有日志)、FSR4-Int8(1510,强制开,无门)——后两类合并为上述一处剩余问题。
 
 ## 上游同步审计(2026-10-23,9df512d → 990ff98,19 commits)
 
@@ -143,15 +151,21 @@ signal→sleep 在 LL 构建不可达);九提交一次合入,无实机门槛。1
 host ci PASS。**验收缺口(源码完成、待实机)**:AMD FSR-FG flip meter、GPU 检测矩阵
 (RDNA2/3/4 + Intel/NV + 混合适配器)、Linux/Proton Vulkan 变更、XeLL/XeFG 全组合。
 
-## U8 a8d0f0a 的钩子安装竞态(上游同样存在,下游已修)
+## U8 钩子安装竞态(上游已部分修复于 Amdxc64Hooks::Init;其余位点下游已修)
 
-HookFactory/HookFlipMeter 的"判空→装钩→提交"无锁:两个并发首次请求都会过判空,
-失败的 Detours 提交会清掉另一线程已装好的 o_ 指针,下次调用走空指针。上游 990ff98
-同样存在;我们已加 installMutex 单一所有者修复(2026-10-23 审查 P1)。同批审查另修:
-FG 水印开关需 fgChanged+scChanged 才真正重建原生 FSR FG 上下文(上游只设 fgChanged,
-在我们的 FSRFG 实现里不会销毁重建,驱动在创建时读环境变量,故不生效);SDK 预热的
-set/call/clear 事务加专用 primingMutex(DX12/VK 两个 provider 首载可并发,互相清标记
-会让旧游戏 SDK 赢得粘性版本决策)。
+**勘误(2026-10-25)**:此前把上游 f903b2c64 的锁位置写成 HookFactory——实际该提交是在
+**Amdxc64Hooks::Init** 内加了 mutex。HookFactory/HookFlipMeter 的"判空→装钩→提交"
+无锁问题、FSR4Models flipMeter 安装、SDK 预热 set/call/clear 事务上游仍无锁。
+
+下游修复(2026-10-23 审查 P1):各安装点使用**各自函数局部的 mutex**(并非上游式的单一
+跨函数 mutex)——installMutex(HookFactory/HookFlipMeter 等安装点单一所有者)、
+primingMutex(SDK 预热事务;DX12/VK 两个 provider 首载可并发,互相清标记会让旧游戏
+SDK 赢得粘性版本决策)。同批另修:FG 水印开关需 fgChanged+scChanged 才真正重建原生
+FSR FG 上下文(上游只设 fgChanged,在我们的 FSRFG 实现里不会销毁重建,驱动在创建时
+读环境变量,故不生效)。
+
+向上游提 issue 时只报**仍无锁的位点**(HookFactory/HookFlipMeter、flipMeter、SDK 预热),
+不得把 Amdxc64Hooks::Init 误列为未修。
 
 ## 半程审计:97e99b4c→990ff98 残留真缺口(2026-10-23,五路并行审计)
 
@@ -197,22 +211,31 @@ XeFG_DynamicCount(含超出上游的 Restart/clamp 安全改进)。
 o_amdExtD3DShaderIntrinsics,上一个 real 引用泄漏。上游 990ff98 同样存在;我们照搬,
 不单独修(等上游;若多交换链场景出现泄漏证据再处理)。
 
-### D. 行动项
+### D. 行动项(2026-10-25 修订:三批提交策略)
 
-1. **提 issue(高优先)**:U1/U1b(AC 击杀,有星铁现场)、U3+U4(Win10 Agility 死循环)——上游修复成本低
-2. **提 issue(中优先)**:U2(XeLL 配对)、U6(DxgiSpoofing 无提示覆盖)
-3. ~~移植 P1-P3~~ 已完成(a7537612)
-4. **下次同步窗口**:评估 E1-E6(见 C 节);E3 overlay 群组需按 CfgKey 体系适配,非直拷
+**格式铁律**:任何将提交给上游的 issue/PR 正文**不得出现本台账的内部编号(U1、U8 等)**,
+每条 issue 用自包含的标题与描述;编号只留本地追踪。
+
+1. **第一批(立即)**:U1、U3+U4 合并 —— issue + PR
+2. **第二批(完成上述勘误后)**:U8 剩余竞态位点(勿含 Amdxc64Hooks::Init)、U9 修正版
+   (勿含已撤回的 UAV counter 指控)—— issue + PR
+3. **第三批(可选)**:U6 剩余 UX(Int8 强制无提示)—— issue + 可选日志 PR
+4. **暂缓**:U2/U5(先按 8f0b7d875 复验前提)、U7(缺证据)、U10(见下,仅提 issue,
+   修复不完整不得提 PR)
+5. ~~移植 P1-P3~~ 已完成(a7537612);~~评估 E1-E6~~ 已完成(见 C 节)
 
 ## U9 DX11 桥上下文恢复的残余缺口(上游 9df512d 现存,我们已超集修复)
 
-上游 9df512d 的 IFeature_Dx11wDx12::Evaluate 用 ComPtr 持有绑定引用(修掉了旧版裸指针
-立即 Release 的悬垂问题,97e99b4c 旧基线仍带此 bug——我们 10-06 快照集成时中招,真机
-RX 9070 XT 复现 NR 关闭首帧 AV @0x50,32291157 修复),但恢复仍不完整:不恢复 compute
-shader 本体与 class instances(深度转换会改掉)、常量缓冲区区间被丢弃、UAV append counter
-恢复时清零(&raw, 0)、UAV 槽数未按 feature level。我们的 ScopedContextState
+上游 9df512d 的 IFeature_Dx11wDx12::Evaluate 用 ComPtr 持有绑定引用,悬垂引用问题已被
+上游 97e99b4c 的 ComPtr 修复闭合(**勘误 2026-10-25:撤回此前"UAV append counter 恢复时
+清零(&raw, 0)"的指控**——经复核该行为不构成缺陷,不再列入 issue 内容)。
+
+恢复仍不完整的剩余缺口:不恢复 **compute shader 本体与 class instances**(深度转换会改掉)、
+**常量缓冲区区间被丢弃**、**UAV 槽数未按 feature level** 调整。我们的 ScopedContextState
 (with_dx12/dx11_context_state.h)全部覆盖并有 WARP+哨兵 host 测试。可提上游:
-"ComPtr restore in IFeature_Dx11wDx12 misses CS/instances/CB ranges/UAV counters"。
+"ComPtr restore in IFeature_Dx11wDx12 misses compute shader body, class instances and
+CB ranges; UAV slot count not adjusted for feature level"。
+
 另:99c9eb15b 集成 Present 计时读取器时漏带桥的计时器构造与 ScopedGpuTime_Dx11 两配套件
 (纯本地遗漏,32291157 补齐),非上游问题。
 
@@ -224,11 +247,14 @@ shader 本体与 class instances(深度转换会改掉)、常量缓冲区区间�
 ## 上游状态核对(2026-10-25,c2876a76e)
 
 上游 master 自 990ff98 新增 20 提交。与 U 台账相关的:
-- 8f0b7d875 修 XeLL Cyberprank static 缓存(非 U2 版本校验)
-- f903b2c64 修 amdxc64 钩子并发(部分缓解 U8;FSR4Models flipMeter/SDK 预热仍无锁)
+- 8f0b7d875 改 XeLL 选择为优先捆绑副本(动摇 U2/U5 前提,需复验;非版本校验)
+- f903b2c64 在 **Amdxc64Hooks::Init** 加 mutex(部分缓解 U8;HookFactory/HookFlipMeter、
+  FSR4Models flipMeter、SDK 预热仍无锁)
+- cf6da0010 把 `DxgiSpoofing` 改 SoftDefault(U6 持久化已修;剩 Int8 强制无提示)
 - 8f2a94358 修 Vk 侧 amdxcffx64 伪装(与 U6 无关)
 
-**结论:U1-U10 十条在上游 master@c2876a76e 全部仍存在(部分缓解不计已修)。**
+**结论(2026-10-25 修订):U6 持久化、U8 Init 位点、U9 悬垂引用已部分修复,其余仍存在;
+U2/U5 前提待复验后再定。**
 审核材料: work/scratch/upstream-issues-review.md(纯 U1-U10 抽取版,含逐条上游代码比对)。
 
 ## U10 FG 输出缓存借用资源并在不持引用的情况下延长有效期(XeFG/DLSSG/FSR-FG)
@@ -259,3 +285,15 @@ vtable(XeFG_Dx12.cpp:1803 的 GetDesc)。
 **风险**:三个 FG 输出全部在列;任何第三方注入器或游戏侧提前释放都可能触发。
 可提上游:"FG outputs retag borrowed HudlessColor/Distortion to UntilPresentFromDispatch
 without AddRef — use-after-free on GetDesc/FFX handoff"。
+
+**修复不完整告示(2026-10-25)**:上述 RAII 只闭合 HudlessColor GetDesc 崩溃形态,**并未建立
+完整的端到端所有权契约**——XeFG Distortion 重标记、selected-copy 所有权、FG SDK 消费期
+三处未覆盖(见下表)。**提交策略:仅提 issue,不提 PR**,直至下列缺口闭合。
+
+### U10 剩余缺口分析(2026-10-25,含代码证据)
+
+| 缺口 | 现状(文件:行) | 应有行为 | 修复复杂度 |
+|---|---|---|---|
+| XeFG Distortion 重标记未受 RAII 保护 | XeFG_Dx12.cpp:1006-1015 —— `_noDistortionField` 为假时把 Distortion 无锁重标记为 UntilPresentFromDispatch 并 `SetResource(res)`,**无 presentResource.Acquire**;对比 HudlessColor 分支 :982-1004 有锁+Acquire | 与 HudlessColor 相同:帧槽锁内 Acquire(res.resource) 后重标记,快照传入 SetResource | 低——照抄同函数 :982-1004 模式 |
+| selected copy 所有权不明 | GetResource() 在 copy!=nullptr 时返回 copy(IFGFeature_Dx12.h:32);copy 由我们分配(DLSSG_Dx12.cpp:784-800 CopyResource→CreateBufferResource,ComPtr 语义存于 `_resourceCopy` 表)但生命周期由 DeferredRelease 兜底;FSRFG 的 Acquire 只锁 `res.resource`(FSRFG_Dx12.cpp:372-376)而非实际交出的 GetResource()=copy | 明确契约:凡 GetResource() 交出的对象都必须被本帧 RAII 持有——要么 Acquire(GetResource()),要么将 copy 纳入与帧槽锁一致的拥有链(创建即 AddRef 归 `_resourceCopy`,ReleaseResourceCopies 在锁内 DeferredRelease) | 中——需逐后端审计 `_resourceCopy`/transfer-helper Buffer(`resource->copy = Buffer()`,如 XeFG:1768、FSRFG:248)两条 copy 来源 |
+| FG SDK 消费期(FSR-FG/FFX) | Dispatch 把 hudless/UI/distortion 经 `ffxApiGetResourceDX12` 直接交给 FFX(FSRFG_Dx12.cpp:392-393,411);FFX 不 AddRef,期望资源在 GPU 完成(约到 present/下一帧 register)前由调用方保活 [INFERENCE: 依 FFX API 契约,本地代码无 AddRef 证据];我们的 RAII 生命周期只到 Present 栈退出 | 契约需验证 + 覆盖:确认 FFX 消费窗口(帧内 or 跨帧 RegisterUiResource 粘性),必要时把 RAII 释放延迟到 GPU fence/回调(DispatchCallback 已有 `_callbackResourceMutex` 可挂) | 高——跨边界(FFX 线程回调)+ 需 FFX SDK 源码级确认,无本地哨兵可测 |
