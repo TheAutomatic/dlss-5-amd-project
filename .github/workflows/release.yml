@@ -68,9 +68,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $v = (Get-Content -LiteralPath VERSION -Raw).Trim()
-          if ($v -notmatch '^[0-9A-Za-z._-]+$') { throw 'Invalid committed VERSION' }
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$v") { throw 'Tag must match committed VERSION' }
+          # Tag pushes are authoritative: the tag name IS the version.
+          # VERSION file is only the fallback for non-tag (branch/dispatch) builds.
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+              $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+              $v = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          }
+          if ($v -notmatch '^[0-9A-Za-z._-]+$') { throw "Invalid version: $v" }
           if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $v += "-test-$env:GITHUB_RUN_NUMBER-$($env:GITHUB_SHA.Substring(0,8))" }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
