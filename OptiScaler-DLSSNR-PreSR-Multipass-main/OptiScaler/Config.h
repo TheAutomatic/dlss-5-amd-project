@@ -1308,8 +1308,10 @@ class Config
 
     // DLSSG
     CustomOptional<int> FGDLSSGInterpolationCount { 1 }; // For Opti's own SL instance
-    CustomOptional<int> FGDLSSGRequiredReadyFrames { 0 }; // 0 preserves the normal Streamline FG activation path
-                                                            // Read it through FGRequiredReadyFramesEffective()
+    // NoDefault so an explicit 0 (user disabling the gate) survives save/reload —
+    // WithDefault {0} would collapse it to auto, resurrecting the game-policy default.
+    // Read it through FGRequiredReadyFramesEffective() which falls back to the game policy.
+    CustomOptional<int, NoDefault> FGDLSSGRequiredReadyFrames;
     CustomOptional<bool> FGDLSSGUseGamesReflexMarkers { true };
     CustomOptional<int, NoDefault>
         FGDLSSGOverrideInterpolationCount; // For overriding game's value sent to SL, could be Nvngx FG, could be noFG
