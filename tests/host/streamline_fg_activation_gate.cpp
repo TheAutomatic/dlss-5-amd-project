@@ -258,10 +258,87 @@ void FrameDiscontinuity()
     // An out-of-order callback starts a new sequence too.
     ReadyFrame(gate, 3);
     CHECK(gate.ReadyFrameCount() == 1);
+    // Frame 4 already completed above; its duplicate completion is ignored
+    // instead of restarting the sequence (consecutive head stays at 3).
     ReadyFrame(gate, 4);
+    CHECK(gate.GetDiagnostics().lastEvaluatedFrameId == 4);
+    CHECK(gate.ReadyFrameCount() == 1);
     ReadyFrame(gate, 5);
+    CHECK(gate.ReadyFrameCount() == 1);
+    ReadyFrame(gate, 6);
+    CHECK(gate.ReadyFrameCount() == 2);
+    ReadyFrame(gate, 7);
     CHECK(gate.ReadyFrameCount() == 3);
     CHECK(gate.Evaluate(true, false, false, false, 3) == Action::Activate);
+}
+
+void DelayedPresentDuplicateDoesNotRewind()
+{
+    // Finding 1: Evaluate(N), Evaluate(N+1), Present(N), Evaluate(N+2), Present(N+1)
+    // previously reset progress on every delayed Present.
+    Gate gate;
+    Prepare(gate);
+    Resources(gate, 100);
+    Resources(gate, 101);
+    Resources(gate, 102);
+    gate.ReportEvaluate(100);
+    CHECK(gate.ReadyFrameCount() == 1);
+    gate.ReportEvaluate(101);
+    CHECK(gate.ReadyFrameCount() == 2);
+    gate.ReportPresent(100);
+    CHECK(gate.ReadyFrameCount() == 2);
+    gate.ReportEvaluate(102);
+    CHECK(gate.ReadyFrameCount() == 3);
+    CHECK(gate.Evaluate(true, false, false, false, 3) == Action::Activate);
+    gate.ReportPresent(101);
+    // A duplicate completion after the decision must not disturb the gate.
+    CHECK(gate.ConfirmActivation(true, false, false, 3));
+}
+
+void DuplicateCompletionDoesNotRestart()
+{
+    // Finding 1, discontinuity refinement: an already-completed frame completing
+    // again is a duplicate, not a discontinuity.
+    Gate gate;
+    Prepare(gate);
+    ReadyFrame(gate, 1);
+    ReadyFrame(gate, 2);
+    gate.ReportPresent(1);
+    gate.ReportPresent(2);
+    gate.ReportEvaluate(2);
+    CHECK(gate.ReadyFrameCount() == 2);
+    // A genuine forward gap still restarts the sequence.
+    ReadyFrame(gate, 5);
+    CHECK(gate.ReadyFrameCount() == 1);
+    ReadyFrame(gate, 6);
+    CHECK(gate.ReadyFrameCount() == 2);
+    ReadyFrame(gate, 7);
+    CHECK(gate.Evaluate(true, false, false, false, 3) == Action::Activate);
+}
+
+void NoRenderSubmitActivatesViaPresent()
+{
+    // Finding 2: a game that never sends RenderSubmit markers still reaches the
+    // gated decision from Present completion (markPresent dispatches it).
+    constexpr uint32_t threshold = 3;
+    Gate gate;
+    gate.SetRequested(true);
+    gate.ReportConstants(1, false);
+    gate.ReportInterpolationSize(1920, 1080);
+    for (uint32_t frame = 1; frame <= threshold; ++frame)
+    {
+        Resources(gate, frame);
+        gate.ReportPresent(frame); // markPresent seam: completion + boundary
+        // The first Present only establishes the boundary and cannot count.
+        CHECK(gate.ReadyFrameCount() == frame - 1);
+        // The Present-path dispatch runs the same decision as RenderSubmitStart.
+        CHECK(gate.Evaluate(true, false, false, false, threshold) == Action::None);
+    }
+    Resources(gate, threshold + 1);
+    gate.ReportPresent(threshold + 1);
+    CHECK(gate.ReadyFrameCount() == threshold);
+    CHECK(gate.Evaluate(true, false, false, false, threshold) == Action::Activate);
+    CHECK(gate.ConfirmActivation(true, false, false, threshold));
 }
 
 void ResetConstants()
@@ -510,6 +587,9 @@ int main()
         {"interleaved_complete_frames_count_separately", InterleavedCompleteFramesCountSeparately},
         {"repeated_callbacks", RepeatedCallbacks},
         {"frame_discontinuity", FrameDiscontinuity},
+        {"delayed_present_duplicate_does_not_rewind", DelayedPresentDuplicateDoesNotRewind},
+        {"duplicate_completion_does_not_restart", DuplicateCompletionDoesNotRestart},
+        {"no_render_submit_activates_via_present", NoRenderSubmitActivatesViaPresent},
         {"reset_constants", ResetConstants},
         {"game_off_on", GameOffOn},
         {"pause_and_activation_block", PauseAndActivationBlock},

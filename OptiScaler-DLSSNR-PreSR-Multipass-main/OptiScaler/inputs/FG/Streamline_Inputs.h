@@ -25,6 +25,7 @@ class Sl_Inputs
     StreamlineFGActivationGate _activationGate { false };
 
     bool UseActivationGate();
+    void DispatchGatedActivation();
     uint32_t CheckForFrame(IFGFeature* fg, uint32_t frameId);
     int IndexForFrameId(uint32_t frameId) const;
 

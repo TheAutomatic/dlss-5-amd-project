@@ -43,6 +43,7 @@ class StreamlineFGActivationGate
         uint32_t frameId = UINT32_MAX;
         bool hasDepth = false;
         bool hasMotionVectors = false;
+        bool completed = false;
     };
 
     std::mutex _mutex;
@@ -78,7 +79,13 @@ class StreamlineFGActivationGate
     {
         _readyFrameCount = 0;
         _lastReadyFrameId = UINT32_MAX;
-        _frames = {};
+        // Keep completed-frame identities: a delayed duplicate completion of an
+        // already-counted frame must stay ignored even after a progress reset.
+        for (auto& frame : _frames)
+        {
+            frame.hasDepth = false;
+            frame.hasMotionVectors = false;
+        }
     }
 
   public:
@@ -161,11 +168,14 @@ class StreamlineFGActivationGate
             return;
         }
 
-        // Evaluate and Present may both complete the same frame.
-        if (_readyFrameCount > 0 && frameId == _lastReadyFrameId)
+        // Evaluate and Present may both complete the same frame, and a delayed
+        // Present can land while newer frames are already in flight. A duplicate
+        // completion inside the in-flight window is ignored without rewinding
+        // the consecutive sequence.
+        auto& frame = FrameData(frameId);
+        if (frame.completed)
             return;
 
-        auto& frame = FrameData(frameId);
         _lastEvaluateHadDepth = frame.hasDepth;
         _lastEvaluateHadMotionVectors = frame.hasMotionVectors;
         if (!_hasConstants || !frame.hasDepth || !frame.hasMotionVectors || !_hasInterpolationSize || _reset)
@@ -178,6 +188,8 @@ class StreamlineFGActivationGate
             _readyFrameCount = 0;
 
         _lastReadyFrameId = frameId;
+        frame.completed = true;
+
         if (_readyFrameCount < UINT32_MAX)
             ++_readyFrameCount;
     }

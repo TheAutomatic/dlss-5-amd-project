@@ -283,6 +283,39 @@ bool Sl_Inputs::setConstants(const sl::Constants& values, uint32_t frameId)
     return dataFound;
 }
 
+// Runs the gated activation decision. Idempotent: the gate transitions
+// Armed -> Active under its own mutex, so dispatching it again from another
+// marker path (e.g. Present) can never activate twice.
+void Sl_Inputs::DispatchGatedActivation()
+{
+    auto fgOutput = State::Instance().CurrentFG();
+    if (fgOutput == nullptr)
+        return;
+
+    auto& state = State::Instance();
+    auto config = Config::Instance();
+    const auto requiredReadyFrames = static_cast<uint32_t>(config->FGDLSSGRequiredReadyFrames.value_or_default());
+    fgOutput->CancelPendingActivation();
+
+    const auto action = _activationGate.Evaluate(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+                                                 fgOutput->IsActive(), fgOutput->IsPaused(), requiredReadyFrames);
+    if (action == StreamlineFGActivationGate::Action::Deactivate)
+    {
+        LOG_INFO("Streamline FG activation gate disabling SL2 FG");
+        fgOutput->Deactivate();
+        fgOutput->UpdateTarget();
+    }
+    else if (action == StreamlineFGActivationGate::Action::Activate &&
+             _activationGate.ConfirmActivation(config->IsFGEnabled(), state.fgChanged || state.scChanged,
+                                                fgOutput->IsPaused(), requiredReadyFrames))
+    {
+        LOG_INFO("Streamline FG activation gate enabling SL2 FG after {} ready frames",
+                 _activationGate.ReadyFrameCount());
+        fgOutput->Activate();
+        _activationGate.ReportActivationResult(fgOutput->IsActive());
+    }
+}
+
 bool Sl_Inputs::evaluateState()
 {
     auto fgOutput = State::Instance().CurrentFG();
@@ -293,30 +326,7 @@ bool Sl_Inputs::evaluateState()
     LOG_FUNC();
 
     if (UseActivationGate())
-    {
-        auto& state = State::Instance();
-        auto config = Config::Instance();
-        const auto requiredReadyFrames = static_cast<uint32_t>(config->FGDLSSGRequiredReadyFrames.value_or_default());
-        fgOutput->CancelPendingActivation();
-
-        const auto action = _activationGate.Evaluate(config->IsFGEnabled(), state.fgChanged || state.scChanged,
-                                                     fgOutput->IsActive(), fgOutput->IsPaused(), requiredReadyFrames);
-        if (action == StreamlineFGActivationGate::Action::Deactivate)
-        {
-            LOG_INFO("Streamline FG activation gate disabling SL2 FG");
-            fgOutput->Deactivate();
-            fgOutput->UpdateTarget();
-        }
-        else if (action == StreamlineFGActivationGate::Action::Activate &&
-                 _activationGate.ConfirmActivation(config->IsFGEnabled(), state.fgChanged || state.scChanged,
-                                                    fgOutput->IsPaused(), requiredReadyFrames))
-        {
-            LOG_INFO("Streamline FG activation gate enabling SL2 FG after {} ready frames",
-                     _activationGate.ReadyFrameCount());
-            fgOutput->Activate();
-            _activationGate.ReportActivationResult(fgOutput->IsActive());
-        }
-    }
+        DispatchGatedActivation();
 
     static UINT64 lastFrameCount = 0;
     static UINT64 repeatsInRow = 0;
@@ -534,6 +544,11 @@ void Sl_Inputs::markPresent(uint64_t frameId)
 
     if (UseActivationGate())
         _activationGate.ReportPresent(static_cast<uint32_t>(frameId));
+
+    // Games without a RenderSubmit marker never reach evaluateState; the
+    // regularly-sent Present completion also drives the gated decision.
+    if (UseActivationGate())
+        DispatchGatedActivation();
 
     if (auto fg = State::Instance().CurrentFG(); fg != nullptr)
         fg->SetFrameCount(frameId);
