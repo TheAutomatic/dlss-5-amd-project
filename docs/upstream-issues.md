@@ -220,9 +220,9 @@ o_amdExtD3DShaderIntrinsics,上一个 real 引用泄漏。上游 990ff98 同样�
 2. **第二批(完成上述勘误后)**:U8 剩余竞态位点(勿含 Amdxc64Hooks::Init)、U9 修正版
    (勿含已撤回的 UAV counter 指控)—— issue + PR
 3. **第三批(可选)**:U6 剩余 UX(Int8 强制无提示)—— issue + 可选日志 PR
-4. **暂缓**:U2/U5(先按 8f0b7d875 复验前提)、U7(缺证据)、U10(见下,仅提 issue,
-   修复不完整不得提 PR)
-5. ~~移植 P1-P3~~ 已完成(a7537612);~~评估 E1-E6~~ 已完成(见 C 节)
+4. **U10**:三处缺口已闭合,升级为 **issue + PR**(见下;FSR 等待的阻塞风险必须随 PR 说明)
+5. **暂缓**:U2/U5(先按 8f0b7d875 复验前提)、U7(缺证据)
+6. ~~移植 P1-P3~~ 已完成(a7537612);~~评估 E1-E6~~ 已完成(见 C 节)
 
 ## U9 DX11 桥上下文恢复的残余缺口(上游 9df512d 现存,我们已超集修复)
 
@@ -277,23 +277,35 @@ U2/U5 前提待复验后再定。**
 **现场证据**:yysls + MFG Unlocker 1.7.0,6 个 minidump,全部 C0000005,命中已释放资源的
 vtable(XeFG_Dx12.cpp:1803 的 GetDesc)。
 
-**我们的修复**:`PresentResourceReference` RAII(IFGFeature_Dx12.h,三处共享)——Present
-栈上持有,延长的 FG 输出在帧槽 `_resourceMutex` 锁内 AddRef,所有退出路径(含 Dispatch
-失败)在锁内 Release;重标记用快照而非缓存裸指针。XeFG 于 0cc2ba5e,DLSSG+FSR-FG 本次
-提交。初始 SetResource 缓存语义不变(保持借用)。
+**我们的修复**:`PresentResourceReference`(IFGFeature_Dx12.h,三处共享)在帧槽
+`_resourceMutex` 锁内 AddRef **GetResource() 实际选中的对象**(copy 优先),Release 同样持锁。
+XeFG/DLSSG 在 Present 栈上持有,重标记使用锁内快照而非缓存裸指针;XeFG HudlessColor 与
+Distortion 现均覆盖。FSR-FG 改为实例持有 `_presentResources`,跨越我们的 Present 栈退出、
+真实 swapchain Present 内回调和异步 GPU 使用,仅在 SDK 完成等待后 Reset。初始 SetResource
+缓存保持借用语义。FSR 自绘 UI 输入亦在同一保活窗口内持有。
 
 **风险**:三个 FG 输出全部在列;任何第三方注入器或游戏侧提前释放都可能触发。
 可提上游:"FG outputs retag borrowed HudlessColor/Distortion to UntilPresentFromDispatch
 without AddRef — use-after-free on GetDesc/FFX handoff"。
 
-**修复不完整告示(2026-10-25)**:上述 RAII 只闭合 HudlessColor GetDesc 崩溃形态,**并未建立
-完整的端到端所有权契约**——XeFG Distortion 重标记、selected-copy 所有权、FG SDK 消费期
-三处未覆盖(见下表)。**提交策略:仅提 issue,不提 PR**,直至下列缺口闭合。
+**闭合结论(2026-10-25)**:以下三处缺口已完成源码级调查与修复,提交策略由仅 issue
+升级为 **issue + PR**。这不是 GPU 实机复现/压力测试通过的声明。
 
-### U10 剩余缺口分析(2026-10-25,含代码证据)
+### U10 缺口闭合证据
 
-| 缺口 | 现状(文件:行) | 应有行为 | 修复复杂度 |
-|---|---|---|---|
-| XeFG Distortion 重标记未受 RAII 保护 | XeFG_Dx12.cpp:1006-1015 —— `_noDistortionField` 为假时把 Distortion 无锁重标记为 UntilPresentFromDispatch 并 `SetResource(res)`,**无 presentResource.Acquire**;对比 HudlessColor 分支 :982-1004 有锁+Acquire | 与 HudlessColor 相同:帧槽锁内 Acquire(res.resource) 后重标记,快照传入 SetResource | 低——照抄同函数 :982-1004 模式 |
-| selected copy 所有权不明 | GetResource() 在 copy!=nullptr 时返回 copy(IFGFeature_Dx12.h:32);copy 由我们分配(DLSSG_Dx12.cpp:784-800 CopyResource→CreateBufferResource,ComPtr 语义存于 `_resourceCopy` 表)但生命周期由 DeferredRelease 兜底;FSRFG 的 Acquire 只锁 `res.resource`(FSRFG_Dx12.cpp:372-376)而非实际交出的 GetResource()=copy | 明确契约:凡 GetResource() 交出的对象都必须被本帧 RAII 持有——要么 Acquire(GetResource()),要么将 copy 纳入与帧槽锁一致的拥有链(创建即 AddRef 归 `_resourceCopy`,ReleaseResourceCopies 在锁内 DeferredRelease) | 中——需逐后端审计 `_resourceCopy`/transfer-helper Buffer(`resource->copy = Buffer()`,如 XeFG:1768、FSRFG:248)两条 copy 来源 |
-| FG SDK 消费期(FSR-FG/FFX) | Dispatch 把 hudless/UI/distortion 经 `ffxApiGetResourceDX12` 直接交给 FFX(FSRFG_Dx12.cpp:392-393,411);FFX 不 AddRef,期望资源在 GPU 完成(约到 present/下一帧 register)前由调用方保活 [INFERENCE: 依 FFX API 契约,本地代码无 AddRef 证据];我们的 RAII 生命周期只到 Present 栈退出 | 契约需验证 + 覆盖:确认 FFX 消费窗口(帧内 or 跨帧 RegisterUiResource 粘性),必要时把 RAII 释放延迟到 GPU fence/回调(DispatchCallback 已有 `_callbackResourceMutex` 可挂) | 高——跨边界(FFX 线程回调)+ 需 FFX SDK 源码级确认,无本地哨兵可测 |
+| 原缺口 | 闭合方式与证据 |
+|---|---|
+| XeFG Distortion 无锁重标记 | 复制 HudlessColor 模式:帧槽 unique_lock → Acquire(GetResource()) → retag → snapshot → 解锁后 SetResource。当前 XeFG SetResource 仍拒绝不支持的 Distortion,防护覆盖重标记入口而不改变功能支持。 |
+| selected-copy 所有权 | XeFG/DLSSG 两种 retag、FSR acquire 均 pin GetResource(),不再误 pin 原始 resource。FSR 对 copy!=nullptr 也持有(包括 ValidNow copy)。三后端 `_resourceCopy` 的 CreateBufferResource 创建引用归表拥有,基类 ReleaseResourceCopies 在帧槽锁内 DeferredRelease;延迟释放不是本次保活依据。XeFG 的 depth-invert/flip Buffer、FSR HudlessFormatTransfer/UIFormatTransfer 的 Buffer 归 helper 拥有,selected reference 独立于 helper 退休。FSR UIFormatTransfer 调用当前注释停用;自绘 UI 的实际 selected 输入亦 pin。 |
+| FFX 消费期 | **已证实由调用方保活,不是 FFX 自持引用**。vendored `FidelityFX-SDK/docs/techniques/super-resolution-interpolation.md:529-558` 明确要求 UI 延续到 real-frame composition 完成,HUDLess/distortion 延续到 interpolation 完成。`ffx_api_dx12.h:256` 只包装裸指针;`ffx_provider_framegeneration.cpp:324,353-360` 缓存裸资源;`FrameInterpolationSwapchainDX12.cpp:1395-1399` 在实际 Present 中回调后提交 GPU 并 signal interpolation fence。FSR 改为实例持引用,在下一次 Present、重配置/停用、销毁 context 和清理 copies 前调用 SDK WAIT_FOR_PRESENTS;成功后清除旧配置防止失败/跳过下一 dispatch 时继续使用旧指针,再 Release。等待失败保留引用并停止该边界操作。 |
+
+**同步取舍**:SDK `ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12` 没有 timeout 字段;
+provider 调用 `ffxWaitForPresents`,底层等待 game/interpolation/present fences
+(`FrameInterpolationSwapchainDX12.cpp:1120-1125`)。本修复优先正确性,可能降低跨帧重叠、
+被 vsync/呈现节奏拖慢,异常呈现管线可能无限阻塞;未伪造一个超时后不安全释放的退路。
+源码契约回归覆盖两种 XeFG/DLSSG retag、selected-copy 和 FSR SDK-drain-before-release 边界。
+
+**验证(2026-10-25)**:`test_xefg_present_lifetime.py` 5 项通过;
+`tools\build\build-release-local.cmd --fast` 产出 `exports\release-local\OptiScaler.dll`;
+`tests\host\run.cmd ci` PASS;`tests\host\run.cmd xefg` PASS(含生命周期源码契约、
+NR multiplier、XeFG dynamic-count)。未运行真实 FFX/GPU 提呈压力测试。

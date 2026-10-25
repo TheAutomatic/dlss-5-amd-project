@@ -319,6 +319,45 @@ static void fgLogCallback(uint32_t type, const wchar_t* message)
         spdlog::warn("FFX FG Callback: {}", message_str);
 }
 
+bool FSRFG_Dx12::DrainPresentResources()
+{
+    bool pending = false;
+    for (const auto& entry : _presentResources.entries)
+        pending |= entry.resource != nullptr;
+    if (!pending)
+        return true;
+
+    // Configure stores borrowed pointers. The real swapchain Present invokes the
+    // generation callback later, and its GPU work outlives that callback. Drain
+    // before releasing or replacing inputs, never at our Present() stack exit.
+    // SDK WAIT_FOR_PRESENTS has no timeout: this correctness-first wait can stall
+    // on vsync/pacing or block indefinitely on a broken presentation pipeline.
+    ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12 wait {};
+    wait.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12;
+    auto result = FfxApiProxy::D3D12_Dispatch(&_swapChainContext, &wait.header);
+    if (result != FFX_API_RETURN_OK)
+    {
+        LOG_ERROR("FFX present lifetime drain failed: {:X}; retaining inputs", (UINT) result);
+        return false;
+    }
+    // A skipped/failed next dispatch must not leave the previous raw bindings
+    // armed for another real Present after their references have been released.
+    if (_fgContext != nullptr)
+    {
+        ffxConfigureDescFrameGeneration clear {};
+        clear.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        clear.swapChain = _swapChain;
+        result = FfxApiProxy::D3D12_Configure(&_fgContext, &clear.header);
+        if (result != FFX_API_RETURN_OK)
+        {
+            LOG_ERROR("FFX lifetime binding clear failed: {:X}; retaining inputs", (UINT) result);
+            return false;
+        }
+    }
+    _presentResources.Reset();
+    return true;
+}
+
 bool FSRFG_Dx12::Dispatch(PresentResourceReference& presentResource)
 {
     LOG_FUNC();
@@ -355,10 +394,8 @@ bool FSRFG_Dx12::Dispatch(PresentResourceReference& presentResource)
         return false;
     }
 
-    // FSR-FG does not retag on the dispatch path; SetResource already cached the
-    // hudless/distortion entries as UntilPresent while they stay borrowed. Owning
-    // a reference for this dispatch/present keeps the FFX API from touching freed
-    // memory when the game releases the resource early.
+    // Pin selected inputs until the next SDK present-completion drain. The API
+    // wrapper/provider do not AddRef, and actual Present runs after this method.
     auto acquireIfExtended = [&](FG_ResourceType type)
     {
         std::unique_lock<std::shared_mutex> lock(_resourceMutex[fIndex]);
@@ -366,11 +403,11 @@ bool FSRFG_Dx12::Dispatch(PresentResourceReference& presentResource)
         if (it == _frameResources[fIndex].end())
             return;
         auto& res = it->second;
-        if (res.resource == nullptr)
+        if (res.GetResource() == nullptr)
             return;
-        if (res.validity == FG_ResourceValidity::UntilPresent ||
+        if (res.copy != nullptr || res.validity == FG_ResourceValidity::UntilPresent ||
             res.validity == FG_ResourceValidity::UntilPresentFromDispatch)
-            presentResource.Acquire(res.resource, &_resourceMutex[fIndex]);
+            presentResource.Acquire(res.GetResource(), &_resourceMutex[fIndex]);
     };
     if (!_noHudless[fIndex])
         acquireIfExtended(FG_ResourceType::HudlessColor);
@@ -841,6 +878,8 @@ void* FSRFG_Dx12::SwapchainContext()
 
 void FSRFG_Dx12::DestroyFGContext()
 {
+    if (!DrainPresentResources())
+        return;
     _frameCount = 1;
     // _lastDispatchedFrame = 0;
     _version = {};
@@ -1017,6 +1056,8 @@ bool FSRFG_Dx12::ReleaseSwapchain(HWND hwnd)
 {
     if (hwnd != _hwnd || _hwnd == NULL)
         return false;
+    if (!DrainPresentResources())
+        return false;
 
     LOG_DEBUG("");
 
@@ -1063,6 +1104,8 @@ bool FSRFG_Dx12::ReleaseSwapchain(HWND hwnd)
 void FSRFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
 {
     LOG_DEBUG("");
+    if (!DrainPresentResources())
+        return;
 
     CreateObjects(device);
 
@@ -1216,6 +1259,8 @@ void FSRFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
 
 void FSRFG_Dx12::Activate()
 {
+    if (!DrainPresentResources())
+        return;
     if (_fgContext != nullptr && _swapChain != nullptr && !_isActive)
     {
         ffxConfigureDescFrameGeneration fgConfig = {};
@@ -1240,6 +1285,8 @@ void FSRFG_Dx12::Activate()
 
 void FSRFG_Dx12::Deactivate()
 {
+    if (!DrainPresentResources())
+        return;
     if (_isActive)
     {
         auto fIndex = GetIndex();
@@ -1403,6 +1450,8 @@ void FSRFG_Dx12::EvaluateState(ID3D12Device* device, FG_Constants& fgConstants)
 
 void FSRFG_Dx12::ReleaseObjects()
 {
+    if (!DrainPresentResources())
+        return;
     for (size_t i = 0; i < BUFFER_COUNT; i++)
     {
         SAFE_RELEASE(_fgCommandAllocator[i]);
@@ -1430,6 +1479,8 @@ void FSRFG_Dx12::ReleaseObjects()
 
 void FSRFG_Dx12::ReleaseResourceCopies()
 {
+    if (!DrainPresentResources())
+        return;
     std::lock_guard<std::mutex> callbackLock(_callbackResourceMutex);
 
     for (size_t i = 0; i < BUFFER_COUNT; i++)
@@ -1793,12 +1844,18 @@ void FSRFG_Dx12::CreateObjects(ID3D12Device* InDevice)
 
 bool FSRFG_Dx12::Present()
 {
-    // Releases on every exit, including Dispatch errors, independently of cache clears.
-    PresentResourceReference presentResource;
+    if (!DrainPresentResources())
+        return false;
     auto fIndex = GetIndexWillBeDispatched();
 
     if (Config::Instance()->FGDrawUIOverFG.value_or_default())
     {
+        {
+            std::unique_lock<std::shared_mutex> lock(_resourceMutex[fIndex]);
+            auto it = _frameResources[fIndex].find(FG_ResourceType::UIColor);
+            if (it != _frameResources[fIndex].end() && it->second.GetResource() != nullptr)
+                _presentResources.Acquire(it->second.GetResource(), &_resourceMutex[fIndex]);
+        }
         auto ui = GetResource(FG_ResourceType::UIColor, fIndex);
         if (ui)
         {
@@ -1872,5 +1929,5 @@ bool FSRFG_Dx12::Present()
 
     _fgFramePresentId++;
 
-    return Dispatch(presentResource);
+    return Dispatch(_presentResources);
 }

@@ -25,6 +25,10 @@ class FSRFG_Dx12 : public virtual IFGFeature_Dx12
     // Callbacks run on FFX's thread, guards what they use against ReleaseResourceCopies
     std::mutex _callbackResourceMutex;
 
+    // FFX borrows these through the real swapchain Present and GPU completion.
+    PresentResourceReference _presentResources;
+    bool DrainPresentResources();
+
     // Dispatched in order on the same queue, one buffer is enough
     std::unique_ptr<HudCopy_Dx12> _hudCopy;
     std::unique_ptr<HCC_Dx12> _hudlessCompareCompute;

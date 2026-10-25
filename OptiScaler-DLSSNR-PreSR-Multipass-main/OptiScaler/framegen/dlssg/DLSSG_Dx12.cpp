@@ -270,8 +270,8 @@ bool DLSSG_Dx12::Dispatch(PresentResourceReference& presentResource)
             {
                 auto& res = it->second;
                 // Extending validity requires ownership, unlike the initial borrowed tag.
-                if (res.resource != nullptr)
-                    presentResource.Acquire(res.resource, &_resourceMutex[fIndex]);
+                if (res.GetResource() != nullptr)
+                    presentResource.Acquire(res.GetResource(), &_resourceMutex[fIndex]);
                 res.validity = FG_ResourceValidity::UntilPresentFromDispatch;
                 res.frameIndex = fIndex;
                 retagged = res;
@@ -294,8 +294,8 @@ bool DLSSG_Dx12::Dispatch(PresentResourceReference& presentResource)
             {
                 auto& res = it->second;
                 // Extending validity requires ownership, unlike the initial borrowed tag.
-                if (res.resource != nullptr)
-                    presentResource.Acquire(res.resource, &_resourceMutex[fIndex]);
+                if (res.GetResource() != nullptr)
+                    presentResource.Acquire(res.GetResource(), &_resourceMutex[fIndex]);
                 res.validity = FG_ResourceValidity::UntilPresentFromDispatch;
                 res.frameIndex = fIndex;
                 retagged = res;

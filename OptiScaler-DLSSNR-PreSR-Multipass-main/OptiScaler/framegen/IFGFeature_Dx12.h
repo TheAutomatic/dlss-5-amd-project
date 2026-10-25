@@ -49,7 +49,7 @@ struct LockedDx12Resource
 // cache so slot reuse cannot orphan the reference.
 struct PresentResourceReference
 {
-    static constexpr size_t EntryCount = 2; // HudlessColor + Distortion
+    static constexpr size_t EntryCount = 3; // HudlessColor + Distortion + FSR UI
 
     struct Entry
     {
@@ -83,8 +83,8 @@ struct PresentResourceReference
         }
     }
 
-    // Releases every entry under its slot mutex, including Dispatch error exits.
-    ~PresentResourceReference()
+    // Releases every entry under its slot mutex; also used after an SDK drain.
+    void Reset()
     {
         for (auto& entry : entries)
         {
@@ -92,9 +92,12 @@ struct PresentResourceReference
             {
                 std::unique_lock<std::shared_mutex> lock(*entry.mutex);
                 entry.resource->Release();
+                entry = {};
             }
         }
     }
+
+    ~PresentResourceReference() { Reset(); }
 };
 
 class IFGFeature_Dx12 : public virtual IFGFeature

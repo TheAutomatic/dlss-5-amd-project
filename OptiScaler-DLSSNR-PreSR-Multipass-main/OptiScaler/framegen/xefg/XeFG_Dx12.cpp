@@ -990,8 +990,8 @@ bool XeFG_Dx12::Dispatch(PresentResourceReference& presentResource)
             {
                 auto& res = it->second;
                 // Extending validity requires ownership, unlike the initial borrowed tag.
-                if (res.resource != nullptr)
-                    presentResource.Acquire(res.resource, &_resourceMutex[fIndex]);
+                if (res.GetResource() != nullptr)
+                    presentResource.Acquire(res.GetResource(), &_resourceMutex[fIndex]);
                 res.validity = FG_ResourceValidity::UntilPresentFromDispatch;
                 res.frameIndex = fIndex;
                 retagged = res;
@@ -1005,13 +1005,25 @@ bool XeFG_Dx12::Dispatch(PresentResourceReference& presentResource)
 
     if (!_noDistortionField[fIndex])
     {
-        auto res = &_frameResources[fIndex][FG_ResourceType::Distortion];
-        if (res->validity != FG_ResourceValidity::ValidNow)
+        Dx12Resource retagged;
+        bool retag = false;
         {
-            res->validity = FG_ResourceValidity::UntilPresentFromDispatch;
-            res->frameIndex = fIndex;
-            SetResource(res);
+            std::unique_lock<std::shared_mutex> lock(_resourceMutex[fIndex]);
+            auto it = _frameResources[fIndex].find(FG_ResourceType::Distortion);
+            if (it != _frameResources[fIndex].end() && it->second.validity != FG_ResourceValidity::ValidNow)
+            {
+                auto& res = it->second;
+                if (res.GetResource() != nullptr)
+                    presentResource.Acquire(res.GetResource(), &_resourceMutex[fIndex]);
+                res.validity = FG_ResourceValidity::UntilPresentFromDispatch;
+                res.frameIndex = fIndex;
+                retagged = res;
+                retag = true;
+            }
         }
+        // SetResource takes the same mutex; use the owned snapshot after unlocking.
+        if (retag)
+            SetResource(&retagged);
     }
 
     XeFGProxy::EnableDebugFeature()(_swapChainContext, XEFG_SWAPCHAIN_DEBUG_FEATURE_TAG_INTERPOLATED_FRAMES,
