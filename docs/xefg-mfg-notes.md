@@ -174,6 +174,10 @@ D3D12 完成的拷贝前从 EXTERNAL acquire 回同一队列族、`oldLayout=UND
 FG 输入的执行锚是 `SetResource` 里的 `WaitForInputSlot` CPU 等待。队列族用真实
 索引不硬编码:呈现路径(`RecordCopy` 与 present 拷贝)用呈现队列族
 (`Present` 经 `DeviceCreated` 建立的 queue→family 表解析);evaluate 命令缓冲里的
-ValidNow 输入(首次呈现前)用 `VkwDx12SC::InteropQueueFamily()`——已呈现过即呈现
-队列族,否则设备首个 compute 族(拷贝 shader 本就要求 compute)。不切
-CONCURRENT,信号量/栅栏原样保留只提供执行顺序。
+ValidNow 输入用其**命令池的队列族**——`Vulkan_Hooks` 钩住 `vkCreateCommandPool` /
+`vkAllocateCommandBuffers` / `vkFreeCommandBuffers` / `vkDestroyCommandPool`(设备销毁
+清账),`VkwDx12SC::CommandBufferFamily` 查池族;池未被跟踪时回落呈现队列族并一次性
+WARN(首帧呈现前呈现族未知则取设备首个 compute 族,拷贝 shader 本就要求 compute)。
+锁序:`VkwDx12SC::_mutex` 先于 `VkwDx12Inputs::inputsMutex`(`QueuePresent` 持
+`_mutex` 贯穿 `Present`→`RecordPresentCopies`,`SetResource` 在锁 inputsMutex 前解析
+evaluate 族,测试断言该顺序)。不切 CONCURRENT,信号量/栅栏原样保留只提供执行顺序。

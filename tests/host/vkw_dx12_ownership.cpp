@@ -2,11 +2,52 @@
 // VK_SHARING_MODE_EXCLUSIVE, so each handoff needs a release (Vulkan -> D3D12) and an acquire
 // (D3D12 -> Vulkan) barrier naming the interop's real queue family and VK_QUEUE_FAMILY_EXTERNAL.
 // The timeline semaphores only order execution; these barriers are the ownership contract.
+//
+// With the interop sources as argv the lock-order contract is checked too: VkwDx12SC::_mutex is
+// held across the present path's RecordPresentCopies (QueuePresent -> Present -> inputsMutex),
+// so nothing under inputsMutex may take it — SetResource resolves the evaluate family first.
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/with_dx12/vk_with_dx12_sc.h"
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <vector>
 
-int main()
+static void Check(bool value, const char* message)
+{
+    if (!value)
+    {
+        std::fprintf(stderr, "FAIL: %s\n", message);
+        std::abort();
+    }
+}
+
+static std::vector<std::string> ReadLines(const char* path)
+{
+    std::ifstream file(path);
+
+    if (!file)
+    {
+        std::fprintf(stderr, "FAIL: can't read %s\n", path);
+        std::abort();
+    }
+
+    std::vector<std::string> lines;
+    std::string line;
+
+    while (std::getline(file, line))
+        lines.push_back(line);
+
+    return lines;
+}
+
+static bool Contains(const std::string& line, const char* text)
+{
+    return line.find(text) != std::string::npos;
+}
+
+static void CheckBarrierContract()
 {
     constexpr uint32_t family = 3; // Any real family index, never the EXTERNAL/IGNORED sentinels
     const auto image = (VkImage) 0x1234;
@@ -56,6 +97,63 @@ int main()
     VkwDx12ReleaseToD3D12(other, image, 0, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                           VK_ACCESS_TRANSFER_WRITE_BIT);
     assert(other.srcQueueFamilyIndex == 0 && other.dstQueueFamilyIndex == VK_QUEUE_FAMILY_EXTERNAL);
+}
+
+// The evaluate family must come from the tracked command pool (P2) and be resolved before
+// inputsMutex is taken (P1: _mutex -> inputsMutex, the present path holds _mutex across
+// RecordPresentCopies)
+static void CheckLockOrderContract(const std::vector<std::string>& inputs, const std::vector<std::string>& header)
+{
+    size_t lockLine = 0, familyLine = 0, copyLine = 0, inSetResource = 0;
+    bool orderComment = false, trackedFamily = false;
+
+    for (size_t i = 0; i < inputs.size(); i++)
+    {
+        const auto& line = inputs[i];
+
+        if (Contains(line, "bool VkwDx12Inputs::SetResource"))
+            inSetResource = i + 1;
+
+        if (inSetResource != 0)
+        {
+            if (lockLine == 0 && Contains(line, "std::scoped_lock lock(inputsMutex)"))
+                lockLine = i + 1;
+
+            if (familyLine == 0 && Contains(line, "EvaluateFamily("))
+                familyLine = i + 1;
+
+            if (copyLine == 0 && Contains(line, "CopyToShared(input.cmdBuffer"))
+                copyLine = i + 1;
+        }
+
+        orderComment |= Contains(line, "Lock order");
+        trackedFamily |= Contains(line, "VkwDx12SC::CommandBufferFamily(");
+    }
+
+    Check(inSetResource != 0, "SetResource not found");
+    Check(lockLine != 0, "inputsMutex lock not found in SetResource");
+    Check(familyLine != 0, "EvaluateFamily call not found in SetResource");
+    Check(familyLine < lockLine, "the evaluate family must be resolved before locking inputsMutex");
+    Check(copyLine != 0, "copyNow CopyToShared call not found");
+    Check(Contains(inputs[copyLine - 1], "evaluateFamily"),
+          "copyNow CopyToShared must use the pre-lock family snapshot");
+    Check(trackedFamily, "the evaluate family must consult the tracked command pool family");
+    Check(orderComment, "inputsMutex lock-order comment missing");
+
+    bool mutexOrderComment = false;
+
+    for (const auto& line : header)
+        mutexOrderComment |= Contains(line, "Lock order");
+
+    Check(mutexOrderComment, "_mutex lock-order comment missing");
+}
+
+int main(int argc, char** argv)
+{
+    CheckBarrierContract();
+
+    if (argc > 2)
+        CheckLockOrderContract(ReadLines(argv[1]), ReadLines(argv[2]));
 
     std::puts("VkwDx12 ownership transfer: PASS");
 }

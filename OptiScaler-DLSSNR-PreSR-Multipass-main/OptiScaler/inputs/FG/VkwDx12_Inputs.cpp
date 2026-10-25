@@ -29,6 +29,9 @@ struct CopyTarget
     CopyMethod method = CopyMethod::Shader;
 };
 
+// Lock order: VkwDx12SC::_mutex is held across the present path's RecordPresentCopies, so it is
+// taken BEFORE this one — anything needed from VkwDx12SC (the evaluate queue family) is resolved
+// before locking this, never under it
 std::mutex inputsMutex;
 
 VkDevice _device = VK_NULL_HANDLE;
@@ -188,11 +191,26 @@ void UseDevices(VkDevice device, VkPhysicalDevice physicalDevice, ID3D12Device* 
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, _queueFamilies.data());
 }
 
-// The family of the queue the game's evaluate command buffers submit on: the interop's
-// presenting queue once it presented, before that the first compute-capable family, the input
-// copies dispatch compute shaders in those buffers
-uint32_t EvaluateFamily()
+// The family of the queue that submits the game's evaluate command buffer: its command pool's
+// family when the hooks tracked it, the only family the buffer's ownership barriers may name.
+// An untracked pool falls back to the interop's presenting queue — warned, once — whose family
+// before the first present is the first compute-capable one (the input copies dispatch compute
+// shaders in those buffers)
+uint32_t EvaluateFamily(VkCommandBuffer cmdBuffer)
 {
+    if (auto family = VkwDx12SC::CommandBufferFamily(cmdBuffer); family != UINT32_MAX)
+        return family;
+
+    static bool warned = false;
+
+    if (!warned)
+    {
+        warned = true;
+        LOG_WARN("Untracked command buffer {:X}, its FG input's ownership transfer uses the present queue's "
+                 "family",
+                 (size_t) cmdBuffer);
+    }
+
     if (auto family = VkwDx12SC::InteropQueueFamily(); family != UINT32_MAX)
         return family;
 
@@ -365,6 +383,12 @@ bool VkwDx12Inputs::SetResource(const VkFGResource& input)
     if (!VkwDx12SC::WaitForInputSlot(index))
         return false;
 
+    // Inputs only valid now are copied with their command buffer, the present copies the others.
+    // Lock order: VkwDx12SC::_mutex before inputsMutex (the present path holds it across
+    // RecordPresentCopies), the family is resolved before the lock
+    const bool copyNow = input.validity == FG_ResourceValidity::ValidNow && input.cmdBuffer != VK_NULL_HANDLE;
+    const uint32_t evaluateFamily = copyNow ? EvaluateFamily(input.cmdBuffer) : UINT32_MAX;
+
     std::scoped_lock lock(inputsMutex);
     UseDevices(device, physicalDevice, dx12Device);
 
@@ -389,10 +413,7 @@ bool VkwDx12Inputs::SetResource(const VkFGResource& input)
     if (!PrepareShared(shared, target.format, input.imageWidth, input.imageHeight))
         return false;
 
-    // Inputs only valid now are copied with their command buffer, the present copies the others
-    const bool copyNow = input.validity == FG_ResourceValidity::ValidNow && input.cmdBuffer != VK_NULL_HANDLE;
-
-    if (copyNow && !CopyToShared(input.cmdBuffer, input, target, shared, EvaluateFamily()))
+    if (copyNow && !CopyToShared(input.cmdBuffer, input, target, shared, evaluateFamily))
         return false;
 
     // The FG copies it at present, after D3D12 waited for the Vulkan frame

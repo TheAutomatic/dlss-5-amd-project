@@ -71,6 +71,10 @@ static PFN_vkAcquireNextImage2KHR o_AcquireNextImage2KHR = nullptr;
 static PFN_vkSetHdrMetadataEXT o_SetHdrMetadataEXT = nullptr;
 static PFN_vkWaitForPresentKHR o_WaitForPresentKHR = nullptr;
 static PFN_vkWaitForPresent2KHR o_WaitForPresent2KHR = nullptr;
+static PFN_vkCreateCommandPool o_CreateCommandPool = nullptr;
+static PFN_vkAllocateCommandBuffers o_AllocateCommandBuffers = nullptr;
+static PFN_vkFreeCommandBuffers o_FreeCommandBuffers = nullptr;
+static PFN_vkDestroyCommandPool o_DestroyCommandPool = nullptr;
 static PFN_vkGetInstanceProcAddr o_vkGetInstanceProcAddr = nullptr;
 static PFN_vkGetDeviceProcAddr o_vkGetDeviceProcAddr = nullptr;
 static PFN_vkEnumeratePhysicalDevices o_vkEnumeratePhysicalDevices = nullptr;
@@ -255,6 +259,50 @@ static bool EnableRadvCooperativeMatrix2()
     return setUnixEnv && setUnixEnv("radv_cooperative_matrix2_nv", "true") >= 0;
 }
 
+// The interop's evaluate command buffers carry queue family ownership barriers, which must
+// name the family of the queue that submits them — their command pool's family. The pools are
+// tracked as they are created and their buffers allocated.
+VALIDATE_HOOK(hkvkCreateCommandPool, PFN_vkCreateCommandPool)
+static VkResult hkvkCreateCommandPool(VkDevice device, const VkCommandPoolCreateInfo* pCreateInfo,
+                                      const VkAllocationCallbacks* pAllocator, VkCommandPool* pCommandPool)
+{
+    const auto result = o_CreateCommandPool(device, pCreateInfo, pAllocator, pCommandPool);
+
+    if (result == VK_SUCCESS && pCreateInfo != nullptr && pCommandPool != nullptr)
+        VkwDx12SC::TrackCommandPool(device, *pCommandPool, pCreateInfo->queueFamilyIndex);
+
+    return result;
+}
+
+VALIDATE_HOOK(hkvkAllocateCommandBuffers, PFN_vkAllocateCommandBuffers)
+static VkResult hkvkAllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo* pAllocateInfo,
+                                           VkCommandBuffer* pCommandBuffers)
+{
+    const auto result = o_AllocateCommandBuffers(device, pAllocateInfo, pCommandBuffers);
+
+    if (result == VK_SUCCESS && pAllocateInfo != nullptr && pCommandBuffers != nullptr)
+        VkwDx12SC::TrackCommandBuffers(pAllocateInfo->commandPool, pAllocateInfo->commandBufferCount,
+                                       pCommandBuffers);
+
+    return result;
+}
+
+VALIDATE_HOOK(hkvkFreeCommandBuffers, PFN_vkFreeCommandBuffers)
+static void hkvkFreeCommandBuffers(VkDevice device, VkCommandPool commandPool, uint32_t commandBufferCount,
+                                   const VkCommandBuffer* pCommandBuffers)
+{
+    o_FreeCommandBuffers(device, commandPool, commandBufferCount, pCommandBuffers);
+    VkwDx12SC::UntrackCommandBuffers(commandBufferCount, pCommandBuffers);
+}
+
+VALIDATE_HOOK(hkvkDestroyCommandPool, PFN_vkDestroyCommandPool)
+static void hkvkDestroyCommandPool(VkDevice device, VkCommandPool commandPool,
+                                   const VkAllocationCallbacks* pAllocator)
+{
+    o_DestroyCommandPool(device, commandPool, pAllocator);
+    VkwDx12SC::UntrackCommandPool(commandPool);
+}
+
 static void HookDevice(VkDevice InDevice)
 {
     if (o_CreateSwapchainKHR != nullptr || ScopedSkipVulkanHooks::Active())
@@ -271,6 +319,11 @@ static void HookDevice(VkDevice InDevice)
     o_SetHdrMetadataEXT = (PFN_vkSetHdrMetadataEXT) (vkGetDeviceProcAddr(InDevice, "vkSetHdrMetadataEXT"));
     o_WaitForPresentKHR = (PFN_vkWaitForPresentKHR) (vkGetDeviceProcAddr(InDevice, "vkWaitForPresentKHR"));
     o_WaitForPresent2KHR = (PFN_vkWaitForPresent2KHR) (vkGetDeviceProcAddr(InDevice, "vkWaitForPresent2KHR"));
+    o_CreateCommandPool = (PFN_vkCreateCommandPool) (vkGetDeviceProcAddr(InDevice, "vkCreateCommandPool"));
+    o_AllocateCommandBuffers =
+        (PFN_vkAllocateCommandBuffers) (vkGetDeviceProcAddr(InDevice, "vkAllocateCommandBuffers"));
+    o_FreeCommandBuffers = (PFN_vkFreeCommandBuffers) (vkGetDeviceProcAddr(InDevice, "vkFreeCommandBuffers"));
+    o_DestroyCommandPool = (PFN_vkDestroyCommandPool) (vkGetDeviceProcAddr(InDevice, "vkDestroyCommandPool"));
 
     if (o_CreateSwapchainKHR)
     {
@@ -307,6 +360,18 @@ static void HookDevice(VkDevice InDevice)
         if (o_WaitForPresent2KHR != nullptr)
             DetourAttach(&(PVOID&) o_WaitForPresent2KHR, hkvkWaitForPresent2KHR);
 
+        if (o_CreateCommandPool != nullptr)
+            DetourAttach(&(PVOID&) o_CreateCommandPool, hkvkCreateCommandPool);
+
+        if (o_AllocateCommandBuffers != nullptr)
+            DetourAttach(&(PVOID&) o_AllocateCommandBuffers, hkvkAllocateCommandBuffers);
+
+        if (o_FreeCommandBuffers != nullptr)
+            DetourAttach(&(PVOID&) o_FreeCommandBuffers, hkvkFreeCommandBuffers);
+
+        if (o_DestroyCommandPool != nullptr)
+            DetourAttach(&(PVOID&) o_DestroyCommandPool, hkvkDestroyCommandPool);
+
         auto detourResult = DetourTransactionCommit();
         if (detourResult != NO_ERROR)
         {
@@ -320,6 +385,10 @@ static void HookDevice(VkDevice InDevice)
             o_SetHdrMetadataEXT = nullptr;
             o_WaitForPresentKHR = nullptr;
             o_WaitForPresent2KHR = nullptr;
+            o_CreateCommandPool = nullptr;
+            o_AllocateCommandBuffers = nullptr;
+            o_FreeCommandBuffers = nullptr;
+            o_DestroyCommandPool = nullptr;
         }
     }
 }
@@ -645,6 +714,9 @@ static void hkvkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAll
     // NR private devices never enqueue (native NR uses Immediate), so dropping
     // them is a no-op that only guarantees no callback outlives the device.
     DeferredRelease::DropOwner(reinterpret_cast<uint64_t>(device));
+    // The interop's command buffer family tracking dies with the device, a reused handle must
+    // not read a stale pool family
+    VkwDx12SC::UntrackDevice(device);
     o_vkDestroyDevice(device, pAllocator);
 }
 
@@ -1777,6 +1849,18 @@ void VulkanHooks::Unhook()
     if (o_WaitForPresent2KHR != nullptr)
         DetourDetach(&(PVOID&) o_WaitForPresent2KHR, hkvkWaitForPresent2KHR);
 
+    if (o_CreateCommandPool != nullptr)
+        DetourDetach(&(PVOID&) o_CreateCommandPool, hkvkCreateCommandPool);
+
+    if (o_AllocateCommandBuffers != nullptr)
+        DetourDetach(&(PVOID&) o_AllocateCommandBuffers, hkvkAllocateCommandBuffers);
+
+    if (o_FreeCommandBuffers != nullptr)
+        DetourDetach(&(PVOID&) o_FreeCommandBuffers, hkvkFreeCommandBuffers);
+
+    if (o_DestroyCommandPool != nullptr)
+        DetourDetach(&(PVOID&) o_DestroyCommandPool, hkvkDestroyCommandPool);
+
     if (o_vkCreateDevice != nullptr)
         DetourDetach(&(PVOID&) o_vkCreateDevice, hkvkCreateDevice);
 
@@ -1819,6 +1903,10 @@ void VulkanHooks::Unhook()
         o_SetHdrMetadataEXT = nullptr;
         o_WaitForPresentKHR = nullptr;
         o_WaitForPresent2KHR = nullptr;
+        o_CreateCommandPool = nullptr;
+        o_AllocateCommandBuffers = nullptr;
+        o_FreeCommandBuffers = nullptr;
+        o_DestroyCommandPool = nullptr;
         o_vkCreateDevice = nullptr;
         o_vkCreateInstance = nullptr;
         o_vkDestroyInstance = nullptr;

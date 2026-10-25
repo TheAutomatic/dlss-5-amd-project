@@ -98,6 +98,19 @@ class VkwDx12SC
     // The family of the queue the interop copies run on, UINT32_MAX before the first present
     static uint32_t InteropQueueFamily();
 
+    // Queue families of the game's command buffers, from the hooked pool creation and buffer
+    // allocation. The evaluate command buffers' ownership transfers must name the family of
+    // the queue that submits them: their pool's family, which only the submitting queue's
+    // family can legally be.
+    static void TrackCommandPool(VkDevice device, VkCommandPool pool, uint32_t queueFamily);
+    static void TrackCommandBuffers(VkCommandPool pool, uint32_t count, const VkCommandBuffer* buffers);
+    static void UntrackCommandBuffers(uint32_t count, const VkCommandBuffer* buffers);
+    static void UntrackCommandPool(VkCommandPool pool);
+    static void UntrackDevice(VkDevice device);
+
+    // The pool family the command buffer was allocated from, UINT32_MAX when untracked
+    static uint32_t CommandBufferFamily(VkCommandBuffer commandBuffer);
+
     // Formats the FG inputs can be shared in
     static bool CanShare(VkFormat format);
 
@@ -123,6 +136,9 @@ class VkwDx12SC
         UINT64 copiedValue = 0; // _dxDone after D3D12 copied from shared
     };
 
+    // Lock order: this is taken BEFORE VkwDx12Inputs::inputsMutex — QueuePresent holds it
+    // across Present's RecordPresentCopies, so nothing may take it while holding inputsMutex;
+    // resolve anything needed from this class (the evaluate queue family) before that lock
     inline static std::mutex _mutex;
     inline static VkwDx12SC* _current = nullptr;
 

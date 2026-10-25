@@ -26,6 +26,13 @@ std::unordered_map<VkQueue, uint32_t> queueFamilies;
 std::mutex inputSlotsMutex;
 bool inputSlotPending[BUFFER_COUNT] {};
 
+// The game's command pools' families and the buffers allocated from them. Leaf-locked: no
+// other lock is taken while holding it, so the tracking is safe from every call site.
+// Lock order: VkwDx12SC::_mutex before VkwDx12Inputs::inputsMutex.
+std::mutex commandBuffersMutex;
+std::unordered_map<VkCommandPool, std::pair<VkDevice, uint32_t>> commandPoolFamilies;
+std::unordered_map<VkCommandBuffer, VkCommandPool> commandBufferPools;
+
 // The game's image is copied to the UNORM format of its texels, flip model swapchains have no sRGB formats
 bool SwapchainFormats(VkFormat format, VkFormat& sharedFormat, DXGI_FORMAT& dxgiFormat)
 {
@@ -312,6 +319,87 @@ void VkwDx12SC::DeviceCreated(VkDevice device, const VkDeviceCreateInfo* pCreate
                 queueFamilies[queue] = info.queueFamilyIndex;
         }
     }
+}
+
+void VkwDx12SC::TrackCommandPool(VkDevice device, VkCommandPool pool, uint32_t queueFamily)
+{
+    if (pool == VK_NULL_HANDLE)
+        return;
+
+    std::scoped_lock lock(commandBuffersMutex);
+    commandPoolFamilies[pool] = { device, queueFamily };
+}
+
+void VkwDx12SC::TrackCommandBuffers(VkCommandPool pool, uint32_t count, const VkCommandBuffer* buffers)
+{
+    if (pool == VK_NULL_HANDLE || buffers == nullptr)
+        return;
+
+    std::scoped_lock lock(commandBuffersMutex);
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (buffers[i] != VK_NULL_HANDLE)
+            commandBufferPools[buffers[i]] = pool;
+    }
+}
+
+void VkwDx12SC::UntrackCommandBuffers(uint32_t count, const VkCommandBuffer* buffers)
+{
+    if (buffers == nullptr)
+        return;
+
+    std::scoped_lock lock(commandBuffersMutex);
+
+    for (uint32_t i = 0; i < count; i++)
+        commandBufferPools.erase(buffers[i]);
+}
+
+void VkwDx12SC::UntrackCommandPool(VkCommandPool pool)
+{
+    if (pool == VK_NULL_HANDLE)
+        return;
+
+    std::scoped_lock lock(commandBuffersMutex);
+    commandPoolFamilies.erase(pool);
+
+    for (auto it = commandBufferPools.begin(); it != commandBufferPools.end();)
+        it = it->second == pool ? commandBufferPools.erase(it) : std::next(it);
+}
+
+void VkwDx12SC::UntrackDevice(VkDevice device)
+{
+    std::vector<VkCommandPool> removed;
+
+    std::scoped_lock lock(commandBuffersMutex);
+
+    for (auto it = commandPoolFamilies.begin(); it != commandPoolFamilies.end();)
+    {
+        if (it->second.first == device)
+        {
+            removed.push_back(it->first);
+            it = commandPoolFamilies.erase(it);
+        }
+        else
+            ++it;
+    }
+
+    for (auto it = commandBufferPools.begin(); it != commandBufferPools.end();)
+    {
+        const auto stale = std::find(removed.begin(), removed.end(), it->second) != removed.end();
+        it = stale ? commandBufferPools.erase(it) : std::next(it);
+    }
+}
+
+uint32_t VkwDx12SC::CommandBufferFamily(VkCommandBuffer commandBuffer)
+{
+    std::scoped_lock lock(commandBuffersMutex);
+
+    if (auto buffer = commandBufferPools.find(commandBuffer); buffer != commandBufferPools.end())
+        if (auto pool = commandPoolFamilies.find(buffer->second); pool != commandPoolFamilies.end())
+            return pool->second.second;
+
+    return UINT32_MAX;
 }
 
 bool VkwDx12SC::CreateSwapchain(VkDevice device, VkPhysicalDevice physicalDevice, VkInstance instance, HWND hwnd,

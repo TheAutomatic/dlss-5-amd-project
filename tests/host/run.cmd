@@ -81,7 +81,7 @@ call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 %CXX% /utf-8 tests\host\dx12_interop_desc.cpp /Fe"%OUT%\dx12_interop_desc.exe" /Fo"%OUT%\dx12_interop_desc.obj" || goto fail
 "%OUT%\dx12_interop_desc.exe" || goto fail
 %CXX% /utf-8 tests\host\vkw_dx12_ownership.cpp /Fe"%OUT%\vkw_dx12_ownership.exe" /Fo"%OUT%\vkw_dx12_ownership.obj" || goto fail
-"%OUT%\vkw_dx12_ownership.exe" || goto fail
+"%OUT%\vkw_dx12_ownership.exe" "%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\inputs\FG\VkwDx12_Inputs.cpp" "%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\with_dx12\vk_with_dx12_sc.h" || goto fail
 %CXX% /utf-8 tests\host\vulkan_call_scope.cpp /Fe"%OUT%\vulkan_call_scope.exe" /Fo"%OUT%\vulkan_call_scope.obj" || goto fail
 "%OUT%\vulkan_call_scope.exe" || goto fail
 %CXX% /utf-8 tests\host\vulkan_nr_extensions.cpp /Fe"%OUT%\vulkan_nr_extensions.exe" /Fo"%OUT%\vulkan_nr_extensions.obj" /link "%DETOURS%" || goto fail
