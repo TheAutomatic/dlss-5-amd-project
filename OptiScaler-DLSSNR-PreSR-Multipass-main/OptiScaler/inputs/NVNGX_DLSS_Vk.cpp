@@ -17,6 +17,7 @@
 #include <imgui/ImGuiNotify.hpp>
 #include <misc/IdentifyGpu.h>
 #include <inputs/FG/Upscaler_Inputs_Vk.h>
+#include <inputs/FG/Upscaler_Inputs_VkwDx12.h>
 
 VkInstance vkInstance;
 VkPhysicalDevice vkPD;
@@ -1095,6 +1096,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
     state.currentFeature = deviceContext;
 
     UpscalerInputsVk::UpscaleStart(InCmdList, InParameters, deviceContext);
+    UpscalerInputsVkwDx12::UpscaleStart(InCmdList, InParameters, deviceContext);
     NVSDK_NGX_Resource_VK* fgOutput = nullptr;
     InParameters->Get(NVSDK_NGX_Parameter_Output, (void**) &fgOutput);
 

@@ -131,3 +131,33 @@ AMD 宿主上无法开启也无法被伪装骗开。其本体是插件自带的 
 
 XeLL 互锁（`hostLatency` 熔断）、kernel32 FirstCreate 同步、GetModuleHandleEx 用法
 经逐字比对与 1.6.1 一致；XeMFG standalone 在检测到 OptiScaler 时硬关闭。
+
+## Vulkan 游戏的 XeFG:VkwDx12SC DX12 互操作交换链(dashdogy 0ebe836e/50dd7859 吸收)
+
+**它解决了什么。** Vulkan 游戏此前没有任何 DX12 FG 输出:XeFG 输出在菜单里被
+置灰("Unsupported API")。VkwDx12SC(对应 DX11 侧的 Dx11wDx12SC)把游戏的
+VkSwapchain 变成隐藏窗口上的真实交换链,呈现时把图像拷入 D3D12 共享纹理,经
+`FGHooks::CreateSwapChain` 建立的 DX12 FG 交换链在游戏窗口上呈现;FG 输入
+(深度/运动矢量,Streamline Vulkan tag 与 NVNGX EvaluateFeature 两条来路)经
+同一拷贝桥写入共享纹理,时间线信号量与 D3D12 共享栅栏同步
+(`State::swapchainInteropApi = VkwDx12`)。
+
+**仅限 Windows。** 互操作依赖 `VK_KHR_win32_surface` + 隐藏 HWND + D3D12 共享
+纹理,三者都不存在于 Wine/Proton(dxvk/vkd3d-proton 自持呈现)。因此
+`VkwDx12SC::Wanted()` 在 `isRunningOnLinux`、Mochizuki Proton 增强作用域
+(`ScopedGameD3D12Device`,即 vkd3d 收养路径)或 Vulkan 钩子跳过时一律返回
+false;`hkvkQueuePresentKHR` 的 interop 呈现分支额外要求 `!dxgiBacked`,不与
+DXGI 支撑的呈现路径争抢。Proton 下行为与吸收前完全一致。
+
+**插件无关。** XeFG 2x 独立可用;MFG-Unlocker 插件只在其上叠加倍率解锁与
+翻转队列节奏(XeFGFlipQueue 等),两者关系同 DX12 原生路径。
+
+**诚实边界。** 上游验证过的组合是 XeFG-on-Vulkan;FSR-FG 理论上可走同一桥
+(架构上只是另一个 DX12 FG 输出)但上游未测试,故 `Wanted()` 仍只对
+`FGOutput::XeFG` 放行,Vulkan 上的 FSR-FG 维持原生 Vulkan 输出,菜单不再置灰
+XeFG 并注明"Vulkan:经 DX12 互操作交换链(仅 Windows)"。
+
+Streamline 输入经 `VkwDx12Inputs::SetResource` 进桥后仍向
+`StreamlineFGActivationGate` 上报就绪信号(ReportDepth/MotionVectors 在路由
+之后无条件执行)——这些就是喂给 FG 交换链的 DLSSG 输入本体,门控语义不变,
+无需豁免。
