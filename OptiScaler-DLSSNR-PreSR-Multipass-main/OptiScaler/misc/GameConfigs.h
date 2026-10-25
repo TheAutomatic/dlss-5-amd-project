@@ -38,9 +38,11 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
         // fgReadyFrames=30: XeFG already active during the entry phase can crash or corrupt
         // visuals there, so default to the 30-frame readiness gate when the user hasn't set
         // FGDLSSGRequiredReadyFrames.
-        // yysls.exe is the game process; GacRunnerNG.exe is a launcher path some installs use.
+        // 燕云十六声 (Where Winds Meet): yysls.exe — the renderer creates boot DIRECT lists
+        // before the swapchain (proxy_missing grows to ~10/5s window = NR flicker) and
+        // XeFG active during entry crashes on the resource lifetime race.
+        // EarlyAnyModuleWrap + fgReadyFrames=30, both field-verified on this title.
         { "yysls.exe", Match::Exact, { false, true, false, false, 30 } },
-        { "gacrunnerng.exe", Match::Exact, { false, true, false, false, 30 } },
         { "007firstlight.exe", Match::Exact, { true, false, false, false } },
         { "aniimo.exe", Match::Exact, { false, false, false, true } },
         { {}, Match::Unreal, { true, false, false, false } },
