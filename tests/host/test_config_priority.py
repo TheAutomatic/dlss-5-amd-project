@@ -349,17 +349,17 @@ assert(GetNrGamePolicy("other.exe",true).earlyExeWrap);
 assert(!GetNrGamePolicy("other.exe").earlyExeWrap);
 auto dl=GetNrGamePolicy("DyingLightGame_TheBeast_x64_rwdi.exe");
 assert(!dl.earlyExeWrap&&dl.earlyAnyModuleWrap&&!dl.enhancedBarriers&&!dl.earlyUnityPlayerWrap);
-auto nsmc=GetNrGamePolicy("GacRunnerNG.exe");
-assert(!nsmc.earlyExeWrap&&nsmc.earlyAnyModuleWrap&&!nsmc.enhancedBarriers&&!nsmc.earlyUnityPlayerWrap);
+auto yysls=GetNrGamePolicy("yysls.exe");
+assert(!yysls.earlyExeWrap&&yysls.earlyAnyModuleWrap&&!yysls.enhancedBarriers&&!yysls.earlyUnityPlayerWrap);
 assert(!GetNrGamePolicy("othergame.exe").earlyAnyModuleWrap);
-assert(nsmc.fgReadyFrames==30);
+assert(yysls.fgReadyFrames==30);
 for(auto name:{"FORZAHORIZON6.EXE","ACMirage.exe","DyingLightGame_TheBeast_x64_rwdi.exe","othergame.exe"})
     assert(GetNrGamePolicy(name).fgReadyFrames==0);
-CustomOptional<int> readyFrames {0}; // effective chain: user value, else policy, else 0
-assert(readyFrames.value_or(nsmc.fgReadyFrames)==30);
-readyFrames=15; assert(readyFrames.value_or(nsmc.fgReadyFrames)==15);
-readyFrames=0; assert(readyFrames.value_or(nsmc.fgReadyFrames)==0);
-readyFrames.reset(); assert(readyFrames.value_or(nsmc.fgReadyFrames)==30);
+CustomOptional<int,NoDefault> readyFrames; // effective chain: user value, else policy, else 0
+assert(readyFrames.value_or(yysls.fgReadyFrames)==30);
+readyFrames=15; assert(readyFrames.value_or(yysls.fgReadyFrames)==15);
+readyFrames=0; assert(readyFrames.value_or(yysls.fgReadyFrames)==0);
+readyFrames.reset(); assert(readyFrames.value_or(yysls.fgReadyFrames)==30);
 CustomOptional<bool,NoDefault> preference; assert(!preference.has_value());
 assert(preference.value_or(forza.earlyExeWrap)); preference=false; assert(!preference.value_or(forza.earlyExeWrap));
 assert(preference.value_for_config()==false); preference.reset(); assert(!preference.value_for_config());
