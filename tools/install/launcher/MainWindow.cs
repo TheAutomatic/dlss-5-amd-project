@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Threading;
 using System.Windows;
@@ -2446,6 +2447,29 @@ namespace OptScalerNR.Launcher
                         RefreshGameListView();
                         if (_selectedGame != null) InspectGame(_selectedGame);
                     }
+
+                        // Chinese launcher UI → set the in-game menu to Chinese (first install only;
+                        // an existing explicit MenuLanguage is respected, matching the ini-ownership rule).
+                        if (_language == "zh" && _selectedGame != null && _selectedGame.HasExecutable)
+                        {
+                            try
+                            {
+                                var iniPath = Path.Combine(Path.GetDirectoryName(_selectedGame.Exe), "OptiScaler.ini");
+                                if (File.Exists(iniPath))
+                                {
+                                    var content = File.ReadAllText(iniPath);
+                                    if (!Regex.IsMatch(content, @"(?mi)^\s*MenuLanguage\s*=", RegexOptions.None))
+                                    {
+                                        content = Regex.Replace(content, @"(?mi)^(\[Menu\]\s*$)",
+                                            "$1" + "\r\nMenuLanguage = zh", RegexOptions.None);
+                                        if (!content.Contains("MenuLanguage"))
+                                            content += "\r\n[Menu]\r\nMenuLanguage = zh\r\n";
+                                        File.WriteAllText(iniPath, content);
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
                 }
 
                 AppendLog(_statusText != null ? _statusText.Text : "");
