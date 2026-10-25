@@ -111,6 +111,8 @@ jobs:
           - Linux/Proton 支持为实验性：需 Mesa RADV；Vulkan 游戏的 XeFG 通路与 `XeFGFlipQueue` 新节奏未经大范围实机验证。
           - lmxxf 时序模式与 ViT 自适应复用保持互斥；Mode 2/3 不支持多层。SR → NR 不扩展原生 RR/Vulkan 支持范围。
           - 帧生成类插件（MFG Unlocker 等）以 1.6.1 为验证锚点；**帧生成类插件不提供技术支持**。
+          - **开 FG 后 NR 无效果或画面闪烁**（如日志出现 `missing recording proxy` / `native_interface_escaped`）：多为游戏在交换链建立前创建的命令列表未被接管。菜单“兼容性与调度 → Early command-list wrap（提前接管）”改为 force on，保存并**重启游戏**（逆水寒/Forza 6 等已自动处理）。
+          - 日志出现 `enhanced_barrier` 拒绝时：菜单“兼容性与调度 → Allow enhanced barriers（允许增强屏障）”改为 force on，保存即生效、**无需重启**（Forza 系默认开启此策略）。其余：FG 输入/输出与多数画质项即时生效；帧节奏（XeFGFlipQueue）与提前接管需重启。
 
           ---
 
@@ -141,6 +143,8 @@ jobs:
           - Linux/Proton support is experimental: requires Mesa RADV; the Vulkan XeFG path and the new `XeFGFlipQueue` pacing have not been broadly field-validated.
           - lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse; Modes 2/3 are single-pass. Post-SR NR does not extend native RR/Vulkan support.
           - Frame-generation plugins (MFG Unlocker etc.) are verified against 1.6.1; **no technical support for frame-generation plugins**.
+          - **NR has no effect or flickers once FG is on** (log shows `missing recording proxy` / `native_interface_escaped`): usually command lists created before the swapchain escape wrapping. Set menu “Compatibility & Scheduling > Early command-list wrap” to force on, then Save Settings and **restart the game** (Justice / Forza 6 and similar are handled automatically).
+          - If the log shows `enhanced_barrier` rejections: set menu “Compatibility & Scheduling > Allow enhanced barriers” to force on — applies immediately, **no restart needed** (the Forza series enables this policy by default). Otherwise: FG input/output and most quality settings apply immediately; pacing (XeFGFlipQueue) and early wrapping require a restart.
 
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }

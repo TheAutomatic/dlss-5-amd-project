@@ -8733,10 +8733,17 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
     if (!ctx.newFrame)
         return;
     // Stable identity survives title/language changes; preserve the current brand and game caption.
+    // The banner shows the git SHORT hash — a 40-char SHA in the game window title is unreadable
+    // (field report); the log header keeps the full commit for exact identification.
     if (windowTitle.empty())
-        windowTitle = StrFmt("%s - %s %s %s%s", VER_PRODUCT_NAME, state.gameExe.c_str(),
+    {
+        std::string_view commit { VER_BUILD_COMMIT };
+        commit = commit.substr(0, 12);
+        windowTitle = StrFmt("OptiScaler(NR) v%s (%.*s) (%s) - %s %s %s%s", NR_PRODUCT_VERSION,
+            (int) commit.size(), commit.data(), VER_BUILD_DATE, state.gameExe.c_str(),
             state.detectedQuirks.empty() ? "" : "(Q)", state.isOptiPatcherSucceed ? "(OP)" : "",
             MenuDocking::WindowIdentity);
+    }
     const std::string localizedTitle = MenuLocale::Label(windowTitle.c_str());
     docking.Submit(config->MenuWindowAnchor.value_or_default(), _isVisible, localizedTitle.c_str(),
         {config->MenuWindowWidth.value_or(700.f) * menuResScale,
