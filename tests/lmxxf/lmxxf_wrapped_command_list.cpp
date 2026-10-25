@@ -302,6 +302,20 @@ static void Run(ID3D12Device* device, ID3D12CommandQueue* queue, unsigned layers
         bool probeUnwrap = false;
         const auto probeLogical = S::QueryLogicalCommandList(probeLayer.Get(), &probeUnwrap);
         Require(probeUnwrap == nativeOnly, "probe unwrap decision matches the wrapper kind");
+        // Observation-only QI must not poison the proxy: ResTrack asks every tracked list
+        // for ID3DDestructionNotifier (OptiFG path), and an escape there would reject all
+        // later recordings for the rest of the process (FH6 report 2026-10-25).
+        {
+            ComPtr<struct ID3DDestructionNotifier> notifier;
+            const HRESULT notifierHr = probeProxy->QueryInterface(IID_PPV_ARGS(&notifier));
+            Require(SUCCEEDED(notifierHr) && notifier != nullptr,
+                    "a D3D12 command list exposes ID3DDestructionNotifier through the proxy");
+            notifier.Reset();
+            Require(probeProxy->CanRecordInline(),
+                    "destruction-notifier QI leaves the proxy recordable");
+            Require(std::strcmp(probeProxy->InlineRejectionReason(), "native_interface_escaped") != 0,
+                    "destruction-notifier QI is not an escape");
+        }
         ID3D12GraphicsCommandList* probeList = (probeLogical && probeUnwrap) ? probeLogical.Get() : probeLayer.Get();
         probeList->Dispatch(1, 1, 1);
         Require(probeLayer->dispatches == (nativeOnly ? 0u : 1u),

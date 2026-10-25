@@ -530,12 +530,22 @@ public:
             if (logical.WasSplit())
                 return E_NOINTERFACE;
             const HRESULT hr = cur->QueryInterface(riid, ppv);
-            if (SUCCEEDED(hr))
+            // Observation-only interfaces cannot record commands: handing one out does not
+            // let the caller bypass the recording bookkeeping rawInterfaceEscaped protects.
+            // ResTrack asks every tracked command list for ID3DDestructionNotifier
+            // (resource_tracking/ResTrack_dx12.cpp), and with FGInput=Upscaler (OptiFG) it
+            // tracks exactly the lists NR needs — treating that QI as an escape rejected
+            // every later recording for the rest of the process (Forza Horizon 6 + XeFG:
+            // recorded=0, reject_causes=[native_interface_escaped], reported 2026-10-25).
+            // The escape verdict must follow the interface's CAPABILITY (can it record
+            // commands?), not its novelty.
+            const bool observationOnly = riid == __uuidof(ID3DDestructionNotifier);
+            if (SUCCEEDED(hr) && !observationOnly)
             {
                 rawInterfaceEscaped = true;
                 static std::atomic<uint32_t> s_escapeWarnCount{0};
                 const uint32_t c = s_escapeWarnCount.fetch_add(1, std::memory_order_relaxed) + 1;
-                // One WARN is enough for users; the event counter lives at Debug.
+                // First WARN per event class is enough for users; the counter stays at Debug.
                 if (c == 1)
                 {
                     LOG_WARN("CommandListProxy {:p} rawInterfaceEscaped: riid={:08X}",
