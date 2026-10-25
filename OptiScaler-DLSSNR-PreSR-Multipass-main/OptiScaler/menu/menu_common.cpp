@@ -4224,16 +4224,32 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
 
                 if (state.activeFgOutput == FGOutput::XeFG)
                 {
-                    bool flipQueue = config->FGXeFGFlipQueue.value_or_default();
-                    if (MenuUi::Checkbox("Flip-Queue Pacing (MFG Unlocker 1.7.0+)", &flipQueue))
-                        config->FGXeFGFlipQueue = flipQueue;
+                    // Tri-state: Auto (unset) leaves the plugin's own default (on for RX
+                    // 7000/9000 + new Adrenalin, off under Wine); explicit on/off persists
+                    // with the plugin's native words.
+                    static const char* flipModes[] = { "Auto", "On", "Off" };
+                    const bool set = config->FGXeFGFlipQueue.has_value();
+                    int flipMode = set ? (config->FGXeFGFlipQueue.value() ? 1 : 2) : 0;
+                    ImGui::PushItemWidth(160.0f * menuResScale);
+                    if (MenuUi::BeginCombo("Flip-Queue Pacing (MFG Unlocker 1.7.0+)", flipModes[flipMode]))
+                    {
+                        for (int i = 0; i < 3; i++)
+                            if (MenuUi::Selectable(flipModes[i], flipMode == i))
+                            {
+                                if (i == 0) config->FGXeFGFlipQueue.reset();
+                                else config->FGXeFGFlipQueue = (i == 1);
+                            }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PopItemWidth();
 
-                    if (config->FGXeFGFlipQueue.has_value() && config->FGXeFGFlipQueue.value_for_config())
+                    if (set)
                         MenuUi::TextWrapped("Save Settings and restart the game to apply flip-queue pacing.");
 
                     ShowHelpMarker("MFG Unlocker 1.7.0's flip-queue pacing for XeFG: presents each batch of generated frames on an even cadence.\n"
-                                   "Reads/writes [XeFG] XeFGFlipQueue in OptiScaler.ini; older MFG Unlocker builds ignore it.\n"
-                                   "Off is the verified baseline (classic pacing); on may smooth multi-frame-gen pacing but is unverified with OptiScaler and has known instability cases with XeLL.\n"
+                                   "Writes [XeFG] XeFGFlipQueue in OptiScaler.ini (on/off, the plugin's own words); older MFG Unlocker builds ignore the key.\n"
+                                   "Auto leaves the plugin default (on for RX 7000/9000 with new Adrenalin drivers, off under Wine/Proton).\n"
+                                   "Off is the verified baseline (classic pacing); On may smooth multi-frame-gen pacing but is unverified with OptiScaler and has known instability cases with XeLL.\n"
                                    "Decided once per process at FG startup - restart the game after changing.");
                 }
 

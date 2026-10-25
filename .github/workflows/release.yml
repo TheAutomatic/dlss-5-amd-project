@@ -84,89 +84,35 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
-          ### v1.13.3 (对比 v1.12.2)
+### v1.13.3.3 (对比 v1.13.3)
 
-          - **全新图形化启动器与安装管理**：
-            - **本地游戏库自动发现**：自动扫描 Steam、XBOX PC、Epic 与 GOG 本地游戏，支持手动添加单款游戏或先添加文件夹再扫描启动程序。
-            - **游戏主程序与注入智能识别**：优先定位包含超分原生 DLL 及 `x64_dx12` / `Shipping.exe` 的真正游戏主程序，自动过滤游戏启动器与崩溃辅助进程。
-            - **多后端管理与精简操作栏**：支持同时勾选安装多个后端并直接指定默认主后端，提供缺失模型/运行库的**红色置顶提示条**与就地导入，支持中英文实时切换。
-            - **OptiPatcher 集成**：安装页可勾选 OptiPatcher，并按 OptiScaler Wiki 实时解析推荐代理。
-            - **Mochizuki 画面风格分享码**：把调好的画面风格变成一段短码发给朋友，或粘贴别人的码一键换上同款画面（MZ1 通用码 / MZ2 带游戏名 / MZ3 附带备注）。
-            - **XeFG 解锁插件导入**与插件目录快捷入口；诊断信息重排为四个分区。
-            - **配套运行库兼容修复**：自动检测游戏目录与安装包内 DLL 版本差异，支持按组件一键替换备份与恢复。
-          - **Mochizuki 后端（升级至 0.0.7）**：
-            - **0.0.7 核心与三模型支持**：适配最新 DLSSNR 310.9.16 模型，支持提取并切换 **FP8（原版）**、**INT4（量化加速）** 与 **Small（轻量）** 三种模型规格。
-            - **画面与预设校正**：同步 0.0.7 修正后的预设风格档位（Grades A–D），新增分辨率切换过渡窗口与曝光连续性保护。
-            - **Split 共享纹理与拆分传输加速**：符合条件的切分帧直接复用共享色彩/运动矢量纹理，编解码重建时保留网络桥接（持续验证中）。
-          - **lmxxf 后端（升级至 0.44）**：集成 **Small 轻量模型** 与 W16 路径，Standard / Small 独立校验与菜单切换。
-          - **OptiScaler 大版本同步与稳定性修复**（同步上游截至 2026-10-23 大量变更 + 并对上游当前缺陷进行多次修补）：
-            - **星穹铁道反作弊修复 + 绝区零设置页卡顿修复**：FSR4 默认零 DLL 改写，仅显式选择预设/模型时挂钩。
-            - **帧生成崩溃修复**：游戏内菜单切换 FG 崩溃、FG 索引越界、XeFG 与旧版 libxell 配对加固（巫师 3 + MFG Unlocker）。
-            - **DX11 桥首帧 0x50 崩溃修复**；**Win10 误开 Agility SDK 修复**；代理钩子输入卡顿修复（[#13](https://github.com/TheAutomatic/dlss-5-amd-project/issues/13)）。
-            - **GPU 检测大修**：RDNA2（INT8_2）/ RDNA3 / RDNA4（FP8）/ Phoenix / Hawk Point / Krackan / Strix 全谱系 + Linux 设备表回退；SDK 版本预热，旧游戏 FFX DLL 不再挡帧生成。
-            - **Vulkan**：RDR2 Reflex/FSR-FG 崩溃修复、FSR-FG 垂直同步、重投影菜单开关、帧节奏调整与 Unity 资源翻转、多 w/Dx12 上分器并存。
-            - **AMD 硬件帧率表**：菜单可观察并一键关闭 FSR-FG 请求的 flip metering。
-            - **低延迟层统一**：Reflex / AntiLag Vk 输出可选、XeFG 配对上下文、真实限帧器显示；移除旧 fakenvapi 翻译层。
-            - **菜单**：FPS overlay 超分比例、FSR4/FSR-FG 水印实时切换、会话计时、16 缓冲区交换链支持等。
-            - **Linux/Proton（实验性支持）**：vkd3d 命令列表双重包装崩溃修复、NR 失败熔断防 OOM。
+**Linux / Steam Proton 正式支持（实验性）**：AMD 显卡在 Proton 下运行 DX12 游戏现已可用 DLSS 神经渲染降噪——NR 命令直接录制进游戏渲染流，配合 RADV 驱动编译，性能与 Windows 持平。实测通过：Dying Light The Beast（RX 9070 XT）。已知边界：需要 Mesa RADV；Mochizuki 小/原版模型均可用。感谢 @mochizuki0323 的开源实现与连日来的实测支持。
 
-          **安装与权重**
+**帧生成与 NR 共存问题**：修复多款游戏"开帧生成后 NR 静默失效"的问题——天国：拯救2（任意 FG 输出）、极限竞速：地平线 6（OptiFG 输入）、逆水寒（现已自动免闪，无需手动配置）。
 
-          - 完整解压并运行新包 `Setup.bat` 打开图形化启动器更新整包，建议使用覆盖安装。
-          - Mochizuki 0.0.7、lmxxf 0.44：启动器将从您自备的官方原版 `nvngx_dlssnr.dll`（请勿使用社区魔改版！）提取 FP8、INT4 或 Small 模型。
-          - Daniel 0.6.0：额外从 [danielblnc发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取运行文件。
+**Vulkan 游戏双升级**：博德之门 3 Vulkan 模式 NR 修复；新增 Vulkan 游戏 XeFG 帧生成通路（Windows，隐藏窗口互操作）。
 
-          **已知问题**
+**帧生成质量**：动态 MFG 卡顿跳帧速度提升 2.5 倍；修复游戏自带 FSR-FG 时 XeFG 接管崩溃（使命召唤类）；FSR-FG 界面在 FG 暂停时保持存活；新增 Streamline FG 就绪帧数门槛（默认关闭，高级用户可选）。感谢 @dashdogy 的改进。
 
-          - 当前新模型下与 mochizuki 原版的性能差距已尽可能趋同，追求极致帧数仍可[优先尝试原版](https://github.com/mochizuki0323/DLSSNR-AMD)。
-          - RenoDX 无法与人物保护功能同时生效，请尝试 RenoDX 下相关类似功能。
-          - 内联（Inline）模式仍为实验功能，可尝试在**《红色沙漠》**等不支持命令列表切分的游戏中开启。
-          - GPU 检测大修、Vulkan 重投影、低延迟重构与 AMD 帧率表待实机验证；Linux 下 NR 的 Proton 直连为源码完成待实机验证。
-          - lmxxf 时序模式与 ViT 自适应复用保持互斥；Mode 2/3 不支持多层。SR → NR 不扩展原生 RR/Vulkan 支持范围。
-          - Dashdogy MFGUnlocker 插件暂不支持1.6.2beta版本；**帧生成类插件不提供技术支持**。
+**安装与界面**：更新安装最快提速约 16 秒（INT4 权重智能复用）；后端面板只对勾选中的后端显示提示；菜单 NR 计时不再跳动，新增会话销毁原因日志；日志每行自带版本标识，报障更容易。
 
-          ---
+**MFG Unlocker 1.7.0 兼容**：正确识别 16 缓冲菜单；新节奏 `XeFGFlipQueue` 默认关闭（经典节奏为已验证基线），搭配 1.7.0 版插件可尝试打开，以获得更好的多帧生成下帧节奏——详见 [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0)。
 
-          ### v1.13.3 (vs. v1.12.2)
+---
 
-          - **New graphical launcher and installation manager**:
-            - **Automatic local game library discovery**: Scans local Steam, XBOX PC, Epic and GOG games; add a single game manually or add a folder first and scan for executables.
-            - **Smart game executable and injection detection**: Prioritizes the real game binary containing native upscaler DLLs or `x64_dx12` / `Shipping.exe`, filtering out game launchers and crash-helper processes.
-            - **Multi-backend management**: Install several backends at once, pick the default Active Backend, with a **red top banner** for missing models/runtimes and in-place import; live Chinese/English switching.
-            - **OptiPatcher integration**: Checkable in the installer, with live OptiScaler Wiki proxy recommendations.
-            - **Mochizuki style share codes**: Turn your tuned visual style into a short code to share, or paste someone else's to wear the same look (MZ1 universal / MZ2 game-tagged / MZ3 with a note).
-            - **XeFG unlocker plugin import** with a plugins-folder shortcut; diagnostics reorganized into four zones.
-            - **Companion runtime repair**: Detects DLL version differences between the game folder and the package, one-click backed-up replacement and restore per component.
-          - **Mochizuki backend (updated to 0.0.7)**:
-            - **0.0.7 core and 3-way model support**: Adapts to the latest DLSSNR 310.9.16 model; extract and switch between **FP8 (original)**, **INT4 (quantized)** and **Small (lightweight)**.
-            - **Visual and preset refinements**: Syncs corrected 0.0.7 style grades (Grades A–D), adds resolution-transition settle windows and exposure continuity protection.
-            - **Split shared-texture acceleration**: Eligible split frames reuse shared colour/motion-vector textures; the network bridge survives codec rebuilds (still under validation).
-          - **lmxxf backend (updated to 0.44)**: Integrates the **Small model** and W16 path, independent Standard/Small verification and menu switching.
-          - **Major OptiScaler sync and stability fixes** (upstream changes through 2026-10-23 plus multiple fixes for current upstream defects):
-            - **Honkai: Star Rail anti-cheat fix + Zenless Zone Zero settings-page stutter fix**: FSR4 performs zero DLL writes by default; hooks attach only on an explicit preset/model choice.
-            - **Frame-generation crash fixes**: In-game FG menu crash, FG index overflow, hardened XeFG/old-libxell pairing (Witcher 3 + MFG Unlocker).
-            - **DX11 bridge first-frame 0x50 crash fix**; **Win10 Agility SDK false-enable fix**; low-level hook input stutter fix ([#13](https://github.com/TheAutomatic/dlss-5-amd-project/issues/13)).
-            - **GPU detection overhaul**: Full RDNA2 (INT8_2) / RDNA3 / RDNA4 (FP8) / Phoenix / Hawk Point / Krackan / Strix coverage plus Linux device-table fallback; SDK version priming so an old game FFX DLL no longer blocks frame generation.
-            - **Vulkan**: RDR2 Reflex/FSR-FG crash fixes, FSR-FG vsync, in-menu reprojection toggle, frame-pacing tuning and Unity resource flip, multiple w/Dx12 upscalers.
-            - **AMD hardware flip meter**: Observe and disable FSR-FG flip metering from the menu.
-            - **Unified low-latency layer**: Reflex / AntiLag Vk outputs selectable, XeFG pairing context, real limiter display; legacy fakenvapi translation removed.
-            - **Menu**: FPS-overlay upscale ratio, live FSR4/FSR-FG watermark toggling, session timer, 16-buffer swapchain support and more.
-            - **Linux/Proton (experimental)**: vkd3d double-wrap crash fix, NR failure circuit breaker against OOM.
+### v1.13.3.3 (vs v1.13.3)
 
-          **Installation and models**
+**Linux / Steam Proton support (experimental)**: DLSS neural-render denoising now works on DX12 games under Proton with AMD GPUs — NR commands record directly into the game's render stream with RADV driver compilation, matching Windows performance. Field-verified on Dying Light The Beast (RX 9070 XT). Requires Mesa RADV; both Mochizuki Small and Original models supported. Our thanks to @mochizuki0323 for the open-source implementation and days of hands-on testing.
 
-          - Extract the full package and run `Setup.bat` to update via the graphical launcher; a clean overwrite install is recommended.
-          - Mochizuki 0.0.7 and lmxxf 0.44: the launcher extracts FP8, INT4 or Small models from your own official `nvngx_dlssnr.dll` (do not use community-modified builds!).
-          - Daniel 0.6.0: additionally fetch runtime files from [danielblnc's releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases).
+**Frame generation + NR coexistence**: fixed "NR silently dies when FG is on" in multiple titles — Kingdom Come: Deliverance II (any FG output), Forza Horizon 6 (OptiFG input), and Justice/逆水寒 (now flicker-free automatically, zero configuration).
 
-          **Known issues**
+**Vulkan games, twice over**: Baldur's Gate 3 Vulkan NR fixed; new XeFG frame-generation path for Vulkan games (Windows, hidden-window interop).
 
-          - The performance gap versus upstream Mochizuki has been narrowed as far as possible; for absolute maximum framerate, [try the upstream release](https://github.com/mochizuki0323/DLSSNR-AMD) first.
-          - RenoDX cannot be combined with person protection; use the corresponding features under RenoDX instead.
-          - Inline mode remains experimental; try it in titles without command-list splitting (e.g. **Crimson Desert**).
-          - The GPU detection overhaul, Vulkan reprojection, the low-latency rework and the AMD flip meter await real-hardware validation; the Linux NR Proton direct path is source-complete but untested.
-          - lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse; Modes 2/3 are single-pass. Post-SR NR does not extend native RR/Vulkan support.
-          - Dashdogy's MFGUnlocker plugin does not support the 1.6.2 beta yet; **no technical support for frame-generation plugins**.
+**Frame-generation quality**: Dynamic MFG hitch recovery 2.5x faster; XeFG no longer crashes over a game's own FSR-FG; FSR-FG UI stays alive while FG is paused; new opt-in Streamline FG readiness gate (off by default). Thanks to @dashdogy for the improvements.
+
+**Installer & UI**: updates install up to ~16 s faster (smart INT4 reuse); the backend panel only advises on backends you actually selected; the menu NR timing readout no longer jumps; sessions log their release reason; every log line carries the build version for easier bug reports.
+
+**MFG Unlocker 1.7.0 compatibility**: the menu's 16-buffer capacity is now detected correctly; the new `XeFGFlipQueue` pacing defaults to off (the classic pacing is the verified baseline) — with plugin v1.7.0 you can try enabling it for smoother multi-frame-gen pacing; details at [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0).
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')

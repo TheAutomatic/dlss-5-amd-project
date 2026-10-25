@@ -1292,8 +1292,10 @@ class Config
     CustomOptional<bool> FGXeFGJitteredMV { false };
     CustomOptional<bool> FGXeFGHighResMV { false };
     // MFG Unlocker 1.7.0+ reads [XeFG] XeFGFlipQueue (decided once per process at FG
-    // startup). Our default = the verified classic pacing baseline.
-    CustomOptional<bool> FGXeFGFlipQueue { false };
+    // startup). Tri-state NoDefault: unset = auto (the plugin's own default, ON on
+    // RX 7000/9000 + new Adrenalin, off under Wine); explicit on/off survives save.
+    // Serialized with the plugin's native words, and only when the user chose one.
+    CustomOptional<bool, NoDefault> FGXeFGFlipQueue;
     CustomOptional<bool> FGXeFGDebugView { false };
     CustomOptional<bool, SoftDefault> FGXeFGForceBorderless { false };
     CustomOptional<bool> FGXeFGDynamicMFG { false };          // Count picked up to FGXeFGInterpolationCount
