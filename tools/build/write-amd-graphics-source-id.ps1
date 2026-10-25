@@ -76,7 +76,7 @@ $dateFile = Join-Path $projectRoot 'resource_build_date.h'
 $identityChanged = -not (Test-Path -LiteralPath $commitFile) -or
                    [System.IO.File]::ReadAllText($commitFile) -ne $commitHeader
 if ($identityChanged -or -not (Test-Path -LiteralPath $dateFile)) {
-    $buildDate = [DateTime]::UtcNow.ToString('yyyyMMdd_HHmmss') + ' UTC'
+    $buildDate = [DateTime]::Now.ToString('yyyyMMdd_HHmmss')
     [System.IO.File]::WriteAllText($dateFile,
         ('#define VER_BUILD_DATE "' + $buildDate + "`"`r`n"), [System.Text.Encoding]::ASCII)
 }
