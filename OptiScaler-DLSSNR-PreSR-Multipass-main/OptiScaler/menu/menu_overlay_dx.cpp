@@ -153,8 +153,11 @@ static void CreateRenderTargetDx12(ID3D12Device* device, IDXGISwapChain* pSwapCh
             g_mainRenderTargetResource[i] = pBackBuffer;
         }
     }
+    // Upstream d06f31e9 marker string: MFG-Unlocker (and other hosts) scan this
+    // exact line to learn the menu's back-buffer capacity. Keep the wording.
+    LOG_INFO("Swapchain has {} buffers, menu supports {}", sd.BufferCount, NUM_BACK_BUFFERS);
 
-    LOG_INFO("done!");
+     LOG_INFO("done!");
 }
 
 static bool CleanupRenderTargetDx12(bool clearQueue)
