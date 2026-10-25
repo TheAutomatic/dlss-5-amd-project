@@ -21,6 +21,8 @@
 #include <low_latency/input/input_common.h>
 #include <proxies/XeFG_Proxy.h>
 #include <menu/menu_overlay_dx.h>
+#include <imgui/ImGuiNotify.hpp>
+#include <proxies/KernelBase_Proxy.h>
 
 #include <d3d12.h>
 #include <detours/detours.h>
@@ -69,6 +71,54 @@ static HANDLE _semaphore = nullptr;
 #if (XEFG_RESOURCE_REF_LIMIT == 0)
 inline static std::vector<void*> oldBackBuffers;
 #endif
+
+// The game's own FSR Frame Generation creates this swapchain, XeFG under it crashes (Modern Warfare 4). With FG input
+// FSR-FG OptiScaler replaces that swapchain itself.
+static bool CreatedByGameFsrFg()
+{
+    const auto ffx = KernelBaseProxy::GetModuleHandleW_()(L"amd_fidelityfx_framegeneration_dx12.dll");
+
+    if (ffx == nullptr)
+        return false;
+
+    void* frames[24] {};
+    const auto count = CaptureStackBackTrace(1, (DWORD) std::size(frames), frames, nullptr);
+
+    for (USHORT i = 0; i < count; i++)
+    {
+        HMODULE module = nullptr;
+
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCWSTR) frames[i], &module) &&
+            module == ffx)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool RefuseUnderGameFsrFg()
+{
+    if (State::Instance().activeFgOutput != FGOutput::XeFG || !CreatedByGameFsrFg())
+        return false;
+
+    LOG_WARN("The game's FSR Frame Generation creates this swapchain, leaving it to the game: turn the game's frame "
+             "generation off or set FG Input to FSR-FG for XeFG");
+
+    static bool shown = false;
+
+    if (!shown)
+    {
+        shown = true;
+        ImGui::InsertNotification({ ImGuiToastType::Warning, 15000,
+                                    "The game's FSR Frame Generation is on: XeFG can't run under it.\n"
+                                    "Turn the game's frame generation off, or set FG Input to FSR-FG." });
+    }
+
+    return true;
+}
 
 static bool CheckForFGStatus()
 {
@@ -132,6 +182,9 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         LOG_WARN("Can't init FG Feature or invalid FGOutput setting!");
         return E_NOINTERFACE;
     }
+
+    if (RefuseUnderGameFsrFg())
+        return E_NOINTERFACE;
 
     // Check if it's Dx12
     ID3D12CommandQueue* cq = nullptr;
@@ -253,6 +306,9 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         LOG_WARN("Can't init FG Feature or invalid FGOutput setting!");
         return E_NOINTERFACE;
     }
+
+    if (RefuseUnderGameFsrFg())
+        return E_NOINTERFACE;
 
     // Check if it's Dx12
     ID3D12CommandQueue* cq = nullptr;
@@ -1294,7 +1350,12 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
         }
     }
 
-    if (willPresent && fgFeatureActive)
+    // The game's FSR FG present callback draws its UI on every present, also while frame generation is off
+    // (menus, pause): AMD's swapchain calls it on that path too. Present() submits the UI command list.
+    const bool fsrFgUi = (state.activeFgInput == FGInput::FSRFG || state.activeFgInput == FGInput::FSRFG30) &&
+                         state.swapchainInteropApi == SwapchainInteropApi::None;
+
+    if (willPresent && fg != nullptr && (fgFeatureActive || fsrFgUi))
     {
         if (state.activeFgInput == FGInput::FSRFG)
             ffxPresentCallback();

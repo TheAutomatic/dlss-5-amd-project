@@ -61,5 +61,31 @@ int main()
             sample.currentCount = count;
         }
     }
+
+    // An isolated hitch (2.5x the running average) is skipped: the count doesn't move on it.
+    {
+        XeFG_DynamicCount controller;
+        XeFG_DynamicCount::Sample sample;
+        sample.targetFps = 120;
+        sample.frameMs = 40;
+        sample.maxCount = 3;
+        sample.minCount = 1;
+        sample.currentCount = 1;
+        int count = 1;
+        for (int frame = 0; frame < 40; ++frame)
+        {
+            sample.nowMs = frame * 40.;
+            count = controller.Update(sample);
+            sample.currentCount = count;
+        }
+        sample.frameMs = 120; // 3x the average: a hitch
+        sample.nowMs += 40.;
+        const int hitched = controller.Update(sample);
+        assert(hitched == count);
+        sample.frameMs = 40;
+        sample.nowMs += 40.;
+        assert(controller.Update(sample) >= sample.minCount);
+    }
+    std::puts("XeFG dynamic count: isolated hitch skipped PASS");
     std::puts("XeFG dynamic count: in-flight limits and failed-up recovery PASS");
 }
