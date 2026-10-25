@@ -97,6 +97,20 @@ jobs:
           **安装与界面**：更新安装最快提速约 16 秒（INT4 权重智能复用）；后端面板只对勾选中的后端显示提示；菜单 NR 计时不再跳动，新增会话销毁原因日志；日志每行自带版本标识，报障更容易。
 
           **MFG Unlocker 1.7.0 兼容**：正确识别 16 缓冲菜单；新节奏 `XeFGFlipQueue` 默认关闭（经典节奏为已验证基线），搭配 1.7.0 版插件可尝试打开，以获得更好的多帧生成下帧节奏——详见 [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0)。
+          **安装与权重**
+
+          - 完整解压并运行新包 `Setup.bat` 打开图形化启动器更新整包，建议使用覆盖安装。
+          - Mochizuki 0.0.7、lmxxf 0.44：启动器将从您自备的官方原版 `nvngx_dlssnr.dll`（请勿使用社区魔改版！）提取 FP8、INT4 或 Small 模型。
+          - Daniel 0.6.0：额外从 [danielblnc发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取运行文件。
+
+          **已知问题**
+
+          - 当前新模型下与 mochizuki 原版的性能差距已尽可能趋同，追求极致帧数仍可[优先尝试原版](https://github.com/mochizuki0323/DLSSNR-AMD)。
+          - RenoDX 无法与人物保护功能同时生效，请尝试 RenoDX 下相关类似功能。
+          - 内联（Inline）模式仍为实验功能，可尝试在**《红色沙漠》**等不支持命令列表切分的游戏中开启。
+          - Linux/Proton 支持为实验性：需 Mesa RADV；Vulkan 游戏的 XeFG 通路与 `XeFGFlipQueue` 新节奏未经大范围实机验证。
+          - lmxxf 时序模式与 ViT 自适应复用保持互斥；Mode 2/3 不支持多层。SR → NR 不扩展原生 RR/Vulkan 支持范围。
+          - 帧生成类插件（MFG Unlocker 等）以 1.6.1 为验证锚点；**帧生成类插件不提供技术支持**。
 
           ---
 
@@ -113,6 +127,21 @@ jobs:
           **Installer & UI**: updates install up to ~16 s faster (smart INT4 reuse); the backend panel only advises on backends you actually selected; the menu NR timing readout no longer jumps; sessions log their release reason; every log line carries the build version for easier bug reports.
 
           **MFG Unlocker 1.7.0 compatibility**: the menu's 16-buffer capacity is now detected correctly; the new `XeFGFlipQueue` pacing defaults to off (the classic pacing is the verified baseline) — with plugin v1.7.0 you can try enabling it for smoother multi-frame-gen pacing; details at [MFG-Unlocker v1.7.0](https://github.com/dashdogy/MFG-Unlocker/releases/tag/v1.7.0).
+          **Installation and models**
+
+          - Extract the full package and run `Setup.bat` to update via the graphical launcher; a clean overwrite install is recommended.
+          - Mochizuki 0.0.7 and lmxxf 0.44: the launcher extracts FP8, INT4 or Small models from your own official `nvngx_dlssnr.dll` (do not use community-modified builds!).
+          - Daniel 0.6.0: additionally fetch runtime files from [danielblnc's releases](https://github.com/danielblnc/DLSS-NR-on-AMD).
+
+          **Known issues**
+
+          - The performance gap versus upstream Mochizuki has been narrowed as far as possible; for absolute maximum framerate, [try the upstream release](https://github.com/mochizuki0323/DLSSNR-AMD) first.
+          - RenoDX cannot be combined with person protection; use the corresponding features under RenoDX instead.
+          - Inline mode remains experimental; try it in titles without command-list splitting (e.g. **Crimson Desert**).
+          - Linux/Proton support is experimental: requires Mesa RADV; the Vulkan XeFG path and the new `XeFGFlipQueue` pacing have not been broadly field-validated.
+          - lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse; Modes 2/3 are single-pass. Post-SR NR does not extend native RR/Vulkan support.
+          - Frame-generation plugins (MFG Unlocker etc.) are verified against 1.6.1; **no technical support for frame-generation plugins**.
+
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
