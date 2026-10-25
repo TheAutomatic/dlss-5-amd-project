@@ -106,6 +106,8 @@ call "%REPO%\tests\host\menu-localization.cmd" "%OUT%\menu" || goto fail
 "%OUT%\upscaler_route_diagnostic.exe" || goto fail
 %CXX% /utf-8 tests\host\menu_window_layout.cpp /Fe"%OUT%\menu_window_layout.exe" /Fo"%OUT%\menu_window_layout.obj" || goto fail
 "%OUT%\menu_window_layout.exe" || goto fail
+%CXX% /utf-8 tests\host\fsr4_model_scan_cache.cpp /Fe"%OUT%\fsr4_model_scan_cache.exe" /Fo"%OUT%\fsr4_model_scan_cache.obj" || goto fail
+"%OUT%\fsr4_model_scan_cache.exe" || goto fail
 for %%T in (directinput_registry input_hook_lifetime input_key_lifetime input_window_lifetime shortcut_keys nr_gpu_history amd_pass_initialization) do (
   %CXX% /utf-8 tests\host\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" /link user32.lib || goto fail
   "%OUT%\%%T.exe" || goto fail

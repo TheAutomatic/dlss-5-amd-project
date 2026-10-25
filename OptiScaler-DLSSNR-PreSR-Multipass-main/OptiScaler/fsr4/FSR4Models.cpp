@@ -52,6 +52,54 @@ struct HookedModule
 std::deque<HookedModule> hookedModules;
 std::mutex hookMutex;
 
+// Discovering the models of an unhooked module needs a full RTTI scan of the driver
+// module per provider class and the menu asks for the list every frame, so the result
+// is cached. The cache is keyed on the module handle and the module file's write time:
+// a driver update or a reload with a reused handle changes the timestamp and forces a
+// rescan. Read-only discovery only, the vtables stay untouched until an explicit selection.
+struct ModelScanCache
+{
+    HMODULE module = nullptr;
+    FILETIME fileTime{};
+    std::vector<FSR4Model> models;
+} scanCache;
+
+FILETIME ModuleFileTime(HMODULE module)
+{
+    FILETIME time{};
+    wchar_t path[MAX_PATH];
+    if (GetModuleFileNameW(module, path, MAX_PATH) > 0)
+    {
+        WIN32_FILE_ATTRIBUTE_DATA info;
+        if (GetFileAttributesExW(path, GetFileExInfoStandard, &info))
+            time = info.ftLastWriteTime;
+    }
+    return time;
+}
+
+// Models present in an unhooked module, scanned at most once per module generation.
+// hookMutex must be held.
+const std::vector<FSR4Model>& ScannedModels(HMODULE module)
+{
+    FILETIME fileTime = ModuleFileTime(module);
+    if (scanCache.module != module ||
+        scanCache.fileTime.dwLowDateTime != fileTime.dwLowDateTime ||
+        scanCache.fileTime.dwHighDateTime != fileTime.dwHighDateTime)
+    {
+        scanCache.module = module;
+        scanCache.fileTime = fileTime;
+        scanCache.models.clear();
+
+        for (auto& provider : modelProviders)
+        {
+            if (rtti::FindVtable(module, provider.className) != nullptr)
+                scanCache.models.push_back(provider.model);
+        }
+    }
+
+    return scanCache.models;
+}
+
 const ModelProvider& Provider(FSR4Model model)
 {
     return *std::ranges::find(modelProviders, model, &ModelProvider::model);
@@ -198,14 +246,14 @@ bool FSR4Models::IsModuleHooked(HMODULE module)
 
 bool FSR4Models::ModuleHasModel(HMODULE module, FSR4Model model)
 {
-    {
-        std::scoped_lock lock(hookMutex);
+    std::scoped_lock lock(hookMutex);
 
-        if (auto hooked = FindHookedModule(module))
-            return hooked->HasModel(model);
-    }
+    if (auto hooked = FindHookedModule(module))
+        return hooked->HasModel(model);
 
-    return rtti::FindVtable(module, Provider(model).className) != nullptr;
+    // Read-only discovery, cached so the per-frame menu query does not rescan the module
+    const auto& scanned = ScannedModels(module);
+    return std::ranges::find(scanned, model) != scanned.end();
 }
 
 bool FSR4Models::CanGpuRun(FSR4Model model)
@@ -250,13 +298,12 @@ std::vector<FSR4Model> FSR4Models::SelectableModels(HMODULE module)
     else
     {
         // Discover choices without patching an unhooked module; attach only on an explicit selection.
-        for (auto& provider : modelProviders)
+        for (auto model : ScannedModels(module))
         {
-            if (CanGpuRun(provider.model) && rtti::FindVtable(module, provider.className) != nullptr)
-                models.push_back(provider.model);
+            if (CanGpuRun(model))
+                models.push_back(model);
         }
     }
-
     if (models.size() < 2)
         models.clear();
 
