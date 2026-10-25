@@ -1305,3 +1305,10 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 - `打开插件文件夹 / Open plugins folder` sits beside the XeFG unlocker import action. It is available for a selected game with an existing `OptiScaler` directory and disabled while INI actions are busy; ASI/OptiPatcher toggles are not prerequisites. It reuses the unlocker destination resolver, including `[Plugins] Path` precedence and `[Libraries] OptiDllPath`-based `plugins` resolution with the existing fallback, and opens Explorer on the directory without selecting a file.
 - Opening never creates a directory. A missing resolved directory reports `未检测到插件目录，请先安装本工具 / Plugins folder not found; install this tool first.` The package already ships `plugins/` with its README and installation ensures the resolved directory exists, so a missing directory is treated as a missing/deleted or nonstandard installation rather than repaired by browsing.
 
+
+## 2026-10-25 janblade PR 230 "Superior Scaling":仅借鉴方法论,不吸收
+
+- **背景**:降分辨率 NR 的放大质量(多 pass 缩放的锐化/膨胀、运动不稳定)。真实手写量 30 文件/+6,659 行(diffstat 24.7 万是字节码/测试)。
+- **否决整吞/摘取**:私有残差稳定器经 NVNGXProxy 直连真 NVIDIA NGX,不走 OptiScaler 门面——AMD 上无 FSR 回落,时间稳定部分 N 卡专属;字面替换面连锁 190 文件/~7 万行 fork 私有体系;AMD 特性化估 30-45 文件/8-12k 行。
+- **采纳**:P50/P100 全帧 FP64 标定方法论可迁(数值表不可——估计器/重建域不同);C5 运动端点 bug 我们无同类病灶,不跟进。
+- **重启条件**:用户群实际压 NR% 求性能且反馈 bloating 时,先做离线拟合工具(3-6 文件)验证收益再决定。详见 work/notes/2026-10-25-superior-scaling-study.md。
