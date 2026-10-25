@@ -108,7 +108,7 @@ jobs:
           - 内联（Inline）模式仍为实验功能，可尝试在**《红色沙漠》**等不支持命令列表切分的游戏中开启。
           - Linux/Proton 支持为实验性：需 Mesa RADV；Vulkan 游戏的 XeFG 通路未经大范围实机验证。
           - lmxxf 时序模式与 ViT 自适应复用保持互斥；Mode 2/3 不支持多层。SR → NR 不扩展原生 RR/Vulkan 支持范围。
-          - **开 FG 后 NR 无效果或画面闪烁**（如日志出现 `missing recording proxy` / `native_interface_escaped`）：多为游戏在交换链建立前创建的命令列表未被接管。菜单"兼容性与调度 → Early command-list wrap（提前接管）"改为 force on，保存并**重启游戏**（逆水寒/Forza 6 等已自动处理）。
+          - **开 FG 后 NR 无效果或画面闪烁**（如日志出现 `missing recording proxy` / `native_interface_escaped`）：多为游戏在交换链建立前创建的命令列表未被接管。菜单"兼容性与调度 → Early command-list wrap（提前接管）"改为 force on，保存并**重启游戏**（燕云十六声/Forza 6 等已自动处理）。
           - **XeFG 入场阶段闪退/花屏**：部分游戏（燕云十六声等）在游戏入场阶段已激活 XeFG 时可能闪退或花屏——已在燕云十六声默认开启就绪帧数准入（30 帧）；其他游戏如遇到同类问题，可在菜单"帧生成 → 高级设置 → 就绪帧数"设为 30，或通过 INI `[DLSSG] RequiredReadyFrames = 30`，保存并重启游戏。
           - 日志出现 `enhanced_barrier` 拒绝时：菜单"兼容性与调度 → Allow enhanced barriers（允许增强屏障）"改为 force on，保存即生效、**无需重启**（Forza 系默认开启此策略）。其余：FG 输入/输出与多数画质项即时生效；帧节奏（XeFGFlipQueue）与提前接管需重启。
           ---
@@ -136,7 +136,7 @@ jobs:
           - Inline mode remains experimental; try it in titles without command-list splitting (e.g. **Crimson Desert**).
           - Linux/Proton support is experimental: requires Mesa RADV; the Vulkan XeFG path has not been broadly field-validated.
           - lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse; Modes 2/3 are single-pass. Post-SR NR does not extend native RR/Vulkan support.
-          - **NR has no effect or flickers once FG is on** (log shows `missing recording proxy` / `native_interface_escaped`): usually command lists created before the swapchain escape wrapping. Set menu "Compatibility & Scheduling > Early command-list wrap" to force on, then Save Settings and **restart the game** (Justice / Forza 6 and similar are handled automatically).
+          - **NR has no effect or flickers once FG is on** (log shows `missing recording proxy` / `native_interface_escaped`): usually command lists created before the swapchain escape wrapping. Set menu "Compatibility & Scheduling > Early command-list wrap" to force on, then Save Settings and **restart the game** (Where Winds Meet / Forza 6 and similar are handled automatically).
           - **XeFG crash or corrupted visuals during game entry**: Some titles (Where Winds Meet etc.) may crash or show corrupted visuals when XeFG is already active during the entry phase — Where Winds Meet now defaults to a 30-frame readiness gate; if other titles exhibit similar issues, set menu "Frame Gen > Advanced FG Settings > Ready Frames" to 30, or INI `[DLSSG] RequiredReadyFrames = 30`, then Save Settings and restart the game.
           - If the log shows `enhanced_barrier` rejections: set menu "Compatibility & Scheduling > Allow enhanced barriers" to force on — applies immediately, **no restart needed** (the Forza series enables this policy by default). Otherwise: FG input/output and most quality settings apply immediately; pacing (XeFGFlipQueue) and early wrapping require a restart.
           '@
