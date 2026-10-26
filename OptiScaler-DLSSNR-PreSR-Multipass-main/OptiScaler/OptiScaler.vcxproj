@@ -1020,12 +1020,14 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <None Include="Source.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <Target Name="WriteNrProductVersion" BeforeTargets="PrepareForBuild">
-    <ReadLinesFromFile File="$(ProjectDir)..\..\VERSION">
+    <Target Name="WriteNrProductVersion" BeforeTargets="PrepareForBuild">
+    <!-- NR_PRODUCT_VERSION (env) wins over the VERSION file: tag builds stamp the
+         tag version into the DLL so package name and in-game banner cannot diverge. -->
+    <ReadLinesFromFile File="$(ProjectDir)..\..\VERSION" Condition="'$(NrProductVersion)' == ''">
       <Output TaskParameter="Lines" ItemName="NrProductVersionLine" />
     </ReadLinesFromFile>
     <PropertyGroup>
-      <NrProductVersion>@(NrProductVersionLine)</NrProductVersion>
+      <NrProductVersion Condition="'$(NrProductVersion)' == ''">@(NrProductVersionLine)</NrProductVersion>
     </PropertyGroup>
     <Error Condition="'$(NrProductVersion)' == ''" Text="Repository VERSION must not be empty." />
     <WriteLinesToFile File="$(ProjectDir)resource_build_product.h"

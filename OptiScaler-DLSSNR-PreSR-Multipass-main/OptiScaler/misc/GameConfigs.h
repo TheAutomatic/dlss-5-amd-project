@@ -16,6 +16,9 @@ struct NrGamePolicy
     bool earlyUnityPlayerWrap = false;
     // Per-game default for FGDLSSGRequiredReadyFrames when the user hasn't set it.
     int fgReadyFrames = 0;
+    // Opt-in NrSplitQuerySplice default for games whose split is otherwise fully
+    // rejected with open_query (query pairs may not span two native lists).
+    bool splitQuerySplice = false;
 };
 
 inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine = false)
@@ -44,6 +47,12 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
         // EarlyAnyModuleWrap + fgReadyFrames=30, both field-verified on this title.
         { "yysls.exe", Match::Exact, { false, true, false, false, 30 } },
         { "007firstlight.exe", Match::Exact, { true, false, false, false } },
+        // Crimson Desert: the engine wraps the FFX evaluate in a still-open
+        // PIPELINE_STATISTICS query, so split is wholly rejected as open_query
+        // without the query splice, and its lists also use enhanced barriers.
+        // Field-verified 2026-10-26 (RX 9070 XT, ~19k spliced cuts clean);
+        // see work/notes/2026-10-26-crimson-desert-inline-visual-inactive.md.
+        { "crimsondesert", Match::Contains, { false, false, true, false, 0, true } },
         { "aniimo.exe", Match::Exact, { false, false, false, true } },
         { {}, Match::Unreal, { true, false, false, false } },
     };
@@ -75,6 +84,7 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
         result.earlyUnityPlayerWrap |= entry.policy.earlyUnityPlayerWrap;
         if (entry.policy.fgReadyFrames > result.fgReadyFrames)
             result.fgReadyFrames = entry.policy.fgReadyFrames;
+        result.splitQuerySplice |= entry.policy.splitQuerySplice;
     }
     return result;
 }

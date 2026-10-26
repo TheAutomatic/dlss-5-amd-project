@@ -199,20 +199,27 @@ class LogicalList
         return S_OK;
     }
 
-    HRESULT Split(bool needsList4 = false, bool needsList7 = false)
+    // Allocate the continuation and certify its optional interfaces WITHOUT closing
+    // the producer. Failure leaves recording fully usable and byte-identical to the
+    // caller's stream. Allocate before closing the producer: allocation failure must
+    // leave recording usable. The prepared continuation is a real list, not another
+    // proxy (hook re-entrancy).
+    HRESULT PrepareSplit(bool needsList4 = false, bool needsList7 = false)
     {
         if (phase != Phase::RecordingProducer || !device || !producer)
             return E_UNEXPECTED;
-        // Allocate before closing the producer: allocation failure must leave recording usable.
+        if (contAlloc || continuation)
+            return E_UNEXPECTED; // a prepared split is already pending
         ID3D12CommandAllocator *nextAlloc = nullptr;
         ID3D12GraphicsCommandList *nextList = nullptr;
         HRESULT hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&nextAlloc));
         if (FAILED(hr))
             return hr;
-        // Continuation must be a real list, not another proxy (hook re-entrancy).
-        SuppressProxyWrap suppress;
-        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, nextAlloc, nullptr,
-                                       IID_PPV_ARGS(&nextList));
+        {
+            SuppressProxyWrap suppress;
+            hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, nextAlloc, nullptr,
+                                           IID_PPV_ARGS(&nextList));
+        }
         if (FAILED(hr))
         {
             nextAlloc->Release();
@@ -241,16 +248,22 @@ class LogicalList
             }
             l7->Release();
         }
-        hr = producer->Close();
-        if (FAILED(hr))
-        {
-            nextList->Release();
-            nextAlloc->Release();
-            return hr;
-        }
         AmdPreSr::GraphicsSnap::GraphicsTracker().OnCreate(reinterpret_cast<uint64_t>(nextList));
         contAlloc = nextAlloc;
         continuation = nextList;
+        return S_OK;
+    }
+
+    // Close the producer and switch recording to the prepared continuation. Only
+    // producer->Close() can fail here; a failed Close already leaves the producer
+    // unusable for the game, so no caller state needs restoring past this point.
+    HRESULT CommitSplit()
+    {
+        if (phase != Phase::RecordingProducer || !producer || !continuation)
+            return E_UNEXPECTED;
+        const HRESULT hr = producer->Close();
+        if (FAILED(hr))
+            return hr;
         phase = Phase::RecordingContinuation;
         split = true;
         return S_OK;

@@ -270,10 +270,18 @@ LmxxfBackend::LmxxfBackend(ID3D12Device *dev, ID3D12CommandQueue *q, const std::
     {
         const bool allowEb = Config::Instance()->AllowEnhancedBarriersEffective();
         SetAllowEnhancedBarriers(allowEb);
-        LOG_INFO("lmxxf enhanced barriers allowed={} (LmxxfAllowEnhancedBarriers={}, forza={})", allowEb,
+        LOG_INFO("lmxxf enhanced barriers allowed={} (LmxxfAllowEnhancedBarriers={}, policy_auto={})", allowEb,
                  Config::Instance()->LmxxfAllowEnhancedBarriers.has_value()
                      ? (*Config::Instance()->LmxxfAllowEnhancedBarriers ? "true" : "false") : "auto",
-                 Config::ExeIsForza());
+                 Config::ExePolicyEnhancedBarriers());
+    }
+    {
+        const bool splice = Config::Instance()->SplitQuerySpliceEffective();
+        SetSplitQuerySplice(splice);
+        LOG_INFO("lmxxf split query splice allowed={} (NrSplitQuerySplice={}, policy_auto={})", splice,
+                 Config::Instance()->NrSplitQuerySplice.has_value()
+                     ? (*Config::Instance()->NrSplitQuerySplice ? "true" : "false") : "auto",
+                 Config::ExePolicySplitQuerySplice());
     }
     {
         wchar_t srgb[8] {};

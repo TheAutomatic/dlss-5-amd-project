@@ -509,7 +509,7 @@ static bool RenderRecordingCompatibilityGuidance(Config* config, const std::stri
 // LmxxfAllowEnhancedBarriers: auto (on for Forza) / force on / force off. Takes effect live.
 static void RenderAllowEnhancedBarriers(Config* config)
 {
-    const char* names[] = {Config::ExeIsForza() ? "auto (current: on)" : "auto (current: off)", "force on", "force off"};
+    const char* names[] = {Config::ExePolicyEnhancedBarriers() ? "auto (current: on)" : "auto (current: off)", "force on", "force off"};
     int index = config->LmxxfAllowEnhancedBarriers.has_value() ? (*config->LmxxfAllowEnhancedBarriers ? 1 : 2) : 0;
     if (MenuUi::Combo("Allow enhanced barriers", &index, names, IM_ARRAYSIZE(names)))
     {
@@ -517,6 +517,27 @@ static void RenderAllowEnhancedBarriers(Config* config)
         else config->LmxxfAllowEnhancedBarriers = (index == 1);
         SetAllowEnhancedBarriers(config->AllowEnhancedBarriersEffective());
     }
+}
+
+// NrSplitQuerySplice: auto (on where the game policy needs it, e.g. Crimson Desert) /
+// force on / force off. Takes effect live; backends consult the policy per recording.
+static void RenderSplitQuerySplice(Config* config)
+{
+    const char* names[] = {Config::ExePolicySplitQuerySplice() ? "auto (current: on)" : "auto (current: off)", "force on", "force off"};
+    int index = config->NrSplitQuerySplice.has_value() ? (*config->NrSplitQuerySplice ? 1 : 2) : 0;
+    if (MenuUi::Combo("Split query splice", &index, names, IM_ARRAYSIZE(names)))
+    {
+        if (index == 0) config->NrSplitQuerySplice.reset();
+        else config->NrSplitQuerySplice = (index == 1);
+        SetSplitQuerySplice(config->SplitQuerySpliceEffective());
+    }
+    HelpMarker("Lets split NR run on lists that keep a non-timestamp query open across"
+               "\nEvaluate (otherwise rejected as open_query, e.g. pipeline-statistics scopes)."
+               "\nThe open pair is ended on the producer half and reopened on the continuation;"
+               "\nthe game's query result then covers only the post-split half, changing what an"
+               "\nengine profiler reads."
+               "\nAuto: on for Crimson Desert, off otherwise. Applies immediately."
+               "\nINI: NrSplitQuerySplice.");
 }
 
 static void RenderFlickerDiagnostics(Config* config)
@@ -582,9 +603,10 @@ static void RenderRecordingCompatibilitySettings(Config* config)
                "\nInline does not replace this: NR still reads and resets the"
                "\ninput layout on an inline list, so an enhanced-barrier game"
                "\nneeds this on with Inline as well."
-               "\nAuto: on for Forza (exe name contains \"forza\"), off otherwise. Applies immediately."
+               "\nAuto: on for Forza (exe name contains \"forza\") and Crimson Desert, off otherwise. Applies immediately."
                "\nINI: LmxxfAllowEnhancedBarriers.");
     RenderEnhancedBarrierSaveNotice(config);
+    RenderSplitQuerySplice(config);
 }
 
 static void RenderMochizukiTiming()
@@ -1030,8 +1052,11 @@ void RenderMenu(Config* config, float menuResScale)
             MenuUi::SeparatorText(PipelineUi::SectionName(page));
             if ((isLmxxf || kind == Backend::Kind::Mochizuki) && page == PipelineUi::Section::Input) {
                 bool inlineMode = config->NrInline.value_or_default();
-                if (MenuUi::Checkbox("Experimental inline execution", &inlineMode)) config->NrInline = inlineMode;
-                HelpMarker("Keeps the game command list intact. Bounded wait selects the original frame on timeout."
+                if (MenuUi::Checkbox("Inline mode (deprecated)", &inlineMode)) config->NrInline = inlineMode;
+                HelpMarker("Deprecated. Since split gained the query splice (NrSplitQuerySplice),"
+                           "\nthe split path covers the games inline was built for (e.g. Crimson Desert)."
+                           "\nKept working for compatibility; new setups should use split."
+                           "\nKeeps the game command list intact. Bounded wait selects the original frame on timeout."
                            "\nShared by lmxxf and Mochizuki. INI: NrInline. Off uses command-list splitting."
                            "\nInline does NOT remove the recording proxy or the enhanced-barrier requirement,"
                            "\nand it does not fix a game that hands us unwrapped command lists (NR would still"
@@ -1277,6 +1302,7 @@ void RenderMenu(Config* config, float menuResScale)
                     CfgKey::PutEnvAlias(CfgKey::Pdl, config->LmxxfPdl.value_or_default());
                     resetOption(config->LmxxfAllowEnhancedBarriers);
                     resetOption(config->NrInline);
+                    resetOption(config->NrSplitQuerySplice);
                     resetOption(config->LmxxfInlineSlots);
                     resetOption(config->NrCaptureBackoff);
                     resetOption(config->NrInlineReuse);
@@ -1293,6 +1319,7 @@ void RenderMenu(Config* config, float menuResScale)
                     resetOption(config->NrAdaptiveWaitBudget);
                     AmdBridge::RequestMochizukiInlineAutoSpinReeval();
                     SetAllowEnhancedBarriers(config->AllowEnhancedBarriersEffective());
+                    SetSplitQuerySplice(config->SplitQuerySpliceEffective());
                     resetOption(config->LmxxfEarlyExeWrap);
                     resetOption(config->LmxxfEarlyAnyModuleWrap);
                 }

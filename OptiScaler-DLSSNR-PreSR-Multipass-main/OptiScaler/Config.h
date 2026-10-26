@@ -434,6 +434,13 @@ class Config
     CustomOptional<bool> NrInlineComputeExport { true };
     // Adaptive wait budget. Default off.
     CustomOptional<bool> NrAdaptiveWaitBudget { false };
+    // Split admission for lists that keep a non-timestamp query open across Evaluate
+    // (e.g. Crimson Desert pipeline-statistics scopes around the FFX evaluate): the pair
+    // is ended on the producer half and reopened on the continuation, so the game's
+    // query result covers only the post-split half. Unset = auto: the per-game policy
+    // (NrGamePolicy::splitQuerySplice, on for Crimson Desert), off otherwise; explicit
+    // true/false always wins. Read it through SplitQuerySpliceEffective().
+    CustomOptional<bool, NoDefault> NrSplitQuerySplice;
     CustomOptional<bool> NrInline { false }; // Experimental same-list execution for lmxxf/Mochizuki.
     // Wrap host CreateCommandList results before the swapchain exists.
     // Missing = game rules (Unreal, Forza, ACMirage, 007FirstLight). false = never. true = force for any engine.
@@ -1369,11 +1376,17 @@ class Config
     bool LoadFromPath(const wchar_t* InPath);
     bool SaveIni();
     bool AllowEnhancedBarriersEffective();
+    // NrSplitQuerySplice resolved: the explicit value, else the per-game policy
+    // (NrGamePolicy::splitQuerySplice, e.g. CrimsonDesert.exe), else false.
+    bool SplitQuerySpliceEffective();
     // FGDLSSGRequiredReadyFrames resolved: the explicit value, else the per-game policy
     // default (NrGamePolicy::fgReadyFrames, e.g. 30 for GacRunnerNG.exe), else 0.
     int FGRequiredReadyFramesEffective();
-    // The host exe's file name contains "forza" (case-insensitive). Cached.
-    static bool ExeIsForza();
+    // The host exe's game policy enables enhanced barriers (contains "forza",
+    // CrimsonDesert.exe). Cached.
+    static bool ExePolicyEnhancedBarriers();
+    // The host exe's game policy enables the split query splice (CrimsonDesert.exe). Cached.
+    static bool ExePolicySplitQuerySplice();
     // EXE-only early wrapping; UnityPlayer and any-module policies remain independent.
     static bool EarlyExeWrapAuto();
     bool EarlyExeWrapEffective();

@@ -2101,10 +2101,12 @@ namespace OptScalerNR.Launcher
             ExecuteAction(dialog.Uid == "keepXess" ? "keepXess" : restore ? "restoreXess" : "repairXess", false, fingerprint);
         }
 
-        string SelectMochizukiModels()
+        string SelectMochizukiModels(string action)
         {
             var dialog = CreateMochizukiModelDialog();
-            return dialog.ShowDialog() == true ? dialog.Tag as string : null;
+            var accepted = dialog.ShowDialog() == true;
+            if (dialog.Uid == "modelSource") ChooseModelSource(action);
+            return accepted ? dialog.Tag as string : null;
         }
 
         Window CreateMochizukiModelDialog()
@@ -2142,10 +2144,12 @@ namespace OptScalerNR.Launcher
             });
             var proceed = new Button { Content = L("继续", "Continue"), IsEnabled = false, MinWidth = 100, Margin = new Thickness(4) };
             DialogTheme.Primary(dialog, proceed);
+            var originalAvailable = original || (canExtract && originalPreparable);
+            var smallAvailable = small || (canExtract && smallPreparable);
             var enabled = new[] {
-                (original && small) || (canExtract && originalPreparable && smallPreparable),
-                small || (canExtract && smallPreparable),
-                original || (canExtract && originalPreparable)
+                originalAvailable && smallAvailable,
+                smallAvailable,
+                originalAvailable
             };
             if (!enabled[0] && !enabled[1] && !enabled[2])
                 panel.Children.Add(new TextBlock {
@@ -2160,6 +2164,16 @@ namespace OptScalerNR.Launcher
                 var radio = new RadioButton { Content = labels[i], IsEnabled = enabled[i], Foreground = enabled[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted"), GroupName = "MochizukiModels", Margin = new Thickness(0, 6, 0, 6) };
                 radio.Checked += delegate { dialog.Tag = value; proceed.IsEnabled = true; };
                 panel.Children.Add(radio);
+            }
+            if (!originalAvailable || !smallAvailable)
+            {
+                var source = new Button {
+                    Name = "ChooseModelSource", Content = L("选择模型来源 DLL…", "Choose model source DLL…"),
+                    HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0),
+                    IsEnabled = _selectedGame != null && _selectedGame.HasExecutable
+                };
+                source.Click += delegate { dialog.Uid = "modelSource"; dialog.DialogResult = false; };
+                panel.Children.Add(source);
             }
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = new Button { Content = L("取消", "Cancel"), IsCancel = true, MinWidth = 100, Margin = new Thickness(4) };
@@ -2233,19 +2247,24 @@ namespace OptScalerNR.Launcher
             if (!needsSource) return true;
             if (!string.IsNullOrEmpty(_decisions.ModelSourceDll))
                 DialogTheme.Show(_window, L("所选 DLL 无法提供需要的模型。请选择受支持的 nvngx_dlssnr.dll；Small 需要 310.9.16。", "The selected DLL cannot supply the required model. Choose a supported nvngx_dlssnr.dll; Small requires 310.9.16."), _window.Title);
+            ChooseModelSource(action);
+            return false;
+        }
+
+        void ChooseModelSource(string action)
+        {
             var directory = Path.GetDirectoryName(_selectedGame.Exe);
             var picker = new OpenFileDialog {
                 Title = L("缺少模型来源：选择 nvngx_dlssnr.dll（用于离线提取）", "Model source missing: select nvngx_dlssnr.dll for offline extraction"),
                 Filter = "nvngx_dlssnr.dll|nvngx_dlssnr.dll|DLL (*.dll)|*.dll", CheckFileExists = true,
                 InitialDirectory = directory, FileName = Path.Combine(directory, "nvngx_dlssnr.dll"), RestoreDirectory = true
             };
-            if (picker.ShowDialog(_window) != true) return false;
+            if (picker.ShowDialog(_window) != true) return;
             _decisions.ModelSourceDll = picker.FileName;
             _resumeInstallAction = action;
             ReleaseLock();
             // Inspect the selected source before showing model choices or writing game files.
             InspectGame(_selectedGame);
-            return false;
         }
 
         void ExecuteAction(string action, bool keepModelChoice = false, string compatibilityFingerprint = null)
@@ -2302,7 +2321,7 @@ namespace OptScalerNR.Launcher
             if (installing && checkedBackends.Contains("mochizuki") &&
                 (!keepModelChoice || string.IsNullOrEmpty(_decisions.MochizukiModels)))
             {
-                _decisions.MochizukiModels = SelectMochizukiModels();
+                _decisions.MochizukiModels = SelectMochizukiModels(action);
                 if (string.IsNullOrEmpty(_decisions.MochizukiModels)) { ReleaseLock(); return; }
             }
 
@@ -2448,8 +2467,10 @@ namespace OptScalerNR.Launcher
                         if (_selectedGame != null) InspectGame(_selectedGame);
                     }
 
-                        // Chinese launcher UI → set the in-game menu to Chinese (first install only;
-                        // an existing explicit MenuLanguage is respected, matching the ini-ownership rule).
+                        // Chinese launcher UI → set the in-game menu to Chinese after install/update.
+                        // The host reads [Menu] Language (en / zh-CN); an existing non-default value
+                        // (the user's saved choice) is respected, matching the ini-ownership rule.
+                        // Pre-1.13.3.5 builds wrote a MenuLanguage key the host never read; strip it.
                         if (_language == "zh" && _selectedGame != null && _selectedGame.HasExecutable)
                         {
                             try
@@ -2457,14 +2478,31 @@ namespace OptScalerNR.Launcher
                                 var iniPath = Path.Combine(Path.GetDirectoryName(_selectedGame.Exe), "OptiScaler.ini");
                                 if (File.Exists(iniPath))
                                 {
-                                    var content = File.ReadAllText(iniPath);
-                                    if (!Regex.IsMatch(content, @"(?mi)^\s*MenuLanguage\s*=", RegexOptions.None))
+                                    var lines = new List<string>(File.ReadAllLines(iniPath));
+                                    lines.RemoveAll(l => Regex.IsMatch(l, @"(?i)^\s*MenuLanguage\s*="));
+                                    int menuIdx = lines.FindIndex(l => Regex.IsMatch(l, @"(?i)^\s*\[Menu\]\s*$"));
+                                    int sectionEnd = menuIdx < 0 ? -1
+                                        : lines.FindIndex(menuIdx + 1, l => Regex.IsMatch(l, @"^\s*\["));
+                                    int searchEnd = sectionEnd < 0 ? lines.Count : sectionEnd;
+                                    int langIdx = -1;
+                                    if (menuIdx >= 0)
+                                        for (int i = menuIdx + 1; i < searchEnd; ++i)
+                                            if (Regex.IsMatch(lines[i], @"(?i)^\s*Language\s*=")) { langIdx = i; break; }
+                                    var current = langIdx >= 0
+                                        ? Regex.Match(lines[langIdx], @"(?i)^\s*Language\s*=\s*(.*?)\s*$").Groups[1].Value
+                                        : "";
+                                    // Fresh install: only a non-default value counts as the user's choice
+                                    // (the package template ships Language=en). Update: the existing file is
+                                    // the user's, so an explicit en is preserved too.
+                                    bool updateInstall = string.Equals(action, "update", StringComparison.OrdinalIgnoreCase);
+                                    bool userChosen = current.Length > 0 &&
+                                        (!current.Equals("en", StringComparison.OrdinalIgnoreCase) || updateInstall);
+                                    if (!userChosen)
                                     {
-                                        content = Regex.Replace(content, @"(?mi)^(\[Menu\]\s*$)",
-                                            "$1" + "\r\nMenuLanguage = zh", RegexOptions.None);
-                                        if (!content.Contains("MenuLanguage"))
-                                            content += "\r\n[Menu]\r\nMenuLanguage = zh\r\n";
-                                        File.WriteAllText(iniPath, content);
+                                        if (langIdx >= 0) lines[langIdx] = "Language=zh-CN";
+                                        else if (menuIdx >= 0) lines.Insert(menuIdx + 1, "Language=zh-CN");
+                                        else { lines.Add(""); lines.Add("[Menu]"); lines.Add("Language=zh-CN"); }
+                                        File.WriteAllLines(iniPath, lines, new System.Text.UTF8Encoding(true));
                                     }
                                 }
                             }
@@ -2582,7 +2620,7 @@ namespace OptScalerNR.Launcher
                 }
                 else if (d.Id == "mochizukiModels")
                 {
-                    _decisions.MochizukiModels = SelectMochizukiModels();
+                    _decisions.MochizukiModels = SelectMochizukiModels(action);
                     if (string.IsNullOrEmpty(_decisions.MochizukiModels)) return false;
                 }
                 else if (d.Id == "reinspect")

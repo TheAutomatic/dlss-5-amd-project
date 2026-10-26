@@ -386,12 +386,18 @@ bool Config::Reload(std::filesystem::path iniPath)
             LmxxfAutoExposureScale.set_from_config(readFloat("DlssNr", "LmxxfAutoExposureScale"));
             LmxxfAllowEnhancedBarriers.set_from_config(readBool("DlssNr", "LmxxfAllowEnhancedBarriers"));
             SetAllowEnhancedBarriers(AllowEnhancedBarriersEffective());
-            LOG_INFO("NR enhanced barriers allowed={} (LmxxfAllowEnhancedBarriers={}, forza={})",
+            LOG_INFO("NR enhanced barriers allowed={} (LmxxfAllowEnhancedBarriers={}, policy_auto={})",
                      AllowEnhancedBarriersEffective(),
                      LmxxfAllowEnhancedBarriers.has_value() ? (*LmxxfAllowEnhancedBarriers ? "true" : "false") : "auto",
-                     ExeIsForza());
+                     ExePolicyEnhancedBarriers());
             NrInline.set_from_config(readBool(CfgKey::kSection, CfgKey::NrInline));
             LmxxfInlineSlots.set_from_config(readInt(CfgKey::kSection, CfgKey::LmxxfInlineSlots));
+            NrSplitQuerySplice.set_from_config(readBool(CfgKey::kSection, CfgKey::NrSplitQuerySplice));
+            SetSplitQuerySplice(SplitQuerySpliceEffective());
+            LOG_INFO("NR split query splice allowed={} (NrSplitQuerySplice={}, policy_auto={})",
+                     SplitQuerySpliceEffective(),
+                     NrSplitQuerySplice.has_value() ? (*NrSplitQuerySplice ? "true" : "false") : "auto",
+                     ExePolicySplitQuerySplice());
             NrCaptureBackoff.set_from_config(readInt(CfgKey::kSection, CfgKey::NrCaptureBackoff));
             NrInlineReuse.set_from_config(readBool(CfgKey::kSection, CfgKey::NrInlineReuse));
             NrGpuHandoff.set_from_config(readBool(CfgKey::kSection, CfgKey::NrGpuHandoff));
@@ -1552,9 +1558,9 @@ std::string GetFloatValue(std::optional<float> value)
     return std::to_string(value.value());
 }
 
-bool Config::ExeIsForza()
+bool Config::ExePolicyEnhancedBarriers()
 {
-    static const bool forza = [] {
+    static const bool cached = [] {
         wchar_t path[MAX_PATH] {};
         const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
         std::wstring name(path, n);
@@ -1564,7 +1570,22 @@ bool Config::ExeIsForza()
             c = static_cast<wchar_t>(::towlower(c));
         return GetNrGamePolicy(wstring_to_string(name)).enhancedBarriers;
     }();
-    return forza;
+    return cached;
+}
+
+bool Config::ExePolicySplitQuerySplice()
+{
+    static const bool cached = [] {
+        wchar_t path[MAX_PATH] {};
+        const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
+        std::wstring name(path, n);
+        if (const auto slash = name.find_last_of(L"\\/"); slash != std::wstring::npos)
+            name.erase(0, slash + 1);
+        for (wchar_t& c : name)
+            c = static_cast<wchar_t>(::towlower(c));
+        return GetNrGamePolicy(wstring_to_string(name)).splitQuerySplice;
+    }();
+    return cached;
 }
 
 bool Config::EarlyExeWrapAuto()
@@ -1589,7 +1610,14 @@ bool Config::AllowEnhancedBarriersEffective()
 {
     if (LmxxfAllowEnhancedBarriers.has_value())
         return *LmxxfAllowEnhancedBarriers;
-    return ExeIsForza();
+    return ExePolicyEnhancedBarriers();
+}
+
+bool Config::SplitQuerySpliceEffective()
+{
+    if (NrSplitQuerySplice.has_value())
+        return *NrSplitQuerySplice;
+    return ExePolicySplitQuerySplice();
 }
 
 bool Config::SaveIni()
@@ -2211,6 +2239,7 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "LmxxfAllowEnhancedBarriers",
                  GetBoolValue(Instance()->LmxxfAllowEnhancedBarriers.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::LmxxfInlineSlots, GetIntValue(Instance()->LmxxfInlineSlots.value_for_config()).c_str());
+    ini.SetValue(CfgKey::kSection, CfgKey::NrSplitQuerySplice, GetBoolValue(Instance()->NrSplitQuerySplice.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrCaptureBackoff, GetIntValue(Instance()->NrCaptureBackoff.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrInlineReuse, GetBoolValue(Instance()->NrInlineReuse.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrGpuHandoff, GetBoolValue(Instance()->NrGpuHandoff.value_for_config()).c_str());

@@ -665,13 +665,52 @@ public:
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
         // A private NR scope restores the game snapshot after the cut, including
-        // DXR state and any enhanced layouts. Certify those interfaces before Close.
-        const HRESULT hr = logical.Split(TrackedState().stateObject != nullptr || contState.stateObject != nullptr,
-                                         !inlineLayouts.empty());
+        // DXR state and any enhanced layouts. Certify those interfaces on the
+        // continuation BEFORE anything is appended to the producer.
+        HRESULT hr = logical.PrepareSplit(TrackedState().stateObject != nullptr || contState.stateObject != nullptr,
+                                          !inlineLayouts.empty());
+        if (FAILED(hr))
+            return hr;
+        // Opt-in query splice (NrSplitQuerySplice): end every pair still open at the cut
+        // on the producer half, then reopen it at the head of the continuation. The book
+        // keeps the entries open so the game's own EndQuery (recorded after the cut)
+        // closes the reopened pair normally on the continuation. The resolved result
+        // covers only the post-split half of the original scope. Recorded only after
+        // PrepareSplit succeeded, so allocation/interface failures never leave an early
+        // EndQuery behind on a still-usable producer; past this point only Close can
+        // fail, which already leaves that list unusable for the game.
+        size_t splicedQueries = 0;
+        if (!queryBook.CanSplit() && SplitQuerySpliceAllowed())
+        {
+            if (auto *producer = logical.Current())
+                queryBook.ForEachOpen([&](ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index) {
+                    producer->EndQuery(heap, type, index);
+                    ++splicedQueries;
+                });
+        }
+        hr = logical.CommitSplit();
         if (FAILED(hr))
             return hr;
         // Seed continuation with captured producer bindings (IA/SO/VRS included).
         TrackedState().ApplyTo(logical.Current());
+        if (splicedQueries)
+        {
+            if (auto *cont = logical.Current())
+                queryBook.ForEachOpen([&](ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index) {
+                    cont->BeginQuery(heap, type, index);
+                });
+            static std::atomic<uint32_t> s_spliceCount{0};
+            const uint32_t c = s_spliceCount.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (c <= 10 ||
+                (c <= 100 && (c % 20 == 0)) ||
+                (c <= 1000 && (c % 100 == 0)) ||
+                (c % 1000 == 0))
+            {
+                LOG_WARN("CommandListProxy {:p} split query splice: {} open pair(s) re-based across the cut;"
+                         " results cover the post-split half (event #{})",
+                         (void*)this, splicedQueries, c);
+            }
+        }
         // Producer Execute introduces a promotion/decay boundary: keep tracked
         // resources but apply Microsoft decay so continuation starts from the
         // post-Execute expectation (plan D / M3), not a wipe.
@@ -692,7 +731,10 @@ public:
     }
     bool STDMETHODCALLTYPE IsSplitIneligible() override
     {
-        return rawInterfaceEscaped || splitIneligible || logical.WasSplit() || !queryBook.CanSplit() ||
+        // Open queries refuse a cut without the opt-in splice; with it, each open pair
+        // is re-based across the cut (see SplitSegments) and both halves stay legal.
+        return rawInterfaceEscaped || splitIneligible || logical.WasSplit() ||
+               (!queryBook.CanSplit() && !SplitQuerySpliceAllowed()) ||
                !resBook.CanSplit(nullptr);
     }
     ID3D12CommandList *STDMETHODCALLTYPE UnsplitNativeList() override
@@ -723,7 +765,7 @@ public:
         if (rawInterfaceEscaped) return "native_interface_escaped";
         if (logical.WasSplit()) return "already_split";
         if (splitIneligibleReason) return splitIneligibleReason;
-        if (!queryBook.CanSplit()) return "open_query";
+        if (!queryBook.CanSplit() && !SplitQuerySpliceAllowed()) return "open_query";
         const char *reason = nullptr;
         resBook.CanSplit(&reason);
         return reason ? reason : "eligible";

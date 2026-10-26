@@ -90,15 +90,17 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $body = @'
  
-          ### v1.13.3.4 (对比 v1.13.3.3)
+          ### v1.13.3.5 (对比 v1.13.3.4)
 
-          **帧生成稳定性**：修复 MFG Unlocker 1.7.0 与帧生成输出（XeFG/DLSSG/FSR-FG）在游戏入场阶段的崩溃，MFGUnlocker 1.7.0 用户可正常使用。
+          **《红色沙漠》split 模式修复**：定位到该游戏 NR 全部被拒的根因，新增 **切分查询拼接**（`NrSplitQuerySplice`）：切分时在前半段补 `EndQuery`、后半段补 `BeginQuery`，画面与 NR 效果完全不受影响；代价是游戏自身的管线统计只覆盖切分后半段（引擎性能统计数字会变），因此默认关闭。当前版本识别到《红色沙漠》时自动开启**允许增强屏障 + 切分查询拼接**，split 开箱即用。已实机验证无异常。
 
-          **FSR4 菜单性能修复**：打开超分辨率设置页面不再导致帧数骤降。
+          **原"内联模式"标记为废弃**：参考上条，至此"内联模式"菜单改名为"内联模式（已废弃）"，**功能暂保留**，仅为兼容保留——切分+查询拼接已覆盖其目标场景，新配置建议使用默认模式。
 
-          **FSR4 自动模式修正**：v1.13.3.3 中 FSR4 的自动模型选择（INT8 硬件旁路、FP8 回退抑制）与自动预设修正（高渲染比 0→1）被意外禁用；现已恢复。新增 `Fsr4DisableDriverHooks` 选项，供反作弊敏感游戏用户显式跳过驱动模块钩子（默认关闭，自动行为不受影响）。
+          **启动器中文修复**：中文启动器安装/更新后，游戏内 Ins 菜单将自动切换为中文（此前写错 ini 键名导致静默失效）。已在游戏内手动选过语言的用户不受影响。
 
-          **其他**：XeFGFlipQueue（MFGUnlocker 1.7.0）菜单切回 Auto 后不再恢复旧值。
+          **启动器模型来源选择**：安装 Mochizuki 时若所需模型不可用（未安装且无法从包内提取），模型选择对话框内现可直接**选择模型来源 DLL…**（`nvngx_dlssnr.dll`，Small 需 310.9.16）进行离线提取并继续安装，无需取消后重新操作。
+
+          **配置模板整理**：`OptiScaler.ini` 模板 `[DlssNr]` 段补全 8 个缺失键的说明（含内联槽位数、显示曲线、Daniel 调度等），修正 3 处注释错误（含提前接管自动规则的过时描述），RenoDX 家族约 60 个键全部补齐逐键注释。
 
           **安装与权重**
 
@@ -108,25 +110,23 @@ jobs:
 
           **已知问题**
 
+          - 日志出现 `open_query` 拒绝的其他游戏：菜单"兼容性与调度"同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）即可使用 split。
           - 当前新模型下与 mochizuki 原版的性能差距已尽可能趋同，追求极致帧数仍可[优先尝试原版](https://github.com/mochizuki0323/DLSSNR-AMD)。
-          - RenoDX 无法与人物保护功能同时生效，请尝试 RenoDX 下相关类似功能。
-          - 内联（Inline）模式仍为实验功能，可尝试在**《红色沙漠》**等不支持命令列表切分的游戏中开启。
-          - Linux/Proton 支持为实验性：需 Mesa RADV；Vulkan 游戏的 XeFG 通路未经大范围实机验证。
-          - lmxxf 时序模式与 ViT 自适应复用保持互斥；Mode 2/3 不支持多层。SR → NR 不扩展原生 RR/Vulkan 支持范围。
-          - **开 FG 后 NR 无效果或画面闪烁**（如日志出现 `missing recording proxy` / `native_interface_escaped`）：多为游戏在交换链建立前创建的命令列表未被接管。菜单"兼容性与调度 → Early command-list wrap（提前接管）"改为 force on，保存并**重启游戏**（燕云十六声/Forza 6 等已自动处理）。
-          - **XeFG 入场阶段闪退/花屏**：部分游戏（燕云十六声等）在游戏入场阶段已激活 XeFG 时可能闪退或花屏——已在燕云十六声默认开启就绪帧数准入（30 帧）；其他游戏如遇到同类问题，可在菜单"帧生成 → 高级设置 → 就绪帧数"设为 30，或通过 INI `[DLSSG] RequiredReadyFrames = 30`，保存并重启游戏。
-          - 日志出现 `enhanced_barrier` 拒绝时：菜单"兼容性与调度 → Allow enhanced barriers（允许增强屏障）"改为 force on，保存即生效、**无需重启**（Forza 系默认开启此策略）。其余：FG 输入/输出与多数画质项即时生效；帧节奏（XeFGFlipQueue）与提前接管需重启。
+          - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性；lmxxf 时序模式与 ViT 自适应复用互斥，Mode 2/3 不支持多层。
+          - 开 FG 后 NR 无效果/闪烁（`missing recording proxy`）：提前接管改 force on 并重启；XeFG 入场闪退：就绪帧数设 30；`enhanced_barrier` 拒绝：允许增强屏障改 force on（即时生效）。
           ---
 
-          ### v1.13.3.4 (vs v1.13.3.3)
+          ### v1.13.3.5 (vs v1.13.3.4)
 
-          **Frame generation stability**: Fixed crashes with MFG Unlocker 1.7.0 and frame generation outputs (XeFG/DLSSG/FSR-FG) during game entry; MFG Unlocker 1.7.0 users can now use it normally.
+          **Crimson Desert split fix**: identified the root cause of every NR recording being rejected in this title, and added **Split query splice** (`NrSplitQuerySplice`): the split ends the open query pair on the producer half with an `EndQuery` and reopens it with a `BeginQuery` on the continuation. The image and NR output are unaffected; the trade-off is that the game's own pipeline statistics then cover only the post-split half (engine profiler numbers change), so it defaults to off. This version auto-enables **Allow enhanced barriers + Split query splice** when Crimson Desert is detected — split works out of the box. Field-verified with no anomalies.
 
-          **FSR4 menu performance fix**: Opening the upscaler settings page no longer causes FPS to drop.
+          **Inline mode marked deprecated**: following the fix above, the menu entry is renamed to "Inline mode (deprecated)"; the feature **remains functional** for compatibility. Split plus query splicing covers its target scenario; new setups should use the default (split) mode.
 
-          **FSR4 Auto-mode correction**: v1.13.3.3 inadvertently disabled FSR4's automatic model selection (INT8 hardware bypass, FP8 fallback suppression) and automatic preset correction (0→1 at high render ratios); both are restored. A new `Fsr4DisableDriverHooks` option lets anti-cheat-sensitive users explicitly skip driver-module hooks (default off, automatic behavior unaffected).
+          **Launcher language fix**: after installing/updating with a Chinese-language launcher, the in-game Ins menu now switches to Chinese automatically (a wrong ini key name previously made this fail silently). Users who already picked a language in-game are not affected.
 
-          **Other**: XeFGFlipQueue (MFG Unlocker 1.7.0) menu no longer resurrects a stale on/off value when switching back to Auto.
+          **Launcher model source selection**: while installing Mochizuki, if a required model is unavailable (not installed and not extractable from the package), the model-selection dialog now offers **Choose model source DLL…** directly (`nvngx_dlssnr.dll`; Small requires 310.9.16) for offline extraction, then continues the install without starting over.
+
+          **INI template cleanup**: the `[DlssNr]` section of the `OptiScaler.ini` template documents 8 previously missing keys (inline slots, display curve, Daniel scheduling, etc.), corrects 3 wrong comments (including a stale early-wrap auto-rule description), and adds per-key comments for the ~60-key RenoDX family.
 
           **Installation and models**
 
@@ -136,14 +136,10 @@ jobs:
 
           **Known issues**
 
+          - Other titles logging `open_query` rejections: enable both **Allow enhanced barriers** and **Split query splice** (experimental) under "Compatibility & Scheduling" to use split.
           - The performance gap versus upstream Mochizuki has been narrowed as far as possible; for absolute maximum framerate, [try the upstream release](https://github.com/mochizuki0323/DLSSNR-AMD) first.
-          - RenoDX cannot be combined with person protection; use the corresponding features under RenoDX instead.
-          - Inline mode remains experimental; try it in titles without command-list splitting (e.g. **Crimson Desert**).
-          - Linux/Proton support is experimental: requires Mesa RADV; the Vulkan XeFG path has not been broadly field-validated.
-          - lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse; Modes 2/3 are single-pass. Post-SR NR does not extend native RR/Vulkan support.
-          - **NR has no effect or flickers once FG is on** (log shows `missing recording proxy` / `native_interface_escaped`): usually command lists created before the swapchain escape wrapping. Set menu "Compatibility & Scheduling > Early command-list wrap" to force on, then Save Settings and **restart the game** (Where Winds Meet / Forza 6 and similar are handled automatically).
-          - **XeFG crash or corrupted visuals during game entry**: Some titles (Where Winds Meet etc.) may crash or show corrupted visuals when XeFG is already active during the entry phase — Where Winds Meet now defaults to a 30-frame readiness gate; if other titles exhibit similar issues, set menu "Frame Gen > Advanced FG Settings > Ready Frames" to 30, or INI `[DLSSG] RequiredReadyFrames = 30`, then Save Settings and restart the game.
-          - If the log shows `enhanced_barrier` rejections: set menu "Compatibility & Scheduling > Allow enhanced barriers" to force on — applies immediately, **no restart needed** (the Forza series enables this policy by default). Otherwise: FG input/output and most quality settings apply immediately; pacing (XeFGFlipQueue) and early wrapping require a restart.
+          - RenoDX cannot be combined with person protection; Linux/Proton support is experimental; lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse (Modes 2/3 single-pass).
+          - NR has no effect or flickers once FG is on (`missing recording proxy`): set Early command-list wrap to force on and restart; XeFG entry-phase crashes: set Ready Frames to 30; `enhanced_barrier` rejections: set Allow enhanced barriers to force on (applies immediately).
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
@@ -294,6 +290,12 @@ jobs:
       - name: Build host and run release checks concurrently
         timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 45 || 25 }}
         shell: pwsh
+        env:
+          # The resolved (tag-authoritative) version stamps the DLL's product version
+          # (NR_PRODUCT_VERSION); the repo VERSION file alone could lag the tag and
+          # split the package name from the in-game banner. PACKAGE_RELEASE.ps1
+          # already writes this same version into the in-package metadata.
+          NR_PRODUCT_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
             ./tools/build/build-ci.ps1 -FullRegression

@@ -97,8 +97,12 @@ contribution to pipeline statistics.
 
 Native interface escape, untracked/unsupported command state, predication, active
 render passes and open legacy split barriers still refuse inline recording.
-The `open_query` split restriction remains unchanged. Query diagnostics record
-heap, type, index, list identity and generation without changing query contents.
+The `open_query` split restriction holds by default; `NrSplitQuerySplice` (three-state,
+explicit value wins, auto = the per-game policy: on for Crimson Desert) re-bases each
+open pair across the cut (producer-side EndQuery, continuation-side BeginQuery), so
+both halves stay on one native list and the game's resolved result covers only the
+post-split half. Query diagnostics record heap, type, index, list identity and
+generation without changing query contents.
 
 `LmxxfAllowEnhancedBarriers` initializes proxy policy during Config loading,
 independently of backend construction; menu changes synchronize the same policy.

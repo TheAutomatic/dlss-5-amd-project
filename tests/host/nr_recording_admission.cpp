@@ -63,5 +63,18 @@ int main() {
     layouts.Forget(texture); assert(!layouts.Find(texture));
     SetAllowEnhancedBarriers(true); assert(AllowEnhancedBarriers());
     SetAllowEnhancedBarriers(false); assert(!AllowEnhancedBarriers());
-    std::puts("NR admission PASS: query diagnostics preserve scopes; partial/pending enhanced layouts fail closed");
+    SetSplitQuerySplice(true); assert(SplitQuerySpliceAllowed());
+    SetSplitQuerySplice(false); assert(!SplitQuerySpliceAllowed());
+    // Split query splice walks the open set twice (producer End pass, continuation Begin
+    // pass); without mutation both passes must enumerate the same pairs.
+    QueryStateBook splice;
+    assert(splice.Begin(heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 3));
+    assert(splice.Begin(heap, D3D12_QUERY_TYPE_OCCLUSION, 7));
+    size_t first = 0, second = 0;
+    splice.ForEachOpen([&](ID3D12QueryHeap*, D3D12_QUERY_TYPE, UINT) { ++first; });
+    splice.ForEachOpen([&](ID3D12QueryHeap*, D3D12_QUERY_TYPE, UINT) { ++second; });
+    assert(first == 2 && second == 2 && !splice.CanSplit());
+    assert(splice.End(heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 3));
+    assert(splice.End(heap, D3D12_QUERY_TYPE_OCCLUSION, 7) && splice.CanSplit());
+    std::puts("NR admission PASS: query diagnostics preserve scopes; splice policy round-trips; partial/pending enhanced layouts fail closed");
 }

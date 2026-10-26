@@ -557,6 +557,7 @@ int main() {
                 "NrInlineComputeDownscale",  # Host-owned inline experiment.
                 "NrInlineComputeExport",  # Host-owned inline experiment.
                 "NrAdaptiveWaitBudget",  # Host-owned inline experiment.
+                "NrSplitQuerySplice",  # Host-owned split admission policy; no runtime environment alias.
                 "EarlyExeWrap",
                 "EarlyAnyModuleWrap",
                 "Diagnostic",
@@ -721,6 +722,39 @@ int main() {
             self.assertIn(key, known)
             self.assertRegex(ini, rf"(?m)^{ini_name}=auto$")
 
+
+    def test_nr_split_query_splice_contract(self):
+        product = ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main"
+        header = (product / "OptiScaler/Config.h").read_text(encoding="utf-8")
+        policy = (product / "OptiScaler/dlssnr/submission/SubmissionPolicy.h").read_text(encoding="utf-8")
+        proxy = (product / "OptiScaler/dlssnr/submission/CommandListProxy.h").read_text(encoding="utf-8")
+        logical = (product / "OptiScaler/dlssnr/submission/LogicalList.h").read_text(encoding="utf-8")
+        games = (product / "OptiScaler/misc/GameConfigs.h").read_text(encoding="utf-8")
+        ini = (product / "OptiScaler.ini").read_text(encoding="utf-8")
+        key = "NrSplitQuerySplice"
+        # Key registry: canonical spelling plus kKnown membership.
+        self.assertIn(f'{key} = "{key}"', KEYS)
+        self.assertIn(f"    {key},", KEYS.split("kKnown[]", 1)[1])
+        # Tri-state field and the explicit-wins-over-policy resolution.
+        self.assertIn("CustomOptional<bool, NoDefault> NrSplitQuerySplice;", header)
+        self.assertIn("bool SplitQuerySpliceEffective();", header)
+        self.assertIn("NrSplitQuerySplice.set_from_config(readBool(CfgKey::kSection, CfgKey::NrSplitQuerySplice));", CONFIG)
+        self.assertIn("SetSplitQuerySplice(SplitQuerySpliceEffective());", CONFIG)
+        self.assertRegex(CONFIG, r"ini\.SetValue\(CfgKey::kSection, CfgKey::NrSplitQuerySplice,")
+        # Submission policy and the admission gate that consults it.
+        self.assertIn("inline bool SplitQuerySpliceAllowed()", policy)
+        self.assertIn("(!queryBook.CanSplit() && !SplitQuerySpliceAllowed())", proxy)
+        # The producer-side EndQuery may only run after the continuation preflight succeeded.
+        self.assertLess(logical.index("HRESULT PrepareSplit("), logical.index("HRESULT CommitSplit()"))
+        self.assertLess(proxy.index("logical.PrepareSplit("), proxy.index("producer->EndQuery(heap"))
+        self.assertLess(proxy.index("producer->EndQuery(heap"), proxy.index("logical.CommitSplit()"))
+        # Per-game auto policy and the Crimson Desert entry.
+        self.assertIn("bool splitQuerySplice = false;", games)
+        self.assertIn('"crimsondesert", Match::Contains, { false, false, true, false, 0, true }', games)
+        # Template and menu wiring.
+        self.assertRegex(ini, rf"(?m)^{key}=auto$")
+        self.assertIn('MenuUi::Combo("Split query splice"', MENU)
+        self.assertIn("SetSplitQuerySplice(config->SplitQuerySpliceEffective());", MENU)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

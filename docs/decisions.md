@@ -1314,3 +1314,41 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 - **否决整吞/摘取**:私有残差稳定器经 NVNGXProxy 直连真 NVIDIA NGX,不走 OptiScaler 门面——AMD 上无 FSR 回落,时间稳定部分 N 卡专属;字面替换面连锁 190 文件/~7 万行 fork 私有体系;AMD 特性化估 30-45 文件/8-12k 行。
 - **采纳**:P50/P100 全帧 FP64 标定方法论可迁(数值表不可——估计器/重建域不同);C5 运动端点 bug 我们无同类病灶,不跟进。
 - **重启条件**:用户群实际压 NR% 求性能且反馈 bloating 时,先做离线拟合工具(3-6 文件)验证收益再决定。详见 work/notes/2026-10-25-superior-scaling-study.md。
+
+## 2026-10-26: Opt-in split query splice（Crimson Desert open_query 全拒）
+
+- **背景**：红色沙漠引擎把 FFX evaluate 包在开着的 `PIPELINE_STATISTICS` 查询里（TraceOpenQueries: type=3 index=5，list 10/18/23 全会话复现）。split 必须在 evaluate 点切列表，游戏的 EndQuery 落到 continuation——非 timestamp 查询对不能跨两个原生列表（D3D12），故 `open_query` 全拒；此前唯一出路是实验性 inline（不切列表，查询保持开着合法）。
+- **决定**：新增 `[DlssNr] NrSplitQuerySplice`（默认 false，实时生效）。开启后 `CommandListProxy::SplitSegments` 在切点把每个开着的非 timestamp 查询对在 producer 末尾补 `EndQuery`、continuation 种子后补 `BeginQuery`；queryBook 保持 open，游戏自己的 EndQuery 照常闭合。画面/NR 效果不变；唯一变化是游戏查询结果只覆盖切分后半段（引擎 profiler 数字改变），因此默认关闭，菜单"兼容性与调度 → Split query splice"显式开启。
+- **执行**：ConfigKeys.h（入 kKnown）/Config.h/Config.cpp（加载+保存+`SetSplitQuerySplice` 下发）、submission/SubmissionPolicy.h（原子策略）、submission/CommandListProxy.h（IsSplitIneligible/SplitRejectionReason 放行 + SplitSegments 拼接与限频 WARN）、DlssNr_Menu.cpp + MenuStrings.inl（复选框/双语/reset）、OptiScaler.ini 模板、tests/host/nr_recording_admission.cpp（策略往返+两遍遍历稳定性）。
+- **验证**：admission 测试通过；宿主 Release x64（v145 / 14.44.35207 / SDK 26100）编译链接通过。红色沙漠实机（split 生效、画面、引擎是否消费该统计、长跑）待验证；证据与时间线见 work/notes/2026-10-26-crimson-desert-inline-visual-inactive.md。
+
+## 2026-10-26(二): Crimson Desert 自动策略与 NrSplitQuerySplice 三态化
+
+- `GetNrGamePolicy`（misc/GameConfigs.h）新增 `splitQuerySplice` 字段并加入 `crimsondesert` 条目：`enhancedBarriers=true, splitQuerySplice=true`（Match::Contains）。实机依据：第二局 split+拼接约 19,000 次切分全净（0 failed/0 bypass）。
+- `NrSplitQuerySplice` 改为三态（`CustomOptional<bool, NoDefault>`）：显式 true/false 优先，auto=按策略表（红沙 on，其余 off），经 `Config::SplitQuerySpliceEffective()` 解析；菜单改为 auto/force on/force off 三态组合框（实时生效），与 LmxxfAllowEnhancedBarriers 完全同构。
+- `ExeIsForza()` 更名 `ExePolicyEnhancedBarriers()`（它本来就按策略表取值，现在含红沙，旧名失真），新增 `ExePolicySplitQuerySplice()`；Config 加载与 lmxxf 后端构造处统一经 Effective() 下发双策略，日志带 policy_auto。
+- 文档：docs/games/crimson-desert.md（新建）、OptiScaler.ini 模板、菜单双语、release.yml 中英已知问题。
+
+## 2026-10-26(三): 修复启动器中文界面写错 ini 语言键
+
+- 现象: 中文启动器安装后游戏内 Ins 菜单仍英文。实证(红沙游戏 ini): 启动器写了 `[Menu] MenuLanguage = zh`,
+  宿主读的是 `[Menu] Language`(CfgKey::MenuLanguage="Language"), 键名不匹配 → 写入被无视。
+- 修复(tools/install/launcher/MainWindow.cs 安装/更新成功回调): 段内定位 `[Menu]`, 写 `Language=zh-CN`(宿主规范值);
+  现值为 en 或缺失才写(用户显式选择被尊重, 契合 ini 归属规则); 顺带剥离旧版写错的 `MenuLanguage` 行(宿主从未读过);
+  UTF-8 BOM 与安装器 Set-IniSettings 一致。冒烟(throwaway, work/scratch, 未进 tests/): 模板覆写/用户已选/无段追加/
+  他段同名键不误伤/剥离旧行 5 例通过; 启动器经 tools/build/build-launcher.ps1 编译通过。
+
+## 2026-10-26(四): OptiScaler.ini 模板 [DlssNr] 段备注补全与纠错
+
+- 方法: 以 Config.cpp 实际 read*/SaveIni 键集 diff 模板键集(251→259), 语义以 ConfigKeys.h/Config.h 默认值/
+  DlssNr_Menu.cpp/AmdBridge.cpp 消费点为准, 不凭键名臆造。
+- 补漏(8 个代码在读写、菜单在用、模板缺失的键): LmxxfInlineSlots(NrInline 同族, 疑似随 inline 功能漏放),
+  ToneCurve/ToneLift/AmdToneChannels/AmdUseGameExposure(共享外观), Quality/QueuePriority/AmdInline(Daniel)。
+- 纠错: DLSS5_MULTI_PASS 的注释原挂在 LmxxfNetworkModel 头上(错位); LmxxfEarlyAnyModuleWrap 的 auto 规则
+  注释漏了 dyinglight/yysls(与 GameConfigs 表不符); NrInline 注释"no query splitting"改为明确"列表不切分,
+  查询拼接属 NrSplitQuerySplice"。
+- 结构化: RenoDX 家族(~60 键)按 pass1/pass栈/合成/分辨率/look/编码归组逐键注释; person/residual/stabilizer
+  三块注释与键重新对齐(原先 residual 注释被 person 文案隔断); NrTiming*/Nr*Diag 逐键一行; SkinProtection 块
+  逐键; DLSS5_HIP_*/FIT_LARGE/VIT_* 补一行语义。
+- 刻意不补: 仅迁移用的旧拼写(QueuePriorityLegacy/LmxxfFitLarge/LmxxfPdl 等, SaveIni 只写新拼写);
+  readUnifiedBool 循环读的 DLSS5_* 均已在模板。验证: 键集 diff 无丢失/无重复, 恰好 +8。

@@ -66,6 +66,7 @@ inline constexpr const char *NrInlineComputeMotion = "NrInlineComputeMotion";
 inline constexpr const char *NrInlineComputeDownscale = "NrInlineComputeDownscale";
 inline constexpr const char *NrInlineComputeExport = "NrInlineComputeExport";
 inline constexpr const char *NrAdaptiveWaitBudget = "NrAdaptiveWaitBudget";
+inline constexpr const char *NrSplitQuerySplice = "NrSplitQuerySplice";
 inline constexpr const char *EarlyExeWrap = "LmxxfEarlyExeWrap";
 inline constexpr const char *EarlyAnyModuleWrap = "LmxxfEarlyAnyModuleWrap";
 inline constexpr const char *Diagnostic = "LmxxfDiagnostic";
@@ -559,6 +560,7 @@ inline constexpr const char *const kKnown[] = {
     NrInlineComputeDownscale,
     NrInlineComputeExport,
     NrAdaptiveWaitBudget,
+    NrSplitQuerySplice,
     EarlyExeWrap,
     EarlyAnyModuleWrap,
     Diagnostic,
