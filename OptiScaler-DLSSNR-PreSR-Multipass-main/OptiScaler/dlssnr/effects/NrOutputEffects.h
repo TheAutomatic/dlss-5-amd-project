@@ -389,7 +389,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* or
         if (FAILED(cmd->QueryInterface(IID_PPV_ARGS(&logical))) || FAILED(cmd->QueryInterface(IID_PPV_ARGS(&observer)))) {
             s.Status("Overall Intensity unavailable: restart to enable recording ownership"); return result;
         }
-        if (!observer->CanAppendCompute()) { s.Status("Overall Intensity bypassed: unsupported command-list state"); return result; }
+        if (!observer->CanAppendCompute()) { auto m = std::string("Overall Intensity bypassed: unsupported command-list state (") + observer->AppendComputeRejection() + ")"; s.Status(m.c_str()); return result; }
         const auto a = original->GetDesc(), b = result->GetDesc();
         if (!width || !height || a.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
             b.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || a.SampleDesc.Count != 1 || b.SampleDesc.Count != 1 ||

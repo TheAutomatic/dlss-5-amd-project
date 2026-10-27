@@ -227,7 +227,7 @@ inline ID3D12Resource* Record(ID3D12GraphicsCommandList*cmd,ID3D12Resource*origi
   if(!s.pipeline||s.pipeline->device.Get()!=device.Get()||s.pipeline->unconfirmed){s.Invalidate(ResetReason::Device);s.pool.clear();s.pipeline=Pipeline::Create(device.Get());}
   ComPtr<Submission::ILogicalCommandList>logical;ComPtr<Submission::IRecordingResources>observer;
   Check(cmd->QueryInterface(IID_PPV_ARGS(&logical)));Check(cmd->QueryInterface(IID_PPV_ARGS(&observer)));
-  if(!observer->CanAppendCompute())throw std::runtime_error("person recording state");
+  if(!observer->CanAppendCompute())throw std::runtime_error(std::string("person recording state: ")+observer->AppendComputeRejection());
   std::vector<const Storage*>seen;UINT64 bytes=0;
   auto count=[&](const std::shared_ptr<Storage>&st){if(std::find(seen.begin(),seen.end(),st.get())==seen.end()){seen.push_back(st.get());bytes+=st->bytes;}};
   for(auto&st:s.pool)count(st);for(auto&l:s.leases)count(l->storage);

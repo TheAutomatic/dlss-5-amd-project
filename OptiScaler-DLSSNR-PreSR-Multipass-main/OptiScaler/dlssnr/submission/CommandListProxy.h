@@ -58,6 +58,8 @@ IRecordingResources : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE ObserveResources(std::shared_ptr<RecordingObserver> observer) = 0;
     virtual bool STDMETHODCALLTYPE InContinuation() = 0;
     virtual bool STDMETHODCALLTYPE CanAppendCompute() = 0;
+    // Which of CanAppendCompute's conditions failed; only meaningful after it returned false.
+    virtual const char* STDMETHODCALLTYPE AppendComputeRejection() = 0;
     virtual bool STDMETHODCALLTYPE CanRecordInline() = 0;
     virtual const char* STDMETHODCALLTYPE InlineRejectionReason() = 0;
     virtual HRESULT STDMETHODCALLTYPE BeginInlineState(UINT count, ID3D12Resource** resources,
@@ -211,7 +213,18 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             return S_OK;
         } catch (...) { return E_OUTOFMEMORY; }
     }
-    bool STDMETHODCALLTYPE CanAppendCompute() override { return !rawInterfaceEscaped && !presentCommandsUsed && !renderPassActive && !enhancedBarriersSeen; }
+    bool STDMETHODCALLTYPE CanAppendCompute() override
+    {
+        return !rawInterfaceEscaped && !presentCommandsUsed && !renderPassActive && !enhancedBarriersSeen;
+    }
+    const char* STDMETHODCALLTYPE AppendComputeRejection() override
+    {
+        if (rawInterfaceEscaped) return "raw interface escaped";
+        if (presentCommandsUsed) return "present commands used";
+        if (renderPassActive) return "render pass active";
+        if (enhancedBarriersSeen) return "enhanced barriers seen";
+        return "eligible";
+    }
     bool STDMETHODCALLTYPE CanRecordInline() override
     {
         if (rawInterfaceEscaped) inlineRejection = "native_interface_escaped";

@@ -329,7 +329,8 @@ inline std::shared_ptr<Lease> Prepare(ID3D12GraphicsCommandList* cmd, AmdPreSr::
         }
         if (!observer->CanAppendCompute())
         {
-            reason = "SR -> NR: unsupported command-list state this frame";
+            reason = std::string("SR -> NR: unsupported command-list state this frame (") +
+                     observer->AppendComputeRejection() + ")";
             return {};
         }
         ComPtr<ID3D12Device> d;

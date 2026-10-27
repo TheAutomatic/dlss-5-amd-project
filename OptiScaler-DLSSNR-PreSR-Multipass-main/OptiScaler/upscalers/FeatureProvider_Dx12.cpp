@@ -164,6 +164,14 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
             state.newBackend = Upscaler::FSR_RR;
             contextData->featureKey = Upscaler::FSR_RR;
         }
+        else if (contextData->featureKey == Upscaler::FSR_RR && !fsrRrCapable)
+        {
+            // The gate was turned off (or the denoiser API went away) since this context was
+            // created: switch the Ray Reconstruction feature back to the plain FFX backend
+            // instead of recreating FSR-RR behind the user's back.
+            state.newBackend = Upscaler::FFX;
+            contextData->featureKey = Upscaler::FFX;
+        }
         else if (state.newBackend != contextData->featureKey)
         {
             state.newBackend = contextData->featureKey;
