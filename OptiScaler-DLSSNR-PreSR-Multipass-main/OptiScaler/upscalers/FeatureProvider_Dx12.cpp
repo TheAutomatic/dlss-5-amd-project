@@ -91,6 +91,14 @@ bool FeatureProvider_Dx12::GetFeature(Upscaler upscaler, UINT handleId, NVSDK_NG
 
     bool loaded = (*feature)->ModuleLoaded();
 
+    if (!loaded && upscaler == Upscaler::FSR_RR)
+    {
+        // Same contract as the init-failure path: an FSR-RR request must not be handed
+        // to a plain upscaler that would run the undenoised input and report success.
+        LOG_ERROR("FSR-RR feature created but its module is not loaded");
+        return false;
+    }
+
     if (!loaded)
     {
         // Fail after the constructor
