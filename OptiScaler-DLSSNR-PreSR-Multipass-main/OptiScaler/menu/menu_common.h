@@ -101,6 +101,12 @@ class MenuCommon
     // mipmap calculations
     inline static bool _showMipmapCalcWindow = false;
     inline static bool _showHudlessWindow = false;
+    inline static bool _showRRAdvancedWindow = false;
+    inline static bool _showRRResourceInspectorWindow = false;
+    inline static bool _rrInspectorActiveOnly = true;
+    inline static bool _rrInspectorEmissivePassOnly = false;
+    inline static uint64_t _rrInspectorPsoFilter = 0;
+    inline static int _rrInspectorMaxWriteAge = 4;
     inline static float _mipBias = 0.0f;
     inline static float _mipBiasCalculated = 0.0f;
     inline static uint32_t _mipmapUpscalerQuality = 0;

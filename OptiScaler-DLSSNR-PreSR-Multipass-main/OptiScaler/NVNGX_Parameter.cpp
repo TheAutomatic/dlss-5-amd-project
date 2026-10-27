@@ -6,6 +6,8 @@
 #include "Config.h"
 #include <ankerl/unordered_dense.h>
 #include <misc/IdentifyGpu.h>
+#include <set>
+#include <proxies/FfxApi_Proxy.h>
 #include <framegen/nvngx/Nvngx_FG.h>
 
 /// @brief Calculates the resolution scaling ratio override based on the provided quality level and current
@@ -363,6 +365,42 @@ std::vector<std::string> NVNGX_Parameters::enumerate() const
         keys.push_back(value.first);
     }
     return keys;
+}
+
+std::vector<NGXPointerParameter> NVNGX_Parameters::enumeratePointerParameters() const
+{
+    const std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<NGXPointerParameter> parameters;
+
+    for (const auto& [name, parameter] : m_values)
+    {
+        NGXPointerParameter entry {};
+        entry.name = name;
+
+        if (parameter.key == typeid(ID3D12Resource*).hash_code())
+        {
+            entry.kind = NGXPointerParameterKind::D3D12Resource;
+            entry.address = parameter.values.d12r;
+        }
+        else if (parameter.key == typeid(ID3D11Resource*).hash_code())
+        {
+            entry.kind = NGXPointerParameterKind::D3D11Resource;
+            entry.address = parameter.values.d11r;
+        }
+        else if (parameter.key == typeid(void*).hash_code())
+        {
+            entry.kind = NGXPointerParameterKind::OpaquePointer;
+            entry.address = parameter.values.vp;
+        }
+        else
+        {
+            continue;
+        }
+
+        parameters.push_back(std::move(entry));
+    }
+
+    return parameters;
 }
 
 template <typename T> void NVNGX_Parameters::setT(const char* key, T& value)
@@ -795,8 +833,24 @@ void InitNGXParameters(NVSDK_NGX_Parameter* InParams, API api)
             InParams->Set("SuperSamplingDenoising.MinDriverVersionMinor", 0);
         }
 
-        InParams->Set("SuperSamplingDenoising.Available", 0);
-        InParams->Set("SuperSamplingDenoising.FeatureInitResult", 0);
+        bool ssDenoiseAvailable = false;
+
+        if (State::Instance().currentD3D12Device != nullptr && Config::Instance()->FsrRrEnabled.value_or_default())
+        {
+            if (!FfxApiProxy::IsDenoiserReady(false))
+                FfxApiProxy::InitFfxDx12();
+
+            const FfxDenoiserApiGeneration rrApi = FfxApiProxy::DenoiserApiGenerationDx12();
+            ssDenoiseAvailable = FfxApiProxy::IsSRReady(false) && FfxApiProxy::IsDenoiserApiImplementedDx12();
+
+            if (ssDenoiseAvailable)
+                LOG_DEBUG("Setting DLSSD flags for FSR Ray Regeneration");
+            else if (rrApi != FfxDenoiserApiGeneration::NotLoaded)
+                LOG_DEBUG("FSR Ray Regeneration provider is not compatible with the RR 1.2 dispatch backend");
+        }
+
+        InParams->Set("SuperSamplingDenoising.Available", ssDenoiseAvailable);
+        InParams->Set("SuperSamplingDenoising.FeatureInitResult", ssDenoiseAvailable);
     }
 
     if ((api == API::DX12 || api == API::Vulkan) && (State::Instance().activeFgInput == FGInput::DLSSG ||

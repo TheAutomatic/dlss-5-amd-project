@@ -16,6 +16,7 @@
 #include <fsr4/FSR4Presets.h>
 
 #include "ffx_api.h"
+#include <fsr-rr/ffx_denoiser.h>
 #include <detours/detours.h>
 #include <ffx_framegeneration.h>
 #include <ffx_upscale.h>
@@ -50,6 +51,18 @@ enum class FFXStructType
     Denoiser,
     RadianceCache,
     Unknown,
+};
+
+// The denoiser DLL can be present even when its ABI is not compatible with the
+// implementation compiled into OptiScaler. Keep provider detection separate
+// from implementation readiness so a new SDK cannot receive old descriptors.
+enum class FfxDenoiserApiGeneration
+{
+    NotLoaded,
+    Unknown,
+    V1_1,
+    V1_2,
+    Unsupported,
 };
 
 struct FfxModule
@@ -1126,7 +1139,13 @@ class FfxApiProxy
         {
             ffxQueryDescGetVersions versionQuery {};
             versionQuery.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
-            versionQuery.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+            // RR 1.2 enumerates providers by effect ID, matching AMD's SDK sample.
+            versionQuery.createDescType = FFX_API_EFFECT_ID_DENOISER;
+            // Newer effects like FSR Ray Regen seem to require a D3D12 device if an ffxContext
+            // hasn't already been created. Depending on init/hook order, this can be slightly
+            // inconvenient, as features like NVSDK_NGX_D3D12_GetFeatureRequirements() run before
+            // the device is created/captured.
+            versionQuery.device = State::Instance().currentD3D12Device;
             uint64_t versionCount = 0;
             versionQuery.outputCount = &versionCount;
 
@@ -1135,7 +1154,6 @@ class FfxApiProxy
             // get number of versions for allocation
             if (versionCount > 0 && queryResult == FFX_API_RETURN_OK)
             {
-
                 std::vector<uint64_t> versionIds;
                 std::vector<const char*> versionNames;
                 versionIds.resize(versionCount);
@@ -1149,22 +1167,52 @@ class FfxApiProxy
                 if (queryResult == FFX_API_RETURN_OK)
                 {
                     denoiser_dx12.version.parse_version(versionNames[0]);
-                    LOG_INFO("FfxApi Dx12 SR version: {}.{}.{}", denoiser_dx12.version.major,
+                    LOG_INFO("FfxApi Dx12 RR version: {}.{}.{}", denoiser_dx12.version.major,
                              denoiser_dx12.version.minor, denoiser_dx12.version.patch);
                 }
                 else
                 {
-                    LOG_WARN("main_dx12.Query 2 result: {}", (UINT) queryResult);
+                    LOG_WARN("denoiser_dx12.Query 2 result: {}", (UINT) queryResult);
                 }
             }
             else
             {
-                LOG_WARN("main_dx12.Query result: {}", (UINT) queryResult);
+                LOG_WARN("denoiser_dx12.Query result: {}", (UINT) queryResult);
             }
         }
 
         return denoiser_dx12.version;
     }
+
+    // Version implemented by the typed-signal FSR-RR dispatch backend.
+    static feature_version VersionImplemented_RR()
+    {
+        feature_version v {};
+        v.major = FFX_DENOISER_VERSION_MAJOR;
+        v.minor = FFX_DENOISER_VERSION_MINOR;
+        v.patch = FFX_DENOISER_VERSION_PATCH;
+        return v;
+    }
+
+    static FfxDenoiserApiGeneration DenoiserApiGenerationDx12()
+    {
+        if (!IsDenoiserReady())
+            return FfxDenoiserApiGeneration::NotLoaded;
+
+        const feature_version version = VersionDx12_RR();
+
+        if (version.major == 0)
+            return FfxDenoiserApiGeneration::Unknown;
+        if (version == feature_version { 1, 1, 0 })
+            return FfxDenoiserApiGeneration::V1_1;
+        if (version == feature_version { 1, 2, 0 })
+            return FfxDenoiserApiGeneration::V1_2;
+
+        return FfxDenoiserApiGeneration::Unsupported;
+    }
+
+    // This is the guard for every path that can instantiate or dispatch FSR-RR.
+    static bool IsDenoiserApiImplementedDx12() { return DenoiserApiGenerationDx12() == FfxDenoiserApiGeneration::V1_2; }
 
     static feature_version VersionDx12_RC()
     {

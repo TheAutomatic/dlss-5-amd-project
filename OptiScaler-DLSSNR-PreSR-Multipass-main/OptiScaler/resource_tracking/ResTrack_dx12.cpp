@@ -3142,3 +3142,27 @@ void __stdcall ResTrack_Dx12::ResourceDestroyed(void* data)
     std::lock_guard trackedLock(_trackedResourcesMutex);
     _trackedResources.erase(static_cast<ID3D12Resource*>(data));
 }
+
+// FSR-RR resource inspector: nothing is tracked in this tree, see ResTrack_Dx12.h
+static std::atomic<int> gRRResourceCandidateIndex { -1 };
+static std::atomic<uint32_t> gRRResourceChannel { 0 };
+static std::atomic<float> gRRResourceViewScale { 1.0f };
+
+void ResTrack_Dx12::SetRRResourceInspectorEnabled(bool) {}
+bool ResTrack_Dx12::IsRRResourceInspectorEnabled() { return false; }
+void ResTrack_Dx12::NotifyRRResourceInspectorFrame(uint64_t) {}
+void ResTrack_Dx12::RefreshRRResourceCandidates(uint32_t, uint32_t) {}
+std::vector<RRResourceCandidate> ResTrack_Dx12::GetRRResourceCandidates() { return {}; }
+void ResTrack_Dx12::SetRRResourceCandidateIndex(int index) { gRRResourceCandidateIndex.store(index); }
+int ResTrack_Dx12::GetRRResourceCandidateIndex() { return gRRResourceCandidateIndex.load(); }
+void ResTrack_Dx12::SetRRResourceChannel(uint32_t channel) { gRRResourceChannel.store(channel); }
+uint32_t ResTrack_Dx12::GetRRResourceChannel() { return gRRResourceChannel.load(); }
+void ResTrack_Dx12::SetRRResourceViewScale(float scale) { gRRResourceViewScale.store(scale); }
+float ResTrack_Dx12::GetRRResourceViewScale() { return gRRResourceViewScale.load(); }
+ID3D12Resource* ResTrack_Dx12::AcquireRRResourceCandidate() { return nullptr; }
+void ResTrack_Dx12::LogRRScalarResourceCandidates(uint32_t, uint32_t)
+{
+    LOG_INFO("FSR-RR resource inspector: not available");
+}
+void ResTrack_Dx12::LogRREmissivePassSnapshot(uint32_t, uint32_t) { LOG_INFO("FSR-RR resource inspector: not available"); }
+void ResTrack_Dx12::LogRRPsoProducerSnapshot(uint32_t, uint32_t) { LOG_INFO("FSR-RR resource inspector: not available"); }

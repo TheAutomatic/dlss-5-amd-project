@@ -14,6 +14,14 @@
 #include "PluginModuleSlots.h"
 #include <utility>
 #include <type_traits>
+#include <d3d12.h>
+#include <wrl/client.h>
+#include <array>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+struct NVSDK_NGX_Parameter;
 
 struct Adapter
 {
@@ -58,6 +66,135 @@ struct SystemCapsSl15
     bool hwSchedulingEnabled {};
 };
 
+
+enum class RRTaggedSignal : uint32_t
+{
+    NormalRoughness,
+    Emissive,
+    SpecularMotionVectors,
+    ReflectionMotionVectors,
+    SpecularHitDistance,
+    SpecularRayDirectionHitDistance,
+    // The title's own already-linearised view depth, when it publishes one. Distinct
+    // from the depth the NGX parameters carry, which may be hardware depth that the
+    // title expects its consumer to linearise.
+    LinearDepth,
+    DiffuseNoisy,
+    DiffuseDenoised,
+    SpecularNoisy,
+    SpecularDenoised,
+    ShadowNoisy,
+    ShadowDenoised,
+    AmbientOcclusionNoisy,
+    AmbientOcclusionDenoised,
+    ShadowHint,
+    ReflectionHint,
+    Count
+};
+
+enum class RRTagSource : uint32_t
+{
+    SetTag,
+    SetTagForFrame,
+    EvaluateFeature
+};
+
+struct RRTaggedResourceDiagnostic
+{
+    bool observed = false;
+    bool present = false;
+    bool usesExtent = false;
+    std::string debugName;
+    void* resourceAddress = nullptr;
+    uint64_t nativeWidth = 0;
+    uint32_t nativeHeight = 0;
+    uint32_t effectiveWidth = 0;
+    uint32_t effectiveHeight = 0;
+    uint32_t extentLeft = 0;
+    uint32_t extentTop = 0;
+    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+    D3D12_RESOURCE_DIMENSION dimension = D3D12_RESOURCE_DIMENSION_UNKNOWN;
+    D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_NONE;
+    uint32_t mipLevels = 0;
+    uint32_t arraySize = 0;
+    uint32_t sampleCount = 0;
+    uint32_t state = UINT32_MAX;
+    sl::ResourceLifecycle lifecycle = sl::ResourceLifecycle::eOnlyValidNow;
+    uint32_t frameIndex = UINT32_MAX;
+    uint32_t viewport = UINT32_MAX;
+    RRTagSource source = RRTagSource::SetTag;
+    uint64_t updateCount = 0;
+};
+
+struct RRSignalTagDiagnostics
+{
+    std::array<RRTaggedResourceDiagnostic, static_cast<size_t>(RRTaggedSignal::Count)> resources {};
+    uint64_t generation = 0;
+};
+
+struct RRTaggedD3D12ResourceSnapshot
+{
+    RRTaggedResourceDiagnostic diagnostic {};
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+};
+
+struct RRD3D12SignalTagSnapshot
+{
+    std::array<RRTaggedD3D12ResourceSnapshot, static_cast<size_t>(RRTaggedSignal::Count)> resources {};
+    uint64_t generation = 0;
+    uint32_t activeEvaluationFrame = UINT32_MAX;
+    uint32_t activeEvaluationViewport = UINT32_MAX;
+};
+
+struct SLConstantsSnapshot
+{
+    sl::Constants constants {};
+    uint32_t frameIndex = UINT32_MAX;
+    uint32_t viewport = UINT32_MAX;
+};
+
+struct SLTaggedResourceInventoryEntry
+{
+    sl::BufferType type = UINT32_MAX;
+    RRTaggedResourceDiagnostic resource {};
+};
+
+struct SLTagInventoryDiagnostics
+{
+    std::vector<SLTaggedResourceInventoryEntry> resources;
+    uint64_t generation = 0;
+};
+
+enum class RRNGXPointerKind : uint32_t
+{
+    OpaquePointer,
+    D3D11Resource,
+    D3D12Resource
+};
+
+struct RRNGXPointerDiagnostic
+{
+    std::string name;
+    RRNGXPointerKind kind = RRNGXPointerKind::OpaquePointer;
+    bool present = false;
+    void* address = nullptr;
+    uint64_t nativeWidth = 0;
+    uint32_t nativeHeight = 0;
+    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+    D3D12_RESOURCE_DIMENSION dimension = D3D12_RESOURCE_DIMENSION_UNKNOWN;
+    D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_NONE;
+    uint32_t mipLevels = 0;
+    uint32_t arraySize = 0;
+    uint32_t sampleCount = 0;
+    uint64_t updateCount = 0;
+};
+
+struct RRNGXPointerDiagnostics
+{
+    bool tableInspectable = false;
+    std::vector<RRNGXPointerDiagnostic> parameters;
+    uint64_t generation = 0;
+};
 enum class BufferType : uint64_t
 {
     Depth = 0,
@@ -166,6 +303,26 @@ class StreamlineHooks
     static bool isCommonHooked();
     static bool isPclHooked();
     static bool isReflexHooked();
+    static bool isSetConstantsHooked();
+
+    static RRSignalTagDiagnostics getRRSignalTagDiagnostics();
+    static Microsoft::WRL::ComPtr<ID3D12Resource> getRRTaggedD3D12Resource(RRTaggedSignal signal);
+    static RRD3D12SignalTagSnapshot getRRD3D12SignalTagSnapshot();
+    static SLConstantsSnapshot getSLConstantsSnapshot();
+    static void resetRRSignalTagDiagnostics();
+    static void logRRSignalTagDiagnostics(uint32_t renderWidth, uint32_t renderHeight);
+    static const char* getRRTaggedSignalName(RRTaggedSignal signal);
+    static const char* getRRCheckerboardAssessment(RRTaggedSignal signal, const RRTaggedResourceDiagnostic& diagnostic,
+                                                   uint32_t renderWidth, uint32_t renderHeight);
+    static bool isRRPreferredTagFormat(RRTaggedSignal signal, DXGI_FORMAT format);
+    static const char* getRRPreferredTagFormat(RRTaggedSignal signal);
+    static SLTagInventoryDiagnostics getSLTagInventoryDiagnostics();
+    static const char* getSLBufferTypeName(sl::BufferType type);
+    static void logSLTagInventoryDiagnostics(uint32_t renderWidth, uint32_t renderHeight);
+    static RRNGXPointerDiagnostics getRRNGXPointerDiagnostics();
+    static void probeRRNGXPointerParameters(const NVSDK_NGX_Parameter& parameters);
+    static void logRRNGXPointerDiagnostics();
+    static void resetRRInputInventoryDiagnostics();
 
   private:
     inline static sl::RenderAPI renderApi = sl::RenderAPI::eCount;
@@ -179,6 +336,17 @@ class StreamlineHooks
     static void setArch(uint32_t arch, SystemCaps* altSystemCaps = nullptr);
     static void spoofArch(uint32_t currentArch, sl::Feature feature, SystemCaps* altSystemCaps = nullptr);
 
+    static std::mutex rrSignalTagMutex;
+    static RRSignalTagDiagnostics rrSignalTagDiagnostics;
+    static std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, static_cast<size_t>(RRTaggedSignal::Count)>
+        rrTaggedD3D12Resources;
+    static SLTagInventoryDiagnostics slTagInventoryDiagnostics;
+    static RRNGXPointerDiagnostics rrNGXPointerDiagnostics;
+
+    static void probeRRResourceTag(const sl::ResourceTag& tag, uint32_t frameIndex, uint32_t viewport,
+                                   RRTagSource source);
+    static void probeSLResourceTag(const sl::ResourceTag& tag, uint32_t frameIndex, uint32_t viewport,
+                                   RRTagSource source);
     // Interposer
     inline static decltype(&slInit) o_slInit = nullptr;
     inline static decltype(&slSetTag) o_slSetTag = nullptr;

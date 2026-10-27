@@ -554,6 +554,48 @@ struct alignas(CACHE_LINE_SIZE) BindingStateShard
 };
 
 
+// FSR-RR resource inspector candidate description. Only consumed by the (stubbed)
+// inspector diagnostics surface below.
+struct RRResourceCandidate
+{
+    void* resourceAddress = nullptr;
+    std::string debugName;
+    std::string lastWritePass;
+    uint64_t width = 0;
+    uint32_t height = 0;
+    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+    D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+    uint32_t srvViews = 0;
+    uint32_t uavViews = 0;
+    uint32_t rtvViews = 0;
+    uint32_t channelCount = 0;
+    bool previewSupported = false;
+    bool stateKnown = false;
+    // The preview pass is compute, so this is the non-pixel read bit, not either shader-read
+    // bit: "shader readable" is ambiguous between the two stages and the ambiguity is what let
+    // a pixel-only resource be handed to it.
+    bool computeReadable = false;
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
+    bool writeObserved = false;
+    bool active = false;
+    bool alternating = false;
+    uint64_t currentFrame = 0;
+    uint64_t lastWriteFrame = 0;
+    uint64_t previousWriteFrame = 0;
+    uint64_t writeAgeFrames = std::numeric_limits<uint64_t>::max();
+    uint64_t lastWriteInterval = 0;
+    uint64_t writtenFrameCount = 0;
+    uint64_t writeTransitionCount = 0;
+    uint64_t passWriteCount = 0;
+    bool emissivePassMatch = false;
+    uint64_t producerPsoId = 0;
+    uint64_t producerPsoHash = 0;
+    uint64_t producerHitCount = 0;
+    uint32_t producerCount = 0;
+    uint8_t producerKind = 0;
+    bool producerAmbiguous = false;
+};
+
 class ResTrack_Dx12
 {
   private:
@@ -703,4 +745,25 @@ class ResTrack_Dx12
     static void ReleaseDeviceHooks();
     static void ClearPossibleHudless();
     static void SetResourceCmdList(FG_ResourceType type, ID3D12GraphicsCommandList* cmdList);
+
+    // FSR-RR resource inspector surface. Stubbed in this tree: nothing is tracked and the
+    // diagnostics report unavailability. Retained so the FSR-RR feature's diagnostics paths
+    // compile and behave deterministically without the reference's experimental inspector.
+    static void SetRRResourceInspectorEnabled(bool enabled);
+    static bool IsRRResourceInspectorEnabled();
+    static void NotifyRRResourceInspectorFrame(uint64_t frameIndex);
+    static void RefreshRRResourceCandidates(uint32_t renderWidth, uint32_t renderHeight);
+    static std::vector<RRResourceCandidate> GetRRResourceCandidates();
+    static void SetRRResourceCandidateIndex(int index);
+    static int GetRRResourceCandidateIndex();
+    static void SetRRResourceChannel(uint32_t channel);
+    static uint32_t GetRRResourceChannel();
+    static void SetRRResourceViewScale(float scale);
+    static float GetRRResourceViewScale();
+    // Returns an AddRef'd resource only when the selected texture can be safely
+    // sampled without modifying the game's resource state.
+    static ID3D12Resource* AcquireRRResourceCandidate();
+    static void LogRRScalarResourceCandidates(uint32_t renderWidth, uint32_t renderHeight);
+    static void LogRREmissivePassSnapshot(uint32_t renderWidth, uint32_t renderHeight);
+    static void LogRRPsoProducerSnapshot(uint32_t renderWidth, uint32_t renderHeight);
 };

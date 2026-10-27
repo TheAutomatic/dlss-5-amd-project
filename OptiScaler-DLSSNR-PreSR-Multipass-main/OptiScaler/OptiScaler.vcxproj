@@ -262,6 +262,7 @@ copy $(SolutionDir)external\FidelityFX-SDK\PrebuiltSignedDLL\amd_fidelityfx_vk.d
 copy $(SolutionDir)external\FidelityFX-SDK-v2\Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll $(SolutionDir)x64\Release\a\OptiScaler\ /Y
 copy $(SolutionDir)external\FidelityFX-SDK-v2\Kits\FidelityFX\signedbin\amd_fidelityfx_upscaler_dx12.dll $(SolutionDir)x64\Release\a\OptiScaler\ /Y
 copy $(SolutionDir)external\FidelityFX-SDK-v2\Kits\FidelityFX\signedbin\amd_fidelityfx_framegeneration_dx12.dll $(SolutionDir)x64\Release\a\OptiScaler\ /Y
+copy $(SolutionDir)external\FidelityFX-SDK-v2\Kits\FidelityFX\signedbin\amd_fidelityfx_denoiser_dx12.dll $(SolutionDir)x64\Release\a\OptiScaler\ /Y
 copy $(SolutionDir)external\FidelityFX-SDK-v2\docs\license.md $(SolutionDir)x64\Release\a\Licenses\FidelityFX_v2_LICENSE.md /Y
 copy $(SolutionDir)OptiScaler.ini $(SolutionDir)x64\Release\a\ /Y
 copy $(SolutionDir)setup_windows.bat $(SolutionDir)x64\Release\a\ /Y
@@ -549,6 +550,16 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="upscalers\fsr2_212\FSR2Feature_VkOnDx12_212.h" />
     <ClInclude Include="upscalers\ffx\FFXFeature_VkOn12.h" />
     <ClInclude Include="upscalers\fsr31\FSR31Feature.h" />
+    <ClInclude Include="upscalers\fsr31\FSR31Feature_Dx12.h" />
+    <ClInclude Include="upscalers\fsr31\FSRDFeature_Dx12.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\FSRDPreprocessor_Dx12.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\FSRDShaderData.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\FSRDShaderUtils.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDFloor_Shader.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDFloorSeed_Shader.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDInputConv_Shader.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDOutputComp_Shader.h" />
+    <ClInclude Include="include\fsr-rr\ffx_denoiser.h" />
     <ClInclude Include="upscalers\IFeature_VkwDx12.h" />
     <ClInclude Include="gpu_time\GpuTime_Vk.h" />
     <ClInclude Include="SysUtils.h" />
@@ -921,6 +932,9 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="upscalers\fsr2_212\FSR2Feature_Vk_212.cpp" />
     <ClCompile Include="upscalers\ffx\FFXFeature.cpp" />
     <ClCompile Include="upscalers\fsr31\FSR31Feature_Dx11.cpp" />
+    <ClCompile Include="upscalers\fsr31\FSR31Feature_Dx12.cpp" />
+    <ClCompile Include="upscalers\fsr31\FSRDFeature_Dx12.cpp" />
+    <ClCompile Include="shaders\fsrd_preprocess\FSRDPreprocessor_Dx12.cpp" />
     <ClCompile Include="upscalers\ffx\FFXFeature_Dx11On12.cpp" />
     <ClCompile Include="upscalers\ffx\FFXFeature_Dx12.cpp" />
     <ClCompile Include="upscalers\ffx\FFXFeature_Vk.cpp" />

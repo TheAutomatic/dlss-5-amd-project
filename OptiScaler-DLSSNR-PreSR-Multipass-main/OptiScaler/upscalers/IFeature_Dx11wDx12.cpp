@@ -442,7 +442,8 @@ bool IFeature_Dx11wDx12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NG
                               (void*) dx11Reactive.Dx12Resource);
 
         LOG_DEBUG("Dispatch!!");
-        if (dx12Feature->GetUpscalerType() != Upscaler::DLSSD)
+        // FSR-RR runs the before-SR pass itself, between its denoise and its upscale.
+        if (dx12Feature->GetUpscalerType() != Upscaler::DLSSD && dx12Feature->GetUpscalerType() != Upscaler::FSR_RR)
             DlssNr::EvaluateBeforeUpscale(cmdList, InParameters, Dx12CommandQueue, _frameCount);
         dx12EvalResult = dx12Feature->Evaluate(cmdList, InParameters);
         DlssNr::AmdBridge::Restore(InParameters);

@@ -219,6 +219,39 @@ It can be changed from the in-game menu with real-time results.
 
 ![fsr](images/fsr.png)
 
+### FSR Ray Regeneration (FSR-RR)
+
+Experimental: on supported AMD DX12 devices (RX 9000 series, Windows 11) this takes over NGX Ray
+Reconstruction requests, denoising with the FidelityFX RR 1.2 provider and upscaling with FFX
+before the existing NR/output-effect seam. Ordinary Super Resolution requests never route here.
+The denoiser DLL (`amd_fidelityfx_denoiser_dx12.dll`) must ship in the same package; a provider
+whose ABI is not RR 1.2 is reported and the feature stays unavailable.
+
+```ini
+[FSR-RR]
+; Master gate. Default (auto) is false
+Enabled=auto
+
+; Zero-based index into the denoiser provider query result. 0 selects the first
+; provider and is NOT "off"; the feature is disabled with Enabled above.
+ProviderIndex=0
+
+; Depth interpretation override: auto follows the NGX declaration.
+HardwareDepth=auto
+
+; Prefer the Streamline-tagged NormalRoughness buffer when the title publishes no
+; separate NGX roughness. Default (auto) is false
+TaggedNormalRoughness=auto
+
+; High-overhead input/output readback probes and inventory logs. Default (auto) is false
+Diagnostics=auto
+```
+
+Post-upscale NR over an FSR-RR frame follows the existing `[DlssNr] ApplyAfterRR` choice: off
+keeps the RR+SR chain untouched, on runs the NR pass once per rendered frame on the frame's
+final output.
+
+
 ### Sharpness
 DLSS used to have a sharpening option, but later it was removed. So some games have sharpness slider and some do not. With this option you can disable or enable the sharpness of the final image. FSR has built in sharpness but for XeSS CAS option must be enabled.
 

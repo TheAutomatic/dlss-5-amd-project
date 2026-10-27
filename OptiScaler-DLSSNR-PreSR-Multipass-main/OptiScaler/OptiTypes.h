@@ -65,6 +65,8 @@ enum class Upscaler
     DLSS_on12, // "dlss_12", DLSS run on the D3D12 side of the D3D11 bridge
 
     DLSSD, // "dlssd", used for the DLSS-D/Ray Reconstruction upscaler+denoiser backend
+
+    FSR_RR, // "fsr-rr", used for the FSR Ray Regeneration denoiser backend
     Reset
 };
 

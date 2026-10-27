@@ -164,7 +164,8 @@ $depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler'
 foreach ($name in @(
     'amd_fidelityfx_loader_dx12.dll',
     'amd_fidelityfx_upscaler_dx12.dll',
-    'amd_fidelityfx_framegeneration_dx12.dll'
+    'amd_fidelityfx_framegeneration_dx12.dll',
+    'amd_fidelityfx_denoiser_dx12.dll'
 )) {
     $cands = @()
     foreach ($d in $depSearch) { $cands += (Join-Path $d $name) }

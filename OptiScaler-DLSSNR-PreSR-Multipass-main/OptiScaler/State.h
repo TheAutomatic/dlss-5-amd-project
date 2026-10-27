@@ -148,6 +148,9 @@ class State
 
     // Streamline FG inputs
     Sl_Inputs slFGInputs = {};
+    sl::Constants slLastConstants = {};
+    uint32_t slLastConstantsFrame = UINT32_MAX;
+    uint32_t slLastConstantsViewport = UINT32_MAX;
     Sl1_Inputs_Dx12 s_sl1FGInputs {};
 
     // OptiFG
@@ -290,6 +293,13 @@ class State
     std::vector<const char*> ffxFGVersionNames {};
     std::vector<uint64_t> ffxFGVersionIds {};
     std::optional<uint32_t> currentFsr4Preset {};
+
+    // FSR-RR
+    std::vector<const char*> ffxDenoiserVersionNames {};
+    std::vector<uint64_t> ffxDenoiserVersionIds {};
+    // Debug
+    std::vector<uint64_t> ffxDenoiserDebugModes;
+    std::unordered_map<uint64_t, const char*> ffxDenoiserDebugModeNames;
 
     // Linux checks
     bool isRunningOnLinux = false;
