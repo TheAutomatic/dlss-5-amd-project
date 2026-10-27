@@ -3397,6 +3397,30 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     EvaluateInternal(cmdList, params, true, timingQueue, false, submissionEpoch);
 }
 
+ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                                     ID3D12Resource* composed)
+{
+    // FSR-RR runs on AMD only, where the AMD runtimes are the model.
+    if (cmdList == nullptr || params == nullptr || composed == nullptr || !DlssNr::AmdBridge::HasFiles())
+        return nullptr;
+
+    // The bridge reads the colour from the block and substitutes its answer there: show it the composed frame,
+    // take the answer, and leave the title's colour behind.
+    ID3D12Resource* title = nullptr;
+    params->Get(NVSDK_NGX_Parameter_Color, (void**) &title);
+    params->Set(NVSDK_NGX_Parameter_Color, composed);
+
+    EvaluateBeforeUpscale(cmdList, params);
+
+    ID3D12Resource* answer = nullptr;
+    if (DlssNr::AmdBridge::HasReplacement(params))
+        params->Get(NVSDK_NGX_Parameter_Color, (void**) &answer);
+
+    DlssNr::AmdBridge::Restore(params);
+    params->Set(NVSDK_NGX_Parameter_Color, title);
+    return answer;
+}
+
 // The pass. Resources in, nothing read from anywhere the caller cannot see.
 
 void ProbeD3D11(void* d3d11Device)

@@ -1336,16 +1336,12 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration &&
         nrOutputExtent.width && nrOutputExtent.height)
     {
-        // FSR-RR frames have exactly one NR seam: after the upscale. A before-SR placement
-        // makes the pass decline the post call without a log line of its own, so say it here,
-        // once, instead of looking like NR silently died.
+        // With the before-SR placement the FSR-RR feature already ran the model itself, between its
+        // denoise and its upscale (FSRDFeatureDx12::EvaluateInternal); the post-upscale call would
+        // only decline on placement and run the same model a second time.
         if (rrNrAllowed && Config::Instance()->DlssNrRunBeforeSr.value_or_default())
         {
-            static std::atomic<bool> placementReported { false };
-            if (!placementReported.exchange(true))
-                LOG_WARN("DLSS-NR did not run: [DlssNr] RunBeforeSR is on, but FSR-RR frames only support the "
-                         "post-upscale placement. Turn 'before Super Resolution' off to run NR after Ray "
-                         "Reconstruction.");
+            LOG_DEBUG("FSR-RR frame: NR carried by the feature's before-SR stage; skipping the post-upscale call");
         }
         else
         {

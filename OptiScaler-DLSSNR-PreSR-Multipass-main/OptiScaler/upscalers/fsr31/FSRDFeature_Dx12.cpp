@@ -1870,9 +1870,26 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
         if (isDenoiserReady)
             upscalerDesc.color = ffxApiGetResourceDX12(FSRDConvShader->GetCompositionOutput(),
                                                        FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-        // NR placement for FSR-RR is the single after-upscale seam (EvaluateAfterUpscale,
-        // driven from the NGX evaluate path), per the migration plan. The reference's
-        // before-SR EvaluateAfterDenoise seam is deliberately not carried over.
+        // NR between the denoise and the upscale (the before-SR placement under FSR-RR): the model
+        // sees the composed colour, denoised and still at render resolution, and SR temporally
+        // accumulates the enhanced frame. Honours [DlssNr] RunBeforeSR; when it is off this is a
+        // no-op and the after-upscale seam owns the frame instead.
+        if (isDenoiserReady && !isFfxDebug && Config::Instance()->DlssNrEnabled.value_or_default())
+        {
+            constexpr auto composedState =
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            const auto handOver = cfg.ColorResourceBarrier.has_value()
+                                      ? static_cast<D3D12_RESOURCE_STATES>(cfg.ColorResourceBarrier.value())
+                                      : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            ID3D12Resource* composed = FSRDConvShader->GetCompositionOutput();
+
+            ResourceBarrier(InCommandList, composed, composedState, handOver);
+            ID3D12Resource* edited = DlssNr::EvaluateAfterDenoise(InCommandList, InParameters, composed);
+            ResourceBarrier(InCommandList, composed, handOver, composedState);
+
+            if (edited != nullptr)
+                upscalerDesc.color = ffxApiGetResourceDX12(edited, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+        }
 
         isUpscalerReady = DispatchUpscaler(InCommandList, upscalerDesc);
 
