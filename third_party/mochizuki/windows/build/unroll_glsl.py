@@ -171,6 +171,8 @@ def transform(s, max_trip, stats):
                     values = list(range(a, b, step))
                     assigns = re.search(r'(?<![\w.])%s\s*(=[^=]|\+\+|--|[-+*/]=)|(\+\+|--)\s*%s\b' % (v, v), body)
                     wanted = not PRIVATE_ONLY or indexes_private(body, v)
+                    if re.search(r'\[\[\s*dont_unroll\s*\]\]\s*$', s[pos:m.start()]):
+                        wanted = False
                     leaves = own_level_escape(body)
                     if (wanted and len(values) <= max_trip and not assigns and leaves <= {'continue'}
                             and stats['unrolled'] < stats.get('limit', 1 << 30)):

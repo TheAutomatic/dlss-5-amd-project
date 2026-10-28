@@ -1,0 +1,874 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "coopmm.glsl"
+#include "swin_math.glsl"
+#define fe4m3vec2 f16vec2
+#define fe4m3vec4 f16vec4
+
+// Global cosine attention, 32 heads of dimension 32. QKV has already
+// normalized and scaled the FP8 Q/K operands. Each query tile reads all keys.
+// The original uses half exponentials for the denominator and independently
+// quantized FP8 probabilities for the context MMA. Those are different values.
+
+#ifndef NR_C
+#define NR_C 1024                 // channels per tensor; Q|K|V make 3*NR_C
+#endif
+#ifndef NR_HEADS
+#define NR_HEADS 32
+#endif
+#define NR_HD  (NR_C / NR_HEADS)  // head dim, 32
+
+#ifndef NR_ACC_F16
+#define NR_ACC_F16 0
+#endif
+
+layout(set = 0, binding = 0, std430) NR_COH    buffer ActE4M3 { NR_E4M3 act_e4m3[]; };
+layout(set = 0, binding = 1, std430) readonly buffer WgtF32  { float   wgt_f32[]; };
+// The same arena as binding 0, typed four e4m3 (FP16) wide: indices count
+// elements, so `nr_at(...) >> 2` is unchanged. `fe4m3vec4` is `f16vec4` here.
+// NR_VOUT_VEC: the output's eight contiguous elements per lane and half go
+// out as two vec4 stores through this view (writable then) instead of eight
+// scalar stores. Non-interleaved output only: mode bit 1 is ignored.
+#ifndef NR_VOUT_VEC
+#define NR_VOUT_VEC 0
+#endif
+#ifndef NR_VOUT_PAIR
+#define NR_VOUT_PAIR 0
+#endif
+#if NR_VOUT_VEC
+layout(set = 0, binding = 2, std430) NR_COH buffer ActE4M3x4 { fe4m3vec4 act_x4[]; };
+#else
+layout(set = 0, binding = 2, std430) NR_COH readonly buffer ActE4M3x4 { fe4m3vec4 act_x4[]; };
+#endif
+
+#ifndef NR_TC_ALLWAIT
+#define NR_TC_ALLWAIT 0
+#endif
+#if NR_TC_ALLWAIT
+#extension GL_KHR_shader_subgroup_vote : require
+#endif
+#define NR_TC_WBIND 1   // NR_TCHAIN reads its records from the weight buffer
+#include "nr_chain.glsl"
+layout(push_constant) uniform Push {
+    uint x_off;      // the QKV output: [tokens][3*NR_C], e4m3, tile-blocked
+    uint o_off;      // this layer's output: [tokens][NR_C], same form
+    uint tokens;     // W * H, the real sequence length - 1980 at 1080p
+    uint s_off;      // the 32 per-head f32 temperatures, as a float index
+    uint mode;       // bit 0 cosine-normalise, bit 1 interleave, bit 2 quantise P
+    NR_CHAIN_FIELDS
+    NR_TCHAIN_FIELDS
+} pc;
+
+uint nr_at(uint base, uint token, uint ch, uint C) {
+    return base + ((token / 16u) * (C / 16u) + ch / 16u) * 256u
+         + (token % 16u) * 16u + ch % 16u;
+}
+
+// **Every fragment address this kernel forms is 16-aligned on both axes**, and
+// for those the general form above collapses algebraically:
+//
+//     ((t/16)*(C/16) + c/16)*256 + (t%16)*16 + c%16   ==   t*C + 16*c
+//
+// whenever t % 16 == 0, c % 16 == 0 and C % 16 == 0 - it is the same address,
+// not an approximation. Q starts at `q0 + qb0 + 16b` (q0 is a multiple of
+// NR_QT), K and V at `j0 + kb` (j0 a multiple of NR_KC=64, kb a multiple of
+// 16), and every channel base is `n*NR_C + head*32 + 16d`.
+//
+// It matters because the general form is *scalar* code that ACO recomputes at
+// every use: twelve SALU and five `s_wait_alu` per V tile, sixteen V tiles a
+// key chunk, all of it inside the context loop. The SALU dependency chain is
+// serial and each `s_wait_alu` stalls the wave in front of the WMMA it feeds.
+uint nr_at16(uint base, uint token, uint ch, uint C) {
+    return base + token * C + (ch << 4u);
+}
+
+// The packed form of `nr_vit_exp`, **bit-identical** and half the instructions.
+// The scalar spelling is `((h << 4) + 0x4000) & 0xffff` on the clamped f16 bit
+// pattern, and that cannot be run two halves at a time as written: the low
+// half's `+ 0x4000` always overflows bit 16 and corrupts the high half. It does
+// not have to be written that way. The clamp pins `y` to
+// [1.439453125, 1.9775390625], so `h`'s sign and exponent are always 0x3C00,
+// and for any `h` whose bits 10 and 11 are set
+//
+//     (h*16 + 0x4000) mod 65536  ==  (h & 0x3ff) << 4
+//
+// - the `+ 0x4000` is precisely the carry that cancels the 0xC000 the shifted
+// exponent field leaves behind. Masking first bounds each half by 0x3E90, so
+// the packed shift cannot carry either. (NaN reaches the same answer by the
+// same identity: 0x7E00 also has both bits set.)
+f16vec2 nr_vit_exp2(vec2 x) {
+    const f16vec2 y = clamp(fma(f16vec2(x), f16vec2(NR_F16(0.08953857421875)),
+                                            f16vec2(NR_F16(1.708984375))),
+                            f16vec2(NR_F16(1.439453125)),
+                            f16vec2(NR_F16(1.9775390625)));
+    // (h<<4) + 0x3FFC4000 == (h & 0x03ff03ff) << 4 for exponent-15 halves:
+    // 0x3C00<<4 = 0x3C000 per half, and the high field wraps to 0xC0000000.
+    return unpackFloat2x16((packFloat2x16(y) << 4u) + 0x3FFC4000u);
+}
+
+// **There is no output permutation.** An earlier probe read one - head h's dims
+// as two 16-wide blocks half the tensor apart - and it was V decoded with the
+// wrong map, not a property of the kernel. The question needs no attention model
+// to answer: the output is a convex combination of V rows, so its 1024 column
+// means are V's column means, and under the standard activation layout they
+// match **channel for channel at r=+0.9955**, against 0.037 for the
+// de-interleave and 0.006 for the permutation above. Output channel c is V's
+// channel c. `mode` bit 1 keeps the old map reachable and it is off.
+uint nr_out_ch(uint head, uint d) {
+    return (d < NR_HD / 2u) ? head * (NR_HD / 2u) + d
+                            : uint(NR_C) / 2u + head * (NR_HD / 2u) + (d - NR_HD / 2u);
+}
+
+// Query tiles amortize K/V reads. NR_QT must match the graph's --vattn-qt;
+// NR_KC is fixed at 64 to preserve the original half denominator reductions.
+// Both products consume FP8 operands: Q.K^T, then quantized(exp(Q.K^T)).V.
+// **The query tile is now the smallest one that exists.** A tile amortises
+// a per-key-chunk fixed cost over its query blocks, and after the address,
+// exponential and V-load work below that cost is 620 instructions a chunk
+// rather than 3206 - so what a large tile buys is small and what it costs,
+// registers and LDS, is not. One wave of 32 lanes on sixteen queries is 72
+// VGPRs and 1 KB of LDS against 120 and 8 KB, sixteen subgroups a SIMD against
+// twelve, and eight times the workgroups.
+// **32, not 16.** That sweep predates `NR_VTRANS=1`, which deleted `lds_p`
+// and two of the six barriers a chunk, and the winner moved one step back up.
+// Measured in the frame, `--per-layer`, three interleaved passes.
+// `nr_graph`'s `--vattn-qt` default moves with this.
+#ifndef NR_QT
+#define NR_QT 32                  // queries per workgroup; was 16
+#endif
+#ifndef NR_VWAVES
+#define NR_VWAVES 1               // waves per workgroup
+#endif
+#define NR_VTHREADS (32 * NR_VWAVES)
+#define NR_QB (NR_QT / (16 * NR_VWAVES))   // 16-query blocks per wave
+// A query tile that does not give every wave a whole 16-query block makes
+// `NR_QB` zero, and the first thing that notices is a zero-length accumulator
+// array 200 lines down - "array size must be a positive integer", with no
+// mention of either knob. 16/2, 16/4, 32/4 and 64/8 all land there.
+#if NR_QB < 1
+#error "NR_QT must be at least 16*NR_VWAVES: every wave owns a whole 16-query block"
+#endif
+#if NR_QB * 16 * NR_VWAVES != NR_QT
+#error "NR_QT must be a multiple of 16*NR_VWAVES, or the tail of the tile is never computed"
+#endif
+// **`NR_QT` has a twin in the host and nothing checks the pair.** `nr_graph`
+// computes the grid as `(tokens + vattn_qt - 1) / vattn_qt` from its own
+// `--vattn-qt`, so a build whose shader says 16 and whose host says 32 launches
+// half the workgroups, attends half the sequence, and is **fast and wrong** -
+// the frame still looks like a frame. This was hit once by pointing a
+// picture run at a stale `--spv-dir`, and the only thing that caught it was the
+// tone metric coming out *better* than the shipping build's. There is no guard
+// for it here, because the shader cannot see the launch; the three places that
+// must move together are `NR_QT` below, `NR_QT` in `pipelines.json`, and
+// `--vattn-qt`'s default in `nr_graph.cpp`.
+#ifndef NR_KC
+#define NR_KC 64                  // original denominator reduction group
+#endif
+#if NR_KC != 64
+#error ViT denominator rounding requires the original 64-key groups
+#endif
+// **Quantising P is a compile-time choice, and it was costing six instructions a
+// component for nothing.** `mode` bit 2 asked for `p` to be rounded to e4m3
+// before the fragment conversion - but `NR_QUANT_FRAG` rounds to e4m3 anyway,
+// and `nr_vit_exp` already returns an exact f16, so the first rounding is
+// idempotent. As a *runtime* test ACO could not fold it: both arms were
+// computed and an `s_cselect`/`v_cndmask` pair picked between them, which is why
+// `--vattn-mode 1` measured no faster than `--vattn-mode 5`. **A runtime flag
+// around dead arithmetic does not remove the arithmetic.**
+#ifndef NR_VDUMP
+#define NR_VDUMP 0
+#endif
+#ifndef NR_VKMASK
+#define NR_VKMASK 0
+#endif
+#ifndef NR_VQP
+#define NR_VQP 0
+#endif
+
+// nr_graph feeds the separately normalized QKV buffer and clears mode bit 0.
+// Keep the generic shader available for independent/runtime-norm diagnostics.
+#ifndef NR_VPRENORMALIZED
+#define NR_VPRENORMALIZED 0
+#endif
+#ifndef NR_VPACKED_DEN
+#define NR_VPACKED_DEN 0
+#endif
+
+// ---- NR_VTRANS: the same attention with the logit accumulator transposed ----
+//
+// `lds_p` exists for one reason: the logit accumulator is `[query][key]` and
+// `P.V` wants `P` as an **A** operand, and an Accumulator's components are a
+// *transposed* A. So the fragment is stored to LDS and read back the right way
+// round - 8 `ds_store_b8` a key block, a `ds_read_b64` a key block, and the two
+// shared barriers that publish it.
+//
+// Compute `S^T = K.Q^T` instead and the accumulator is `[key][query]`, whose
+// component map is **identical to a B operand's** (coopmm.glsl's probe table).
+// `P^T` is then the B operand of `ctx^T = V^T.P^T` with no memory at all, and
+// `V^T` loads as an A ColumnMajor from the same `[token][dim]` tiles. This is
+// the orientation `fswin_t.comp` already ships.
+//
+// **Every operand load costs exactly what it costs today** - that is the whole
+// reason this is worth doing, and it is a statement about the layout table, not
+// an estimate:
+//
+//     operand   today                       transposed                  lane
+//     Q         A RowMajor  [query][dim]    B ColumnMajor [query][dim]   8B contiguous
+//     K         B ColumnMajor [key][dim]    A RowMajor    [key][dim]     8B contiguous
+//     V         B RowMajor  [key][dim]      A ColumnMajor [key][dim]     8 x 1B stride 16
+//
+// A RowMajor and B ColumnMajor read the same addresses (the decision-2 comment
+// above), and B RowMajor and A ColumnMajor read the same addresses as each
+// other - so V is eight strided bytes in *both* orientations. Nothing regresses
+// and `lds_p` goes away entirely.
+//
+// The denominator survives bit-identical, which was not expected.
+// Its PTX tree is "pairs eight keys apart, four pairs, four even/odd lanes":
+// today the 16 keys of a block live across 16 lanes, so that tree is 5 shuffles
+// and 5 adds per component pair. Transposed a lane holds keys `8*(sl/16)+c`, so
+// **the pair eight apart is the other half wave** (one `shuffleXor(16)`, the
+// same count) and the four-pair tree is entirely in-lane: `((part[0]+part[1])
+// +part[2])+part[3]` on packed halves is exactly `((pair0+pair2)+pair4)+pair6`
+// and the odd tree beside it, in the original order. That is 20 shuffles and 15
+// adds a key chunk deleted, on top of the 36 LDS instructions and 2 barriers.
+// (That count is the gfx12 layout. On gfx11 a lane holds the keys of one parity,
+// `2*c + l/16`, so the pair eight apart is still in-lane - components `c` and `c+4` -
+// and the half-wave exchange is one add per chunk plus the P^T parity swap below.)
+// `fswin_t.comp`'s `nr_swin_probability_sum` is the same reduction.
+#ifndef NR_VSPLIT_TAIL
+#define NR_VSPLIT_TAIL 0
+#endif
+// The denominator's cross-lane exchange once per chunk (vit_attn_vt_chunk.glsl).
+#ifndef NR_VLATE_SHUFFLE
+#define NR_VLATE_SHUFFLE 0
+#endif
+// NR_VQCLAMP: a query block past the last token loads the last live tile
+// instead of a zero fragment. Its logits, denominator and context are never
+// stored (the output loop skips q >= tokens), and the load-or-zero phi it
+// replaces was copied into the key loop with 16 byte-inserting v_perm_b32 a
+// chunk. NR_VADDR: full chunks address K and V as one uniform chunk base plus
+// literal kb/d offsets (the same sums, reassociated in uint), and V drops the
+// min(j0 + kb, jlast) clamp, which a full chunk never engages.
+#ifndef NR_VQCLAMP
+#define NR_VQCLAMP 0
+#endif
+#ifndef NR_VADDR
+#define NR_VADDR 0
+#endif
+#if NR_VADDR && !NR_VSPLIT_TAIL
+#error "NR_VADDR rewrites the unguarded (NR_VSPLIT_TAIL) chunk body"
+#endif
+// NR_VKMAN: full chunks read K through act_x4 from one per-lane dword index
+// (attn's hand-formed A fragment: row lane%16, k half lane/16) plus literal
+// kb/d steps, so ACO folds the steps into the load's offset field instead of
+// forming a VGPR address per load.
+#ifndef NR_VKMAN
+#define NR_VKMAN 0
+#endif
+#if NR_VKMAN && !NR_VADDR
+#error "NR_VKMAN needs NR_VADDR's chunk base"
+#endif
+// NR_VKPERM: accepted and ignored on this target. It swapped K rows 4-7 and 8-11 so a
+// gfx12 lane held keys c and c+8; on gfx11 a lane's components are the keys of one
+// parity (`2*c + l/16`), so c and c+8 are already in one lane and K is read in its
+// natural order (vit_attn_vt_chunk.glsl).
+#ifndef NR_VKPERM
+#define NR_VKPERM 0
+#endif
+// NR_VPB16 converted the probabilities inside a B-use fragment, which has the gfx12
+// component map. A gfx11 B fragment holds sixteen k values per lane, not eight, so it
+// is not available here.
+#ifndef NR_VPB16
+#define NR_VPB16 0
+#endif
+#if NR_VPB16
+#error "NR_VPB16 is not supported on RDNA3: a B fragment is 16 k-values per lane"
+#endif
+#ifndef NR_VTRANS
+#define NR_VTRANS 0
+#endif
+#if NR_VTRANS && NR_VKMASK
+#error "NR_VTRANS: a key mask is per component transposed; use the padding subtraction"
+#endif
+
+// ---- HISTORY. The default is one wave, and this paragraph argued for two. ---
+//
+// **Two waves, one query block each.** One wave was the obvious reading - the
+// fragments are subgroup-scoped and the whole tile fits - and it measured
+// *slower* than the scalar kernel it replaced: 36.2 ms against 27.9. Halving the
+// workgroup halves the waves resident to hide a latency behind, and this loop
+// has six barriers a chunk where the scalar one had two.
+//
+// So the 32 queries split by wave: wave 0 owns the first sixteen, wave 1 the
+// second. Each then issues four logit MMAs and four context MMAs a chunk
+// instead of eight and eight, and the staging and elementwise passes get all 64
+// lanes back.
+//
+// **Both of that paragraph's premises are gone and the conclusion with them.**
+// The kernel no longer stages K and V, so the "six barriers a chunk" is
+// four; `NR_VTRANS=1` then deleted `lds_p` and the last two, so it is two - the
+// same count the scalar kernel had, which was the whole argument. Measured in
+// the shipping frame, `--per-layer`, three interleaved passes, us a ViT
+// attention layer, output byte-identical in every row:
+//
+//     QT / VWAVES        16/1     32/1     32/2     64/2
+//     1080p us a layer   22.13  **21.10**  22.90    23.97
+//     4K    us a layer  233.3   **211.1**      -        -
+//
+// At a *fixed* query tile of 32, one wave beats two by 7.9% at 1080p. Two waves
+// is not the cheaper half of a trade here; it is simply worse, and 64/2 is
+// worse again. The default below was already 1 and the prose above was the only
+// thing disagreeing with it. What did move is `NR_QT`, from 16 to 32.
+// **The wave count is also a register knob, and that is the interesting half of
+// it.** A wave carries `NR_QB` query blocks of accumulator - `ctx[NR_QB][2]`
+// fragments and `den[NR_QB][8]` floats - so at a fixed query tile, doubling the
+// waves halves the registers a wave needs and doubles how many of them fit. The
+// same substitution took the C=256 fused Swin block from 194 spilled VGPRs to
+// none. `build/spv_stats` prints the trade with no GPU time at all.
+layout(local_size_x = NR_VTHREADS) in;
+
+// ---- Q, K and V are already in MMA layout, so none of them is staged ---------
+//
+// The arena's tile block is **sixteen tokens by sixteen channels in 256
+// contiguous bytes, token-major** - that is what `nr_at` says, and a 16x16
+// fragment is exactly one such tile. Every offset this kernel wants is aligned
+// to one: the query block `q0 + qb` and the key block `j0 + kb` are multiples of
+// 16 by construction, and a head's two dim halves `qbase + d` are multiples of
+// 16 because the head dim is 32. So
+//
+//     Q   A operand, RowMajor      [query][dim]   stride 16
+//     K   B operand, ColumnMajor   [key][dim]     stride 16   -> K^T
+//     V   B operand, RowMajor      [key][dim]     stride 16
+//
+// load straight out of the activation buffer with no shared memory in between.
+//
+// **The staging they replace was 417 instructions of a 1030-instruction chunk,
+// issued by one wave of four while the other three waited on the barrier after
+// it** - 64 `ds_store_b16`/`ds_store_b8` per key, because a shared array of
+// scalars gets written one element at a time whatever the source looked like.
+//
+// It also costs nothing in precision. `lds_q` and `lds_k` held e4m3 values in
+// f16 containers - the normalisation is applied to the *logit*, after the MMA,
+// never to the operands - so the f16 MMA was multiplying exact e4m3 numbers and
+// accumulating in f32. The fp8 MMA multiplies the same numbers and accumulates
+// in the same f32.
+#if !NR_VTRANS
+shared NR_E4M3 lds_p[NR_QT * NR_KC];   // [query][key]  A, RowMajor
+#endif
+// **No staging arrays.** The logits, the softmax denominators and the context
+// all stay in fragment components: `coopmm.glsl` records this target's
+// component-to-coordinate map - on this target component `c` of lane `l` is element
+// `(2*c + l/16, l%16)`, `NR_ACC_ROW` - so an epilogue that needs a *coordinate* no longer
+// has to buy it with a trip through LDS. A row is sixteen consecutive lanes at
+// one component, which is what makes `NR_ACC_ROW_REDUCE` a butterfly instead of
+// a reduction buffer.
+//
+// The first WMMA attempt staged a 4 KB f32 logit block and read it back - 2048
+// LDS accesses and a barrier per key chunk that the scalar kernel never paid -
+// and measured 34.9 ms against its 27.9.
+shared float   lds_qs[NR_QT];          // per-query sqrt(32)*scale/||q||
+shared float   lds_ki[NR_KC];          // per-key 1/||k||
+
+#include "nr_prof.glsl"
+void main() {
+    NR_PROF_BEGIN()
+    nr_chain_wait()
+    NR_TC_PROLOGUE
+#if NR_TCHAIN && NR_TC_ALLWAIT
+    // the QKV -> attention link through tile counters (host kind 256). Attention needs
+    // every token's K and V, so this workgroup waits for all of the producer's token tiles -
+    // the lanes each poll their own tiles, so a ready producer costs one round trip, not one
+    // a tile. Launched right behind the QKV (no barrier), the wait replaces the drain + ramp.
+    if (nr_tc_rec != 0xFFFFFFFFu && nr_tc_w[nr_tc_rec + 2u] != 0xFFFFFFFFu) {
+        const uint nr_twt = nr_tc_w[nr_tc_rec], nr_ttb = nr_tc_w[nr_tc_rec + 2u];
+        const uint nr_te = subgroupBroadcastFirst(atomicAdd(nr_tc_u[nr_tc_w[nr_tc_rec + 4u]], 0u));
+        const uint nr_nt = (pc.tokens + 15u) / 16u;
+        uint nr_tb = NR_TCHAIN_BOUND;
+        bool nr_ok;
+        do {
+            nr_ok = true;
+            for (uint nr_t = gl_LocalInvocationID.x; nr_t < nr_nt; nr_t += gl_SubgroupSize) {
+                const uint nr_tx = nr_tc_w[nr_ttb + nr_t];
+                if (nr_tx != 0xFFFFFFFFu &&
+                    atomicAdd(nr_tc_u[nr_twt + (nr_tx & 0xFFFFFu)], 0u) < (nr_tx >> 20u) * nr_te) nr_ok = false;
+            }
+        } while (!subgroupAll(nr_ok) && --nr_tb != 0u);
+        if (nr_tb == 0u && subgroupElect()) atomicMax(nr_tc_u[nr_tc_w[nr_tc_rec + 5u]], 1u);
+        memoryBarrier(gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+    }
+#endif
+    const uint q0 = gl_WorkGroupID.x * uint(NR_QT);
+    const uint head = gl_WorkGroupID.y;
+    const uint lane = gl_LocalInvocationID.x;
+    if (q0 >= pc.tokens) { nr_chain_signal() return; }
+
+    const uint qbase = head * uint(NR_HD);
+    const uint kbase = uint(NR_C) + qbase;
+    const uint vbase = 2u * uint(NR_C) + qbase;
+    const uint X3 = 3u * uint(NR_C);
+    const bool norm = (pc.mode & 1u) != 0u;
+    // The first token of the last live key tile, for clamping V reads. Whole
+    // tiles are the granularity the key guard has always used.
+    const uint jlast = (pc.tokens - 1u) & ~15u;
+    const float ps = ((pc.mode & 8u) != 0u) ? 256.0f : 1.0f;
+
+#if !NR_VPRENORMALIZED
+    // The per-query scale, one query a lane. **Only the norm is computed here
+    // now** - the query values themselves are read as a fragment where they lie.
+    for (uint qi = lane; qi < uint(NR_QT); qi += uint(NR_VTHREADS)) {
+        const uint q = min(q0 + qi, pc.tokens - 1u);
+        const bool live = q0 + qi < pc.tokens;
+        float nq = 0.0;
+        for (uint h = 0u; h < 2u; ++h) {
+            const uint b = nr_at(pc.x_off, q, qbase + h * 16u, X3) >> 2;
+            for (uint i = 0u; i < 4u; ++i) {
+                const vec4 v = live ? vec4(act_x4[b + i]) : vec4(0.0);
+                nq += dot(v, v);
+            }
+        }
+        lds_qs[qi] = norm ? sqrt(float(NR_HD)) * wgt_f32[pc.s_off + head]
+                            * inversesqrt(max(nq, 1e-30f))
+                          : 1.0f;
+    }
+    barrier();
+#endif
+
+#if NR_VTRANS
+    // ---- S^T = K.Q^T, then ctx^T = V^T.P^T, with no shared memory ----------
+    const uint wave = lane / 32u, qb0 = wave * 16u * uint(NR_QB);
+    const uint sl = gl_SubgroupInvocationID;
+    // Component `c` of lane `l` is element `(2*c + l/16, l%16)` (NR_ACC_ROW), and
+    // the axes under it have swapped. `NR_ACC_ROW(sl, c)` is a **key** on the logit
+    // fragment and an output **dim** on the context fragment, and `col` is the
+    // query: a lane owns exactly one query, so the denominator is one register
+    // where it was eight. The lane half is the parity of the key or dim.
+    const uint col = NR_ACC_COL(sl);
+    NR_FRAG_ACC ctx[NR_QB][2];
+    for (int b = 0; b < NR_QB; ++b) { ctx[b][0] = NR_ACC_ZERO; ctx[b][1] = NR_ACC_ZERO; }
+#if !NR_VPRENORMALIZED
+    float qs[NR_QB];
+    for (uint b = 0u; b < uint(NR_QB); ++b) qs[b] = lds_qs[qb0 + b * 16u + col];
+#endif
+    // Q^T as the B operand, once for the whole layer. A ColumnMajor read of the
+    // [query][dim] tile touches the same eight contiguous bytes the A RowMajor
+    // read did, so this costs exactly what the A form cost.
+    NR_FRAG_B qfr[NR_QB][2];
+    for (uint b = 0u; b < uint(NR_QB); ++b)
+        for (uint d = 0u; d < 2u; ++d) {
+#if NR_VQCLAMP
+            NR_LOAD_B(qfr[b][d], act_e4m3,
+                      nr_at16(pc.x_off, min(q0 + qb0 + b * 16u, jlast), qbase + d * 16u, X3), 16u);
+#else
+            if (q0 + qb0 + b * 16u < pc.tokens)
+                NR_LOAD_B(qfr[b][d], act_e4m3,
+                          nr_at16(pc.x_off, q0 + qb0 + b * 16u, qbase + d * 16u, X3), 16u);
+            else qfr[b][d] = NR_FRAG_B(0.0);
+#endif
+        }
+    f16vec2 part[NR_QB][4];
+    float den[NR_QB];
+    for (int b = 0; b < NR_QB; ++b) den[b] = 0.0;
+#if NR_VKMAN
+    // A gfx11 A fragment is row `sl % 16` with all sixteen k values in both lane halves.
+    const uint vkl4 = ((sl & 15u) * 16u) >> 2;
+#endif
+
+    for (uint j0 = 0u; j0 < pc.tokens; j0 += uint(NR_KC)) {
+#if !NR_VPRENORMALIZED
+        for (uint ki = lane; ki < uint(NR_KC); ki += uint(NR_VTHREADS)) {
+            const uint j = min(j0 + ki, pc.tokens - 1u);
+            const bool live = j0 + ki < pc.tokens;
+            float nk = 0.0;
+            for (uint h = 0u; h < 2u; ++h) {
+                const uint kb = nr_at(pc.x_off, j, kbase + h * 16u, X3) >> 2;
+                for (uint i = 0u; i < 4u; ++i) {
+                    const vec4 kf = live ? vec4(act_x4[kb + i]) : vec4(0.0);
+                    nk += dot(kf, kf);
+                }
+            }
+            lds_ki[ki] = norm ? inversesqrt(max(nk, 1e-30f)) : 1.0f;
+        }
+        barrier();
+#endif
+#if NR_VSPLIT_TAIL
+        // Full chunks take the unguarded body; only a final partial
+        // chunk pays for the tile tests. Same arithmetic, same order.
+        if (j0 + uint(NR_KC) <= pc.tokens) {
+#if NR_VADDR
+            const uint kcb = nr_at16(pc.x_off, j0, kbase, X3), vcb = nr_at16(pc.x_off, j0, vbase, X3);
+#endif
+#if NR_VKMAN
+            const uint kc4 = (kcb >> 2) + vkl4;
+#endif
+#define NR_VT_GUARD 0
+#include "vit_attn_vt_chunk.glsl"
+#undef NR_VT_GUARD
+        } else {
+#define NR_VT_GUARD 1
+#include "vit_attn_vt_chunk.glsl"
+#undef NR_VT_GUARD
+        }
+#else
+#define NR_VT_GUARD 1
+#include "vit_attn_vt_chunk.glsl"
+#undef NR_VT_GUARD
+#endif
+    }
+
+    // The original subtracts exp(0) for padded keys after summation.
+#if !NR_VKMASK
+    const uint pad_keys = ((pc.tokens + uint(NR_KC)-1u)/uint(NR_KC))*uint(NR_KC)-pc.tokens;
+    const NR_F16 padding = NR_F16(float(pad_keys)*nr_vit_exp(0.0));
+    for (uint b = 0u; b < uint(NR_QB); ++b)
+        den[b] = float(NR_F16(NR_F16(den[b])-padding));
+#endif
+    const float floor_l = 6.198883056640625e-05
+                        * (((pc.mode & 12u) == 12u) ? 256.0f : 1.0f);
+    // The query is this lane's, so the reciprocal is computed once instead of
+    // once a component, and the sixteen output bytes a lane writes are
+    // **contiguous** where the untransposed store strode by sixteen.
+    for (uint b = 0u; b < uint(NR_QB); ++b) {
+        const uint q = q0 + qb0 + b * 16u + col;
+        if (q >= pc.tokens) continue;
+        const NR_F16 inv = NR_F16(1.0 / max(den[b], floor_l));
+#if NR_VOUT_VEC && NR_VDUMP == 0
+        // The host must not set mode bit 1 (interleave) with this build.
+        {
+            const bool lo = sl < 16u;
+            for (uint n = 0u; n < 2u; ++n) {
+                NR_E4M3 qv[8];
+#if NR_VOUT_PAIR
+                // the same f16 products and clamp, two at a time (v_pk_mul_f16,
+                // v_pk_max/min_f16); each element rounds exactly as the scalar form.
+                for (int c = 0; c < 8; c += 2) {
+                    const f16vec2 p = f16vec2(NR_F16(ctx[b][n][c]), NR_F16(ctx[b][n][c + 1])) * f16vec2(inv);
+                    const fe4m3vec2 e = nr_quant_pair(clamp(p, f16vec2(-448.0hf), f16vec2(448.0hf)));
+                    qv[c] = e.x; qv[c + 1] = e.y;
+                }
+#else
+                for (int c = 0; c < 8; ++c)
+                    qv[c] = nr_quant_e4m3(NR_F16(NR_F16(ctx[b][n][c]) * inv));
+#endif
+                // qv[c] is dim 2*c + l/16 of this 16-dim tile, so a lane's eight values
+                // are every other dim. Swap halves with lane l^16 (same query) so the low
+                // half holds dims 0..7 and the high half 8..15, each as one contiguous run.
+                const f16vec2 ra = unpackFloat2x16(subgroupShuffleXor(packFloat2x16(
+                    lo ? f16vec2(qv[4], qv[5]) : f16vec2(qv[0], qv[1])), 16u));
+                const f16vec2 rb = unpackFloat2x16(subgroupShuffleXor(packFloat2x16(
+                    lo ? f16vec2(qv[6], qv[7]) : f16vec2(qv[2], qv[3])), 16u));
+                const uint o4 = nr_at(pc.o_off, q, qbase + n * 16u + 8u * (sl >> 4u), uint(NR_C)) >> 2;
+                act_x4[o4] = lo ? fe4m3vec4(qv[0], ra.x, qv[1], ra.y)
+                                : fe4m3vec4(ra.x, qv[4], ra.y, qv[5]);
+                act_x4[o4 + 1u] = lo ? fe4m3vec4(qv[2], rb.x, qv[3], rb.y)
+                                     : fe4m3vec4(rb.x, qv[6], rb.y, qv[7]);
+            }
+            continue;
+        }
+#endif
+        for (uint n = 0u; n < 2u; ++n)
+            for (int c = 0; c < ctx[b][n].length(); ++c) {
+                const uint d0 = n * 16u + NR_ACC_ROW(sl, c);
+                const uint oc = ((pc.mode & 2u) != 0u) ? nr_out_ch(head, d0) : qbase + d0;
+                act_e4m3[nr_at(pc.o_off, q, oc, uint(NR_C))] =
+#if NR_VDUMP == 1
+                    nr_quant_e4m3(NR_F16(den[b]));
+#elif NR_VDUMP == 2
+                    nr_quant_e4m3(NR_F16(float(ctx[b][n][c])));
+#else
+                    nr_quant_e4m3(NR_F16(NR_F16(ctx[b][n][c]) * inv));
+#endif
+            }
+    }
+#else
+    // This wave's query blocks, and its two halves of the output dims. Above 32
+    // queries each wave takes NR_QB of them, at `qb0 + 16*b`.
+    const uint wave = lane / 32u, qb0 = wave * 16u * uint(NR_QB);
+    const uint sl = gl_SubgroupInvocationID;
+    // Component `c` is element `(2*c + sl/16, sl%16)` of a 16x16 fragment, so
+    // `NR_ACC_ROW(sl, c)` is this component's query and `col` its key or its output dim.
+    const uint col = NR_ACC_COL(sl);
+    NR_FRAG_ACC ctx[NR_QB][2];
+    for (int b = 0; b < NR_QB; ++b) { ctx[b][0] = NR_ACC_ZERO; ctx[b][1] = NR_ACC_ZERO; }
+    // **The query scales are loop invariant and were being re-read 32 times a
+    // chunk.** `lds_qs[qq]` depends on the component's row and nothing else, so
+    // it belongs in registers before the key loop starts - in the disassembly it
+    // was a `ds_load_b32`, an address shift and an `s_wait_dscnt` inside every
+    // one of the 62 chunks, for each of this wave's eight rows.
+#if !NR_VPRENORMALIZED
+    float qs[NR_QB][8];
+    for (uint b = 0u; b < uint(NR_QB); ++b)
+        for (int c = 0; c < 8; ++c)
+            qs[b][c] = lds_qs[qb0 + b * 16u + NR_ACC_ROW(sl, c)];
+#endif
+    // **This wave's query fragments, once for the whole layer.** Q does not
+    // change across the 62 key chunks, and an e4m3 A fragment is two VGPRs a
+    // lane, so the whole query tile a wave owns costs `2 * NR_QB * 2` registers
+    // and is never re-read.
+    NR_FRAG_A qfr[NR_QB][2];
+    for (uint b = 0u; b < uint(NR_QB); ++b)
+        for (uint d = 0u; d < 2u; ++d) {
+            if (q0 + qb0 + b * 16u < pc.tokens)
+                NR_LOAD_A(qfr[b][d], act_e4m3,
+                          nr_at16(pc.x_off, q0 + qb0 + b * 16u, qbase + d * 16u, X3), 16u);
+            else qfr[b][d] = NR_FRAG_A(0.0);
+        }
+    // The denominator for each of this lane's eight rows of each query block,
+    // carried in registers across every key chunk.
+    // `part` is a **half** pair in the packed build: it is written and read
+    // once a key block by the packed reduction and by nothing else, so holding
+    // it as f32 bought two `v_cvt` per component per key block - 128 a chunk -
+    // for a value that is an f16 at both ends.
+#if NR_VPACKED_DEN
+    f16vec2 part[NR_QB][4];
+#else
+    float part[NR_QB][8];
+#endif
+    float den[NR_QB][8];
+    for (int b = 0; b < NR_QB; ++b) for (int c = 0; c < 8; ++c) den[b][c] = 0.0;
+
+    for (uint j0 = 0u; j0 < pc.tokens; j0 += uint(NR_KC)) {
+#if !NR_VPRENORMALIZED
+        // All that is left of the staging pass is the per-key reciprocal norm -
+        // a scalar the fragment path cannot produce, and the one reason a
+        // barrier survives at the top of the chunk.
+        for (uint ki = lane; ki < uint(NR_KC); ki += uint(NR_VTHREADS)) {
+            const uint j = min(j0 + ki, pc.tokens - 1u);
+            const bool live = j0 + ki < pc.tokens;
+            float nk = 0.0;
+            for (uint h = 0u; h < 2u; ++h) {
+                const uint kb = nr_at(pc.x_off, j, kbase + h * 16u, X3) >> 2;
+                for (uint i = 0u; i < 4u; ++i) {
+                    const vec4 kf = live ? vec4(act_x4[kb + i]) : vec4(0.0);
+                    nk += dot(kf, kf);
+                }
+            }
+            lds_ki[ki] = norm ? inversesqrt(max(nk, 1e-30f)) : 1.0f;
+        }
+        barrier();
+#endif
+
+        // Q.K^T, then the exponential and the row sums **on the fragment**. This
+        // wave's query block against both key blocks, two k steps each: four
+        // MMAs, and the other wave does the other four.
+        // **The key block is the outer loop now**, because the reciprocal norm
+        // and the liveness of a key are the same for every query that sees it.
+        for (uint kb = 0u; kb < uint(NR_KC); kb += 16u) {
+            const uint jj = kb + col;
+#if !NR_VPRENORMALIZED
+            const float ki = lds_ki[jj];
+#endif
+            // **A mask, not a branch.** The test was `if (jok && q0 + qq <
+            // tokens)` *per component*, and ACO spent six instructions a
+            // component on it - a `v_cmpx`, an `s_cbranch_execz`, the exec save
+            // and restore and a `v_mov` of zero - 192 of them a chunk, to guard
+            // eight instructions of arithmetic.
+            //
+            // The query half of that test is not needed at all: a query past
+            // the end contributes only to its own output row, its own
+            // denominator and its own context, and all three are dropped at the
+            // store. The key half is needed - a dead key's `exp(0)` is ~1, not
+            // 0, so it would dilute every denominator - and it is uniform down
+            // the fragment, so it costs one multiply.
+            // OOB Q/K/V tiles read zero. The original includes exp(0) in
+            // the half reduction, then subtracts padded-key contributions.
+#if NR_VKMASK
+            const float kmask = (j0 + jj < pc.tokens) ? 1.0f : 0.0f;
+#else
+            const float kmask = 1.0f;
+#endif
+            // **K does not depend on the query block**, and it was being read
+            // once per block: four `buffer_load_b64` and two address chains a
+            // key tile where two and one do. NR_QB is 2 in the shipping build,
+            // so this is half the K traffic of the logit product.
+            NR_FRAG_B kfr[2];
+            for (uint d = 0u; d < 2u; ++d) {
+                if (j0 + kb < pc.tokens)
+                    NR_LOAD_B(kfr[d], act_e4m3,
+                              nr_at16(pc.x_off, j0 + kb, kbase + d * 16u, X3), 16u);
+                else kfr[d] = NR_FRAG_B(0.0);
+            }
+            for (uint b = 0u; b < uint(NR_QB); ++b) {
+            const uint qb = qb0 + b * 16u;
+            NR_FRAG_ACC lg = NR_ACC_ZERO;
+            for (uint d = 0u; d < 2u; ++d) NR_MMA(lg, qfr[b][d], kfr[d]);
+            // The exponential **two components at a time**, and in the same
+            // f16 pair the denominator reduction below already wanted - the
+            // f32 round trip between the two loops goes with it. Component
+            // pairs are independent here; the reduction's order is unchanged.
+            // **The probabilities never become f32.** They leave `nr_vit_exp2`
+            // as an exact half and the only thing that reads them is an e4m3
+            // conversion, so an f16-component Accumulator is the fragment that
+            // holds them: `float(p)` then f32->e4m3 rounds the same real number
+            // as f16->e4m3 and costs two `v_cvt` a component to say so.
+            NR_FRAG_ACC16 ph;
+            f16vec2 pv[4];
+            for (int c = 0; c < lg.length(); c += 2) {
+#if NR_ACC_F16 > 0
+                lg[c]=nr_round_f16(float(lg[c])); // two K16 WMMAs form one K32 MMA
+                lg[c+1]=nr_round_f16(float(lg[c+1]));
+#endif
+                vec2 a = vec2(float(lg[c]), float(lg[c+1]));
+#if !NR_VPRENORMALIZED
+                a *= vec2(qs[b][c], qs[b][c+1]);
+                a *= vec2(ki);
+#endif
+                f16vec2 pp = nr_vit_exp2(a) * NR_F16(kmask);
+#if NR_VQP
+                pp = f16vec2(nr_quant_e4m3(pp.x * NR_F16(ps)),
+                             nr_quant_e4m3(pp.y * NR_F16(ps)));
+#endif
+                pv[c >> 1] = pp;
+                ph[c] = pp.x; ph[c+1] = pp.y;
+            }
+#if !NR_VPACKED_DEN
+            for (int c = 0; c < lg.length(); ++c) {
+                const float p = float(pv[c >> 1][c & 1]);
+                // Sum the pre-FP8 half exponentials, with the PTX grouping:
+                // pairs eight keys apart, four pairs, four even/odd lanes,
+                // then the packed halves. Production NR_KC is 64.
+                float pair = float(NR_F16(NR_F16(p) + NR_F16(subgroupShuffleXor(p, 8u))));
+                part[b][c] = kb == 0u ? pair : float(NR_F16(NR_F16(part[b][c]) + NR_F16(pair)));
+                if (kb + 16u == uint(NR_KC)) {
+                    uint base = (sl & ~15u) + (col & 1u);
+                    NR_F16 sum = NR_F16(subgroupShuffle(part[b][c], base));
+                    for (uint k = 1u; k < 4u; ++k)
+                        sum = NR_F16(sum + NR_F16(subgroupShuffle(part[b][c], base + k*2u)));
+                    sum = NR_F16(sum + NR_F16(subgroupShuffleXor(float(sum), 1u)));
+                    den[b][c] = float(NR_F16(NR_F16(den[b][c]) + sum));
+                }
+            }
+#else
+            // Two independent query rows share each packed half addition and
+            // lane exchange. Retain every scalar reduction's order/rounding.
+            for (int c=0;c<lg.length();c+=2) {
+                f16vec2 pv2=pv[c>>1];
+                uint other=subgroupShuffleXor(packFloat2x16(pv2),8u);
+                f16vec2 pair=pv2+unpackFloat2x16(other);
+                f16vec2 v=kb==0u ? pair : part[b][c>>1]+pair;
+                part[b][c>>1]=v;
+                if(kb+16u==uint(NR_KC)) {
+                    uint base=(sl & ~15u)+(col & 1u);
+                    // `packFloat2x16` is a bitcast where `packHalf2x16(vec2(v))`
+                    // is an f16->f32->f16 round trip: exact, and two `v_cvt`
+                    // each way that the bitcast does not pay.
+                    uint packed=packFloat2x16(v);
+                    f16vec2 sum=unpackFloat2x16(subgroupShuffle(packed,base));
+                    for(uint k=1u;k<4u;++k)
+                        sum=sum+unpackFloat2x16(subgroupShuffle(packed,base+k*2u));
+                    sum=sum+unpackFloat2x16(subgroupShuffleXor(packFloat2x16(sum),1u));
+                    f16vec2 total=f16vec2(den[b][c],den[b][c+1])+sum;
+                    den[b][c]=float(total.x);den[b][c+1]=float(total.y);
+                }
+            }
+#endif
+            // An e4m3-component Accumulator stores straight into the array the
+            // next MMA reads its A operand from: no staging buffer, no read
+            // back, eight LDS instructions where the staged form needs
+            // twenty-four.
+            // The probabilities round onto the e4m3 grid here, per component.
+            NR_FRAG_E4M3 pe;
+            NR_QUANT_FRAG(pe, ph);
+            // **A padding key's contribution is killed here rather than in V.**
+            // Its probability is `exp(0)`, which the denominator must keep and
+            // the numerator must not, and `P.V` is zero if *either* factor is -
+            // so zeroing this tile's probabilities is exactly what zeroing V
+            // was, and it costs one uniform branch a key tile instead of one
+            // around every one of the sixteen V loads a chunk. Those branches
+            // were not free: each carried its own copy of the SSBO descriptor
+            // load and the fragment's lane-offset arithmetic, because ACO will
+            // not hoist either out of a conditional block.
+            if (j0 + kb >= pc.tokens) pe = NR_FRAG_E4M3(0.0);
+            NR_STORE_ACC(pe, lds_p, qb * uint(NR_KC) + kb, uint(NR_KC));
+            }
+        }
+        // Complete the cooperative stores before any context loads. Keep an
+        // execution rendezvous here, paired with the shared-buffer reuse
+        // barrier below.
+#if NR_VPRENORMALIZED
+        // Every subgroup owns disjoint query rows of lds_p. With the shared
+        // key norm removed, no other subgroup reads or overwrites these rows.
+        subgroupMemoryBarrierShared();
+        subgroupBarrier();
+#else
+        barrier();
+#endif
+
+        // P.V consumes quantized FP8 probabilities; its denominator was
+        // already reduced from the unquantized half exponentials above.
+        for (uint b = 0u; b < uint(NR_QB); ++b) {
+        const uint qb = qb0 + b * 16u;
+        for (uint j = 0u; j < uint(NR_KC); j += 16u) {
+            NR_FRAG_A pf;
+            NR_LOAD_A(pf, lds_p, qb * uint(NR_KC) + j, uint(NR_KC));
+            for (uint n = 0u; n < 2u; ++n) {
+                NR_FRAG_B vf;
+                // The final K64 chunk may contain whole padding tiles. Reading
+                // those from a tightly packed arena reaches the next value
+                // (including this layer's concurrently written output), so the
+                // read is **clamped to the last live key tile** rather than
+                // branched around: the probabilities that multiply it are
+                // already zero (see the store above), and a load that is always
+                // in bounds is also always the same basic block.
+                // PTX OOBRdByDim supplies zero, while exp(0) still contributes
+                // to the denominator. Do not mask that probability away.
+                NR_LOAD_B_ROW(vf, act_e4m3,
+                              nr_at16(pc.x_off, min(j0 + j, jlast),
+                                      vbase + n * 16u, X3), 16u);
+                NR_MMA(ctx[b][n], pf, vf);
+#if NR_ACC_F16 > 0
+                if ((j/16u+1u)%uint(NR_ACC_F16)==0u)
+                    for (int z=0; z<ctx[b][n].length(); ++z)
+                        ctx[b][n][z]=nr_round_f16(float(ctx[b][n][z]));
+#endif
+            }
+
+        }
+        }
+        // Rendezvous before reuse. lds_p holds subgroup-owned rows, but the
+        // following iteration also overwrites the workgroup-shared lds_ki.
+        // A memory-only subgroup barrier is insufficient for that lifetime.
+#if NR_VPRENORMALIZED
+        subgroupMemoryBarrierShared();
+        subgroupBarrier();
+#else
+        barrier();
+#endif
+    }
+
+    // The context fragment has the same map as the logit one, and `den[c]` is
+    // already this component's row, so the division and the store are
+    // component-wise with no memory in between.
+    // The original subtracts exp(0) for padded keys after summation.
+#if !NR_VKMASK
+    const uint pad_keys = ((pc.tokens + uint(NR_KC)-1u)/uint(NR_KC))*uint(NR_KC)-pc.tokens;
+    const NR_F16 padding = NR_F16(float(pad_keys)*nr_vit_exp(0.0));
+    for (uint b = 0u; b < uint(NR_QB); ++b)
+        for (int c = 0; c < 8; ++c)
+            den[b][c] = float(NR_F16(NR_F16(den[b][c])-padding));
+#endif
+    const float floor_l = 6.198883056640625e-05
+                        * (((pc.mode & 12u) == 12u) ? 256.0f : 1.0f);
+    for (uint b = 0u; b < uint(NR_QB); ++b)
+        for (uint n = 0u; n < 2u; ++n)
+            for (int c = 0; c < ctx[b][n].length(); ++c) {
+                const uint q = q0 + qb0 + b * 16u + NR_ACC_ROW(sl, c);
+                if (q >= pc.tokens) continue;
+                const uint d0 = n * 16u + col;
+                const uint oc = ((pc.mode & 2u) != 0u) ? nr_out_ch(head, d0) : qbase + d0;
+                act_e4m3[nr_at(pc.o_off, q, oc, uint(NR_C))] =
+#if NR_VDUMP == 1
+                    // The softmax denominator in place of the context, so one
+                    // dump says whether it is collapsing to `floor_l`.
+                    nr_quant_e4m3(NR_F16(den[b][c]));
+#elif NR_VDUMP == 2
+                    nr_quant_e4m3(NR_F16(float(ctx[b][n][c])));   // the numerator
+#else
+                    nr_quant_e4m3(NR_F16(NR_F16(ctx[b][n][c]) * NR_F16(1.0 / max(den[b][c], floor_l))));
+#endif
+            }
+#endif  // NR_VTRANS
+    nr_chain_signal()
+    // NR_TCHAIN: this head's columns of the query tile's token tiles are written.
+    nr_tchain_signal_wave(q0 / 16u, min(uint(NR_QT) / 16u, (pc.tokens + 15u) / 16u - q0 / 16u))
+    NR_PROF_END(pc.o_off)
+}

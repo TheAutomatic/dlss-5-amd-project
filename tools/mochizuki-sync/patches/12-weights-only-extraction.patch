@@ -2,21 +2,31 @@ diff --git a/linux/package/model-tools/extract_model.sh b/linux/package/model-to
 index 90156c32c9c600bf3fad7c6140f155ba14708516..9b25913b00b385f99832faee7b6606d7984f8ce1 100644
 --- a/linux/package/model-tools/extract_model.sh
 +++ b/linux/package/model-tools/extract_model.sh
-@@ -29,3 +29,3 @@ one() {
+@@ -27,7 +27,7 @@ one() {
+     local w="$work/$1"
+     mkdir -p -- "$w/graph"
      cp -- "$here/$2" "$w/graph/descriptor.json"
 -    if ! python3 "$here/inspect_nr.py" "$src" --output "$w/inventory" --extract --resource "$1" > "$w/inspect.json" 2> "$w/inspect.err"; then
 +    if ! python3 "$here/inspect_nr.py" "$src" --output "$w/inventory" --extract-weights --resource "$1" > "$w/inspect.json" 2> "$w/inspect.err"; then
          echo "Cannot read nvngx_dlssnr weights from $src (needs nvngx_dlssnr.dll version 310.9.16 or 310.8.0, or its zip)." >&2
-@@ -42,3 +42,3 @@ one() {
+         exit 1
+     fi
+@@ -40,7 +40,7 @@ one() {
+      python3 pack_model.py --root "$w" --list "$4" --out "$6" --verify "$5")
+ }
  
 -if ! python3 "$here/inspect_nr.py" "$src" --output "$work/probe" > "$work/probe.json" 2> "$work/probe.err"; then
 +if ! python3 "$here/inspect_nr.py" "$src" --output "$work/probe" --extract-weights > "$work/probe.json" 2> "$work/probe.err"; then
      echo "Cannot read nvngx_dlssnr weights from $src (needs nvngx_dlssnr.dll version 310.9.16 or 310.8.0, or its zip)." >&2
+     exit 1
+ fi
 diff --git a/linux/package/model-tools/inspect_nr.py b/linux/package/model-tools/inspect_nr.py
 index b00ccd6ab75f5dedcacbd21c23e38b68bca00761..51abb3cba35af6cf50b82e3ba59155c741ecd872 100644
 --- a/linux/package/model-tools/inspect_nr.py
 +++ b/linux/package/model-tools/inspect_nr.py
-@@ -186,12 +186,53 @@ def cuda_elfs(data):
+@@ -184,16 +184,57 @@ def cuda_elfs(data):
+     return result
+ 
  
 -def load_input(path):
 +def load_input(path, requested_resource=None):
@@ -78,7 +88,11 @@ index b00ccd6ab75f5dedcacbd21c23e38b68bca00761..51abb3cba35af6cf50b82e3ba59155c7
 +            cand_desc = ", ".join(f"{fn} ({h[:8]})" for fn, _, h in candidates)
 +            raise FormatError(f"multiple distinct nvngx_dlssnr.dll members in ZIP: {cand_desc}")
      return path.read_bytes()
-@@ -203,3 +244,6 @@ def main():
+ 
+ 
+@@ -201,11 +242,14 @@ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("input", type=Path)
      parser.add_argument("--output", required=True, type=Path)
 -    parser.add_argument("--extract", action="store_true")
 +    mode = parser.add_mutually_exclusive_group()
@@ -86,33 +100,52 @@ index b00ccd6ab75f5dedcacbd21c23e38b68bca00761..51abb3cba35af6cf50b82e3ba59155c7
 +    mode.add_argument("--extract-weights", action="store_true",
 +                      help="Extract weights for installation; skip CUDA inventory and DLL/cubin copies")
      parser.add_argument("--resource", default="WEIGHTS_HT",
-@@ -207,3 +251,3 @@ def main():
+                         help="weight resource: WEIGHTS_HT (310.8.0, and 310.9's preset 1) or WEIGHTS_CC_SMALL_FP8 (310.9's small model)")
      args = parser.parse_args()
 -    data = load_input(args.input)
 +    data = load_input(args.input, args.resource)
      pe = PE(data)
-@@ -216,3 +260,3 @@ def main():
+     resources = pe.resources()
+     matches = [r for r in resources if args.resource in r["path"]]
+@@ -214,7 +258,7 @@ def main():
+     resource = matches[0]
+     weights = checked(data, resource["file_offset"], resource["size"])
      records = parse_weights(weights)
 -    elfs = cuda_elfs(data)
 +    elfs = [] if args.extract_weights else cuda_elfs(data)
      blocks = sorted({int(m.group(1)) for r in records
-@@ -227,2 +271,5 @@ def main():
+                      if (m := re.match(r"block(\d+)\.", r["name"]))})
+     report = dict(schema_version=1, source_name=args.input.name,
+@@ -225,10 +269,14 @@ def main():
+                   weights=records, cuda_elfs=elfs,
+                   caveats=["Packed layer blobs; scalar encoding/layout still unresolved.",
                             "Kernel inventory includes variants, not an execution trace."])
 +    if args.extract_weights:
 +        report["cuda_inventory_skipped"] = True
 +        report["caveats"][-1] = "CUDA inventory skipped for weights-only extraction."
      args.output.mkdir(parents=True, exist_ok=True)
-@@ -231,2 +278,3 @@ def main():
+     (args.output / "manifest.json").write_text(json.dumps(report, indent=2) + "\n")
+     if args.extract:
          (args.output / "nvngx_dlssnr.dll").write_bytes(data)
 +    if args.extract or args.extract_weights:
          (args.output / "weights_ht.bin").write_bytes(weights)
-@@ -240,2 +288,3 @@ def main():
+         target = args.output / "weights"
+         target.mkdir(exist_ok=True)
+@@ -238,6 +286,7 @@ def main():
+                 raise FormatError("unsafe extraction name")
+             (target / (r["name"] + ".bin")).write_bytes(
                  checked(weights, r["payload_offset"], r["payload_size"]))
 +    if args.extract:
          target = args.output / "cubins"
-@@ -247,3 +296,4 @@ def main():
+         target.mkdir(exist_ok=True)
+         for e in elfs:
+@@ -245,7 +294,8 @@ def main():
+                 checked(data, e["file_offset"], e["size"]))
+     print(json.dumps(dict(dll_sha256=report["dll_sha256"], records=len(records),
                            blocks=len(blocks), raw_weight_bytes=report["raw_weight_bytes"],
 -                          cuda_modules=len(elfs), kernels=sum(len(e["kernels"]) for e in elfs),
 +                          cuda_modules=None if args.extract_weights else len(elfs),
 +                          kernels=None if args.extract_weights else sum(len(e["kernels"]) for e in elfs),
                            manifest=str(args.output / "manifest.json")), indent=2))
+ 
+ 

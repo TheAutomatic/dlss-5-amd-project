@@ -1,6 +1,146 @@
+diff --git a/windows/src/core/nr_graph.cpp b/windows/src/core/nr_graph.cpp
+index 23adbb6885e3a4f6c0d542e7e6498ee18a6755a5..8106b1ba6223ad32a27a92205ab60e5254294915 100644
 --- a/windows/src/core/nr_graph.cpp
 +++ b/windows/src/core/nr_graph.cpp
-@@ -1619,6 +1619,36 @@
+@@ -18,6 +18,13 @@
+ //
+ // Two things this is not, yet: every family - `--report` says which - and the
+ // OptiScaler entry point. The arenas are already the shapes that adapter wants.
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#include <bcrypt.h>
++#pragma comment(lib, "bcrypt.lib")
++#include "nr_model_profile.hpp"
+ #if NR_INT4
+ #include "nr_build_cfg.hpp"
+ #endif
+@@ -39,9 +46,7 @@
+ #include <iostream>
+ #include <map>
+ #include <mutex>
+-#if NR_INT4
+ #include <memory>
+-#endif
+ #include <set>
+ #include <sstream>
+ #include <string>
+@@ -333,10 +338,54 @@ bool slot_reading_diagnostic(int c, char** v) {
+ // is what it was with loose files.
+ struct ModelPack {
+     std::string root, file;
++    std::shared_ptr<void> read_lease;
+     std::map<std::string, std::pair<uint64_t, uint64_t>> index;   // name -> offset, size
+ };
+ ModelPack g_pack;
+-bool open_model_pack(const std::string& file, const std::string& root, std::string* why) {
++bool model_range_sha256(std::ifstream& f, uint64_t offset, uint64_t size, std::string& hex) {
++    BCRYPT_ALG_HANDLE algorithm = nullptr;
++    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
++    struct AlgorithmGuard {
++        BCRYPT_ALG_HANDLE value;
++        ~AlgorithmGuard() { BCryptCloseAlgorithmProvider(value, 0); }
++    } algorithm_guard{algorithm};
++    DWORD object_size = 0, written = 0;
++    if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&object_size),
++                          sizeof object_size, &written, 0) < 0 || !object_size) return false;
++    std::vector<unsigned char> object(object_size);
++    BCRYPT_HASH_HANDLE hash = nullptr;
++    if (BCryptCreateHash(algorithm, &hash, object.data(), object_size, nullptr, 0, 0) < 0) return false;
++    struct HashGuard {
++        BCRYPT_HASH_HANDLE value;
++        ~HashGuard() { BCryptDestroyHash(value); }
++    } hash_guard{hash};
++    f.clear();
++    f.seekg(static_cast<std::streamoff>(offset));
++    if (!f) return false;
++    std::array<unsigned char, 65536> buffer{};
++    while (size) {
++        const auto n = static_cast<ULONG>(std::min<uint64_t>(size, buffer.size()));
++        if (!f.read(reinterpret_cast<char*>(buffer.data()), n) ||
++            BCryptHashData(hash, buffer.data(), n, 0) < 0) return false;
++        size -= n;
++    }
++    std::array<unsigned char, 32> digest{};
++    if (BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) < 0) return false;
++    static constexpr char digits[] = "0123456789abcdef";
++    hex.clear();
++    for (auto b : digest) { hex += digits[b >> 4]; hex += digits[b & 15]; }
++    return true;
++}
++bool open_model_pack(const std::string& file, const std::string& root, const std::string& family, std::string* why) {
++    ModelPack p; p.root = root; p.file = file;
++    // Keep writers and renames out until all validated tensors have been uploaded.
++    const HANDLE handle = CreateFileW(std::filesystem::path(file).c_str(), GENERIC_READ,
++                                      FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
++    if (handle == INVALID_HANDLE_VALUE) {
++        if (why) *why = "cannot lock model pack for verified reading: " + file;
++        return false;
++    }
++    p.read_lease = std::shared_ptr<void>(handle, [](void* h) { CloseHandle(h); });
+     std::ifstream f(file, std::ios::binary);
+     char magic[8];
+     uint32_t count = 0, reserved = 0;
+@@ -345,15 +394,54 @@ bool open_model_pack(const std::string& file, const std::string& root, std::stri
+         if (why) *why = "not a model pack: " + file;
+         return false;
+     }
+-    ModelPack p; p.root = root; p.file = file;
++    if (reserved != 0 || (count != 599 && count != 255)) {
++        if (why) *why = "unexpected model pack count or format: " + file;
++        return false;
++    }
++    if ((!family.empty() && family != "small" && family != "original") ||
++        (family == "small" && count != 255) || (family == "original" && count != 599)) {
++        if (why) *why = "model pack does not match the selected network: " + file;
++        return false;
++    }
++    f.seekg(0, std::ios::end);
++    const auto end = f.tellg();
++    if (end < std::streampos(16)) { if (why) *why = "truncated model pack"; return false; }
++    const uint64_t file_len = static_cast<uint64_t>(end);
++    f.seekg(16, std::ios::beg);
+     for (uint32_t i = 0; i < count; ++i) {
+         uint32_t n = 0; uint64_t off = 0, size = 0;
+-        if (!f.read(reinterpret_cast<char*>(&n), 4) || n > 4096) { if (why) *why = "model pack index is damaged"; return false; }
++        if (!f.read(reinterpret_cast<char*>(&n), 4) || n == 0 || n > 4096) { if (why) *why = "model pack index is damaged"; return false; }
+         std::string name(n, '\0');
+         if (!f.read(name.data(), n) || !f.read(reinterpret_cast<char*>(&off), 8) ||
+             !f.read(reinterpret_cast<char*>(&size), 8)) { if (why) *why = "model pack index is damaged"; return false; }
+-        p.index[name] = {off, size};
++        if (off < 16 || size == 0 || off > file_len || size > file_len - off ||
++            !p.index.emplace(name, std::make_pair(off, size)).second) {
++            if (why) *why = "invalid or duplicate model pack entry";
++            return false;
++        }
++    }
++    const uint64_t index_end = static_cast<uint64_t>(f.tellg());
++    std::vector<std::pair<uint64_t, uint64_t>> ranges;
++    for (const auto& entry : p.index) {
++        const auto [off, size] = entry.second;
++        if (off < index_end) { if (why) *why = "model data overlaps its index"; return false; }
++        ranges.emplace_back(off, off + size);
++    }
++    std::sort(ranges.begin(), ranges.end());
++    for (size_t i = 1; i < ranges.size(); ++i) {
++        if (ranges[i].first < ranges[i - 1].second) { if (why) *why = "overlapping model tensors"; return false; }
+     }
++    const auto* expected = count == 255 ? nr::model_profile::small_tensors : nr::model_profile::original_tensors;
++    for (uint32_t i = 0; i < count; ++i) {
++        const auto it = p.index.find(expected[i].name);
++        std::string digest;
++        if (it == p.index.end() || !model_range_sha256(f, it->second.first, it->second.second, digest) ||
++            digest != expected[i].sha256) {
++            if (why) *why = "model tensor integrity failed: " + std::string(expected[i].name);
++            return false;
++        }
++    }
++    nr::logf("[nr] verified model identity=%s tensors=%u", count == 255 ? "small" : "original", count);
+     g_pack = std::move(p);
+     return true;
+ }
+@@ -1548,9 +1636,44 @@ struct GraphCore {
  // a build runs its arena-layout probe build on the same thread.
  static std::recursive_mutex g_build_lock;
  
@@ -37,7 +177,24 @@
  int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_plan) {
      if (share) return build_shared(argc, argv);   // no layout globals: not one of the builds the lock orders
      std::lock_guard<std::recursive_mutex> one_build(g_build_lock);
-@@ -2166,32 +2196,7 @@
++    struct ModelReadScope {
++        ModelPack previous;
++        ~ModelReadScope() { g_pack = std::move(previous); }
++    } model_read_scope{std::move(g_pack)};
++    g_pack = {};
+     // A build lays out its own persistent sync words; an epoch word left from a
+     // previous build (another extent) would point into the old layout.
+     g_chain_epoch_word = 0xFFFFFFFFu;
+@@ -1575,7 +1698,7 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
+     const std::string unp = arg(argc, argv, "--unpacked", "artifacts");
+     if (const char* pack = arg(argc, argv, "--model-pack")) {
+         std::string why;
+-        if (!open_model_pack(pack, unp, &why)) { std::fprintf(stderr, "%s\n", why.c_str()); return 1; }
++        if (!open_model_pack(pack, unp, arg(argc, argv, "--model-family", ""), &why)) { std::fprintf(stderr, "%s\n", why.c_str()); return 1; }
+         std::printf("model pack: %s (%zu entries)\n", pack, g_pack.index.size());
+     }
+     const std::string accumulation=arg(argc,argv,"--accumulation","fp32");
+@@ -2091,32 +2214,7 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
          }
          // Every entry is a constant compiled into a kernel that this file also
          // has to know. Add one here the moment the host reads a shader's shape.
@@ -71,7 +228,7 @@
          std::map<std::string, uint32_t> built;
          try { built = nr::detail::read_shader_manifest(f); }
          catch (const std::exception& e) {
-@@ -2246,7 +2251,7 @@
+@@ -2179,7 +2277,7 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
              auto it = built.find(name);
              if (it == built.end()) {
                  std::fprintf(stderr, "%s does not record %s; run "
@@ -80,7 +237,7 @@
                  return 1;
              }
              if (it->second != mine) {
-@@ -2254,7 +2259,7 @@
+@@ -2187,7 +2285,7 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
                               "binary dispatches %u. That launch is wrong and it is "
                               "*faster*, which no timing will tell you. Rebuild, or "
                               "pass the matching flag.\n",
@@ -89,7 +246,7 @@
                  return 1;
              }
          }
-@@ -5011,28 +5016,6 @@
+@@ -5025,28 +5123,6 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
          keep_tail(wblob);
          wblob.clear();
          timer.mark("weights-upload");
@@ -118,7 +275,7 @@
  
          // **The arena is not seeded here.** It used to be filled with a plausible
          // activation distribution, one staged 16 MB upload at a time, because an
-@@ -5271,6 +5254,26 @@
+@@ -5285,6 +5361,26 @@ int NrSession::build(int argc, char** argv, const std::vector<Step>* prepared_pl
          nr::g_build_pipes_total = uint32_t(kinds.size()); nr::g_build_pipes_done = 0; nr::g_build_stage = 4;
      }
      create_kernels(spv_dir, g_chain_kern);
@@ -145,7 +302,7 @@
      const size_t cache_bytes = ctx.save_pipeline_cache();
      timer.mark("pipelines");
      nr::g_build_stage = 5;
-@@ -5541,6 +5544,13 @@
+@@ -5564,8 +5660,22 @@ bool NrSession::make_images(int argc, char** argv) {
  }
  
  void NrSession::create_kernels(const std::string& spv_dir, const std::set<std::string>& chain) {
@@ -158,53 +315,169 @@
 +    }
      for (const Disp& d : disp) {
          if (kern.count(d.kern)) continue;
- #ifdef NR_NO_MAIN
++#ifdef NR_NO_MAIN
++        // Stop between pipelines on both full and shared builds.
++        if (nr::build_cancel && nr::build_cancel->load(std::memory_order_relaxed)) {
++            ctx.save_pipeline_cache();
++            throw std::runtime_error("NR build cancelled");
++        }
++#endif
+         struct Tick { ~Tick() { ++nr::g_build_pipes_done; } } tick;
+         std::string p = spv_dir + "/g_" + d.kern + ".spv";
+         // The Windows network's vitattn and residual GEMMs read through the arena's device
+diff --git a/windows/src/core/nr_pipeline_binary.hpp b/windows/src/core/nr_pipeline_binary.hpp
+index 2ff2ab44464d014c99bc3f12f6700fc798f0b1e0..612bf39d30b871b3f75c630e42a8070e0ec8a7db 100644
 --- a/windows/src/core/nr_pipeline_binary.hpp
 +++ b/windows/src/core/nr_pipeline_binary.hpp
-@@ -16,6 +16,8 @@
- // bundle. Device enablement and the cache identity stay process-wide: the extension is chosen when
- // the device is created. NR_ACO_DIR still wins until own_directory(); the product calls that first.
- // disable() drops the bundle on this thread until the next configure().
+@@ -11,44 +11,63 @@
+ #include <set>
+ 
+ namespace nr::binary {
+-// The ACO network for the whole process: the bundle directory (records/ + shaders/), empty when off.
+-// NR_ACO_DIR (tests) wins; otherwise the product's switch sets it with configure() before the first
+-// device is created. disable() turns it off for the rest of the process (a GPU, driver or device that
+-// cannot take it): every network built afterwards uses the driver's own compiler.
++// Bundle selection belongs to the thread that builds a network. A later build, including one that
++// falls back to the driver's compiler, calls configure() again and does not see another thread's
++// bundle. Device enablement and the cache identity stay process-wide: the extension is chosen when
++// the device is created. NR_ACO_DIR still wins until own_directory(); the product calls that first.
++// disable() drops the bundle on this thread until the next configure().
 +// configure(..., false) keeps Linux graph/shader selection but compiles its SPIR-V directly:
 +// no records, shell templates, binary cache or pipeline-binary device features are used.
  struct Mode {
      std::mutex m;
      bool configured = false, disabled = false;
-@@ -23,6 +25,7 @@
-     // NR_ACO_SHELL_DIR. Official callers leave it false, so those variables
-     // still win. A host with its own settings calls own_directory() first.
-     bool owned = false;
++    // When set, directory/cache/shells ignore NR_ACO_DIR, NR_ACO_CACHE and
++    // NR_ACO_SHELL_DIR. Official callers leave it false, so those variables
++    // still win. A host with its own settings calls own_directory() first.
++    bool owned = false;
 +    bool import = true;
-     uint32_t imported = 0;             // network pipelines imported by this thread's current configure()
++    uint32_t imported = 0;             // network pipelines imported by this thread's current configure()
      std::string dir, why;
      std::vector<std::string> shells;   // template SPIR-V directories, searched in order
-@@ -31,11 +34,15 @@
+     std::string cache;                 // where imported binaries are kept between runs; empty: none
+     std::map<std::string,std::string> aliases;   // a template's name -> the native SPIR-V that serves as it
+-    uint64_t identity = 0;             // the GPU and driver the device was made on (cache key part)
  };
- inline Mode& mode() { static thread_local Mode s; return s; }
+-inline Mode& mode() { static Mode s; return s; }
++inline Mode& mode() { static thread_local Mode s; return s; }
  inline void configure(const std::string& dir, std::vector<std::string> shells, const std::string& cache,
 -                      std::map<std::string,std::string> aliases) {
 +                      std::map<std::string,std::string> aliases, bool import = true) {
      auto& s=mode();std::lock_guard<std::mutex> l(s.m);
-     s.disabled=false;s.why.clear();s.imported=0;
++    s.disabled=false;s.why.clear();s.imported=0;
 +    s.import=import;
      s.configured=true;s.dir=dir;s.shells=std::move(shells);s.cache=cache;
      s.aliases=std::move(aliases);
-+}
+ }
 +inline bool import_enabled() {
 +    auto& s=mode();std::lock_guard<std::mutex> l(s.m);return s.import;
- }
++}
  inline std::string alias_of(const std::string& name) {
      auto& s=mode();std::lock_guard<std::mutex> l(s.m);
-@@ -94,7 +101,7 @@
+     auto it=s.aliases.find(name);return it==s.aliases.end()?std::string():it->second;
+ }
++inline void own_directory() {
++    auto& s=mode();std::lock_guard<std::mutex> l(s.m);s.owned=true;
++}
+ inline std::string cache_dir() {
+-    if(const char* p=std::getenv("NR_ACO_CACHE")) if(*p) return p;
+-    auto& s=mode();std::lock_guard<std::mutex> l(s.m);return s.cache;
++    auto& s=mode();std::lock_guard<std::mutex> l(s.m);
++    if(!s.owned) if(const char* p=std::getenv("NR_ACO_CACHE")) if(*p) return p;
++    return s.cache;
+ }
+-inline uint64_t identity() { auto& s=mode();std::lock_guard<std::mutex> l(s.m);return s.identity; }
++inline std::mutex identity_mutex;
++inline uint64_t process_identity = 0;
++inline uint64_t identity() { std::lock_guard<std::mutex> l(identity_mutex); return process_identity; }
+ inline std::string directory() {
+     auto& s=mode();std::lock_guard<std::mutex> l(s.m);
+     if(s.disabled)return "";
+     std::string dir;
+-    if(const char* p=std::getenv("NR_ACO_DIR")) if(*p) dir=p;
++    if(!s.owned) if(const char* p=std::getenv("NR_ACO_DIR")) if(*p) dir=p;
+     if(dir.empty() && s.configured) dir=s.dir;
+ #if NR_INT4
+     // Each build selects its own records; changing the network never changes the process mode.
+-    if(!dir.empty() && nr::build_cfg("NR_I4_WEIGHTS")) dir+="/int4";
++    if(!dir.empty() && (!s.owned || nr::g_build_cfg) && nr::build_cfg("NR_I4_WEIGHTS")) dir+="/int4";
+ #endif
+     return dir;
+ }
+@@ -59,11 +78,11 @@ inline void disable(const std::string& why) {
+ // Why the ACO network is off although it was asked for; empty when it was not asked for or is on.
+ inline std::string disabled_why() { auto& s=mode();std::lock_guard<std::mutex> l(s.m);return s.disabled?s.why:""; }
+ inline std::vector<std::string> shell_dirs() {
+-    if(const char* p=std::getenv("NR_ACO_SHELL_DIR")) if(*p) return {p};
+     auto& s=mode();std::lock_guard<std::mutex> l(s.m);
++    if(!s.owned) if(const char* p=std::getenv("NR_ACO_SHELL_DIR")) if(*p) return {p};
+     if(!s.shells.empty()) return s.shells;
+     std::string dir;
+-    if(const char* p=std::getenv("NR_ACO_DIR")) if(*p) dir=p;
++    if(!s.owned) if(const char* p=std::getenv("NR_ACO_DIR")) if(*p) dir=p;
+     if(dir.empty() && s.configured) dir=s.dir;
+     if(!dir.empty()) return {dir + "/shells", dir + "/shell"};
+     return {};
+@@ -73,8 +92,12 @@ inline std::set<VkDevice> enabled_devices;
+ inline void mark(VkDevice d) {std::lock_guard<std::mutex> l(devices_mutex);enabled_devices.insert(d);}
+ inline void forget(VkDevice d) {std::lock_guard<std::mutex> l(devices_mutex);enabled_devices.erase(d);}
+ inline bool enabled(VkDevice d) {std::lock_guard<std::mutex> l(devices_mutex);return enabled_devices.count(d)!=0;}
++struct VulkanError : std::runtime_error {
++    VkResult result;
++    VulkanError(VkResult r,const char* what):std::runtime_error(std::string(what)+": VkResult="+std::to_string(int(r))),result(r) {}
++};
+ inline void check(VkResult r,const char* what) {
+-    if(r!=VK_SUCCESS)throw std::runtime_error(std::string(what)+": "+std::to_string(int(r)));
++    if(r!=VK_SUCCESS)throw VulkanError(r,what);
+ }
+ struct Features {
+     VkPhysicalDevicePipelineBinaryFeaturesKHR pb{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_BINARY_FEATURES_KHR};
+@@ -83,6 +106,8 @@ struct Features {
      // A GPU, driver or device chain that cannot take the ACO network turns it off for the process
      // (disable): the device is created as it would be without it, never refused.
      void prepare(VkPhysicalDevice physical,VkDeviceCreateInfo& ci,std::vector<const char*>& extensions) {
--        if(directory().empty())return;
-+        if(!import_enabled() || directory().empty())return;
++        // Compile-only Linux SPIR-V does not ask for pipeline binaries. Micro import still can.
++        if(!import_enabled())return;
+         if(directory().empty() && !std::getenv("NR_MICRO_SELFIMPORT") && !std::getenv("NR_MICRO_IMPORT_FILE"))return;
          VkPhysicalDeviceDriverProperties drv{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
          VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,&drv};
-         vkGetPhysicalDeviceProperties2(physical,&props);
-@@ -288,7 +295,7 @@
+@@ -124,10 +149,10 @@ struct Features {
+         if(!have_pb){pb.pNext=const_cast<void*>(ci.pNext);ci.pNext=&pb;}
+         ci.enabledExtensionCount=uint32_t(extensions.size());ci.ppEnabledExtensionNames=extensions.data();active=true;
+         {
+-            auto& st=mode();std::lock_guard<std::mutex> l(st.m);
+             uint64_t id=pal::hash(props.properties.pipelineCacheUUID,VK_UUID_SIZE);
+             id^=(uint64_t(props.properties.driverVersion)<<32)^props.properties.deviceID;
+-            st.identity=pal::hash(&id,sizeof id);
++            std::lock_guard<std::mutex> l(identity_mutex);
++            process_identity=pal::hash(&id,sizeof id);
+         }
+         nr::logf("[nr] ACO network: pipeline binaries on %s, %s (driverVersion 0x%08x)",props.properties.deviceName,
+                  drv.driverInfo,props.properties.driverVersion);
+@@ -168,7 +193,9 @@ inline bool network_path(const std::string& path) {
+ }
+ // Diagnostic control: compile selected shell kernels with LLPC while retaining
+ // the same graph, buffers and push constants used by the ACO run.
++// A product build owns the directory and never mixes those kernels into an ACO graph.
+ inline bool native_shell(const std::string& name) {
++    if(mode().owned)return false;
+     const char* selected=std::getenv("NR_ACO_NATIVE_KERNELS");
+     if(!selected || !*selected)return false;
+     std::string list(selected);size_t start=0;
+@@ -225,7 +252,10 @@ inline VkPipeline create(VkDevice device,const VkComputePipelineCreateInfo& ci,c
+     if(!cache_file.empty()) {
+         VkPipelineBinaryKeyKHR key{VK_STRUCTURE_TYPE_PIPELINE_BINARY_KEY_KHR};pal::Bytes blob;
+         if(load_cached(cache_file,key,blob)) {
+-            try{return import_pipeline(f,device,ci,key,blob);}catch(const std::exception&){}   // made again below
++            try{return import_pipeline(f,device,ci,key,blob);}catch(const VulkanError& e) {
++                if(e.result==VK_ERROR_DEVICE_LOST || e.result==VK_ERROR_OUT_OF_HOST_MEMORY ||
++                   e.result==VK_ERROR_OUT_OF_DEVICE_MEMORY)throw;
++            }catch(const std::exception&){}   // stale/invalid cached binary: made again below
+         }
+     }
+     Captured captured(f);
+@@ -297,7 +327,7 @@ inline std::string resolve_template(const std::string& path) {
  inline VkResult create_or_default(VkDevice device,VkPipelineCache cache,const VkComputePipelineCreateInfo& ci,
                                   const std::string& path,const uint32_t* code,size_t bytes,VkPipeline* out,uint32_t push_bytes) {
      auto dir=directory();
@@ -213,131 +486,22 @@
      pal::require(enabled(device),"binary mode was not enabled when this device was created");
      auto h=pal::hash(code,bytes);
      const auto record_bytes=pal::load(dir+"/records/"+keyname(h));
---- a/windows/src/core/nr_runtime.cpp
-+++ b/windows/src/core/nr_runtime.cpp
-@@ -1277,13 +1277,13 @@
-     // development tree has build/ and artifacts/ at its root instead.
-     const auto data = std::filesystem::is_directory(root / "dlssnr-amd") ? root / "dlssnr-amd" : root;
-     const bool installed = data != root;
--    // The ACO network (nr_pipeline_binary.hpp) needs a device created with pipeline binaries; one that
--    // was not (a game's device made before we could add them) builds with the driver's compiler.
--    if (!nr::binary::directory().empty() && !nr::binary::enabled(host.device))
-+    // Only binary import needs device enablement. Compile-only keeps the Linux graph directory.
-+    const bool compile_only = !nr::binary::import_enabled();
-+    if (!compile_only && !nr::binary::directory().empty() && !nr::binary::enabled(host.device))
-         nr::binary::disable("the device was created without pipeline binaries");
-     const std::string aco = nr::binary::directory();
-     const auto native_shaders = installed ? data / "shaders" : root / "build";
--    const auto network_shaders = !aco.empty() ? std::filesystem::path(aco) / "shaders" : native_shaders;
-+    const auto network_shaders = nr::detail::network_shader_directory(native_shaders, aco);
-     // Shaders are read from inside the NR root, or from the ACO bundle when one is in use.
-     const auto inside = [&](const std::filesystem::path& p) {
-         for (const auto& base : {root, aco.empty() ? root : std::filesystem::canonical(aco)}) {
-@@ -1292,6 +1292,56 @@
+@@ -362,11 +392,13 @@ inline VkResult create_or_default(VkDevice device,VkPipelineCache cache,const Vk
+             throw;
          }
-         return false;
-     };
-+    if (compile_only && aco.empty())
-+        throw std::runtime_error("Linux SPIR-V driver compile requires a configured bundle; Windows network shaders are not a fallback");
-+    auto selected_network_shaders = network_shaders;
-+    if (config.accumulation == "round-fp16") selected_network_shaders /= "round-fp16";
-+    const auto temporal_shaders = temporal_config.shaders.empty()
-+        ? (!aco.empty() ? network_shaders / "temporal"
-+           : installed ? data / "shaders/temporal" : root / "build/windows/rdna4/network/temporal")
-+        : std::filesystem::path(temporal_config.shaders);
-+    if (compile_only) {
-+        nr::detail::require_linux_shader_bundle(selected_network_shaders, config.accumulation, host_shader_constants());
-+        if (config.require_style_grade)
-+            nr::detail::require_shader_assets(selected_network_shaders, {"g_fswinimagepost32_grade.spv"});
-+        if (mask_config.width) {
-+            const auto mask_shaders = network_shaders / "runtime";
-+            std::ifstream mask_manifest(mask_shaders / "shader-constants.txt");
-+            std::ifstream network_manifest(selected_network_shaders / "shader-constants.txt");
-+            if (!mask_manifest || nr::detail::read_shader_manifest(mask_manifest) != nr::detail::read_shader_manifest(network_manifest))
-+                throw std::runtime_error("Linux SPIR-V control-mask shader constants differ from the network");
-+            nr::detail::require_shader_assets(mask_shaders,
-+                {config.accumulation == "fp32" ? "mask_pre_fp32.spv" : "mask_pre_round.spv"});
-+        }
-+        if (temporal_config.enable) {
-+            // A caller override must still resolve to this Linux bundle, not native Windows image variants.
-+            if (std::filesystem::canonical(temporal_shaders) != std::filesystem::canonical(network_shaders / "temporal"))
-+                throw std::runtime_error("Linux SPIR-V temporal shaders must come from the configured bundle");
-+            std::ifstream manifest(temporal_shaders / "shader-constants.txt");
-+            std::ifstream network_manifest(selected_network_shaders / "shader-constants.txt");
-+            if (!manifest || nr::detail::read_shader_manifest(manifest) != nr::detail::read_shader_manifest(network_manifest))
-+                throw std::runtime_error("Linux SPIR-V temporal shader constants differ from the network");
-+            std::vector<std::string> required = {"temporal_pre_fp32.spv", "temporal_post_fp32.spv",
-+                                                  "motion_luma.spv", "motion_estimate.spv"};
-+            if (config.require_style_grade) required.push_back("temporal_post_fp32_grade.spv");
-+            nr::detail::require_shader_assets(temporal_shaders, required);
-+            if (std::filesystem::exists(temporal_shaders / "temporal_pre_fp32nh.spv"))
-+                nr::detail::require_shader_assets(temporal_shaders, {"temporal_pre_fp32nh.spv"});
-+            const bool hp_requested = std::getenv("NR_HPASS") && std::atoi(std::getenv("NR_HPASS"));
-+            const bool h16_requested = std::getenv("NR_HIST16") && std::atoi(std::getenv("NR_HIST16")) && config.max_passes == 1;
-+            for (const char* name : {"temporal_pre_fp32hp.spv", "temporal_pre_fp32nhhp.spv",
-+                                     "temporal_post_fp32hp.spv", "temporal_post_fp32h16.spv"}) {
-+                const bool requested = std::string(name).find("h16") != std::string::npos ? h16_requested : hp_requested;
-+                if (!requested || !std::filesystem::exists(temporal_shaders / name)) continue;
-+                nr::detail::require_shader_assets(temporal_shaders, {name});
-+                if (config.require_style_grade && std::string(name).rfind("temporal_post_", 0) == 0) {
-+                    auto grade = std::string(name);
-+                    grade.insert(grade.size() - 4, "_grade");
-+                    nr::detail::require_shader_assets(temporal_shaders, {grade});
-+                }
-+            }
-+        }
-+    }
-     if (!std::isfinite(config.model_scale) || config.model_scale <= 0.f || config.model_scale > 1.f)
-         throw std::invalid_argument("model_scale must be in (0, 1]");
-     if (config.max_passes < 1 || config.max_passes > 30)
-@@ -1444,7 +1494,8 @@
-     const std::filesystem::path i4root = data / "int4";
-     if (int4_env == "1") {
-         std::error_code ec;
--        const char* missing = network == NetworkModel::Small ? "the small model has no int4 network"
-+        const char* missing = compile_only ? "INT4 is unavailable with Linux SPIR-V driver compilation"
-+            : network == NetworkModel::Small ? "the small model has no int4 network"
-             : !installed ? "not an installed tree"
-             : !std::filesystem::is_directory(i4root / "shaders" / "temporal", ec) || !std::filesystem::is_directory(i4root / "vit", ec) ||
-                       !std::filesystem::is_regular_file(i4root / "settings.txt", ec) ? "dlssnr-amd/int4/ is incomplete"
-@@ -1987,8 +2038,9 @@
-     };
-     if (bool(mask_config.width) != bool(mask_config.height))
-         throw std::invalid_argument("both control mask dimensions are required");
-+    const auto mask_shaders = compile_only ? network_shaders / "runtime" : adapters;
-     if (mask_config.width) {
--        if (config.accumulation == "fp32") require_variant_profile(adapters);
-+        if (config.accumulation == "fp32") require_variant_profile(mask_shaders);
-         impl_->mask_image=s.ctx.image(mask_config.width,mask_config.height,VK_FORMAT_R32G32B32A32_SFLOAT,true);
-         impl_->mask_rect=s.ctx.buffer(24);
-         auto& k=impl_->mask_pre;
-@@ -1997,12 +2049,12 @@
-         const std::string pre_name = s.kern.count("fswinimagepreds32nh") ? "fswinimagepreds32nh" : "fswinimagepreds32";
-         if (s.kern.count(pre_name)) {
-             impl_->original_pre=&s.kern.at(pre_name);
--            k.create(s.ctx,(adapters/"mask_pre_fp32.spv").string(),
-+            k.create(s.ctx,(mask_shaders/"mask_pre_fp32.spv").string(),
-                 {s.act.handle,s.act.handle,s.wgt.handle,s.wgt.handle,s.wgt.handle,s.act.handle,impl_->mask_rect.handle},
-                 sizeof(PushFSwin)+sizeof(PushPreImage),{&s.tex_in,&impl_->mask_image});
-         } else if (s.kern.count("imgin16fast")) {
-             impl_->original_pre=&s.kern.at("imgin16fast");
--            k.create(s.ctx,(adapters/"mask_pre_round.spv").string(),
-+            k.create(s.ctx,(mask_shaders/"mask_pre_round.spv").string(),
-                 {s.act.handle,s.wgt.handle,impl_->mask_rect.handle},sizeof(PushImgIn),{&s.tex_in,&impl_->mask_image});
-         } else throw std::runtime_error("control mask pre-input variant unavailable");
-         impl_->mask_resolve.create(s.ctx,(adapters/"runtime_control_mask.spv").string(),
-@@ -2031,10 +2083,7 @@
-     if (temporal_config.enable) {
-         auto& t = impl_->temporal;
-         // The temporal pre/post blocks are network kernels: the ACO bundle's own SPIR-V when it is in use.
--        auto shaders = std::filesystem::canonical(temporal_config.shaders.empty()
--            ? (!aco.empty() ? std::filesystem::path(aco) / "shaders/temporal"
--               : installed ? data / "shaders/temporal" : root / "build/windows/rdna4/network/temporal")
--            : std::filesystem::path(temporal_config.shaders));
-+        auto shaders = std::filesystem::canonical(temporal_shaders);
- #if NR_INT4
-         // The int4 network's temporal pre/post variants are built with its defines (hard-swish, whose scale
-         // NR_HS_FOLDPP folds into the pre/post weights): int4/shaders/temporal, never the default ones.
+         vkDestroyShaderModule(device, module, nullptr);
++        ++mode().imported;
+         return VK_SUCCESS;
+     }
+     nr::logf("[nr] ACO template for %s not found; falling back to driver compile on %s (%zu bytes, record %s)",
+              name.c_str(), path.c_str(), bytes, keyname(record.spv_hash).c_str());
+     *out = create(device, ci, record, push_bytes, workgroup);
++    ++mode().imported;
+     return VK_SUCCESS;
+ }
+ } // namespace nr::binary
+diff --git a/windows/src/core/nr_shader_manifest.hpp b/windows/src/core/nr_shader_manifest.hpp
+index 324d15e0e8d76935a3d1f74d526ef4e46735161c..4ceb66a3259d98aaed0817fffe12f61f65641705 100644
 --- a/windows/src/core/nr_shader_manifest.hpp
 +++ b/windows/src/core/nr_shader_manifest.hpp
 @@ -1,12 +1,15 @@
@@ -356,7 +520,7 @@
  
  namespace nr::detail {
  // A nonnumeric version token deliberately stops the pre-v2 reader before it
-@@ -53,4 +56,50 @@
+@@ -53,4 +56,50 @@ inline std::map<std::string, uint32_t> read_shader_manifest(std::istream& input)
          throw std::runtime_error("unsupported shader math profile");
      return values;
  }
@@ -407,30 +571,69 @@
 +}
 +
  } // namespace nr::detail
+diff --git a/windows/src/core/nrvk.hpp b/windows/src/core/nrvk.hpp
+index b8144ff4ed19a1b52d4e874f139143a81c0b1922..9b604a3c0318379da6cff470cbdea5476d2acd54 100644
 --- a/windows/src/core/nrvk.hpp
 +++ b/windows/src/core/nrvk.hpp
-@@ -937,7 +937,7 @@
+@@ -148,6 +148,7 @@ struct Context {
+     VkDevice device{};
+     VkQueue queue{};
+     uint32_t family{};
++    uint32_t secondary_family = VK_QUEUE_FAMILY_IGNORED;
+     VkPhysicalDeviceMemoryProperties mem{};
+     float timestamp_period{};
+     // bufferDeviceAddress is enabled on the device: kernels may read the activation arena through
+@@ -698,6 +699,10 @@ struct Context {
+         device_address = device_address && buffer_device_address;
+         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+         info.size = bytes;
++        const uint32_t queueFamilies[] {family, secondary_family};
++        if (secondary_family != VK_QUEUE_FAMILY_IGNORED && secondary_family != family) {
++            info.sharingMode = VK_SHARING_MODE_CONCURRENT; info.queueFamilyIndexCount = 2; info.pQueueFamilyIndices = queueFamilies;
++        }
+         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+         if (device_address) info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+@@ -853,6 +858,10 @@ struct Context {
+         // which need not be storage-capable - *_SRGB's UNORM twin, 11/11/10).
+         if (!storage) ii.usage &= ~VkImageUsageFlags(VK_IMAGE_USAGE_STORAGE_BIT);
+         ii.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++        const uint32_t queueFamilies[] {family, secondary_family};
++        if (secondary_family != VK_QUEUE_FAMILY_IGNORED && secondary_family != family) {
++            ii.sharingMode = VK_SHARING_MODE_CONCURRENT; ii.queueFamilyIndexCount = 2; ii.pQueueFamilyIndices = queueFamilies;
++        }
+         ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+         NRVK_CHECK(vkCreateImage(device, &ii, nullptr, &im.handle));
+         VkMemoryRequirements req;
+@@ -917,6 +926,7 @@ struct Context {
+     std::vector<VkImageMemoryBarrier> pending;
+     // Inside a recording: a pipeline not made yet (SharedPipeline) throws instead of compiling.
+     bool registry_only = false;
++    bool share_pipelines = true;
+     // Device memory every image made so far asked for.
+     uint64_t image_bytes = 0;
+     // Kept alive here as well as by the kernels (a network memory keeps every pipeline its runtimes used, so one built
+@@ -1156,7 +1166,7 @@ struct Kernel {
      VkDescriptorPool pool{};
      VkDescriptorSet set{};
      uint32_t push_range{};   // the layout's push constant bytes
 -    uint32_t aco_push_gap{}; // ACO INT4 uses Linux's push layout, omitting Windows's arena address.
 +    uint32_t aco_push_gap{}; // Linux SPIR-V (ACO INT4 or RADV compile-only) omits Windows's arena address.
-     void push_constants(VkCommandBuffer cmd, uint32_t bytes, const void* data) const {
-         if (!bytes) return;
-         if (!aco_push_gap) {
-@@ -968,13 +968,17 @@
+     // RDNA3: which bindings read the FP16 twin of their arena and which are raw alias views, and the
+     // context's twin map. A second descriptor set over this layout (nr_runtime.cpp kernel_set) has to
+     // bind the same way `create` does, or the kernel reads and writes an arena in the wrong format.
+@@ -1193,13 +1203,17 @@ struct Kernel {
                  const std::vector<Context::Image*>& images = {}) {
          device = ctx.device;
          push_range = push_bytes;
--#if NR_INT4
++        if (!nr::binary::directory().empty()) {
++            bool linux_push = !nr::binary::import_enabled();
+ #if NR_INT4
 -        if (!nr::binary::directory().empty() && nr::build_cfg("NR_I4_WEIGHTS")) {
 -            const auto name=spirv_path.substr(spirv_path.find_last_of("/\\")+1);
 -            if (!nr::binary::native_shell(name))
 -                aco_push_gap=name.rfind("g_gemm",0)==0 && push_bytes>=88 ? 80u : name=="g_vitattn.spv" ? 20u : 0u;
 -        }
-+        if (!nr::binary::directory().empty()) {
-+            bool linux_push = !nr::binary::import_enabled();
-+#if NR_INT4
 +            linux_push = linux_push || nr::build_cfg("NR_I4_WEIGHTS") != nullptr;
  #endif
 +            if (linux_push) {
@@ -439,6 +642,38 @@
 +                    aco_push_gap=name.rfind("g_gemm",0)==0 && push_bytes>=88 ? 80u : name=="g_vitattn.spv" ? 20u : 0u;
 +            }
 +        }
-         const uint32_t nb = uint32_t(bindings.size());
-         const uint32_t ni = uint32_t(images.size());
-         const uint32_t n = nb + ni;
+         const std::vector<uint32_t> code = read_spirv(spirv_path);
+         std::vector<VkBuffer> bound(bindings);
+         std::set<uint32_t> declared;
+@@ -1235,7 +1249,7 @@ struct Kernel {
+         std::string key = std::to_string(reinterpret_cast<uintptr_t>(device)) + "|" + spirv_path + "|" +
+                           std::to_string(push_bytes) + "|" + (ctx.pipeline_robustness ? "r" : "-") + "|";
+         for (const auto& b : lb) key += char('0' + int(b.descriptorType));
+-        {
++        if (ctx.share_pipelines) {
+             std::lock_guard<std::mutex> guard(shared_pipelines_lock());
+             auto it = shared_pipelines().find(key);
+             if (it != shared_pipelines().end()) shared = it->second.lock();
+@@ -1245,13 +1259,17 @@ struct Kernel {
+             auto made = std::make_shared<SharedPipeline>();
+             made->device = device;
+             make_pipeline(ctx, spirv_path, push_bytes, lb, *made);
+-            std::lock_guard<std::mutex> guard(shared_pipelines_lock());
+-            auto& slot = shared_pipelines()[key];
+-            shared = slot.lock();   // another thread made it meanwhile: theirs, ours goes
+-            if (!shared) { slot = made; shared = made; }
++            if (ctx.share_pipelines) {
++                std::lock_guard<std::mutex> guard(shared_pipelines_lock());
++                auto& slot = shared_pipelines()[key];
++                shared = slot.lock();   // another thread made it meanwhile: theirs, ours goes
++                if (!shared) { slot = made; shared = made; }
++            } else {
++                shared = std::move(made);
++            }
+         }
+         module = shared->module; dsl = shared->dsl; layout = shared->layout; pipeline = shared->pipeline;
+-        if (ctx.pin) {   // a memory's runtimes are built on two threads (inside frames, in the background)
++        if (ctx.pin && ctx.share_pipelines) {   // Only registry users need arena-level pipeline pins.
+             std::lock_guard<std::mutex> guard(shared_pipelines_lock());
+             if (std::find(ctx.pin->begin(), ctx.pin->end(), shared) == ctx.pin->end()) ctx.pin->push_back(shared);
+         }

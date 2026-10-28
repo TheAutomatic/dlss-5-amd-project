@@ -1,0 +1,369 @@
+{
+ "about": [
+  "The RDNA3 int4 mixed network (build_network.py rdna3 --int4, host built with NR_INT4=1 and NR_ARCH_RDNA3=1): every pipeline of",
+  "pipelines.json, \"change\" adds/removes defines on the pipeline of that name, \"new\" builds extra pipelines from a base pipeline",
+  "of pipelines.json. NR_I4*: the ViT FFN and QKV int4 GEMMs. \"iu4\": the pipelines whose int8 WMMA the host rewrites to iu4",
+  "(marker g_<name>.spv.iu4, nrvk.hpp); gfx11 has the 16x16x16 form only, at twice the iu8 rate. Temporal variants: pipelines.json."
+ ],
+ "change": {
+  "fswin256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswin32": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswin64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  },
+  "fswinds256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinds32": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswinds64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  },
+  "fswindsp256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswindsp32": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswindsp32nh": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswindsp64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  },
+  "fswinfusedup128": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinfusedup256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinfusedup32": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswinfusedup32nh": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswinfusedup64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  },
+  "fswinimagepost32": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswinimagepreds32": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswinimagepreds32nh": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  },
+  "fswinp256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinp64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  },
+  "fswinpds256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinpds64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  },
+  "fswinpup128": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinpup256": {
+   "add": [
+    "NR_SWI4=1",
+    "NR_I4=1",
+    "NR_EXPAND_GROUP=1",
+    "NR_SWQ4=1",
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465",
+    "NR_SWI4_MASKQ=1"
+   ],
+   "remove": [
+    "NR_EXPAND_GROUP=4"
+   ]
+  },
+  "fswinpup64": {
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.182412",
+    "NR_HS_B=0.500465"
+   ]
+  }
+ },
+ "new": {
+  "gemmvact4": {
+   "base": "gemmvact",
+   "add": [
+    "NR_I4_OUT=1",
+    "NR_SWAP_AB=1"
+   ]
+  },
+  "gemmvact4c": {
+   "base": "gemmvact",
+   "add": [
+    "NR_SWAP_AB=1",
+    "NR_I4=1",
+    "NR_I4_OUT=1",
+    "NR_I4_NREC=16"
+   ]
+  },
+  "gemmproj4": {
+   "base": "gemmproj",
+   "add": [
+    "NR_I4=1"
+   ]
+  },
+  "gemmprojw4": {
+   "base": "gemmprojw",
+   "add": [
+    "NR_I4=1"
+   ]
+  },
+  "gemmproj4s": {
+   "base": "gemmproj",
+   "add": [
+    "NR_SWAP_AB=1",
+    "NR_I4=1",
+    "NR_I4_SIDE=1",
+    "NR_I4_NREC=56"
+   ]
+  },
+  "gemmprojw4s": {
+   "base": "gemmprojw",
+   "add": [
+    "NR_SWAP_AB=1",
+    "NR_I4=1",
+    "NR_I4_SIDE=1"
+   ]
+  },
+  "gemmprojs": {
+   "base": "gemmproj",
+   "add": [
+    "NR_SWAP_AB=1",
+    "NR_I4_SIDE=1"
+   ]
+  },
+  "gemmprojws": {
+   "base": "gemmprojw",
+   "add": [
+    "NR_SWAP_AB=1",
+    "NR_I4_SIDE=1"
+   ]
+  },
+  "gemmvqkvnorms4": {
+   "base": "gemmvqkvnorms",
+   "add": [
+    "NR_I4=1",
+    "NR_I4_NREC=16"
+   ]
+  },
+  "gemmvqkvnorm4": {
+   "base": "gemmvqkvnorm",
+   "add": [
+    "NR_I4=1"
+   ]
+  },
+  "attn4": {
+   "base": "attn",
+   "add": [
+    "NR_ATTN_I4=1",
+    "NR_I4=1",
+    "NR_A4_NREC=8"
+   ]
+  },
+  "gemmprojcs": {
+   "base": "gemmprojc",
+   "add": [
+    "NR_I4_SIDE=1",
+    "NR_KCONST=512"
+   ]
+  },
+  "fswin32nhp": {
+   "base": "fswin32nh",
+   "add": [
+    "NR_ACT_HS=2",
+    "NR_HS_A=0.187367",
+    "NR_HS_B=0.500139"
+   ]
+  }
+ },
+ "iu4": [
+  "attn4",
+  "fswin256",
+  "fswinds256",
+  "fswindsp256",
+  "fswinfusedup128",
+  "fswinfusedup256",
+  "fswinp256",
+  "fswinpds256",
+  "fswinpup128",
+  "fswinpup256",
+  "gemmproj4",
+  "gemmproj4s",
+  "gemmprojw4",
+  "gemmprojw4s",
+  "gemmvact4c",
+  "gemmvqkvnorm4",
+  "gemmvqkvnorms4"
+ ]
+}

@@ -1,26 +1,3 @@
-diff --git a/linux/build/build_network.py b/linux/build/build_network.py
-index e5dfcd714164385e5fd8346cd4066d842d953d7a..4e9f1c6a6c08bce3307a74e68df0bc8e6ffca241 100644
---- a/linux/build/build_network.py
-+++ b/linux/build/build_network.py
-@@ -28,10 +28,17 @@ GLSLANG = R / 'toolchain/glslang/bin/glslang'
- RUNTIME = ['runtime_alpha', 'runtime_encode', 'runtime_transfer', 'runtime_upscale', 'runtime_prep', 'runtime_depth', 'cascade_lograt', 'cascade_blur', 'cascade_feed',
-            'runtime_downscale', 'runtime_taps']
- # runtime passes built from another pass's source with defines: name -> (source, defines)
-+# runtime_planA_convert_* / runtime_planA_unconvert_* are Plan A's input/output passes, one per destination format: a storage image's
-+# format qualifier is a compile-time property of the module, so the game format (known only at run time) is
-+# substituted by PLAN_A_DST_FORMAT. This table must stay in step with the Windows-side table of the same name.
- RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NATIVE']),
-                     'runtime_pack_u8': ('runtime_alpha', ['NR_PACK_U8']),
-                     'runtime_pack_f16': ('runtime_alpha', ['NR_PACK_F16']),
--                    'runtime_unpack_f16': ('runtime_alpha', ['NR_UNPACK_F16'])}
-+                    'runtime_unpack_f16': ('runtime_alpha', ['NR_UNPACK_F16']),
-+                    'runtime_planA_convert_r11g11b10': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
-+                    'runtime_planA_convert_rgba16f': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
-+                    'runtime_planA_unconvert_r11g11b10': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
-+                    'runtime_planA_unconvert_rgba16f': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0'])}
- MOTION = ['motion_luma', 'motion_estimate']
- 
- 
 diff --git a/linux/shaders/passes/runtime_planA_convert.comp b/linux/shaders/passes/runtime_planA_convert.comp
 new file mode 100644
 index 0000000000000000000000000000000000000000..142d876e70814e454e8c2df03e751fa78b6dd0af
@@ -100,30 +77,6 @@ index 0000000000000000000000000000000000000000..b294ff58ccf3c20064dfacbe76a65e89
 +    texel = clamp(texel, vec4(0.0), vec4(PLAN_A_DST_MAX));
 +    imageStore(dst, xy, texel);
 +}
-diff --git a/windows/build/build_network.py b/windows/build/build_network.py
-index 0fc439d768f84ae83352613df712a0e09eda1f90..74f7e9c365df4099ee068b350203daf930fab3db 100644
---- a/windows/build/build_network.py
-+++ b/windows/build/build_network.py
-@@ -32,10 +32,18 @@ GLSLANG = R / 'toolchain/glslang/bin/glslang'
- RUNTIME = ['runtime_alpha', 'runtime_encode', 'runtime_transfer', 'runtime_upscale', 'runtime_prep', 'runtime_depth', 'cascade_lograt', 'cascade_blur', 'cascade_feed',
-            'runtime_downscale', 'runtime_taps']
- # runtime passes built from another pass's source with defines: name -> (source, defines)
-+# runtime_planA_convert_* / runtime_planA_unconvert_* are Plan A's input/output passes, one per destination format: a storage image's
-+# format qualifier is a compile-time property of the module, so the game format (known only at run time) is
-+# substituted by PLAN_A_DST_FORMAT. Only the formats ColourConvertible accepts are built here; that function
-+# and this table must agree, or a frame would be canonicalised with no way to convert the answer back.
- RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NATIVE']),
-                     'runtime_pack_u8': ('runtime_alpha', ['NR_PACK_U8']),
-                     'runtime_pack_f16': ('runtime_alpha', ['NR_PACK_F16']),
--                    'runtime_unpack_f16': ('runtime_alpha', ['NR_UNPACK_F16'])}
-+                    'runtime_unpack_f16': ('runtime_alpha', ['NR_UNPACK_F16']),
-+                    'runtime_planA_convert_r11g11b10': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
-+                    'runtime_planA_convert_rgba16f': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
-+                    'runtime_planA_unconvert_r11g11b10': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
-+                    'runtime_planA_unconvert_rgba16f': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0'])}
- MOTION = ['motion_luma', 'motion_estimate']
- 
- 
 diff --git a/windows/shaders/passes/runtime_planA_convert.comp b/windows/shaders/passes/runtime_planA_convert.comp
 new file mode 100644
 index 0000000000000000000000000000000000000000..142d876e70814e454e8c2df03e751fa78b6dd0af

@@ -44,7 +44,7 @@ public:
         head = reinterpret_cast<VkBaseOutStructure*>(p);
         return p;
     }
-    void enable() {
+    void enable(bool rdna3 = false) {
         if (auto* f = find<VkPhysicalDeviceVulkan11Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES))
             f->storageBuffer16BitAccess = true;
         else get<VkPhysicalDevice16BitStorageFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES)->storageBuffer16BitAccess = true;
@@ -64,8 +64,11 @@ public:
             f->subgroupSizeControl = true;
         else get<VkPhysicalDeviceSubgroupSizeControlFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES)->subgroupSizeControl = true;
         get<VkPhysicalDeviceCooperativeMatrixFeaturesKHR>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR)->cooperativeMatrix = true;
-        auto* f = get<VkPhysicalDeviceShaderFloat8FeaturesEXT>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT);
-        f->shaderFloat8 = f->shaderFloat8CooperativeMatrix = true;
+        // The FP8 features are the rdna4-fp8 target's; rdna3-fp16 multiplies FP16 operands and enables nothing here.
+        if (!rdna3) {
+            auto* f = get<VkPhysicalDeviceShaderFloat8FeaturesEXT>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT);
+            f->shaderFloat8 = f->shaderFloat8CooperativeMatrix = true;
+        }
     }
 };
 } // namespace nr

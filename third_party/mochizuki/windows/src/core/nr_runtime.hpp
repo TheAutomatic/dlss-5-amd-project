@@ -138,6 +138,8 @@ struct HostDevice {
     // then reads the activation arena through a buffer_reference where that is faster (Windows
     // network only).
     bool buffer_device_address = false;
+    // Target GPU architecture: -1 = auto-detect from physical device, 0 = RDNA4 (FP8), 1 = RDNA3 (FP16).
+    int rdna3 = -1;
     // Optional second family accessing core images/buffers through segments.
     // The caller orders both families and supplies compatible external images.
     // Appended to preserve existing source aggregate initializers.
@@ -189,6 +191,8 @@ struct RuntimeConfig {
     // neither: small), 0 = the original model, 1 = the small model. The small model
     // needs an installed tree with dlssnr-small.bin; without it, the original model.
     int network = -1;
+    // Target GPU architecture: -1 = auto-detect, 0 = RDNA4 (FP8), 1 = RDNA3 (FP16).
+    int rdna3 = -1;
 #if NR_INT4
     // The int4 mixed network: -1 = as DLSSNR_INT4 / dlssnr-amd.ini [Int4Mixed] Enabled say (start), 0 = the original
     // network, 1 = int4 mixed when installed and the device has VK_KHR_pipeline_binary ([Int4Mixed] Hotkey switches).
@@ -361,7 +365,7 @@ struct TemporalConfig {
     // 0.7397. This multiplies it; 1 is the original. 0 disables the output-side
     // blend and leaves only the pre block's history features.
     float history_strength = 1.0f;
-    // Variant SPIR-V directory; empty selects ROOT/build/windows/rdna4/network/temporal.
+    // Variant SPIR-V directory; empty selects ROOT/build/windows/<arch>/network/temporal (the target's).
     // These are variants, not production binaries: the temporal build
     // verifies the shipping pre/post SPIR-V are unchanged when it builds them.
     std::string shaders;

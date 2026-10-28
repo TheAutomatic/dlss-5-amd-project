@@ -10,6 +10,7 @@
 | [architecture/streamline-fg-activation.md](architecture/streamline-fg-activation.md) | 可选的 Streamline 帧生成就绪帧等待、默认值及验证范围 |
 | [architecture/optiscaler-upstream.md](architecture/optiscaler-upstream.md) | OptiScaler定向整合来源、已接模块、生命周期边界与延期 |
 | [mochizuki.md](mochizuki.md) | 第三后端：安装、模型提取、菜单、生命周期、构建和验证范围 |
+| [rdna3-migration-progress.md](rdna3-migration-progress.md) | RDNA3 回迁暂停点：已接入的 vendor pin、未做的适配器/构建/试包 |
 | [architecture/mochizuki-upstream-extensions.md](architecture/mochizuki-upstream-extensions.md) | Mochizuki 核心扩展的必要性、固定来源补丁与上游提案边界 |
 | [architecture/mochizuki-split-transport.md](architecture/mochizuki-split-transport.md) | Mochizuki split 传输开销、共享颜色纹理离线结果及产品接入前的资源/回退约束 |
 | [post-sr-nr.md](post-sr-nr.md) | 三后端实验性 SR → NR：设置、分辨率、输入限制和验收 |

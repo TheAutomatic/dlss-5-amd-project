@@ -1,20 +1,5 @@
---- a/windows/src/core/nr_renodx.hpp
-+++ b/windows/src/core/nr_renodx.hpp
-@@ -184,6 +184,14 @@
-     Stage(const Stage&) = delete;
-     Stage& operator=(const Stage&) = delete;
- 
-+    // Opt-in retained command-list resources; end on success and failure. Nested
-+    // begins throw; end without begin is empty. Keep the handle through every
-+    // execution and until replay is impossible, then release it before this Stage.
-+    // Caller images, execution ordering and temporal state remain host-owned.
-+    // Unscoped recordings retain their original rings and retirement policy.
-+    void begin_recording_resources();
-+    std::shared_ptr<void> end_recording_resources();
-+
-     // The settings for the next frame (read once per frame).
-     void set(const Settings&);
-     // 0 SDR (legacy codec), 1 linear HDR, 2 PQ: what this frame format and flag resolve to.
+diff --git a/windows/src/core/nr_renodx.cpp b/windows/src/core/nr_renodx.cpp
+index b631c88ddc02b841455936bb1d1dee222b714cc6..fd79f691746cca01bd6d0bb6b097b03c08eba1a5 100644
 --- a/windows/src/core/nr_renodx.cpp
 +++ b/windows/src/core/nr_renodx.cpp
 @@ -19,6 +19,7 @@
@@ -25,7 +10,138 @@
  #include <fstream>
  #include <map>
  #include <set>
-@@ -518,6 +519,79 @@
+@@ -169,28 +170,46 @@ struct LegacyConstants {
+ static_assert(sizeof(LegacyConstants) == 80);
+ 
+ // FeedSource (dlssnr.hpp): where a relative-HDR frame's NR input scale comes from.
+-enum Feed : uint32_t { kFeedV1 = 0, kFeedTexture = 1, kFeedFixed = 2 };
++enum Feed : uint32_t { kFeedV1 = 0, kFeedTexture = 1, kFeedFixed = 2, kFeedHold = 3 };
+ 
+ // The governor's per-stream state (NormStream) and PlanFrameScale.
+ struct NormStream {
+     bool primed = false;
+     uint32_t feed = kFeedV1;
+     int64_t last_ns = 0, last_reset_ns = 0;
++    int64_t last_texture_ns = 0;
+ };
+ constexpr int64_t kNormResetQuietNs = 250'000'000;
++constexpr int64_t kExposureHoldWindowNs = 500'000'000; // 0.5s hold window
+ 
+ struct ScalePlan {
+     uint32_t governor[5] = {};   // slew_stops .. governor_mode
+     bool guarded = false;        // Auto's texture feed, range-guarded against v1
+     bool v2_snap = false;        // v6_exposure_scale's SnapNow
++    float frame_seconds = 0.f;
+ };
+ uint32_t bits(float v) { uint32_t u; std::memcpy(&u, &v, 4); return u; }
+ 
+ // SelectFeed: v2 needs positive evidence (a readable exposure texture on a stream without AutoExposure).
+-uint32_t select_feed(const Settings& s, uint8_t hdr_mode, const codec::SourceUnits& u, bool readable, bool auto_flag) {
++uint32_t select_feed(const Settings& s, uint8_t hdr_mode, const codec::SourceUnits& u, bool readable, bool auto_flag,
++                    NormStream& stream, int64_t now, bool flags_known = true) {
+     if (hdr_mode == 0 || u.absolute || u.encoding == codec::Encoding::Sdr || s.feed_mode == 1u) return kFeedV1;
+-    if (s.feed_mode == 2u) return readable ? kFeedTexture : kFeedFixed;
+-    return readable && !auto_flag ? kFeedTexture : kFeedV1;
++    const bool recent_texture = stream.last_texture_ns != 0 && (now - stream.last_texture_ns) < kExposureHoldWindowNs;
++    if (s.feed_mode == 2u) {
++        if (readable) {
++            stream.last_texture_ns = now;
++            return kFeedTexture;
++        }
++        return recent_texture ? kFeedHold : kFeedFixed;
++    }
++    if (readable && flags_known && !auto_flag) {
++        stream.last_texture_ns = now;
++        return kFeedTexture;
++    }
++    if ((!readable || !flags_known) && !(flags_known && auto_flag) && recent_texture) {
++        return kFeedHold;
++    }
++    return kFeedV1;
+ }
+ 
+ ScalePlan plan_frame_scale(const Settings& s, NormStream& stream, bool frame_reset, uint32_t feed, bool epoch) {
+@@ -203,26 +222,25 @@ ScalePlan plan_frame_scale(const Settings& s, NormStream& stream, bool frame_res
+         reset_snap = stream.last_reset_ns == 0 || now - stream.last_reset_ns >= kNormResetQuietNs;
+         stream.last_reset_ns = now;
+     }
+-    // The reset-epoch snap of modes 0/1: RenoDX's epoch advances on every history reset it requests - a kHistory
+-    // setting's change, the area-input crossing, a feature recreate (NR turned on again, a kRecreate setting) -
+-    // here `epoch` (Impl::recreate or Impl::history_reset).
+-    const bool prime = !stream.primed, feed_change = stream.primed && stream.feed != feed;
+-    const bool snap = prime || reset_snap || feed_change || (!stable && epoch);
++    const bool prime = !stream.primed;
++    const bool snap = prime || reset_snap || (!stable && epoch);
+     stream.primed = true;
+     stream.feed = feed;
+     const float frame_seconds = stream.last_ns != 0
+         ? std::clamp((now - stream.last_ns) / 1e9f, cut_aware ? 0.f : 1.f / 240.f, 0.1f)
+         : 1.f / 60.f;
+     stream.last_ns = now;
++    plan.frame_seconds = frame_seconds;
+     const float attack = stable ? s.norm_attack_stops * frame_seconds : s.norm_slew_stops;
+     const float release = stable ? s.norm_release_stops * frame_seconds : 0.f;
+     plan.governor[0] = bits(mode == 0u ? 0.f : attack);
+     plan.governor[1] = bits(snap ? 1.f : 0.f);
+     plan.governor[3] = bits(release);
+     plan.governor[4] = mode;
+-    plan.guarded = feed == kFeedTexture && s.feed_mode == 0u;
++    plan.guarded = (feed == kFeedTexture || feed == kFeedHold) && s.feed_mode == 0u;
+     // v6_exposure_scale's snap leaves out cut-aware's Reset re-prime, which is v1's.
+-    plan.v2_snap = prime || feed_change || (reset_snap && !cut_aware);
++    // Hold and normal feed transitions preserve can_hold in shader, so v2_snap is false.
++    plan.v2_snap = prime || (reset_snap && !cut_aware);
+     return plan;
+ }
+ 
+@@ -428,6 +446,22 @@ std::map<uint32_t, VkDescriptorType> reflect(const std::vector<uint32_t>& code)
+ 
+ }  // namespace
+ 
++struct Stage::ExposureState {
++    VkDevice device{};
++    Image commit, continuity;
++    NormStream norm;
++    uint8_t hdr{};
++    codec::SourceUnits units;
++    bool cleared = false;
++    ~ExposureState() {
++        for (Image* im : {&commit, &continuity}) {
++            if (im->view) vkDestroyImageView(device, im->view, nullptr);
++            if (im->handle) vkDestroyImage(device, im->handle, nullptr);
++            if (im->memory) vkFreeMemory(device, im->memory, nullptr);
++        }
++    }
++};
++
+ struct Stage::Impl {
+     VkDevice device{};
+     VkPhysicalDevice physical{};
+@@ -443,12 +477,12 @@ struct Stage::Impl {
+ 
+     enum P { kLinearize, kAutoscale, kExposureScale, kEncode6, kResolve6, kReduce6, kReduce6Unshaped, kCommit6,
+              kCommitExposure, kEncodeL, kDecodeL, kReduceL, kReduceLUnshaped, kApplyL, kCompose, kUpsample, kBand,
+-             kPrep, kPrepEncode, kResolveCommit6, kCount };
++              kPrep, kPrepEncode, kResolveCommit6, kFeedTransition, kCount };
+     Program programs[kCount];
+ 
+     // The stack's ping-pong: HDR resolves pass k into work_a / work_b (k even / odd), SDR decodes into
+     // decoded / decoded_alt. The second of each is made when a stack first needs it.
+-    Image original, work0, work_a, work_b, proxy, neural, look_out, decoded, decoded_alt, block_mean, scale, commit;
++    Image original, work0, work_a, work_b, proxy, neural, look_out, decoded, decoded_alt, block_mean, scale;
+     Image up_proxy, up_neural;     // look_upsample's P_up and N'_up at the frame's extent (network below it)
+     Image band_a, band_b, band_max_a, band_max_b;   // the look's bands at half the network's extent, when wanted
+     // Preprocess: what the network is shown, made from the pass's running image (HDR) or the kept proxy (SDR),
+@@ -478,14 +512,86 @@ struct Stage::Impl {
+     uint32_t logged_passes = 1;
+     Image motion;                  // the game's motion vectors, copied (region at the origin)
+     Image exposure;                // texel (0,0) of the game's exposure texture, copied
+-    bool commit_cleared = false;
++    ExposureSnapshot exposure_state;
+     bool decoded_storage = false;  // decoded is the output's own format (else RGBA16F + blit)
+-    NormStream norm;
+     std::vector<std::pair<uint64_t, Image>> retired;
+     std::vector<std::pair<uint64_t, VkDescriptorSet>> retired_sets;
      std::vector<VkImage> fresh;    // made, not yet in GENERAL
      std::map<std::string, VkDescriptorSet> sets;
      uint64_t recordings = 0;
@@ -105,7 +221,7 @@
      // Per frame.
      Frame6 f6;
      uint32_t feed = kFeedV1;       // this frame's
-@@ -541,6 +615,7 @@
+@@ -509,6 +615,7 @@ struct Stage::Impl {
          vi.image = im.handle; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = f;
          vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
          check(vkCreateImageView(device, &vi, nullptr, &im.view), "view");
@@ -113,7 +229,7 @@
          fresh.push_back(im.handle);
          return im;
      }
-@@ -566,6 +641,7 @@
+@@ -534,6 +641,7 @@ struct Stage::Impl {
          check(vkBindBufferMemory(device, *buffer, *memory, 0), "bind");
      }
      void destroy(Image& im) {
@@ -121,7 +237,7 @@
          if (im.view) vkDestroyImageView(device, im.view, nullptr);
          if (im.handle) vkDestroyImage(device, im.handle, nullptr);
          if (im.memory) vkFreeMemory(device, im.memory, nullptr);
-@@ -613,7 +689,8 @@
+@@ -581,7 +689,8 @@ struct Stage::Impl {
      VkDescriptorSet set_for(const Program& p, const std::map<uint32_t, VkImageView>& views,
                              const std::map<uint32_t, VkBuffer>& buffers, VkDescriptorPool from = VK_NULL_HANDLE) {
          VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -131,7 +247,7 @@
          VkDescriptorSet set{};
          check(vkAllocateDescriptorSets(device, &ai, &set), "descriptor set");
          std::vector<VkDescriptorImageInfo> ii;
-@@ -649,6 +726,7 @@
+@@ -617,6 +726,7 @@ struct Stage::Impl {
          std::string key = std::to_string(int(p));
          for (const auto& [b, v] : views) key += "," + std::to_string(b) + ":" + std::to_string(uint64_t(v));
          for (const auto& [b, v] : buffers) key += ";" + std::to_string(b) + ":" + std::to_string(uint64_t(v));
@@ -139,7 +255,7 @@
          const auto it = sets.find(key);
          if (it != sets.end()) return it->second;
          const VkDescriptorSet set = set_for(programs[p], views, buffers);
-@@ -661,18 +739,18 @@
+@@ -629,18 +739,18 @@ struct Stage::Impl {
      // and the sets naming them (the linearize's, the commit's, each pass's compose) are this recording's only - a
      // game's image handle can come back for another image once the game frees it - and are freed once the frames in
      // flight are past them, as the retired images are.
@@ -162,7 +278,7 @@
              VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 8 * kSets},
                                              {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 12 * kSets},
                                              {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * kSets}};
-@@ -709,14 +787,41 @@
+@@ -677,14 +787,41 @@ struct Stage::Impl {
          std::map<std::string, std::pair<double, uint32_t>> acc;
      } prof;
      void mark(VkCommandBuffer cmd, const std::string& name) {
@@ -207,7 +323,7 @@
          if (!prof.pool) {
              VkPhysicalDeviceProperties props{};
              vkGetPhysicalDeviceProperties(physical, &props);
-@@ -730,21 +835,29 @@
+@@ -698,21 +835,29 @@ struct Stage::Impl {
          mark(cmd, "start");
      }
      void prof_end() {
@@ -242,7 +358,7 @@
          if (prof.frames % prof.every == 0) {
              const double frames = double(prof.acc[prof.order.front()].second);
              std::string line = "[nr] RenoDX stage time a frame (ms):";
-@@ -762,6 +871,7 @@
+@@ -730,6 +875,7 @@ struct Stage::Impl {
              prof.acc.clear();
              prof.order.clear();
          }
@@ -250,7 +366,7 @@
      }
  
      void dispatch(VkCommandBuffer cmd, P p, VkDescriptorSet set, const void* push, uint32_t bytes, uint32_t x, uint32_t y) {
-@@ -810,6 +924,7 @@
+@@ -778,6 +924,7 @@ struct Stage::Impl {
      // An image out of use: destroyed once frames in flight are past it, with every kept set (one may name it).
      void retire(Image& im) {
          if (im.handle) {
@@ -258,7 +374,28 @@
              retired.push_back({recordings + 64, im});
              for (const auto& [key, set] : sets) retired_sets.push_back({recordings + 64, set});
              sets.clear();
-@@ -1078,6 +1193,8 @@
+@@ -993,6 +1140,7 @@ Stage::Stage(const HostDevice& host, const StageConfig& cfg) : impl_(std::make_u
+         m.load(m.programs[Impl::kLinearize], "v6_linearize", v6);
+         m.load(m.programs[Impl::kAutoscale], "v6_autoscale", v6);
+         m.load(m.programs[Impl::kExposureScale], "v6_exposure_scale", 7 * 4);
++        m.load(m.programs[Impl::kFeedTransition], "v6_feed_transition", 5 * 4);
+         m.load(m.programs[Impl::kCommitExposure], "v6_commit_exposure", v6);
+         m.load(m.programs[Impl::kEncode6], "v6_encode", v6);
+         m.load(m.programs[Impl::kResolve6], "v6_resolve", v6);
+@@ -1030,7 +1178,11 @@ Stage::Stage(const HostDevice& host, const StageConfig& cfg) : impl_(std::make_u
+         m.work0 = m.make_image(W, H, VK_FORMAT_R16G16B16A16_SFLOAT, rw);
+         m.work_a = m.make_image(W, H, VK_FORMAT_R16G16B16A16_SFLOAT, rw);
+         m.scale = m.make_image(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, rw);
+-        m.commit = m.make_image(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, rw);
++        m.exposure_state = std::make_shared<ExposureState>();
++        auto& state = *m.exposure_state;
++        state.device = m.device; state.hdr = m.hdr; state.units = m.units;
++        state.commit = m.make_image(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, rw);
++        state.continuity = m.make_image(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, rw);
+     }
+     m.make_buffer(16 * 1024, &m.unread, &m.unread_memory);
+     m.looks.resize(1);
+@@ -1041,6 +1193,8 @@ Stage::Stage(const HostDevice& host, const StageConfig& cfg) : impl_(std::make_u
  
  Stage::~Stage() {
      Impl& m = *impl_;
@@ -267,12 +404,19 @@
      if (m.prof.pool) vkDestroyQueryPool(m.device, m.prof.pool, nullptr);
      if (m.probe_memory) { vkUnmapMemory(m.device, m.probe_memory); vkFreeMemory(m.device, m.probe_memory, nullptr); }
      if (m.probe) vkDestroyBuffer(m.device, m.probe, nullptr);
-@@ -1105,6 +1222,18 @@
-         if (b) vkDestroyBuffer(m.device, b, nullptr);
-         if (mem) vkFreeMemory(m.device, mem, nullptr);
+@@ -1051,7 +1205,7 @@ Stage::~Stage() {
+         if (b.pool) vkDestroyDescriptorPool(m.device, b.pool, nullptr);
      }
-+}
-+
+     for (Image* im : {&m.original, &m.work0, &m.work_a, &m.work_b, &m.proxy, &m.neural, &m.look_out, &m.decoded,
+-                      &m.decoded_alt, &m.block_mean, &m.scale, &m.commit, &m.motion, &m.exposure, &m.up_proxy,
++                      &m.decoded_alt, &m.block_mean, &m.scale, &m.motion, &m.exposure, &m.up_proxy,
+                       &m.up_neural, &m.band_a, &m.band_b, &m.band_max_a, &m.band_max_b, &m.work_p, &m.prep_keep})
+         m.destroy(*im);
+     for (auto& pl : m.looks)
+@@ -1070,6 +1224,18 @@ Stage::~Stage() {
+     }
+ }
+ 
 +void Stage::begin_recording_resources() {
 +    if (impl_->recording_resources) throw std::logic_error("nested RenoDX recording resource scope");
 +    impl_->recording_resources = std::make_shared<Impl::RecordingResources>(impl_->device);
@@ -283,6 +427,192 @@
 +std::shared_ptr<void> Stage::end_recording_resources() {
 +    impl_->recording_profile.reset();
 +    return std::move(impl_->recording_resources);
++}
++
+ namespace {
+ // RenoDX's SettingEffect: a change of a kHistory setting restarts every history (RequestHistoryReset), of a
+ // kRecreate one recreates the features (RecreateFeatures). The keys as RenoDX's own table marks them, those this
+@@ -1121,6 +1287,25 @@ Stage::Facts Stage::facts() const {
+     return f;
  }
  
- namespace {
++Stage::ExposureSnapshot Stage::exposure_state() const {
++    return impl_->exposure_state && impl_->exposure_state->cleared ? impl_->exposure_state : nullptr;
++}
++
++bool Stage::seed_from(const ExposureSnapshot& state) {
++    Impl& m = *impl_;
++    if (!state || !state->cleared || m.recordings || !m.exposure_state ||
++        state->device != m.device || state->hdr != m.hdr ||
++        state->units.absolute != m.units.absolute || state->units.encoding != m.units.encoding ||
++        state->units.unit_nits != m.units.unit_nits || state->units.bt2020 != m.units.bt2020) return false;
++    // Neither image of the candidate has been recorded yet. Remove its fresh-layout entries
++    // before releasing it. The shared images stay GENERAL on the session's execution queue.
++    const auto unused = m.exposure_state;
++    for (VkImage image : {unused->commit.handle, unused->continuity.handle})
++        m.fresh.erase(std::remove(m.fresh.begin(), m.fresh.end(), image), m.fresh.end());
++    m.exposure_state = state;
++    return true;
++}
++
+ void working_resolution(const Settings& s, uint32_t rw, uint32_t rh, uint32_t gw, uint32_t gh, uint32_t* nw,
+                         uint32_t* nh) {
+     if (s.follow_input_res && gw != 0 && gh != 0) {
+@@ -1321,16 +1506,18 @@ uint32_t Stage::record(VkCommandBuffer cmd, const StageFrame& fr, const Network&
+         m.feed = kFeedV1;
+         if (!m.units.absolute && !prep_exposure) {
+             // 2b. this frame's scale texel: the v1 meter and the governor (feed v1).
+-            if (!m.commit_cleared) {
++            auto& state = *m.exposure_state;
++            if (!state.cleared) {
+                 Impl::memory_barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                      VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+                 const VkClearColorValue zero{};
+                 const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+-                vkCmdClearColorImage(cmd, m.commit.handle, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
++                vkCmdClearColorImage(cmd, state.commit.handle, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
++                vkCmdClearColorImage(cmd, state.continuity.handle, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+                 Impl::memory_barrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+-                m.commit_cleared = true;
++                state.cleared = true;
+             }
+             // The float formats v6_exposure_scale reads (.r), as RenoDX's Vulkan path lists them.
+             bool readable = false;
+@@ -1343,7 +1530,10 @@ uint32_t Stage::record(VkCommandBuffer cmd, const StageFrame& fr, const Network&
+                 default:
+                     break;
+             }
+-            m.feed = select_feed(s, m.hdr, m.units, readable, fr.auto_exposure || !fr.create_flags_known);
++            const bool norm_reset = fr.reset && !fr.preserve_normalization;
++            if (norm_reset) state.norm.last_texture_ns = 0;
++            m.feed = select_feed(s, m.hdr, m.units, readable, fr.auto_exposure,
++                                 state.norm, now_ns(), fr.create_flags_known);
+             m.facts.feed = m.feed == kFeedV1 ? 0 : m.feed == kFeedTexture ? 1 : 2;
+             m.facts.exposure_texture = !fr.exposure.image ? 0 : readable ? 1 : 2;
+             if (m.feed != m.logged_feed) {   // SelectFeed's line, once per decision
+@@ -1351,19 +1541,21 @@ uint32_t Stage::record(VkCommandBuffer cmd, const StageFrame& fr, const Network&
+                 nr::logf("[nr] RenoDX stage: NR feed %s (NRFeedMode=%u; exposure texture %s, auto exposure %s, "
+                          "pre-exposure %.4g, exposure scale %.4g)",
+                          m.feed == kFeedV1 ? "v1 (the content meter)" : m.feed == kFeedTexture ? "v2 (the game's exposure)"
+-                                                                                       : "v2 (fixed 1)",
++                                                                       : m.feed == kFeedHold ? "v2 (held exposure)"
++                                                                       : "v2 (fixed 1)",
+                          s.feed_mode, !fr.exposure.image ? "none" : readable ? "readable" : "unreadable",
+                          !fr.create_flags_known ? "unknown" : fr.auto_exposure ? "1" : "0", fr.pre_exposure,
+                          fr.exposure_scale);
+             }
+-            const ScalePlan plan = plan_frame_scale(s, m.norm, fr.reset, m.feed, m.recreate || m.history_reset);
++            const ScalePlan plan = plan_frame_scale(s, state.norm, norm_reset, m.feed,
++                !fr.preserve_normalization && (m.recreate || m.history_reset));
+             if (m.feed == kFeedV1 || plan.guarded) {
+                 V6Constants meter = make_v6(s, m.f6, 1, 1, W, H, 1, 1, 1, 1, 0.f, 0.f, 0.f);
+                 meter.divisor = 0.f; meter.pedestal_cap = 0.f; meter.encoding = 1u; meter.dark_gate = 0.f;
+                 std::memcpy(&meter.slew_stops, plan.governor, sizeof plan.governor);
+                 m.dispatch(cmd, Impl::kAutoscale,
+                            m.S(Impl::kAutoscale, {{0, metered.view}, {1, metered.view}, {2, metered.view},
+-                                                  {3, metered.view}, {4, m.scale.view}, {5, m.commit.view}}),
++                                                  {3, metered.view}, {4, m.scale.view}, {5, state.commit.view}}),
+                            &meter, sizeof meter, 1, 1);
+             }
+             if (m.feed != kFeedV1) {
+@@ -1390,16 +1582,29 @@ uint32_t Stage::record(VkCommandBuffer cmd, const StageFrame& fr, const Network&
+                 }
+                 // v6_exposure_scale's own cbuffer view: dwords 0..6. The fixed feed reads no texture: the metered
+                 // image fills the slot, as RenoDX's own sets do.
+-                const uint32_t feed_constants[7] = {texture ? uint32_t(kFeedTexture) : uint32_t(kFeedFixed),
++                const uint32_t feed_source = (m.feed == kFeedTexture && readable) ? uint32_t(kFeedTexture)
++                                           : (m.feed == kFeedHold) ? uint32_t(kFeedHold)
++                                           : uint32_t(kFeedFixed);
++                const uint32_t feed_constants[7] = {feed_source,
+                                                     bits(fr.pre_exposure > 0.f ? fr.pre_exposure : 1.f),
+                                                     bits(fr.exposure_scale > 0.f ? fr.exposure_scale : 1.f),
+                                                     bits(plan.v2_snap ? 1.f : 0.f), plan.guarded ? 1u : 0u, W, H};
+                 const VkImageView tex = texture ? m.exposure.view : metered.view;
+                 m.dispatch(cmd, Impl::kExposureScale,
+                            m.S(Impl::kExposureScale, {{0, tex}, {1, metered.view}, {2, tex}, {3, tex}, {4, m.scale.view},
+-                                                      {5, m.commit.view}}),
++                                                      {5, state.commit.view}}),
+                            feed_constants, sizeof feed_constants, 1, 1);
+             }
++            // Join the two independently governed feeds at the actual codec divisor. Normal game
++            // exposure remains unfiltered after the bounded source-change transition completes.
++            struct TransitionPush { uint32_t feed, reset; float attack, release, dt; } transition {
++                m.feed, norm_reset ? 1u : 0u,
++                std::max(0.01f, s.norm_attack_stops), std::max(0.01f, s.norm_release_stops),
++                plan.frame_seconds
++            };
++            m.dispatch(cmd, Impl::kFeedTransition,
++                       m.S(Impl::kFeedTransition, {{4, m.scale.view}, {5, state.continuity.view}}),
++                       &transition, sizeof transition, 1, 1);
+         }
+     }
+ 
+@@ -1652,7 +1857,7 @@ uint32_t Stage::record(VkCommandBuffer cmd, const StageFrame& fr, const Network&
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
+     m.mark(cmd, "copy-out");
+     // the engine-data panel's divisor (Facts::divisor): the scale texel, every 32nd frame
+-    if (m.hdr && !m.units.absolute && m.scale.handle && (m.recordings & 31u) == 1u) {
++    if (m.cfg.collect_facts && m.hdr && !m.units.absolute && m.scale.handle && (m.recordings & 31u) == 1u) {
+         if (!m.probe) {
+             VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+             bi.size = 256; bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+diff --git a/windows/src/core/nr_renodx.hpp b/windows/src/core/nr_renodx.hpp
+index 70087afbd8217cf7c6e3fd4b4224a91af0b30974..e9a63be1476c5f9bf967057dd243e76aad514fdb 100644
+--- a/windows/src/core/nr_renodx.hpp
++++ b/windows/src/core/nr_renodx.hpp
+@@ -12,6 +12,8 @@
+ //   commit] -> the frame's output. A chain whose every pass is at zero strength leaves the frame as it is.
+ //
+ // Off by default; a runtime without a stage records exactly what it recorded before.
++// Product extension: temporary exposure Hold and a source-transition pass preserve the
++// actual applied divisor; compatible network replacements share only the small meter state.
+ #include "nr_runtime.hpp"
+ 
+ #include <cstdint>
+@@ -127,6 +129,9 @@ void working_resolution(const Settings& s, uint32_t reference_width, uint32_t re
+ inline constexpr uint32_t kContractDebounceFrames = 30;
+ 
+ struct StageConfig {
++    // Optional engine-panel GPU readback; an owned host without a Facts
++    // consumer can skip the allocation, copy and barriers entirely.
++    bool collect_facts = true;
+     std::string shaders;              // the directory holding renodx_*.spv
+     uint32_t width{}, height{};       // the frame
+     uint32_t nr_width{}, nr_height{}; // the network's extent (the proxy and its answer)
+@@ -147,6 +152,7 @@ struct StageFrame {
+     ColourFrame colour;     // read
+     ColourFrame output;     // written; may be the same image as `colour`
+     bool reset = false;     // DLSSNR.Reset
++    bool preserve_normalization = false; // network/extent history reset, not a camera/queue reset
+     bool after_upscale = true;
+     // The game's motion vectors, for Detail stability: the region (x, y, motion.width/height) of the
+     // texture and the scale that turns a texel into normalised screen units (EngineFrame's convention).
+@@ -178,11 +184,26 @@ public:
+     Stage(const Stage&) = delete;
+     Stage& operator=(const Stage&) = delete;
+ 
++    // Opt-in retained command-list resources; end on success and failure. Nested
++    // begins throw; end without begin is empty. Keep the handle through every
++    // execution and until replay is impossible, then release it before this Stage.
++    // Caller images, execution ordering and temporal state remain host-owned.
++    // Unscoped recordings retain their original rings and retirement policy.
++    void begin_recording_resources();
++    std::shared_ptr<void> end_recording_resources();
++
+     // The settings for the next frame (read once per frame).
+     void set(const Settings&);
+     // 0 SDR (legacy codec), 1 linear HDR, 2 PQ: what this frame format and flag resolve to.
+     uint8_t hdr_mode() const;
+ 
++    // Small, independently owned GPU state. The adapter keeps it across network retirement;
++    // stages use it on the same execution queue and retain it through their GPU retirement.
++    struct ExposureState;
++    using ExposureSnapshot = std::shared_ptr<ExposureState>;
++    ExposureSnapshot exposure_state() const;
++    bool seed_from(const ExposureSnapshot& state);
++
+     // The network for one pass of the stack: reads `proxy`, writes its answer into `neural` (both
+     // StageConfig::nr_width x nr_height, RGBA16F); `reset` restarts that pass's history.
+     using Network = std::function<void(uint32_t pass, const ColourFrame& proxy, const ColourFrame& neural, bool reset)>;

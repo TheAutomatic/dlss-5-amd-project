@@ -1,12 +1,30 @@
 diff --git a/linux/build/build_network.py b/linux/build/build_network.py
-index 1b1ced47f16f63b0c8e3b81ff803b861317085cc..e569916fd03f4d89c293ac169f486422a8e8a855 100644
+index 2d232c901040fbd534502f79f50ae3e6a72c9745..e569916fd03f4d89c293ac169f486422a8e8a855 100644
 --- a/linux/build/build_network.py
 +++ b/linux/build/build_network.py
-@@ -42,7 +42,12 @@ RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NA
-                     'runtime_planA_convert_r11g11b10': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
-                     'runtime_planA_convert_rgba16f': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
-                     'runtime_planA_unconvert_r11g11b10': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
--                    'runtime_planA_unconvert_rgba16f': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0'])}
+@@ -24,15 +24,35 @@ import sys
+ from pathlib import Path
+ 
+ R = Path(__file__).resolve().parents[2]
++GLSLANG = R / 'toolchain/glslang/bin/glslang'
+ RUNTIME = ['runtime_alpha', 'runtime_encode', 'runtime_transfer', 'runtime_upscale', 'runtime_prep', 'runtime_depth', 'cascade_lograt', 'cascade_blur', 'cascade_feed',
+            'runtime_downscale', 'runtime_taps']
+ # runtime passes built from another pass's source with defines: name -> (source, defines)
+-RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NATIVE'])}
++# runtime_planA_convert_* / runtime_planA_unconvert_* are Plan A's input/output passes, one per destination format: a storage image's
++# format qualifier is a compile-time property of the module, so the game format (known only at run time) is
++# substituted by PLAN_A_DST_FORMAT. This table must stay in step with the Windows-side table of the same name.
++RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NATIVE']),
++                    'runtime_pack_u8': ('runtime_alpha', ['NR_PACK_U8']),
++                    'runtime_pack_f16': ('runtime_alpha', ['NR_PACK_F16']),
++                    'runtime_pack_r11': ('runtime_alpha', ['NR_PACK_R11']),
++                    'runtime_pack_u8_bgra': ('runtime_alpha', ['NR_PACK_U8_BGRA']),
++                    'runtime_pack_u10': ('runtime_alpha', ['NR_PACK_U10']),
++                    'runtime_pack_u10_bgra': ('runtime_alpha', ['NR_PACK_U10_BGRA']),
++                    'runtime_unpack_f16': ('runtime_alpha', ['NR_UNPACK_F16']),
++                    'runtime_planA_convert_r11g11b10': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
++                    'runtime_planA_convert_rgba16f': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
++                    'runtime_planA_unconvert_r11g11b10': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
 +                    'runtime_planA_unconvert_rgba16f': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
 +                    # motion-vector rescale on compute (NrInlineComputeMotion), one module per motion format
 +                    'runtime_mv_rescale_rg16f': ('runtime_mv_rescale', ['MV_DST_FORMAT=rg16f']),
@@ -16,6 +34,25 @@ index 1b1ced47f16f63b0c8e3b81ff803b861317085cc..e569916fd03f4d89c293ac169f486422
  MOTION = ['motion_luma', 'motion_estimate']
  
  
+ def glslang(arch, src, defines, out):
+-    cmd = [str(R / 'toolchain/glslang/bin/glslang'), '-V', '--target-env', 'vulkan1.3',
++    cmd = [str(GLSLANG), '-V', '--target-env', 'vulkan1.3',
+            '-I' + str(R / 'linux/shaders' / arch / 'include'), '-I' + str(R / 'linux/shaders/passes/include')]
+     cmd += ['-D' + d for d in defines] + [str(src), '-o', str(out)]
+     r = subprocess.run(cmd, capture_output=True, text=True)
+@@ -46,7 +66,12 @@ def main():
+     ap.add_argument('--int4', action='store_true')
+     ap.add_argument('--out', type=Path)
+     ap.add_argument('--check', type=Path)
++    ap.add_argument('--glslang', type=Path, default=None,
++                    help='glslang binary (default: toolchain/glslang/bin/glslang beside this tree)')
+     a = ap.parse_args()
++    global GLSLANG
++    if a.glslang is not None:
++        GLSLANG = a.glslang
+     table = json.loads((R / 'linux/shaders' / a.arch / 'pipelines.json').read_text())
+     if a.int4:
+         i4 = json.loads((R / 'linux/shaders' / a.arch / 'pipelines-int4.json').read_text())
 diff --git a/linux/shaders/passes/runtime_mv_rescale.comp b/linux/shaders/passes/runtime_mv_rescale.comp
 new file mode 100644
 index 0000000000000000000000000000000000000000..1d993d870ed4d28a35b1c3c0a77443d8aa483d31
@@ -44,14 +81,33 @@ index 0000000000000000000000000000000000000000..1d993d870ed4d28a35b1c3c0a77443d8
 +    imageStore(dst, xy, textureLod(src, at / vec2(textureSize(src, 0)), 0.0));
 +}
 diff --git a/windows/build/build_network.py b/windows/build/build_network.py
-index f0023eeb4223ddaa92e02cfc0027c39bcb632696..a941cea09e77aae317df6fcbde688814d8109c2f 100644
+index 52f38d008b6b0b33b9d43a02d9f664a719909544..a941cea09e77aae317df6fcbde688814d8109c2f 100644
 --- a/windows/build/build_network.py
 +++ b/windows/build/build_network.py
-@@ -47,7 +47,12 @@ RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NA
-                     'runtime_planA_convert_r11g11b10': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
-                     'runtime_planA_convert_rgba16f': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
-                     'runtime_planA_unconvert_r11g11b10': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
--                    'runtime_planA_unconvert_rgba16f': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0'])}
+@@ -28,10 +28,31 @@ import sys
+ from pathlib import Path
+ 
+ R = Path(__file__).resolve().parents[2]
++GLSLANG = R / 'toolchain/glslang/bin/glslang'
+ RUNTIME = ['runtime_alpha', 'runtime_encode', 'runtime_transfer', 'runtime_upscale', 'runtime_prep', 'runtime_depth', 'cascade_lograt', 'cascade_blur', 'cascade_feed',
+            'runtime_downscale', 'runtime_taps']
+ # runtime passes built from another pass's source with defines: name -> (source, defines)
+-RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NATIVE'])}
++# runtime_planA_convert_* / runtime_planA_unconvert_* are Plan A's input/output passes, one per destination format: a storage image's
++# format qualifier is a compile-time property of the module, so the game format (known only at run time) is
++# substituted by PLAN_A_DST_FORMAT. Only the formats ColourConvertible accepts are built here; that function
++# and this table must agree, or a frame would be canonicalised with no way to convert the answer back.
++RUNTIME_VARIANTS = {'runtime_transfer_store': ('runtime_transfer', ['NR_STORE_NATIVE']),
++                    'runtime_pack_u8': ('runtime_alpha', ['NR_PACK_U8']),
++                    'runtime_pack_f16': ('runtime_alpha', ['NR_PACK_F16']),
++                    'runtime_pack_r11': ('runtime_alpha', ['NR_PACK_R11']),
++                    'runtime_pack_u8_bgra': ('runtime_alpha', ['NR_PACK_U8_BGRA']),
++                    'runtime_pack_u10': ('runtime_alpha', ['NR_PACK_U10']),
++                    'runtime_pack_u10_bgra': ('runtime_alpha', ['NR_PACK_U10_BGRA']),
++                    'runtime_unpack_f16': ('runtime_alpha', ['NR_UNPACK_F16']),
++                    'runtime_planA_convert_r11g11b10': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
++                    'runtime_planA_convert_rgba16f': ('runtime_planA_convert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
++                    'runtime_planA_unconvert_r11g11b10': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=r11f_g11f_b10f', 'PLAN_A_DST_MAX=65024.0']),
 +                    'runtime_planA_unconvert_rgba16f': ('runtime_planA_unconvert', ['PLAN_A_DST_FORMAT=rgba16f', 'PLAN_A_DST_MAX=65504.0']),
 +                    # motion-vector rescale on compute (NrInlineComputeMotion), one module per motion format
 +                    'runtime_mv_rescale_rg16f': ('runtime_mv_rescale', ['MV_DST_FORMAT=rg16f']),
@@ -61,6 +117,37 @@ index f0023eeb4223ddaa92e02cfc0027c39bcb632696..a941cea09e77aae317df6fcbde688814
  MOTION = ['motion_luma', 'motion_estimate']
  
  
+@@ -45,7 +66,7 @@ UNROLLED = {'fswin_t.comp', 'ffwd3_t.comp', 'attn.comp', 'vit_attn.comp'}
+ def glslang(arch, src, defines, out, unroll=False, network=False):
+     if unroll or (network and QUAD):
+         pre = out.with_suffix('.pre.comp')
+-        r = subprocess.run([str(R / 'toolchain/glslang/bin/glslang'), '-E', '-I' + str(R / 'windows/shaders' / arch / 'include'),
++        r = subprocess.run([str(GLSLANG), '-E', '-I' + str(R / 'windows/shaders' / arch / 'include'),
+                             '-I' + str(R / 'windows/shaders/passes/include')] + ['-D' + d for d in defines] + [str(src)],
+                            capture_output=True, text=True)
+         if r.returncode:
+@@ -58,7 +79,7 @@ def glslang(arch, src, defines, out, unroll=False, network=False):
+             subprocess.run([sys.executable, str(R / 'windows/build/unroll_glsl.py'), str(pre), str(pre)],
+                            check=True, stdout=subprocess.DEVNULL)
+         src, defines = pre, []
+-    cmd = [str(R / 'toolchain/glslang/bin/glslang'), '-V', '--target-env', 'vulkan1.3',
++    cmd = [str(GLSLANG), '-V', '--target-env', 'vulkan1.3',
+            '-I' + str(R / 'windows/shaders' / arch / 'include'), '-I' + str(R / 'windows/shaders/passes/include')]
+     cmd += ['-D' + d for d in defines] + [str(src), '-o', str(out)]
+     r = subprocess.run(cmd, capture_output=True, text=True)
+@@ -77,7 +98,12 @@ def main():
+     ap.add_argument('--check', type=Path)
+     ap.add_argument('--no-quad', action='store_true',
+                     help='keep the pair quantisation loops (windows/build/quad_quant_glsl.py off)')
++    ap.add_argument('--glslang', type=Path, default=None,
++                    help='glslang binary (default: toolchain/glslang/bin/glslang beside this tree)')
+     a = ap.parse_args()
++    global GLSLANG
++    if a.glslang is not None:
++        GLSLANG = a.glslang
+     global QUAD
+     QUAD = not a.no_quad
+     table = json.loads((R / 'windows/shaders' / a.arch / 'pipelines.json').read_text())
 diff --git a/windows/shaders/passes/runtime_mv_rescale.comp b/windows/shaders/passes/runtime_mv_rescale.comp
 new file mode 100644
 index 0000000000000000000000000000000000000000..1d993d870ed4d28a35b1c3c0a77443d8aa483d31
