@@ -52,7 +52,8 @@ struct Counters {
     uint64_t Begin() noexcept { return offered.fetch_add(1, std::memory_order_relaxed) + 1; }
     void Finish(bool postReady, Outcome outcome, const char* reason = nullptr) noexcept {
         calls[postReady ? 1 : 0][unsigned(outcome)].fetch_add(1, std::memory_order_relaxed);
-        if (outcome == Outcome::Rejected || outcome == Outcome::InputRejected)
+        if (outcome == Outcome::Rejected || outcome == Outcome::InputRejected || outcome == Outcome::BridgeBypass ||
+            outcome == Outcome::PrepareFailed)
             rejections[postReady ? 1 : 0][RejectReason(reason)].fetch_add(1, std::memory_order_relaxed);
     }
     Snapshot Read() const noexcept {
