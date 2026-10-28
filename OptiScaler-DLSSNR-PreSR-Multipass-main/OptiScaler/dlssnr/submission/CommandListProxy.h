@@ -71,6 +71,11 @@ IRecordingResources : public IUnknown
     // BeginInlineState this never rejects, scans sources or moves layouts: it only redirects bookkeeping.
     virtual void STDMETHODCALLTYPE BeginPrivateBindings() = 0;
     virtual void STDMETHODCALLTYPE EndPrivateBindings() = 0;
+    // Authoritative input layouts for a stage that consumed the resources through an external
+    // runtime (e.g. FFX) and therefore knows their post-dispatch layouts by contract rather than
+    // by observation. Replaces tombstoned book entries with known states.
+    virtual void STDMETHODCALLTYPE DeclareInputLayouts(UINT count, ID3D12Resource** resources,
+                                                       const D3D12_BARRIER_LAYOUT* layouts) = 0;
     virtual HRESULT STDMETHODCALLTYPE BeginSplitState(UINT count, ID3D12Resource** resources,
                                                        D3D12_RESOURCE_STATES* states) = 0;
     virtual void STDMETHODCALLTYPE TraceNrInputState(const char* backend, uint64_t frame, const char* role,
@@ -224,6 +229,22 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
         if (renderPassActive) return "render pass active";
         if (enhancedBarriersSeen) return "enhanced barriers seen";
         return "eligible";
+    }
+    void STDMETHODCALLTYPE DeclareInputLayouts(UINT count, ID3D12Resource** resources,
+                                               const D3D12_BARRIER_LAYOUT* layouts) override
+    {
+        for (UINT i = 0; resources && layouts && i < count; ++i)
+        {
+            if (!resources[i]) continue;
+            EnhancedBarrierBook::State state {};
+            state.texture = true;
+            state.known = true;
+            state.layout = layouts[i];
+            state.access = D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+            state.legacy = false;
+            state.invalidated = false;
+            enhancedBook.Restore(resources[i], state);
+        }
     }
     bool STDMETHODCALLTYPE CanRecordInline() override
     {

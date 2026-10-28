@@ -13,6 +13,7 @@
 #include "shaders/fsrd_preprocess/FSRDShaderUtils.h"
 #include "MathUtils.h"
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/submission/CommandListProxy.h>
 
 using namespace DirectX;
 using namespace OptiMath;
@@ -1883,6 +1884,34 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
                                       : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             ID3D12Resource* composed = FSRDConvShader->GetCompositionOutput();
 
+            // Re-arm the proxy's layout book before NR reads these inputs: the FFX dispatch
+            // chain managed them with enhanced barriers, which tombstones their entries. FFX
+            // restores each input to the read state this feature declared in its dispatch
+            // descriptions, so that contract is authoritative here, not the tombstone.
+            if (Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> recorder;
+                SUCCEEDED(InCommandList->QueryInterface(IID_PPV_ARGS(&recorder))))
+            {
+                ID3D12Resource* bookInputs[2] = {};
+                D3D12_BARRIER_LAYOUT bookLayouts[2] = {};
+                UINT bookCount = 0;
+                ID3D12Resource* motion = nullptr;
+                ID3D12Resource* depth = nullptr;
+                if (TryGetNGXVoidPointer(*InParameters, NVSDK_NGX_Parameter_MotionVectors, motion) && motion)
+                {
+                    bookInputs[bookCount] = motion;
+                    bookLayouts[bookCount] = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+                    ++bookCount;
+                }
+                if (TryGetNGXVoidPointer(*InParameters, NVSDK_NGX_Parameter_Depth, depth) && depth && bookCount < 2)
+                {
+                    bookInputs[bookCount] = depth;
+                    bookLayouts[bookCount] = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+                    ++bookCount;
+                }
+                if (bookCount)
+                    recorder->DeclareInputLayouts(bookCount, bookInputs, bookLayouts);
+            }
+ 
             ResourceBarrier(InCommandList, composed, composedState, handOver);
             ID3D12Resource* edited = DlssNr::EvaluateAfterDenoise(InCommandList, InParameters, composed);
             ResourceBarrier(InCommandList, composed, handOver, composedState);
