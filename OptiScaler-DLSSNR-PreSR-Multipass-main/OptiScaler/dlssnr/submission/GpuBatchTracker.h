@@ -2,6 +2,8 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <mutex>
+#include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -54,19 +56,31 @@ class Tracker
         entry.list = list;
         entry.generation = GenerationOf(list);
         entries_.push_back(entry);
+        hasEntries_.store(true, std::memory_order_release);
         return entry.ticket;
     }
 
     // Call after the original ExecuteCommandLists returned.
     void OnExecuted(UINT num, ID3D12CommandList* const* lists, ID3D12CommandQueue* queue)
     {
-        if (!queue || !lists)
+        if (!queue || !lists || num == 0 || !hasEntries_.load(std::memory_order_acquire))
             return;
 
         ID3D12Fence* fence = nullptr;
         uint64_t value = 0;
         {
             std::lock_guard lock(mutex_);
+            // Completed tickets may outlive the RR setting. Reap them before deciding
+            // whether this batch needs a fence; never gate retirement on the INI switch.
+            Reap();
+            const bool hasRecording = std::any_of(entries_.begin(), entries_.end(),
+                [num, lists](const Entry& entry) {
+                    return entry.state == Entry::State::Recorded &&
+                           std::find(lists, lists + num,
+                                     static_cast<ID3D12CommandList*>(entry.list)) != lists + num;
+                });
+            if (!hasRecording)
+                return;
             fence = FenceFor(queue);
             if (!fence)
                 return;
@@ -208,8 +222,11 @@ class Tracker
                    (entry.state == Entry::State::Submitted && entry.fence &&
                     entry.fence->GetCompletedValue() >= entry.fenceValue);
         });
+        hasEntries_.store(!entries_.empty(), std::memory_order_release);
     }
 
+    // Published under mutex_; the idle submission path needs only this atomic read.
+    std::atomic<bool> hasEntries_ { false };
     mutable std::mutex mutex_;
     std::vector<Entry> entries_;
     std::vector<std::pair<ID3D12CommandQueue*, Microsoft::WRL::ComPtr<ID3D12Fence>>> fences_;
