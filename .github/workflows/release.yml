@@ -90,56 +90,84 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $body = @'
  
-          ### v1.13.3.5 (对比 v1.13.3.4)
+          ### v1.13.4 (对比 v1.13.3.5)
 
-          **《红色沙漠》split 模式修复**：定位到该游戏 NR 全部被拒的根因，新增 **切分查询拼接**（`NrSplitQuerySplice`）：切分时在前半段补 `EndQuery`、后半段补 `BeginQuery`，画面与 NR 效果完全不受影响；代价是游戏自身的管线统计只覆盖切分后半段（引擎性能统计数字会变），因此默认关闭。当前版本识别到《红色沙漠》时自动开启**允许增强屏障 + 切分查询拼接**，split 开箱即用。已实机验证无异常。
+          提示：本版尚未集成 Mochizuki 0.0.8 及接入我做的 Mochizuki 0.0.7 RDNA3/3.5 ACO 模式，RDNA3 用户可尝试：[离线测试包](https://pan.quark.cn/s/531ec9b4f4e5)
 
-          **原"内联模式"标记为废弃**：参考上条，至此"内联模式"菜单改名为"内联模式（已废弃）"，**功能暂保留**，仅为兼容保留——切分+查询拼接已覆盖其目标场景，新配置建议使用默认模式。
+          ## FSR 光线再生（实验）
 
-          **启动器中文修复**：中文启动器安装/更新后，游戏内 Ins 菜单将自动切换为中文（此前写错 ini 键名导致静默失效）。已在游戏内手动选过语言的用户不受影响。
+          感谢 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 与 [burak113/OptiScaler (ffx-denoise-experimental)](https://github.com/burak113/OptiScaler/tree/ffx-denoise-experimental) 的原始实现。
 
-          **启动器模型来源选择**：安装 Mochizuki 时若所需模型不可用（未安装且无法从包内提取），模型选择对话框内现可直接**选择模型来源 DLL…**（`nvngx_dlssnr.dll`，Small 需 310.9.16）进行离线提取并继续安装，无需取消后重新操作。
+          在受支持的 AMD 显卡上接管游戏的 NVIDIA DLSS光线重构请求，使用 FidelityFX RR 1.2 降噪 + FFX 超分完整重建管线。这是本项目首次在 AMD 平台提供完整的降噪-超分链路，替代此前"DLSS光线重构请求静默退化为纯超分"的行为。
 
-          **配置模板整理**：`OptiScaler.ini` 模板 `[DlssNr]` 段补全 8 个缺失键的说明（含内联槽位数、显示曲线、Daniel 调度等），修正 3 处注释错误（含提前接管自动规则的过时描述），RenoDX 家族约 60 个键全部补齐逐键注释。
+          **硬件与系统要求**：RX 9000 系列（RDNA 4）、Windows 11、DirectX 12。降噪 DLL（`amd_fidelityfx_denoiser_dx12.dll`）已包含在完整包中，无需额外下载。RR 1.2 之外的版本（如 1.1）会被明确拒绝并在日志中说明原因。
 
-          **安装与权重**
+          **启用方式**：`OptiScaler.ini` 中 `[FSR-RR] Enabled = true`（默认关闭），或在 Ins 菜单 Upscalers 页勾选 "Enable FSR Ray Regeneration"。游戏需显示 DLSS/RR 选项——大部分游戏需要开启 DXGI 伪装（`[Spoofing] Dxgi = true`）才能在 AMD 显卡上看到该选项。
+
+          **RR 帧 NR 串联**：FSR 光线再生帧现在支持完整 NR 链路。`[DlssNr] ApplyAfterRR = true` 时，NR 在降噪输出和超分之间运行（渲染分辨率）；关闭时 RR+SR 直接输出，两者不受影响。
+
+          **GPU 资源退役追踪**：引入基于队列批次 fence 的 GPU 资源退役机制（GpuBatchTracker），替代此前的固定槽数假设和两秒定时器。常量环槽和整个 RR 上下文在实际 GPU 完成或明确丢弃后才允许覆写或释放。极端管线积压时帧会失败并自愈，不会静默损坏。
+
+          ## 菜单
+
+          Upscalers 页新增 FSR 光线再生面板（版本不匹配告警、降噪参数滑条、诊断开关）。`[FSR-RR]` 全部 INI 键现已支持菜单保存回写。
+
+          ### 安装与权重
 
           - 完整解压并运行新包 `Setup.bat` 打开图形化启动器更新整包，建议使用覆盖安装。
           - Mochizuki 0.0.7、lmxxf 0.44：启动器将从您自备的官方原版 `nvngx_dlssnr.dll`（请勿使用社区魔改版！）提取 FP8、INT4 或 Small 模型。
           - Daniel 0.6.0：额外从 [danielblnc发布页](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) 获取运行文件。
+          - FSR 光线再生不需要额外模型或 DLL——降噪 DLL 已在包内，模型由游戏引擎自带的 G-Buffer/光照信号驱动。
 
-          **已知问题**
+          ### 已知问题
 
-          - 日志出现 `open_query` 拒绝的其他游戏：菜单"兼容性与调度"同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）即可使用 split。
-          - 当前新模型下与 mochizuki 原版的性能差距已尽可能趋同，追求极致帧数仍可[优先尝试原版](https://github.com/mochizuki0323/DLSSNR-AMD)。
-          - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性；lmxxf 时序模式与 ViT 自适应复用互斥，Mode 2/3 不支持多层。
-          - 开 FG 后 NR 无效果/闪烁（`missing recording proxy`）：提前接管改 force on 并重启；XeFG 入场闪退：就绪帧数设 30；`enhanced_barrier` 拒绝：允许增强屏障改 force on（即时生效）。
+          - FSR 光线再生为实验功能，默认关闭；确认设备/游戏兼容性后将另行决定默认值。
+          - FSR 光线再生需开启 DXGI 伪装才能在多数游戏中看到 DLSS/RR 选项；部分游戏开伪装后可能报"不支持的 GPU"。
+          - FSR 光线再生相比游戏内建 FSR 路径慢约 1.5–3 fps（实测《红色沙漠》约 20 vs 22 fps @1440p→4K）。后续将按实测逐 pass 优化。
+          - 仅支持 DX12 + 非 NVIDIA + RX 9000 系列；DX11/Vulkan/Intel/旧 AMD RR 不在当前范围。
+          - 日志出现 `GpuBatch: forced retirement` 告警：表示 GPU 管线极端积压触发了退化路径；正常游戏不应出现，出现请附日志报告。
+          - 日志出现 `open_query` 拒绝：菜单"兼容性与调度"同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）。
+          - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
           ---
 
-          ### v1.13.3.5 (vs v1.13.3.4)
+          ### v1.13.4 (vs v1.13.3.5)
 
-          **Crimson Desert split fix**: identified the root cause of every NR recording being rejected in this title, and added **Split query splice** (`NrSplitQuerySplice`): the split ends the open query pair on the producer half with an `EndQuery` and reopens it with a `BeginQuery` on the continuation. The image and NR output are unaffected; the trade-off is that the game's own pipeline statistics then cover only the post-split half (engine profiler numbers change), so it defaults to off. This version auto-enables **Allow enhanced barriers + Split query splice** when Crimson Desert is detected — split works out of the box. Field-verified with no anomalies.
+          Note: this release does not yet integrate Mochizuki 0.0.8 or my Mochizuki 0.0.7 RDNA3/3.5 ACO mode. RDNA3 users can try: [offline test package](https://gofile.io/d/QWbV5Zu1)
 
-          **Inline mode marked deprecated**: following the fix above, the menu entry is renamed to "Inline mode (deprecated)"; the feature **remains functional** for compatibility. Split plus query splicing covers its target scenario; new setups should use the default (split) mode.
+          ## FSR Ray Regeneration (experimental)
 
-          **Launcher language fix**: after installing/updating with a Chinese-language launcher, the in-game Ins menu now switches to Chinese automatically (a wrong ini key name previously made this fail silently). Users who already picked a language in-game are not affected.
+          Credits to [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) and [burak113/OptiScaler (ffx-denoise-experimental)](https://github.com/burak113/OptiScaler/tree/ffx-denoise-experimental) for the original implementation.
 
-          **Launcher model source selection**: while installing Mochizuki, if a required model is unavailable (not installed and not extractable from the package), the model-selection dialog now offers **Choose model source DLL…** directly (`nvngx_dlssnr.dll`; Small requires 310.9.16) for offline extraction, then continues the install without starting over.
+          Takes over the game's NVIDIA Ray Reconstruction requests on supported AMD GPUs, running the full FidelityFX RR 1.2 denoising + FFX upscaling pipeline. This is the first time this project provides a complete denoise-upscale chain on AMD for Ray Reconstruction workloads, replacing the previous behaviour where RR requests silently degraded to plain upscaling.
 
-          **INI template cleanup**: the `[DlssNr]` section of the `OptiScaler.ini` template documents 8 previously missing keys (inline slots, display curve, Daniel scheduling, etc.), corrects 3 wrong comments (including a stale early-wrap auto-rule description), and adds per-key comments for the ~60-key RenoDX family.
+          **Hardware and OS requirements**: RX 9000 series (RDNA 4), Windows 11, DirectX 12. The denoiser DLL (`amd_fidelityfx_denoiser_dx12.dll`) ships in the full package — no extra download needed. Provider versions other than RR 1.2 (such as 1.1) are rejected with a clear log message.
 
-          **Installation and models**
+          **How to enable**: set `[FSR-RR] Enabled = true` in `OptiScaler.ini` (default off), or check "Enable FSR Ray Regeneration" under the Upscalers page of the Ins menu. The game must offer its DLSS/RR option — most titles need DXGI spoofing (`[Spoofing] Dxgi = true`) to show it on AMD.
+
+          **NR on RR frames**: FSR Ray Regeneration frames now support the full NR pipeline. With `[DlssNr] ApplyAfterRR = true`, NR runs between the denoiser output and the upscale (at render resolution); when off, RR+SR output directly and neither pass is affected.
+
+          **GPU resource retirement tracking**: introduces a queue-batch-fence-driven GPU resource retirement mechanism (GpuBatchTracker), replacing fixed slot-count assumptions and the two-second timer. Constant ring slots and the entire RR context are only overwritten or released after the GPU batch that referenced them completes or is provably discarded. Under extreme pipeline backlog, frames fail and self-heal rather than silently corrupting.
+
+          ## Menu
+
+          The Upscalers page gains an FSR Ray Regeneration panel (version mismatch warning, denoiser tuning sliders, diagnostics toggle). All `[FSR-RR]` INI keys now round-trip through menu Save Settings.
+
+          ### Installation and models
 
           - Extract the full package and run `Setup.bat` to update via the graphical launcher; a clean overwrite install is recommended.
-          - Mochizuki 0.0.7 and lmxxf 0.44: the launcher extracts FP8, INT4 or Small models from your own official `nvngx_dlssnr.dll` (do not use community-modified builds!).
+          - Mochizuki 0.0.7 and lmxxf 0.44: the launcher extracts FP8, INT4 or Small models from your own official `nvngx_dlssnr.dll`.
           - Daniel 0.6.0: additionally fetch runtime files from [danielblnc's releases](https://github.com/danielblnc/DLSS-NR-on-AMD).
+          - FSR Ray Regeneration needs no extra models or DLLs — the denoiser ships in the package.
 
-          **Known issues**
+          ### Known issues
 
-          - Other titles logging `open_query` rejections: enable both **Allow enhanced barriers** and **Split query splice** (experimental) under "Compatibility & Scheduling" to use split.
-          - The performance gap versus upstream Mochizuki has been narrowed as far as possible; for absolute maximum framerate, [try the upstream release](https://github.com/mochizuki0323/DLSSNR-AMD) first.
-          - RenoDX cannot be combined with person protection; Linux/Proton support is experimental; lmxxf temporal modes stay mutually exclusive with ViT adaptive reuse (Modes 2/3 single-pass).
-          - NR has no effect or flickers once FG is on (`missing recording proxy`): set Early command-list wrap to force on and restart; XeFG entry-phase crashes: set Ready Frames to 30; `enhanced_barrier` rejections: set Allow enhanced barriers to force on (applies immediately).
+          - FSR Ray Regeneration is experimental and off by default.
+          - FSR Ray Regeneration requires DXGI spoofing for most games to expose their DLSS/RR option; some titles may show an "unsupported GPU" error with spoofing on.
+          - FSR Ray Regeneration is roughly 1.5–3 fps slower than the game's native FSR path (measured in Crimson Desert: ~20 vs 22 fps @1440p→4K). Per-pass optimization is planned.
+          - DX12 + non-NVIDIA + RX 9000 series only; DX11/Vulkan/Intel/older AMD RR are out of scope.
+          - Logs showing `GpuBatch: forced retirement` indicate extreme GPU pipeline backlog; please attach logs if seen.
+          - Other titles logging `open_query` rejections: enable **Allow enhanced barriers** and **Split query splice** under Compatibility & Scheduling.
+          - RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
@@ -201,7 +229,8 @@ jobs:
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK/PrebuiltSignedDLL/amd_fidelityfx_vk.dll',
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_loader_dx12.dll',
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_dx12.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll'
+            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll',
+            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_denoiser_dx12.dll'
           )
           foreach ($d in $deps) {
             if (!(Test-Path $d)) { throw "Submodule content missing: $d (did checkout fetch submodules?)" }
@@ -257,6 +286,12 @@ jobs:
           powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/release/check-module-contract.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+
+      - name: FSRD shader mirror verification
+        shell: pwsh
+        run: |
+          python -B OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/shader_tools/verify_fsrd_mirrors.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compute build cache key
         id: cache_keys
         shell: pwsh
@@ -427,6 +462,7 @@ jobs:
             'OptiScaler/amd_fidelityfx_loader_dx12.dll',
             'OptiScaler/amd_fidelityfx_upscaler_dx12.dll',
             'OptiScaler/amd_fidelityfx_framegeneration_dx12.dll',
+            'OptiScaler/amd_fidelityfx_denoiser_dx12.dll',
             'OptiScaler/amd_fidelityfx_vk.dll',
             'OptiScaler/libxess.dll', 'OptiScaler/libxess_fg.dll', 'OptiScaler/libxell.dll',
             'OptiScaler/D3D12_OptiScaler/D3D12Core.dll',
