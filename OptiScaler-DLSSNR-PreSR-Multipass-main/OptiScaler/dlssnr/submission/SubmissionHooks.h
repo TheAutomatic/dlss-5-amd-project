@@ -1,5 +1,6 @@
 #pragma once
 #include "CommandListProxy.h"
+#include "GpuBatchTracker.h"
 #include "../amd/GraphicsTracker.h"
 #include "SubmissionTls.h"
 #include <detours/detours.h>
@@ -335,10 +336,14 @@ inline void WINAPI hkExecuteCommandLists(ID3D12CommandQueue *queue, UINT num, ID
     if (!IsArmed())
     {
         o_ExecuteCommandLists(queue, num, lists);
+        // FSR-RR slot retirement listens even while the expansion path is disarmed: the
+        // original execution is still the batch its recordings ride on.
+        GpuBatch::Tracker::Instance().OnExecuted(num, lists, queue);
         return;
     }
     const auto between = GetBetween();
     ExecuteExpanded(queue, num, lists, between.fn, between.ctx, o_ExecuteCommandLists);
+    GpuBatch::Tracker::Instance().OnExecuted(num, lists, queue);
 }
 
 inline HRESULT Arm(ID3D12Device *device, ID3D12CommandQueue *queue)

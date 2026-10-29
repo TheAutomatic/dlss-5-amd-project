@@ -6,6 +6,7 @@
 #include "precompile/FSRDFloorSeed_Shader.h"
 #include "precompile/FSRDFloor_Shader.h"
 #include "precompile/FSRDOutputComp_Shader.h"
+#include <dlssnr/submission/GpuBatchTracker.h>
 
 #include "dx12/ffx_api_dx12.h"
 #include "fsr-rr/ffx_denoiser.h"
@@ -81,6 +82,10 @@ struct ComputeState
     ComPtr<ID3D12RootSignature> m_rootSig;
     ComPtr<ID3D12PipelineState> m_pso;
     std::vector<FrameDescriptorHeap> m_frameHeaps;
+    // One retirement stamp per ring slot: a slot's constants and descriptors may only be
+    // overwritten once the batch that recorded them completed (or was discarded). Without
+    // this the ring depth was only an assumption about frames in flight.
+    std::vector<DlssNr::Submission::GpuBatch::Tracker::Stamp> m_slotStamps;
 
     ComPtr<ID3D12Resource> m_constUploadBuffer;
     byte* m_cbMappedData = nullptr;
@@ -158,6 +163,16 @@ struct ComputeState
 
         ScopedSkipHeapCapture skipHeapCapture {};
 
+        // Slot lifetime: wait for the recording that owns this slot before overwriting its
+        // constants and descriptors. The bounded wait degrades with a logged warning on
+        // pathological pipelines rather than corrupting in-flight work.
+        auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
+        if (m_slotStamps.empty())
+            m_slotStamps.resize(backBufferCount);
+        if (!tracker.Retired(m_slotStamps[m_cbCurrentFrameIndex]))
+            tracker.Wait(m_slotStamps[m_cbCurrentFrameIndex], 2000, "FSRD constant slot");
+        m_slotStamps[m_cbCurrentFrameIndex] = tracker.Record(cmdList);
+
         // Constant Buffer Updates
         const UINT currentFrame = m_cbCurrentFrameIndex;
         const UINT currentOffset = currentFrame * m_cbSlotSize;
@@ -165,7 +180,6 @@ struct ComputeState
 
         D3D12_GPU_VIRTUAL_ADDRESS cbAddress = m_constUploadBuffer->GetGPUVirtualAddress() + currentOffset;
         m_cbCurrentFrameIndex = (m_cbCurrentFrameIndex + 1) % backBufferCount;
-
         // Transitions SRV -> UAV
         if (autoBarrierOutput)
             AddBarriers(cmdList, output, outputMips, kSrvState, kUavState);

@@ -688,8 +688,17 @@ static NVSDK_NGX_Result TryCreateOptiFeature(ID3D12GraphicsCommandList* InCmdLis
             upscalerBackend = Upscaler::FSR_RR;
             LOG_INFO("Creating FSR_RR (Ray Regeneration) feature");
         }
+        else if (Config::Instance()->FsrRrEnabled.value_or_default())
+        {
+            // The user asked for FSR-RR takeover on a non-NVIDIA GPU but the denoiser API is not
+            // the implemented RR 1.2. Failing openly beats silently running undenoised RR inputs
+            // through DLSSD's FSR2 fallback. No context exists yet at this point.
+            LOG_ERROR("FSR-RR is enabled but the denoiser API is not implemented (RR 1.2 required)");
+            return NVSDK_NGX_Result_Fail;
+        }
         else
         {
+            // Gate off: native RR routing stays untouched (stock DLSSD path).
             upscalerBackend = Upscaler::DLSSD;
             LOG_INFO("Creating DLSSD (Ray Reconstruction) feature");
         }

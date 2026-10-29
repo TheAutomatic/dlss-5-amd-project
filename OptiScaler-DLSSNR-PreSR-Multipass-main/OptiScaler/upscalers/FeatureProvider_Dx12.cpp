@@ -70,16 +70,18 @@ bool FeatureProvider_Dx12::GetFeature(Upscaler upscaler, UINT handleId, NVSDK_NG
         }
 
     case Upscaler::FSR_RR:
-        if (FfxApiProxy::IsDenoiserApiImplementedDx12())
+        if (FfxApiProxy::IsDenoiserApiImplementedDx12() && Config::Instance()->FsrRrEnabled.value_or_default())
         {
             *feature = std::make_unique<FSRDFeatureDx12>(handleId, parameters);
             break;
         }
         else
         {
-            // FSR-RR has no upscaler fallback: a Ray Reconstruction request without
-            // the denoiser API is a failure, not a quality downgrade.
-            LOG_ERROR("FfxApi denoiser API is not implemented for Dx12");
+            // FSR-RR has no upscaler fallback: a Ray Reconstruction request without the denoiser
+            // API - or with the gate turned off - is a failure, not a quality downgrade.
+            LOG_ERROR("FSR-RR unavailable (denoiser API: {}, gate: {})",
+                      FfxApiProxy::IsDenoiserApiImplementedDx12(),
+                      Config::Instance()->FsrRrEnabled.value_or_default());
             return false;
         }
 
@@ -167,10 +169,11 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
         else if (contextData->featureKey == Upscaler::FSR_RR && !fsrRrCapable)
         {
             // The gate was turned off (or the denoiser API went away) since this context was
-            // created: switch the Ray Reconstruction feature back to the plain FFX backend
-            // instead of recreating FSR-RR behind the user's back.
-            state.newBackend = Upscaler::FFX;
-            contextData->featureKey = Upscaler::FFX;
+            // created. Keep the RR identity: GetFeature refuses FSR-RR without the gate and the
+            // switch fails openly. Rewriting the handle to a plain SR backend would run the
+            // game's undenoised Ray Reconstruction inputs through Super Resolution and report
+            // success, which is exactly the silent downgrade this migration forbids.
+            state.newBackend = Upscaler::FSR_RR;
         }
         else if (state.newBackend != contextData->featureKey)
         {
@@ -263,7 +266,12 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
 
         if (!GetFeature(state.newBackend, handleId, contextData->createParams, &contextData->feature))
         {
-            LOG_ERROR("Upscaler can't created");
+            // FSR-RR can refuse creation (gate off / denoiser API gone). The old feature was
+            // already destroyed at counter 1, so abort the switch here and leave the counter
+            // armed: falling through to counter 3 would dereference the null feature.
+            LOG_ERROR("Upscaler can't be created; backend switch aborted for handle {}", handleId);
+            contextData->changeBackendCounter = 0;
+            state.changeBackend[handleId] = false;
             return false;
         }
 

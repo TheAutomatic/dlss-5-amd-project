@@ -1565,6 +1565,12 @@ bool FSRDFeatureDx12::QueryDenoiserVersions()
 
 void FSRDFeatureDx12::DestroyDenoiserContext()
 {
+    // Retire the last recording before releasing the context and its resources: the batch
+    // that referenced them must complete (or be provably discarded) first. Bounded, and
+    // degrades with a logged warning on pathological pipelines instead of a blind timer.
+    if (_lastRecording.list != nullptr)
+        DlssNr::Submission::GpuBatch::Tracker::Instance().Wait(_lastRecording, 2000, "FSR-RR feature teardown");
+
     if (_pDenoiserCtx != nullptr)
     {
         const uintptr_t contextAddress = reinterpret_cast<uintptr_t>(_pDenoiserCtx);
@@ -1630,6 +1636,11 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
 
     if (!IsInited())
         return false;
+
+    // Whole-instance retirement: every evaluate's recordings (preprocessor slots track
+    // themselves; the denoiser and upscaler dispatches ride this same list) are stamped so
+    // teardown can wait for the batch that referenced this context's GPU resources.
+    _lastRecording = DlssNr::Submission::GpuBatch::Tracker::Instance().Record(InCommandList);
 
     // The application submitted a new evaluation even when a later validation,
     // composition, or upscaler step fails. Keep RR frame indices unique on every
@@ -1873,9 +1884,11 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
                                                        FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
         // NR between the denoise and the upscale (the before-SR placement under FSR-RR): the model
         // sees the composed colour, denoised and still at render resolution, and SR temporally
-        // accumulates the enhanced frame. Honours [DlssNr] RunBeforeSR; when it is off this is a
-        // no-op and the after-upscale seam owns the frame instead.
-        if (isDenoiserReady && !isFfxDebug && Config::Instance()->DlssNrEnabled.value_or_default())
+        // accumulates the enhanced frame. Honours [DlssNr] RunBeforeSR and ApplyAfterRR: RR frames
+        // run NR at exactly one seam or none, and ApplyAfterRR=false must leave the RR+SR output
+        // untouched at BOTH seams (the after-upscale seam declines on its own).
+        if (isDenoiserReady && !isFfxDebug && Config::Instance()->DlssNrEnabled.value_or_default() &&
+            cfg.DlssNrApplyAfterRR.value_or_default())
         {
             constexpr auto composedState =
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;

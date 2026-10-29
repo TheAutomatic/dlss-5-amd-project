@@ -2,6 +2,7 @@
 #include "FSR31Feature_Dx12.h"
 #include "hooks/Streamline_Hooks.h"
 #include "shaders/fsrd_preprocess/FSRDPreprocessor_Dx12.h"
+#include <dlssnr/submission/GpuBatchTracker.h>
 #include <array>
 #include <DirectXMath.h>
 
@@ -69,6 +70,10 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     };
 
     ffxContext _pDenoiserCtx;
+
+    // The batch stamp of the most recent evaluate's command list. Teardown waits on it
+    // before releasing the denoiser context and preprocessor resources.
+    DlssNr::Submission::GpuBatch::Tracker::Stamp _lastRecording {};
     ffxCreateContextDescDenoiser _denoiserCtxDesc;
     // Version parsed from the selected RR provider name. Kept separate from
     // FSR31Feature::_version so the SR upscaler version that Version() reports -
