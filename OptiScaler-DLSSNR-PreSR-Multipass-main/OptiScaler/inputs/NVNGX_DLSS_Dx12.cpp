@@ -1092,13 +1092,7 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
         LOG_ERROR("Handle {} has no feature and no rebuild is pending", handleId);
         return NVSDK_NGX_Result_FAIL_FeatureNotFound;
     }
-    if (feature == nullptr)
-    {
-        // Mid-rebuild (old destroyed, new not yet created or initialized): the switch
-        // state machine advances through ChangeFeature on subsequent evaluates; report
-        // success so the game keeps calling us and the phases run.
-        return NVSDK_NGX_Result_Success;
-    }
+    // A pending rebuild may temporarily have no feature. Continue to ChangeFeature below.
 
     const auto targetApiName =
         !state.setInputApiName.has_value() ? ApiUpscalerInput::DLSS_DX12 : state.setInputApiName.value();
@@ -1167,6 +1161,14 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
             D3D12Hooks::SetRootSignatureTracking(true);
             return NVSDK_NGX_Result_Success;
         }
+    }
+
+    // A completed rebuild must supply a feature before the normal evaluation path.
+    if (feature == nullptr)
+    {
+        D3D12Hooks::SetRootSignatureTracking(true);
+        LOG_ERROR("Handle {} has no feature after backend reconstruction", handleId);
+        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
     }
 
     // Fallback to FSR 2.1.2 if feature failed to initialize and user didn't explicitly request it
