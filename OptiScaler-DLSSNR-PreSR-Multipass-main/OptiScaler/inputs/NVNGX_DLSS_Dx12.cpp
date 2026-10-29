@@ -1082,13 +1082,22 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
 
     if (feature == nullptr) // Prevent source api name flicker when dlssg is active
         state.setInputApiName = state.currentInputApiName;
+    if (feature == nullptr && ctxData.changeBackendCounter == 0 && !state.changeBackend[handleId])
+    {
+        // The handle has no feature and no rebuild is pending: the backend switch's
+        // replacement refused to create (e.g. the FSR-RR gate was turned off). Fail
+        // explicitly instead of dereferencing below and let the game recreate it.
+        // A pending rebuild (counter > 0 or changeBackend armed) must proceed normally:
+        // phase 1 destroys the old feature, phase 2 creates the new one.
+        LOG_ERROR("Handle {} has no feature and no rebuild is pending", handleId);
+        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+    }
     if (feature == nullptr)
     {
-        // A backend switch destroyed the old feature and its replacement refused to
-        // create (e.g. the FSR-RR gate was turned off). The handle has no feature; fail
-        // explicitly instead of dereferencing below and let the game recreate it.
-        LOG_ERROR("Handle {} has no feature after a failed backend switch", handleId);
-        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+        // Mid-rebuild (old destroyed, new not yet created or initialized): the switch
+        // state machine advances through ChangeFeature on subsequent evaluates; report
+        // success so the game keeps calling us and the phases run.
+        return NVSDK_NGX_Result_Success;
     }
 
     const auto targetApiName =

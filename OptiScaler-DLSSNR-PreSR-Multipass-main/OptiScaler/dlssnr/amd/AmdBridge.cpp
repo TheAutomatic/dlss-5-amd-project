@@ -244,6 +244,9 @@ void ExecuteBatch(ID3D12CommandQueue* q, UINT n, ID3D12CommandList* const* c)
     }
     else
         executeOriginal(q, n, c);
+    // The FSR-RR retirement tracker listens on every submission path: the Detours hook
+    // in SubmissionHooks and this product's own queue hook share it.
+    DlssNr::Submission::GpuBatch::Tracker::Instance().OnExecuted(n, c, q);
     {
         std::lock_guard guard(observedMutex);
         if (observedLists.size() > 256)

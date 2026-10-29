@@ -113,7 +113,7 @@ class Tracker
         {
             if (entry.ticket != ticket)
                 continue;
-            if (entry.state == Entry::State::Discarded)
+            if (entry.state == Entry::State::Discarded || entry.state == Entry::State::Completed)
                 return Status::Retired;
             if (entry.state == Entry::State::Submitted && entry.fence &&
                 entry.fence->GetCompletedValue() >= entry.fenceValue)
