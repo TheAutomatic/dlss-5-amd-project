@@ -219,7 +219,11 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
 
             State::Instance().currentFeature = nullptr;
 
-            Util::DelayedDestroy(std::move(contextData->feature));
+            if (contextData->feature && contextData->feature->GetUpscalerType() == Upscaler::FSR_RR)
+                FSRDFeatureDx12::DestroyWhenRetired(
+                    std::unique_ptr<FSRDFeatureDx12>(static_cast<FSRDFeatureDx12*>(contextData->feature.release())));
+            else
+                Util::DelayedDestroy(std::move(contextData->feature));
 
             // LOG_DEBUG("sleeping before reset of current feature for 1000ms");
             // std::this_thread::sleep_for(std::chrono::milliseconds(1000));

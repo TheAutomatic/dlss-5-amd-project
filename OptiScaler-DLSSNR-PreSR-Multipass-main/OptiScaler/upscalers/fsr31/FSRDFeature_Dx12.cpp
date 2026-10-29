@@ -1043,6 +1043,49 @@ FSRDFeatureDx12::~FSRDFeatureDx12()
     DestroyDenoiserContext();
 }
 
+bool FSRDFeatureDx12::RecordingsRetired()
+{
+    auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
+    std::erase_if(_recordingTickets, [&tracker](uint64_t ticket) { return tracker.Retired(ticket); });
+    return _recordingTickets.empty();
+}
+
+namespace
+{
+std::mutex g_deferredFeaturesMutex;
+std::vector<std::unique_ptr<FSRDFeatureDx12>> g_deferredFeatures;
+}
+
+void FSRDFeatureDx12::DestroyWhenRetired(std::unique_ptr<FSRDFeatureDx12> feature)
+{
+    if (!feature)
+        return;
+    if (feature->RecordingsRetired())
+        return; // unique_ptr destroys the retired feature here
+
+    LOG_INFO("FSR-RR feature deferred: {} recording(s) still outstanding at teardown",
+             feature->_recordingTickets.size());
+    std::lock_guard lock(g_deferredFeaturesMutex);
+    g_deferredFeatures.push_back(std::move(feature));
+}
+
+void FSRDFeatureDx12::ReapDeferredFeatures()
+{
+    std::vector<std::unique_ptr<FSRDFeatureDx12>> ripe;
+    {
+        std::lock_guard lock(g_deferredFeaturesMutex);
+        std::erase_if(g_deferredFeatures, [&ripe](std::unique_ptr<FSRDFeatureDx12>& feature) {
+            if (feature->RecordingsRetired())
+            {
+                ripe.push_back(std::move(feature));
+                return true;
+            }
+            return false;
+        });
+    }
+    // Destruction happens outside the mutex: DestroyDenoiserContext talks to the proxy.
+}
+
 bool FSRDFeatureDx12::AcquireSLTaggedResource(const RRD3D12SignalTagSnapshot& snapshot, RRTaggedSignal signal,
                                               const char* sourceName, TagStatePolicy statePolicy,
                                               Microsoft::WRL::ComPtr<ID3D12Resource>& resource,
@@ -1565,11 +1608,12 @@ bool FSRDFeatureDx12::QueryDenoiserVersions()
 
 void FSRDFeatureDx12::DestroyDenoiserContext()
 {
-    // Retire the last recording before releasing the context and its resources: the batch
-    // that referenced them must complete (or be provably discarded) first. Bounded, and
-    // degrades with a logged warning on pathological pipelines instead of a blind timer.
-    if (_lastRecording.list != nullptr)
-        DlssNr::Submission::GpuBatch::Tracker::Instance().Wait(_lastRecording, 2000, "FSR-RR feature teardown");
+    // The deferred-destruction queue guarantees this is only reached with all recordings
+    // retired (or at process shutdown). Direct destruction with outstanding recordings
+    // would be a lifetime bug; say so loudly instead of silently releasing.
+    if (!RecordingsRetired() && !State::Instance().isShuttingDown)
+        LOG_ERROR("FSR-RR context destroyed while {} recording(s) are still outstanding",
+                  _recordingTickets.size());
 
     if (_pDenoiserCtx != nullptr)
     {
@@ -1637,10 +1681,15 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
     if (!IsInited())
         return false;
 
-    // Whole-instance retirement: every evaluate's recordings (preprocessor slots track
-    // themselves; the denoiser and upscaler dispatches ride this same list) are stamped so
-    // teardown can wait for the batch that referenced this context's GPU resources.
-    _lastRecording = DlssNr::Submission::GpuBatch::Tracker::Instance().Record(InCommandList);
+    // Whole-instance retirement: stamp this evaluate's command list (the preprocessor
+    // slots track themselves; the denoiser and upscaler dispatches ride this list too).
+    // Outstanding tickets keep the instance alive through DestroyWhenRetired.
+    {
+        auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
+        std::erase_if(_recordingTickets, [&tracker](uint64_t ticket) { return tracker.Retired(ticket); });
+        _recordingTickets.push_back(tracker.Record(InCommandList));
+        FSRDFeatureDx12::ReapDeferredFeatures();
+    }
 
     // The application submitted a new evaluation even when a later validation,
     // composition, or upscaler step fails. Keep RR frame indices unique on every

@@ -25,6 +25,15 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
 
     bool EvaluateInternal(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters) override;
 
+    // True when every recorded evaluate batch retired (completed or provably discarded).
+    bool RecordingsRetired();
+
+    // Destroys the feature now if all its recordings retired, otherwise parks it on a
+    // static deferred queue that is reaped once the outstanding batches finish. Callers
+    // must use this instead of destroying an FSR-RR feature on a timer.
+    static void DestroyWhenRetired(std::unique_ptr<FSRDFeatureDx12> feature);
+    static void ReapDeferredFeatures();
+
     // Submits the deferred denoiser dispatch list (DeferredDispatch mode) to
     // the title's direct queue. Called from the present path, after every
     // title submission of the frame.
@@ -71,9 +80,11 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
 
     ffxContext _pDenoiserCtx;
 
-    // The batch stamp of the most recent evaluate's command list. Teardown waits on it
-    // before releasing the denoiser context and preprocessor resources.
-    DlssNr::Submission::GpuBatch::Tracker::Stamp _lastRecording {};
+
+    // Retirement tickets of every evaluate recording that has not retired yet (pruned as
+    // batches complete). Teardown consults all of them; the instance outlives outstanding
+    // ones through the deferred-destruction queue below.
+    std::vector<DlssNr::Submission::GpuBatch::Tracker::Ticket> _recordingTickets;
     ffxCreateContextDescDenoiser _denoiserCtxDesc;
     // Version parsed from the selected RR provider name. Kept separate from
     // FSR31Feature::_version so the SR upscaler version that Version() reports -

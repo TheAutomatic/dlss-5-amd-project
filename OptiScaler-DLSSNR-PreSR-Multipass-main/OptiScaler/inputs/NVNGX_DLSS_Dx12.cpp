@@ -698,9 +698,12 @@ static NVSDK_NGX_Result TryCreateOptiFeature(ID3D12GraphicsCommandList* InCmdLis
         }
         else
         {
-            // Gate off: native RR routing stays untouched (stock DLSSD path).
-            upscalerBackend = Upscaler::DLSSD;
-            LOG_INFO("Creating DLSSD (Ray Reconstruction) feature");
+            // Non-NVIDIA, gate off: this RR request has no supported handler. Routing it
+            // into DLSSD would let the factory fall back to plain FSR 2 and report success
+            // on undenoised Ray Reconstruction inputs - the exact downgrade this
+            // migration forbids - so fail openly instead.
+            LOG_ERROR("Ray Reconstruction request on a non-NVIDIA GPU with FSR-RR disabled; no supported handler");
+            return NVSDK_NGX_Result_Fail;
         }
     }
 
@@ -1079,6 +1082,14 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
 
     if (feature == nullptr) // Prevent source api name flicker when dlssg is active
         state.setInputApiName = state.currentInputApiName;
+    if (feature == nullptr)
+    {
+        // A backend switch destroyed the old feature and its replacement refused to
+        // create (e.g. the FSR-RR gate was turned off). The handle has no feature; fail
+        // explicitly instead of dereferencing below and let the game recreate it.
+        LOG_ERROR("Handle {} has no feature after a failed backend switch", handleId);
+        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+    }
 
     const auto targetApiName =
         !state.setInputApiName.has_value() ? ApiUpscalerInput::DLSS_DX12 : state.setInputApiName.value();

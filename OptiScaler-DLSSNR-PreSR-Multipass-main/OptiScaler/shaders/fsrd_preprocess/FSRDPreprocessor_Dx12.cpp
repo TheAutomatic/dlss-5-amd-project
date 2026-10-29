@@ -82,10 +82,11 @@ struct ComputeState
     ComPtr<ID3D12RootSignature> m_rootSig;
     ComPtr<ID3D12PipelineState> m_pso;
     std::vector<FrameDescriptorHeap> m_frameHeaps;
-    // One retirement stamp per ring slot: a slot's constants and descriptors may only be
-    // overwritten once the batch that recorded them completed (or was discarded). Without
-    // this the ring depth was only an assumption about frames in flight.
-    std::vector<DlssNr::Submission::GpuBatch::Tracker::Stamp> m_slotStamps;
+    // One retirement ticket per ring slot: a slot's constants and descriptors may only be
+    // overwritten once the batch that recorded them retired (completed or provably
+    // discarded). A busy slot fails the frame through the existing exception path; the
+    // ring depth is a throughput hint, never the safety argument.
+    std::vector<DlssNr::Submission::GpuBatch::Tracker::Ticket> m_slotTickets;
 
     ComPtr<ID3D12Resource> m_constUploadBuffer;
     byte* m_cbMappedData = nullptr;
@@ -163,15 +164,16 @@ struct ComputeState
 
         ScopedSkipHeapCapture skipHeapCapture {};
 
-        // Slot lifetime: wait for the recording that owns this slot before overwriting its
-        // constants and descriptors. The bounded wait degrades with a logged warning on
-        // pathological pipelines rather than corrupting in-flight work.
+        // Slot lifetime: reuse only after the previous recording of this slot retired
+        // (completed or provably discarded). Busy fails the frame through the existing
+        // exception path; the ring depth is a throughput hint, never the safety argument.
         auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
-        if (m_slotStamps.empty())
-            m_slotStamps.resize(backBufferCount);
-        if (!tracker.Retired(m_slotStamps[m_cbCurrentFrameIndex]))
-            tracker.Wait(m_slotStamps[m_cbCurrentFrameIndex], 2000, "FSRD constant slot");
-        m_slotStamps[m_cbCurrentFrameIndex] = tracker.Record(cmdList);
+        if (m_slotTickets.empty())
+            m_slotTickets.resize(backBufferCount, DlssNr::Submission::GpuBatch::kInvalidTicket);
+        const auto slotTicket = m_slotTickets[m_cbCurrentFrameIndex];
+        if (slotTicket != DlssNr::Submission::GpuBatch::kInvalidTicket && !tracker.Retired(slotTicket))
+            throw std::runtime_error("FSRD constant slot busy: the previous recording has not retired yet");
+        m_slotTickets[m_cbCurrentFrameIndex] = tracker.Record(cmdList);
 
         // Constant Buffer Updates
         const UINT currentFrame = m_cbCurrentFrameIndex;

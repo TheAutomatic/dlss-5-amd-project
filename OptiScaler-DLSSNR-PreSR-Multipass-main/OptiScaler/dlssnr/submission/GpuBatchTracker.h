@@ -2,8 +2,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <mutex>
-#include <cstring>
-#include <string>
+#include <cstdint>
 #include <utility>
 #include <vector>
 #include "CommandListProxy.h"
@@ -11,59 +10,51 @@
 // Retirement of command-list-recorded GPU work (constant upload slots, whole feature
 // contexts) keyed to the queue batch that actually executed the recording.
 //
-// Producers call Record() when they record into a command list, and Wait() before they
-// overwrite or free what that recording references. The queue's ExecuteCommandLists hook
-// calls OnExecuted() after the original call: stamps whose list (and generation, for
-// wrapped lists) matches the executed batch are upgraded with the fence value signalled on
-// that queue, and a completed fence value proves the batch's GPU work finished.
+// Producers call Record() when they record into a command list and receive a stable
+// Ticket. All state lives inside the tracker: the queue's ExecuteCommandLists hook calls
+// OnExecuted() after the original call, matches recorded tickets by list identity (and
+// generation, for wrapped lists), and upgrades them with the fence value signalled on that
+// queue. A ticket is Retired only when its batch's fence completed, or when the recording
+// was provably discarded (its list was reset and re-recorded before executing).
 //
-// A recording whose list was reset and re-recorded before any execution can never run; its
-// stamp is retired as discarded at that point. Stamps that never see an execution (lists
-// never submitted, or the queue hook not armed) are force-retired by age or timeout so a
-// producer degrades with a logged warning instead of deadlocking.
+// There is deliberately no forced retirement: an unsubmitted or unfinished recording keeps
+// its resources protected forever. Callers that cannot proceed (ring slot busy, teardown
+// with work outstanding) must fail or defer, never overwrite.
 namespace DlssNr::Submission::GpuBatch
 {
 inline constexpr uint64_t kUnknownGeneration = 0;
+inline constexpr uint64_t kInvalidTicket = 0;
 
 class Tracker
 {
   public:
+    using Ticket = uint64_t;
+
+    enum class Status : uint8_t
+    {
+        Outstanding, // recorded, not yet seen on an execution queue (or not yet completed)
+        Retired,     // batch completed, or recording provably discarded
+        Unknown,     // ticket never issued (or already reaped and forgotten)
+    };
+
     static Tracker& Instance()
     {
         static Tracker instance;
         return instance;
     }
 
-    struct Stamp
+    Ticket Record(ID3D12GraphicsCommandList* list)
     {
-        enum class State : uint8_t
-        {
-            Recorded,
-            Submitted,
-            Retired,
-        };
-
-        ID3D12GraphicsCommandList* list = nullptr;
-        uint64_t generation = kUnknownGeneration;
-        State state = State::Retired; // a default-constructed stamp claims nothing
-        uint64_t fenceValue = 0;
-        // Raw fence pointer owned by this tracker; it outlives every stamp that references
-        // it (fences are released only at process exit).
-        ID3D12Fence* fence = nullptr;
-        uint64_t recordedAtSeq = 0;
-    };
-
-    Stamp Record(ID3D12GraphicsCommandList* list)
-    {
-        Stamp stamp;
-        stamp.list = list;
-        stamp.generation = GenerationOf(list);
-        stamp.state = Stamp::State::Recorded;
+        if (!list)
+            return kInvalidTicket;
 
         std::lock_guard lock(mutex_);
-        stamp.recordedAtSeq = ++seq_;
-        outstanding_.push_back(stamp);
-        return stamp;
+        Entry entry;
+        entry.ticket = ++seq_;
+        entry.list = list;
+        entry.generation = GenerationOf(list);
+        entries_.push_back(entry);
+        return entry.ticket;
     }
 
     // Call after the original ExecuteCommandLists returned.
@@ -89,68 +80,98 @@ class Tracker
         for (UINT i = 0; i < num; ++i)
         {
             auto* executed = static_cast<ID3D12GraphicsCommandList*>(lists[i]);
-            for (auto& stamp : outstanding_)
+            for (auto& entry : entries_)
             {
-                if (stamp.state != Stamp::State::Recorded || stamp.list != executed)
+                if (entry.state != Entry::State::Recorded || entry.list != executed)
                     continue;
-                if (stamp.generation != kUnknownGeneration)
+                if (entry.generation != kUnknownGeneration)
                 {
                     const uint64_t generation = GenerationOf(executed);
-                    if (generation != stamp.generation)
+                    if (generation != entry.generation)
                     {
                         // The list was reset and re-recorded: this execution carries a newer
                         // recording, so ours was discarded and will never touch the GPU.
-                        stamp.state = Stamp::State::Retired;
+                        entry.state = Entry::State::Discarded;
                         continue;
                     }
                 }
-                stamp.state = Stamp::State::Submitted;
-                stamp.fence = fence;
-                stamp.fenceValue = value;
+                entry.state = Entry::State::Submitted;
+                entry.fence = fence;
+                entry.fenceValue = value;
             }
         }
-        PruneRetired();
+        Reap();
     }
 
-    static bool Retired(const Stamp& stamp)
+    Status StatusOf(Ticket ticket)
     {
-        if (stamp.state == Stamp::State::Retired)
-            return true;
-        if (stamp.state != Stamp::State::Submitted || !stamp.fence)
-            return false;
-        return stamp.fence->GetCompletedValue() >= stamp.fenceValue;
-    }
+        if (ticket == kInvalidTicket)
+            return Status::Retired; // nothing was recorded; nothing is protected
 
-    // Blocks until the stamp no longer references pending GPU work: by fence completion,
-    // by discard (recording never executed and many later batches exist), or by timeout.
-    // The forced paths log once each; they are the degradation boundary, not the norm.
-    void Wait(Stamp& stamp, uint64_t timeoutMs, const char* what)
-    {
-        if (Retired(stamp))
-            return;
-
-        const uint64_t deadline = NowMs() + timeoutMs;
-        while (!Retired(stamp))
+        std::lock_guard lock(mutex_);
+        for (auto& entry : entries_)
         {
-            if (stamp.state == Stamp::State::Recorded && AgeOf(stamp) > 64)
+            if (entry.ticket != ticket)
+                continue;
+            if (entry.state == Entry::State::Discarded)
+                return Status::Retired;
+            if (entry.state == Entry::State::Submitted && entry.fence &&
+                entry.fence->GetCompletedValue() >= entry.fenceValue)
             {
-                Force(stamp, what, "recording never observed on an execution queue");
-                return;
+                entry.state = Entry::State::Completed;
+                return Status::Retired;
             }
-            if (NowMs() >= deadline)
-            {
-                Force(stamp, what, "retirement timed out");
-                return;
-            }
+            return Status::Outstanding;
+        }
+        // Completed entries are reaped; a ticket that is no longer tracked completed
+        // earlier. Only an invalid ticket (never issued this session) is unknown, and
+        // treating it as retired would silently drop protection, so report it.
+        return ticket <= seq_ ? Status::Retired : Status::Unknown;
+    }
+
+    bool Retired(Ticket ticket)
+    {
+        return StatusOf(ticket) == Status::Retired;
+    }
+
+    // Polls until the ticket retires or the budget is exhausted. Never force-retires:
+    // a false return leaves the recording's resources protected and the caller must
+    // fail or defer the operation that wanted to reuse them.
+    bool Wait(Ticket ticket, uint64_t budgetMs)
+    {
+        const uint64_t deadline = GetTickCount64() + budgetMs;
+        while (!Retired(ticket))
+        {
+            if (GetTickCount64() >= deadline)
+                return false;
             Sleep(1);
         }
+        return true;
     }
 
   private:
+    struct Entry
+    {
+        enum class State : uint8_t
+        {
+            Recorded,
+            Submitted,
+            Completed,
+            Discarded,
+        };
+
+        Ticket ticket = kInvalidTicket;
+        ID3D12GraphicsCommandList* list = nullptr;
+        uint64_t generation = kUnknownGeneration;
+        State state = State::Recorded;
+        // Raw fence pointer owned by this tracker; fences are released only at exit, so
+        // it outlives every entry that references it.
+        ID3D12Fence* fence = nullptr;
+        uint64_t fenceValue = 0;
+    };
+
     static uint64_t GenerationOf(ID3D12GraphicsCommandList* list)
     {
-        if (!list)
-            return kUnknownGeneration;
         ILogicalCommandList* logical = nullptr;
         if (SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&logical))) && logical)
         {
@@ -179,46 +200,18 @@ class Tracker
         return fences_.back().second.Get();
     }
 
-    void PruneRetired()
+    void Reap()
     {
-        std::erase_if(outstanding_, [](const Stamp& stamp) {
-            return stamp.state == Stamp::State::Retired ||
-                   (stamp.state == Stamp::State::Submitted && stamp.fence &&
-                    stamp.fence->GetCompletedValue() >= stamp.fenceValue);
+        std::erase_if(entries_, [](const Entry& entry) {
+            return entry.state == Entry::State::Discarded ||
+                   entry.state == Entry::State::Completed ||
+                   (entry.state == Entry::State::Submitted && entry.fence &&
+                    entry.fence->GetCompletedValue() >= entry.fenceValue);
         });
     }
 
-    uint64_t AgeOf(const Stamp& stamp)
-    {
-        std::lock_guard lock(mutex_);
-        return seq_ > stamp.recordedAtSeq ? seq_ - stamp.recordedAtSeq : 0;
-    }
-
-    void Force(Stamp& stamp, const char* what, const char* reason)
-    {
-        std::lock_guard lock(mutex_);
-        if (stamp.state == Stamp::State::Retired)
-            return;
-        static bool loggedDiscard = false;
-        static bool loggedTimeout = false;
-        const bool timeout = std::strstr(reason, "timed out") != nullptr;
-        bool& logged = timeout ? loggedTimeout : loggedDiscard;
-        if (!logged)
-        {
-            logged = true;
-            LOG_WARN("GpuBatch: forced retirement of a {} ({})", what, reason);
-        }
-        stamp.state = Stamp::State::Retired;
-        stamp.fence = nullptr;
-    }
-
-    static uint64_t NowMs()
-    {
-        return GetTickCount64();
-    }
-
     mutable std::mutex mutex_;
-    std::vector<Stamp> outstanding_;
+    std::vector<Entry> entries_;
     std::vector<std::pair<ID3D12CommandQueue*, Microsoft::WRL::ComPtr<ID3D12Fence>>> fences_;
     uint64_t seq_ = 0;
 };
