@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptScaler(NR) 1.13.3.3
+# OptScaler(NR) 1.13.4
 
 **Agradecimientos especiales**: Gracias a todos los usuarios por sus pruebas y comentarios.
 
