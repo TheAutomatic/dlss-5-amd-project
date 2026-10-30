@@ -96,7 +96,7 @@ jobs:
 
           ## FSR 光线再生（实验）
 
-          感谢 [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) 与 [burak113/OptiScaler (ffx-denoise-experimental)](https://github.com/burak113/OptiScaler/tree/ffx-denoise-experimental) 的原始实现。
+          感谢 MatheusFerreiraS (github.com/MatheusFerreiraS) 与 burak113/OptiScaler ffx-denoise-experimental 分支的原始实现。
 
           在受支持的 AMD 显卡上接管游戏的 NVIDIA DLSS光线重构请求，使用 FidelityFX RR 1.2 降噪 + FFX 超分完整重建管线。这是本项目首次在 AMD 平台提供完整的降噪-超分链路，替代此前"DLSS光线重构请求静默退化为纯超分"的行为。
 
@@ -136,7 +136,7 @@ jobs:
 
           ## FSR Ray Regeneration (experimental)
 
-          Credits to [@MatheusFerreiraS](https://github.com/MatheusFerreiraS) and [burak113/OptiScaler (ffx-denoise-experimental)](https://github.com/burak113/OptiScaler/tree/ffx-denoise-experimental) for the original implementation.
+          Credits to MatheusFerreiraS (github.com/MatheusFerreiraS) and burak113/OptiScaler ffx-denoise-experimental branch for the original implementation.
 
           Takes over the game's NVIDIA Ray Reconstruction requests on supported AMD GPUs, running the full FidelityFX RR 1.2 denoising + FFX upscaling pipeline. This is the first time this project provides a complete denoise-upscale chain on AMD for Ray Reconstruction workloads, replacing the previous behaviour where RR requests silently degraded to plain upscaling.
 
