@@ -1,6 +1,6 @@
 @echo off
 rem Host-contract tests. Every *.cpp in tests\host belongs to exactly one tier below.
-rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|nr-rr-state^|nr-rr-state-warp^|all] [out-dir]
+rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
 rem   streamline : standalone CPU Streamline FG activation-gate tests only (also included in ci).
 rem   ci     : CPU only, no GPU. nr_backend_selector, amd_submission_state, amd_graphics_{snapshot,
 rem            tracker,restore,restore_dx12,invocation,native_hooks}, amd_runtime_host_load (+ its
@@ -49,7 +49,8 @@ if /i "%TIER%"=="ffx-context-owners" goto FfxContextOwners
 if /i "%TIER%"=="fsrd-slots" goto FsrdSlots
 if /i "%TIER%"=="nr-rr-state" goto NrRrState
 if /i "%TIER%"=="nr-rr-state-warp" goto NrRrState
-echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|nr-rr-state^|nr-rr-state-warp^|all] [out-dir]
+if /i "%TIER%"=="mochizuki-prepare-retry" goto MochizukiPrepareRetry
+echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
 exit /b 2
 
 :InputMenu
@@ -63,6 +64,8 @@ echo host input-menu: PASS
 exit /b 0
 
 :ci
+"%AMD_TEST_PYTHON%" -B tests\host\test_mochizuki_prepare_retry_source.py || goto fail
+call :MochizukiPrepareRetry || goto fail
 "%AMD_TEST_PYTHON%" -B tests\host\test_rr_nr_colour_source.py || goto fail
 call :NrRrState || goto fail
 "%AMD_TEST_PYTHON%" -B tests\host\test_fsrd_slots_source.py || goto fail
@@ -167,6 +170,11 @@ if /i not "%TIER%"=="all" exit /b 0
 %CXX% /utf-8 tests\host\amd_graphics_d3.cpp /Fe"%OUT%\amd_graphics_d3.exe" /Fo"%OUT%\amd_graphics_d3.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\amd_graphics_d3.exe" || goto fail
 echo host device: PASS
+exit /b 0
+
+:MochizukiPrepareRetry
+%CXX% /utf-8 tests\host\mochizuki_prepare_retry.cpp /Fe"%OUT%\mochizuki_prepare_retry.exe" /Fo"%OUT%\mochizuki_prepare_retry.obj" || goto fail
+"%OUT%\mochizuki_prepare_retry.exe" || goto fail
 exit /b 0
 
 :NrRrState

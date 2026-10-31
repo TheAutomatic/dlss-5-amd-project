@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "MochizukiBackend.h"
+#include "MochizukiPrepareRetry.h"
 #include "InstallStatus.h"
 #include "LmxxfRecordingOwner.h"
 #include "../NrFrameDiagHost.h"
@@ -78,7 +79,7 @@ struct MochizukiBackend::Impl
     uint64_t frameId = 0, retryAt = 0, infoAt = 0, logAt = 0;
     bool failed = false;
     unsigned errors = 0;
-    unsigned consecutivePrepareFailures = 0;
+    MochizukiPrepareFailureGate prepareFailures;
     unsigned tracedRecordings = 0;
     // Recording-proxy coverage. A large share of the game's command lists is never
     // wrapped by SubmissionHooks, so those frames go through as the original colour
@@ -468,38 +469,42 @@ ID3D12Resource* MochizukiBackend::RecordLayers(ID3D12GraphicsCommandList* cmd, c
     // Circuit breaker tripped: stop calling prepare entirely (each failed attempt can leak;
     // seen on Proton at ~128/s until OOM). Reset by the coverage coverage Reset()/activity path
     // on a settings change or NR toggle.
-    if (p->consecutivePrepareFailures >= 50)
+    if (p->prepareFailures.Open())
     {
         p->owner->activity.Reset();
         coverage.Set(Coverage::Outcome::PrepareFailed, "circuit breaker open (50+ consecutive failures)");
         return nullptr;
     }
     LmxxfNrJob job {sizeof job};
-    if (p->prepare(p->owner->context, &frame, &job) != LMXXF_NR_OK)
+    const auto prepareResult = p->prepare(p->owner->context, &frame, &job);
+    if (prepareResult != LMXXF_NR_OK)
     {
         p->owner->activity.Reset();
         char reason[256] {};
         p->api.GetLastError(reason, sizeof reason);
         p->Info();
-        coverage.Set(std::strstr(reason, "building the network") || std::strstr(reason, "input resolution is settling")
-            ? Coverage::Outcome::BuildWait : Coverage::Outcome::PrepareFailed, reason);
-        if (std::strstr(reason, "building the network"))
+        const auto outcome = ClassifyMochizukiPrepare(prepareResult, reason);
+        p->prepareFailures.Observe(outcome);
+        coverage.Set(outcome == MochizukiPrepareOutcome::Failed
+            ? Coverage::Outcome::PrepareFailed : Coverage::Outcome::BuildWait, reason);
+        if (outcome == MochizukiPrepareOutcome::VramWait)
+            p->Status(std::string("mochizuki: waiting for VRAM (original frame); ") + reason);
+        else if (outcome == MochizukiPrepareOutcome::Building)
             p->Status("mochizuki: building the network; first use may take minutes (original frame)");
-        else if (std::strstr(reason, "input resolution is settling"))
+        else if (outcome == MochizukiPrepareOutcome::Settling)
             p->Status("mochizuki: waiting for stable input resolution (original frame)");
         else
         {
             p->Status(std::string("mochizuki: ") + reason);
             if (++p->errors <= 3 || p->errors % 6000 == 0) LOG_WARN("mochizuki PrepareFrame: {}", reason);
-            ++p->consecutivePrepareFailures;
-            if (p->consecutivePrepareFailures == 50)
+            if (p->prepareFailures.Open())
                 LOG_ERROR("mochizuki: {} consecutive prepare failures ({}); circuit breaker opens on the next frame",
-                          p->consecutivePrepareFailures, reason);
+                          p->prepareFailures.Failures(), reason);
         }
         return nullptr;
     }
     coverage.Prepared();
-    p->consecutivePrepareFailures = 0;
+    p->prepareFailures.Reset();
     std::shared_ptr<InlineRecording::Resources> inlineResources;
     if (inlineMode) {
         try {
@@ -698,7 +703,7 @@ void MochizukiBackend::ReleaseSession(const char* reason)
     p->tracedRecordings = 0;
     // Reopening NR or switching back to this backend must get a fresh start, not a stale
     // circuit-breaker trip from a previous session.
-    p->consecutivePrepareFailures = 0;
+    p->prepareFailures.Reset();
     LmxxfRecording::Collect();
     p->coverage.Flush(true);
     { std::lock_guard lock(p->mutex); p->timing = {}; p->progress = {}; p->details = {}; AdvanceTimingRuntimeId(); p->status = "mochizuki: NR off"; }
