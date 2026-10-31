@@ -1,5 +1,6 @@
 #include "pch.h"
 #include <dlssnr/amd/AmdBridge.h>
+#include <dlssnr/amd/NrColourState.h>
 #include <dlssnr/SrPlacement.h>
 #include <dlssnr/amd/GraphicsTracker.h>
 #include <dlssnr/amd/GraphicsRestoreDx12.h>
@@ -3054,7 +3055,8 @@ void RetryAfterFailure()
 // RunPass directly and never touches an NGX parameter block.
 void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                       bool beforeUpscale, ID3D12CommandQueue* timingQueue, bool forcePost,
-                      unsigned long long submissionEpoch, SrOutputExtent outputExtent = {})
+                      unsigned long long submissionEpoch, SrOutputExtent outputExtent = {},
+                      std::optional<D3D12_RESOURCE_STATES> ownedColourState = {})
 {
     const Config& cfg = *Config::Instance();
 
@@ -3106,7 +3108,7 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             return;
         }
         ScopedNrStateEnvelope amdStateEnvelope(cmdList, beforeUpscale);
-        if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale, outputExtent))
+        if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale, outputExtent, ownedColourState))
         {
             g_activityBackend.store(NrActivityBackend::Amd, std::memory_order_release);
             return;
@@ -3410,7 +3412,9 @@ ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_N
     params->Get(NVSDK_NGX_Parameter_Color, (void**) &title);
     params->Set(NVSDK_NGX_Parameter_Color, composed);
 
-    EvaluateBeforeUpscale(cmdList, params);
+    // This resource belongs to FSR-RR, not the game's Color hotfix contract.
+    // Keep the composition's shader-read state through NR, including bypasses.
+    EvaluateInternal(cmdList, params, true, nullptr, false, 0, {}, kRrComposedColourState);
 
     ID3D12Resource* answer = nullptr;
     if (DlssNr::AmdBridge::HasReplacement(params))

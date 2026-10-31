@@ -1939,11 +1939,6 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
         if (isDenoiserReady && !isFfxDebug && Config::Instance()->DlssNrEnabled.value_or_default() &&
             cfg.DlssNrApplyAfterRR.value_or_default())
         {
-            constexpr auto composedState =
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            const auto handOver = cfg.ColorResourceBarrier.has_value()
-                                      ? static_cast<D3D12_RESOURCE_STATES>(cfg.ColorResourceBarrier.value())
-                                      : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             ID3D12Resource* composed = FSRDConvShader->GetCompositionOutput();
 
             // Re-arm the proxy's layout book before NR reads these inputs: the FFX dispatch
@@ -1974,9 +1969,10 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
                     recorder->DeclareInputLayouts(bookCount, bookInputs, bookLayouts);
             }
  
-            ResourceBarrier(InCommandList, composed, composedState, handOver);
+            // The composed texture is UAV-only and already shader-readable. The
+            // title's ColorResourceBarrier can be RENDER_TARGET (UE default), which
+            // is invalid for this texture. NR receives its owned read-state contract.
             ID3D12Resource* edited = DlssNr::EvaluateAfterDenoise(InCommandList, InParameters, composed);
-            ResourceBarrier(InCommandList, composed, handOver, composedState);
 
             if (edited != nullptr)
                 upscalerDesc.color = ffxApiGetResourceDX12(edited, FFX_API_RESOURCE_STATE_COMPUTE_READ);

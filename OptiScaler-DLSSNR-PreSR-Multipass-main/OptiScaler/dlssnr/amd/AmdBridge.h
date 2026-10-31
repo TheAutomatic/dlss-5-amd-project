@@ -2,6 +2,7 @@
 #include <d3d12.h>
 #include <nvsdk_ngx.h>
 #include <string>
+#include <optional>
 #include "../NrPerformance.h"
 #include "../backend/Kind.h"
 #include "../SrOutputExtent.h"
@@ -21,7 +22,7 @@ bool EnsureSubmissionHook(ID3D12CommandQueue*);
 // Does not enable global list wrapping or initialize a runtime.
 bool EnsureRecordingSubmissionHook(ID3D12CommandQueue*);
 bool Evaluate(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*, ID3D12CommandQueue*, bool beforeUpscale,
-              SrOutputExtent outputExtent = {});
+              SrOutputExtent outputExtent = {}, std::optional<D3D12_RESOURCE_STATES> ownedColourState = {});
 void Restore(NVSDK_NGX_Parameter*);
 bool HasReplacement(NVSDK_NGX_Parameter*);
 void InvalidateHistory();

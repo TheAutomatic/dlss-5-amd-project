@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AmdBridge.h"
+#include "NrColourState.h"
 #include "../DiagnosticLog.h"
 #include "../NrCoverageHost.h"
 #include "AwaitingListTracker.h"
@@ -493,7 +494,7 @@ const char* RuntimeName()
     return cachedName;
 }
 bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D12CommandQueue* q, bool beforeUpscale,
-              SrOutputExtent outputExtent)
+              SrOutputExtent outputExtent, std::optional<D3D12_RESOURCE_STATES> ownedColourState)
 {
     // A single backend consumes one SR stream even if the engine rotates worker threads.
     // Serialize shared settling/identity state; thread-local replacement ownership stays unchanged.
@@ -841,11 +842,12 @@ bool Evaluate(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3D1
     params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &f.motionScaleX);
     params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &f.motionScaleY);
     const auto& cfg = *Config::Instance();
-    if (cfg.ColorResourceBarrier.has_value())
-        f.colourState = static_cast<D3D12_RESOURCE_STATES>(cfg.ColorResourceBarrier.value());
-    if (!beforeUpscale)
-        f.colourState = cfg.OutputResourceBarrier.has_value() ?
-            static_cast<D3D12_RESOURCE_STATES>(cfg.OutputResourceBarrier.value()) : D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    f.colourState = ResolveNrColourState(beforeUpscale,
+        cfg.ColorResourceBarrier.has_value() ? std::optional<D3D12_RESOURCE_STATES>(
+            static_cast<D3D12_RESOURCE_STATES>(cfg.ColorResourceBarrier.value())) : std::nullopt,
+        cfg.OutputResourceBarrier.has_value() ? std::optional<D3D12_RESOURCE_STATES>(
+            static_cast<D3D12_RESOURCE_STATES>(cfg.OutputResourceBarrier.value())) : std::nullopt,
+        ownedColourState);
     if (cfg.MVResourceBarrier.has_value())
         f.motionState = static_cast<D3D12_RESOURCE_STATES>(cfg.MVResourceBarrier.value());
     if (cfg.DepthResourceBarrier.has_value())
