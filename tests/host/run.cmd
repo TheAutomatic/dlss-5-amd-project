@@ -1,6 +1,6 @@
 @echo off
 rem Host-contract tests. Every *.cpp in tests\host belongs to exactly one tier below.
-rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|all] [out-dir]
+rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|all] [out-dir]
 rem   streamline : standalone CPU Streamline FG activation-gate tests only (also included in ci).
 rem   ci     : CPU only, no GPU. nr_backend_selector, amd_submission_state, amd_graphics_{snapshot,
 rem            tracker,restore,restore_dx12,invocation,native_hooks}, amd_runtime_host_load (+ its
@@ -20,6 +20,10 @@ if not exist "%OUT%" mkdir "%OUT%"
 if not defined AMD_TEST_PYTHON set "AMD_TEST_PYTHON=python"
 if /i "%TIER%"=="ffx-native-source" (
   "%AMD_TEST_PYTHON%" -B tests\host\test_ffx_native_route_source.py
+  exit /b
+)
+if /i "%TIER%"=="fsrd-slots-source" (
+  "%AMD_TEST_PYTHON%" -B tests\host\test_fsrd_slots_source.py
   exit /b
 )
 call "%REPO%\tests\_lib\msvc-env.cmd" 2>nul || exit /b 1
@@ -42,7 +46,8 @@ if /i "%TIER%"=="nr-coverage" goto NrCoverage
 if /i "%TIER%"=="input-menu" goto InputMenu
 if /i "%TIER%"=="streamline" goto Streamline
 if /i "%TIER%"=="ffx-context-owners" goto FfxContextOwners
-echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|all] [out-dir]
+if /i "%TIER%"=="fsrd-slots" goto FsrdSlots
+echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|all] [out-dir]
 exit /b 2
 
 :InputMenu
@@ -56,6 +61,8 @@ echo host input-menu: PASS
 exit /b 0
 
 :ci
+"%AMD_TEST_PYTHON%" -B tests\host\test_fsrd_slots_source.py || goto fail
+call :FsrdSlots || goto fail
 "%AMD_TEST_PYTHON%" -B tests\host\test_ffx_native_route_source.py || goto fail
 call :FfxContextOwners || goto fail
 call :Streamline || goto fail
@@ -156,6 +163,11 @@ if /i not "%TIER%"=="all" exit /b 0
 %CXX% /utf-8 tests\host\amd_graphics_d3.cpp /Fe"%OUT%\amd_graphics_d3.exe" /Fo"%OUT%\amd_graphics_d3.obj" /link d3d12.lib dxgi.lib || goto fail
 "%OUT%\amd_graphics_d3.exe" || goto fail
 echo host device: PASS
+exit /b 0
+
+:FsrdSlots
+%CXX% /utf-8 tests\host\fsrd_slot_reservations.cpp /Fe"%OUT%\fsrd_slot_reservations.exe" /Fo"%OUT%\fsrd_slot_reservations.obj" || goto fail
+"%OUT%\fsrd_slot_reservations.exe" || goto fail
 exit /b 0
 
 :FfxContextOwners

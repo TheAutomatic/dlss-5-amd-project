@@ -1,7 +1,9 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "FSRDPreprocessor_Dx12.h"
 #include "FSRDShaderUtils.h"
 #include "FSRDShaderData.h"
+#include "RetiredSlotReservations.h"
+#include <memory>
 #include "precompile/FSRDInputConv_Shader.h"
 #include "precompile/FSRDFloorSeed_Shader.h"
 #include "precompile/FSRDFloor_Shader.h"
@@ -81,33 +83,92 @@ struct ComputeState
 
     ComPtr<ID3D12RootSignature> m_rootSig;
     ComPtr<ID3D12PipelineState> m_pso;
-    std::vector<FrameDescriptorHeap> m_frameHeaps;
-    // One retirement ticket per ring slot: a slot's constants and descriptors may only be
-    // overwritten once the batch that recorded them retired (completed or provably
-    // discarded). A busy slot fails the frame through the existing exception path; the
-    // ring depth is a throughput hint, never the safety argument.
-    std::vector<DlssNr::Submission::GpuBatch::Tracker::Ticket> m_slotTickets;
-
-    ComPtr<ID3D12Resource> m_constUploadBuffer;
-    byte* m_cbMappedData = nullptr;
-    UINT m_cbSlotSize = 0;
-    UINT m_cbCurrentFrameIndex = 0;
-    UINT backBufferCount = kBackBufferCount;
-
-    ~ComputeState()
+    struct UploadPage
     {
-        if (m_constUploadBuffer && m_cbMappedData)
+        ComPtr<ID3D12Resource> buffer;
+        byte* mapped = nullptr;
+        ~UploadPage() { if (buffer && mapped) buffer->Unmap(0, nullptr); }
+    };
+    struct Slot
+    {
+        std::shared_ptr<UploadPage> page;
+        UINT offset = 0;
+        FrameDescriptorHeap heap;
+    };
+    // Growth never moves or replaces allocations already referenced by GPU work.
+    std::vector<std::unique_ptr<Slot>> m_slots;
+    RetiredSlotReservations<DlssNr::Submission::GpuBatch::Tracker::Ticket> m_reservations;
+    UINT m_cbSlotSize = 0;
+    UINT m_pageSlots = 0;
+    UINT m_numSrvs = 0;
+    UINT m_numUavs = 0;
+    std::wstring m_name;
+    static constexpr size_t kMaxSlots = 256; // bound memory if submissions stop retiring
+
+    void AddPage()
+    {
+        const UINT count = static_cast<UINT>(std::min<size_t>(m_pageSlots, kMaxSlots - m_slots.size()));
+        if (count == 0)
+            throw std::runtime_error("FSRD slot pool exhausted (256 slots still protected): " +
+                                     std::string(m_name.begin(), m_name.end()));
+        auto page = std::make_shared<UploadPage>();
+        D3D12_HEAP_PROPERTIES heapProps = { D3D12_HEAP_TYPE_UPLOAD };
+        D3D12_RESOURCE_DESC bufferDesc = {};
+        bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        bufferDesc.Width = UINT64(m_cbSlotSize) * count;
+        bufferDesc.Height = 1;
+        bufferDesc.DepthOrArraySize = 1;
+        bufferDesc.MipLevels = 1;
+        bufferDesc.SampleDesc.Count = 1;
+        bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ThrowIfFailed(m_pDev->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+                                                      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                      IID_PPV_ARGS(&page->buffer)),
+                      "Failed to create FSRD constant page");
+        page->buffer->SetName(m_name.c_str());
+        D3D12_RANGE readRange { 0, 0 };
+        ThrowIfFailed(page->buffer->Map(0, &readRange, reinterpret_cast<void**>(&page->mapped)),
+                      "Failed to map FSRD constant page");
+
+        // Finish all fallible allocations before publishing any part of this page.
+        std::vector<std::unique_ptr<Slot>> slots;
+        slots.reserve(count);
+        for (UINT i = 0; i < count; ++i)
         {
-            m_constUploadBuffer->Unmap(0, nullptr);
-            m_cbMappedData = nullptr;
+            auto slot = std::make_unique<Slot>();
+            slot->page = page;
+            slot->offset = i * m_cbSlotSize;
+            if (!slot->heap.Initialize(m_pDev, m_numSrvs, m_numUavs, 0, 0))
+                throw std::runtime_error("Failed to initialize FSRD slot descriptors");
+            slots.push_back(std::move(slot));
         }
+        m_slots.reserve(m_slots.size() + count);
+        for (auto& slot : slots)
+            m_slots.push_back(std::move(slot));
+    }
+
+    void Reserve(UINT count)
+    {
+        auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
+        m_reservations.Reserve(count, [&tracker](auto ticket) { return tracker.Retired(ticket); },
+            [this](size_t target) {
+                if (target > kMaxSlots)
+                    throw std::runtime_error("FSRD slot reservation exceeds safe pool capacity: " +
+                                             std::string(m_name.begin(), m_name.end()));
+                while (m_slots.size() < target)
+                    AddPage();
+                return m_slots.size();
+            });
     }
 
     void Initialize(ID3D12Device* pDev, std::span<const byte> bytecode, UINT cbDataSize, UINT numSrvs, UINT numUavs,
                     LPCWSTR cbName, UINT backBufferCount = kBackBufferCount)
     {
         m_pDev = pDev;
-        this->backBufferCount = backBufferCount;
+        m_pageSlots = std::max(1u, backBufferCount);
+        m_numSrvs = numSrvs;
+        m_numUavs = numUavs;
+        m_name = cbName;
 
         // Create Root Signature
         ThrowIfFailed(m_pDev->CreateRootSignature(0, bytecode.data(), bytecode.size(), IID_PPV_ARGS(&m_rootSig)),
@@ -119,39 +180,8 @@ struct ComputeState
         psoDesc.CS = { bytecode.data(), bytecode.size() };
         ThrowIfFailed(m_pDev->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_pso)), "Failed to create PSO");
 
-        // Create Constant Buffer Upload Heap
         m_cbSlotSize = AlignTo256(cbDataSize);
-        const UINT bufferSize = m_cbSlotSize * backBufferCount;
-
-        D3D12_HEAP_PROPERTIES heapProps = { D3D12_HEAP_TYPE_UPLOAD };
-        D3D12_RESOURCE_DESC bufferDesc = {};
-        bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        bufferDesc.Width = bufferSize;
-        bufferDesc.Height = 1;
-        bufferDesc.DepthOrArraySize = 1;
-        bufferDesc.MipLevels = 1;
-        bufferDesc.SampleDesc.Count = 1;
-        bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-        ThrowIfFailed(m_pDev->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc,
-                                                      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-                                                      IID_PPV_ARGS(&m_constUploadBuffer)),
-                      "Failed to create Constant Buffer");
-
-        m_constUploadBuffer->SetName(cbName);
-        D3D12_RANGE readRange = { 0, 0 };
-        ThrowIfFailed(m_constUploadBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_cbMappedData)),
-                      "Failed to map Constant Buffer");
-
-        m_frameHeaps.resize(backBufferCount);
-
-        // Create Descriptor Heaps
-        for (auto& heap : m_frameHeaps)
-        {
-            if (!heap.Initialize(m_pDev, numSrvs, numUavs, 0, 0))
-                throw std::runtime_error("Failed to initialize FrameDescriptorHeap");
-        }
+        AddPage();
     }
 
     void Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
@@ -164,30 +194,23 @@ struct ComputeState
 
         ScopedSkipHeapCapture skipHeapCapture {};
 
-        // Slot lifetime: reuse only after the previous recording of this slot retired
-        // (completed or provably discarded). Busy fails the frame through the existing
-        // exception path; the ring depth is a throughput hint, never the safety argument.
+        // Standalone blits also use the pool; the normal conversion preflights
+        // every stage before the first command is recorded.
+        if (!m_reservations.HasReserved())
+            Reserve(1);
+        if (cbData.size() > m_cbSlotSize)
+            throw std::runtime_error("FSRD constants exceed slot size");
         auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
-        if (m_slotTickets.empty())
-            m_slotTickets.resize(backBufferCount, DlssNr::Submission::GpuBatch::kInvalidTicket);
-        const auto slotTicket = m_slotTickets[m_cbCurrentFrameIndex];
-        if (slotTicket != DlssNr::Submission::GpuBatch::kInvalidTicket && !tracker.Retired(slotTicket))
-            throw std::runtime_error("FSRD constant slot busy: the previous recording has not retired yet");
-        m_slotTickets[m_cbCurrentFrameIndex] = tracker.Record(cmdList);
-
-        // Constant Buffer Updates
-        const UINT currentFrame = m_cbCurrentFrameIndex;
-        const UINT currentOffset = currentFrame * m_cbSlotSize;
-        memcpy(m_cbMappedData + currentOffset, cbData.data(), cbData.size());
-
-        D3D12_GPU_VIRTUAL_ADDRESS cbAddress = m_constUploadBuffer->GetGPUVirtualAddress() + currentOffset;
-        m_cbCurrentFrameIndex = (m_cbCurrentFrameIndex + 1) % backBufferCount;
+        const auto slotIndex = m_reservations.Commit(tracker.Record(cmdList));
+        auto& slot = *m_slots[slotIndex];
+        memcpy(slot.page->mapped + slot.offset, cbData.data(), cbData.size());
+        const D3D12_GPU_VIRTUAL_ADDRESS cbAddress = slot.page->buffer->GetGPUVirtualAddress() + slot.offset;
         // Transitions SRV -> UAV
         if (autoBarrierOutput)
             AddBarriers(cmdList, output, outputMips, kSrvState, kUavState);
 
         // Update descriptors
-        FrameDescriptorHeap& currentHeap = m_frameHeaps[currentFrame];
+        FrameDescriptorHeap& currentHeap = slot.heap;
         CreateSRVs(m_pDev, currentHeap, inputs, inputMips);
         CreateUAVs(m_pDev, currentHeap, output, outputMips);
 
@@ -1397,6 +1420,15 @@ struct FSRDPreprocessor_Dx12::Impl
     {
         if (!cmdList || !m_maxWidth)
             return;
+
+        // Reserve the complete chain before barriers, ping-pong swaps or dispatches.
+        // Unconsumed reservations from a bypass/error frame have no ticket and can
+        // be replaced here; committed slots remain protected until actual retirement.
+        m_floorSeedShader.Reserve(FloorSeed::kPasses);
+        m_floorFilterShader.Reserve(FloorFilter::kPasses);
+        m_convShader.Reserve(1);
+        m_compShader.Reserve(2); // composition plus the optional final debug blit
+
 
         // A title-published linear depth reaches every consumer of view-space position
         // - the floor seed/filter, the packing shader and the denoiser's own depth
