@@ -22,6 +22,9 @@
 #include <ffx_upscale.h>
 
 #include <magic_enum.hpp>
+#include <atomic>
+#include <memory>
+#include <mutex>
 
 // A mess to be able to import both
 #define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK_DX12
@@ -96,6 +99,10 @@ class FfxApiProxy
     inline static FfxModule radiance_dx12;
     inline static FfxModule main_vk;
 
+    // Only a module explicitly reported by the game, never our eager loader.
+    inline static std::atomic<HMODULE> gameLoaderDx12_ { nullptr };
+    inline static std::mutex gameLoaderPathMutex_;
+    inline static std::filesystem::path gameLoaderDirectory_;
     inline static FfxModule main_dx12_hooked;
     inline static FfxModule upscaling_dx12_hooked;
     inline static FfxModule fg_dx12_hooked;
@@ -217,8 +224,116 @@ class FfxApiProxy
         }
     }
 
-    // Can't directly check for type when query is used
-    // might apply to FFX_API_DESC_TYPE_OVERRIDE_VERSION as well
+    // Native game RR must keep the game's ABI; our FSR-RR calls D3D12_*
+    // directly and continues to use the packaged 1.2 provider. Cache successes
+    // by source directory, not the first call's null result or eager loader.
+    // Library interception may return our loader before InitFfxDx12(module)
+    // sees the game's handle. Preserve an explicit original request's directory.
+    static void ObserveGameFfxLoaderPath(const std::wstring& name)
+    {
+        std::filesystem::path path(name);
+        if (!path.has_parent_path())
+            return;
+        std::error_code error;
+        path = std::filesystem::absolute(path, error).lexically_normal();
+        if (error)
+            return;
+        if (!std::filesystem::exists(path, error) || error)
+            return;
+        if (main_dx12.dll && _wcsicmp(path.c_str(), main_dx12.filePath.c_str()) == 0)
+            return;
+        std::lock_guard lock(gameLoaderPathMutex_);
+        gameLoaderDirectory_ = path.parent_path();
+    }
+
+    static FfxModule* GameDenoiserDx12(bool& unavailable)
+    {
+        unavailable = false;
+        auto dir = Util::ExePath().parent_path();
+        wchar_t loaderPath[32768] {};
+        const auto loader = gameLoaderDx12_.load(std::memory_order_acquire);
+        if (loader != nullptr)
+        {
+            const auto length = GetModuleFileNameW(loader, loaderPath, 32768);
+            if (length == 0 || length >= 32768)
+            {
+                unavailable = true;
+                return nullptr;
+            }
+            dir = std::filesystem::path(loaderPath).parent_path();
+        }
+        {
+            std::lock_guard lock(gameLoaderPathMutex_);
+            if (!gameLoaderDirectory_.empty())
+                dir = gameLoaderDirectory_;
+        }
+        const auto path = dir / L"amd_fidelityfx_denoiser_dx12.dll";
+        static std::mutex mutex;
+        static std::vector<std::unique_ptr<FfxModule>> modules;
+        {
+            std::lock_guard lock(mutex);
+            for (auto& module : modules)
+                if (module->filePath == path.wstring())
+                {
+                    unavailable = false;
+                    return module.get();
+                }
+        }
+        std::error_code error;
+        const bool exists = std::filesystem::exists(path, error);
+        if (error)
+        {
+            unavailable = true;
+            return nullptr;
+        }
+        if (!exists)
+            return nullptr;
+        unavailable = true; // an unusable native DLL must never fall through to another ABI
+
+        // Bypass library interception; do not hold our cache lock across DLL
+        // initialization. Keep this reference alive with every context owner.
+        auto module = std::make_unique<FfxModule>();
+        module->dll = NtdllProxy::LoadLibraryExW_Ldr(path.c_str(), nullptr, 0);
+        if (module->dll == nullptr)
+            return nullptr;
+        if (module->dll == denoiser_dx12.dll)
+        {
+            FreeLibrary(module->dll);
+            unavailable = false; // same provider: preserve the existing trampoline route
+            return nullptr;
+        }
+        auto getProc = KernelBaseProxy::GetProcAddress_();
+        module->CreateContext = (PfnFfxCreateContext) getProc(module->dll, "ffxCreateContext");
+        module->DestroyContext = (PfnFfxDestroyContext) getProc(module->dll, "ffxDestroyContext");
+        module->Configure = (PfnFfxConfigure) getProc(module->dll, "ffxConfigure");
+        module->Query = (PfnFfxQuery) getProc(module->dll, "ffxQuery");
+        module->Dispatch = (PfnFfxDispatch) getProc(module->dll, "ffxDispatch");
+        if (!module->CreateContext || !module->DestroyContext || !module->Configure ||
+            !module->Query || !module->Dispatch)
+        {
+            FreeLibrary(module->dll);
+            return nullptr;
+        }
+        module->filePath = path.wstring();
+        std::unique_lock lock(mutex);
+        for (auto& existing : modules)
+            if (existing->filePath == module->filePath)
+            {
+                auto* result = existing.get();
+                lock.unlock();
+                FreeLibrary(module->dll);
+                unavailable = false;
+                return result;
+            }
+        auto* result = module.get();
+        modules.push_back(std::move(module));
+        lock.unlock();
+        unavailable = false;
+        LOG_INFO("Native game RR uses {}", wstring_to_string(result->filePath));
+        return result;
+    }
+
+    // Queries can carry their effect type in the chained descriptor.
     static FFXStructType GetIndirectType(ffxQueryDescHeader* header)
     {
         ffxStructType_t type = header->type;
@@ -234,6 +349,11 @@ class FfxApiProxy
 
     static bool InitFfxDx12(HMODULE module = nullptr)
     {
+        // Registration must precede the already-initialized fast path: the game
+        // can load its own loader after OptiScaler initialized its packaged one.
+        if (module != nullptr && module != main_dx12.dll)
+            gameLoaderDx12_.store(module, std::memory_order_release);
+
         // if dll already loaded
         if (main_dx12.dll != nullptr && main_dx12.CreateContext != nullptr)
             return true;

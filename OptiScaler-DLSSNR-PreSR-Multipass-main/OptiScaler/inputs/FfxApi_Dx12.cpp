@@ -7,6 +7,7 @@
 #include "resource.h"
 #include "NVNGX_Parameter.h"
 #include "proxies/FfxApi_Proxy.h"
+#include "proxies/FfxContextOwners.h"
 
 #include "FG/FfxApi_Dx12_FG.h"
 
@@ -18,6 +19,17 @@
 static std::unordered_map<ffxContext, ffxCreateContextDescUpscale> _initParams;
 static std::unordered_map<ffxContext, NVSDK_NGX_Parameter*> _nvParams;
 static std::unordered_map<ffxContext, NVSDK_NGX_Handle*> _contexts;
+// Native RR ABI separation adapted from neural-amd-opti 2b38b3277336ad72be061435a4a3fd4df478c72a.
+static FfxContextOwners<ffxContext, FfxModule> _gameDenoiserContexts;
+
+static FfxModule* GameDenoiserFor(ffxContext* context, FFXStructType type, bool& unavailable)
+{
+    if (context && *context)
+        return _gameDenoiserContexts.Find(*context);
+    // Only context-less denoiser queries may select a provider by descriptor.
+    return type == FFXStructType::Denoiser ? FfxApiProxy::GameDenoiserDx12(unavailable) : nullptr;
+}
+
 static ID3D12Device* _d3d12Device = nullptr;
 static bool _nvnxgInited = false;
 static float qualityRatios[] = { 1.0f, 1.5f, 1.7f, 2.0f, 3.0f };
@@ -205,6 +217,20 @@ ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateContextDescH
     auto& state = State::Instance();
     auto type = FfxApiProxy::GetType(desc->type);
 
+    bool nativeUnavailable = false;
+    if (type == FFXStructType::Denoiser)
+    {
+        if (auto* game = FfxApiProxy::GameDenoiserDx12(nativeUnavailable))
+        {
+            const auto result = game->CreateContext(context, desc, memCb);
+            if (result == FFX_API_RETURN_OK && context && *context)
+                _gameDenoiserContexts.Insert(*context, game);
+            return result;
+        }
+    }
+    if (nativeUnavailable)
+        return FFX_API_RETURN_NO_PROVIDER;
+
     // Extra checks added for Silent Hill f
     // Game is creating FSR-FG swapchain and calling present twice per frame
     // So when using OptiFG I am hijacking FSR-FG swapchain
@@ -307,6 +333,11 @@ ffxReturnCode_t ffxDestroyContext_Dx12(ffxContext* context, const ffxAllocationC
 
     LOG_DEBUG("context: {:X}", (size_t) *context);
 
+    const auto original = *context;
+    if (auto result = _gameDenoiserContexts.Destroy(original,
+            [&](FfxModule* game) { return game->DestroyContext(context, memCb); }, FFX_API_RETURN_OK))
+        return *result;
+
     if (*context == (void*) scContext || *context == (void*) fgContext)
     {
         auto result = ffxDestroyContext_Dx12FG(context, memCb);
@@ -365,6 +396,12 @@ ffxReturnCode_t ffxConfigure_Dx12(ffxContext* context, ffxConfigureDescHeader* d
     LOG_DEBUG("type: {}", FfxApiProxy::GetTypeName(desc->type));
 
     auto type = FfxApiProxy::GetType(desc->type);
+    bool nativeUnavailable = false;
+    if (auto* game = GameDenoiserFor(context, type, nativeUnavailable))
+        return game->Configure(context, desc);
+    if (nativeUnavailable)
+        return FFX_API_RETURN_NO_PROVIDER;
+
     if (type == FFXStructType::SwapchainDX12 || type == FFXStructType::FG)
     {
         ffxReturnCode_t result = PASSTHRU_RETURN_CODE;
@@ -404,6 +441,12 @@ ffxReturnCode_t ffxQuery_Dx12(ffxContext* context, ffxQueryDescHeader* desc)
         return FFX_API_RETURN_ERROR_PARAMETER;
 
     auto type = FfxApiProxy::GetIndirectType(desc);
+    bool nativeUnavailable = false;
+    if (auto* game = GameDenoiserFor(context, type, nativeUnavailable))
+        return game->Query(context, desc);
+    if (nativeUnavailable)
+        return FFX_API_RETURN_NO_PROVIDER;
+
     LOG_DEBUG("Header type: {}, Indirect type: {}", FfxApiProxy::GetTypeName(desc->type), magic_enum::enum_name(type));
 
     if (type == FFXStructType::SwapchainDX12 || type == FFXStructType::FG)
@@ -560,6 +603,12 @@ ffxReturnCode_t ffxDispatch_Dx12(ffxContext* context, ffxDispatchDescHeader* des
     LOG_DEBUG("context: {:X}, type: {}", (size_t) *context, FfxApiProxy::GetTypeName(desc->type));
 
     auto type = FfxApiProxy::GetType(desc->type);
+    bool nativeUnavailable = false;
+    if (auto* game = GameDenoiserFor(context, type, nativeUnavailable))
+        return game->Dispatch(context, desc);
+    if (nativeUnavailable)
+        return FFX_API_RETURN_NO_PROVIDER;
+
     if (type == FFXStructType::SwapchainDX12 || type == FFXStructType::FG)
     {
         ffxReturnCode_t result = PASSTHRU_RETURN_CODE;

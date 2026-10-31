@@ -530,6 +530,7 @@ HMODULE LibraryLoadHooks::LoadLibraryCheckW(std::wstring libName, LPCWSTR lpLibF
 
     if (CheckDllNameW(&libName, &ffxDx12NamesW))
     {
+        FfxApiProxy::ObserveGameFfxLoaderPath(lpLibFullPath ? lpLibFullPath : libName);
         if (FfxApiProxy::Dx12Module() != nullptr)
         {
             auto module = NtdllProxy::LoadLibraryExW_Ldr(FfxApiProxy::Dx12Module_Path().c_str(), NULL, NULL);
