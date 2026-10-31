@@ -28,6 +28,9 @@ inline NrGamePolicy GetNrGamePolicy(std::string_view exeName, bool unrealEngine 
     static constexpr Entry entries[] = {
         { "forza", Match::Contains, { true, true, true, false } },
         { "acmirage.exe", Match::Exact, { true, false, false, false } },
+        // PBZ creates retained game DIRECT lists before the swapchain, while
+        // Unreal detection is still false. Do not wait for engine discovery.
+        { "pbz.exe", Match::Exact, { true, false, false, false } },
         // Dying Light (The Beast): the renderer rd3d12_x64_rwdi.dll creates boot DIRECT
         // command lists before the swapchain; the exe-only early whitelist never matches
         // them, they stay unwrapped forever, and NR bypasses every frame recorded into

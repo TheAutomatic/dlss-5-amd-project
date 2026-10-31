@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "name": "RDNA3 ACO vs LLPC",
+  "description": "Single-pass nr_graph, shared RGBA32F gradient, no-reuse, fused pre/post; excludes compile/loading/readback, temporal history, game bridge and SR/FG.",
+  "probe": "gpu_probe.exe",
+  "warmup": 8,
+  "frames": 20,
+  "rounds": 3,
+  "timeoutSeconds": 600,
+  "referenceMode": "llpc",
+  "resolutions": [
+    {
+      "width": 1152,
+      "height": 648
+    },
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "width": 2560,
+      "height": 1440
+    },
+    {
+      "width": 3840,
+      "height": 2160
+    }
+  ],
+  "models": [
+    {
+      "id": "small",
+      "file": "dlssnr-small.bin",
+      "plan": "plans/plan_{width}x{height}_small.txt"
+    },
+    {
+      "id": "orig",
+      "file": "dlssnr.bin",
+      "plan": "plans/plan_{width}x{height}_orig.txt"
+    }
+  ],
+  "modes": [
+    {
+      "id": "aco",
+      "label": "RDNA3 ACO",
+      "exe": "aco_nr_graph.exe",
+      "shaders": "aco-bundle/shaders",
+      "aco": "aco-bundle",
+      "source": "c46a5edec8c89ca1c7645cde886335c345eebef0",
+      "extraArgs": []
+    },
+    {
+      "id": "llpc",
+      "label": "Windows driver compiler (LLPC)",
+      "exe": "storm_nr_graph.exe",
+      "shaders": "storm-shaders",
+      "aco": null,
+      "source": "887bfb1959c44dbdca90cebf838ff97e2f5076b3",
+      "extraArgs": []
+    }
+  ]
+}

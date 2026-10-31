@@ -116,3 +116,8 @@ Mochizuki 0.0.5 additionally builds RenoDX shaders with pinned Slang 2026.19
 (`tools/build/mochizuki-renodx.py`) and the native INT4 model converter.
 `tools/install/mochizuki-int4.ps1` validates generated user weights against the
 upstream hash; the build and release packages never include these weights.
+
+## 离线网络 Benchmark
+
+- `tools/benchmark/README.md`：配置驱动的 ACO 模型/ACO 与 LLPC 对比、设备探针和便携打包；数据在外部目录，结果进入 exports 或测试包 results。
+- `tests/benchmark/run.cmd`：无 GPU 的执行、失败/超时、统计和包重定位回归。

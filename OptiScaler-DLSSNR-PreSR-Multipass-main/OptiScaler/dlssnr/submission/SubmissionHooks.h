@@ -90,7 +90,7 @@ inline bool IsHostExecutableCaller(void *address)
 // module so the "missing recording proxy" lists can be traced to their creator.
 // Throttled hard; no behaviour change.
 inline void NoteUnwrappedDirect(const void *caller, bool armed, bool shouldWrap, bool wrapOpen,
-                                const char *tag)
+                                const char *tag, const void *list = nullptr)
 {
     static std::atomic<uint32_t> seen { 0 };
     const uint32_t n = seen.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -105,11 +105,11 @@ inline void NoteUnwrappedDirect(const void *caller, bool armed, bool shouldWrap,
     const char *base = path;
     for (const char *p = path; *p; ++p)
         if (*p == '\\' || *p == '/') base = p + 1;
-    LOG_WARN("lmxxf unwrapped DIRECT {} #{}: callerModule={} armed={} shouldWrap={} wrapOpen={} earlyExe={} earlyAny={} proxyWrap={}",
+    LOG_WARN("lmxxf unwrapped DIRECT {} #{}: callerModule={} armed={} shouldWrap={} wrapOpen={} earlyExe={} earlyAny={} proxyWrap={} list={:p}",
              tag, n, *base ? base : "?", armed, shouldWrap, wrapOpen,
              g_earlyExeWrap.load(std::memory_order_relaxed),
              g_earlyAnyModuleWrap.load(std::memory_order_relaxed),
-             g_proxyWrap.load(std::memory_order_relaxed));
+             g_proxyWrap.load(std::memory_order_relaxed), list);
 }
 
 inline bool ShouldWrapCreate(void *caller)
@@ -206,10 +206,11 @@ inline HRESULT WINAPI hkCreateCommandList(ID3D12Device *device, UINT nodeMask, D
     {
         // Proxy producers/continuations deliberately request native lists. They
         // are covered by the owning proxy, so they are not missing game wrappers.
-        if (type == D3D12_COMMAND_LIST_TYPE_DIRECT && IsArmed() && !g_suppressProxyWrap)
+        const HRESULT hr = o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
+        if (SUCCEEDED(hr) && type == D3D12_COMMAND_LIST_TYPE_DIRECT && IsArmed() && !g_suppressProxyWrap)
             NoteUnwrappedDirect(_ReturnAddress(), IsArmed(), ShouldWrapCreate(_ReturnAddress()),
-                                g_wrapOpenLists.load(std::memory_order_acquire), "CreateCommandList");
-        return o_CreateCommandList(device, nodeMask, type, alloc, initial, riid, out);
+                                g_wrapOpenLists.load(std::memory_order_acquire), "CreateCommandList", out ? *out : nullptr);
+        return hr;
     }
     ID3D12GraphicsCommandList *real = nullptr;
     // vkd3d-proton's CreateCommandList internally calls CreateCommandList1, which is also hooked;
@@ -237,11 +238,12 @@ inline HRESULT WINAPI hkCreateCommandList1(ID3D12Device *device, UINT nodeMask, 
     if (!IsArmed() || !ShouldWrapCreate(_ReturnAddress()) || g_suppressProxyWrap ||
         type != D3D12_COMMAND_LIST_TYPE_DIRECT || !o_CreateCommandList1)
     {
-        if (type == D3D12_COMMAND_LIST_TYPE_DIRECT && IsArmed() && !g_suppressProxyWrap)
+        const HRESULT hr = o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
+                                               : E_NOINTERFACE;
+        if (SUCCEEDED(hr) && type == D3D12_COMMAND_LIST_TYPE_DIRECT && IsArmed() && !g_suppressProxyWrap)
             NoteUnwrappedDirect(_ReturnAddress(), IsArmed(), ShouldWrapCreate(_ReturnAddress()),
-                                g_wrapOpenLists.load(std::memory_order_acquire), "CreateCommandList1");
-        return o_CreateCommandList1 ? o_CreateCommandList1(device, nodeMask, type, flags, riid, out)
-                                    : E_NOINTERFACE;
+                                g_wrapOpenLists.load(std::memory_order_acquire), "CreateCommandList1", out ? *out : nullptr);
+        return hr;
     }
 
     // Create closed real list, wrap as proxy; allocator binds on first Reset.

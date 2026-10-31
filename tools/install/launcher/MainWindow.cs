@@ -2103,10 +2103,26 @@ namespace OptScalerNR.Launcher
 
         string SelectMochizukiModels(string action)
         {
-            var dialog = CreateMochizukiModelDialog();
+            return SelectModelDialog(CreateMochizukiModelDialog(), action);
+        }
+
+        string SelectModelDialog(Window dialog, string action)
+        {
             var accepted = dialog.ShowDialog() == true;
             if (dialog.Uid == "modelSource") ChooseModelSource(action);
             return accepted ? dialog.Tag as string : null;
+        }
+
+        void AddModelSourceChoice(StackPanel panel, Window dialog, bool originalAvailable, bool smallAvailable)
+        {
+            if (originalAvailable && smallAvailable) return;
+            var source = new Button {
+                Name = "ChooseModelSource", Content = L("选择模型来源 DLL…", "Choose model source DLL…"),
+                HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0),
+                IsEnabled = _selectedGame != null && _selectedGame.HasExecutable
+            };
+            source.Click += delegate { dialog.Uid = "modelSource"; dialog.DialogResult = false; };
+            panel.Children.Add(source);
         }
 
         Window CreateMochizukiModelDialog()
@@ -2165,16 +2181,7 @@ namespace OptScalerNR.Launcher
                 radio.Checked += delegate { dialog.Tag = value; proceed.IsEnabled = true; };
                 panel.Children.Add(radio);
             }
-            if (!originalAvailable || !smallAvailable)
-            {
-                var source = new Button {
-                    Name = "ChooseModelSource", Content = L("选择模型来源 DLL…", "Choose model source DLL…"),
-                    HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0),
-                    IsEnabled = _selectedGame != null && _selectedGame.HasExecutable
-                };
-                source.Click += delegate { dialog.Uid = "modelSource"; dialog.DialogResult = false; };
-                panel.Children.Add(source);
-            }
+            AddModelSourceChoice(panel, dialog, originalAvailable, smallAvailable);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = new Button { Content = L("取消", "Cancel"), IsCancel = true, MinWidth = 100, Margin = new Thickness(4) };
             proceed.Click += delegate { dialog.DialogResult = true; };
@@ -2218,6 +2225,7 @@ namespace OptScalerNR.Launcher
                 radio.Checked += delegate { dialog.Tag = value; proceed.IsEnabled = true; };
                 panel.Children.Add(radio);
             }
+            AddModelSourceChoice(panel, dialog, original, small);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = new Button { Content = L("取消", "Cancel"), IsCancel = true, MinWidth = 100, Margin = new Thickness(4) };
             proceed.Click += delegate { if (dialog.Tag != null) dialog.DialogResult = true; };
@@ -2225,10 +2233,9 @@ namespace OptScalerNR.Launcher
             return dialog;
         }
 
-        string SelectLmxxfModels()
+        string SelectLmxxfModels(string action)
         {
-            var dialog = CreateLmxxfModelDialog();
-            return dialog.ShowDialog() == true ? dialog.Tag as string : null;
+            return SelectModelDialog(CreateLmxxfModelDialog(), action);
         }
 
         bool PrepareMissingModelSource(string action, List<string> selected)
@@ -2315,7 +2322,7 @@ namespace OptScalerNR.Launcher
             if (installing && checkedBackends.Contains("lmxxf") &&
                 (!keepModelChoice || string.IsNullOrEmpty(_decisions.LmxxfModels)))
             {
-                _decisions.LmxxfModels = SelectLmxxfModels();
+                _decisions.LmxxfModels = SelectLmxxfModels(action);
                 if (string.IsNullOrEmpty(_decisions.LmxxfModels)) { ReleaseLock(); return; }
             }
             if (installing && checkedBackends.Contains("mochizuki") &&
@@ -2615,7 +2622,7 @@ namespace OptScalerNR.Launcher
                 }
                 else if (d.Id == "lmxxfModels")
                 {
-                    _decisions.LmxxfModels = SelectLmxxfModels();
+                    _decisions.LmxxfModels = SelectLmxxfModels(action);
                     if (string.IsNullOrEmpty(_decisions.LmxxfModels)) return false;
                 }
                 else if (d.Id == "mochizukiModels")

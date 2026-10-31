@@ -12,10 +12,21 @@ int main()
     assert(ClassifyMochizukiPrepare(LMXXF_NR_INVALID_ARGUMENT,budget)==Outcome::Failed);
     assert(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,"colour format 999 is not supported")==Outcome::Failed);
     assert(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,"unrelated failure mentioning insufficient VRAM for x")==Outcome::Failed);
+    constexpr auto candidate="candidate frame buffers failed at 2568x1448: insufficient VRAM for 2568x1448 (need 248 MB, free 232 MB of a 11741 MB budget)";
+    assert(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,candidate)==Outcome::VramWait);
+    assert(ClassifyMochizukiPrepare(LMXXF_NR_INVALID_ARGUMENT,candidate)==Outcome::Failed);
+    assert(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,"candidate frame buffers failed at 2568x1448: invalid resource")==Outcome::Failed);
+    assert(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,"candidate frame buffers failed at 2568x1448")==Outcome::Failed);
     MochizukiPrepareFailureGate gate;
     // Reproduce a long budget hold, well beyond the previous 50-frame trip.
     for (unsigned i=0;i<2000;++i) {
         gate.Observe(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,budget));
+        assert(!gate.Open() && gate.Failures()==0);
+    }
+    // PBZ: admission succeeds, but candidate buffers are refused. The runtime
+    // retries after its OOM hold; this must survive more than 50 host calls too.
+    for (unsigned i=0;i<2000;++i) {
+        gate.Observe(ClassifyMochizukiPrepare(LMXXF_NR_UNAVAILABLE,candidate));
         assert(!gate.Open() && gate.Failures()==0);
     }
     // A smaller input or recovered budget can reach Prepare and resume normally.

@@ -341,7 +341,12 @@ Config::Instance()->DynamicResolution.reset(); assert(Init(&copy)); }\n'''
         source += '''
 auto forza=GetNrGamePolicy("FORZAHORIZON6.EXE");
 assert(forza.earlyExeWrap&&forza.earlyAnyModuleWrap&&forza.enhancedBarriers&&!forza.earlyUnityPlayerWrap);
-for(auto name:{"ACMirage.exe","007FirstLight.exe"}) { auto p=GetNrGamePolicy(name); assert(p.earlyExeWrap&&!p.earlyAnyModuleWrap&&!p.enhancedBarriers); }
+for(auto name:{"ACMirage.exe","007FirstLight.exe","PBZ.exe","C:/Games/PBZ.EXE"}) { auto p=GetNrGamePolicy(name); assert(p.earlyExeWrap&&!p.earlyAnyModuleWrap&&!p.enhancedBarriers); }
+assert(!GetNrGamePolicy("pbz_other.exe").earlyExeWrap);
+auto pbz=GetNrGamePolicy("PBZ.exe",false);
+CustomOptional<bool,NoDefault> pbzPreference;
+assert(pbzPreference.value_or(pbz.earlyExeWrap));
+pbzPreference=false; assert(!pbzPreference.value_or(pbz.earlyExeWrap));
 assert(!GetNrGamePolicy("acmirage_plus.exe").earlyExeWrap);
 assert(GetNrGamePolicy("aniimo.exe").earlyUnityPlayerWrap);
 assert(!GetNrGamePolicy("otherunity.exe").earlyUnityPlayerWrap);

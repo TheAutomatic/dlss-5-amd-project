@@ -10,10 +10,14 @@ inline MochizukiPrepareOutcome ClassifyMochizukiPrepare(int32_t result, std::str
 {
     if (result == LMXXF_NR_OK)
         return MochizukiPrepareOutcome::Ready;
-    // Admission refuses before allocating, and the runtime's Hold retries this
-    // key every 10 seconds. Do not permanently close that recovery path in host.
+    // Admission can refuse the network or its candidate frame buffers. The
+    // latter wraps the admission message and uses the runtime's OOM build hold.
+    // Do not permanently close either recovery path in host.
     // Other UNAVAILABLE errors (e.g. unsupported formats) remain real failures.
-    if (result == LMXXF_NR_UNAVAILABLE && reason.starts_with("insufficient VRAM for "))
+    constexpr std::string_view admission = "insufficient VRAM for ";
+    const bool candidateAdmission = reason.starts_with("candidate frame buffers failed at ") &&
+        reason.find(": insufficient VRAM for ") != std::string_view::npos;
+    if (result == LMXXF_NR_UNAVAILABLE && (reason.starts_with(admission) || candidateAdmission))
         return MochizukiPrepareOutcome::VramWait;
     if (reason.find("building the network") != std::string_view::npos)
         return MochizukiPrepareOutcome::Building;
