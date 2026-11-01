@@ -1,4 +1,4 @@
-#include <pch.h>
+﻿#include <pch.h>
 
 #include "Streamline_Hooks.h"
 
@@ -945,6 +945,61 @@ char* StreamlineHooks::trimStreamlineLog(const char* msg)
     return result;
 }
 
+namespace
+{
+// Streamline repeats advisory lines at display rate (slEvaluateFeatureInternal's VRAM budget
+// warning, for example: one line per present at 4K with FSR-RR). Collapse identical messages
+// at the default log level so the file stays readable; LogLevel 1 (debug/trace) keeps every
+// raw line for investigation. Digits and bracketed prefixes are normalized away, because the
+// per-line thread id and elapsed time would otherwise defeat the comparison.
+std::mutex g_slLogMutex;
+std::unordered_map<std::string, uint32_t> g_slLogCounts;
+
+std::string NormalizeStreamlineMessage(const char* text, sl::LogType type)
+{
+    std::string key(1, static_cast<char>('a' + static_cast<int>(type)));
+    bool inBracket = false;
+    for (const char* p = text; *p != '\0'; ++p)
+    {
+        const char c = *p;
+        if (c == '[') { inBracket = true; continue; }
+        if (c == ']') { inBracket = false; continue; }
+        if (inBracket)
+            continue;
+        if (c >= '0' && c <= '9')
+        {
+            if (key.empty() || key.back() != '#')
+                key += '#';
+            continue;
+        }
+        key += c;
+    }
+    return key;
+}
+
+void LogStreamlineMessage(sl::LogType type, const char* text)
+{
+    switch (type)
+    {
+    case sl::LogType::eWarn:
+        LOG_WARN("{}", text);
+        break;
+    case sl::LogType::eInfo:
+        // SL info is noisy (ota.cpp startup, presentCommon VRAM every frame).
+        // Keep it only at LogLevel=3; info stays readable.
+        LOG_DEBUG("{}", text);
+        break;
+    case sl::LogType::eError:
+        LOG_ERROR("{}", text);
+        break;
+    case sl::LogType::eCount:
+    default:
+        LOG_ERROR("{}", text);
+        break;
+    }
+}
+} // namespace
+
 void StreamlineHooks::streamlineLogCallback(sl::LogType type, const char* msg)
 {
     if (msg == nullptr)
@@ -953,22 +1008,26 @@ void StreamlineHooks::streamlineLogCallback(sl::LogType type, const char* msg)
     char* trimmed_msg = trimStreamlineLog(msg);
     if (trimmed_msg != nullptr)
     {
-        switch (type)
+        const bool verbose = Config::Instance()->LogLevel.value_or_default() <= 1;
+        if (verbose || (type != sl::LogType::eWarn && type != sl::LogType::eInfo))
         {
-        case sl::LogType::eWarn:
-            LOG_WARN("{}", trimmed_msg);
-            break;
-        case sl::LogType::eInfo:
-            // SL info is noisy (ota.cpp startup, presentCommon VRAM every frame).
-            // Keep it only at LogLevel=3; info stays readable.
-            LOG_DEBUG("{}", trimmed_msg);
-            break;
-        case sl::LogType::eError:
-            LOG_ERROR("{}", trimmed_msg);
-            break;
-        case sl::LogType::eCount:
-            LOG_ERROR("{}", trimmed_msg);
-            break;
+            LogStreamlineMessage(type, trimmed_msg);
+        }
+        else
+        {
+            const std::string key = NormalizeStreamlineMessage(trimmed_msg, type);
+            uint32_t seen = 0;
+            {
+                std::lock_guard lock(g_slLogMutex);
+                if (g_slLogCounts.size() > 512)
+                    g_slLogCounts.clear();
+                seen = ++g_slLogCounts[key];
+            }
+
+            if (seen <= 2)
+                LogStreamlineMessage(type, trimmed_msg);
+            else if (seen == 16 || seen == 64 || (seen >= 256 && seen % 256 == 0))
+                LogStreamlineMessage(type, (std::string("[repeated ") + std::to_string(seen) + "x] " + trimmed_msg).c_str());
         }
 
         free(trimmed_msg);
