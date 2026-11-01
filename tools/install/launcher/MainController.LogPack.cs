@@ -7,6 +7,8 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace OptScalerNR.Launcher
 {
@@ -40,9 +42,9 @@ namespace OptScalerNR.Launcher
                 dirs.Add(rootDir);
             if (dirs.Count == 0)
             {
-                MessageBox.Show(_window,
+                DialogTheme.Show(_window,
                     L("请先在游戏库中选择要收集日志的游戏。", "Select a game in the library first."),
-                    _window.Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                    L("一键打包日志", "Pack Logs"), MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -78,10 +80,10 @@ namespace OptScalerNR.Launcher
 
                 if (copied == 0 && events == null)
                 {
-                    MessageBox.Show(_window,
-                        L("没有找到可收集的日志（游戏目录里没有 OptiScaler/mochizuki 日志）。\n请先运行一次游戏再打包。",
-                          "No logs found to collect (no OptiScaler/mochizuki logs in the game directory).\nRun the game once before packing."),
-                        _window.Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    DialogTheme.Show(_window,
+                        L("未在游戏目录中找到可收集的日志（无 OptiScaler 或 mochizuki 日志）。\n请先运行一次游戏再执行打包。",
+                          "No logs found in the game directory (no OptiScaler or mochizuki logs).\nPlease run the game once before packing logs."),
+                        L("一键打包日志", "Pack Logs"), MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -90,21 +92,124 @@ namespace OptScalerNR.Launcher
                 if (File.Exists(zip)) File.Delete(zip);
                 ZipFile.CreateFromDirectory(tempDir, zip, System.IO.Compression.CompressionLevel.Optimal, false);
 
-                MessageBox.Show(_window,
-                    L("日志已打包到桌面：\n" + zip + "\n\n压缩包包含游戏目录日志/配置、系统信息（GPU/驱动/内存）和近两天的驱动与崩溃事件。请把它发给支援者。",
-                      "Logs packed to your desktop:\n" + zip + "\n\nThe archive contains the game directory logs/configs, a system summary (GPU/driver/RAM) and the last two days of driver and crash events. Send it to whoever is helping you."),
-                    _window.Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowLogPackSuccessDialog(zip);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(_window,
+                DialogTheme.Show(_window,
                     L("打包日志失败：" + ex.Message, "Failed to pack logs: " + ex.Message),
-                    _window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
+                    L("一键打包日志", "Pack Logs"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
                 try { if (tempDir != null && Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
             }
+        }
+
+        void ShowLogPackSuccessDialog(string zip)
+        {
+            var title = L("一键打包日志", "Pack Logs");
+            var dialog = DialogTheme.Create(_window, title, 580);
+            var panel = new StackPanel { Margin = new Thickness(22) };
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = L("日志与诊断信息已成功打包到桌面：", "Logs and diagnostic info have been packed to your desktop:"),
+                Foreground = LauncherTheme.Brush("ThemeInk"),
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            var pathBox = new Border
+            {
+                Background = LauncherTheme.Brush("ThemeSubtle"),
+                BorderBrush = LauncherTheme.Brush("ThemeBorder"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 0, 0, 14)
+            };
+            var pathText = new TextBox
+            {
+                Text = zip,
+                IsReadOnly = true,
+                Background = Brushes.Transparent,
+                Foreground = LauncherTheme.Brush("ThemeInk"),
+                BorderThickness = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap
+            };
+            pathBox.Child = pathText;
+            panel.Children.Add(pathBox);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = L(
+                    "压缩包包含以下内容：\n" +
+                    "• 游戏目录下的 OptiScaler / mochizuki 运行日志与 INI 配置文件\n" +
+                    "• 启动器安装日志、系统硬件概况（显卡型号、驱动版本、内存容量）\n" +
+                    "• 近两天的显卡驱动超时重置 (TDR) 与游戏崩溃记录\n\n" +
+                    "向支援者反馈问题时，请直接发送该压缩包。",
+                    "The archive contains:\n" +
+                    "• OptiScaler / mochizuki runtime logs and INI configs in the game directory\n" +
+                    "• Launcher install log and system summary (GPU, driver version, RAM capacity)\n" +
+                    "• Graphics driver timeout reset (TDR) and game crash events from the past 2 days\n\n" +
+                    "When requesting assistance, please share this archive with the maintainers."
+                ),
+                Foreground = LauncherTheme.Brush("ThemeMuted"),
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 20)
+            });
+
+            var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+
+            var locateBtn = new Button
+            {
+                Content = L("在文件夹中定位", "Locate File"),
+                MinWidth = 100,
+                Margin = new Thickness(4)
+            };
+            locateBtn.Click += delegate
+            {
+                try { Process.Start("explorer.exe", "/select,\"" + zip + "\""); }
+                catch { }
+            };
+
+            var copyBtn = new Button
+            {
+                Content = L("复制路径", "Copy Path"),
+                MinWidth = 90,
+                Margin = new Thickness(4)
+            };
+            copyBtn.Click += delegate
+            {
+                try
+                {
+                    Clipboard.SetText(zip);
+                    copyBtn.Content = L("已复制！", "Copied!");
+                }
+                catch { }
+            };
+
+            var okBtn = new Button
+            {
+                Content = L("确定", "OK"),
+                MinWidth = 90,
+                Margin = new Thickness(4)
+            };
+            DialogTheme.Primary(dialog, okBtn);
+            okBtn.Click += delegate { dialog.DialogResult = true; };
+
+            buttons.Children.Add(locateBtn);
+            buttons.Children.Add(copyBtn);
+            buttons.Children.Add(okBtn);
+
+            panel.Children.Add(buttons);
+            DialogTheme.SetContent(dialog, panel);
+            dialog.ShowDialog();
         }
 
         static int CopyGlobs(string dir, string dest, HashSet<string> taken, IEnumerable<string> patterns)
