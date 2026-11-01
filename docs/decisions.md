@@ -1,4 +1,4 @@
-## 2026-10-23 — 启动器按钮"白边"事故:WPF 运行时 XAML 的模板静默回退(已修)
+﻿## 2026-10-23 — 启动器按钮"白边"事故:WPF 运行时 XAML 的模板静默回退(已修)
 
 **给以后看的人(说人话版)**:启动器所有界面是运行时从嵌入资源读 XAML 字符串搭起来的
 (不是常规的编译期 XAML)。按钮样式(MainWindow.xaml)和按钮模板(DialogTheme.xaml)
@@ -1385,6 +1385,8 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
     删除每游戏插件偏好元数据（`PluginsByGame`/`SetPlugins`/`GetPlugins`/`GetPluginsForGame`）；
     `IniProfiles.Apply()` 去掉 pluginsEnabled 形参，应用配置时固定写 `true`；
     OptiPatcher 对开关的联动锁定（`OptiPatcherPinsPlugins`/`ApplyOptiPatcherPluginLock`）随之删除。
+- 语义澄清: `auto` 在宿主里仍是 `false`（`readBool` 认不出 `auto` → 编译默认 `false`），我们只是安装时强制写 `true`；
+  模板注释已按此改写。
 - 取舍: 这会覆盖用户在此前 INI 里显式写的 `false`（产品决策：ASI 是默认能力，用户仍可在 ini 手动改回）。
 - 验证: `tests/install/launcher-state.ps1` PASS；`launcher-localization.ps1` PASS(583)；
   安装器两个相关用例（总是启用 / 自定义插件保留）32s PASS；启动器冒烟存活。
