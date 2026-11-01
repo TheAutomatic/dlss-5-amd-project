@@ -1,4 +1,4 @@
-# Real WPF controller, isolated preferences, no windows shown or workers launched.
+﻿# Real WPF controller, isolated preferences, no windows shown or workers launched.
 [CmdletBinding()]
 param([string]$LauncherExe)
 $ErrorActionPreference = 'Stop'
@@ -465,52 +465,42 @@ try {
     $savedFiles = [IO.Directory]::GetFiles($profiles.RootDirectory, '*.ini')
     Check ($savedFiles.Count -eq 1) 'Saving a profile did not create exactly one shared INI'
     Check ((File-Bytes $savedFiles[0]) -ceq (File-Bytes $source)) 'Saving a profile changed its bytes'
-    # Native auto/absent plugin settings resolve false; applying a shared true profile must not opt in.
-    foreach ($mode in @('auto', 'absent', 'missing-ini')) {
+    # ASI plugins are on by default: applying a profile always enables them, whatever the
+    # target ini said before (auto / absent / no [Plugins] section at all).
+    foreach ($mode in @('auto', 'absent')) {
         $defaultTarget = Join-Path ([string]$arguments[1]) ('plugin-default-' + $mode)
         [void][IO.Directory]::CreateDirectory($defaultTarget)
         $defaultIni = Join-Path $defaultTarget 'OptiScaler.ini'
         if ($mode -eq 'auto') { [IO.File]::WriteAllText($defaultIni, "[Plugins]`r`nLoadAsiPlugins=auto`r`n") }
         if ($mode -eq 'absent') { [IO.File]::WriteAllText($defaultIni, "[OptiScaler]`r`nFixture=untouched`r`n") }
-        $enabled = $profiles.GetPluginsForGame('default-' + $mode, $defaultTarget)
-        Check (-not $enabled) "Native $mode plugin default unexpectedly enabled ASI"
-        if ($mode -ne 'missing-ini') {
-            $profiles.Apply($defaultTarget, $savedName, $enabled) | Out-Null
-            Check ([IO.File]::ReadAllText($defaultIni) -match '(?im)^LoadAsiPlugins\s*=\s*false\s*$') "Applying a profile opted into ASI for $mode"
-        }
+        $profiles.Apply($defaultTarget, $savedName) | Out-Null
+        Check ([IO.File]::ReadAllText($defaultIni) -match '(?im)^LoadAsiPlugins\s*=\s*true\s*$') "Applying a profile did not enable ASI for $mode"
     }
     $importedName = $profiles.Import($source, 'Shared fixture')
     Check ($importedName -cne $savedName) 'Import overwrote an existing same-name profile'
     Check (@($profiles.List()).Count -eq 2) 'Save/import did not share one library'
     $profiles.SetSelection('fixture-A', $savedName)
     $profiles.SetSelection('fixture-B', $savedName)
-    $profiles.SetPlugins('fixture-A', $false)
-    $profiles.SetPlugins('fixture-B', $true)
     $profiles = $profileConstructor.Invoke(@([string]$profileSettings))
     Check ($profiles.GetSelection('fixture-A') -ceq $savedName -and $profiles.GetSelection('fixture-B') -ceq $savedName) 'Restart lost shared profile references'
-    Check (-not $profiles.GetPlugins('fixture-A') -and $profiles.GetPlugins('fixture-B')) 'Restart lost per-game plugin preferences'
     $target = Join-Path ([string]$arguments[1]) 'profile-target'
     [void][IO.Directory]::CreateDirectory($target)
     $targetIni = Join-Path $target 'OptiScaler.ini'
     [IO.File]::WriteAllText($targetIni, "; pre-apply fixture`r`n[OptiScaler]`r`nFixtureValue=old`r`n")
     $before = File-Bytes $targetIni
-    $backup = $profiles.Apply($target, $savedName, $false)
+    $backup = $profiles.Apply($target, $savedName)
     Check ([IO.File]::Exists($backup) -and [IO.Path]::GetDirectoryName($backup) -eq $target) 'Profile apply did not return a local backup'
     Check ((File-Bytes $backup) -ceq $before) 'Profile backup did not preserve the previous INI bytes'
     $applied = [IO.File]::ReadAllText($targetIni)
     Check ($applied.Contains('FixtureValue=from-profile')) 'Profile apply did not replace the target configuration'
-    Check ($applied -match '(?im)^LoadAsiPlugins\s*=\s*false\s*$') 'Profile apply ignored disabled plugins'
+    Check ($applied -match '(?im)^LoadAsiPlugins\s*=\s*true\s*$') 'Profile apply did not enable ASI by default'
     $fallbackMetadata = [IO.File]::ReadAllText($profiles.MetadataPath)
-    Check (-not $profiles.GetPluginsForGame('unrecorded-game', $target)) 'Unrecorded game ignored disabled plugins in its current INI'
-    Check ($profiles.GetPluginsForGame('fixture-B', $target)) 'Current INI overrode an explicit saved plugin preference'
     Check ([IO.File]::ReadAllText($profiles.MetadataPath) -ceq $fallbackMetadata) 'Reading current plugin state wrote metadata'
     $before = File-Bytes $targetIni
-    $pluginBackup = $profiles.Apply($target, '', $true)
+    $pluginBackup = $profiles.Apply($target, '')
     Check ($pluginBackup -ne $backup -and (File-Bytes $pluginBackup) -ceq $before) 'Plugin-only apply did not retain its own exact backup'
     $applied = [IO.File]::ReadAllText($targetIni)
-    Check ($applied.Contains('FixtureValue=from-profile') -and $applied -match '(?im)^LoadAsiPlugins\s*=\s*true\s*$') 'Plugin-only apply replaced unrelated settings or failed to enable plugins'
-    Check ($profiles.GetPluginsForGame('unrecorded-game', $target)) 'Unrecorded game ignored enabled plugins in its current INI'
-    Check (-not $profiles.GetPluginsForGame('fixture-A', $target)) 'Enabled INI overrode an explicit disabled plugin preference'
+    Check ($applied.Contains('FixtureValue=from-profile') -and $applied -match '(?im)^LoadAsiPlugins\s*=\s*true\s*$') 'Repeat apply replaced unrelated settings or failed to keep ASI enabled'
     $profiles.Rename($savedName, 'Renamed fixture')
     $profiles = $profileConstructor.Invoke(@([string]$profileSettings))
     Check (@($profiles.List()) -contains 'Renamed fixture') 'Renamed profile did not persist'
@@ -520,7 +510,6 @@ try {
     $profiles = $profileConstructor.Invoke(@([string]$profileSettings))
     Check (@($profiles.List()).Count -eq 1 -and @($profiles.List()) -contains $importedName) 'Delete removed the wrong shared profile'
     Check ([string]::IsNullOrEmpty($profiles.GetSelection('fixture-A')) -and [string]::IsNullOrEmpty($profiles.GetSelection('fixture-B'))) 'Delete retained dangling profile references'
-    Check (-not $profiles.GetPlugins('fixture-A') -and $profiles.GetPlugins('fixture-B')) 'Rename/delete clobbered plugin preferences'
 
     # Controller paths enforce busy guards and reset the selected profile between games.
     $gameA = [Activator]::CreateInstance($gameType)
@@ -531,7 +520,6 @@ try {
     [void][IO.Directory]::CreateDirectory($gameB.Root)
     [IO.File]::WriteAllText((Join-Path $gameB.Root 'OptiScaler.ini'), $sourceText)
     Call 'SelectGame' @($gameA) | Out-Null
-    Check ((Field '_iniPluginToggle').IsChecked -eq $true) 'Initial selection ignored enabled plugins in the current game INI'
     Check (Call 'SaveIniProfile' @('Controller fixture')) 'Controller refused to save an isolated current INI'
     $controllerProfiles = Field '_iniProfiles'
     $controllerName = [string](Field '_iniSelectedProfile')
@@ -542,27 +530,25 @@ try {
     Check ($controllerImported -ne $controllerName) 'Import retained the previous selected profile'
     $pendingIni = File-Bytes $targetIni
     Choose-IniProfile $controllerName
-    (Field '_iniPluginToggle').IsChecked = $false
-    Check ((File-Bytes $targetIni) -ceq $pendingIni) 'Choosing a profile or toggling plugins wrote the game INI before Apply'
+    Check ((File-Bytes $targetIni) -ceq $pendingIni) 'Choosing a profile wrote the game INI before Apply'
     $profileMetadata = [IO.File]::ReadAllText($controllerProfiles.MetadataPath)
     Call 'ToggleLanguage' | Out-Null
     Call 'SetTheme' @('dark') | Out-Null
-    Check ((Field '_iniSelectedProfile') -eq $controllerName -and (Field '_iniPluginToggle').IsChecked -eq $false) 'Language/theme refresh lost pending profile choices'
+    Check ((Field '_iniSelectedProfile') -eq $controllerName) 'Language/theme refresh lost pending profile choices'
     Check ([IO.File]::ReadAllText($controllerProfiles.MetadataPath) -ceq $profileMetadata) 'Language/theme refresh rewrote profile metadata'
     $aMetadata = [IO.File]::ReadAllText($controllerProfiles.MetadataPath)
     Call 'SelectGame' @($gameB) | Out-Null
     Check ([string]::IsNullOrEmpty([string](Field '_iniSelectedProfile'))) 'Profile selection leaked to another game'
-    Check ((Field '_iniPluginToggle').IsChecked -eq $true) 'Plugin preference leaked to another game'
     Check ([IO.File]::ReadAllText($controllerProfiles.MetadataPath) -ceq $aMetadata) 'Selecting another game rewrote profile metadata'
     Choose-IniProfile $controllerImported
     Call 'SelectGame' @($gameA) | Out-Null
-    Check ((Field '_iniSelectedProfile') -eq $controllerName -and (Field '_iniPluginToggle').IsChecked -eq $false) 'Returning to a game lost its profile/plugin selection'
+    Check ((Field '_iniSelectedProfile') -eq $controllerName) 'Returning to a game lost its profile selection'
     $before = File-Bytes $targetIni
     $backupsBefore = @([IO.Directory]::GetFiles($target, 'OptiScaler.ini.bak-*'))
     Check (Call 'ApplyIniProfile') 'Controller refused to apply an isolated profile'
     $newBackups = @([IO.Directory]::GetFiles($target, 'OptiScaler.ini.bak-*') | Where-Object { $_ -notin $backupsBefore })
     Check ($newBackups.Count -eq 1 -and (File-Bytes $newBackups[0]) -ceq $before) 'Controller apply did not preserve the previous INI'
-    Check ([IO.File]::ReadAllText($targetIni) -match '(?im)^LoadAsiPlugins\s*=\s*false\s*$') 'Controller apply ignored the selected plugin state'
+    Check ([IO.File]::ReadAllText($targetIni) -match '(?im)^LoadAsiPlugins\s*=\s*true\s*$') 'Controller apply did not enable ASI by default'
     Check (-not (Field '_writeBusy') -and $null -eq (Field '_targetMutex')) 'Profile apply retained its busy state or target lock'
     $metadataBefore = [IO.File]::ReadAllText($controllerProfiles.MetadataPath)
     $libraryBefore = @($controllerProfiles.List()) -join '|'
@@ -591,13 +577,11 @@ try {
     $controllerProfiles = $profileConstructor.Invoke(@([string]$arguments[1]))
     Check ([string]::IsNullOrEmpty($controllerProfiles.GetSelection($gameA.Id))) 'Controller deletion did not persist removal of the game reference'
     Check ($controllerProfiles.GetSelection($gameB.Id) -eq $controllerImported) 'Controller operations did not persist the other game reference'
-    Check (-not $controllerProfiles.GetPlugins($gameA.Id)) 'Controller operations did not persist the disabled plugin preference'
     $reopened = $controllerType.GetMethod('Create', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, $arguments)
     try {
         $persistedProfiles = [IO.File]::ReadAllText($controllerProfiles.MetadataPath)
         $controllerType.GetMethod('SelectGame', $flags).Invoke($reopened.Tag, @($gameA)) | Out-Null
         Check ([string]::IsNullOrEmpty([string]$controllerType.GetField('_iniSelectedProfile', $flags).GetValue($reopened.Tag))) 'Restart restored a deleted profile reference'
-        Check ($controllerType.GetField('_iniPluginToggle', $flags).GetValue($reopened.Tag).IsChecked -eq $false) 'Restart lost the disabled plugin choice'
         $controllerType.GetMethod('SelectGame', $flags).Invoke($reopened.Tag, @($gameB)) | Out-Null
         Check ($controllerType.GetField('_iniSelectedProfile', $flags).GetValue($reopened.Tag) -eq $controllerImported) 'Restart lost the other game profile selection'
         Check ([IO.File]::ReadAllText($controllerProfiles.MetadataPath) -ceq $persistedProfiles) 'Restart/selection rewrote profile metadata'

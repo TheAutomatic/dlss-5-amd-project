@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -13,12 +13,11 @@ namespace OptScalerNR.Launcher
         IniProfiles _iniProfiles;
         ComboBox _iniProfileCombo;
         TextBox _iniSearchBox;
-        CheckBox _iniPluginToggle;
         TextBlock _iniProfileStatus;
         Button _iniSaveButton, _iniQuickSaveButton, _iniImportButton, _iniRenameButton, _iniDeleteButton, _iniApplyButton, _iniFolderButton;
         string[] _iniProfileNames = new string[0];
         string _iniSelectedProfile = "";
-        bool _iniUpdating, _iniPluginsEnabled, _iniInitialized;
+        bool _iniUpdating, _iniInitialized;
         int _iniSelectionGeneration;
         string _iniStatus = "", _iniStatusDetail = "";
 
@@ -34,7 +33,6 @@ namespace OptScalerNR.Launcher
             _iniInitialized = true;
             _iniProfileCombo = _window.FindName("IniProfileCombo") as ComboBox;
             _iniSearchBox = _window.FindName("IniSearchBox") as TextBox;
-            _iniPluginToggle = _window.FindName("PluginToggle") as CheckBox;
             _iniProfileStatus = _window.FindName("IniProfileStatus") as TextBlock;
             _iniSaveButton = _window.FindName("IniSaveButton") as Button;
             _iniQuickSaveButton = _window.FindName("IniQuickSaveButton") as Button;
@@ -50,11 +48,6 @@ namespace OptScalerNR.Launcher
             catch (Exception ex) { IniFailure(ex); }
             if (_iniProfileCombo != null) _iniProfileCombo.SelectionChanged += delegate { IniSelectionChanged(); };
             if (_iniSearchBox != null) _iniSearchBox.TextChanged += delegate { if (!_iniUpdating) PopulateIniProfiles(); };
-            if (_iniPluginToggle != null)
-            {
-                _iniPluginToggle.Checked += delegate { IniPluginsChanged(); };
-                _iniPluginToggle.Unchecked += delegate { IniPluginsChanged(); };
-            }
             if (_iniSaveButton != null) _iniSaveButton.Click += delegate { PromptSaveIniProfile(); };
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.Click += delegate {
                 var game = CaptureIniGame();
@@ -90,10 +83,6 @@ namespace OptScalerNR.Launcher
             if (_iniApplyButton != null) _iniApplyButton.Content = L("应用所选配置", "Apply selection");
             if (_iniFolderButton != null) _iniFolderButton.Content = L("配置文件夹", "Profiles folder");
             if (_iniSearchBox != null) _iniSearchBox.ToolTip = L("搜索共享配置", "Search shared profiles");
-            if (_iniPluginToggle != null) {
-                _iniPluginToggle.Content = L("加载 ASI 插件", "Load ASI plugins");
-                _iniPluginToggle.ToolTip = L("随“应用所选配置”写入 [Plugins] LoadAsiPlugins。", "Written to [Plugins] LoadAsiPlugins by Apply selection.");
-            }
             RefreshUnlockerLanguage();
             PopulateIniProfiles();
             RenderIniStatus();
@@ -108,13 +97,11 @@ namespace OptScalerNR.Launcher
             try
             {
                 _iniSelectedProfile = "";
-                _iniPluginsEnabled = false;
                 _iniProfileNames = new string[0];
                 _iniStatus = "";
                 _iniStatusDetail = "";
                 if (_iniProfileCombo != null) { _iniProfileCombo.SelectedIndex = -1; _iniProfileCombo.Items.Clear(); }
                 if (_iniSearchBox != null) _iniSearchBox.Text = "";
-                if (_iniPluginToggle != null) _iniPluginToggle.IsChecked = false;
                 if (_iniProfiles != null)
                 {
                     _iniProfileNames = _iniProfiles.List();
@@ -123,8 +110,6 @@ namespace OptScalerNR.Launcher
                     {
                         var saved = _iniProfiles.GetSelection(game.Key);
                         _iniSelectedProfile = FindIniName(saved);
-                        _iniPluginsEnabled = _iniProfiles.GetPluginsForGame(game.Key, game.Directory);
-                        if (_iniPluginToggle != null) _iniPluginToggle.IsChecked = _iniPluginsEnabled;
                     }
                 }
             }
@@ -157,7 +142,6 @@ namespace OptScalerNR.Launcher
             // Single source of truth: the game-available gate AND the OptiPatcher pin are decided
             // together, so a profile-actions refresh can never re-enable a toggle the installer
             // would force back on.
-            if (_iniPluginToggle != null) _iniPluginToggle.IsEnabled = hasGame && !OptiPatcherPinsPlugins();
             RefreshUnlockerPlugin();
         }
 
@@ -232,25 +216,6 @@ namespace OptScalerNR.Launcher
             catch (Exception ex) { PopulateIniProfiles(); IniFailure(ex); }
             RefreshProfileActions();
         }
-        void IniPluginsChanged()
-        {
-            if (_iniUpdating || _iniPluginToggle == null) return;
-            var game = CaptureIniGame();
-            var enabled = _iniPluginToggle.IsChecked == true;
-            if (CanUseIniGame(game))
-            {
-                try {
-                    _iniProfiles.SetPlugins(game.Key, enabled);
-                    _iniPluginsEnabled = enabled;
-                    SetIniStatus("pending", "");
-                    return;
-                } catch (Exception ex) { IniFailure(ex); }
-            }
-            _iniUpdating = true;
-            try { _iniPluginToggle.IsChecked = _iniPluginsEnabled; }
-            finally { _iniUpdating = false; }
-        }
-
         string PromptIniName(string title, string initial)
         {
             var dialog = DialogTheme.Create(_window, title, 450);
@@ -354,7 +319,6 @@ namespace OptScalerNR.Launcher
         {
             var game = CaptureIniGame();
             var name = _iniSelectedProfile;
-            var plugins = _iniPluginsEnabled;
             if (!CanUseIniGame(game)) return false;
             var locked = false;
             var busy = false;
@@ -366,7 +330,7 @@ namespace OptScalerNR.Launcher
                 SetBusy(true, "ini-profile");
                 busy = true;
                 RefreshProfileActions();
-                var backup = _iniProfiles.Apply(game.Directory, name, plugins);
+                var backup = _iniProfiles.Apply(game.Directory, name);
                 SetIniStatus("applied", Path.GetFileName(backup));
                 return true;
             }

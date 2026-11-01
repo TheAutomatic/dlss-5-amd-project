@@ -1370,3 +1370,21 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 - 验证: tests/host/gpu_batch_tracker.cpp(WARP, ci 层)六用例——原生记录/退休、原生重放 re-arm 不计数、
   wrapped 同代重提计数+1 且 re-arm、Reset 立即作废未提交、Reset 不提前退休已提交(queue->Wait 手动阻塞
   fence 保证确定性)、销毁立即作废未提交; host ci 全绿。
+
+## 2026-11-01: ASI 插件加载改为默认开启，移除启动器开关
+
+- 现象: 启动器"加载 ASI 插件"勾选框位于"安装选项（下次安装或更新时生效）"块内，但安装器从不读它
+  （launcher→worker 请求无该字段，Setup.ps1 无对应参数）。勾选仅写入启动器元数据，游戏 INI 保持不变；
+  模板值 `LoadAsiPlugins=auto` 在宿主里 `readBool` 无法识别 → 落到编译默认 `false`。
+  即"不覆盖 ini + 只勾选 + 安装"组合下 ASI 插件实际不会加载。
+- 决定: 不再提供开关，默认对所有安装开启。
+  - 模板 `OptiScaler.ini`: `LoadAsiPlugins=true`，注释同步。
+  - 安装器 `install-amd-presr.ps1`: 安装结束后只要 `OptiScaler.ini` 存在就无条件写 `true`
+    （删除"仅 OptiPatcher / 仅存在自定义 .asi 且为 auto"两个条件分支）。
+  - 启动器: 删除 `PluginToggle` 勾选框及 `_iniPluginToggle`/`_iniPluginsEnabled`/`IniPluginsChanged`；
+    删除每游戏插件偏好元数据（`PluginsByGame`/`SetPlugins`/`GetPlugins`/`GetPluginsForGame`）；
+    `IniProfiles.Apply()` 去掉 pluginsEnabled 形参，应用配置时固定写 `true`；
+    OptiPatcher 对开关的联动锁定（`OptiPatcherPinsPlugins`/`ApplyOptiPatcherPluginLock`）随之删除。
+- 取舍: 这会覆盖用户在此前 INI 里显式写的 `false`（产品决策：ASI 是默认能力，用户仍可在 ini 手动改回）。
+- 验证: `tests/install/launcher-state.ps1` PASS；`launcher-localization.ps1` PASS(583)；
+  安装器两个相关用例（总是启用 / 自定义插件保留）32s PASS；启动器冒烟存活。

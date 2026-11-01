@@ -1,4 +1,4 @@
-"""Exercise the shipped launchers with Windows PowerShell 5.1 in temp folders.
+﻿"""Exercise the shipped launchers with Windows PowerShell 5.1 in temp folders.
 
 No release is repackaged and no real game/author binary is used. Only the
 fixture installer's accepted runtime SHA is changed for its success cases.
@@ -51,7 +51,8 @@ class InstallerExitTests(unittest.TestCase):
         self.env.pop("PSMODULEPATH", None)
         self.env["PATH"] = str(PS.parent) + os.pathsep + self.env.get("PATH", "")
         shutil.copy2(REPO / "tools/lmxxf-module-package.ps1", self.package)
-        shutil.copy2(REPO / "tools/install/mochizuki-python.ps1", self.package)
+        (self.package / 'model-tools').mkdir()
+        shutil.copy2(REPO / "tools/install/mochizuki-python.ps1", self.package / 'model-tools')
         for name in ('lmxxf-small.ps1', 'lmxxf-small-manifest.json'):
             shutil.copy2(REPO / 'tools/install' / name, self.package)
         source = (REPO / "tools/release/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
@@ -664,7 +665,7 @@ class InstallerExitTests(unittest.TestCase):
         existing = self.game / 'dlssnr-amd/dlssnr-small.bin'
         existing.parent.mkdir(parents=True)
         existing.write_bytes(small)
-        (self.package / 'mochizuki-model.py').write_text(
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text(
             "import sys\nfrom pathlib import Path\n"
             "assert sys.argv[3:] == ['--models', 'original'], sys.argv\n"
             "p=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
@@ -684,7 +685,7 @@ class InstallerExitTests(unittest.TestCase):
         existing = self.game / 'dlssnr-amd/dlssnr.bin'
         existing.parent.mkdir(parents=True)
         existing.write_bytes(original)
-        (self.package / 'mochizuki-model.py').write_text(
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text(
             "import sys\nfrom pathlib import Path\n"
             "assert sys.argv[3:] == ['--models', 'small'], sys.argv\n"
             "p=Path(sys.argv[2]).with_name('dlssnr-small.bin'); p.parent.mkdir(parents=True,exist_ok=True)\n"
@@ -1112,7 +1113,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_mochizuki_supported_source_extracts_and_installs(self):
         self.ready_supported_mochizuki_source()
-        (self.package / 'mochizuki-model.py').write_text(
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text(
             "import sys\nfrom pathlib import Path\np=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
             "p.write_bytes(b'NRMODEL1'+(599).to_bytes(4,'little')+bytes(20))\n", encoding='utf-8')
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
@@ -1123,7 +1124,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_mochizuki_extractor_failure_leaves_actionable_pending(self):
         self.ready_supported_mochizuki_source()
-        (self.package / 'mochizuki-model.py').write_text('import sys; print("fixture extraction error", file=sys.stderr); sys.exit(4)\n', encoding='utf-8')
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text('import sys; print("fixture extraction error", file=sys.stderr); sys.exit(4)\n', encoding='utf-8')
         before = self.game_snapshot()
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
         self.assertEqual(code, 1, output)
@@ -1134,7 +1135,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_mochizuki_missing_python_leaves_actionable_pending(self):
         self.ready_supported_mochizuki_source()
-        script = self.package / 'mochizuki-python.ps1'
+        script = self.package / 'model-tools' / 'mochizuki-python.ps1'
         text = script.read_text(encoding='utf-8-sig')
         old = "@('python', 'python3', 'py')"
         self.assertEqual(text.count(old), 1)
@@ -1149,7 +1150,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(self.game_snapshot(), before)
 
     def fixture_python_candidates(self, candidates):
-        script = self.package / 'mochizuki-python.ps1'
+        script = self.package / 'model-tools' / 'mochizuki-python.ps1'
         text = script.read_text(encoding='utf-8-sig')
         old = "@('python', 'python3', 'py')"
         self.assertEqual(text.count(old), 1)
@@ -1178,7 +1179,7 @@ class InstallerExitTests(unittest.TestCase):
         broken = self.package / 'broken-python.cmd'
         broken.write_text('@echo off\necho launcher error 1>&2\nexit /b 1\n', encoding='ascii')
         self.fixture_python_candidates((broken, Path(sys.executable)))
-        (self.package / 'mochizuki-model.py').write_text(
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text(
             "import sys\nfrom pathlib import Path\np=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
             "p.write_bytes(b'NRMODEL1'+(599).to_bytes(4,'little')+bytes(20))\n", encoding='utf-8')
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
@@ -1194,7 +1195,7 @@ class InstallerExitTests(unittest.TestCase):
         (second / 'fixture-python.cmd').write_text('@echo off\n"' + sys.executable + '" %*\nexit /b %errorlevel%\n', encoding='ascii')
         self.env['PATH'] = str(first) + os.pathsep + str(second) + os.pathsep + self.env['PATH']
         self.fixture_python_candidates(('fixture-python',))
-        (self.package / 'mochizuki-model.py').write_text(
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text(
             "import sys\nfrom pathlib import Path\np=Path(sys.argv[2]); p.parent.mkdir(parents=True,exist_ok=True)\n"
             "p.write_bytes(b'NRMODEL1'+(599).to_bytes(4,'little')+bytes(20))\n", encoding='utf-8')
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
@@ -1220,7 +1221,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_mochizuki_model_launcher_preserves_extractor_error(self):
         self.fixture_python_candidates((Path(sys.executable),))
-        (self.package / 'mochizuki-model.py').write_text('import sys; print("fixture extraction error"); sys.exit(4)\n', encoding='utf-8')
+        (self.package / 'model-tools' / 'mochizuki-model.py').write_text('import sys; print("fixture extraction error"); sys.exit(4)\n', encoding='utf-8')
         code, output = self.run_mochizuki_model_launcher()
         self.assertEqual(code, 4, output)
         self.assertIn('fixture extraction error', output)
@@ -1613,13 +1614,13 @@ class InstallerExitTests(unittest.TestCase):
         self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
 
 
-    def test_retained_custom_asi_enables_only_automatic_loading_after_ini_replacement(self):
+    def test_install_always_enables_asi_plugin_loading(self):
         self.ready_install()
         for index, (setting, expected, plugin) in enumerate((
             ('auto', 'true', 'MFGUnlocker.asi'),
-            ('false', 'false', 'MFGUnlocker.asi'),
+            ('false', 'true', 'MFGUnlocker.asi'),
             ('true', 'true', 'MFGUnlocker.asi'),
-            ('auto', 'auto', None),
+            ('auto', 'true', None),
         )):
             with self.subTest(setting=setting, plugin=plugin):
                 game = self.root / f'retained-asi-{index}'
@@ -1653,8 +1654,10 @@ class InstallerExitTests(unittest.TestCase):
         for directory in (source, nested):
             (directory / 'README.txt').write_text('legacy package placeholder', encoding='utf-8')
             (directory / 'OptScaler-NR-plugins-README.txt').write_text('project placeholder', encoding='utf-8')
+        # ASI plugin loading is a product default now; an explicit false in the game ini is
+        # overridden on install like every other value.
         for index, (path, setting, expected) in enumerate((
-            ('auto', None, 'true'), ('mods', 'false', 'false'),
+            ('auto', None, 'true'), ('mods', 'false', 'true'),
             (str(self.root / 'shared-plugins'), 'auto', 'true'), ('auto', 'true', 'true'),
         )):
             with self.subTest(path=path, setting=setting):

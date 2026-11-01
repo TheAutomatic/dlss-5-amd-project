@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -18,7 +18,6 @@ namespace OptScalerNR.Launcher
     public sealed class IniProfileMetadata
     {
         [DataMember(Name = "selectedByGame")] public Dictionary<string, string> SelectedByGame = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        [DataMember(Name = "pluginsByGame")] public Dictionary<string, bool> PluginsByGame = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
     }
 
     // Independent of launcher settings: constructing or reading this store never writes preferences.
@@ -41,8 +40,6 @@ namespace OptScalerNR.Launcher
             if (_metadata == null) throw new IniProfileException("metadata");
             _metadata.SelectedByGame = _metadata.SelectedByGame == null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 : new Dictionary<string, string>(_metadata.SelectedByGame, StringComparer.OrdinalIgnoreCase);
-            _metadata.PluginsByGame = _metadata.PluginsByGame == null ? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, bool>(_metadata.PluginsByGame, StringComparer.OrdinalIgnoreCase);
         }
 
         public string[] List()
@@ -64,34 +61,6 @@ namespace OptScalerNR.Launcher
             string value;
             return !string.IsNullOrEmpty(gameKey) && _metadata.SelectedByGame.TryGetValue(gameKey, out value) ? value ?? "" : "";
         }
-        public bool GetPlugins(string gameKey)
-        {
-            bool value;
-            return !string.IsNullOrEmpty(gameKey) && _metadata.PluginsByGame.TryGetValue(gameKey, out value) && value;
-        }
-        public bool GetPluginsForGame(string gameKey, string gameDirectory)
-        {
-            bool saved;
-            if (!string.IsNullOrEmpty(gameKey) && _metadata.PluginsByGame.TryGetValue(gameKey, out saved)) return saved;
-            var path = Path.Combine(gameDirectory, "OptiScaler.ini");
-            if (!File.Exists(path)) return false;
-            var text = Document.Read(File.ReadAllBytes(path)).Text;
-            var inPlugins = false;
-            var enabled = false;
-            foreach (var line in Regex.Split(text, "\\r\\n|\\r|\\n"))
-            {
-                var section = Regex.Match(line, @"^\s*\[([^\]]+)\]\s*(?:[;#].*)?$");
-                if (section.Success)
-                {
-                    inPlugins = string.Equals(section.Groups[1].Value.Trim(), "Plugins", StringComparison.OrdinalIgnoreCase);
-                    continue;
-                }
-                if (!inPlugins) continue;
-                var setting = Regex.Match(line, @"^\s*LoadAsiPlugins\s*=\s*(true|false|auto)\s*(?:[;#].*)?$", RegexOptions.IgnoreCase);
-                if (setting.Success) enabled = string.Equals(setting.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
-            }
-            return enabled;
-        }
         public void SetSelection(string gameKey, string name)
         {
             if (string.IsNullOrEmpty(gameKey)) throw new IniProfileException("game");
@@ -101,16 +70,6 @@ namespace OptScalerNR.Launcher
             updated.SelectedByGame[gameKey] = name ?? "";
             Persist(updated);
         }
-        public void SetPlugins(string gameKey, bool enabled)
-        {
-            if (string.IsNullOrEmpty(gameKey)) throw new IniProfileException("game");
-            bool current;
-            if (_metadata.PluginsByGame.TryGetValue(gameKey, out current) && current == enabled) return;
-            var updated = CopyMetadata();
-            updated.PluginsByGame[gameKey] = enabled;
-            Persist(updated);
-        }
-
         public static string CleanName(string name)
         {
             var value = Regex.Replace((name ?? "").Trim(), "[\\\\/:*?\"<>|\\x00-\\x1f]", "_");
@@ -196,7 +155,7 @@ namespace OptScalerNR.Launcher
         }
 
         // The controller owns the target mutex and write-busy lifecycle. No game writes occur elsewhere.
-        public string Apply(string gameDirectory, string profileName, bool pluginsEnabled)
+        public string Apply(string gameDirectory, string profileName)
         {
             var target = Path.Combine(gameDirectory, "OptiScaler.ini");
             if (!File.Exists(target)) throw new IniProfileException("noini");
@@ -204,7 +163,8 @@ namespace OptScalerNR.Launcher
             var source = string.IsNullOrEmpty(profileName) ? target : ExistingProfile(profileName);
             var document = Document.Read(File.ReadAllBytes(source));
             Validate(document.Text);
-            var bytes = document.WithPlugins(pluginsEnabled);
+            // ASI plugins are on by default: applying a profile always enables them.
+            var bytes = document.WithPlugins(true);
             var temporary = target + ".stage-" + Guid.NewGuid().ToString("N");
             var backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
             for (var i = 2; File.Exists(backup); i++) backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) + "-" + i.ToString(CultureInfo.InvariantCulture);
@@ -246,7 +206,6 @@ namespace OptScalerNR.Launcher
         {
             return new IniProfileMetadata {
                 SelectedByGame = new Dictionary<string, string>(_metadata.SelectedByGame, StringComparer.OrdinalIgnoreCase),
-                PluginsByGame = new Dictionary<string, bool>(_metadata.PluginsByGame, StringComparer.OrdinalIgnoreCase)
             };
         }
         void Persist(IniProfileMetadata updated)

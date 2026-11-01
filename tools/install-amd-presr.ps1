@@ -857,7 +857,7 @@ function Test-MochizukiModelFile([string]$Path, [uint32]$Entries = 599) {
         }
 
         # Fallback to python full tensor validation
-        $modelTool = Find-FirstFile @((Join-Path $Root 'mochizuki-model.py'), (Join-Path $PSScriptRoot 'install/mochizuki-model.py'))
+        $modelTool = Find-FirstFile @((Join-Path $Root 'model-tools/mochizuki-model.py'), (Join-Path $Root 'mochizuki-model.py'), (Join-Path $PSScriptRoot 'install/mochizuki-model.py'))
         if ($modelTool) {
             $py = Get-Command 'python' -ErrorAction SilentlyContinue
             if ($py) {
@@ -1175,8 +1175,8 @@ if ($installMochizuki) {
                 Fail "Model preparation failed: $($_.Exception.Message). The existing installation was preserved."
             }
         } else {
-            $modelTool = Find-FirstFile @((Join-Path $Root 'mochizuki-model.py'), (Join-Path $PSScriptRoot 'install/mochizuki-model.py'))
-            $pythonHelper = Find-FirstFile @((Join-Path $Root 'mochizuki-python.ps1'), (Join-Path $PSScriptRoot 'install/mochizuki-python.ps1'))
+            $modelTool = Find-FirstFile @((Join-Path $Root 'model-tools/mochizuki-model.py'), (Join-Path $Root 'mochizuki-model.py'), (Join-Path $PSScriptRoot 'install/mochizuki-model.py'))
+            $pythonHelper = Find-FirstFile @((Join-Path $Root 'model-tools/mochizuki-python.ps1'), (Join-Path $Root 'mochizuki-python.ps1'), (Join-Path $PSScriptRoot 'install/mochizuki-python.ps1'))
             if (-not $pythonHelper) {
                 Fail 'Model preparation failed: Python detection helper missing. Re-extract the complete OptiScaler package.'
             }
@@ -2370,8 +2370,8 @@ if ($isInteractiveUser) {
     }
 }
 
-# Enable LoadAsiPlugins=true in OptiScaler.ini
-if ($installedOptiPatcher -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+# ASI plugins are on by default for every install; the launcher no longer exposes a toggle.
+if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
     Write-Host 'Enabled LoadAsiPlugins=true in OptiScaler.ini.' -ForegroundColor Green
 }
@@ -2403,18 +2403,6 @@ try {
             } else {
                 Copy-Item -LiteralPath $_.FullName -Destination $destFile -Force
             }
-        }
-    }
-    # Replacing the INI can reset loading to auto while user ASIs remain in place.
-    $customAsiPresent = @(Get-ChildItem -LiteralPath $resolvedPluginsDir -File -Filter '*.asi' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notmatch '(?i)OptiPatcher.*\.asi$' }).Count
-    if ($customAsiPresent -gt 0 -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
-        $loadAsi = Get-IniSetting $gameIni 'Plugins' 'LoadAsiPlugins'
-        if ([string]::IsNullOrWhiteSpace($loadAsi) -or $loadAsi -ieq 'auto') {
-            Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
-            Write-Host "Enabled LoadAsiPlugins=true in OptiScaler.ini ($customAsiPresent custom ASI plugin(s) present)." -ForegroundColor Green
-        } else {
-            Write-Host "Keeping explicit LoadAsiPlugins=$loadAsi; custom plugins do not change this setting."
         }
     }
 } catch {

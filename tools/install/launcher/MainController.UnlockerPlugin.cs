@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -17,11 +17,6 @@ namespace OptScalerNR.Launcher
             if (_unlockerImportButton != null) _unlockerImportButton.Click += delegate { ImportUnlockerPlugin(); };
             _openPluginsFolderButton = _window.FindName("OpenPluginsFolderButton") as Button;
             if (_openPluginsFolderButton != null) _openPluginsFolderButton.Click += delegate { OpenPluginsFolder(); };
-            if (_iniPluginToggle != null)
-            {
-                _iniPluginToggle.Checked += delegate { RefreshUnlockerPlugin(); };
-                _iniPluginToggle.Unchecked += delegate { RefreshUnlockerPlugin(); };
-            }
             if (_optiPatcherToggle != null)
             {
                 _optiPatcherToggle.Checked += delegate { RefreshUnlockerPlugin(); };
@@ -42,7 +37,8 @@ namespace OptScalerNR.Launcher
         bool CanShowUnlockerPlugin(IniGameIdentity game)
         {
             if (game == null || !Directory.Exists(Path.Combine(game.Directory, "OptiScaler"))) return false;
-            if ((_iniPluginToggle != null && _iniPluginToggle.IsChecked == true) || (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true)) return true;
+            // ASI plugins are on by default now; OptiPatcher still implies plugin loading.
+            if (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) return true;
             try { return string.Equals(UnlockerPlugin.LoadAsiValue(UnlockerPlugin.ReadIni(Path.Combine(game.Directory, "OptiScaler.ini"))), "true", StringComparison.OrdinalIgnoreCase); }
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
@@ -187,11 +183,6 @@ namespace OptScalerNR.Launcher
                     var iniBackup = UnlockerPlugin.EnableAsi(iniPath);
                     outcome += "\n" + L("已启用 LoadAsiPlugins。", "LoadAsiPlugins enabled.");
                     if (iniBackup.Length > 0) outcome += " " + L("INI 备份：", "INI backup: ") + iniBackup;
-                    _iniProfiles.SetPlugins(game.Key, true);
-                    _iniPluginsEnabled = true;
-                    _iniUpdating = true;
-                    try { if (_iniPluginToggle != null) _iniPluginToggle.IsChecked = true; }
-                    finally { _iniUpdating = false; }
                 }
                 else if (!string.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
                     outcome += "\n" + L("插件在启用 LoadAsiPlugins 前不会加载。", "The plugin will not load until LoadAsiPlugins is enabled.");

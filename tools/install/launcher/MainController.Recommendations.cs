@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -25,19 +25,6 @@ namespace OptScalerNR.Launcher
             if(_useRecommendationButton!=null)_useRecommendationButton.Click+=delegate{
                 if(_selectedGame==null)return;_proxyChoices.Remove(_selectedGame.Id);SaveSettings();UpdateProxyRecommendation();
             };
-        }
-        // Installing OptiPatcher forces LoadAsiPlugins=true, so the plugin toggle must not offer a
-        // contradicting state: while the OptiPatcher choice is checked the toggle is pinned on and
-        // disabled, exactly like the installer will configure it.
-        bool OptiPatcherPinsPlugins()
-        {
-            return _optiPatcherToggle!=null&&_optiPatcherToggle.IsChecked==true;
-        }
-        void ApplyOptiPatcherPluginLock()
-        {
-            if(_optiPatcherToggle==null||_iniPluginToggle==null)return;
-            if(OptiPatcherPinsPlugins())_iniPluginToggle.IsChecked=true;
-            _iniPluginToggle.IsEnabled=!OptiPatcherPinsPlugins();
         }
         void RememberOptiPatcherChoice()
         {
@@ -68,7 +55,6 @@ namespace OptScalerNR.Launcher
             _selectingOptiPatcher=true;
             try{if(_optiPatcherToggle!=null)_optiPatcherToggle.IsChecked=optiPatcher;}
             finally{_selectingOptiPatcher=false;}
-            ApplyOptiPatcherPluginLock();
             _decisions.OptiPatcher=optiPatcher?"install":"skip";
             if(_selectedGame==null){AppendMochizukiNote();return;}
             string manual;
