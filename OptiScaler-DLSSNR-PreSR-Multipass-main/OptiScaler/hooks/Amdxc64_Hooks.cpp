@@ -273,8 +273,12 @@ HRESULT Amdxc64Hooks::SetFlipMeterConfig(IAmdExtFlipMeter* flipMeter, const AmdE
 
     auto result = o_FlipMeterSetConfig(flipMeter, &config);
 
-    LOG_INFO("Flip meter requested mode: {}, applied mode: {}, flags: {:X}, result: {:X}", requested.mode, config.mode,
-             config.flags, (UINT) result);
+    // Per-present hot path (in-game FSR FG calls SetConfig on every flip, ~display rate):
+    // INFO would synchronously write the log file on the FG/present thread 100+ times a
+    // second and wreck frame pacing (issue #17). DEBUG keeps it available for diagnosis
+    // at LogLevel 3 with zero cost at the default level.
+    LOG_DEBUG("Flip meter requested mode: {}, applied mode: {}, flags: {:X}, result: {:X}", requested.mode, config.mode,
+              config.flags, (UINT) result);
 
     if (SUCCEEDED(result))
         State::Instance().amdFlipMeterMode = config.mode;
