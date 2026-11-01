@@ -118,11 +118,18 @@ class Tracker
         if (FAILED(queue->Signal(fence, value)))
             return;
 
+        // Identity lookups (and the IUnknown Release inside them) take the submission
+        // RecordingMutex via CommandListProxy::Release; snapshot them BEFORE locking
+        // mutex_, because Invalidated arrives under RecordingMutex and waits on mutex_.
+        std::vector<ListIdentity> identities(num);
+        for (UINT i = 0; i < num; ++i)
+            identities[i] = IdentityOf(static_cast<ID3D12GraphicsCommandList*>(lists[i]));
+
         std::lock_guard lock(mutex_);
         for (UINT i = 0; i < num; ++i)
         {
             auto* executed = static_cast<ID3D12GraphicsCommandList*>(lists[i]);
-            const ListIdentity identity = IdentityOf(executed);
+            const ListIdentity& identity = identities[i];
             for (auto& entry : entries_)
             {
                 if (entry.list != executed)
@@ -133,10 +140,13 @@ class Tracker
                     // The list was reset and re-recorded: this execution carries a newer
                     // recording. An entry that never submitted can never reach the GPU
                     // (Reset erased its commands), so it is discarded. An entry that DID
-                    // submit keeps its own fence retirement: the earlier batch may still
-                    // be executing, and Reset does not cancel it.
+                    // submit keeps its own fence retirement until completion — Reset does
+                    // not cancel in-flight work — but is now invalidated: it can never be
+                    // replayed, so Reap() reclaims it once its fence completes.
                     if (entry.state == Entry::State::Recorded)
                         entry.state = Entry::State::Discarded;
+                    else
+                        entry.invalidated = true;
                     continue;
                 }
                 if (entry.stableId != 0 && identity.stableId != entry.stableId)
@@ -187,6 +197,14 @@ class Tracker
         return replaysAfterCompletion_.load(std::memory_order_relaxed);
     }
 
+    // Diagnostic: current tracked-entry count (diagrams reclamation health; never a
+    // capacity control). Used by tests to observe invalidation-driven reclamation.
+    size_t TrackedEntries() const
+    {
+        std::lock_guard lock(mutex_);
+        return entries_.size();
+    }
+
     // IRecordingResources observer callback (Reset old-generation, or list destroy).
     // Arrives under the submission RecordingMutex; takes only the leaf mutex_.
     void OnRecordingInvalidated(const RecordingIdentity& id) noexcept
@@ -197,11 +215,15 @@ class Tracker
         {
             if (entry.stableId != id.list || entry.generation != id.generation)
                 continue;
-            // Only never-submitted recordings are provably dead: Reset erased their
-            // commands, or the list is destroyed before any execution. Submitted work
-            // may still be on the GPU and retires through its fence as usual.
+            // Never-submitted: provably dead (commands erased / list destroyed),
+            // discard immediately. Submitted: the batch may still be executing, so
+            // fence retirement still governs, but the recording can never execute
+            // again — mark invalidated so Reap() reclaims it once the fence completes.
+            // Completed entries are marked so the same rule reclaims them.
             if (entry.state == Entry::State::Recorded)
                 entry.state = Entry::State::Discarded;
+            else
+                entry.invalidated = true;
         }
     }
 
@@ -289,6 +311,11 @@ class Tracker
         uint64_t stableId = 0;    // 0: native list, no lifecycle observation
         uint64_t generation = kUnknownGeneration;
         State state = State::Recorded;
+        // Set when lifecycle observation proved this recording can never execute
+        // again (Reset advanced its generation, or the list was destroyed). Reclaim
+        // eligibility, not a protection change: fence retirement still applies until
+        // completion for entries that already submitted.
+        bool invalidated = false;
         // Raw fence pointer owned by this tracker; fences are released only at exit, so
         // it outlives every entry that references it.
         ID3D12Fence* fence = nullptr;
@@ -312,7 +339,11 @@ class Tracker
     // Called outside mutex_ (ObserveResources takes the submission RecordingMutex).
     void ObserveList(ID3D12GraphicsCommandList* list, const ListIdentity& identity)
     {
+        std::shared_ptr<RecordingObserver> observer;
         {
+            // observer_ is created under mutex_ and only a copy escapes the lock:
+            // concurrent Record() calls must not read/write the same shared_ptr
+            // object unsynchronized.
             std::lock_guard lock(mutex_);
             const bool alreadyObserved = std::any_of(entries_.begin(), entries_.end(),
                 [&identity](const Entry& entry) {
@@ -321,14 +352,15 @@ class Tracker
                 });
             if (alreadyObserved)
                 return;
+            if (!observer_)
+                observer_ = std::make_shared<Observer>();
+            observer = observer_;
         }
-        if (!observer_)
-            observer_ = std::make_shared<Observer>();
         IRecordingResources* resources = nullptr;
         if (SUCCEEDED(list->QueryInterface(__uuidof(IRecordingResources),
                                            reinterpret_cast<void**>(&resources))) && resources)
         {
-            const HRESULT hr = resources->ObserveResources(observer_);
+            const HRESULT hr = resources->ObserveResources(std::move(observer));
             resources->Release();
             (void)hr; // observation is an optimization; fence retirement still applies
         }
@@ -354,12 +386,26 @@ class Tracker
 
     void Reap()
     {
-        // Fence completion permits ticket retirement, but the recording can still be
-        // replayed. Keep its association until lifecycle observation proves it was
-        // invalidated (Reset/destroy observed, or generation mismatch at submit time);
-        // native lists with unknown identities must remain tracked.
+        // Promote Submitted entries whose fence completed (the same condition StatusOf
+        // applies), so reclamation does not depend on the holder polling the ticket.
+        for (auto& entry : entries_)
+        {
+            if (entry.state == Entry::State::Submitted && entry.fence)
+            {
+                const uint64_t completed = entry.fence->GetCompletedValue();
+                if (completed != UINT64_MAX && completed >= entry.fenceValue)
+                    entry.state = Entry::State::Completed;
+            }
+        }
+        // Discarded entries are provably dead. A Completed entry is reclaimable once
+        // invalidated: its GPU work finished AND it can never execute again, so the
+        // untracked-ticket fallback in StatusOf (Retired) matches its true state.
+        // Completed-but-never-invalidated entries stay: the recording may still be
+        // replayed and OnExecuted re-arms it with a fresh fence. Native entries
+        // (stableId == 0) have no invalidation signal and remain tracked.
         std::erase_if(entries_, [](const Entry& entry) {
-            return entry.state == Entry::State::Discarded;
+            return entry.state == Entry::State::Discarded ||
+                   (entry.invalidated && entry.state == Entry::State::Completed);
         });
 
         // Field diagnostics, throttled to one line per minute: separates record

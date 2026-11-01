@@ -11,8 +11,8 @@
 //
 // Determinism: T2/T4 block the queue with a manual fence wait (queue->Wait) before the
 // tracker's Signal, so GetCompletedValue stays 0 until the test releases the block.
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
+#include <thread>
+#include <vector>
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -170,6 +170,74 @@ int main()
         assert(SUCCEEDED(proxy->Close()));
         proxy.Reset(); // drop the last reference: proxy destroyed -> Invalidated(current identity)
         assert(StatusOf(ticket) == GB::Tracker::Status::Retired);
+    }
+
+    // ---- T6: a submitted recording is reclaimed only after invalidation AND fence
+    // completion; a wrapped pool cycling submit -> Reset every frame must not accumulate ----
+    {
+        ComPtr<ID3D12CommandAllocator> alloc = makeAllocator();
+        ComPtr<ID3D12GraphicsCommandList> real;
+        assert(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr,
+                                                  IID_PPV_ARGS(&real))));
+        ComPtr<S::CommandListProxy> proxy;
+        assert(SUCCEEDED(S::CommandListProxy::Create(device.Get(), alloc.Get(), real.Get(), &proxy)));
+        const size_t before = tracker.TrackedEntries();
+        for (int frame = 0; frame < 8; ++frame)
+        {
+            const auto ticket = tracker.Record(proxy.Get());
+            assert(SUCCEEDED(proxy->Close()));
+            ID3D12CommandList* lists[] = {proxy.Get()};
+            tracker.OnExecuted(1, lists, queue.Get());
+            assert(tracker.Wait(ticket, 5000)); // frame submitted and completed
+            assert(SUCCEEDED(proxy->Reset(alloc.Get(), nullptr))); // pool recycles the list
+        }
+        // Reap runs inside OnExecuted's first phase; drive it with one dummy native
+        // submission and require the eight invalidated+completed recordings to be gone.
+        {
+            ComPtr<ID3D12CommandAllocator> dummyAlloc = makeAllocator();
+            ComPtr<ID3D12GraphicsCommandList> native;
+            assert(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, dummyAlloc.Get(),
+                                                      nullptr, IID_PPV_ARGS(&native))));
+            const auto dummy = tracker.Record(native.Get());
+            ID3D12CommandList* lists[] = {native.Get()};
+            tracker.OnExecuted(1, lists, queue.Get());
+            (void)dummy;
+        }
+        assert(tracker.TrackedEntries() <= before + 1); // +1: the dummy native entry
+    }
+
+    // ---- T7: concurrent Record/OnExecuted/Reset/StatusOf must not deadlock or race.
+    // The P1 fix (identity QI outside mutex_) and the P2b fix (observer_ under mutex_)
+    // are exactly this shape; a regression hangs or corrupts here. ----
+    {
+        constexpr int kThreads = 4, kFrames = 64;
+        std::vector<std::thread> workers;
+        for (int t = 0; t < kThreads; ++t)
+        {
+            workers.emplace_back([&, t] {
+                ComPtr<ID3D12CommandAllocator> alloc;
+                assert(SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                                IID_PPV_ARGS(&alloc))));
+                ComPtr<ID3D12GraphicsCommandList> real;
+                assert(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(),
+                                                           nullptr, IID_PPV_ARGS(&real))));
+                ComPtr<S::CommandListProxy> proxy;
+                assert(SUCCEEDED(S::CommandListProxy::Create(device.Get(), alloc.Get(), real.Get(), &proxy)));
+                for (int f = 0; f < kFrames; ++f)
+                {
+                    const auto ticket = tracker.Record(proxy.Get());
+                    proxy->Close();
+                    ID3D12CommandList* lists[] = {proxy.Get()};
+                    tracker.OnExecuted(1, lists, queue.Get());
+                    tracker.StatusOf(ticket); // concurrent poll while others submit
+                    if (f % 4 == 3)
+                        proxy->Reset(alloc.Get(), nullptr); // concurrent invalidate
+                }
+            });
+        }
+        for (auto& w : workers)
+            w.join();
+        // Completing within the harness timeout is the assertion: ABBA would hang here.
     }
 
     std::printf("gpu_batch_tracker: PASS\n");
