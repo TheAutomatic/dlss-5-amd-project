@@ -19,9 +19,26 @@ namespace OptScalerNR.Launcher
         void PackLogs()
         {
             var game = _selectedGame;
-            string gameDir = null;
-            try { gameDir = game != null ? game.RootDirectory : null; } catch { }
-            if (string.IsNullOrEmpty(gameDir) || !Directory.Exists(gameDir))
+            // Install and INI operations target the chosen EXE's directory; collect there
+            // first. GameInfo.Root can differ (root added, exe in a subfolder) and is only
+            // a supplement for files that ended up there.
+            var dirs = new List<string>();
+            if (game != null && !string.IsNullOrEmpty(game.Exe))
+            {
+                try
+                {
+                    var exeDir = Path.GetDirectoryName(game.Exe);
+                    if (!string.IsNullOrEmpty(exeDir) && Directory.Exists(exeDir))
+                        dirs.Add(exeDir);
+                }
+                catch { }
+            }
+            string rootDir = null;
+            try { rootDir = game != null ? game.RootDirectory : null; } catch { }
+            if (!string.IsNullOrEmpty(rootDir) && Directory.Exists(rootDir) &&
+                (dirs.Count == 0 || !string.Equals(rootDir, dirs[0], StringComparison.OrdinalIgnoreCase)))
+                dirs.Add(rootDir);
+            if (dirs.Count == 0)
             {
                 MessageBox.Show(_window,
                     L("请先在游戏库中选择要收集日志的游戏。", "Select a game in the library first."),
@@ -38,18 +55,19 @@ namespace OptScalerNR.Launcher
                 Directory.CreateDirectory(tempDir);
 
                 int copied = 0;
-                copied += CopyGlobs(gameDir, tempDir, new[]
-                {
-                    "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
-                    "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
-                });
+                foreach (var dir in dirs)
+                    copied += CopyGlobs(dir, tempDir, new[]
+                    {
+                        "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
+                        "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
+                    });
                 if (!string.IsNullOrEmpty(_currentLogPath) && File.Exists(_currentLogPath))
                 {
                     File.Copy(_currentLogPath, Path.Combine(tempDir, "launcher-install" + Path.GetExtension(_currentLogPath)), true);
                     copied++;
                 }
 
-                File.WriteAllText(Path.Combine(tempDir, "system.txt"), BuildSystemSummary(game, gameDir, _currentLogPath), new UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(tempDir, "system.txt"), BuildSystemSummary(game, dirs, _currentLogPath), new UTF8Encoding(false));
                 var events = BuildRecentEvents(game != null ? game.Exe : null);
                 if (events != null)
                     File.WriteAllText(Path.Combine(tempDir, "events.txt"), events, new UTF8Encoding(false));
@@ -103,12 +121,14 @@ namespace OptScalerNR.Launcher
             return n;
         }
 
-        static string BuildSystemSummary(GameInfo game, string gameDir, string launcherLog)
+        static string BuildSystemSummary(GameInfo game, IList<string> dirs, string launcherLog)
         {
             var sb = new StringBuilder();
             sb.AppendLine("game: " + (game != null ? game.DisplayName : "?"));
             sb.AppendLine("exe: " + (game != null ? game.Exe : "?"));
-            sb.AppendLine("game dir: " + gameDir);
+            sb.AppendLine("exe dir: " + (dirs.Count > 0 ? dirs[0] : "?"));
+            for (int i = 1; i < dirs.Count; i++)
+                sb.AppendLine("extra dir: " + dirs[i]);
             sb.AppendLine("launcher log: " + (launcherLog ?? ""));
             sb.AppendLine();
 
@@ -144,13 +164,16 @@ namespace OptScalerNR.Launcher
             sb.AppendLine("game directory listing:");
             try
             {
-                foreach (var entry in new DirectoryInfo(gameDir).EnumerateFileSystemInfos())
+                foreach (var dir in dirs)
+            {
+            foreach (var entry in new DirectoryInfo(dir).EnumerateFileSystemInfos())
                 {
                     long size = 0;
                     var file = entry as FileInfo;
                     if (file != null) { try { size = file.Length; } catch { } }
                     sb.AppendLine(string.Format("{0,12} {1}", size, entry.Name));
                 }
+            }
             }
             catch (Exception ex) { sb.AppendLine("  (listing failed: " + ex.Message + ")"); }
             return sb.ToString();

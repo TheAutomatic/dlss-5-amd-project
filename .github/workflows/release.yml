@@ -89,78 +89,79 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
-
- ### v1.13.4.1 (对比 v1.13.4)
-
- 稳定性修复版本：FSR 光线再生管线与 Mochizuki NR 审查加固，并补全光线再生的菜单入口。
-
- ## FSR 光线再生（实验）— 稳定性
-
- - **GPU 资源退役追踪加固（GpuBatchTracker）**：修复长会话中追踪记录持续累积（实测由持续增长变为恒定工作集）；消除一处提交路径与命令列表 Reset/销毁的锁序死锁；设备移除（fence UINT64_MAX）期间资源保持保护；引擎重放已完成录制时退役时限正确延伸到重放批次完成；未提交的录制在命令列表 Reset/销毁时立即失效。
- - **后端下拉列表新增 "FSR Ray Regeneration"**：一键激活光线再生，下一帧切换，无需重启游戏。
- - 激活状态下切换到其他超分会被**拒绝并提示原因**：光线重构上下文锁定在 FSR-RR（切到纯超分会运行未降噪输入）。退出途径：取消勾选开关后重启游戏。
- - **FFX Settings（SR 版本选择）对 RR 模式开放**：FSR 3.X / FSR 4 及 preset/model 选择在光线再生激活时同样可见可用——RR 模式的超分级走的就是同一条 FFX 路径。
- - 开关（checkbox）补充说明文字，讲清它与下拉项的关系（状态 vs 动作）。
-
- ## 帧生成修复
-
- - **修复游戏内 FSR 帧生成的节奏劣化（#17）**：v1.13.4 自上游同步的 flip meter 观测钩子在每次 present 时同步写日志（约每秒 100+ 次，直接发生在帧生成/present 线程上），磁盘或杀软延迟会周期性阻塞该线程——帧率计数正常但体感明显卡顿（实测 Fallout 4：计数 130fps、体感约 30fps）。该日志已降为 DEBUG 级（默认日志级别下零开销，LogLevel 3 仍可诊断）。
-
- ## Mochizuki NR
-
- - 显存紧张时的准入等待变为可恢复，不再永久挂起或直接失败；网络准备失败自动重试。
-
- ### 安装与权重
-
- - 完整解压并运行新包 `Setup.bat` 覆盖安装。
- - Mochizuki 0.0.7、lmxxf 0.44：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取模型；Daniel 0.6.0 需额外获取运行文件。
- - FSR 光线再生不需要额外模型或 DLL。
-
- ### 已知问题
-
- - FSR 光线再生为实验功能，默认关闭。
- - 需开启 DXGI 伪装才能在多数游戏中看到 DLSS/RR 选项；部分游戏开伪装后可能报"不支持的 GPU"。
- - 相比游戏内建 FSR 路径慢约 1.5–3 fps（实测《红色沙漠》约 20 vs 22 fps，1440p→4K）。分段性能测量工具在准备中。
- - 日志出现 `open_query` 拒绝：菜单"兼容性与调度"同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）。
- - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
-
- ---
-
- ### v1.13.4.1 (vs v1.13.4)
-
- Stability release: the FSR Ray Regeneration pipeline and Mochizuki NR hardened through review rounds, plus the missing menu entry points for Ray Regeneration.
-
- ## FSR Ray Regeneration (experimental) — stability
-
- - **"FSR Ray Regeneration" added to the backend dropdown**: activate Ray Regeneration in one click, switching on the next frame — no game restart.
- - Switching to another upscaler while it is active is **refused with an explanation**: a Ray Reconstruction context is locked to FSR-RR (a plain upscaler would run undenoised inputs). To leave it, uncheck the gate and restart the game.
- - **GPU resource retirement tracking hardened (GpuBatchTracker)**: fixed tracker-entry accumulation over long sessions (measured: steady working set instead of unbounded growth); removed a lock-order deadlock between the submission path and command-list Reset/destroy; resources stay protected during device removal (fence UINT64_MAX); when an engine replays an already-completed recording, retirement correctly extends to the replay batch's completion; never-submitted recordings are invalidated immediately on list Reset/destroy.
- - **Scheduling and state**: dispatch slot reservation now grows in bounded stable pages; the game's native RR provider ownership and ABI checks are isolated; RR-owned colour resource state is preserved across the NR seam.
- - **Diagnostics**: a once-per-minute `GpuBatch gauges:` line (INFO) in the log — every number should stay flat in normal play; a `replay after first completion` warning that should never appear in normal games — if you see it, please attach logs.
- - **FFX Settings (SR version selection) open in RR mode**: FSR 3.X / FSR 4 with preset/model selection is visible and usable while Ray Regeneration is active — the SR stage in RR mode runs the very same FFX path.
- - The gate checkbox gained explanatory text clarifying its relation to the backend-list entry (state vs action).
-
- ## Frame generation fix
-
- - **Fixed in-game FSR Frame Generation pacing degradation (#17)**: the flip-meter observation hook synced from upstream in v1.13.4 logged synchronously on every present (100+ times a second, on the FG/present thread itself); disk or antivirus latency then periodically stalled that thread — the fps counter stayed normal while the game felt like ~30 fps (measured in Fallout 4: counter 130, feel ~30). That log line is now DEBUG level (zero cost at the default log level, still available at LogLevel 3 for diagnosis).
-
- ## Mochizuki NR
-
- - VRAM-pressure admission waits are now recoverable instead of hanging forever or failing outright; network preparation retries automatically on failure.
-
- ### Installation and models
-
- - Extract the full package and run `Setup.bat` as an overwrite install.
- - Mochizuki 0.0.7, lmxxf 0.44: the launcher extracts models from your own official `nvngx_dlssnr.dll`; Daniel 0.6.0 additionally fetches runtime files.
- - FSR Ray Regeneration needs no extra models or DLLs.
-
- ### Known issues
-
- - FSR Ray Regeneration is experimental and off by default.
- - DXGI spoofing is required for most games to expose their DLSS/RR option; some titles may show an "unsupported GPU" error with spoofing on.
- - Roughly 1.5–3 fps slower than the game's native FSR path (measured in Crimson Desert: ~20 vs 22 fps, 1440p→4K). Per-pass measurement tooling is in preparation.
- - Logs showing `open_query` rejections: enable **Allow enhanced barriers** and **Split query splice** together under Compatibility & Scheduling (experimental).
- - RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
+ 
+          ### v1.13.4.1 (对比 v1.13.4)
+ 
+          稳定性修复版本：FSR 光线再生管线与 Mochizuki NR 审查加固，并补全光线再生的菜单入口。
+ 
+          ## FSR 光线再生（实验）— 稳定性
+ 
+          - **GPU 资源退役追踪加固（GpuBatchTracker）**：修复长会话中追踪记录持续累积（实测由持续增长变为恒定工作集）；消除一处提交路径与命令列表 Reset/销毁的锁序死锁；设备移除（fence UINT64_MAX）期间资源保持保护；引擎重放已完成录制时退役时限正确延伸到重放批次完成；未提交的录制在命令列表 Reset/销毁时立即失效。
+          - **后端下拉列表新增 "FSR Ray Regeneration"**：一键激活光线再生，下一帧切换，无需重启游戏。
+          - 激活状态下切换到其他超分会被**拒绝并提示原因**：光线重构上下文锁定在 FSR-RR（切到纯超分会运行未降噪输入）。退出途径：取消勾选开关后重启游戏。
+          - **FFX Settings（SR 版本选择）对 RR 模式开放**：FSR 3.X / FSR 4 及 preset/model 选择在光线再生激活时同样可见可用——RR 模式的超分级走的就是同一条 FFX 路径。
+          - 开关（checkbox）补充说明文字，讲清它与下拉项的关系（状态 vs 动作）。
+ 
+          ## 帧生成修复
+ 
+          - 修复游戏内 FSR 帧生成的节奏劣化（#17）。
+ 
+          ## Mochizuki NR
+ 
+          - 显存紧张时的准入等待变为可恢复，不再永久挂起或直接失败；网络准备失败自动重试。
+ 
+          ### 安装与权重
+ 
+          - 完整解压并运行新包 `Setup.bat` 覆盖安装。
+          - Mochizuki 0.0.7、lmxxf 0.44：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取模型；Daniel 0.6.0 需额外获取运行文件。
+          - FSR 光线再生不需要额外模型或 DLL。
+ 
+          ### 已知问题
+ 
+          - FSR 光线再生为实验功能，默认关闭。
+          - 需开启 DXGI 伪装才能在多数游戏中看到 DLSS/RR 选项；部分游戏开伪装后可能报"不支持的 GPU"。
+          - 相比游戏内建 FSR 路径慢约 1.5–3 fps（实测《红色沙漠》约 20 vs 22 fps，1440p→4K）。分段性能测量工具在准备中。
+          - 日志出现 `open_query` 拒绝：菜单"兼容性与调度"同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）。
+          - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
+ 
+          ---
+ 
+          ### v1.13.4.1 (vs v1.13.4)
+ 
+          Stability release: the FSR Ray Regeneration pipeline and Mochizuki NR hardened through review rounds, plus the missing menu entry points for Ray Regeneration.
+ 
+          ## FSR Ray Regeneration (experimental) — stability
+ 
+ 
+          - **"FSR Ray Regeneration" added to the backend dropdown**: activate Ray Regeneration in one click, switching on the next frame — no game restart.
+          - Switching to another upscaler while it is active is **refused with an explanation**: a Ray Reconstruction context is locked to FSR-RR (a plain upscaler would run undenoised inputs). To leave it, uncheck the gate and restart the game.
+          - **GPU resource retirement tracking hardened (GpuBatchTracker)**: fixed tracker-entry accumulation over long sessions (measured: steady working set instead of unbounded growth); removed a lock-order deadlock between the submission path and command-list Reset/destroy; resources stay protected during device removal (fence UINT64_MAX); when an engine replays an already-completed recording, retirement correctly extends to the replay batch's completion; never-submitted recordings are invalidated immediately on list Reset/destroy.
+          - **Scheduling and state**: dispatch slot reservation now grows in bounded stable pages; the game's native RR provider ownership and ABI checks are isolated; RR-owned colour resource state is preserved across the NR seam.
+          - **Diagnostics**: a once-per-minute `GpuBatch gauges:` line (INFO) in the log — every number should stay flat in normal play; a `replay after first completion` warning that should never appear in normal games — if you see it, please attach logs.
+          - **FFX Settings (SR version selection) open in RR mode**: FSR 3.X / FSR 4 with preset/model selection is visible and usable while Ray Regeneration is active — the SR stage in RR mode runs the very same FFX path.
+          - The gate checkbox gained explanatory text clarifying its relation to the backend-list entry (state vs action).
+ 
+          ## Frame generation fix
+ 
+          - Fixed in-game FSR Frame Generation pacing degradation (#17).
+ 
+          ## Mochizuki NR
+ 
+          - VRAM-pressure admission waits are now recoverable instead of hanging forever or failing outright; network preparation retries automatically on failure.
+ 
+          ### Installation and models
+ 
+          - Extract the full package and run `Setup.bat` as an overwrite install.
+          - Mochizuki 0.0.7, lmxxf 0.44: the launcher extracts models from your own official `nvngx_dlssnr.dll`; Daniel 0.6.0 additionally fetches runtime files.
+          - FSR Ray Regeneration needs no extra models or DLLs.
+ 
+          ### Known issues
+ 
+          - FSR Ray Regeneration is experimental and off by default.
+          - DXGI spoofing is required for most games to expose their DLSS/RR option; some titles may show an "unsupported GPU" error with spoofing on.
+          - Roughly 1.5–3 fps slower than the game's native FSR path (measured in Crimson Desert: ~20 vs 22 fps, 1440p→4K). Per-pass measurement tooling is in preparation.
+          - Logs showing `open_query` rejections: enable **Allow enhanced barriers** and **Split query splice** together under Compatibility & Scheduling (experimental).
+          - RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
