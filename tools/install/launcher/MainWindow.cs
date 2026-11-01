@@ -2501,7 +2501,10 @@ namespace OptScalerNR.Launcher
                                     // Fresh install: only a non-default value counts as the user's choice
                                     // (the package template ships Language=en). Update: the existing file is
                                     // the user's, so an explicit en is preserved too.
-                                    bool updateInstall = string.Equals(action, "update", StringComparison.OrdinalIgnoreCase);
+                                    // Any operation on an existing ini (install, update, repair, restore)
+                                    // treats the file as the user's; only a fresh template default can be
+                                    // overridden. Matching the ini-ownership rule in AGENTS.md.
+                                    bool updateInstall = !string.Equals(action, "install", StringComparison.OrdinalIgnoreCase);
                                     bool userChosen = current.Length > 0 &&
                                         (!current.Equals("en", StringComparison.OrdinalIgnoreCase) || updateInstall);
                                     if (!userChosen)

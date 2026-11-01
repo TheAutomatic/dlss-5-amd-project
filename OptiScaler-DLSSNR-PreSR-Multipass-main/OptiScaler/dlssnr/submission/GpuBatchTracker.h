@@ -96,7 +96,7 @@ class Tracker
             auto* executed = static_cast<ID3D12GraphicsCommandList*>(lists[i]);
             for (auto& entry : entries_)
             {
-                if (entry.state != Entry::State::Recorded || entry.list != executed)
+                if (entry.list != executed)
                     continue;
                 if (entry.generation != kUnknownGeneration)
                 {
@@ -109,6 +109,9 @@ class Tracker
                         continue;
                     }
                 }
+                // First submission: Record the fence. Replays (same list submitted again
+                // before or after the first completed): overwrite with the latest fence
+                // value, because the replay re-executes the same commands and the slot's
                 entry.state = Entry::State::Submitted;
                 entry.fence = fence;
                 entry.fenceValue = value;
@@ -129,11 +132,17 @@ class Tracker
                 continue;
             if (entry.state == Entry::State::Discarded || entry.state == Entry::State::Completed)
                 return Status::Retired;
-            if (entry.state == Entry::State::Submitted && entry.fence &&
-                entry.fence->GetCompletedValue() >= entry.fenceValue)
+            if (entry.state == Entry::State::Submitted && entry.fence)
             {
-                entry.state = Entry::State::Completed;
-                return Status::Retired;
+                const uint64_t completed = entry.fence->GetCompletedValue();
+                // UINT64_MAX means the device was removed: the fence will never complete
+                // normally. Reporting Outstanding keeps the resources protected; the
+                // caller's timeout path handles the degraded case.
+                if (completed != UINT64_MAX && completed >= entry.fenceValue)
+                {
+                    entry.state = Entry::State::Completed;
+                    return Status::Retired;
+                }
             }
             return Status::Outstanding;
         }
@@ -216,12 +225,19 @@ class Tracker
 
     void Reap()
     {
+        // Only Discarded entries are safe to remove immediately. Submitted and Completed
+        // entries are kept so a later replay of the same list can re-arm them with a
+        // fresh fence value (OnExecuted matches by list identity regardless of state).
+        // They are cleaned up implicitly: when the list is eventually Reset (generation
+        // advances), OnExecuted marks them Discarded and the next Reap removes them.
+        // A hard cap prevents unbounded growth from never-reset lists.
         std::erase_if(entries_, [](const Entry& entry) {
-            return entry.state == Entry::State::Discarded ||
-                   entry.state == Entry::State::Completed ||
-                   (entry.state == Entry::State::Submitted && entry.fence &&
-                    entry.fence->GetCompletedValue() >= entry.fenceValue);
+            return entry.state == Entry::State::Discarded;
         });
+        if (entries_.size() > 1024)
+        {
+            entries_.erase(entries_.begin(), entries_.begin() + entries_.size() / 2);
+        }
         hasEntries_.store(!entries_.empty(), std::memory_order_release);
     }
 

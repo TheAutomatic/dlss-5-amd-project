@@ -153,7 +153,8 @@ static std::vector<uint8_t> RunCopy(ID3D12Device *device, ID3D12CommandQueue *qu
         }
         else
         {
-            Check(book.Split(), "split");
+            Check(book.PrepareSplit(), "prepare split");
+            Check(book.CommitSplit(), "commit split");
             rec = book.Current();
             Require(rec != list, "current is not producer");
         }
