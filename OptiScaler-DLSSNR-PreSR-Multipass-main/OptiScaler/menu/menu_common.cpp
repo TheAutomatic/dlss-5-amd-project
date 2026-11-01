@@ -613,7 +613,7 @@ static bool RenderRatioOverrideSlider(const char* label, CustomOptional<int, NoD
 static State::FfxVersionList* GetFfxVersionList(Upscaler backend, API api)
 {
     auto& state = State::Instance();
-    if (backend == Upscaler::FFX_on12 || (backend == Upscaler::FFX && api == DX12))
+    if (backend == Upscaler::FFX_on12 || ((backend == Upscaler::FFX || backend == Upscaler::FSR_RR) && api == DX12))
     {
         FFXFeature::EnsureVersionsDx12();
         return &state.ffxUpscalerVersionsDx12;
@@ -5032,7 +5032,8 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
 
 
         // FFX -----------------
-        if (!usesDlssd && (currentBackend == Upscaler::FFX || currentBackend == Upscaler::FFX_on12))
+        if (!usesDlssd && (currentBackend == Upscaler::FFX || currentBackend == Upscaler::FFX_on12 ||
+                           currentBackend == Upscaler::FSR_RR))
         {
             MenuSectionTitle("FFX Settings");
 
