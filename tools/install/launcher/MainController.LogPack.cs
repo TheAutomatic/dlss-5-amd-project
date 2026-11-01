@@ -151,7 +151,7 @@ namespace OptScalerNR.Launcher
                     "• 游戏目录下的 OptiScaler / mochizuki 运行日志与 INI 配置文件\n" +
                     "• 启动器安装日志、系统硬件概况（显卡型号、驱动版本、内存容量）\n" +
                     "• 近两天的显卡驱动超时重置 (TDR) 与游戏崩溃记录\n\n" +
-                    "向支援者反馈问题时，请直接发送该压缩包。",
+                    "向作者反馈问题时，请直接发送该压缩包。",
                     "The archive contains:\n" +
                     "• OptiScaler / mochizuki runtime logs and INI configs in the game directory\n" +
                     "• Launcher install log and system summary (GPU, driver version, RAM capacity)\n" +
