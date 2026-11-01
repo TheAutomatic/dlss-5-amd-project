@@ -174,7 +174,7 @@ namespace OptScalerNR.Launcher
             var reset=new Button{Content=L("恢复默认图片","Reset image"),Margin=new Thickness(0,10,0,12)};
             reset.Click+=delegate{picked=null;resetCover=true;preview.Source=null;try{if(!string.IsNullOrEmpty(game.Cover))preview.Source=ReadCover(game.Cover);}catch{}};
             var images=new WrapPanel();images.Children.Add(choose);images.Children.Add(reset);panel.Children.Add(images);
-            panel.Children.Add(new TextBlock{Text=game.RootDirectory??game.Exe,TextWrapping=TextWrapping.Wrap,Foreground=LauncherTheme.Brush("ThemeMuted"),Margin=new Thickness(0,0,0,16)});
+            panel.Children.Add(new TextBlock{Text=EntryLocation(game),TextWrapping=TextWrapping.Wrap,Foreground=LauncherTheme.Brush("ThemeMuted"),Margin=new Thickness(0,0,0,16)});
             var buttons=new WrapPanel{HorizontalAlignment=HorizontalAlignment.Right};
             buttons.Children.Add(new Button{Content=L("取消","Cancel"),IsCancel=true,Margin=new Thickness(4)});
             var save=new Button{Content=L("保存","Save"),Margin=new Thickness(4)};DialogTheme.Primary(dialog,save);

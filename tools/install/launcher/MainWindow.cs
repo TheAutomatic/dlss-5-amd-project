@@ -1385,8 +1385,17 @@ namespace OptScalerNR.Launcher
             if (_selectedGame == null) return;
             try
             {
-                var dir = _selectedGame.RootDirectory;
-                if (Directory.Exists(dir))
+                // The install location is the chosen EXE's directory; the added Root
+                // (folder-scan games) is only a fallback when no EXE is set. Directory
+                // buttons point where the install buttons point.
+                string dir = null;
+                if (!string.IsNullOrEmpty(_selectedGame.Exe))
+                {
+                    try { dir = Path.GetDirectoryName(_selectedGame.Exe); } catch { }
+                }
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                    dir = _selectedGame.RootDirectory;
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
                 {
                     Process.Start("explorer.exe", dir);
                 }
