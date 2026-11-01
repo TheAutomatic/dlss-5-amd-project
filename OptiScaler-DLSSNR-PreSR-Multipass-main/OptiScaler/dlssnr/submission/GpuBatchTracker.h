@@ -423,7 +423,9 @@ class Tracker
                 if (entry.state == Entry::State::Recorded || entry.state == Entry::State::Submitted)
                     ++inFlight;
             }
-            LOG_DEBUG("GpuBatch gauges: entries={} native={} inFlight={} replaysAfterCompletion={} invalidations={}",
+            // INFO (not DEBUG): the PBZ field session proved gauges are invisible at
+            // the default LogLevel, and this line is the step-2 policy's data source.
+            LOG_INFO("GpuBatch gauges: entries={} native={} inFlight={} replaysAfterCompletion={} invalidations={}",
                       entries_.size(), native, inFlight, replaysAfterCompletion_.load(std::memory_order_relaxed),
                       invalidationsObserved_.load(std::memory_order_relaxed));
         }

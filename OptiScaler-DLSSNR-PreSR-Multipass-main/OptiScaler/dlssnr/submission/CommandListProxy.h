@@ -13,6 +13,9 @@
 // Enhanced-barrier policy (host sets from LmxxfAllowEnhancedBarriers; no Config.h include here).
 // Explicit opt-in: interop only normalizes observed, uniform enhanced input layouts.
 
+#ifndef LOG_INFO
+#define LOG_INFO(...) ((void)0)
+#endif
 #ifndef LOG_WARN
 #define LOG_WARN(...) ((void)0)
 #endif
