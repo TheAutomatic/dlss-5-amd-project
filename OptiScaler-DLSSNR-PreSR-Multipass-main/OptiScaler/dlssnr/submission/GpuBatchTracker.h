@@ -52,8 +52,8 @@ class Tracker
 
         std::lock_guard lock(mutex_);
         // Always returns a valid ticket: callers treat kInvalidTicket as "nothing to
-        // protect" (or throw, in RetiredSlotReservations::Commit). Capacity pressure
-        // is handled by reclaiming finished entries in Reap(), never by refusing.
+        // protect" (or throw, in RetiredSlotReservations::Commit). Recording lifetime
+        // determines reclamation in Reap(); entry count must not weaken protection.
         Entry entry;
         entry.ticket = ++seq_;
         entry.list = list;
@@ -152,8 +152,8 @@ class Tracker
             }
             return Status::Outstanding;
         }
-        // Completed entries are reaped; a ticket that is no longer tracked completed
-        // earlier. Only an invalid ticket (never issued this session) is unknown, and
+        // Discarded entries are reaped; a missing issued ticket no longer refers
+        // to an executable recording. A ticket never issued this session is unknown;
         // treating it as retired would silently drop protection, so report it.
         return ticket <= seq_ ? Status::Retired : Status::Unknown;
     }
@@ -231,53 +231,14 @@ class Tracker
 
     void Reap()
     {
-        // Promote Submitted entries whose fence has completed (same condition as
-        // StatusOf). Completed and Discarded entries are provably finished: their
-        // tickets already report Retired via the "untracked <= seq_" fallback in
-        // StatusOf, so removing them never weakens protection.
-        for (auto& entry : entries_)
-        {
-            if (entry.state == Entry::State::Submitted && entry.fence)
-            {
-                const uint64_t completed = entry.fence->GetCompletedValue();
-                if (completed != UINT64_MAX && completed >= entry.fenceValue)
-                    entry.state = Entry::State::Completed;
-            }
-        }
-
-        // Discarded entries are reclaimable unconditionally. Completed entries are
-        // kept while under the soft cap so a near-term replay of the same list can
-        // still be re-armed with a fresh fence in OnExecuted (native lists never
-        // advance generation, so without this bound they would accumulate forever).
+        // Fence completion permits ticket retirement, but the recording can still be
+        // replayed. Keep its association until generation tracking proves it was
+        // discarded; native lists with unknown generations must remain tracked.
         std::erase_if(entries_, [](const Entry& entry) {
             return entry.state == Entry::State::Discarded;
         });
-        if (entries_.size() > kMaxEntries)
-        {
-            std::erase_if(entries_, [](const Entry& entry) {
-                return entry.state == Entry::State::Completed;
-            });
-        }
-        if (entries_.size() > kMaxEntries)
-        {
-            // More than kMaxEntries Recorded/Submitted recordings in flight at once
-            // is a caller leak (retirement is never polled), not a tracker capacity
-            // problem: keep protecting them and surface the abuse, throttled.
-            static uint64_t reportCount = 0;
-            static uint64_t lastReport = 0;
-            if (++reportCount - lastReport >= 1024)
-            {
-                lastReport = reportCount;
-                LOG_WARN("GpuBatch: {} recordings in flight exceeds cap {}; possible retirement-leak (keeping protection)",
-                         entries_.size(), kMaxEntries);
-            }
-        }
         hasEntries_.store(!entries_.empty(), std::memory_order_release);
     }
-
-    // Soft cap on tracked entries. Finished (Completed/Discarded) entries are
-    // reclaimed past it; in-flight recordings are never dropped or refused.
-    static constexpr size_t kMaxEntries = 1024;
 
     // Published under mutex_; the idle submission path needs only this atomic read.
     std::atomic<bool> hasEntries_ { false };
