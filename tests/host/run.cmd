@@ -84,6 +84,8 @@ call :NrCoverage || goto fail
 "%OUT%\recording_device_identity.exe" || goto fail
 %CXX% /utf-8 tests\host\command_list_present.cpp /Fe"%OUT%\command_list_present.exe" /Fo"%OUT%\command_list_present.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
 "%OUT%\command_list_present.exe" || goto fail
+%CXX% /utf-8 tests\host\gpu_batch_tracker.cpp /Fe"%OUT%\gpu_batch_tracker.exe" /Fo"%OUT%\gpu_batch_tracker.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
+"%OUT%\gpu_batch_tracker.exe" || goto fail
 %CXX% /utf-8 /I"%INC%" tests\host\amdxc64_hook_init.cpp /Fe"%OUT%\amdxc64_hook_init.exe" /Fo"%OUT%\amdxc64_hook_init.obj" /link "%DETOURS%" || goto fail
 "%OUT%\amdxc64_hook_init.exe" || goto fail
 %CXX% /utf-8 tests\host\plugin_path.cpp /Fe"%OUT%\plugin_path.exe" /Fo"%OUT%\plugin_path.obj" || goto fail

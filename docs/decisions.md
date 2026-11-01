@@ -1352,3 +1352,21 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
   逐键; DLSS5_HIP_*/FIT_LARGE/VIT_* 补一行语义。
 - 刻意不补: 仅迁移用的旧拼写(QueuePriorityLegacy/LmxxfFitLarge/LmxxfPdl 等, SaveIni 只写新拼写);
   readUnifiedBool 循环读的 DLSS5_* 均已在模板。验证: 键集 diff 无丢失/无重复, 恰好 +8。
+
+## 2026-11-01: GpuBatch 生命周期第 1 步（观测与诊断），复用契约改造分两步走
+
+- 背景两缺口: ①tracker 记录对原生 list 永不回收(仅 CPU 元数据开销, 无显存泄漏); ②槽位/feature 按"fence 完成"即复用,
+  退休后重放不受保护——重放是否真实发生无字段数据, 不能定策略, 也不能断言游戏普遍受影响。
+- 完整修复定为中等偏难: 难点在"资源何时可释放"需要提交层观测不到的游戏意图, 不能简单套"Reset+GPU 完成"
+  (游戏可能长期保留已关闭 list 待重放)。第 2 步(统一复用契约)等本步字段数据再定"重放保证深度"参数。
+- 实现(GpuBatchTracker.h): Record 对 wrapped list 经 IRecordingResources::ObserveResources 注册观察者,
+  复用 proxy 既有 Invalidated(RecordingIdentity) 管道(Reset 旧代 + 最终 Release); entry 增 stableId
+  (proxy 单调 ID, 免疫地址复用)。失效作废仅限从未提交的录制; 已提交的保留 fence 退休——同步修正 OnExecuted
+  generation 不匹配路径的同款错误(原来把已提交旧代 entry 也标 Discarded, 存在提前复用风险)。
+- 诊断: 每分钟 LOG_DEBUG 仪表(entries/native/inFlight/replays/invalidations); "首次完成后重放"计数器
+  仅对 stableId≠0 生效——原生池每帧 Reset+重录+重提, 指针不变, 在提交层与真重放不可区分, 计入会污染策略数据;
+  首次触发 LOG_WARN。>1024 在飞录制告警保留(纯诊断, 不再拒绝/删改)。
+- 锁序: ObserveResources 持 RecordingMutex, 故注册在 tracker mutex_ 之外; Invalidated 反向只取叶子 mutex_。
+- 验证: tests/host/gpu_batch_tracker.cpp(WARP, ci 层)六用例——原生记录/退休、原生重放 re-arm 不计数、
+  wrapped 同代重提计数+1 且 re-arm、Reset 立即作废未提交、Reset 不提前退休已提交(queue->Wait 手动阻塞
+  fence 保证确定性)、销毁立即作废未提交; host ci 全绿。
