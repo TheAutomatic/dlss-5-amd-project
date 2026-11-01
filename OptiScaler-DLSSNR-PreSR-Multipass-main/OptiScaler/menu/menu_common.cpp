@@ -629,8 +629,8 @@ static State::FfxVersionList* GetFfxVersionList(Upscaler backend, API api)
 void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, const std::vector<Upscaler>& options)
 {
     auto primaryGpu = IdentifyGpu::getPrimaryGpu();
-
-    // Determine display name
+    // Frames the switch-refused hint stays visible for after a refused selection.
+    static int s_rrRefuseFrames = 0;
     Upscaler targetBackend = State::Instance().newBackend;
     if (targetBackend == Upscaler::Reset)
         targetBackend = currentUpscaler;
@@ -697,7 +697,6 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
         ImGui::SetTooltip("This Ray Reconstruction context is locked to FSR-RR while the gate is on:\n"
                           "routing it to a plain upscaler would run undenoised inputs. To leave it,\n"
                           "uncheck 'Enable FSR Ray Regeneration' below and restart the game.");
-    static int s_rrRefuseFrames = 0;
     if (s_rrRefuseFrames > 0)
     {
         --s_rrRefuseFrames;
