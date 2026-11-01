@@ -649,9 +649,9 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
             if (opt == Upscaler::XeSS && api == API::DX11 && primaryGpu.vendorId != VendorId::Intel)
                 continue;
 
-            // FSR-RR needs the RR 1.2 denoiser API and a non-NVIDIA GPU.
-            if (opt == Upscaler::FSR_RR &&
-                (primaryGpu.vendorId == VendorId::Nvidia || !FfxApiProxy::IsDenoiserApiImplementedDx12()))
+            // FSR-RR needs the RR 1.2 denoiser API. No vendor exclusion: spoofed or
+            // misdetected vendors must not hide the entry from its actual users.
+            if (opt == Upscaler::FSR_RR && !FfxApiProxy::IsDenoiserApiImplementedDx12())
                 continue;
 
             bool isSelected = (currentUpscaler == opt);
@@ -674,7 +674,7 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
                     "AMD FidelityFX Ray Regeneration: denoise + upscale the game's Ray Reconstruction\n"
                     "requests. Only games that expose a DLSS Ray Reconstruction option use it; in\n"
                     "others this selects FSR 3.X. Takes effect on the next frame, no restart needed.\n"
-                    "Requires RX 9000 series and the packaged denoiser DLL.");
+                    "Requires the packaged denoiser DLL.");
         }
         ImGui::EndCombo();
     }
