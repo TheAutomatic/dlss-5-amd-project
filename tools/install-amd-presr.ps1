@@ -2383,7 +2383,9 @@ if ($isInteractiveUser) {
     }
 }
 
-# ASI plugins are on by default for every install; the launcher no longer exposes a toggle.
+# ASI plugins are on by default: an ASI component is part of this product, so the install
+# always writes true, overriding an explicit false in the game ini on purpose. Users who do
+# not want it can set false by hand afterwards; the launcher no longer exposes a toggle.
 if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
     Write-Host 'Enabled LoadAsiPlugins=true in OptiScaler.ini.' -ForegroundColor Green

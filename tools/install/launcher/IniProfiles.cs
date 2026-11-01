@@ -163,7 +163,8 @@ namespace OptScalerNR.Launcher
             var source = string.IsNullOrEmpty(profileName) ? target : ExistingProfile(profileName);
             var document = Document.Read(File.ReadAllBytes(source));
             Validate(document.Text);
-            // ASI plugins are on by default: applying a profile always enables them.
+            // ASI plugins are on by default by design (this product ships an ASI component),
+            // so applying a profile rewrites the flag to true even over an explicit false.
             var bytes = document.WithPlugins(true);
             var temporary = target + ".stage-" + Guid.NewGuid().ToString("N");
             var backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);

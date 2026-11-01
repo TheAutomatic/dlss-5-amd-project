@@ -118,12 +118,7 @@ def verify_model_pack(path, family=None, vendor=None):
             entries[name] = (off, entry_size)
 
         if not vendor:
-            here = Path(__file__).resolve().parent
-            candidates = [
-                here / 'model-tools',
-                here.parents[1] / 'third_party/mochizuki/linux/package/model-tools'
-            ]
-            for c in candidates:
+            for c in model_tool_dirs():
                 if c.is_dir():
                     vendor = c
                     break
@@ -336,6 +331,22 @@ def extract(source, output, vendor, models='both', temporary_parent=None):
                     dest_backup.unlink(missing_ok=True)
 
 
+def model_tool_dirs():
+    """Where the vendor model tools live, in the layouts we ship or develop in.
+
+    The extractor itself is staged under model-tools/ in the package, so its own
+    directory IS the tool directory there; the tools/install checkout keeps the
+    vendor copy under third_party.
+    """
+    here = Path(__file__).resolve().parent
+    return [
+        here,
+        here / 'model-tools',
+        here.parent / 'model-tools',
+        here.parents[1] / 'third_party/mochizuki/linux/package/model-tools',
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', nargs='?', type=Path, help='User-supplied nvngx_dlssnr.dll 310.9.16 / 310.8.0, or its ZIP')
@@ -346,10 +357,7 @@ def main():
     parser.add_argument('--work', type=Path, help='Parent for temporary extraction files')
     args = parser.parse_args()
 
-    here = Path(__file__).resolve().parent
-    vendor = here / 'model-tools'
-    if not vendor.is_dir():
-        vendor = here.parents[1] / 'third_party/mochizuki/linux/package/model-tools'
+    vendor = next((c for c in model_tool_dirs() if c.is_dir()), model_tool_dirs()[0])
 
     if args.verify_pack:
         res = verify_model_pack(args.verify_pack, family=args.family, vendor=vendor)
