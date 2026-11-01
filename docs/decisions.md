@@ -1390,3 +1390,19 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 - 取舍: 这会覆盖用户在此前 INI 里显式写的 `false`（产品决策：ASI 是默认能力，用户仍可在 ini 手动改回）。
 - 验证: `tests/install/launcher-state.ps1` PASS；`launcher-localization.ps1` PASS(583)；
   安装器两个相关用例（总是启用 / 自定义插件保留）32s PASS；启动器冒烟存活。
+
+## 2026-11-02: Crimson Desert 的 RR 开关与 Streamline VRAM 警告结论
+
+- RR ↔ 普通超分的自动切换依据"游戏是否重建 NGX feature"：游戏内切换 RR 时它会重建
+  （日志证据：`Creating FSR_RR` / `Creating FSR 3.X` 成对出现），我们在创建点按 RR feature
+  类型路由（RR→FSR_RR，普通超分→FFX）。宿主看不到游戏内部的 RR 布尔开关；若某游戏不重建
+  feature，就不会发生切换，需要另做"RR 专属输入（如 DLSSD.DiffuseHitDistance）连续缺失"的
+  启发式，目前**未实现**。
+- 切换后旧 FSR-RR 上下文不销毁的原因是游戏不调用 ReleaseFeature（日志无释放行），handle
+  仍被持有；`DestroyWhenRetired` 的延迟队列已改为在公共 Evaluate 路径回收（`ae2a8c72`），
+  但游戏未释放的 handle 仍占显存，属于游戏侧行为。
+- `Exceeded VRAM budget` 是 Streamline 在 `slEvaluateFeatureInternal` 的**告警性**估算
+  （4K 输出 + FSR-RR 时每帧一条），实测不影响帧率；本次"卡爆"的实际原因是 11-01 引入的
+  无限重建循环（`26c90d07`，已由 `cfc5d812` 回退）。
+- 调查中顺带修掉：`normals bind` 每帧两条日志（游戏在两个 normals 资源间交替）改为按不同
+  绑定去重（`b98045f4`）；正式包文件日志默认开启（`5be93e33`）。
