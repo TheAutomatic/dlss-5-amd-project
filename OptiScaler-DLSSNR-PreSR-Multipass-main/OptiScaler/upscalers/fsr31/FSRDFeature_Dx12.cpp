@@ -2996,11 +2996,16 @@ bool FSRDFeatureDx12::PrepareDenoiseConvInput(const NVSDK_NGX_Parameter& inParam
     // between "the source alpha is empty" and "the conversion dropped it" without this, and the
     // RR-facing probe reports the converted buffer's format rather than the title's.
     {
-        static const void* loggedNormalsPtr = nullptr;
+        // Titles commonly rotate the normals binding between a small pool of textures every
+        // frame; a single "last pointer" therefore counts as changed on every frame and logged
+        // two lines per frame (Crimson Desert: ~100 lines/s, 700 KB in 45 s). Remember the
+        // points already reported instead, so each distinct binding is logged once.
+        static std::vector<const void*> loggedNormalsPtrs;
+        const void* normalsPtr = _convDesc.Resources.InNormals;
 
-        if (loggedNormalsPtr != _convDesc.Resources.InNormals)
+        if (std::find(loggedNormalsPtrs.begin(), loggedNormalsPtrs.end(), normalsPtr) == loggedNormalsPtrs.end())
         {
-            loggedNormalsPtr = _convDesc.Resources.InNormals;
+            if (loggedNormalsPtrs.size() < 16) loggedNormalsPtrs.push_back(normalsPtr);
 
             const auto normalsFormat =
                 _convDesc.Resources.InNormals ? _convDesc.Resources.InNormals->GetDesc().Format : DXGI_FORMAT_UNKNOWN;
