@@ -3141,18 +3141,27 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
     // FSR Ray Regeneration
 
 
-    // FSR-RR master gate: applies at the next Ray Reconstruction feature creation or
-    // backend switch, not retroactively to an already-running feature.
+    // FSR-RR master gate: the persistent allow/deny switch. It governs feature creation
+    // at game start and is the only way to turn takeover off; the backend combo's
+    // "FSR Ray Regeneration" entry turns it on and switches immediately.
     {
         bool fsrRrEnabled = config->FsrRrEnabled.value_or_default();
         if (ImGui::Checkbox("Enable FSR Ray Regeneration", &fsrRrEnabled))
             config->FsrRrEnabled = fsrRrEnabled;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
-                "Experimental: AMD's FSR Ray Regeneration takes over the game's Ray Reconstruction\n"
-                "requests (denoise with FidelityFX RR 1.2, then FFX upscaling). Needs a supported\n"
-                "AMD GPU and the packaged denoiser DLL; the log reports why if it stays unavailable.\n"
-                "Takes effect at the next feature creation or backend switch.");
+                "Persistent master switch: allows FSR Ray Regeneration to take over the game's\n"
+                "Ray Reconstruction requests (FidelityFX RR 1.2 denoise + FFX upscaling).\n"
+                "Governs feature creation at game start; unchecking is how you turn it off.\n"
+                "To activate right now, pick 'FSR Ray Regeneration' in the backend list\n"
+                "above — that switches on the next frame, no restart needed.");
+        if (currentFeature->GetUpscalerType() != Upscaler::FSR_RR)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(160, 160, 160, 255));
+            ImGui::TextWrapped("Off by default. To use it now: pick 'FSR Ray Regeneration' in the "
+                               "backend list above (no restart). Tuning panel appears once active.");
+            ImGui::PopStyleColor();
+        }
     }
     if (currentFeature->GetUpscalerType() == Upscaler::FSR_RR)
 
