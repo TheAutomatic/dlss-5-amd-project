@@ -657,17 +657,32 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
             bool isSelected = (currentUpscaler == opt);
             if (MenuUi::Selectable(UpscalerDisplayName(opt, api).c_str(), isSelected))
             {
-                if (opt == Upscaler::FSR_RR)
+                if (opt != Upscaler::FSR_RR && currentUpscaler == Upscaler::FSR_RR)
                 {
-                    // Selecting FSR-RR means "take over the game's Ray Reconstruction
-                    // requests". An RR feature context routes the FFX backend + the
-                    // FsrRrEnabled gate to FSR-RR at the next backend switch, so set both:
-                    // the switch happens on the next frame, no game restart. In a game
-                    // without an RR request this acts as plain FFX with the gate armed.
-                    Config::Instance()->FsrRrEnabled = true;
-                    opt = Upscaler::FFX;
+                    // An RR feature context cannot move to a plain SR backend: that would
+                    // upscale undenoised Ray Reconstruction inputs and report success. The
+                    // routing would also swallow the switch back to FSR-RR while resetting
+                    // the denoiser history, so refuse here with feedback instead.
+                    LOG_WARN("Backend switch to {} refused: this game's Ray Reconstruction context "
+                             "stays on FSR-RR while the gate is enabled. Uncheck 'Enable FSR Ray "
+                             "Regeneration' and restart the game to leave it.",
+                             UpscalerDisplayName(opt, api));
+                    s_rrRefuseFrames = 600; // ~10s of menu frames
                 }
-                State::Instance().newBackend = opt;
+                else
+                {
+                    if (opt == Upscaler::FSR_RR)
+                    {
+                        // Selecting FSR-RR means "take over the game's Ray Reconstruction
+                        // requests". An RR feature context routes the FFX backend + the
+                        // FsrRrEnabled gate to FSR-RR at the next backend switch, so set both:
+                        // the switch happens on the next frame, no game restart. In a game
+                        // without an RR request this acts as plain FFX with the gate armed.
+                        Config::Instance()->FsrRrEnabled = true;
+                        opt = Upscaler::FFX;
+                    }
+                    State::Instance().newBackend = opt;
+                }
             }
             if (opt == Upscaler::FSR_RR && ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -677,6 +692,20 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
                     "Requires the packaged denoiser DLL.");
         }
         ImGui::EndCombo();
+    }
+    if (currentUpscaler == Upscaler::FSR_RR && ImGui::IsItemHovered())
+        ImGui::SetTooltip("This Ray Reconstruction context is locked to FSR-RR while the gate is on:\n"
+                          "routing it to a plain upscaler would run undenoised inputs. To leave it,\n"
+                          "uncheck 'Enable FSR Ray Regeneration' below and restart the game.");
+    static int s_rrRefuseFrames = 0;
+    if (s_rrRefuseFrames > 0)
+    {
+        --s_rrRefuseFrames;
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 180, 50, 255));
+        ImGui::TextWrapped("Switch refused: a Ray Reconstruction context stays on FSR-RR while it is "
+                           "enabled. Uncheck 'Enable FSR Ray Regeneration' and restart the game to use "
+                           "another upscaler.");
+        ImGui::PopStyleColor();
     }
 }
 
