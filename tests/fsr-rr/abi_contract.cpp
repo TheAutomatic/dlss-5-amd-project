@@ -12,6 +12,8 @@
 
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/Config.h"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/misc/IdentifyGpu.h"
+// Compile coverage for the submission tracker header (product runtime dependency).
+#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/submission/GpuBatchTracker.h"
 GpuInformation IdentifyGpu::getPrimaryGpu()
 {
     return {};

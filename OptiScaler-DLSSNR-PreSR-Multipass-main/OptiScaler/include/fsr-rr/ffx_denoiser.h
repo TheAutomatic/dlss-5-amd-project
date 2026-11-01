@@ -29,6 +29,9 @@
 
 // SDK 1.1.4's shared API types predate these RR 1.2 additions. Keep the new
 // denoiser ABI local instead of changing the API headers used by every effect.
+// FFX_API_BACKEND_MASK exists only in the v2 API headers, which already define
+// these types; define the compat typedefs only for the older SDK headers.
+#ifndef FFX_API_BACKEND_MASK
 typedef struct FfxApiFloatCoords3D
 {
     float x;
@@ -54,6 +57,7 @@ typedef struct FfxApiFloatBounds
     float min;
     float max;
 } FfxApiFloatBounds;
+#endif
 
 #define FFX_DENOISER_VERSION_MAJOR 1
 #define FFX_DENOISER_VERSION_MINOR 2

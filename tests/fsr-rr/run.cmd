@@ -20,7 +20,7 @@ set "CXX=cl /nologo /std:c++20 /EHsc /W4 /utf-8"
 set "EXT=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\external"
 set "INCLUDE=%INCLUDE%;%EXT%\FidelityFX-SDK\ffx-api\include\ffx_api\dx12;%EXT%\FidelityFX-SDK-v2\Kits\FidelityFX\api\include;%EXT%\FidelityFX-SDK-v2\Kits\FidelityFX\api\include\dx12"
 set "DETOURS=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib"
-set "INCLUDE=%INCLUDE%;%REPO%;%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler;%EXT%\nvngx_dlss_sdk;%EXT%\xess\inc\xess;%EXT%\xess\inc\xell;%EXT%\xess\inc\xess_fg;%EXT%\FidelityFX-SDK\ffx-api\include\ffx_api;%EXT%\simpleini;%EXT%\unordered_dense\include;%EXT%\spdlog\include;%EXT%\freetype;%EXT%\streamline;%EXT%\streamline1;%EXT%\nvapi;%EXT%\nlohmann;%EXT%\fakenvapi;%EXT%\magic_enum\include\magic_enum;%EXT%\AntiLag2-SDK;%EXT%\latencyflex;%EXT%\vulkan\include"
+set "INCLUDE=%INCLUDE%;%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include;%REPO%;%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler;%EXT%\nvngx_dlss_sdk;%EXT%\xess\inc\xess;%EXT%\xess\inc\xell;%EXT%\xess\inc\xess_fg;%EXT%\FidelityFX-SDK\ffx-api\include\ffx_api;%EXT%\simpleini;%EXT%\unordered_dense\include;%EXT%\spdlog\include;%EXT%\freetype;%EXT%\streamline;%EXT%\streamline1;%EXT%\nvapi;%EXT%\nlohmann;%EXT%\fakenvapi;%EXT%\magic_enum\include\magic_enum;%EXT%\AntiLag2-SDK;%EXT%\latencyflex;%EXT%\vulkan\include"
 
 if /i "%TIER%"=="cpu" goto Cpu
 if /i "%TIER%"=="gpu" goto Gpu
@@ -30,21 +30,21 @@ exit /b 2
 
 :Cpu
 echo === fsr-rr cpu: ABI + contract ===
-%CXX% /DUNICODE /D_UNICODE /I"%INC%" tests\fsr-rr\abi_contract.cpp OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\OptiTypes.cpp /Fe"%OUT%\abi_contract.exe" /Fo"%OUT%/" /link "%DETOURS%" dxgi.lib || goto fail
+%CXX% /DUNICODE /D_UNICODE tests\fsr-rr\abi_contract.cpp OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\OptiTypes.cpp /Fe"%OUT%\abi_contract.exe" /Fo"%OUT%/" /link "%DETOURS%" dxgi.lib || goto fail
 "%OUT%\abi_contract.exe" || goto fail
 echo fsr-rr cpu: PASS
 exit /b 0
 
 :Gpu
 echo === fsr-rr gpu: offline chain correctness ===
-%CXX% /DUNICODE /D_UNICODE /I"%INC%" tests\fsr-rr\offline_chain.cpp /Fe"%OUT%\offline_chain.exe" /Fo"%OUT%/" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
+%CXX% /DUNICODE /D_UNICODE tests\fsr-rr\offline_chain.cpp /Fe"%OUT%\offline_chain.exe" /Fo"%OUT%/" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
 "%OUT%\offline_chain.exe" || goto fail
 echo fsr-rr gpu: PASS
 exit /b 0
 
 :Perf
 echo === fsr-rr perf: baseline matrix (P4) ===
-%CXX% /O2 /DUNICODE /D_UNICODE /I"%INC%" tests\fsr-rr\offline_chain.cpp /DPERF_MODE /Fe"%OUT%\perf_chain.exe" /Fo"%OUT%/" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
+%CXX% /O2 /DUNICODE /D_UNICODE tests\fsr-rr\offline_chain.cpp /DPERF_MODE /Fe"%OUT%\perf_chain.exe" /Fo"%OUT%/" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
 "%OUT%\perf_chain.exe" --perf --outdir "%OUT%" || goto fail
 echo fsr-rr perf: PASS
 exit /b 0

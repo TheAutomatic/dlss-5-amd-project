@@ -51,6 +51,8 @@ class Tracker
             return kInvalidTicket;
 
         std::lock_guard lock(mutex_);
+        if (atCapacity_)
+            return kInvalidTicket; // refuse: protects in-flight/replayable entries
         Entry entry;
         entry.ticket = ++seq_;
         entry.list = list;
@@ -73,9 +75,12 @@ class Tracker
             // Completed tickets may outlive the RR setting. Reap them before deciding
             // whether this batch needs a fence; never gate retirement on the INI switch.
             Reap();
+            // Match any non-Discarded entry for the executed lists: a replay of an
+            // already-Submitted/Completed list still needs a fresh fence so resources
+            // used by the replay are not retired on the first execution's completion.
             const bool hasRecording = std::any_of(entries_.begin(), entries_.end(),
                 [num, lists](const Entry& entry) {
-                    return entry.state == Entry::State::Recorded &&
+                    return entry.state != Entry::State::Discarded &&
                            std::find(lists, lists + num,
                                      static_cast<ID3D12CommandList*>(entry.list)) != lists + num;
                 });
@@ -225,24 +230,38 @@ class Tracker
 
     void Reap()
     {
-        // Only Discarded entries are safe to remove immediately. Submitted and Completed
-        // entries are kept so a later replay of the same list can re-arm them with a
-        // fresh fence value (OnExecuted matches by list identity regardless of state).
-        // They are cleaned up implicitly: when the list is eventually Reset (generation
-        // advances), OnExecuted marks them Discarded and the next Reap removes them.
-        // A hard cap prevents unbounded growth from never-reset lists.
+        // Only Discarded entries are safe to remove. Submitted and Completed entries
+        // are kept for replay protection (OnExecuted re-arms them by list identity).
+        // Capacity: if Discarded-only cleanup is insufficient, refuse to grow further
+        // rather than dropping protection for in-flight or replayable recordings.
         std::erase_if(entries_, [](const Entry& entry) {
             return entry.state == Entry::State::Discarded;
         });
+        // No blind trim: Recorded and Submitted entries must never be deleted, because
+        // StatusOf treats a missing ticket as Retired and the caller would overwrite or
+        // free GPU resources that are still referenced. If the vector grows beyond the
+        // soft cap, log once and stop accepting new recordings (Record returns invalid).
         if (entries_.size() > 1024)
         {
-            entries_.erase(entries_.begin(), entries_.begin() + entries_.size() / 2);
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                LOG_WARN("GpuBatch: entry count {} exceeds soft cap 1024; new recordings refused until reset lists reap",
+                         entries_.size());
+            }
+            atCapacity_ = true;
+        }
+        else
+        {
+            atCapacity_ = false;
         }
         hasEntries_.store(!entries_.empty(), std::memory_order_release);
     }
 
     // Published under mutex_; the idle submission path needs only this atomic read.
     std::atomic<bool> hasEntries_ { false };
+    bool atCapacity_ = false;
     mutable std::mutex mutex_;
     std::vector<Entry> entries_;
     std::vector<std::pair<ID3D12CommandQueue*, Microsoft::WRL::ComPtr<ID3D12Fence>>> fences_;

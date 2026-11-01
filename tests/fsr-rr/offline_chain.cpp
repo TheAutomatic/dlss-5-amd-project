@@ -226,7 +226,14 @@ struct TimestampTracker
         rd.DepthOrArraySize = 1;
         rd.MipLevels = 1;
         rd.SampleDesc.Count = 1;
-        rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        // No flags needed: READBACK heap buffers are CPU-readable copy targets.
+
+        if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback.p))))
+        {
+            fprintf(stderr, "CreateCommittedResource (readback) failed\n");
+            return false;
+        }
 
         const HRESULT freqHR = queue->GetTimestampFrequency(&gpuFreq);
         if (FAILED(freqHR)) { fprintf(stderr, "GetTimestampFrequency failed (hr=0x%08X)\n", (unsigned) freqHR); return false; }
