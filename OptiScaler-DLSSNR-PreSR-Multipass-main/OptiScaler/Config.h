@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "ConfigKeys.h"
 #include "SysUtils.h"
@@ -273,7 +273,7 @@ class Config
     CustomOptional<float> DlssReactiveMaskBias { 0.45f };
 
     // Logging
-    CustomOptional<bool> LogToFile { false };
+    CustomOptional<bool> LogToFile { true };
     CustomOptional<bool> LogToConsole { false };
     CustomOptional<bool> LogToDebug { false };
     CustomOptional<bool> LogToNGX { false };
