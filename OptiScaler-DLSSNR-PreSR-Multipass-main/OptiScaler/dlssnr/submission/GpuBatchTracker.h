@@ -51,8 +51,9 @@ class Tracker
             return kInvalidTicket;
 
         std::lock_guard lock(mutex_);
-        if (atCapacity_)
-            return kInvalidTicket; // refuse: protects in-flight/replayable entries
+        // Always returns a valid ticket: callers treat kInvalidTicket as "nothing to
+        // protect" (or throw, in RetiredSlotReservations::Commit). Capacity pressure
+        // is handled by reclaiming finished entries in Reap(), never by refusing.
         Entry entry;
         entry.ticket = ++seq_;
         entry.list = list;
@@ -230,38 +231,56 @@ class Tracker
 
     void Reap()
     {
-        // Only Discarded entries are safe to remove. Submitted and Completed entries
-        // are kept for replay protection (OnExecuted re-arms them by list identity).
-        // Capacity: if Discarded-only cleanup is insufficient, refuse to grow further
-        // rather than dropping protection for in-flight or replayable recordings.
+        // Promote Submitted entries whose fence has completed (same condition as
+        // StatusOf). Completed and Discarded entries are provably finished: their
+        // tickets already report Retired via the "untracked <= seq_" fallback in
+        // StatusOf, so removing them never weakens protection.
+        for (auto& entry : entries_)
+        {
+            if (entry.state == Entry::State::Submitted && entry.fence)
+            {
+                const uint64_t completed = entry.fence->GetCompletedValue();
+                if (completed != UINT64_MAX && completed >= entry.fenceValue)
+                    entry.state = Entry::State::Completed;
+            }
+        }
+
+        // Discarded entries are reclaimable unconditionally. Completed entries are
+        // kept while under the soft cap so a near-term replay of the same list can
+        // still be re-armed with a fresh fence in OnExecuted (native lists never
+        // advance generation, so without this bound they would accumulate forever).
         std::erase_if(entries_, [](const Entry& entry) {
             return entry.state == Entry::State::Discarded;
         });
-        // No blind trim: Recorded and Submitted entries must never be deleted, because
-        // StatusOf treats a missing ticket as Retired and the caller would overwrite or
-        // free GPU resources that are still referenced. If the vector grows beyond the
-        // soft cap, log once and stop accepting new recordings (Record returns invalid).
-        if (entries_.size() > 1024)
+        if (entries_.size() > kMaxEntries)
         {
-            static bool logged = false;
-            if (!logged)
-            {
-                logged = true;
-                LOG_WARN("GpuBatch: entry count {} exceeds soft cap 1024; new recordings refused until reset lists reap",
-                         entries_.size());
-            }
-            atCapacity_ = true;
+            std::erase_if(entries_, [](const Entry& entry) {
+                return entry.state == Entry::State::Completed;
+            });
         }
-        else
+        if (entries_.size() > kMaxEntries)
         {
-            atCapacity_ = false;
+            // More than kMaxEntries Recorded/Submitted recordings in flight at once
+            // is a caller leak (retirement is never polled), not a tracker capacity
+            // problem: keep protecting them and surface the abuse, throttled.
+            static uint64_t reportCount = 0;
+            static uint64_t lastReport = 0;
+            if (++reportCount - lastReport >= 1024)
+            {
+                lastReport = reportCount;
+                LOG_WARN("GpuBatch: {} recordings in flight exceeds cap {}; possible retirement-leak (keeping protection)",
+                         entries_.size(), kMaxEntries);
+            }
         }
         hasEntries_.store(!entries_.empty(), std::memory_order_release);
     }
 
+    // Soft cap on tracked entries. Finished (Completed/Discarded) entries are
+    // reclaimed past it; in-flight recordings are never dropped or refused.
+    static constexpr size_t kMaxEntries = 1024;
+
     // Published under mutex_; the idle submission path needs only this atomic read.
     std::atomic<bool> hasEntries_ { false };
-    bool atCapacity_ = false;
     mutable std::mutex mutex_;
     std::vector<Entry> entries_;
     std::vector<std::pair<ID3D12CommandQueue*, Microsoft::WRL::ComPtr<ID3D12Fence>>> fences_;

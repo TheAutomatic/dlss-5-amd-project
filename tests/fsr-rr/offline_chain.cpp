@@ -226,6 +226,8 @@ struct TimestampTracker
         rd.DepthOrArraySize = 1;
         rd.MipLevels = 1;
         rd.SampleDesc.Count = 1;
+        // BUFFER resources require ROW_MAJOR (zero-init leaves UNKNOWN, which fails creation).
+        rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         // No flags needed: READBACK heap buffers are CPU-readable copy targets.
 
         if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
