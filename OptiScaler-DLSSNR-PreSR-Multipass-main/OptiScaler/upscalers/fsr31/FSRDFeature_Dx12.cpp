@@ -1608,12 +1608,22 @@ bool FSRDFeatureDx12::QueryDenoiserVersions()
 
 void FSRDFeatureDx12::DestroyDenoiserContext()
 {
-    // The deferred-destruction queue guarantees this is only reached with all recordings
-    // retired (or at process shutdown). Direct destruction with outstanding recordings
-    // would be a lifetime bug; say so loudly instead of silently releasing.
+    // The deferred-destruction queue guarantees feature teardown only happens with all
+    // recordings retired (or at process shutdown). The one legitimate remaining case is the
+    // first validated frame's in-place context recreation: the whole-instance ticket is
+    // stamped on entry to that same evaluate, before anything referencing the denoiser
+    // context has been recorded, so it is outstanding here by construction. Only recorded
+    // preprocessor/converter work turns that into a real lifetime bug.
     if (!RecordingsRetired() && !State::Instance().isShuttingDown)
-        LOG_ERROR("FSR-RR context destroyed while {} recording(s) are still outstanding",
-                  _recordingTickets.size());
+    {
+        if (_preprocessorHasRecordedWork)
+            LOG_ERROR("FSR-RR context destroyed while {} recording(s) are still outstanding",
+                      _recordingTickets.size());
+        else
+            LOG_INFO("[RR_DIAG] context recreated with {} pending whole-instance ticket(s); "
+                     "no preprocessor work recorded yet",
+                     _recordingTickets.size());
+    }
 
     if (_pDenoiserCtx != nullptr)
     {
@@ -2764,7 +2774,7 @@ bool FSRDFeatureDx12::ResolveSignalTypes(bool isReady, bool hasCurrentSLConstant
             _autoSpecularSignalDescType = resolvedType;
             _autoSpecularSignalResolved = true;
         }
-        else if (_preprocessorHasRecordedWork || !RecordingsRetired())
+        else if (_preprocessorHasRecordedWork)
         {
             // Recreating in place here would destroy converter textures that an
             // already-submitted command list can still reference. UpdateSize refuses
@@ -2772,10 +2782,11 @@ bool FSRDFeatureDx12::ResolveSignalTypes(bool isReady, bool hasCurrentSLConstant
             // the rebuilt instance resolve on its own first frame, where nothing has
             // been recorded yet. The resolution is deliberately not latched, so the
             // fresh instance repeats it rather than inheriting a stale decision.
-            // RecordingsRetired() is checked too: this evaluate stamped its whole-instance
-            // ticket on entry, before the converter sets _preprocessorHasRecordedWork, so
-            // the flag alone under-reports and let an earlier build destroy the context with
-            // a recording still outstanding.
+            // Do not gate this on RecordingsRetired(): the whole-instance ticket is stamped
+            // on entry to this evaluate, so it is always outstanding on the first validated
+            // frame and gating on it turns the in-place recreation into an infinite rebuild
+            // loop. _preprocessorHasRecordedWork is the real "GPU work recorded" signal: the
+            // outstanding ticket alone references nothing that used this context yet.
             LOG_INFO("[RR_INPUT] automatic specular classification needs {} -> {}; requesting a feature rebuild "
                      "because this instance has already recorded GPU work",
                      GetSignalTypeName(_specularSignalDescType), GetSignalTypeName(resolvedType));
@@ -2827,9 +2838,8 @@ bool FSRDFeatureDx12::ResolveSignalTypes(bool isReady, bool hasCurrentSLConstant
             _autoDiffuseSignalDescType = resolvedType;
             _autoDiffuseSignalResolved = true;
         }
-        else if (_preprocessorHasRecordedWork || !RecordingsRetired())
+        else if (_preprocessorHasRecordedWork)
         {
-            // Same whole-instance-ticket caveat as the specular branch above.
             LOG_INFO("[RR_INPUT] automatic diffuse classification needs {} -> {}; requesting a feature rebuild because "
                      "this instance has already recorded GPU work",
                      GetSignalTypeName(_diffuseSignalDescType), GetSignalTypeName(resolvedType));
