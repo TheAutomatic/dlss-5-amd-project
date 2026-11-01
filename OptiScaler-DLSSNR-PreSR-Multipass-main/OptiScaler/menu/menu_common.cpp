@@ -649,11 +649,32 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
             if (opt == Upscaler::XeSS && api == API::DX11 && primaryGpu.vendorId != VendorId::Intel)
                 continue;
 
+            // FSR-RR needs the RR 1.2 denoiser API and a non-NVIDIA GPU.
+            if (opt == Upscaler::FSR_RR &&
+                (primaryGpu.vendorId == VendorId::Nvidia || !FfxApiProxy::IsDenoiserApiImplementedDx12()))
+                continue;
+
             bool isSelected = (currentUpscaler == opt);
             if (MenuUi::Selectable(UpscalerDisplayName(opt, api).c_str(), isSelected))
             {
+                if (opt == Upscaler::FSR_RR)
+                {
+                    // Selecting FSR-RR means "take over the game's Ray Reconstruction
+                    // requests". An RR feature context routes the FFX backend + the
+                    // FsrRrEnabled gate to FSR-RR at the next backend switch, so set both:
+                    // the switch happens on the next frame, no game restart. In a game
+                    // without an RR request this acts as plain FFX with the gate armed.
+                    Config::Instance()->FsrRrEnabled = true;
+                    opt = Upscaler::FFX;
+                }
                 State::Instance().newBackend = opt;
             }
+            if (opt == Upscaler::FSR_RR && ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "AMD FidelityFX Ray Regeneration: denoise + upscale the game's Ray Reconstruction\n"
+                    "requests. Only games that expose a DLSS Ray Reconstruction option use it; in\n"
+                    "others this selects FSR 3.X. Takes effect on the next frame, no restart needed.\n"
+                    "Requires RX 9000 series and the packaged denoiser DLL.");
         }
         ImGui::EndCombo();
     }
@@ -669,7 +690,8 @@ void MenuCommon::AddDx11Backends(Upscaler upscaler)
 void MenuCommon::AddDx12Backends(Upscaler upscaler)
 {
     RenderUpscalerCombo(API::DX12, upscaler,
-                        { Upscaler::XeSS, Upscaler::FSR21, Upscaler::FSR22, Upscaler::FFX, Upscaler::DLSS });
+                        { Upscaler::XeSS, Upscaler::FSR21, Upscaler::FSR22, Upscaler::FFX, Upscaler::DLSS,
+                          Upscaler::FSR_RR });
 }
 
 void MenuCommon::AddVulkanBackends(Upscaler upscaler)
