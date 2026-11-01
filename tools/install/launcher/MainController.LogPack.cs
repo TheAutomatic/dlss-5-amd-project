@@ -55,8 +55,12 @@ namespace OptScalerNR.Launcher
                 Directory.CreateDirectory(tempDir);
 
                 int copied = 0;
+                // One dedup set across all directories: the exe directory is scanned
+                // first, so its live files win and a stale same-named file in the added
+                // root can never overwrite them (File.Copy runs with overwrite).
+                var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var dir in dirs)
-                    copied += CopyGlobs(dir, tempDir, new[]
+                    copied += CopyGlobs(dir, tempDir, taken, new[]
                     {
                         "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
                         "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
@@ -103,9 +107,8 @@ namespace OptScalerNR.Launcher
             }
         }
 
-        static int CopyGlobs(string dir, string dest, IEnumerable<string> patterns)
+        static int CopyGlobs(string dir, string dest, HashSet<string> taken, IEnumerable<string> patterns)
         {
-            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int n = 0;
             foreach (var pattern in patterns)
             {
