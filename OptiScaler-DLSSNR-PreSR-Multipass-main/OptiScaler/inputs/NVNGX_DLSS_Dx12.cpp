@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/submission/CommandListProxy.h>
 #include "Util.h"
@@ -10,6 +10,7 @@
 #include "dlssnr/DlssNr.h"
 #include "dlssnr/DlssNr_ExposureScan.h"
 #include <upscalers/dlss/DLSSFeature_Dx12.h>
+#include <upscalers/fsr31/FSRDFeature_Dx12.h>
 #include <shaders/output_scaling/OS_Dx12.h>
 
 #include <upscalers/FeatureProvider_Dx12.h>
@@ -1141,6 +1142,13 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
         if (!isFSR31OrLater && feature->UpdateOutputResolution(InParameters))
             state.changeBackend[handleId] = true;
     }
+
+    // Deferred FSR-RR features (torn down while a recording was outstanding) must be reaped
+    // from wherever the game keeps evaluating, not only from FSR-RR's own evaluate: after the
+    // game switches away from FSR-RR no FSRDFeatureDx12 instance evaluates again and the queue
+    // would keep the last denoiser context and its history buffers alive for the rest of the
+    // session (observed as VRAM exhaustion after an in-game RR toggle).
+    FSRDFeatureDx12::ReapDeferredFeatures();
 
     // To avoid capturing potential upscaler change (creation) and then upscaling itself
     D3D12Hooks::SetRootSignatureTracking(false);
