@@ -18,7 +18,7 @@ call "%REPO%\tests\_lib\msvc-env.cmd" 2>nul || exit /b 1
 
 set "CXX=cl /nologo /std:c++20 /EHsc /W4 /utf-8"
 set "EXT=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\external"
-set "INC=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\include"
+set "INCLUDE=%INCLUDE%;%EXT%\FidelityFX-SDK\ffx-api\include\ffx_api\dx12;%EXT%\FidelityFX-SDK-v2\Kits\FidelityFX\api\include;%EXT%\FidelityFX-SDK-v2\Kits\FidelityFX\api\include\dx12"
 set "DETOURS=%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\library\detours\detours.lib"
 set "INCLUDE=%INCLUDE%;%REPO%;%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler;%EXT%\nvngx_dlss_sdk;%EXT%\xess\inc\xess;%EXT%\xess\inc\xell;%EXT%\xess\inc\xess_fg;%EXT%\FidelityFX-SDK\ffx-api\include\ffx_api;%EXT%\simpleini;%EXT%\unordered_dense\include;%EXT%\spdlog\include;%EXT%\freetype;%EXT%\streamline;%EXT%\streamline1;%EXT%\nvapi;%EXT%\nlohmann;%EXT%\fakenvapi;%EXT%\magic_enum\include\magic_enum;%EXT%\AntiLag2-SDK;%EXT%\latencyflex;%EXT%\vulkan\include"
 
