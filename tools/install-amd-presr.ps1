@@ -579,13 +579,26 @@ Close the game completely, then run Setup.bat again.
 # Also flag a live process whose image lives in the game folder.
 # Our own running binaries are not the game: users who extract the whole package into the game
 # folder would otherwise self-lock (the launcher itself launched this installer).
+# Crash reporters are excluded: Crashpad/Unreal/Unity helpers and WER routinely outlive a crashed
+# game (or belong to unrelated apps that ship the same helper name), and they never hold the DLLs
+# we replace. Real file locks are already caught by the check above.
+$crashHelperNames = '^(crashpad_handler|unitycrashhandler(32|64)?|crashreportclient(editor)?|werfault|werfaultsecure)$'
 $gameExes = @(Get-ChildItem -LiteralPath $game -Filter '*.exe' -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notin @('OptScalerNR.Launcher.exe', 'dlssnr_on_amd_setup.exe', 'person-worker.exe') } |
+    Where-Object {
+        $_.Name -notin @('OptScalerNR.Launcher.exe', 'dlssnr_on_amd_setup.exe', 'person-worker.exe') -and
+        $_.BaseName -notmatch $crashHelperNames
+    } |
     Select-Object -ExpandProperty Name)
 if ($gameExes.Count -gt 0) {
+    $gamePrefix = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
     $running = Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $n = "$($_.ProcessName).exe"
-        ($gameExes -contains $n)
+        if ($gameExes -notcontains $n) { return $false }
+        # A same-named process elsewhere on the machine (another app's helper) is not the game.
+        $image = $null
+        try { $image = $_.Path } catch { }
+        if ([string]::IsNullOrEmpty($image)) { return $true }
+        return $image.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)
     }
     if ($running) {
         $names = ($running | ForEach-Object { "$($_.ProcessName).exe (PID $($_.Id))" }) -join ', '
