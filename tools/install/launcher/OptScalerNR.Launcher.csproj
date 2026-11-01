@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -29,6 +29,7 @@
     <Compile Include="MainController.ModelImport.cs" />
     <Compile Include="MochizukiShareCode.cs"/>
     <Compile Include="MainController.Diagnostics.cs"/>
+    <Compile Include="MainController.LogPack.cs"/>
     <Compile Include="IniProfiles.cs"/>
     <Compile Include="LocalArtwork.cs"/>
     <EmbeddedResource Include="MainWindow.xaml"><LogicalName>OptScalerNR.Launcher.MainWindow.xaml</LogicalName></EmbeddedResource>
@@ -37,7 +38,7 @@
     <EmbeddedResource Include="../../../assets/compatibility/proxy-profiles.json"><LogicalName>OptScalerNR.Launcher.proxy-profiles.json</LogicalName></EmbeddedResource>
     <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Xaml"/>
     <Reference Include="System.Runtime.Serialization"/><Reference Include="WindowsBase"/>
-    <Reference Include="PresentationCore"/><Reference Include="PresentationFramework"/><Reference Include="System.Drawing"/>
+    <Reference Include="PresentationCore"/><Reference Include="PresentationFramework"/><Reference Include="System.Drawing"/><Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets"/>
 </Project>

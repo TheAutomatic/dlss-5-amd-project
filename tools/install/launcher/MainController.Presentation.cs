@@ -53,6 +53,7 @@ namespace OptScalerNR.Launcher
                 if (PresentationIdle && _selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             };
             ((Button)_window.FindName("QuickLogButton")).Click += delegate { OpenLog(); };
+            ((Button)_window.FindName("PackLogButton")).Click += delegate { PackLogs(); };
             SystemEvents.UserPreferenceChanged += OnSystemThemeChanged;
             _window.Closed += delegate {
                 _closed = true;
@@ -86,6 +87,10 @@ namespace OptScalerNR.Launcher
             SetLabel("SettingsCloseButton", "完成", "Done");
             ((Button)_window.FindName("RefreshBackendsButton")).ToolTip = L("重新检查后端与模型来源（不下载、不提取）", "Recheck backends and model sources (no download or extraction)");
             SetLabel("QuickLogButton", "诊断日志", "Diagnostic log");
+            SetLabel("PackLogButton", "打包日志", "Pack logs");
+            ((Button)_window.FindName("PackLogButton")).ToolTip =
+                L("收集所选游戏的 OptiScaler/mochizuki 日志与配置、系统信息（GPU/驱动/内存）和近两天的驱动与崩溃事件，打包成压缩包放到桌面。",
+                  "Collect the selected game's OptiScaler/mochizuki logs and configs, a system summary (GPU/driver/RAM) and the last two days of driver and crash events into a zip on your desktop.");
             SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
             _searchBox.ToolTip = L("搜索游戏或程序路径", "Search games or executable paths");
             _refreshButton.ToolTip = L("刷新游戏库", "Refresh game library");

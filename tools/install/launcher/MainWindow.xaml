@@ -605,7 +605,7 @@
             </Border>
             <Border Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,16">
               <StackPanel>
-                <TextBlock x:Name="DiagnosticsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" Margin="0,0,0,10"/>
+                <DockPanel Margin="0,0,0,10"><Button x:Name="PackLogButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0" VerticalAlignment="Center"/><TextBlock x:Name="DiagnosticsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" VerticalAlignment="Center"/></DockPanel>
                 <TextBlock x:Name="CompatSummary" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,0,0,9"/>
                 <WrapPanel Margin="0,0,0,12"><Button x:Name="CompatButton" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" IsEnabled="False"/><Button x:Name="RestoreCompatButton" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" Margin="8,0,0,0" IsEnabled="False"/><Button x:Name="CompatHelpButton" Content="?" Style="{DynamicResource GhostButton}" Width="27" Height="27" Padding="0" Margin="8,0,0,0"/></WrapPanel>
                 <Border Height="1" Background="{DynamicResource ThemeBorder}" Margin="0,0,0,12"/>

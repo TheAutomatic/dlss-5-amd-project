@@ -1,4 +1,4 @@
-# Compile OptScalerNR.Launcher.exe with the machine Framework 4 WPF assemblies.
+﻿# Compile OptScalerNR.Launcher.exe with the machine Framework 4 WPF assemblies.
 # Output: exports/launcher/ (never the repo root).
 [CmdletBinding()]
 param(
@@ -37,7 +37,7 @@ $cs = @(
     'Program.cs', 'MainWindow.cs', 'Protocol.cs', 'WorkerClient.cs', 'GamePaths.cs',
     'DialogTheme.cs', 'FolderGameScanner.cs', 'ProxyRecommendations.cs',
     'MainController.Library.cs', 'MainController.Recommendations.cs', 'LauncherTheme.cs', 'MainController.Presentation.cs',
-    'MainController.Profiles.cs', 'MainController.ShareCode.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'MainController.Diagnostics.cs', 'IniProfiles.cs', 'LocalArtwork.cs'
+    'MainController.Profiles.cs', 'MainController.ShareCode.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'MainController.Diagnostics.cs', 'MainController.LogPack.cs', 'IniProfiles.cs', 'LocalArtwork.cs'
     'MainController.UnlockerPlugin.cs', 'UnlockerPlugin.cs'
 ) | ForEach-Object { Join-Path $src $_ }
 $refs = @(
@@ -49,7 +49,9 @@ $refs = @(
     (Join-Path $wpf 'WindowsBase.dll'),
     (Join-Path $wpf 'PresentationCore.dll'),
     (Join-Path $wpf 'PresentationFramework.dll'),
-    (Join-Path $fw 'System.Drawing.dll')
+    (Join-Path $fw 'System.Drawing.dll'),
+    (Join-Path $fw 'System.IO.Compression.dll'),
+    (Join-Path $fw 'System.IO.Compression.FileSystem.dll')
 )
 $win32 = Join-Path $fw 'Microsoft.Build.Tasks.v4.0.dll'
 $res = @(
