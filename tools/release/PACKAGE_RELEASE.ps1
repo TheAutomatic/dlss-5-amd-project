@@ -709,8 +709,8 @@ foreach ($name in @('dlssnr-int4-weights.exe', 'dlssnr-int4.sha256')) {
     Copy-Item -LiteralPath (Join-Path $mochizukiBuild "model-tools/$name") -Destination (Join-Path $stage 'model-tools')
 }
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-int4.ps1') -Destination $stage
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-model.py') -Destination $stage
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-python.ps1') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-model.py') -Destination (Join-Path $stage 'model-tools')
+Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-python.ps1') -Destination (Join-Path $stage 'model-tools')
 foreach ($name in @('lmxxf-model.py','lmxxf-small-manifest.json','lmxxf-small.ps1')) {
     Copy-Item -LiteralPath (Join-Path $root "tools/install/$name") -Destination $stage
 }
@@ -728,9 +728,9 @@ set "SOURCE=%~1"
 set "MODELS=%~2"
 if not defined SOURCE set "SOURCE=%~dp0nvngx_dlssnr.dll"
 if defined MODELS (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin" -Models "%MODELS%"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0model-tools\mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin" -Models "%MODELS%"
 ) else (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0model-tools\mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin"
 )
 set "RC=%ERRORLEVEL%"
 pause

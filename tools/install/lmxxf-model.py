@@ -1,4 +1,4 @@
-"""Convert a verified Mochizuki Small pack to lmxxf logical assets, offline.
+﻿"""Convert a verified Mochizuki Small pack to lmxxf logical assets, offline.
 
 Uses only Python's standard library. No DLL is loaded and no weights are shipped.
 Every output must match the pinned upstream 0.44 manifest before installation.
@@ -282,7 +282,9 @@ def main():
     try:
         if args.dll:
             here=Path(__file__).resolve().parent
-            spec=importlib.util.spec_from_file_location('mochizuki_model',here/'mochizuki-model.py')
+            extractor=here/'mochizuki-model.py'
+            if not extractor.is_file():extractor=here/'model-tools'/'mochizuki-model.py'
+            spec=importlib.util.spec_from_file_location('mochizuki_model',extractor)
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             vendor=here/'model-tools'
             if not vendor.is_dir():vendor=here.parents[1]/'third_party/mochizuki/linux/package/model-tools'

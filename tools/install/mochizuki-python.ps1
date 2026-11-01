@@ -1,4 +1,4 @@
-param([string]$Source, [string]$Output, [string]$Models)
+﻿param([string]$Source, [string]$Output, [string]$Models)
 
 # Dot-sourced by Setup, or run directly by Mochizuki-Model.bat.
 function Find-MochizukiPython {
@@ -74,9 +74,13 @@ function Write-MochizukiPythonHelp {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    if (-not $Source) { $Source = Join-Path $PSScriptRoot 'nvngx_dlssnr.dll' }
-    if (-not $Output) { $Output = Join-Path $PSScriptRoot 'dlssnr-amd/dlssnr.bin' }
+    # Shipped under model-tools/; the package root is the parent then. Direct runs
+    # from tools/install keep working, so both layouts resolve.
+    $packageRoot = if ((Split-Path -Leaf $PSScriptRoot) -ieq 'model-tools') { Split-Path -Parent $PSScriptRoot } else { $PSScriptRoot }
+    if (-not $Source) { $Source = Join-Path $packageRoot 'nvngx_dlssnr.dll' }
+    if (-not $Output) { $Output = Join-Path $packageRoot 'dlssnr-amd/dlssnr.bin' }
     $nativeHelper = Join-Path $PSScriptRoot 'lmxxf-small.ps1'
+    if (-not (Test-Path -LiteralPath $nativeHelper -PathType Leaf)) { $nativeHelper = Join-Path $packageRoot 'lmxxf-small.ps1' }
     if (Test-Path -LiteralPath $nativeHelper -PathType Leaf) { . $nativeHelper }
     $canNative = (Test-Path -LiteralPath $Source -PathType Leaf) -and
         ((Get-Item -LiteralPath $Source).Length -ge 65536) -and
@@ -125,6 +129,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         }
     } else {
         $extractor = Join-Path $PSScriptRoot 'mochizuki-model.py'
+        if (-not (Test-Path -LiteralPath $extractor -PathType Leaf)) { $extractor = Join-Path $packageRoot 'mochizuki-model.py' }
         if (-not (Test-Path -LiteralPath $extractor -PathType Leaf)) {
             Write-Host 'Model extractor missing. Re-extract the complete OptiScaler package.' -ForegroundColor Yellow
             exit 1

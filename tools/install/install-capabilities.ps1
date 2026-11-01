@@ -287,7 +287,7 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     $mochiPreparation = if ($canMochiRuntime) { 'ready' } else { 'missing-runtime' }
     if ($canMochiRuntime -and -not ($mochiOriginalReady -and $mochiSmallReady)) {
         if (-not (Get-Command Ensure-NativeModelExtractor -ErrorAction SilentlyContinue)) {
-            $helper = if ($pkgRoot) { Join-Path $pkgRoot 'mochizuki-python.ps1' } else { $null }
+            $helper = if ($pkgRoot -and (Test-Path -LiteralPath (Join-Path $pkgRoot 'model-tools/mochizuki-python.ps1') -PathType Leaf)) { Join-Path $pkgRoot 'model-tools/mochizuki-python.ps1' } elseif ($pkgRoot) { Join-Path $pkgRoot 'mochizuki-python.ps1' } else { $null }
             if (-not $helper -or -not (Test-Path -LiteralPath $helper -PathType Leaf)) {
                 $mochiPreparation = 'missing-helper'
             } else {

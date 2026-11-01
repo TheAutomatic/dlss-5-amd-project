@@ -1,4 +1,4 @@
-"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
+﻿"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
 import os
 import configparser
 import hashlib
@@ -402,10 +402,11 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         extracted = self.root / 'extracted'
         with zipfile.ZipFile(self.archive) as archive:
             self.assertIn('MochizukiNrRuntime.dll', archive.namelist())
-            self.assertEqual(archive.read('mochizuki-python.ps1'),
+            self.assertEqual(archive.read('model-tools/mochizuki-python.ps1'),
                              (REPO / 'tools/install/mochizuki-python.ps1').read_bytes())
+            self.assertIn('model-tools/mochizuki-model.py', archive.namelist())
             launcher = archive.read('Mochizuki-Model.bat').decode('ascii')
-            self.assertIn('-File "%~dp0mochizuki-python.ps1"', launcher)
+            self.assertIn('-File "%~dp0model-tools\\mochizuki-python.ps1"', launcher)
             self.assertIn('exit /b %RC%', launcher)
             self.assertNotIn('dlssnr-amd/dlssnr.bin', archive.namelist())
             archive.extractall(extracted)

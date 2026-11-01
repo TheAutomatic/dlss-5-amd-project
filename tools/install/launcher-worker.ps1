@@ -1,4 +1,4 @@
-# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
+﻿# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$RequestJson,
@@ -328,7 +328,8 @@ if ($req.action -in @('repairXess','restoreXess','keepXess')) {
     Fail-Result 'success' $null 0
 }
 if ($pkg) {
-    $pythonHelper = Join-Path $pkg 'mochizuki-python.ps1'
+    $pythonHelper = Join-Path $pkg 'model-tools/mochizuki-python.ps1'
+    if (-not (Test-Path $pythonHelper)) { $pythonHelper = Join-Path $pkg 'mochizuki-python.ps1' }
     if (-not (Test-Path $pythonHelper)) { $pythonHelper = Join-Path $here 'mochizuki-python.ps1' }
     $hasModel = Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd\dlssnr.bin')
     $hasNv = Test-Path -LiteralPath (Join-Path $pkg 'nvngx_dlssnr.dll')
