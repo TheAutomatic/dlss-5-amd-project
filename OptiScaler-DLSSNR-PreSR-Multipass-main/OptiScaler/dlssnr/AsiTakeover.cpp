@@ -21,7 +21,7 @@ constexpr const wchar_t* kAsiFileName = L"dlssnr-amd.asi";
 constexpr unsigned long long kRefreshIntervalMs = 500;
 
 std::mutex g_mutex;
-bool g_active = false;
+std::atomic<bool> g_active {false};
 std::wstring g_path;
 std::string g_version;
 std::atomic<unsigned long long> g_checkedAt {0};
