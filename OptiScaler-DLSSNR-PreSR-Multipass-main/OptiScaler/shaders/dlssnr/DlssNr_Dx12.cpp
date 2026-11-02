@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/amd/NrColourState.h>
 #include <dlssnr/SrPlacement.h>
@@ -388,6 +388,13 @@ NrState g_nr;
 DlssNr::NrSessionActivity g_nativeActivity;
 enum class NrActivityBackend { None, Native, Amd };
 std::atomic<NrActivityBackend> g_activityBackend { NrActivityBackend::None };
+// Latest reason NR declined to run, and the in-feature seam's own bookkeeping. Both are read by the
+// menu; the seam counter also lets the NGX outer layer avoid running the same frame twice.
+std::mutex g_skipReasonMutex;
+std::string g_lastSkipReason;
+std::atomic<unsigned long long> g_featureSeamAttempts { 0 };
+std::mutex g_featureSeamStatusMutex;
+std::string g_featureSeamStatus;
 std::unique_ptr<DlssNr_Dx12> g_compose;
 
 // What the pass costs on the GPU, for the breakdown in the overlay.
@@ -1561,6 +1568,10 @@ void ReportSkipOnce(const char* reason)
 
     if (seen.insert(reason).second)
         LOG_INFO("DLSS-NR did not run: {}", reason);
+    {
+        std::lock_guard lock(g_skipReasonMutex);
+        g_lastSkipReason = reason;
+    }
 }
 
 } // namespace
@@ -3406,6 +3417,11 @@ ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_N
     if (cmdList == nullptr || params == nullptr || composed == nullptr || !DlssNr::AmdBridge::HasFiles())
         return nullptr;
 
+    // FSR-RR + NR master switch is the whole condition: the placement decision inside
+    // EvaluateInternal already honours RunBeforeSR, and ApplyAfterRR is no longer required for this
+    // combination (it only governs native RR's post-upscale placement).
+    ++g_featureSeamAttempts;
+
     // The bridge reads the colour from the block and substitutes its answer there: show it the composed frame,
     // take the answer, and leave the title's colour behind.
     ID3D12Resource* title = nullptr;
@@ -3422,6 +3438,18 @@ ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_N
 
     DlssNr::AmdBridge::Restore(params);
     params->Set(NVSDK_NGX_Parameter_Color, title);
+
+    {
+        std::string reason;
+        {
+            std::lock_guard lock(g_skipReasonMutex);
+            reason = g_lastSkipReason;
+        }
+        std::lock_guard lock(g_featureSeamStatusMutex);
+        g_featureSeamStatus = g_activityBackend.load(std::memory_order_acquire) == NrActivityBackend::Amd
+                                  ? "FSR-RR: NR runs between denoise and SR"
+                                  : (reason.empty() ? "FSR-RR: NR seam did not run" : reason);
+    }
     return answer;
 }
 
@@ -3563,6 +3591,14 @@ CalibrationReading Calibration()
 }
 
 bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
+
+unsigned long long FeatureSeamAttempts() { return g_featureSeamAttempts.load(std::memory_order_relaxed); }
+
+std::string FeatureSeamStatus()
+{
+    std::lock_guard lock(g_featureSeamStatusMutex);
+    return g_featureSeamStatus;
+}
 bool IsActiveForFrameGeneration()
 {
     if (!Config::Instance()->DlssNrEnabled.value_or_default())

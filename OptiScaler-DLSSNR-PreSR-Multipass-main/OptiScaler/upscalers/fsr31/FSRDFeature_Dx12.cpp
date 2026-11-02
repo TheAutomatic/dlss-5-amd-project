@@ -1973,8 +1973,13 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
         // accumulates the enhanced frame. Honours [DlssNr] RunBeforeSR and ApplyAfterRR: RR frames
         // run NR at exactly one seam or none, and ApplyAfterRR=false must leave the RR+SR output
         // untouched at BOTH seams (the after-upscale seam declines on its own).
+        // FSR-RR + the NR master switch is the whole condition. This seam is the verified placement
+        // for our emulated Ray Reconstruction (denoise -> NR -> SR at render resolution); the old
+        // ApplyAfterRR gate belonged to native RR's post-upscale path and must not hide this one.
+        // EvaluateInternal still honours RunBeforeSR and reports a reason when the placement or the
+        // backend cannot run.
         if (isDenoiserReady && !isFfxDebug && Config::Instance()->DlssNrEnabled.value_or_default() &&
-            cfg.DlssNrApplyAfterRR.value_or_default())
+            cfg.DlssNrRunBeforeSr.value_or_default())
         {
             ID3D12Resource* composed = FSRDConvShader->GetCompositionOutput();
 

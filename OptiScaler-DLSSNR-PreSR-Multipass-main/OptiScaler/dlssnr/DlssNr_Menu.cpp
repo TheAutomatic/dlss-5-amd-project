@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "NrTimingDisplay.h"
 #include "NrStatusDisplay.h"
 #include "DlssNr_PipelineUi.h"
@@ -1040,8 +1040,21 @@ void RenderMenu(Config* config, float menuResScale)
                     MenuUi::TextWrapped("Temporal history unavailable: %s", summary.historyIssue.c_str());
                 openRecordingCompatibility = RenderRecordingCompatibilityGuidance(config, status);
             }
-            if (State::Instance().currentFeature && State::Instance().currentFeature->GetUpscalerType() == Upscaler::DLSSD)
+            const auto upscaler = State::Instance().currentFeature ? State::Instance().currentFeature->GetUpscalerType()
+                                                                   : Upscaler::Reset;
+            if (upscaler == Upscaler::DLSSD)
                 MenuUi::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
+            else if (upscaler == Upscaler::FSR_RR)
+            {
+                // FSR-RR is our own denoise+SR chain and runs NR between the two when the master
+                // switch is on. Report what the seam actually did instead of a generic placeholder.
+                const auto seam = DlssNr::FeatureSeamStatus();
+                MenuUi::TextWrapped("%s", seam.empty()
+                                               ? "FSR-RR: NR runs between denoise and SR once a frame is processed."
+                                               : seam.c_str());
+                if (!config->DlssNrRunBeforeSr.value_or_default())
+                    MenuUi::TextWrapped("FSR-RR: NR is configured post-upscale (RunBeforeSR=off); it runs after the SR output instead.");
+            }
             if (kind == Backend::Kind::Mochizuki)
                 RenderMochizukiTiming();
             else if (isLmxxf && config->NrTimingEnabled.value_or_default()) {
@@ -2320,10 +2333,11 @@ void RenderMenu(Config* config, float menuResScale)
         bool afterRR = config->DlssNrApplyAfterRR.value_or_default();
         if (MenuUi::Checkbox("Apply after Ray Reconstruction (DX12)", &afterRR))
             config->DlssNrApplyAfterRR = afterRR;
-        HelpMarker("Requires the game's native Ray Reconstruction option. RR denoises and upscales"
-                   "\nfirst; NR then processes its output before frame generation."
+        HelpMarker("Only for NVIDIA native Ray Reconstruction (experimental): RR denoises and upscales"
+                   "\nfirst, then NR processes its output before frame generation."
+                   "\nFSR-RR does NOT use this switch: with the NR master switch on, NR runs inside the"
+                   "\nFSR-RR feature between its denoise and its SR (placement follows RunBeforeSR)."
                    "\nThis does not add RR to games without the required rendering buffers."
-                   "\nIndependent controls below prevent inheriting the cost of the SR configuration."
                    "\nNative Vulkan does not use these DX12 controls.");
         int rrPasses = (int) config->DlssNrRRPasses.value_or_default();
         if (MenuUi::SliderInt("NR passes after RR", &rrPasses, 1, (int) MaxPassCount))

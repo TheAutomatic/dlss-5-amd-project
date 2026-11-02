@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <d3d12.h>
 
@@ -53,6 +53,15 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
 // pass did not run. The block's Color is the title's again on return.
 ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                                      ID3D12Resource* composed);
+
+// Monotonic count of in-feature seam attempts. The NGX outer layer snapshots it around its own
+// evaluate so the same frame never runs NR twice: the feature seam (FSR-RR: between denoise and
+// SR) is the verified path, the outer post-upscale call is only the fallback for other features.
+unsigned long long FeatureSeamAttempts();
+
+// What the in-feature seam last did, for the menu: the seam description when it ran, or the skip
+// reason when it did not. Empty before the first attempt.
+std::string FeatureSeamStatus();
 
 
 

@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "../dlssnr/amd/AmdBridge.h"
 #include "../dlssnr/NrTimingDisplay.h"
 #include "NrGpuHistoryPlot.h"
@@ -3183,11 +3183,26 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                 "Governs feature creation at game start; unchecking is how you turn it off.\n"
                 "To activate right now, pick 'FSR Ray Regeneration' in the backend list\n"
                 "above — that switches on the next frame, no restart needed.");
-        if (currentFeature->GetUpscalerType() != Upscaler::FSR_RR)
+        // Requirement: never claim a state that is not live. The gate only decides what the next
+        // feature creation selects, so a pending value must say so explicitly.
+        const bool featureIsFsrRr = currentFeature->GetUpscalerType() == Upscaler::FSR_RR;
+        if (!featureIsFsrRr)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(160, 160, 160, 255));
-            ImGui::TextWrapped("Off by default. To use it now: pick 'FSR Ray Regeneration' in the "
-                               "backend list above (no restart). Tuning panel appears once active.");
+            ImGui::TextWrapped(fsrRrEnabled
+                                   ? "Enabled, but not active yet: applies when the game creates its next "
+                                     "Ray Reconstruction feature (restart the game, or switch the backend "
+                                     "list above)."
+                                   : "Off by default. Pick 'FSR Ray Regeneration' in the backend list "
+                                     "above to switch now; this switch alone only applies on the next "
+                                     "feature creation (restart or backend switch).");
+            ImGui::PopStyleColor();
+        }
+        else if (!fsrRrEnabled)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 180, 50, 255));
+            ImGui::TextWrapped("FSR-RR is still active for this feature: disabling applies after the game "
+                               "recreates the feature (restart or backend switch).");
             ImGui::PopStyleColor();
         }
     }

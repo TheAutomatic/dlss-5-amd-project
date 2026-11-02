@@ -1354,10 +1354,13 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     if (logicalCmd && unwrapOuter)
         InCmdList = logicalCmd.Get();
 
-    // OptiScaler internal handling
+    // OptiScaler internal handling. Snapshot before the feature evaluates: an FSR-RR feature runs
+    // NR itself, between its denoise and its SR, and must not be processed a second time below.
     DlssNr::SrOutputExtent nrOutputExtent;
+    const unsigned long long nrSeamBefore = DlssNr::FeatureSeamAttempts();
     const NVSDK_NGX_Result optiResult = TryEvaluateOptiFeature(InCmdList, InFeatureHandle, InParameters, InCallback,
                                                              nrOutputExtent);
+    const bool nrHandledByFeature = DlssNr::FeatureSeamAttempts() != nrSeamBefore;
 
     DlssNr::AmdBridge::Restore(InParameters);
 
@@ -1368,19 +1371,20 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     const auto rrCtxIt = Dx12Contexts.find(InFeatureHandle->Id);
     const bool isFsrRr = rrCtxIt != Dx12Contexts.end() && rrCtxIt->second.feature != nullptr &&
                          rrCtxIt->second.feature->GetUpscalerType() == Upscaler::FSR_RR;
-    // FSR-RR honours the user's ApplyAfterRR choice: off means the RR/SR chain still runs and
-    // NR is skipped; on means this frame's verified FSR-RR output may be processed post-upscale.
-    const bool rrNrAllowed = isFsrRr && Config::Instance()->DlssNrApplyAfterRR.value_or_default();
-    const bool forcePost = feature == NVSDK_NGX_Feature_RayReconstruction && !rrNrAllowed;
+    // Native Ray Reconstruction keeps the experimental post-upscale path (and its ApplyAfterRR
+    // opt-in). FSR-RR is our own emulated pipeline: its verified NR placement is the feature seam,
+    // so it is never treated as native RR here.
+    const bool isNativeRr = feature == NVSDK_NGX_Feature_RayReconstruction && !isFsrRr;
+    const bool forcePost = isNativeRr;
     if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration &&
         nrOutputExtent.width && nrOutputExtent.height)
     {
-        // With the before-SR placement the FSR-RR feature already ran the model itself, between its
-        // denoise and its upscale (FSRDFeatureDx12::EvaluateInternal); the post-upscale call would
-        // only decline on placement and run the same model a second time.
-        if (rrNrAllowed && Config::Instance()->DlssNrRunBeforeSr.value_or_default())
+        // The feature seam already ran NR for this frame (FSR-RR, between denoise and SR). Running
+        // the post-upscale call too would execute the model twice; the seam reports its own outcome
+        // to the menu instead.
+        if (nrHandledByFeature)
         {
-            LOG_DEBUG("FSR-RR frame: NR carried by the feature's before-SR stage; skipping the post-upscale call");
+            LOG_DEBUG("NR carried by the active feature's own seam this frame; skipping the post-upscale call");
         }
         else
         {
