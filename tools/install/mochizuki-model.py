@@ -118,10 +118,7 @@ def verify_model_pack(path, family=None, vendor=None):
             entries[name] = (off, entry_size)
 
         if not vendor:
-            for c in model_tool_dirs():
-                if c.is_dir():
-                    vendor = c
-                    break
+            vendor = model_tools_dir()
 
         if not vendor:
             return False
@@ -331,6 +328,9 @@ def extract(source, output, vendor, models='both', temporary_parent=None):
                     dest_backup.unlink(missing_ok=True)
 
 
+VENDOR_TOOL_MARKER = 'inspect_nr.py'
+
+
 def model_tool_dirs():
     """Where the vendor model tools live, in the layouts we ship or develop in.
 
@@ -347,6 +347,24 @@ def model_tool_dirs():
     ]
 
 
+def model_tools_dir():
+    """First candidate that actually holds the vendor tools.
+
+    Being a directory is not enough: tools/install is a directory in a source
+    checkout but holds no inspect_nr.py, which silently selected it and made the
+    Python extraction fail. Prefer a candidate with the marker file; fall back to
+    the first existing directory only so the caller can report a missing tool.
+    """
+    candidates = model_tool_dirs()
+    for candidate in candidates:
+        if (candidate / VENDOR_TOOL_MARKER).is_file():
+            return candidate
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', nargs='?', type=Path, help='User-supplied nvngx_dlssnr.dll 310.9.16 / 310.8.0, or its ZIP')
@@ -357,7 +375,7 @@ def main():
     parser.add_argument('--work', type=Path, help='Parent for temporary extraction files')
     args = parser.parse_args()
 
-    vendor = next((c for c in model_tool_dirs() if c.is_dir()), model_tool_dirs()[0])
+    vendor = model_tools_dir()
 
     if args.verify_pack:
         res = verify_model_pack(args.verify_pack, family=args.family, vendor=vendor)

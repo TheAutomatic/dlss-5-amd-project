@@ -3000,12 +3000,17 @@ bool FSRDFeatureDx12::PrepareDenoiseConvInput(const NVSDK_NGX_Parameter& inParam
         // frame; a single "last pointer" therefore counts as changed on every frame and logged
         // two lines per frame (Crimson Desert: ~100 lines/s, 700 KB in 45 s). Remember the
         // points already reported instead, so each distinct binding is logged once.
+        // The set is bounded; past it, unknown pointers stay silent instead of logging (and
+        // running the probe) on every frame again — resolution switches, feature rebuilds and
+        // level loads would otherwise reintroduce the per-frame cost this guard exists to avoid.
         static std::vector<const void*> loggedNormalsPtrs;
+        static constexpr size_t kLoggedNormalsPtrLimit = 16;
         const void* normalsPtr = _convDesc.Resources.InNormals;
 
-        if (std::find(loggedNormalsPtrs.begin(), loggedNormalsPtrs.end(), normalsPtr) == loggedNormalsPtrs.end())
+        if (std::find(loggedNormalsPtrs.begin(), loggedNormalsPtrs.end(), normalsPtr) == loggedNormalsPtrs.end() &&
+            loggedNormalsPtrs.size() < kLoggedNormalsPtrLimit)
         {
-            if (loggedNormalsPtrs.size() < 16) loggedNormalsPtrs.push_back(normalsPtr);
+            loggedNormalsPtrs.push_back(normalsPtr);
 
             const auto normalsFormat =
                 _convDesc.Resources.InNormals ? _convDesc.Resources.InNormals->GetDesc().Format : DXGI_FORMAT_UNKNOWN;
