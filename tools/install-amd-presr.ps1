@@ -1886,9 +1886,11 @@ Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 
 $ini = Join-Path $release 'OptiScaler.ini'
 $gameIni = Join-Path $game 'OptiScaler.ini'
+$iniFromTemplate = $false
 if (Test-Path -LiteralPath $ini -PathType Leaf) {
     if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
         Install-One $ini 'OptiScaler.ini'
+        if (-not $keep.ContainsKey('OptiScaler.ini')) { $iniFromTemplate = $true }
     } else {
         # Recommended on a large version jump. -NonInteractive takes that option.
         $overwriteIni = $NonInteractive
@@ -1907,11 +1909,22 @@ if (Test-Path -LiteralPath $ini -PathType Leaf) {
         }
         if ($overwriteIni) {
             Install-One $ini 'OptiScaler.ini'
+            if (-not $keep.ContainsKey('OptiScaler.ini')) { $iniFromTemplate = $true }
             Write-Host 'Replaced OptiScaler.ini with the package file.' -ForegroundColor Cyan
         } else {
             Write-Host 'Keeping the existing OptiScaler.ini.' -ForegroundColor Cyan
         }
     }
+}
+# Apply the launcher's UI language only to a template that this run created or
+# overwrote. A kept user ini keeps its own [Menu] Language.
+$uiLanguage = $null
+if ($launcherDecisions -and $launcherDecisions.PSObject.Properties['language']) {
+    if ($launcherDecisions.language -eq 'zh') { $uiLanguage = 'zh-CN' }
+    elseif ($launcherDecisions.language -eq 'en') { $uiLanguage = 'en' }
+}
+if ($iniFromTemplate -and $uiLanguage -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+    Set-IniSettings $gameIni 'Menu' ([ordered]@{ 'Language' = $uiLanguage })
 }
 $deps = Join-Path $release 'OptiScaler'
 if (Test-Path -LiteralPath $deps) {
@@ -2303,6 +2316,7 @@ if ($installMochizuki) {
                 'int4' { 'CC_SILVER_AARDWOLD_INT4_MIXED' }
             }
             Set-IniSettings $asiIni 'Network' ([ordered]@{ 'Model' = $networkName })
+            $mochizukiActiveNetwork = $activeModelName
         }
     }
     # Upstream keeps the resolved config as dlssnr-amd\dlssnr-amd.default.ini;
@@ -2825,7 +2839,8 @@ if ($weightProblems.Count -gt 0) {
         Write-Host ("WEIGHTS CHECK {0}: {1} - {2}" -f $p.Backend, $state, ($p.En | Where-Object { $_ -match 'Wrong (file|folder)' } | Select-Object -First 1).Trim()) -ForegroundColor Red
     }
 }
-$mochizukiActiveValid = if ($targetNetworkModel -eq 1) { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf) } else { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf) }
+$activeNeedsSmall = if ($mochizukiActiveNetwork) { $mochizukiActiveNetwork -in @('small', 'experimental') } else { $targetNetworkModel -eq 1 }
+$mochizukiActiveValid = if ($activeNeedsSmall) { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf) } else { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf) }
 $activeModelPending = ($selectedActiveBackend -eq 'mochizuki' -and -not $mochizukiActiveValid) -or
     ($selectedActiveBackend -eq 'lmxxf' -and $lmxxfSelectedModels -eq 'none')
 if ($activeModelPending) {

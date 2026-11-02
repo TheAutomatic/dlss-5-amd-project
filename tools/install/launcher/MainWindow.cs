@@ -2578,50 +2578,6 @@ namespace OptScalerNR.Launcher
                         if (_selectedGame != null) InspectGame(_selectedGame);
                     }
 
-                        // Chinese launcher UI → set the in-game menu to Chinese after install/update.
-                        // The host reads [Menu] Language (en / zh-CN); an existing non-default value
-                        // (the user's saved choice) is respected, matching the ini-ownership rule.
-                        // Pre-1.13.3.5 builds wrote a MenuLanguage key the host never read; strip it.
-                        if (_language == "zh" && _selectedGame != null && _selectedGame.HasExecutable)
-                        {
-                            try
-                            {
-                                var iniPath = Path.Combine(Path.GetDirectoryName(_selectedGame.Exe), "OptiScaler.ini");
-                                if (File.Exists(iniPath))
-                                {
-                                    var lines = new List<string>(File.ReadAllLines(iniPath));
-                                    lines.RemoveAll(l => Regex.IsMatch(l, @"(?i)^\s*MenuLanguage\s*="));
-                                    int menuIdx = lines.FindIndex(l => Regex.IsMatch(l, @"(?i)^\s*\[Menu\]\s*$"));
-                                    int sectionEnd = menuIdx < 0 ? -1
-                                        : lines.FindIndex(menuIdx + 1, l => Regex.IsMatch(l, @"^\s*\["));
-                                    int searchEnd = sectionEnd < 0 ? lines.Count : sectionEnd;
-                                    int langIdx = -1;
-                                    if (menuIdx >= 0)
-                                        for (int i = menuIdx + 1; i < searchEnd; ++i)
-                                            if (Regex.IsMatch(lines[i], @"(?i)^\s*Language\s*=")) { langIdx = i; break; }
-                                    var current = langIdx >= 0
-                                        ? Regex.Match(lines[langIdx], @"(?i)^\s*Language\s*=\s*(.*?)\s*$").Groups[1].Value
-                                        : "";
-                                    // Fresh install: only a non-default value counts as the user's choice
-                                    // (the package template ships Language=en). Update: the existing file is
-                                    // the user's, so an explicit en is preserved too.
-                                    // Any operation on an existing ini (install, update, repair, restore)
-                                    // treats the file as the user's; only a fresh template default can be
-                                    // overridden. Matching the ini-ownership rule in AGENTS.md.
-                                    bool updateInstall = !string.Equals(action, "install", StringComparison.OrdinalIgnoreCase);
-                                    bool userChosen = current.Length > 0 &&
-                                        (!current.Equals("en", StringComparison.OrdinalIgnoreCase) || updateInstall);
-                                    if (!userChosen)
-                                    {
-                                        if (langIdx >= 0) lines[langIdx] = "Language=zh-CN";
-                                        else if (menuIdx >= 0) lines.Insert(menuIdx + 1, "Language=zh-CN");
-                                        else { lines.Add(""); lines.Add("[Menu]"); lines.Add("Language=zh-CN"); }
-                                        File.WriteAllLines(iniPath, lines, new System.Text.UTF8Encoding(true));
-                                    }
-                                }
-                            }
-                            catch { }
-                        }
                 }
 
                 AppendLog(_statusText != null ? _statusText.Text : "");

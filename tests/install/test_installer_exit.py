@@ -450,6 +450,26 @@ class InstallerExitTests(unittest.TestCase):
             self.assertTrue(model.is_file(), output)
         self.assertFalse((self.game / 'dlssnr-amd-install.txt').exists(), output)
 
+    def test_launcher_language_applied_to_template_only(self):
+        self.ready_install()
+        (self.package / 'OptiScaler.ini').write_text('[Menu]\nLanguage=en\n', encoding='utf-8')
+        ini = self.game / 'OptiScaler.ini'
+
+        def run(language, existing_language, action):
+            if existing_language is None:
+                if ini.exists(): ini.unlink()
+            else:
+                ini.write_text('[Menu]\nLanguage=' + existing_language + '\n', encoding='utf-8')
+            decisions = self.root / 'language.json'
+            decisions.write_text(json.dumps(dict(language=language, existingIni=action)), encoding='utf-8')
+            code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel', '-DecisionJson', str(decisions)))
+            self.assertEqual(code, 0, output)
+            return ini.read_text(encoding='utf-8-sig')
+
+        self.assertRegex(run('zh', None, 'overwrite'), r'(?m)^Language\s*=\s*zh-CN$')
+        self.assertRegex(run('zh', 'en', 'overwrite'), r'(?m)^Language\s*=\s*zh-CN$')
+        self.assertRegex(run('zh', 'en', 'keep'), r'(?m)^Language\s*=\s*en$')
+
     def test_uninstall_asks_keep_backups_before_planned_list(self):
         self.ready_install()
         code, output = self.run_batch()
