@@ -3071,8 +3071,11 @@ static void HookToDevice(ID3D12Device* InDevice)
                         ID3D12CommandQueue *earlyQueue = nullptr;
                         const bool created = SUCCEEDED(InDevice->CreateCommandQueue(
                             &queueDesc, IID_PPV_ARGS(&earlyQueue)));
-                        const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHook(earlyQueue);
-                        if (earlyQueue)
+                        const bool ready = created && DlssNr::AmdBridge::EnsureSubmissionHookWithDevice(InDevice, earlyQueue);
+                        // Keep one boot probe for process lifetime after installing the hook.
+                        // Immediate release during startup was observed to crash PBZ; the
+                        // underlying D3D12 lifetime interaction is not yet understood.
+                        if (earlyQueue && !ready)
                             earlyQueue->Release();
                         DlssNr::Submission::Hooks::SetEarlyExeWrap(allowEarly && ready);
                         DlssNr::Submission::Hooks::SetEarlyAnyModuleWrap(allowAnyModule && ready);

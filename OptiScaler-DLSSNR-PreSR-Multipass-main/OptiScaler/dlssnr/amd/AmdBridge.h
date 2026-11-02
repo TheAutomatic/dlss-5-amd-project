@@ -18,6 +18,8 @@ bool HasLmxxfRuntime();
 void SyncBackendWithConfig();
 // Install submission expansion before the first wrapped list is exposed. No runtime/HIP initialization.
 bool EnsureSubmissionHook(ID3D12CommandQueue*);
+// Use an already-owned device during early initialization without querying it from the queue.
+bool EnsureSubmissionHookWithDevice(ID3D12Device*, ID3D12CommandQueue*);
 // Owned DX11 companion lists need expansion even when native-game creation hooks were bypassed.
 // Does not enable global list wrapping or initialize a runtime.
 bool EnsureRecordingSubmissionHook(ID3D12CommandQueue*);

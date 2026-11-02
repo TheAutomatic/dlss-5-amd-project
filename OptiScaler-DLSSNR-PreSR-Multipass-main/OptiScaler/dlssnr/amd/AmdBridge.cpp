@@ -370,6 +370,13 @@ void UpdateConfirmedRenderQueue(ID3D12CommandQueue *q)
 {
     SetConfirmedRenderQueueInternal(q);
 }
+bool EnsureSubmissionHookWithDevice(ID3D12Device *device, ID3D12CommandQueue *q)
+{
+    if (!device || !q)
+        return false;
+    std::lock_guard lock(initMutex);
+    return submissionHookReady || InstallSubmissionHook(device, q);
+}
 bool EnsureSubmissionHook(ID3D12CommandQueue *q)
 {
     if (!q)
