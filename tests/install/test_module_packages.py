@@ -1,4 +1,4 @@
-"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
+﻿"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
 import os
 import configparser
 import hashlib
@@ -132,8 +132,11 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         (payload / 'model-tools').mkdir(parents=True)
         (payload / 'model-tools/dlssnr_extract_model.exe').write_bytes(self.pe_bytes)
         (payload / 'model-tools/dlssnr-int4-weights.exe').write_bytes(self.pe_bytes)
+        (payload / 'experimental').mkdir(parents=True)
+        (payload / 'experimental/dlssnr-small-experimental.delta').write_bytes(b'NRXDIFF1' + (0).to_bytes(4, 'little'))
         (payload / 'ini').mkdir(parents=True)
         (payload / 'ini/dlssnr-amd-optiscaler.ini').write_text('[Network]\nModel = CC_SMALL_FP8\n', encoding='utf-8')
+        (payload / 'ini/dlssnr-amd-optiscaler-renodx.ini').write_text('[Network]\nModel = CC_SMALL_FP8\n[RenoDX]\nEnabled = 1\n', encoding='utf-8')
         (payload / 'Licenses').mkdir(parents=True)
         (payload / 'Licenses/DearImGui-LICENSE.txt').write_text('fixture license\n', encoding='utf-8')
         self.asi_payload = payload
@@ -175,6 +178,8 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
             self.assertIn('model-tools/dlssnr-int4-weights.exe', by_name)
             self.assertIn('dlssnr-amd-optiscaler.ini', by_name)
             self.assertIn('Mochizuki-Model.bat', by_name)
+            self.assertIn('experimental/dlssnr-small-experimental.delta', by_name)
+            self.assertIn('dlssnr-amd-optiscaler-renodx.ini', by_name)
             self.assertNotIn('MochizukiNrRuntime.dll', by_name)
             self.assertNotIn('dlssnr-amd/dlssnr.bin', by_name)
             launcher = read('Mochizuki-Model.bat').decode('ascii')

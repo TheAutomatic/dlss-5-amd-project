@@ -1423,3 +1423,12 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 - 位置: `dlssnr/AsiTakeover.{h,cpp}`、`dlssnr/DlssNr_Menu.cpp`、`menu/menu_common.cpp`、
   `tools/install-amd-presr.ps1`、`tools/uninstall-amd-presr.ps1`、
   `tools/release/PACKAGE_RELEASE.ps1`、`third_party/mochizuki-asi/`。
+
+## 2026-11-03: Mochizuki 模型准备只保留官方工具，Python 提取退出
+
+- Mochi ASI 安装与独立模型准备只调用 `dlssnr_extract_model.exe` /
+  `dlssnr-int4-weights.exe`；GUI、日志和文档不再提示安装 Python。
+- `lmxxf-model.py --dll` 的共享提取已迁到同一官方 extractor；lmxxf 转换与校验不变。
+  安装器的模型包校验只保留 `lmxxf-small.ps1` 内嵌原生验证，删除 Python 后备。
+- 删除旧 `mochizuki-model.py`、`mochizuki-python.ps1`、`mochizuki-int4.ps1` 及旧模型
+  提取测试入口。它们不属于 lmxxf 必需实现，也不再是 Mochi 备用依赖。

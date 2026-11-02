@@ -420,14 +420,22 @@ if ($req.action -ne 'uninstall') {
     }
     if ($mochiSelected) {
         $modelChoice = if ($dec) { [string]$dec.mochizukiModels } else { '' }
-        if (-not $modelChoice) {
+        $networkChoice = if ($dec -and $dec.mochizukiNetworks) { @($dec.mochizukiNetworks | ForEach-Object { [string]$_ }) } else { @() }
+        $activeChoice = if ($dec) { [string]$dec.mochizukiActiveModel } else { '' }
+        if (@($networkChoice | Where-Object { $_ -notin @('small','experimental','original','int4') }).Count -gt 0) {
+            Fail-Result 'failed' 'Invalid Mochizuki network selection.' 1
+        }
+        if (-not $networkChoice -and -not $modelChoice) {
             $script:needed += @{
-                id = 'mochizukiModels'
-                prompt = 'Select the Mochizuki ASI models: both, small (CC_SMALL_FP8, 310.9.16), or original (CC_SILVER_AARDWOLD).'
-                options = @('both','small','original')
+                id = 'mochizukiNetworks'
+                prompt = 'Select the Mochizuki networks to install: small, experimental, original, int4 (or all).'
+                options = @('small','experimental','original','int4')
             }
-        } elseif ($modelChoice -notin @('both','small','original')) {
+        } elseif ($modelChoice -and $modelChoice -notin @('both','all','small','experimental','original','int4')) {
             Fail-Result 'failed' 'Invalid Mochizuki models choice.' 1
+        }
+        if ($activeChoice -and $activeChoice -notin @('small','experimental','original','int4')) {
+            Fail-Result 'failed' 'Invalid Mochizuki active network.' 1
         }
     }
     if ($probe.conflicts.Count -gt 0) {
@@ -469,7 +477,7 @@ if ($req.action -eq 'uninstall') {
         language = if ($req.language -eq 'zh') { 'zh' } else { 'en' }
     }
     if ($dec) {
-        foreach ($name in @('existingInstall','existingIni','mochizukiModels','lmxxfModels','shortFileContinue','optiPatcher','foreignProxy','modelSourceDll')) {
+        foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','lmxxfModels','shortFileContinue','optiPatcher','foreignProxy','modelSourceDll')) {
             if ($dec.PSObject.Properties[$name] -and $null -ne $dec.$name) {
                 if ($name -eq 'foreignProxy') { $payload[$name] = ConvertTo-ForeignProxyMap $dec.$name }
                 else { $payload[$name] = $dec.$name }

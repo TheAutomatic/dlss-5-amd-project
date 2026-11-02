@@ -62,11 +62,18 @@ namespace OptScalerNR.Launcher
                 // root can never overwrite them (File.Copy runs with overwrite).
                 var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var dir in dirs)
+                {
                     copied += CopyGlobs(dir, tempDir, taken, new[]
                     {
                         "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
+                        "dlssnr-amd.ini", "dlssnr-amd.default.ini",
                         "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
                     });
+                    // The ASI's recovery config lives beside its resources, not at the game root.
+                    var asiDir = Path.Combine(dir, "dlssnr-amd");
+                    if (Directory.Exists(asiDir))
+                        copied += CopyGlobs(asiDir, tempDir, taken, new[] { "dlssnr-amd.default.ini" });
+                }
                 if (!string.IsNullOrEmpty(_currentLogPath) && File.Exists(_currentLogPath))
                 {
                     File.Copy(_currentLogPath, Path.Combine(tempDir, "launcher-install" + Path.GetExtension(_currentLogPath)), true);

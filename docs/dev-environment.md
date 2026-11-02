@@ -1,4 +1,4 @@
-# 开发环境与工具
+﻿# 开发环境与工具
 
 本页收集反复踩过的工具与环境坑，以及当前 `tools/`、`tests/` 的索引。发版流程见 [release.md](release.md)，无卡回归见 [tests/RELEASE-TESTS.md](../tests/RELEASE-TESTS.md)。上游审查遵循[共用约定](dev/upstream-integration-review.md)，执行流程见 [lmxxf](../tools/lmxxf-sync/README.md) 或 [Mochizuki](../tools/mochizuki-sync/README.md) 手册。
 
@@ -103,10 +103,9 @@ tests\run-all.cmd --tier release|ci|device|gpu|all [--out 目录] [--skip-sync] 
 - `tools/build/build-mochizuki-runtime.cmd`：MSVC runtime 与固定版本 glslang shaders。
 - `tools/build/mochizuki-manifest.py`：源码及可分发产物哈希验证。
 - `tools/mochizuki-sync/check.py --upstream <本地官方克隆>`：只读复核固定 SHA、六项接口补丁与 vendor 闭包；工作流见该目录 README。
-- `tools/install/mochizuki-model.py`：仅从用户提供的指定版本 DLL 提取模型。
+- 官方模型工具 `model-tools/dlssnr_extract_model.exe`、`dlssnr-int4-weights.exe`：Setup/模型准备使用的唯一路径；Mochi 无 Python 依赖。
 - `tools/install/lmxxf-model.py`、`lmxxf-small-manifest.json`、`lmxxf-small.ps1`：离线将已验证Small pack转换成lmxxf布局，93项SHA验证后原子安装；用法见[lmxxf Small](lmxxf-small-model.md)。
 - `tools/dev/generate-lmxxf-small-header.py [--check]`：从固定manifest生成/检查Runtime资产哈希allowlist，不包含模型系数。
-- `tools/install/mochizuki-python.ps1`：Setup 与独立模型工具共用的 Python 3.10+ 探测；缺失或不可用时提示到 Windows 商店搜索 Python 安装。
 - `tests/mochizuki/run.cmd abi|gpu`：无 GPU ABI 与实际 D3D12/Vulkan 生命周期回归。
 
 - `tools/build/build-ci.ps1`：Actions 的宿主/检查并行入口；默认精简 release，加 `-FullRegression` 跑完整 ci。需已配置 MSVC 环境与 pwsh。
@@ -114,8 +113,9 @@ tests\run-all.cmd --tier release|ci|device|gpu|all [--out 目录] [--skip-sync] 
 
 Mochizuki 0.0.5 additionally builds RenoDX shaders with pinned Slang 2026.19
 (`tools/build/mochizuki-renodx.py`) and the native INT4 model converter.
-`tools/install/mochizuki-int4.ps1` validates generated user weights against the
-upstream hash; the build and release packages never include these weights.
+The official `dlssnr-int4-weights.exe` generates INT4 user weights; the build and
+release packages never include these weights. Mochi model preparation has no
+Python dependency.
 
 ## 离线网络 Benchmark
 

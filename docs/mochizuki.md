@@ -205,13 +205,15 @@ variables cannot replace the selected model or picture options.
 4. Put the DLL beside `Setup.bat` and select the Mochizuki ASI backend. Setup runs
    the official extractor and installs the requested models to
    `dlssnr-amd/dlssnr.bin` (original) and `dlssnr-amd/dlssnr-small.bin` (small).
-   `Mochizuki-Model.bat` does the same outside Setup. INT4 mixed weights are
-   generated with the official tool when the original model is present; failure
-   only disables that network. A fresh `dlssnr-amd.ini` starts with a model that
-   was actually installed (an explicit `-MochizukiActiveModel` wins); existing
-   files are never rewritten. Models and your `dlssnr-amd.ini` are preserved by
-   upgrade and uninstall; assets an upgrade no longer installs are removed through
-   the previous install's inventory only.
+   `Mochizuki-Model.bat` only extracts the two base models; Setup generates the
+   derived Experimental/INT4 networks. New installs use the upstream RenoDX-style
+   `dlssnr-amd.ini` by default; the wilsjo2 style can be selected in NR Control.
+   A fresh ini starts with the selected startup network (explicit
+   `-MochizukiActiveModel` wins) and a matching
+   `dlssnr-amd/dlssnr-amd.default.ini` recovery copy is written. Existing user
+   files are never rewritten. Models and both ini files are preserved by upgrade
+   and uninstall; assets an upgrade no longer installs are removed through the
+   previous install's inventory only.
 5. Setup enables `[Plugins] LoadAsiPlugins=true` and keeps your `OptiScaler.ini`
    and host `dxgi.dll`. It changes `[Menu] FGShortcutKey` only when it is still the
    default End binding, because NR Control opens with End. A custom FG key is kept.
@@ -234,10 +236,10 @@ capacity can require another build. Cache files belong to this machine and drive
 and are not distributed in the package. NR off releases the active session; closed
 command lists keep resources until they are invalidated and GPU work completes.
 
-To extract from a source checkout:
+To extract from a source checkout, use the packaged official tool:
 
 ```powershell
-python -X utf8 tools/install/mochizuki-model.py <user-DLL-or-ZIP> <output>/dlssnr-amd/dlssnr.bin --work work/scratch
+model-tools\dlssnr_extract_model.exe <nvngx_dlssnr.dll> <output-dir>
 ```
 
 Installation uses `inspect_nr.py --extract-weights`: the existing PE/resource and

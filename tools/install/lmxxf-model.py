@@ -12,7 +12,7 @@ from pathlib import Path
 import struct
 import sys
 import tempfile
-import importlib.util
+import subprocess
 import uuid
 
 SMALL_SHA256 = "7e966e2639dbec6596aa0bac3b8761137d2c40ca8cb4aca30df7ca10043c6e33"
@@ -282,15 +282,15 @@ def main():
     try:
         if args.dll:
             here=Path(__file__).resolve().parent
-            extractor=here/'mochizuki-model.py'
-            if not extractor.is_file():extractor=here/'model-tools'/'mochizuki-model.py'
-            spec=importlib.util.spec_from_file_location('mochizuki_model',extractor)
-            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-            vendor=here/'model-tools'
-            if not vendor.is_dir():vendor=here.parents[1]/'third_party/mochizuki/linux/package/model-tools'
+            extractor=here/'model-tools'/'dlssnr_extract_model.exe'
+            if not extractor.is_file():extractor=here/'dlssnr_extract_model.exe'
+            if not extractor.is_file():
+                raise ValueError('Official dlssnr_extract_model.exe is missing from the package')
             with tempfile.TemporaryDirectory(prefix='lmxxf-extract-') as tmp:
+                subprocess.run([str(extractor),str(args.dll.resolve()),tmp],check=True)
                 pack=Path(tmp)/'dlssnr-small.bin'
-                module.extract(args.dll.resolve(),pack,vendor,models='small',temporary_parent=Path(tmp))
+                if not pack.is_file() or pack.stat().st_size<=0:
+                    raise ValueError('The official extractor produced no dlssnr-small.bin; use an nvngx_dlssnr.dll with the Small network')
                 convert(pack,args.output,args.replace)
         else:convert(args.pack,args.output,args.replace)
     except (OSError,ValueError,KeyError,struct.error) as exc:

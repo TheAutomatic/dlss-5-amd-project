@@ -61,6 +61,8 @@ namespace OptScalerNR.Launcher
             _resumeInstallAction = "";
             _decisions.ModelSourceDll = null;
             _decisions.MochizukiModels = null;
+            _decisions.MochizukiNetworks = null;
+            _decisions.MochizukiActiveModel = null;
             _decisions.LmxxfModels = null;
             _lastInspectResult = null;
             RefreshPackageComparisons(_packageRoot, true);

@@ -2140,16 +2140,31 @@ namespace OptScalerNR.Launcher
             if (_lastInspectResult != null && _lastInspectResult.Backends != null)
                 foreach (var backend in _lastInspectResult.Backends)
                     if (backend != null && backend.Id == "mochizuki") { capability = backend; break; }
-            var canExtract = capability != null && capability.PreparationState == "ready";
-            var original = capability != null && capability.OriginalState == "ready";
-            var small = capability != null && capability.SmallState == "ready";
-            // Preparable mirrors the installer's source check: 310.8.0 can only prepare original, so the
-            // Small choice must not ride on extraction tools alone (the installer would fail late).
-            var originalPreparable = capability != null && capability.OriginalState == "preparable";
-            var smallPreparable = capability != null && capability.SmallState == "preparable";
+            Func<string, bool> available = state =>
+                string.Equals(state, "ready", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(state, "preparable", StringComparison.OrdinalIgnoreCase);
+            var states = new[] {
+                new { Value = "small", Label = L("Small — CC_SMALL_FP8", "Small — CC_SMALL_FP8"),
+                    State = capability == null ? null : capability.SmallState },
+                new { Value = "experimental", Label = L("Experimental — CC_SMALL_FP8_EXPERIMENTAL（由 Small 生成）", "Experimental — CC_SMALL_FP8_EXPERIMENTAL (from Small)"),
+                    State = capability == null ? null : capability.ExperimentalState },
+                new { Value = "original", Label = L("Original — CC_SILVER_AARDWOLD", "Original — CC_SILVER_AARDWOLD"),
+                    State = capability == null ? null : capability.OriginalState },
+                new { Value = "int4", Label = L("INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED（由 Original 生成）", "INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED (from Original)"),
+                    State = capability == null ? null : capability.Int4State }
+            };
+            var ready = new bool[4];
+            var canInstall = new bool[4];
+            for (var i = 0; i < states.Length; i++)
+            {
+                ready[i] = string.Equals(states[i].State, "ready", StringComparison.OrdinalIgnoreCase);
+                canInstall[i] = available(states[i].State);
+            }
+            var originalAvailable = canInstall[2];
+            var smallAvailable = canInstall[0];
             var dialog = new Window
             {
-                Owner = _window.IsVisible ? _window : null, Title = L("选择 Mochizuki 模型", "Select Mochizuki models"), Width = 500,
+                Owner = _window.IsVisible ? _window : null, Title = L("选择 Mochizuki 网络", "Select Mochizuki networks"), Width = 560,
                 SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
                 Background = LauncherTheme.Brush("ThemeSurface"), Foreground = LauncherTheme.Brush("ThemeInk")
@@ -2158,42 +2173,63 @@ namespace OptScalerNR.Launcher
             var panel = new StackPanel { Margin = new Thickness(24) };
             panel.Children.Add(new TextBlock
             {
-                Text = L("选择安装范围；已有模型可复用，缺少的模型将自动提取。", "Choose what to install. Existing models are reused; missing models are extracted automatically."),
+                Text = L("选择要安装的网络，再选择游戏启动时使用的网络。Experimental 依赖 Small，INT4 Mixed 依赖 Original；父模型会自动安装或提取。",
+                    "Choose the networks to install, then the one the game starts with. Experimental needs Small and INT4 Mixed needs Original; parent models are installed or extracted automatically."),
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
             });
-            panel.Children.Add(new TextBlock
-            {
-                Text = L("Small 需要 nvngx_dlssnr.dll 310.9.16；Original 也支持 310.8.0。", "Small needs nvngx_dlssnr.dll 310.9.16; Original also supports 310.8.0."),
-                TextWrapping = TextWrapping.Wrap, Foreground = LauncherTheme.Brush("ThemeWarning"),
-                Margin = new Thickness(0, 0, 0, 16)
-            });
+            var checks = new CheckBox[4];
+            var startCombo = new ComboBox { MinWidth = 300, Margin = new Thickness(0, 12, 0, 0) };
             var proceed = new Button { Content = L("继续", "Continue"), IsEnabled = false, MinWidth = 100, Margin = new Thickness(4) };
-            DialogTheme.Primary(dialog, proceed);
-            var originalAvailable = original || (canExtract && originalPreparable);
-            var smallAvailable = small || (canExtract && smallPreparable);
-            var enabled = new[] {
-                originalAvailable && smallAvailable,
-                smallAvailable,
-                originalAvailable
+            Action updateProceed = delegate {
+                var any = false;
+                for (var i = 0; i < checks.Length; i++) any |= checks[i].IsChecked == true;
+                proceed.IsEnabled = any;
             };
-            if (!enabled[0] && !enabled[1] && !enabled[2])
+            for (var i = 0; i < states.Length; i++)
+            {
+                var index = i;
+                var check = new CheckBox {
+                    Content = states[i].Label, IsChecked = canInstall[i], IsEnabled = canInstall[i],
+                    Foreground = canInstall[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted"),
+                    Margin = new Thickness(0, 6, 0, 6)
+                };
+                check.Checked += delegate { updateProceed(); };
+                check.Unchecked += delegate { updateProceed(); };
+                checks[i] = check;
+                panel.Children.Add(check);
+                if (canInstall[i])
+                {
+                    var item = new ComboBoxItem { Tag = states[i].Value, Content = states[i].Label };
+                    startCombo.Items.Add(item);
+                    if (states[i].Value == "small") startCombo.SelectedItem = item;
+                }
+            }
+            if (startCombo.SelectedItem == null && startCombo.Items.Count > 0) startCombo.SelectedIndex = 0;
+            panel.Children.Add(new TextBlock {
+                Text = L("启动网络", "Startup network"), Foreground = LauncherTheme.Brush("ThemeMuted"), Margin = new Thickness(0, 8, 0, 0)
+            });
+            panel.Children.Add(startCombo);
+            if (!canInstall[0] && !canInstall[1] && !canInstall[2] && !canInstall[3])
                 panel.Children.Add(new TextBlock {
                     Text = L("部分模型暂不可用，请补齐来源或完整安装包后重试。", "Some models are unavailable. Add the source or restore the complete package and retry."),
-                    TextWrapping = TextWrapping.Wrap, Foreground = LauncherTheme.Brush("ThemeWarning"), Margin = new Thickness(0,0,0,12)
+                    TextWrapping = TextWrapping.Wrap, Foreground = LauncherTheme.Brush("ThemeWarning"), Margin = new Thickness(0, 12, 0, 0)
                 });
-            var values = new[] { "both", "small", "original" };
-            var labels = new[] { L("Original + Small", "Original + Small"), "Small", "Original" };
-            for (var i = 0; i < values.Length; i++)
-            {
-                var value = values[i];
-                var radio = new RadioButton { Content = labels[i], IsEnabled = enabled[i], Foreground = enabled[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted"), GroupName = "MochizukiModels", Margin = new Thickness(0, 6, 0, 6) };
-                radio.Checked += delegate { dialog.Tag = value; proceed.IsEnabled = true; };
-                panel.Children.Add(radio);
-            }
             AddModelSourceChoice(panel, dialog, originalAvailable, smallAvailable);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = new Button { Content = L("取消", "Cancel"), IsCancel = true, MinWidth = 100, Margin = new Thickness(4) };
-            proceed.Click += delegate { dialog.DialogResult = true; };
+            proceed.Click += delegate {
+                var networks = new List<string>();
+                for (var i = 0; i < checks.Length; i++) if (checks[i].IsChecked == true) networks.Add(states[i].Value);
+                if (networks.Count == 0) return;
+                var active = startCombo.SelectedItem as ComboBoxItem;
+                var activeValue = active == null ? null : active.Tag as string;
+                if (string.IsNullOrEmpty(activeValue) || !networks.Contains(activeValue)) activeValue = networks[0];
+                _decisions.MochizukiNetworks = networks.ToArray();
+                _decisions.MochizukiActiveModel = activeValue;
+                dialog.Tag = activeValue;
+                dialog.DialogResult = true;
+            };
+            updateProceed();
             buttons.Children.Add(cancel);
             buttons.Children.Add(proceed);
             panel.Children.Add(buttons);
@@ -2637,7 +2673,7 @@ namespace OptScalerNR.Launcher
                     _decisions.LmxxfModels = SelectLmxxfModels(action);
                     if (string.IsNullOrEmpty(_decisions.LmxxfModels)) return false;
                 }
-                else if (d.Id == "mochizukiModels")
+                else if (d.Id == "mochizukiModels" || d.Id == "mochizukiNetworks")
                 {
                     _decisions.MochizukiModels = SelectMochizukiModels(action);
                     if (string.IsNullOrEmpty(_decisions.MochizukiModels)) return false;

@@ -1,4 +1,4 @@
-# Launcher worker protocol (schema 1)
+﻿# Launcher worker protocol (schema 1)
 
 JSON files only. The GUI starts Windows PowerShell 5.1 with `-File` and
 absolute paths. It never builds `-Command` strings.
@@ -26,9 +26,11 @@ Exit codes match `status`: 0 success, 1 failed, 2 needsInput, 3 cancelled.
 - `existingInstall`: `uninstall` | `overwrite`
 - `foreignProxy`: map of file name to `backup` | `keep` | `cancel`
 - `existingIni`: `overwrite` | `keep`
-- `mochizukiModels`: `both` | `small` | `original`; required when installing Mochizuki.
-  The explicit `original` selection authorizes the older model. Missing or invalid
-  sources still fail validation; there is no runtime-only installation fallback.
+- `mochizukiModels`: legacy `both` | `all` | `small` | `experimental` | `original` | `int4`.
+  `mochizukiNetworks`: array of `small`, `experimental`, `original`, `int4` (install
+  range); `mochizukiActiveModel` selects the startup network. Parent base models are
+  installed or extracted automatically. When `mochizukiNetworks` is absent, the
+  legacy combined value is used. No hash/version gate is applied to models.
 - `lmxxfModels`: `both` | `small` | `original`; required when installing lmxxf.
   Original and Small sources are resolved independently from the package and game.
   An explicit choice with missing/invalid weights fails before game-folder writes.

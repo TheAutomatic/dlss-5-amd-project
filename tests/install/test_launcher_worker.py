@@ -253,10 +253,12 @@ class LauncherWorkerTests(unittest.TestCase):
         plugins.mkdir(parents=True)
         (plugins / "dlssnr-amd.asi").write_bytes(b"ASI fixture")
         for name in ("dlssnr-amd/shaders/example.spv", "dlssnr-amd/aco/shell-aliases.txt",
-                     "model-tools/dlssnr_extract_model.exe"):
+                     "model-tools/dlssnr_extract_model.exe", "model-tools/dlssnr-int4-weights.exe",
+                     "experimental/dlssnr-small-experimental.delta"):
             path = pkg / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"package asset")
+        (pkg / "dlssnr-amd/int4").mkdir(parents=True, exist_ok=True)
         model = game / "dlssnr-amd/dlssnr-small.bin"
         model.parent.mkdir()
         model.write_bytes(b"NRMODEL1" + (255).to_bytes(4, "little") + bytes(20))
@@ -266,6 +268,8 @@ class LauncherWorkerTests(unittest.TestCase):
         self.assertTrue(mochi["enabled"], mochi)
         self.assertEqual(mochi["hints"], [])
         self.assertEqual(mochi["missingPackageFiles"], [])
+        self.assertEqual(mochi["experimentalState"], "preparable", mochi)
+        self.assertEqual(mochi["int4State"], "missing", mochi)
         shutil.rmtree(pkg / "dlssnr-amd/shaders")
         code, result, events = self.invoke(pkg / WORKER.name, "inspect", exe)
         self.assertEqual(code, 0, events)

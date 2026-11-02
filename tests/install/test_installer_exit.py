@@ -558,7 +558,13 @@ class InstallerExitTests(unittest.TestCase):
         int4.mkdir(parents=True)
         (int4 / "settings.txt").write_text("fixture\n", encoding="utf-8")
         (self.package / "dlssnr-amd/nr_present_probe.exe").write_bytes(b"fixture probe")
-        (self.package / "dlssnr-amd-optiscaler.ini").write_text("[Network]\nModel = CC_SMALL_FP8\n", encoding="utf-8")
+        (self.package / "dlssnr-amd-optiscaler.ini").write_text(
+            "[Network]\nModel = CC_SMALL_FP8\n[RenoDX]\nEnabled = 0\n", encoding="utf-8")
+        (self.package / "dlssnr-amd-optiscaler-renodx.ini").write_text(
+            "[Network]\nModel = CC_SMALL_FP8\n[RenoDX]\nEnabled = 1\n", encoding="utf-8")
+        delta = self.package / "experimental"
+        delta.mkdir()
+        (delta / "dlssnr-small-experimental.delta").write_bytes(b"NRXDIFF1" + (0).to_bytes(4, "little"))
         extractor_tool(self.package / 'model-tools')
         extractor_exe = self.package / 'model-tools/dlssnr_extract_model.exe'
         # The compiled fixture checks this variable; tests flip it per run.
@@ -995,6 +1001,48 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
         self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SMALL_FP8$')
+
+    def test_mochizuki_network_range_and_derived_networks(self):
+        self.ready_mochizuki()
+        (self.package / 'nvngx_dlssnr.dll').write_bytes(b'source fixture')
+        args = [str(PS), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File',
+                str(self.package / 'Setup.ps1'), '-GameDir', str(self.game), '-Proxy', 'dxgi.dll',
+                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'small,experimental',
+                '-MochizukiActiveModel', 'experimental']
+        code, output = self.run_process(args)
+        self.assertEqual(code, 0, output)
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr-small.bin').is_file())
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr-small-experimental.bin').is_file(), output)
+        self.assertFalse((self.game / 'dlssnr-amd/dlssnr.bin').exists())
+        self.assertRegex((self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig'),
+                         r'(?m)^Model\s*=\s*CC_SMALL_FP8_EXPERIMENTAL$')
+        (self.game / 'dlssnr-amd.ini').unlink()
+        args = [str(PS), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File',
+                str(self.package / 'Setup.ps1'), '-GameDir', str(self.game), '-Proxy', 'dxgi.dll',
+                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'original,int4',
+                '-MochizukiActiveModel', 'int4']
+        code, output = self.run_process(args)
+        self.assertEqual(code, 0, output)
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr-int4.bin').is_file())
+        self.assertRegex((self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig'),
+                         r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD_INT4_MIXED$')
+
+    def test_mochizuki_new_install_uses_renodx_default_and_recovery_copy(self):
+        self.ready_mochizuki(model=True)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
+        self.assertEqual(code, 0, output)
+        ini = self.game / 'dlssnr-amd.ini'
+        text = ini.read_text(encoding='utf-8-sig')
+        self.assertRegex(text, r'(?m)^\[RenoDX\]$')
+        self.assertRegex(text, r'(?m)^Enabled\s*=\s*1$')
+        recovery = self.game / 'dlssnr-amd/dlssnr-amd.default.ini'
+        self.assertTrue(recovery.is_file())
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+        code, output = self.run_direct(name='Uninstall', flags=('-NonInteractive',))
+        self.assertEqual(code, 0, output)
+        self.assertTrue(ini.is_file())
+        self.assertTrue(recovery.is_file())
 
     def test_mochizuki_existing_asi_ini_is_not_rewritten(self):
         self.ready_mochizuki(model=True)

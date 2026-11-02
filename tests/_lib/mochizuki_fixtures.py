@@ -31,7 +31,7 @@ class Extractor {
         Write(Path.Combine(args[1], "dlssnr.bin"), magic, 599);
         var marker = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "extractor-small.marker");
         if (!File.Exists(marker) || File.ReadAllText(marker).Trim() != "0")
-            Write(Path.Combine(args[1], "dlssnr-small.bin"), magic, 255);
+            Write(Path.Combine(args[1], "dlssnr-small.bin"), magic, 0);
         return 0;
     }
     static void Write(string path, byte[] magic, uint entries) {
