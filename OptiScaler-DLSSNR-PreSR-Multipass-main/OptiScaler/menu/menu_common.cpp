@@ -3161,6 +3161,15 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
 
             ImGui::Text("[Warning] FSR-RR version mismatch | Installed: %d.%d.%d | Expected: %d.%d.%d", rrVer.major,
                         rrVer.minor, rrVer.patch, rrImplemented.major, rrImplemented.minor, rrImplemented.patch);
+            // Name the file that actually answered the version query: the usual cause is a denoiser
+            // DLL other than the packaged one (game folder / System32 copy, or an FfxDx12RRPath
+            // override), and the provider ABI is version-specific.
+            const auto loaderPath = FfxApiProxy::Dx12Module_Denoiser_Path();
+            if (!loaderPath.empty())
+                ImGui::TextWrapped("Loaded: %s", wstring_to_string(loaderPath).c_str());
+            ImGui::TextWrapped("This build supports 1.2.0 only. Use the amd_fidelityfx_denoiser_dx12.dll "
+                               "shipped in the package's OptiScaler folder (clear FfxDx12RRPath if it points "
+                               "at another copy).");
 
             ImGui::PopStyleColor();
         }
