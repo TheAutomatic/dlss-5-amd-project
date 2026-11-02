@@ -937,11 +937,10 @@ void RenderMenu(Config* config, float menuResScale)
                                       : Upscaler::Reset;
             const bool fsrRr = upscaler == Upscaler::FSR_RR;
             int order = config->DlssNrRunBeforeSr.value_or_default() ? 0 : 1;
-            // FSR-RR is our own denoise+SR chain, so the same placement control reads as a real
-            // three-stage order there. Native RR is excluded from this control (it has its own
-            // post-upscale option below).
-            const char* orders[] = {fsrRr ? "RR -> NR -> SR (default)" : "NR -> SR (default)",
-                                    fsrRr ? "RR -> SR -> NR (experimental)" : "SR -> NR (experimental)"};
+            // The option names stay as they always were: RR's stage has no placement choice, it
+            // always sits first. Only the line below tells the user that RR is active and where NR
+            // therefore lands in the chain.
+            const char* orders[] = {"NR -> SR (default)", "SR -> NR (experimental)"};
             if (MenuUi::Combo("Processing order", &order, orders, IM_ARRAYSIZE(orders)))
             {
                 config->DlssNrRunBeforeSr = order == 0;
@@ -952,15 +951,18 @@ void RenderMenu(Config* config, float menuResScale)
                 const auto passes = config->DlssNrPasses.value_or_default();
                 const auto scale = config->DlssNrWorkingScale.value_or_default();
                 MenuUi::TextDisabled(order == 0
-                                         ? "RR -> NR -> SR: NR reads the denoised render-resolution colour "
+                                         ? "Ray Reconstruction is active (always first): RR -> NR -> SR. "
+                                           "NR reads the denoised render-resolution colour "
                                            "(passes %u, model resolution %d%%)."
-                                         : "RR -> SR -> NR: NR reads the upscaled output "
+                                         : "Ray Reconstruction is active (always first): RR -> SR -> NR. "
+                                           "NR reads the upscaled output "
                                            "(passes %u, model resolution %d%% of output).",
                                      passes, (int) lroundf(scale * 100.0f));
             }
             HelpMarker("NR -> SR enhances the render-resolution input. SR -> NR enhances the upscaled output."
-                       "\nFSR-RR follows this control too: RR -> NR -> SR runs NR inside the feature between"
-                       "\nits denoise and its SR; RR -> SR -> NR runs it over the SR output."
+                       "\nFSR-RR follows this control too. Its RR stage is always first and has no placement"
+                       "\nchoice: RR -> NR -> SR runs NR inside the feature between denoise and SR, while"
+                       "\nRR -> SR -> NR runs it over the SR output."
                        "\nPasses and model resolution come from the controls on this page (not the"
                        "\nnative-RR-only values below) and are relative to the selected input."
                        "\nMochizuki SR -> NR keeps the game's render-resolution motion and the runtime scales it."
