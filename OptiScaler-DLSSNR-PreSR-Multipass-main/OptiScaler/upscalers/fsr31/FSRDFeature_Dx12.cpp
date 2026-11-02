@@ -1990,9 +1990,19 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
             if (Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> recorder;
                 SUCCEEDED(InCommandList->QueryInterface(IID_PPV_ARGS(&recorder))))
             {
-                ID3D12Resource* bookInputs[2] = {};
-                D3D12_BARRIER_LAYOUT bookLayouts[2] = {};
+                // The composed colour is the surface NR reads as Color. Without declaring it the
+                // layout book keeps it known=false (enhanced barriers observed, layout unresolved),
+                // and the backend rejects the whole frame with enhanced_layout_partial_or_pending
+                // even though motion/depth are fine.
+                ID3D12Resource* bookInputs[3] = {};
+                D3D12_BARRIER_LAYOUT bookLayouts[3] = {};
                 UINT bookCount = 0;
+                if (composed)
+                {
+                    bookInputs[bookCount] = composed;
+                    bookLayouts[bookCount] = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+                    ++bookCount;
+                }
                 ID3D12Resource* motion = nullptr;
                 ID3D12Resource* depth = nullptr;
                 if (TryGetNGXVoidPointer(*InParameters, NVSDK_NGX_Parameter_MotionVectors, motion) && motion)
@@ -2001,7 +2011,7 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
                     bookLayouts[bookCount] = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
                     ++bookCount;
                 }
-                if (TryGetNGXVoidPointer(*InParameters, NVSDK_NGX_Parameter_Depth, depth) && depth && bookCount < 2)
+                if (TryGetNGXVoidPointer(*InParameters, NVSDK_NGX_Parameter_Depth, depth) && depth && bookCount < 3)
                 {
                     bookInputs[bookCount] = depth;
                     bookLayouts[bookCount] = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;

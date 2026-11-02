@@ -946,19 +946,6 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrRunBeforeSr = order == 0;
                 AmdBridge::InvalidateHistory();
             }
-            if (fsrRr)
-            {
-                const auto passes = config->DlssNrPasses.value_or_default();
-                const auto scale = config->DlssNrWorkingScale.value_or_default();
-                MenuUi::TextDisabled(order == 0
-                                         ? "Ray Reconstruction is active (always first): RR -> NR -> SR. "
-                                           "NR reads the denoised render-resolution colour "
-                                           "(passes %u, model resolution %d%%)."
-                                         : "Ray Reconstruction is active (always first): RR -> SR -> NR. "
-                                           "NR reads the upscaled output "
-                                           "(passes %u, model resolution %d%% of output).",
-                                     passes, (int) lroundf(scale * 100.0f));
-            }
             HelpMarker("NR -> SR enhances the render-resolution input. SR -> NR enhances the upscaled output."
                        "\nFSR-RR follows this control too. Its RR stage is always first and has no placement"
                        "\nchoice: RR -> NR -> SR runs NR inside the feature between denoise and SR, while"
@@ -1076,15 +1063,11 @@ void RenderMenu(Config* config, float menuResScale)
                 // switch is on. Report what the seam actually did instead of a generic placeholder.
                 const bool preSr = config->DlssNrRunBeforeSr.value_or_default();
                 MenuUi::TextWrapped("FSR-RR order: %s", preSr ? "RR -> NR -> SR" : "RR -> SR -> NR");
+                // Only a failure is worth a second line; the success text is noise.
                 const auto seam = DlssNr::FeatureSeamStatus();
-                if (preSr)
-                    MenuUi::TextWrapped("%s", seam.empty()
-                                                   ? "NR runs between the denoise and the SR once a frame is processed."
-                                                   : seam.c_str());
-                else
-                    MenuUi::TextWrapped("NR runs over the SR output (passes %u, model resolution %d%%).",
-                                        config->DlssNrPasses.value_or_default(),
-                                        (int) lroundf(config->DlssNrWorkingScale.value_or_default() * 100.0f));
+                const bool seamOk = seam == "FSR-RR: NR runs between denoise and SR";
+                if (!seam.empty() && !seamOk)
+                    MenuUi::TextWrapped("%s", seam.c_str());
             }
             if (kind == Backend::Kind::Mochizuki)
                 RenderMochizukiTiming();
