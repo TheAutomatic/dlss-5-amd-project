@@ -2178,33 +2178,88 @@ namespace OptScalerNR.Launcher
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
             });
             var checks = new CheckBox[4];
+            var hints = new TextBlock[4];
             var startCombo = new ComboBox { MinWidth = 300, Margin = new Thickness(0, 12, 0, 0) };
             var proceed = new Button { Content = L("继续", "Continue"), IsEnabled = false, MinWidth = 100, Margin = new Thickness(4) };
-            Action updateProceed = delegate {
+            var syncing = false;
+            Action updateProceed = null;
+            Action refreshStart = null;
+            Action updateLocks = null;
+
+            updateProceed = delegate {
                 var any = false;
                 for (var i = 0; i < checks.Length; i++) any |= checks[i].IsChecked == true;
-                proceed.IsEnabled = any;
+                proceed.IsEnabled = any && startCombo.SelectedItem != null;
             };
+            refreshStart = delegate {
+                var previous = startCombo.SelectedItem as ComboBoxItem;
+                var previousTag = previous != null ? previous.Tag as string : null;
+                startCombo.Items.Clear();
+                for (var i = 0; i < checks.Length; i++)
+                {
+                    if (checks[i].IsChecked != true) continue;
+                    startCombo.Items.Add(new ComboBoxItem { Tag = states[i].Value, Content = states[i].Label });
+                }
+                ComboBoxItem restore = null;
+                foreach (var entry in startCombo.Items)
+                {
+                    var item = entry as ComboBoxItem;
+                    if (item != null && previousTag != null && (item.Tag as string) == previousTag) restore = item;
+                }
+                if (restore != null) startCombo.SelectedItem = restore;
+                else if (startCombo.Items.Count > 0) startCombo.SelectedIndex = 0;
+                else startCombo.SelectedIndex = -1;
+                startCombo.IsEnabled = startCombo.Items.Count > 0;
+                updateProceed();
+            };
+            updateLocks = delegate {
+                var experimentalLocksSmall = checks[1] != null && checks[1].IsChecked == true;
+                checks[0].IsEnabled = canInstall[0] && !experimentalLocksSmall;
+                if (hints[0] != null) hints[0].Visibility = experimentalLocksSmall ? Visibility.Visible : Visibility.Collapsed;
+                var int4LocksOriginal = checks[3] != null && checks[3].IsChecked == true;
+                checks[2].IsEnabled = canInstall[2] && !int4LocksOriginal;
+                if (hints[2] != null) hints[2].Visibility = int4LocksOriginal ? Visibility.Visible : Visibility.Collapsed;
+            };
+            Action syncParents = delegate {
+                if (syncing) return;
+                syncing = true;
+                try {
+                    if (checks[1].IsChecked == true && canInstall[0]) checks[0].IsChecked = true;
+                    if (checks[3].IsChecked == true && canInstall[2]) checks[2].IsChecked = true;
+                } finally { syncing = false; }
+                updateLocks();
+                refreshStart();
+            };
+
             for (var i = 0; i < states.Length; i++)
             {
-                var index = i;
                 var check = new CheckBox {
-                    Content = states[i].Label, IsChecked = canInstall[i], IsEnabled = canInstall[i],
-                    Foreground = canInstall[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted"),
-                    Margin = new Thickness(0, 6, 0, 6)
+                    Content = new TextBlock { Text = states[i].Label, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center },
+                    IsChecked = canInstall[i], IsEnabled = canInstall[i],
+                    Style = dialog.FindResource("ModelCard") as Style,
+                    Foreground = canInstall[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted")
                 };
-                check.Checked += delegate { updateProceed(); };
-                check.Unchecked += delegate { updateProceed(); };
                 checks[i] = check;
                 panel.Children.Add(check);
-                if (canInstall[i])
+                if (i == 0 || i == 2)
                 {
-                    var item = new ComboBoxItem { Tag = states[i].Value, Content = states[i].Label };
-                    startCombo.Items.Add(item);
-                    if (states[i].Value == "small") startCombo.SelectedItem = item;
+                    var hint = new TextBlock {
+                        Text = i == 0
+                            ? L("Experimental 需要 Small；已自动勾选并锁定。", "Experimental needs Small; selected and locked.")
+                            : L("INT4 Mixed 需要 Original；已自动勾选并锁定。", "INT4 Mixed needs Original; selected and locked."),
+                        TextWrapping = TextWrapping.Wrap, FontSize = 11,
+                        Foreground = LauncherTheme.Brush("ThemeMuted"),
+                        Margin = new Thickness(4, 0, 4, 4), Visibility = Visibility.Collapsed
+                    };
+                    hints[i] = hint;
+                    panel.Children.Add(hint);
                 }
             }
-            if (startCombo.SelectedItem == null && startCombo.Items.Count > 0) startCombo.SelectedIndex = 0;
+            for (var i = 0; i < checks.Length; i++)
+            {
+                checks[i].Checked += delegate { if (!syncing) syncParents(); };
+                checks[i].Unchecked += delegate { if (!syncing) { updateLocks(); refreshStart(); } };
+            }
             panel.Children.Add(new TextBlock {
                 Text = L("启动网络", "Startup network"), Foreground = LauncherTheme.Brush("ThemeMuted"), Margin = new Thickness(0, 8, 0, 0)
             });
@@ -2229,7 +2284,11 @@ namespace OptScalerNR.Launcher
                 dialog.Tag = activeValue;
                 dialog.DialogResult = true;
             };
-            updateProceed();
+            proceed.Style = dialog.FindResource("DialogPrimaryPink") as Style;
+            proceed.IsDefault = true;
+            syncParents();
+            updateLocks();
+            refreshStart();
             buttons.Children.Add(cancel);
             buttons.Children.Add(proceed);
             panel.Children.Add(buttons);

@@ -1007,7 +1007,7 @@ class InstallerExitTests(unittest.TestCase):
         (self.package / 'nvngx_dlssnr.dll').write_bytes(b'source fixture')
         args = [str(PS), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File',
                 str(self.package / 'Setup.ps1'), '-GameDir', str(self.game), '-Proxy', 'dxgi.dll',
-                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'small,experimental',
+                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'experimental',
                 '-MochizukiActiveModel', 'experimental']
         code, output = self.run_process(args)
         self.assertEqual(code, 0, output)
@@ -1019,7 +1019,7 @@ class InstallerExitTests(unittest.TestCase):
         (self.game / 'dlssnr-amd.ini').unlink()
         args = [str(PS), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File',
                 str(self.package / 'Setup.ps1'), '-GameDir', str(self.game), '-Proxy', 'dxgi.dll',
-                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'original,int4',
+                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'int4',
                 '-MochizukiActiveModel', 'int4']
         code, output = self.run_process(args)
         self.assertEqual(code, 0, output)
