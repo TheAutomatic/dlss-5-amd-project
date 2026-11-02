@@ -221,6 +221,13 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     bool _lastDispatchRequestedReset = false;
     uint32_t _lastDenoiserRenderWidth = 0;
     uint32_t _lastDenoiserRenderHeight = 0;
+    // Largest logical render size ever dispatched, process-wide on purpose: the creation size is
+    // only the preset's optimal render size (DLSS distinguishes optimal/minimum/maximum), and a
+    // title that dispatches above it must not rebuild to the same too-small ceiling on every
+    // recreation. Surviving feature recreation is what breaks that loop; the cost is a ceiling that
+    // never shrinks, bounded by the largest size seen in this session.
+    static inline uint32_t _observedMaxRenderWidth = 0;
+    static inline uint32_t _observedMaxRenderHeight = 0;
     uint64_t _denoiserDispatchAttempts = 0;
     uint64_t _denoiserDispatchSuccesses = 0;
     uint64_t _denoiserDispatchFailures = 0;

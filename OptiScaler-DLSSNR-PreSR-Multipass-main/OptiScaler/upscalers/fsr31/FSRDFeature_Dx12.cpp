@@ -1439,13 +1439,17 @@ bool FSRDFeatureDx12::CreateDenoiserContext()
     // history reset -- every time a preset moved. This field is an allocation ceiling and each
     // dispatch already supplies its own logical size below it, so the headroom simply absorbs that
     // jitter. An alignment of 8 costs well under a percent of the allocation.
-    // The ceiling is only an allocation limit and the creation size is the preset's base render
-    // size: dynamic resolution scales *down* from that base and returns to it under light load, so
-    // the base is the largest size this instance will ever dispatch. Allocating for the display
-    // resolution instead would reserve denoiser history for a size the title never uses.
-    // The headroom covers rounding differences between the title and Streamline for the same
-    // preset (Crimson Desert created at 2258x1270 and dispatched 2272x1280), which used to cost a
-    // failed evaluation plus a rebuild on the first frame after a preset change.
+    // The ceiling is only an allocation limit. The creation size is the preset's *optimal* render
+    // size: dynamic resolution normally scales down from it and returns under light load, so it is
+    // a good starting upper bound but NOT a contract — DLSS distinguishes optimal/minimum/maximum
+    // render sizes, and a title may dispatch above the optimal one. Two safeguards follow from
+    // that: a small rounding headroom (a title and Streamline can round the same preset
+    // differently — Crimson Desert created at 2258x1270 and dispatched 2272x1280, which used to
+    // cost a failed evaluation plus a rebuild right after a preset change), and
+    // _observedMaxRender* below, so a title that really does scale above the creation size makes
+    // the next recreation large enough instead of rebuilding to the same too-small ceiling.
+    // Allocating for the display resolution instead was considered and rejected: it reserves
+    // denoiser history for a size most titles never use (up to 2.25x area at 4K output).
     constexpr uint32_t kRenderCeilingAlignment = 8;
     constexpr uint32_t kRenderCeilingHeadroomDivisor = 20; // 1/20 = 5% for preset rounding
     const auto ceilingFor = [](uint32_t extent)
@@ -1454,8 +1458,13 @@ bool FSRDFeatureDx12::CreateDenoiserContext()
         return (padded + kRenderCeilingAlignment - 1) / kRenderCeilingAlignment * kRenderCeilingAlignment;
     };
 
-    const uint32_t maxRenderWidth = std::max(_denoiserCtxDesc.maxRenderSize.width, ceilingFor(RenderWidth()));
-    const uint32_t maxRenderHeight = std::max(_denoiserCtxDesc.maxRenderSize.height, ceilingFor(RenderHeight()));
+    const auto aligned = [](uint32_t extent)
+    { return (extent + kRenderCeilingAlignment - 1) / kRenderCeilingAlignment * kRenderCeilingAlignment; };
+
+    const uint32_t maxRenderWidth = std::max({ _denoiserCtxDesc.maxRenderSize.width, ceilingFor(RenderWidth()),
+                                               aligned(_observedMaxRenderWidth) });
+    const uint32_t maxRenderHeight = std::max({ _denoiserCtxDesc.maxRenderSize.height, ceilingFor(RenderHeight()),
+                                                aligned(_observedMaxRenderHeight) });
     _denoiserCtxDesc = { .header = { .type = FFX_API_CREATE_CONTEXT_DESC_TYPE_DENOISER,
                                      // Chain backend desc into context desc
                                      .pNext = &backendDesc.header },
@@ -1675,6 +1684,8 @@ bool FSRDFeatureDx12::UpdateSize()
         LOG_WARN("[RR_DIAG] render size {}x{} exceeds the FSR-RR creation ceiling {}x{}; requesting feature "
                  "recreation instead of releasing in-flight resources",
                  renderWidth, renderHeight, maxWidth, maxHeight);
+        _observedMaxRenderWidth = std::max(_observedMaxRenderWidth, renderWidth);
+        _observedMaxRenderHeight = std::max(_observedMaxRenderHeight, renderHeight);
         InvalidateDenoiserHistory();
         State::Instance().changeBackend[Handle()->Id] = true;
         return false;
@@ -1691,6 +1702,11 @@ bool FSRDFeatureDx12::UpdateSize()
 
     _lastDenoiserRenderWidth = renderWidth;
     _lastDenoiserRenderHeight = renderHeight;
+    if (renderWidth > _observedMaxRenderWidth || renderHeight > _observedMaxRenderHeight)
+    {
+        _observedMaxRenderWidth = std::max(_observedMaxRenderWidth, renderWidth);
+        _observedMaxRenderHeight = std::max(_observedMaxRenderHeight, renderHeight);
+    }
 
     return true;
 }
