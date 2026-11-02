@@ -2127,14 +2127,19 @@ if ($installMochizuki) {
     $asiTemplate = Find-FirstFile @((Join-Path $Root 'dlssnr-amd-optiscaler.ini'), (Join-Path $release 'dlssnr-amd-optiscaler.ini'))
     if (-not (Test-Path -LiteralPath $asiIni -PathType Leaf) -and $asiTemplate) {
         Copy-Item -LiteralPath $asiTemplate -Destination $asiIni -Force
-        # An explicit user choice wins. Otherwise start with a model that was
-        # actually installed; with both (or neither) the template default stays.
+        # Priority: explicit active model, then this run's model selection, and
+        # only for "both" what is actually present. A stale file from an earlier
+        # install must not override the model chosen for this install.
         $activeModelName = $MochizukiActiveModel
         if (-not $activeModelName) {
-            $hasOriginal = Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf
-            $hasSmall = Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf
-            if ($hasOriginal -and -not $hasSmall) { $activeModelName = 'original' }
-            elseif ($hasSmall -and -not $hasOriginal) { $activeModelName = 'small' }
+            if ($MochizukiModels -in @('original', 'small')) {
+                $activeModelName = $MochizukiModels
+            } else {
+                $hasOriginal = Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf
+                $hasSmall = Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf
+                if ($hasOriginal -and -not $hasSmall) { $activeModelName = 'original' }
+                elseif ($hasSmall -and -not $hasOriginal) { $activeModelName = 'small' }
+            }
         }
         if ($activeModelName) {
             $networkName = if ($activeModelName -eq 'original') { 'CC_SILVER_AARDWOLD' } else { 'CC_SMALL_FP8' }

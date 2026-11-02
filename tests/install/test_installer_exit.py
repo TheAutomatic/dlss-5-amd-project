@@ -978,6 +978,24 @@ class InstallerExitTests(unittest.TestCase):
         ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
         self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SMALL_FP8$')
 
+    def test_mochizuki_fresh_asi_ini_follows_this_install_model(self):
+        self.ready_mochizuki(model=True, small=True)
+        # A stale small model from an earlier install must not override the
+        # original-only choice made for this run.
+        stale_small = self.game / 'dlssnr-amd/dlssnr-small.bin'
+        stale_small.parent.mkdir(parents=True, exist_ok=True)
+        stale_small.write_bytes(b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20))
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
+        self.assertEqual(code, 0, output)
+        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
+        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
+        # The opposite direction: this run selects small while the original is present.
+        (self.game / 'dlssnr-amd.ini').unlink()
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'small'))
+        self.assertEqual(code, 0, output)
+        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
+        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SMALL_FP8$')
+
     def test_mochizuki_existing_asi_ini_is_not_rewritten(self):
         self.ready_mochizuki(model=True)
         ini = self.game / 'dlssnr-amd.ini'
