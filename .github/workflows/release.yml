@@ -89,26 +89,26 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
+          ### v1.13.4.2 (对比 v1.13.4.1)
  
-          ### v1.13.4.1 (对比 v1.13.4)
+          修复与可用性版本：解决安装被崩溃上报残留进程阻断、正式版默认没有日志，以及光线再生切换后的资源滞留。
  
-          稳定性修复版本：FSR 光线再生管线与 Mochizuki NR 审查加固，并补全光线再生的菜单入口。
+          ## 安装器
  
-          ## FSR 光线再生（实验）— 稳定性
+          - **修复安装被"游戏仍在运行"误判而中止**：崩溃上报类残留进程（Crashpad、Unreal/Unity 崩溃处理器、WER）不再阻断安装；其余进程改为按映像所在目录判定，别处的同名进程不再误伤。真正的文件占用检测保持不变。
+          - **ASI 插件加载默认开启**：安装时统一写入 `[Plugins] LoadAsiPlugins=true`（本产品随包提供 ASI 组件），启动器不再提供该勾选框。如需关闭，请在该游戏的 ini 中手动设为 `false`；注意 `auto` 在宿主里仍按 `false` 处理。
+          - 包内容整理：Python 模型提取器移入 `model-tools/`（原生提取仍是主路径，Python 仅为降级兜底），同时修复其配套工具目录的解析。
  
-          - **GPU 资源退役追踪加固（GpuBatchTracker）**：修复长会话中追踪记录持续累积（实测由持续增长变为恒定工作集）；消除一处提交路径与命令列表 Reset/销毁的锁序死锁；设备移除（fence UINT64_MAX）期间资源保持保护；引擎重放已完成录制时退役时限正确延伸到重放批次完成；未提交的录制在命令列表 Reset/销毁时立即失效。
-          - **后端下拉列表新增 "FSR Ray Regeneration"**：一键激活光线再生，下一帧切换，无需重启游戏。
-          - 激活状态下切换到其他超分会被**拒绝并提示原因**：光线重构上下文锁定在 FSR-RR（切到纯超分会运行未降噪输入）。退出途径：取消勾选开关后重启游戏。
-          - **FFX Settings（SR 版本选择）对 RR 模式开放**：FSR 3.X / FSR 4 及 preset/model 选择在光线再生激活时同样可见可用——RR 模式的超分级走的就是同一条 FFX 路径。
-          - 开关（checkbox）补充说明文字，讲清它与下拉项的关系（状态 vs 动作）。
+          ## 日志
  
-          ## 帧生成修复
+          - **正式版默认写日志**：`OptiScaler.log` 不再需要手动开启（此前只有预发布构建会强制打开）；需要完全关闭文件日志时设 `LogToFile=false`。
+          - 重复告警折叠：Streamline 的每帧类告警（如 `Exceeded VRAM budget`）与重复绑定信息，在默认日志等级下只记录少量样本并附 `[repeated Nx]` 汇总；`LogLevel=1` 仍输出全部原始内容。
  
-          - 修复游戏内 FSR 帧生成的节奏劣化（#17）。
+          ## FSR 光线再生（实验）
  
-          ## Mochizuki NR
- 
-          - 显存紧张时的准入等待变为可恢复，不再永久挂起或直接失败；网络准备失败自动重试。
+          - 切换 RR ↔ 普通超分后，旧的降噪上下文与历史缓冲会被正确回收（此前游戏未释放旧 feature 时会在切换后滞留显存）。
+          - 首帧自动信号分类引起的上下文重建不再记为错误（属正常的一次性行为）。
+          - 日志中的 `normals bind` 改为按不同绑定去重，不再每帧重复输出。
  
           ### 安装与权重
  
@@ -118,6 +118,8 @@ jobs:
  
           ### 已知问题
  
+          - 4K 输出 + FSR 光线再生时，Streamline 会周期性报告 `Exceeded VRAM budget`：属于告警性估算，实测不影响帧率；默认日志等级下已被折叠。
+          - 光线再生与普通超分的切换依赖游戏重建 NGX feature；若某游戏的开关不触发重建，需要重进关卡或重启游戏后才生效。
           - FSR 光线再生为实验功能，默认关闭。
           - 需开启 DXGI 伪装才能在多数游戏中看到 DLSS/RR 选项；部分游戏开伪装后可能报"不支持的 GPU"。
           - 相比游戏内建 FSR 路径慢约 1.5–3 fps（实测《红色沙漠》约 20 vs 22 fps，1440p→4K）。分段性能测量工具在准备中。
@@ -126,28 +128,26 @@ jobs:
  
           ---
  
-          ### v1.13.4.1 (vs v1.13.4)
+          ### v1.13.4.2 (vs v1.13.4.1)
  
-          Stability release: the FSR Ray Regeneration pipeline and Mochizuki NR hardened through review rounds, plus the missing menu entry points for Ray Regeneration.
+          Fix and usability release: installs no longer fail on leftover crash-reporter processes, shipping builds write a log by default, and Ray Regeneration no longer keeps resources alive across a switch.
  
-          ## FSR Ray Regeneration (experimental) — stability
+          ## Installer
  
+          - **Fixed installs aborting with "a game process is still running"**: leftover crash reporters (Crashpad, Unreal/Unity crash handlers, WER) no longer block an install; every other process is matched by where its image lives, so a same-named process elsewhere is ignored. Real file locks are still detected exactly as before.
+          - **ASI plugin loading is on by default**: every install writes `[Plugins] LoadAsiPlugins=true` (an ASI component ships with this product) and the launcher no longer offers the checkbox. To turn it off, set the game ini to `false` by hand; note that `auto` still resolves to `false` in the host.
+          - Package layout: the Python model extractor moved into `model-tools/` (native extraction remains the primary path; Python is only the degraded fallback), and its companion tool directory lookup was fixed.
  
-          - **"FSR Ray Regeneration" added to the backend dropdown**: activate Ray Regeneration in one click, switching on the next frame — no game restart.
-          - Switching to another upscaler while it is active is **refused with an explanation**: a Ray Reconstruction context is locked to FSR-RR (a plain upscaler would run undenoised inputs). To leave it, uncheck the gate and restart the game.
-          - **GPU resource retirement tracking hardened (GpuBatchTracker)**: fixed tracker-entry accumulation over long sessions (measured: steady working set instead of unbounded growth); removed a lock-order deadlock between the submission path and command-list Reset/destroy; resources stay protected during device removal (fence UINT64_MAX); when an engine replays an already-completed recording, retirement correctly extends to the replay batch's completion; never-submitted recordings are invalidated immediately on list Reset/destroy.
-          - **Scheduling and state**: dispatch slot reservation now grows in bounded stable pages; the game's native RR provider ownership and ABI checks are isolated; RR-owned colour resource state is preserved across the NR seam.
-          - **Diagnostics**: a once-per-minute `GpuBatch gauges:` line (INFO) in the log — every number should stay flat in normal play; a `replay after first completion` warning that should never appear in normal games — if you see it, please attach logs.
-          - **FFX Settings (SR version selection) open in RR mode**: FSR 3.X / FSR 4 with preset/model selection is visible and usable while Ray Regeneration is active — the SR stage in RR mode runs the very same FFX path.
-          - The gate checkbox gained explanatory text clarifying its relation to the backend-list entry (state vs action).
+          ## Logging
  
-          ## Frame generation fix
+          - **Shipping builds now write a log by default**: `OptiScaler.log` no longer needs to be enabled by hand (previously only pre-release builds forced it on). Set `LogToFile=false` to skip the file entirely.
+          - Repeated advisories are collapsed: per-frame Streamline warnings (such as `Exceeded VRAM budget`) and repeated binding lines log a few samples plus a `[repeated Nx]` summary at the default level; `LogLevel=1` still writes every raw line.
  
-          - Fixed in-game FSR Frame Generation pacing degradation (#17).
+          ## FSR Ray Regeneration (experimental)
  
-          ## Mochizuki NR
- 
-          - VRAM-pressure admission waits are now recoverable instead of hanging forever or failing outright; network preparation retries automatically on failure.
+          - After switching between RR and plain upscaling, the old denoiser context and its history buffers are now reclaimed (previously they stayed resident when the game did not release the old feature).
+          - The context rebuild caused by first-frame automatic signal classification is no longer reported as an error (it is a one-time, expected step).
+          - The `normals bind` log line is de-duplicated per distinct binding instead of repeating every frame.
  
           ### Installation and models
  
@@ -157,6 +157,8 @@ jobs:
  
           ### Known issues
  
+          - With 4K output and Ray Regeneration, Streamline periodically reports `Exceeded VRAM budget`: it is an advisory estimate that did not affect measured frame rate, and it is collapsed at the default log level.
+          - Switching between Ray Regeneration and plain upscaling relies on the game recreating its NGX feature; if a game's toggle does not recreate it, the change takes effect only after a level reload or restart.
           - FSR Ray Regeneration is experimental and off by default.
           - DXGI spoofing is required for most games to expose their DLSS/RR option; some titles may show an "unsupported GPU" error with spoofing on.
           - Roughly 1.5–3 fps slower than the game's native FSR path (measured in Crimson Desert: ~20 vs 22 fps, 1440p→4K). Per-pass measurement tooling is in preparation.
