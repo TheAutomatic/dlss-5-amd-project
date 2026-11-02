@@ -13,6 +13,7 @@
 #include "shaders/fsrd_preprocess/FSRDShaderUtils.h"
 #include "MathUtils.h"
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/AsiTakeover.h>
 #include <dlssnr/submission/CommandListProxy.h>
 
 using namespace DirectX;
@@ -1978,7 +1979,7 @@ bool FSRDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
         // ApplyAfterRR gate belonged to native RR's post-upscale path and must not hide this one.
         // EvaluateInternal still honours RunBeforeSR and reports a reason when the placement or the
         // backend cannot run.
-        if (isDenoiserReady && !isFfxDebug && Config::Instance()->DlssNrEnabled.value_or_default() &&
+        if (isDenoiserReady && !isFfxDebug && DlssNr::AsiTakeover::NrRuntimeEnabled() &&
             cfg.DlssNrRunBeforeSr.value_or_default())
         {
             ID3D12Resource* composed = FSRDConvShader->GetCompositionOutput();

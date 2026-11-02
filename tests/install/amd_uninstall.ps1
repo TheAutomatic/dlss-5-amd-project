@@ -89,7 +89,7 @@ public class UninstallProxyFixture { }
         'person-model/person-worker.exe', 'person-model/person-worker.log', 'person-model/person-worker.1.log',
         'person-model/onnxruntime.dll', 'person-model/yunet.onnx', 'person-model/msvcp140.dll', 'person-model/vcruntime140.dll',
         'dlssnr_on_amd.log', 'dlssnr_on_amd.1.log', 'dlssnr_on_amd.ini',
-        'dlssnr-amd.log', 'dlssnr-amd.log.1', 'dlssnr-amd-crash.dmp', 'dlssnr-amd.ini', 'dlssnr-amd-install.txt',
+        'dlssnr-amd.log', 'dlssnr-amd.log.1', 'dlssnr-amd-crash.dmp', 'dlssnr-amd-install.txt',
         'dxgi.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll',
         'dlssnr_amd_pass3.dll', 'OptiScaler.ini', 'amd-presr-install.txt',
         'OptiScaler.log', 'OptiScaler.1.log', 'OptiScaler.2.log', 'OptiScaler.10.log',

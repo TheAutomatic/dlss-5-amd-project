@@ -61,8 +61,8 @@ try {
         if ($deps) { break }
     }
     if (!$deps) { Write-Host 'No previous package found; using dependency binaries from the source checkout (git submodule update --init --recursive if missing).' }
-    $mochi = Test-Path -LiteralPath (Join-Path $Root 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime/MochizukiNrRuntime.cpp')
-    if ($mochi -and !(Test-Path -LiteralPath (Join-Path $Root 'tools/build/build-mochizuki-runtime.cmd'))) { throw 'Mochizuki build script missing.' }
+    # Neural Rendering ships the official ASI payload; the retired built-in runtime
+    # source is not a packaging dependency.
     $branch = & git -C $Root branch --show-current
     Write-Host "Project: $Root`nBranch: $branch`nVersion: $Version`nDependencies: $deps`nMochizuki: $mochi"
     Write-Host "Build mode: $(if ($Rebuild) { 'full rebuild' } else { 'incremental host; verified Mochizuki/Worker reuse; lmxxf rebuilt' }). Local test package; no full release test suite."
@@ -84,7 +84,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\prepare-person
 if errorlevel 1 exit /b 1
 call tools\build\build-lmxxf-runtime.cmd exports\lmxxf-runtime || exit /b 1
 '@
-        if ($mochi) { $batch += "`r`ncall tools\build\build-mochizuki-runtime.cmd $(if (!$Rebuild) { '--reuse' }) || exit /b 1" }
         $batch += @'
 
 if not exist exports\release-local mkdir exports\release-local

@@ -10,7 +10,7 @@
 |---|---|
 | lmxxf | 找到 `LmxxfNrRuntime.dll` 和 `lmxxf-modules/`（权重 `native-game-tiled-assets/` 另外查找） |
 | daniel | 找到 SHA256 在白名单内的作者 runtime（`version.dll` 或 `dlssnr_amd_pass1.dll`），或 `dlssnr_on_amd_setup.exe`，或 `dlssnr_on_amd_weights.bin` |
-| mochizuki | 找到 `MochizukiNrRuntime.dll` 和 `dlssnr-amd/shaders/`；用户模型 `dlssnr-amd/dlssnr.bin` 缺失时明确提示另行提取 |
+| mochizuki | 找到 `OptiScaler/plugins/dlssnr-amd.asi`、同版 `dlssnr-amd/shaders/`、`dlssnr-amd/aco/` 和 `model-tools/dlssnr_extract_model.exe`；不再要求 `MochizukiNrRuntime.dll`。模型缺失时用官方工具从用户 DLL 提取 |
 
 | 情况 | 行为 |
 |---|---|
@@ -22,7 +22,7 @@
 存在 mochizuki 时可选全部可用后端或其中一个；全部安装后再选活动后端。
 `-Backend daniel|lmxxf|mochizuki|all` 可显式指定安装范围，默认 `auto` 保留交互选择。
 非交互 `auto/all` 安装全部可用后端，活动后端按 lmxxf、daniel、mochizuki 的顺序选取。
-mochizuki 使用独立配置，模型提取和首次编译见 [mochizuki.md](../mochizuki.md)。
+mochizuki 的 NR 由官方 ASI 自己运行：宿主菜单在插件加载时置灰，设置和 NR Control 在 `dlssnr-amd.ini`。安装只检查文件名/布局与提取成功，不设 hash/版本白名单。详见 [mochizuki.md](../mochizuki.md)。
 
 GUI 使用 `backends` 数组明确指定安装范围，经 DecisionJson 交给脚本；`-ActiveBackend`
 指定其中的活动后端。省略活动后端时仍按上述顺序选择；空列表、未知或重复后端、列表外的
@@ -183,6 +183,10 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 
 | 后端 / 权重情况 | 行为 |
 |---|---|
+> 以下旧内置 runtime 的模型准备细则只保留作历史安装与升级清理参考。新安装走官方 ASI：
+> 模型由 `dlssnr_extract_model.exe`/`dlssnr-int4-weights.exe` 生成，只检查文件名、布局与
+> 提取成功，不要求 Python、hash 或特定 NVIDIA DLL 版本。
+
 | Mochizuki：已有模型 | 优先尝试游戏目录，再尝试安装包；文件头识别后，用当前转换器生成 INT4 临时文件并校验固定哈希。不需要 Python，也不检查无关 NVIDIA DLL |
 | Mochizuki：已有匹配 INT4 | 仍检查当前基础模型能否生成匹配 INT4；成功后保留现有 INT4，不重复覆盖。准备 INT4 不等于默认开启 INT4 |
 | Mochizuki：游戏模型不匹配、包内模型匹配 | 使用匹配模型；安装时将原游戏模型另存为 `.mismatch-<时间>`，不直接丢弃 |
@@ -282,7 +286,7 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 - 保留：`nvngx_dlssnr.dll`、两类权重、作者的 setup、其它代理、用户插件和未知文件。`_storage_`（商店版游戏的作者日志位置）按同样规则处理。
 - 日志清理同时识别 `OptiScaler.1.log`（spdlog 当前格式）和 `OptiScaler.log.1`，只接受数字轮转后缀；不匹配用户命名的笔记或其它模组日志。
 - 清理受控 lmxxf 模块对应的 `.generated.hip` / `.hsaco.s` 旧构建附件，以及旧包的四份 `OptiScaler/dlssnr` 说明文件；未知模块、源码和用户文档保留。
-- mochizuki 移除 runtime、日志、已知 shader 文件、`pipeline.cache` 与 `prewarm/manifest.txt`；保留用户的 `dlssnr-amd/dlssnr.bin`。重新安装后首次运行会重建缓存。已知子目录仅在为空时移除。
+- mochizuki 按 `dlssnr-amd-install.txt` 删除本次安装的 ASI、probe 与资源文件；旧内置 runtime 的文件只按 `mochizuki-owned.txt` 清理。模型与 `dlssnr-amd.ini` 保留。
 - `DLSS5-AMD/native-game-flags.txt` 若仅剩安装器生成的三行示例注释则删除；存在用户配置或其它注释时保留。
 - Daniel/Mochi 的 `dlssnr_on_amd`、`dlssnr-amd` 日志和旧 INI、`dlssnr-amd-crash.dmp`、`dlssnr-amd-install.txt` 一起清理。旧安装记录只用于识别 `L` 行中安全的顶层 `*_dxgi/d3d11/d3d9.log` 和 `vkd3d-proton.cache[.write]`；不执行其 DLL、目录、备份恢复操作，游戏自己的 `logs/` 不整目录清扫。
 - 覆盖和卸载都清理旧独立 NR 的 `dlssnr_core.dll`、`dlss-enabler.log` 及数字轮转日志，覆盖前先检查占用；游戏根目录与 `_storage_` 均覆盖。保留 DLSS Enabler 的 DLL/INI、相似名称的用户文件和链接目标，不为这些残留创建备份。
@@ -297,7 +301,7 @@ daniel runtime 白名单覆盖 0.3.0 / 0.3.1 / 0.3.2 / 0.3.3 / 0.4.0 / 0.4.1 / 0
 
 - Daniel：受支持的作者 runtime 保存为 `version.dll`，另保留 `dlssnr_on_amd_weights.bin`。
 - lmxxf：复制 `native-game-tiled-assets/`；至少需要非空的 `block0-ffn.f16` 或 `.f32` 标记。
-- Mochizuki：复制头部可识别的 `dlssnr-amd/dlssnr.bin`，不复制游戏的 pipeline cache。
+- Mochizuki：模型按存在且非空判断并复制；不再用头部/哈希作准入，不复制游戏的 pipeline cache。
 
 lmxxf/Mochizuki 仅在目标目录或文件不存在时回存，已有内容（包括不完整或无效副本）
 保持原样，不合并或覆盖。新副本先写入临时目录，逐文件核对复制哈希，再移动到正式位置；

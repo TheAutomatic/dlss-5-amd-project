@@ -1905,5 +1905,7 @@
     <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader_Dx11.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader_Vk.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="dlssnr\AsiTakeover.h"><Filter>Header Files</Filter></ClInclude>
+    <ClCompile Include="dlssnr\AsiTakeover.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
 </Project>

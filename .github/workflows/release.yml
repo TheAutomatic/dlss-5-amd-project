@@ -272,36 +272,6 @@ jobs:
         run: |
           python -B OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/shader_tools/verify_fsrd_mirrors.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Compute build cache key
-        id: cache_keys
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $mochi = python -B tools/build/mochizuki-manifest.py --cache-key
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "mochi=$mochi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Restore verified Mochizuki build
-        uses: actions/cache@v5
-        with:
-          path: |
-            exports/mochizuki-runtime/MochizukiNrRuntime.dll
-            exports/mochizuki-runtime/build-manifest.json
-            exports/mochizuki-runtime/dlssnr-amd/shaders
-            exports/mochizuki-runtime/dlssnr-amd/aco
-            exports/mochizuki-runtime/dlssnr-amd/int4/settings.txt
-            exports/mochizuki-runtime/dlssnr-amd/int4/shaders
-            exports/mochizuki-runtime/dlssnr-amd/int4/vit
-            exports/mochizuki-runtime/dlssnr-amd/int4/swin
-            exports/mochizuki-runtime/model-tools
-          key: mochi-${{ runner.os }}-${{ steps.cache_keys.outputs.mochi }}
-
-      - name: Build or verify Mochizuki
-        shell: pwsh
-        run: |
-          cmd /d /c tools\build\build-mochizuki-runtime.cmd --reuse
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Build host and run release checks concurrently
         timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 45 || 25 }}
         shell: pwsh
@@ -431,7 +401,7 @@ jobs:
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
-          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE', 'person-worker.exe', 'onnxruntime.dll', 'pphumanseg.onnx', 'yolo11n-seg.onnx', 'yunet.onnx')
+          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE', 'person-worker.exe', 'onnxruntime.dll', 'pphumanseg.onnx', 'yolo11n-seg.onnx', 'yunet.onnx')
           foreach ($r in $required) {
             if ($entryNames -notcontains $r) {
               throw "REQUIRED COMPONENT MISSING IN ZIP: $r"
@@ -454,9 +424,10 @@ jobs:
             if ($entryPaths -notcontains $path) { throw "REQUIRED DEPENDENCY MISSING IN ZIP: $path" }
           }
 
-          foreach ($path in @('model-tools/dlssnr-int4-weights.exe', 'model-tools/dlssnr-int4.sha256', 'mochizuki-int4.ps1') +
-              @(Get-Content tools/install/mochizuki-owned.txt | Where-Object { $_ -and !($_.StartsWith('#')) } | ForEach-Object { "dlssnr-amd/$_" })) {
-            if ($entryPaths -notcontains $path) { throw "REQUIRED MOCHIZUKI COMPONENT MISSING: $path" }
+          foreach ($path in @('OptiScaler/plugins/dlssnr-amd.asi', 'dlssnr-amd/nr_present_probe.exe',
+              'model-tools/dlssnr_extract_model.exe', 'model-tools/dlssnr-int4-weights.exe',
+              'dlssnr-amd/shaders/g_attn.spv', 'dlssnr-amd/aco/shell-aliases.txt')) {
+            if ($entryPaths -notcontains $path) { throw "REQUIRED MOCHIZUKI ASI COMPONENT MISSING: $path" }
           }
           if ($entryPaths -match '(?i)/(aco-cache|pipeline-binaries)/') { throw 'Driver cache included in package.' }
           foreach ($license in @('OptiScaler_LICENSE.txt', 'Lmxxf_MIT.txt', 'Mochizuki_MIT.txt', 'RenoDX_MIT.txt', 'ONNXRuntime_MIT.txt', 'YOLO11_AGPL-3.0.txt', 'PPHumanSeg_Apache-2.0.txt', 'YuNet_MIT.txt', 'XeSS_LICENSE.txt', 'FidelityFX_v1_LICENSE.md', 'FidelityFX_v2_LICENSE.md', 'DirectX_LICENSE.txt')) {
@@ -551,8 +522,6 @@ jobs:
       - name: Build and run full regression
         shell: pwsh
         run: |
-          cmd /d /c tools\build\build-mochizuki-runtime.cmd --reuse
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/build/build-ci.ps1 -FullRegression
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Replay Mochizuki upstream pin

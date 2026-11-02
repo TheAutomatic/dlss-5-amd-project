@@ -328,11 +328,12 @@ if ($req.action -in @('repairXess','restoreXess','keepXess')) {
     Fail-Result 'success' $null 0
 }
 if ($pkg) {
-    $pythonHelper = Join-Path $pkg 'model-tools/mochizuki-python.ps1'
-    if (-not (Test-Path $pythonHelper)) { $pythonHelper = Join-Path $pkg 'mochizuki-python.ps1' }
-    if (-not (Test-Path $pythonHelper)) { $pythonHelper = Join-Path $here 'mochizuki-python.ps1' }
-    $hasModel = Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd\dlssnr.bin')
+    $hasAsi = Test-Path -LiteralPath (Join-Path $pkg 'OptiScaler/plugins/dlssnr-amd.asi')
+    $hasExtract = Test-Path -LiteralPath (Join-Path $pkg 'model-tools/dlssnr_extract_model.exe')
+    $hasModel = (Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd/dlssnr.bin')) -or
+        (Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd/dlssnr-small.bin'))
     $hasNv = Test-Path -LiteralPath (Join-Path $pkg 'nvngx_dlssnr.dll')
+    $script:notes += ('Mochizuki NR ASI present: {0}; extractor present: {1}.' -f $hasAsi, $hasExtract)
     $script:notes += ('Package model file present: {0}. That is not a GPU compatibility test.' -f $hasModel)
     $script:notes += ('NVIDIA DLL for optional extraction present: {0}.' -f $hasNv)
 }
@@ -422,7 +423,7 @@ if ($req.action -ne 'uninstall') {
         if (-not $modelChoice) {
             $script:needed += @{
                 id = 'mochizukiModels'
-                prompt = 'Select Mochizuki models explicitly. The new model requires nvngx_dlssnr.dll 310.9.16.0; Original uses older weights.'
+                prompt = 'Select the Mochizuki ASI models: both, small (CC_SMALL_FP8, 310.9.16), or original (CC_SILVER_AARDWOLD).'
                 options = @('both','small','original')
             }
         } elseif ($modelChoice -notin @('both','small','original')) {

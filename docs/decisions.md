@@ -1406,3 +1406,20 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
   无限重建循环（`26c90d07`，已由 `cfc5d812` 回退）。
 - 调查中顺带修掉：`normals bind` 每帧两条日志（游戏在两个 normals 资源间交替）改为按不同
   绑定去重（`b98045f4`）；正式包文件日志默认开启（`5be93e33`）。
+
+## 2026-11-02: Mochizuki NR 由官方 dlssnr-amd.asi 接管，内置 runtime 退出安装
+
+- 决定: NR 所有权以**实际加载的模块**为准。`dlssnr-amd.asi` 加载后，宿主的 NR 执行、
+  NR 页控件、NR 热键（含用户改绑键与 Ctrl+F11）、曝光扫描与后台构建全部停用；
+  RR/超分/FG/Insert 保留，`DlssNrEnabled` 与 `NrBackend` 偏好不改写。未加载 ASI 时
+  沿旧行为；会话内一旦接管不再回切，禁用插件后重启恢复。
+- 决定: 安装/打包不再构建或要求 `MochizukiNrRuntime.dll`。包内改为携带官方 0.0.8.2
+  `dlssnr-amd.asi`、同版 `dlssnr-amd/` 资源、probe 与官方模型工具；模型由官方
+  `dlssnr_extract_model.exe`/`dlssnr-int4-weights.exe` 生成，只检查文件名/布局/提取成功，
+  不设 hash 或版本白名单。安装保留宿主 `dxgi.dll` 与用户 `OptiScaler.ini`，只启用
+  `Plugins.LoadAsiPlugins`；仅当 FG 键仍为默认 End 时改为 -1，自定义键保留。
+- 所有权: ASI 与资源逐文件记录于 `dlssnr-amd-install.txt`，升级/卸载只处理该清单；
+  旧内置 runtime 的文件仅按 `mochizuki-owned.txt` 清理，模型与 `dlssnr-amd.ini` 保留。
+- 位置: `dlssnr/AsiTakeover.{h,cpp}`、`dlssnr/DlssNr_Menu.cpp`、`menu/menu_common.cpp`、
+  `tools/install-amd-presr.ps1`、`tools/uninstall-amd-presr.ps1`、
+  `tools/release/PACKAGE_RELEASE.ps1`、`third_party/mochizuki-asi/`。

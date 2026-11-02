@@ -1,5 +1,13 @@
 # Mochizuki backend (local integration)
 
+> Status (2026-11-02): new installs ship the **official `dlssnr-amd.asi`** (0.0.8.2
+> resources) and no longer build, install or require `MochizukiNrRuntime.dll`.
+> When the plugin is loaded, it owns Neural Rendering: the host's NR page, NR
+> hotkey, Ctrl+F11 model switch, background model work and NR execution are
+> disabled; RR, Super Resolution and frame generation keep working. Open NR
+> Control with End. The built-in-runtime sections below describe existing legacy
+> installations and the code that still runs when no ASI is loaded.
+
 This backend runs mochizuki0323's Vulkan network on the game's AMD adapter while the
 game uses the D3D12 interface. Native Windows uses the existing interop bridge;
 the Proton path records into the adopted vkd3d game's current Vulkan command buffer.
@@ -134,6 +142,10 @@ bridge behavior requires a separate regression run; Proton success cannot stand
 in for it.
 
 
+With the official ASI, choose the network in **NR Control (End)** or
+`dlssnr-amd.ini`; the host's model controls are disabled while the plugin is
+loaded. The host controls below apply only to a legacy built-in-runtime install.
+
 Ins → Mochizuki → **Network model** selects **310.9.16 (new)** or
 **310.8.0 (original)**. `[DlssNr] MochizukiNetworkModel=1` selects the new model;
 `0` selects the original. Save Settings to persist the choice. Switching builds
@@ -179,39 +191,33 @@ variables cannot replace the selected model or picture options.
 
 ## Installation
 
-1. Install a current AMD display driver with Vulkan support. HIP is not used by this backend.
-2. Extract the complete OptiScaler package. It contains `MochizukiNrRuntime.dll`,
-   `dlssnr-amd/shaders/` and `dlssnr-amd/aco/` (records, shell aliases, and the ACO
-   network, runtime and temporal shaders), `dlssnr-amd/int4/`, RenoDX shaders and the INT4 model tools. The runtime and those assets must match the host in that package.
-   ACO is on by default (`MochizukiAcoMode=true`); a change applies on the next game start.
-   A missing or rejected bundle, or a device/driver without ACO, keeps the driver's compiler.
-3. Supply your own `nvngx_dlssnr.dll` **310.9.16** (SHA-256
-   `2bc19bc09a7b89dd44f73e2ac0108fcc586e2154bdd0830f242f4f040e28789f`)
-   to extract both models. **310.8.0** (SHA-256
-   `e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`)
-   provides only the original model.
-   The DLL and extracted weights are **not included** in our package.
-4. With Python 3.10 or newer installed, put that DLL beside `Setup.bat` and run
-   `Setup.bat` to select Mochizuki and extract the detected model.
-   `Mochizuki-Model.bat` remains available separately; you can drag a DLL/ZIP onto it.
-   Extraction only reads data and validates every model entry; it does not load the DLL.
-   The results are `dlssnr-amd/dlssnr.bin` (original) and, with 310.9.16,
-   `dlssnr-amd/dlssnr-small.bin` (new). Models extracted with the official tools
-   are also usable at these paths. Setup and the standalone model tool derive
-   `dlssnr-int4.bin` from it, verify the upstream SHA-256, and only then replace
-   an outdated INT4 model. Updates reuse a matching installed INT4 hash without
-   converting again when `dlssnr.bin` also matches the canonical Original SHA-256.
-   Other source packs still undergo conversion and output-pin validation. All three
-   model packs persist in the game directory independently of the extracted package;
-   uninstall preserves them. Launcher status and model hints appear only for checked backends.
-   If no working Python 3.10+ is found, Setup and the standalone model tool explain
-   how to open Microsoft Store (Windows Store), search for **Python**, and install
-   version 3.10 or newer. Close and reopen the installer afterward. They also try
-   `python3` and `py` when `python` is unavailable; a Windows execution alias alone
-   is not accepted as a working interpreter. Existing extracted models need no Python.
-5. Run `Setup.bat`, select mochizuki alone or install all available backends. Choose
-   the active backend. Ins exposes the same selection; with `NrConvenience=0`, save
-   and restart after changing it. Unselected backends are not initialized.
+1. Install a current AMD display driver with Vulkan support. HIP is not used.
+2. Extract the complete OptScaler(NR) package. It carries the official
+   `OptiScaler/plugins/dlssnr-amd.asi`, the matching `dlssnr-amd/` resource tree
+   (shaders, ACO records and shaders, INT4 data, language files) and the official
+   `model-tools/dlssnr_extract_model.exe` and `dlssnr-int4-weights.exe`.
+   The plugin and resources are versioned together; do not mix them with the
+   retired built-in runtime's `dlssnr-amd` files.
+3. Supply your own `nvngx_dlssnr.dll`: **310.9.16** provides both networks,
+   **310.8.0** provides the original (`CC_SILVER_AARDWOLD`) only. The DLL and the
+   extracted weights are not included. No hash or version whitelist is applied:
+   a newer official DLL/model is accepted when extraction succeeds.
+4. Put the DLL beside `Setup.bat` and select the Mochizuki ASI backend. Setup runs
+   the official extractor and installs the requested models to
+   `dlssnr-amd/dlssnr.bin` (original) and `dlssnr-amd/dlssnr-small.bin` (small).
+   `Mochizuki-Model.bat` does the same outside Setup. INT4 mixed weights are
+   generated with the official tool when the original model is present; failure
+   only disables that network. Models and your `dlssnr-amd.ini` are preserved by
+   upgrade and uninstall.
+5. Setup enables `[Plugins] LoadAsiPlugins=true` and keeps your `OptiScaler.ini`
+   and host `dxgi.dll`. It changes `[Menu] FGShortcutKey` only when it is still the
+   default End binding, because NR Control opens with End. A custom FG key is kept.
+   The plugin owns NR at runtime; its own settings are in `dlssnr-amd.ini` and its
+   NR Control window. Startup logs report the loaded module path and version.
+
+Upgrade replaces the ASI and its resource tree from the installed file inventory;
+uninstall removes exactly those files. A standalone official ASI installation is
+detected by its loaded module, not by files on disk.
 
 The first network build can take minutes. Ins displays **building the network**.
 while building, a noninteractive panel also appears at the bottom right, even with

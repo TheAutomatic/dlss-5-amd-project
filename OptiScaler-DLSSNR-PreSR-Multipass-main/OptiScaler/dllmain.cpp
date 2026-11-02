@@ -3,6 +3,7 @@
 
 #include "Util.h"
 #include "PluginPath.h"
+#include <dlssnr/AsiTakeover.h>
 #include "Config.h"
 #include "Logger.h"
 #include "resource.h"
@@ -231,6 +232,9 @@ static void RunAgilityUpgrade(HMODULE dx12Module)
 
 static void RegisterLoadedAsi(const std::filesystem::path& path, bool hasPatchResult)
 {
+    // Re-read ownership immediately: an ASI loaded here (or late-loaded) may be
+    // the vendor NR plugin, and NR evaluation must stop before its first frame.
+    DlssNr::AsiTakeover::Refresh();
     std::string name = wstring_to_string(path.filename().wstring());
     std::string lowerName(name);
     std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),

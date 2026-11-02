@@ -1,0 +1,3163 @@
+# DLSSNR-AMD: the menus' texts in English (NR Control and the ReShade Add-ons page).
+# This file is made from the program at every build and replaced by every install: do not translate it
+# here. Copy it to a file of your own in this folder (README.txt says how) and translate that one.
+
+msgid "@language"
+msgstr "English"
+
+# A font file for the letters of your language (in this folder, or a full path); empty: NR Control's own,
+# which has Latin, Greek and Cyrillic letters only.
+msgid "@font"
+msgstr ""
+
+# ---- nr_pe_menu.cpp
+
+msgid "Each layer is an NR pass of its own: its processing (RenoDX or wilsjo2), its network ([Network] Model, or one of its own), where it runs, and its own settings (click its name: its page). Layers at one place run in layer order; before the upscaler, then after it, then at Present. Each layer costs a network run, and a layer with another network or size its own memory."
+msgstr "Each layer is an NR pass of its own: its processing (RenoDX or wilsjo2), its network ([Network] Model, or one of its own), where it runs, and its own settings (click its name: its page). Layers at one place run in layer order; before the upscaler, then after it, then at Present. Each layer costs a network run, and a layer with another network or size its own memory."
+
+msgid "The OptiScaler-NR fork's processing around the network, ported."
+msgstr "The OptiScaler-NR fork's processing around the network, ported."
+
+msgid "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run. Only the last pass's answer is composed onto the frame."
+msgstr "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run. Only the last pass's answer is composed onto the frame."
+
+msgid "On: pass 1's settings, with the local tone at 0 (the fork's rule for later passes). Off: this pass's own settings below."
+msgstr "On: pass 1's settings, with the local tone at 0 (the fork's rule for later passes). Off: this pass's own settings below."
+
+msgid "Blue"
+msgstr "Blue"
+
+msgid "Teal"
+msgstr "Teal"
+
+msgid "Violet"
+msgstr "Violet"
+
+msgid "Amber"
+msgstr "Amber"
+
+msgid "Crimson"
+msgstr "Crimson"
+
+msgid "Graphite"
+msgstr "Graphite"
+
+msgid "OptiScaler's menu"
+msgstr "OptiScaler's menu"
+
+msgid "Diagnostics"
+msgstr "Diagnostics"
+
+msgid "Copy a report"
+msgstr "Copy a report"
+
+msgid "For a bug report: the layers as they run, their engine data, the video memory and its residency, the events above, dlssnr-amd.ini and the last lines of dlssnr-amd.log, as text. Copied to the clipboard and saved as dlssnr-amd\\nr-report.txt next to the game. Nothing is sent anywhere."
+msgstr "For a bug report: the layers as they run, their engine data, the video memory and its residency, the events above, dlssnr-amd.ini and the last lines of dlssnr-amd.log, as text. Copied to the clipboard and saved as dlssnr-amd\\nr-report.txt next to the game. Nothing is sent anywhere."
+
+msgid "NR Control"
+msgstr "NR Control"
+
+msgid "Menu size"
+msgstr "Menu size"
+
+msgid "[NRControl] MenuScale. The whole menu: its window, controls and text, on top of the size the screen gives them (17 px text at 1080 lines). Taken when the slider is let go."
+msgstr "[NRControl] MenuScale. The whole menu: its window, controls and text, on top of the size the screen gives them (17 px text at 1080 lines). Taken when the slider is let go."
+
+msgid "Colours"
+msgstr "Colours"
+
+msgid "Waiting for the game's upscaler: DLSS, FSR or XeSS in the game's settings (OptiScaler's own menu, for the upscaler and frame generation: Insert)."
+msgstr "Waiting for the game's upscaler: DLSS, FSR or XeSS in the game's settings (OptiScaler's own menu, for the upscaler and frame generation: Insert)."
+
+msgid " (after the upscaler)"
+msgstr " (after the upscaler)"
+
+msgid " (before the upscaler)"
+msgstr " (before the upscaler)"
+
+msgid "NR on %ux%u%s, network %ux%u, %u pass%s"
+msgstr "NR on %ux%u%s, network %ux%u, %u pass%s"
+
+msgid "No layer is on (the NR chain page): NR does not run."
+msgstr "No layer is on (the NR chain page): NR does not run."
+
+msgid "NR is off (Enabled on the NR settings page): NR does not run."
+msgstr "NR is off (Enabled on the NR settings page): NR does not run."
+
+msgid "Network: %s"
+msgstr "Network: %s"
+
+msgid "Building %s"
+msgstr "Building %s"
+
+msgid "the network"
+msgstr "the network"
+
+msgid "Neural Rendering"
+msgstr "Neural Rendering"
+
+msgid "on / off for this run%s%s%s"
+msgstr "on / off for this run%s%s%s"
+
+msgid "Every layer off or on again, for this run only (never written to the file). Its key is on the Hotkeys page; whether NR is on when the game starts: the Screenshot page's \"Neural Rendering\" ([RenoDX] NeuralUplift)."
+msgstr "Every layer off or on again, for this run only (never written to the file). Its key is on the Hotkeys page; whether NR is on when the game starts: the Screenshot page's \"Neural Rendering\" ([RenoDX] NeuralUplift)."
+
+msgid "NR chain"
+msgstr "NR chain"
+
+msgid "Layer settings"
+msgstr "Layer settings"
+
+msgid "Network"
+msgstr "Network"
+
+msgid "Preprocess"
+msgstr "Preprocess"
+
+msgid "HUD FIX"
+msgstr "HUD FIX"
+
+msgid "Hotkeys"
+msgstr "Hotkeys"
+
+msgid "Screenshot"
+msgstr "Screenshot"
+
+msgid "Compare"
+msgstr "Compare"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Layer %d (%s)"
+msgstr "Layer %d (%s)"
+
+msgid "NR settings"
+msgstr "NR settings"
+
+msgid "none"
+msgstr "none"
+
+msgid "SR"
+msgstr "SR"
+
+msgid "FG"
+msgstr "FG"
+
+msgid "Off"
+msgstr "Off"
+
+msgid "%d layer"
+msgstr "%d layer"
+
+msgid "%d layers"
+msgstr "%d layers"
+
+msgid "NR"
+msgstr "NR"
+
+msgid "Engine data"
+msgstr "Engine data"
+
+msgid "What is compared. The final picture: the layers of the last place that runs (Present, else after the upscaler), all off against all on. A layer: its own input and output, where it runs (before the upscaler: the comparison is upscaled too)."
+msgstr "What is compared. The final picture: the layers of the last place that runs (Present, else after the upscaler), all off against all on. A layer: its own input and output, where it runs (before the upscaler: the comparison is upscaled too)."
+
+msgid "    Upscaling %ux%u -> %ux%u"
+msgstr "    Upscaling %ux%u -> %ux%u"
+
+msgid "    No upscaling: %ux%u"
+msgstr "    No upscaling: %ux%u"
+
+msgid "Close"
+msgstr "Close"
+
+# ---- nr_control_ui.hpp
+
+msgid "Reset"
+msgstr "Reset"
+
+msgid "Below 100 % Model resolution only."
+msgstr "Below 100 % Model resolution only."
+
+msgid "Above 100 % Model resolution only."
+msgstr "Above 100 % Model resolution only."
+
+msgid "Enlargement Classic only."
+msgstr "Enlargement Classic only."
+
+msgid "Passes"
+msgstr "Passes"
+
+msgid "Passes (legacy)"
+msgstr "Passes (legacy)"
+
+msgid "Passes (fast)"
+msgstr "Passes (fast)"
+
+msgid "If the picture flickers with passes, turn on Detail stability (Composition > Detail stability: Auto or Always)."
+msgstr "If the picture flickers with passes, turn on Detail stability (Composition > Detail stability: Auto or Always)."
+
+msgid "Extrapolation"
+msgstr "Extrapolation"
+
+msgid "Feedback"
+msgstr "Feedback"
+
+msgid "Hybrid"
+msgstr "Hybrid"
+
+msgid "Edit strength"
+msgstr "Edit strength"
+
+msgid "Method"
+msgstr "Method"
+
+msgid "No motion vectors: Feedback / Hybrid use Extrapolation."
+msgstr "No motion vectors: Feedback / Hybrid use Extrapolation."
+
+msgid "RenoDX style is off in this run: check it above and restart the game."
+msgstr "RenoDX style is off in this run: check it above and restart the game."
+
+msgid "from the game"
+msgstr "from the game"
+
+msgid "filled in (not from the game)"
+msgstr "filled in (not from the game)"
+
+msgid "missing (nothing fills it in)"
+msgstr "missing (nothing fills it in)"
+
+# ---- nr_control_pages.hpp
+
+msgid "Video memory: NR %s MiB; this process %s MiB of a %s MiB budget"
+msgstr "Video memory: NR %s MiB; this process %s MiB of a %s MiB budget"
+
+msgid "Video memory: NR %s MiB"
+msgstr "Video memory: NR %s MiB"
+
+msgid "Video memory, in detail"
+msgstr "Video memory, in detail"
+
+msgid "Weights"
+msgstr "Weights"
+
+msgid "Activations"
+msgstr "Activations"
+
+msgid "Images, buffers"
+msgstr "Images, buffers"
+
+msgid "Total MiB"
+msgstr "Total MiB"
+
+msgid "The network's weights (one copy for every layer and size that runs it)."
+msgstr "The network's weights (one copy for every layer and size that runs it)."
+
+msgid "The network's working memory for its layers' intermediate results (shared by its sizes). \"shared\": it has none of its own, it runs in another network's that is not running (after a network switch)."
+msgstr "The network's working memory for its layers' intermediate results (shared by its sizes). \"shared\": it has none of its own, it runs in another network's that is not running (after a network switch)."
+
+msgid "The network's images at each size it runs (inputs, history, outputs) and small buffers."
+msgstr "The network's images at each size it runs (inputs, history, outputs) and small buffers."
+
+msgid "All of the row, in MiB."
+msgstr "All of the row, in MiB."
+
+msgid "NR in all"
+msgstr "NR in all"
+
+msgid "RenoDX layers"
+msgstr "RenoDX layers"
+
+msgid "NR route"
+msgstr "NR route"
+
+msgid "Frame copies"
+msgstr "Frame copies"
+
+msgid "wilsjo2 layers"
+msgstr "wilsjo2 layers"
+
+msgid "Other"
+msgstr "Other"
+
+msgid "The game and others"
+msgstr "The game and others"
+
+msgid "MiB"
+msgstr "MiB"
+
+msgid "The RenoDX processing's textures around the network (each layer and place its own): the frame in the network's encoding, the passes' inputs and answers."
+msgstr "The RenoDX processing's textures around the network (each layer and place its own): the frame in the network's encoding, the passes' inputs and answers."
+
+msgid "Shared by every layer: the frame handed to and from the network, screenshots."
+msgstr "Shared by every layer: the frame handed to and from the network, screenshots."
+
+msgid "The .asi's copies: the frame before the upscaler, its guides for Present layers, the Present layers' textures. The ReShade add-on's: HUD FIX's frames, the PQ conversion's, the motion copies, Inspect's."
+msgstr "The .asi's copies: the frame before the upscaler, its guides for Present layers, the Present layers' textures. The ReShade add-on's: HUD FIX's frames, the PQ conversion's, the motion copies, Inspect's."
+
+msgid "The wilsjo2 processing's textures around the network (each layer its own): the network's input, the original, its answer."
+msgstr "The wilsjo2 processing's textures around the network (each layer its own): the network's input, the original, its answer."
+
+msgid "This menu's image."
+msgstr "This menu's image."
+
+msgid "This process's use of the video memory heap (VK_EXT_memory_budget) less NR's: the game, its D3D layer, the upscaler, frame generation, overlays."
+msgstr "This process's use of the video memory heap (VK_EXT_memory_budget) less NR's: the game, its D3D layer, the upscaler, frame generation, overlays."
+
+msgid "Budget %s MiB of %s MiB video memory (the driver's: what this process may use now)."
+msgstr "Budget %s MiB of %s MiB video memory (the driver's: what this process may use now)."
+
+msgid "Residency"
+msgstr "Residency"
+
+msgid "Mode: %s ([Network] Residency)"
+msgstr "Mode: %s ([Network] Residency)"
+
+msgid "Budget %.0f MiB, used %.0f MiB (%.0f %%), remaining %.0f MiB, reserve %.0f MiB"
+msgstr "Budget %.0f MiB, used %.0f MiB (%.0f %%), remaining %.0f MiB, reserve %.0f MiB"
+
+msgid "Used of this process's budget (VK_EXT_memory_budget). The white line: the reserve - when the remaining room falls below it (max(1 GiB, 10 % of the video memory)), auto moves networks that do not run to RAM, the least recently used first."
+msgstr "Used of this process's budget (VK_EXT_memory_budget). The white line: the reserve - when the remaining room falls below it (max(1 GiB, 10 % of the video memory)), auto moves networks that do not run to RAM, the least recently used first."
+
+msgid "not loaded"
+msgstr "not loaded"
+
+msgid "serving"
+msgstr "serving"
+
+msgid "kept in video memory"
+msgstr "kept in video memory"
+
+msgid "moving to RAM"
+msgstr "moving to RAM"
+
+msgid "in RAM"
+msgstr "in RAM"
+
+msgid "%s at %ux%u: %s"
+msgstr "%s at %ux%u: %s"
+
+msgid "Now: %s%s%s"
+msgstr "Now: %s%s%s"
+
+msgid "Now: nothing to do%s%s"
+msgstr "Now: nothing to do%s%s"
+
+msgid "Another network at %ux%u needs about %.0f MiB: %s"
+msgstr "Another network at %ux%u needs about %.0f MiB: %s"
+
+msgid "it fits"
+msgstr "it fits"
+
+msgid "it does not fit now - networks that do not run go to RAM first (auto)"
+msgstr "it does not fit now - networks that do not run go to RAM first (auto)"
+
+msgid "%5.0f s ago  %s%s"
+msgstr "%5.0f s ago  %s%s"
+
+msgid "NR keeps stopping and starting: %s. The Diagnostics page has the events."
+msgstr "NR keeps stopping and starting: %s. The Diagnostics page has the events."
+
+msgid "Last stop: Layer %d, %s (%.0f s ago)"
+msgstr "Last stop: Layer %d, %s (%.0f s ago)"
+
+msgid "Last stop: none this run"
+msgstr "Last stop: none this run"
+
+msgid "Events:"
+msgstr "Events:"
+
+msgid "none yet"
+msgstr "none yet"
+
+msgid "No layer has run yet."
+msgstr "No layer has run yet."
+
+msgid "after upscaler"
+msgstr "after upscaler"
+
+msgid "before upscaler"
+msgstr "before upscaler"
+
+msgid "Present"
+msgstr "Present"
+
+msgid "Layer"
+msgstr "Layer"
+
+msgid "Where"
+msgstr "Where"
+
+msgid "Size"
+msgstr "Size"
+
+msgid "Net ms"
+msgstr "Net ms"
+
+msgid "Proc ms"
+msgstr "Proc ms"
+
+msgid "Total ms"
+msgstr "Total ms"
+
+msgid "State"
+msgstr "State"
+
+msgid "Where the layer ran this frame."
+msgstr "Where the layer ran this frame."
+
+msgid "The network the layer runs."
+msgstr "The network the layer runs."
+
+msgid "The frame the layer works on."
+msgstr "The frame the layer works on."
+
+msgid "Legacy: network passes a run. Fast: strength referred to legacy passes, with one network run."
+msgstr "Legacy: network passes a run. Fast: strength referred to legacy passes, with one network run."
+
+msgid "The network's own kernels (pre / post blocks included), every pass, averaged. Everything else is processing."
+msgstr "The network's own kernels (pre / post blocks included), every pass, averaged. Everything else is processing."
+
+msgid "Everything outside the network's own kernels: the layer's processing, adapters and composition."
+msgstr "Everything outside the network's own kernels: the layer's processing, adapters and composition."
+
+msgid "Net ms + Proc ms: the layer's measured GPU time; includes work from the TOP_OF_PIPE start."
+msgstr "Net ms + Proc ms: the layer's measured GPU time; includes work from the TOP_OF_PIPE start."
+
+msgid "network %ux%u"
+msgstr "network %ux%u"
+
+msgid "%u (legacy)"
+msgstr "%u (legacy)"
+
+msgid "building its network"
+msgstr "building its network"
+
+msgid "%.2f (fast)"
+msgstr "%.2f (fast)"
+
+msgid "not running"
+msgstr "not running"
+
+msgid "waiting"
+msgstr "waiting"
+
+msgid "running"
+msgstr "running"
+
+msgid "All layers"
+msgstr "All layers"
+
+msgid "  %.2f ms (network %.2f, processing %.2f)"
+msgstr "  %.2f ms (network %.2f, processing %.2f)"
+
+msgid "NR: switching to %s ... %.0f%%"
+msgstr "NR: switching to %s ... %.0f%%"
+
+msgid "NR: building %s ... %.0f%%"
+msgstr "NR: building %s ... %.0f%%"
+
+msgid "NR: off"
+msgstr "NR: off"
+
+msgid "NR layer %u: %s%s"
+msgstr "NR layer %u: %s%s"
+
+msgid "NR layer %u: %s"
+msgstr "NR layer %u: %s"
+
+msgid "NR in all: %s"
+msgstr "NR in all: %s"
+
+msgid "NR: not running"
+msgstr "NR: not running"
+
+msgid "NR: %s%s"
+msgstr "NR: %s%s"
+
+msgid "NR: %s"
+msgstr "NR: %s"
+
+msgid "GPU: known once NR runs"
+msgstr "GPU: known once NR runs"
+
+msgid "ACO"
+msgstr "ACO"
+
+msgid "On"
+msgstr "On"
+
+msgid "Bridge"
+msgstr "Bridge"
+
+msgid "Vulkan"
+msgstr "Vulkan"
+
+msgid "Path"
+msgstr "Path"
+
+msgid "Path: the bridge - the network runs on a Vulkan device of NR's own beside the game's D3D, the frame crosses over through shared textures and fences"
+msgstr "Path: the bridge - the network runs on a Vulkan device of NR's own beside the game's D3D, the frame crosses over through shared textures and fences"
+
+msgid "Path: the game's own Vulkan device (a Vulkan game, or D3D9 through DXVK)"
+msgstr "Path: the game's own Vulkan device (a Vulkan game, or D3D9 through DXVK)"
+
+msgid "Path: the game's own D3D12 device"
+msgstr "Path: the game's own D3D12 device"
+
+msgid "Path: not known until NR first runs"
+msgstr "Path: not known until NR first runs"
+
+msgid "Net"
+msgstr "Net"
+
+msgid "NR: -"
+msgstr "NR: -"
+
+msgid "NR: net %.2fms / proc %.2fms"
+msgstr "NR: net %.2fms / proc %.2fms"
+
+msgid "Language"
+msgstr "Language"
+
+msgid "[NRControl] Language. The menus' texts from a file in dlssnr-amd\\lang; README.txt there says how to make one from English.txt. A text the file does not translate stays English."
+msgstr "[NRControl] Language. The menus' texts from a file in dlssnr-amd\\lang; README.txt there says how to make one from English.txt. A text the file does not translate stays English."
+
+msgid "dlssnr-amd\\lang\\%s.txt was not found or is empty: English."
+msgstr "dlssnr-amd\\lang\\%s.txt was not found or is empty: English."
+
+msgid "ReShade's font does not have this language's letters: English is shown."
+msgstr "ReShade's font does not have this language's letters: English is shown."
+
+msgid "The menu's font does not have this language's letters: English is shown (@font in the language file)."
+msgstr "The menu's font does not have this language's letters: English is shown (@font in the language file)."
+
+msgid "%d translations of this file are not used: their %%-values (%%d, %%s, ...) are not the English text's."
+msgstr "%d translations of this file are not used: their %%-values (%%d, %%s, ...) are not the English text's."
+
+msgid "Text size"
+msgstr "Text size"
+
+msgid "[NRControl] TextScale. The text alone, in a window of the same size: longer lines wrap, a table that no longer fits scrolls sideways (in NR Control on top of Menu size; on the ReShade page this page only, ReShade's own menu keeps its size). Taken when the slider is let go."
+msgstr "[NRControl] TextScale. The text alone, in a window of the same size: longer lines wrap, a table that no longer fits scrolls sideways (in NR Control on top of Menu size; on the ReShade page this page only, ReShade's own menu keeps its size). Taken when the slider is let go."
+
+msgid "Copied to the clipboard, and saved as dlssnr-amd\\nr-report.txt."
+msgstr "Copied to the clipboard, and saved as dlssnr-amd\\nr-report.txt."
+
+msgid "Copied to the clipboard."
+msgstr "Copied to the clipboard."
+
+msgid "Saved as dlssnr-amd\\nr-report.txt (the clipboard could not be used)."
+msgstr "Saved as dlssnr-amd\\nr-report.txt (the clipboard could not be used)."
+
+msgid "The report could not be copied or saved."
+msgstr "The report could not be copied or saved."
+
+msgid "Open / close NR Control"
+msgstr "Open / close NR Control"
+
+msgid "[NRControl] MenuKey. Esc closes the menu too. With no key NR Control cannot be opened until one is set again in dlssnr-amd.ini."
+msgstr "[NRControl] MenuKey. Esc closes the menu too. With no key NR Control cannot be opened until one is set again in dlssnr-amd.ini."
+
+msgid "NR on / off (this run)"
+msgstr "NR on / off (this run)"
+
+msgid "[RenoDX] NRToggleKey. Every layer off or on again, as the switch at the top of this menu; for this run only, never written to the file."
+msgstr "[RenoDX] NRToggleKey. Every layer off or on again, as the switch at the top of this menu; for this run only, never written to the file."
+
+msgid "[RenoDX] NRScreenshotKey. The same frame without and with NR, into NR Screenshots in the game's folder."
+msgstr "[RenoDX] NRScreenshotKey. The same frame without and with NR, into NR Screenshots in the game's folder."
+
+msgid "Preprocess on / off (this run)"
+msgstr "Preprocess on / off (this run)"
+
+msgid "[Preprocess] Hotkey. The whole preprocess off or on for this run, never written to the file."
+msgstr "[Preprocess] Hotkey. The whole preprocess off or on for this run, never written to the file."
+
+msgid "Next network"
+msgstr "Next network"
+
+msgid "[Network] Hotkey. Cycles through the networks that can run (written to [Network] Model)."
+msgstr "[Network] Hotkey. Cycles through the networks that can run (written to [Network] Model)."
+
+msgid "Layer %s on / off (this run)"
+msgstr "Layer %s on / off (this run)"
+
+msgid "[%s] ToggleKey. This layer off or on again for this run only (its Enabled box stays as the file has it). None by default."
+msgstr "[%s] ToggleKey. This layer off or on again for this run only (its Enabled box stays as the file has it). None by default."
+
+msgid "Click a key, then press the new one (with Ctrl, Shift or Alt if wanted); Esc cancels. Applied at once."
+msgstr "Click a key, then press the new one (with Ctrl, Shift or Alt if wanted); Esc cancels. Applied at once."
+
+msgid "Press a key... (Esc: cancel)"
+msgstr "Press a key... (Esc: cancel)"
+
+msgid "(none)"
+msgstr "(none)"
+
+msgid "Clear"
+msgstr "Clear"
+
+msgid "Default"
+msgstr "Default"
+
+msgid "also: %s"
+msgstr "also: %s"
+
+msgid "Screenshot and NR at start"
+msgstr "Screenshot and NR at start"
+
+msgid "Neural Rendering above: whether NR is on when the game starts. Keys: see Hotkeys."
+msgstr "Neural Rendering above: whether NR is on when the game starts. Keys: see Hotkeys."
+
+msgid "Take a screenshot now"
+msgstr "Take a screenshot now"
+
+msgid "Screenshot: %s"
+msgstr "Screenshot: %s"
+
+msgid "[Network] Resize History. Only when NR runs before the upscaler and the game changes its render size\n(dynamic resolution):\nOff (default): NR's previous result is dropped and NR starts again at the new size, as NVIDIA's DLL does.\nOn: the previous result is scaled to the new size and kept. Steadier on our tests when the size changes\noften, but not what NVIDIA's DLL does. Games with jittered input (most DLSS games) hide most of the\nrestart, so the default is off."
+msgstr "[Network] Resize History. Only when NR runs before the upscaler and the game changes its render size\n(dynamic resolution):\nOff (default): NR's previous result is dropped and NR starts again at the new size, as NVIDIA's DLL does.\nOn: the previous result is scaled to the new size and kept. Steadier on our tests when the size changes\noften, but not what NVIDIA's DLL does. Games with jittered input (most DLSS games) hide most of the\nrestart, so the default is off."
+
+msgid "Layers"
+msgstr "Layers"
+
+msgid "[NRControl] Layers. On: several NR layers (the NR chain page), each a whole NR run of its own with its own processing, network, place and settings. Off (default): one NR run, its choices and settings on the NR settings page. Layers are not the way to run NR more than once on a frame: that is Passes."
+msgstr "[NRControl] Layers. On: several NR layers (the NR chain page), each a whole NR run of its own with its own processing, network, place and settings. Off (default): one NR run, its choices and settings on the NR settings page. Layers are not the way to run NR more than once on a frame: that is Passes."
+
+msgid "For ordinary stacking use Passes."
+msgstr "For ordinary stacking use Passes."
+
+msgid "Network model and options"
+msgstr "Network model and options"
+
+msgid "[Network] Model. CC_SMALL_FP8: 310.9.16's default network. CC_SMALL_FP8_EXPERIMENTAL: ours, CC_SMALL_FP8 made faster. CC_SILVER_AARDWOLD: 310.8.0's network (310.9.16's preset 1). CC_SILVER_AARDWOLD_INT4_MIXED: that network with part of its arithmetic in int4, faster, a slightly different picture. Switching builds the new network in the background; the running one serves until it is ready."
+msgstr "[Network] Model. CC_SMALL_FP8: 310.9.16's default network. CC_SMALL_FP8_EXPERIMENTAL: ours, CC_SMALL_FP8 made faster. CC_SILVER_AARDWOLD: 310.8.0's network (310.9.16's preset 1). CC_SILVER_AARDWOLD_INT4_MIXED: that network with part of its arithmetic in int4, faster, a slightly different picture. Switching builds the new network in the background; the running one serves until it is ready."
+
+msgid "ACO Mode: on in this run (machine code for %s)"
+msgstr "ACO Mode: on in this run (machine code for %s)"
+
+msgid "RDNA3: RX 7000, Radeon 700M / 800M / 8000S"
+msgstr "RDNA3: RX 7000, Radeon 700M / 800M / 8000S"
+
+msgid "RDNA4: RX 9000"
+msgstr "RDNA4: RX 9000"
+
+msgid "ACO Mode: off in this run%s%s - an RX 9000 runs the network compiled by the AMD driver; RX 7000 and Radeon 700M / 800M / 8000S graphics have no NR"
+msgstr "ACO Mode: off in this run%s%s - an RX 9000 runs the network compiled by the AMD driver; RX 7000 and Radeon 700M / 800M / 8000S graphics have no NR"
+
+msgid "ACO Mode: not known until NR first runs"
+msgstr "ACO Mode: not known until NR first runs"
+
+msgid "ACO Mode: the network runs as machine code made in advance by the ACO compiler (the one the Linux version uses), loaded by the AMD driver. It is not a setting; when the driver cannot take it, the line above and dlssnr-amd.log say why."
+msgstr "ACO Mode: the network runs as machine code made in advance by the ACO compiler (the one the Linux version uses), loaded by the AMD driver. It is not a setting; when the driver cannot take it, the line above and dlssnr-amd.log say why."
+
+msgid "Next network: %s (see Hotkeys)"
+msgstr "Next network: %s (see Hotkeys)"
+
+msgid "no key"
+msgstr "no key"
+
+msgid "Sound"
+msgstr "Sound"
+
+msgid "[Network] Sound. A cue on every switch: one note CC_SMALL_FP8, a higher one CC_SMALL_FP8_EXPERIMENTAL, two going down CC_SILVER_AARDWOLD, two going up CC_SILVER_AARDWOLD_INT4_MIXED."
+msgstr "[Network] Sound. A cue on every switch: one note CC_SMALL_FP8, a higher one CC_SMALL_FP8_EXPERIMENTAL, two going down CC_SILVER_AARDWOLD, two going up CC_SILVER_AARDWOLD_INT4_MIXED."
+
+msgid "auto"
+msgstr "auto"
+
+msgid "resident"
+msgstr "resident"
+
+msgid "offload"
+msgstr "offload"
+
+msgid "minimal"
+msgstr "minimal"
+
+msgid "[Network] Residency: what is kept of a network not in use. The networks share one activation memory, so mostly their weights. auto (default): the weights stay in video memory, switching back is quick; moved to RAM when video memory runs short, freed when RAM does too. resident: kept whole, switching back is instant, the most video memory. offload: the weights in RAM, all video memory freed. minimal: everything freed, switching back builds anew. While the other network gets ready, the running one keeps serving. NR off for 10 s: offload and minimal do the same to the running network, auto only when video memory is short."
+msgstr "[Network] Residency: what is kept of a network not in use. The networks share one activation memory, so mostly their weights. auto (default): the weights stay in video memory, switching back is quick; moved to RAM when video memory runs short, freed when RAM does too. resident: kept whole, switching back is instant, the most video memory. offload: the weights in RAM, all video memory freed. minimal: everything freed, switching back builds anew. While the other network gets ready, the running one keeps serving. NR off for 10 s: offload and minimal do the same to the running network, auto only when video memory is short."
+
+msgid "off"
+msgstr "off"
+
+msgid "switch"
+msgstr "switch"
+
+msgid "always"
+msgstr "always"
+
+msgid "cost"
+msgstr "cost"
+
+msgid "OSD"
+msgstr "OSD"
+
+msgid "[Network] OSD: the running network in the corner of the picture. switch (default): while a switch builds, its progress; then the new network for 3 s. always: all the time. cost: all the time, with each layer's GPU time split into the network and its processing (a run, as the layer table splits it), and their sums. off: never."
+msgstr "[Network] OSD: the running network in the corner of the picture. switch (default): while a switch builds, its progress; then the new network for 3 s. always: all the time. cost: all the time, with each layer's GPU time split into the network and its processing (a run, as the layer table splits it), and their sums. off: never."
+
+msgid "16-bit"
+msgstr "16-bit"
+
+msgid "32-bit"
+msgstr "32-bit"
+
+msgid "History precision"
+msgstr "History precision"
+
+msgid "[Network] History Precision: the precision of the images NR keeps its previous result in. 16-bit (default): as NVIDIA's DLL keeps it, half the video memory. 32-bit: as up to 0.0.8.1; at 4K 133 MB more a network and 66 MB more each further pass. With several passes the two can differ in fine detail. Takes effect at once; the previous result starts afresh."
+msgstr "[Network] History Precision: the precision of the images NR keeps its previous result in. 16-bit (default): as NVIDIA's DLL keeps it, half the video memory. 32-bit: as up to 0.0.8.1; at 4K 133 MB more a network and 66 MB more each further pass. With several passes the two can differ in fine detail. Takes effect at once; the previous result starts afresh."
+
+msgid "Style grade (Natural / Cinematic)"
+msgstr "Style grade (Natural / Cinematic)"
+
+msgid "[Network] Style Grade. On (default): Natural and Cinematic are graded after the network as NVIDIA's DLL does. Off: the picture these styles had up to 0.0.6, without that grade. Standard is not affected. Takes effect at once."
+msgstr "[Network] Style Grade. On (default): Natural and Cinematic are graded after the network as NVIDIA's DLL does. Off: the picture these styles had up to 0.0.6, without that grade. Standard is not affected. Takes effect at once."
+
+msgid "Motion without depth"
+msgstr "Motion without depth"
+
+msgid "[Network] Motion Without Depth. Where the network's previous-frame lookup reads its motion vector.\nOn (default): the pixel's own vector, depth not used, as NVIDIA's DLL does.\nOff: with depth, the vector of the nearest of the pixel and its four diagonal neighbours.\nOnly moving edges between frames with motion vectors and depth differ. Takes effect after a restart."
+msgstr "[Network] Motion Without Depth. Where the network's previous-frame lookup reads its motion vector.\nOn (default): the pixel's own vector, depth not used, as NVIDIA's DLL does.\nOff: with depth, the vector of the nearest of the pixel and its four diagonal neighbours.\nOnly moving edges between frames with motion vectors and depth differ. Takes effect after a restart."
+
+msgid "Resize history"
+msgstr "Resize history"
+
+msgid "Memory guard"
+msgstr "Memory guard"
+
+msgid "[Network] Memory Guard. On (default): a network is built only while 1 GB of video memory stays free for the game, and the running one steps aside while video memory runs out. Off: no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
+msgstr "[Network] Memory Guard. On (default): a network is built only while 1 GB of video memory stays free for the game, and the running one steps aside while video memory runs out. Off: no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
+
+msgid "Side by side"
+msgstr "Side by side"
+
+msgid "Wipe"
+msgstr "Wipe"
+
+msgid "[Inspect] Compare. The picture without NR against the picture with it, on the screen. Side by side: each half the whole picture; Wipe: one picture cut at Split."
+msgstr "[Inspect] Compare. The picture without NR against the picture with it, on the screen. Side by side: each half the whole picture; Wipe: one picture cut at Split."
+
+msgid "Layer %d"
+msgstr "Layer %d"
+
+msgid "The final picture"
+msgstr "The final picture"
+
+msgid "What"
+msgstr "What"
+
+msgid "Layer %d (the one layer)"
+msgstr "Layer %d (the one layer)"
+
+msgid "Split"
+msgstr "Split"
+
+msgid "[Inspect] Split. Where the wipe cuts, 0 .. 1 of the width."
+msgstr "[Inspect] Split. Where the wipe cuts, 0 .. 1 of the width."
+
+msgid "Zoom"
+msgstr "Zoom"
+
+msgid "[Inspect] Zoom. 1: each half the whole picture (bars above and below); 2: the half filled (its sides cropped)."
+msgstr "[Inspect] Zoom. 1: each half the whole picture (bars above and below); 2: the half filled (its sides cropped)."
+
+msgid "Swap sides"
+msgstr "Swap sides"
+
+msgid "[Inspect] Swap. NR on the left."
+msgstr "[Inspect] Swap. NR on the left."
+
+msgid "Tags"
+msgstr "Tags"
+
+msgid "[Inspect] Tags. \"NR off\" / \"NR on\" along the top of the two sides, with the menu open or closed."
+msgstr "[Inspect] Tags. \"NR off\" / \"NR on\" along the top of the two sides, with the menu open or closed."
+
+msgid "Tag size"
+msgstr "Tag size"
+
+msgid "[Inspect] TagScale. The tags' size."
+msgstr "[Inspect] TagScale. The tags' size."
+
+msgid "Apply NR"
+msgstr "Apply NR"
+
+msgid "[Inspect] ApplyModel. Off: the compared layers still run (the same cost), their answer is not put on the picture - the picture without NR, to switch back and forth with."
+msgstr "[Inspect] ApplyModel. Off: the compared layers still run (the same cost), their answer is not put on the picture - the picture without NR, to switch back and forth with."
+
+msgid "Debug views (one layer)"
+msgstr "Debug views (one layer)"
+
+msgid "Choose a layer in What for its debug views."
+msgstr "Choose a layer in What for its debug views."
+
+msgid "Network input"
+msgstr "Network input"
+
+msgid "Network answer"
+msgstr "Network answer"
+
+msgid "Change x20"
+msgstr "Change x20"
+
+msgid "Debug view"
+msgstr "Debug view"
+
+msgid "[Inspect] DebugView (the chosen layer). Network input / answer: what the network was shown and what it gave back; Change x20: its change around grey (flat grey: no change). wilsjo2 layers as the fork shows them; RenoDX layers in the network's own encoding (on an SDR picture the picture's own values)."
+msgstr "[Inspect] DebugView (the chosen layer). Network input / answer: what the network was shown and what it gave back; Change x20: its change around grey (flat grey: no change). wilsjo2 layers as the fork shows them; RenoDX layers in the network's own encoding (on an SDR picture the picture's own values)."
+
+msgid "Skin mask"
+msgstr "Skin mask"
+
+msgid "[Inspect] SkinMask (the chosen layer, wilsjo2): the skin weight instead of the picture, white = skin."
+msgstr "[Inspect] SkinMask (the chosen layer, wilsjo2): the skin weight instead of the picture, white = skin."
+
+msgid "Hold frame"
+msgstr "Hold frame"
+
+msgid "[Inspect] HoldFrame (the chosen layer). Its input is kept once and given to it every frame: the same frame for tuning its settings (its history settles on it; motion and the frames around it are not representative). Off: back to the live frame."
+msgstr "[Inspect] HoldFrame (the chosen layer). Its input is kept once and given to it every frame: the same frame for tuning its settings (its history settles on it; motion and the frames around it are not representative). Off: back to the live frame."
+
+msgid "Spatial outlines"
+msgstr "Spatial outlines"
+
+msgid "[Inspect] SpatialOutlines (the chosen layer, wilsjo2 with SpatialCompression): its working region (orange) and centre band (cyan) over the picture, with the menu open or closed."
+msgstr "[Inspect] SpatialOutlines (the chosen layer, wilsjo2 with SpatialCompression): its working region (orange) and centre band (cyan) over the picture, with the menu open or closed."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "Frame generation's HUD-less frame"
+msgstr "Frame generation's HUD-less frame"
+
+msgid "Captured before the HUD"
+msgstr "Captured before the HUD"
+
+msgid "Estimated"
+msgstr "Estimated"
+
+msgid " (cannot run here)"
+msgstr " (cannot run here)"
+
+msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
+msgstr "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
+
+msgid "%s cannot run here: %s"
+msgstr "%s cannot run here: %s"
+
+msgid "Now: %s"
+msgstr "Now: %s"
+
+msgid "Show mask"
+msgstr "Show mask"
+
+msgid "[HudFix] ShowMask. The HUD as HUD FIX sees it instead of the picture: white = kept as the game drew it."
+msgstr "[HudFix] ShowMask. The HUD as HUD FIX sees it instead of the picture: white = kept as the game drew it."
+
+msgid "NR on"
+msgstr "NR on"
+
+msgid "NR off"
+msgstr "NR off"
+
+msgid "Layer %u: the game gives no exposure -> a fixed white point is used: the picture NR works on can be too dark or too bright when the game's exposure changes"
+msgstr "Layer %u: the game gives no exposure -> a fixed white point is used: the picture NR works on can be too dark or too bright when the game's exposure changes"
+
+msgid "Layer %u: no motion vectors -> NR runs without its frame history (less stable over time)%s"
+msgstr "Layer %u: no motion vectors -> NR runs without its frame history (less stable over time)%s"
+
+msgid "Layer %u: no depth from the game -> the motion lookup runs without depth"
+msgstr "Layer %u: no depth from the game -> the motion lookup runs without depth"
+
+msgid "[Preprocess] Enabled. Changes the picture the network is shown."
+msgstr "[Preprocess] Enabled. Changes the picture the network is shown."
+
+msgid "fixed"
+msgstr "fixed"
+
+msgid "neutral"
+msgstr "neutral"
+
+msgid "reinhard"
+msgstr "reinhard"
+
+msgid "filmic"
+msgstr "filmic"
+
+msgid "gt"
+msgstr "gt"
+
+msgid "aces"
+msgstr "aces"
+
+msgid "agx"
+msgstr "agx"
+
+msgid "Exposure"
+msgstr "Exposure"
+
+msgid "[Preprocess] Exposure. auto: Unreal-style auto exposure; fixed: Exposure bias only."
+msgstr "[Preprocess] Exposure. auto: Unreal-style auto exposure; fixed: Exposure bias only."
+
+msgid "Exposure bias (EV)"
+msgstr "Exposure bias (EV)"
+
+msgid "[Preprocess] ExposureBias."
+msgstr "[Preprocess] ExposureBias."
+
+msgid "Curve"
+msgstr "Curve"
+
+msgid "[Preprocess] Curve. The display curve of the picture NR is shown."
+msgstr "[Preprocess] Curve. The display curve of the picture NR is shown."
+
+msgid "Contrast"
+msgstr "Contrast"
+
+msgid "[Preprocess] Contrast."
+msgstr "[Preprocess] Contrast."
+
+msgid "Saturation"
+msgstr "Saturation"
+
+msgid "[Preprocess] Saturation."
+msgstr "[Preprocess] Saturation."
+
+msgid "Inverse"
+msgstr "Inverse"
+
+msgid "[Preprocess] Inverse. On: NR's change comes back through the inverse of the curve, contrast and saturation (full strength in the highlights). Off: as its ratio in the picture NR was shown (gentler highlights)."
+msgstr "[Preprocess] Inverse. On: NR's change comes back through the inverse of the curve, contrast and saturation (full strength in the highlights). Off: as its ratio in the picture NR was shown (gentler highlights)."
+
+msgid "On / off for this run: %s (see Hotkeys)"
+msgstr "On / off for this run: %s (see Hotkeys)"
+
+msgid "[Preprocess] Sound. A cue when it switches: two notes going up = on, going down = off."
+msgstr "[Preprocess] Sound. A cue when it switches: two notes going up = on, going down = off."
+
+msgid "Log"
+msgstr "Log"
+
+msgid "Write the log"
+msgstr "Write the log"
+
+msgid "[Log] Enabled. dlssnr-amd.log in the game's folder. Takes effect after a restart."
+msgstr "[Log] Enabled. dlssnr-amd.log in the game's folder. Takes effect after a restart."
+
+msgid "Clear on start"
+msgstr "Clear on start"
+
+msgid "[Log] ClearOnStart. On: each start of the game begins a new log; off: appends to the last one. Takes effect after a restart."
+msgstr "[Log] ClearOnStart. On: each start of the game begins a new log; off: appends to the last one. Takes effect after a restart."
+
+msgid "Character mask"
+msgstr "Character mask"
+
+msgid "[Global] %s"
+msgstr "[Global] %s"
+
+msgid "After the upscaler"
+msgstr "After the upscaler"
+
+msgid "Before the upscaler"
+msgstr "Before the upscaler"
+
+msgid "Processing"
+msgstr "Processing"
+
+msgid "Processing. How the frame is handed to the network and its answer put back: RenoDX or wilsjo2; each has its own settings below."
+msgstr "Processing. How the frame is handed to the network and its answer put back: RenoDX or wilsjo2; each has its own settings below."
+
+msgid "Network. [Global]: the Network page's model ([Network] Model, also switched by its hotkey); or one network for this NR alone."
+msgstr "Network. [Global]: the Network page's model ([Network] Model, also switched by its hotkey); or one network for this NR alone."
+
+msgid "Place"
+msgstr "Place"
+
+msgid " (for now)"
+msgstr " (for now)"
+
+msgid "Set: %s. Runs %s now%s%s%s"
+msgstr "Set: %s. Runs %s now%s%s%s"
+
+msgid "before the upscaler"
+msgstr "before the upscaler"
+
+msgid "at Present"
+msgstr "at Present"
+
+msgid "after the upscaler"
+msgstr "after the upscaler"
+
+msgid "Runs %s now: %s"
+msgstr "Runs %s now: %s"
+
+msgid "Place. On this route NR runs at Present, on the picture ReShade hands over."
+msgstr "Place. On this route NR runs at Present, on the picture ReShade hands over."
+
+msgid "Place. Before or after the upscaler, or at Present (the finished picture)."
+msgstr "Place. Before or after the upscaler, or at Present (the finished picture)."
+
+msgid "NR is off for this run (the switch at the top, or its key): no layer runs. The boxes below are what the file says."
+msgstr "NR is off for this run (the switch at the top, or its key): no layer runs. The boxes below are what the file says."
+
+msgid "Remove"
+msgstr "Remove"
+
+msgid "Its key (ToggleKey) turned this layer %s for this run; the box is the file's."
+msgstr "Its key (ToggleKey) turned this layer %s for this run; the box is the file's."
+
+msgid "on"
+msgstr "on"
+
+msgid "Layer %d (off now)"
+msgstr "Layer %d (off now)"
+
+msgid "Layer %d (on now)"
+msgstr "Layer %d (on now)"
+
+msgid "Add a layer"
+msgstr "Add a layer"
+
+msgid "Limit colour change (RenoDX's way)"
+msgstr "Limit colour change (RenoDX's way)"
+
+msgid "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
+msgstr "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
+
+msgid "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgstr "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+
+msgid "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
+msgstr "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
+
+msgid "Strength referred to legacy pass counts (this method's own)."
+msgstr "Strength referred to legacy pass counts (this method's own)."
+
+msgid "Limit added halos"
+msgstr "Limit added halos"
+
+msgid "Limits the halos this method adds."
+msgstr "Limits the halos this method adds."
+
+msgid "Fine detail"
+msgstr "Fine detail"
+
+msgid "How much of the network's fine detail change Extrapolation adds: 0 none (default), 1 as made, 2 twice. Raise it for more fine detail; the game's own film grain grows with it."
+msgstr "How much of the network's fine detail change Extrapolation adds: 0 none (default), 1 as made, 2 twice. Raise it for more fine detail; the game's own film grain grows with it."
+
+msgid "How much of the network's fine detail change this method adds: 1 as made (default), 0 none, 2 twice."
+msgstr "How much of the network's fine detail change this method adds: 1 as made (default), 0 none, 2 twice."
+
+msgid "Unlock passes"
+msgstr "Unlock passes"
+
+msgid "UnlockPasses. Passes beyond 3, up to 30."
+msgstr "UnlockPasses. Passes beyond 3, up to 30."
+
+msgid "Pass %d"
+msgstr "Pass %d"
+
+msgid "Same as pass 1"
+msgstr "Same as pass 1"
+
+msgid "Standard"
+msgstr "Standard"
+
+msgid "Natural"
+msgstr "Natural"
+
+msgid "Cinematic"
+msgstr "Cinematic"
+
+msgid "Style"
+msgstr "Style"
+
+msgid "Intensity"
+msgstr "Intensity"
+
+msgid "Local structure"
+msgstr "Local structure"
+
+msgid "Local tone"
+msgstr "Local tone"
+
+msgid "Skin structure"
+msgstr "Skin structure"
+
+msgid "(old file)"
+msgstr "(old file)"
+
+msgid "Enabled"
+msgstr "Enabled"
+
+msgid "Its key (ToggleKey) turned NR %s for this run; the box is the file's."
+msgstr "Its key (ToggleKey) turned NR %s for this run; the box is the file's."
+
+msgid "Enabled. Off: NR does not run (kept in the file). The switch at the top of the menu turns NR off or on for this run only."
+msgstr "Enabled. Off: NR does not run (kept in the file). The switch at the top of the menu turns NR off or on for this run only."
+
+msgid "Processing settings"
+msgstr "Processing settings"
+
+msgid "(folded)"
+msgstr "(folded)"
+
+msgid "- this layer's own settings"
+msgstr "- this layer's own settings"
+
+msgid "- this layer's own settings (folded)"
+msgstr "- this layer's own settings (folded)"
+
+# ---- nr_renodx_keys.hpp
+
+msgid "RenoDX style (restart)"
+msgstr "RenoDX style (restart)"
+
+msgid "Enabled. Switches RenoDX-style processing; takes effect after a game restart."
+msgstr "Enabled. Switches RenoDX-style processing; takes effect after a game restart."
+
+msgid "NeuralUplift. Off: the frame as it came."
+msgstr "NeuralUplift. Off: the frame as it came."
+
+msgid "Toggle key"
+msgstr "Toggle key"
+
+msgid "NRToggleKey. Switches NR on/off for this run; empty: none."
+msgstr "NRToggleKey. Switches NR on/off for this run; empty: none."
+
+msgid "Hook point"
+msgstr "Hook point"
+
+msgid "NRHookPoint (OptiScaler route). Present (default): the game's finished picture. Before the upscaler: not with Ray Reconstruction."
+msgstr "NRHookPoint (OptiScaler route). Present (default): the game's finished picture. Before the upscaler: not with Ray Reconstruction."
+
+msgid "NRIntensity. Enhancement strength."
+msgstr "NRIntensity. Enhancement strength."
+
+msgid "NRStyle."
+msgstr "NRStyle."
+
+msgid "NRLocalTone. Local brightness changes."
+msgstr "NRLocalTone. Local brightness changes."
+
+msgid "NRLocalStructure. Fine structure and surface detail."
+msgstr "NRLocalStructure. Fine structure and surface detail."
+
+msgid "NRSkinStructure. -1 = stock. With Auto mask only."
+msgstr "NRSkinStructure. -1 = stock. With Auto mask only."
+
+msgid "Auto mask"
+msgstr "Auto mask"
+
+msgid "NRAutoMask. Finds people's skin and treats it on its own."
+msgstr "NRAutoMask. Finds people's skin and treats it on its own."
+
+msgid "Independent skin"
+msgstr "Independent skin"
+
+msgid "NRSkinIndependent. With Auto mask, skin follows Skin structure only."
+msgstr "NRSkinIndependent. With Auto mask, skin follows Skin structure only."
+
+msgid "NRPasses. Model passes a frame, 1-4 (up to 30 with Unlock passes); each costs one more network run."
+msgstr "NRPasses. Model passes a frame, 1-4 (up to 30 with Unlock passes); each costs one more network run."
+
+msgid "NRUnlockPasses. Passes beyond 4, up to 30, as OptiScaler's UnlockPasses; passes 5 and later take pass 4's settings. Each pass is one more network run."
+msgstr "NRUnlockPasses. Passes beyond 4, up to 30, as OptiScaler's UnlockPasses; passes 5 and later take pass 4's settings. Each pass is one more network run."
+
+msgid "Chained history"
+msgstr "Chained history"
+
+msgid "NRChainedHistory. Off: passes 2+ restart every frame (diagnostic)."
+msgstr "NRChainedHistory. Off: passes 2+ restart every frame (diagnostic)."
+
+msgid "Pass 2"
+msgstr "Pass 2"
+
+msgid "Transfer strength"
+msgstr "Transfer strength"
+
+msgid "NRPass2Transfer. As Transfer strength, for this pass."
+msgstr "NRPass2Transfer. As Transfer strength, for this pass."
+
+msgid "Colour strength"
+msgstr "Colour strength"
+
+msgid "NRPass2Color. As Colour strength, for this pass."
+msgstr "NRPass2Color. As Colour strength, for this pass."
+
+msgid "NRPass2Intensity."
+msgstr "NRPass2Intensity."
+
+msgid "NRPass2FollowPass1. Off: the settings below for this pass."
+msgstr "NRPass2FollowPass1. Off: the settings below for this pass."
+
+msgid "NRPass2Style."
+msgstr "NRPass2Style."
+
+msgid "NRPass2LocalTone."
+msgstr "NRPass2LocalTone."
+
+msgid "NRPass2Structure."
+msgstr "NRPass2Structure."
+
+msgid "NRPass2Skin."
+msgstr "NRPass2Skin."
+
+msgid "NRPass2AutoMask."
+msgstr "NRPass2AutoMask."
+
+msgid "Pass 3"
+msgstr "Pass 3"
+
+msgid "NRPass3Transfer. As Transfer strength, for this pass."
+msgstr "NRPass3Transfer. As Transfer strength, for this pass."
+
+msgid "NRPass3Color. As Colour strength, for this pass."
+msgstr "NRPass3Color. As Colour strength, for this pass."
+
+msgid "NRPass3Intensity."
+msgstr "NRPass3Intensity."
+
+msgid "NRPass3FollowPass1. Off: the settings below for this pass."
+msgstr "NRPass3FollowPass1. Off: the settings below for this pass."
+
+msgid "NRPass3Style."
+msgstr "NRPass3Style."
+
+msgid "NRPass3LocalTone."
+msgstr "NRPass3LocalTone."
+
+msgid "NRPass3Structure."
+msgstr "NRPass3Structure."
+
+msgid "NRPass3Skin."
+msgstr "NRPass3Skin."
+
+msgid "NRPass3AutoMask."
+msgstr "NRPass3AutoMask."
+
+msgid "Pass 4 and later"
+msgstr "Pass 4 and later"
+
+msgid "NRPass4Transfer. As Transfer strength, for this pass."
+msgstr "NRPass4Transfer. As Transfer strength, for this pass."
+
+msgid "NRPass4Color. As Colour strength, for this pass."
+msgstr "NRPass4Color. As Colour strength, for this pass."
+
+msgid "NRPass4Intensity."
+msgstr "NRPass4Intensity."
+
+msgid "NRPass4FollowPass1. Off: the settings below for this pass."
+msgstr "NRPass4FollowPass1. Off: the settings below for this pass."
+
+msgid "NRPass4Style."
+msgstr "NRPass4Style."
+
+msgid "NRPass4LocalTone."
+msgstr "NRPass4LocalTone."
+
+msgid "NRPass4Structure."
+msgstr "NRPass4Structure."
+
+msgid "NRPass4Skin."
+msgstr "NRPass4Skin."
+
+msgid "NRPass4AutoMask."
+msgstr "NRPass4AutoMask."
+
+msgid "Composition"
+msgstr "Composition"
+
+msgid "NRColorStrength. HDR: how much of NR's change. SDR: how much of its colour."
+msgstr "NRColorStrength. HDR: how much of NR's change. SDR: how much of its colour."
+
+msgid "NRTransferStrength. HDR10 frames and the HDR dark-level restore."
+msgstr "NRTransferStrength. HDR10 frames and the HDR dark-level restore."
+
+msgid "Chroma clamp (stops)"
+msgstr "Chroma clamp (stops)"
+
+msgid "NRChromaClamp. How far NR may move colour on HDR frames."
+msgstr "NRChromaClamp. How far NR may move colour on HDR frames."
+
+msgid "Transfer mode"
+msgstr "Transfer mode"
+
+msgid "NRTransferMode."
+msgstr "NRTransferMode."
+
+msgid "Bounded ratio"
+msgstr "Bounded ratio"
+
+msgid "Consistent"
+msgstr "Consistent"
+
+msgid "Highlight guard (stops)"
+msgstr "Highlight guard (stops)"
+
+msgid "NRStyleHighlightGuard. 0 = off."
+msgstr "NRStyleHighlightGuard. 0 = off."
+
+msgid "Detail stability"
+msgstr "Detail stability"
+
+msgid "NRDetailStability. NR's change smoothed over frames."
+msgstr "NRDetailStability. NR's change smoothed over frames."
+
+msgid "Always"
+msgstr "Always"
+
+msgid "Resolution"
+msgstr "Resolution"
+
+msgid "Resolution scale"
+msgstr "Resolution scale"
+
+msgid "NRResolutionScale. The network below the frame, 0.33-1."
+msgstr "NRResolutionScale. The network below the frame, 0.33-1."
+
+msgid "Follow render resolution"
+msgstr "Follow render resolution"
+
+msgid "NRFollowInputRes. The network at the motion vectors' resolution."
+msgstr "NRFollowInputRes. The network at the motion vectors' resolution."
+
+msgid "Upsampling"
+msgstr "Upsampling"
+
+msgid "NRLookUpsample. How NR's change reaches the frame below 1."
+msgstr "NRLookUpsample. How NR's change reaches the frame below 1."
+
+msgid "Edge-aware"
+msgstr "Edge-aware"
+
+msgid "Classic"
+msgstr "Classic"
+
+msgid "Area input"
+msgstr "Area input"
+
+msgid "Adjust NR's look"
+msgstr "Adjust NR's look"
+
+msgid "NRLookMode. Reshapes NR's result live; off leaves it as it is."
+msgstr "NRLookMode. Reshapes NR's result live; off leaves it as it is."
+
+msgid "NRLookStrength."
+msgstr "NRLookStrength."
+
+msgid "Brightening"
+msgstr "Brightening"
+
+msgid "NRLookBrighten."
+msgstr "NRLookBrighten."
+
+msgid "Darkening"
+msgstr "Darkening"
+
+msgid "NRLookDarken."
+msgstr "NRLookDarken."
+
+msgid "Colour"
+msgstr "Colour"
+
+msgid "NRLookColour."
+msgstr "NRLookColour."
+
+msgid "Hue shift"
+msgstr "Hue shift"
+
+msgid "NRLookHue."
+msgstr "NRLookHue."
+
+msgid "Shadows"
+msgstr "Shadows"
+
+msgid "NRLookShadows."
+msgstr "NRLookShadows."
+
+msgid "Midtones"
+msgstr "Midtones"
+
+msgid "NRLookMidtones."
+msgstr "NRLookMidtones."
+
+msgid "Highlights"
+msgstr "Highlights"
+
+msgid "NRLookHighlights."
+msgstr "NRLookHighlights."
+
+msgid "Max brightening (stops)"
+msgstr "Max brightening (stops)"
+
+msgid "NRLookMaxBrighten."
+msgstr "NRLookMaxBrighten."
+
+msgid "Max darkening (stops)"
+msgstr "Max darkening (stops)"
+
+msgid "NRLookMaxDarken."
+msgstr "NRLookMaxDarken."
+
+msgid "Max colour change"
+msgstr "Max colour change"
+
+msgid "NRLookMaxColour."
+msgstr "NRLookMaxColour."
+
+msgid "Large-scale tone"
+msgstr "Large-scale tone"
+
+msgid "NRLookTone."
+msgstr "NRLookTone."
+
+msgid "NRLookDetail."
+msgstr "NRLookDetail."
+
+msgid "Detail radius (%)"
+msgstr "Detail radius (%)"
+
+msgid "NRLookDetailRadius."
+msgstr "NRLookDetailRadius."
+
+msgid "Halo suppression"
+msgstr "Halo suppression"
+
+msgid "NRLookHalo."
+msgstr "NRLookHalo."
+
+msgid "Halo next to dark objects"
+msgstr "Halo next to dark objects"
+
+msgid "NRLookHaloBrightSide."
+msgstr "NRLookHaloBrightSide."
+
+msgid "Stabilize"
+msgstr "Stabilize"
+
+msgid "NRLookStabilize. Replaces Detail stability."
+msgstr "NRLookStabilize. Replaces Detail stability."
+
+msgid "Static"
+msgstr "Static"
+
+msgid "Motion"
+msgstr "Motion"
+
+msgid "Stabilize time (ms)"
+msgstr "Stabilize time (ms)"
+
+msgid "NRLookStabilizeMs."
+msgstr "NRLookStabilizeMs."
+
+msgid "Stabilize detail"
+msgstr "Stabilize detail"
+
+msgid "NRLookStabilizeDetail."
+msgstr "NRLookStabilizeDetail."
+
+msgid "SDR black restore"
+msgstr "SDR black restore"
+
+msgid "NRSdrBlackRestore."
+msgstr "NRSdrBlackRestore."
+
+msgid "Every block"
+msgstr "Every block"
+
+msgid "Smooth"
+msgstr "Smooth"
+
+msgid "HDR dark pedestal"
+msgstr "HDR dark pedestal"
+
+msgid "NRDisplayPedestal."
+msgstr "NRDisplayPedestal."
+
+msgid "Codec"
+msgstr "Codec"
+
+msgid "NRCodecMode."
+msgstr "NRCodecMode."
+
+msgid "Anchored"
+msgstr "Anchored"
+
+msgid "Display"
+msgstr "Display"
+
+msgid "Neural floor guard"
+msgstr "Neural floor guard"
+
+msgid "NRNeuralFloorGuard."
+msgstr "NRNeuralFloorGuard."
+
+msgid "Encoding"
+msgstr "Encoding"
+
+msgid "Source encoding"
+msgstr "Source encoding"
+
+msgid "Reinterprets the frame's units within the codec selected by its format and HDR flags; does not change that codec."
+msgstr "Reinterprets the frame's units within the codec selected by its format and HDR flags; does not change that codec."
+
+msgid "From the format"
+msgstr "From the format"
+
+msgid "SDR"
+msgstr "SDR"
+
+msgid "Linear"
+msgstr "Linear"
+
+msgid "PQ"
+msgstr "PQ"
+
+msgid "Linear unit (nits)"
+msgstr "Linear unit (nits)"
+
+msgid "NRLinearUnitNits. > 0: float HDR in absolute units."
+msgstr "NRLinearUnitNits. > 0: float HDR in absolute units."
+
+msgid "Proxy anchor (nits)"
+msgstr "Proxy anchor (nits)"
+
+msgid "NRProxyAnchor."
+msgstr "NRProxyAnchor."
+
+msgid "Paper white scale"
+msgstr "Paper white scale"
+
+msgid "NRPaperWhiteScale."
+msgstr "NRPaperWhiteScale."
+
+msgid "Diffuse white (nits)"
+msgstr "Diffuse white (nits)"
+
+msgid "NRDiffuseWhiteNits."
+msgstr "NRDiffuseWhiteNits."
+
+msgid "PQ calibration"
+msgstr "PQ calibration"
+
+msgid "NRPQCalibration."
+msgstr "NRPQCalibration."
+
+msgid "Feed"
+msgstr "Feed"
+
+msgid "NRFeedMode. What a float HDR frame is divided by."
+msgstr "NRFeedMode. What a float HDR frame is divided by."
+
+msgid "Content meter"
+msgstr "Content meter"
+
+msgid "Game exposure"
+msgstr "Game exposure"
+
+msgid "Present encoding"
+msgstr "Present encoding"
+
+msgid "NRPresentEncoding. RenoDX layers at Present: Auto follows the swapchain colour space; SDR, HDR10 and scRGB force how the picture is interpreted."
+msgstr "NRPresentEncoding. RenoDX layers at Present: Auto follows the swapchain colour space; SDR, HDR10 and scRGB force how the picture is interpreted."
+
+msgid "HDR10"
+msgstr "HDR10"
+
+msgid "scRGB"
+msgstr "scRGB"
+
+msgid "HDR white (nits)"
+msgstr "HDR white (nits)"
+
+msgid "NRPresentWhiteNits. RenoDX layers at Present: HDR diffuse white in nits. 0 uses the RenoDX mod's Game Brightness, then Windows SDR content brightness, then NRDiffuseWhiteNits."
+msgstr "NRPresentWhiteNits. RenoDX layers at Present: HDR diffuse white in nits. 0 uses the RenoDX mod's Game Brightness, then Windows SDR content brightness, then NRDiffuseWhiteNits."
+
+msgid "HDR white source"
+msgstr "HDR white source"
+
+msgid "NRPresentWhiteSource. RenoDX layers at Present: Auto can use the RenoDX mod's Game Brightness; Windows skips it and uses Windows SDR content brightness, then NRDiffuseWhiteNits."
+msgstr "NRPresentWhiteSource. RenoDX layers at Present: Auto can use the RenoDX mod's Game Brightness; Windows skips it and uses Windows SDR content brightness, then NRDiffuseWhiteNits."
+
+msgid "Windows"
+msgstr "Windows"
+
+msgid "Divisor governor"
+msgstr "Divisor governor"
+
+msgid "NRNormGovernor."
+msgstr "NRNormGovernor."
+
+msgid "Slew"
+msgstr "Slew"
+
+msgid "Stable"
+msgstr "Stable"
+
+msgid "Cut aware"
+msgstr "Cut aware"
+
+msgid "NRNormCutAware."
+msgstr "NRNormCutAware."
+
+msgid "Attack (stops/s)"
+msgstr "Attack (stops/s)"
+
+msgid "NRNormAttackStops."
+msgstr "NRNormAttackStops."
+
+msgid "Release (stops/s)"
+msgstr "Release (stops/s)"
+
+msgid "NRNormReleaseStops."
+msgstr "NRNormReleaseStops."
+
+msgid "Slew (stops/frame)"
+msgstr "Slew (stops/frame)"
+
+msgid "NRNormSlewStops."
+msgstr "NRNormSlewStops."
+
+msgid "Guides"
+msgstr "Guides"
+
+msgid "NRPresentGuides. RenoDX layers at Present: Optional uses motion and depth when available; Required skips NR without motion; Never uses zero motion and no depth."
+msgstr "NRPresentGuides. RenoDX layers at Present: Optional uses motion and depth when available; Required skips NR without motion; Never uses zero motion and no depth."
+
+msgid "Optional"
+msgstr "Optional"
+
+msgid "Required"
+msgstr "Required"
+
+msgid "Never"
+msgstr "Never"
+
+msgid "Depth"
+msgstr "Depth"
+
+msgid "NRDepthMode."
+msgstr "NRDepthMode."
+
+msgid "The game's flag"
+msgstr "The game's flag"
+
+msgid "Normal"
+msgstr "Normal"
+
+msgid "Inverted"
+msgstr "Inverted"
+
+msgid "Motion vector scale X"
+msgstr "Motion vector scale X"
+
+msgid "NRMVecScaleX."
+msgstr "NRMVecScaleX."
+
+msgid "Motion vector scale Y"
+msgstr "Motion vector scale Y"
+
+msgid "NRMVecScaleY."
+msgstr "NRMVecScaleY."
+
+msgid "Screenshot key"
+msgstr "Screenshot key"
+
+msgid "NRScreenshotKey. The same frame before and after NR, into <game>/NR Screenshots; empty: none."
+msgstr "NRScreenshotKey. The same frame before and after NR, into <game>/NR Screenshots; empty: none."
+
+msgid "Capture"
+msgstr "Capture"
+
+msgid "NRScreenshotSource. Final picture: the frame as shown (OptiScaler route: NR moves to OptiScaler's finished picture for one frame). Model: the network's input and output (no tone mapping, no UI)."
+msgstr "NRScreenshotSource. Final picture: the frame as shown (OptiScaler route: NR moves to OptiScaler's finished picture for one frame). Model: the network's input and output (no tone mapping, no UI)."
+
+msgid "Automatic (final picture)"
+msgstr "Automatic (final picture)"
+
+msgid "Final picture"
+msgstr "Final picture"
+
+msgid "Model input / output"
+msgstr "Model input / output"
+
+msgid "File format"
+msgstr "File format"
+
+msgid "NRScreenshotFormat. PNG is lossless and large (HDR PNGs are 16-bit PQ). JPEG is sized for sharing; in HDR it stays HDR."
+msgstr "NRScreenshotFormat. PNG is lossless and large (HDR PNGs are 16-bit PQ). JPEG is sized for sharing; in HDR it stays HDR."
+
+msgid "PNG"
+msgstr "PNG"
+
+msgid "JPEG"
+msgstr "JPEG"
+
+msgid "PNG and JPEG"
+msgstr "PNG and JPEG"
+
+msgid "Comparison layout"
+msgstr "Comparison layout"
+
+msgid "NRScreenshotLayout. Side by side adds one file: NR off (left), NR on (right)."
+msgstr "NRScreenshotLayout. Side by side adds one file: NR off (left), NR on (right)."
+
+msgid "Pair"
+msgstr "Pair"
+
+msgid "Pair + side by side"
+msgstr "Pair + side by side"
+
+msgid "JPEG quality"
+msgstr "JPEG quality"
+
+msgid "NRScreenshotJpegQuality. 95 is visually lossless; over the size limit the quality steps down (not below 85)."
+msgstr "NRScreenshotJpegQuality. 95 is visually lossless; over the size limit the quality steps down (not below 85)."
+
+msgid "JPEG size limit (MB)"
+msgstr "JPEG size limit (MB)"
+
+msgid "NRScreenshotMaxMB. 10 is Discord's upload limit without Nitro; 0: no limit."
+msgstr "NRScreenshotMaxMB. 10 is Discord's upload limit without Nitro; 0: no limit."
+
+msgid "New noise every frame"
+msgstr "New noise every frame"
+
+msgid "NRNoiseEveryFrame. A new noise seed for the network every frame, as NVIDIA's DLL does (default). Off: the same seed every frame."
+msgstr "NRNoiseEveryFrame. A new noise seed for the network every frame, as NVIDIA's DLL does (default). Off: the same seed every frame."
+
+msgid "Output rectangle"
+msgstr "Output rectangle"
+
+msgid "NROutputRect (OptiScaler route, all layers). Declared (default, as 0.0.7) uses the evaluate size, else the image size; Auto uses the create size first; Resource uses the image size."
+msgstr "NROutputRect (OptiScaler route, all layers). Declared (default, as 0.0.7) uses the evaluate size, else the image size; Auto uses the create size first; Resource uses the image size."
+
+msgid "Declared"
+msgstr "Declared"
+
+msgid "Resource"
+msgstr "Resource"
+
+msgid "Present frames"
+msgstr "Present frames"
+
+msgid "NRPresentFrames. RenoDX layers at Present on the OptiScaler route: run on every present with motion scaled by the frame-generation multiplier, or only the first present after each game frame."
+msgstr "NRPresentFrames. RenoDX layers at Present on the OptiScaler route: run on every present with motion scaled by the frame-generation multiplier, or only the first present after each game frame."
+
+msgid "Every present"
+msgstr "Every present"
+
+msgid "First present per game frame"
+msgstr "First present per game frame"
+
+msgid "Frame-generation multiplier"
+msgstr "Frame-generation multiplier"
+
+msgid "NRPresentFgSource. RenoDX layers at Present on the OptiScaler route: Auto uses DLSSG.MultiFrameCount, then stable timing. Stable timing uses present intervals; Legacy timing uses the older timing rule."
+msgstr "NRPresentFgSource. RenoDX layers at Present on the OptiScaler route: Auto uses DLSSG.MultiFrameCount, then stable timing. Stable timing uses present intervals; Legacy timing uses the older timing rule."
+
+msgid "Stable timing"
+msgstr "Stable timing"
+
+msgid "Legacy timing"
+msgstr "Legacy timing"
+
+msgid "Passes mode"
+msgstr "Passes mode"
+
+msgid "NRPassesMode. Choose legacy network passes or fast strengthening after one network pass."
+msgstr "NRPassesMode. Choose legacy network passes or fast strengthening after one network pass."
+
+msgid "legacy"
+msgstr "legacy"
+
+msgid "fast"
+msgstr "fast"
+
+msgid "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
+msgstr "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
+
+msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgstr "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+
+msgid "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
+msgstr "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
+
+msgid "NRFastExtrapolationFine. How much of the network's fine detail change Extrapolation adds: 0 none (default), 1 as made, 2 twice. Raise it for more fine detail; the game's own film grain grows with it."
+msgstr "NRFastExtrapolationFine. How much of the network's fine detail change Extrapolation adds: 0 none (default), 1 as made, 2 twice. Raise it for more fine detail; the game's own film grain grows with it."
+
+msgid "NRFastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
+msgstr "NRFastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
+
+msgid "NRFastFeedbackPasses. Feedback's strength, referred to legacy pass counts."
+msgstr "NRFastFeedbackPasses. Feedback's strength, referred to legacy pass counts."
+
+msgid "NRFastFeedbackHaloLimit. Limits the halos Feedback adds."
+msgstr "NRFastFeedbackHaloLimit. Limits the halos Feedback adds."
+
+msgid "NRFastFeedbackFine. How much of the network's fine detail change Feedback adds: 1 as made (default), 0 none, 2 twice."
+msgstr "NRFastFeedbackFine. How much of the network's fine detail change Feedback adds: 1 as made (default), 0 none, 2 twice."
+
+msgid "NRFastHybridPasses. Hybrid's strength, referred to legacy pass counts."
+msgstr "NRFastHybridPasses. Hybrid's strength, referred to legacy pass counts."
+
+msgid "NRFastHybridHaloLimit. Limits the halos Hybrid adds."
+msgstr "NRFastHybridHaloLimit. Limits the halos Hybrid adds."
+
+msgid "NRFastHybridFine. How much of the network's fine detail change Hybrid adds: 1 as made (default), 0 none, 2 twice."
+msgstr "NRFastHybridFine. How much of the network's fine detail change Hybrid adds: 1 as made (default), 0 none, 2 twice."
+
+# ---- nr_wilsjo2_keys.hpp
+
+msgid "Style."
+msgstr "Style."
+
+msgid "Intensity. Enhancement strength."
+msgstr "Intensity. Enhancement strength."
+
+msgid "LocalStructure."
+msgstr "LocalStructure."
+
+msgid "LocalTone."
+msgstr "LocalTone."
+
+msgid "SkinStructure. -1: follows Local structure."
+msgstr "SkinStructure. -1: follows Local structure."
+
+msgid "AutoMask."
+msgstr "AutoMask."
+
+msgid "New noise without motion vectors"
+msgstr "New noise without motion vectors"
+
+msgid "NoiseEveryFrame (ours). Frames without motion vectors: a new noise seed every frame, as NVIDIA's DLL does (default). Off: the seed stays. Frames with motion vectors always get a new one."
+msgstr "NoiseEveryFrame (ours). Frames without motion vectors: a new noise seed every frame, as NVIDIA's DLL does (default). Off: the seed stays. Frames with motion vectors always get a new one."
+
+msgid "Detail strength"
+msgstr "Detail strength"
+
+msgid "TransferStrength. How much of the network's detail change is kept."
+msgstr "TransferStrength. How much of the network's detail change is kept."
+
+msgid "ColourStrength. How much of the network's colour change is kept."
+msgstr "ColourStrength. How much of the network's colour change is kept."
+
+msgid "Highlight guard"
+msgstr "Highlight guard"
+
+msgid "MaxRatio. The most a pixel's brightness may change, either way."
+msgstr "MaxRatio. The most a pixel's brightness may change, either way."
+
+msgid "HDR mapping"
+msgstr "HDR mapping"
+
+msgid "ReversibleMode. The highlight curve the network sees HDR through, and whether its answer is composed onto the frame or replaces it."
+msgstr "ReversibleMode. The highlight curve the network sees HDR through, and whether its answer is composed onto the frame or replaces it."
+
+msgid "Soft knee"
+msgstr "Soft knee"
+
+msgid "Neutwo"
+msgstr "Neutwo"
+
+msgid "Neutwo, replace"
+msgstr "Neutwo, replace"
+
+msgid "Hybrid, replace"
+msgstr "Hybrid, replace"
+
+msgid "Restore sharpness"
+msgstr "Restore sharpness"
+
+msgid "ReplaceDetailStrength. Detail restoration in the replace modes."
+msgstr "ReplaceDetailStrength. Detail restoration in the replace modes."
+
+msgid "Model resolution"
+msgstr "Model resolution"
+
+msgid "WorkingScale. The network's resolution as a fraction of the frame's: below 1 faster, its answer enlarged back; above 1 (supersampling) the frame is enlarged for the network and its answer brought back, slower (the network's cost grows with the area)."
+msgstr "WorkingScale. The network's resolution as a fraction of the frame's: below 1 faster, its answer enlarged back; above 1 (supersampling) the frame is enlarged for the network and its answer brought back, slower (the network's cost grows with the area)."
+
+msgid "Downscale (below 100 %)"
+msgstr "Downscale (below 100 %)"
+
+msgid "Downscale. Below 100 % only: how the frame is brought to the network's resolution - area after encoding (the original's), or bilinear before encoding."
+msgstr "Downscale. Below 100 % only: how the frame is brought to the network's resolution - area after encoding (the original's), or bilinear before encoding."
+
+msgid "Area after encoding"
+msgstr "Area after encoding"
+
+msgid "Bilinear before encoding"
+msgstr "Bilinear before encoding"
+
+msgid "Supersampling filter"
+msgstr "Supersampling filter"
+
+msgid "ScalingDownscaler. Above 100 % only: the filter that brings the answer back to the frame's size (FSR 1: both ways as OptiScaler runs it, which is a bilinear resample; the others enlarge the frame bicubically)."
+msgstr "ScalingDownscaler. Above 100 % only: the filter that brings the answer back to the frame's size (FSR 1: both ways as OptiScaler runs it, which is a bilinear resample; the others enlarge the frame bicubically)."
+
+msgid "FSR 1"
+msgstr "FSR 1"
+
+msgid "Bicubic"
+msgstr "Bicubic"
+
+msgid "Catmull-Rom"
+msgstr "Catmull-Rom"
+
+msgid "Lanczos 2"
+msgstr "Lanczos 2"
+
+msgid "Lanczos 3"
+msgstr "Lanczos 3"
+
+msgid "Kaiser 2"
+msgstr "Kaiser 2"
+
+msgid "Kaiser 3"
+msgstr "Kaiser 3"
+
+msgid "MAGIC"
+msgstr "MAGIC"
+
+msgid "Enlargement"
+msgstr "Enlargement"
+
+msgid "Transfer. Below 100 % only: how the network's answer is brought back to the frame."
+msgstr "Transfer. Below 100 % only: how the network's answer is brought back to the frame."
+
+msgid "Bilinear"
+msgstr "Bilinear"
+
+msgid "Matched residual"
+msgstr "Matched residual"
+
+msgid "Lighting + colour"
+msgstr "Lighting + colour"
+
+msgid "Edge-aware lighting + colour"
+msgstr "Edge-aware lighting + colour"
+
+msgid "Classic scaler"
+msgstr "Classic scaler"
+
+msgid "ClassicScaler. Enlargement Classic: the scaler."
+msgstr "ClassicScaler. Enlargement Classic: the scaler."
+
+msgid "Lanczos3"
+msgstr "Lanczos3"
+
+msgid "Peripheral compression"
+msgstr "Peripheral compression"
+
+msgid "SpatialCompression. The network sees the centre band at full density and the periphery compressed: faster, the edges of the picture get less of NR."
+msgstr "SpatialCompression. The network sees the centre band at full density and the periphery compressed: faster, the edges of the picture get less of NR."
+
+msgid "Centre width %"
+msgstr "Centre width %"
+
+msgid "SpatialCenterX. The full-density band's width, percent of the frame."
+msgstr "SpatialCenterX. The full-density band's width, percent of the frame."
+
+msgid "Centre height %"
+msgstr "Centre height %"
+
+msgid "SpatialCenterY."
+msgstr "SpatialCenterY."
+
+msgid "Work width %"
+msgstr "Work width %"
+
+msgid "SpatialWorkX. The packed picture's width, percent of the frame; above the centre band."
+msgstr "SpatialWorkX. The packed picture's width, percent of the frame; above the centre band."
+
+msgid "Work height %"
+msgstr "Work height %"
+
+msgid "SpatialWorkY."
+msgstr "SpatialWorkY."
+
+msgid "Centre offset X %"
+msgstr "Centre offset X %"
+
+msgid "SpatialOffsetX. Moves the centre band."
+msgstr "SpatialOffsetX. Moves the centre band."
+
+msgid "Centre offset Y %"
+msgstr "Centre offset Y %"
+
+msgid "SpatialOffsetY."
+msgstr "SpatialOffsetY."
+
+msgid "Work shift X %"
+msgstr "Work shift X %"
+
+msgid "SpatialShiftX. Moves the room between the sides (clamped to what they have)."
+msgstr "SpatialShiftX. Moves the room between the sides (clamped to what they have)."
+
+msgid "Work shift Y %"
+msgstr "Work shift Y %"
+
+msgid "SpatialShiftY."
+msgstr "SpatialShiftY."
+
+msgid "White point source"
+msgstr "White point source"
+
+msgid "WhitePointSource. HDR frames only."
+msgstr "WhitePointSource. HDR frames only."
+
+msgid "Manual"
+msgstr "Manual"
+
+msgid "The game's exposure"
+msgstr "The game's exposure"
+
+msgid "Manual (2)"
+msgstr "Manual (2)"
+
+msgid "Automatic"
+msgstr "Automatic"
+
+msgid "White point"
+msgstr "White point"
+
+msgid "WhitePointScale. The manual white point."
+msgstr "WhitePointScale. The manual white point."
+
+msgid "Exposure trim"
+msgstr "Exposure trim"
+
+msgid "WhitePointTrim. Scales the game's exposure."
+msgstr "WhitePointTrim. Scales the game's exposure."
+
+msgid "Exposure trim curve"
+msgstr "Exposure trim curve"
+
+msgid "ExposureTrimAnchors. point:trim pairs, e.g. 0.5:1.2 2:0.9; empty: none."
+msgstr "ExposureTrimAnchors. point:trim pairs, e.g. 0.5:1.2 2:0.9; empty: none."
+
+msgid "Automatic exposure trim"
+msgstr "Automatic exposure trim"
+
+msgid "AutoExposureTrim. Scales the automatic exposure."
+msgstr "AutoExposureTrim. Scales the automatic exposure."
+
+msgid "Highlight protection"
+msgstr "Highlight protection"
+
+msgid "AutoExposureHighlightProtection. Keeps bright areas from pulling the automatic exposure down."
+msgstr "AutoExposureHighlightProtection. Keeps bright areas from pulling the automatic exposure down."
+
+msgid "Automatic exposure trim curve"
+msgstr "Automatic exposure trim curve"
+
+msgid "AutoExposureTrimAnchors. point:trim pairs; empty: none."
+msgstr "AutoExposureTrimAnchors. point:trim pairs; empty: none."
+
+msgid "Skin and environment"
+msgstr "Skin and environment"
+
+msgid "Skin protection"
+msgstr "Skin protection"
+
+msgid "SkinProtection. Softens the edit on skin colours."
+msgstr "SkinProtection. Softens the edit on skin colours."
+
+msgid "Skin detail"
+msgstr "Skin detail"
+
+msgid "SkinDetail."
+msgstr "SkinDetail."
+
+msgid "Skin colour"
+msgstr "Skin colour"
+
+msgid "SkinColour."
+msgstr "SkinColour."
+
+msgid "Environment detail"
+msgstr "Environment detail"
+
+msgid "EnvironmentDetail."
+msgstr "EnvironmentDetail."
+
+msgid "Environment colour"
+msgstr "Environment colour"
+
+msgid "EnvironmentColour."
+msgstr "EnvironmentColour."
+
+# ---- nr_reshade_layer_keys.hpp
+
+msgid "LocalStructure. Fine detail and local contrast."
+msgstr "LocalStructure. Fine detail and local contrast."
+
+msgid "LocalTone. Broad lighting changes."
+msgstr "LocalTone. Broad lighting changes."
+
+msgid "Auto skin mask"
+msgstr "Auto skin mask"
+
+msgid "AutoMask. Model-based skin selection."
+msgstr "AutoMask. Model-based skin selection."
+
+msgid "TransferStrength. 0 = no detail change, 1 = normal."
+msgstr "TransferStrength. 0 = no detail change, 1 = normal."
+
+msgid "ColourStrength. 0 = game colours, 1 = model colours, above 1 boosts saturation."
+msgstr "ColourStrength. 0 = game colours, 1 = model colours, above 1 boosts saturation."
+
+msgid "MaxRatio. Limits pixel brightening and darkening."
+msgstr "MaxRatio. Limits pixel brightening and darkening."
+
+msgid "ReversibleMode. The highlight curve a floating-point HDR frame is shown to the network through; the replace modes put the network's picture in place of the composition (SDR frames too)."
+msgstr "ReversibleMode. The highlight curve a floating-point HDR frame is shown to the network through; the replace modes put the network's picture in place of the composition (SDR frames too)."
+
+msgid "ReplaceDetailStrength. The replace modes below 100 % model resolution: the game's local contrast put back on the network's picture."
+msgstr "ReplaceDetailStrength. The replace modes below 100 % model resolution: the game's local contrast put back on the network's picture."
+
+msgid "WorkingScale. The network's resolution as a fraction of the frame's: below 1 faster, its answer enlarged back; above 1 (supersampling) the frame is enlarged for the network and its answer brought back, slower."
+msgstr "WorkingScale. The network's resolution as a fraction of the frame's: below 1 faster, its answer enlarged back; above 1 (supersampling) the frame is enlarged for the network and its answer brought back, slower."
+
+msgid "ScalingDownscaler. Above 100 % only: the filter that brings the answer back to the frame's size (FSR 1: a bilinear resample both ways; the others enlarge the frame bicubically)."
+msgstr "ScalingDownscaler. Above 100 % only: the filter that brings the answer back to the frame's size (FSR 1: a bilinear resample both ways; the others enlarge the frame bicubically)."
+
+msgid "Exposure (HDR)"
+msgstr "Exposure (HDR)"
+
+msgid "WhitePointScale. Floating-point HDR frames: the value shown to the network as white. 1 = default."
+msgstr "WhitePointScale. Floating-point HDR frames: the value shown to the network as white. 1 = default."
+
+msgid "SkinProtection. NR's change kept by how skin-coloured each pixel is."
+msgstr "SkinProtection. NR's change kept by how skin-coloured each pixel is."
+
+msgid "This route's own"
+msgstr "This route's own"
+
+msgid "NoiseEveryFrame. Frames without motion vectors: a new noise seed every frame, as NVIDIA's DLL does."
+msgstr "NoiseEveryFrame. Frames without motion vectors: a new noise seed every frame, as NVIDIA's DLL does."
+
+# ---- nr_pe_events.hpp
+
+msgid "network"
+msgstr "network"
+
+msgid "memory"
+msgstr "memory"
+
+msgid "run"
+msgstr "run"
+
+msgid "settings"
+msgstr "settings"
+
+# ---- nr_reshade_addon.cpp
+
+msgid "it starts with the next frame"
+msgstr "it starts with the next frame"
+
+msgid "the capture before the HUD does not follow this game's API"
+msgstr "the capture before the HUD does not follow this game's API"
+
+msgid "no frame before the HUD was found in this game"
+msgstr "no frame before the HUD was found in this game"
+
+msgid "not run this frame"
+msgstr "not run this frame"
+
+msgid "Extrapolation: no motion vectors"
+msgstr "Extrapolation: no motion vectors"
+
+msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
+msgstr "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
+
+msgid "This route's own composition around the network, under OptiScaler DLSS-NR's settings and names."
+msgstr "This route's own composition around the network, under OptiScaler DLSS-NR's settings and names."
+
+msgid "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run."
+msgstr "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run."
+
+msgid "On: pass 1's settings, with the local tone at 0. Off: this pass's own settings below."
+msgstr "On: pass 1's settings, with the local tone at 0. Off: this pass's own settings below."
+
+msgid "dlssnr-amd.ini was not found next to the add-on."
+msgstr "dlssnr-amd.ini was not found next to the add-on."
+
+msgid "Motion vectors"
+msgstr "Motion vectors"
+
+msgid "MV"
+msgstr "MV"
+
+msgid "missing"
+msgstr "missing"
+
+msgid "Frame: %ux%u, %s, %s"
+msgstr "Frame: %ux%u, %s, %s"
+
+msgid "DLSS5_Feed: %s; motion %s, depth %s. Frames: %u with NR, %u without"
+msgstr "DLSS5_Feed: %s; motion %s, depth %s. Frames: %u with NR, %u without"
+
+msgid "this route sees the game's frames only, not frame generation's"
+msgstr "this route sees the game's frames only, not frame generation's"
+
+msgid "[Network] Resize History. When the size of NR's frame changes (on this route: the game's resolution):\nOff (default): NR's previous result is dropped and NR starts again at the new size, as NVIDIA's DLL does.\nOn: the previous result is scaled to the new size and kept.\nIt matters for dynamic resolution with NR before the upscaler (OptiScaler route); here sizes change rarely."
+msgstr "[Network] Resize History. When the size of NR's frame changes (on this route: the game's resolution):\nOff (default): NR's previous result is dropped and NR starts again at the new size, as NVIDIA's DLL does.\nOn: the previous result is scaled to the new size and kept.\nIt matters for dynamic resolution with NR before the upscaler (OptiScaler route); here sizes change rarely."
+
+msgid "Source"
+msgstr "Source"
+
+msgid "LumeniteFX is not installed. install.bat (LumeniteFX: y) installs it from its author's GitHub."
+msgstr "LumeniteFX is not installed. install.bat (LumeniteFX: y) installs it from its author's GitHub."
+
+msgid "[DlssNr] MotionVectors. The ReShade effect that estimates the motion NR's history follows. VORT comes with this package. LumeniteFX Kernel (by Afzaal) is installed separately, with install.bat (LumeniteFX: y), from its author's GitHub. Switching makes ReShade compile its effects again (NR pauses until they are ready) and restarts NR's history."
+msgstr "[DlssNr] MotionVectors. The ReShade effect that estimates the motion NR's history follows. VORT comes with this package. LumeniteFX Kernel (by Afzaal) is installed separately, with install.bat (LumeniteFX: y), from its author's GitHub. Switching makes ReShade compile its effects again (NR pauses until they are ready) and restarts NR's history."
+
+msgid "LumeniteFX is not installed (install.bat, LumeniteFX: y)."
+msgstr "LumeniteFX is not installed (install.bat, LumeniteFX: y)."
+
+msgid "LumeniteFX is not used this session: %s. VORT runs instead; choose LumeniteFX again to retry."
+msgstr "LumeniteFX is not used this session: %s. VORT runs instead; choose LumeniteFX again to retry."
+
+msgid "LumeniteFX Kernel%s"
+msgstr "LumeniteFX Kernel%s"
+
+msgid ": its vectors follow the picture"
+msgstr ": its vectors follow the picture"
+
+msgid "ReShade's overlay (its default key)"
+msgstr "ReShade's overlay (its default key)"
+
+msgid "What is compared. The final picture: every layer (all run at Present on this route), all off against all on. A layer: its own input and output."
+msgstr "What is compared. The final picture: every layer (all run at Present on this route), all off against all on. A layer: its own input and output."
+
+msgid "    Frame %ux%u"
+msgstr "    Frame %ux%u"
+
+msgid "NR Preprocess: %s"
+msgstr "NR Preprocess: %s"
+
+# ---- nr_asi_main.cpp (shown as it comes: notes, states, status lines)
+
+msgid "frame generation's HUD-less frame is read for D3D12 games only"
+msgstr "frame generation's HUD-less frame is read for D3D12 games only"
+
+msgid "nothing: no layer runs at Present"
+msgstr "nothing: no layer runs at Present"
+
+msgid "estimated"
+msgstr "estimated"
+
+msgid "frame generation's HUD-less frame ("
+msgstr "frame generation's HUD-less frame ("
+
+msgid "nothing this frame: "
+msgstr "nothing this frame: "
+
+msgid "nothing: "
+msgstr "nothing: "
+
+msgid "captured before the HUD"
+msgstr "captured before the HUD"
+
+msgid "estimated (captured: "
+msgstr "estimated (captured: "
+
+msgid "the game hands its frame generation no HUD-less frame"
+msgstr "the game hands its frame generation no HUD-less frame"
+
+msgid "Present cannot serve this swap chain's colour format (wilsjo2)"
+msgstr "Present cannot serve this swap chain's colour format (wilsjo2)"
+
+msgid "Present cannot serve this swap chain's colour format"
+msgstr "Present cannot serve this swap chain's colour format"
+
+msgid "NR is off (toggle key)"
+msgstr "NR is off (toggle key)"
+
+msgid "waits for a recent game frame of the back buffer's aspect ratio"
+msgstr "waits for a recent game frame of the back buffer's aspect ratio"
+
+msgid "not recorded yet"
+msgstr "not recorded yet"
+
+msgid "its run could not be recorded (see the log)"
+msgstr "its run could not be recorded (see the log)"
+
+msgid "waits for the game's depth and motion (NRPresentGuides)"
+msgstr "waits for the game's depth and motion (NRPresentGuides)"
+
+msgid "its NR could not be made (see the log)"
+msgstr "its NR could not be made (see the log)"
+
+msgid "Frame generation: the game's DLSS-G, %ux (its own word)"
+msgstr "Frame generation: the game's DLSS-G, %ux (its own word)"
+
+msgid "Frame generation: not known (no game frame in the last second)"
+msgstr "Frame generation: not known (no game frame in the last second)"
+
+msgid "Frame generation: %.2f presents per game frame - frame generation is likely on"
+msgstr "Frame generation: %.2f presents per game frame - frame generation is likely on"
+
+msgid "Frame generation: %.2f presents per game frame - none seen"
+msgstr "Frame generation: %.2f presents per game frame - none seen"
+
+msgid "Frame generation: %.2f presents per game frame"
+msgstr "Frame generation: %.2f presents per game frame"
+
+msgid "waits for a Present of the game's (its swap chain was not found)"
+msgstr "waits for a Present of the game's (its swap chain was not found)"
+
+msgid "the output is a region away from the corner"
+msgstr "the output is a region away from the corner"
+
+msgid "waits for a Present of the game's"
+msgstr "waits for a Present of the game's"
+
+msgid "its NR feature could not be made (see the log)"
+msgstr "its NR feature could not be made (see the log)"
+
+msgid "NR cannot run on this Vulkan device (see the log)"
+msgstr "NR cannot run on this Vulkan device (see the log)"
+
+msgid "its swap-chain images could not be read"
+msgstr "its swap-chain images could not be read"
+
+msgid "the present queue's family is not known"
+msgstr "the present queue's family is not known"
+
+msgid "its swap-chain images cannot be copied (their usage)"
+msgstr "its swap-chain images cannot be copied (their usage)"
+
+msgid "our command buffers could not be made (see the log)"
+msgstr "our command buffers could not be made (see the log)"
+
+msgid "the swap chain is not shared with NR's queue family and its copy for NR could not be made"
+msgstr "the swap chain is not shared with NR's queue family and its copy for NR could not be made"
+
+msgid "the present queue's ownership bridge is not ready"
+msgstr "the present queue's ownership bridge is not ready"
+
+msgid "NR cannot run on this D3D11 device (see the log)"
+msgstr "NR cannot run on this D3D11 device (see the log)"
+
+# ---- nr_asi_hudcap.cpp (shown as it comes: notes, states, status lines)
+
+msgid "'s is handed over during the Present (OptiScaler's own frame generation): the capture serves it"
+msgstr "'s is handed over during the Present (OptiScaler's own frame generation): the capture serves it"
+
+msgid "'s is of another device"
+msgstr "'s is of another device"
+
+msgid "'s is not of the back buffer's size and format"
+msgstr "'s is not of the back buffer's size and format"
+
+msgid "'s is valid only when handed over, without a command list to copy it on"
+msgstr "'s is valid only when handed over, without a command list to copy it on"
+
+msgid "the game hands its frame generation no HUD-less frame (none this frame)"
+msgstr "the game hands its frame generation no HUD-less frame (none this frame)"
+
+msgid "its image is being made"
+msgstr "its image is being made"
+
+msgid "the game's command lists could not be followed (see the log)"
+msgstr "the game's command lists could not be followed (see the log)"
+
+msgid " (HUD FIX was switched on after the game made its pipelines and views: restart the game with it on)"
+msgstr " (HUD FIX was switched on after the game made its pipelines and views: restart the game with it on)"
+
+msgid "the game's context was not found"
+msgstr "the game's context was not found"
+
+msgid "the game's D3D11 context could not be followed (see the log)"
+msgstr "the game's D3D11 context could not be followed (see the log)"
+
+msgid "the game's Vulkan device was not seen being made"
+msgstr "the game's Vulkan device was not seen being made"
+
+msgid "the HUD is drawn in the scene's own render pass (inside which no copy can be made)"
+msgstr "the HUD is drawn in the scene's own render pass (inside which no copy can be made)"
+
+# ---- nr_dlssnr_model.cpp (shown as it comes: notes, states, status lines)
+
+msgid "the game's DLSS flags and the format"
+msgstr "the game's DLSS flags and the format"
+
+msgid "OptiScaler's encode"
+msgstr "OptiScaler's encode"
+
+msgid "RenoDX style's judgement"
+msgstr "RenoDX style's judgement"
+
+msgid "the wilsjo2 processing's judgement"
+msgstr "the wilsjo2 processing's judgement"
+
+msgid "this frame passed through"
+msgstr "this frame passed through"
+
+msgid "skipped(NR_DEBUG_SKIP_PASS)"
+msgstr "skipped(NR_DEBUG_SKIP_PASS)"
+
+msgid "failed"
+msgstr "failed"
+
+msgid "building"
+msgstr "building"
+
+msgid "declined"
+msgstr "declined"
+
+# ---- nr_pe_session.cpp (shown as it comes: notes, states, status lines)
+
+msgid "to make room"
+msgstr "to make room"
+
+msgid "could not create the render-resolution output image"
+msgstr "could not create the render-resolution output image"
+
+msgid "no device-local memory"
+msgstr "no device-local memory"
+
+msgid "could not back the output image"
+msgstr "could not back the output image"
+
+msgid "could not view the output image"
+msgstr "could not view the output image"
+
+msgid "the previous neural rendering submit never completed"
+msgstr "the previous neural rendering submit never completed"
+
+msgid "could not create a command pool on the game's device"
+msgstr "could not create a command pool on the game's device"
+
+msgid "could not allocate a command buffer"
+msgstr "could not allocate a command buffer"
+
+msgid "could not create the fence that paces our own submits"
+msgstr "could not create the fence that paces our own submits"
+
+msgid "could not create a command pool on the game's present family"
+msgstr "could not create a command pool on the game's present family"
+
+msgid "could not allocate the per-image command buffers"
+msgstr "could not allocate the per-image command buffers"
+
+msgid "could not create the per-image fence and semaphore"
+msgstr "could not create the per-image fence and semaphore"
+
+msgid "moving "
+msgstr "moving "
+
+msgid "'s weights to RAM"
+msgstr "'s weights to RAM"
+
+msgid "building "
+msgstr "building "
+
+msgid "a network"
+msgstr "a network"
+
+msgid "not enough video memory for this layer's network beside the other layers' (it waits for room)"
+msgstr "not enough video memory for this layer's network beside the other layers' (it waits for room)"
+
+msgid "freeing the least recently used network to make room"
+msgstr "freeing the least recently used network to make room"
+
+msgid "could not be built (see dlssnr-amd.log)"
+msgstr "could not be built (see dlssnr-amd.log)"
+
+msgid "memory is short; the network is held off and frames pass through"
+msgstr "memory is short; the network is held off and frames pass through"
+
+msgid "making memory for the game's changing frame size; frames pass through until it is ready"
+msgstr "making memory for the game's changing frame size; frames pass through until it is ready"
+
+msgid "building the network in the background; frames pass through until it is ready"
+msgstr "building the network in the background; frames pass through until it is ready"
+
+msgid "no submittable queue on the game's device; the weights cannot be uploaded"
+msgstr "no submittable queue on the game's device; the weights cannot be uploaded"
+
+msgid "the network's weights are moving to RAM; frames pass through until it is back"
+msgstr "the network's weights are moving to RAM; frames pass through until it is back"
+
+msgid "building the plan for this frame size in the background; frames pass through until it is ready"
+msgstr "building the plan for this frame size in the background; frames pass through until it is ready"
+
+msgid "the frame's size is changing; the network is built once it holds"
+msgstr "the frame's size is changing; the network is built once it holds"
+
+msgid "freeing the previous network before building another"
+msgstr "freeing the previous network before building another"
+
+msgid "needs the model of the 310.9.16 nvngx_dlssnr.dll (install.ps1 -Dll)"
+msgstr "needs the model of the 310.9.16 nvngx_dlssnr.dll (install.ps1 -Dll)"
+
+msgid "the model file is missing (run install.bat again)"
+msgstr "the model file is missing (run install.bat again)"
+
+msgid "not installed (run install.bat again)"
+msgstr "not installed (run install.bat again)"
+
+msgid "not on RDNA3 GPUs (RX 7000, Radeon 700M / 800M / 8000S)"
+msgstr "not on RDNA3 GPUs (RX 7000, Radeon 700M / 800M / 8000S)"
+
+msgid "needs ACO Mode, which is off for this run"
+msgstr "needs ACO Mode, which is off for this run"
+
+msgid "needs ACO Mode, which is off for this run: "
+msgstr "needs ACO Mode, which is off for this run: "
+
+msgid "the game's device has no pipeline binaries (ACO Mode)"
+msgstr "the game's device has no pipeline binaries (ACO Mode)"
+
+msgid "its weights were not made at install (run install.bat again)"
+msgstr "its weights were not made at install (run install.bat again)"
+
+msgid "not in this build"
+msgstr "not in this build"
+
+msgid "could not allocate the render-resolution output"
+msgstr "could not allocate the render-resolution output"
+
+msgid "the output has no Vulkan image; this is not vkd3d-proton"
+msgstr "the output has no Vulkan image; this is not vkd3d-proton"
+
+msgid "no Vulkan device underneath; not running on vkd3d-proton"
+msgstr "no Vulkan device underneath; not running on vkd3d-proton"
+
+msgid "vkd3d-proton would not hand out a queue; the weights cannot be uploaded"
+msgstr "vkd3d-proton would not hand out a queue; the weights cannot be uploaded"
+
+msgid "neural rendering unavailable: "
+msgstr "neural rendering unavailable: "
+
+msgid "the shared "
+msgstr "the shared "
+
+msgid " image: "
+msgstr " image: "
+
+msgid "the shared depth image cannot be written by a shader"
+msgstr "the shared depth image cannot be written by a shader"
+
+msgid "the depth buffer denies shader reads"
+msgstr "the depth buffer denies shader reads"
+
+msgid "the depth buffer's DXGI format "
+msgstr "the depth buffer's DXGI format "
+
+msgid " cannot be read"
+msgstr " cannot be read"
+
+msgid "DXGI format "
+msgstr "DXGI format "
+
+msgid " is not one the bridge carries"
+msgstr " is not one the bridge carries"
+
+msgid "the command list cannot be cut yet: "
+msgstr "the command list cannot be cut yet: "
+
+msgid "the command list's state is not known"
+msgstr "the command list's state is not known"
+
+msgid "neural rendering skipped: "
+msgstr "neural rendering skipped: "
+
+msgid "the command list could not be cut: "
+msgstr "the command list could not be cut: "
+
+msgid "the device NR runs on was made without pipeline binaries"
+msgstr "the device NR runs on was made without pipeline binaries"
+
+msgid "the command list exposes no Vulkan handle"
+msgstr "the command list exposes no Vulkan handle"
+
+msgid "colour"
+msgstr "colour"
+
+msgid "neural rendering failed: "
+msgstr "neural rendering failed: "
+
+msgid "output"
+msgstr "output"
+
+msgid "the queue-level hand-over is for the native D3D12 runtime"
+msgstr "the queue-level hand-over is for the native D3D12 runtime"
+
+msgid "the frame is on another D3D12 queue than the network's"
+msgstr "the frame is on another D3D12 queue than the network's"
+
+msgid "no command list of our own on the game's device"
+msgstr "no command list of our own on the game's device"
+
+msgid "our command list would not close"
+msgstr "our command list would not close"
+
+msgid "the D3D12 queue refused a signal"
+msgstr "the D3D12 queue refused a signal"
+
+msgid "the device is neither a D3D11 nor a D3D10 device"
+msgstr "the device is neither a D3D11 nor a D3D10 device"
+
+msgid "neural rendering unavailable in D3D10: the driver has no VK_KHR_win32_keyed_mutex"
+msgstr "neural rendering unavailable in D3D10: the driver has no VK_KHR_win32_keyed_mutex"
+
+msgid "D3D10 has no compute shaders to read the depth buffer with"
+msgstr "D3D10 has no compute shaders to read the depth buffer with"
+
+msgid "the shared textures' keyed mutex "
+msgstr "the shared textures' keyed mutex "
+
+msgid "a shared texture's keyed mutex could not be handed over"
+msgstr "a shared texture's keyed mutex could not be handed over"
+
+msgid "the bridge submit failed"
+msgstr "the bridge submit failed"
+
+msgid "the network did not hand the frame back ("
+msgstr "the network did not hand the frame back ("
+
+msgid "a shared texture's keyed mutex was not handed back after the frame"
+msgstr "a shared texture's keyed mutex was not handed back after the frame"
+
+msgid "RenoDX-style processing unavailable: "
+msgstr "RenoDX-style processing unavailable: "
+
+msgid "could not create the neutral motion vectors"
+msgstr "could not create the neutral motion vectors"
+
+msgid "could not back the neutral motion vectors"
+msgstr "could not back the neutral motion vectors"
+
+msgid "RenoDX-style processing failed: "
+msgstr "RenoDX-style processing failed: "
+
+msgid "wilsjo2: the stage can neither store into the frame's format nor blit it into one it can"
+msgstr "wilsjo2: the stage can neither store into the frame's format nor blit it into one it can"
+
+msgid "the frame cannot be read and written in place or copied (its usage)"
+msgstr "the frame cannot be read and written in place or copied (its usage)"
+
+msgid "wilsjo2: the frame's working copy could not be made"
+msgstr "wilsjo2: the frame's working copy could not be made"
+
+msgid "RenoDX-style: the colour and the output differ in format or extent"
+msgstr "RenoDX-style: the colour and the output differ in format or extent"
+
+msgid "back buffer"
+msgstr "back buffer"
+
+msgid "no Vulkan device underneath; this D3D11 game is not on DXVK"
+msgstr "no Vulkan device underneath; this D3D11 game is not on DXVK"
+
+msgid "DXVK would not hand out its submission queue"
+msgstr "DXVK would not hand out its submission queue"
+
+msgid "the D3D11 texture exposes no Vulkan image"
+msgstr "the D3D11 texture exposes no Vulkan image"
+
+msgid "the game's texture cannot be copied to and from; nothing to run on"
+msgstr "the game's texture cannot be copied to and from; nothing to run on"
+
+msgid "the RenoDX-style option needs the motion vectors"
+msgstr "the RenoDX-style option needs the motion vectors"
+
+msgid "the submit on the game's queue failed"
+msgstr "the submit on the game's queue failed"
+
+msgid "the submit before present failed"
+msgstr "the submit before present failed"
+
+# ---- nr_engine_panel.hpp (shown as it comes: notes, states, status lines)
+
+msgid "%+.2f EV"
+msgstr "%+.2f EV"
+
+msgid "Exposure: Preprocess auto %+.2f EV on the finished picture"
+msgstr "Exposure: Preprocess auto %+.2f EV on the finished picture"
+
+msgid "Exposure: not needed - NR works on the finished picture (the game's exposure and tone mapping are in it)"
+msgstr "Exposure: not needed - NR works on the finished picture (the game's exposure and tone mapping are in it)"
+
+msgid "Exposure: not needed - an SDR picture is already exposed by the game"
+msgstr "Exposure: not needed - an SDR picture is already exposed by the game"
+
+msgid "Exposure: the wilsjo2 encode's white point, from the game's exposure texture"
+msgstr "Exposure: the wilsjo2 encode's white point, from the game's exposure texture"
+
+msgid "Exposure: the wilsjo2 automatic exposure, metered from the frame (WhitePointSource = 3)"
+msgstr "Exposure: the wilsjo2 automatic exposure, metered from the frame (WhitePointSource = 3)"
+
+msgid "a manual white point %.3g (WhitePointScale)"
+msgstr "a manual white point %.3g (WhitePointScale)"
+
+msgid "Exposure: "
+msgstr "Exposure: "
+
+msgid " - WhitePointSource = 1, but the game gives no exposure texture"
+msgstr " - WhitePointSource = 1, but the game gives no exposure texture"
+
+msgid "Preprocess auto exposure, "
+msgstr "Preprocess auto exposure, "
+
+msgid "Preprocess auto exposure"
+msgstr "Preprocess auto exposure"
+
+msgid "Preprocess fixed exposure"
+msgstr "Preprocess fixed exposure"
+
+msgid "Exposure: not needed - the picture is in absolute units (nits)"
+msgstr "Exposure: not needed - the picture is in absolute units (nits)"
+
+msgid " (replaces RenoDX style's divisor)"
+msgstr " (replaces RenoDX style's divisor)"
+
+msgid "RenoDX style divides the frame by %.3g (%s)"
+msgstr "RenoDX style divides the frame by %.3g (%s)"
+
+msgid "RenoDX style divides the frame by a measured value"
+msgstr "RenoDX style divides the frame by a measured value"
+
+msgid ", from the game's exposure texture"
+msgstr ", from the game's exposure texture"
+
+msgid ", from its content meter - the game gives none"
+msgstr ", from its content meter - the game gives none"
+
+msgid ", from its content meter - the game's texture is a format it does not read"
+msgstr ", from its content meter - the game's texture is a format it does not read"
+
+msgid ", from its content meter - the game asks for auto exposure"
+msgstr ", from its content meter - the game asks for auto exposure"
+
+msgid ", from its content meter (NRFeedMode)"
+msgstr ", from its content meter (NRFeedMode)"
+
+msgid " - fixed (NRFeedMode = 2); the game gives no exposure texture"
+msgstr " - fixed (NRFeedMode = 2); the game gives no exposure texture"
+
+msgid "Exposure: not known yet"
+msgstr "Exposure: not known yet"
+
+msgid "Exposure: not needed - OptiScaler passes the frame on as already tone mapped"
+msgstr "Exposure: not needed - OptiScaler passes the frame on as already tone mapped"
+
+msgid "OptiScaler encodes it"
+msgstr "OptiScaler encodes it"
+
+msgid "OptiScaler's encode divides by white point %.3g (%s)"
+msgstr "OptiScaler's encode divides by white point %.3g (%s)"
+
+msgid ", then "
+msgstr ", then "
+
+msgid " (where its white point comes from is not known)"
+msgstr " (where its white point comes from is not known)"
+
+msgid " - a fixed paper white (WhitePointSource = 0), the game's exposure not used"
+msgstr " - a fixed paper white (WhitePointSource = 0), the game's exposure not used"
+
+msgid " - a fixed white point: the game gives no exposure"
+msgstr " - a fixed white point: the game gives no exposure"
+
+msgid " (it asks for auto exposure)"
+msgstr " (it asks for auto exposure)"
+
+msgid "HDR (linear light)"
+msgstr "HDR (linear light)"
+
+msgid "HDR10 (PQ)"
+msgstr "HDR10 (PQ)"
+
+msgid "not known"
+msgstr "not known"
+
+msgid "Colour: %s, %s%s%s%s"
+msgstr "Colour: %s, %s%s%s%s"
+
+msgid "format not known"
+msgstr "format not known"
+
+msgid "soft knee"
+msgstr "soft knee"
+
+msgid "linear light through the wilsjo2 encode's "
+msgstr "linear light through the wilsjo2 encode's "
+
+msgid " curve"
+msgstr " curve"
+
+msgid "the picture as it is (SDR), the wilsjo2 encode"
+msgstr "the picture as it is (SDR), the wilsjo2 encode"
+
+msgid "the picture as it is (SDR), through RenoDX style's legacy codec"
+msgstr "the picture as it is (SDR), through RenoDX style's legacy codec"
+
+msgid "PQ decoded to linear light, RenoDX style's v6 encode"
+msgstr "PQ decoded to linear light, RenoDX style's v6 encode"
+
+msgid "linear light in absolute units, RenoDX style's v6 encode"
+msgstr "linear light in absolute units, RenoDX style's v6 encode"
+
+msgid "linear light divided as below, RenoDX style's v6 encode"
+msgstr "linear light divided as below, RenoDX style's v6 encode"
+
+msgid "linear light, encoded by this add-on (WhitePoint "
+msgstr "linear light, encoded by this add-on (WhitePoint "
+
+msgid "HDR10 (PQ) decoded to linear light, encoded by this add-on (WhitePoint "
+msgstr "HDR10 (PQ) decoded to linear light, encoded by this add-on (WhitePoint "
+
+msgid "the picture as it is"
+msgstr "the picture as it is"
+
+msgid "linear light encoded by OptiScaler's DLSS-NR encode"
+msgstr "linear light encoded by OptiScaler's DLSS-NR encode"
+
+msgid "the frame as it is (OptiScaler: already tone mapped)"
+msgstr "the frame as it is (OptiScaler: already tone mapped)"
+
+msgid "OptiScaler's encode (not seen yet)"
+msgstr "OptiScaler's encode (not seen yet)"
+
+msgid "The network sees: "
+msgstr "The network sees: "
+
+msgid "Motion vectors: not from the game - made by %s (DLSS5_Feed), read bilinear"
+msgstr "Motion vectors: not from the game - made by %s (DLSS5_Feed), read bilinear"
+
+msgid "a ReShade effect"
+msgstr "a ReShade effect"
+
+msgid "Motion vectors: none (DLSS5_Feed missing) - NR runs with no motion"
+msgstr "Motion vectors: none (DLSS5_Feed missing) - NR runs with no motion"
+
+msgid "Motion vectors: not known yet"
+msgstr "Motion vectors: not known yet"
+
+msgid ", scale %.4g x %.4g"
+msgstr ", scale %.4g x %.4g"
+
+msgid "Motion vectors: from the game, %ux%u, read at the %s%s"
+msgstr "Motion vectors: from the game, %ux%u, read at the %s%s"
+
+msgid "nearest texel (as NVIDIA's DLL)"
+msgstr "nearest texel (as NVIDIA's DLL)"
+
+msgid "bilinear"
+msgstr "bilinear"
+
+msgid "%sMotion vectors: %s"
+msgstr "%sMotion vectors: %s"
+
+msgid "none from the game"
+msgstr "none from the game"
+
+msgid "Depth: read for the motion lookup (Motion Without Depth = 0; NVIDIA's DLL does not)"
+msgstr "Depth: read for the motion lookup (Motion Without Depth = 0; NVIDIA's DLL does not)"
+
+msgid "Depth: none, though Motion Without Depth = 0 asks for it"
+msgstr "Depth: none, though Motion Without Depth = 0 asks for it"
+
+msgid "Size changes: %llu (%s)"
+msgstr "Size changes: %llu (%s)"
+
+msgid "history carried over, Resize History = 1"
+msgstr "history carried over, Resize History = 1"
+
+msgid "history restarted each time, as NVIDIA's DLL"
+msgstr "history restarted each time, as NVIDIA's DLL"
+
+msgid "Size changes: none"
+msgstr "Size changes: none"
+
+msgid "Resets from the game: %llu"
+msgstr "Resets from the game: %llu"
+
+msgid " If the picture looks wrong, try White point source = Automatic"
+msgstr " If the picture looks wrong, try White point source = Automatic"
+
+msgid " If the picture looks wrong, try Preprocess with Exposure = auto"
+msgstr " If the picture looks wrong, try Preprocess with Exposure = auto"
+
+msgid "VkFormat "
+msgstr "VkFormat "
+
+# ---- nr_reshade_addon.cpp (shown as it comes: notes, states, status lines)
+
+msgid "the HUD followed scene draws without a capturable render-pass boundary"
+msgstr "the HUD followed scene draws without a capturable render-pass boundary"
+
+msgid " runs before DLSS5_Feed (it changes the frame after the copy): move DLSS5_Feed above it"
+msgstr " runs before DLSS5_Feed (it changes the frame after the copy): move DLSS5_Feed above it"
+
+msgid "estimated (Captured: unsupported graphics API)"
+msgstr "estimated (Captured: unsupported graphics API)"
+
+msgid "nothing: Captured does not run on this graphics API"
+msgstr "nothing: Captured does not run on this graphics API"
+
+msgid "nothing: this route has no frame generation's frames"
+msgstr "nothing: this route has no frame generation's frames"
+
+msgid "nothing this frame: its composition could not be recorded"
+msgstr "nothing this frame: its composition could not be recorded"
+
+msgid "not run while Layer "
+msgstr "not run while Layer "
+
+msgid "'s debug view is shown"
+msgstr "'s debug view is shown"
+
+msgid "RenoDX cannot serve this swap chain"
+msgstr "RenoDX cannot serve this swap chain"
+
+msgid "NRPresentGuides = 1 needs DLSS5_Feed's motion vectors"
+msgstr "NRPresentGuides = 1 needs DLSS5_Feed's motion vectors"
+
+msgid "HLG swap chain: wilsjo2 has no decode for it"
+msgstr "HLG swap chain: wilsjo2 has no decode for it"
+
+msgid "HDR10 swap chain: its PQ conversion could not run"
+msgstr "HDR10 swap chain: its PQ conversion could not run"
+
+msgid "the swap chain's colour space"
+msgstr "the swap chain's colour space"
+
+msgid "NRPresentEncoding"
+msgstr "NRPresentEncoding"
+
+msgid "[DlssNr] Enabled is off"
+msgstr "[DlssNr] Enabled is off"
+
+# ---- nr_pe_bridge.cpp (shown as it comes: notes, states, status lines)
+
+msgid "d3dcompiler_47.dll (D3DCompile) is not available"
+msgstr "d3dcompiler_47.dll (D3DCompile) is not available"
+
+msgid "the depth copy shader did not compile"
+msgstr "the depth copy shader did not compile"
+
+msgid "the Vulkan loader is older than 1.3"
+msgstr "the Vulkan loader is older than 1.3"
+
+msgid "could not create a Vulkan instance"
+msgstr "could not create a Vulkan instance"
+
+msgid "no Vulkan device has the game's adapter LUID"
+msgstr "no Vulkan device has the game's adapter LUID"
+
+msgid " offers Vulkan below 1.3"
+msgstr " offers Vulkan below 1.3"
+
+msgid " is not an RDNA4 or RDNA3 GPU ("
+msgstr " is not an RDNA4 or RDNA3 GPU ("
+
+msgid "RDNA3 GPUs run NR as ACO's machine code only, and "
+msgstr "RDNA3 GPUs run NR as ACO's machine code only, and "
+
+msgid " has no "
+msgstr " has no "
+
+msgid " lacks "
+msgstr " lacks "
+
+msgid "no compute queue family"
+msgstr "no compute queue family"
+
+msgid "vkCreateDevice failed ("
+msgstr "vkCreateDevice failed ("
+
+msgid "the driver does not resolve the win32 external memory/semaphore entry points"
+msgstr "the driver does not resolve the win32 external memory/semaphore entry points"
+
+msgid "could not create the bridge's command pool"
+msgstr "could not create the bridge's command pool"
+
+msgid "no command buffer for the shared image's layout ("
+msgstr "no command buffer for the shared image's layout ("
+
+msgid "the shared image's layout could not be set ("
+msgstr "the shared image's layout could not be set ("
+
+msgid "vkCreateImage failed for a shared image"
+msgstr "vkCreateImage failed for a shared image"
+
+msgid "the driver did not say which memory a shared image can be imported into ("
+msgstr "the driver did not say which memory a shared image can be imported into ("
+
+msgid "no memory type can hold the shared image"
+msgstr "no memory type can hold the shared image"
+
+msgid "importing the shared image failed ("
+msgstr "importing the shared image failed ("
+
+msgid " has no Vulkan counterpart"
+msgstr " has no Vulkan counterpart"
+
+msgid "the driver cannot import a D3D12 texture of VkFormat "
+msgstr "the driver cannot import a D3D12 texture of VkFormat "
+
+msgid "could not share the D3D12 texture"
+msgstr "could not share the D3D12 texture"
+
+msgid "the driver cannot import a D3D11 texture of VkFormat "
+msgstr "the driver cannot import a D3D11 texture of VkFormat "
+
+msgid "could not share the D3D11 texture"
+msgstr "could not share the D3D11 texture"
+
+msgid "the driver has no VK_KHR_win32_keyed_mutex (D3D10 has no fences)"
+msgstr "the driver has no VK_KHR_win32_keyed_mutex (D3D10 has no fences)"
+
+msgid "the driver cannot import a D3D10 texture of VkFormat "
+msgstr "the driver cannot import a D3D10 texture of VkFormat "
+
+msgid "could not share the D3D10 texture"
+msgstr "could not share the D3D10 texture"
+
+msgid "the GPU device was lost"
+msgstr "the GPU device was lost"
+
+msgid "could not allocate a bridge command buffer"
+msgstr "could not allocate a bridge command buffer"
+
+msgid "a previous neural rendering submit never completed"
+msgstr "a previous neural rendering submit never completed"
+
+msgid "too many neural rendering frames are waiting for their command lists"
+msgstr "too many neural rendering frames are waiting for their command lists"
+
+msgid "could not reset a bridge command buffer"
+msgstr "could not reset a bridge command buffer"
+
+msgid "could not begin a bridge command buffer"
+msgstr "could not begin a bridge command buffer"
+
+msgid "could not close the bridge command buffer"
+msgstr "could not close the bridge command buffer"
+
+msgid "the driver cannot import a D3D fence as a timeline semaphore"
+msgstr "the driver cannot import a D3D fence as a timeline semaphore"
+
+msgid "could not create the bridge semaphore"
+msgstr "could not create the bridge semaphore"
+
+msgid "importing the shared fence failed ("
+msgstr "importing the shared fence failed ("
+
+msgid "the queue has no device"
+msgstr "the queue has no device"
+
+msgid "could not create a shared D3D12 fence"
+msgstr "could not create a shared D3D12 fence"
+
+msgid "could not share the D3D12 fence"
+msgstr "could not share the D3D12 fence"
+
+msgid "the D3D11 runtime has no fences (ID3D11Device5)"
+msgstr "the D3D11 runtime has no fences (ID3D11Device5)"
+
+msgid "could not create a shared D3D11 fence"
+msgstr "could not create a shared D3D11 fence"
+
+msgid "could not share the D3D11 fence"
+msgstr "could not share the D3D11 fence"
+
+msgid "the depth copy is unavailable"
+msgstr "the depth copy is unavailable"
+
+msgid "could not create the D3D12 depth copy pipeline"
+msgstr "could not create the D3D12 depth copy pipeline"
+
+msgid "the depth buffer (DXGI format "
+msgstr "the depth buffer (DXGI format "
+
+msgid ") cannot be read"
+msgstr ") cannot be read"
+
+msgid "could not create the D3D11 depth copy shader"
+msgstr "could not create the D3D11 depth copy shader"
+
+msgid "the depth buffer is not a 2D texture"
+msgstr "the depth buffer is not a 2D texture"
+
+msgid "could not view the depth buffer"
+msgstr "could not view the depth buffer"
+
+# ---- nr_pe_d3d12split.cpp (shown as it comes: notes, states, status lines)
+
+msgid "the command-list cut is x86-64 only"
+msgstr "the command-list cut is x86-64 only"
+
+msgid "the command list vtable could not be written"
+msgstr "the command list vtable could not be written"
+
+msgid "too many command list vtables"
+msgstr "too many command list vtables"
+
+msgid "too many command list classes"
+msgstr "too many command list classes"
+
+msgid "no memory for the command list stubs"
+msgstr "no memory for the command list stubs"
+
+msgid "too many device classes"
+msgstr "too many device classes"
+
+msgid "the device vtable could not be written"
+msgstr "the device vtable could not be written"
+
+msgid "could not create a probe command queue"
+msgstr "could not create a probe command queue"
+
+msgid "too many command queue classes"
+msgstr "too many command queue classes"
+
+msgid "the command queue vtable could not be written"
+msgstr "the command queue vtable could not be written"
+
+msgid "the command list has no device"
+msgstr "the command list has no device"
+
+msgid "waiting for the command list's next Reset (its state is not known yet)"
+msgstr "waiting for the command list's next Reset (its state is not known yet)"
+
+msgid "a query is open in the command list"
+msgstr "a query is open in the command list"
+
+msgid "the command list is inside a render pass"
+msgstr "the command list is inside a render pass"
+
+msgid "the command list has a predicate set"
+msgstr "the command list has a predicate set"
+
+msgid "the command list ran a bundle whose state is not known"
+msgstr "the command list ran a bundle whose state is not known"
+
+msgid "too many command lists are cut at once"
+msgstr "too many command lists are cut at once"
+
+msgid "no state to continue from"
+msgstr "no state to continue from"
+
+msgid "the command list's class is not hooked"
+msgstr "the command list's class is not hooked"
+
+msgid "the game's D3D12 device was removed"
+msgstr "the game's D3D12 device was removed"
+
+msgid "could not reset a continuation command list"
+msgstr "could not reset a continuation command list"
+
+msgid "could not create a continuation command list"
+msgstr "could not create a continuation command list"

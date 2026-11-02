@@ -100,14 +100,23 @@ if ($LocalTest) {
         throw 'Runtime differs from the DLL that passed CI suites. Re-test and stage the matching runtime-ci.sha256.'
     }
 }
-$mochizukiBuild = Join-Path $root 'exports/mochizuki-runtime'
-& python -X utf8 (Join-Path $root 'tools/build/mochizuki-manifest.py') $mochizukiBuild
-if ($LASTEXITCODE -ne 0) { throw 'Mochizuki runtime/shader build is missing or stale.' }
-if (-not $LocalTest) {
-    $proof = Join-Path $mochizukiBuild 'abi-ci.sha256'
-    if (-not (Test-Path $proof) -or ([IO.File]::ReadAllText($proof)).Trim() -ne (Get-Sha256 (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll'))) {
-        throw 'Mochizuki ABI proof missing or does not match the runtime.'
+# Neural Rendering ships the official dlssnr-amd.asi payload, not the retired
+# built-in MochizukiNrRuntime.dll. Names and layout only; no hash gate, so the
+# user may replace the plugin or its resources with a newer official build.
+$asiPayload = Join-Path $root 'third_party/mochizuki-asi/payload'
+foreach ($required in @(
+    'OptiScaler/plugins/dlssnr-amd.asi',
+    'nr_present_probe.exe',
+    'ini/dlssnr-amd-optiscaler.ini',
+    'model-tools/dlssnr_extract_model.exe',
+    'model-tools/dlssnr-int4-weights.exe'
+)) {
+    if (!(Test-Path -LiteralPath (Join-Path $asiPayload $required) -PathType Leaf)) {
+        throw "Mochizuki ASI payload incomplete: $required"
     }
+}
+if (!(Test-Path -LiteralPath (Join-Path $asiPayload 'dlssnr-amd/shaders') -PathType Container)) {
+    throw 'Mochizuki ASI payload incomplete: dlssnr-amd/shaders'
 }
 $sourceRuntimeHash = Get-Sha256 $lmxxfDllSrc
 $hostHash = Get-Sha256 $OptiDll
@@ -672,45 +681,36 @@ if (Test-Path -LiteralPath $personSrc -PathType Container) {
     Copy-Item -LiteralPath (Join-Path $root 'third_party/onnxruntime/YuNet_MIT.txt') -Destination (Join-Path $stage 'Licenses/YuNet_MIT.txt') -Force
 }
 
-# Exact pin: tools/install/mochizuki-owned.txt. A similar filename is not owned.
-$mochizukiPin = Join-Path $root 'tools/install/mochizuki-owned.txt'
-if (-not (Test-Path -LiteralPath $mochizukiPin -PathType Leaf)) {
-    throw "Mochizuki ownership pin missing at $mochizukiPin."
-}
-$mochizukiOwned = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-foreach ($line in [IO.File]::ReadAllLines($mochizukiPin)) {
-    $rel = $line.Trim().Replace('\', '/')
-    if ($rel.Length -eq 0 -or $rel.StartsWith('#')) { continue }
-    if ($rel.IndexOfAny([char[]]@('*', '?')) -ge 0) { throw "Mochizuki ownership pin contains a wildcard: $rel" }
-    [void]$mochizukiOwned.Add($rel)
-}
-if ($mochizukiOwned.Count -lt 1) { throw 'Mochizuki ownership pin is empty.' }
-Copy-Item -LiteralPath (Join-Path $mochizukiBuild 'MochizukiNrRuntime.dll') -Destination $stage
+# Neural Rendering: the vendor ASI runs NR itself. The plugin goes where the
+# host loads .asi files from; the shared dlssnr-amd folder holds only this
+# version's resources, never a mixture with the retired built-in runtime.
 $mzAssets = Join-Path $stage 'dlssnr-amd'
-$mzSource = Join-Path $mochizukiBuild 'dlssnr-amd'
-New-Item -ItemType Directory -Force $mzAssets | Out-Null
-foreach ($relative in $mochizukiOwned) {
-    $source = Join-Path $mzSource ($relative.Replace('/', '\'))
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        throw "Mochizuki package is missing pinned file dlssnr-amd/$relative. Rebuild the runtime before packaging."
+New-Item -ItemType Directory -Force $mzAssets, (Join-Path $stage 'OptiScaler/plugins'),
+    (Join-Path $stage 'model-tools'), (Join-Path $stage 'docs') | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $asiPayload 'dlssnr-amd') -Recurse -File |
+    ForEach-Object {
+        $relative = $_.FullName.Substring((Join-Path $asiPayload 'dlssnr-amd').Length).TrimStart('\', '/')
+        $dest = Join-Path $mzAssets $relative
+        $destDir = Split-Path -Parent $dest
+        if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
+        Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
     }
-    $dest = Join-Path $mzAssets ($relative.Replace('/', '\'))
-    $destDir = Split-Path -Parent $dest
-    if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
-    Copy-Item -LiteralPath $source -Destination $dest -Force
+Copy-Item -LiteralPath (Join-Path $asiPayload 'OptiScaler/plugins/dlssnr-amd.asi') `
+    -Destination (Join-Path $stage 'OptiScaler/plugins/dlssnr-amd.asi') -Force
+Copy-Item -LiteralPath (Join-Path $asiPayload 'nr_present_probe.exe') -Destination $mzAssets -Force
+Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler.ini') -Destination $stage -Force
+foreach ($name in @('dlssnr_extract_model.exe', 'dlssnr-int4-weights.exe')) {
+    Copy-Item -LiteralPath (Join-Path $asiPayload "model-tools/$name") -Destination (Join-Path $stage 'model-tools') -Force
 }
-Copy-Item -LiteralPath $mochizukiPin -Destination (Join-Path $stage 'mochizuki-owned.txt') -Force
-Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt')
-Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/windows/src/core/renodx/LICENSE') -Destination (Join-Path $stage 'Licenses/RenoDX_MIT.txt')
-Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki/UPSTREAM.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_SOURCES.md')
-New-Item -ItemType Directory -Force (Join-Path $stage 'model-tools'), (Join-Path $stage 'docs') | Out-Null
-Get-ChildItem (Join-Path $root 'third_party/mochizuki/linux/package/model-tools') -File | Where-Object { $_.Extension -in @('.py','.json','.txt','.sha256') } | Copy-Item -Destination (Join-Path $stage 'model-tools')
-foreach ($name in @('dlssnr-int4-weights.exe', 'dlssnr-int4.sha256')) {
-    Copy-Item -LiteralPath (Join-Path $mochizukiBuild "model-tools/$name") -Destination (Join-Path $stage 'model-tools')
-}
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-int4.ps1') -Destination $stage
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-model.py') -Destination (Join-Path $stage 'model-tools')
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-python.ps1') -Destination (Join-Path $stage 'model-tools')
+$mochizukiLicenseRoot = Join-Path $root 'third_party/mochizuki'
+Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'windows/src/core/renodx/LICENSE') -Destination (Join-Path $stage 'Licenses/RenoDX_MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'UPSTREAM.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_SOURCES.md') -Force
+Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki-asi/README.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_ASI_SOURCES.md') -Force
+# Retired built-in runtime inventory: uninstall and upgrade use it to remove only
+# files that install owned. It is not a compatibility check.
+Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-owned.txt') -Destination $stage -Force
+Get-ChildItem -LiteralPath (Join-Path $asiPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
 foreach ($name in @('lmxxf-model.py','lmxxf-small-manifest.json','lmxxf-small.ps1')) {
     Copy-Item -LiteralPath (Join-Path $root "tools/install/$name") -Destination $stage
 }
@@ -721,18 +721,21 @@ foreach ($name in @('lmxxf-small-model.md','lmxxf-044-consumer-review.md')) {
 $mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
 $mzDoc = $mzDoc.Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
 [IO.File]::WriteAllText((Join-Path $stage 'docs/mochizuki.md'), $mzDoc, [Text.UTF8Encoding]::new($false))
+# Model preparation without the retired Python extractor: the official 0.0.8.2
+# tools write the models the ASI reads. No hash whitelist and no version gate.
 @'
 @echo off
 setlocal
 set "SOURCE=%~1"
-set "MODELS=%~2"
 if not defined SOURCE set "SOURCE=%~dp0nvngx_dlssnr.dll"
-if defined MODELS (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0model-tools\mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin" -Models "%MODELS%"
-) else (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0model-tools\mochizuki-python.ps1" -Source "%SOURCE%" -Output "%~dp0dlssnr-amd/dlssnr.bin"
+if not exist "%SOURCE%" (
+  echo Put nvngx_dlssnr.dll 310.9.16 or 310.8.0 beside this file, or pass its path.
+  pause
+  exit /b 1
 )
+"%~dp0model-tools\dlssnr_extract_model.exe" "%SOURCE%" "%~dp0dlssnr-amd"
 set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" echo Model extraction failed ^(exit code %RC%^).
 pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
@@ -919,7 +922,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'lmxxf-module-package.ps1', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'Licenses/OptiScaler-wiki-profiles.md') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'lmxxf-module-package.ps1', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'Licenses/OptiScaler-wiki-profiles.md', 'OptiScaler/plugins/dlssnr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {

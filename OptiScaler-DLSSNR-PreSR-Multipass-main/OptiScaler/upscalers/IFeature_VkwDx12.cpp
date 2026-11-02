@@ -1,6 +1,7 @@
 #include <pch.h>
 #include <dlssnr/amd/AmdBridge.h>
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/AsiTakeover.h>
 #include <dlssnr/backend/Selector.h>
 #include <dlssnr/submission/SubmissionHooks.h>
 
@@ -2237,10 +2238,10 @@ bool IFeature_VkwDx12::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter
         {
             reportedNrOffer = true;
             LOG_INFO("DLSS-NR: the Vulkan bridge reached the hand-off (upscale ok: {}, enabled: {})",
-                     dx12EvalResult, Config::Instance()->DlssNrEnabled.value_or_default());
+                     dx12EvalResult, DlssNr::AsiTakeover::NrRuntimeEnabled());
         }
 
-        if (dx12EvalResult && Config::Instance()->DlssNrEnabled.value_or_default())
+        if (dx12EvalResult && DlssNr::AsiTakeover::NrRuntimeEnabled())
             DlssNr::EvaluateAfterUpscale(cmdList, InParameters, Dx12CommandQueue,
                                          dx12Feature->GetUpscalerType() == Upscaler::DLSSD,
                                          _frameCount, {dx12Feature->DisplayWidth(), dx12Feature->DisplayHeight()});

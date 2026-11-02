@@ -62,7 +62,22 @@ inline bool HasMochizukiModelHeader(const std::filesystem::path& path) {
     in.seekg(0, std::ios::end);
     return in && std::memcmp(magic, "NRMODEL1", 8) == 0 && (count == 599 || count == 255) && in.tellg() > 16;
 }
+// The vendor ASI is installed as OptiScaler\plugins\dlssnr-amd.asi (the host's
+// default plugin folder). It owns NR itself, so no built-in runtime is required.
+inline bool HasAsiPlugin(const std::filesystem::path& dir) {
+    return NonemptyFile(dir / L"OptiScaler/plugins/dlssnr-amd.asi") ||
+           NonemptyFile(dir / L"plugins/dlssnr-amd.asi");
+}
 inline std::string ProbeInstallIssue(Kind kind, const std::filesystem::path& dir) {
+    if (kind == Kind::Mochizuki && !NonemptyFile(dir / L"MochizukiNrRuntime.dll")) {
+        if (!HasAsiPlugin(dir))
+            return "mochizuki: dlssnr-amd.asi is not installed. Run Setup from the complete package, or select another backend.";
+        const bool hasOriginal = NonemptyFile(dir / L"dlssnr-amd/dlssnr.bin");
+        const bool hasSmall = NonemptyFile(dir / L"dlssnr-amd/dlssnr-small.bin");
+        if (!hasOriginal && !hasSmall)
+            return "mochizuki: model missing. Run Setup with nvngx_dlssnr.dll 310.9.16 or 310.8.0, then restart the game.";
+        return {};
+    }
     const auto* runtime = kind == Kind::Lmxxf ? L"LmxxfNrRuntime.dll" :
         kind == Kind::Mochizuki ? L"MochizukiNrRuntime.dll" : L"dlssnr_amd_pass1.dll";
     if (!NonemptyFile(dir / runtime)) return std::string(Name(kind)) + ": runtime missing or empty. Run Setup from the complete package.";

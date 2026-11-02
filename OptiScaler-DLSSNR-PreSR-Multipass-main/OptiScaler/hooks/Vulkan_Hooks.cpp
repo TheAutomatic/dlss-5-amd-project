@@ -27,6 +27,7 @@
 
 #include <unordered_map>
 #include <dlssnr/DlssNr_VkExtensions.h>
+#include <dlssnr/AsiTakeover.h>
 #include <dlssnr/backend/mochizuki_runtime/MochizukiVulkanRegistry.h>
 #include <misc/VulkanCallScope.h>
 
@@ -820,7 +821,7 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
         // not start.
         DlssNr::VkExt::Merged nrExtensions;
 
-        if (Config::Instance()->DlssNrEnabled.value_or_default())
+        if (DlssNr::AsiTakeover::NrRuntimeEnabled())
         {
             // The game-facing enumeration includes spoofed NVX extensions on AMD.
             // Query the original loader trampoline with this physical device;

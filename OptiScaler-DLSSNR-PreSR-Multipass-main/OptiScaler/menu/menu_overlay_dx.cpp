@@ -1,5 +1,6 @@
 #include "pch.h"
 #include <dlssnr/amd/PresentExperimental.h>
+#include <dlssnr/AsiTakeover.h>
 #include "menu_overlay_base.h"
 #include "menu_overlay_dx.h"
 
@@ -354,7 +355,7 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
         if (pSwapChainPlain->QueryInterface(IID_PPV_ARGS(&pSwapChain)) != S_OK || pSwapChain == nullptr)
             return;
 
-        if (AmdPresentExperimental::IsTarget() && Config::Instance()->DlssNrEnabled.value_or_default())
+        if (AmdPresentExperimental::IsTarget() && DlssNr::AsiTakeover::NrRuntimeEnabled())
         {
             AmdPreSr::Settings settings;
             const auto* cfg = Config::Instance();

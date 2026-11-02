@@ -33,7 +33,8 @@ void RefreshProbeLocked(InstallProbe& p)
     const auto dir = Util::DllPath().parent_path();
     p.hasDaniel = std::filesystem::exists(dir / L"dlssnr_amd_pass1.dll", ec);
     p.hasLmxxf = std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
-    p.hasMochizuki = std::filesystem::exists(dir / L"MochizukiNrRuntime.dll", ec);
+    // The ASI branch counts as installed; the legacy runtime keeps old installs working.
+    p.hasMochizuki = std::filesystem::exists(dir / L"MochizukiNrRuntime.dll", ec) || HasAsiPlugin(dir);
     p.valid = true;
     p.tick = GetTickCount64();
 }

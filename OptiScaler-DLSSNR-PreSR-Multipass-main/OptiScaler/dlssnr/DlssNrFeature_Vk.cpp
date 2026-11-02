@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "DlssNrFeature_Vk.h"
+#include "AsiTakeover.h"
 
 #include <Config.h>
 #include <State.h>
@@ -497,7 +498,7 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
 {
     auto& cfg = *Config::Instance();
 
-    if (!cfg.DlssNrEnabled.value_or_default())
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled())
         return;
 
     if (cmdBuffer == VK_NULL_HANDLE || params == nullptr || device == VK_NULL_HANDLE ||

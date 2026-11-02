@@ -32,22 +32,23 @@ int main() {
     assert(!ProbeInstallIssue(Kind::Daniel, dir).empty());
     Write(dir / "dlssnr_on_amd_weights.bin", "weights");
     assert(ProbeInstallIssue(Kind::Daniel, dir).empty());
-    Write(dir / "MochizukiNrRuntime.dll", "runtime");
-    Write(dir / "dlssnr-amd/dlssnr.bin", "corrupt");
-    assert(ProbeInstallIssue(Kind::Mochizuki, dir).find("header invalid") != std::string::npos);
-    Write(dir / "dlssnr-amd/dlssnr.bin", std::string("NRMODEL1\x57\x02\0\0payload", 19));
-    assert(HasMochizukiModelHeader(dir / "dlssnr-amd/dlssnr.bin"));
-    assert(ProbeInstallIssue(Kind::Mochizuki, dir).find("shaders missing") != std::string::npos);
-    Write(dir / "dlssnr-amd/shaders/test.spv", "shader");
+    // The ASI branch needs no built-in runtime; presence and layout only.
+    assert(ProbeInstallIssue(Kind::Mochizuki, dir).find("dlssnr-amd.asi is not installed") != std::string::npos);
+    Write(dir / "OptiScaler/plugins/dlssnr-amd.asi", "asi");
+    assert(ProbeInstallIssue(Kind::Mochizuki, dir).find("model missing") != std::string::npos);
+    Write(dir / "dlssnr-amd/dlssnr.bin", "any newer official model is accepted");
     assert(ProbeInstallIssue(Kind::Mochizuki, dir).empty());
     assert(HasMochizukiSelectedModel(dir, 0));
     assert(!HasMochizukiSelectedModel(dir, 1));
     fs::remove(dir / "dlssnr-amd/dlssnr.bin");
     Write(dir / "dlssnr-amd/dlssnr-small.bin", std::string("NRMODEL1\xff\0\0\0payload", 19));
-    assert(HasMochizukiModelHeader(dir / "dlssnr-amd/dlssnr-small.bin"));
     assert(HasMochizukiSelectedModel(dir, 1));
     assert(!HasMochizukiSelectedModel(dir, 0));
     assert(ProbeInstallIssue(Kind::Mochizuki, dir).empty());
+    // The header helper remains for legacy installs and lmxxf pack detection.
+    assert(HasMochizukiModelHeader(dir / "dlssnr-amd/dlssnr-small.bin"));
+    Write(dir / "dlssnr-amd/dlssnr.bin", "corrupt");
+    assert(!HasMochizukiModelHeader(dir / "dlssnr-amd/dlssnr.bin"));
     fs::remove_all(dir);
     std::cout << "PASS installation diagnostics and Unicode/shared path resolution\n";
 }

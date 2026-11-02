@@ -10,6 +10,7 @@
 
 #include <dlssnr/DlssNr.h>
 #include <dlssnr/NrSessionActivity.h>
+#include <dlssnr/AsiTakeover.h>
 
 
 #include <dlssnr/DlssNr_Capture.h>
@@ -3090,7 +3091,7 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
     // every frame while disabled, and teardown must not repeat.
     DlssNr::AmdBridge::PollReleases();
     static std::atomic<bool> s_nrWasEnabled { true };
-    if (!cfg.DlssNrEnabled.value_or_default())
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled())
     {
         g_activityBackend.store(NrActivityBackend::None, std::memory_order_release);
         if (s_nrWasEnabled.exchange(false))
@@ -3099,10 +3100,12 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             DlssNr::AmdBridge::InvalidateHistory();
             DlssNr::AmdBridge::OnNrDisabled();
         }
-        ReportSkipOnce("it is switched off");
+        const bool asiOwned = DlssNr::AsiTakeover::Active();
+        ReportSkipOnce(asiOwned ? "the Mochizuki ASI owns NR" : "it is switched off");
         {
             std::lock_guard lock(g_featureSeamStatusMutex);
-            g_featureSeamStatus = "NR is switched off";
+            g_featureSeamStatus = asiOwned ? "NR is provided by dlssnr-amd.asi; open NR Control with End"
+                                           : "NR is switched off";
         }
         return;
     }
@@ -3620,7 +3623,7 @@ std::string FeatureSeamStatus()
 }
 bool IsActiveForFrameGeneration()
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default())
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled())
         return false;
     switch (g_activityBackend.load(std::memory_order_acquire))
     {

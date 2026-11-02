@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "../dlssnr/amd/AmdBridge.h"
 #include "../dlssnr/NrTimingDisplay.h"
 #include "NrGpuHistoryPlot.h"
@@ -12,6 +12,7 @@
 #include "MenuFont.h"
 #include "MochizukiNetworkShortcut.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
+#include <dlssnr/AsiTakeover.h>
 #include <dlssnr/amd/AmdPreSr.h>
 
 #include <algorithm>
@@ -311,19 +312,23 @@ void MenuCommon::UpdateManualInput(HWND targetHwnd)
     const int f11Modifiers = originalF11Modifiers >= 0 ? originalF11Modifiers : held;
     auto networkKey = mochizukiNetworkShortcut.Update(
         (f11Modifiers & ShortcutKeys::Ctrl) != 0, f11Down || f11Pressed,
-        focused && DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Mochizuki,
+        focused && !DlssNr::AsiTakeover::Active() &&
+            DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Mochizuki,
         !capturingKey && !typing && canAcceptInputs);
     if (f11Pressed && !f11Down)
         networkKey.suppressF11 |= mochizukiNetworkShortcut.Update(false, false, false, false).suppressF11;
     inputMochizukiNetwork |= networkKey.toggle;
 
     struct Action { int binding; bool* pending; const char* message; };
+    // The ASI owns NR: its key (including a user-rebound one) is neither
+    // registered nor consumed, and the ASI's own End stays untouched.
+    const bool nrKeysOwned = !DlssNr::AsiTakeover::Active();
     const Action actions[] = {
         {config->ShortcutKey.value_or_default(), &inputMenu, "Menu shortcut released"},
         {config->FpsShortcutKey.value_or_default(), &inputFps, "FPS shortcut released"},
         {config->FpsCycleShortcutKey.value_or_default(), &inputFpsCycle, "FPS cycle shortcut released"},
         {config->FGShortcutKey.value_or_default(), &inputFG, "FG shortcut released"},
-        {config->DlssNrToggleKey.value_or_default(), &inputDlssNr, "NR shortcut released"},
+        {nrKeysOwned ? config->DlssNrToggleKey.value_or_default() : 0, &inputDlssNr, "NR shortcut released"},
     };
     std::array<bool, 256> interested {};
     if (capturingKey) interested.fill(true);
@@ -1407,7 +1412,7 @@ void MenuCommon::Present()
 
     static UpscalerRouteDiagnostic routeDiagnostic;
     const auto routeEvent = routeDiagnostic.Observe(GetTickCount64(),
-        Config::Instance()->DlssNrEnabled.value_or_default(), State::Instance().currentFeature != nullptr);
+        DlssNr::AsiTakeover::NrRuntimeEnabled(), State::Instance().currentFeature != nullptr);
     if (routeEvent == UpscalerRouteDiagnostic::Event::MissingRoute)
         LOG_WARN("NR input diagnostic: no upscaler feature observed by OptiScaler after 30 s of active presents "
                  "with NR enabled. NR needs a supported upscaler route. If already in gameplay, select DLSS "
@@ -1792,7 +1797,8 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
         if (inputMochizukiNetwork)
         {
             inputMochizukiNetwork = false;
-            if (DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Mochizuki)
+            if (!DlssNr::AsiTakeover::Active() &&
+                DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Mochizuki)
             {
                 config->MochizukiInt4Mixed = !config->MochizukiInt4Mixed.value_or_default();
                 DlssNr::AmdBridge::InvalidateHistory();
@@ -1809,14 +1815,19 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
         if (inputDlssNr)
         {
             inputDlssNr = false;
-            config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
-            LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
-                      config->DlssNrEnabled.value_or_default());
+            // The action is unbound when the ASI owns NR; keep the stored
+            // preference untouched either way.
+            if (!DlssNr::AsiTakeover::Active())
+            {
+                config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
+                LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
+                          config->DlssNrEnabled.value_or_default());
 
-            ImGuiToast toast { ImGuiToastType::Info, 2000 };
-            toast.setTitle("DLSS Neural Rendering");
-            toast.setContent(config->DlssNrEnabled.value_or_default() ? "On" : "Off");
-            ImGui::InsertNotification(toast);
+                ImGuiToast toast { ImGuiToastType::Info, 2000 };
+                toast.setTitle("DLSS Neural Rendering");
+                toast.setContent(config->DlssNrEnabled.value_or_default() ? "On" : "Off");
+                ImGui::InsertNotification(toast);
+            }
         }
 
         if (inputFpsCycle && config->ShowFps.value_or_default())
@@ -2113,7 +2124,7 @@ void MenuCommon::UpdateFrameTimeAverages(RenderMenuContext& ctx)
 
     // Always observe lifecycle changes, including when both menu and FPS overlay are hidden.
     // These are cached, non-consuming GPU snapshots: no runtime creation or GPU waits.
-    const bool nrEnabled = config->DlssNrEnabled.value_or_default();
+    const bool nrEnabled = DlssNr::AsiTakeover::NrRuntimeEnabled();
     const auto nrKind = DlssNr::AmdBridge::TimingBackendKind();
     const uint64_t runtime = DlssNr::AmdBridge::TimingRuntimeId();
     uint64_t route = (static_cast<uint64_t>(state.api) << 8) |
@@ -2506,9 +2517,9 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                     StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
 
             std::string codecTimingLine, effectsTimingLine;
-            if (overlayType != FpsOverlay_JustFPS && config->DlssNrEnabled.value_or_default())
+            if (overlayType != FpsOverlay_JustFPS && DlssNr::AsiTakeover::NrRuntimeEnabled())
                 firstLine += std::string(" | NR: ") + DlssNr::Backend::Name(DlssNr::Backend::ActiveKindFromConfig());
-            if (overlayType != FpsOverlay_JustFPS && config->DlssNrEnabled.value_or_default()) {
+            if (overlayType != FpsOverlay_JustFPS && DlssNr::AsiTakeover::NrRuntimeEnabled()) {
                 const auto kind = DlssNr::Backend::ActiveKindFromConfig();
                 if (kind != DlssNr::Backend::Kind::Mochizuki) {
                     char nrValue[48] = "N/A";
@@ -10122,7 +10133,11 @@ void MenuCommon::RenderKeybindSettings(RenderMenuContext& ctx)
         RenderKeybind("FPS Overlay", 11, config->FpsShortcutKey);
         RenderKeybind("FPS Overlay Cycle", 12, config->FpsCycleShortcutKey);
         RenderKeybind("Frame Generation", 13, config->FGShortcutKey);
+        ImGui::BeginDisabled(DlssNr::AsiTakeover::Active());
         RenderKeybind("Neural Rendering", 14, config->DlssNrToggleKey);
+        if (DlssNr::AsiTakeover::Active())
+            ShowHelpMarker("NR is provided by dlssnr-amd.asi; its own hotkey is configured in dlssnr-amd.ini.");
+        ImGui::EndDisabled();
     }
 }
 

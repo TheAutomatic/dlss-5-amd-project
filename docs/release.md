@@ -11,7 +11,7 @@
 ## 版本号
 
 - 版本串来自仓库根的 `VERSION`；`PACKAGE_RELEASE.ps1` 未显式给 `-Version` 时读它，并把 `VERSION` 放进包里。
-- 宿主的 `OptiScaler.log` 首行、后续 `Host build` 行和 Mochizuki 的 `mochizuki_nr.log` 身份来自各自编译时的 `VERSION`、完整 Git HEAD 和源码内容指纹，不从运行目录里的 VERSION 或 Git 推断。源码压缩包/无 Git 环境明确写 `unknown`，仍保留内容指纹；本地未提交修改由内容指纹区分。Mochizuki 日志每次进程首次写入及轮转后重写身份。
+- 宿主的 `OptiScaler.log` 首行、后续 `Host build` 行来自编译时的 `VERSION`、完整 Git HEAD 和源码内容指纹，不从运行目录里的 VERSION 或 Git 推断。源码压缩包/无 Git 环境明确写 `unknown`，仍保留内容指纹；本地未提交修改由内容指纹区分。Mochizuki NR 现由官方 ASI 提供，其身份与日志由插件自己负责，不再要求内置 `MochizukiNrRuntime.dll`。
 - 日常发版只更新三语 README 的标题版本号，保留其 Release 更新日志入口，不再向 README 添加逐版更新摘要。中英文发布正文直接维护在 `.github/workflows/release.yml` 的 `Prepare release notes` 步骤中，不另存 docs；正文为空或版本标题与 VERSION 不一致则中止；安装说明等长期文档仅在功能用法确有变化时更新。
 - 当前产品名为 **OptScaler(NR)**。品牌仅用于安装/卸载窗口、README、包名等产品展示：窗口显示 `OptScaler(NR) <版本>`，正式 ZIP 为 `OptScaler-NR-<版本>.zip`，直接作为 GitHub Release 附件上传。ZIP 使用连字符，避免 GitHub 上传附件时将括号改为点号、导致按文件名核验失败。同步修改名称时检查打包、上传和下载路径。`OptiScaler.dll` / INI、旧日志名、源码目录及注册表位置保持兼容，旧安装记录仍可识别，新记录写入 `project=OptScaler(NR)`。
 - **tag 与 GitHub Release 标题固定为 `v<版本>`**（例如 `v1.10.2`），不添加品牌或其他描述；workflow 的发布标题直接使用 `github.ref_name`。CI 在 tag 名含 `-alpha`、`-beta` 或 `-rc` 时发成 prerelease，否则是正式版（Latest）。只认这三个后缀。
@@ -237,7 +237,7 @@ Actions 每次创建独立证书，打包步骤传入其指纹，随后的 `alwa
 |---|---|
 | `OptiScaler.dll`、`OptiScaler.ini` | ini 的 `[DlssNr]` 段由打包脚本生成 |
 | `LmxxfNrRuntime.dll`、`lmxxf-modules/`（gfx1200 + gfx1201，数量见模块契约）、`shaders/`（只含顶层 `.hlsl`） | lmxxf 后端 |
-| `MochizukiNrRuntime.dll`、`dlssnr-amd/shaders/`、`Mochizuki-Model.bat`、`mochizuki-python.ps1`、`mochizuki-model.py`、`model-tools/` | mochizuki 后端及用户模型提取工具；共用 Python 探测与商店安装指引，不含 `dlssnr.bin` |
+| `OptiScaler/plugins/dlssnr-amd.asi`、`dlssnr-amd/`（同版 shader/ACO/INT4/lang）、`nr_present_probe.exe`、`Mochizuki-Model.bat`、`model-tools/dlssnr_extract_model.exe`、`model-tools/dlssnr-int4-weights.exe` | 官方 Mochizuki NR ASI 及配套资源；模型由用户 DLL 提取，不含 `dlssnr.bin`；不再包含 `MochizukiNrRuntime.dll` 或旧 Python 提取器 |
 | `Setup.bat`、`Setup.ps1`、`lmxxf-module-package.ps1` | 安装器，见 [architecture/installer.md](architecture/installer.md) |
 | `Uninstall_OptiScaler_NR.bat`、`Uninstall_OptiScaler_NR.ps1` | 卸载器 |
 | `README.md`、`README.en.md`、`README.es.md` | 直接拷贝仓库根的 README，没有第二份副本 |
@@ -323,9 +323,9 @@ GPU的shader优先级回归包装既有HIP专项调用，同样不重复矩阵�
 
 ## 第三后端构建与打包
 
-mochizuki 的本地完整构建与 Actions CI 共用 `tools/build/build-mochizuki-runtime.cmd`。
+mochizuki 的 NR 载荷是 vendored 的官方 ASI（`third_party/mochizuki-asi`），不再由 `tools/build/build-mochizuki-runtime.cmd` 构建；该脚本与其 ABI 检查只服务旧内置 runtime 的历史工作，不进入打包路径。
 `tests/run-all.cmd --tier ci` 在缺少构建清单时构建它，校验源码/产物清单后执行
 `tests/mochizuki/run.cmd abi`。`--tier gpu` 另需本机自备的 `dlssnr-amd/dlssnr.bin`。
-打包器核对 `exports/mochizuki-runtime/build-manifest.json` 与 ABI 产物哈希；没有模型也能
+打包器核对 `OptiScaler/plugins/dlssnr-amd.asi`、`dlssnr-amd` 资源与官方提取工具存在（按文件名/布局，不做哈希准入）；没有模型也能
 进行无 GPU 构建及打包。公开包仅带 runtime、shaders、模型提取工具和许可，不带模型或本机 cache。
 安装、独立配置和首次编译说明见 [mochizuki.md](mochizuki.md)。

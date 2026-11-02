@@ -19,8 +19,6 @@ call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\
 set "LOGARGS="
 if defined FAST goto optiscaler
 
-call tools\build\build-mochizuki-runtime.cmd --reuse || exit /b 1
-
 echo === Release build: LmxxfNrRuntime.dll ===
 call tools\build\build-lmxxf-runtime.cmd exports\release-local || exit /b 1
 set "LMXXF_TEST_RUNTIME=%CD%\exports\release-local\LmxxfNrRuntime.dll"

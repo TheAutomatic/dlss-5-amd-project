@@ -84,14 +84,6 @@ class LocalPackageTests(unittest.TestCase):
             self.assertIn('/t:' + target + ' ', batch.read_text())
             self.assertNotIn('@HOST_TARGET@', batch.read_text())
 
-    def test_mochizuki_requires_builder(self):
-        p = self.root / 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/mochizuki_runtime/MochizukiNrRuntime.cpp'
-        p.parent.mkdir(parents=True)
-        p.write_text('fixture')
-        result = self.run_script('-Version', '1.9.10.3', '-PlanOnly')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'Mochizuki build script missing', result.stdout)
-
     def test_crt_discovery_skips_incomplete_redist(self):
         source = (REPO / 'tools/release/prepare-person-assets.ps1').read_text(encoding='utf-8-sig')
         selection = source[source.index('$crtNames='):source.index('Get-ChildItem -LiteralPath $CrtDir -File')]

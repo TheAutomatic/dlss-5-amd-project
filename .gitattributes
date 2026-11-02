@@ -19,3 +19,6 @@ tests/sync/fixtures/lmxxf/*.raw text eol=lf
 third_party/lmxxf/** text=auto eol=lf
 # GPU modules are opaque binaries even when they happen to contain CRLF bytes.
 third_party/lmxxf/**/*.hsaco -text
+
+# Vendored official NR ASI payload: binaries and resource text must stay byte-exact.
+third_party/mochizuki-asi/payload/** -text

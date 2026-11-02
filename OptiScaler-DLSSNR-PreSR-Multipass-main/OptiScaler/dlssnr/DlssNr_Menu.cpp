@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "NrTimingDisplay.h"
 #include "NrStatusDisplay.h"
 #include "DlssNr_PipelineUi.h"
@@ -11,12 +11,14 @@
 #include "backend/LmxxfBackend.h"
 #include "submission/SubmissionHooks.h"
 #include "DlssNrFeature_Vk.h"
+#include "AsiTakeover.h"
 
 #include "DlssNr.h"
 #include "DlssNr_ExposureScan.h"
 
 
 #include <Config.h>
+#include <Util.h>
 #include <hooks/D3D12_Hooks.h>
 #include <menu/menu_common.h>
 
@@ -831,8 +833,42 @@ static void RenderMochizukiMenu(Config* config, PipelineUi::Section page, const 
     HelpMarker("Resets mochizuki and shared NR controls. Keeps other backends, selection and hotkeys.");
 }
 
+// Reads everything the rest of the page must not change while the vendor ASI
+// owns NR: no reset, preset, model switch or keybind edit can reach the config.
+struct OwnedControlLock
+{
+    bool active;
+    explicit OwnedControlLock(bool on) : active(on)
+    {
+        if (active) ImGui::BeginDisabled();
+    }
+    ~OwnedControlLock()
+    {
+        if (active) ImGui::EndDisabled();
+    }
+};
+
+static void RenderAsiTakeoverNotice()
+{
+    const auto path = DlssNr::AsiTakeover::ModulePath();
+    const auto version = DlssNr::AsiTakeover::ModuleVersion();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.70f, 0.20f, 1.0f));
+    MenuUi::TextWrapped("NR is provided by the Mochizuki ASI plugin. Open NR Control with End.");
+    ImGui::PopStyleColor();
+    if (!path.empty())
+        MenuUi::TextDisabled("Module: %s", wstring_to_string(path).c_str());
+    MenuUi::TextDisabled("Version: %s", version.empty() ? "unknown" : version.c_str());
+    MenuUi::TextWrapped("Built-in NR controls are unavailable while the plugin is loaded. "
+                        "Enabled and backend preferences are kept. Restart without the plugin to use the built-in engine.");
+}
+
 void RenderMenu(Config* config, float menuResScale)
 {
+    const bool asiOwned = DlssNr::AsiTakeover::Active();
+    if (asiOwned)
+        RenderAsiTakeoverNotice();
+    OwnedControlLock ownedControls(asiOwned);
+
     CompatibilityMenuBaseline(config);
 
     // DLSS Neural Rendering -----------------------------

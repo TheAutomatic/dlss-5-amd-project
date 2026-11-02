@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AmdBridge.h"
+#include "../AsiTakeover.h"
 #include "NrColourState.h"
 #include "../DiagnosticLog.h"
 #include "../NrCoverageHost.h"
@@ -1111,7 +1112,7 @@ DlssNr::Backend::Kind TimingBackendKind()
 }
 uint64_t TimingRuntimeId()
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default()) return 0;
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled()) return 0;
     const int kind = g_activeKind.load(std::memory_order_acquire);
     if (kind != static_cast<int>(DlssNr::Backend::Kind::Lmxxf) &&
         kind != static_cast<int>(DlssNr::Backend::Kind::Mochizuki)) return 0;
@@ -1121,7 +1122,7 @@ uint64_t TimingRuntimeId()
 NrTimingSnapshot Timing()
 {
     // This read must not discover files or instantiate a backend from the UI.
-    if (!Config::Instance()->DlssNrEnabled.value_or_default()) return {};
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled()) return {};
     const int kind = g_activeKind.load(std::memory_order_acquire);
     if (kind != static_cast<int>(DlssNr::Backend::Kind::Lmxxf) &&
         kind != static_cast<int>(DlssNr::Backend::Kind::Mochizuki)) return {};
@@ -1142,14 +1143,14 @@ NrTimingSnapshot Timing()
 }
 MochizukiNrInfo MochizukiTimingDetails()
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled() ||
         g_activeKind.load(std::memory_order_acquire) != int(DlssNr::Backend::Kind::Mochizuki)) return {};
     if (auto* host = g_mochizuki.load(std::memory_order_acquire)) return host->TimingDetails();
     return {};
 }
 MochizukiNrBuildProgress BuildProgress()
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled() ||
         g_activeKind.load(std::memory_order_acquire) != int(DlssNr::Backend::Kind::Mochizuki)) return {};
     if (auto* host = g_mochizuki.load(std::memory_order_acquire)) return host->BuildProgress();
     return {};
@@ -1158,13 +1159,13 @@ DlssNr::Backend::InlineAutoSpin::StatusSnapshot MochizukiInlineAutoSpinStatus()
 {
     const auto* c = Config::Instance();
     const bool isMochi = DlssNr::Backend::ActiveKindFromConfig() == DlssNr::Backend::Kind::Mochizuki;
-    if (c->DlssNrEnabled.value_or_default() && isMochi)
+    if (DlssNr::AsiTakeover::NrRuntimeEnabled() && isMochi)
     {
         if (auto* host = g_mochizuki.load(std::memory_order_acquire))
             return host->InlineAutoSpinStatus();
     }
     DlssNr::Backend::InlineAutoSpin::RuntimeConfigInput autoCfg {};
-    autoCfg.inlineEnabled = c->DlssNrEnabled.value_or_default() && c->NrInline.value_or_default();
+    autoCfg.inlineEnabled = DlssNr::AsiTakeover::NrRuntimeEnabled() && c->NrInline.value_or_default();
     autoCfg.isMochizuki = isMochi;
     autoCfg.gpuHandoff = c->NrGpuHandoff.value_or_default();
     autoCfg.autoSpinEnabled = c->NrInlineAutoSpin.value_or_default();
@@ -1177,7 +1178,7 @@ DlssNr::Backend::InlineAutoSpin::StatusSnapshot MochizukiInlineAutoSpinStatus()
 }
 void RequestMochizukiInlineAutoSpinReeval()
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default()) return;
+    if (!DlssNr::AsiTakeover::NrRuntimeEnabled()) return;
     if (auto* host = g_mochizuki.load(std::memory_order_acquire))
         host->RequestInlineAutoSpinReeval();
 }
