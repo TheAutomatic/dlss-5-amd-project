@@ -392,7 +392,16 @@ std::atomic<NrActivityBackend> g_activityBackend { NrActivityBackend::None };
 // menu; the seam counter also lets the NGX outer layer avoid running the same frame twice.
 std::mutex g_skipReasonMutex;
 std::string g_lastSkipReason;
-std::atomic<unsigned long long> g_featureSeamAttempts { 0 };
+// Per-evaluate seam bookkeeping. Both are thread-local: the feature seam and the outer call that
+// checks it run synchronously on the same thread, while another thread may be evaluating a
+// different feature. A process-wide counter would attribute that other thread's seam to this call.
+thread_local unsigned long long t_featureSeamAttempts = 0;
+struct SeamOutcome
+{
+    bool ran = false;
+    std::string reason;
+};
+thread_local SeamOutcome t_seamOutcome;
 std::mutex g_featureSeamStatusMutex;
 std::string g_featureSeamStatus;
 std::unique_ptr<DlssNr_Dx12> g_compose;
@@ -1572,6 +1581,8 @@ void ReportSkipOnce(const char* reason)
         std::lock_guard lock(g_skipReasonMutex);
         g_lastSkipReason = reason;
     }
+    t_seamOutcome.ran = false;
+    t_seamOutcome.reason = reason;
 }
 
 } // namespace
@@ -3071,6 +3082,10 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
 {
     const Config& cfg = *Config::Instance();
 
+    // Each attempt starts unhandled; every exit path below either sets ran or leaves a reason.
+    t_seamOutcome.ran = false;
+    t_seamOutcome.reason.clear();
+
     // Release the AMD host session only on the off transition: Evaluate runs
     // every frame while disabled, and teardown must not repeat.
     DlssNr::AmdBridge::PollReleases();
@@ -3085,6 +3100,10 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
             DlssNr::AmdBridge::OnNrDisabled();
         }
         ReportSkipOnce("it is switched off");
+        {
+            std::lock_guard lock(g_featureSeamStatusMutex);
+            g_featureSeamStatus = "NR is switched off";
+        }
         return;
     }
     s_nrWasEnabled = true;
@@ -3122,6 +3141,8 @@ void EvaluateInternal(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* p
         if (DlssNr::AmdBridge::Evaluate(cmdList, params, timingQueue, beforeUpscale, outputExtent, ownedColourState))
         {
             g_activityBackend.store(NrActivityBackend::Amd, std::memory_order_release);
+            t_seamOutcome.ran = true;
+            t_seamOutcome.reason.clear();
             return;
         }
     }
@@ -3420,7 +3441,7 @@ ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_N
     // FSR-RR + NR master switch is the whole condition: the placement decision inside
     // EvaluateInternal already honours RunBeforeSR, and ApplyAfterRR is no longer required for this
     // combination (it only governs native RR's post-upscale placement).
-    ++g_featureSeamAttempts;
+    ++t_featureSeamAttempts;
 
     // The bridge reads the colour from the block and substitutes its answer there: show it the composed frame,
     // take the answer, and leave the title's colour behind.
@@ -3440,15 +3461,13 @@ ID3D12Resource* EvaluateAfterDenoise(ID3D12GraphicsCommandList* cmdList, NVSDK_N
     params->Set(NVSDK_NGX_Parameter_Color, title);
 
     {
-        std::string reason;
-        {
-            std::lock_guard lock(g_skipReasonMutex);
-            reason = g_lastSkipReason;
-        }
+        // This attempt's own outcome, not the process-wide activity flag: a background success from
+        // an earlier frame must not make a skipped frame look like it ran.
         std::lock_guard lock(g_featureSeamStatusMutex);
-        g_featureSeamStatus = g_activityBackend.load(std::memory_order_acquire) == NrActivityBackend::Amd
+        g_featureSeamStatus = t_seamOutcome.ran
                                   ? "FSR-RR: NR runs between denoise and SR"
-                                  : (reason.empty() ? "FSR-RR: NR seam did not run" : reason);
+                                  : (t_seamOutcome.reason.empty() ? "FSR-RR: NR seam did not run"
+                                                                  : t_seamOutcome.reason);
     }
     return answer;
 }
@@ -3592,7 +3611,7 @@ CalibrationReading Calibration()
 
 bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
 
-unsigned long long FeatureSeamAttempts() { return g_featureSeamAttempts.load(std::memory_order_relaxed); }
+unsigned long long FeatureSeamAttempts() { return t_featureSeamAttempts; }
 
 std::string FeatureSeamStatus()
 {

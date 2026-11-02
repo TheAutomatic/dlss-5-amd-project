@@ -1044,7 +1044,7 @@ void RenderMenu(Config* config, float menuResScale)
                                                                    : Upscaler::Reset;
             if (upscaler == Upscaler::DLSSD)
                 MenuUi::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
-            else if (upscaler == Upscaler::FSR_RR)
+            else if (view.enabled && upscaler == Upscaler::FSR_RR)  // the 'NR is off' line above covers disabled
             {
                 // FSR-RR is our own denoise+SR chain and runs NR between the two when the master
                 // switch is on. Report what the seam actually did instead of a generic placeholder.
