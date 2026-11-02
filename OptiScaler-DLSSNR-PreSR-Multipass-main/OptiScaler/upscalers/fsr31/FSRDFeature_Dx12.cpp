@@ -1439,21 +1439,27 @@ bool FSRDFeatureDx12::CreateDenoiserContext()
     // history reset -- every time a preset moved. This field is an allocation ceiling and each
     // dispatch already supplies its own logical size below it, so the headroom simply absorbs that
     // jitter. An alignment of 8 costs well under a percent of the allocation.
-    // Dynamic-resolution titles dispatch a slightly larger logical render size than the one they
-    // created the feature with (Crimson Desert: created at 2258x1270, dispatched 2272x1280 after a
-    // preset change), which used to fail that frame and force a full context rebuild. The ceiling is
-    // an allocation limit; keep ~3% headroom on top of the 8-pixel alignment so DRS jitter stays
-    // inside it and only genuinely larger resolutions trigger the rebuild path.
+    // The ceiling is an allocation limit, and dynamic-resolution titles move their logical render
+    // size a lot after creation — a preset change rounds differently (Crimson Desert created at
+    // 2258x1270, dispatched 2272x1280), and DRS itself can scale the render target by tens of
+    // percent. Recreating the context on every such move costs a failed evaluation, a temporal
+    // history reset and a visible rebuild. Allocate for the real upper bound instead: the render
+    // size can never exceed the output size, so the ceiling is the larger of a slightly padded
+    // creation size and the display resolution, aligned for the same reason as before.
     constexpr uint32_t kRenderCeilingAlignment = 8;
-    constexpr uint32_t kRenderCeilingHeadroomDivisor = 32; // 1/32 = 3.1%
+    constexpr uint32_t kRenderCeilingHeadroomDivisor = 32; // 1/32 = 3.1% for preset rounding
     const auto ceilingFor = [](uint32_t extent)
     {
         const uint32_t padded = extent + std::max<uint32_t>(kRenderCeilingAlignment, extent / kRenderCeilingHeadroomDivisor);
         return (padded + kRenderCeilingAlignment - 1) / kRenderCeilingAlignment * kRenderCeilingAlignment;
     };
+    const auto aligned = [](uint32_t extent)
+    { return (extent + kRenderCeilingAlignment - 1) / kRenderCeilingAlignment * kRenderCeilingAlignment; };
 
-    const uint32_t maxRenderWidth = std::max(_denoiserCtxDesc.maxRenderSize.width, ceilingFor(RenderWidth()));
-    const uint32_t maxRenderHeight = std::max(_denoiserCtxDesc.maxRenderSize.height, ceilingFor(RenderHeight()));
+    const uint32_t maxRenderWidth = std::max({ _denoiserCtxDesc.maxRenderSize.width, ceilingFor(RenderWidth()),
+                                               aligned(TargetWidth()) });
+    const uint32_t maxRenderHeight = std::max({ _denoiserCtxDesc.maxRenderSize.height, ceilingFor(RenderHeight()),
+                                                aligned(TargetHeight()) });
     _denoiserCtxDesc = { .header = { .type = FFX_API_CREATE_CONTEXT_DESC_TYPE_DENOISER,
                                      // Chain backend desc into context desc
                                      .pNext = &backendDesc.header },
