@@ -932,14 +932,37 @@ void RenderMenu(Config* config, float menuResScale)
         {
             const auto kind = Backend::ActiveKindFromConfig();
             const bool isLmxxf = kind == Backend::Kind::Lmxxf;
+            const auto upscaler = State::Instance().currentFeature
+                                      ? State::Instance().currentFeature->GetUpscalerType()
+                                      : Upscaler::Reset;
+            const bool fsrRr = upscaler == Upscaler::FSR_RR;
             int order = config->DlssNrRunBeforeSr.value_or_default() ? 0 : 1;
-            const char* orders[] = {"NR -> SR (default)", "SR -> NR (experimental)"};
+            // FSR-RR is our own denoise+SR chain, so the same placement control reads as a real
+            // three-stage order there. Native RR is excluded from this control (it has its own
+            // post-upscale option below).
+            const char* orders[] = {fsrRr ? "RR -> NR -> SR (default)" : "NR -> SR (default)",
+                                    fsrRr ? "RR -> SR -> NR (experimental)" : "SR -> NR (experimental)"};
             if (MenuUi::Combo("Processing order", &order, orders, IM_ARRAYSIZE(orders)))
             {
                 config->DlssNrRunBeforeSr = order == 0;
                 AmdBridge::InvalidateHistory();
             }
+            if (fsrRr)
+            {
+                const auto passes = config->DlssNrPasses.value_or_default();
+                const auto scale = config->DlssNrWorkingScale.value_or_default();
+                MenuUi::TextDisabled(order == 0
+                                         ? "RR -> NR -> SR: NR reads the denoised render-resolution colour "
+                                           "(passes %u, model resolution %d%%)."
+                                         : "RR -> SR -> NR: NR reads the upscaled output "
+                                           "(passes %u, model resolution %d%% of output).",
+                                     passes, (int) lroundf(scale * 100.0f));
+            }
             HelpMarker("NR -> SR enhances the render-resolution input. SR -> NR enhances the upscaled output."
+                       "\nFSR-RR follows this control too: RR -> NR -> SR runs NR inside the feature between"
+                       "\nits denoise and its SR; RR -> SR -> NR runs it over the SR output."
+                       "\nPasses and model resolution come from the controls on this page (not the"
+                       "\nnative-RR-only values below) and are relative to the selected input."
                        "\nMochizuki SR -> NR keeps the game's render-resolution motion and the runtime scales it."
                        "\nDaniel and lmxxf SR -> NR resample depth and motion onto the output grid."
                        "\nThe model resolution setting is relative to the selected input; SR -> NR can cost much more GPU time and memory."
@@ -1040,20 +1063,26 @@ void RenderMenu(Config* config, float menuResScale)
                     MenuUi::TextWrapped("Temporal history unavailable: %s", summary.historyIssue.c_str());
                 openRecordingCompatibility = RenderRecordingCompatibilityGuidance(config, status);
             }
-            const auto upscaler = State::Instance().currentFeature ? State::Instance().currentFeature->GetUpscalerType()
-                                                                   : Upscaler::Reset;
-            if (upscaler == Upscaler::DLSSD)
+            const auto featureUpscaler = State::Instance().currentFeature
+                                             ? State::Instance().currentFeature->GetUpscalerType()
+                                             : Upscaler::Reset;
+            if (featureUpscaler == Upscaler::DLSSD)
                 MenuUi::TextWrapped("Native Ray Reconstruction has no supported AMD NR seam. This chart describes the Super Resolution path.");
-            else if (view.enabled && upscaler == Upscaler::FSR_RR)  // the 'NR is off' line above covers disabled
+            else if (view.enabled && featureUpscaler == Upscaler::FSR_RR)  // the 'NR is off' line above covers disabled
             {
                 // FSR-RR is our own denoise+SR chain and runs NR between the two when the master
                 // switch is on. Report what the seam actually did instead of a generic placeholder.
+                const bool preSr = config->DlssNrRunBeforeSr.value_or_default();
+                MenuUi::TextWrapped("FSR-RR order: %s", preSr ? "RR -> NR -> SR" : "RR -> SR -> NR");
                 const auto seam = DlssNr::FeatureSeamStatus();
-                MenuUi::TextWrapped("%s", seam.empty()
-                                               ? "FSR-RR: NR runs between denoise and SR once a frame is processed."
-                                               : seam.c_str());
-                if (!config->DlssNrRunBeforeSr.value_or_default())
-                    MenuUi::TextWrapped("FSR-RR: NR is configured post-upscale (RunBeforeSR=off); it runs after the SR output instead.");
+                if (preSr)
+                    MenuUi::TextWrapped("%s", seam.empty()
+                                                   ? "NR runs between the denoise and the SR once a frame is processed."
+                                                   : seam.c_str());
+                else
+                    MenuUi::TextWrapped("NR runs over the SR output (passes %u, model resolution %d%%).",
+                                        config->DlssNrPasses.value_or_default(),
+                                        (int) lroundf(config->DlssNrWorkingScale.value_or_default() * 100.0f));
             }
             if (kind == Backend::Kind::Mochizuki)
                 RenderMochizukiTiming();
@@ -2324,12 +2353,15 @@ void RenderMenu(Config* config, float menuResScale)
 
         HelpMarker("Runs Neural Rendering on the render-resolution colour input immediately before"
                    "\nSuper Resolution, so SR temporally accumulates and upscales the enhanced frame."
-                   "\n\nRay Reconstruction is deliberately excluded: its input contract differs and"
-                   "\nuses the separate Apply after Ray Reconstruction option. Origin-zero padded"
+                   "\n\nFSR-RR follows this placement: RR -> NR -> SR runs the model inside the feature"
+                   "\nbetween its denoise and its SR. NVIDIA native Ray Reconstruction keeps its own"
+                   "\nApply after Ray Reconstruction option below. Origin-zero padded"
                    "\ninputs use their active render size; offset or invalid inputs fall back post-SR."
                    "\n\nThis placement control currently applies to the Direct3D 12 path and its"
                    "\nDirect3D 11/Vulkan bridges; native Vulkan keeps the post-upscale path.");
 
+        MenuUi::SeparatorText("Native NVIDIA Ray Reconstruction only (DX12)");
+        MenuUi::TextDisabled("Not used by FSR-RR. Those values are Passes and Model resolution above.");
         bool afterRR = config->DlssNrApplyAfterRR.value_or_default();
         if (MenuUi::Checkbox("Apply after Ray Reconstruction (DX12)", &afterRR))
             config->DlssNrApplyAfterRR = afterRR;
@@ -2340,7 +2372,7 @@ void RenderMenu(Config* config, float menuResScale)
                    "\nThis does not add RR to games without the required rendering buffers."
                    "\nNative Vulkan does not use these DX12 controls.");
         int rrPasses = (int) config->DlssNrRRPasses.value_or_default();
-        if (MenuUi::SliderInt("NR passes after RR", &rrPasses, 1, (int) MaxPassCount))
+        if (MenuUi::SliderInt("NR passes (native RR only)", &rrPasses, 1, (int) MaxPassCount))
             config->DlssNrRRPasses = (unsigned int) rrPasses;
         float rrScale = config->DlssNrRRWorkingScale.value_or_default();
         if (MenuUi::SliderFloat("NR model scale after RR", &rrScale, 0.25f, 2.0f, "%.2fx"))
