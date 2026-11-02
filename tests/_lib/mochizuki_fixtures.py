@@ -15,7 +15,7 @@ PAYLOAD = b'Mochizuki installer INT4 fixture'
 _temporary = None
 
 
-def extractor_tool(destination):
+def extractor_tool(destination, with_small=True):
     """Official extractor stand-in: <source dll> <out dir> -> both model packs."""
     root = Path(tempfile.mkdtemp(prefix='mochi-extractor-fixture-'))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
@@ -29,7 +29,9 @@ class Extractor {
         Directory.CreateDirectory(args[1]);
         var magic = System.Text.Encoding.ASCII.GetBytes("NRMODEL1");
         Write(Path.Combine(args[1], "dlssnr.bin"), magic, 599);
-        Write(Path.Combine(args[1], "dlssnr-small.bin"), magic, 255);
+        var marker = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "extractor-small.marker");
+        if (!File.Exists(marker) || File.ReadAllText(marker).Trim() != "0")
+            Write(Path.Combine(args[1], "dlssnr-small.bin"), magic, 255);
         return 0;
     }
     static void Write(string path, byte[] magic, uint entries) {
@@ -45,6 +47,8 @@ class Extractor {
                         '/out:' + str(root / 'extractor.exe'), str(source)], check=True, capture_output=True)
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / 'extractor.exe', destination / 'dlssnr_extract_model.exe')
+    # The fixture reads this marker at run time, after the test reconfigures it.
+    (destination / 'extractor-small.marker').write_text('1' if with_small else '0', encoding='ascii')
 
 
 def int4_tools(destination):

@@ -57,10 +57,15 @@ $OutputEncoding = [Console]::OutputEncoding
 $lmxxfStage = $null
 $setupSourceStage = $null
 $lmxxfSmallStage = $null
+$mochizukiModelStage = $null
 
 function Pause-Exit([int]$code) {
     if ($lmxxfSmallStage) {
         try { Remove-LmxxfTemporaryTree $lmxxfSmallStage $Root } catch { Write-Warning $_.Exception.Message }
+    }
+    if ($mochizukiModelStage -and (Test-Path -LiteralPath $mochizukiModelStage)) {
+        try { Remove-Item -LiteralPath $mochizukiModelStage -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warning "Mochizuki model staging cleanup failed: $($_.Exception.Message)" }
     }
     if ($lmxxfStage) {
         try { Remove-LmxxfTemporaryTree $lmxxfStage ([IO.Path]::GetDirectoryName($lmxxfStage)) }
@@ -1081,25 +1086,30 @@ if ($installMochizuki) {
     # existing files are accepted when present and non-empty. No hash or model
     # header whitelist: a newer official model must remain usable.
     $mochizukiNv = $nv
-    $canProvideSmall = $true
-    $canProvideOriginal = $true
+    $modelsExplicit = -not [string]::IsNullOrWhiteSpace($MochizukiModels)
 
-    if ([string]::IsNullOrWhiteSpace($MochizukiModels)) {
+    if (-not $modelsExplicit) {
         if ($mochizukiModel -and $mochizukiSmallModel) {
-            Write-Host ''
-            Write-Host 'Select Mochizuki ASI models to install:' -ForegroundColor Yellow
-            Write-Host '  1. Both models (recommended)'
-            Write-Host '  2. Small model only (CC_SMALL_FP8, 310.9.16)'
-            Write-Host '  3. Original model only (CC_SILVER_AARDWOLD, 310.8.0)'
-            Write-Host '  0. Cancel'
-            while ($true) {
-                $choice = Read-Host 'Enter choice [1/2/3/0]'
-                if ($null -ne $choice) { $choice = $choice.Trim() }
-                if ($choice -eq '1') { $MochizukiModels = 'both'; break }
-                if ($choice -eq '2') { $MochizukiModels = 'small'; break }
-                if ($choice -eq '3') { $MochizukiModels = 'original'; break }
-                if ($choice -eq '0') { Write-Host 'Cancelled.'; Pause-Exit 0 }
-                Write-Host 'Invalid choice. Enter 1, 2, 3, or 0.' -ForegroundColor Yellow
+            if ($NonInteractive) {
+                # Never block an unattended update on a prompt: both are present.
+                $MochizukiModels = 'both'
+                Write-Host 'Both Mochizuki ASI models are already present; installing both.' -ForegroundColor Cyan
+            } else {
+                Write-Host ''
+                Write-Host 'Select Mochizuki ASI models to install:' -ForegroundColor Yellow
+                Write-Host '  1. Both models (recommended)'
+                Write-Host '  2. Small model only (CC_SMALL_FP8, 310.9.16)'
+                Write-Host '  3. Original model only (CC_SILVER_AARDWOLD, 310.8.0)'
+                Write-Host '  0. Cancel'
+                while ($true) {
+                    $choice = Read-Host 'Enter choice [1/2/3/0]'
+                    if ($null -ne $choice) { $choice = $choice.Trim() }
+                    if ($choice -eq '1') { $MochizukiModels = 'both'; break }
+                    if ($choice -eq '2') { $MochizukiModels = 'small'; break }
+                    if ($choice -eq '3') { $MochizukiModels = 'original'; break }
+                    if ($choice -eq '0') { Write-Host 'Cancelled.'; Pause-Exit 0 }
+                    Write-Host 'Invalid choice. Enter 1, 2, 3, or 0.' -ForegroundColor Yellow
+                }
             }
         } elseif ($mochizukiModel) {
             $MochizukiModels = 'original'
@@ -1109,7 +1119,7 @@ if ($installMochizuki) {
             Write-Host 'Only the small ASI model is present; installing it. Provide nvngx_dlssnr.dll 310.8.0 to add the original model.'
         } elseif ($mochizukiNv) {
             $MochizukiModels = 'both'
-            Write-Host 'No ASI model is installed yet; extracting both models from nvngx_dlssnr.dll.' -ForegroundColor Cyan
+            Write-Host 'No ASI model is installed yet; extracting from nvngx_dlssnr.dll.' -ForegroundColor Cyan
         } else {
             Fail 'No Mochizuki ASI model found. Put nvngx_dlssnr.dll (310.9.16 or 310.8.0) beside Setup.bat and run Setup again.'
         }
@@ -1135,42 +1145,49 @@ if ($installMochizuki) {
         }
         $modelOutput = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-amd-model-' + [guid]::NewGuid().ToString('N'))
         [void][IO.Directory]::CreateDirectory($modelOutput)
-        try {
-            Write-Host 'Extracting Mochizuki ASI models from nvngx_dlssnr.dll...' -ForegroundColor Cyan
-            & $mochizukiTools $mochizukiNv $modelOutput
-            $code = $LASTEXITCODE
-            if ($code -ne 0) {
-                Fail "Model preparation failed (extractor exit code $code). The existing installation was preserved."
+        $mochizukiModelStage = $modelOutput
+        Write-Host 'Extracting Mochizuki ASI models from nvngx_dlssnr.dll...' -ForegroundColor Cyan
+        & $mochizukiTools $mochizukiNv $modelOutput
+        $code = $LASTEXITCODE
+        if ($code -ne 0) {
+            Fail "Model preparation failed (extractor exit code $code). The existing installation was preserved."
+        }
+        $extractedOriginal = Join-Path $modelOutput 'dlssnr.bin'
+        $extractedSmall = Join-Path $modelOutput 'dlssnr-small.bin'
+        $gotOriginal = (Test-Path -LiteralPath $extractedOriginal -PathType Leaf) -and
+            (Get-Item -LiteralPath $extractedOriginal).Length -gt 0
+        $gotSmall = (Test-Path -LiteralPath $extractedSmall -PathType Leaf) -and
+            (Get-Item -LiteralPath $extractedSmall).Length -gt 0
+        if ($needExtractSmall -and -not $gotSmall -and -not $modelsExplicit -and $gotOriginal) {
+            # 310.8.0 provides only the original network. An implicit "both" follows
+            # what the official tool actually produced instead of failing.
+            Write-Host 'Note: this DLL has no small model; installing the original model only.' -ForegroundColor Yellow
+            $MochizukiModels = 'original'
+            $needExtractSmall = $false
+        }
+        if ($needExtractOriginal) {
+            if (-not $gotOriginal) {
+                Fail 'Model preparation failed: the extractor did not produce dlssnr.bin. The existing installation was preserved.'
             }
-            $extractedOriginal = Join-Path $modelOutput 'dlssnr.bin'
-            $extractedSmall = Join-Path $modelOutput 'dlssnr-small.bin'
-            if ($needExtractOriginal) {
-                if (-not (Test-Path -LiteralPath $extractedOriginal -PathType Leaf) -or
-                    (Get-Item -LiteralPath $extractedOriginal).Length -le 0) {
-                    Fail 'Model preparation failed: the extractor did not produce dlssnr.bin. The existing installation was preserved.'
-                }
-                $mochizukiModel = $extractedOriginal
+            $mochizukiModel = $extractedOriginal
+        }
+        if ($needExtractSmall) {
+            if (-not $gotSmall) {
+                Fail 'Model preparation failed: this DLL has no small model (dlssnr-small.bin); use the 310.9.16 DLL for both models, or install the original model only.'
             }
-            if ($needExtractSmall) {
-                if (-not (Test-Path -LiteralPath $extractedSmall -PathType Leaf) -or
-                    (Get-Item -LiteralPath $extractedSmall).Length -le 0) {
-                    Fail 'Model preparation failed: this DLL has no small model (dlssnr-small.bin); use the 310.9.16 DLL for both models, or install the original model only.'
-                }
-                $mochizukiSmallModel = $extractedSmall
+            $mochizukiSmallModel = $extractedSmall
+        }
+        # Keep the models in the package for later installs when that folder is writable.
+        # A failed cache copy must not delete the staged file the install still needs.
+        foreach ($pair in @(@($extractedOriginal, 'dlssnr.bin'), @($extractedSmall, 'dlssnr-small.bin'))) {
+            if (-not (Test-Path -LiteralPath $pair[0] -PathType Leaf)) { continue }
+            $target = Join-Path $mochizukiAssets $pair[1]
+            try {
+                Copy-Item -LiteralPath $pair[0] -Destination $target -Force -ErrorAction Stop
+                if ($pair[1] -eq 'dlssnr.bin') { $mochizukiModel = $target } else { $mochizukiSmallModel = $target }
+            } catch {
+                Write-Host "Note: could not keep $($pair[1]) in the package folder; the staged copy is used for this install." -ForegroundColor Yellow
             }
-            # Keep the models in the package for later installs when that folder is writable.
-            foreach ($pair in @(@($extractedOriginal, 'dlssnr.bin'), @($extractedSmall, 'dlssnr-small.bin'))) {
-                if (-not (Test-Path -LiteralPath $pair[0] -PathType Leaf)) { continue }
-                $target = Join-Path $mochizukiAssets $pair[1]
-                try {
-                    Copy-Item -LiteralPath $pair[0] -Destination $target -Force -ErrorAction Stop
-                    if ($pair[1] -eq 'dlssnr.bin') { $mochizukiModel = $target } else { $mochizukiSmallModel = $target }
-                } catch {
-                    Write-Host "Note: could not keep $($pair[1]) in the package folder; the extracted copy is used for this install." -ForegroundColor Yellow
-                }
-            }
-        } finally {
-            if (Test-Path -LiteralPath $modelOutput) { Remove-Item -LiteralPath $modelOutput -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
 
@@ -1179,6 +1196,9 @@ if ($installMochizuki) {
     }
     if ($MochizukiModels -in @('both', 'small') -and -not $mochizukiSmallModel) {
         Fail 'The small ASI model is unavailable. Provide nvngx_dlssnr.dll 310.9.16 and run Setup again.'
+    }
+    if ($MochizukiActiveModel -eq 'small' -and -not $mochizukiSmallModel) {
+        Fail 'Conflict: -MochizukiActiveModel small needs the small ASI model, which this source does not provide.'
     }
 }
 $lmxxfSelectedModels = $LmxxfModels
@@ -1952,6 +1972,27 @@ if ($installMochizuki) {
         }
     }
 
+    # The previous install's own inventory decides what this version may remove.
+    # Models and user files are never in it; a manifest entry outside the shared
+    # resource tree or this install's plugin path is ignored.
+    $previousAsi = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+    $asiTargetRel = $null
+    if ($asiTarget.StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        $asiTargetRel = $asiTarget.Substring($gameFullPrefix.Length)
+    }
+    if (Test-Path -LiteralPath $asiManifest -PathType Leaf) {
+        foreach ($line in [IO.File]::ReadAllLines($asiManifest)) {
+            if ($line -notmatch '^(?i)F (.+)$') { continue }
+            $oldRel = $Matches[1].Trim()
+            if ($oldRel -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($oldRel)) { continue }
+            $normalized = $oldRel.Replace('\', '/')
+            if ($normalized -match '^(?i)dlssnr-amd/' -or
+                ($asiTargetRel -and $oldRel -ieq $asiTargetRel)) {
+                [void]$previousAsi.Add($oldRel)
+            }
+        }
+    }
+
     # Replace our shared resource folder with this ASI version. The retired
     # built-in runtime's files are removed only where the legacy inventory owns
     # them, so user files and other runtimes are untouched.
@@ -2061,6 +2102,21 @@ if ($installMochizuki) {
         }
     }
 
+    # Assets this version no longer installs, but the previous install owned.
+    # Removal happens only after the new payload is in place.
+    foreach ($oldRel in $previousAsi) {
+        if ($asiFiles.Contains($oldRel)) { continue }
+        $stale = Join-Path $game $oldRel
+        if (Test-Path -LiteralPath $stale -PathType Leaf) {
+            try {
+                Remove-Item -LiteralPath $stale -Force -ErrorAction Stop
+                Write-Host "Removed asset no longer installed: $oldRel" -ForegroundColor DarkYellow
+            } catch {
+                Write-Host "NOTE: could not remove $oldRel (game running?): $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+
     # Ownership record: upgrade and uninstall delete exactly these files.
     $manifestLines = @('# Files installed by OptScaler(NR) for dlssnr-amd.asi; models are not listed.')
     foreach ($rel in @($asiFiles | Sort-Object)) { $manifestLines += ('F ' + $rel) }
@@ -2071,8 +2127,17 @@ if ($installMochizuki) {
     $asiTemplate = Find-FirstFile @((Join-Path $Root 'dlssnr-amd-optiscaler.ini'), (Join-Path $release 'dlssnr-amd-optiscaler.ini'))
     if (-not (Test-Path -LiteralPath $asiIni -PathType Leaf) -and $asiTemplate) {
         Copy-Item -LiteralPath $asiTemplate -Destination $asiIni -Force
-        if ($MochizukiActiveModel) {
-            $networkName = if ($MochizukiActiveModel -eq 'original') { 'CC_SILVER_AARDWOLD' } else { 'CC_SMALL_FP8' }
+        # An explicit user choice wins. Otherwise start with a model that was
+        # actually installed; with both (or neither) the template default stays.
+        $activeModelName = $MochizukiActiveModel
+        if (-not $activeModelName) {
+            $hasOriginal = Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf
+            $hasSmall = Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf
+            if ($hasOriginal -and -not $hasSmall) { $activeModelName = 'original' }
+            elseif ($hasSmall -and -not $hasOriginal) { $activeModelName = 'small' }
+        }
+        if ($activeModelName) {
+            $networkName = if ($activeModelName -eq 'original') { 'CC_SILVER_AARDWOLD' } else { 'CC_SMALL_FP8' }
             Set-IniSettings $asiIni 'Network' ([ordered]@{ 'Model' = $networkName })
         }
     }
@@ -2086,6 +2151,12 @@ if ($installMochizuki) {
             Write-Host 'Mochizuki model not installed. Run Mochizuki-Model.bat beside Setup.bat with your nvngx_dlssnr.dll, then run Setup again.' -ForegroundColor Yellow
         }
     }
+}
+
+# The staged extraction is only needed until the models are installed.
+if ($mochizukiModelStage -and (Test-Path -LiteralPath $mochizukiModelStage)) {
+    Remove-Item -LiteralPath $mochizukiModelStage -Recurse -Force -ErrorAction SilentlyContinue
+    $mochizukiModelStage = $null
 }
 
 # Runs after a package overwrite as well. These keys are this install's choices, so the

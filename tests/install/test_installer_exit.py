@@ -558,7 +558,12 @@ class InstallerExitTests(unittest.TestCase):
         int4.mkdir(parents=True)
         (int4 / "settings.txt").write_text("fixture\n", encoding="utf-8")
         (self.package / "dlssnr-amd/nr_present_probe.exe").write_bytes(b"fixture probe")
+        (self.package / "dlssnr-amd-optiscaler.ini").write_text("[Network]\nModel = CC_SMALL_FP8\n", encoding="utf-8")
         extractor_tool(self.package / 'model-tools')
+        extractor_exe = self.package / 'model-tools/dlssnr_extract_model.exe'
+        # The compiled fixture checks this variable; tests flip it per run.
+        marker = self.package / 'model-tools/extractor-small.marker'
+        self._extractor_small_marker = marker
         int4_tools(self.package / 'model-tools')
         if model:
             (shaders.parent / "dlssnr.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
@@ -913,6 +918,111 @@ class InstallerExitTests(unittest.TestCase):
                 self.assertNotIn('Extracting Mochizuki ASI models', output)
                 self.assertFalse((self.game / 'dlssnr-amd/dlssnr-int4.bin').exists())
 
+
+    def test_mochizuki_noninteractive_existing_models_does_not_prompt(self):
+        self.ready_mochizuki(model=True, small=True)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('already present; installing both', output)
+        self.assertIn('Install SUCCEEDED.', output)
+
+    def test_mochizuki_source_without_small_installs_original_only(self):
+        self.ready_mochizuki()
+        (self.package / 'model-tools/extractor-small.marker').write_text('0', encoding='ascii')
+        (self.package / 'nvngx_dlssnr.dll').write_bytes(b'310.8.0-only source fixture')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('installing the original model only', output)
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
+        self.assertFalse((self.game / 'dlssnr-amd/dlssnr-small.bin').exists())
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiActiveModel', 'small'))
+        self.assertNotEqual(code, 0, output)
+        self.assertIn('Conflict:', output)
+
+    def test_mochizuki_package_cache_failure_uses_staged_models(self):
+        import ctypes
+        from ctypes import wintypes
+        self.ready_mochizuki()
+        (self.package / 'nvngx_dlssnr.dll').write_bytes(b'source fixture')
+        # A zero-byte, exclusively opened cache target is ignored as a model but
+        # makes the optional package cache copy fail. The staged extraction must
+        # survive until the game install reads it.
+        locked = self.package / 'dlssnr-amd/dlssnr.bin'
+        locked.write_bytes(b'')
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        handle = kernel32.CreateFileW(str(locked), 0x80000000, 0x1, None, 3, 0, None)
+        self.assertNotEqual(handle, wintypes.HANDLE(-1).value, ctypes.get_last_error())
+        try:
+            code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki'))
+        finally:
+            kernel32.CloseHandle(handle)
+        self.assertEqual(code, 0, output)
+        self.assertIn('staged copy is used for this install', output)
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr-small.bin').is_file())
+
+    def test_mochizuki_fresh_asi_ini_defaults_to_installed_model(self):
+        self.ready_mochizuki(model=True)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
+        self.assertEqual(code, 0, output)
+        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
+        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
+        # An explicit active model wins over the installed set.
+        (self.game / 'dlssnr-amd.ini').unlink()
+        (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20))
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'both',
+                                              '-MochizukiActiveModel', 'small'))
+        self.assertEqual(code, 0, output)
+        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
+        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SMALL_FP8$')
+
+    def test_mochizuki_existing_asi_ini_is_not_rewritten(self):
+        self.ready_mochizuki(model=True)
+        ini = self.game / 'dlssnr-amd.ini'
+        ini.write_text('[Network]\nModel = CC_SILVER_AARDWOLD\n\n[User]\nKeep = 1\n', encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding='utf-8-sig')
+        self.assertIn('Model = CC_SILVER_AARDWOLD', text)
+        self.assertIn('Keep = 1', text)
+
+    def test_mochizuki_upgrade_removes_only_dropped_owned_assets(self):
+        self.ready_mochizuki(model=True)
+        stale = self.package / 'dlssnr-amd/shaders/only-in-old.spv'
+        stale.write_bytes(b'old version shader')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
+        self.assertEqual(code, 0, output)
+        self.assertTrue((self.game / 'dlssnr-amd/shaders/only-in-old.spv').is_file())
+        user_file = self.game / 'dlssnr-amd/shaders/user.spv'
+        user_file.write_bytes(b'user shader')
+        (self.game / 'dlssnr-amd.ini').write_text('[Network]\nModel = CC_SMALL_FP8\n', encoding='utf-8')
+        stale.unlink()
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.game / 'dlssnr-amd/shaders/only-in-old.spv').exists())
+        self.assertEqual(user_file.read_bytes(), b'user shader')
+        self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
+        self.assertIn('CC_SMALL_FP8', (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig'))
+        inventory = (self.game / 'dlssnr-amd-install.txt').read_text()
+        self.assertNotIn('only-in-old.spv', inventory)
+
+    def test_uninstall_uses_configured_plugin_directory(self):
+        self.ready_mochizuki(model=True)
+        (self.game / 'OptiScaler.ini').write_text('[Plugins]\nPath = MyPlugins\n', encoding='utf-8')
+        args = [str(PS), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File',
+                str(self.package / 'Setup.ps1'), '-GameDir', str(self.game), '-Proxy', 'winmm.dll',
+                '-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original']
+        code, output = self.run_process(args)
+        self.assertEqual(code, 0, output)
+        asi = self.game / 'MyPlugins/dlssnr-amd.asi'
+        self.assertTrue(asi.is_file(), output)
+        (self.game / 'MyPlugins/user.asi').write_bytes(b'user plugin')
+        code, output = self.run_direct(name='Uninstall', flags=('-NonInteractive',))
+        self.assertEqual(code, 0, output)
+        self.assertFalse(asi.exists(), output)
+        self.assertEqual((self.game / 'MyPlugins/user.asi').read_bytes(), b'user plugin')
 
     def test_lmxxf_empty_weight_directory_is_not_ready(self):
         self.ready_lmxxf_dual_arch()

@@ -326,16 +326,27 @@ function Get-AsiOwnedFiles([string]$root) {
     $manifest = Join-Path $root 'dlssnr-amd-install.txt'
     if (!(Test-UninstallPath $manifest)) { return }
     if (!(Test-Path -LiteralPath $manifest -PathType Leaf)) { return }
+    # Resolve the same plugin directory the installer used, including an explicit
+    # [Plugins] Path / [Libraries] OptiDllPath. Only this ASI file is claimable
+    # there; arbitrary manifest paths are still ignored.
+    $pluginRel = $null
+    try {
+        $iniPath = Join-Path $root 'OptiScaler.ini'
+        $pluginPath = Join-Path (Get-PluginsTargetDirectory $root $iniPath) 'dlssnr-amd.asi'
+        $prefix = [IO.Path]::GetFullPath($root).TrimEnd('\', '/') + '\'
+        $fullPluginPath = [IO.Path]::GetFullPath($pluginPath)
+        if ($fullPluginPath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $pluginRel = $fullPluginPath.Substring($prefix.Length)
+        }
+    } catch { $pluginRel = $null }
     foreach ($line in Get-Content -LiteralPath $manifest -ErrorAction SilentlyContinue) {
         $line = $line.TrimStart([char]0xFEFF).Trim()
         if ($line -notmatch '^(?i)F (.+)$') { continue }
         $rel = $Matches[1].Trim()
         if ($rel -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($rel)) { continue }
-        # Only this installer's shared resource tree and plugin are claimable; a
-        # hand-edited or foreign manifest must never remove other game files.
         $normalized = $rel.Replace('\', '/')
-        if ($normalized -notmatch '^(?i)dlssnr-amd/' -and
-            $normalized -notmatch '^(?i)(OptiScaler/)?plugins/dlssnr-amd\.asi$') { continue }
+        $isPlugin = $pluginRel -and ($rel -ieq $pluginRel)
+        if ($normalized -notmatch '^(?i)dlssnr-amd/' -and -not $isPlugin) { continue }
         $full = Join-Path $root $rel
         if (Test-UninstallPath $full) { $full }
     }

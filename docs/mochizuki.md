@@ -1,4 +1,4 @@
-# Mochizuki backend (local integration)
+﻿# Mochizuki backend (local integration)
 
 > Status (2026-11-02): new installs ship the **official `dlssnr-amd.asi`** (0.0.8.2
 > resources) and no longer build, install or require `MochizukiNrRuntime.dll`.
@@ -207,8 +207,11 @@ variables cannot replace the selected model or picture options.
    `dlssnr-amd/dlssnr.bin` (original) and `dlssnr-amd/dlssnr-small.bin` (small).
    `Mochizuki-Model.bat` does the same outside Setup. INT4 mixed weights are
    generated with the official tool when the original model is present; failure
-   only disables that network. Models and your `dlssnr-amd.ini` are preserved by
-   upgrade and uninstall.
+   only disables that network. A fresh `dlssnr-amd.ini` starts with a model that
+   was actually installed (an explicit `-MochizukiActiveModel` wins); existing
+   files are never rewritten. Models and your `dlssnr-amd.ini` are preserved by
+   upgrade and uninstall; assets an upgrade no longer installs are removed through
+   the previous install's inventory only.
 5. Setup enables `[Plugins] LoadAsiPlugins=true` and keeps your `OptiScaler.ini`
    and host `dxgi.dll`. It changes `[Menu] FGShortcutKey` only when it is still the
    default End binding, because NR Control opens with End. A custom FG key is kept.
