@@ -105,7 +105,13 @@ jobs:
 
           ### 已知问题
 
-          - 其余沿用 v1.13.4.2（切换依赖游戏重建 feature、光线再生为实验功能且默认关闭、DXGI 伪装、比内建 FSR 慢约 1.5–3 fps、`open_query` 拒绝、RenoDX 无法与人物保护同时生效）。
+          - 光线再生与普通超分的切换依赖游戏重建 NGX feature；若游戏的开关不触发重建，需重进关卡或重启游戏后才生效。
+          - 光线再生为实验功能，默认关闭。
+          - 多数游戏需开启 DXGI 伪装才会显示 DLSS/RR 选项；部分游戏开伪装后可能报“不支持的 GPU”。
+          - 相比游戏内建 FSR 路径慢约 1.5–3 fps（实测《红色沙漠》约 20 vs 22 fps，1440p→4K）。
+          - 日志出现 `open_query` 拒绝：在“兼容性与调度”同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）。
+          - 4K 输出 + 光线再生 + 降噪同时开启时，切到 Quality（1440p）会超出显存预算：降噪拒绝新建缓冲并沿用已建网络（日志 `insufficient VRAM ... it keeps serving`），建议停在 Balanced 或更低挡位。
+          - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
 
           ### 安装与权重
 
@@ -130,7 +136,13 @@ jobs:
 
           ### Known issues
 
-          - Otherwise unchanged from v1.13.4.2 (a switch relies on the game recreating its NGX feature, Ray Regeneration is experimental and off by default, DXGI spoofing, roughly 1.5–3 fps slower than the native FSR path, `open_query` rejections, RenoDX cannot be combined with person protection).
+          - Switching between Ray Regeneration and plain upscaling relies on the game recreating its NGX feature; if a game's toggle does not recreate it, the change takes effect only after a level reload or restart.
+          - Ray Regeneration is experimental and off by default.
+          - Most games need DXGI spoofing to expose their DLSS/RR option; some titles may show an "unsupported GPU" error with spoofing on.
+          - Roughly 1.5–3 fps slower than the game's native FSR path (measured in Crimson Desert: ~20 vs 22 fps, 1440p→4K).
+          - Logs showing `open_query` rejections: enable **Allow enhanced barriers** and **Split query splice** together under Compatibility & Scheduling (experimental).
+          - With 4K output plus Ray Regeneration and NR, switching to Quality (1440p) exceeds the VRAM budget: NR declines new buffers and keeps serving the running network (log `insufficient VRAM ... it keeps serving`). Stay at Balanced or lower with 4K output.
+          - RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
 
           ### Installation and models
 
