@@ -1439,9 +1439,18 @@ bool FSRDFeatureDx12::CreateDenoiserContext()
     // history reset -- every time a preset moved. This field is an allocation ceiling and each
     // dispatch already supplies its own logical size below it, so the headroom simply absorbs that
     // jitter. An alignment of 8 costs well under a percent of the allocation.
+    // Dynamic-resolution titles dispatch a slightly larger logical render size than the one they
+    // created the feature with (Crimson Desert: created at 2258x1270, dispatched 2272x1280 after a
+    // preset change), which used to fail that frame and force a full context rebuild. The ceiling is
+    // an allocation limit; keep ~3% headroom on top of the 8-pixel alignment so DRS jitter stays
+    // inside it and only genuinely larger resolutions trigger the rebuild path.
     constexpr uint32_t kRenderCeilingAlignment = 8;
+    constexpr uint32_t kRenderCeilingHeadroomDivisor = 32; // 1/32 = 3.1%
     const auto ceilingFor = [](uint32_t extent)
-    { return (extent + kRenderCeilingAlignment - 1) / kRenderCeilingAlignment * kRenderCeilingAlignment; };
+    {
+        const uint32_t padded = extent + std::max<uint32_t>(kRenderCeilingAlignment, extent / kRenderCeilingHeadroomDivisor);
+        return (padded + kRenderCeilingAlignment - 1) / kRenderCeilingAlignment * kRenderCeilingAlignment;
+    };
 
     const uint32_t maxRenderWidth = std::max(_denoiserCtxDesc.maxRenderSize.width, ceilingFor(RenderWidth()));
     const uint32_t maxRenderHeight = std::max(_denoiserCtxDesc.maxRenderSize.height, ceilingFor(RenderHeight()));
@@ -1661,9 +1670,9 @@ bool FSRDFeatureDx12::UpdateSize()
     // earlier submitted command lists may still reference them.
     if (renderWidth > maxWidth || renderHeight > maxHeight)
     {
-        LOG_ERROR("[RR_DIAG] render size {}x{} exceeds the FSR-RR creation ceiling {}x{}; requesting feature "
-                  "recreation instead of releasing in-flight resources",
-                  renderWidth, renderHeight, maxWidth, maxHeight);
+        LOG_WARN("[RR_DIAG] render size {}x{} exceeds the FSR-RR creation ceiling {}x{}; requesting feature "
+                 "recreation instead of releasing in-flight resources",
+                 renderWidth, renderHeight, maxWidth, maxHeight);
         InvalidateDenoiserHistory();
         State::Instance().changeBackend[Handle()->Id] = true;
         return false;
