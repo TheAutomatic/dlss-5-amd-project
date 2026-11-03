@@ -831,7 +831,7 @@ class InstallerExitTests(unittest.TestCase):
         log = events.read_text(encoding='utf-8-sig')
         self.assertEqual(code, 0, output + log)
         self.assertEqual(body['status'], 'success', body)
-        self.assertIn('INT4 mixed generation failed', log)
+        self.assertIn('Reused existing CC_SILVER_AARDWOLD_INT4_MIXED weights', log)
         self.assertNotIn('Preparing INT4 weights', log)
         self.assertNotIn('Extracting Mochizuki', log)
         self.assertNotIn('Preparing lmxxf', log)
