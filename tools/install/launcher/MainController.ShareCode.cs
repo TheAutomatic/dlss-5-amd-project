@@ -208,21 +208,40 @@ namespace OptScalerNR.Launcher
                 allToggle.IsEnabled = false;
                 return;
             }
+            var changed = new List<MochizukiShareCode.Entry>();
+            if (import && File.Exists(path)) {
+                try { changed = MochizukiShareCode.ChangedEntries(File.ReadAllBytes(path), code); } catch { }
+            }
+            var resets = new List<MochizukiShareCode.Entry>();
+            var direct = new List<MochizukiShareCode.Entry>();
+            foreach (var entry in changed) {
+                if (entry.Reset) resets.Add(entry); else direct.Add(entry);
+            }
+            var allEntries = new List<MochizukiShareCode.Entry>(code.Entries);
+            allEntries.AddRange(resets);
             allToggle.IsEnabled = true;
-            allToggle.Content = (chinese ? "全部参数（" : "All settings (") + code.Entries.Count + (chinese ? "） ▸" : ") ▸");
-            RenderShareEntries(allHost, code.Entries, chinese);
+            allToggle.Content = (chinese ? "全部参数（" : "All settings (") + allEntries.Count + (chinese ? "） ▸" : ") ▸");
+            RenderShareEntries(allHost, allEntries, chinese);
             if (!import || !File.Exists(path)) return;
-            try {
-                var changed = MochizukiShareCode.ChangedEntries(File.ReadAllBytes(path), code);
-                if (changed.Count == 0) {
-                    diffHeader.Text = L("与当前配置一致", "No changes from the current config");
-                    diffBorder.Visibility = Visibility.Visible;
-                    return;
-                }
-                diffHeader.Text = (chinese ? "与当前配置不同（" : "Changes from current config (") + changed.Count + (chinese ? "）" : ")");
-                RenderShareEntries(diffHost, changed, chinese);
+            if (direct.Count == 0 && resets.Count == 0) {
+                diffHeader.Text = L("与当前配置一致", "No changes from the current config");
                 diffBorder.Visibility = Visibility.Visible;
-            } catch { }
+                return;
+            }
+            string header = direct.Count > 0
+                ? (chinese ? "与当前配置不同（" : "Changes from current config (") + direct.Count + (chinese ? " 项）" : ")")
+                : (chinese ? "本次不改风格值" : "No style values overwritten");
+            if (resets.Count > 0)
+                header += (chinese ? " · 另有 " : " · plus ") + resets.Count + (chinese ? " 项恢复默认" : " restoring defaults");
+            diffHeader.Text = header;
+            RenderShareEntries(diffHost, direct, chinese);
+            if (direct.Count > 30) {
+                diffHost.Children.Add(new TextBlock {
+                    Text = (chinese ? "还有 " : "") + (direct.Count - 30) + (chinese ? " 项，展开全部参数查看" : " more; open All settings"),
+                    FontSize = 11, Foreground = TryFindResourceString("ThemeMuted"), Margin = new Thickness(10, 3, 0, 0)
+                });
+            }
+            diffBorder.Visibility = Visibility.Visible;
         }
 
         static string[] RequiredModelFiles(MochizukiShareCode.DecodedCode code)
