@@ -10,4 +10,4 @@ runtime 的显存检查拒绝新尺寸时，`PrepareFrame` 返回 `LMXXF_NR_UNAV
 
 该修正允许预算或尺寸恢复后重新尝试，不保证预算始终为零时也能运行 NR。需要更大网络而预算不足时仍使用原画面；旧网络被保留不等于它能处理所有新尺寸。
 
-测试：`tests/host/run.cmd mochizuki-prepare-retry` 直接验证产品失败门控，包括分别 2000 次网络预算等待和候选帧缓冲预算等待后恢复、永久失败的 50 次上限、等待中断连续失败、构建/尺寸等待和会话重置。源码接线检查为 `tests/host/test_mochizuki_prepare_retry_source.py`。两者接入 host `ci`；本修正不改变 runtime ABI。
+测试：`tests/host/run.cmd mochizuki-prepare-retry` 直接验证产品失败门控，包括分别 2000 次网络预算等待和候选帧缓冲预算等待后恢复、永久失败的 50 次上限、等待中断连续失败、构建/尺寸等待和会话重置；接入 host `ci`。本修正不改变 runtime ABI。

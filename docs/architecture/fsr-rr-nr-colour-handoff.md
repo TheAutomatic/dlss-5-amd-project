@@ -15,8 +15,7 @@
 
 验证入口：
 
-- `tests/host/run.cmd nr-rr-state`：颜色状态选择的 CPU 回归，包括游戏的 RT 状态、post-SR 输出状态和内部状态优先级。
+- `tests/host/run.cmd nr-rr-state`：颜色状态选择的 CPU 回归，包括游戏的 RT 状态、post-SR 输出状态和内部状态优先级；接入 host `ci`。
 - `tests/host/run.cmd nr-rr-state-warp`：额外在 WARP 上创建与 RR 相同格式的 UAV-only 纹理，覆盖首次 bypass、后续输入复制与状态恢复，提交并等待 fence，检查 D3D12 错误消息。
-- `tests/host/test_rr_nr_colour_source.py`：检查内部状态传递覆盖完整宿主调用链，接缝不再使用游戏 Color 的 barrier 配置；接入 host `ci`。
 
-CPU、WARP 和源码检查属于定向回归。最终是否解决游戏中的 RR+NR 闪退，仍须用修正后的宿主实测；这些检查不代表完整 RR/NR 管线或画质已通过验收。
+CPU 和 WARP 检查属于定向回归。最终是否解决游戏中的 RR+NR 闪退，仍须用修正后的宿主实测；这些检查不代表完整 RR/NR 管线或画质已通过验收。

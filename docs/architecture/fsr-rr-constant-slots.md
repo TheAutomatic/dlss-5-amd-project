@@ -20,6 +20,5 @@
 
 ## 验证边界
 
-- `tests/host/run.cmd fsrd-slots-source`：无需编译，检查完整转换预留顺序、稳定 payload 接线及退休保护。仅证明源码接线。
-- `tests/host/run.cmd fsrd-slots`：需要编译，直接测试产品 CPU 策略，覆盖三槽之外的增长、非当前槽退休复用、五 pass 批量预留、放弃预留、扩展失败、零票据拒绝及 32 轮在途滤波后复用。同时接入 host `ci`。
+- `tests/host/run.cmd fsrd-slots`：直接测试产品 CPU 策略，覆盖三槽之外的增长、非当前槽退休复用、五 pass 批量预留、放弃预留、扩展失败、零票据拒绝及 32 轮在途滤波后复用；接入 host `ci`。
 - 本次按要求不编译/出包，C++ 用例与实际 GPU 路径尚未执行。后续须验证 DX12 debug layer、加载突发、RR 开关/重建、普通和 debug 输出，并复测 PBZ。失败采集应记录 shader 名称、槽容量及录制/提交/fence 状态。

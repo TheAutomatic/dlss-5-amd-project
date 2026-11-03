@@ -15,9 +15,7 @@
 
 ## 验证与边界
 
-`tests/host/run.cmd ffx-native-source` 是无需编译的源码接线检查，检查原生调用分流、成功创建归属、失败闭锁及延迟 loader 登记顺序；它不证明 Windows DLL 加载或 ABI 可用。
-
-`tests/host/run.cmd ffx-context-owners` 是需要编译的 CPU 测试，覆盖并发独立 context、provider 归属、销毁失败重试、成功清理及 provider 回调重入；同时接入 host `ci`。
+`tests/host/run.cmd ffx-context-owners` 是需要编译的 CPU 测试，覆盖并发独立 context、provider 归属、销毁失败重试、成功清理及 provider 回调重入；接入 host `ci`。
 
 本次按要求未编译或出包。仍须运行上述 C++ 测试，并在后续构建后验证游戏原生 RR、移植 RR 同时存在、子目录 loader、先 SR 后 RR 以及缺少导出的实际 DLL 场景。源码检查不能替代这些验证。
 
