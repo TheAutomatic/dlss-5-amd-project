@@ -253,7 +253,17 @@ namespace OptScalerNR.Launcher
             {
                 string text = raw.TrimEnd('\r', '\n');
                 var header = Header.Match(text);
-                if (header.Success) { section = header.Groups[1].Value.Trim(); continue; }
+                if (header.Success) {
+                    section = header.Groups[1].Value.Trim();
+                    int resetLayer;
+                    if (IsLayerSection(section, out resetLayer)) {
+                        string prefix = "L" + resetLayer.ToString(Invariant) + ":";
+                        var stale = new List<string>();
+                        foreach (var existing in values.Keys) if (existing.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) stale.Add(existing);
+                        foreach (var existing in stale) values.Remove(existing);
+                    }
+                    continue;
+                }
                 if (section == null) continue;
                 var assignment = Assignment.Match(text);
                 if (!assignment.Success) continue;
@@ -284,7 +294,17 @@ namespace OptScalerNR.Launcher
             {
                 string text = raw.TrimEnd('\r', '\n');
                 var header = Header.Match(text);
-                if (header.Success) { section = header.Groups[1].Value.Trim(); continue; }
+                if (header.Success) {
+                    section = header.Groups[1].Value.Trim();
+                    int resetLayer;
+                    if (IsLayerSection(section, out resetLayer)) {
+                        // read_chain keeps the last whole [LayerN] section: a later
+                        // header replaces the earlier one, including omitted keys.
+                        layerValues.Remove(resetLayer);
+                        layerOrder.Remove(resetLayer);
+                    }
+                    continue;
+                }
                 if (section == null) continue;
                 var assignment = Assignment.Match(text);
                 if (!assignment.Success) continue;
@@ -465,7 +485,9 @@ namespace OptScalerNR.Launcher
                     if (IsLayerSection(section, out layerNo))
                     {
                         inLayer = true;
-                        if (!layerLocals.ContainsKey(layerNo)) layerLocals[layerNo] = new List<string>();
+                        // The last whole section is the effective layer; do not merge
+                        // local keys/comments from an earlier duplicate.
+                        layerLocals[layerNo] = new List<string>();
                         continue;
                     }
                     inLayer = false;
