@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 rem Installer, uninstaller and packaging entrypoints. No GPU; isolated temp folders only.
 rem Usage: tests\install\run.cmd [release]  (default: full regression; release: focused smoke cases)
 rem   test_installer_exit.py   Setup/Uninstall launchers under Windows PowerShell 5.1
@@ -18,6 +18,7 @@ if /i "%~1"=="artwork" goto artwork
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\folder-picker-dpi.ps1 || goto fail
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\library-artwork.ps1 || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_mz4_share_code.py || goto fail
+"%AMD_TEST_PYTHON%" -B tests\install\test_dependency_lock.py || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_installer_exit.py --failfast || goto fail
 "%AMD_TEST_PYTHON%" -B -m unittest discover -s tests\install -p test_proxy_probe.py --failfast || goto fail
 "%AMD_TEST_PYTHON%" -B -m unittest discover -s tests\install -p test_launcher_worker.py --failfast || goto fail

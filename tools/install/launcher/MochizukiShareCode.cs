@@ -442,23 +442,45 @@ namespace OptScalerNR.Launcher
                    string.Equals(v, "yes", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(v, "on", StringComparison.OrdinalIgnoreCase);
         }
+        static bool LayerIsEnabled(DecodedCode code, int layer)
+        {
+            string value = EntryValue(code, layer, "Enabled");
+            if (value.Length == 0) return true;
+            value = value.Trim();
+            return !(value == "0" || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(value, "no", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(value, "off", StringComparison.OrdinalIgnoreCase));
+        }
         public static string Summary(DecodedCode code, bool chinese)
         {
             bool hasLayers = code.LayerCount > 0;
-            int first = code.FirstLayer;
-            int activeLayers = hasLayers ? (code.LayersEnabled ? code.LayerCount : 1) : 0;
+            var active = new List<int>();
+            if (hasLayers) {
+                if (code.LayersEnabled) {
+                    foreach (var layer in code.LayerNumbers) if (LayerIsEnabled(code, layer)) active.Add(layer);
+                } else if (LayerIsEnabled(code, code.FirstLayer)) {
+                    active.Add(code.FirstLayer);
+                }
+            }
+            int activeLayers = active.Count;
+            var text = new StringBuilder();
+            if (hasLayers && activeLayers == 0) {
+                text.Append(chinese ? "ASI 画面 · 0 个图层 · 不运行" : "ASI look · 0 layers · not running");
+                if (code.GameTag.Length > 0) text.Append(chinese ? " · 来自 " : " · from ").Append(code.GameTag);
+                return text.ToString();
+            }
+            int effectiveLayer = activeLayers > 0 ? active[0] : 0;
             string model = hasLayers
-                ? EntryValue(code, first, "Network")
+                ? EntryValue(code, effectiveLayer, "Network")
                 : code.Network;
             if (model.Length == 0) model = code.Network;
             if (model.Length == 0) model = chinese ? "未指定网络" : "no network";
-            var text = new StringBuilder();
             text.Append(chinese ? "ASI 画面" : "ASI look").Append(" · ").Append(model)
                 .Append(" · ").Append(chinese ? activeLayers + " 个图层" : activeLayers + " layer(s)");
             if (code.GameTag.Length > 0) text.Append(chinese ? " · 来自 " : " · from ").Append(code.GameTag);
             if (hasLayers) {
-                string processing = EntryValue(code, first, "Processing");
-                string placement = EntryValue(code, first, "Placement");
+                string processing = EntryValue(code, effectiveLayer, "Processing");
+                string placement = EntryValue(code, effectiveLayer, "Placement");
                 if (processing.Length > 0 || placement.Length > 0) {
                     text.Append(" · ").Append(chinese ? "运行位置 " : "placement ")
                         .Append(chinese ? PlacementText(placement) : placement)

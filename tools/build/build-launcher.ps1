@@ -37,7 +37,7 @@ $cs = @(
     'Program.cs', 'MainWindow.cs', 'Protocol.cs', 'WorkerClient.cs', 'GamePaths.cs',
     'DialogTheme.cs', 'FolderGameScanner.cs', 'ProxyRecommendations.cs',
     'MainController.Library.cs', 'MainController.Recommendations.cs', 'LauncherTheme.cs', 'MainController.Presentation.cs',
-    'MainController.Profiles.cs', 'MainController.ShareCode.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'MainController.Diagnostics.cs', 'MainController.LogPack.cs', 'IniProfiles.cs', 'LocalArtwork.cs'
+    'MainController.Profiles.cs', 'MainController.ShareCode.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'ModelDependencyLock.cs', 'MainController.Diagnostics.cs', 'MainController.LogPack.cs', 'IniProfiles.cs', 'LocalArtwork.cs'
     'MainController.UnlockerPlugin.cs', 'UnlockerPlugin.cs'
 ) | ForEach-Object { Join-Path $src $_ }
 $refs = @(

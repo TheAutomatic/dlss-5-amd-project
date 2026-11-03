@@ -140,7 +140,16 @@ static class Mz4ShareCodeTest
               layerOffSummary.Contains("超分后") && layerOffSummary.Contains("1 层未启用"), "layers off summary: " + layerOffSummary);
         string layerOn = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(layerOffSource.Replace("Layers=0", "Layers=1")));
         string layerOnSummary = MochizukiShareCode.Summary(MochizukiShareCode.Decode(layerOn), true);
-        Check(layerOnSummary.Contains("2 个图层") && layerOnSummary.Contains("超分后"), "layers on summary: " + layerOnSummary);
+        Check(layerOnSummary.Contains("2 个图层") && layerOnSummary.Contains("超分后"), "layers on summary: " + layerOnSummary);        string disabledFirstSource = "[Network]\nModel=CC_SMALL_FP8\n[NRControl]\nLayers=0\n[Layer1]\nEnabled=0\nProcessing=RenoDX\nPlacement=after\nNetwork=CC_SILVER_AARDWOLD\n[Layer2]\nEnabled=1\nProcessing=wilsjo2\nPlacement=before\nNetwork=CC_SMALL_FP8_EXPERIMENTAL\n";
+        string disabledFirst = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(disabledFirstSource));
+        string disabledSummary = MochizukiShareCode.Summary(MochizukiShareCode.Decode(disabledFirst), true);
+        Check(disabledSummary.Contains("0 个图层") && disabledSummary.Contains("不运行"), "disabled first layer not running: " + disabledSummary);
+        Check(!disabledSummary.Contains("CC_SMALL_FP8_EXPERIMENTAL"), "disabled first was skipped: " + disabledSummary);
+        string layersOnDisabled = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(disabledFirstSource.Replace("Layers=0", "Layers=1")));
+        string layersOnDisabledSummary = MochizukiShareCode.Summary(MochizukiShareCode.Decode(layersOnDisabled), true);
+        Check(layersOnDisabledSummary.Contains("1 个图层") && layersOnDisabledSummary.Contains("CC_SMALL_FP8_EXPERIMENTAL") &&
+              layersOnDisabledSummary.Contains("1 层未启用"), "layers on disabled count: " + layersOnDisabledSummary);
+
 
         var empty = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(";default\n")));
         Check(empty.Entries.Count == 0, "empty code stays valid");

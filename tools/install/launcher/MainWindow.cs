@@ -2215,12 +2215,12 @@ namespace OptScalerNR.Launcher
                 var experimentalLocksSmall = checks[1] != null && checks[1].IsChecked == true;
                 var int4LocksOriginal = checks[3] != null && checks[3].IsChecked == true;
                 checks[0].IsEnabled = canInstall[0];
-                checks[0].Tag = !canInstall[0] ? "unavailable" : experimentalLocksSmall ? "dependencyLocked" : null;
+                checks[0].Tag = !canInstall[0] ? "unavailable" : experimentalLocksSmall ? ModelDependencyLock.TagValue : null;
                 checks[0].ToolTip = experimentalLocksSmall && canInstall[0]
                     ? L("Experimental 已选择，Small 是必需依赖，不能取消。", "Experimental is selected, so Small is a required dependency and cannot be cleared.")
                     : null;
                 checks[2].IsEnabled = canInstall[2];
-                checks[2].Tag = !canInstall[2] ? "unavailable" : int4LocksOriginal ? "dependencyLocked" : null;
+                checks[2].Tag = !canInstall[2] ? "unavailable" : int4LocksOriginal ? ModelDependencyLock.TagValue : null;
                 checks[2].ToolTip = int4LocksOriginal && canInstall[2]
                     ? L("INT4 Mixed 已选择，Original 是必需依赖，不能取消。", "INT4 Mixed is selected, so Original is a required dependency and cannot be cleared.")
                     : null;
@@ -2250,8 +2250,11 @@ namespace OptScalerNR.Launcher
             }
             for (var i = 0; i < checks.Length; i++)
             {
-                checks[i].Checked += delegate { if (!syncing) syncParents(); };
-                checks[i].Unchecked += delegate { if (!syncing) { updateLocks(); refreshStart(); } };
+                var check = checks[i];
+                check.Checked += delegate { if (!syncing) syncParents(); };
+                ModelDependencyLock.Attach(check, () => syncing,
+                    delegate { updateLocks(); refreshStart(); },
+                    value => syncing = value);
             }
             panel.Children.Add(new TextBlock {
                 Text = L("启动网络", "Startup network"), Foreground = LauncherTheme.Brush("ThemeMuted"), Margin = new Thickness(0, 8, 0, 0)
