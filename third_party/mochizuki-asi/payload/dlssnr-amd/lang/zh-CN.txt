@@ -15,7 +15,7 @@ msgid "The OptiScaler-NR fork's processing around the network, ported."
 msgstr "移植自 OptiScaler-NR 分支的网络前后处理。"
 
 msgid "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run. Only the last pass's answer is composed onto the frame."
-msgstr "遍数（Passes）。每帧模型处理次数，1-3（开启“解锁遍数”后最多 30）；每多一次就多跑一次网络。只有最后一次的结果会合成到画面上。"
+msgstr "Pass 次数。每帧模型处理的 Pass 数，1-3（开启“解锁 Passes”后最多 30）；每多一次 Pass 就多跑一次网络。只有最后一次 Pass 的结果会合成到画面上。"
 
 msgid "On: pass 1's settings, with the local tone at 0 (the fork's rule for later passes). Off: this pass's own settings below."
 msgstr "开：使用第 1 次的设置，局部色调为 0（分支对后续 Pass 的规则）。关：使用下面这次 Pass 自己的设置。"
@@ -180,13 +180,13 @@ msgid "Enlargement Classic only."
 msgstr "仅限 Enlargement Classic。"
 
 msgid "Passes"
-msgstr "遍数"
+msgstr "Pass 次数"
 
 msgid "Passes (legacy)"
-msgstr "遍数（旧式）"
+msgstr "Pass 次数（旧式）"
 
 msgid "Passes (fast)"
-msgstr "遍数（快速）"
+msgstr "Pass 次数（快速）"
 
 msgid "Extrapolation"
 msgstr "外推"
@@ -612,10 +612,10 @@ msgid "Layers"
 msgstr "多图层模式"
 
 msgid "[NRControl] Layers. On: several NR layers (the NR chain page), each a whole NR run of its own with its own processing, network, place and settings. Off (default): one NR run, its choices and settings on the NR settings page. Layers are not the way to run NR more than once on a frame: that is Passes."
-msgstr "[NRControl] Layers。开：可以启用多个 NR 图层（见 NR 链页），每个图层都是一次完整的 NR，各有自己的处理方式、网络、运行位置和设置。关（默认）：单次 NR，选项和设置在“NR 设置”页。让 NR 在一帧上多跑几次请用“遍数（Passes）”，不是图层。"
+msgstr "[NRControl] Layers。开：可以启用多个 NR 图层（见 NR 链页），每个图层都是一次完整的 NR，各有自己的处理方式、网络、运行位置和设置。关（默认）：单次 NR，选项和设置在“NR 设置”页。让 NR 在一帧上多跑几次请用 Passes，不是图层。"
 
 msgid "For ordinary stacking use Passes."
-msgstr "一般叠加增强请用遍数（Passes）"
+msgstr "一般叠加增强请用 Passes"
 
 msgid "Network model and options"
 msgstr "网络模型与选项"
@@ -1029,16 +1029,16 @@ msgid "How much of the network's fine detail change this method adds: 1 as made 
 msgstr "此方法加入多少网络的细节改动：1 原样（默认），0 无，2 两倍。"
 
 msgid "Unlock passes"
-msgstr "解锁遍数"
+msgstr "解锁 Passes"
 
 msgid "UnlockPasses. Passes beyond 3, up to 30."
 msgstr "UnlockPasses。超过 3 次的 Pass，最多 30。"
 
 msgid "Pass %d"
-msgstr "第 %d 遍"
+msgstr "Pass %d"
 
 msgid "Same as pass 1"
-msgstr "与第 1 遍相同"
+msgstr "与 Pass 1 相同"
 
 msgid "Standard"
 msgstr "标准"
@@ -1137,10 +1137,10 @@ msgid "NRSkinIndependent. With Auto mask, skin follows Skin structure only."
 msgstr "NRSkinIndependent。开启 Auto mask 时，皮肤只跟随 Skin structure。"
 
 msgid "NRPasses. Model passes a frame, 1-4 (up to 30 with Unlock passes); each costs one more network run."
-msgstr "NRPasses。每帧模型处理次数，1-4（开启“解锁遍数”后最多 30）；每多一次就多跑一次网络。"
+msgstr "NRPasses。每帧模型处理的 Pass 数，1-4（开启“解锁 Passes”后最多 30）；每多一次 Pass 就多跑一次网络。"
 
 msgid "NRUnlockPasses. Passes beyond 4, up to 30, as OptiScaler's UnlockPasses; passes 5 and later take pass 4's settings. Each pass is one more network run."
-msgstr "NRUnlockPasses。超过 4 次的遍数，最多 30，同 OptiScaler 的 UnlockPasses；第 5 遍及以后使用第 4 遍的设置。每次遍数多跑一次网络。"
+msgstr "NRUnlockPasses。超过 4 次的 Pass，最多 30，同 OptiScaler 的 UnlockPasses；第 5 次 Pass 及以后使用第 4 次的设置。每次 Pass 多跑一次网络。"
 
 msgid "Chained history"
 msgstr "连续历史"
@@ -1149,7 +1149,7 @@ msgid "NRChainedHistory. Off: passes 2+ restart every frame (diagnostic)."
 msgstr "NRChainedHistory。关：第 2 次及以后的 Pass 每帧重新开始（诊断用）。"
 
 msgid "Pass 2"
-msgstr "第 2 遍"
+msgstr "Pass 2"
 
 msgid "Transfer strength"
 msgstr "迁移强度"
@@ -1185,7 +1185,7 @@ msgid "NRPass2AutoMask."
 msgstr "NRPass2AutoMask."
 
 msgid "Pass 3"
-msgstr "第 3 遍"
+msgstr "Pass 3"
 
 msgid "NRPass3Transfer. As Transfer strength, for this pass."
 msgstr "NRPass3Transfer。同 Transfer strength，用于这次 Pass。"
@@ -1215,7 +1215,7 @@ msgid "NRPass3AutoMask."
 msgstr "NRPass3AutoMask."
 
 msgid "Pass 4 and later"
-msgstr "第 4 遍及以后"
+msgstr "Pass 4 及以后"
 
 msgid "NRPass4Transfer. As Transfer strength, for this pass."
 msgstr "NRPass4Transfer。同 Transfer strength，用于这次 Pass。"
@@ -1743,7 +1743,7 @@ msgid "Legacy timing"
 msgstr "旧计时"
 
 msgid "Passes mode"
-msgstr "遍数方式"
+msgstr "Pass 模式"
 
 msgid "NRPassesMode. Choose legacy network passes or fast strengthening after one network pass."
 msgstr "NRPassesMode。选择 legacy 的多次网络处理，或一次网络处理后的 fast 强化。"
@@ -2148,7 +2148,7 @@ msgid "This route's own composition around the network, under OptiScaler DLSS-NR
 msgstr "本路线自己在网络周围的合成，使用 OptiScaler DLSS-NR 的设置和名称。"
 
 msgid "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run."
-msgstr "遍数（Passes）。每帧模型处理次数，1-3（开启“解锁遍数”后最多 30）；每多一次就多跑一次网络。"
+msgstr "Pass 次数。每帧模型处理的 Pass 数，1-3（开启“解锁 Passes”后最多 30）；每多一次 Pass 就多跑一次网络。"
 
 msgid "On: pass 1's settings, with the local tone at 0. Off: this pass's own settings below."
 msgstr "开：使用第 1 次的设置，局部色调为 0。关：使用下面这次 Pass 自己的设置。"
@@ -3143,7 +3143,7 @@ msgstr "请用 install.sh 打印的 INT4 启动选项启动游戏"
 # 0.0.8.2
 
 msgid "If the picture flickers with passes, turn on Detail stability (Composition > Detail stability: Auto or Always)."
-msgstr "如果多遍处理时画面闪烁，请打开细节稳定（合成 > 细节稳定：自动 或 总是）。"
+msgstr "如果多次 Pass 处理时画面闪烁，请打开细节稳定（合成 > 细节稳定：自动 或 总是）。"
 
 msgid "16-bit"
 msgstr "16 位"
@@ -3155,4 +3155,4 @@ msgid "History precision"
 msgstr "历史精度"
 
 msgid "[Network] History Precision: the precision of the images NR keeps its previous result in. 16-bit (default): as NVIDIA's DLL keeps it, half the video memory. 32-bit: as up to 0.0.8.1; at 4K 133 MB more a network and 66 MB more each further pass. With several passes the two can differ in fine detail. Takes effect at once; the previous result starts afresh."
-msgstr "[Network] History Precision：NR 保存上一帧结果所用图像的精度。16 位（默认）：与 NVIDIA 的 DLL 相同，显存占用减半。32 位：与 0.0.8.1 及以前相同；4K 下每个网络多占 133 MB，每多一遍再多 66 MB。多遍处理时两者的细节可能略有不同。立即生效；上一帧结果重新开始。"
+msgstr "[Network] History Precision：NR 保存上一帧结果所用图像的精度。16 位（默认）：与 NVIDIA 的 DLL 相同，显存占用减半。32 位：与 0.0.8.1 及以前相同；4K 下每个网络多占 133 MB，每多一次 Pass 再多 66 MB。多次 Pass 处理时两者的细节可能略有不同。立即生效；上一帧结果重新开始。"
