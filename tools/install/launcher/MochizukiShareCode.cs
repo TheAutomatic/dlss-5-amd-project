@@ -153,6 +153,7 @@ namespace OptScalerNR.Launcher
         {
             public int Layer; // 0 = global
             public string Section, Key, Value;
+            public bool Reset; // current value that the import will restore to its default
         }
         public sealed class DecodedCode
         {
@@ -439,14 +440,29 @@ namespace OptScalerNR.Launcher
         public static List<Entry> ChangedEntries(byte[] ini, DecodedCode code)
         {
             var current = ReadStyle(ini);
+            var target = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var changed = new List<Entry>();
             foreach (var entry in code.Entries) {
                 string id = entry.Layer == 0
                     ? "G:" + entry.Section.ToUpperInvariant() + ":" + entry.Key
                     : "L" + entry.Layer.ToString(Invariant) + ":" + entry.Key;
+                target.Add(id);
                 string value;
                 if (!current.TryGetValue(id, out value) || NormalizeValue(value) != NormalizeValue(entry.Value))
                     changed.Add(entry);
+            }
+            foreach (var pair in current) {
+                if (target.Contains(pair.Key)) continue;
+                if (pair.Key.StartsWith("G:", StringComparison.Ordinal)) {
+                    var parts = pair.Key.Split(new[] { ':' }, 3);
+                    if (parts.Length != 3) continue;
+                    changed.Add(new Entry { Section = parts[1], Key = parts[2], Value = pair.Value, Reset = true });
+                } else if (pair.Key.StartsWith("L", StringComparison.Ordinal)) {
+                    int colon = pair.Key.IndexOf(':');
+                    int layer;
+                    if (colon <= 1 || !int.TryParse(pair.Key.Substring(1, colon - 1), NumberStyles.None, Invariant, out layer)) continue;
+                    changed.Add(new Entry { Layer = layer, Section = "Layer", Key = pair.Key.Substring(colon + 1), Value = pair.Value, Reset = true });
+                }
             }
             return changed;
         }

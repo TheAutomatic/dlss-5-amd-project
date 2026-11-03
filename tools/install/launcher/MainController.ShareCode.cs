@@ -186,6 +186,7 @@ namespace OptScalerNR.Launcher
                     });
                 }
                 string shown = ShareDisplayValue(entry.Key, entry.Value, chinese);
+                if (entry.Reset) shown = shown + (chinese ? " → 默认" : " → default");
                 host.Children.Add(new TextBlock {
                     Text = entry.Key + " = " + shown,
                     TextWrapping = TextWrapping.Wrap, FontSize = 11.5,

@@ -35,11 +35,14 @@ static class Mz4ShareCodeTest
         string changedSummary = MochizukiShareCode.Summary(decoded, true);
         Check(!changedSummary.Contains("\n") && changedSummary.Contains("图层"), "compact summary");
         var changed = MochizukiShareCode.ChangedEntries(
-            Encoding.UTF8.GetBytes("[Network]\nModel = CC_SMALL_FP8\n[Layer1]\nNRIntensity = 0.10\n"),
+            Encoding.UTF8.GetBytes("[Network]\nModel = CC_SMALL_FP8\n[Preprocess]\nContrast = 1.30\n[Layer1]\nNRIntensity = 0.10\n"),
             decoded);
         bool sawChangedLayer = false;
         foreach (var e in changed) if (e.Layer == 1 && e.Key == "NRIntensity") sawChangedLayer = true;
         Check(sawChangedLayer, "import preview reports changed layer parameter");
+        bool sawReset = false;
+        foreach (var e in changed) if (e.Reset && e.Key == "Contrast") sawReset = true;
+        Check(sawReset, "import preview reports reset parameters");
         Check(sawAuto, "auto preserved");
         Check(sawRunBefore, "bool true preserved");
         Check(sawAnchors, "anchor string preserved");
