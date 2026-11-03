@@ -9,13 +9,13 @@ msgid "@font"
 msgstr "fonts/NotoSansCJKsc-Regular.ttf"
 
 msgid "Each layer is an NR pass of its own: its processing (RenoDX or wilsjo2), its network ([Network] Model, or one of its own), where it runs, and its own settings (click its name: its page). Layers at one place run in layer order; before the upscaler, then after it, then at Present. Each layer costs a network run, and a layer with another network or size its own memory."
-msgstr "每个层都是一次独立的 NR 处理：它的处理方式（RenoDX 或 wilsjo2）、它的网络（[Network] Model，或它自己的）、运行位置以及它自己的设置（点击层名打开它的页面）。同一位置的层按层号顺序运行；先是超分前，然后超分后，最后在 最佳效果。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。"
+msgstr "每个层都是一次独立的 NR 处理：它的处理方式（RenoDX 或 wilsjo2）、它的网络（[Network] Model，或它自己的）、运行位置以及它自己的设置（点击层名打开它的页面）。同一位置的层按层号顺序运行：先是超分前，然后超分后，最后在最终画面（最佳效果）。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。"
 
 msgid "The OptiScaler-NR fork's processing around the network, ported."
 msgstr "移植自 OptiScaler-NR 分支的网络前后处理。"
 
 msgid "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run. Only the last pass's answer is composed onto the frame."
-msgstr "Passes。每帧模型处理次数，1-3（开启“解锁 Passes”后最多 30）；每多一次就多跑一次网络。只有最后一次的结果会合成到画面上。"
+msgstr "遍数（Passes）。每帧模型处理次数，1-3（开启“解锁遍数”后最多 30）；每多一次就多跑一次网络。只有最后一次的结果会合成到画面上。"
 
 msgid "On: pass 1's settings, with the local tone at 0 (the fork's rule for later passes). Off: this pass's own settings below."
 msgstr "开：使用第 1 次的设置，局部色调为 0（分支对后续 Pass 的规则）。关：使用下面这次 Pass 自己的设置。"
@@ -63,13 +63,13 @@ msgid "Colours"
 msgstr "配色"
 
 msgid "Waiting for the game's upscaler: DLSS, FSR or XeSS in the game's settings (OptiScaler's own menu, for the upscaler and frame generation: Insert)."
-msgstr "正在等待游戏的放大器：请在游戏设置中选择 DLSS、FSR 或 XeSS（放大和帧生成用 OptiScaler 自己的菜单：Insert）。"
+msgstr "正在等待游戏的超分组件：请在游戏设置中开启 DLSS、FSR 或 XeSS（超分和帧生成请用 OptiScaler 菜单：Insert）。"
 
 msgid " (after the upscaler)"
-msgstr "（放大器之后）"
+msgstr "（超分后）"
 
 msgid " (before the upscaler)"
-msgstr "（放大器之前）"
+msgstr "（超分前）"
 
 msgid "NR on %ux%u%s, network %ux%u, %u pass%s"
 msgstr "NR 运行于 %ux%u%s，网络 %ux%u，%u 次%s"
@@ -96,7 +96,7 @@ msgid "on / off for this run%s%s%s"
 msgstr "本次运行开 / 关%s%s%s"
 
 msgid "Every layer off or on again, for this run only (never written to the file). Its key is on the Hotkeys page; whether NR is on when the game starts: the Screenshot page's \"Neural Rendering\" ([RenoDX] NeuralUplift)."
-msgstr "所有层一起关闭或重新打开，仅限本次运行（不写入文件）。它的按键在“快捷键”页；游戏启动时 NR 是否开启：见“截图”页的 \"Neural Rendering\"（[RenoDX] NeuralUplift）。"
+msgstr "所有层一起关闭或重新打开，仅限本次运行（不写入文件）。它的按键在“快捷键”页；游戏启动时 NR 是否开启：见“截图”页的“神经渲染”（[RenoDX] NeuralUplift）。"
 
 msgid "NR chain"
 msgstr "NR 链"
@@ -156,13 +156,13 @@ msgid "Engine data"
 msgstr "引擎数据"
 
 msgid "What is compared. The final picture: the layers of the last place that runs (Present, else after the upscaler), all off against all on. A layer: its own input and output, where it runs (before the upscaler: the comparison is upscaled too)."
-msgstr "比较的内容。最终画面：最后运行位置的层（最佳效果，否则为超分后），全部关闭对比全部开启。单个层：它自己的输入和输出，在它运行的位置（超分前：对比画面也会被放大）。"
+msgstr "比较的内容。最终画面：最后运行位置的层（最佳效果，否则为超分后），全部关闭对比全部开启。单个层：它自己的输入和输出，在它运行的位置（超分前：对比画面也会被超分）。"
 
 msgid "    Upscaling %ux%u -> %ux%u"
-msgstr "    放大 %ux%u -> %ux%u"
+msgstr "    超分 %ux%u -> %ux%u"
 
 msgid "    No upscaling: %ux%u"
-msgstr "    未放大：%ux%u"
+msgstr "    未超分：%ux%u"
 
 msgid "Close"
 msgstr "关闭"
@@ -198,7 +198,7 @@ msgid "Hybrid"
 msgstr "混合"
 
 msgid "Edit strength"
-msgstr "编辑强度"
+msgstr "改动强度"
 
 msgid "Method"
 msgstr "方式"
@@ -282,7 +282,7 @@ msgid "Shared by every layer: the frame handed to and from the network, screensh
 msgstr "所有层共用：送入和取回网络的画面、截图。"
 
 msgid "The .asi's copies: the frame before the upscaler, its guides for Present layers, the Present layers' textures. The ReShade add-on's: HUD FIX's frames, the PQ conversion's, the motion copies, Inspect's."
-msgstr ".asi 的副本：超分前的画面、给 最佳效果 层用的引导数据、最佳效果 层的纹理。ReShade 插件的：HUD FIX 的画面、PQ 转换的、运动向量副本、Inspect 的。"
+msgstr ".asi 的副本：超分前的画面、给最佳效果层用的引导数据、最佳效果层的纹理。ReShade 插件的：HUD FIX 的画面、PQ 转换的、运动向量副本、Inspect 的。"
 
 msgid "The wilsjo2 processing's textures around the network (each layer its own): the network's input, the original, its answer."
 msgstr "wilsjo2 处理在网络周围使用的纹理（每个层各自一份）：网络的输入、原图、它的结果。"
@@ -291,7 +291,7 @@ msgid "This menu's image."
 msgstr "本菜单的图像。"
 
 msgid "This process's use of the video memory heap (VK_EXT_memory_budget) less NR's: the game, its D3D layer, the upscaler, frame generation, overlays."
-msgstr "本进程对显存堆的使用（VK_EXT_memory_budget）减去 NR 的部分：游戏、它的 D3D 转换层、放大器、帧生成、叠加层。"
+msgstr "本进程对显存堆的使用（VK_EXT_memory_budget）减去 NR 的部分：游戏、它的 D3D 转换层、超分、帧生成、叠加层。"
 
 msgid "Budget %s MiB of %s MiB video memory (the driver's: what this process may use now)."
 msgstr "预算 %s MiB，显存共 %s MiB（驱动给出的：本进程现在可用的量）。"
@@ -363,10 +363,10 @@ msgid "No layer has run yet."
 msgstr "还没有层运行过。"
 
 msgid "after upscaler"
-msgstr "放大器之后"
+msgstr "超分后"
 
 msgid "before upscaler"
-msgstr "放大器之前"
+msgstr "超分前"
 
 msgid "Present"
 msgstr "最佳效果"
@@ -597,7 +597,7 @@ msgid "Screenshot and NR at start"
 msgstr "截图与启动时的 NR"
 
 msgid "Neural Rendering above: whether NR is on when the game starts. Keys: see Hotkeys."
-msgstr "上面的 Neural Rendering：游戏启动时 NR 是否开启。按键：见“快捷键”。"
+msgstr "上面的“神经渲染”：游戏启动时 NR 是否开启。按键：见“快捷键”。"
 
 msgid "Take a screenshot now"
 msgstr "立即截图"
@@ -609,13 +609,13 @@ msgid "[Network] Resize History. Only when NR runs before the upscaler and the g
 msgstr "[Network] Resize History。仅当 NR 在超分前运行且游戏改变渲染尺寸时\n（动态分辨率）：\n关（默认）：丢弃 NR 之前的结果，NR 在新尺寸下重新开始，与 NVIDIA 的 DLL 相同。\n开：把之前的结果缩放到新尺寸并保留。在我们的测试中尺寸频繁变化时更稳定，\n但不是 NVIDIA 的 DLL 的做法。带抖动输入的游戏（大多数 DLSS 游戏）会掩盖大部分\n重新开始，所以默认关闭。"
 
 msgid "Layers"
-msgstr "Layers"
+msgstr "多图层模式"
 
 msgid "[NRControl] Layers. On: several NR layers (the NR chain page), each a whole NR run of its own with its own processing, network, place and settings. Off (default): one NR run, its choices and settings on the NR settings page. Layers are not the way to run NR more than once on a frame: that is Passes."
-msgstr "[NRControl] Layers。开：可以有多个 NR layer（NR 链页），每个 layer 是一次完整的 NR，各有自己的处理方式、网络、位置和设置。关（默认）：只有一次 NR，它的选项和设置都在 NR 设置页。让 NR 在一帧上多跑几次用的是 Passes，不是 layer。"
+msgstr "[NRControl] Layers。开：可以启用多个 NR 图层（见 NR 链页），每个图层都是一次完整的 NR，各有自己的处理方式、网络、运行位置和设置。关（默认）：单次 NR，选项和设置在“NR 设置”页。让 NR 在一帧上多跑几次请用“遍数（Passes）”，不是图层。"
 
 msgid "For ordinary stacking use Passes."
-msgstr "一般叠层请用 Passes"
+msgstr "一般叠加增强请用遍数（Passes）"
 
 msgid "Network model and options"
 msgstr "网络模型与选项"
@@ -702,7 +702,7 @@ msgid "Resize history"
 msgstr "缩放历史"
 
 msgid "Memory guard"
-msgstr "内存保护"
+msgstr "显存保护"
 
 msgid "[Network] Memory Guard. On (default): a network is built only while 1 GB of video memory stays free for the game, and the running one steps aside while video memory runs out. Off: no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
 msgstr "[Network] Memory Guard。开（默认）：只有在能给游戏留出 1 GB 空闲显存时才构建网络，显存耗尽时正在运行的网络会让开。关：不做此检查——NR 用剩下的任何显存构建和运行；显存不足的游戏可能卡顿或无法加载自己的数据。立即生效。"
@@ -711,10 +711,10 @@ msgid "Side by side"
 msgstr "并排"
 
 msgid "Wipe"
-msgstr "划分"
+msgstr "卷帘滑块"
 
 msgid "[Inspect] Compare. The picture without NR against the picture with it, on the screen. Side by side: each half the whole picture; Wipe: one picture cut at Split."
-msgstr "[Inspect] Compare。在屏幕上对比没有 NR 和有 NR 的画面。Side by side：每半边显示完整画面；Wipe：在 Split 处切开的一张画面。"
+msgstr "[Inspect] Compare。在屏幕上对比关闭与开启 NR 的画面。Side by side：分左右半边各显示完整画面；Wipe：由分割线拉开的一张对比画面。"
 
 msgid "Layer %d"
 msgstr "第 %d 层"
@@ -732,10 +732,10 @@ msgid "Split"
 msgstr "分割位置"
 
 msgid "[Inspect] Split. Where the wipe cuts, 0 .. 1 of the width."
-msgstr "[Inspect] Split。Wipe 的切分位置，宽度的 0 .. 1。"
+msgstr "[Inspect] Split。卷帘对比的分割线位置，占宽度的 0 .. 1。"
 
 msgid "Zoom"
-msgstr "放大"
+msgstr "视图缩放"
 
 msgid "[Inspect] Zoom. 1: each half the whole picture (bars above and below); 2: the half filled (its sides cropped)."
 msgstr "[Inspect] Zoom。1：每半边显示完整画面（上下有黑边）；2：半边填满（两侧被裁掉）。"
@@ -936,10 +936,10 @@ msgid "[Global] %s"
 msgstr "[全局] %s"
 
 msgid "After the upscaler"
-msgstr "放大器之后"
+msgstr "超分后"
 
 msgid "Before the upscaler"
-msgstr "放大器之前"
+msgstr "超分前"
 
 msgid "Processing"
 msgstr "处理方式"
@@ -960,22 +960,22 @@ msgid "Set: %s. Runs %s now%s%s%s"
 msgstr "设置：%s。现在运行 %s%s%s%s"
 
 msgid "before the upscaler"
-msgstr "放大器之前"
+msgstr "超分前"
 
 msgid "at Present"
-msgstr "在 最佳效果"
+msgstr "最佳效果（Present）"
 
 msgid "after the upscaler"
-msgstr "放大器之后"
+msgstr "超分后"
 
 msgid "Runs %s now: %s"
 msgstr "当前运行于%s：%s"
 
 msgid "Place. On this route NR runs at Present, on the picture ReShade hands over."
-msgstr "位置。这条路线上 NR 在 最佳效果 运行，处理 ReShade 交过来的画面。"
+msgstr "位置。这条路线上 NR 在最佳效果（Present）运行，处理 ReShade 交过来的画面。"
 
 msgid "Place. Before or after the upscaler, or at Present (the finished picture)."
-msgstr "位置。超分前、超分后，或在 最佳效果（完成的画面）。"
+msgstr "位置。超分前、超分后，或在最佳效果（完成的画面）。"
 
 msgid "NR is off for this run (the switch at the top, or its key): no layer runs. The boxes below are what the file says."
 msgstr "本次运行中 NR 已关闭（顶部的开关或它的按键）：没有层在运行。下面的勾选框是文件中的状态。"
@@ -1005,10 +1005,10 @@ msgid "ColourLimit. On (default): the colour of the network's change is bounded 
 msgstr "ColourLimit。开（默认）：每次 Pass 都像 RenoDX 那样限制网络改动的颜色，高光保护提亮像素时保持像素自身的颜色，这样暗的脸部边缘不会变红或变橙（叠加时更明显）。关：原版 wilsjo2 的合成。"
 
 msgid "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "FastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。Edit strength 以档位缩放网络的改动，同“调整 NR 外观”中的 Edit strength。每种方法各自保存设置。"
+msgstr "FastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。改动强度（Edit strength）以档位缩放网络的改动，同“调整 NR 的效果”中的改动强度。每种方法各自保存设置。"
 
 msgid "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
-msgstr "FastEditStrength。网络改动（以档位计）乘以此值（1 原样，0 无），同“调整 NR 外观”的 Edit strength，但范围更大。"
+msgstr "FastEditStrength。网络改动（以档位计）乘以此值（1 原样，0 无），同“调整 NR 的效果”中的改动强度，但范围更大。"
 
 msgid "Strength referred to legacy pass counts (this method's own)."
 msgstr "以 legacy Pass 次数为参照的强度（此方法自己的）。"
@@ -1107,7 +1107,7 @@ msgid "Hook point"
 msgstr "挂接位置"
 
 msgid "NRHookPoint (OptiScaler route). Present (default): the game's finished picture. Before the upscaler: not with Ray Reconstruction."
-msgstr "NRHookPoint（OptiScaler 路线）。最佳效果（默认）：游戏的最终画面。超分前：不能与光线重建一起使用。"
+msgstr "NRHookPoint（OptiScaler 路线）。最佳效果（默认）：游戏的最终呈现画面。超分前：不能与光线重建一起使用。"
 
 msgid "NRIntensity. Enhancement strength."
 msgstr "NRIntensity。增强强度。"
@@ -1122,7 +1122,7 @@ msgid "NRLocalStructure. Fine structure and surface detail."
 msgstr "NRLocalStructure。精细结构和表面细节。"
 
 msgid "NRSkinStructure. -1 = stock. With Auto mask only."
-msgstr "NRSkinStructure。-1 = 原厂。仅在 Auto mask 时有效。"
+msgstr "NRSkinStructure。-1 = 默认。仅在 Auto mask 时有效。"
 
 msgid "Auto mask"
 msgstr "自动遮罩"
@@ -1137,10 +1137,10 @@ msgid "NRSkinIndependent. With Auto mask, skin follows Skin structure only."
 msgstr "NRSkinIndependent。开启 Auto mask 时，皮肤只跟随 Skin structure。"
 
 msgid "NRPasses. Model passes a frame, 1-4 (up to 30 with Unlock passes); each costs one more network run."
-msgstr "NRPasses。每帧模型处理次数，1-4（开启 Unlock passes 后最多 30）；每多一次就多跑一次网络。"
+msgstr "NRPasses。每帧模型处理次数，1-4（开启“解锁遍数”后最多 30）；每多一次就多跑一次网络。"
 
 msgid "NRUnlockPasses. Passes beyond 4, up to 30, as OptiScaler's UnlockPasses; passes 5 and later take pass 4's settings. Each pass is one more network run."
-msgstr "NRUnlockPasses。超过 4 次的 Pass，最多 30，同 OptiScaler 的 UnlockPasses；第 5 次及以后使用第 4 次的设置。每次 Pass 多跑一次网络。"
+msgstr "NRUnlockPasses。超过 4 次的遍数，最多 30，同 OptiScaler 的 UnlockPasses；第 5 遍及以后使用第 4 遍的设置。每次遍数多跑一次网络。"
 
 msgid "Chained history"
 msgstr "连续历史"
@@ -1443,7 +1443,7 @@ msgid "NRSdrBlackRestore."
 msgstr "NRSdrBlackRestore."
 
 msgid "Every block"
-msgstr "每个块"
+msgstr "逐块"
 
 msgid "Smooth"
 msgstr "平滑"
@@ -1524,7 +1524,7 @@ msgid "NRPQCalibration."
 msgstr "NRPQCalibration."
 
 msgid "Feed"
-msgstr "输入"
+msgstr "亮度基准"
 
 msgid "NRFeedMode. What a float HDR frame is divided by."
 msgstr "NRFeedMode。浮点 HDR 画面除以什么。"
@@ -1539,7 +1539,7 @@ msgid "Present encoding"
 msgstr "Present 编码"
 
 msgid "NRPresentEncoding. RenoDX layers at Present: Auto follows the swapchain colour space; SDR, HDR10 and scRGB force how the picture is interpreted."
-msgstr "NRPresentEncoding。最佳效果 处的 RenoDX 层：Auto 跟随交换链色彩空间；SDR、HDR10 和 scRGB 强制画面的解释方式。"
+msgstr "NRPresentEncoding。最佳效果处的 RenoDX 层：Auto 跟随交换链色彩空间；SDR、HDR10 和 scRGB 强制画面的解释方式。"
 
 msgid "HDR10"
 msgstr "HDR10"
@@ -1551,19 +1551,19 @@ msgid "HDR white (nits)"
 msgstr "HDR 白（尼特）"
 
 msgid "NRPresentWhiteNits. RenoDX layers at Present: HDR diffuse white in nits. 0 uses the RenoDX mod's Game Brightness, then Windows SDR content brightness, then NRDiffuseWhiteNits."
-msgstr "NRPresentWhiteNits。最佳效果 处的 RenoDX 层：HDR 漫反射白，单位尼特。0 依次使用 RenoDX mod 的 Game Brightness、Windows SDR 内容亮度、NRDiffuseWhiteNits。"
+msgstr "NRPresentWhiteNits。最佳效果处的 RenoDX 层：HDR 漫反射白，单位尼特。0 依次使用 RenoDX mod 的 Game Brightness、Windows SDR 内容亮度、NRDiffuseWhiteNits。"
 
 msgid "HDR white source"
 msgstr "HDR 白来源"
 
 msgid "NRPresentWhiteSource. RenoDX layers at Present: Auto can use the RenoDX mod's Game Brightness; Windows skips it and uses Windows SDR content brightness, then NRDiffuseWhiteNits."
-msgstr "NRPresentWhiteSource。最佳效果 处的 RenoDX 层：Auto 可使用 RenoDX mod 的 Game Brightness；Windows 跳过它，使用 Windows SDR 内容亮度，然后是 NRDiffuseWhiteNits。"
+msgstr "NRPresentWhiteSource。最佳效果处的 RenoDX 层：Auto 可使用 RenoDX mod 的 Game Brightness；Windows 跳过它，使用 Windows SDR 内容亮度，然后是 NRDiffuseWhiteNits。"
 
 msgid "Windows"
 msgstr "Windows"
 
 msgid "Divisor governor"
-msgstr "除数调节器"
+msgstr "亮度平滑方式"
 
 msgid "NRNormGovernor."
 msgstr "NRNormGovernor."
@@ -1581,13 +1581,13 @@ msgid "NRNormCutAware."
 msgstr "NRNormCutAware."
 
 msgid "Attack (stops/s)"
-msgstr "上升（档/秒）"
+msgstr "响应速度（档/秒）"
 
 msgid "NRNormAttackStops."
 msgstr "NRNormAttackStops."
 
 msgid "Release (stops/s)"
-msgstr "下降（档/秒）"
+msgstr "恢复速度（档/秒）"
 
 msgid "NRNormReleaseStops."
 msgstr "NRNormReleaseStops."
@@ -1602,7 +1602,7 @@ msgid "Guides"
 msgstr "引导数据"
 
 msgid "NRPresentGuides. RenoDX layers at Present: Optional uses motion and depth when available; Required skips NR without motion; Never uses zero motion and no depth."
-msgstr "NRPresentGuides。最佳效果 处的 RenoDX 层：Optional 有运动和深度时使用；Required 没有运动时跳过 NR；Never 使用零运动且不用深度。"
+msgstr "NRPresentGuides。最佳效果处的 RenoDX 层：Optional 有运动和深度时使用；Required 没有运动时跳过 NR；Never 使用零运动且不用深度。"
 
 msgid "Optional"
 msgstr "可选"
@@ -1620,7 +1620,7 @@ msgid "NRDepthMode."
 msgstr "NRDepthMode."
 
 msgid "The game's flag"
-msgstr "游戏的标记"
+msgstr "跟随游戏标记"
 
 msgid "Normal"
 msgstr "正常"
@@ -1713,16 +1713,16 @@ msgid "NROutputRect (OptiScaler route, all layers). Declared (default, as 0.0.7)
 msgstr "NROutputRect（OptiScaler 路线，所有层）。Declared（默认，同 0.0.7）使用 evaluate 尺寸，否则用图像尺寸；Auto 优先使用 create 尺寸；Resource 使用图像尺寸。"
 
 msgid "Declared"
-msgstr "按声明"
+msgstr "按声明尺寸"
 
 msgid "Resource"
-msgstr "按资源"
+msgstr "按纹理尺寸"
 
 msgid "Present frames"
 msgstr "Present 帧"
 
 msgid "NRPresentFrames. RenoDX layers at Present on the OptiScaler route: run on every present with motion scaled by the frame-generation multiplier, or only the first present after each game frame."
-msgstr "NRPresentFrames。OptiScaler 路线上 最佳效果 处的 RenoDX 层：在每次呈现时运行（运动按帧生成倍数缩放），或只在每个游戏帧之后的第一次呈现时运行。"
+msgstr "NRPresentFrames。OptiScaler 路线上最佳效果处的 RenoDX 层：在每次呈现时运行（运动按帧生成倍数缩放），或只在每个游戏帧之后的第一次呈现时运行。"
 
 msgid "Every present"
 msgstr "每次 Present"
@@ -1734,7 +1734,7 @@ msgid "Frame-generation multiplier"
 msgstr "帧生成倍数"
 
 msgid "NRPresentFgSource. RenoDX layers at Present on the OptiScaler route: Auto uses DLSSG.MultiFrameCount, then stable timing. Stable timing uses present intervals; Legacy timing uses the older timing rule."
-msgstr "NRPresentFgSource。OptiScaler 路线上 最佳效果 处的 RenoDX 层：Auto 使用 DLSSG.MultiFrameCount，然后是稳定计时。稳定计时使用呈现间隔；旧计时使用以前的计时规则。"
+msgstr "NRPresentFgSource。OptiScaler 路线上最佳效果处的 RenoDX 层：Auto 使用 DLSSG.MultiFrameCount，然后是稳定计时。稳定计时使用呈现间隔；旧计时使用以前的计时规则。"
 
 msgid "Stable timing"
 msgstr "稳定计时"
@@ -1758,7 +1758,7 @@ msgid "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy p
 msgstr "NRFastExtrapolationPasses。Extrapolation 的强度，以 legacy Pass 次数为参照。"
 
 msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "NRFastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。Edit strength 以档位缩放网络的改动，同“调整 NR 外观”中的 Edit strength。每种方法各自保存设置。"
+msgstr "NRFastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。改动强度（Edit strength）以档位缩放网络的改动，同“调整 NR 的效果”中的改动强度。每种方法各自保存设置。"
 
 msgid "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
 msgstr "NRFastExtrapolationHaloLimit。限制 Extrapolation 增加的光晕。"
@@ -1767,7 +1767,7 @@ msgid "NRFastExtrapolationFine. How much of the network's fine detail change Ext
 msgstr "NRFastExtrapolationFine。Extrapolation 加入多少网络的细节改动：0 无（默认），1 原样，2 两倍。想要更多细节就调高；游戏自己的胶片颗粒也会随之增强。"
 
 msgid "NRFastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
-msgstr "NRFastEditStrength。网络改动（以档位计）乘以此值（1 原样，0 无），同“调整 NR 外观”的 Edit strength，但范围更大。"
+msgstr "NRFastEditStrength。网络改动（以档位计）乘以此值（1 原样，0 无），同“调整 NR 的效果”中的改动强度，但范围更大。"
 
 msgid "NRFastFeedbackPasses. Feedback's strength, referred to legacy pass counts."
 msgstr "NRFastFeedbackPasses。Feedback 的强度，以 legacy Pass 次数为参照。"
@@ -2142,13 +2142,13 @@ msgid "Extrapolation: no motion vectors"
 msgstr "Extrapolation：没有运动向量"
 
 msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
-msgstr "每个层都是对画面的一次独立 NR 运行，按层号顺序：它的处理方式（RenoDX，或 wilsjo2——本路线自己的合成，使用 OptiScaler DLSS-NR 的设置）、它的网络（[Network] Model，或它自己的）以及下面它自己的设置。在本路线上每个层都在 最佳效果 运行，处理 ReShade 交出的画面。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。删除所有层会回到 [DlssNr] / [RenoDX]。"
+msgstr "每个层都是对画面的一次独立 NR 运行，按层号顺序：它的处理方式（RenoDX，或 wilsjo2——本路线自己的合成，使用 OptiScaler DLSS-NR 的设置）、它的网络（[Network] Model，或它自己的）以及下面它自己的设置。在本路线上每个层都在最佳效果（Present）运行，处理 ReShade 交出的画面。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。删除所有层会回到 [DlssNr] / [RenoDX]。"
 
 msgid "This route's own composition around the network, under OptiScaler DLSS-NR's settings and names."
 msgstr "本路线自己在网络周围的合成，使用 OptiScaler DLSS-NR 的设置和名称。"
 
 msgid "Passes. Model passes a frame, 1-3 (up to 30 with Unlock passes); each costs one more network run."
-msgstr "Passes。每帧模型处理次数，1-3（开启 Unlock passes 后最多 30）；每多一次就多跑一次网络。"
+msgstr "遍数（Passes）。每帧模型处理次数，1-3（开启“解锁遍数”后最多 30）；每多一次就多跑一次网络。"
 
 msgid "On: pass 1's settings, with the local tone at 0. Off: this pass's own settings below."
 msgstr "开：使用第 1 次的设置，局部色调为 0。关：使用下面这次 Pass 自己的设置。"
@@ -2202,7 +2202,7 @@ msgid "ReShade's overlay (its default key)"
 msgstr "ReShade 的界面（它的默认键）"
 
 msgid "What is compared. The final picture: every layer (all run at Present on this route), all off against all on. A layer: its own input and output."
-msgstr "比较的内容。最终画面：所有层（本路线上全部在 最佳效果 运行），全部关闭对比全部开启。单个层：它自己的输入和输出。"
+msgstr "比较的内容。最终画面：所有层（本路线上全部在最佳效果运行），全部关闭对比全部开启。单个层：它自己的输入和输出。"
 
 msgid "    Frame %ux%u"
 msgstr "    画面 %ux%u"
@@ -2214,7 +2214,7 @@ msgid "frame generation's HUD-less frame is read for D3D12 games only"
 msgstr "帧生成的无 HUD 画面只对 D3D12 游戏读取"
 
 msgid "nothing: no layer runs at Present"
-msgstr "无：没有层在 最佳效果 运行"
+msgstr "无：没有层在最佳效果运行"
 
 msgid "estimated"
 msgstr "估计"
@@ -2238,10 +2238,10 @@ msgid "the game hands its frame generation no HUD-less frame"
 msgstr "游戏没有把无 HUD 画面交给它的帧生成"
 
 msgid "Present cannot serve this swap chain's colour format (wilsjo2)"
-msgstr "最佳效果 无法处理这个交换链的颜色格式（wilsjo2）"
+msgstr "呈现阶段（Present）无法处理这个交换链的色彩格式（wilsjo2）"
 
 msgid "Present cannot serve this swap chain's colour format"
-msgstr "最佳效果 无法处理这个交换链的颜色格式"
+msgstr "呈现阶段（Present）无法处理这个交换链的色彩格式"
 
 msgid "NR is off (toggle key)"
 msgstr "NR 已关闭（开关键）"
@@ -2277,13 +2277,13 @@ msgid "Frame generation: %.2f presents per game frame"
 msgstr "帧生成：每个游戏帧 %.2f 次呈现"
 
 msgid "waits for a Present of the game's (its swap chain was not found)"
-msgstr "正在等待游戏的一次 Present（没有找到它的交换链）"
+msgstr "正在等待游戏的画面呈现（未找到交换链）"
 
 msgid "the output is a region away from the corner"
 msgstr "输出是离开角落的一块区域"
 
 msgid "waits for a Present of the game's"
-msgstr "正在等待游戏的一次 Present"
+msgstr "正在等待游戏的画面呈现"
 
 msgid "its NR feature could not be made (see the log)"
 msgstr "它的 NR feature 无法创建（见日志）"
@@ -2367,13 +2367,13 @@ msgid "skipped(NR_DEBUG_SKIP_PASS)"
 msgstr "skipped(NR_DEBUG_SKIP_PASS)"
 
 msgid "failed"
-msgstr "failed"
+msgstr "失败"
 
 msgid "building"
-msgstr "building"
+msgstr "构建中"
 
 msgid "declined"
-msgstr "declined"
+msgstr "已拒绝"
 
 msgid "to make room"
 msgstr "以腾出空间"
@@ -2460,10 +2460,10 @@ msgid "needs the model of the 310.9.16 nvngx_dlssnr.dll (install.ps1 -Dll)"
 msgstr "需要 310.9.16 的 nvngx_dlssnr.dll 的模型（install.ps1 -Dll）"
 
 msgid "the model file is missing (run install.bat again)"
-msgstr "缺少模型文件（请重新运行 install.bat）"
+msgstr "缺少模型文件（请在启动器中重新下载/提取模型）"
 
 msgid "not installed (run install.bat again)"
-msgstr "未安装（请重新运行 install.bat）"
+msgstr "未安装（请在启动器中重新安装）"
 
 msgid "not on RDNA3 GPUs (RX 7000, Radeon 700M / 800M / 8000S)"
 msgstr "RDNA3 显卡上不可用（RX 7000、Radeon 700M / 800M / 8000S）"
@@ -2478,7 +2478,7 @@ msgid "the game's device has no pipeline binaries (ACO Mode)"
 msgstr "游戏的设备没有 pipeline binary（ACO Mode）"
 
 msgid "its weights were not made at install (run install.bat again)"
-msgstr "安装时没有生成它的权重（请重新运行 install.bat）"
+msgstr "安装时没有生成它的权重（请在启动器中重新生成/安装）"
 
 msgid "not in this build"
 msgstr "不在这个构建中"
@@ -2541,13 +2541,13 @@ msgid "the command list exposes no Vulkan handle"
 msgstr "命令列表没有提供 Vulkan 句柄"
 
 msgid "colour"
-msgstr "colour"
+msgstr "颜色"
 
 msgid "neural rendering failed: "
 msgstr "神经渲染失败："
 
 msgid "output"
-msgstr "output"
+msgstr "输出"
 
 msgid "the queue-level hand-over is for the native D3D12 runtime"
 msgstr "队列级交接只用于原生 D3D12 运行时"
@@ -2613,7 +2613,7 @@ msgid "RenoDX-style: the colour and the output differ in format or extent"
 msgstr "RenoDX 风格：颜色和输出的格式或尺寸不同"
 
 msgid "back buffer"
-msgstr "back buffer"
+msgstr "后台缓冲区"
 
 msgid "no Vulkan device underneath; this D3D11 game is not on DXVK"
 msgstr "底层没有 Vulkan 设备；这个 D3D11 游戏不是在 DXVK 上"
