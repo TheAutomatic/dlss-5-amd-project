@@ -10,9 +10,9 @@ WRITER = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\pe\nr_
 
 EXCLUDED = {
     ("Network", "Hotkey"): "target hotkey", ("Network", "Sound"): "target sound",
-    ("Network", "Residency"): "memory policy", ("Network", "Motion Without Depth"): "target resource policy",
-    ("Network", "Resize History"): "resource/history policy", ("Network", "OSD"): "diagnostic OSD",
-    ("Network", "Memory Guard"): "memory policy", ("Network", "History Precision"): "history storage",
+    ("Network", "Residency"): "memory policy",
+    ("Network", "OSD"): "diagnostic OSD",
+    ("Network", "Memory Guard"): "memory policy",
     ("Preprocess", "Hotkey"): "target hotkey", ("Preprocess", "Sound"): "target sound",
     ("RenoDX", "NRToggleKey"): "target hotkey", ("RenoDX", "NRScreenshotKey"): "target hotkey",
     ("RenoDX", "NRScreenshotSource"): "screenshot diagnostic", ("RenoDX", "NRScreenshotFormat"): "screenshot diagnostic",

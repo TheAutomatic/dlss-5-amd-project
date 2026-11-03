@@ -29,21 +29,24 @@ namespace OptScalerNR.Launcher
         {
             var list = new List<Field>();
             list.Add(F("Network", "Model", "str"));
-            list.Add(F("Network", "Style Grade", "num"));
+            list.Add(F("Network", "Motion Without Depth", "bool"));
+            list.Add(F("Network", "Resize History", "bool"));
+            list.Add(F("Network", "History Precision", "history"));
+            list.Add(F("Network", "Style Grade", "bool"));
             list.Add(F("RenoDX", "Enabled", "bool"));
             foreach (var key in new[] { "Enabled", "Exposure", "ExposureBias", "Curve", "Contrast", "Saturation", "Inverse" })
                 list.Add(F("Preprocess", key, key == "Enabled" || key == "Inverse" ? "bool" : (key == "Exposure" || key == "Curve") ? "str" : "num"));
             foreach (var key in RenoDXKeys()) list.Add(F("RenoDX", key, KindOfRenoDX(key)));
             foreach (var key in WilsjoKeys()) list.Add(F("wilsjo2", key, KindOfWilsjo(key)));
-            list.Add(F("HudFix", "Mode", "str"));
-            list.Add(F("NRControl", "Layers", "num"));
+            list.Add(F("HudFix", "Mode", "hudfix"));
+            list.Add(F("NRControl", "Layers", "bool"));
             return list.ToArray();
         }
         static Field[] BuildLayers()
         {
             var list = new List<Field>();
             foreach (var key in new[] { "Enabled", "Processing", "Placement", "Network" })
-                list.Add(F("Layer", key, key == "Enabled" ? "bool" : "str"));
+                list.Add(F("Layer", key, key == "Enabled" ? "bool" : key == "Placement" ? "placement" : "str"));
             foreach (var key in RenoDXKeys()) list.Add(F("Layer", key, KindOfRenoDX(key)));
             foreach (var key in WilsjoKeys()) list.Add(F("Layer", key, KindOfWilsjo(key)));
             return list.ToArray();
@@ -178,6 +181,29 @@ namespace OptScalerNR.Launcher
             if (field.Kind == "bool") {
                 if (value == "0" || value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)) return;
+                throw new CodeException("value");
+            }
+            if (field.Kind == "history") {
+                var h = value.ToLowerInvariant();
+                if (h == "16" || h == "fp16" || h == "half" || h == "rgba16f" ||
+                    h == "32" || h == "fp32" || h == "full" || h == "rgba32f") return;
+                throw new CodeException("value");
+            }
+            if (field.Kind == "processing") {
+                var p = value.ToLowerInvariant();
+                if (p == "renodx" || p == "wilsjo2") return;
+                throw new CodeException("value");
+            }
+            if (field.Kind == "hudfix") {
+                var h = value.ToLowerInvariant();
+                if (h == "off" || h == "auto" || h == "game" || h == "captured" || h == "estimated" ||
+                    h == "0" || h == "1" || h == "2" || h == "3" || h == "4") return;
+                throw new CodeException("value");
+            }
+            if (field.Kind == "placement") {
+                var p = value.ToLowerInvariant();
+                if (p == "before" || p == "after" || p == "present" ||
+                    p == "true" || p == "false" || p == "0" || p == "1") return;
                 throw new CodeException("value");
             }
             decimal parsed;
@@ -353,7 +379,6 @@ namespace OptScalerNR.Launcher
         public static byte[] Apply(byte[] ini, string code)
         {
             var decoded = Decode(code);
-            ValidateCodeEntries(decoded);
             var bySection = new Dictionary<string, List<Entry>>(StringComparer.OrdinalIgnoreCase);
             var layers = new SortedDictionary<int, List<Entry>>();
             foreach (var entry in decoded.Entries)
@@ -369,9 +394,14 @@ namespace OptScalerNR.Launcher
                 }
             }
             var doc = ReadDocument(ini);
+            string nl = Newline(doc.Text);
             var output = new StringBuilder();
+            // Local layer keys (not part of the style schema) and comments survive a
+            // replacement. A retired layer keeps them in its own number, disabled.
+            var layerLocals = new SortedDictionary<int, List<string>>();
             string section = null;
-            bool skippingLayer = false;
+            bool inLayer = false;
+            int layerNo = 0;
             foreach (var raw in SplitLines(doc.Text))
             {
                 string text = raw.TrimEnd('\r', '\n');
@@ -380,38 +410,64 @@ namespace OptScalerNR.Launcher
                 if (header.Success)
                 {
                     section = header.Groups[1].Value.Trim();
-                    int layer;
-                    skippingLayer = IsLayerSection(section, out layer);
-                    if (skippingLayer) continue;
-                    output.Append(text).Append(ending.Length > 0 ? ending : Newline(doc.Text));
-                    if (section != null && bySection.ContainsKey(section)) {
+                    if (IsLayerSection(section, out layerNo))
+                    {
+                        inLayer = true;
+                        if (!layerLocals.ContainsKey(layerNo)) layerLocals[layerNo] = new List<string>();
+                        continue;
+                    }
+                    inLayer = false;
+                    output.Append(text).Append(ending.Length > 0 ? ending : nl);
+                    if (bySection.ContainsKey(section)) {
                         foreach (var entry in bySection[section])
-                            output.Append(entry.Key).Append('=').Append(entry.Value).Append(Newline(doc.Text));
+                            output.Append(entry.Key).Append('=').Append(entry.Value).Append(nl);
                         bySection.Remove(section);
                     }
                     continue;
                 }
-                if (skippingLayer) continue;
-                var assignment = section == null ? Match.Empty : Assignment.Match(text);
-                if (assignment.Success) {
-                    string key = assignment.Groups[2].Value.Trim();
-                    int layer;
-                    bool isGlobal = !IsLayerSection(section, out layer) && FindField(GlobalFields, section, key) != null;
-                    if (isGlobal) { output.Append(';').Append(text).Append(ending.Length > 0 ? ending : Newline(doc.Text)); continue; }
+                if (inLayer)
+                {
+                    var assignment = Assignment.Match(text);
+                    if (assignment.Success) {
+                        string key = assignment.Groups[2].Value.Trim();
+                        // Drop old style values; keep local non-style keys (e.g. ToggleKey) and comments.
+                        if (FindField(LayerFields, "Layer", key) == null) layerLocals[layerNo].Add(raw);
+                    } else layerLocals[layerNo].Add(raw);
+                    continue;
+                }
+                var globalAssignment = section == null ? Match.Empty : Assignment.Match(text);
+                if (globalAssignment.Success) {
+                    string key = globalAssignment.Groups[2].Value.Trim();
+                    if (FindField(GlobalFields, section, key) != null) {
+                        output.Append(';').Append(text).Append(ending.Length > 0 ? ending : nl);
+                        continue;
+                    }
                 }
                 output.Append(raw);
             }
-            string nl = Newline(doc.Text);
             if (output.Length > 0 && output[output.Length - 1] != '\n' && output[output.Length - 1] != '\r') output.Append(nl);
             foreach (var pair in bySection)
             {
                 output.Append('[').Append(pair.Key).Append(']').Append(nl);
                 foreach (var entry in pair.Value) output.Append(entry.Key).Append('=').Append(entry.Value).Append(nl);
             }
-            foreach (var layer in layers)
+            var allLayers = new SortedSet<int>(layerLocals.Keys);
+            allLayers.UnionWith(layers.Keys);
+            foreach (var number in allLayers)
             {
-                output.Append("[Layer").Append(layer.Key.ToString(Invariant)).Append(']').Append(nl);
-                foreach (var entry in layer.Value) output.Append(entry.Key).Append('=').Append(entry.Value).Append(nl);
+                bool hasNew = layers.ContainsKey(number);
+                List<string> locals;
+                if (!layerLocals.TryGetValue(number, out locals)) locals = new List<string>();
+                if (!hasNew && locals.Count == 0) continue;
+                output.Append("[Layer").Append(number.ToString(Invariant)).Append(']').Append(nl);
+                if (!hasNew) output.Append("Enabled=0").Append(nl);
+                foreach (var raw in locals)
+                {
+                    output.Append(raw);
+                    if (raw.Length == 0 || (raw[raw.Length - 1] != '\n' && raw[raw.Length - 1] != '\r')) output.Append(nl);
+                }
+                if (hasNew)
+                    foreach (var entry in layers[number]) output.Append(entry.Key).Append('=').Append(entry.Value).Append(nl);
             }
             return doc.Bytes(output.ToString());
         }
