@@ -40,9 +40,16 @@ static class Mz4ShareCodeTest
         bool sawChangedLayer = false;
         foreach (var e in changed) if (e.Layer == 1 && e.Key == "NRIntensity") sawChangedLayer = true;
         Check(sawChangedLayer, "import preview reports changed layer parameter");
+        string oldLayerValue = "";
+        foreach (var e in changed) if (e.Layer == 1 && e.Key == "NRIntensity") oldLayerValue = e.OldValue;
+        Check(oldLayerValue == "0.10", "diff keeps the old value: " + oldLayerValue);
         bool sawReset = false;
         foreach (var e in changed) if (e.Reset && e.Key == "Contrast") sawReset = true;
         Check(sawReset, "import preview reports reset parameters");
+        var many = new System.Collections.Generic.List<MochizukiShareCode.Entry>();
+        for (int i = 0; i < 35; ++i) many.Add(new MochizukiShareCode.Entry { Section = "RenoDX", Key = "K" + i, Value = "1" });
+        var limited = MochizukiShareCode.LimitEntries(many, 30);
+        Check(limited.Count == 30 && limited[29].Key == "K29" && !limited.Exists(e => e.Key == "K30"), "preview limits direct rows");
         Check(sawAuto, "auto preserved");
         Check(sawRunBefore, "bool true preserved");
         Check(sawAnchors, "anchor string preserved");

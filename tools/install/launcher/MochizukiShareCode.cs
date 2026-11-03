@@ -152,7 +152,7 @@ namespace OptScalerNR.Launcher
         public sealed class Entry
         {
             public int Layer; // 0 = global
-            public string Section, Key, Value;
+            public string Section, Key, Value, OldValue;
             public bool Reset; // current value that the import will restore to its default
         }
         public sealed class DecodedCode
@@ -448,8 +448,12 @@ namespace OptScalerNR.Launcher
                     : "L" + entry.Layer.ToString(Invariant) + ":" + entry.Key;
                 target.Add(id);
                 string value;
-                if (!current.TryGetValue(id, out value) || NormalizeValue(value) != NormalizeValue(entry.Value))
+                if (!current.TryGetValue(id, out value)) {
                     changed.Add(entry);
+                } else if (NormalizeValue(value) != NormalizeValue(entry.Value)) {
+                    entry.OldValue = value;
+                    changed.Add(entry);
+                }
             }
             foreach (var pair in current) {
                 if (target.Contains(pair.Key)) continue;
@@ -465,6 +469,14 @@ namespace OptScalerNR.Launcher
                 }
             }
             return changed;
+        }
+        public static List<Entry> LimitEntries(IList<Entry> entries, int limit)
+        {
+            var result = new List<Entry>();
+            if (entries == null || limit <= 0) return result;
+            int count = Math.Min(limit, entries.Count);
+            for (int i = 0; i < count; ++i) result.Add(entries[i]);
+            return result;
         }
         public static int NonDefaultCount(DecodedCode code) { return code.Entries.Count; }
         public static int DifferenceCount(byte[] ini, string code)

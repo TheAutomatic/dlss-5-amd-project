@@ -186,7 +186,8 @@ namespace OptScalerNR.Launcher
                     });
                 }
                 string shown = ShareDisplayValue(entry.Key, entry.Value, chinese);
-                if (entry.Reset) shown = shown + (chinese ? " → 默认" : " → default");
+                if (entry.Reset) shown = ShareDisplayValue(entry.Key, entry.OldValue ?? entry.Value, chinese) + (chinese ? " → 默认" : " → default");
+                else if (!string.IsNullOrEmpty(entry.OldValue)) shown = ShareDisplayValue(entry.Key, entry.OldValue, chinese) + " → " + shown;
                 host.Children.Add(new TextBlock {
                     Text = entry.Key + " = " + shown,
                     TextWrapping = TextWrapping.Wrap, FontSize = 11.5,
@@ -234,10 +235,11 @@ namespace OptScalerNR.Launcher
             if (resets.Count > 0)
                 header += (chinese ? " · 另有 " : " · plus ") + resets.Count + (chinese ? " 项恢复默认" : " restoring defaults");
             diffHeader.Text = header;
-            RenderShareEntries(diffHost, direct, chinese);
-            if (direct.Count > 30) {
+            var shownDirect = MochizukiShareCode.LimitEntries(direct, 30);
+            RenderShareEntries(diffHost, shownDirect, chinese);
+            if (direct.Count > shownDirect.Count) {
                 diffHost.Children.Add(new TextBlock {
-                    Text = (chinese ? "还有 " : "") + (direct.Count - 30) + (chinese ? " 项，展开全部参数查看" : " more; open All settings"),
+                    Text = (chinese ? "还有 " : "") + (direct.Count - shownDirect.Count) + (chinese ? " 项，展开全部参数查看" : " more; open All settings"),
                     FontSize = 11, Foreground = TryFindResourceString("ThemeMuted"), Margin = new Thickness(10, 3, 0, 0)
                 });
             }
