@@ -21,7 +21,7 @@ static class Mz4ShareCodeTest
             "[Layer1]\nEnabled = 1\nProcessing = RenoDX\nPlacement = present\nNetwork = CC_SMALL_FP8_EXPERIMENTAL\nNRIntensity = 0.75\n" +
             "[Layer2]\nEnabled = 0\nProcessing = wilsjo2\nPlacement = after\nNetwork = CC_SILVER_AARDWOLD\nPasses = 2\n";
         string code = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(source), "pbz.exe", "night look");
-        Check(code.StartsWith("MZ4:", StringComparison.Ordinal), "prefix");
+        Check(code.StartsWith("MZ4:", StringComparison.Ordinal) && !code.Contains("\n"), "single-line code");
         var decoded = MochizukiShareCode.Decode(code);
         Check(decoded.GameTag == "pbz", "game tag");
         Check(decoded.Note == "night look", "note");

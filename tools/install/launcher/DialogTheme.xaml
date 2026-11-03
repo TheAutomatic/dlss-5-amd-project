@@ -77,10 +77,14 @@
           <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
         </Trigger>
         <Trigger Property="IsEnabled" Value="False">
-          <Setter TargetName="Body" Property="Opacity" Value="0.5"/>
+          <!-- Dependency lock: only the checkbox is grey; card text stays readable. -->
           <Setter TargetName="Box" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
           <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
           <Setter TargetName="Tick" Property="Foreground" Value="{DynamicResource ThemeMuted}"/>
+        </Trigger>
+        <Trigger Property="Tag" Value="unavailable">
+          <!-- The model/resource itself is unavailable, not merely dependency-locked. -->
+          <Setter TargetName="Body" Property="Opacity" Value="0.5"/>
         </Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>

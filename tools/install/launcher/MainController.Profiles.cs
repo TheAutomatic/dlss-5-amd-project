@@ -15,6 +15,7 @@ namespace OptScalerNR.Launcher
         TextBox _iniSearchBox;
         TextBlock _iniProfileStatus;
         Button _iniSaveButton, _iniQuickSaveButton, _iniImportButton, _iniRenameButton, _iniDeleteButton, _iniApplyButton, _iniFolderButton;
+        Button _iniAsiExportButton, _iniAsiImportButton;
         string[] _iniProfileNames = new string[0];
         string _iniSelectedProfile = "";
         bool _iniUpdating, _iniInitialized;
@@ -41,6 +42,10 @@ namespace OptScalerNR.Launcher
             _iniDeleteButton = _window.FindName("IniDeleteButton") as Button;
             _iniApplyButton = _window.FindName("IniApplyButton") as Button;
             _iniFolderButton = _window.FindName("IniFolderButton") as Button;
+            _iniAsiExportButton = _window.FindName("IniAsiExportButton") as Button;
+            _iniAsiImportButton = _window.FindName("IniAsiImportButton") as Button;
+            if (_iniAsiExportButton != null) _iniAsiExportButton.Click += delegate { ExportAsiIni(); };
+            if (_iniAsiImportButton != null) _iniAsiImportButton.Click += delegate { ImportAsiIni(); };
             InitShareCode();
             InitModelImport();
             InitUnlockerPlugin();
@@ -135,6 +140,15 @@ namespace OptScalerNR.Launcher
             if (_iniSaveButton != null) _iniSaveButton.IsEnabled = hasIni;
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.IsEnabled = hasIni;
             if (_iniImportButton != null) _iniImportButton.IsEnabled = hasGame;
+            var asiIni = hasGame ? Path.Combine(game.Directory, "dlssnr-amd.ini") : null;
+            if (_iniAsiExportButton != null) {
+                _iniAsiExportButton.Content = L("导出 dlssnr-amd.ini…", "Export dlssnr-amd.ini…");
+                _iniAsiExportButton.IsEnabled = hasGame && asiIni != null && File.Exists(asiIni);
+            }
+            if (_iniAsiImportButton != null) {
+                _iniAsiImportButton.Content = L("导入 dlssnr-amd.ini…", "Import dlssnr-amd.ini…");
+                _iniAsiImportButton.IsEnabled = hasGame;
+            }
             if (_iniRenameButton != null) _iniRenameButton.IsEnabled = selected;
             if (_iniDeleteButton != null) _iniDeleteButton.IsEnabled = selected;
             if (_iniApplyButton != null) _iniApplyButton.IsEnabled = hasIni;
@@ -240,6 +254,62 @@ namespace OptScalerNR.Launcher
             var name = PromptIniName(L("保存共享配置", "Save shared profile"), game.Name + L(" 保存配置", " profile"));
             if (name != null) SaveIniProfileCore(game, name);
         }
+        void ExportAsiIni()
+        {
+            var game = CaptureIniGame();
+            if (!CanUseIniGame(game)) return;
+            var path = Path.Combine(game.Directory, "dlssnr-amd.ini");
+            if (!File.Exists(path)) { SetIniStatus("noasi", ""); return; }
+            var dialog = new SaveFileDialog {
+                Title = L("完整导出 dlssnr-amd.ini", "Export complete dlssnr-amd.ini"),
+                FileName = "dlssnr-amd.ini", Filter = "INI (*.ini)|*.ini", OverwritePrompt = true,
+                RestoreDirectory = true
+            };
+            if (dialog.ShowDialog() != true) return;
+            try {
+                File.WriteAllBytes(dialog.FileName, File.ReadAllBytes(path));
+                SetIniStatus("asi-exported", Path.GetFileName(dialog.FileName));
+            } catch { SetIniStatus("io", ""); }
+        }
+
+        void ImportAsiIni()
+        {
+            var game = CaptureIniGame();
+            if (!CanUseIniGame(game)) return;
+            var target = Path.Combine(game.Directory, "dlssnr-amd.ini");
+            var dialog = new OpenFileDialog {
+                Title = L("完整导入 dlssnr-amd.ini", "Import complete dlssnr-amd.ini"),
+                Filter = "INI (*.ini)|*.ini", CheckFileExists = true, RestoreDirectory = true
+            };
+            if (dialog.ShowDialog() != true) return;
+            bool locked = false, busy = false;
+            string temporary = null;
+            try {
+                byte[] bytes = File.ReadAllBytes(dialog.FileName);
+                locked = TryLockTarget(game.Directory);
+                if (!locked) { SetIniStatus("locked", ""); return; }
+                SetBusy(true, "asi-ini"); busy = true; RefreshProfileActions();
+                temporary = target + ".stage-" + Guid.NewGuid().ToString("N");
+                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
+                    stream.Write(bytes, 0, bytes.Length); stream.Flush(true);
+                }
+                string backup = null;
+                if (File.Exists(target)) {
+                    backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                    File.Replace(temporary, target, backup);
+                } else {
+                    File.Move(temporary, target);
+                }
+                SetIniStatus("asi-imported", backup == null ? Path.GetFileName(dialog.FileName) : Path.GetFileName(backup));
+            } catch { SetIniStatus("io", ""); }
+            finally {
+                if (temporary != null && File.Exists(temporary)) { try { File.Delete(temporary); } catch { } }
+                if (locked) ReleaseLock();
+                if (busy) { SetBusy(false, ""); UpdatePrimaryButtonState(); }
+                RefreshProfileActions();
+            }
+        }
+
         void PromptImportIniProfile()
         {
             var game = CaptureIniGame();
@@ -376,6 +446,9 @@ namespace OptScalerNR.Launcher
                 case "game": text = L("请先选择游戏文件夹。", "Select a game folder first."); break;
                 case "metadata": text = L("无法读取配置记录，请检查配置记录文件。", "Cannot read profile records. Check the profile metadata file."); break;
                 case "noini": text = L("游戏没有 OptiScaler.ini，请先安装。", "No game OptiScaler.ini. Install first."); break;
+                case "noasi": text = L("游戏没有 dlssnr-amd.ini，请先安装 ASI 组件。", "No game dlssnr-amd.ini. Install the ASI component first."); break;
+                case "asi-exported": text = L("已完整导出 dlssnr-amd.ini：", "Exported complete dlssnr-amd.ini: ") + _iniStatusDetail; break;
+                case "asi-imported": text = L("已完整导入 dlssnr-amd.ini，重启 NR 后生效。原文件备份：", "Imported complete dlssnr-amd.ini; restart NR. Original backup: ") + _iniStatusDetail; break;
                 case "invalid": text = L("不是有效的 OptiScaler.ini。", "Not a valid OptiScaler.ini."); break;
                 case "extension": text = L("只能导入 .ini 文件。", "Only .ini files can be imported."); break;
                 case "source": text = L("导入文件不存在。", "The import file does not exist."); break;

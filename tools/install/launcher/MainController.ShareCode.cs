@@ -113,6 +113,43 @@ namespace OptScalerNR.Launcher
             }
         }
 
+        string ShareDisplayValue(string key, string value, bool chinese)
+        {
+            if (string.Equals(key, "Placement", StringComparison.OrdinalIgnoreCase)) {
+                string v = (value ?? "").Trim().ToLowerInvariant();
+                if (v == "before") return chinese ? "超分前 (before)" : "Before upscaler (before)";
+                if (v == "after") return chinese ? "超分后 (after)" : "After upscaler (after)";
+                if (v == "present") return chinese ? "最佳效果 (present)" : "Best result (present)";
+            }
+            return value;
+        }
+
+        void RenderSharePreview(StackPanel host, Expander expander, MochizukiShareCode.DecodedCode code, bool chinese)
+        {
+            host.Children.Clear();
+            if (code == null || code.Entries.Count == 0) {
+                expander.Header = L("查看参数（无）", "View settings (none)");
+                expander.IsExpanded = false;
+                return;
+            }
+            expander.Header = (chinese ? "查看参数（" : "View settings (") + code.Entries.Count + (chinese ? " 项）" : ")");
+            string group = null;
+            foreach (var entry in code.Entries) {
+                string next = entry.Layer > 0 ? (chinese ? "图层 " : "Layer ") + entry.Layer : entry.Section;
+                if (group != next) {
+                    group = next;
+                    var header = new TextBlock { Text = (entry.Layer > 0 ? "" : "[") + group + (entry.Layer > 0 ? "" : "]"),
+                        FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 2) };
+                    host.Children.Add(header);
+                }
+                host.Children.Add(new TextBlock {
+                    Text = entry.Key + " = " + ShareDisplayValue(entry.Key, entry.Value, chinese),
+                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10, 1, 0, 1),
+                    Foreground = TryFindResourceString("ThemeInk")
+                });
+            }
+        }
+
         static string[] RequiredModelFiles(MochizukiShareCode.DecodedCode code)
         {
             var files = new List<string>();
@@ -185,6 +222,17 @@ namespace OptScalerNR.Launcher
                 panel.Children.Add(noteHint); panel.Children.Add(noteBox);
                 var summary = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
                 panel.Children.Add(summary);
+                var previewHost = new StackPanel();
+                var previewExpander = new Expander {
+                    Header = L("查看参数", "View settings"), IsExpanded = import,
+                    Margin = new Thickness(0, 2, 0, 8)
+                };
+                previewExpander.Content = new ScrollViewer {
+                    Content = previewHost, MaxHeight = 220,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                };
+                panel.Children.Add(previewExpander);
                 byte[] exportedIni = null;
                 string exportSourcePath = path;
                 bool isExport = !import;
@@ -217,12 +265,14 @@ namespace OptScalerNR.Launcher
                            "Paste a shared code (pasting the whole share text works too, the code inside is found automatically), parse, then apply.");
                     input.IsReadOnly = isExport;
                     summary.Text = "";
+                    RenderSharePreview(previewHost, previewExpander, null, false);
                     if (isExport) {
                         if (exportedIni == null) exportedIni = File.ReadAllBytes(exportSourcePath);
                         input.Text = MochizukiShareCode.Encode(exportedIni, includeGame.IsChecked == true ? executable : null,
                                                                noteDirty ? MochizukiShareCode.SanitizeNote(noteBox.Text) : null);
                         var decoded = MochizukiShareCode.Decode(input.Text);
                         summary.Text = MochizukiShareCode.Summary(decoded, L("zh", "en") == "zh");
+                        RenderSharePreview(previewHost, previewExpander, decoded, L("zh", "en") == "zh");
                         if (MochizukiShareCode.NonDefaultCount(decoded) == 0)
                             summary.Text += L("\n当前全部为默认值：分享码有效，导入方应用后将恢复同样的默认画面。",
                                                "\nEverything is at defaults: the code is valid; importing it restores the same defaults.");
@@ -241,8 +291,9 @@ namespace OptScalerNR.Launcher
                             string noteLine = values.Note.Length > 0 ? L("（备注：" + values.Note + "）", " (note: " + values.Note + ")") : "";
                             summary.Text = noteLine + MochizukiShareCode.Summary(values, L("zh", "en") == "zh") +
                                 MissingModelWarning(game.Directory, values);
+                            RenderSharePreview(previewHost, previewExpander, values, L("zh", "en") == "zh");
                             validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
-                        } catch (Exception ex) { summary.Text = ShareError(ex); }
+                        } catch (Exception ex) { summary.Text = ShareError(ex); RenderSharePreview(previewHost, previewExpander, null, false); }
                     }
                 };
                 includeGame.Checked += delegate { if (isExport && renderMode != null) renderMode(); };
@@ -274,6 +325,7 @@ namespace OptScalerNR.Launcher
                         summary.Text = (values.Note.Length > 0 ? L("备注：", "Note: ") + values.Note + "\n" : "") +
                                        MochizukiShareCode.Summary(values, L("zh", "en") == "zh") + L("\n将更改 ", "\nWill change ") + difference + L(" 项画面设置（其余风格参数恢复默认）。", " settings (remaining visual parameters reset to defaults).") +
                                        MissingModelWarning(game.Directory, values);
+                        RenderSharePreview(previewHost, previewExpander, values, L("zh", "en") == "zh");
                         validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
                     } catch (Exception ex) { validated = null; apply.IsEnabled = false; summary.Text = ShareError(ex); }
                 };

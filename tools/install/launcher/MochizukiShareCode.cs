@@ -185,7 +185,7 @@ namespace OptScalerNR.Launcher
             var clean = new StringBuilder(note.Length);
             foreach (var ch in note.Trim())
             {
-                if (ch == ';' || ch == '|' || ch == '\r' || ch == '\n' || char.IsControl(ch)) continue;
+                if (ch == '\r' || ch == '\n' || char.IsControl(ch)) continue;
                 clean.Append(ch);
                 if (clean.Length >= 60) break;
             }
@@ -343,6 +343,14 @@ namespace OptScalerNR.Launcher
             return "MZ4:" + payload + ";" + Crc16(payload).ToString("X4", Invariant);
         }
         public static DecodedCode Decode(string code)
+        {
+            if (code == null) throw new CodeException("prefix");
+            if (code.StartsWith("MZ1:", StringComparison.Ordinal) || code.StartsWith("MZ2:", StringComparison.Ordinal) ||
+                code.StartsWith("MZ3:", StringComparison.Ordinal)) throw new CodeException("old");
+            if (!code.StartsWith("MZ4:", StringComparison.Ordinal)) throw new CodeException("prefix");
+            return DecodeBase64(code);
+        }
+        static DecodedCode DecodeBase64(string code)
         {
             if (code == null) throw new CodeException("prefix");
             if (code.StartsWith("MZ1:", StringComparison.Ordinal) || code.StartsWith("MZ2:", StringComparison.Ordinal) ||

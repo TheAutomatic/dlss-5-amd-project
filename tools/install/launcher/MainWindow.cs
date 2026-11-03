@@ -2234,7 +2234,8 @@ namespace OptScalerNR.Launcher
                     Content = new TextBlock { Text = states[i].Label, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center },
                     IsChecked = canInstall[i], IsEnabled = canInstall[i],
                     Style = dialog.FindResource("ModelCard") as Style,
-                    Foreground = canInstall[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted")
+                    Tag = canInstall[i] ? null : "unavailable",
+                    Foreground = LauncherTheme.Brush("ThemeInk")
                 };
                 checks[i] = check;
                 panel.Children.Add(check);
