@@ -1920,9 +1920,10 @@ if (Test-Path -LiteralPath $ini -PathType Leaf) {
 # Apply the launcher's UI language only to a template that this run created or
 # overwrote. A kept user ini keeps its own [Menu] Language.
 $uiLanguage = $null
+$asiMenuLanguage = $null
 if ($launcherDecisions -and $launcherDecisions.PSObject.Properties['language']) {
-    if ($launcherDecisions.language -eq 'zh') { $uiLanguage = 'zh-CN' }
-    elseif ($launcherDecisions.language -eq 'en') { $uiLanguage = 'en' }
+    if ($launcherDecisions.language -eq 'zh') { $uiLanguage = 'zh-CN'; $asiMenuLanguage = 'zh-CN' }
+    elseif ($launcherDecisions.language -eq 'en') { $uiLanguage = 'en'; $asiMenuLanguage = 'English' }
 }
 if ($iniFromTemplate -and $uiLanguage -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
     Set-IniSettings $gameIni 'Menu' ([ordered]@{ 'Language' = $uiLanguage })
@@ -2341,6 +2342,17 @@ if ($installMochizuki) {
     $asiIniExisted = Test-Path -LiteralPath $asiIni -PathType Leaf
     if (-not $asiIniExisted -and $asiTemplate) {
         Copy-Item -LiteralPath $asiTemplate -Destination $asiIni -Force
+    }
+    # [NRControl] Language names a file in dlssnr-amd\lang without .txt:
+    # zh-CN.txt and English.txt are the shipped values. A fresh ASI template
+    # (or one whose new section lacks the key) follows the launcher language;
+    # a kept user ini keeps even an explicit empty value (English).
+    if ($asiMenuLanguage -and (Test-Path -LiteralPath $asiIni -PathType Leaf)) {
+        if ($asiIniExisted) {
+            Set-IniSettings $asiIni 'NRControl' ([ordered]@{ 'Language' = $asiMenuLanguage }) -OnlyMissing
+        } else {
+            Set-IniSettings $asiIni 'NRControl' ([ordered]@{ 'Language' = $asiMenuLanguage })
+        }
     }
     # A fresh ini gets this install's startup network. An existing user ini is
     # preserved except when the caller explicitly chose a startup network; that

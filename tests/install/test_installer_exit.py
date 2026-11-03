@@ -1064,6 +1064,47 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue(ini.is_file())
         self.assertTrue(recovery.is_file())
 
+    def test_mochizuki_asi_language_follows_launcher_without_overwriting_user_choice(self):
+        self.ready_mochizuki(model=True)
+        ini = self.game / 'dlssnr-amd.ini'
+        recovery = self.game / 'dlssnr-amd/dlssnr-amd.default.ini'
+
+        def run(language):
+            decisions = self.root / 'asi-language.json'
+            decisions.write_text(json.dumps(dict(language=language, existingIni='keep')), encoding='utf-8')
+            code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                                  '-MochizukiModels', 'original',
+                                                  '-DecisionJson', str(decisions)))
+            self.assertEqual(code, 0, output)
+            return ini.read_text(encoding='utf-8-sig')
+
+        # Fresh installs: the Chinese launcher writes the actual zh-CN.txt stem.
+        if ini.exists(): ini.unlink()
+        text = run('zh')
+        self.assertIn('[NRControl]', text)
+        self.assertRegex(text, r'(?m)^Language\s*=\s*zh-CN$')
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+
+        # The English launcher uses the shipped English.txt stem, not "en".
+        ini.unlink()
+        text = run('en')
+        self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+
+        # A kept user ini keeps its explicit language even when the launcher is Chinese.
+        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage = English\n',
+                       encoding='utf-8')
+        text = run('zh')
+        self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+
+        # A missing key is filled from the launcher; unrelated user content stays.
+        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[User]\nKeep = 1\n', encoding='utf-8')
+        text = run('en')
+        self.assertIn('Keep = 1', text)
+        self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+
     def test_mochizuki_existing_ini_applies_explicit_startup_model(self):
         self.ready_mochizuki(model=True, small=True)
         ini = self.game / 'dlssnr-amd.ini'

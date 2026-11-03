@@ -67,6 +67,11 @@ Daniel 分别报告缺运行库、权重、安装器和来源 DLL；安装器存
 切换同时刷新游戏库、设置、后端状态和模型对话框，不重置所选代理、后端或 INI 处理方式。
 GUI 安装将语言传给 worker，免费提示使用同一语言；原始安装日志及第三方/系统错误保留原文。
 
+Mochizuki ASI 的 `[NRControl] Language` 也跟随启动器：中文写 `zh-CN`，英文写 `English`（均为
+`dlssnr-amd/lang` 中实际文件名去 `.txt`，不写 `zh-CN.txt` 或 `en`）。新建 ASI 模板时写入；
+已有用户 `dlssnr-amd.ini` 保留显式值（包括显式空值），仅在键缺失时补默认；最终文件同步到
+`dlssnr-amd/dlssnr-amd.default.ini`，由安装器完成，不在 GUI 事后双写。
+
 ### 启动器外观与状态
 
 原生 WPF 右侧依次为游戏横幅、紧凑后端卡片、七种代理及“配置与运行库兼容诊断”。
