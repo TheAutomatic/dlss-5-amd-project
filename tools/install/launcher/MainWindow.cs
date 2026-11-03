@@ -2144,13 +2144,13 @@ namespace OptScalerNR.Launcher
                 string.Equals(state, "ready", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(state, "preparable", StringComparison.OrdinalIgnoreCase);
             var states = new[] {
-                new { Value = "small", Label = L("Small — CC_SMALL_FP8", "Small — CC_SMALL_FP8"),
+                new { Value = "small", Label = L("Small — CC_SMALL_FP8（通用）", "Small — CC_SMALL_FP8 (General)"),
                     State = capability == null ? null : capability.SmallState },
-                new { Value = "experimental", Label = L("Experimental — CC_SMALL_FP8_EXPERIMENTAL（由 Small 生成）", "Experimental — CC_SMALL_FP8_EXPERIMENTAL (from Small)"),
+                new { Value = "experimental", Label = L("Experimental — CC_SMALL_FP8_EXPERIMENTAL（暂仅限 RX 9000）", "Experimental — CC_SMALL_FP8_EXPERIMENTAL (Currently RX 9000 only)"),
                     State = capability == null ? null : capability.ExperimentalState },
-                new { Value = "original", Label = L("Original — CC_SILVER_AARDWOLD", "Original — CC_SILVER_AARDWOLD"),
+                new { Value = "original", Label = L("Original — CC_SILVER_AARDWOLD（通用）", "Original — CC_SILVER_AARDWOLD (General)"),
                     State = capability == null ? null : capability.OriginalState },
-                new { Value = "int4", Label = L("INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED（由 Original 生成）", "INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED (from Original)"),
+                new { Value = "int4", Label = L("INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED（暂仅限 RX 9000）", "INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED (Currently RX 9000 only)"),
                     State = capability == null ? null : capability.Int4State }
             };
             var ready = new bool[4];
@@ -2213,9 +2213,17 @@ namespace OptScalerNR.Launcher
             };
             updateLocks = delegate {
                 var experimentalLocksSmall = checks[1] != null && checks[1].IsChecked == true;
-                checks[0].IsEnabled = canInstall[0] && !experimentalLocksSmall;
                 var int4LocksOriginal = checks[3] != null && checks[3].IsChecked == true;
-                checks[2].IsEnabled = canInstall[2] && !int4LocksOriginal;
+                checks[0].IsEnabled = canInstall[0];
+                checks[0].Tag = !canInstall[0] ? "unavailable" : experimentalLocksSmall ? "dependencyLocked" : null;
+                checks[0].ToolTip = experimentalLocksSmall && canInstall[0]
+                    ? L("Experimental 已选择，Small 是必需依赖，不能取消。", "Experimental is selected, so Small is a required dependency and cannot be cleared.")
+                    : null;
+                checks[2].IsEnabled = canInstall[2];
+                checks[2].Tag = !canInstall[2] ? "unavailable" : int4LocksOriginal ? "dependencyLocked" : null;
+                checks[2].ToolTip = int4LocksOriginal && canInstall[2]
+                    ? L("INT4 Mixed 已选择，Original 是必需依赖，不能取消。", "INT4 Mixed is selected, so Original is a required dependency and cannot be cleared.")
+                    : null;
             };
             Action syncParents = delegate {
                 if (syncing) return;

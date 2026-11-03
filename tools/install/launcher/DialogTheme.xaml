@@ -52,7 +52,7 @@
       <Border x:Name="Body" CornerRadius="10" Background="{TemplateBinding Background}"
               BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
               Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
-        <DockPanel>
+        <DockPanel LastChildFill="True">
           <Border x:Name="Box" DockPanel.Dock="Left" Width="16" Height="16" CornerRadius="3"
                   Background="Transparent" BorderBrush="{DynamicResource ThemeMuted}" BorderThickness="1"
                   Margin="0,0,12,0" VerticalAlignment="Center">
@@ -60,6 +60,9 @@
                        Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"
                        Visibility="Hidden"/>
           </Border>
+          <TextBlock x:Name="Lock" DockPanel.Dock="Right" Text="&#xE72E;" FontFamily="Segoe MDL2 Assets"
+                     FontSize="12" Foreground="{DynamicResource ThemeMuted}" Visibility="Collapsed"
+                     Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
           <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/>
         </DockPanel>
       </Border>
@@ -81,6 +84,12 @@
           <Setter TargetName="Box" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
           <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
           <Setter TargetName="Tick" Property="Foreground" Value="{DynamicResource ThemeMuted}"/>
+        </Trigger>
+        <Trigger Property="Tag" Value="dependencyLocked">
+          <!-- Required by a checked child: keep the normal red checked card, mark the
+               right side with a lock, and let code block unchecking. -->
+          <Setter TargetName="Lock" Property="Visibility" Value="Visible"/>
+          <Setter Property="Cursor" Value="Arrow"/>
         </Trigger>
         <Trigger Property="Tag" Value="unavailable">
           <!-- The model/resource itself is unavailable, not merely dependency-locked. -->
