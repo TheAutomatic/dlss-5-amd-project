@@ -1436,7 +1436,7 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 
 ## 2026-11-03: Mochizuki 风格码改为 MZ4（ASI dlssnr-amd.ini）
 
-- MZ4 使用单行 Base64 载荷承载节+键 schema，目标仅游戏目录 `dlssnr-amd.ini`；MZ1/2/3 全部拒绝并提示重新导出。UI 提供分组可折叠参数预览。
+- MZ4 使用单行 Base64 载荷承载节+键 schema，目标仅游戏目录 `dlssnr-amd.ini`；MZ1/2/3 全部拒绝并提示重新导出。UI 默认显示网络/位置/处理/图层数的紧凑摘要；导入默认展示与当前配置不同的参数，“全部参数”折叠后按全局/Layer 及处理/风格/Pass/Look/HDR 分组，操作按钮固定在滚动区外。
 - 覆盖无层 RenoDX/wilsjo2 与 `LayerN` 链：Network Model/Style Grade/Motion Without Depth/
   Resize History/History Precision、History/ClassicScaler/Downscale/PassesMode/Fast 系列/
   Pass2..Pass30 动态键、Preprocess 视觉键、

@@ -409,26 +409,46 @@ namespace OptScalerNR.Launcher
             int layers = code.LayerCount;
             var text = new StringBuilder();
             text.Append(chinese ? "ASI 画面" : "ASI look").Append(" · ").Append(model)
-                .Append(" · ").Append(chinese ? "图层 " + layers : layers + " layer(s)")
-                .Append(" · ").Append(chinese ? code.Entries.Count + " 项风格参数" : code.Entries.Count + " style settings");
-            if (code.GameTag.Length == 0) text.Append(chinese ? "" : ""); else text.Append(chinese ? " · 来自 " : " · from ").Append(code.GameTag);
+                .Append(" · ").Append(chinese ? layers + " 个图层" : layers + " layer(s)");
+            if (code.GameTag.Length > 0) text.Append(chinese ? " · 来自 " : " · from ").Append(code.GameTag);
             if (layers > 0) {
-                for (int layer = 1; layer <= layers; ++layer) {
-                    string processing = EntryValue(code, layer, "Processing");
-                    string placement = EntryValue(code, layer, "Placement");
-                    string network = EntryValue(code, layer, "Network");
-                    if (processing.Length == 0 && placement.Length == 0 && network.Length == 0) continue;
-                    text.Append("\n").Append(chinese ? "图层 " : "Layer ").Append(layer).Append(": ")
-                        .Append(processing).Append(processing.Length > 0 ? " · " : "")
-                        .Append(placement).Append(placement.Length > 0 ? " · " : "").Append(network);
+                string processing = EntryValue(code, 1, "Processing");
+                string placement = EntryValue(code, 1, "Placement");
+                if (processing.Length > 0 || placement.Length > 0) {
+                    text.Append(" · ").Append(chinese ? "运行位置 " : "placement ")
+                        .Append(chinese ? PlacementText(placement) : placement)
+                        .Append(chinese ? " · 处理 " : " · process ").Append(processing);
                 }
+                if (layers > 1) text.Append(chinese ? " · 等 " + layers + " 层" : " · " + layers + " layers total");
             } else {
                 string hook = EntryValue(code, 0, "NRHookPoint");
                 string runBefore = EntryValue(code, 0, "RunBeforeSR");
-                if (hook.Length > 0) text.Append("\n").Append(chinese ? "RenoDX 挂钩点: " : "RenoDX hook: ").Append(hook);
-                if (runBefore.Length > 0) text.Append(" · ").Append(chinese ? "wilsjo2 超分前: " : "wilsjo2 before SR: ").Append(runBefore);
+                if (hook.Length > 0) text.Append(chinese ? " · RenoDX 挂钩点 " : " · RenoDX hook ").Append(hook);
+                if (runBefore.Length > 0) text.Append(" · ").Append(chinese ? "wilsjo2 超分前 " : "wilsjo2 before SR ").Append(runBefore);
             }
             return text.ToString();
+        }
+        static string PlacementText(string placement)
+        {
+            string v = (placement ?? "").Trim().ToLowerInvariant();
+            if (v == "before") return "超分前";
+            if (v == "after") return "超分后";
+            if (v == "present") return "最佳效果";
+            return placement;
+        }
+        public static List<Entry> ChangedEntries(byte[] ini, DecodedCode code)
+        {
+            var current = ReadStyle(ini);
+            var changed = new List<Entry>();
+            foreach (var entry in code.Entries) {
+                string id = entry.Layer == 0
+                    ? "G:" + entry.Section.ToUpperInvariant() + ":" + entry.Key
+                    : "L" + entry.Layer.ToString(Invariant) + ":" + entry.Key;
+                string value;
+                if (!current.TryGetValue(id, out value) || NormalizeValue(value) != NormalizeValue(entry.Value))
+                    changed.Add(entry);
+            }
+            return changed;
         }
         public static int NonDefaultCount(DecodedCode code) { return code.Entries.Count; }
         public static int DifferenceCount(byte[] ini, string code)

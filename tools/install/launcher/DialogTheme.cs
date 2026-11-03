@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -107,6 +107,30 @@ namespace OptScalerNR.Launcher
             header.Child = row;
             header.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { if (e.ButtonState == MouseButtonState.Pressed) { try { window.DragMove(); } catch { } } };
             DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
+            var viewer = content as ScrollViewer;
+            if (viewer == null) viewer = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+            viewer.MaxHeight = window.MaxHeight - 64;
+            root.Children.Add(viewer);
+            window.Content = root;
+        }
+        public static void SetContent(Window window, UIElement content, UIElement footer)
+        {
+            var root = new DockPanel();
+            root.SetResourceReference(DockPanel.BackgroundProperty, "ThemeSurface");
+            var header = new Border { Padding = new Thickness(20,12,12,12), BorderThickness = new Thickness(0,0,0,1) };
+            header.SetResourceReference(Border.BorderBrushProperty, "ThemeBorder");
+            var row = new DockPanel();
+            var close = new Button { Content = "✕", Padding = new Thickness(10,4,10,4), MinHeight = 30, ToolTip = window.Language.IetfLanguageTag.StartsWith("zh") ? "关闭" : "Close" };
+            close.Click += delegate { window.Close(); };
+            DockPanel.SetDock(close, Dock.Right); row.Children.Add(close);
+            row.Children.Add(new TextBlock { Text = window.Title, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            header.Child = row;
+            header.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { if (e.ButtonState == MouseButtonState.Pressed) { try { window.DragMove(); } catch { } } };
+            DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
+            var footerBorder = new Border { BorderThickness = new Thickness(0,1,0,0), Padding = new Thickness(20,10,20,14) };
+            footerBorder.SetResourceReference(Border.BorderBrushProperty, "ThemeBorder");
+            footerBorder.Child = footer;
+            DockPanel.SetDock(footerBorder, Dock.Bottom); root.Children.Add(footerBorder);
             var viewer = content as ScrollViewer;
             if (viewer == null) viewer = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             viewer.MaxHeight = window.MaxHeight - 64;

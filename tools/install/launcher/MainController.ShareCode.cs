@@ -124,30 +124,104 @@ namespace OptScalerNR.Launcher
             return value;
         }
 
-        void RenderSharePreview(StackPanel host, Expander expander, MochizukiShareCode.DecodedCode code, bool chinese)
+        string ShareGroup(string section, int layer, string key, bool chinese)
+        {
+            if (layer > 0) {
+                string cat = ShareCategory(key, chinese);
+                return (chinese ? "图层 " : "Layer ") + layer + (cat.Length > 0 ? " · " + cat : "");
+            }
+            if (string.Equals(section, "Network", StringComparison.OrdinalIgnoreCase))
+                return chinese ? "网络" : "Network";
+            if (string.Equals(section, "Preprocess", StringComparison.OrdinalIgnoreCase))
+                return chinese ? "前处理" : "Preprocess";
+            if (string.Equals(section, "RenoDX", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(section, "wilsjo2", StringComparison.OrdinalIgnoreCase))
+                return (chinese ? "全局 · " : "Global · ") + ShareCategory(key, chinese);
+            return "[" + section + "]";
+        }
+
+        string ShareCategory(string key, bool chinese)
+        {
+            if (key == "Processing" || key == "Placement" || key == "Network" || key == "Enabled")
+                return chinese ? "处理" : "Processing";
+            if (key.StartsWith("NRLook", StringComparison.OrdinalIgnoreCase)) return "Look";
+            if (key.StartsWith("NRPass", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRFast", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("Pass", StringComparison.OrdinalIgnoreCase) ||
+                key == "NRUnlockPasses" || key == "NRChainedHistory" || key == "NRNoiseEveryFrame" ||
+                key == "Passes" || key == "UnlockPasses" || key == "NoiseEveryFrame" || key == "PRESET" ||
+                key == "Preset" || key == "Style" || key == "Intensity")
+                return "Pass";
+            if (key.StartsWith("NRSdr", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRDisplay", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRCodec", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRSource", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRLinear", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRProxy", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRPaper", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRDiffuse", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRPQ", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRFeed", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRPresent", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRNorm", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRMVec", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRDepth", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NROutput", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("NRHook", StringComparison.OrdinalIgnoreCase))
+                return chinese ? "HDR / 编码" : "HDR / Encoding";
+            return chinese ? "风格" : "Style";
+        }
+
+        void RenderShareEntries(StackPanel host, IList<MochizukiShareCode.Entry> entries, bool chinese)
         {
             host.Children.Clear();
-            if (code == null || code.Entries.Count == 0) {
-                expander.Header = L("查看参数（无）", "View settings (none)");
-                expander.IsExpanded = false;
-                return;
-            }
-            expander.Header = (chinese ? "查看参数（" : "View settings (") + code.Entries.Count + (chinese ? " 项）" : ")");
             string group = null;
-            foreach (var entry in code.Entries) {
-                string next = entry.Layer > 0 ? (chinese ? "图层 " : "Layer ") + entry.Layer : entry.Section;
+            foreach (var entry in entries) {
+                string next = ShareGroup(entry.Section, entry.Layer, entry.Key, chinese);
                 if (group != next) {
                     group = next;
-                    var header = new TextBlock { Text = (entry.Layer > 0 ? "" : "[") + group + (entry.Layer > 0 ? "" : "]"),
-                        FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 2) };
-                    host.Children.Add(header);
+                    host.Children.Add(new TextBlock {
+                        Text = next, FontWeight = FontWeights.SemiBold, FontSize = 11.5,
+                        Foreground = TryFindResourceString("ThemeMuted"), Margin = new Thickness(0, 7, 0, 2)
+                    });
                 }
+                string shown = ShareDisplayValue(entry.Key, entry.Value, chinese);
                 host.Children.Add(new TextBlock {
-                    Text = entry.Key + " = " + ShareDisplayValue(entry.Key, entry.Value, chinese),
-                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10, 1, 0, 1),
+                    Text = entry.Key + " = " + shown,
+                    TextWrapping = TextWrapping.Wrap, FontSize = 11.5,
+                    Margin = new Thickness(10, 1, 0, 1), ToolTip = entry.Key + " = " + entry.Value,
                     Foreground = TryFindResourceString("ThemeInk")
                 });
             }
+        }
+
+        void RenderShareDetails(StackPanel allHost, Button allToggle, ScrollViewer allScroll,
+                                StackPanel diffHost, TextBlock diffHeader, Border diffBorder,
+                                MochizukiShareCode.DecodedCode code, bool import, string path, bool chinese)
+        {
+            allScroll.Visibility = Visibility.Collapsed;
+            diffBorder.Visibility = Visibility.Collapsed;
+            if (code == null || code.Entries.Count == 0) {
+                allHost.Children.Clear();
+                allToggle.Content = L("全部参数 ▸", "All settings ▸");
+                allToggle.IsEnabled = false;
+                return;
+            }
+            allToggle.IsEnabled = true;
+            allToggle.Content = (chinese ? "全部参数（" : "All settings (") + code.Entries.Count + (chinese ? "） ▸" : ") ▸");
+            RenderShareEntries(allHost, code.Entries, chinese);
+            if (!import || !File.Exists(path)) return;
+            try {
+                var changed = MochizukiShareCode.ChangedEntries(File.ReadAllBytes(path), code);
+                if (changed.Count == 0) {
+                    diffHeader.Text = L("与当前配置一致", "No changes from the current config");
+                    diffBorder.Visibility = Visibility.Visible;
+                    return;
+                }
+                diffHeader.Text = (chinese ? "与当前配置不同（" : "Changes from current config (") + changed.Count + (chinese ? "）" : ")");
+                RenderShareEntries(diffHost, changed, chinese);
+                diffBorder.Visibility = Visibility.Visible;
+            } catch { }
         }
 
         static string[] RequiredModelFiles(MochizukiShareCode.DecodedCode code)
@@ -188,7 +262,7 @@ namespace OptScalerNR.Launcher
             try {
                 var dialog = DialogTheme.Create(_window, L("画面风格分享", "Visual style sharing"), 620);
                 var panel = new StackPanel { Margin = new Thickness(22) };
-                var modeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+                var modeRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
                 var exportRadio = new RadioButton { Content = L("导出（发出我的画面）", "Export (share my look)"), GroupName = "ShareCodeMode", Margin = new Thickness(0, 0, 14, 0) };
                 var importRadio = new RadioButton { Content = L("导入（换上别人的画面）", "Import (wear someone's look)"), GroupName = "ShareCodeMode" };
                 modeRow.Children.Add(exportRadio); modeRow.Children.Add(importRadio);
@@ -197,7 +271,7 @@ namespace OptScalerNR.Launcher
                 panel.Children.Add(hint);
                 var input = new TextBox
                 {
-                    TextWrapping = TextWrapping.Wrap, Height = 130, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    TextWrapping = TextWrapping.Wrap, Height = 78, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     Background = TryFindResourceString("ThemeSurface"),
                     Foreground = TryFindResourceString("ThemeInk"),
                     BorderBrush = TryFindResourceString("ThemeBorder"),
@@ -222,17 +296,43 @@ namespace OptScalerNR.Launcher
                 panel.Children.Add(noteHint); panel.Children.Add(noteBox);
                 var summary = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
                 panel.Children.Add(summary);
-                var previewHost = new StackPanel();
-                var previewExpander = new Expander {
-                    Header = L("查看参数", "View settings"), IsExpanded = import,
-                    Margin = new Thickness(0, 2, 0, 8)
-                };
-                previewExpander.Content = new ScrollViewer {
-                    Content = previewHost, MaxHeight = 220,
+                var diffHeader = new TextBlock { FontSize = 11, FontWeight = FontWeights.SemiBold };
+                var diffHost = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+                var diffScroll = new ScrollViewer {
+                    Content = diffHost, MaxHeight = 150,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
                 };
-                panel.Children.Add(previewExpander);
+                var diffBorder = new Border {
+                    Background = TryFindResourceString("ThemeSurface"), BorderBrush = TryFindResourceString("ThemeBorder"),
+                    BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 7),
+                    Visibility = Visibility.Collapsed
+                };
+                var diffContent = new StackPanel();
+                diffContent.Children.Add(diffHeader); diffContent.Children.Add(diffScroll);
+                diffBorder.Child = diffContent;
+                var allHost = new StackPanel();
+                var allScroll = new ScrollViewer {
+                    Content = allHost, MaxHeight = 180, Visibility = Visibility.Collapsed,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Margin = new Thickness(0, 2, 0, 7)
+                };
+                var allToggle = new Button {
+                    Content = L("全部参数 ▸", "All settings ▸"), Style = dialog.FindResource("GhostButton") as Style,
+                    HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(9, 3, 9, 3),
+                    Margin = new Thickness(0, 2, 0, 0)
+                };
+                allToggle.Click += delegate {
+                    bool open = allScroll.Visibility != Visibility.Visible;
+                    allScroll.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                    allToggle.Content = (L("zh", "en") == "zh" ? "全部参数" : "All settings") +
+                        (open ? " ▾" : " ▸");
+                };
+                panel.Children.Add(diffBorder);
+                panel.Children.Add(allToggle);
+                panel.Children.Add(allScroll);
                 byte[] exportedIni = null;
                 string exportSourcePath = path;
                 bool isExport = !import;
@@ -252,7 +352,9 @@ namespace OptScalerNR.Launcher
                 string validated = null, validatedGame = "";
                 renderMode = delegate {
                     action.Content = isExport ? L("复制分享码", "Copy code") : L("解析", "Parse");
+                    action.Style = (isExport ? dialog.FindResource("DialogPrimary") : dialog.FindResource("GhostButton")) as Style;
                     apply.Content = L("立即换上这套画面", "Apply this look");
+                    apply.Style = dialog.FindResource("DialogPrimary") as Style;
                     apply.Visibility = isExport ? Visibility.Collapsed : Visibility.Visible;
                     apply.IsEnabled = false; validated = null; validatedGame = "";
                     includeGame.Visibility = isExport ? Visibility.Visible : Visibility.Collapsed;
@@ -265,14 +367,14 @@ namespace OptScalerNR.Launcher
                            "Paste a shared code (pasting the whole share text works too, the code inside is found automatically), parse, then apply.");
                     input.IsReadOnly = isExport;
                     summary.Text = "";
-                    RenderSharePreview(previewHost, previewExpander, null, false);
+                    RenderShareDetails(allHost, allToggle, allScroll, diffHost, diffHeader, diffBorder, null, !isExport, path, false);
                     if (isExport) {
                         if (exportedIni == null) exportedIni = File.ReadAllBytes(exportSourcePath);
                         input.Text = MochizukiShareCode.Encode(exportedIni, includeGame.IsChecked == true ? executable : null,
                                                                noteDirty ? MochizukiShareCode.SanitizeNote(noteBox.Text) : null);
                         var decoded = MochizukiShareCode.Decode(input.Text);
                         summary.Text = MochizukiShareCode.Summary(decoded, L("zh", "en") == "zh");
-                        RenderSharePreview(previewHost, previewExpander, decoded, L("zh", "en") == "zh");
+                        RenderShareDetails(allHost, allToggle, allScroll, diffHost, diffHeader, diffBorder, decoded, false, path, L("zh", "en") == "zh");
                         if (MochizukiShareCode.NonDefaultCount(decoded) == 0)
                             summary.Text += L("\n当前全部为默认值：分享码有效，导入方应用后将恢复同样的默认画面。",
                                                "\nEverything is at defaults: the code is valid; importing it restores the same defaults.");
@@ -291,9 +393,9 @@ namespace OptScalerNR.Launcher
                             string noteLine = values.Note.Length > 0 ? L("（备注：" + values.Note + "）", " (note: " + values.Note + ")") : "";
                             summary.Text = noteLine + MochizukiShareCode.Summary(values, L("zh", "en") == "zh") +
                                 MissingModelWarning(game.Directory, values);
-                            RenderSharePreview(previewHost, previewExpander, values, L("zh", "en") == "zh");
+                            RenderShareDetails(allHost, allToggle, allScroll, diffHost, diffHeader, diffBorder, values, true, path, L("zh", "en") == "zh");
                             validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
-                        } catch (Exception ex) { summary.Text = ShareError(ex); RenderSharePreview(previewHost, previewExpander, null, false); }
+                        } catch (Exception ex) { summary.Text = ShareError(ex); RenderShareDetails(allHost, allToggle, allScroll, diffHost, diffHeader, diffBorder, null, !isExport, path, false); }
                     }
                 };
                 includeGame.Checked += delegate { if (isExport && renderMode != null) renderMode(); };
@@ -325,7 +427,7 @@ namespace OptScalerNR.Launcher
                         summary.Text = (values.Note.Length > 0 ? L("备注：", "Note: ") + values.Note + "\n" : "") +
                                        MochizukiShareCode.Summary(values, L("zh", "en") == "zh") + L("\n将更改 ", "\nWill change ") + difference + L(" 项画面设置（其余风格参数恢复默认）。", " settings (remaining visual parameters reset to defaults).") +
                                        MissingModelWarning(game.Directory, values);
-                        RenderSharePreview(previewHost, previewExpander, values, L("zh", "en") == "zh");
+                        RenderShareDetails(allHost, allToggle, allScroll, diffHost, diffHeader, diffBorder, values, true, path, L("zh", "en") == "zh");
                         validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
                     } catch (Exception ex) { validated = null; apply.IsEnabled = false; summary.Text = ShareError(ex); }
                 };
@@ -339,8 +441,7 @@ namespace OptScalerNR.Launcher
                     if (ApplyShareCode(game, validated)) dialog.Close();
                 };
                 buttons.Children.Add(close); buttons.Children.Add(action); buttons.Children.Add(apply);
-                panel.Children.Add(buttons);
-                DialogTheme.Primary(dialog, action); DialogTheme.SetContent(dialog, panel);
+                DialogTheme.Primary(dialog, action); DialogTheme.SetContent(dialog, panel, buttons);
 
                 exportRadio.IsChecked = !import; importRadio.IsChecked = import;
                 renderMode();
