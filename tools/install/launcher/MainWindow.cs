@@ -750,12 +750,12 @@ namespace OptScalerNR.Launcher
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "神经渲染后端", "Neural rendering backends");
-                SetLabel("LmxxfCheck", "lmxxf", "lmxxf");
-                SetLabel("DanielCheck", "Daniel", "Daniel");
-                SetLabel("MochiCheck", "mochizuki", "mochizuki");
+                SetLabel("LmxxfCheck", "lmxxf 0.4.4", "lmxxf 0.4.4");
+                SetLabel("DanielCheck", "daniel 0.6.0", "daniel 0.6.0");
+                SetLabel("MochiCheck", "mochizuki 0.0.8.2", "mochizuki 0.0.8.2");
                 SetLabel("LmxxfDescription", "适合 RX 9000 系列", "For RX 9000 series");
                 SetLabel("DanielDescription", "适合 RX 6000/7000/9000 系列", "For RX 6000/7000/9000 series");
-                SetLabel("MochiDescription", "适合 RX 9000 系列", "For RX 9000 series");
+                SetLabel("MochiDescription", "适合 RX 7000/9000 系列", "For RX 7000/9000 series");
                 SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");
                 SetLabel("SettingsHeading", "设置", "Settings");
@@ -2178,7 +2178,6 @@ namespace OptScalerNR.Launcher
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
             });
             var checks = new CheckBox[4];
-            var hints = new TextBlock[4];
             var startCombo = new ComboBox { MinWidth = 300, Margin = new Thickness(0, 12, 0, 0) };
             var proceed = new Button { Content = L("继续", "Continue"), IsEnabled = false, MinWidth = 100, Margin = new Thickness(4) };
             var syncing = false;
@@ -2215,10 +2214,8 @@ namespace OptScalerNR.Launcher
             updateLocks = delegate {
                 var experimentalLocksSmall = checks[1] != null && checks[1].IsChecked == true;
                 checks[0].IsEnabled = canInstall[0] && !experimentalLocksSmall;
-                if (hints[0] != null) hints[0].Visibility = experimentalLocksSmall ? Visibility.Visible : Visibility.Collapsed;
                 var int4LocksOriginal = checks[3] != null && checks[3].IsChecked == true;
                 checks[2].IsEnabled = canInstall[2] && !int4LocksOriginal;
-                if (hints[2] != null) hints[2].Visibility = int4LocksOriginal ? Visibility.Visible : Visibility.Collapsed;
             };
             Action syncParents = delegate {
                 if (syncing) return;
@@ -2241,19 +2238,6 @@ namespace OptScalerNR.Launcher
                 };
                 checks[i] = check;
                 panel.Children.Add(check);
-                if (i == 0 || i == 2)
-                {
-                    var hint = new TextBlock {
-                        Text = i == 0
-                            ? L("Experimental 需要 Small；已自动勾选并锁定。", "Experimental needs Small; selected and locked.")
-                            : L("INT4 Mixed 需要 Original；已自动勾选并锁定。", "INT4 Mixed needs Original; selected and locked."),
-                        TextWrapping = TextWrapping.Wrap, FontSize = 11,
-                        Foreground = LauncherTheme.Brush("ThemeMuted"),
-                        Margin = new Thickness(4, 0, 4, 4), Visibility = Visibility.Collapsed
-                    };
-                    hints[i] = hint;
-                    panel.Children.Add(hint);
-                }
             }
             for (var i = 0; i < checks.Length; i++)
             {
@@ -2284,8 +2268,7 @@ namespace OptScalerNR.Launcher
                 dialog.Tag = activeValue;
                 dialog.DialogResult = true;
             };
-            proceed.Style = dialog.FindResource("DialogPrimaryPink") as Style;
-            proceed.IsDefault = true;
+            DialogTheme.Primary(dialog, proceed);
             syncParents();
             updateLocks();
             refreshStart();

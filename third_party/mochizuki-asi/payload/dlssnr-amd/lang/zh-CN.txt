@@ -1,4 +1,4 @@
-# DLSSNR-AMD: the menus' texts in 中文（简体）, for NR Control (OptiScaler route) and ReShade's Add-ons page,
+﻿# DLSSNR-AMD: the menus' texts in 中文（简体）, for NR Control (OptiScaler route) and ReShade's Add-ons page,
 # Linux and Windows (0.0.8.2). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
 
 msgid "@language"
@@ -9,7 +9,7 @@ msgid "@font"
 msgstr "fonts/NotoSansCJKsc-Regular.ttf"
 
 msgid "Each layer is an NR pass of its own: its processing (RenoDX or wilsjo2), its network ([Network] Model, or one of its own), where it runs, and its own settings (click its name: its page). Layers at one place run in layer order; before the upscaler, then after it, then at Present. Each layer costs a network run, and a layer with another network or size its own memory."
-msgstr "每个层都是一次独立的 NR 处理：它的处理方式（RenoDX 或 wilsjo2）、它的网络（[Network] Model，或它自己的）、运行位置以及它自己的设置（点击层名打开它的页面）。同一位置的层按层号顺序运行；先是放大前，然后放大后，最后在 Present。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。"
+msgstr "每个层都是一次独立的 NR 处理：它的处理方式（RenoDX 或 wilsjo2）、它的网络（[Network] Model，或它自己的）、运行位置以及它自己的设置（点击层名打开它的页面）。同一位置的层按层号顺序运行；先是超分前，然后超分后，最后在 最佳效果。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。"
 
 msgid "The OptiScaler-NR fork's processing around the network, ported."
 msgstr "移植自 OptiScaler-NR 分支的网络前后处理。"
@@ -156,7 +156,7 @@ msgid "Engine data"
 msgstr "引擎数据"
 
 msgid "What is compared. The final picture: the layers of the last place that runs (Present, else after the upscaler), all off against all on. A layer: its own input and output, where it runs (before the upscaler: the comparison is upscaled too)."
-msgstr "比较的内容。最终画面：最后运行位置的层（Present，否则为放大后），全部关闭对比全部开启。单个层：它自己的输入和输出，在它运行的位置（放大前：对比画面也会被放大）。"
+msgstr "比较的内容。最终画面：最后运行位置的层（最佳效果，否则为超分后），全部关闭对比全部开启。单个层：它自己的输入和输出，在它运行的位置（超分前：对比画面也会被放大）。"
 
 msgid "    Upscaling %ux%u -> %ux%u"
 msgstr "    放大 %ux%u -> %ux%u"
@@ -282,7 +282,7 @@ msgid "Shared by every layer: the frame handed to and from the network, screensh
 msgstr "所有层共用：送入和取回网络的画面、截图。"
 
 msgid "The .asi's copies: the frame before the upscaler, its guides for Present layers, the Present layers' textures. The ReShade add-on's: HUD FIX's frames, the PQ conversion's, the motion copies, Inspect's."
-msgstr ".asi 的副本：放大前的画面、给 Present 层用的引导数据、Present 层的纹理。ReShade 插件的：HUD FIX 的画面、PQ 转换的、运动向量副本、Inspect 的。"
+msgstr ".asi 的副本：超分前的画面、给 最佳效果 层用的引导数据、最佳效果 层的纹理。ReShade 插件的：HUD FIX 的画面、PQ 转换的、运动向量副本、Inspect 的。"
 
 msgid "The wilsjo2 processing's textures around the network (each layer its own): the network's input, the original, its answer."
 msgstr "wilsjo2 处理在网络周围使用的纹理（每个层各自一份）：网络的输入、原图、它的结果。"
@@ -369,7 +369,7 @@ msgid "before upscaler"
 msgstr "放大器之前"
 
 msgid "Present"
-msgstr "Present"
+msgstr "最佳效果"
 
 msgid "Layer"
 msgstr "层"
@@ -606,7 +606,7 @@ msgid "Screenshot: %s"
 msgstr "截图：%s"
 
 msgid "[Network] Resize History. Only when NR runs before the upscaler and the game changes its render size\n(dynamic resolution):\nOff (default): NR's previous result is dropped and NR starts again at the new size, as NVIDIA's DLL does.\nOn: the previous result is scaled to the new size and kept. Steadier on our tests when the size changes\noften, but not what NVIDIA's DLL does. Games with jittered input (most DLSS games) hide most of the\nrestart, so the default is off."
-msgstr "[Network] Resize History。仅当 NR 在放大前运行且游戏改变渲染尺寸时\n（动态分辨率）：\n关（默认）：丢弃 NR 之前的结果，NR 在新尺寸下重新开始，与 NVIDIA 的 DLL 相同。\n开：把之前的结果缩放到新尺寸并保留。在我们的测试中尺寸频繁变化时更稳定，\n但不是 NVIDIA 的 DLL 的做法。带抖动输入的游戏（大多数 DLSS 游戏）会掩盖大部分\n重新开始，所以默认关闭。"
+msgstr "[Network] Resize History。仅当 NR 在超分前运行且游戏改变渲染尺寸时\n（动态分辨率）：\n关（默认）：丢弃 NR 之前的结果，NR 在新尺寸下重新开始，与 NVIDIA 的 DLL 相同。\n开：把之前的结果缩放到新尺寸并保留。在我们的测试中尺寸频繁变化时更稳定，\n但不是 NVIDIA 的 DLL 的做法。带抖动输入的游戏（大多数 DLSS 游戏）会掩盖大部分\n重新开始，所以默认关闭。"
 
 msgid "Layers"
 msgstr "Layers"
@@ -819,7 +819,7 @@ msgid " (cannot run here)"
 msgstr "（此处无法运行）"
 
 msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
-msgstr "[HudFix] Mode。HUD FIX 让游戏的 HUD（准星、血条、字幕、菜单）保持游戏原本画出的样子，NR 只改变其余部分；适用于放在 Present 的层。Off（默认）：HUD 和其他部分一样经过 NR。Auto：每帧使用能运行的最佳方法。帧生成的无 HUD 画面：游戏交给帧生成的不带 HUD 的画面（FSR 3.1、XeSS、经 Streamline 或 NGX 的 DLSS-G；D3D12 游戏）；NR 在它上面运行，HUD 原样放回；游戏一直保留到呈现的情况下，会把 NR 的结果交给帧生成代替它。OptiScaler 自己的帧生成拿不到游戏给的这种画面：这些游戏用 Captured。HUD 之前截取：在游戏开始画 HUD 的地方复制画面；NR 在它上面运行，HUD 原样放回。Estimated：画面在动而保持不动的像素被当作 HUD 保留（NR 仍然看到 HUD）。在这里无法运行的方法会变灰并显示原因。"
+msgstr "[HudFix] Mode。HUD FIX 让游戏的 HUD（准星、血条、字幕、菜单）保持游戏原本画出的样子，NR 只改变其余部分；适用于放在 最佳效果 的层。Off（默认）：HUD 和其他部分一样经过 NR。Auto：每帧使用能运行的最佳方法。帧生成的无 HUD 画面：游戏交给帧生成的不带 HUD 的画面（FSR 3.1、XeSS、经 Streamline 或 NGX 的 DLSS-G；D3D12 游戏）；NR 在它上面运行，HUD 原样放回；游戏一直保留到呈现的情况下，会把 NR 的结果交给帧生成代替它。OptiScaler 自己的帧生成拿不到游戏给的这种画面：这些游戏用 Captured。HUD 之前截取：在游戏开始画 HUD 的地方复制画面；NR 在它上面运行，HUD 原样放回。Estimated：画面在动而保持不动的像素被当作 HUD 保留（NR 仍然看到 HUD）。在这里无法运行的方法会变灰并显示原因。"
 
 msgid "%s cannot run here: %s"
 msgstr "%s 在这里无法运行：%s"
@@ -963,7 +963,7 @@ msgid "before the upscaler"
 msgstr "放大器之前"
 
 msgid "at Present"
-msgstr "在 Present"
+msgstr "在 最佳效果"
 
 msgid "after the upscaler"
 msgstr "放大器之后"
@@ -972,10 +972,10 @@ msgid "Runs %s now: %s"
 msgstr "当前运行于%s：%s"
 
 msgid "Place. On this route NR runs at Present, on the picture ReShade hands over."
-msgstr "位置。这条路线上 NR 在 Present 运行，处理 ReShade 交过来的画面。"
+msgstr "位置。这条路线上 NR 在 最佳效果 运行，处理 ReShade 交过来的画面。"
 
 msgid "Place. Before or after the upscaler, or at Present (the finished picture)."
-msgstr "位置。超分前、超分后，或在 Present（完成的画面）。"
+msgstr "位置。超分前、超分后，或在 最佳效果（完成的画面）。"
 
 msgid "NR is off for this run (the switch at the top, or its key): no layer runs. The boxes below are what the file says."
 msgstr "本次运行中 NR 已关闭（顶部的开关或它的按键）：没有层在运行。下面的勾选框是文件中的状态。"
@@ -1107,7 +1107,7 @@ msgid "Hook point"
 msgstr "挂接位置"
 
 msgid "NRHookPoint (OptiScaler route). Present (default): the game's finished picture. Before the upscaler: not with Ray Reconstruction."
-msgstr "NRHookPoint（OptiScaler 路线）。Present（默认）：游戏的最终画面。放大前：不能与光线重建一起使用。"
+msgstr "NRHookPoint（OptiScaler 路线）。最佳效果（默认）：游戏的最终画面。超分前：不能与光线重建一起使用。"
 
 msgid "NRIntensity. Enhancement strength."
 msgstr "NRIntensity。增强强度。"
@@ -1539,7 +1539,7 @@ msgid "Present encoding"
 msgstr "Present 编码"
 
 msgid "NRPresentEncoding. RenoDX layers at Present: Auto follows the swapchain colour space; SDR, HDR10 and scRGB force how the picture is interpreted."
-msgstr "NRPresentEncoding。Present 处的 RenoDX 层：Auto 跟随交换链色彩空间；SDR、HDR10 和 scRGB 强制画面的解释方式。"
+msgstr "NRPresentEncoding。最佳效果 处的 RenoDX 层：Auto 跟随交换链色彩空间；SDR、HDR10 和 scRGB 强制画面的解释方式。"
 
 msgid "HDR10"
 msgstr "HDR10"
@@ -1551,13 +1551,13 @@ msgid "HDR white (nits)"
 msgstr "HDR 白（尼特）"
 
 msgid "NRPresentWhiteNits. RenoDX layers at Present: HDR diffuse white in nits. 0 uses the RenoDX mod's Game Brightness, then Windows SDR content brightness, then NRDiffuseWhiteNits."
-msgstr "NRPresentWhiteNits。Present 处的 RenoDX 层：HDR 漫反射白，单位尼特。0 依次使用 RenoDX mod 的 Game Brightness、Windows SDR 内容亮度、NRDiffuseWhiteNits。"
+msgstr "NRPresentWhiteNits。最佳效果 处的 RenoDX 层：HDR 漫反射白，单位尼特。0 依次使用 RenoDX mod 的 Game Brightness、Windows SDR 内容亮度、NRDiffuseWhiteNits。"
 
 msgid "HDR white source"
 msgstr "HDR 白来源"
 
 msgid "NRPresentWhiteSource. RenoDX layers at Present: Auto can use the RenoDX mod's Game Brightness; Windows skips it and uses Windows SDR content brightness, then NRDiffuseWhiteNits."
-msgstr "NRPresentWhiteSource。Present 处的 RenoDX 层：Auto 可使用 RenoDX mod 的 Game Brightness；Windows 跳过它，使用 Windows SDR 内容亮度，然后是 NRDiffuseWhiteNits。"
+msgstr "NRPresentWhiteSource。最佳效果 处的 RenoDX 层：Auto 可使用 RenoDX mod 的 Game Brightness；Windows 跳过它，使用 Windows SDR 内容亮度，然后是 NRDiffuseWhiteNits。"
 
 msgid "Windows"
 msgstr "Windows"
@@ -1602,7 +1602,7 @@ msgid "Guides"
 msgstr "引导数据"
 
 msgid "NRPresentGuides. RenoDX layers at Present: Optional uses motion and depth when available; Required skips NR without motion; Never uses zero motion and no depth."
-msgstr "NRPresentGuides。Present 处的 RenoDX 层：Optional 有运动和深度时使用；Required 没有运动时跳过 NR；Never 使用零运动且不用深度。"
+msgstr "NRPresentGuides。最佳效果 处的 RenoDX 层：Optional 有运动和深度时使用；Required 没有运动时跳过 NR；Never 使用零运动且不用深度。"
 
 msgid "Optional"
 msgstr "可选"
@@ -1722,7 +1722,7 @@ msgid "Present frames"
 msgstr "Present 帧"
 
 msgid "NRPresentFrames. RenoDX layers at Present on the OptiScaler route: run on every present with motion scaled by the frame-generation multiplier, or only the first present after each game frame."
-msgstr "NRPresentFrames。OptiScaler 路线上 Present 处的 RenoDX 层：在每次呈现时运行（运动按帧生成倍数缩放），或只在每个游戏帧之后的第一次呈现时运行。"
+msgstr "NRPresentFrames。OptiScaler 路线上 最佳效果 处的 RenoDX 层：在每次呈现时运行（运动按帧生成倍数缩放），或只在每个游戏帧之后的第一次呈现时运行。"
 
 msgid "Every present"
 msgstr "每次 Present"
@@ -1734,7 +1734,7 @@ msgid "Frame-generation multiplier"
 msgstr "帧生成倍数"
 
 msgid "NRPresentFgSource. RenoDX layers at Present on the OptiScaler route: Auto uses DLSSG.MultiFrameCount, then stable timing. Stable timing uses present intervals; Legacy timing uses the older timing rule."
-msgstr "NRPresentFgSource。OptiScaler 路线上 Present 处的 RenoDX 层：Auto 使用 DLSSG.MultiFrameCount，然后是稳定计时。稳定计时使用呈现间隔；旧计时使用以前的计时规则。"
+msgstr "NRPresentFgSource。OptiScaler 路线上 最佳效果 处的 RenoDX 层：Auto 使用 DLSSG.MultiFrameCount，然后是稳定计时。稳定计时使用呈现间隔；旧计时使用以前的计时规则。"
 
 msgid "Stable timing"
 msgstr "稳定计时"
@@ -2142,7 +2142,7 @@ msgid "Extrapolation: no motion vectors"
 msgstr "Extrapolation：没有运动向量"
 
 msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
-msgstr "每个层都是对画面的一次独立 NR 运行，按层号顺序：它的处理方式（RenoDX，或 wilsjo2——本路线自己的合成，使用 OptiScaler DLSS-NR 的设置）、它的网络（[Network] Model，或它自己的）以及下面它自己的设置。在本路线上每个层都在 Present 运行，处理 ReShade 交出的画面。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。删除所有层会回到 [DlssNr] / [RenoDX]。"
+msgstr "每个层都是对画面的一次独立 NR 运行，按层号顺序：它的处理方式（RenoDX，或 wilsjo2——本路线自己的合成，使用 OptiScaler DLSS-NR 的设置）、它的网络（[Network] Model，或它自己的）以及下面它自己的设置。在本路线上每个层都在 最佳效果 运行，处理 ReShade 交出的画面。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。删除所有层会回到 [DlssNr] / [RenoDX]。"
 
 msgid "This route's own composition around the network, under OptiScaler DLSS-NR's settings and names."
 msgstr "本路线自己在网络周围的合成，使用 OptiScaler DLSS-NR 的设置和名称。"
@@ -2175,7 +2175,7 @@ msgid "this route sees the game's frames only, not frame generation's"
 msgstr "本路线只能看到游戏的帧，看不到帧生成的帧"
 
 msgid "[Network] Resize History. When the size of NR's frame changes (on this route: the game's resolution):\nOff (default): NR's previous result is dropped and NR starts again at the new size, as NVIDIA's DLL does.\nOn: the previous result is scaled to the new size and kept.\nIt matters for dynamic resolution with NR before the upscaler (OptiScaler route); here sizes change rarely."
-msgstr "[Network] Resize History。NR 画面的尺寸变化时（在本路线上：游戏的分辨率）：\n关（默认）：丢弃 NR 之前的结果，NR 在新尺寸下重新开始，与 NVIDIA 的 DLL 相同。\n开：把之前的结果缩放到新尺寸并保留。\n它对放大前运行 NR 的动态分辨率有意义（OptiScaler 路线）；这里尺寸很少变化。"
+msgstr "[Network] Resize History。NR 画面的尺寸变化时（在本路线上：游戏的分辨率）：\n关（默认）：丢弃 NR 之前的结果，NR 在新尺寸下重新开始，与 NVIDIA 的 DLL 相同。\n开：把之前的结果缩放到新尺寸并保留。\n它对超分前运行 NR 的动态分辨率有意义（OptiScaler 路线）；这里尺寸很少变化。"
 
 msgid "Source"
 msgstr "来源"
@@ -2202,7 +2202,7 @@ msgid "ReShade's overlay (its default key)"
 msgstr "ReShade 的界面（它的默认键）"
 
 msgid "What is compared. The final picture: every layer (all run at Present on this route), all off against all on. A layer: its own input and output."
-msgstr "比较的内容。最终画面：所有层（本路线上全部在 Present 运行），全部关闭对比全部开启。单个层：它自己的输入和输出。"
+msgstr "比较的内容。最终画面：所有层（本路线上全部在 最佳效果 运行），全部关闭对比全部开启。单个层：它自己的输入和输出。"
 
 msgid "    Frame %ux%u"
 msgstr "    画面 %ux%u"
@@ -2214,7 +2214,7 @@ msgid "frame generation's HUD-less frame is read for D3D12 games only"
 msgstr "帧生成的无 HUD 画面只对 D3D12 游戏读取"
 
 msgid "nothing: no layer runs at Present"
-msgstr "无：没有层在 Present 运行"
+msgstr "无：没有层在 最佳效果 运行"
 
 msgid "estimated"
 msgstr "估计"
@@ -2238,10 +2238,10 @@ msgid "the game hands its frame generation no HUD-less frame"
 msgstr "游戏没有把无 HUD 画面交给它的帧生成"
 
 msgid "Present cannot serve this swap chain's colour format (wilsjo2)"
-msgstr "Present 无法处理这个交换链的颜色格式（wilsjo2）"
+msgstr "最佳效果 无法处理这个交换链的颜色格式（wilsjo2）"
 
 msgid "Present cannot serve this swap chain's colour format"
-msgstr "Present 无法处理这个交换链的颜色格式"
+msgstr "最佳效果 无法处理这个交换链的颜色格式"
 
 msgid "NR is off (toggle key)"
 msgstr "NR 已关闭（开关键）"

@@ -1432,3 +1432,18 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
   安装器的模型包校验只保留 `lmxxf-small.ps1` 内嵌原生验证，删除 Python 后备。
 - 删除旧 `mochizuki-model.py`、`mochizuki-python.ps1`、`mochizuki-int4.ps1` 及旧模型
   提取测试入口。它们不属于 lmxxf 必需实现，也不再是 Mochi 备用依赖。
+
+
+## 2026-11-03: Mochizuki 风格码改为 MZ4（ASI dlssnr-amd.ini）
+
+- MZ4 使用节+键 schema，目标仅游戏目录 `dlssnr-amd.ini`；MZ1/2/3 全部拒绝并提示重新导出。
+- 覆盖无层 RenoDX/wilsjo2 与 `LayerN` 链：Network Model/Style Grade、Preprocess 视觉键、
+  RenoDX 视觉键、wilsjo2 视觉键、HudFix Mode、NRControl Layers、Layer Enabled/Processing/
+  Placement/Network。热键、驻留/显存策略、截图、OSD、Inspect/Log/诊断不分享；Layer 的本地
+  热键留在目标。
+- 导入先清空旧 LayerN 并中和全局已知风格键，再写码中值，避免旧层/旧全局残留；保留非风格
+  键、注释、BOM/编码，仍用临时文件+`File.Replace` 备份。
+- 预览显示网络、图层数、每层 Processing/Placement/Network，或无层时 RenoDX NRHookPoint /
+  wilsjo2 RunBeforeSR。
+- 自动覆盖清单：`tools/dev/mz4-schema-coverage.py` 对照 pre1 模板、实际 PBZ 与源码 writer；
+  当前 549 键检查 0 缺失，报告在 `work/notes/2026-11-03-mz4-key-coverage.md`（本地）。

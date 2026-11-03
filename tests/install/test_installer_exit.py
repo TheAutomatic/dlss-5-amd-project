@@ -71,7 +71,7 @@ class InstallerExitTests(unittest.TestCase):
             original = (REPO / f"tools/{script}-amd-presr.ps1").read_text(encoding="utf-8-sig")
             if script == "install":
                 orig_hash = hashlib.sha256(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20)).hexdigest()
-                small_hash = hashlib.sha256(b"NRMODEL1" + (255).to_bytes(4, "little") + bytes(20)).hexdigest()
+                small_hash = hashlib.sha256(b"NRMODEL1" + (0).to_bytes(4, "little") + bytes(20)).hexdigest()
                 original = re.sub(r"(\$knownOriginalSha\s*=\s*)'[a-f0-9]{64}'", r"\g<1>'" + orig_hash + "'", original)
                 original = re.sub(r"(\$knownSmallSha\s*=\s*)'[a-f0-9]{64}'", r"\g<1>'" + small_hash + "'", original)
             write_ps(self.package / f"{file_name}.ps1", original)
@@ -594,7 +594,7 @@ class InstallerExitTests(unittest.TestCase):
         if model:
             (shaders.parent / "dlssnr.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
         if small:
-            (shaders.parent / "dlssnr-small.bin").write_bytes(b"NRMODEL1" + (255).to_bytes(4, "little") + bytes(20))
+            (shaders.parent / "dlssnr-small.bin").write_bytes(b"NRMODEL1" + (0).to_bytes(4, "little") + bytes(20))
 
     def ready_game_models(self):
         make_weights(self.game / 'native-game-tiled-assets')
@@ -656,7 +656,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_small_cache_with_existing_original_installs_next_game(self):
         self.ready_mochizuki(model=True)
-        small = b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20)
+        small = b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20)
         source = self.game / 'dlssnr-amd/dlssnr-small.bin'
         source.parent.mkdir(parents=True)
         source.write_bytes(small)
@@ -685,7 +685,7 @@ class InstallerExitTests(unittest.TestCase):
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
         self.assertEqual(code, 0, output)
         self.assertFalse(dest.exists())
-        source.write_bytes(b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20))
+        source.write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20))
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
         self.assertEqual(code, 0, output)
         self.assertEqual(dest.read_bytes(), source.read_bytes())
@@ -697,7 +697,7 @@ class InstallerExitTests(unittest.TestCase):
 
     def test_small_only_install_needs_no_original(self):
         self.ready_mochizuki()
-        small = b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20)
+        small = b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20)
         (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(small)
         (self.package / 'OptiScaler.ini').write_text('[DlssNr]\n', encoding='utf-8')
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'small'))
@@ -795,7 +795,7 @@ class InstallerExitTests(unittest.TestCase):
         (small_root / 'fixture.f16').write_bytes(tensor)
         (small_root / 'model-manifest.json').write_text(json.dumps(dict(model='small',
             source_dll_sha256=manifest['source_dll_sha256'])), encoding='utf-8')
-        small = b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20)
+        small = b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20)
         (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(small)
         decisions = self.root / 'initial-models.json'
         decisions.write_text(json.dumps(dict(backends=['mochizuki', 'lmxxf'], existingIni='keep',
@@ -997,7 +997,7 @@ class InstallerExitTests(unittest.TestCase):
         self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
         # An explicit active model wins over the installed set.
         (self.game / 'dlssnr-amd.ini').unlink()
-        (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20))
+        (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20))
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'both',
                                               '-MochizukiActiveModel', 'small'))
         self.assertEqual(code, 0, output)
@@ -1010,7 +1010,7 @@ class InstallerExitTests(unittest.TestCase):
         # original-only choice made for this run.
         stale_small = self.game / 'dlssnr-amd/dlssnr-small.bin'
         stale_small.parent.mkdir(parents=True, exist_ok=True)
-        stale_small.write_bytes(b'NRMODEL1' + (255).to_bytes(4, 'little') + bytes(20))
+        stale_small.write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20))
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
         self.assertEqual(code, 0, output)
         ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
@@ -1063,6 +1063,88 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertTrue(ini.is_file())
         self.assertTrue(recovery.is_file())
+
+    def test_mochizuki_existing_ini_applies_explicit_startup_model(self):
+        self.ready_mochizuki(model=True, small=True)
+        ini = self.game / 'dlssnr-amd.ini'
+        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[RenoDX]\nEnabled = 1\n[User]\nKeep = 1\n', encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiNetworks', 'original', '-MochizukiActiveModel', 'original'))
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding='utf-8-sig')
+        self.assertRegex(text, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
+        self.assertIn('Keep = 1', text)
+        self.assertRegex(text, r'(?m)^Enabled\s*=\s*1$')
+
+    def test_mochizuki_derived_generation_failure_is_not_success(self):
+        self.ready_mochizuki(model=True, small=True)
+        stale = self.game / 'dlssnr-amd/dlssnr-small-experimental.bin'
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_bytes(b'stale experimental model')
+        (self.package / 'experimental/dlssnr-small-experimental.delta').write_bytes(b'not a delta')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiNetworks', 'experimental', '-MochizukiActiveModel', 'experimental'))
+        self.assertNotEqual(code, 0, output)
+        self.assertIn('CC_SMALL_FP8_EXPERIMENTAL generation failed', output)
+        self.assertNotIn('Install SUCCEEDED.', output)
+        self.assertNotIn('starting with CC_SMALL_FP8', output)
+        # The stale file is not reported as a completed network.
+        self.assertEqual(stale.read_bytes(), b'stale experimental model')
+
+    def test_mochizuki_int4_generation_failure_is_not_success(self):
+        self.ready_mochizuki(model=True)
+        stale = self.game / 'dlssnr-amd/dlssnr-int4.bin'
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_bytes(b'stale int4 model')
+        import os
+        os.utime(stale, (946684800, 946684800))
+        (self.package / 'model-tools/dlssnr-int4-weights.exe').write_bytes(b'not an executable')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiNetworks', 'int4', '-MochizukiActiveModel', 'int4'))
+        self.assertNotEqual(code, 0, output)
+        self.assertIn('CC_SILVER_AARDWOLD_INT4_MIXED generation failed', output)
+        self.assertNotIn('Install SUCCEEDED.', output)
+        self.assertNotIn('starting with CC_SILVER_AARDWOLD', output)
+        self.assertEqual(stale.read_bytes(), b'stale int4 model')
+
+    def test_mochizuki_game_derived_models_are_recycled_to_package(self):
+        self.ready_install()
+        self.ready_mochizuki()
+        derived = {
+            'dlssnr-amd/dlssnr.bin': b'NRMODEL1' + (599).to_bytes(4, 'little') + bytes(20),
+            'dlssnr-amd/dlssnr-small-experimental.bin': b'game experimental model',
+            'dlssnr-amd/dlssnr-int4.bin': b'game int4 model',
+        }
+        for relative, data in derived.items():
+            path = self.game / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
+        self.assertEqual(code, 0, output)
+        for relative, data in derived.items():
+            path = self.package / relative
+            self.assertTrue(path.is_file(), relative)
+            self.assertEqual(path.read_bytes(), data, relative)
+
+    def test_mochizuki_existing_derived_models_are_reused(self):
+        import os
+        import time
+        self.ready_mochizuki(model=True, small=True)
+        expires = time.time() + 10 * 365 * 24 * 3600
+        game_exp = self.game / 'dlssnr-amd/dlssnr-small-experimental.bin'
+        game_int4 = self.game / 'dlssnr-amd/dlssnr-int4.bin'
+        game_exp.parent.mkdir(parents=True, exist_ok=True)
+        game_exp.write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little'))
+        game_int4.write_bytes(b'existing int4 model')
+        os.utime(game_exp, (expires, expires))
+        os.utime(game_int4, (expires, expires))
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiNetworks', 'experimental,int4',
+                                              '-MochizukiActiveModel', 'experimental'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Reused existing CC_SMALL_FP8_EXPERIMENTAL', output)
+        self.assertIn('Reused existing CC_SILVER_AARDWOLD_INT4_MIXED', output)
+        self.assertEqual(game_int4.read_bytes(), b'existing int4 model')
 
     def test_mochizuki_existing_asi_ini_is_not_rewritten(self):
         self.ready_mochizuki(model=True)

@@ -17,6 +17,7 @@ if /i "%~1"=="artwork" goto artwork
 "%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\plugin-paths.ps1 || goto fail
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\folder-picker-dpi.ps1 || goto fail
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\library-artwork.ps1 || goto fail
+"%AMD_TEST_PYTHON%" -B tests\install\test_mz4_share_code.py || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_installer_exit.py --failfast || goto fail
 "%AMD_TEST_PYTHON%" -B -m unittest discover -s tests\install -p test_proxy_probe.py --failfast || goto fail
 "%AMD_TEST_PYTHON%" -B -m unittest discover -s tests\install -p test_launcher_worker.py --failfast || goto fail

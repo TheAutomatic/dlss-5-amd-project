@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -80,7 +80,7 @@ namespace OptScalerNR.Launcher
         }
 
         // MZ code inside arbitrary pasted text (share text with a pitch line, chat quotes, anything)
-        static readonly Regex CodeInText = new Regex(@"MZ[1-3]:[^;\r\n]*;[0-9A-Fa-f]{4}", RegexOptions.Compiled);
+        static readonly Regex CodeInText = new Regex(@"MZ[1-4]:[^;\r\n]*;[0-9A-Fa-f]{4}", RegexOptions.Compiled);
         static string ExtractCode(string text)
         {
             if (text == null) return null;
@@ -93,8 +93,10 @@ namespace OptScalerNR.Launcher
             var code = error as MochizukiShareCode.CodeException;
             if (code == null) return L("操作没成功，再试一次或检查文件权限。", "The operation failed. Try again or check file permissions.");
             switch (code.Reason) {
-                case "prefix": return L("没认出画面分享码。确认复制了完整的分享内容（里面会有一段 MZ 开头的字符）。",
-                                        "No share code found. Make sure you copied the full share text (including the MZ... part).");
+                case "old": return L("旧版风格码不适用于 ASI 版本，请在当前版本重新导出。",
+                                      "Old style codes do not apply to the ASI version. Export again with this version.");
+                case "prefix": return L("没认出画面分享码。确认复制了完整的分享内容（里面会有一段 MZ4 开头的字符）。",
+                                        "No share code found. Make sure you copied the full share text (including the MZ4 part).");
                 case "crc": return L("内容好像没复制全，少了一截。把整段分享内容重新复制一遍试试？",
                                      "Looks like part of the text was cut off. Try copying the whole thing again.");
                 case "index": return L("这段分享码来自更新的版本，更新启动器后再试。", "This share code needs a newer launcher. Update first.");
@@ -102,6 +104,10 @@ namespace OptScalerNR.Launcher
                 case "duplicate": return L("这段分享码的内容有问题，可能没复制全。", "The share code looks incomplete.");
                 case "encoding": return L("游戏设置文件不是常见的编码，无法读取。", "The game INI uses an unsupported encoding.");
                 case "value": return L("这段分享码的内容有问题，可能没复制全。", "The share code looks incomplete.");
+                case "unknown": return L("这段分享码包含当前安装包不支持的字段，请更新启动器。",
+                                         "This share code uses settings this launcher does not support. Update the launcher.");
+                case "layer": return L("分享码里的图层编号无效。", "The share code has an invalid layer number.");
+                case "version": return L("分享码版本不受支持，请更新启动器。", "The share code version is not supported. Update the launcher.");
                 default: return L("没认出画面分享码。确认复制了完整的分享内容。", "No share code recognized. Copy the full share text.");
             }
         }
@@ -110,7 +116,7 @@ namespace OptScalerNR.Launcher
         {
             var game = CaptureIniGame();
             if (!CanUseIniGame(game)) return;
-            string path = Path.Combine(game.Directory, "OptiScaler.ini");
+            string path = Path.Combine(game.Directory, "dlssnr-amd.ini");
             string executable = _selectedGame.Exe;
             if (!File.Exists(path)) { SetIniStatus("noini", ""); return; }
             try {
@@ -135,9 +141,9 @@ namespace OptScalerNR.Launcher
                 var includeGame = new CheckBox { Content = L("附带游戏名（朋友导入时会显示这段画面来自哪个游戏）", "Include game title (shown to whoever imports it)"), IsChecked = true, Margin = new Thickness(0, 10, 0, 0) };
                 panel.Children.Add(includeGame);
                 var sourceRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-                var pickIni = new Button { Content = L("从 INI 文件读取…", "Read from INI file…"), MinWidth = 110, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 3, 10, 3) };
+                var pickIni = new Button { Content = L("从 ASI INI 读取…", "Read ASI INI…"), MinWidth = 110, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 3, 10, 3) };
                 var sourceHint = new TextBlock { Foreground = TryFindResourceString("ThemeMuted"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 330 };
-                sourceHint.Text = L("默认：当前游戏的 OptiScaler.ini", "Default: the current game's OptiScaler.ini");
+                sourceHint.Text = L("默认：当前游戏的 dlssnr-amd.ini（ASI 配置）", "Default: the current game's dlssnr-amd.ini (ASI config)");
                 sourceRow.Children.Add(pickIni); sourceRow.Children.Add(sourceHint);
                 panel.Children.Add(sourceRow);
                 var noteHint = new TextBlock { Text = L("备注（可选，随分享码一起发过去）：", "Note (optional, travels with the code):"), Foreground = TryFindResourceString("ThemeMuted"), FontSize = 11, Margin = new Thickness(0, 8, 0, 2) };
@@ -204,8 +210,7 @@ namespace OptScalerNR.Launcher
                             var values = MochizukiShareCode.Decode(code);
                             string tag = values.GameTag.Length > 0 ? "【" + values.GameTag + "】" : "";
                             string noteLine = values.Note.Length > 0 ? L("（备注：" + values.Note + "）", " (note: " + values.Note + ")") : "";
-                            summary.Text = L("✨ 已识别" + tag + "同款画质（色调、质感等专属调校）" + noteLine,
-                                             "✨ Ready: custom look" + (values.GameTag.Length > 0 ? " for [" + values.GameTag + "]" : "") + " (color and texture tuning)" + noteLine);
+                            summary.Text = noteLine + MochizukiShareCode.Summary(values, L("zh", "en") == "zh");
                             validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
                         } catch (Exception ex) { summary.Text = ShareError(ex); }
                     }
@@ -218,7 +223,7 @@ namespace OptScalerNR.Launcher
                     if (isExport && renderMode != null) renderMode();
                 };
                 pickIni.Click += delegate {
-                    var dlg = new Microsoft.Win32.OpenFileDialog { Filter = L("INI 文件|*.ini|所有文件|*.*", "INI files|*.ini|All files|*.*"), Title = L("选择要导出的 INI", "Choose an INI to export") };
+                    var dlg = new Microsoft.Win32.OpenFileDialog { Filter = L("INI 文件|*.ini|所有文件|*.*", "INI files|*.ini|All files|*.*"), Title = L("选择要导出的 dlssnr-amd.ini", "Choose the dlssnr-amd.ini to export") };
                     if (dlg.ShowDialog(dialog) == true)
                     {
                         try {
@@ -286,7 +291,7 @@ namespace OptScalerNR.Launcher
             if (!CanUseIniGame(game)) return false;
             bool locked = false, busy = false; string temporary = null;
             try {
-                string path = Path.Combine(game.Directory, "OptiScaler.ini");
+                string path = Path.Combine(game.Directory, "dlssnr-amd.ini");
                 if (!File.Exists(path)) { SetIniStatus("noini", ""); return false; }
                 locked = TryLockTarget(game.Directory);
                 if (!locked) { SetIniStatus("locked", ""); return false; }

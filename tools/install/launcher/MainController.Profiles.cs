@@ -127,7 +127,7 @@ namespace OptScalerNR.Launcher
             var game = CaptureIniGame();
             var hasGame = available && game != null;
             var hasIni = hasGame && File.Exists(Path.Combine(game.Directory, "OptiScaler.ini"));
-            RefreshShareCode(game != null && !IniBusy() && File.Exists(Path.Combine(game.Directory, "OptiScaler.ini")));
+            RefreshShareCode(game != null && !IniBusy() && File.Exists(Path.Combine(game.Directory, "dlssnr-amd.ini")));
             RefreshModelImportBar();
             var selected = hasGame && !string.IsNullOrEmpty(_iniSelectedProfile);
             if (_iniProfileCombo != null) _iniProfileCombo.IsEnabled = hasGame;
