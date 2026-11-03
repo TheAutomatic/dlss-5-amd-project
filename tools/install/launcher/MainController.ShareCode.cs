@@ -80,14 +80,7 @@ namespace OptScalerNR.Launcher
             return panel;
         }
 
-        // MZ code inside arbitrary pasted text (share text with a pitch line, chat quotes, anything)
-        static readonly Regex CodeInText = new Regex(@"MZ[1-4]:[^;\r\n]*;[0-9A-Fa-f]{4}", RegexOptions.Compiled);
-        static string ExtractCode(string text)
-        {
-            if (text == null) return null;
-            var match = CodeInText.Match(text);
-            return match.Success ? match.Value : null;
-        }
+        static string ExtractCode(string text) { return MochizukiShareCode.ExtractCode(text); }
 
         string ShareError(Exception error)
         {
@@ -203,7 +196,7 @@ namespace OptScalerNR.Launcher
         {
             allScroll.Visibility = Visibility.Collapsed;
             diffBorder.Visibility = Visibility.Collapsed;
-            if (code == null || code.Entries.Count == 0) {
+            if (code == null) {
                 allHost.Children.Clear();
                 allToggle.Content = L("全部参数 ▸", "All settings ▸");
                 allToggle.IsEnabled = false;
@@ -220,7 +213,7 @@ namespace OptScalerNR.Launcher
             }
             var allEntries = new List<MochizukiShareCode.Entry>(code.Entries);
             allEntries.AddRange(resets);
-            allToggle.IsEnabled = true;
+            allToggle.IsEnabled = allEntries.Count > 0;
             allToggle.Content = (chinese ? "全部参数（" : "All settings (") + allEntries.Count + (chinese ? "） ▸" : ") ▸");
             RenderShareEntries(allHost, allEntries, chinese);
             if (!import || !File.Exists(path)) return;
@@ -236,10 +229,12 @@ namespace OptScalerNR.Launcher
                 header += (chinese ? " · 另有 " : " · plus ") + resets.Count + (chinese ? " 项恢复默认" : " restoring defaults");
             diffHeader.Text = header;
             var shownDirect = MochizukiShareCode.LimitEntries(direct, 30);
+            if (direct.Count == 0 && resets.Count > 0) shownDirect = MochizukiShareCode.LimitEntries(resets, 30);
             RenderShareEntries(diffHost, shownDirect, chinese);
-            if (direct.Count > shownDirect.Count) {
+            int hidden = direct.Count + resets.Count - shownDirect.Count;
+            if (hidden > 0) {
                 diffHost.Children.Add(new TextBlock {
-                    Text = (chinese ? "还有 " : "") + (direct.Count - shownDirect.Count) + (chinese ? " 项，展开全部参数查看" : " more; open All settings"),
+                    Text = (chinese ? "还有 " : "") + hidden + (chinese ? " 项，展开全部参数查看" : " more; open All settings"),
                     FontSize = 11, Foreground = TryFindResourceString("ThemeMuted"), Margin = new Thickness(10, 3, 0, 0)
                 });
             }

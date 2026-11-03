@@ -117,6 +117,35 @@ static class Mz4ShareCodeTest
             try { MochizukiShareCode.Decode(old); throw new Exception("old code accepted"); }
             catch (MochizukiShareCode.CodeException ex) { Check(ex.Reason == "old", "old reason"); }
         }
+        foreach (var note in new[] { "warm|night", "warm;night", "a~7Cb", "semi;and|pipe" })
+        {
+            string noteCode = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes("[RenoDX]\nNRIntensity=1\n"), "pbz", note);
+            var noteDecoded = MochizukiShareCode.Decode(noteCode);
+            Check(noteDecoded.Note == note, "note roundtrip " + note + " -> " + noteDecoded.Note);
+            string extracted = MochizukiShareCode.ExtractCode("chat text " + noteCode + " tail");
+            Check(extracted == noteCode, "paste extraction " + note);
+            Check(MochizukiShareCode.Decode(extracted).Note == note, "paste decode " + note);
+        }
+        string layerCase = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(
+            "[Network]\nModel=CC_SMALL_FP8\n[Layer3]\nProcessing=RenoDX\nPlacement=before\nNetwork=CC_SILVER_AARDWOLD\n"));
+        var layerDecoded = MochizukiShareCode.Decode(layerCase);
+        string layerSummary = MochizukiShareCode.Summary(layerDecoded, true);
+        Check(layerDecoded.LayerCount == 1 && layerDecoded.FirstLayer == 3, "actual layer set");
+        Check(layerSummary.Contains("CC_SILVER_AARDWOLD") && layerSummary.Contains("1 个图层") && layerSummary.Contains("超分前"), "layer summary: " + layerSummary);
+        Check(!layerSummary.Contains("3 个图层"), "no max-number layer count");
+        string layerOffSource = "[Network]\nModel=CC_SMALL_FP8\n[NRControl]\nLayers=0\n[Layer1]\nProcessing=RenoDX\nPlacement=after\nNetwork=CC_SILVER_AARDWOLD\n[Layer3]\nProcessing=wilsjo2\nPlacement=before\n";
+        string layerOff = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(layerOffSource));
+        string layerOffSummary = MochizukiShareCode.Summary(MochizukiShareCode.Decode(layerOff), true);
+        Check(layerOffSummary.Contains("CC_SILVER_AARDWOLD") && layerOffSummary.Contains("1 个图层") &&
+              layerOffSummary.Contains("超分后") && layerOffSummary.Contains("1 层未启用"), "layers off summary: " + layerOffSummary);
+        string layerOn = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(layerOffSource.Replace("Layers=0", "Layers=1")));
+        string layerOnSummary = MochizukiShareCode.Summary(MochizukiShareCode.Decode(layerOn), true);
+        Check(layerOnSummary.Contains("2 个图层") && layerOnSummary.Contains("超分后"), "layers on summary: " + layerOnSummary);
+
+        var empty = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(";default\n")));
+        Check(empty.Entries.Count == 0, "empty code stays valid");
+        var emptyResets = MochizukiShareCode.ChangedEntries(Encoding.UTF8.GetBytes("[RenoDX]\nNRIntensity=2\n"), empty);
+        Check(emptyResets.Count == 1 && emptyResets[0].Reset && emptyResets[0].Key == "NRIntensity", "empty code reports reset");
         string tampered = code.Substring(0, code.Length - 1) + (code[code.Length - 1] == '0' ? '1' : '0');
         try { MochizukiShareCode.Decode(tampered); throw new Exception("crc not checked"); }
         catch (MochizukiShareCode.CodeException ex) { Check(ex.Reason == "crc", "crc reason"); }

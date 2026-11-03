@@ -158,9 +158,20 @@ namespace OptScalerNR.Launcher
         public sealed class DecodedCode
         {
             public readonly List<Entry> Entries = new List<Entry>();
+            public readonly SortedSet<int> LayerNumbers = new SortedSet<int>();
             public string GameTag = "", Note = "";
-            public int LayerCount;
-            public string Network { get { foreach (var e in Entries) if (e.Layer == 0 && e.Key == "Model") return e.Value; return ""; } }
+            public int LayerCount { get { return LayerNumbers.Count; } }
+            public bool LayersEnabled {
+                get {
+                    foreach (var e in Entries)
+                        if (e.Layer == 0 && string.Equals(e.Section, "NRControl", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(e.Key, "Layers", StringComparison.OrdinalIgnoreCase))
+                            return IsTrue(e.Value);
+                    return false;
+                }
+            }
+            public int FirstLayer { get { return LayerNumbers.Count == 0 ? 0 : LayerNumbers.Min; } }
+            public string Network { get { foreach (var e in Entries) if (e.Layer == 0 && string.Equals(e.Key, "Model", StringComparison.OrdinalIgnoreCase)) return e.Value; return ""; } }
         }
         static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
         static readonly Regex Header = new Regex(@"^\s*\[([^\]]+)\]\s*(?:[;#].*)?$");
@@ -191,6 +202,19 @@ namespace OptScalerNR.Launcher
                 if (clean.Length >= 60) break;
             }
             return clean.ToString().Trim();
+        }
+        // Fields are joined by '|' and the whole payload ends at ';CRC'. Encode
+        // delimiters inside game tags/notes so a note such as "warm|night" or
+        // "warm;night" cannot split the protocol or stop GUI extraction.
+        static string EscapeField(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            return value.Replace("~", "~7E").Replace("|", "~7C").Replace(";", "~3B");
+        }
+        static string UnescapeField(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            return value.Replace("~3B", ";").Replace("~7C", "|").Replace("~7E", "~");
         }
         public static bool GameTagMatches(string tag, string executable)
         { return string.Equals(NormalizeGameTag(tag), NormalizeGameTag(executable), StringComparison.OrdinalIgnoreCase); }
@@ -339,7 +363,7 @@ namespace OptScalerNR.Launcher
                     lines.Add("L\t" + layer.Key.ToString(Invariant) + "\t" + e[0] + "\t" + e[1]);
                 }
             }
-            string payload = "1|" + NormalizeGameTag(game) + "|" + SanitizeNote(note) + "|" +
+            string payload = "1|" + EscapeField(NormalizeGameTag(game)) + "|" + EscapeField(SanitizeNote(note)) + "|" +
                              Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("\n", lines.ToArray())));
             return "MZ4:" + payload + ";" + Crc16(payload).ToString("X4", Invariant);
         }
@@ -365,7 +389,7 @@ namespace OptScalerNR.Launcher
             if (Crc16(payload) != crc) throw new CodeException("crc");
             string[] parts = payload.Split(new[] { '|' }, 4);
             if (parts.Length != 4 || parts[0] != "1") throw new CodeException("version");
-            var decoded = new DecodedCode { GameTag = parts[1], Note = parts[2] };
+            var decoded = new DecodedCode { GameTag = UnescapeField(parts[1]), Note = UnescapeField(parts[2]) };
             byte[] bytes;
             try { bytes = Convert.FromBase64String(parts[3]); }
             catch { throw new CodeException("format"); }
@@ -391,7 +415,7 @@ namespace OptScalerNR.Launcher
                     var field = FindField(LayerFields, "Layer", entry.Key);
                     if (field == null) throw new CodeException("unknown");
                     ValidateValue(field, entry.Value);
-                    if (layer > decoded.LayerCount) decoded.LayerCount = layer;
+                    decoded.LayerNumbers.Add(layer);
                 } else throw new CodeException("format");
                 decoded.Entries.Add(entry);
             }
@@ -404,23 +428,47 @@ namespace OptScalerNR.Launcher
                     return entry.Value;
             return "";
         }
+        static readonly Regex CodeInText = new Regex(@"MZ[1-4]:[^\r\n]*?;[0-9A-Fa-f]{4}(?![0-9A-Fa-f])", RegexOptions.Compiled);
+        public static string ExtractCode(string text)
+        {
+            if (text == null) return null;
+            var match = CodeInText.Match(text);
+            return match.Success ? match.Value : null;
+        }
+        static bool IsTrue(string value)
+        {
+            string v = (value ?? "").Trim();
+            return v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(v, "yes", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(v, "on", StringComparison.OrdinalIgnoreCase);
+        }
         public static string Summary(DecodedCode code, bool chinese)
         {
-            string model = code.Network.Length > 0 ? code.Network : (chinese ? "未指定网络" : "no network");
-            int layers = code.LayerCount;
+            bool hasLayers = code.LayerCount > 0;
+            int first = code.FirstLayer;
+            int activeLayers = hasLayers ? (code.LayersEnabled ? code.LayerCount : 1) : 0;
+            string model = hasLayers
+                ? EntryValue(code, first, "Network")
+                : code.Network;
+            if (model.Length == 0) model = code.Network;
+            if (model.Length == 0) model = chinese ? "未指定网络" : "no network";
             var text = new StringBuilder();
             text.Append(chinese ? "ASI 画面" : "ASI look").Append(" · ").Append(model)
-                .Append(" · ").Append(chinese ? layers + " 个图层" : layers + " layer(s)");
+                .Append(" · ").Append(chinese ? activeLayers + " 个图层" : activeLayers + " layer(s)");
             if (code.GameTag.Length > 0) text.Append(chinese ? " · 来自 " : " · from ").Append(code.GameTag);
-            if (layers > 0) {
-                string processing = EntryValue(code, 1, "Processing");
-                string placement = EntryValue(code, 1, "Placement");
+            if (hasLayers) {
+                string processing = EntryValue(code, first, "Processing");
+                string placement = EntryValue(code, first, "Placement");
                 if (processing.Length > 0 || placement.Length > 0) {
                     text.Append(" · ").Append(chinese ? "运行位置 " : "placement ")
                         .Append(chinese ? PlacementText(placement) : placement)
                         .Append(chinese ? " · 处理 " : " · process ").Append(processing);
                 }
-                if (layers > 1) text.Append(chinese ? " · 等 " + layers + " 层" : " · " + layers + " layers total");
+                if (code.LayerCount > activeLayers)
+                    text.Append(chinese ? " · 文件另有 " + (code.LayerCount - activeLayers) + " 层未启用"
+                                        : " · " + (code.LayerCount - activeLayers) + " more layer(s) disabled");
+                else if (activeLayers > 1)
+                    text.Append(chinese ? " · 等 " + activeLayers + " 层" : " · " + activeLayers + " layers total");
             } else {
                 string hook = EntryValue(code, 0, "NRHookPoint");
                 string runBefore = EntryValue(code, 0, "RunBeforeSR");
