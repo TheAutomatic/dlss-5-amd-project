@@ -48,10 +48,10 @@ function Get-UiStrings($element) {
         }
     }
 }
-function Dialog-Radios($node) {
-    if ($node -is [Windows.Controls.RadioButton]) { $node }
+function Dialog-Checks($node) {
+    if ($node -is [Windows.Controls.CheckBox]) { $node }
     if ($node -is [Windows.DependencyObject]) {
-        foreach ($child in [Windows.LogicalTreeHelper]::GetChildren($node)) { Dialog-Radios $child }
+        foreach ($child in [Windows.LogicalTreeHelper]::GetChildren($node)) { Dialog-Checks $child }
     }
 }
 function Assert-English($window, [string]$context) {
@@ -239,38 +239,45 @@ try {
         $result.Backends[2].PreparationState = 'ready'
         $result.Backends[2].OriginalState = 'preparable'
         $result.Backends[2].SmallState = 'preparable'
+        $result.Backends[2].ExperimentalState = 'preparable'
+        $result.Backends[2].Int4State = 'preparable'
         foreach ($language in @('zh','en')) {
             Invoke-Controller $window 'SetLanguage' @($language)
             $dialog = Invoke-Controller $window 'CreateMochizukiModelDialog'
             try {
                 if ($language -eq 'en') { Assert-English $dialog 'model dialog' }
                 else {
-                    Assert-True ($dialog.Title -eq '选择 Mochizuki 模型') 'Chinese model dialog missing'
+                    Assert-True ($dialog.Title -eq '选择 Mochizuki 网络') 'Chinese model dialog missing'
                     Save-Preview $window 'chinese-settings.png' $true
                     Invoke-Controller $window 'SwitchTab' @($false)
                     Save-Preview $window 'chinese-library.png'
                 }
-                $radios = @(Dialog-Radios $dialog)
-                Assert-True (@($radios | Where-Object { $_.IsChecked }).Count -eq 0) 'Model dialog silently selected an option'
-                Assert-True ($radios.Count -eq 3) 'Model dialog omitted a supported model choice'
-                Assert-True (@($radios | Where-Object { -not $_.IsEnabled }).Count -eq 0) 'Extraction-ready model choices were disabled'
-                $radios[1].IsChecked = $true
-                Assert-True ($dialog.Tag -eq 'small') 'Localized model label changed the protocol value'
+                $modelChecks = @(Dialog-Checks $dialog)
+                Assert-True ($modelChecks.Count -eq 4) 'Model dialog omitted a supported model choice'
+                Assert-True (@($modelChecks | Where-Object { $_.IsChecked }).Count -eq 4) 'Model dialog did not select ready choices'
+                Assert-True (@($modelChecks | Where-Object { -not $_.IsEnabled }).Count -eq 0) 'Ready model choices were disabled'
+                Assert-True ($modelChecks[0].Tag -eq 'dependencyLocked' -and $modelChecks[2].Tag -eq 'dependencyLocked') 'Required parents were not marked as dependency-locked'
+                Assert-True ($modelChecks[0].IsEnabled -and $modelChecks[2].IsEnabled) 'Dependency-locked parents were disabled'
+                Assert-True ($null -ne $modelChecks[0].ToolTip -and $null -ne $modelChecks[2].ToolTip) 'Dependency lock tooltip missing'
+                $modelChecks[0].IsChecked = $false
+                Assert-True ($modelChecks[0].IsChecked -eq $true) 'Dependency lock allowed clearing Small'
             } finally { $dialog.Close() }
         }
         # Without the extractor, only already installed models may be selected.
         $result.Backends[2].PreparationState = 'missing'
         $result.Backends[2].OriginalState = 'ready'
         $result.Backends[2].SmallState = 'missing'
+        $result.Backends[2].ExperimentalState = $null
+        $result.Backends[2].Int4State = $null
         $dialog = Invoke-Controller $window 'CreateMochizukiModelDialog'
         try {
             Assert-English $dialog 'model dialog without extraction helper'
-            $radios = @(Dialog-Radios $dialog)
-            Assert-True (@($radios | Where-Object { $_.IsChecked }).Count -eq 0) 'Unavailable extractor silently selected a model'
-            Assert-True (-not $radios[0].IsEnabled -and -not $radios[1].IsEnabled) 'Missing new model was selectable without extraction support'
-            Assert-True $radios[2].IsEnabled 'Installed original model was disabled without extraction support'
-            $radios[2].IsChecked = $true
-            Assert-True ($dialog.Tag -eq 'original') 'Installed original model produced the wrong protocol choice'
+            $modelChecks = @(Dialog-Checks $dialog)
+            Assert-True ($modelChecks.Count -eq 4) 'Model dialog omitted an unavailable choice'
+            Assert-True (-not $modelChecks[0].IsEnabled -and -not $modelChecks[1].IsEnabled -and -not $modelChecks[3].IsEnabled) 'Missing new model was selectable without extraction support'
+            Assert-True $modelChecks[2].IsEnabled 'Installed original model was disabled without extraction support'
+            $modelChecks[2].IsChecked = $true
+            Assert-True ($modelChecks[2].IsChecked -eq $true) 'Installed original model could not be selected'
         } finally { $dialog.Close() }
         # Missing inputs are localized without reapplying detection or losing user choices.
         $result.PackageRoot = Join-Path $fixture 'package with spaces'

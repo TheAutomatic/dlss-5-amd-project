@@ -143,10 +143,12 @@ namespace OptScalerNR.Launcher
             var asiIni = hasGame ? Path.Combine(game.Directory, "dlssnr-amd.ini") : null;
             if (_iniAsiExportButton != null) {
                 _iniAsiExportButton.Content = L("导出 dlssnr-amd.ini…", "Export dlssnr-amd.ini…");
+                _iniAsiExportButton.ToolTip = L("完整导出 dlssnr-amd.ini（ASI NR 配置），与 OptiScaler.ini 无关", "Export complete dlssnr-amd.ini (ASI NR configuration), independent of OptiScaler.ini");
                 _iniAsiExportButton.IsEnabled = hasGame && asiIni != null && File.Exists(asiIni);
             }
             if (_iniAsiImportButton != null) {
                 _iniAsiImportButton.Content = L("导入 dlssnr-amd.ini…", "Import dlssnr-amd.ini…");
+                _iniAsiImportButton.ToolTip = L("完整导入 dlssnr-amd.ini，使用现有原子备份", "Import complete dlssnr-amd.ini with atomic backup");
                 _iniAsiImportButton.IsEnabled = hasGame;
             }
             if (_iniRenameButton != null) _iniRenameButton.IsEnabled = selected;
@@ -265,7 +267,7 @@ namespace OptScalerNR.Launcher
                 FileName = "dlssnr-amd.ini", Filter = "INI (*.ini)|*.ini", OverwritePrompt = true,
                 RestoreDirectory = true
             };
-            if (dialog.ShowDialog() != true) return;
+            if (dialog.ShowDialog(_window) != true || !CanUseIniGame(game)) return;
             try {
                 File.WriteAllBytes(dialog.FileName, File.ReadAllBytes(path));
                 SetIniStatus("asi-exported", Path.GetFileName(dialog.FileName));
@@ -281,10 +283,11 @@ namespace OptScalerNR.Launcher
                 Title = L("完整导入 dlssnr-amd.ini", "Import complete dlssnr-amd.ini"),
                 Filter = "INI (*.ini)|*.ini", CheckFileExists = true, RestoreDirectory = true
             };
-            if (dialog.ShowDialog() != true) return;
+            if (dialog.ShowDialog(_window) != true || !CanUseIniGame(game)) return;
             bool locked = false, busy = false;
             string temporary = null;
             try {
+                if (!Directory.Exists(game.Directory)) { SetIniStatus("game", ""); return; }
                 byte[] bytes = File.ReadAllBytes(dialog.FileName);
                 locked = TryLockTarget(game.Directory);
                 if (!locked) { SetIniStatus("locked", ""); return; }

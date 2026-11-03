@@ -198,6 +198,8 @@ namespace OptScalerNR.Launcher
             diffBorder.Visibility = Visibility.Collapsed;
             if (code == null) {
                 allHost.Children.Clear();
+                diffHost.Children.Clear();
+                allToggle.Tag = 0;
                 allToggle.Content = L("全部参数 ▸", "All settings ▸");
                 allToggle.IsEnabled = false;
                 return;
@@ -213,11 +215,13 @@ namespace OptScalerNR.Launcher
             }
             var allEntries = new List<MochizukiShareCode.Entry>(code.Entries);
             allEntries.AddRange(resets);
+            allToggle.Tag = allEntries.Count;
             allToggle.IsEnabled = allEntries.Count > 0;
             allToggle.Content = (chinese ? "全部参数（" : "All settings (") + allEntries.Count + (chinese ? "） ▸" : ") ▸");
             RenderShareEntries(allHost, allEntries, chinese);
             if (!import || !File.Exists(path)) return;
             if (direct.Count == 0 && resets.Count == 0) {
+                diffHost.Children.Clear();
                 diffHeader.Text = L("与当前配置一致", "No changes from the current config");
                 diffBorder.Visibility = Visibility.Visible;
                 return;
@@ -344,8 +348,11 @@ namespace OptScalerNR.Launcher
                 allToggle.Click += delegate {
                     bool open = allScroll.Visibility != Visibility.Visible;
                     allScroll.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-                    allToggle.Content = (L("zh", "en") == "zh" ? "全部参数" : "All settings") +
-                        (open ? " ▾" : " ▸");
+                    bool zh = L("zh", "en") == "zh";
+                    int count = allToggle.Tag is int ? (int)allToggle.Tag : 0;
+                    allToggle.Content = count > 0
+                        ? (zh ? "全部参数（" : "All settings (") + count + (zh ? "）" : ")") + (open ? " ▾" : " ▸")
+                        : (zh ? "全部参数" : "All settings") + (open ? " ▾" : " ▸");
                 };
                 panel.Children.Add(diffBorder);
                 panel.Children.Add(allToggle);
@@ -406,8 +413,7 @@ namespace OptScalerNR.Launcher
                         if (code == null) return;
                         try {
                             var values = MochizukiShareCode.Decode(code);
-                            string tag = values.GameTag.Length > 0 ? "【" + values.GameTag + "】" : "";
-                            string noteLine = values.Note.Length > 0 ? L("（备注：" + values.Note + "）", " (note: " + values.Note + ")") : "";
+                            string noteLine = values.Note.Length > 0 ? L("（备注：" + values.Note + "）\n", " (note: " + values.Note + ")\n") : "";
                             summary.Text = noteLine + MochizukiShareCode.Summary(values, L("zh", "en") == "zh") +
                                 MissingModelWarning(game.Directory, values);
                             RenderShareDetails(allHost, allToggle, allScroll, diffHost, diffHeader, diffBorder, values, true, path, L("zh", "en") == "zh");
