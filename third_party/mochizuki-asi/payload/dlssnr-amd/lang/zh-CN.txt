@@ -366,7 +366,7 @@ msgid "after upscaler"
 msgstr "超分后"
 
 msgid "before upscaler"
-msgstr "超分前"
+msgstr "超分前（更高帧数）"
 
 msgid "Present"
 msgstr "最佳效果"
@@ -939,7 +939,7 @@ msgid "After the upscaler"
 msgstr "超分后"
 
 msgid "Before the upscaler"
-msgstr "超分前"
+msgstr "超分前（更高帧数）"
 
 msgid "Processing"
 msgstr "处理方式"
