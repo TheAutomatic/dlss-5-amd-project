@@ -89,65 +89,71 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
-          ### v1.13.4.3 (对比 v1.13.4.2)
+          ### v1.14.0 (对比 v1.13.4.3)
 
-          修复版：光线再生（RR）与降噪（NR）的组合现在真正生效，切挡位和动态分辨率不再触发降噪上下文重建。
+          大版本更新：Mochizuki 0.0.8.2 官方 ASI 全面接管神经降噪，新增四网络模型生命周期支持、启动器 MZ4 风格码分享/导入系统，并完成全套 UI 本地化与安装可靠性修复。
 
-          ## FSR 光线再生 + 降噪
+          ## Mochizuki 0.0.8.2 官方 ASI 接管与四网络支持
 
-          - **RR 与 NR 可直接组合**：降噪位置为“超分前”时，NR 自动接在光线再生之后执行，不再需要额外 ini 配置修改。
-          - **每帧只执行一次 NR**：接缝已降噪时，超分后的重复调用被跳过。
-          - **修复 NR 每帧被拒**：正确声明合成颜色缓冲的着色器读取状态。
+          - **官方 ASI 接管**：引入官方 `dlssnr-amd.asi` 接管神经降噪处理。宿主 Ins 菜单自动让位并重定向至按 `End` 键呼出原生 NR Control 菜单；FSR 超分辨率、光线重建（RR）与平滑帧生成持原生协同。
+          - **四网络模型架构**：完整支持 `small`、`experimental`、`original` 与 `int4` 四种网络。启动器根据显卡与提取工具自动生成派生模型；勾选派生模型时自动锁定基础模型。
 
-          ## FSR 光线再生
+          ## 启动器与 MZ4 风格码系统
 
-          - **动态分辨率游戏不再失效**：上限在预设渲染尺寸上加 5% 余量。
+          - **单行 MZ4 风格码**：支持 Base64 单行风格码导出与导入；智能解析多图层（Layer）、RenoDX / wilsjo2 处理管线与调优参数。
+          - **改动预览与重置标识**：导入风格码时提供清晰的改动摘要与最多 30 项重点参数差异对照；自动标识未携带参数的默认重置行为。
+          - **独立 ASI INI 操作**：启动器新增一键导入/导出游戏内 `dlssnr-amd.ini` 文件的功能，方便玩家快速备份与迁移预设。
+
+          ## 语言与汉化精修
+
+          - **安装语言跟随与配置保留**：覆盖安装时自动根据启动器语言配置游戏内语言（`zh-CN` / `English`）；保留现有配置时完整尊重用户原有设定（包含显式留空的英文设置）。
+          - **术语规范与提示优化**。
 
           ### 已知问题
 
-          - 光线再生为实验功能，默认关闭。
-          - 光线再生与普通超分的切换依赖游戏重建 NGX feature；若游戏的开关不触发重建，需重进关卡或重启游戏后才生效。
+          - 光线再生（RR）为实验功能，默认关闭；切换普通超分与光线再生仍依赖游戏重建 NGX feature。
           - 多数游戏需开启 DXGI 伪装才会显示 DLSS/RR 选项；部分游戏开伪装后可能报“不支持的 GPU”。
-          - 相比游戏内建 FSR RR 路径有性能损耗，待查。
-          - 日志出现 `open_query` 拒绝：在“兼容性与调度”同时开启 **Allow enhanced barriers** 与 **Split query splice**（实验）。
-          - 4K 输出 + 光线再生 + 降噪同时开启时，切到 Quality（1440p）会超出显存预算：降噪拒绝新建缓冲并沿用已建网络（日志 `insufficient VRAM ... it keeps serving`），建议减少后台程序占用或使用平衡及更低超分挡位。
+          - Experimental 与 INT4 模型需特定显卡指令集与权重支持（建议 RX 9000 系列优先体验）。
           - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
 
-          ### 安装与权重
+          ### 安装与模型提取
 
           - 完整解压并运行新包 `Setup.bat` 覆盖安装。
-          - Mochizuki 0.0.7、lmxxf 0.44：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取模型；Daniel 0.6.0 需额外获取运行文件。
+          - Mochizuki 0.0.8.2 与 lmxxf：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取基础模型并生成派生网络；Daniel 需额外获取运行文件。
 
           ---
 
-          ### v1.13.4.3 (vs v1.13.4.2)
+          ### v1.14.0 (vs v1.13.4.3)
 
-          Fix release: Ray Regeneration (RR) and NR now compose for real, and preset or dynamic-resolution changes no longer rebuild the denoiser context.
+          Major release: Mochizuki 0.0.8.2 official ASI takeover for Neural Rendering, 4-network model lifecycle support, launcher MZ4 share/import code system, and comprehensive UI localization and installer fixes.
 
-          ## FSR Ray Regeneration + NR
+          ## Mochizuki 0.0.8.2 Official ASI Takeover & 4 Networks
 
-          - **RR and NR compose directly**: with NR placed before upscaling, it runs right after Ray Regeneration on its own — no extra ini change needed.
-          - **NR runs once per frame**: when the seam already denoised the frame, the post-upscale call is skipped.
-          - **Fixed NR being rejected every frame**: the composed colour surface is now declared as shader-read correctly.
+          - **Official ASI Takeover**: Integrated official `dlssnr-amd.asi` for NR processing. The host Ins menu gracefully redirects to the native NR Control menu toggled via `End`; FSR Super Resolution, Ray Reconstruction (RR), and Frame Generation (FG) operate seamlessly.
+          - **Four-Network Architecture**: Full support for `small`, `experimental`, `original`, and `int4` models. The launcher automatically derives secondary models with dependency locks ensuring required base models remain selected.
 
-          ## FSR Ray Regeneration
+          ## Launcher & MZ4 Style Code System
 
-          - **Dynamic-resolution titles no longer fail**: the ceiling carries 5% headroom over the preset render size.
+          - **Single-Line MZ4 Share Code**: Export and import settings via compact Base64 codes with schema coverage across multi-layer pipelines, RenoDX / wilsjo2 parameters, and presets.
+          - **Diff Preview & Reset Tracking**: Import dialog features compact summaries, capped 30-entry side-by-side diff previews, and explicit warnings for default reset values.
+          - **Standalone ASI INI Tools**: Direct file export and import buttons in the launcher for `dlssnr-amd.ini` to streamline configuration backups and sharing.
 
-          ### Known issues
+          ## Localization & Setup Refinements
 
-          - Ray Regeneration is experimental and off by default.
-          - Switching between Ray Regeneration and plain upscaling relies on the game recreating its NGX feature; if a game's toggle does not recreate it, the change takes effect only after a level reload or restart.
-          - Most games need DXGI spoofing to expose their DLSS/RR option; some titles may show an "unsupported GPU" error with spoofing on.
-          - Slower than the game's built-in FSR RR path; the gap is under investigation.
-          - Logs showing `open_query` rejections: enable **Allow enhanced barriers** and **Split query splice** together under Compatibility & Scheduling (experimental).
-          - With 4K output plus Ray Regeneration and NR, switching to Quality (1440p) exceeds the VRAM budget: NR declines new buffers and keeps serving the running network (log `insufficient VRAM ... it keeps serving`). Close background programs or stay at Balanced or a lower upscaling preset.
+          - **Language Sync & Preference Retention**: Overwrite installs follow the launcher language (`zh-CN` / `English`); kept installs strictly preserve existing user preferences (including explicit empty English defaults).
+          - **Terminology Polish & Prompts**: Standardized upscaler terminology; placement options labeled as `Before the upscaler (higher FPS)`, `After the upscaler`, and `Present`; adopted industry-standard `Pass / Passes`; missing model prompts direct to launcher extraction.
+
+          ### Known Issues
+
+          - Ray Regeneration is experimental and off by default; switching RR/SR modes relies on NGX feature recreation.
+          - Most games need DXGI spoofing to expose DLSS/RR options; some titles may report unsupported GPUs with spoofing active.
+          - Experimental and INT4 models require specific hardware instruction sets (RX 9000 series recommended).
           - RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
 
-          ### Installation and models
+          ### Installation & Model Extraction
 
           - Extract the full package and run `Setup.bat` as an overwrite install.
-          - Mochizuki 0.0.7, lmxxf 0.44: the launcher extracts models from your own official `nvngx_dlssnr.dll`; Daniel 0.6.0 additionally fetches runtime files.
+          - Mochizuki 0.0.8.2 & lmxxf: launcher extracts base models from your official `nvngx_dlssnr.dll` and derives secondary models; Daniel additionally requires runtime files.
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
