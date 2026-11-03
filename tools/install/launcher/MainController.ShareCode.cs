@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -112,6 +113,34 @@ namespace OptScalerNR.Launcher
             }
         }
 
+        static string[] RequiredModelFiles(MochizukiShareCode.DecodedCode code)
+        {
+            var files = new List<string>();
+            foreach (var entry in code.Entries)
+            {
+                if (!string.Equals(entry.Key, "Network", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(entry.Key, "Model", StringComparison.OrdinalIgnoreCase)) continue;
+                var network = (entry.Value ?? "").Trim().ToUpperInvariant();
+                string file = null;
+                if (network == "CC_SMALL_FP8" || network == "SMALL") file = "dlssnr-small.bin";
+                else if (network == "CC_SMALL_FP8_EXPERIMENTAL") file = "dlssnr-small-experimental.bin";
+                else if (network == "CC_SILVER_AARDWOLD" || network == "ORIGINAL") file = "dlssnr.bin";
+                else if (network == "CC_SILVER_AARDWOLD_INT4_MIXED") file = "dlssnr-int4.bin";
+                if (file != null && !files.Contains(file)) files.Add(file);
+            }
+            return files.ToArray();
+        }
+
+        string MissingModelWarning(string gameDir, MochizukiShareCode.DecodedCode code)
+        {
+            var missing = new List<string>();
+            foreach (var file in RequiredModelFiles(code))
+                if (!File.Exists(Path.Combine(gameDir, "dlssnr-amd", file))) missing.Add(file);
+            if (missing.Count == 0) return "";
+            return L("\n缺少模型文件：", "\nMissing model files: ") + string.Join(", ", missing.ToArray()) +
+                L("（不会自动替换网络；安装或生成后再套用）", " (the network is not changed here; install or generate it first)");
+        }
+
         void ShowShareCode(bool import)
         {
             var game = CaptureIniGame();
@@ -210,7 +239,8 @@ namespace OptScalerNR.Launcher
                             var values = MochizukiShareCode.Decode(code);
                             string tag = values.GameTag.Length > 0 ? "【" + values.GameTag + "】" : "";
                             string noteLine = values.Note.Length > 0 ? L("（备注：" + values.Note + "）", " (note: " + values.Note + ")") : "";
-                            summary.Text = noteLine + MochizukiShareCode.Summary(values, L("zh", "en") == "zh");
+                            summary.Text = noteLine + MochizukiShareCode.Summary(values, L("zh", "en") == "zh") +
+                                MissingModelWarning(game.Directory, values);
                             validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
                         } catch (Exception ex) { summary.Text = ShareError(ex); }
                     }
@@ -242,7 +272,8 @@ namespace OptScalerNR.Launcher
                         var values = MochizukiShareCode.Decode(code);
                         int difference = MochizukiShareCode.DifferenceCount(File.ReadAllBytes(path), code);
                         summary.Text = (values.Note.Length > 0 ? L("备注：", "Note: ") + values.Note + "\n" : "") +
-                                       MochizukiShareCode.Summary(values, L("zh", "en") == "zh") + L("\n将更改 ", "\nWill change ") + difference + L(" 项画面设置（其余风格参数恢复默认）。", " settings (remaining visual parameters reset to defaults).");
+                                       MochizukiShareCode.Summary(values, L("zh", "en") == "zh") + L("\n将更改 ", "\nWill change ") + difference + L(" 项画面设置（其余风格参数恢复默认）。", " settings (remaining visual parameters reset to defaults).") +
+                                       MissingModelWarning(game.Directory, values);
                         validated = code; validatedGame = values.GameTag; apply.IsEnabled = true;
                     } catch (Exception ex) { validated = null; apply.IsEnabled = false; summary.Text = ShareError(ex); }
                 };

@@ -7,6 +7,8 @@ CS = ROOT / "tools/install/launcher/MochizukiShareCode.cs"
 TEMPLATE = ROOT / "third_party/mochizuki-asi/payload/ini/dlssnr-amd-optiscaler-renodx.ini"
 PBZ = Path(r"C:\Program Files (x86)\Steam\steamapps\common\PBZ\platform\steam\dlssnr-amd.ini")
 WRITER = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\pe\nr_pe_config.cpp")
+WILSJO2 = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\core\nr_wilsjo2.cpp")
+RENODX_KEYS = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\core\nr_renodx_keys.hpp")
 
 EXCLUDED = {
     ("Network", "Hotkey"): "target hotkey", ("Network", "Sound"): "target sound",
@@ -42,6 +44,14 @@ def schema():
     wils = keys_from_array(text, "WilsjoKeys")
     global_keys |= {("RenoDX", k) for k in reno} | {("wilsjo2", k) for k in wils}
     layer_keys |= reno | wils
+    m = re.search(r'static string\[\] DynamicPassKeys\(\).*?string\[\] fields = \{ (.*?) \};', text, re.S)
+    if m:
+        fields = re.findall(r'"([^"]+)"', m.group(1))
+        for n in range(2, 31):
+            for field in fields:
+                if field == "Preset" and n > 3: continue
+                key = "Pass" + str(n) + field
+                global_keys.add(("wilsjo2", key)); layer_keys.add(key)
     return global_keys, layer_keys
 
 def parse_ini(path):
@@ -60,6 +70,25 @@ def writer_keys():
     if not WRITER.is_file(): return set()
     text = WRITER.read_text(encoding="utf-8", errors="replace")
     return {m.strip() for m in re.findall(r'"([A-Za-z][A-Za-z0-9 ]*)\s*=', text)}
+
+def consumer_wilsjo():
+    if not WILSJO2.is_file(): return set()
+    text = WILSJO2.read_text(encoding="utf-8", errors="replace")
+    keys = {k.lower() for k in re.findall(r'if \(key == "([^"]+)"\)', text)}
+    m = re.search(r'static const char\* const known\[\] = \{(.*?)\};', text, re.S)
+    if m: keys |= {k.lower() for k in re.findall(r'"([^"]+)"', m.group(1))}
+    m = re.search(r'static const char\* const fields\[\] = \{(.*?)\};', text, re.S)
+    fields = re.findall(r'"([^"]+)"', m.group(1)) if m else []
+    for n in range(2, 31):
+        for field in fields:
+            if field == "preset" and n > 3: continue
+            keys.add(("pass" + str(n) + field).lower())
+    return keys
+
+def consumer_renodx():
+    if not RENODX_KEYS.is_file(): return set()
+    text = RENODX_KEYS.read_text(encoding="utf-8", errors="replace")
+    return {k.lower() for k in re.findall(r'\{\s*"([A-Za-z0-9]+)"', text)}
 
 def main():
     global_keys, layer_keys = schema()
@@ -88,10 +117,25 @@ def main():
         if key in ("Enabled", "Exposure", "ExposureBias", "Curve", "Contrast", "Saturation", "Inverse", "Model", "Placement", "Processing"): continue
         # Writer keys not present in the release template/PBZ are reported, not silently dropped.
         rows.append(("writer", "?", key, "source-only", "not present in pre1 template/PBZ; not claimed as pre1 support"))
+    consumer = set()
+    for key in sorted(consumer_wilsjo()):
+        consumer.add(("wilsjo2", key))
+        if any(sec == "wilsjo2" and str(k).lower() == key for sec, k in global_keys):
+            rows.append(("consumer", "wilsjo2", key, "included", ""))
+        else:
+            missing.append(("consumer", "wilsjo2", key)); rows.append(("consumer", "wilsjo2", key, "MISSING", "consumer parser key not in schema"))
+    for key in sorted(consumer_renodx()):
+        consumer.add(("RenoDX", key))
+        if any(str(k).lower() == key for sec, k in global_keys if sec == "RenoDX"):
+            rows.append(("consumer", "RenoDX", key, "included", ""))
+        elif (("RenoDX", key.title()) in EXCLUDED or ("RenoDX", key) in EXCLUDED or key in ("nrtogglekey", "nrscreenshotkey", "nrscreenshotsource", "nrscreenshotformat", "nrscreenshotlayout", "nrscreenshotjpegquality", "nrscreenshotmaxmb")):
+            rows.append(("consumer", "RenoDX", key, "excluded", "target hotkey/screenshot"))
+        else:
+            missing.append(("consumer", "RenoDX", key)); rows.append(("consumer", "RenoDX", key, "MISSING", "consumer key not in schema"))
     print("| source | section | key | status | reason |")
     print("|---|---|---|---|---|")
     for row in rows: print("| " + " | ".join(row) + " |")
-    print(f"\n{len(rows)} keys checked, {len(missing)} missing")
+    print(f"\n{len(rows)} rows, {len(missing)} missing; consumer keys: wilsjo2={len(consumer_wilsjo())}, renodx={len(consumer_renodx())}")
     return 1 if missing else 0
 
 if __name__ == "__main__":

@@ -1438,7 +1438,8 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
 
 - MZ4 使用节+键 schema，目标仅游戏目录 `dlssnr-amd.ini`；MZ1/2/3 全部拒绝并提示重新导出。
 - 覆盖无层 RenoDX/wilsjo2 与 `LayerN` 链：Network Model/Style Grade/Motion Without Depth/
-  Resize History/History Precision、Preprocess 视觉键、
+  Resize History/History Precision、History/ClassicScaler/Downscale/PassesMode/Fast 系列/
+  Pass2..Pass30 动态键、Preprocess 视觉键、
   RenoDX 视觉键、wilsjo2 视觉键、HudFix Mode、NRControl Layers、Layer Enabled/Processing/
   Placement/Network。热键、驻留/显存策略、截图、OSD、Inspect/Log/诊断不分享；Layer 的本地
   热键留在目标。
@@ -1446,5 +1447,5 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
   键、注释、BOM/编码，仍用临时文件+`File.Replace` 备份。
 - 预览显示网络、图层数、每层 Processing/Placement/Network，或无层时 RenoDX NRHookPoint /
   wilsjo2 RunBeforeSR。
-- 自动覆盖清单：`tools/dev/mz4-schema-coverage.py` 对照 pre1 模板、实际 PBZ 与源码 writer；
-  当前 546 键检查 0 缺失，报告在 `work/notes/2026-11-03-mz4-key-coverage.md`（本地）。
+- 自动覆盖清单：`tools/dev/mz4-schema-coverage.py` 以消费 parser 为全集（wilsjo2 232、RenoDX 115 个独立键，展开 Pass2..Pass30），
+  模板/PBZ/writer 补充；0 缺失。报告在 `work/notes/2026-11-03-mz4-key-coverage.md`（本地）。

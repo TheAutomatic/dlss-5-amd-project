@@ -38,6 +38,7 @@ namespace OptScalerNR.Launcher
                 list.Add(F("Preprocess", key, key == "Enabled" || key == "Inverse" ? "bool" : (key == "Exposure" || key == "Curve") ? "str" : "num"));
             foreach (var key in RenoDXKeys()) list.Add(F("RenoDX", key, KindOfRenoDX(key)));
             foreach (var key in WilsjoKeys()) list.Add(F("wilsjo2", key, KindOfWilsjo(key)));
+            foreach (var key in DynamicPassKeys()) list.Add(F("wilsjo2", key, KindOfWilsjo(key)));
             list.Add(F("HudFix", "Mode", "hudfix"));
             list.Add(F("NRControl", "Layers", "bool"));
             return list.ToArray();
@@ -49,6 +50,7 @@ namespace OptScalerNR.Launcher
                 list.Add(F("Layer", key, key == "Enabled" ? "bool" : key == "Placement" ? "placement" : "str"));
             foreach (var key in RenoDXKeys()) list.Add(F("Layer", key, KindOfRenoDX(key)));
             foreach (var key in WilsjoKeys()) list.Add(F("Layer", key, KindOfWilsjo(key)));
+            foreach (var key in DynamicPassKeys()) list.Add(F("Layer", key, KindOfWilsjo(key)));
             return list.ToArray();
         }
         static string KindOfRenoDX(string key)
@@ -60,20 +62,38 @@ namespace OptScalerNR.Launcher
                 case "NRPass2FollowPass1": case "NRPass2AutoMask": case "NRPass3FollowPass1":
                 case "NRPass3AutoMask": case "NRPass4FollowPass1": case "NRPass4AutoMask":
                 case "NRLookMode": case "NRLookStabilizeDetail": case "NRNeuralFloorGuard":
-                case "NRNormCutAware": case "NRPresentGuides":
+                case "NRNormCutAware":
+                case "NRFastExtrapolationHaloLimit": case "NRFastFeedbackHaloLimit":
+                case "NRFastHybridHaloLimit":
                     return "bool";
                 default: return "num";
             }
         }
         static string KindOfWilsjo(string key)
         {
+            if (key.EndsWith("AutoMask", StringComparison.OrdinalIgnoreCase)) return "bool";
             switch (key) {
                 case "ExposureTrimAnchors": case "AutoExposureTrimAnchors": return "str";
-                case "RunBeforeSR": case "UnlockPasses": case "Pass2AutoMask": case "Pass3AutoMask":
-                case "AutoMask": case "NoiseEveryFrame": case "SpatialCompression": case "SkinProtection":
+                case "RunBeforeSR": case "UnlockPasses": case "AutoMask": case "NoiseEveryFrame":
+                case "SpatialCompression": case "SkinProtection": case "ColourLimit":
+                case "FastExtrapolationHaloLimit": case "FastFeedbackHaloLimit": case "FastHybridHaloLimit":
                     return "bool";
+                case "ClassicScaler": case "Downscale": case "PassesMode": case "FastMethod":
+                    return "str";
                 default: return "num";
             }
+        }
+        static string[] DynamicPassKeys()
+        {
+            var keys = new List<string>();
+            string[] fields = { "Preset", "Style", "Intensity", "LocalStructure", "LocalTone", "SkinStructure", "AutoMask" };
+            for (int pass = 2; pass <= 30; ++pass)
+                foreach (var field in fields)
+                {
+                    if (field == "Preset" && pass > 3) continue;
+                    keys.Add("Pass" + pass.ToString(Invariant) + field);
+                }
+            return keys.ToArray();
         }
         static string[] RenoDXKeys()
         {
@@ -108,16 +128,18 @@ namespace OptScalerNR.Launcher
         static string[] WilsjoKeys()
         {
             return new[] {
-                "RunBeforeSR", "Passes", "UnlockPasses", "Pass2Style", "Pass2Intensity", "Pass2LocalStructure",
-                "Pass2LocalTone", "Pass2SkinStructure", "Pass2AutoMask", "Pass3Style", "Pass3Intensity",
-                "Pass3LocalStructure", "Pass3LocalTone", "Pass3SkinStructure", "Pass3AutoMask", "Style",
+                "RunBeforeSR", "Passes", "UnlockPasses", "History", "Preset", "Style",
                 "Intensity", "LocalStructure", "LocalTone", "SkinStructure", "AutoMask", "NoiseEveryFrame",
                 "TransferStrength", "ColourStrength", "MaxRatio", "ReversibleMode", "ReplaceDetailStrength",
                 "WorkingScale", "Transfer", "ScalingDownscaler", "SpatialCompression", "SpatialCenterX",
                 "SpatialCenterY", "SpatialWorkX", "SpatialWorkY", "SpatialOffsetX", "SpatialOffsetY",
                 "SpatialShiftX", "SpatialShiftY", "WhitePointSource", "WhitePointScale", "WhitePointTrim",
                 "ExposureTrimAnchors", "AutoExposureTrim", "AutoExposureHighlightProtection", "AutoExposureTrimAnchors",
-                "SkinProtection", "SkinDetail", "SkinColour", "EnvironmentDetail", "EnvironmentColour"
+                "SkinProtection", "SkinDetail", "SkinColour", "EnvironmentDetail", "EnvironmentColour",
+                "ClassicScaler", "Downscale", "PassesMode", "FastMethod", "FastEditStrength", "ColourLimit",
+                "FastExtrapolationPasses", "FastExtrapolationHaloLimit", "FastExtrapolationFine",
+                "FastFeedbackPasses", "FastFeedbackHaloLimit", "FastFeedbackFine",
+                "FastHybridPasses", "FastHybridHaloLimit", "FastHybridFine"
             };
         }
         static Field FindField(IEnumerable<Field> fields, string section, string key)
@@ -179,8 +201,13 @@ namespace OptScalerNR.Launcher
             if (string.Equals(value, "auto", StringComparison.OrdinalIgnoreCase)) return;
             if (field.Kind == "str") return;
             if (field.Kind == "bool") {
-                if (value == "0" || value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)) return;
+                if (value == "0" || value == "1" ||
+                    string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "false", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "no", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "on", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "off", StringComparison.OrdinalIgnoreCase)) return;
                 throw new CodeException("value");
             }
             if (field.Kind == "history") {
@@ -458,16 +485,29 @@ namespace OptScalerNR.Launcher
                 bool hasNew = layers.ContainsKey(number);
                 List<string> locals;
                 if (!layerLocals.TryGetValue(number, out locals)) locals = new List<string>();
-                if (!hasNew && locals.Count == 0) continue;
+                if (!hasNew)
+                {
+                    if (locals.Count == 0) continue;
+                    // A retired layer must not stay active: read_chain treats any
+                    // [LayerN] as a layer, which would hide a global import and
+                    // could bind its ToggleKey. Keep the local content readable
+                    // but commented out.
+                    output.Append("; [Layer").Append(number.ToString(Invariant))
+                        .Append("] retired; local settings kept (inactive)").Append(nl);
+                    foreach (var raw in locals)
+                    {
+                        output.Append("; ").Append(raw);
+                        if (raw.Length == 0 || (raw[raw.Length - 1] != '\n' && raw[raw.Length - 1] != '\r')) output.Append(nl);
+                    }
+                    continue;
+                }
                 output.Append("[Layer").Append(number.ToString(Invariant)).Append(']').Append(nl);
-                if (!hasNew) output.Append("Enabled=0").Append(nl);
                 foreach (var raw in locals)
                 {
                     output.Append(raw);
                     if (raw.Length == 0 || (raw[raw.Length - 1] != '\n' && raw[raw.Length - 1] != '\r')) output.Append(nl);
                 }
-                if (hasNew)
-                    foreach (var entry in layers[number]) output.Append(entry.Key).Append('=').Append(entry.Value).Append(nl);
+                foreach (var entry in layers[number]) output.Append(entry.Key).Append('=').Append(entry.Value).Append(nl);
             }
             return doc.Bytes(output.ToString());
         }

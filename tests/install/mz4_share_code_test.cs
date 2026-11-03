@@ -45,7 +45,8 @@ static class Mz4ShareCodeTest
         string applied = Text(MochizukiShareCode.Apply(Encoding.UTF8.GetBytes(target), code));
         Check(applied.Contains("[Layer1]") && applied.Contains("[Layer2]"), "layers written");
         Check(applied.Contains("; local layer note") && applied.Contains("ToggleKey = F9"), "same-layer local keys kept");
-        Check(applied.Contains("ToggleKey = E") && applied.Contains("Enabled=0"), "retired layer kept disabled");
+        Check(applied.Contains("; [Layer3] retired") && applied.Contains("; ToggleKey = E"), "retired layer archived");
+        Check(!System.Text.RegularExpressions.Regex.IsMatch(applied, @"(?m)^\[Layer3\]"), "retired layer inactive");
         Check(!applied.Contains("NRIntensity = 9.9"), "old style value replaced");
         Check(applied.Contains("History Precision=rgba32f"), "history precision string");
         Check(applied.Contains("Motion Without Depth=0") && applied.Contains("Resize History=1"), "network bools");
@@ -59,9 +60,23 @@ static class Mz4ShareCodeTest
         string noLayerSource = "[Network]\nModel = CC_SILVER_AARDWOLD\n[wilsjo2]\nPasses = 1\n";
         string noLayerCode = MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(noLayerSource));
         string cleared = Text(MochizukiShareCode.Apply(Encoding.UTF8.GetBytes(target), noLayerCode));
-        Check(cleared.Contains("[Layer1]") && cleared.Contains("[Layer3]") && cleared.Contains("Enabled=0"), "local layers kept disabled");
+        Check(cleared.Contains("; [Layer1] retired") && cleared.Contains("; ToggleKey = F9"), "local layer archived");
+        Check(!System.Text.RegularExpressions.Regex.IsMatch(cleared, @"(?m)^\[Layer1\]"), "global import leaves no active layer");
         Check(!cleared.Contains("NRIntensity=0.75") && !cleared.Contains("Passes=2"), "style values of old layers removed");
 
+        string wilsjo = "[wilsjo2]\nHistory=0.5\nPreset=2\nPassesMode=fast\nClassicScaler=lanczos3\n" +
+            "Downscale=bilinear\nFastMethod=feedback\nFastEditStrength=3.5\nColourLimit=off\n" +
+            "FastFeedbackHaloLimit=yes\nPass2Preset=3\nPass30AutoMask=no\n";
+        var wcode = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(wilsjo)));
+        Check(wcode.Entries.Count == 11, "consumer wilsjo keys exported: " + wcode.Entries.Count);
+        string reno = "[RenoDX]\nNRPresentGuides=2\nNRFastFeedbackHaloLimit=on\n";
+        var rcode = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(reno)));
+        Check(rcode.Entries.Count == 2, "renodx enum/bool exported");
+        foreach (var value in new[] { "yes", "no", "on", "off" })
+        {
+            var d = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes("[RenoDX]\nEnabled=" + value + "\n")));
+            Check(d.Entries.Count == 1, "bool word " + value);
+        }
         foreach (var old in new[] { "MZ1:0=1;0000", "MZ2:0=1|pbz;0000", "MZ3:0=1|pbz|note;0000" })
         {
             try { MochizukiShareCode.Decode(old); throw new Exception("old code accepted"); }
