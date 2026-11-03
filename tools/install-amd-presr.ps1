@@ -1823,6 +1823,8 @@ function Get-IniSetting([string]$iniPath, [string]$sectionName, [string]$key) {
 
 function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collections.IDictionary]$settings, [switch]$OnlyMissing) {
     if (-not (Test-Path -LiteralPath $iniPath -PathType Leaf)) { return }
+    $rawBytes = [System.IO.File]::ReadAllBytes($iniPath)
+    $hasBom = ($rawBytes.Length -ge 3 -and $rawBytes[0] -eq 0xEF -and $rawBytes[1] -eq 0xBB -and $rawBytes[2] -eq 0xBF)
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.AddRange([System.IO.File]::ReadAllLines($iniPath))
     $sectionIdx = -1
@@ -1856,7 +1858,7 @@ function Set-IniSettings([string]$iniPath, [string]$sectionName, [System.Collect
             }
         }
     }
-    [System.IO.File]::WriteAllLines($iniPath, $lines, [System.Text.UTF8Encoding]::new($true))
+    [System.IO.File]::WriteAllLines($iniPath, $lines, [System.Text.UTF8Encoding]::new($hasBom))
 }
 
 # Keep this standalone helper aligned with uninstall and PluginPath.h.
@@ -1888,6 +1890,7 @@ Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
 $ini = Join-Path $release 'OptiScaler.ini'
 $gameIni = Join-Path $game 'OptiScaler.ini'
 $iniFromTemplate = $false
+$overwriteIni = ($launcherDecisions -and $launcherDecisions.existingIni -eq 'overwrite')
 if (Test-Path -LiteralPath $ini -PathType Leaf) {
     if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
         Install-One $ini 'OptiScaler.ini'
@@ -2342,15 +2345,24 @@ if ($installMochizuki) {
     $asiIniExisted = Test-Path -LiteralPath $asiIni -PathType Leaf
     if (-not $asiIniExisted -and $asiTemplate) {
         Copy-Item -LiteralPath $asiTemplate -Destination $asiIni -Force
+    } elseif ($asiIniExisted) {
+        # Strip any UTF-8 BOM left by a prior Set-IniSettings call so the native
+        # C++ parser in dlssnr-amd.asi can recognize the first [Network] section.
+        $asiBytes = [System.IO.File]::ReadAllBytes($asiIni)
+        if ($asiBytes.Length -ge 3 -and $asiBytes[0] -eq 0xEF -and $asiBytes[1] -eq 0xBB -and $asiBytes[2] -eq 0xBF) {
+            $cleanBytes = New-Object byte[] ($asiBytes.Length - 3)
+            [System.Array]::Copy($asiBytes, 3, $cleanBytes, 0, $cleanBytes.Length)
+            [System.IO.File]::WriteAllBytes($asiIni, $cleanBytes)
+        }
     }
     # [NRControl] Language names a file in dlssnr-amd\lang without .txt:
-    # zh-CN.txt and English.txt are the shipped values. A fresh ASI template
-    # (or one whose new section lacks the key) follows the launcher language;
-    # a kept user ini keeps even an explicit empty value (English).
+    # zh-CN.txt and English.txt are the shipped values. A fresh ASI template,
+    # an overwrite install, or an existing ini whose [NRControl] Language is
+    # missing or still empty follows the launcher language; a kept user ini
+    # with an explicit non-empty language keeps that choice.
     if ($asiMenuLanguage -and (Test-Path -LiteralPath $asiIni -PathType Leaf)) {
-        if ($asiIniExisted) {
-            Set-IniSettings $asiIni 'NRControl' ([ordered]@{ 'Language' = $asiMenuLanguage }) -OnlyMissing
-        } else {
+        $existingAsiLang = if ($asiIniExisted) { Get-IniSetting $asiIni 'NRControl' 'Language' } else { $null }
+        if (-not $asiIniExisted -or $overwriteIni -or [string]::IsNullOrWhiteSpace($existingAsiLang)) {
             Set-IniSettings $asiIni 'NRControl' ([ordered]@{ 'Language' = $asiMenuLanguage })
         }
     }

@@ -1069,14 +1069,15 @@ class InstallerExitTests(unittest.TestCase):
         ini = self.game / 'dlssnr-amd.ini'
         recovery = self.game / 'dlssnr-amd/dlssnr-amd.default.ini'
 
-        def run(language):
+        def run(language, existing_ini='keep'):
             decisions = self.root / 'asi-language.json'
-            decisions.write_text(json.dumps(dict(language=language, existingIni='keep')), encoding='utf-8')
+            decisions.write_text(json.dumps(dict(language=language, existingIni=existing_ini)), encoding='utf-8')
             code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
                                                   '-MochizukiModels', 'original',
                                                   '-DecisionJson', str(decisions)))
             self.assertEqual(code, 0, output)
-            return ini.read_text(encoding='utf-8-sig')
+            self.assertFalse(ini.read_bytes().startswith(b'\xef\xbb\xbf'), 'dlssnr-amd.ini must not have UTF-8 BOM')
+            return ini.read_text(encoding='utf-8')
 
         # Fresh installs: the Chinese launcher writes the actual zh-CN.txt stem.
         if ini.exists(): ini.unlink()
@@ -1094,11 +1095,17 @@ class InstallerExitTests(unittest.TestCase):
         # A kept user ini keeps its explicit language even when the launcher is Chinese.
         ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage = English\n',
                        encoding='utf-8')
-        text = run('zh')
+        text = run('zh', 'keep')
         self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
         self.assertEqual(recovery.read_bytes(), ini.read_bytes())
 
-        # A missing key is filled from the launcher; unrelated user content stays.
+        # An overwrite install updates Language to the launcher's language and strips any old BOM.
+        ini.write_bytes(b'\xef\xbb\xbf[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage =\n')
+        text = run('zh', 'overwrite')
+        self.assertRegex(text, r'(?m)^Language\s*=\s*zh-CN$')
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+
+        # A missing or empty key is filled from the launcher; unrelated user content stays.
         ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[User]\nKeep = 1\n', encoding='utf-8')
         text = run('en')
         self.assertIn('Keep = 1', text)
