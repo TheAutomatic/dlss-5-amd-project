@@ -2460,7 +2460,7 @@ msgid "needs the model of the 310.9.16 nvngx_dlssnr.dll (install.ps1 -Dll)"
 msgstr "需要 310.9.16 的 nvngx_dlssnr.dll 的模型（install.ps1 -Dll）"
 
 msgid "the model file is missing (run install.bat again)"
-msgstr "缺少模型文件（请在启动器中重新下载/提取模型）"
+msgstr "缺少模型文件（请在启动器中重新提取或安装模型）"
 
 msgid "not installed (run install.bat again)"
 msgstr "未安装（请在启动器中重新安装）"
