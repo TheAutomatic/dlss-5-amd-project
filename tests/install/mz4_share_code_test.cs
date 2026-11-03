@@ -77,6 +77,17 @@ static class Mz4ShareCodeTest
             var d = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes("[RenoDX]\nEnabled=" + value + "\n")));
             Check(d.Entries.Count == 1, "bool word " + value);
         }
+        string dup = "[wilsjo2]\nHistory=0.5\nHistory=1.8\n[Layer1]\nNetwork=CC_SMALL_FP8\n" +
+            "[Layer1]\nNetwork=CC_SILVER_AARDWOLD\nNRIntensity=2.0\n";
+        var dupc = MochizukiShareCode.Decode(MochizukiShareCode.Encode(Encoding.UTF8.GetBytes(dup)));
+        string dupHistory = "", dupNetwork = "";
+        foreach (var e in dupc.Entries) {
+            if (e.Key == "History") dupHistory = e.Value;
+            if (e.Layer == 1 && e.Key == "Network") dupNetwork = e.Value;
+        }
+        Check(dupHistory == "1.8", "last duplicate key wins");
+        Check(dupNetwork == "CC_SILVER_AARDWOLD", "last duplicate layer section wins");
+        Check(dupc.Entries.Count == 3, "duplicate keys collapse to effective values");
         foreach (var old in new[] { "MZ1:0=1;0000", "MZ2:0=1|pbz;0000", "MZ3:0=1|pbz|note;0000" })
         {
             try { MochizukiShareCode.Decode(old); throw new Exception("old code accepted"); }

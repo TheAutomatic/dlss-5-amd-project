@@ -1447,5 +1447,7 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
   键、注释、BOM/编码，仍用临时文件+`File.Replace` 备份。
 - 预览显示网络、图层数、每层 Processing/Placement/Network，或无层时 RenoDX NRHookPoint /
   wilsjo2 RunBeforeSR。
-- 自动覆盖清单：`tools/dev/mz4-schema-coverage.py` 以消费 parser 为全集（wilsjo2 232、RenoDX 115 个独立键，展开 Pass2..Pass30），
-  模板/PBZ/writer 补充；0 缺失。报告在 `work/notes/2026-11-03-mz4-key-coverage.md`（本地）。
+- 自动覆盖清单：`tools/dev/mz4-schema-coverage.py --source-root <DLSSNR-AMD> [--game-ini <ini>]`
+  以消费 parser 为全集（wilsjo2 232、RenoDX 115 个独立键，展开 Pass2..Pass30），
+  缺源码明确非零，未提供游戏 ini 标注未查；模板/writer 补充。报告在
+  `work/notes/2026-11-03-mz4-key-coverage.md`（本地）。

@@ -272,8 +272,14 @@ namespace OptScalerNR.Launcher
         public static string Encode(byte[] ini, string game = null, string note = null)
         {
             var doc = ReadDocument(ini);
-            var lines = new List<string>();
-            string section = null; var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Consumer INI semantics: the last assignment wins. Keep one effective
+            // value per section/key (and per layer/key), preserving first-seen order
+            // for a stable export; duplicate sections merge the same way.
+            var globals = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+            var globalOrder = new List<string>();
+            var layerValues = new SortedDictionary<int, Dictionary<string, string[]>>();
+            var layerOrder = new SortedDictionary<int, List<string>>();
+            string section = null;
             foreach (var raw in SplitLines(doc.Text))
             {
                 string text = raw.TrimEnd('\r', '\n');
@@ -285,12 +291,31 @@ namespace OptScalerNR.Launcher
                 string key = assignment.Groups[2].Value.Trim(), value = assignment.Groups[4].Value.Trim();
                 int layer;
                 if (IsLayerSection(section, out layer)) {
-                    if (FindField(LayerFields, "Layer", key) == null || !seen.Add("L" + layer + ":" + key)) continue;
-                    lines.Add("L\t" + layer.ToString(Invariant) + "\t" + key + "\t" + value);
+                    if (FindField(LayerFields, "Layer", key) == null) continue;
+                    Dictionary<string, string[]> values;
+                    if (!layerValues.TryGetValue(layer, out values)) {
+                        layerValues[layer] = values = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+                        layerOrder[layer] = new List<string>();
+                    }
+                    string id = key.ToUpperInvariant();
+                    if (!values.ContainsKey(id)) layerOrder[layer].Add(id);
+                    values[id] = new[] { key, value };
                 } else {
-                    var field = FindField(GlobalFields, section, key);
-                    if (field == null || !seen.Add("G:" + section.ToUpperInvariant() + ":" + key)) continue;
-                    lines.Add("G\t" + section + "\t" + key + "\t" + value);
+                    if (FindField(GlobalFields, section, key) == null) continue;
+                    string id = section.ToUpperInvariant() + "\t" + key.ToUpperInvariant();
+                    if (!globals.ContainsKey(id)) globalOrder.Add(id);
+                    globals[id] = new[] { section, key, value };
+                }
+            }
+            var lines = new List<string>();
+            foreach (var id in globalOrder) {
+                var e = globals[id];
+                lines.Add("G\t" + e[0] + "\t" + e[1] + "\t" + e[2]);
+            }
+            foreach (var layer in layerValues) {
+                foreach (var id in layerOrder[layer.Key]) {
+                    var e = layer.Value[id];
+                    lines.Add("L\t" + layer.Key.ToString(Invariant) + "\t" + e[0] + "\t" + e[1]);
                 }
             }
             string payload = "1|" + NormalizeGameTag(game) + "|" + SanitizeNote(note) + "|" +

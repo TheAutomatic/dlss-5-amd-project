@@ -207,6 +207,10 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
         if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand }
         $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr-small.bin'
         if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand }
+        $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr-small-experimental.bin'
+        if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand }
+        $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr-int4.bin'
+        if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand }
         $cand = Join-Path $pkgRoot 'nvngx_dlssnr.dll'
         if (Test-Path -LiteralPath $cand -PathType Leaf) { $mochiNv = $cand }
     }

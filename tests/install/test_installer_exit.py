@@ -1146,6 +1146,61 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn('Reused existing CC_SILVER_AARDWOLD_INT4_MIXED', output)
         self.assertEqual(game_int4.read_bytes(), b'existing int4 model')
 
+    def test_mochizuki_residual_derived_without_parent_does_not_fail(self):
+        self.ready_mochizuki(small=True)
+        residual = self.game / 'dlssnr-amd/dlssnr-int4.bin'
+        residual.parent.mkdir(parents=True, exist_ok=True)
+        residual.write_bytes(b'unrelated int4 residue')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'small'))
+        self.assertEqual(code, 0, output)
+        self.assertEqual(residual.read_bytes(), b'unrelated int4 residue')
+
+    def test_mochizuki_residual_experimental_without_small_does_not_fail(self):
+        self.ready_mochizuki(model=True)
+        exp = self.game / 'dlssnr-amd/dlssnr-small-experimental.bin'
+        exp.parent.mkdir(parents=True, exist_ok=True)
+        exp.write_bytes(b'unrelated experimental residue')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'original'))
+        self.assertEqual(code, 0, output)
+        self.assertEqual(exp.read_bytes(), b'unrelated experimental residue')
+
+    def test_mochizuki_cached_derived_is_copied_to_new_game(self):
+        self.ready_mochizuki(model=True, small=True)
+        cache_exp = self.package / 'dlssnr-amd/dlssnr-small-experimental.bin'
+        cache_int4 = self.package / 'dlssnr-amd/dlssnr-int4.bin'
+        cache_exp.write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little'))
+        cache_int4.write_bytes(b'cached int4 model')
+        (self.package / 'model-tools/dlssnr-int4-weights.exe').write_bytes(b'not runnable')
+        (self.package / 'experimental/dlssnr-small-experimental.delta').write_bytes(b'not a delta')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiNetworks', 'experimental,int4',
+                                              '-MochizukiActiveModel', 'experimental'))
+        self.assertEqual(code, 0, output)
+        self.assertIn('Copied cached CC_SMALL_FP8_EXPERIMENTAL', output)
+        self.assertIn('Copied cached CC_SILVER_AARDWOLD_INT4_MIXED', output)
+        self.assertEqual((self.game / 'dlssnr-amd/dlssnr-small-experimental.bin').read_bytes(),
+                         b'NRMODEL1' + (0).to_bytes(4, 'little'))
+        self.assertEqual((self.game / 'dlssnr-amd/dlssnr-int4.bin').read_bytes(), b'cached int4 model')
+
+    def test_mochizuki_explicit_startup_updates_first_layer_network(self):
+        self.ready_mochizuki(model=True, small=True)
+        ini = self.game / 'dlssnr-amd.ini'
+        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[Layer1]\nEnabled = 1\n'
+                       'Processing = RenoDX\nPlacement = present\nNetwork = CC_SMALL_FP8_EXPERIMENTAL\n'
+                       '[Layer2]\nEnabled = 1\nProcessing = wilsjo2\nPlacement = after\nNetwork = CC_SILVER_AARDWOLD\n',
+                       encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
+                                              '-MochizukiNetworks', 'original', '-MochizukiActiveModel', 'original'))
+        self.assertEqual(code, 0, output)
+        text = ini.read_text(encoding='utf-8-sig')
+        global_model = re.search(r'(?m)^Model\s*=\s*(.+)$', text)
+        self.assertEqual(global_model.group(1).strip(), 'CC_SILVER_AARDWOLD')
+        layer1 = re.search(r'(?ms)^\[Layer1\]\s*\n(.*?)(?=^\[|\Z)', text)
+        self.assertIn('Network = CC_SILVER_AARDWOLD', layer1.group(1))
+        self.assertIn('Processing = RenoDX', layer1.group(1))
+        layer2 = re.search(r'(?ms)^\[Layer2\]\s*\n(.*?)(?=^\[|\Z)', text)
+        self.assertIn('Network = CC_SILVER_AARDWOLD', layer2.group(1))
+
     def test_mochizuki_existing_asi_ini_is_not_rewritten(self):
         self.ready_mochizuki(model=True)
         ini = self.game / 'dlssnr-amd.ini'

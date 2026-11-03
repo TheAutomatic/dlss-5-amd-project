@@ -1,14 +1,12 @@
 """List MZ4 coverage for every key in the release template, PBZ ini and writer."""
-import re, sys
+import argparse, re, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CS = ROOT / "tools/install/launcher/MochizukiShareCode.cs"
 TEMPLATE = ROOT / "third_party/mochizuki-asi/payload/ini/dlssnr-amd-optiscaler-renodx.ini"
-PBZ = Path(r"C:\Program Files (x86)\Steam\steamapps\common\PBZ\platform\steam\dlssnr-amd.ini")
-WRITER = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\pe\nr_pe_config.cpp")
-WILSJO2 = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\core\nr_wilsjo2.cpp")
-RENODX_KEYS = Path(r"C:\Users\Kenny\Downloads\DLSSNR-AMD-mochizuki\windows\src\core\nr_renodx_keys.hpp")
+DEFAULT_SOURCE = ROOT.parent / "DLSSNR-AMD-mochizuki"
+WRITER = RENODX_KEYS = WILSJO2 = None
 
 EXCLUDED = {
     ("Network", "Hotkey"): "target hotkey", ("Network", "Sound"): "target sound",
@@ -90,11 +88,37 @@ def consumer_renodx():
     text = RENODX_KEYS.read_text(encoding="utf-8", errors="replace")
     return {k.lower() for k in re.findall(r'\{\s*"([A-Za-z0-9]+)"', text)}
 
-def main():
+def main(argv=None):
+    global WRITER, RENODX_KEYS, WILSJO2
+    parser = argparse.ArgumentParser(description="MZ4 consumer coverage")
+    parser.add_argument("--source-root", default=str(DEFAULT_SOURCE),
+                        help="DLSSNR-AMD source checkout (default: sibling DLSSNR-AMD-mochizuki)")
+    parser.add_argument("--game-ini", default=None,
+                        help="optional game dlssnr-amd.ini to include; omitted means not checked")
+    args = parser.parse_args(argv)
+    source = Path(args.source_root)
+    WILSJO2 = source / "windows/src/core/nr_wilsjo2.cpp"
+    RENODX_KEYS = source / "windows/src/core/nr_renodx_keys.hpp"
+    WRITER = source / "windows/src/pe/nr_pe_config.cpp"
+    for required in (WILSJO2, RENODX_KEYS, WRITER):
+        if not required.is_file():
+            print("ERROR: consumer source file missing: " + str(required), file=sys.stderr)
+            return 2
+    if not TEMPLATE.is_file():
+        print("ERROR: release template missing: " + str(TEMPLATE), file=sys.stderr)
+        return 2
+    game = None
+    if args.game_ini:
+        game = Path(args.game_ini)
+        if not game.is_file():
+            print("ERROR: game ini not found: " + str(game), file=sys.stderr)
+            return 2
     global_keys, layer_keys = schema()
     missing = []
     rows = []
-    for label, path in (("template", TEMPLATE), ("PBZ", PBZ)):
+    sources = [("template", TEMPLATE)]
+    if game is not None: sources.append(("game", game))
+    for label, path in sources:
         for section, keys in parse_ini(path):
             layer = re.fullmatch(r"Layer(\d+)", section, re.I)
             if layer:
@@ -136,6 +160,7 @@ def main():
     print("|---|---|---|---|---|")
     for row in rows: print("| " + " | ".join(row) + " |")
     print(f"\n{len(rows)} rows, {len(missing)} missing; consumer keys: wilsjo2={len(consumer_wilsjo())}, renodx={len(consumer_renodx())}")
+    print("game ini: " + (str(game) if game is not None else "not checked (--game-ini not supplied)"))
     return 1 if missing else 0
 
 if __name__ == "__main__":
