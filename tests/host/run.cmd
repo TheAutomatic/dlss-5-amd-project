@@ -1,6 +1,6 @@
 @echo off
 rem Host-contract tests. Every *.cpp in tests\host belongs to exactly one tier below.
-rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
+rem Usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|fsrd-slots^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
 rem   streamline : standalone CPU Streamline FG activation-gate tests only (also included in ci).
 rem   ci     : CPU only, no GPU. nr_backend_selector, amd_submission_state, amd_graphics_{snapshot,
 rem            tracker,restore,restore_dx12,invocation,native_hooks}, amd_runtime_host_load (+ its
@@ -18,14 +18,7 @@ if not defined OUT set "OUT=exports\test-run\host"
 for %%I in ("%OUT%") do set "OUT=%%~fI"
 if not exist "%OUT%" mkdir "%OUT%"
 if not defined AMD_TEST_PYTHON set "AMD_TEST_PYTHON=python"
-if /i "%TIER%"=="ffx-native-source" (
-  "%AMD_TEST_PYTHON%" -B tests\host\test_ffx_native_route_source.py
-  exit /b
-)
-if /i "%TIER%"=="fsrd-slots-source" (
-  "%AMD_TEST_PYTHON%" -B tests\host\test_fsrd_slots_source.py
-  exit /b
-)
+rem Source-text grep tests retired; behavior is covered by compiled host tests below.
 call "%REPO%\tests\_lib\msvc-env.cmd" 2>nul || exit /b 1
 rem Repo-rooted includes (#include "OptiScaler-..." / "third_party/..."). The repo root goes at the END of
 rem INCLUDE, not in /I: /I is searched before the SDK/STL dirs, and on a case-insensitive disk
@@ -50,7 +43,7 @@ if /i "%TIER%"=="fsrd-slots" goto FsrdSlots
 if /i "%TIER%"=="nr-rr-state" goto NrRrState
 if /i "%TIER%"=="nr-rr-state-warp" goto NrRrState
 if /i "%TIER%"=="mochizuki-prepare-retry" goto MochizukiPrepareRetry
-echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|ffx-native-source^|fsrd-slots^|fsrd-slots-source^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
+echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|fsrd-slots^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
 exit /b 2
 
 :InputMenu
@@ -64,13 +57,9 @@ echo host input-menu: PASS
 exit /b 0
 
 :ci
-"%AMD_TEST_PYTHON%" -B tests\host\test_mochizuki_prepare_retry_source.py || goto fail
 call :MochizukiPrepareRetry || goto fail
-"%AMD_TEST_PYTHON%" -B tests\host\test_rr_nr_colour_source.py || goto fail
 call :NrRrState || goto fail
-"%AMD_TEST_PYTHON%" -B tests\host\test_fsrd_slots_source.py || goto fail
 call :FsrdSlots || goto fail
-"%AMD_TEST_PYTHON%" -B tests\host\test_ffx_native_route_source.py || goto fail
 call :FfxContextOwners || goto fail
 call :Streamline || goto fail
 call :NrCoverage || goto fail

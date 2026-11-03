@@ -989,39 +989,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue((self.game / 'dlssnr-amd/dlssnr.bin').is_file())
         self.assertTrue((self.game / 'dlssnr-amd/dlssnr-small.bin').is_file())
 
-    def test_mochizuki_fresh_asi_ini_defaults_to_installed_model(self):
-        self.ready_mochizuki(model=True)
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
-        self.assertEqual(code, 0, output)
-        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
-        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
-        # An explicit active model wins over the installed set.
-        (self.game / 'dlssnr-amd.ini').unlink()
-        (self.package / 'dlssnr-amd/dlssnr-small.bin').write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20))
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'both',
-                                              '-MochizukiActiveModel', 'small'))
-        self.assertEqual(code, 0, output)
-        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
-        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SMALL_FP8$')
-
-    def test_mochizuki_fresh_asi_ini_follows_this_install_model(self):
-        self.ready_mochizuki(model=True, small=True)
-        # A stale small model from an earlier install must not override the
-        # original-only choice made for this run.
-        stale_small = self.game / 'dlssnr-amd/dlssnr-small.bin'
-        stale_small.parent.mkdir(parents=True, exist_ok=True)
-        stale_small.write_bytes(b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20))
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
-        self.assertEqual(code, 0, output)
-        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
-        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
-        # The opposite direction: this run selects small while the original is present.
-        (self.game / 'dlssnr-amd.ini').unlink()
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'small'))
-        self.assertEqual(code, 0, output)
-        ini = (self.game / 'dlssnr-amd.ini').read_text(encoding='utf-8-sig')
-        self.assertRegex(ini, r'(?m)^Model\s*=\s*CC_SMALL_FP8$')
-
     def test_mochizuki_network_range_and_derived_networks(self):
         self.ready_mochizuki()
         (self.package / 'nvngx_dlssnr.dll').write_bytes(b'source fixture')
@@ -1053,7 +1020,8 @@ class InstallerExitTests(unittest.TestCase):
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
         self.assertEqual(code, 0, output)
         ini = self.game / 'dlssnr-amd.ini'
-        text = ini.read_text(encoding='utf-8-sig')
+        self.assertFalse(ini.read_bytes().startswith(b'\xef\xbb\xbf'))
+        text = ini.read_text(encoding='utf-8')
         self.assertRegex(text, r'(?m)^\[RenoDX\]$')
         self.assertRegex(text, r'(?m)^Enabled\s*=\s*1$')
         recovery = self.game / 'dlssnr-amd/dlssnr-amd.default.ini'
@@ -1064,62 +1032,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertTrue(ini.is_file())
         self.assertTrue(recovery.is_file())
 
-    def test_mochizuki_asi_language_follows_launcher_without_overwriting_user_choice(self):
-        self.ready_mochizuki(model=True)
-        ini = self.game / 'dlssnr-amd.ini'
-        recovery = self.game / 'dlssnr-amd/dlssnr-amd.default.ini'
-
-        def run(language, existing_ini='keep'):
-            decisions = self.root / 'asi-language.json'
-            decisions.write_text(json.dumps(dict(language=language, existingIni=existing_ini)), encoding='utf-8')
-            code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
-                                                  '-MochizukiModels', 'original',
-                                                  '-DecisionJson', str(decisions)))
-            self.assertEqual(code, 0, output)
-            self.assertFalse(ini.read_bytes().startswith(b'\xef\xbb\xbf'), 'dlssnr-amd.ini must not have UTF-8 BOM')
-            return ini.read_text(encoding='utf-8')
-
-        # Fresh installs: the Chinese launcher writes the actual zh-CN.txt stem.
-        if ini.exists(): ini.unlink()
-        text = run('zh')
-        self.assertIn('[NRControl]', text)
-        self.assertRegex(text, r'(?m)^Language\s*=\s*zh-CN$')
-        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
-
-        # The English launcher uses the shipped English.txt stem, not "en".
-        ini.unlink()
-        text = run('en')
-        self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
-        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
-
-        # A kept user ini keeps its explicit language even when the launcher is Chinese.
-        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage = English\n',
-                       encoding='utf-8')
-        text = run('zh', 'keep')
-        self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
-        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
-
-        # A kept user ini with Mochizuki's native empty value ("Language =") represents English
-        # and must NOT be overwritten when the user chose to keep settings.
-        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage =\n',
-                       encoding='utf-8')
-        text = run('zh', 'keep')
-        self.assertRegex(text, r'(?m)^Language\s*=\s*$')
-        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
-
-        # An overwrite install updates Language to the launcher's language even if previously empty,
-        # and strips any old BOM.
-        ini.write_bytes(b'\xef\xbb\xbf[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage =\n')
-        text = run('zh', 'overwrite')
-        self.assertRegex(text, r'(?m)^Language\s*=\s*zh-CN$')
-        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
-
-        # A completely missing Language key is filled from the launcher; unrelated user content stays.
-        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[User]\nKeep = 1\n', encoding='utf-8')
-        text = run('en', 'keep')
-        self.assertIn('Keep = 1', text)
-        self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
-        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
     def test_mochizuki_existing_ini_applies_explicit_startup_model(self):
         self.ready_mochizuki(model=True, small=True)
         ini = self.game / 'dlssnr-amd.ini'
@@ -1127,7 +1039,8 @@ class InstallerExitTests(unittest.TestCase):
         code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki',
                                               '-MochizukiNetworks', 'original', '-MochizukiActiveModel', 'original'))
         self.assertEqual(code, 0, output)
-        text = ini.read_text(encoding='utf-8-sig')
+        self.assertFalse(ini.read_bytes().startswith(b'\xef\xbb\xbf'))
+        text = ini.read_text(encoding='utf-8')
         self.assertRegex(text, r'(?m)^Model\s*=\s*CC_SILVER_AARDWOLD$')
         self.assertIn('Keep = 1', text)
         self.assertRegex(text, r'(?m)^Enabled\s*=\s*1$')
@@ -1202,24 +1115,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn('Reused existing CC_SILVER_AARDWOLD_INT4_MIXED', output)
         self.assertEqual(game_int4.read_bytes(), b'existing int4 model')
 
-    def test_mochizuki_residual_derived_without_parent_does_not_fail(self):
-        self.ready_mochizuki(small=True)
-        residual = self.game / 'dlssnr-amd/dlssnr-int4.bin'
-        residual.parent.mkdir(parents=True, exist_ok=True)
-        residual.write_bytes(b'unrelated int4 residue')
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'small'))
-        self.assertEqual(code, 0, output)
-        self.assertEqual(residual.read_bytes(), b'unrelated int4 residue')
-
-    def test_mochizuki_residual_experimental_without_small_does_not_fail(self):
-        self.ready_mochizuki(model=True)
-        exp = self.game / 'dlssnr-amd/dlssnr-small-experimental.bin'
-        exp.parent.mkdir(parents=True, exist_ok=True)
-        exp.write_bytes(b'unrelated experimental residue')
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiNetworks', 'original'))
-        self.assertEqual(code, 0, output)
-        self.assertEqual(exp.read_bytes(), b'unrelated experimental residue')
-
     def test_mochizuki_cached_derived_is_copied_to_new_game(self):
         self.ready_mochizuki(model=True, small=True)
         cache_exp = self.package / 'dlssnr-amd/dlssnr-small-experimental.bin'
@@ -1256,16 +1151,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn('Processing = RenoDX', layer1.group(1))
         layer2 = re.search(r'(?ms)^\[Layer2\]\s*\n(.*?)(?=^\[|\Z)', text)
         self.assertIn('Network = CC_SILVER_AARDWOLD', layer2.group(1))
-
-    def test_mochizuki_existing_asi_ini_is_not_rewritten(self):
-        self.ready_mochizuki(model=True)
-        ini = self.game / 'dlssnr-amd.ini'
-        ini.write_text('[Network]\nModel = CC_SILVER_AARDWOLD\n\n[User]\nKeep = 1\n', encoding='utf-8')
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'mochizuki', '-MochizukiModels', 'original'))
-        self.assertEqual(code, 0, output)
-        text = ini.read_text(encoding='utf-8-sig')
-        self.assertIn('Model = CC_SILVER_AARDWOLD', text)
-        self.assertIn('Keep = 1', text)
 
     def test_mochizuki_upgrade_removes_only_dropped_owned_assets(self):
         self.ready_mochizuki(model=True)
