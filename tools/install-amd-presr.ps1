@@ -2356,14 +2356,16 @@ if ($installMochizuki) {
         }
     }
     # [NRControl] Language names a file in dlssnr-amd\lang without .txt:
-    # zh-CN.txt and English.txt are the shipped values. A fresh ASI template,
-    # an overwrite install, or an existing ini whose [NRControl] Language is
-    # missing or still empty follows the launcher language; a kept user ini
-    # with an explicit non-empty language keeps that choice.
+    # zh-CN.txt and English.txt are the shipped values.
+    # - Fresh install or overwrite install: set Language to the launcher language.
+    # - Kept user ini: only fill Language if the key is completely missing.
+    #   An explicit empty value ("Language =") is Mochizuki's native representation
+    #   for English and must be preserved when the user chose to keep their settings.
     if ($asiMenuLanguage -and (Test-Path -LiteralPath $asiIni -PathType Leaf)) {
-        $existingAsiLang = if ($asiIniExisted) { Get-IniSetting $asiIni 'NRControl' 'Language' } else { $null }
-        if (-not $asiIniExisted -or $overwriteIni -or [string]::IsNullOrWhiteSpace($existingAsiLang)) {
+        if (-not $asiIniExisted -or $overwriteIni) {
             Set-IniSettings $asiIni 'NRControl' ([ordered]@{ 'Language' = $asiMenuLanguage })
+        } else {
+            Set-IniSettings $asiIni 'NRControl' ([ordered]@{ 'Language' = $asiMenuLanguage }) -OnlyMissing
         }
     }
     # A fresh ini gets this install's startup network. An existing user ini is

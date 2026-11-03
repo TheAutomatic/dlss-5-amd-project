@@ -1099,19 +1099,27 @@ class InstallerExitTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
         self.assertEqual(recovery.read_bytes(), ini.read_bytes())
 
-        # An overwrite install updates Language to the launcher's language and strips any old BOM.
+        # A kept user ini with Mochizuki's native empty value ("Language =") represents English
+        # and must NOT be overwritten when the user chose to keep settings.
+        ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage =\n',
+                       encoding='utf-8')
+        text = run('zh', 'keep')
+        self.assertRegex(text, r'(?m)^Language\s*=\s*$')
+        self.assertEqual(recovery.read_bytes(), ini.read_bytes())
+
+        # An overwrite install updates Language to the launcher's language even if previously empty,
+        # and strips any old BOM.
         ini.write_bytes(b'\xef\xbb\xbf[Network]\nModel = CC_SMALL_FP8\n[NRControl]\nLanguage =\n')
         text = run('zh', 'overwrite')
         self.assertRegex(text, r'(?m)^Language\s*=\s*zh-CN$')
         self.assertEqual(recovery.read_bytes(), ini.read_bytes())
 
-        # A missing or empty key is filled from the launcher; unrelated user content stays.
+        # A completely missing Language key is filled from the launcher; unrelated user content stays.
         ini.write_text('[Network]\nModel = CC_SMALL_FP8\n[User]\nKeep = 1\n', encoding='utf-8')
-        text = run('en')
+        text = run('en', 'keep')
         self.assertIn('Keep = 1', text)
         self.assertRegex(text, r'(?m)^Language\s*=\s*English$')
         self.assertEqual(recovery.read_bytes(), ini.read_bytes())
-
     def test_mochizuki_existing_ini_applies_explicit_startup_model(self):
         self.ready_mochizuki(model=True, small=True)
         ini = self.game / 'dlssnr-amd.ini'
