@@ -1,4 +1,12 @@
-﻿## 2026-10-23 — 启动器按钮"白边"事故:WPF 运行时 XAML 的模板静默回退(已修)
+﻿## 2026-11-03 — RR 上游功能在产品路径集成，执行与画质验收分开
+
+- 在隔离分支接入 burak `5a6adb10601fd16d62504febba850d8839e8f5fe`、Storm `887bfb1959c44dbdca90cebf838ff97e2f5076b3` 审阅范围内的 RR 功能，保留本地提交追踪、资源退休和 NR/ASI 接缝；不部署游戏、不合并主工作树、不发布。
+- 配置采用现有 Config/menu/INI，显式逐键偏好优先于 profile 补缺；旧无等价 Floor 键归档为惰性数据，不建立兼容双轨。实际 Config/CSimpleIni 磁盘重启用例已运行通过。
+- 导入上游 shader 不等于画质正确。首轮对照的冻结运行器遗漏旧 `FloorIsolation`、roughness 与合成 anchor/mix 赋值，实际并非同策略；由这些数字推导的“产品画质回退”结论无效，必须修正运行器后重新比较。Floor 高于单个噪声样本不自动构成缺陷，逐像素截断可能把负向噪声重新放入 Skip；不得据此盲改默认算法或放宽验收阈值。
+- 真实宿主已完成 Godot 四帧往返；输入是 Vulkan 光栅画面，经 CPU 桥送 DX12 RR/SR，不是普通光追或路径追踪，不代表 Vulkan 原生 RR、物理反射率正确、降噪画质或实时性能。接口跑通、合成噪声指标、真实游戏验收必须分别报告。
+- 维护与验证边界见 [RR 槽池与历史](architecture/fsr-rr-constant-slots.md)。发行仍遵循唯一 release 流程。
+
+## 2026-10-23 — 启动器按钮"白边"事故:WPF 运行时 XAML 的模板静默回退(已修)
 
 **给以后看的人(说人话版)**:启动器所有界面是运行时从嵌入资源读 XAML 字符串搭起来的
 (不是常规的编译期 XAML)。按钮样式(MainWindow.xaml)和按钮模板(DialogTheme.xaml)
@@ -1451,3 +1459,10 @@ lmxxf 额外多槽吞吐回落；更少的 16/8 段没有进一步收益，因�
   以消费 parser 为全集（wilsjo2 232、RenoDX 115 个独立键，展开 Pass2..Pass30），
   缺源码明确非零，未提供游戏 ini 标注未查；模板/writer 补充。报告在
   `work/notes/2026-11-03-mz4-key-coverage.md`（本地）。
+
+## 2026-11-04: RR 完整投影矩阵独立决定物理深度平面
+
+- `FSRDCamera::ResolvePlanes` 从完整透视矩阵的 B 项符号判断正向/反向投影，不再使用输入纹理的 `DepthInverted` 标志。线性 NGX 深度可以不设置该标志，同时提供 reverse-Z 矩阵；PBZ 的 A=0、B=10、W=1 应解析为 near=10、无限远，而不是 near=-Inf。
+- 不修改输入深度解释、SR 创建标志或游戏配置；Streamline 当前帧标量与显式平面覆盖的优先级保持不变。
+- PBZ 矩阵回归修复前失败、修复后通过；`tests\host\run.cmd fsrd-contracts` 通过。新构建宿主在 RX 9070 XT 上的原生 NGX RR smoke 通过；尚未验证 PBZ 实机画面。
+

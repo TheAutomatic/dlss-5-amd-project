@@ -43,7 +43,12 @@ if /i "%TIER%"=="fsrd-slots" goto FsrdSlots
 if /i "%TIER%"=="nr-rr-state" goto NrRrState
 if /i "%TIER%"=="nr-rr-state-warp" goto NrRrState
 if /i "%TIER%"=="mochizuki-prepare-retry" goto MochizukiPrepareRetry
-echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|fsrd-slots^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
+if /i "%TIER%"=="fsrd-sr" goto FsrdSr
+if /i "%TIER%"=="gpu-batch" goto GpuBatch
+if /i "%TIER%"=="fsrd-contracts" goto FsrdContracts
+if /i "%TIER%"=="fsrd-timings" goto FsrdTimings
+if /i "%TIER%"=="fsrd-ini" goto FsrdIni
+echo usage: tests\host\run.cmd [release^|ci^|device^|xefg^|nr-coverage^|input-menu^|streamline^|ffx-context-owners^|fsrd-slots^|fsrd-sr^|gpu-batch^|nr-rr-state^|nr-rr-state-warp^|mochizuki-prepare-retry^|all] [out-dir]
 exit /b 2
 
 :InputMenu
@@ -63,6 +68,10 @@ call :FsrdSlots || goto fail
 call :FfxContextOwners || goto fail
 call :Streamline || goto fail
 call :NrCoverage || goto fail
+call :FsrdSr || goto fail
+call :FsrdContracts || goto fail
+call :FsrdTimings || goto fail
+call :FsrdIni || goto fail
 %CXX% /utf-8 tests\host\mochizuki_network_shortcut.cpp /Fe"%OUT%\mochizuki_network_shortcut.exe" /Fo"%OUT%\mochizuki_network_shortcut.obj" || goto fail
 "%OUT%\mochizuki_network_shortcut.exe" || goto fail
 %CXX% /utf-8 /DUNICODE /D_UNICODE /I"%INC%" tests\host\fsr_rr_abi.cpp OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\OptiTypes.cpp /Fe"%OUT%\fsr_rr_abi.exe" /Fo"%OUT%/" /link "%DETOURS%" dxgi.lib || goto fail
@@ -193,6 +202,36 @@ exit /b 0
 :NrCoverage
 %CXX% /utf-8 tests\host\nr_coverage.cpp /Fe"%OUT%\nr_coverage.exe" /Fo"%OUT%\nr_coverage.obj" || goto fail
 "%OUT%\nr_coverage.exe" || goto fail
+exit /b 0
+
+:FsrdContracts
+for %%T in (fsrd_camera_contract fsrd_signal_contract) do (
+  %CXX% /utf-8 tests\host\%%T.cpp /Fe"%OUT%\%%T.exe" /Fo"%OUT%\%%T.obj" || goto fail
+  "%OUT%\%%T.exe" || goto fail
+)
+%CXX% /utf-8 /I"%INC%" tests\host\fsrd_profile_contract.cpp /Fe"%OUT%\fsrd_profile_contract.exe" /Fo"%OUT%\fsrd_profile_contract.obj" /link "%DETOURS%" dxgi.lib || goto fail
+"%OUT%\fsrd_profile_contract.exe" || goto fail
+exit /b 0
+
+:FsrdIni
+%CXX% /utf-8 /LD tests\host\fsrd_ini_fixture.cpp /Fe"%OUT%\fsrd_ini_fixture.dll" /Fo"%OUT%\fsrd_ini_fixture.obj" /link /IMPLIB:"%OUT%\fsrd_ini_fixture.lib" || goto fail
+cl /nologo /std:c++latest /EHsc /W4 /O2 /utf-8 /DUNICODE /D_UNICODE /Gy /Gw /I"%INC%" tests\host\fsrd_ini_roundtrip.cpp tests\host\fsrd_ini_platform.cpp OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\Config.cpp OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\Util.cpp OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler\OptiTypes.cpp /Fe"%OUT%\fsrd_ini_roundtrip.exe" /Fo"%OUT%/" /link /DEBUG:NONE /OPT:REF /OPT:ICF "%DETOURS%" user32.lib dxgi.lib dxguid.lib d3d12.lib version.lib advapi32.lib ole32.lib || goto fail
+"%OUT%\fsrd_ini_roundtrip.exe" "%OUT%\fsrd_ini_fixture.dll" || goto fail
+exit /b 0
+
+:FsrdTimings
+%CXX% /utf-8 /I"%INC%" tests\host\fsrd_stage_timings.cpp /Fe"%OUT%\fsrd_stage_timings.exe" /Fo"%OUT%\fsrd_stage_timings.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
+"%OUT%\fsrd_stage_timings.exe" || goto fail
+exit /b 0
+
+:GpuBatch
+%CXX% /utf-8 tests\host\gpu_batch_tracker.cpp /Fe"%OUT%\gpu_batch_tracker.exe" /Fo"%OUT%\gpu_batch_tracker.obj" /link d3d12.lib dxgi.lib dxguid.lib || goto fail
+"%OUT%\gpu_batch_tracker.exe" || goto fail
+exit /b 0
+
+:FsrdSr
+%CXX% /utf-8 tests\host\fsrd_sr_contract.cpp /Fe"%OUT%\fsrd_sr_contract.exe" /Fo"%OUT%\fsrd_sr_contract.obj" || goto fail
+"%OUT%\fsrd_sr_contract.exe" || goto fail
 exit /b 0
 
 :fail

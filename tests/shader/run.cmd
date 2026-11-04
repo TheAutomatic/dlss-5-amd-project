@@ -16,6 +16,8 @@ rem <version> would then resolve to the repo's VERSION file.
 set "INCLUDE=%INCLUDE%;%REPO%"
 set "SHADER_PROJECT=OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler"
 set "SHADER_EXTERNAL=OptiScaler-DLSSNR-PreSR-Multipass-main\external"
+if /i "%~2"=="fsrd-variants" goto FsrdVariants
+if /i "%~2"=="rr-post-lifetime" goto RrPostLifetime
 if not exist "%SHADER_TEST_OUT%\person-capture-worker" mkdir "%SHADER_TEST_OUT%\person-capture-worker"
 cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /DNOMINMAX tests\host\person_worker_fixture.cpp /Fo"%SHADER_TEST_OUT%\person-capture-worker\fixture.obj" /Fe"%SHADER_TEST_OUT%\person-capture-worker\person-worker.exe" || goto fail
 call :BuildAndRun shader_dx12_srv
@@ -34,8 +36,19 @@ call :BuildAndRun nr_stabilizer_lifecycle
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun nr_post_sr
 if not "%errorlevel%"=="0" goto fail
+call :BuildAndRun rr_post_lifetime
+if not "%errorlevel%"=="0" goto fail
+call :BuildAndRun fsrd_variants
+if not "%errorlevel%"=="0" goto fail
 echo shader: PASS
 exit /b 0
+
+:RrPostLifetime
+call :BuildAndRun rr_post_lifetime
+exit /b %errorlevel%
+:FsrdVariants
+call :BuildAndRun fsrd_variants
+exit /b %errorlevel%
 
 :fail
 echo shader: FAIL

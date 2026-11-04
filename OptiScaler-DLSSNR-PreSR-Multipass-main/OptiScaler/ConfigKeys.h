@@ -289,9 +289,61 @@ inline constexpr const char *QueuePriorityLegacy = "AmdQueuePriority";
 inline constexpr const char *Inline = "AmdInline";
 inline constexpr const char *Async = "Async";
 
+inline constexpr const char *kFsrRrSection = "FSR-RR";
+inline constexpr const char *RrEnabled = "Enabled";
+inline constexpr const char *RrProfile = "Profile";
+inline constexpr const char *RrUseAmdDefaults = "UseAmdDefaults";
+inline constexpr const char *RrDisocclusionThreshold = "DisocclusionThreshold";
+inline constexpr const char *RrCrossBilateralNormalStrength = "CrossBilateralNormalStrength";
+inline constexpr const char *RrTemporalStabilityBias = "TemporalStabilityBias";
+inline constexpr const char *RrMaxRadiance = "MaxRadiance";
+inline constexpr const char *RrRadianceClipDeviation = "RadianceClipDeviation";
+inline constexpr const char *RrGaussianKernelRelaxation = "GaussianKernelRelaxation";
+inline constexpr const char *RrHardwareDepth = "HardwareDepth";
+inline constexpr const char *RrProviderIndex = "ProviderIndex";
+inline constexpr const char *RrDebugViewLinearDepthMax = "DebugViewLinearDepthMax";
+inline constexpr const char *RrDebugViewViewport = "DebugViewViewport";
+inline constexpr const char *RrInternalDebugViews = "InternalDebugViews";
+inline constexpr const char *RrDiagnostics = "Diagnostics";
+inline constexpr const char *RrDiffuseHitDistance = "DiffuseHitDistance";
+inline constexpr const char *RrFloorEnabled = "FloorEnabled";
+inline constexpr const char *RrFloorFastMode = "FloorFastMode";
+inline constexpr const char *RrFloorRecovery = "FloorRecovery";
+inline constexpr const char *RrSpecularAlbedoDemodulation = "SpecularAlbedoDemodulation";
+inline constexpr const char *RrDiffuseAlbedoModulation = "DiffuseAlbedoModulation";
+inline constexpr const char *RrAdditiveLightSplit = "AdditiveLightSplit";
+inline constexpr const char *RrAlbedoBleedFix = "AlbedoBleedFix";
+inline constexpr const char *RrAlbedoBleedFixDiffuse = "AlbedoBleedFixDiffuse";
+inline constexpr const char *RrFloorFlatRecovery = "FloorFlatRecovery";
+inline constexpr const char *RrFloorSpecularRecovery = "FloorSpecularRecovery";
+inline constexpr const char *RrFloorDiffuseRecovery = "FloorDiffuseRecovery";
+inline constexpr const char *RrFloorFlatNoiseMethod = "FloorFlatNoiseMethod";
+inline constexpr const char *RrFloorSpecularNoiseMethod = "FloorSpecularNoiseMethod";
+inline constexpr const char *RrFloorDiffuseNoiseMethod = "FloorDiffuseNoiseMethod";
+inline constexpr const char *RrFloorLumaRecovery = "FloorLumaRecovery";
+inline constexpr const char *RrFloorChromaRecovery = "FloorChromaRecovery";
+inline constexpr const char *RrFloorHandoverCorrelationMix = "FloorHandoverCorrelationMix";
+inline constexpr const char *RrFloorHandoverAnchorClamp = "FloorHandoverAnchorClamp";
+inline constexpr const char *RrDemodDivisorFloor = "DemodDivisorFloor";
+inline constexpr const char *RrDenoiseDiffuse = "DenoiseDiffuse";
+inline constexpr const char *RrDenoiseSpecular = "DenoiseSpecular";
+inline constexpr const char *RrEstimateHitDistances = "EstimateHitDistances";
+inline constexpr const char *RrGpuTimings = "GpuTimings";
+inline constexpr const char *RrTaggedNormalRoughness = "TaggedNormalRoughness";
+inline constexpr const char *RrTaggedAmbientOcclusion = "TaggedAmbientOcclusion";
+inline constexpr const char *RrNormalsInViewSpace = "NormalsInViewSpace";
+inline constexpr const char *RrUseTitleLinearDepth = "UseTitleLinearDepth";
+inline constexpr const char *RrResponsivityTrustThreshold = "ResponsivityTrustThreshold";
+inline constexpr const char *RrResponsivityInvert = "ResponsivityInvert";
+inline constexpr const char *RrBiasMaskStrength = "BiasMaskStrength";
+inline constexpr const char *RrDiffuseSignal = "DiffuseSignal";
+inline constexpr const char *RrSpecularSignal = "SpecularSignal";
+inline constexpr const char *RrDebugMode = "DebugMode";
+
 // Known product ini keys; [Menu] keys are explicitly identified below. Adding a control
 // requires registering its key here first; display labels remain UI-only.
 inline constexpr const char *const kKnown[] = {
+    RrEnabled, RrProfile, RrUseAmdDefaults, RrDisocclusionThreshold, RrCrossBilateralNormalStrength, RrTemporalStabilityBias, RrMaxRadiance, RrRadianceClipDeviation, RrGaussianKernelRelaxation, RrHardwareDepth, RrProviderIndex, RrDebugViewLinearDepthMax, RrDebugViewViewport, RrInternalDebugViews, RrDiagnostics, RrDiffuseHitDistance, RrFloorEnabled, RrFloorFastMode, RrFloorRecovery, RrSpecularAlbedoDemodulation, RrDiffuseAlbedoModulation, RrAdditiveLightSplit, RrAlbedoBleedFix, RrAlbedoBleedFixDiffuse, RrFloorFlatRecovery, RrFloorSpecularRecovery, RrFloorDiffuseRecovery, RrFloorFlatNoiseMethod, RrFloorSpecularNoiseMethod, RrFloorDiffuseNoiseMethod, RrFloorLumaRecovery, RrFloorChromaRecovery, RrFloorHandoverCorrelationMix, RrFloorHandoverAnchorClamp, RrDemodDivisorFloor, RrDenoiseDiffuse, RrDenoiseSpecular, RrEstimateHitDistances, RrGpuTimings, RrTaggedNormalRoughness, RrTaggedAmbientOcclusion, RrNormalsInViewSpace, RrUseTitleLinearDepth, RrResponsivityTrustThreshold, RrResponsivityInvert, RrBiasMaskStrength, RrDiffuseSignal, RrSpecularSignal, RrDebugMode,
     Fsr4GpuSupport,
     Fsr4Model,
     Fsr4DisableDriverHooks,

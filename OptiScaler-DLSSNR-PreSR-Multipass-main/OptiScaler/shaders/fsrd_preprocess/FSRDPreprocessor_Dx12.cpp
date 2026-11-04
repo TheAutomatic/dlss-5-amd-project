@@ -1,14 +1,32 @@
 #include "pch.h"
+// Capture/readback safety rides the tree's own submission retirement: a GpuBatch
+// ticket recorded on the capturing command list retires only when the queue batch
+// completed, or the recording was provably discarded before reaching the GPU.
+#include <dlssnr/submission/GpuBatchTracker.h>
+#include "RetiredSlotReservations.h"
+#include "RRTraceAdditiveIO.h"
+#include "precompile/RRTraceAdditive_Shader.h"
+#include "shaders/RecordedShader_Dx12.h"
+#include "Util.h"
+#include <optional>
+#include <mutex>
 #include "FSRDPreprocessor_Dx12.h"
+#include "gpu_time/FSRDStageTimings_Dx12.h"
 #include "FSRDShaderUtils.h"
 #include "FSRDShaderData.h"
-#include "RetiredSlotReservations.h"
-#include <memory>
-#include "precompile/FSRDInputConv_Shader.h"
-#include "precompile/FSRDFloorSeed_Shader.h"
-#include "precompile/FSRDFloor_Shader.h"
+#include "FSRDCompositionVariant.h"
+#include "precompile/FSRDInputConv_Shader.h" 
+#include "precompile/FSRDInputConvAdditive_Shader.h"
+#include "precompile/FSRDFloorSeed_Shader.h" 
+#include "precompile/FSRDFloor_Shader.h" 
 #include "precompile/FSRDOutputComp_Shader.h"
-#include <dlssnr/submission/GpuBatchTracker.h>
+#include "precompile/FSRDOutputCompLight_Shader.h"
+#include "precompile/FSRDOutputCompNoRecovery_Shader.h"
+#include "precompile/FSRDOutputCompTileLight_Shader.h"
+#include "precompile/FSRDOutputCompTileAnchor_Shader.h"
+#include "precompile/FSRDUpscalerDepth_Shader.h"
+#include "precompile/FSRDAlbedoTrustEvidence_Shader.h"
+#include "precompile/FSRDAlbedoTrustPropagate_Shader.h"
 
 #include "dx12/ffx_api_dx12.h"
 #include "fsr-rr/ffx_denoiser.h"
@@ -16,6 +34,7 @@
 #include <d3dcompiler.h>
 #include <d3d12.h>
 #include <stdexcept>
+#include <limits>
 #include <vector>
 #include <string>
 #include <array>
@@ -30,6 +49,10 @@ using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace FSRD;
 
+// Keep the portable pipeline selector tied to the actual shader flag contract.
+static_assert(uint32_t(FSRDPreprocessor_Dx12::CompFlags::RawSourceBlit) == 1u);
+static_assert(uint32_t(FSRDPreprocessor_Dx12::CompFlags::Debug) == (1u << 16));
+
 constexpr UINT kBackBufferCount = 3;
 
 constexpr UINT kThreadGroupSizeX = 8;
@@ -41,29 +64,36 @@ constexpr D3D12_RESOURCE_STATES kUavState = D3D12_RESOURCE_STATE_UNORDERED_ACCES
 
 namespace FSRDFormats
 {
-constexpr DXGI_FORMAT IndirectSpecular = DXGI_FORMAT_R16G16B16A16_FLOAT;
-constexpr DXGI_FORMAT DirectDiffuse = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT IndirectSpecular = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT DirectDiffuse = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
-// ffxDispatchDescDenoiser
-constexpr DXGI_FORMAT Motion = DXGI_FORMAT_R16G16B16A16_FLOAT;
-constexpr DXGI_FORMAT Normals = DXGI_FORMAT_R10G10B10A2_UNORM;
-constexpr DXGI_FORMAT SpecAlbedo = DXGI_FORMAT_R8G8B8A8_UNORM;
-constexpr DXGI_FORMAT DiffAlbedo = DXGI_FORMAT_R8G8B8A8_UNORM;
-constexpr DXGI_FORMAT LinearDepth = DXGI_FORMAT_R32_FLOAT;
+    // ffxDispatchDescDenoiser
+    constexpr DXGI_FORMAT Motion = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT Normals = DXGI_FORMAT_R10G10B10A2_UNORM;
+    constexpr DXGI_FORMAT SpecAlbedo = DXGI_FORMAT_R8G8B8A8_UNORM;
+    constexpr DXGI_FORMAT DiffAlbedo = DXGI_FORMAT_R8G8B8A8_UNORM;
+    constexpr DXGI_FORMAT LinearDepth = DXGI_FORMAT_R32_FLOAT;
 
-constexpr DXGI_FORMAT SkipSignal = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT SkipSignal = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
-// Carries a finished HDR image plus its mix weight, so it needs the same range as
-// the skip signal it is an alternative to.
-constexpr DXGI_FORMAT Handover = SkipSignal;
+    // Cleaned HDR reference plus sigma; alpha -1 marks explicit detail bypass.
+    constexpr DXGI_FORMAT DetailReference = SkipSignal;
 
-constexpr DXGI_FORMAT OutputBuffer1 = DXGI_FORMAT_R16G16B16A16_FLOAT;
-constexpr DXGI_FORMAT OutputBuffer2 = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT OutputBuffer1 = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT OutputBuffer2 = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
-constexpr DXGI_FORMAT AmbientOcclusion = DXGI_FORMAT_R8_UNORM;
-constexpr DXGI_FORMAT SpecularOcclusion = DXGI_FORMAT_R8_UNORM;
-constexpr DXGI_FORMAT DebugView = DXGI_FORMAT_R16G16B16A16_FLOAT;
-} // namespace FSRDFormats
+    constexpr DXGI_FORMAT AmbientOcclusion = DXGI_FORMAT_R8_UNORM;
+    constexpr DXGI_FORMAT SpecularOcclusion = DXGI_FORMAT_R8_UNORM;
+    constexpr DXGI_FORMAT DebugView = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+    // Unsupported-albedo recovery: RR direct-specular input/output and the
+    // (unsupported, structure) vote sums. Six five-tap propagation steps bound the sums at
+    // 5^6 = 15625, inside FP16; each pass accumulates in FP32 and composition reads only
+    // their ratio and the structure mass. At 1440p half storage cut the propagation passes
+    // from 0.80 to 0.71 ms (RX 9070) and moved the blend weight by at most 0.0023.
+    constexpr DXGI_FORMAT DirectSpecular = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    constexpr DXGI_FORMAT AlbedoTrust = DXGI_FORMAT_R16G16_FLOAT;
+}
 
 // The conversion shader pre-quantizes its albedo outputs to the storage format's levels,
 // because the divisor it demodulates with, the value its residual closure accounts for and
@@ -97,11 +127,16 @@ struct ComputeState
     };
     // Growth never moves or replaces allocations already referenced by GPU work.
     std::vector<std::unique_ptr<Slot>> m_slots;
+    // Dispatch slots whose constant memory and descriptors may still be read by an
+    // outstanding queue batch are only reused once that batch's GpuBatch ticket
+    // retires (completed, or provably discarded before reaching the GPU).
     RetiredSlotReservations<DlssNr::Submission::GpuBatch::Tracker::Ticket> m_reservations;
     UINT m_cbSlotSize = 0;
     UINT m_pageSlots = 0;
     UINT m_numSrvs = 0;
     UINT m_numUavs = 0;
+    // The shader's [numthreads]; Dispatch covers outDim with groups of this size.
+    UINT m_groupX = kThreadGroupSizeX, m_groupY = kThreadGroupSizeY;
     std::wstring m_name;
     static constexpr size_t kMaxSlots = 256; // bound memory if submissions stop retiring
 
@@ -187,7 +222,7 @@ struct ComputeState
     void Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
                   std::span<ID3D12Resource* const> inputs, std::span<const MipChainDesc> inputMips,
                   std::span<ID3D12Resource*> output, std::span<const UINT> outputMips, XMFLOAT2 outDim,
-                  bool autoBarrierOutput = true)
+                  bool autoBarrierOutput = true, ID3D12PipelineState* pipelineState = nullptr)
     {
         if (!cmdList)
             return;
@@ -214,8 +249,9 @@ struct ComputeState
         CreateSRVs(m_pDev, currentHeap, inputs, inputMips);
         CreateUAVs(m_pDev, currentHeap, output, outputMips);
 
-        // Configure pipeline
-        cmdList->SetPipelineState(m_pso.Get());
+        // Configure pipeline. Composition variants and the additive conversion share
+        // this root signature, descriptor layout and constant slot; only the PSO differs.
+        cmdList->SetPipelineState(pipelineState ? pipelineState : m_pso.Get());
         cmdList->SetComputeRootSignature(m_rootSig.Get());
 
         ID3D12DescriptorHeap* heaps[] = { currentHeap.GetHeapCSU() };
@@ -232,8 +268,8 @@ struct ComputeState
         cmdList->SetComputeRootDescriptorTable(2, uavTable);
 
         // Dispatch
-        const UINT dimX = ((UINT) outDim.x + (kThreadGroupSizeX - 1)) / kThreadGroupSizeX;
-        const UINT dimY = ((UINT) outDim.y + (kThreadGroupSizeY - 1)) / kThreadGroupSizeY;
+        const UINT dimX = ((UINT) outDim.x + (m_groupX - 1)) / m_groupX;
+        const UINT dimY = ((UINT) outDim.y + (m_groupY - 1)) / m_groupY;
         cmdList->Dispatch(dimX, dimY, 1);
 
         // Transition the UAVs back to SRV
@@ -243,46 +279,288 @@ struct ComputeState
 
     void Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
                   std::span<ID3D12Resource* const> inputs, std::span<ID3D12Resource*> output, XMFLOAT2 outDim,
-                  bool autoBarrierOutput = true)
+                  bool autoBarrierOutput = true, ID3D12PipelineState* pipelineState = nullptr)
     {
-        Dispatch(cmdList, cbData, inputs, {}, output, {}, outDim, autoBarrierOutput);
+        Dispatch(cmdList, cbData, inputs, {}, output, {}, outDim, autoBarrierOutput, pipelineState);
     }
 };
+
+
+namespace {
+std::mutex g_additiveTraceMutex;
+std::optional<std::array<UINT,3>> g_additiveTraceRequest;
+bool g_additiveTraceBusy=false;
+std::string g_additiveTraceStatus="No additive channel capture requested.";
+constexpr const char* kAdditiveFieldNames[] = {"rejected","evaluated","eligible","preflight_count","fit_count","mean_albedo","variance_albedo","min_specular","max_specular","mean_specular","mean_residual","variance_residual","covariance","ridge_lambda","data_weight","prior_slope","unregularized_slope","ridge_slope","intercept_unclamped","intercept","intercept_error","fit_rmse","applied_slope","applied_intercept","center_prediction","center_prediction_error","p0","p","delta_p","transferred_rgb","eligible_rgb","skip_rgb","skip_fraction","remodulated_fraction","raw_rgb","spatial_floor_rgb","eligible_fraction","specular_signal","diffuse_signal","settings","source_diffuse","source_specular","source_normal","source_roughness","linear_depth","source_motion","stored_specular","stored_diffuse"};
+}
+bool FSRDPreprocessor_Dx12::RequestAdditiveCapture(uint32_t x,uint32_t y,uint32_t size)
+{
+    std::scoped_lock lock(g_additiveTraceMutex);
+    if (g_additiveTraceBusy || g_additiveTraceRequest || size<16 || size>128) return false;
+    g_additiveTraceRequest=std::array<UINT,3>{x,y,size};
+    g_additiveTraceStatus="Additive capture requested; waiting for FSR-RR conversion.";
+    return true;
+}
+std::string FSRDPreprocessor_Dx12::GetAdditiveCaptureStatus()
+{
+    std::scoped_lock lock(g_additiveTraceMutex);
+    return g_additiveTraceStatus;
+}
 
 // Private implementation
 struct FSRDPreprocessor_Dx12::Impl
 {
     ID3D12Device* m_pDev = nullptr;
+#include "RRTraceAdditive.inl"
+    ~Impl()
+    {
+        ReleaseInputProbe();
+        if (m_additiveCapture)
+        {
+            std::scoped_lock lock(g_additiveTraceMutex);
+            g_additiveTraceBusy=false;
+            g_additiveTraceStatus="Additive capture owner ended; unfinished capture not exported.";
+        }
+    }
 
     ComputeState m_floorSeedShader;
     ComputeState m_floorFilterShader;
     ComputeState m_convShader;
     ComputeState m_compShader;
+    // Reuse generic root signature, descriptors and leased constants/resources.
+    ComPtr<ID3D12PipelineState> m_lightCompPso;
+    ComPtr<ID3D12PipelineState> m_noRecoveryCompPso;
+    bool m_lightCompPsoFailed = false;
+    bool m_noRecoveryCompPsoFailed = false;
+    ComPtr<ID3D12PipelineState> m_tileLightCompPso;
+    ComPtr<ID3D12PipelineState> m_tileAnchorCompPso;
+    bool m_splitCompPsoFailed = false;
+    ComputeState m_trustEvidenceShader;
+    ComputeState m_trustPropagateShader;
+    // Shares conversion's root signature, per-dispatch descriptors and constants.
+    // The original PSO remains usable if optional pipeline creation fails.
+    ComPtr<ID3D12PipelineState> m_additiveConvPso;
+    bool m_additiveConvPsoFailed = false;
 
     UINT m_maxWidth = 0;
     UINT m_maxHeight = 0;
-
-    // Drives the a-trous filter's temporal pattern rotation. Per instance, not a
-    // function-local static: the feature can destroy and recreate the converter, and
-    // two live converters would otherwise advance one shared counter twice a frame.
-    uint32_t m_floorFilterFrameIndex = 0;
 
     // Output Targets
     // Internal storage
     Conversion::Output m_out;
     ComPtr<ID3D12Resource> m_LinearDepth;
+    ComPtr<ID3D12Resource> m_canonicalDepth;
+    ComPtr<ID3D12Resource> m_floorReference;
+    ComPtr<ID3D12Resource> m_compositionOutput;
+    struct HistoryGeneration
+    {
+        ComPtr<ID3D12Resource> decisions, metadata;
+        std::vector<RecordedShader::Owner::Proof> accesses;
+        DlssNr::Submission::RecordingIdentity writer {};
+        uint64_t admittedEpoch = 0;
+        bool produced = false, uncertain = false;
+    };
+    struct HistoryUse final : RecordedShader::Owner
+    {
+        std::shared_ptr<HistoryGeneration> generation;
+        bool write = false;
+        HRESULT BeforeExecute(const DlssNr::Submission::RecordingExecution& e) noexcept override
+        {
+            const HRESULT admitted = Owner::BeforeExecute(e);
+            if (FAILED(admitted)) return admitted;
+            auto& g = *generation;
+            const auto epoch = DlssNr::Submission::g_recordingAdmissionEpoch;
+            if (g.uncertain || (!write && !g.produced && !(g.writer == e.identity) &&
+                (!epoch || g.admittedEpoch != epoch))) return E_UNEXPECTED;
+            try { g.accesses.reserve(g.accesses.size() + 1); }
+            catch (...) { return E_OUTOFMEMORY; }
+            for (const auto& proof : g.accesses)
+            {
+                if (proof.fence->GetCompletedValue() >= proof.value &&
+                    proof.fence->GetCompletedValue() != UINT64_MAX) continue;
+                const HRESULT hr = e.queue->Wait(proof.fence.Get(), proof.value);
+                if (FAILED(hr)) return hr;
+            }
+            if (write && epoch) g.admittedEpoch = epoch;
+            return S_OK;
+        }
+        void Executed(const DlssNr::Submission::RecordingExecution& e) noexcept override
+        {
+            Owner::Executed(e);
+            if (!e.producerSubmitted && !e.continuationSubmitted) return;
+            auto& g = *generation;
+            if (FAILED(e.status) || !e.fence || !e.fenceValue || e.fenceValue == UINT64_MAX)
+            { g.uncertain = true; return; }
+            const auto found = std::find_if(g.accesses.begin(), g.accesses.end(),
+                [&](const auto& p) { return p.fence.Get() == e.fence; });
+            if (found == g.accesses.end()) g.accesses.push_back({ e.fence, e.fenceValue });
+            else found->value = (std::max)(found->value, e.fenceValue);
+            if (write) g.produced = true;
+        }
+    };
+    std::vector<std::shared_ptr<HistoryGeneration>> m_historyGenerations;
+    std::shared_ptr<HistoryGeneration> m_historyPrevious, m_historyNext;
+    bool m_historyValid = false;
+    bool m_historyPending = false;
+    bool m_motionHistoryValid = false;
+    XMFLOAT2 m_historyJitterDelta {};
+    std::array<XMUINT4,6> m_historySourceBases {};
+    XMFLOAT4 m_historyRenderSize {};
+    // SR encoded-depth output for this evaluation; regenerated by
+    // PrepareUpscalerDepthInput after a conversion produced the canonical
+    // linear depth. Impl-owned, protected until the recording GpuBatch retires.
+    ComputeState m_upscalerDepthShader;
+    ComPtr<ID3D12Resource> m_upscalerDepthOutput;
+    bool m_upscalerDepthValid = false;
+    XMFLOAT4 m_upscalerDepthRenderSize {};
+    bool m_canonicalDepthValid = false;
+    ID3D12GraphicsCommandList* m_conversionList = nullptr;
+    struct TargetRecording final : DlssNr::Submission::RecordingObserver
+    {
+        bool invalidated = false; // guarded by RecordingMutex
+        ComPtr<ID3D12Resource> resource;
+        void Invalidated(DlssNr::Submission::RecordingIdentity) noexcept override { invalidated = true; }
+    };
+    struct TargetSlot
+    {
+        ComPtr<ID3D12Resource> resource;
+        DlssNr::Submission::GpuBatch::Tracker::Ticket ticket = DlssNr::Submission::GpuBatch::kInvalidTicket;
+        DlssNr::Submission::GpuBatch::Tracker::CompletionReceiptPtr receipt;
+        std::shared_ptr<TargetRecording> recording;
+        bool inUavState = false;
+    };
+    std::vector<TargetSlot> m_depthTargets, m_debugTargets;
+
+    TargetSlot& AcquireTarget(std::vector<TargetSlot>& targets, ID3D12GraphicsCommandList* list,
+                              UINT width, UINT height, DXGI_FORMAT format, LPCWSTR name)
+    {
+        std::lock_guard recordingLock(DlssNr::Submission::RecordingMutex());
+        auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
+        TargetSlot* selected = nullptr;
+        for (auto& slot : targets)
+        {
+            if (slot.recording && !slot.recording->invalidated) continue;
+            tracker.StatusOf(slot.ticket);
+            if (slot.receipt && slot.receipt->outcome.load(std::memory_order_acquire) ==
+                DlssNr::Submission::GpuBatch::Tracker::CompletionReceipt::Outcome::Outstanding)
+                continue;
+            selected = &slot;
+            break;
+        }
+        if (!selected)
+        {
+            if (targets.size() >= 256)
+                throw std::runtime_error("FSRD target ring exhausted by outstanding recordings");
+            targets.emplace_back();
+            selected = &targets.back();
+        }
+        if (!selected->resource || selected->resource->GetDesc().Width != width ||
+            selected->resource->GetDesc().Height != height)
+        {
+            selected->resource = CreateTexture2D(m_pDev, width, height, format, name, kSrvState);
+            selected->inUavState = false;
+        }
+        auto recording = std::make_shared<TargetRecording>();
+        Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> observer;
+        if (FAILED(list->QueryInterface(IID_PPV_ARGS(&observer))) ||
+            FAILED(observer->ObserveResources(recording)))
+            throw std::runtime_error("FSRD target recording observer unavailable");
+        selected->recording = std::move(recording);
+        selected->recording->resource = selected->resource;
+        selected->ticket = tracker.Record(list);
+        selected->receipt = selected->ticket == DlssNr::Submission::GpuBatch::kInvalidTicket
+            ? nullptr : tracker.ObserveCompletion(selected->ticket);
+        if (!selected->receipt)
+            throw std::runtime_error("FSRD target lifetime receipt unavailable");
+        return *selected;
+    }
+    void ObserveHistory(ID3D12GraphicsCommandList* list,
+                        const std::shared_ptr<HistoryGeneration>& generation, bool write)
+    {
+        auto use = std::make_shared<HistoryUse>();
+        use->device = m_pDev;
+        use->generation = generation;
+        use->write = write;
+        if (!use->Attach(list)) throw std::runtime_error("FSRD history recording observer unavailable");
+        if (write) generation->writer = use->identity;
+    }
+
+    std::shared_ptr<HistoryGeneration> AcquireHistory(ID3D12GraphicsCommandList* list)
+    {
+        std::lock_guard lock(DlssNr::Submission::RecordingMutex());
+        std::shared_ptr<HistoryGeneration> selected;
+        for (auto& generation : m_historyGenerations)
+        {
+            if (generation.use_count() != 1 || generation->uncertain) continue;
+            const bool complete = std::all_of(generation->accesses.begin(), generation->accesses.end(),
+                [](const auto& p) { const auto done = p.fence->GetCompletedValue();
+                    return done != UINT64_MAX && done >= p.value; });
+            if (complete) { selected = generation; break; }
+        }
+        if (!selected)
+        {
+            if (m_historyGenerations.size() >= 256)
+                throw std::runtime_error("FSRD history pool exhausted by retained recordings");
+            selected = std::make_shared<HistoryGeneration>();
+            m_historyGenerations.push_back(selected);
+        }
+        if (!selected->decisions || selected->decisions->GetDesc().Width != m_maxWidth ||
+            selected->decisions->GetDesc().Height != m_maxHeight)
+        {
+            selected->decisions = CreateTexture2D(m_pDev, m_maxWidth, m_maxHeight,
+                DXGI_FORMAT_R16G16B16A16_FLOAT, L"FSR_Handover_Decisions", kSrvState);
+            selected->metadata = CreateTexture2D(m_pDev, m_maxWidth, m_maxHeight,
+                DXGI_FORMAT_R32G32B32A32_UINT, L"FSR_Handover_Metadata", kSrvState);
+        }
+        selected->accesses.clear(); selected->produced = false;
+        ObserveHistory(list, selected, true);
+        return selected;
+    }
+
+
+    ID3D12Resource* PrepareUpscalerDepthInput(ID3D12GraphicsCommandList* cmdList,
+                                             const UpscalerDepthEncode& encode)
+    {
+        m_upscalerDepthValid = false;
+        if (!cmdList || cmdList != m_conversionList || !m_canonicalDepthValid ||
+            !std::isfinite(encode.nearPlane) || encode.nearPlane <= 0.0f ||
+            !std::isfinite(encode.farPlane) || encode.farPlane <= encode.nearPlane ||
+            (encode.infiniteFar && encode.farPlane != (std::numeric_limits<float>::max)()))
+            throw std::runtime_error("Invalid current canonical depth or final SR camera terms");
+        m_upscalerDepthShader.Reserve(1);
+        auto& target = AcquireTarget(m_depthTargets, cmdList, m_maxWidth, m_maxHeight,
+                                     DXGI_FORMAT_R32_FLOAT, L"FSR_UpscalerDepth_Output");
+        m_upscalerDepthOutput = target.resource;
+        const UpscalerDepth::Constants constants {
+            .RenderSize = m_upscalerDepthRenderSize,
+            .NearPlane = encode.nearPlane,
+            .FarPlane = encode.farPlane,
+            .Flags = (encode.infiniteFar ? uint32_t(UpscalerDepth::Flags::InfiniteFar) : 0u) |
+                     (encode.invertedOutput ? uint32_t(UpscalerDepth::Flags::InvertedOutput) : 0u)
+        };
+        UpscalerDepth::Input inputs { .Resources = { .InLinearDepth = m_canonicalDepth.Get() } };
+        UpscalerDepth::Output outputs { .Resources = { .OutEncodedDepth = target.resource.Get() } };
+        m_upscalerDepthShader.Dispatch(cmdList, GetAsByteSpan(constants), inputs.AsArray, outputs.AsArray,
+                                       { constants.RenderSize.x, constants.RenderSize.y });
+        m_upscalerDepthValid = true;
+        return target.resource.Get();
+    }
+    XMFLOAT4 m_historyInputSettings {};
+    uint32_t m_historyConversionFlags = 0;
     ComPtr<ID3D12Resource> m_outputBuffer1;
     ComPtr<ID3D12Resource> m_outputBuffer2;
+    // RR direct-specular output (denoised unmodulated specular) and the trust ping-pong.
+    FSRDStageTimings* m_stageTimings = nullptr;
+    FSRDRuntimeSnapshot* m_runtime = nullptr;
+    bool m_extraDiffuse = false, m_extraSpecular = false, m_albedoRecovery = false, m_diffuseCopy = false;
+    ComPtr<ID3D12Resource> m_directSpecularOutput;
+    ComPtr<ID3D12Resource> m_indirectDiffuseOutput;
+    std::array<ComPtr<ID3D12Resource>, 2> m_albedoTrust;
+    UINT m_albedoTrustResult = 0;
 
     ComPtr<ID3D12Resource> m_ambientOcclusionOutput;
     ComPtr<ID3D12Resource> m_specularOcclusionOutput;
     ComPtr<ID3D12Resource> m_debugViewOutput;
-    // A replaced debug target cannot be freed while an earlier command list can still
-    // reference it. Retain one full descriptor/constant-buffer rotation rather than
-    // assuming resolution changes are separated by several frames: DRS may resize on
-    // consecutive frames.
-    std::array<ComPtr<ID3D12Resource>, kBackBufferCount> m_retiredDebugViewOutputs;
-    UINT m_retiredDebugViewOutputIndex = 0;
     UINT m_debugViewWidth = 0;
     UINT m_debugViewHeight = 0;
 
@@ -309,7 +587,6 @@ struct FSRDPreprocessor_Dx12::Impl
     // DispatchConversion, immediately after the packing dispatch - see
     // RecordInputProbe for why that instant is the only safe one.
     static constexpr UINT kInputProbeTargetCount = 7;
-    static constexpr UINT kInputProbeLogDelay = 3;  // minimum conversions between record and read
     static constexpr UINT kInputProbeInterval = 60; // conversions between recordings
     ComPtr<ID3D12Resource> m_inputProbeReadback[kInputProbeTargetCount];
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT m_inputProbeFootprint[kInputProbeTargetCount] = {};
@@ -318,43 +595,56 @@ struct FSRDPreprocessor_Dx12::Impl
     UINT m_inputProbeWidth = 0;
     UINT m_inputProbeHeight = 0;
     UINT m_inputProbeCountdown = 1; // record on the first conversion, then every interval
-    UINT m_inputProbePendingLog = 0;
+    // A CPU frame delay or a value copied into a readback heap is not a GPU fence.
+    // The probe keeps the GpuBatch ticket plus a completion receipt attached
+    // immediately after Record (before the batch can execute or the entry reap).
+    // Polling promotes the fence result with StatusOf and then reads the receipt:
+    // Completed only after the latest execution's fence completed (a replay re-arms
+    // the receipt to Outstanding until its fence finishes), Discarded only when the
+    // recording was provably discarded before submission. The receipt keeps its
+    // terminal value after the tracker's entry is reaped.
+    DlssNr::Submission::GpuBatch::Tracker::Ticket m_inputProbeTicket =
+        DlssNr::Submission::GpuBatch::kInvalidTicket;
+    DlssNr::Submission::GpuBatch::Tracker::CompletionReceiptPtr m_inputProbeReceipt;
+    bool m_inputProbeInvalidated = false;
+    struct ProbeRecording final : DlssNr::Submission::RecordingObserver
+    {
+        std::array<ComPtr<ID3D12Resource>, kInputProbeTargetCount> readbacks;
+        void Invalidated(DlssNr::Submission::RecordingIdentity) noexcept override {}
+    };
 
-    // Map synchronises with nothing - Microsoft's readback guidance waits on the fence
-    // that follows the submission instead. The copies here ride the title's command
-    // list on the title's queue, a queue this code never sees, so there is no fence to
-    // wait on. The completion gate is therefore written by the GPU itself: each
-    // capture ends with a copy of its generation number into a readback slot, and the
-    // data is read only once that token has landed. Everything the readback holds
-    // before the token is whatever an earlier submission left behind.
-    ComPtr<ID3D12Resource> m_inputProbeGenerationReadback;
-    ComPtr<ID3D12Resource> m_inputProbeGenerationUpload;
-    void* m_inputProbeGenerationUploadPtr = nullptr;
-    UINT64 m_inputProbeGeneration = 0;
+    void ReleaseInputProbe()
+    {
+        m_inputProbeTicket = DlssNr::Submission::GpuBatch::kInvalidTicket;
+        m_inputProbeReceipt.reset();
+        m_inputProbeInvalidated = false;
+        // A discarded recording never wrote these buffers. The next capture gets a
+        // fresh allocation rather than trusting stale content.
+        for (auto& buffer : m_inputProbeReadback) buffer.Reset();
+    }
 
     void UpdateInputProbe(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
     {
-        // Off unless asked for. The probe copies seven render targets into readback buffers and
-        // logs six lines every kInputProbeInterval conversions; that is worth its cost while a
-        // number is being chased and worth nothing at all in a shipping configuration, where it
-        // also wrote a gigabyte of log in a session.
-        if (!desc.DiagnosticsEnabled)
-            return;
-
-        // A readback heap may be mapped at any time, so polling costs nothing - never
-        // a stall or a device fault. The conversion delay is only a floor: the
-        // generation token copied after the data is what proves the submission has
-        // executed, so a late or batched title submission makes the log retry on
-        // later conversions instead of publishing stale or half-written bytes.
-        if (m_inputProbePendingLog > 0 && --m_inputProbePendingLog == 0)
+        std::lock_guard recording(DlssNr::Submission::RecordingMutex());
+        using Outcome = DlssNr::Submission::GpuBatch::Tracker::CompletionReceipt::Outcome;
+        if (m_inputProbeReceipt)
         {
-            if (!LogInputProbe())
-                m_inputProbePendingLog = 1;
+            // Promote the fence result first so a completed batch publishes into the
+            // receipt even when no further queue work would observe it.
+            DlssNr::Submission::GpuBatch::Tracker::Instance().StatusOf(m_inputProbeTicket);
+            const auto outcome = m_inputProbeReceipt->outcome.load(std::memory_order_acquire);
+            if ((m_inputProbeInvalidated && outcome != Outcome::Outstanding) || outcome == Outcome::Discarded)
+                ReleaseInputProbe();
+            else if (outcome == Outcome::Completed && (!desc.DiagnosticsEnabled || LogInputProbe()))
+            {
+                // A retained executable recording may replay. Its observer keeps the
+                // old buffers; never overwrite them with a later diagnostic capture.
+                ReleaseInputProbe();
+            }
         }
 
-        // The readback buffers hold the pending capture until it has been logged;
-        // recording again would overwrite bytes that are still owed a read.
-        if (m_inputProbePendingLog > 0)
+        // Poll outstanding captures even after diagnostics are disabled.
+        if (!desc.DiagnosticsEnabled || m_inputProbeReceipt)
             return;
 
         if (m_inputProbeCountdown > 0 && --m_inputProbeCountdown > 0)
@@ -363,11 +653,10 @@ struct FSRDPreprocessor_Dx12::Impl
         m_inputProbeWidth = static_cast<UINT>(desc.RenderSize.x);
         m_inputProbeHeight = static_cast<UINT>(desc.RenderSize.y);
         m_inputProbeMotionTransform = desc.MotionTransform;
-        if (RecordInputProbe(cmdList))
-        {
-            m_inputProbePendingLog = kInputProbeLogDelay;
-            m_inputProbeCountdown = kInputProbeInterval;
-        }
+        // Also back off after an allocation failure; diagnostics must not
+        // retry an expensive failing allocation on every rendered frame.
+        m_inputProbeCountdown = kInputProbeInterval;
+        RecordInputProbe(cmdList);
     }
 
     // Copies linear depth, motion vectors and normals into readback buffers.
@@ -380,16 +669,18 @@ struct FSRDPreprocessor_Dx12::Impl
     // the device (GPUCrashReport 0xCCCF0D).
     bool RecordInputProbe(ID3D12GraphicsCommandList* cmdList)
     {
-        if (m_pDev == nullptr)
+        if (m_pDev == nullptr || cmdList == nullptr)
             return false;
 
-        ID3D12Resource* sources[kInputProbeTargetCount] = { m_LinearDepth.Get(),
-                                                            m_out.Resources.Motion.Get(),
-                                                            m_out.Resources.Normals.Get(),
-                                                            m_out.Resources.Signals.IndirectSpecular.Get(),
-                                                            m_out.Resources.SpecAlbedo.Get(),
-                                                            m_out.Resources.SkipSignal.Get(),
-                                                            m_out.Resources.DiffAlbedo.Get() };
+        ID3D12Resource* sources[kInputProbeTargetCount] = {
+            m_LinearDepth.Get(),
+            m_out.Resources.Motion.Get(),
+            m_out.Resources.Normals.Get(),
+            m_out.Resources.Signals.IndirectSpecular.Get(),
+            m_out.Resources.SpecAlbedo.Get(),
+            m_out.Resources.SkipSignal.Get(),
+            m_out.Resources.DiffAlbedo.Get()
+        };
 
         for (UINT i = 0; i < kInputProbeTargetCount; i++)
         {
@@ -403,8 +694,8 @@ struct FSRDPreprocessor_Dx12::Impl
             const D3D12_RESOURCE_DESC srcDesc = sources[i]->GetDesc();
             UINT64 rowBytes = 0;
             UINT64 bufferBytes = 0;
-            m_pDev->GetCopyableFootprints(&srcDesc, 0, 1, 0, &m_inputProbeFootprint[i], nullptr, &rowBytes,
-                                          &bufferBytes);
+            m_pDev->GetCopyableFootprints(
+                &srcDesc, 0, 1, 0, &m_inputProbeFootprint[i], nullptr, &rowBytes, &bufferBytes);
             if (bufferBytes == 0)
                 return false;
 
@@ -420,7 +711,8 @@ struct FSRDPreprocessor_Dx12::Impl
         bool needsReadbackBuffers = false;
         for (UINT i = 0; i < kInputProbeTargetCount; i++)
         {
-            if (m_inputProbeReadback[i] == nullptr || m_inputProbeReadback[i]->GetDesc().Width < maxBufferBytes)
+            if (m_inputProbeReadback[i] == nullptr ||
+                m_inputProbeReadback[i]->GetDesc().Width < maxBufferBytes)
             {
                 needsReadbackBuffers = true;
                 break;
@@ -448,9 +740,10 @@ struct FSRDPreprocessor_Dx12::Impl
             std::array<ComPtr<ID3D12Resource>, kInputProbeTargetCount> allocated;
             for (UINT i = 0; i < kInputProbeTargetCount; i++)
             {
-                if (FAILED(m_pDev->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufDesc,
-                                                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-                                                           IID_PPV_ARGS(&allocated[i]))))
+                if (FAILED(m_pDev->CreateCommittedResource(
+                        &heapProps, D3D12_HEAP_FLAG_NONE, &bufDesc,
+                        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                        IID_PPV_ARGS(&allocated[i]))))
                 {
                     LOG_ERROR("[RR_INPUT_PROBE] readback buffer creation failed");
                     return false;
@@ -461,41 +754,35 @@ struct FSRDPreprocessor_Dx12::Impl
                 m_inputProbeReadback[i] = std::move(allocated[i]);
         }
 
-        // The completion token for the capture: one 64-bit generation, written by the
-        // GPU from an upload slot after the data copies below. Created once; the data
-        // readbacks above are the only things that grow with resolution.
-        if (m_inputProbeGenerationReadback == nullptr)
+        // The probe's sources and readbacks are Impl-owned; the whole preprocessor
+        // outlives outstanding batches through the feature's GpuBatch tickets. The
+        // readiness receipt attaches to this exact command list's recording now,
+        // before the batch can execute or the entry be reaped.
+        auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
+        m_inputProbeTicket = tracker.Record(cmdList);
+        m_inputProbeReceipt =
+            m_inputProbeTicket == DlssNr::Submission::GpuBatch::kInvalidTicket
+                ? nullptr
+                : tracker.ObserveCompletion(m_inputProbeTicket);
+        m_inputProbeInvalidated = false;
+        if (!m_inputProbeReceipt)
         {
-            D3D12_HEAP_PROPERTIES tokenHeaps[2] = {};
-            tokenHeaps[0].Type = D3D12_HEAP_TYPE_READBACK;
-            tokenHeaps[1].Type = D3D12_HEAP_TYPE_UPLOAD;
-
-            D3D12_RESOURCE_DESC tokenDesc = {};
-            tokenDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            tokenDesc.Width = sizeof(UINT64);
-            tokenDesc.Height = 1;
-            tokenDesc.DepthOrArraySize = 1;
-            tokenDesc.MipLevels = 1;
-            tokenDesc.SampleDesc = { 1, 0 };
-            tokenDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-            if (FAILED(m_pDev->CreateCommittedResource(&tokenHeaps[0], D3D12_HEAP_FLAG_NONE, &tokenDesc,
-                                                       D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-                                                       IID_PPV_ARGS(&m_inputProbeGenerationReadback))) ||
-                FAILED(m_pDev->CreateCommittedResource(&tokenHeaps[1], D3D12_HEAP_FLAG_NONE, &tokenDesc,
-                                                       D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-                                                       IID_PPV_ARGS(&m_inputProbeGenerationUpload))) ||
-                FAILED(m_inputProbeGenerationUpload->Map(0, nullptr, &m_inputProbeGenerationUploadPtr)) ||
-                m_inputProbeGenerationUploadPtr == nullptr)
-            {
-                LOG_ERROR("[RR_INPUT_PROBE] generation token buffer creation failed");
-                m_inputProbeGenerationReadback.Reset();
-                m_inputProbeGenerationUpload.Reset();
-                m_inputProbeGenerationUploadPtr = nullptr;
-                return false;
-            }
+            ReleaseInputProbe();
+            LOG_ERROR("[RR_INPUT_PROBE] capture lifetime receipt unavailable");
+            return false;
         }
 
+        auto recording = std::make_shared<ProbeRecording>();
+        for (UINT i = 0; i < kInputProbeTargetCount; ++i)
+            recording->readbacks[i] = m_inputProbeReadback[i];
+        Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> observer;
+        if (FAILED(cmdList->QueryInterface(IID_PPV_ARGS(&observer))) ||
+            FAILED(observer->ObserveResources(recording)))
+        {
+            ReleaseInputProbe();
+            LOG_ERROR("[RR_INPUT_PROBE] recording observer unavailable");
+            return false;
+        }
         D3D12_RESOURCE_BARRIER toCopy[kInputProbeTargetCount] = {};
         D3D12_RESOURCE_BARRIER toSrv[kInputProbeTargetCount] = {};
         for (UINT i = 0; i < kInputProbeTargetCount; i++)
@@ -529,16 +816,6 @@ struct FSRDPreprocessor_Dx12::Impl
             cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
         }
         cmdList->ResourceBarrier(kInputProbeTargetCount, toSrv);
-
-        // Recorded after every data copy: the GPU executes command list operations in
-        // order, so the token's arrival in readback is the completion proof for the
-        // whole batch above. The upload slot is safe to overwrite because recording
-        // only happens once the previous capture's token has been observed, which
-        // means its submission has already executed and consumed the old value.
-        ++m_inputProbeGeneration;
-        memcpy(m_inputProbeGenerationUploadPtr, &m_inputProbeGeneration, sizeof(m_inputProbeGeneration));
-        cmdList->CopyBufferRegion(m_inputProbeGenerationReadback.Get(), 0, m_inputProbeGenerationUpload.Get(), 0,
-                                  sizeof(m_inputProbeGeneration));
 
         return true;
     }
@@ -600,7 +877,8 @@ struct FSRDPreprocessor_Dx12::Impl
         sampling.strideX = std::max(width / 128u, 1u);
         sampling.strideY = std::max(height / 72u, 1u);
         sampling.samples =
-            ((width + sampling.strideX - 1) / sampling.strideX) * ((height + sampling.strideY - 1) / sampling.strideY);
+            ((width + sampling.strideX - 1) / sampling.strideX) *
+            ((height + sampling.strideY - 1) / sampling.strideY);
         return sampling;
     }
 
@@ -658,12 +936,11 @@ struct FSRDPreprocessor_Dx12::Impl
                     maxValue = std::max(maxValue, value);
                 }
 
-                const UINT bucket = magnitude < 0.1f      ? 0u
-                                    : magnitude < 1.0f    ? 1u
-                                    : magnitude < 10.0f   ? 2u
-                                    : magnitude < 100.0f  ? 3u
-                                    : magnitude < 1000.0f ? 4u
-                                                          : 5u;
+                const UINT bucket = magnitude < 0.1f ? 0u
+                    : magnitude < 1.0f ? 1u
+                    : magnitude < 10.0f ? 2u
+                    : magnitude < 100.0f ? 3u
+                    : magnitude < 1000.0f ? 4u : 5u;
                 ++buckets[bucket];
             }
         }
@@ -677,18 +954,25 @@ struct FSRDPreprocessor_Dx12::Impl
         std::sort(magnitudes.begin(), magnitudes.end());
         const float rcpCount = 100.0f / float(magnitudes.size());
 
-        LOG_INFO("[RR_INPUT_PROBE] linearDepth (R32_FLOAT, RR-facing) {}x{}: samples={}, min={:.4f}, max={:.4f}, "
-                 "mean|v|={:.4f}, p50|v|={:.4f}, p95|v|={:.4f}, negative={:.1f}%, exactZero={:.1f}%, nonFinite={}",
-                 sampleWidth, sampleHeight, UINT(magnitudes.size()), minValue, maxValue,
-                 sum / double(magnitudes.size()), PercentileOf(magnitudes, 0.50f), PercentileOf(magnitudes, 0.95f),
-                 float(negatives) * rcpCount, float(zeros) * rcpCount, nonFinite);
+        LOG_INFO(
+            "[RR_INPUT_PROBE] linearDepth (R32_FLOAT, RR-facing) {}x{}: samples={}, min={:.4f}, max={:.4f}, "
+            "mean|v|={:.4f}, p50|v|={:.4f}, p95|v|={:.4f}, negative={:.1f}%, exactZero={:.1f}%, nonFinite={}",
+            sampleWidth, sampleHeight, UINT(magnitudes.size()), minValue, maxValue,
+            sum / double(magnitudes.size()), PercentileOf(magnitudes, 0.50f),
+            PercentileOf(magnitudes, 0.95f), float(negatives) * rcpCount,
+            float(zeros) * rcpCount, nonFinite);
 
-        const char* bucketNames[6] = { "<0.1 (sub-metre)", "0.1-1", "1-10", "10-100", "100-1000", ">=1000" };
+        const char* bucketNames[6] = {
+            "<0.1 (sub-metre)", "0.1-1", "1-10", "10-100", "100-1000", ">=1000"
+        };
         LOG_INFO("[RR_INPUT_PROBE] linearDepth |v| distribution: {}={:.1f}%, {}={:.1f}%, {}={:.1f}%, "
                  "{}={:.1f}%, {}={:.1f}%, {}={:.1f}%",
-                 bucketNames[0], float(buckets[0]) * rcpCount, bucketNames[1], float(buckets[1]) * rcpCount,
-                 bucketNames[2], float(buckets[2]) * rcpCount, bucketNames[3], float(buckets[3]) * rcpCount,
-                 bucketNames[4], float(buckets[4]) * rcpCount, bucketNames[5], float(buckets[5]) * rcpCount);
+                 bucketNames[0], float(buckets[0]) * rcpCount,
+                 bucketNames[1], float(buckets[1]) * rcpCount,
+                 bucketNames[2], float(buckets[2]) * rcpCount,
+                 bucketNames[3], float(buckets[3]) * rcpCount,
+                 bucketNames[4], float(buckets[4]) * rcpCount,
+                 bucketNames[5], float(buckets[5]) * rcpCount);
     }
 
     // Reports the canonical motion field in pixels, the range actually stored in the
@@ -719,7 +1003,8 @@ struct FSRDPreprocessor_Dx12::Impl
         const float transformX = m_inputProbeMotionTransform.x;
         const float transformY = m_inputProbeMotionTransform.y;
         const bool transformInvertible =
-            std::isfinite(transformX) && std::isfinite(transformY) && transformX != 0.0f && transformY != 0.0f;
+            std::isfinite(transformX) && std::isfinite(transformY) &&
+            transformX != 0.0f && transformY != 0.0f;
 
         for (UINT y = sampling.strideY / 2; y < sampleHeight; y += sampling.strideY)
         {
@@ -768,13 +1053,15 @@ struct FSRDPreprocessor_Dx12::Impl
         std::sort(storedMagnitudes.begin(), storedMagnitudes.end());
         const float rcpCount = 100.0f / float(pixelMagnitudes.size());
 
-        LOG_INFO("[RR_INPUT_PROBE] motion (RGBA16F, RR-facing) {}x{}: samples={}, canonicalPixels p50={:.3f}, "
-                 "p95={:.3f}, max={:.3f}, exactZeroXY={:.1f}%, moving(>0.05px)={:.1f}%, |depthDelta| p50={:.6f}, "
-                 "p95={:.6f}, max={:.6f}, nonFinite={}",
-                 sampleWidth, sampleHeight, UINT(pixelMagnitudes.size()), PercentileOf(pixelMagnitudes, 0.50f),
-                 PercentileOf(pixelMagnitudes, 0.95f), pixelMagnitudes.back(), float(zeroXy) * rcpCount,
-                 float(activeXy) * rcpCount, PercentileOf(depthDeltas, 0.50f), PercentileOf(depthDeltas, 0.95f),
-                 depthDeltas.back(), nonFinite);
+        LOG_INFO(
+            "[RR_INPUT_PROBE] motion (RGBA16F, RR-facing) {}x{}: samples={}, canonicalPixels p50={:.3f}, "
+            "p95={:.3f}, max={:.3f}, exactZeroXY={:.1f}%, moving(>0.05px)={:.1f}%, |depthDelta| p50={:.6f}, "
+            "p95={:.6f}, max={:.6f}, nonFinite={}",
+            sampleWidth, sampleHeight, UINT(pixelMagnitudes.size()),
+            PercentileOf(pixelMagnitudes, 0.50f), PercentileOf(pixelMagnitudes, 0.95f),
+            pixelMagnitudes.back(), float(zeroXy) * rcpCount, float(activeXy) * rcpCount,
+            PercentileOf(depthDeltas, 0.50f), PercentileOf(depthDeltas, 0.95f),
+            depthDeltas.back(), nonFinite);
 
         // The converter multiplies the stored value by MotionTransform to reach UV. A
         // transform of 1/renderWidth means the stored value was assumed to be a
@@ -782,11 +1069,13 @@ struct FSRDPreprocessor_Dx12::Impl
         // signature of a title that supplies UV-space motion instead.
         if (!storedMagnitudes.empty())
         {
-            LOG_INFO("[RR_INPUT_PROBE] motion transform=(x={:.8f}, y={:.8f}) => impliedScale=({:.4f}, {:.4f}); "
-                     "stored-in-texture|v| p50={:.6f}, p95={:.6f}, max={:.6f}",
-                     transformX, transformY, transformX * float(sampleWidth), transformY * float(sampleHeight),
-                     PercentileOf(storedMagnitudes, 0.50f), PercentileOf(storedMagnitudes, 0.95f),
-                     storedMagnitudes.back());
+            LOG_INFO(
+                "[RR_INPUT_PROBE] motion transform=(x={:.8f}, y={:.8f}) => impliedScale=({:.4f}, {:.4f}); "
+                "stored-in-texture|v| p50={:.6f}, p95={:.6f}, max={:.6f}",
+                transformX, transformY,
+                transformX * float(sampleWidth), transformY * float(sampleHeight),
+                PercentileOf(storedMagnitudes, 0.50f), PercentileOf(storedMagnitudes, 0.95f),
+                storedMagnitudes.back());
         }
     }
 
@@ -832,7 +1121,8 @@ struct FSRDPreprocessor_Dx12::Impl
                 normalX += (normalX >= 0.0f) ? -fold : fold;
                 normalY += (normalY >= 0.0f) ? -fold : fold;
 
-                const float length = std::sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ);
+                const float length = std::sqrt(
+                    normalX * normalX + normalY * normalY + normalZ * normalZ);
                 decodedLengths.push_back(length);
                 if (length > 1e-6f)
                 {
@@ -864,18 +1154,22 @@ struct FSRDPreprocessor_Dx12::Impl
         std::sort(upComponents.begin(), upComponents.end());
         const float rcpCount = 100.0f / float(decodedLengths.size());
 
-        LOG_INFO("[RR_INPUT_PROBE] normals (R10G10B10A2, RR-facing) {}x{}: samples={}, |octDecode| p50={:.4f}, "
-                 "p95={:.4f}, max={:.4f}, degenerate(<0.5)={:.1f}%, decodedWorldY p50={:.4f}, p95={:.4f}, "
-                 "downward(Y<-0.9)={:.1f}%, horizontal(|Y|<0.1)={:.1f}%",
-                 sampleWidth, sampleHeight, UINT(decodedLengths.size()), PercentileOf(decodedLengths, 0.50f),
-                 PercentileOf(decodedLengths, 0.95f), decodedLengths.back(), float(degenerate) * rcpCount,
-                 PercentileOf(upComponents, 0.50f), PercentileOf(upComponents, 0.95f), float(pointingDown) * rcpCount,
-                 float(horizontal) * rcpCount);
+        LOG_INFO(
+            "[RR_INPUT_PROBE] normals (R10G10B10A2, RR-facing) {}x{}: samples={}, |octDecode| p50={:.4f}, "
+            "p95={:.4f}, max={:.4f}, degenerate(<0.5)={:.1f}%, decodedWorldY p50={:.4f}, p95={:.4f}, "
+            "downward(Y<-0.9)={:.1f}%, horizontal(|Y|<0.1)={:.1f}%",
+            sampleWidth, sampleHeight, UINT(decodedLengths.size()),
+            PercentileOf(decodedLengths, 0.50f), PercentileOf(decodedLengths, 0.95f),
+            decodedLengths.back(), float(degenerate) * rcpCount,
+            PercentileOf(upComponents, 0.50f), PercentileOf(upComponents, 0.95f),
+            float(pointingDown) * rcpCount, float(horizontal) * rcpCount);
 
-        LOG_INFO("[RR_INPUT_PROBE] normals channels: roughness mean={:.4f}, exactZero={:.1f}%, "
-                 "materialType 0 (no handover)={:.1f}%, >=1={:.1f}%",
-                 float(roughnessSum / double(decodedLengths.size())), float(exactZeroRoughness) * rcpCount,
-                 float(typeZero) * rcpCount, float(decodedLengths.size() - typeZero) * rcpCount);
+        LOG_INFO(
+            "[RR_INPUT_PROBE] normals channels: roughness mean={:.4f}, exactZero={:.1f}%, "
+            "materialType 0={:.1f}%, >=1={:.1f}%",
+            float(roughnessSum / double(decodedLengths.size())),
+            float(exactZeroRoughness) * rcpCount,
+            float(typeZero) * rcpCount, float(decodedLengths.size() - typeZero) * rcpCount);
     }
 
     // Reports the specular signal the converter hands RR: RGB is demodulated radiance,
@@ -952,12 +1246,15 @@ struct FSRDPreprocessor_Dx12::Impl
         }
 
         const float rcpCount = 100.0f / float(samples);
-        LOG_INFO("[RR_INPUT_PROBE] specular signal input (RGBA16F, RR-facing) {}x{}: samples={}, avgLuma={:.6f}, "
-                 "maxLuma={:.6f}, dead(<1e-5)={:.1f}%, bright(>1e-2)={:.1f}%, alpha min={:.4f}, mean={:.4f}, "
-                 "max={:.4f}, negative={:.1f}%, FP16maxSentinel={:.1f}%, nonFinite={}",
-                 sampleWidth, sampleHeight, samples, lumaSum / double(samples), lumaMax, float(dead) * rcpCount,
-                 float(bright) * rcpCount, alphaMin, alphaSum / double(samples), alphaMax,
-                 float(negativeAlpha) * rcpCount, float(missingAlpha) * rcpCount, nonFinite);
+        LOG_INFO(
+            "[RR_INPUT_PROBE] specular signal input (RGBA16F, RR-facing) {}x{}: samples={}, avgLuma={:.6f}, "
+            "maxLuma={:.6f}, dead(<1e-5)={:.1f}%, bright(>1e-2)={:.1f}%, alpha min={:.4f}, mean={:.4f}, "
+            "max={:.4f}, negative={:.1f}%, FP16maxSentinel={:.1f}%, nonFinite={}",
+            sampleWidth, sampleHeight, samples, lumaSum / double(samples), lumaMax,
+            float(dead) * rcpCount, float(bright) * rcpCount,
+            alphaMin, alphaSum / double(samples), alphaMax,
+            float(negativeAlpha) * rcpCount, float(missingAlpha) * rcpCount, nonFinite);
+
     }
 
     // Reports how much of the frame reaches the denoiser through the specular signal rather than
@@ -993,14 +1290,14 @@ struct FSRDPreprocessor_Dx12::Impl
         LOG_INFO("[RR_INPUT_PROBE] specular signal share: mean {:.2f}%, specular-dominant "
                  "{:.2f}% ({}/{}) - the share of the frame the denoiser receives through the "
                  "specular signal",
-                 float(shareSum) * 100.0f / float(samples), float(specularDominant) * 100.0f / float(samples),
-                 specularDominant, samples);
+                 float(shareSum) * 100.0f / float(samples),
+                 float(specularDominant) * 100.0f / float(samples), specularDominant, samples);
     }
 
     // Magnitude of a colour texture, which is all the skip signal needs: the question is how
     // much colour it carries and whether that quantity is what the visible noise tracks.
-    void LogMagnitudeProbe(const char* name, const uint8_t* data, UINT rowPitch, const ProbeSampling& sampling,
-                           bool halfPrecision)
+    void LogMagnitudeProbe(const char* name, const uint8_t* data, UINT rowPitch,
+                           const ProbeSampling& sampling, bool halfPrecision)
     {
         const UINT sampleWidth = std::min(m_inputProbeWidth, m_maxWidth);
         const UINT sampleHeight = std::min(m_inputProbeHeight, m_maxHeight);
@@ -1048,8 +1345,9 @@ struct FSRDPreprocessor_Dx12::Impl
         if (samples == 0)
             return;
 
-        LOG_INFO("[RR_INPUT_PROBE] {}: samples={}, avgLuma={:.6f}, maxLuma={:.6f}, dead(<1e-5)={:.1f}%", name, samples,
-                 lumaSum / double(samples), lumaMax, float(dead) * 100.0f / float(samples));
+        LOG_INFO("[RR_INPUT_PROBE] {}: samples={}, avgLuma={:.6f}, maxLuma={:.6f}, dead(<1e-5)={:.1f}%",
+                 name, samples, lumaSum / double(samples), lumaMax,
+                 float(dead) * 100.0f / float(samples));
     }
 
     // Share of the frame whose published floor exceeds its raw sample. The conversion marks
@@ -1101,22 +1399,13 @@ struct FSRDPreprocessor_Dx12::Impl
                 return true;
         }
 
-        if (m_inputProbeGenerationReadback != nullptr)
-        {
-            void* token = nullptr;
-            UINT64 generation = 0;
-            if (SUCCEEDED(m_inputProbeGenerationReadback->Map(0, nullptr, &token)) && token != nullptr)
-            {
-                memcpy(&generation, token, sizeof(generation));
-                m_inputProbeGenerationReadback->Unmap(0, nullptr);
-            }
-
-            // The token is the GPU's own completion signal for the submission that
-            // carried the data copies. Until it matches, everything mapped below
-            // would be stale or partially written bytes from an earlier capture.
-            if (generation != m_inputProbeGeneration)
-                return false;
-        }
+        if (!m_inputProbeReceipt)
+            return false;
+        // Promote the fence result before reading the receipt.
+        DlssNr::Submission::GpuBatch::Tracker::Instance().StatusOf(m_inputProbeTicket);
+        if (m_inputProbeReceipt->outcome.load(std::memory_order_acquire) !=
+            DlssNr::Submission::GpuBatch::Tracker::CompletionReceipt::Outcome::Completed)
+            return false;
 
         void* mapped[kInputProbeTargetCount] = {};
         for (UINT i = 0; i < kInputProbeTargetCount; i++)
@@ -1131,17 +1420,23 @@ struct FSRDPreprocessor_Dx12::Impl
         }
 
         const ProbeSampling sampling = GetProbeSampling(m_inputProbeWidth, m_inputProbeHeight);
-        LOG_INFO("[RR_INPUT_PROBE] reading back {}x{} render extent from the conversion", m_inputProbeWidth,
-                 m_inputProbeHeight);
+        LOG_INFO("[RR_INPUT_PROBE] reading back {}x{} render extent from the conversion",
+                 m_inputProbeWidth, m_inputProbeHeight);
 
-        LogLinearDepthProbe(static_cast<const uint8_t*>(mapped[0]), m_inputProbeRowPitch[0], sampling);
-        LogMotionProbe(static_cast<const uint8_t*>(mapped[1]), m_inputProbeRowPitch[1], sampling);
-        LogNormalsProbe(static_cast<const uint8_t*>(mapped[2]), m_inputProbeRowPitch[2], sampling);
-        LogSignalProbe(static_cast<const uint8_t*>(mapped[3]), m_inputProbeRowPitch[3], sampling);
-        LogSpecularShareProbe(static_cast<const uint8_t*>(mapped[4]), m_inputProbeRowPitch[4], sampling);
-        LogMagnitudeProbe("skip signal (RR-facing)", static_cast<const uint8_t*>(mapped[5]), m_inputProbeRowPitch[5],
-                          sampling, true);
-        LogCrossingShareProbe(static_cast<const uint8_t*>(mapped[6]), m_inputProbeRowPitch[6], sampling);
+        LogLinearDepthProbe(
+            static_cast<const uint8_t*>(mapped[0]), m_inputProbeRowPitch[0], sampling);
+        LogMotionProbe(
+            static_cast<const uint8_t*>(mapped[1]), m_inputProbeRowPitch[1], sampling);
+        LogNormalsProbe(
+            static_cast<const uint8_t*>(mapped[2]), m_inputProbeRowPitch[2], sampling);
+        LogSignalProbe(
+            static_cast<const uint8_t*>(mapped[3]), m_inputProbeRowPitch[3], sampling);
+        LogSpecularShareProbe(
+            static_cast<const uint8_t*>(mapped[4]), m_inputProbeRowPitch[4], sampling);
+        LogMagnitudeProbe("skip signal (RR-facing)", static_cast<const uint8_t*>(mapped[5]),
+                          m_inputProbeRowPitch[5], sampling, true);
+        LogCrossingShareProbe(
+            static_cast<const uint8_t*>(mapped[6]), m_inputProbeRowPitch[6], sampling);
 
         for (UINT i = 0; i < kInputProbeTargetCount; i++)
             m_inputProbeReadback[i]->Unmap(0, nullptr);
@@ -1149,31 +1444,48 @@ struct FSRDPreprocessor_Dx12::Impl
         return true;
     }
 
-    void Initialize(std::span<const byte> blSeedByteCode, std::span<const byte> blPyramidByteCode,
-                    std::span<const byte> convByteCode, std::span<const byte> compByteCode)
+    void Initialize(
+        std::span<const byte> blSeedByteCode, 
+        std::span<const byte> blPyramidByteCode, 
+        std::span<const byte> convByteCode, 
+        std::span<const byte> compByteCode
+    )
     {
         ScopedSkipHeapCapture skipHeapCapture {};
 
         LOG_DEBUG("Creating FSRD interop shaders...");
 
-        m_floorSeedShader.Initialize(m_pDev, blSeedByteCode, sizeof(FloorSeed::Constants), FloorSeed::Input::kCount,
-                                     FloorSeed::Output::kCount, L"FSRD_FloorSeed_Constants",
-                                     FloorSeed::kBackBufferCount);
-        m_floorFilterShader.Initialize(m_pDev, blPyramidByteCode, sizeof(FloorFilter::Constants),
-                                       FloorFilter::Input::kCount, FloorFilter::Output::kCount,
-                                       L"FSRD_FloorFilter_Constants", FloorFilter::kBackBufferCount);
-        m_convShader.Initialize(m_pDev, convByteCode, sizeof(Conversion::Constants), Conversion::Input::kCount,
-                                Conversion::Output::kCount, L"FSRD_Conv_Constants", Conversion::kBackBufferCount);
-        m_compShader.Initialize(m_pDev, compByteCode, sizeof(Composition::Constants), Composition::Input::kCount,
-                                Composition::kOutputCount, L"FSRD_Comp_Constants", Composition::kBackBufferCount);
+        m_floorSeedShader.Initialize(m_pDev, blSeedByteCode, sizeof(FloorSeed::Constants), 
+            FloorSeed::Input::kCount, FloorSeed::Output::kCount, L"FSRD_FloorSeed_Constants", FloorSeed::kBackBufferCount);
+        m_floorFilterShader.Initialize(m_pDev, blPyramidByteCode, sizeof(FloorFilter::Constants), 
+            FloorFilter::Input::kCount, FloorFilter::Output::kCount, L"FSRD_FloorFilter_Constants", FloorFilter::kBackBufferCount);
+        m_convShader.Initialize(m_pDev, convByteCode, sizeof(Conversion::Constants), 
+            Conversion::Input::kCount, Conversion::Output::kCount, L"FSRD_Conv_Constants", Conversion::kBackBufferCount);
+        m_compShader.Initialize(m_pDev, compByteCode, sizeof(Composition::Constants), 
+            Composition::Input::kCount, Composition::kOutputCount, L"FSRD_Comp_Constants", Composition::kBackBufferCount);
+        m_trustEvidenceShader.Initialize(m_pDev,
+            { reinterpret_cast<const byte*>(FSRDAlbedoTrustEvidence_cso), sizeof(FSRDAlbedoTrustEvidence_cso) },
+            sizeof(TrustEvidence::Constants), TrustEvidence::Input::kCount, TrustEvidence::Output::kCount,
+            L"FSRD_TrustEvidence_Constants", TrustEvidence::kBackBufferCount);
+        m_trustEvidenceShader.m_groupX = m_trustEvidenceShader.m_groupY = TrustEvidence::kThreadGroupSize;
+        m_trustPropagateShader.Initialize(m_pDev,
+            { reinterpret_cast<const byte*>(FSRDAlbedoTrustPropagate_cso), sizeof(FSRDAlbedoTrustPropagate_cso) },
+            sizeof(TrustPropagate::Constants), TrustPropagate::Input::kCount, TrustPropagate::Output::kCount,
+            L"FSRD_TrustPropagate_Constants", TrustPropagate::kBackBufferCount);
+        m_upscalerDepthShader.Initialize(m_pDev,
+            { reinterpret_cast<const byte*>(FSRDUpscalerDepth_cso), sizeof(FSRDUpscalerDepth_cso) },
+            sizeof(UpscalerDepth::Constants), UpscalerDepth::Input::kCount, UpscalerDepth::Output::kCount,
+            L"FSRD_UpscalerDepth_Constants", UpscalerDepth::kBackBufferCount);
 
         LOG_DEBUG("FSRD interop shaders and resources initialized.");
     }
+
 
     void SetMaxRenderSize(UINT width, UINT height)
     {
         if (m_maxWidth == width && m_maxHeight == height)
             return;
+
 
         // Clear the latch before allocating rather than after. CreateTexture2D
         // throws on failure, which leaves the object holding a mix of new- and
@@ -1183,9 +1495,16 @@ struct FSRDPreprocessor_Dx12::Impl
         // allocation has actually completed.
         m_maxWidth = 0;
         m_maxHeight = 0;
+        m_canonicalDepthValid = m_upscalerDepthValid = false;
+        m_conversionList = nullptr;
+        m_historyValid = m_historyPending = false;
+        m_historyPrevious.reset();
+        m_historyNext.reset();
 
         auto CreateTex = [&](DXGI_FORMAT fmt, LPCWSTR name, UINT mipLevels = 1)
-        { return CreateTexture2D(m_pDev, width, height, fmt, name, kSrvState, mipLevels); };
+        { 
+            return CreateTexture2D(m_pDev, width, height, fmt, name, kSrvState, mipLevels);
+        };
 
         auto& outResources = m_out.Resources;
         outResources.Motion = CreateTex(FSRDFormats::Motion, L"FSR_Conv_Motion");
@@ -1193,21 +1512,39 @@ struct FSRDPreprocessor_Dx12::Impl
         outResources.SpecAlbedo = CreateTex(FSRDFormats::SpecAlbedo, L"FSR_Conv_SpecAlbedo");
         outResources.DiffAlbedo = CreateTex(FSRDFormats::DiffAlbedo, L"FSR_Conv_DiffAlbedo");
         outResources.SkipSignal = CreateTex(FSRDFormats::SkipSignal, L"FSR_Conv_SkipSignal");
-        outResources.Handover = CreateTex(FSRDFormats::Handover, L"FSR_Conv_Handover");
+        outResources.DetailReference = CreateTex(FSRDFormats::DetailReference, L"FSR_Conv_DetailReference");
+        const auto optional = [&](bool enabled, DXGI_FORMAT format, LPCWSTR name) {
+            return CreateTexture2D(m_pDev, enabled ? width : 1u, enabled ? height : 1u, format, name, kSrvState);
+        };
+        outResources.DirectSpecular = optional(m_albedoRecovery, FSRDFormats::DirectSpecular, L"FSR_Conv_DirectSpecular");
+        outResources.IndirectDiffuse = optional(m_diffuseCopy, FSRDFormats::DirectSpecular, L"FSR_Conv_IndirectDiffuse");
+        m_directSpecularOutput = optional(m_extraSpecular, FSRDFormats::DirectSpecular, L"FSR_RR_DirectSpecular_Output");
+        m_indirectDiffuseOutput = optional(m_extraDiffuse, FSRDFormats::DirectSpecular, L"FSR_RR_IndirectDiffuse_Output");
+        m_albedoTrust[0] = optional(m_albedoRecovery, FSRDFormats::AlbedoTrust, L"FSR_AlbedoTrust_0");
+        m_albedoTrust[1] = optional(m_albedoRecovery, FSRDFormats::AlbedoTrust, L"FSR_AlbedoTrust_1");
+        m_albedoTrustResult = 0;
         m_LinearDepth = CreateTex(FSRDFormats::LinearDepth, L"FSR_Conv_LinearDepth");
+        m_canonicalDepth = CreateTex(DXGI_FORMAT_R32_FLOAT, L"FSR_Conv_UnclampedViewDepth");
         m_outputBuffer1 = CreateTex(FSRDFormats::OutputBuffer1, L"FSR_Conv_OutputBuffer1");
         m_outputBuffer2 = CreateTex(FSRDFormats::OutputBuffer2, L"FSR_Conv_OutputBuffer2");
-        m_ambientOcclusionOutput = CreateTex(FSRDFormats::AmbientOcclusion, L"FSR_RR_AmbientOcclusion_Output");
-        m_specularOcclusionOutput = CreateTex(FSRDFormats::SpecularOcclusion, L"FSR_RR_SpecularOcclusion_Output");
+        m_ambientOcclusionOutput =
+            CreateTex(FSRDFormats::AmbientOcclusion, L"FSR_RR_AmbientOcclusion_Output");
+        m_specularOcclusionOutput =
+            CreateTex(FSRDFormats::SpecularOcclusion, L"FSR_RR_SpecularOcclusion_Output");
 
+        m_floorReference = CreateTex(FSRDFormats::DetailReference, L"FSR_Floor_Reference");
+        m_compositionOutput = CreateTex(DXGI_FORMAT_R16G16B16A16_FLOAT, L"FSR_Composition_Output");
+        m_upscalerDepthValid = false;
         m_smoothFloor = nullptr;
         m_radianceOutputsInUavState = false;
         m_ambientOcclusionOutputInUavState = false;
         m_specularOcclusionOutputInUavState = false;
 
-        outResources.Signals = { .IndirectSpecular =
-                                     CreateTex(FSRDFormats::IndirectSpecular, L"FSR_Conv_IndirectSpecular"),
-                                 .DirectDiffuse = CreateTex(FSRDFormats::DirectDiffuse, L"FSR_Conv_DirectDiffuse") };
+        outResources.Signals =
+        {
+            .IndirectSpecular = CreateTex(FSRDFormats::IndirectSpecular, L"FSR_Conv_IndirectSpecular"),
+            .DirectDiffuse = CreateTex(FSRDFormats::DirectDiffuse, L"FSR_Conv_DirectDiffuse")
+        };
 
         // Every allocation succeeded, so the new size is now the real state.
         m_maxWidth = width;
@@ -1216,161 +1553,136 @@ struct FSRDPreprocessor_Dx12::Impl
 
     void DispatchFloorSeed(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
     {
-        const XMFLOAT2 dispatchSize = { desc.RenderSize.x, desc.RenderSize.y };
-        const bool isDepthLinear = (desc.Flags & (uint32_t) ConvFlags::IsDepthLinear);
-        ID3D12Resource* inColor = desc.Resources.InColor;
-
-        ComPtr<ID3D12Resource>& floorPing = m_outputBuffer1;
-        ComPtr<ID3D12Resource>& floorPong = m_outputBuffer2;
-
-        for (int i = 0; i < FloorSeed::kPasses; i++)
-        {
-            // The game's subrect origin only applies while the colour source is still
-            // the game's texture. From pass 1 on it is the zero-based internal buffer,
-            // so carrying the origin forward would shift every read. Depth keeps its
-            // own origin because it is re-read from the game texture every pass.
-            DirectX::XMUINT4 sourceBase = desc.FloorSourceBase;
-            if (i > 0)
-            {
-                sourceBase.x = 0;
-                sourceBase.y = 0;
-            }
-
-            FloorSeed::Constants constants = { .InvProjMatrix = desc.InvProjMatrix,
-                                               .RenderSize = desc.RenderSize,
-                                               .NearPlane = desc.NearPlane,
-                                               .FarPlane = desc.FarPlane,
-                                               .Flags = (isDepthLinear ? uint32_t(FloorSeed::Flags::LinearDepth) : 0u) |
-                                                        ((desc.Flags & uint32_t(ConvFlags::RightHanded))
-                                                             ? uint32_t(FloorSeed::Flags::NegativeViewDepth)
-                                                             : 0u) |
-                                                        // The title's published linear depth is authoritative for
-                                                        // geometry: the canonical signed field is seeded from it so
-                                                        // the floor filter, the packing shader and the denoiser's own
-                                                        // depth input all describe the same view-space positions.
-                                                        (((desc.Flags & uint32_t(ConvFlags::TitleLinearDepth)) != 0u &&
-                                                          desc.Resources.InTitleLinearDepth != nullptr)
-                                                             ? uint32_t(FloorSeed::Flags::TitleLinearDepth)
-                                                             : 0u),
-                                               .CurrentJitter = { desc.JitterOffsets.x, desc.JitterOffsets.y },
-                                               .InputBase = sourceBase,
-                                               .NormalBase = { desc.InputBase1.x, desc.InputBase1.y },
-                                               ._NormalPadding = {},
-                                               .TitleDepthBase = { desc.TitleLinearDepthBase.x,
-                                                                   desc.TitleLinearDepthBase.y },
-                                               ._TitleDepthPadding = {} };
-            const auto cbData = GetAsByteSpan(constants);
-
-            // Create median filtered raw color before cross bilateral filtering
-            // Write to mip chain at top level
-            FloorSeed::Input in = { .Resources = { .InColor = inColor,
-                                                   .InNormals = desc.Resources.InNormals,
-                                                   .InDepth = desc.Resources.InDepth,
-                                                   .InTitleLinearDepth = desc.Resources.InTitleLinearDepth } };
-
-            FloorSeed::Output out = { .Resources = { .OutColor = floorPing.Get(),
-                                                     .OutLinearDepth = m_LinearDepth.Get(),
-                                                     .OutDepthGradient = m_out.Resources.Motion.Get() } };
-
-            m_floorSeedShader.Dispatch(cmdList, cbData, in.AsArray, out.AsArray, dispatchSize);
-
-            std::swap(floorPing, floorPong);
-            inColor = floorPong.Get();
-        }
-
-        m_smoothFloor = floorPong.Get();
+        FloorSeed::Constants constants = {
+            .InvProjMatrix = desc.InvProjMatrix,
+            .RenderSize = desc.RenderSize,
+            .NearPlane = desc.NearPlane,
+            .FarPlane = desc.FarPlane,
+            .Flags = ((desc.Flags & uint32_t(ConvFlags::IsDepthLinear)) ? uint32_t(FloorSeed::Flags::LinearDepth) : 0u) |
+                     ((desc.Flags & uint32_t(ConvFlags::RightHanded)) ? uint32_t(FloorSeed::Flags::NegativeViewDepth) : 0u) |
+                     ((desc.Flags & uint32_t(ConvFlags::TitleLinearDepth)) && desc.Resources.InTitleLinearDepth
+                          ? uint32_t(FloorSeed::Flags::TitleLinearDepth) : 0u),
+            .CurrentJitter = {desc.JitterOffsets.x, desc.JitterOffsets.y},
+            .InputBase = desc.FloorSourceBase,
+            .NormalBase = {desc.InputBase1.x, desc.InputBase1.y},
+            .TitleDepthBase = desc.TitleLinearDepthBase,
+            .AlbedoBase = {desc.InputBase2.z, desc.InputBase2.w},
+            .FloorEnabled = desc.FloorEnabled ? 1u : 0u
+        };
+        FloorSeed::Input in = {.Resources = {
+            .InColor = desc.Resources.InColor,
+            .InNormals = desc.Resources.InNormals,
+            .InDepth = desc.Resources.InDepth,
+            .InTitleLinearDepth = desc.Resources.InTitleLinearDepth,
+            .InDiffAlbedo = desc.Resources.InDiffAlbedo
+        }};
+        FloorSeed::Output out = {.Resources = {
+            .OutColor = m_outputBuffer2.Get(),
+            .OutLinearDepth = m_LinearDepth.Get(),
+            .OutDepthGradient = m_out.Resources.Motion.Get(),
+            .OutDetailReference = m_floorReference.Get(),
+            .OutCanonicalDepth = m_canonicalDepth.Get()
+        }};
+        m_floorSeedShader.Dispatch(cmdList, GetAsByteSpan(constants), in.AsArray, out.AsArray,
+                                  {desc.RenderSize.x, desc.RenderSize.y});
+        m_smoothFloor = m_outputBuffer2.Get();
     }
 
     void DispatchFloorFilter(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
     {
-        const XMFLOAT2 dispatchSize = { desc.RenderSize.x, desc.RenderSize.y };
-
-        ComPtr<ID3D12Resource>& floorPing = m_outputBuffer1;
-        ComPtr<ID3D12Resource>& floorPong = m_outputBuffer2;
-
-        // Tukey biweight: W = ( 1 - ( (center - tap) * scale )^2 )^2
-        // scale = 2^(i + 1) / norm
-        float rcpCrossNorm = (1.0f / 0.5f);
-        float rcpLumNorm = (1e-2f / 0.3f);
-
-        for (int i = 0; i < FloorFilter::kPasses; i++)
+        if (!desc.FloorEnabled) return;
+        static constexpr std::array<int, FloorFilter::kPasses> fullSteps {1, 2, 4, 8, 16};
+        static constexpr std::array<int, 3> fastSteps {1, 2, 16};
+        const std::span<const int> steps = desc.FloorFastMode
+            ? std::span<const int>(fastSteps) : std::span<const int>(fullSteps);
+        for (int step : steps)
         {
-            // The detail residual is only meaningful once the wavelet has reached its full
-            // support; re-injecting it on every pass would compound it kPasses times.
-            const bool isFinalPass = (i == (FloorFilter::kPasses - 1));
-
-            FloorFilter::Constants constants = { .DstTexSize = desc.RenderSize,
-                                                 .RcpCrossBlNorm = rcpCrossNorm,
-                                                 .RcpSelfBlNorm = rcpLumNorm,
-                                                 .StepSize = 1 << i,
-                                                 .FrameIndex = m_floorFilterFrameIndex,
-                                                 .DetailBoost = isFinalPass ? desc.FloorDetailBoost : 0.0f,
-                                                 .NormalSharpness = desc.FloorNormalSharpness,
-                                                 .AlbedoGuideStrength = desc.FloorAlbedoGuide,
-                                                 .LumSymmetry = desc.FloorLumSymmetry,
-                                                 .GrazingSharpness = desc.FloorGrazingSharpness,
-                                                 .EnvelopeBias = desc.FloorEnvelopeBias,
-                                                 // The guide is the only title texture this filter reads, so it is the
-                                                 // only input whose subrect origin is not already zero.
-                                                 .AlbedoBase = { desc.InputBase2.z, desc.InputBase2.w } };
-            const auto cbData = GetAsByteSpan(constants);
-
-            FloorFilter::Input in = { .Resources = { .InColor = m_smoothFloor,
-                                                     .InLinearDepth = m_LinearDepth.Get(),
-                                                     .InDepthGradient = m_out.Resources.Motion.Get(),
-                                                     .InDiffAlbedo = desc.Resources.InDiffAlbedo } };
-
-            FloorFilter::Output out = { .Resources = {
-                                            // m_smoothFloor always references the pong buffer at the start of
-                                            // an iteration. Write the opposite buffer, then swap the handles so
-                                            // the freshly filtered result becomes the next iteration's input.
-                                            .OutColor = floorPing.Get() } };
-
-            m_floorFilterShader.Dispatch(cmdList, cbData, in.AsArray, out.AsArray, dispatchSize);
-
-            std::swap(floorPing, floorPong);
-            m_smoothFloor = floorPong.Get();
+            FloorFilter::Constants constants = {
+                .DstTexSize = desc.RenderSize,
+                .StepSize = step,
+                .AlbedoBase = {desc.InputBase2.z, desc.InputBase2.w}
+            };
+            FloorFilter::Input in = {.Resources = {
+                .InColor = m_smoothFloor,
+                .InLinearDepth = m_LinearDepth.Get(),
+                .InDepthGradient = m_out.Resources.Motion.Get(),
+                .InDiffAlbedo = desc.Resources.InDiffAlbedo
+            }};
+            FloorFilter::Output out = {.Resources = {.OutColor = m_outputBuffer1.Get()}};
+            m_floorFilterShader.Dispatch(cmdList, GetAsByteSpan(constants), in.AsArray, out.AsArray,
+                                        {desc.RenderSize.x, desc.RenderSize.y});
+            std::swap(m_outputBuffer1, m_outputBuffer2);
+            m_smoothFloor = m_outputBuffer2.Get();
         }
-
-        m_floorFilterFrameIndex++;
     }
 
-    void DispatchPackingShader(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
+    bool EnsureAdditiveConversionPipeline()
+    {
+        if (m_additiveConvPso)
+            return true;
+        if (m_additiveConvPsoFailed)
+            return false;
+
+        ScopedSkipHeapCapture skipHeapCapture {};
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_convShader.m_rootSig.Get();
+        psoDesc.CS = { FSRDInputConvAdditive_cso, sizeof(FSRDInputConvAdditive_cso) };
+        ComPtr<ID3D12PipelineState> additivePso;
+        const HRESULT result = m_pDev->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&additivePso));
+        if (FAILED(result))
+        {
+            m_additiveConvPsoFailed = true;
+            LOG_ERROR("FSRD additive conversion pipeline failed to initialize (HRESULT: {}); disable Additive Light Split to use the original pipeline",
+                      static_cast<uint32_t>(result));
+            return false;
+        }
+        m_additiveConvPso = std::move(additivePso);
+        return true;
+    }
+
+    void DispatchPackingShader(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc,
+                               ID3D12PipelineState* conversionPipeline)
     {
         const XMFLOAT2 dispatchSize = { desc.RenderSize.x, desc.RenderSize.y };
 
         // Prepare inputs for packing and format conversion
-        Conversion::Input in = { .Resources = { .InColor = desc.Resources.InColor,
-                                                .InDepth = m_LinearDepth.Get(),
-                                                .InMotionVectors = desc.Resources.InMotionVectors,
-                                                .InNormals = desc.Resources.InNormals,
-                                                .InRoughness = desc.Resources.InRoughness,
-                                                .InSpecHitDist = desc.Resources.InSpecHitDist,
-                                                .InDiffAlbedo = desc.Resources.InDiffAlbedo,
-                                                .InSpecAlbedo = desc.Resources.InSpecAlbedo,
-                                                .InBiasMask = desc.Resources.InBiasMask,
-                                                .InFloorColor = m_smoothFloor,
-                                                .InInspector = desc.Resources.InInspector,
-                                                .InEmissive = desc.Resources.InEmissive,
-                                                .InSpecularRayDirectionHitDistance =
-                                                    desc.Resources.InSpecularRayDirectionHitDistance,
-                                                .InDiffuseHitDistance = desc.Resources.InDiffuseHitDistance,
-                                                .InTitleLinearDepth = desc.Resources.InTitleLinearDepth,
-                                                .InResponsivityMask = desc.Resources.InResponsivityMask } };
+        Conversion::Input in = { .Resources =
+        {
+            .InColor = desc.Resources.InColor,
+            .InDepth = m_LinearDepth.Get(),
+            .InMotionVectors = desc.Resources.InMotionVectors,
+            .InNormals = desc.Resources.InNormals,
+            .InRoughness = desc.Resources.InRoughness,
+            .InSpecHitDist = desc.Resources.InSpecHitDist,
+            .InDiffAlbedo = desc.Resources.InDiffAlbedo,
+            .InSpecAlbedo = desc.Resources.InSpecAlbedo,
+            .InBiasMask = desc.Resources.InBiasMask,
+            .InFloorColor = m_smoothFloor,
+            .InInspector = desc.Resources.InInspector,
+            .InEmissive = desc.Resources.InEmissive,
+            .InSpecularRayDirectionHitDistance =
+                desc.Resources.InSpecularRayDirectionHitDistance,
+            .InDiffuseHitDistance = desc.Resources.InDiffuseHitDistance,
+            .InTitleLinearDepth = desc.Resources.InTitleLinearDepth,
+            .InResponsivityMask = desc.Resources.InResponsivityMask,
+            .InDetailReference = m_floorReference.Get()
+        }};
 
         uint32_t packFlags = desc.Flags | uint32_t(ConvFlags::IsDepthLinear);
         // A null SRV reads as zero, so the shader is safe either way, but the flag keeps the
         // "no mask provided" case explicit and visible in the debug views.
         if (desc.Resources.InBiasMask != nullptr)
             packFlags |= uint32_t(ConvFlags::HasBiasMask);
-        if (desc.FloorHandoverMode != 0u)
-            packFlags |= uint32_t(ConvFlags::FloorHandover);
-        if (desc.Resources.InSpecularRayDirectionHitDistance && desc.SpecularHitDistanceFromCombinedAlpha)
+        if (desc.FloorEnabled)
+            packFlags |= uint32_t(ConvFlags::FloorEnabled);
+        if (desc.Resources.InSpecularRayDirectionHitDistance &&
+            desc.SpecularHitDistanceFromCombinedAlpha)
         {
             packFlags |= uint32_t(ConvFlags::HasCombinedSpecHitDistance);
         }
 
-        Conversion::Constants packConstants = {
+        Conversion::Constants packConstants =
+        {
             .InvViewMatrix = desc.InvViewMatrix,
             .InvProjMatrix = desc.InvProjMatrix,
             .PrevViewMatrix = desc.PrevViewMatrix,
@@ -1383,12 +1695,13 @@ struct FSRDPreprocessor_Dx12::Impl
             .InputBase2 = desc.InputBase2,
             .InputBase3 = desc.InputBase3,
             .InputBase4 = desc.InputBase4,
-            .InputBase5 = { desc.TitleLinearDepthBase.x, desc.TitleLinearDepthBase.y, desc.SpecularHitDistanceBase.x,
-                            desc.SpecularHitDistanceBase.y },
+            .InputBase5 = {
+                desc.TitleLinearDepthBase.x, desc.TitleLinearDepthBase.y,
+                desc.SpecularHitDistanceBase.x, desc.SpecularHitDistanceBase.y
+            },
             .NearPlane = desc.NearPlane,
             .FarPlane = desc.FarPlane,
-            .FloorIsolation = desc.FloorIsolation,
-            .RoughnessFloor = desc.RoughnessFloor,
+            .FloorDetailPreservation = desc.FloorDetailPreservation,
             // The packing shader never sees the game's hardware depth. FloorSeed
             // has already converted it to signed linear view-space depth.
             .Flags = packFlags,
@@ -1396,39 +1709,60 @@ struct FSRDPreprocessor_Dx12::Impl
             .InspectorScale = desc.InspectorScale,
             .DebugDepthMax = desc.DebugDepthMax,
             // Only honour a mode the caller actually bound a resource for.
-            .DiffuseHitDistanceMode = desc.Resources.InDiffuseHitDistance != nullptr ? desc.DiffuseHitDistanceMode : 0u,
-            .FloorHandoverDetail = desc.FloorHandoverDetail,
-            .FloorHandoverMode = desc.FloorHandoverMode,
+            .DiffuseHitDistanceMode = desc.Resources.InDiffuseHitDistance != nullptr
+                ? desc.DiffuseHitDistanceMode
+                : 0u,
             .ResponsivityTrustThreshold = desc.ResponsivityTrustThreshold,
             .ResponsivityInvert = desc.ResponsivityInvert ? 1u : 0u,
-            ._Padding0 = 0.0f,
-            ._Padding1 = 0.0f,
             .BiasMaskStrength = desc.BiasMaskStrength,
-            .FloorSoftMin = desc.FloorSoftMin,
-            .FloorHandoverStrength = desc.FloorHandoverStrength,
-            .FloorClampSmoothing = desc.FloorClampSmoothing,
-            .FloorRawBlend = desc.FloorRawBlend,
-            .FloorStructureGate = desc.FloorStructureGate,
-            .DemodDivisorFloor = desc.DemodDivisorFloor
+            .DemodDivisorFloor = desc.DemodDivisorFloor,
+            .SpecularAlbedoDemodulation = desc.SpecularAlbedoDemodulation,
+            .DiffuseAlbedoModulation = desc.DiffuseAlbedoModulation,
+            .RecoveryMask = desc.RecoveryMask,
+            .AdditiveLightSplit = desc.AdditiveLightSplit,
         };
 
+        CaptureAdditive(cmdList, packConstants, in.AsArray);
         const std::span<const byte> convCBData((const byte*) &packConstants, sizeof(packConstants));
-        m_convShader.Dispatch(cmdList, convCBData, in.AsArray, m_out.AsRawArray, dispatchSize, true);
+        m_convShader.Dispatch(cmdList, convCBData, in.AsArray, m_out.AsRawArray, dispatchSize, true,
+                              conversionPipeline);
     }
 
-    void DispatchConversion(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
+    bool DispatchConversion(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
     {
-        if (!cmdList || !m_maxWidth)
-            return;
+        m_canonicalDepthValid = m_upscalerDepthValid = false;
+        m_conversionList = nullptr;
+        if (m_runtime) m_runtime->Begin(FSRDRuntimeSnapshot::Floor);
+        if (!cmdList || !m_maxWidth || !std::isfinite(desc.RenderSize.x) ||
+            !std::isfinite(desc.RenderSize.y) || desc.RenderSize.x <= 0 || desc.RenderSize.y <= 0 ||
+            desc.RenderSize.x > m_maxWidth || desc.RenderSize.y > m_maxHeight)
+            return false;
+        m_upscalerDepthRenderSize = desc.RenderSize;
 
-        // Reserve the complete chain before barriers, ping-pong swaps or dispatches.
-        // Unconsumed reservations from a bypass/error frame have no ticket and can
-        // be replaced here; committed slots remain protected until actual retirement.
-        m_floorSeedShader.Reserve(FloorSeed::kPasses);
-        m_floorFilterShader.Reserve(FloorFilter::kPasses);
-        m_convShader.Reserve(1);
-        m_compShader.Reserve(2); // composition plus the optional final debug blit
+        const bool useAdditivePipeline = std::isfinite(desc.AdditiveLightSplit) && desc.AdditiveLightSplit > 0.0f;
+        // Resolve the optional PSO before recording any Floor work or barriers.
+        if (useAdditivePipeline && !EnsureAdditiveConversionPipeline())
+            return false;
+        ID3D12PipelineState* conversionPipeline = useAdditivePipeline
+            ? m_additiveConvPso.Get() : m_convShader.m_pso.Get();
 
+        const std::array<XMUINT4,6> sourceBases { desc.FloorSourceBase,desc.InputBase0,
+            desc.InputBase1,desc.InputBase2,desc.InputBase3,desc.InputBase4 };
+        const XMFLOAT4 inputSettings { desc.BiasMaskStrength,desc.ResponsivityTrustThreshold,
+            desc.ResponsivityInvert ? 1.0f : 0.0f,desc.DemodDivisorFloor };
+        if (!desc.MotionHistoryValid || !desc.FloorEnabled ||
+            desc.Flags != m_historyConversionFlags ||
+            memcmp(&inputSettings,&m_historyInputSettings,sizeof(inputSettings)) != 0 ||
+            memcmp(sourceBases.data(),m_historySourceBases.data(),sizeof(sourceBases)) != 0 ||
+            memcmp(&desc.RenderSize,&m_historyRenderSize,sizeof(desc.RenderSize)) != 0)
+            m_historyValid = false;
+        m_historySourceBases=sourceBases;
+        m_historyRenderSize=desc.RenderSize;
+        m_historyConversionFlags=desc.Flags;
+        m_historyInputSettings=inputSettings;
+        m_motionHistoryValid=desc.MotionHistoryValid;
+        m_historyJitterDelta={desc.JitterOffsets.z-desc.JitterOffsets.x,
+                              desc.JitterOffsets.w-desc.JitterOffsets.y};
 
         // A title-published linear depth reaches every consumer of view-space position
         // - the floor seed/filter, the packing shader and the denoiser's own depth
@@ -1440,7 +1774,8 @@ struct FSRDPreprocessor_Dx12::Impl
         // against the canonical copy), so its declared state is carried through rather
         // than assumed: declaring a wider state than the resource is in records an
         // invalid barrier.
-        if ((desc.Flags & uint32_t(ConvFlags::TitleLinearDepth)) != 0 && desc.Resources.InTitleLinearDepth != nullptr)
+        if ((desc.Flags & uint32_t(ConvFlags::TitleLinearDepth)) != 0 &&
+            desc.Resources.InTitleLinearDepth != nullptr)
         {
             m_rrLinearDepth = desc.Resources.InTitleLinearDepth;
             m_rrLinearDepthState = desc.TitleLinearDepthState;
@@ -1455,21 +1790,36 @@ struct FSRDPreprocessor_Dx12::Impl
         // without committing to one. Transition it in for the floor-seed and packing reads;
         // the caller hands it back once the denoiser has finished with it.
         m_rrLinearDepthForwarded = false;
-        if (m_rrLinearDepth != nullptr && m_rrLinearDepthDeclaredState != static_cast<uint32_t>(kSrvState))
+        if (m_rrLinearDepth != nullptr &&
+            m_rrLinearDepthDeclaredState != static_cast<uint32_t>(kSrvState))
         {
-            AddBarrier(cmdList, m_rrLinearDepth, static_cast<D3D12_RESOURCE_STATES>(m_rrLinearDepthDeclaredState),
-                       kSrvState);
+            AddBarrier(cmdList, m_rrLinearDepth,
+                       static_cast<D3D12_RESOURCE_STATES>(m_rrLinearDepthDeclaredState), kSrvState);
             m_rrLinearDepthForwarded = true;
         }
 
         TransitionDenoiserOutputsToRead(cmdList);
 
         // Filtered raster lighting estimate
-        DispatchFloorSeed(cmdList, desc);
-        DispatchFloorFilter(cmdList, desc);
+        {
+            FSRDStageTimings::Scope timing(m_stageTimings, FSRDStageTimings::Floor);
+            DispatchFloorSeed(cmdList, desc);
+            DispatchFloorFilter(cmdList, desc);
+        }
+        if (m_runtime)
+        {
+            m_runtime->steps[FSRDRuntimeSnapshot::Floor] = desc.FloorEnabled
+                ? FSRDRuntimeSnapshot::Passed : FSRDRuntimeSnapshot::Disabled;
+            m_runtime->Begin(FSRDRuntimeSnapshot::Conversion);
+        }
 
         // DLSS-RR to FSR-RR conversion
-        DispatchPackingShader(cmdList, desc);
+        {
+            FSRDStageTimings::Scope timing(m_stageTimings, FSRDStageTimings::Conversion);
+            DispatchPackingShader(cmdList, desc, conversionPipeline);
+        }
+        if (m_runtime) m_runtime->Complete(FSRDRuntimeSnapshot::Conversion);
+        // Published only once every conversion stage and handoff barrier succeeded.
 
         // Diagnostic: read back the RR-facing linear depth, motion and normals while
         // their state is still the one this code set. The denoiser dispatch below
@@ -1481,30 +1831,115 @@ struct FSRDPreprocessor_Dx12::Impl
         {
             AddBarrier(cmdList, m_outputBuffer1.Get(), kSrvState, kUavState);
             AddBarrier(cmdList, m_outputBuffer2.Get(), kSrvState, kUavState);
+            AddBarrier(cmdList, m_directSpecularOutput.Get(), kSrvState, kUavState);
+            AddBarrier(cmdList, m_indirectDiffuseOutput.Get(), kSrvState, kUavState);
             AddBarrier(cmdList, m_ambientOcclusionOutput.Get(), kSrvState, kUavState);
             AddBarrier(cmdList, m_specularOcclusionOutput.Get(), kSrvState, kUavState);
             m_radianceOutputsInUavState = true;
             m_ambientOcclusionOutputInUavState = true;
             m_specularOcclusionOutputInUavState = true;
         }
+        m_canonicalDepthValid = true;
+        m_conversionList = cmdList;
+        return true;
+    }
+
+    bool EnsureSplitCompositionPipelines()
+    {
+        if (m_tileLightCompPso && m_tileAnchorCompPso) return true;
+        if (m_splitCompPsoFailed) return false;
+        ScopedSkipHeapCapture skipHeapCapture {};
+        // Ensure BOTH before recording either dispatch. Failure keeps the original
+        // single generic dispatch, so no partial output/history can be published.
+        const auto create = [&](D3D12_SHADER_BYTECODE code, ComPtr<ID3D12PipelineState>& result) {
+            if (result) return true;
+            D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+            desc.pRootSignature = m_compShader.m_rootSig.Get();
+            desc.CS = code;
+            const HRESULT status = m_pDev->CreateComputePipelineState(&desc, IID_PPV_ARGS(&result));
+            if (SUCCEEDED(status)) return true;
+            result.Reset();
+            LOG_WARN("FSRD optional split composition pipeline failed (HRESULT: {}); using generic composition",
+                     static_cast<uint32_t>(status));
+            return false;
+        };
+        if (!create({ FSRDOutputCompTileLight_cso, sizeof(FSRDOutputCompTileLight_cso) }, m_tileLightCompPso) ||
+            !create({ FSRDOutputCompTileAnchor_cso, sizeof(FSRDOutputCompTileAnchor_cso) }, m_tileAnchorCompPso))
+        {
+            m_splitCompPsoFailed = true;
+            return false;
+        }
+        return true;
+    }
+
+    ID3D12PipelineState* CompositionPipeline(const CompositionDesc& desc)
+    {
+        const auto variant = Composition::ChoosePipeline(desc.Flags, desc.FloorDetailPreservation,
+                                                         desc.RecoveryMask, desc.SpatialTemporalMask);
+        if (variant == Composition::PipelineVariant::Generic) return m_compShader.m_pso.Get();
+        const bool light = variant == Composition::PipelineVariant::Light;
+        auto& pipeline = light ? m_lightCompPso : m_noRecoveryCompPso;
+        auto& failed = light ? m_lightCompPsoFailed : m_noRecoveryCompPsoFailed;
+        if (!pipeline && !failed)
+        {
+            ScopedSkipHeapCapture skipHeapCapture {};
+            D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+            psoDesc.pRootSignature = m_compShader.m_rootSig.Get();
+            psoDesc.CS = light
+                ? D3D12_SHADER_BYTECODE { FSRDOutputCompLight_cso, sizeof(FSRDOutputCompLight_cso) }
+                : D3D12_SHADER_BYTECODE { FSRDOutputCompNoRecovery_cso, sizeof(FSRDOutputCompNoRecovery_cso) };
+            const HRESULT result = m_pDev->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&pipeline));
+            if (FAILED(result))
+            {
+                failed = true;
+                LOG_WARN("FSRD optional composition pipeline failed (HRESULT: {}); using generic composition",
+                         static_cast<uint32_t>(result));
+            }
+        }
+        return pipeline ? pipeline.Get() : m_compShader.m_pso.Get();
     }
 
     void DispatchComposition(ID3D12GraphicsCommandList* cmdList, const CompositionDesc& desc)
     {
+        if (m_runtime) m_runtime->Begin(FSRDRuntimeSnapshot::Composition);
         if (!cmdList || !m_maxWidth)
-            return;
+            throw std::runtime_error("Composition requires a command list and allocated resources");
 
+        m_historyPending=false;
+        const bool writeHistory=desc.FloorDetailPreservation>0 && desc.RecoveryMask != 0 &&
+            (desc.Flags & uint32_t(CompFlags::Debug))==0;
+        // Every retained recording freezes its predecessor. Reuse requires all
+        // producer/reader recordings invalidated and all queue fences completed.
+        m_historyNext.reset();
+        if (writeHistory)
+        {
+            m_historyNext = AcquireHistory(cmdList);
+            if (m_historyValid && m_historyPrevious)
+                ObserveHistory(cmdList, m_historyPrevious, false);
+        }
         auto& outResources = m_out.Resources;
         Composition::Input inputs = {};
-        Composition::Constants constants = { .DstTexSize = desc.DstTexSize,
-                                             .SourceBase = desc.SourceBase,
-                                             .CorrelationBias = desc.CorrelationBias,
-                                             .Flags = UINT(desc.Flags),
-                                             .SourceUvScale = { 1.0f, 1.0f },
-                                             .SourceUvOffset = {},
-                                             .FloorHandoverAnchorClamp = desc.FloorHandoverAnchorClamp,
-                                             .FloorHandoverCorrelationMix = desc.FloorHandoverCorrelationMix,
-                                             ._Padding0 = {} };
+        Composition::Constants constants = 
+        {
+            .DstTexSize = desc.DstTexSize,
+            .Flags = UINT(desc.Flags),
+            .DetailPreservation = desc.FloorDetailPreservation,
+            .RecoveryMask = desc.RecoveryMask,
+            .FloorHandoverAnchorClamp = desc.FloorHandoverAnchorClamp,
+            .SourceUvScale = {1.0f, 1.0f},
+            .SourceUvOffset = {},
+            .FloorHandoverCorrelationMix = desc.FloorHandoverCorrelationMix,
+            .HistoryValid = writeHistory && m_historyValid && m_motionHistoryValid ? 1u : 0u,
+            .HistoryJitterDelta = m_historyJitterDelta,
+            .WriteHistory = writeHistory ? 1u : 0u,
+            .SpecularAlbedoDemodulation = desc.SpecularAlbedoDemodulation,
+            .DiffuseAlbedoModulation = desc.DiffuseAlbedoModulation,
+            .SpatialTemporalMask = desc.SpatialTemporalMask,
+            .LumaRecovery = desc.LumaRecovery,
+            .ChromaRecovery = desc.ChromaRecovery,
+            .UnsupportedAlbedoRecovery = desc.UnsupportedAlbedoRecovery,
+            .DemodDivisorFloor = desc.DemodDivisorFloor
+        };
 
         // Transition denoiser output buffers to SRV for composition.
         TransitionDenoiserOutputsToRead(cmdList);
@@ -1515,31 +1950,128 @@ struct FSRDPreprocessor_Dx12::Impl
         // the albedo it would add floor light to the disabled channel instead of the
         // signal. The packed raw signal is the demodulated radiance the denoiser
         // would otherwise have consumed, so it is the energy-preserving passthrough.
-        ID3D12Resource* const specularRadiance = (desc.Flags & (uint32_t) CompFlags::SpecularSignalDisabled) != 0
-                                                     ? outResources.Signals.IndirectSpecular.Get()
-                                                     : m_outputBuffer1.Get();
-        ID3D12Resource* const diffuseRadiance = (desc.Flags & (uint32_t) CompFlags::DiffuseSignalDisabled) != 0
-                                                    ? outResources.Signals.DirectDiffuse.Get()
-                                                    : m_outputBuffer2.Get();
+        ID3D12Resource* const specularRadiance =
+            (desc.Flags & (uint32_t) CompFlags::SpecularSignalDisabled) != 0
+                ? outResources.Signals.IndirectSpecular.Get()
+                : m_outputBuffer1.Get();
+        ID3D12Resource* const diffuseRadiance =
+            (desc.Flags & (uint32_t) CompFlags::DiffuseSignalDisabled) != 0
+                ? outResources.Signals.DirectDiffuse.Get()
+                : m_outputBuffer2.Get();
 
-        inputs.Resources = { .InIndirectSpecular = specularRadiance,
-                             .InSpecularAlbedo = outResources.SpecAlbedo.Get(),
-                             .InDirectDiffuse = diffuseRadiance,
-                             .InDiffuseAlbedo = outResources.DiffAlbedo.Get(),
-                             .InSkipSignal = outResources.SkipSignal.Get(),
-                             .InRawColor = desc.InRawColor,
-                             .InRawIndirectSpecular = outResources.Signals.IndirectSpecular.Get(),
-                             .InNormals = outResources.Normals.Get(),
-                             .InHandover = outResources.Handover.Get() };
+        if (desc.UnsupportedAlbedoRecovery > 0.0f)
+        {
+            if (m_runtime) m_runtime->Begin(FSRDRuntimeSnapshot::AlbedoRecovery);
+            DispatchAlbedoTrust(cmdList, desc, diffuseRadiance);
+            if (m_runtime) m_runtime->Complete(FSRDRuntimeSnapshot::AlbedoRecovery);
+        }
+        else if (m_runtime)
+            m_runtime->steps[FSRDRuntimeSnapshot::AlbedoRecovery] = FSRDRuntimeSnapshot::Disabled;
+        if (m_runtime) m_runtime->Begin(FSRDRuntimeSnapshot::Composition);
 
-        // Motion stays a pure motion-vector texture: writing the composed colour there
-        // would feed the denoiser its own output as motion vectors.
-        ID3D12Resource* const compositionTarget = m_out.Resources.Motion.Get();
-        std::array<ID3D12Resource*, 1> uavs { compositionTarget };
+        inputs.Resources =
+        {
+            .InIndirectSpecular = specularRadiance,
+            .InSpecularAlbedo = outResources.SpecAlbedo.Get(),
+            .InDirectDiffuse = diffuseRadiance,
+            .InDiffuseAlbedo = outResources.DiffAlbedo.Get(),
+            .InSkipSignal = outResources.SkipSignal.Get(),
+            .InNormals = outResources.Normals.Get(),
+            .InDetailReference = outResources.DetailReference.Get(),
+            .InLinearDepth = m_LinearDepth.Get(),
+            .InMotion = outResources.Motion.Get(),
+            .InDecisionHistory = m_historyPrevious ? m_historyPrevious->decisions.Get() : nullptr,
+            .InHistoryMetadata = m_historyPrevious ? m_historyPrevious->metadata.Get() : nullptr,
+            // Always bound; read only while UnsupportedAlbedoRecovery is nonzero.
+            .InDirectSpecularDenoised = m_directSpecularOutput.Get(),
+            .InDirectSpecularSignal = outResources.DirectSpecular.Get(),
+            .InAlbedoTrust = m_albedoTrust[m_albedoTrustResult].Get(),
+            .InIndirectDiffuseDenoised = m_indirectDiffuseOutput.Get(),
+            .InIndirectSpecularSignal = outResources.Signals.IndirectSpecular.Get(),
+            .InDirectDiffuseSignal = outResources.Signals.DirectDiffuse.Get(),
+        };
+
+        Composition::Output outputs { .Resources = {
+            .OutColor=m_compositionOutput.Get(),
+            .OutDecisionHistory=writeHistory ? m_historyNext->decisions.Get() : nullptr,
+            .OutHistoryMetadata=writeHistory ? m_historyNext->metadata.Get() : nullptr } };
         const std::span<const byte> cbData((const byte*) &constants, sizeof(constants));
         const XMFLOAT2 dstDim = { constants.DstTexSize.x, constants.DstTexSize.y };
 
-        m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, uavs, dstDim, true);
+        {
+            FSRDStageTimings::Scope timing(m_stageTimings, FSRDStageTimings::Composition);
+            if (Composition::CanSplitTiles(desc.Flags, desc.FloorDetailPreservation,
+                                           desc.RecoveryMask, desc.SpatialTemporalMask) &&
+                EnsureSplitCompositionPipelines())
+            {
+                // Each call creates its own retained dispatch lease/CBV/descriptors.
+                // Both use unchanged SRVs and the same non-aliased history WRITE UAVs.
+                // autoBarrierOutput restores SRV state after the first pass before the
+                // second transitions it back to UAV; it also orders the disjoint writes.
+                m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
+                                      m_tileLightCompPso.Get());
+                m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
+                                      m_tileAnchorCompPso.Get());
+            }
+            else
+                m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
+                                      CompositionPipeline(desc));
+        }
+        m_historyPending=writeHistory;
+        if (m_runtime) m_runtime->Complete(FSRDRuntimeSnapshot::Composition);
+    }
+
+    // Unsupported-albedo evidence from RR's unmodulated specular output, then six
+    // same-surface a-trous steps that spread it over continuous surfaces. Requires the
+    // denoiser outputs in SRV state; leaves the result in m_albedoTrust[m_albedoTrustResult].
+    void DispatchAlbedoTrust(ID3D12GraphicsCommandList* cmdList, const CompositionDesc& desc,
+                             ID3D12Resource* diffuseRadiance)
+    {
+        FSRDStageTimings::Scope timing(m_stageTimings, FSRDStageTimings::AlbedoRecovery);
+        auto& outResources = m_out.Resources;
+        const XMFLOAT2 dim = { desc.DstTexSize.x, desc.DstTexSize.y };
+        TrustEvidence::Constants evidenceConstants = {
+            .DstTexSize = desc.DstTexSize,
+            .StepSize = 0,
+            .Flags = (desc.Flags & uint32_t(CompFlags::ExtraDiffuse)) != 0 ? 1u : 0u,
+            .DemodDivisorFloor = desc.DemodDivisorFloor
+        };
+        TrustEvidence::Input evidenceIn = { .Resources = {
+            .InDirectSpecularDenoised = m_directSpecularOutput.Get(),
+            .InDirectDiffuse = diffuseRadiance,
+            .InSpecularAlbedo = outResources.SpecAlbedo.Get(),
+            .InDiffuseAlbedo = outResources.DiffAlbedo.Get(),
+            .InSkipSignal = outResources.SkipSignal.Get(),
+            .InLinearDepth = m_LinearDepth.Get(),
+            .InNormals = outResources.Normals.Get(),
+            .InDirectSpecularSignal = outResources.DirectSpecular.Get(),
+            .InIndirectDiffuseDenoised = m_indirectDiffuseOutput.Get(),
+            .InIndirectSpecularSignal = outResources.Signals.IndirectSpecular.Get(),
+            .InDirectDiffuseSignal = outResources.Signals.DirectDiffuse.Get()
+        }};
+        TrustEvidence::Output evidenceOut = { .Resources = { .OutAlbedoTrust = m_albedoTrust[0].Get() } };
+        m_trustEvidenceShader.Dispatch(cmdList, GetAsByteSpan(evidenceConstants), evidenceIn.AsArray,
+                                       evidenceOut.AsArray, dim);
+
+        UINT read = 0;
+        for (UINT pass = 0; pass < TrustPropagate::kPasses; ++pass)
+        {
+            TrustPropagate::Constants constants = {
+                .DstTexSize = desc.DstTexSize,
+                .StepSize = 1 << pass,
+                .Flags = 0,
+                .DemodDivisorFloor = desc.DemodDivisorFloor
+            };
+            TrustPropagate::Input in = { .Resources = {
+                .InAlbedoTrust = m_albedoTrust[read].Get(),
+                .InLinearDepth = m_LinearDepth.Get(),
+                .InNormals = outResources.Normals.Get()
+            }};
+            TrustPropagate::Output out = { .Resources = { .OutAlbedoTrust = m_albedoTrust[1 - read].Get() } };
+            m_trustPropagateShader.Dispatch(cmdList, GetAsByteSpan(constants), in.AsArray, out.AsArray, dim);
+            read = 1 - read;
+        }
+        m_albedoTrustResult = read;
     }
 
     void TransitionDenoiserOutputsToRead(ID3D12GraphicsCommandList* cmdList) noexcept
@@ -1549,7 +2081,9 @@ struct FSRDPreprocessor_Dx12::Impl
 
         if (m_radianceOutputsInUavState)
         {
-            std::array<ID3D12Resource*, 2> buffers = { m_outputBuffer1.Get(), m_outputBuffer2.Get() };
+            // The direct-specular output shares the radiance outputs' state lifetime.
+            std::array<ID3D12Resource*, 4> buffers = { m_outputBuffer1.Get(), m_outputBuffer2.Get(),
+                m_directSpecularOutput.Get(), m_indirectDiffuseOutput.Get() };
             AddBarriers(cmdList, buffers, kUavState, kSrvState);
             m_radianceOutputsInUavState = false;
         }
@@ -1574,7 +2108,8 @@ struct FSRDPreprocessor_Dx12::Impl
 
         if (!m_radianceOutputsInUavState)
         {
-            std::array<ID3D12Resource*, 2> buffers = { m_outputBuffer1.Get(), m_outputBuffer2.Get() };
+            std::array<ID3D12Resource*, 4> buffers = { m_outputBuffer1.Get(), m_outputBuffer2.Get(),
+                m_directSpecularOutput.Get(), m_indirectDiffuseOutput.Get() };
             AddBarriers(cmdList, buffers, kSrvState, kUavState);
             m_radianceOutputsInUavState = true;
         }
@@ -1593,22 +2128,27 @@ struct FSRDPreprocessor_Dx12::Impl
     }
 
     void CopyAmbientOcclusionOutput(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* dstTex,
-                                    D3D12_RESOURCE_STATES dstState, uint32_t logicalWidth, uint32_t logicalHeight)
+                                    D3D12_RESOURCE_STATES dstState,
+                                    uint32_t logicalWidth, uint32_t logicalHeight)
     {
-        if (!cmdList || !dstTex || !m_ambientOcclusionOutputInUavState || logicalWidth == 0 || logicalHeight == 0)
+        if (!cmdList || !dstTex || !m_ambientOcclusionOutputInUavState ||
+            logicalWidth == 0 || logicalHeight == 0)
             throw std::runtime_error("Ambient-occlusion output is unavailable for publication");
 
         const D3D12_RESOURCE_DESC srcDesc = m_ambientOcclusionOutput->GetDesc();
         const D3D12_RESOURCE_DESC dstDesc = dstTex->GetDesc();
         if (srcDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-            dstDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || logicalWidth > srcDesc.Width ||
-            logicalHeight > srcDesc.Height || logicalWidth > dstDesc.Width || logicalHeight > dstDesc.Height ||
+            dstDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+            logicalWidth > srcDesc.Width || logicalHeight > srcDesc.Height ||
+            logicalWidth > dstDesc.Width || logicalHeight > dstDesc.Height ||
             dstDesc.DepthOrArraySize != 1 || dstDesc.MipLevels != 1)
         {
-            throw std::runtime_error("Ambient-occlusion destination is incompatible with the allocation ceiling");
+            throw std::runtime_error(
+                "Ambient-occlusion destination is incompatible with the allocation ceiling");
         }
 
-        AddBarrier(cmdList, m_ambientOcclusionOutput.Get(), kUavState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        AddBarrier(cmdList, m_ambientOcclusionOutput.Get(), kUavState,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE);
         if (dstState != D3D12_RESOURCE_STATE_COPY_DEST)
             AddBarrier(cmdList, dstTex, dstState, D3D12_RESOURCE_STATE_COPY_DEST);
 
@@ -1620,10 +2160,14 @@ struct FSRDPreprocessor_Dx12::Impl
         dstLocation.pResource = dstTex;
         dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         dstLocation.SubresourceIndex = 0;
-        const D3D12_BOX sourceBox { 0, 0, 0, logicalWidth, logicalHeight, 1 };
-        cmdList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, &sourceBox);
+        const D3D12_BOX sourceBox {
+            0, 0, 0, logicalWidth, logicalHeight, 1
+        };
+        cmdList->CopyTextureRegion(
+            &dstLocation, 0, 0, 0, &srcLocation, &sourceBox);
 
-        AddBarrier(cmdList, m_ambientOcclusionOutput.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, kSrvState);
+        AddBarrier(cmdList, m_ambientOcclusionOutput.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+                   kSrvState);
         if (dstState != D3D12_RESOURCE_STATE_COPY_DEST)
             AddBarrier(cmdList, dstTex, D3D12_RESOURCE_STATE_COPY_DEST, dstState);
 
@@ -1635,28 +2179,14 @@ struct FSRDPreprocessor_Dx12::Impl
         if (!cmdList || !m_pDev || width == 0 || height == 0)
             throw std::runtime_error("Invalid AMD RR debug-view output request");
 
-        if (!m_debugViewOutput || m_debugViewWidth != width || m_debugViewHeight != height)
-        {
-            auto newOutput =
-                CreateTexture2D(m_pDev, width, height, FSRDFormats::DebugView, L"FSR_RR_DebugView_Output", kUavState);
-            // Retire rather than release. The ring matches this preprocessor's
-            // frames-in-flight reuse horizon even when DRS reallocates every frame.
-            m_retiredDebugViewOutputs[m_retiredDebugViewOutputIndex] = std::move(m_debugViewOutput);
-            m_retiredDebugViewOutputIndex = (m_retiredDebugViewOutputIndex + 1u) % kBackBufferCount;
-            m_debugViewOutput = std::move(newOutput);
-            m_debugViewWidth = width;
-            m_debugViewHeight = height;
-            m_debugViewOutputInUavState = true;
-
-            LOG_INFO("[RR_DIAG] created dedicated AMD debug-view output: {}x{}, "
-                     "DXGI_FORMAT_R16G16B16A16_FLOAT, UAV",
-                     width, height);
-        }
-        else if (!m_debugViewOutputInUavState)
-        {
-            AddBarrier(cmdList, m_debugViewOutput.Get(), kSrvState, kUavState);
-            m_debugViewOutputInUavState = true;
-        }
+        auto& target = AcquireTarget(m_debugTargets, cmdList, width, height, FSRDFormats::DebugView,
+                                     L"FSR_RR_DebugView_Output");
+        m_debugViewOutput = target.resource;
+        m_debugViewWidth = width;
+        m_debugViewHeight = height;
+        if (!target.inUavState)
+            AddBarrier(cmdList, target.resource.Get(), kSrvState, kUavState);
+        target.inUavState = m_debugViewOutputInUavState = true;
 
         return m_debugViewOutput.Get();
     }
@@ -1668,43 +2198,61 @@ struct FSRDPreprocessor_Dx12::Impl
 
         AddBarrier(cmdList, m_debugViewOutput.Get(), kUavState, kSrvState);
         m_debugViewOutputInUavState = false;
+        for (auto& target : m_debugTargets)
+            if (target.resource.Get() == m_debugViewOutput.Get()) target.inUavState = false;
     }
 
-    void Blit(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcTex, ID3D12Resource* dstTex, XMFLOAT2 dstDim,
-              XMFLOAT2 logicalSrcDim, XMFLOAT2 logicalSrcBase)
+    void Blit(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcTex,
+              ID3D12Resource* dstTex, XMFLOAT2 dstDim, XMFLOAT2 logicalSrcDim,
+              XMFLOAT2 logicalSrcBase)
     {
         if (!cmdList || !srcTex || !dstTex)
-            return;
+            throw std::runtime_error("Blit requires a command list, source and destination");
 
         const D3D12_RESOURCE_DESC srcDesc = srcTex->GetDesc();
-        const XMFLOAT2 physicalSrcDim { static_cast<float>(srcDesc.Width), static_cast<float>(srcDesc.Height) };
+        const XMFLOAT2 physicalSrcDim {
+            static_cast<float>(srcDesc.Width), static_cast<float>(srcDesc.Height)
+        };
         if (logicalSrcDim.x == 0.0f || logicalSrcDim.y == 0.0f)
             logicalSrcDim = physicalSrcDim;
 
         if (dstDim.x == 0 || dstDim.y == 0)
         {
             D3D12_RESOURCE_DESC dstDesc = dstTex->GetDesc();
-            dstDim.x = (float) dstDesc.Width;
-            dstDim.y = (float) dstDesc.Height;
+            dstDim.x = (float)dstDesc.Width;
+            dstDim.y = (float)dstDesc.Height;
         }
 
-        if (physicalSrcDim.x == 0.0f || physicalSrcDim.y == 0.0f || logicalSrcDim.x <= 0.0f ||
-            logicalSrcDim.y <= 0.0f || logicalSrcBase.x < 0.0f || logicalSrcBase.y < 0.0f ||
+        if (physicalSrcDim.x == 0.0f || physicalSrcDim.y == 0.0f ||
+            logicalSrcDim.x <= 0.0f || logicalSrcDim.y <= 0.0f ||
+            logicalSrcBase.x < 0.0f || logicalSrcBase.y < 0.0f ||
             logicalSrcBase.x + logicalSrcDim.x > physicalSrcDim.x ||
-            logicalSrcBase.y + logicalSrcDim.y > physicalSrcDim.y || dstDim.x <= 0.0f || dstDim.y <= 0.0f)
-            return;
+            logicalSrcBase.y + logicalSrcDim.y > physicalSrcDim.y ||
+            dstDim.x <= 0.0f || dstDim.y <= 0.0f)
+            throw std::runtime_error("Blit source subrect or destination extent is invalid");
 
         Composition::Input inputs = {};
         inputs.Resources.InIndirectSpecular = srcTex;
 
-        const Composition::Constants constants = {
-            .DstTexSize = { dstDim.x, dstDim.y, (1.0f / dstDim.x), (1.0f / dstDim.y) },
-            .Flags = (UINT) CompFlags::RawSourceBlit | (UINT) CompFlags::ScaleSrc,
-            .SourceUvScale = { logicalSrcDim.x / physicalSrcDim.x, logicalSrcDim.y / physicalSrcDim.y },
-            .SourceUvOffset = { logicalSrcBase.x / physicalSrcDim.x, logicalSrcBase.y / physicalSrcDim.y }
+        const Composition::Constants constants = 
+        {
+            .DstTexSize = 
+            {
+                dstDim.x,           dstDim.y,
+                (1.0f / dstDim.x),  (1.0f / dstDim.y)
+            },
+            .Flags = (UINT)CompFlags::RawSourceBlit | (UINT)CompFlags::ScaleSrc,
+            .SourceUvScale = {
+                logicalSrcDim.x / physicalSrcDim.x,
+                logicalSrcDim.y / physicalSrcDim.y
+            },
+            .SourceUvOffset = {
+                logicalSrcBase.x / physicalSrcDim.x,
+                logicalSrcBase.y / physicalSrcDim.y
+            }
         };
 
-        std::array<ID3D12Resource*, 1> uavs { dstTex };
+        std::array<ID3D12Resource*, Composition::kOutputCount> uavs { dstTex, nullptr, nullptr };
         const std::span<const byte> cbData((const byte*) &constants, sizeof(constants));
 
         m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, uavs, dstDim, false);
@@ -1714,7 +2262,8 @@ struct FSRDPreprocessor_Dx12::Impl
     {
         auto& outResources = m_out.Resources;
 
-        dispatchDesc.header = {
+        dispatchDesc.header = 
+        { 
             .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER,
             .pNext = &signalHeader // Link signal desc to main header
         };
@@ -1723,29 +2272,32 @@ struct FSRDPreprocessor_Dx12::Impl
         // and the one every other consumer reads - the floor seed writes it from the
         // title's published linear depth when one is provided, so the denoiser sees the
         // same geometry the packing and floor passes describe.
-        dispatchDesc.linearDepth =
-            ffxApiGetResourceDX12(m_LinearDepth.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-        dispatchDesc.motionVectors =
-            ffxApiGetResourceDX12(outResources.Motion.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-        dispatchDesc.normals =
-            ffxApiGetResourceDX12(outResources.Normals.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-        dispatchDesc.specularAlbedo =
-            ffxApiGetResourceDX12(outResources.SpecAlbedo.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-        dispatchDesc.diffuseAlbedo =
-            ffxApiGetResourceDX12(outResources.DiffAlbedo.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        dispatchDesc.linearDepth = ffxApiGetResourceDX12(
+            m_LinearDepth.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        dispatchDesc.motionVectors = ffxApiGetResourceDX12(outResources.Motion.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        dispatchDesc.normals = ffxApiGetResourceDX12(
+            outResources.Normals.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        dispatchDesc.specularAlbedo = ffxApiGetResourceDX12(
+            outResources.SpecAlbedo.Get(),
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        dispatchDesc.diffuseAlbedo = ffxApiGetResourceDX12(
+            outResources.DiffAlbedo.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
     }
 };
 
 // Public interface
 
-FSRDPreprocessor_Dx12::FSRDPreprocessor_Dx12(std::string_view name, ID3D12Device* pDev)
-    : m_impl(std::make_unique<Impl>()), m_InstanceName(name), m_IsInitialized(false)
+FSRDPreprocessor_Dx12::FSRDPreprocessor_Dx12(std::string_view name, ID3D12Device* pDev) :
+    m_impl(std::make_unique<Impl>()), 
+    m_InstanceName(name),
+    m_IsInitialized(false)
 {
     try
     {
         m_impl->m_pDev = pDev;
         m_impl->Initialize(GetAsByteSpan(FSRDFloorSeed_cso), GetAsByteSpan(FSRDFloor_cso),
-                           GetAsByteSpan(FSRDInputConv_cso), GetAsByteSpan(FSRDOutputComp_cso));
+                           GetAsByteSpan(FSRDInputConv_cso),
+                           GetAsByteSpan(FSRDOutputComp_cso));
         m_IsInitialized = true;
     }
     catch (const std::exception& err)
@@ -1756,12 +2308,13 @@ FSRDPreprocessor_Dx12::FSRDPreprocessor_Dx12(std::string_view name, ID3D12Device
 
 FSRDPreprocessor_Dx12::~FSRDPreprocessor_Dx12() = default;
 
+
 bool FSRDPreprocessor_Dx12::IsInit() const { return m_IsInitialized; }
 
 std::string_view FSRDPreprocessor_Dx12::GetName() const { return m_InstanceName; }
 
 bool FSRDPreprocessor_Dx12::SetMaxRenderSize(UINT width, UINT height)
-{
+{ 
     try
     {
         m_impl->SetMaxRenderSize(width, height);
@@ -1776,11 +2329,12 @@ bool FSRDPreprocessor_Dx12::SetMaxRenderSize(UINT width, UINT height)
 }
 
 bool FSRDPreprocessor_Dx12::DispatchConversion(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
-{
+{ 
+    if (!m_IsInitialized)
+        return false;
     try
     {
-        m_impl->DispatchConversion(cmdList, desc);
-        return true;
+        return m_impl->DispatchConversion(cmdList, desc);
     }
     catch (const std::exception& err)
     {
@@ -1788,6 +2342,29 @@ bool FSRDPreprocessor_Dx12::DispatchConversion(ID3D12GraphicsCommandList* cmdLis
     }
 
     return false;
+}
+
+void FSRDPreprocessor_Dx12::SetStageTimings(FSRDStageTimings* timings)
+{
+    m_impl->m_stageTimings = timings;
+}
+
+void FSRDPreprocessor_Dx12::SetRuntimeSnapshot(FSRDRuntimeSnapshot* snapshot)
+{
+    m_impl->m_runtime = snapshot;
+}
+
+bool FSRDPreprocessor_Dx12::ConfigureSignalResources(bool extraDiffuse, bool extraSpecular, bool albedoRecovery,
+                                                     bool diffuseCopy)
+{
+    if (m_impl->m_maxWidth != 0) return false;
+    m_impl->m_extraDiffuse = extraDiffuse;
+    m_impl->m_extraSpecular = extraSpecular;
+    m_impl->m_albedoRecovery = albedoRecovery;
+    // Conversion still writes u9 without the diffuse copy. Like every disabled slot it is a
+    // 1x1 placeholder, and typed UAV stores outside it are discarded.
+    m_impl->m_diffuseCopy = albedoRecovery && diffuseCopy;
+    return true;
 }
 
 void FSRDPreprocessor_Dx12::GetSignals(ffxDispatchDescDenoiser& dispatchDesc,
@@ -1799,22 +2376,66 @@ void FSRDPreprocessor_Dx12::GetSignals(ffxDispatchDescDenoiser& dispatchDesc,
     ID3D12Resource* diffuseInput = signalData.DirectDiffuse.Get();
     ID3D12Resource* specularInput = signalData.IndirectSpecular.Get();
 
-    directDiffuse = {
-        .header = { .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_DIRECT_DIFFUSE, .pNext = &indirectSpecular.header },
-        .signal = { .input = ffxApiGetResourceDX12(diffuseInput, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ),
-                    .output =
-                        ffxApiGetResourceDX12(m_impl->m_outputBuffer2.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS),
-                    .checkerboardOrigin = 0 }
+    directDiffuse =
+    {
+        .header =
+        {
+            .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_DIRECT_DIFFUSE,
+            .pNext = &indirectSpecular.header
+        },
+        .signal =
+        {
+            .input = ffxApiGetResourceDX12(diffuseInput, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ),
+            .output = ffxApiGetResourceDX12(m_impl->m_outputBuffer2.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS),
+            .checkerboardOrigin = 0
+        }
     };
 
-    indirectSpecular = { .header = { .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_INDIRECT_SPECULAR },
-                         .signal = {
-                             .input = ffxApiGetResourceDX12(specularInput, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ),
-                             .output = ffxApiGetResourceDX12(m_impl->m_outputBuffer1.Get(),
-                                                             FFX_API_RESOURCE_STATE_UNORDERED_ACCESS),
-                             .checkerboardOrigin = 0 } };
+    indirectSpecular =
+    {
+        .header = { .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_INDIRECT_SPECULAR },
+        .signal =
+        {
+            .input = ffxApiGetResourceDX12(specularInput, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ),
+            .output = ffxApiGetResourceDX12(m_impl->m_outputBuffer1.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS),
+            .checkerboardOrigin = 0
+        }
+    };
 
     m_impl->SetDescResources(directDiffuse.header, dispatchDesc);
+}
+
+void FSRDPreprocessor_Dx12::GetDirectSpecularSignal(ffxDispatchDescDenoiserDirectSpecular& directSpecular, bool unmodulated) const
+{
+    directSpecular =
+    {
+        .header = { .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_DIRECT_SPECULAR },
+        .signal =
+        {
+            .input = ffxApiGetResourceDX12(unmodulated ? m_impl->m_out.Resources.DirectSpecular.Get()
+                : m_impl->m_out.Resources.Signals.IndirectSpecular.Get(),
+                                           FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ),
+            .output = ffxApiGetResourceDX12(m_impl->m_directSpecularOutput.Get(),
+                                            FFX_API_RESOURCE_STATE_UNORDERED_ACCESS),
+            .checkerboardOrigin = 0
+        }
+    };
+}
+
+void FSRDPreprocessor_Dx12::GetIndirectDiffuseSignal(ffxDispatchDescDenoiserIndirectDiffuse& indirectDiffuse,
+                                                     bool unmodulated) const
+{
+    indirectDiffuse = {
+        .header = { .type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_INDIRECT_DIFFUSE },
+        .signal = {
+            .input = ffxApiGetResourceDX12(unmodulated ? m_impl->m_out.Resources.IndirectDiffuse.Get()
+                                                       : m_impl->m_out.Resources.Signals.DirectDiffuse.Get(),
+                                           FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ),
+            .output = ffxApiGetResourceDX12(m_impl->m_indirectDiffuseOutput.Get(),
+                                            FFX_API_RESOURCE_STATE_UNORDERED_ACCESS),
+            .checkerboardOrigin = 0
+        }
+    };
 }
 
 bool FSRDPreprocessor_Dx12::DispatchComposition(ID3D12GraphicsCommandList* cmdList, const CompositionDesc& desc)
@@ -1830,6 +2451,30 @@ bool FSRDPreprocessor_Dx12::DispatchComposition(ID3D12GraphicsCommandList* cmdLi
     }
 
     return false;
+}
+
+void FSRDPreprocessor_Dx12::InvalidateCompositionHistory() noexcept
+{
+    m_impl->m_historyValid = m_impl->m_historyPending = false;
+    m_impl->m_canonicalDepthValid = m_impl->m_upscalerDepthValid = false;
+    m_impl->m_conversionList = nullptr;
+}
+
+void FSRDPreprocessor_Dx12::FinishCompositionHistory(bool successfulNormalFrame) noexcept
+{
+    if (successfulNormalFrame && m_impl->m_historyPending)
+    {
+        m_impl->m_historyPrevious = std::move(m_impl->m_historyNext);
+        m_impl->m_historyValid=true;
+    }
+    else m_impl->m_historyValid=false;
+    m_impl->m_historyPending=false;
+    m_impl->m_historyNext.reset();
+    if (!successfulNormalFrame)
+    {
+        m_impl->m_canonicalDepthValid = m_impl->m_upscalerDepthValid = false;
+        m_impl->m_conversionList = nullptr;
+    }
 }
 
 void FSRDPreprocessor_Dx12::TransitionDenoiserOutputsToRead(ID3D12GraphicsCommandList* cmdList) noexcept
@@ -1852,13 +2497,14 @@ void FSRDPreprocessor_Dx12::RestoreTitleInputStates(ID3D12GraphicsCommandList* c
     }
 }
 
-bool FSRDPreprocessor_Dx12::CopyAmbientOcclusionOutput(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* dstTex,
-                                                       D3D12_RESOURCE_STATES dstState, uint32_t logicalWidth,
-                                                       uint32_t logicalHeight)
+bool FSRDPreprocessor_Dx12::CopyAmbientOcclusionOutput(
+    ID3D12GraphicsCommandList* cmdList, ID3D12Resource* dstTex,
+    D3D12_RESOURCE_STATES dstState, uint32_t logicalWidth, uint32_t logicalHeight)
 {
     try
     {
-        m_impl->CopyAmbientOcclusionOutput(cmdList, dstTex, dstState, logicalWidth, logicalHeight);
+        m_impl->CopyAmbientOcclusionOutput(
+            cmdList, dstTex, dstState, logicalWidth, logicalHeight);
         return true;
     }
     catch (const std::exception& err)
@@ -1879,8 +2525,8 @@ ID3D12Resource* FSRDPreprocessor_Dx12::GetSpecularOcclusionOutput() const
     return m_impl->m_specularOcclusionOutput.Get();
 }
 
-ID3D12Resource* FSRDPreprocessor_Dx12::PrepareDebugViewOutput(ID3D12GraphicsCommandList* cmdList, uint32_t width,
-                                                              uint32_t height)
+ID3D12Resource* FSRDPreprocessor_Dx12::PrepareDebugViewOutput(
+    ID3D12GraphicsCommandList* cmdList, uint32_t width, uint32_t height)
 {
     try
     {
@@ -1894,37 +2540,82 @@ ID3D12Resource* FSRDPreprocessor_Dx12::PrepareDebugViewOutput(ID3D12GraphicsComm
     return nullptr;
 }
 
-void FSRDPreprocessor_Dx12::TransitionDebugViewOutputToRead(ID3D12GraphicsCommandList* cmdList) noexcept
+void FSRDPreprocessor_Dx12::TransitionDebugViewOutputToRead(
+    ID3D12GraphicsCommandList* cmdList) noexcept
 {
     m_impl->TransitionDebugViewOutputToRead(cmdList);
 }
 
-ID3D12Resource* FSRDPreprocessor_Dx12::GetDebugViewOutput() const { return m_impl->m_debugViewOutput.Get(); }
+ID3D12Resource* FSRDPreprocessor_Dx12::GetDebugViewOutput() const
+{
+    return m_impl->m_debugViewOutput.Get();
+}
 
 ID3D12Resource* FSRDPreprocessor_Dx12::GetCompositionOutput() const
 {
-    // Motion stays a pure motion-vector texture: writing the composed colour there would
-    // feed the denoiser its own output as motion vectors.
-    return m_impl->m_out.Resources.Motion.Get();
+    return m_impl->m_compositionOutput.Get();
 }
 
-ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserDiffuseOutput() const { return m_impl->m_outputBuffer2.Get(); }
+ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserDiffuseOutput() const
+{
+    return m_impl->m_outputBuffer2.Get();
+}
 
 ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserDiffuseInputSignal() const
 {
     return m_impl->m_out.Resources.Signals.DirectDiffuse.Get();
 }
 
-ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserSpecularOutput() const { return m_impl->m_outputBuffer1.Get(); }
+ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserSpecularOutput() const
+{
+    return m_impl->m_outputBuffer1.Get();
+}
 
-ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserNormalsInput() const { return m_impl->m_out.Resources.Normals.Get(); }
+ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserNormalsInput() const
+{
+    return m_impl->m_out.Resources.Normals.Get();
+}
 
-ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserMotionInput() const { return m_impl->m_out.Resources.Motion.Get(); }
+ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserMotionInput() const
+{
+    return m_impl->m_out.Resources.Motion.Get();
+}
 
-ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserLinearDepthInput() const { return m_impl->m_LinearDepth.Get(); }
+void FSRDPreprocessor_Dx12::CompleteAdditiveCapture(ID3D12GraphicsCommandList* cmdList,
+    const ffxDispatchDescDenoiser& dispatch, const CompositionDesc& composition,
+    float preExposure, bool preExposureProvided,
+    const SRDepthDiagnostic& srDepth) noexcept
+{
+    m_impl->CompleteAdditiveCapture(cmdList, dispatch, composition, preExposure, preExposureProvided, srDepth);
+}
 
-bool FSRDPreprocessor_Dx12::Blit(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcTex, ID3D12Resource* dstTex,
-                                 XMFLOAT2 dstDim, XMFLOAT2 logicalSrcDim, XMFLOAT2 logicalSrcBase) const
+ID3D12Resource* FSRDPreprocessor_Dx12::PrepareUpscalerDepthInput(
+    ID3D12GraphicsCommandList* cmdList, const UpscalerDepthEncode& encode)
+{
+    try
+    {
+        return m_impl->PrepareUpscalerDepthInput(cmdList, encode);
+    }
+    catch (const std::exception& err)
+    {
+        LOG_ERROR("FSRD SR depth encoding failed. Details: {}", err.what());
+    }
+    return nullptr;
+}
+
+ID3D12Resource* FSRDPreprocessor_Dx12::GetUpscalerDepthInput() const
+{
+    return m_impl->m_upscalerDepthValid ? m_impl->m_upscalerDepthOutput.Get() : nullptr;
+}
+
+ID3D12Resource* FSRDPreprocessor_Dx12::GetDenoiserLinearDepthInput() const
+{
+    return m_impl->m_LinearDepth.Get();
+}
+
+bool FSRDPreprocessor_Dx12::Blit(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcTex,
+                                 ID3D12Resource* dstTex, XMFLOAT2 dstDim,
+                                 XMFLOAT2 logicalSrcDim, XMFLOAT2 logicalSrcBase) const
 
 {
     try

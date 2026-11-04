@@ -27,6 +27,10 @@
 | `tools/diag/retirement_stats.py` | 汇总 `AMD_RETIRE_DIAGNOSTICS` 构建输出的 retirement 采集 |
 | `tools/dev/scan-mojibake.py` | 扫描乱码（UTF-8 标点被按 GB18030 解码后写回，典型：U+9225 + `?`） |
 | `tools/mochizuki-sync/generate-model-profile.py` | 从受管张量校验清单生成 runtime 模型身份表；更新后同时维护 source pin 补丁 |
+| `tests/fsr-rr/run.cmd cpu\|gpu\|perf` | 真实产品 converter→AMD RR 1.2→合成→SR；GPU 必须提供含 adapter LUID、绝对 DLL 路径及哈希的 manifest。执行通过不代表画质通过 |
+| `tests/fsr-rr/compare_runs.py` | 分开报告噪声残差、细节、能量及时间指标；检查完整帧、输入、相机控制和 provider 身份；精确 policy 才能授权配置差异 |
+| `tests/host/run.cmd fsrd-ini` | 实际 Config/Util/CSimpleIni 隔离磁盘重启、profile、迁移、归档与 reset；不读取用户游戏 INI |
+| `OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/shader_tools/build_fsrd_shader.py all` | DXC 重建 13 个产品 FSRD CSO 与嵌入头；编译前核对 C++/HLSL 常量、位标志及资源布局 |
 
 测试按领域分目录，每个领域一个 `run.cmd`，统一入口：
 

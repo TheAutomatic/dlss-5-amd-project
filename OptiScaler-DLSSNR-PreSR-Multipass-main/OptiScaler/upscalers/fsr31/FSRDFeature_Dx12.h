@@ -2,8 +2,15 @@
 #include "FSR31Feature_Dx12.h"
 #include "hooks/Streamline_Hooks.h"
 #include "shaders/fsrd_preprocess/FSRDPreprocessor_Dx12.h"
-#include <dlssnr/submission/GpuBatchTracker.h>
 #include <array>
+#include <dlssnr/submission/GpuBatchTracker.h>
+#include <atomic>
+#include <mutex>
+#include "FSRDSignalPolicy.h"
+#include "FSRDCameraMatrices.h"
+#include "FSRDRawDepthProbe.h"
+#include "FSRDRetryPolicy.h"
+#include "gpu_time/FSRDStageTimings_Dx12.h"
 #include <DirectXMath.h>
 
 /**
@@ -23,22 +30,36 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
 
     Upscaler GetUpscalerType() const override { return Upscaler::FSR_RR; }
 
+    bool InitInternal(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*) override;
+    bool EvaluateFallback(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*) override;
+    void OnEvaluationStarting(NVSDK_NGX_Parameter*) override;
+    void OnEvaluationFinished(bool success) override;
+    void CopyRecreationParameters(NVSDK_NGX_Parameter*) const override;
+
     bool EvaluateInternal(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters) override;
 
-    // True when every recorded evaluate batch retired (completed or provably discarded).
     bool RecordingsRetired();
-
-    // Destroys the feature now if all its recordings retired, otherwise parks it on a
-    // static deferred queue that is reaped once the outstanding batches finish. Callers
-    // must use this instead of destroying an FSR-RR feature on a timer.
     static void DestroyWhenRetired(std::unique_ptr<FSRDFeatureDx12> feature);
     static void ReapDeferredFeatures();
 
-    // Submits the deferred denoiser dispatch list (DeferredDispatch mode) to
-    // the title's direct queue. Called from the present path, after every
-    // title submission of the frame.
+    // Bits 0/1: native specular/diffuse ray guide; bit 2: validated frame seen.
+    // Bits 8..11: effective radiance signals, after safe fallback for missing guides.
+    bool ReadRayRegenerationDiagnostics(FSRDRuntimeSnapshot& snapshot) const override
+    {
+        std::lock_guard lock(_runtimeMutex);
+        snapshot = _publishedRuntime;
+        snapshot.signalStatus = _signalStatus.load(std::memory_order_relaxed);
+        snapshot.timings = _stageTimings.GetSnapshot();
+        return true;
+    }
 
   private:
+    using RRResult = FSRD::RRResult;
+    FSRD::RRRetryPolicy _rrRetryPolicy;
+    bool _rrFailureRecordedThisEvaluation = false;
+    FSRDRawDepthProbe _rawDepthProbe;
+    RRResult ClassifyRayRegenerationFailure(ffxReturnCode_t result, bool dynamicInput) const noexcept;
+
     struct DenoiserConfiguration
     {
         static constexpr uint32_t kScalarCount = FFX_API_CONFIGURE_DENOISER_KEY_DISOCCLUSION_THRESHOLD;
@@ -74,17 +95,23 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
                 return &m_DebugViewLinearDepthBounds;
 
             const int index = static_cast<int>(key) - 1;
-            return index >= 0 && index < static_cast<int>(kScalarCount) ? &ScalarValues[index] : nullptr;
+            return index >= 0 && index < static_cast<int>(kScalarCount)
+                ? &ScalarValues[index]
+                : nullptr;
         }
     };
 
-    ffxContext _pDenoiserCtx;
-
-
-    // Retirement tickets of every evaluate recording that has not retired yet (pruned as
-    // batches complete). Teardown consults all of them; the instance outlives outstanding
-    // ones through the deferred-destruction queue below.
     std::vector<DlssNr::Submission::GpuBatch::Tracker::Ticket> _recordingTickets;
+    struct RetainedInput
+    {
+        DlssNr::Submission::GpuBatch::Tracker::Ticket ticket;
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+    };
+    std::vector<RetainedInput> _retainedInputs;
+    void RetainFrameInputs(ID3D12Resource* inspector);
+    static inline uint32_t _observedMaxRenderWidth = 0;
+    static inline uint32_t _observedMaxRenderHeight = 0;
+    ffxContext _pDenoiserCtx;
     ffxCreateContextDescDenoiser _denoiserCtxDesc;
     // Version parsed from the selected RR provider name. Kept separate from
     // FSR31Feature::_version so the SR upscaler version that Version() reports -
@@ -102,16 +129,35 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     // signals are neither declared at context creation nor dispatched.
     bool _denoiseDiffuse = true;
     bool _denoiseSpecular = true;
-    // An unset INI value means Auto. Start safely in direct mode, then resolve
-    // exactly once from the first frame's validated hit-distance resources.
-    ffxStructType_t _autoSpecularSignalDescType = FFX_API_DISPATCH_DESC_TYPE_DENOISER_DIRECT_SPECULAR;
-    bool _autoSpecularSignalResolved = false;
-    // Same contract for diffuse: unset means Auto, resolved once from the first
-    // validated frame that either has a diffuse ray length or does not.
-    ffxStructType_t _autoDiffuseSignalDescType = FFX_API_DISPATCH_DESC_TYPE_DENOISER_DIRECT_DIFFUSE;
-    bool _autoDiffuseSignalResolved = false;
+    // The context's RR layout uses current validated guides; historical observations
+    // remain diagnostics only and never determine a replacement context's layout.
+    FSRDSignals::Plan _plan;
+    FSRDSignals::Guides _guides;
+    bool _signalsObserved = false;
     bool _ambientOcclusionEnabled = false;
     bool _specularOcclusionEnabled = false;
+    // Unsupported-albedo recovery: the context also denoises the unmodulated specular
+    // share as RR direct specular, and composition blends toward it where the albedo's
+    // structure is absent from the light (water over a visible sea floor in the G-buffer).
+    // The layout reserves the slot at context creation; activation can change live.
+    bool _unsupportedAlbedoRecovery = false;
+    bool _extraSpecularSignal = false;
+    bool _extraDiffuseSignal = false;
+    uint32_t _signalMask = 0;
+    uint32_t _appliedApproximationMask = ~0u;
+    std::atomic<uint32_t> _signalStatus { 0 };
+    FSRDStageTimings _stageTimings;
+    mutable std::mutex _runtimeMutex;
+    FSRDRuntimeSnapshot _runtime, _publishedRuntime;
+    bool _rrInitialized = false;
+    uint64_t _evaluationNumber = 0;
+    std::string _rrFailure;
+    FSRDRuntimeSnapshot::Step _failedStep = FSRDRuntimeSnapshot::Inputs;
+
+    RRResult EvaluateRayRegeneration(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*);
+    void FailRayRegeneration(RRResult result, const char* reason);
+    ffxDispatchDescDenoiserIndirectDiffuse _indirectDiffuseSignal {};
+    ffxDispatchDescDenoiserDirectSpecular _directSpecularSignal {};
     Microsoft::WRL::ComPtr<ID3D12Resource> _ambientOcclusionNoisy;
     Microsoft::WRL::ComPtr<ID3D12Resource> _ambientOcclusionDenoised;
     D3D12_RESOURCE_STATES _ambientOcclusionNoisyState = D3D12_RESOURCE_STATE_COMMON;
@@ -148,16 +194,15 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     RoughnessSource _roughnessSource = RoughnessSource::Unknown;
 
     FSRDConvDesc _convDesc;
-    // Diagnostic-only DLSS-RR probes. These are not bound to the converter or RR dispatch yet.
+    // Optional title inputs are bound only after format, region and lifecycle validation.
     ID3D12Resource* _diffuseHitDistanceProbe = nullptr;
     ID3D12Resource* _diffuseRayDirectionHitDistanceProbe = nullptr;
     ID3D12Resource* _emissiveProbe = nullptr;
     ID3D12Resource* _materialIdProbe = nullptr;
     ID3D12Resource* _shadingModelIdProbe = nullptr;
     Microsoft::WRL::ComPtr<ID3D12Resource> _emissiveTaggedResource;
-    // Streamline tags only guarantee the native pointer for the declared
-    // lifecycle. Retain whichever optional reprojection sources win selection
-    // until this instance has finished submitting the frame.
+    // Current-frame selection; RetainFrameInputs extends these references through the
+    // recording ticket's actual GPU retirement rather than the next CPU evaluation.
     Microsoft::WRL::ComPtr<ID3D12Resource> _specularHitDistanceTaggedResource;
     // Retained per frame: the tag path hands back a resource whose lifetime the caller
     // must hold for as long as the command list that reads it.
@@ -174,8 +219,10 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     DXGI_FORMAT _loggedResponsivityViewFormat = DXGI_FORMAT_UNKNOWN;
     float _loggedResponsivityThreshold = -1.0f;
     bool _loggedResponsivityInvert = false;
-    std::array<uint64_t, static_cast<size_t>(RRTaggedSignal::Count)> _lastConsumedSLTagUpdates {};
-    std::array<uint32_t, static_cast<size_t>(RRTaggedSignal::Count)> _lastConsumedSLTagFrames {};
+    std::array<uint64_t, static_cast<size_t>(RRTaggedSignal::Count)>
+        _lastConsumedSLTagUpdates {};
+    std::array<uint32_t, static_cast<size_t>(RRTaggedSignal::Count)>
+        _lastConsumedSLTagFrames {};
     bool _emissiveProbeCompatible = false;
     bool _emissiveProbeFromStreamline = false;
     uint32_t _diffuseHitDistanceBaseX = 0;
@@ -184,7 +231,13 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     uint32_t _diffuseRayDirectionHitDistanceBaseY = 0;
     DirectX::XMFLOAT3 _lastCamPos {}; // Last successfully dispatched world-space camera position
     DirectX::XMFLOAT2 _previousDenoiserJitter {};
-    float _appliedRoughnessFloor = -1.0f;
+    int _appliedFloorEnabled = -1;
+    float _appliedFloorDetailPreservation = -1.0f;
+    float _appliedFloorHandoverAnchorClamp = -1.0f;
+    uint32_t _appliedSpatialTemporalMask = 0;
+    float _appliedLumaRecovery = 1.0f;
+    float _appliedChromaRecovery = 1.0f;
+    float _appliedFloorHandoverCorrelationMix = -1.0f;
     int _appliedNormalsInViewSpace = -1;
 
     // The definition of the depth field every view-space position in the chain is built from,
@@ -210,6 +263,8 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     DepthDefinition _appliedDepthDefinition {};
 
     bool _hasDenoiserHistory = false;
+    // SR continuity depends on actual SR dispatches, independently of RR history.
+    bool _upscalerResetPending = true;
     // True once this instance has recorded preprocessor work into a command list.
     // Releasing the converter's textures after that point can free resources an
     // already-submitted command list still references, so the automatic
@@ -221,50 +276,37 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     bool _lastDispatchRequestedReset = false;
     uint32_t _lastDenoiserRenderWidth = 0;
     uint32_t _lastDenoiserRenderHeight = 0;
-    // Largest logical render size ever dispatched, process-wide on purpose: the creation size is
-    // only the preset's optimal render size (DLSS distinguishes optimal/minimum/maximum), and a
-    // title that dispatches above it must not rebuild to the same too-small ceiling on every
-    // recreation. Surviving feature recreation is what breaks that loop; the cost is a ceiling that
-    // never shrinks, bounded by the largest size seen in this session.
-    static inline uint32_t _observedMaxRenderWidth = 0;
-    static inline uint32_t _observedMaxRenderHeight = 0;
     uint64_t _denoiserDispatchAttempts = 0;
     uint64_t _denoiserDispatchSuccesses = 0;
     uint64_t _denoiserDispatchFailures = 0;
 
-    // One-shot GPU probe of the RR diffuse path: copies the denoiser's diffuse
-    // OUTPUT and its (demodulated) INPUT signal into readback buffers on the
-    // deferred list, and logs luma statistics once the fence retires them.
-    // Distinguishes "output is zero", "output is a passthrough of the input"
-    // and "output is actually smoothed" without trusting any visual reading.
-    Microsoft::WRL::ComPtr<ID3D12Resource> _probeReadback[6];
-    DXGI_FORMAT _probeFormats[6] = {};
 
     // Matrices
     // Row-major storage with column-vector multiplication semantics.
-    DirectX::XMMATRIX _invViewMatrix;  // Camera rotation and translation
-    DirectX::XMMATRIX _viewMatrix;     // World to camera space
-    DirectX::XMMATRIX _prevViewMatrix; // Last world to camera space
-    DirectX::XMMATRIX _projMatrix;     // Unjittered perspective projection
-    bool _isRightHanded;               // True if the camera matrix is right handed
+    DirectX::XMMATRIX _invViewMatrix;   // Camera rotation and translation
+    DirectX::XMMATRIX _viewMatrix;      // World to camera space
+    DirectX::XMMATRIX _prevViewMatrix;  // Last world to camera space
+    DirectX::XMMATRIX _projMatrix;      // Unjittered perspective projection
+    FSRDCamera::Planes _cameraPlanes;
+    bool _isRightHanded;                // True if the camera matrix is right handed
 
     std::unique_ptr<FSRDPreprocessor_Dx12> FSRDConvShader;
 
     bool InitFSR3(const NVSDK_NGX_Parameter* InParameters) override;
 
-    bool CreateDenoiserContext();
+    RRResult CreateDenoiserContext();
 
-    bool QueryDenoiserVersions();
+    RRResult QueryDenoiserVersions();
 
     void DestroyDenoiserContext();
 
-    bool UpdateSize();
+    RRResult UpdateSize();
 
     /**
      * @brief Generates FFX denoiser configuration and input buffers from DLSS-RR inputs and NGX configurations.
      * Converts and repacks resources internally.
      */
-    bool PrepareDenoiserInput(ID3D12GraphicsCommandList* InCommandList, const NVSDK_NGX_Parameter& ngxParams,
+    RRResult PrepareDenoiserInput(ID3D12GraphicsCommandList* InCommandList, const NVSDK_NGX_Parameter& ngxParams,
                               ffxDispatchDescDenoiser& dispatchDesc,
                               ffxDispatchDescDenoiserAmbientOcclusion& ambientOcclusion,
                               ffxDispatchDescDenoiserDirectDiffuse& directDiffuse,
@@ -289,38 +331,52 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
         AllowCommonTransition,
     };
 
-    bool AcquireSLTaggedResource(const RRD3D12SignalTagSnapshot& snapshot, RRTaggedSignal signal,
-                                 const char* sourceName, TagStatePolicy statePolicy,
-                                 Microsoft::WRL::ComPtr<ID3D12Resource>& resource,
-                                 RRTaggedResourceDiagnostic& diagnostic);
+    bool AcquireSLTaggedResource(
+        const RRD3D12SignalTagSnapshot& snapshot, RRTaggedSignal signal,
+        const char* sourceName, TagStatePolicy statePolicy,
+        Microsoft::WRL::ComPtr<ID3D12Resource>& resource,
+        RRTaggedResourceDiagnostic& diagnostic);
 
     /**
      * @brief Retrieves DLSS-RR inputs to populate the inputs for the interop layer in order to generate
      FSR-RR compatible buffers.
      */
-    bool PrepareDenoiseConvInput(const NVSDK_NGX_Parameter& inParams);
+    RRResult PrepareDenoiseConvInput(const NVSDK_NGX_Parameter& inParams);
 
-    void ResolveSpecularHitDistance(const NVSDK_NGX_Parameter& inParams, const RRD3D12SignalTagSnapshot& rrTagSnapshot,
-                                    uint32_t renderWidth, uint32_t renderHeight, uint32_t motionWidth,
-                                    uint32_t motionHeight, ID3D12Resource* ngxSpecularHitDistance,
+    void ResolveSpecularHitDistance(const NVSDK_NGX_Parameter& inParams,
+                                    const RRD3D12SignalTagSnapshot& rrTagSnapshot,
+                                    uint32_t renderWidth, uint32_t renderHeight,
+                                    uint32_t motionWidth, uint32_t motionHeight,
+                                    ID3D12Resource* ngxSpecularHitDistance,
                                     ID3D12Resource* ngxSpecularRayDirectionHitDistance,
                                     const DirectX::XMUINT2& ngxSpecularHitDistanceBase,
                                     const DirectX::XMUINT2& ngxSpecularRayDirectionHitDistanceBase);
 
-    void AcquireOptionalInputs(const NVSDK_NGX_Parameter& inParams, const RRD3D12SignalTagSnapshot& rrTagSnapshot,
-                               uint32_t renderWidth, uint32_t renderHeight);
+    void AcquireOptionalInputs(const NVSDK_NGX_Parameter& inParams,
+                              const RRD3D12SignalTagSnapshot& rrTagSnapshot,
+                              uint32_t renderWidth, uint32_t renderHeight);
 
-    void ResolveDiffuseHitDistance(const NVSDK_NGX_Parameter& inParams, uint32_t renderWidth, uint32_t renderHeight);
+    void ResolveDiffuseHitDistance(const NVSDK_NGX_Parameter& inParams,
+                                   uint32_t renderWidth, uint32_t renderHeight);
 
-    bool ResolveCameraMatrices(const NVSDK_NGX_Parameter& inParams, const sl::Constants& slData,
-                               bool hasCurrentSLConstants);
+    bool ResolveCameraMatrices(const NVSDK_NGX_Parameter& inParams,
+                               const sl::Constants& slData, bool hasCurrentSLConstants);
 
-    bool ResolveSignalTypes(bool isReady, bool hasCurrentSLConstants);
+    RRResult ResolveSignalTypes(bool isReady);
+    void PublishSignalStatus()
+    {
+        const FSRDSignals::Status status { _signalsObserved, _guides.specular, _guides.diffuse,
+                                           _unsupportedAlbedoRecovery, _plan };
+        _signalStatus.store(status.Pack(), std::memory_order_relaxed);
+    }
+
 
     /**
      * @brief Converts previously retrieved DLSS-RR resources into FSR-RR inputs.
      */
     bool ConvertDenoiserBuffers(ID3D12GraphicsCommandList* InCommandList);
+
+    void ApplyRoutingSettings(float biasStrength, float responsivityThreshold, bool responsivityInvert);
 
     // Decides whether the title's depth is hardware or already linear, and applies it.
     void ApplyDepthInterpretation();
@@ -328,7 +384,7 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
     /**
      * @brief Dispatches FSR-RR denoiser converted inputs. Runs before upscaler.
      */
-    bool DispatchDenoiser(ID3D12GraphicsCommandList* InCommandList, const ffxDispatchDescDenoiser& dispatchDesc);
+    RRResult DispatchDenoiser(ID3D12GraphicsCommandList* InCommandList, const ffxDispatchDescDenoiser& dispatchDesc);
 
     void CommitDenoiserHistory() noexcept;
 
@@ -341,11 +397,13 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
 
     void InvalidateDenoiserHistory() noexcept
     {
+        if (FSRDConvShader) FSRDConvShader->InvalidateCompositionHistory();
+        _upscalerResetPending = true;
         _hasDenoiserHistory = false;
         _lastDispatchRequestedReset = false;
     }
 
-    bool SetDefaultConfiguration();
+    RRResult SetDefaultConfiguration();
 
     ffxReturnCode_t SetDefaultConfiguration(FfxApiConfigureDenoiserKey key);
 

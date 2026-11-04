@@ -51,6 +51,8 @@ int main()
         return f;
     };
     auto& tracker = GB::Tracker::Instance();
+    assert(!tracker.ObserveCompletion(GB::kInvalidTicket));
+    assert(!tracker.ObserveCompletion(UINT64_MAX));
 
     // ---- T1: native list records and retires through the executed fence ----
     {
@@ -60,12 +62,16 @@ int main()
                                                   IID_PPV_ARGS(&native))));
         const auto ticket = tracker.Record(native.Get());
         assert(ticket != GB::kInvalidTicket);
+        const auto receipt = tracker.ObserveCompletion(ticket);
+        assert(receipt && receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Outstanding);
+        assert(tracker.ObserveCompletion(ticket) == receipt);
         assert(StatusOf(ticket) == GB::Tracker::Status::Outstanding); // recorded, not yet executed
         assert(SUCCEEDED(native->Close()));
         ID3D12CommandList* t1Lists[] = {native.Get()};
         tracker.OnExecuted(1, t1Lists, queue.Get());
         assert(tracker.Wait(ticket, 5000)); // fence completed -> retired
         assert(StatusOf(ticket) == GB::Tracker::Status::Retired);
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Completed);
     }
 
     // (Native replays are not counted: a pooled native list re-submits the same pointer
@@ -77,9 +83,11 @@ int main()
                                                   IID_PPV_ARGS(&native))));
         assert(SUCCEEDED(native->Close()));
         const auto ticket = tracker.Record(native.Get());
+        const auto receipt = tracker.ObserveCompletion(ticket);
         ID3D12CommandList* lists[] = {native.Get()};
         tracker.OnExecuted(1, lists, queue.Get());
         assert(tracker.Wait(ticket, 5000)); // first execution completes
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Completed);
         const auto replaysBefore = tracker.ReplaysAfterCompletion();
 
         // Block the queue so the replay's signal cannot complete yet.
@@ -87,9 +95,11 @@ int main()
         assert(SUCCEEDED(queue->Wait(block.Get(), 1)));
         tracker.OnExecuted(1, lists, queue.Get()); // replay
         assert(StatusOf(ticket) == GB::Tracker::Status::Outstanding); // re-armed, replay in flight
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Outstanding);
         assert(SUCCEEDED(block->Signal(1)));
         assert(tracker.Wait(ticket, 5000));
         assert(StatusOf(ticket) == GB::Tracker::Status::Retired);
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Completed);
         assert(tracker.ReplaysAfterCompletion() == replaysBefore); // native: not counted
     }
 
@@ -127,10 +137,12 @@ int main()
         ComPtr<S::CommandListProxy> proxy;
         assert(SUCCEEDED(S::CommandListProxy::Create(device.Get(), alloc.Get(), real.Get(), &proxy)));
         const auto ticket = tracker.Record(proxy.Get()); // registers the lifecycle observer
+        const auto receipt = tracker.ObserveCompletion(ticket);
         assert(StatusOf(ticket) == GB::Tracker::Status::Outstanding);
         assert(SUCCEEDED(proxy->Close()));
         assert(SUCCEEDED(proxy->Reset(alloc.Get(), nullptr))); // commands erased: never reaches the GPU
         assert(StatusOf(ticket) == GB::Tracker::Status::Retired); // no fence wait involved
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Discarded);
     }
 
     // ---- T4: proxy Reset does not retire a submitted recording with a pending fence ----
@@ -142,6 +154,7 @@ int main()
         ComPtr<S::CommandListProxy> proxy;
         assert(SUCCEEDED(S::CommandListProxy::Create(device.Get(), alloc.Get(), real.Get(), &proxy)));
         const auto ticket = tracker.Record(proxy.Get());
+        const auto receipt = tracker.ObserveCompletion(ticket);
         assert(SUCCEEDED(proxy->Close()));
 
         ComPtr<ID3D12Fence> block = makeBlockFence();
@@ -152,10 +165,16 @@ int main()
 
         assert(SUCCEEDED(proxy->Reset(alloc.Get(), nullptr))); // generation advances; work already in flight
         assert(StatusOf(ticket) == GB::Tracker::Status::Outstanding); // MUST stay protected until the fence
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Outstanding);
 
         assert(SUCCEEDED(block->Signal(1)));
         assert(tracker.Wait(ticket, 5000));
         assert(StatusOf(ticket) == GB::Tracker::Status::Retired);
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Completed);
+        // Drive reclamation after invalidated GPU work completed. The receipt
+        // must retain completion even after its tracker entry has disappeared.
+        tracker.OnExecuted(1, lists, queue.Get());
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Completed);
     }
 
     // ---- T5: destroying the proxy discards a never-submitted recording at once ----
@@ -167,9 +186,17 @@ int main()
         ComPtr<S::CommandListProxy> proxy;
         assert(SUCCEEDED(S::CommandListProxy::Create(device.Get(), alloc.Get(), real.Get(), &proxy)));
         const auto ticket = tracker.Record(proxy.Get());
+        const auto receipt = tracker.ObserveCompletion(ticket);
         assert(SUCCEEDED(proxy->Close()));
         proxy.Reset(); // drop the last reference: proxy destroyed -> Invalidated(current identity)
         assert(StatusOf(ticket) == GB::Tracker::Status::Retired);
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Discarded);
+        const auto trigger = tracker.Record(real.Get());
+        ID3D12CommandList* lists[] = { real.Get() };
+        tracker.OnExecuted(1, lists, queue.Get());
+        assert(!tracker.ObserveCompletion(ticket));
+        assert(receipt->outcome.load() == GB::Tracker::CompletionReceipt::Outcome::Discarded);
+        assert(tracker.Wait(trigger, 5000));
     }
 
     // ---- T6: a submitted recording is reclaimed only after invalidation AND fence

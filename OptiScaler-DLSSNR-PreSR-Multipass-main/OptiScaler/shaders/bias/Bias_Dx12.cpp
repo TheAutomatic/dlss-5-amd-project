@@ -6,17 +6,19 @@
 
 #include <Config.h>
 
-bool Bias_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InSource, D3D12_RESOURCE_STATES InState)
+bool Bias_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InSource, D3D12_RESOURCE_STATES InState,
+                                    ID3D12GraphicsCommandList* InCommandList)
 {
     auto resourceFlags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS |
                          D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
 
-    auto result = Shader_Dx12::CreateBufferResource(InDevice, InSource, InState, &_buffer, resourceFlags);
+    auto result = Shader_Dx12::CreateBufferResource(InDevice, InSource, InState, &_buffer, resourceFlags,
+                                                   0, 0, DXGI_FORMAT_UNKNOWN, InCommandList);
 
     if (result)
     {
         _buffer->SetName(L"Bias_Buffer");
-        _bufferState = InState;
+        _bufferState = _recordedLifetime ? D3D12_RESOURCE_STATE_COMMON : InState;
     }
 
     return result;
@@ -35,11 +37,15 @@ bool Bias_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* I
 
     LOG_DEBUG("[{0}] Start!", _name);
 
-    ScopedGpuTime_Dx12 scopedGpuTime(GpuTime.get(), InCmdList);
-
-    _counter++;
-    _counter = _counter % BIAS_NUM_OF_HEAPS;
-    FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
+    std::unique_lock<std::recursive_mutex> recordingLock(DlssNr::Submission::RecordingMutex(), std::defer_lock);
+    if (_recordedLifetime) recordingLock.lock();
+    auto lease = AcquireDispatchLease(InCmdList, _pipelineState, {InResource, OutResource});
+    if (_recordedLifetime && !lease) return false;
+    _activeTiming = lease ? lease->timing.get() : GpuTime.get();
+    ScopedGpuTime_Dx12 scopedGpuTime(_activeTiming, InCmdList);
+    _counter = (_counter + 1) % BIAS_NUM_OF_HEAPS;
+    FrameDescriptorHeap& currentHeap = lease ? lease->heap : _frameHeaps[_counter];
+    auto* constantBuffer = lease ? lease->constants.Get() : _constantBuffer;
 
     CreateShaderResourceView(_device, InResource, currentHeap.GetSrvCPU(0));
     CreateUnorderedAccessView(_device, OutResource, currentHeap.GetUavCPU(0), 0);
@@ -47,7 +53,7 @@ bool Bias_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* I
     InternalConstants constants {};
     constants.Bias = std::clamp(InBias, 0.0f, 0.9f);
 
-    if (!CreateConstantsBuffer(_device, _constantBuffer, constants, currentHeap.GetCbvCPU(0)))
+    if (!CreateConstantsBuffer(_device, constantBuffer, constants, currentHeap.GetCbvCPU(0)))
     {
         LOG_ERROR("[{0}] Failed to create a constants buffer", _name);
         return false;

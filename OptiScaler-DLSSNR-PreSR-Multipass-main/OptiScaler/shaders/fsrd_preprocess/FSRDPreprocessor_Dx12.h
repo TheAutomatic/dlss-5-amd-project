@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "SysUtils.h"
 
 #include <DirectXMath.h>
@@ -7,12 +7,16 @@
 #include <memory>
 #include <string_view>
 
+class FSRDStageTimings;
+struct FSRDRuntimeSnapshot;
 struct ID3D12Device;
 struct ID3D12GraphicsCommandList;
 struct ID3D12Resource;
 
 struct ffxDispatchDescDenoiserDirectDiffuse;
 struct ffxDispatchDescDenoiserIndirectSpecular;
+struct ffxDispatchDescDenoiserDirectSpecular;
+struct ffxDispatchDescDenoiserIndirectDiffuse;
 struct ffxDispatchDescDenoiser;
 
 /**
@@ -22,89 +26,101 @@ struct ffxDispatchDescDenoiser;
 class FSRDPreprocessor_Dx12
 {
   public:
+
+    void SetStageTimings(FSRDStageTimings* timings);
+    void SetRuntimeSnapshot(FSRDRuntimeSnapshot* snapshot);
+    // Configure before the first allocation; inactive optional slots use tiny placeholders.
+    bool ConfigureSignalResources(bool extraDiffuse, bool extraSpecular, bool albedoRecovery, bool diffuseCopy);
+
     enum class ConvFlags : uint32_t
     {
         None = 0,
 
-        IsDepthLinear = 1 << 1,           // Interprets input depth as already linearized for view space calculations
-        IsRoughnessPacked = 1 << 2,       // Roughness = InNormals.A - NVSDK_NGX_DLSS_Roughness_Mode_Packed (Init param)
-        RightHanded = 1 << 3,             // View-space forward is negative Z
-        HasSpecHitDistance = 1 << 4,      // Indirect-specular A contains a valid ray hit distance
-        SpecularSignalIndirect = 1 << 5,  // Indirect A uses distance/-1; Direct A remains non-negative
-        HasEmissiveInput = 1 << 6,        // Optional GBuffer.Emissive input is bound
-        FloorHandover = 1 << 7,           // Hand exact-zero-roughness pixels to the spatial floor
-        MotionVectorsJittered = 1 << 8,   // Source XY contains previous-current raster jitter
+        IsDepthLinear =         1 << 1, // Interprets input depth as already linearized for view space calculations
+        IsRoughnessPacked =     1 << 2, // Roughness = InNormals.A - NVSDK_NGX_DLSS_Roughness_Mode_Packed (Init param)
+        RightHanded =           1 << 3, // View-space forward is negative Z
+        HasSpecHitDistance =    1 << 4, // Indirect-specular A contains a valid ray hit distance
+        SpecularSignalIndirect = 1 << 5, // Indirect A uses distance/-1; Direct A remains non-negative
+        HasEmissiveInput =      1 << 6, // Optional GBuffer.Emissive input is bound
+        FloorEnabled =     1 << 7, // Enable spatial floor and its detail reference
+        MotionVectorsJittered = 1 << 8, // Source XY contains previous-current raster jitter
         DisplayResolutionMotion = 1 << 9, // Source MV texture uses display-resolution coordinates
-        NormalsViewSpace = 1 << 11,       // Transform input view-space normals to world space
+        NormalsViewSpace =     1 << 11, // Transform input view-space normals to world space
         HasCombinedSpecHitDistance = 1 << 14, // Hit distance is combined resource alpha
-        TitleLinearDepth = 1 << 12,           // The title publishes its own linearised view depth
-        HasResponsivityMask = 1 << 13,        // The title publishes a per-pixel responsivity hint
-        HasBiasMask = 1 << 15,                // InBiasMask holds a real DLSS bias-current-color mask
+        TitleLinearDepth =      1 << 12, // The title publishes its own linearised view depth
+        HasResponsivityMask =   1 << 13, // The title publishes a per-pixel responsivity hint
+        HasBiasMask =           1 << 15, // InBiasMask holds a real DLSS bias-current-color mask
 
-        Debug = 1 << 16, // Denoiser and upscaler bypassed for debug out if this is set
-        DebugModeMask = 0xFF << 16,
+        Debug =                 1 << 16, // Denoiser and upscaler bypassed for debug out if this is set
+        DebugModeMask =         0xFF << 16,
 
-        DebugOutRadiance = Debug, // Default debug vis
+        DebugOutRadiance =      Debug, // Default debug vis
 
-        DebugInSpecHitDist = 1 << 17 | Debug,
-        DebugInMotion = 2 << 17 | Debug,
-        DebugInNormals = 3 << 17 | Debug,
-        DebugInRoughness = 4 << 17 | Debug,
-        DebugInDiffAlbedo = 5 << 17 | Debug,
-        DebugInSpecAlbedo = 6 << 17 | Debug,
+        DebugInSpecHitDist =    1 << 17 | Debug,
+        DebugInMotion =         2 << 17 | Debug,
+        DebugInNormals =        3 << 17 | Debug,
+        DebugInRoughness =      4 << 17 | Debug,
+        DebugInDiffAlbedo =     5 << 17 | Debug,
+        DebugInSpecAlbedo =     6 << 17 | Debug,
 
-        DebugOutSignalSplit = 7 << 17 | Debug,
-        DebugOutLinearDepth = 8 << 17 | Debug,
-        DebugOutMotion = 9 << 17 | Debug,
-        DebugOutNormals = 10 << 17 | Debug,
-        DebugOutSpecAlbedo = 11 << 17 | Debug,
-        DebugOutDiffAlbedo = 12 << 17 | Debug,
+        DebugOutSignalSplit =   7 << 17 | Debug,
+        DebugOutLinearDepth =   8 << 17 | Debug,
+        DebugOutMotion =        9 << 17 | Debug,
+        DebugOutNormals =       10 << 17 | Debug,
+        DebugOutSpecAlbedo =    11 << 17 | Debug,
+        DebugOutDiffAlbedo =    12 << 17 | Debug,
 
-        DebugOutDepthDelta = 13 << 17 | Debug,
-        DebugNormDepth = 14 << 17 | Debug,
+        DebugOutDepthDelta =    13 << 17 | Debug,
+        DebugNormDepth =        14 << 17 | Debug,
 
-        DebugAlbedoError = 15 << 17 | Debug,
+        DebugAlbedoError =      15 << 17 | Debug,
 
         // 16 was the floor variance view; it went with the seed's unpublished instability channel.
-        DebugFloorColor = 17 << 17 | Debug,
+        DebugFloorColor =       17 << 17 | Debug,
 
         // Remodulated RR signal before denoising. This is intentionally a
         // conversion debug mode so it displays the exact signal generated by
         // the DLSS-RR-to-FSR-RR packing pass.
         DebugRawIndirectSpecular = 18 << 17 | Debug,
         DebugEffectiveRoughness = 19 << 17 | Debug,
-        DebugRawRoughness = 20 << 17 | Debug,
-        DebugEmissiveMask = 21 << 17 | Debug,
-        DebugAppliedRoughnessFloor = 22 << 17 | Debug,
+        DebugRawRoughness =      20 << 17 | Debug,
+        DebugEmissiveMask =      21 << 17 | Debug,
+        DebugAppliedRoughness = 22 << 17 | Debug,
         DebugResourceInspector = 23 << 17 | Debug,
-        DebugMaterialType = 24 << 17 | Debug,
-        DebugInEmissive = 25 << 17 | Debug,
-        DebugRRMaterialType = 26 << 17 | Debug,
-        DebugAlbedoStructure = 27 << 17 | Debug,
-        DebugFloorHandover = 28 << 17 | Debug,
+        DebugMaterialType =      24 << 17 | Debug,
+        DebugInEmissive =        25 << 17 | Debug,
+        DebugRRMaterialType =    26 << 17 | Debug,
+        DebugAlbedoStructure =   27 << 17 | Debug,
+        DebugFloorResidual =    28 << 17 | Debug,
 
         // Optional-input validation views
-        DebugSpecularSplit = 30 << 17 | Debug, // Specular signal's share of the demodulated split
+        DebugSpecularSplit =     30 << 17 | Debug, // Specular signal's share of the demodulated split
         DebugInTitleLinearDepth = 31 << 17 | Debug,
         DebugTitleLinearDepthDiff = 32 << 17 | Debug,
         DebugInResponsivityMask = 33 << 17 | Debug,
 
-        DebugFloorStructure = 38 << 17 | Debug,   // Guide structure gate on the floor's raw blend
-        DebugSkipUnmapped = 39 << 17 | Debug,     // Skip share that modulation could not represent
-        DebugSkipFloor = 40 << 17 | Debug,        // Skip share contributed by the floor path
-        DebugSkipRawInject = 41 << 17 | Debug,    // Skip share the ceiling clamp took from the raw sample
-        DebugInBiasMask = 34 << 17 | Debug,       // Bias mask as applied, after strength scaling
-        DebugDemodGain = 35 << 17 | Debug,        // 1 / albedo used as the demodulation divisor
-        DebugHitDistGate = 36 << 17 | Debug,      // The specular tracking ramp on its own
-        DebugDenoiserFraction = 37 << 17 | Debug, // Share of the pixel reaching the denoiser
+        DebugFloorNoise =    38 << 17 | Debug, // Seed's robust local noise estimate
+        DebugSkipUnmapped =      39 << 17 | Debug, // Skip share that modulation could not represent
+        DebugSkipFloor =         40 << 17 | Debug, // Skip share contributed by the floor path
+        DebugFloorExcess =     41 << 17 | Debug, // max(Floor - raw colour, 0)
+        DebugInBiasMask =        34 << 17 | Debug, // Bias mask as applied, after strength scaling
+        DebugDemodGain =         35 << 17 | Debug, // 1 / albedo used as the demodulation divisor
+        DebugHitDistGate =       36 << 17 | Debug, // The specular tracking ramp on its own
+        DebugDenoiserFraction =  37 << 17 | Debug, // Share of the pixel reaching the denoiser
+        HalfDiffuse = 1 << 24,
+        HalfSpecular = 1 << 25,
+        ApproximateSpecHitDistance = 1 << 26,
+        ApproximateRayHitDistance = 1 << 27,
+        UnsupportedAlbedo = 1 << 28,
+        DebugDemodRisk =         42 << 17 | Debug, // Diagnostic: does the demod divisor implant structure
     };
 
     enum class CompFlags : uint32_t
     {
-        None = 0,
-        RawSourceBlit = 1 << 0,          // Bypass composition and write unmodified input
-        ScaleSrc = 1 << 1,               // Enable bilinear scaling to output
-        DiffuseSignalIndirect = 1 << 2,  // The active diffuse output was dispatched as Indirect Diffuse
+        None =                  0,
+        RawSourceBlit =         1 << 0, // Bypass composition and write unmodified input
+        ScaleSrc =              1 << 1, // Enable bilinear scaling to output
+        DiffuseSignalIndirect = 1 << 2, // The active diffuse output was dispatched as Indirect Diffuse
         SpecularSignalIndirect = 1 << 3, // The active specular output was dispatched as Indirect Specular
 
         // Single-signal denoise mode. The disabled signal was not in the denoiser
@@ -112,27 +128,38 @@ class FSRDPreprocessor_Dx12
         // intermediate result - remodulating that would tint the channel with the
         // floor image. Composition reads the packed raw signal instead, which is the
         // same demodulated radiance the denoiser would have consumed.
-        DiffuseSignalDisabled = 1 << 4,  // Diffuse was not denoised this frame
+        DiffuseSignalDisabled = 1 << 4, // Diffuse was not denoised this frame
+        ExtraDiffuse = 1 << 6,
+        ExtraSpecular = 1 << 7,
+        DiffuseAlternate = 1 << 8, // The indirect-diffuse output is the unmodulated diffuse share
         SpecularSignalDisabled = 1 << 5, // Specular was not denoised this frame
 
-        Debug = 1 << 16,
-        DebugModeMask = 0xFF << 16,
+        Debug =                 1 << 16,
+        DebugModeMask =         0xFF << 16,
 
-        DebugCorrelation = 1 << 17 | Debug,
-        DebugSkipSignal = 2 << 17 | Debug,
-        DebugDenoiserOutput = 3 << 17 | Debug,
-        DebugDirectSpecular = 4 << 17 | Debug,
-        DebugDirectDiffuse = 5 << 17 | Debug,
-        DebugIndirectDiffuse = 6 << 17 | Debug,
+        DebugDetailConfidence =      1 << 17 | Debug,
+        DebugSkipSignal =       2 << 17 | Debug,
+        DebugDenoiserOutput =   3 << 17 | Debug,
+        DebugDirectSpecular =   4 << 17 | Debug,
+        DebugDirectDiffuse =    5 << 17 | Debug,
+        DebugIndirectDiffuse =  6 << 17 | Debug,
 
-        // Handover band inspection: RR's low band, the handover's high band, and
-        // which of the two carries each pixel.
-        DebugHandoverRRBand = 7 << 17 | Debug,
-        DebugHandoverDetailBand = 8 << 17 | Debug,
-        DebugHandoverBandMix = 9 << 17 | Debug,
-        DebugHandoverAnchor = 10 << 17 | Debug,
-        DebugHandoverWeight = 11 << 17 | Debug,
-        DebugIndirectSpecular = 12 << 17 | Debug,
+        // Actual detail correction and the cleaned spatial reference.
+        DebugDetailCorrection =     7 << 17 | Debug,
+        DebugDetailReference = 8 << 17 | Debug,
+        DebugIndirectSpecular =   12 << 17 | Debug,
+        DebugReconstructedColor = 13 << 17 | Debug,
+        DebugDetailSeed = 14 << 17 | Debug,
+        DebugDetailAnchored = 15 << 17 | Debug,
+        DebugHandoverWeights = 16 << 17 | Debug,
+        DebugHandoverLimits = 17 << 17 | Debug,
+        DebugCompositionBeforeClamp = 18 << 17 | Debug,
+        DebugCompositionFinal = 19 << 17 | Debug,
+        DebugDetailBoxAnchored = 20 << 17 | Debug,
+        DebugHandoverEligibility = 21 << 17 | Debug,
+        DebugChromaRecovery = 22 << 17 | Debug,
+        DebugLumaRecovery = 23 << 17 | Debug,
+        DebugAlbedoTrust = 24 << 17 | Debug,
     };
 
     /**
@@ -143,18 +170,17 @@ class FSRDPreprocessor_Dx12
     {
         struct
         {
-            ID3D12Resource* InColor;         // RGB - NVSDK_NGX_Parameter_Color - HDR or SDR
-            ID3D12Resource* InDepth;         // R - NVSDK_NGX_Parameter_Depth - 24/32bits
+            ID3D12Resource* InColor; // RGB - NVSDK_NGX_Parameter_Color - HDR or SDR
+            ID3D12Resource* InDepth; // R - NVSDK_NGX_Parameter_Depth - 24/32bits
             ID3D12Resource* InMotionVectors; // RG - NVSDK_NGX_Parameter_MotionVectors - RG16/RG32
-            ID3D12Resource* InNormals; // RGB: Normals, A: Roughness (Optional) - NVSDK_NGX_Parameter_GBuffer_Normals -
-                                       // RGB16_FLOAT/RG32_FLOAT
-            ID3D12Resource* InRoughness;   // R - May be packed in normals. NVSDK_NGX_Parameter_GBuffer_Roughness
+            ID3D12Resource* InNormals; // RGB: Normals, A: Roughness (Optional) - NVSDK_NGX_Parameter_GBuffer_Normals - RGB16_FLOAT/RG32_FLOAT
+            ID3D12Resource* InRoughness; // R - May be packed in normals. NVSDK_NGX_Parameter_GBuffer_Roughness
             ID3D12Resource* InSpecHitDist; // R - NVSDK_NGX_Parameter_DLSSD_SpecularHitDistance - FP16/FP32
-            ID3D12Resource* InDiffAlbedo;  // RGB - NVSDK_NGX_Parameter_GBuffer_DiffuseAlbedo - RGBA32
-            ID3D12Resource* InSpecAlbedo;  // RGB - NVSDK_NGX_Parameter_GBuffer_SpecularAlbedo - RGBA32
-            ID3D12Resource* InBiasMask;    // R8 - NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask
-            ID3D12Resource* InInspector;   // Optional read-only RR resource-inspector input
-            ID3D12Resource* InEmissive;    // Optional NVSDK_NGX_Parameter_GBuffer_Emissive diagnostic input
+            ID3D12Resource* InDiffAlbedo; // RGB - NVSDK_NGX_Parameter_GBuffer_DiffuseAlbedo - RGBA32
+            ID3D12Resource* InSpecAlbedo; // RGB - NVSDK_NGX_Parameter_GBuffer_SpecularAlbedo - RGBA32
+            ID3D12Resource* InBiasMask; // R8 - NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask
+            ID3D12Resource* InInspector; // Optional read-only RR resource-inspector input
+            ID3D12Resource* InEmissive; // Optional NVSDK_NGX_Parameter_GBuffer_Emissive diagnostic input
             ID3D12Resource* InSpecularRayDirectionHitDistance; // Optional RGBA, distance in A
             // Optional diffuse ray length. RR's non-PSR reflection handling is driven
             // by hit distance, and the diffuse signal currently declares every pixel a
@@ -163,6 +189,7 @@ class FSRDPreprocessor_Dx12
             ID3D12Resource* InTitleLinearDepth; // Optional title-published linear view depth
             ID3D12Resource* InResponsivityMask; // Optional per-pixel responsivity hint
         };
+
     };
 
     /**
@@ -173,14 +200,14 @@ class FSRDPreprocessor_Dx12
     {
         InputResources Resources;
 
-        DirectX::XMFLOAT4X4 InvViewMatrix;  // DLSSD WorldToView^1 - Camera matrix
-        DirectX::XMFLOAT4X4 InvProjMatrix;  // DLSSD ViewToClip^-1 - Projection
-        DirectX::XMFLOAT4X4 PrevViewMatrix; // DLSSD WorldToView from last frame
+        DirectX::XMFLOAT4X4 InvViewMatrix;     // DLSSD WorldToView^1 - Camera matrix
+        DirectX::XMFLOAT4X4 InvProjMatrix;     // DLSSD ViewToClip^-1 - Projection
+        DirectX::XMFLOAT4X4 PrevViewMatrix;    // DLSSD WorldToView from last frame
 
-        DirectX::XMFLOAT4 RenderSize;      // XY: Resolution of inputs - ZW: 1.0 / Resolution
+        DirectX::XMFLOAT4 RenderSize;    // XY: Resolution of inputs - ZW: 1.0 / Resolution
         DirectX::XMFLOAT4 MotionInputSize; // XY: source MV extent - ZW: reciprocal extent
         DirectX::XMFLOAT4 MotionTransform; // XY: raw MV -> UV scale
-        DirectX::XMFLOAT4 JitterOffsets;   // XY: current pixels - ZW: previous pixels
+        DirectX::XMFLOAT4 JitterOffsets; // XY: current pixels - ZW: previous pixels
         DirectX::XMUINT2 SpecularHitDistanceBase {};
         DirectX::XMUINT2 DiffuseHitDistanceBase {};
         // Origin of the title-published linear depth, when one is being consumed, and the
@@ -197,43 +224,22 @@ class FSRDPreprocessor_Dx12
 
         // Packed uint2 source origins. Internal textures remain zero-based.
         DirectX::XMUINT4 FloorSourceBase; // XY: color, ZW: depth
-        DirectX::XMUINT4 InputBase0;      // XY: color, ZW: motion
-        DirectX::XMUINT4 InputBase1;      // XY: normals, ZW: roughness
-        DirectX::XMUINT4 InputBase2;      // XY: spec hit distance, ZW: diffuse albedo
-        DirectX::XMUINT4 InputBase3;      // XY: specular albedo, ZW: bias mask
-        DirectX::XMUINT4 InputBase4;      // XY: emissive, ZW: reserved
+        DirectX::XMUINT4 InputBase0; // XY: color, ZW: motion
+        DirectX::XMUINT4 InputBase1; // XY: normals, ZW: roughness
+        DirectX::XMUINT4 InputBase2; // XY: spec hit distance, ZW: diffuse albedo
+        DirectX::XMUINT4 InputBase3; // XY: specular albedo, ZW: bias mask
+        DirectX::XMUINT4 InputBase4; // XY: emissive, ZW: reserved
 
         float NearPlane; // Near < Far
         float FarPlane;  // Near < Far
 
-        float FloorIsolation;
-        float RoughnessFloor; // Minimum linear roughness supplied only to RR
-        // Whether exact-zero-roughness pixels are handed to the spatial floor at all.
-
-        // Strength of the per-sample floor/raw ceiling clamp. It is an energy guard, not a
-        // filter: the share it clamps away is the share it replaces with the raw sample, so
-        // turning it on republishes the raw's noise through the skip signal. 0 - the default -
-        // leaves the floor unclamped and closes the residual instead.
-        float FloorClampSmoothing = 0.0f;
-
-        // Scales the raw-preserving blend inside the floor. 0 removes it entirely.
-        float FloorRawBlend = 1.0f;
-
-        // How far the guide structure gate suppresses that blend on flat surfaces.
-        // 0 reproduces the ungated behaviour.
-        float FloorStructureGate = 1.0f;
-
-        // Floor on the albedo used as the demodulation divisor. Higher caps the gain on dark
-        // surfaces but hands more of the pixel to the unfiltered skip signal.
+        bool FloorEnabled = true;
+        // CPU dispatch policy only; no shader constant-buffer or resource layout change.
+        bool FloorFastMode = false;
+        float FloorDetailPreservation = 0.35f;
+        // The zero-rough domain's RR roughness is this pipeline's own compatibility value
+        // (s_ZeroRoughRRRoughness), not a caller preference: there is no field for it.
         float DemodDivisorFloor = 8e-3f;
-
-        // Which pixels take the floor handover: 0 = off, 1 = exact-zero-roughness pixels
-        // only, 2 = every pixel.
-        uint32_t FloorHandoverMode = 1;
-        // Scales the graft weight. 1.0 is the full handover.
-        float FloorHandoverStrength = 1.0f;
-        // Blends that handover between the isotropic floor (0) and the rank filter (1).
-        float FloorHandoverDetail = 1.0f;
 
         // Turns this frame's probe readbacks on. Off unless asked for: the input probe copies
         // seven render targets into readback buffers and the output probe adds two more, which is
@@ -251,31 +257,16 @@ class FSRDPreprocessor_Dx12
         float ResponsivityTrustThreshold = 0.0f;
         bool ResponsivityInvert = false;
 
-        // Floor-filter behaviour, each inert at its neutral value. See FSRDFloor.hlsl.
-        float FloorDetailBoost = 0.0f;
-        float FloorNormalSharpness = 16.0f;
-        float FloorAlbedoGuide = 1.0f;
-        float FloorLumSymmetry = 1.0f;
-        float FloorGrazingSharpness = 0.0f;
-        // How far each a-trous pass returns a downward-biased estimate instead of the bilateral
-        // mean, which bounds the floor below the raw colour rather than letting it drift above.
-        // Off by default, and aimed at a phenomenon that measures far smaller than the note here
-        // once claimed: see the envelope-bias entry in docs/fsrd_pipeline_contract.md before
-        // reaching for it.
-        float FloorEnvelopeBias = 0.0f;
-
-        // Fraction of the DLSS bias mask used to route flagged pixels (particles, alpha
-        // layers, animated textures) around the denoiser via the floor and skip signal.
         float BiasMaskStrength = 1.0f;
-
-        // Smoothing radius on the floor/raw clamp. 0 reproduces the exact min().
-        float FloorSoftMin = 0.0f;
+        uint32_t RecoveryMask = 1;
+        float SpecularAlbedoDemodulation = 1.0f;
+        float DiffuseAlbedoModulation = 1.0f;
+        float AdditiveLightSplit = 0.0f;
         bool MotionHistoryValid = false;
         bool MotionVectorsJittered = false;
         bool DisplayResolutionMotion = false;
         bool SpecularHitDistanceFromCombinedAlpha = false;
 
-        uint64_t FrameIndex = 0;
     };
 
     /**
@@ -284,18 +275,47 @@ class FSRDPreprocessor_Dx12
     struct CompositionDesc
     {
         DirectX::XMFLOAT4 DstTexSize; // XY = Tex Size - ZW = 1 / XY
-        DirectX::XMUINT4 SourceBase;  // XY = raw color origin, ZW unused
-        float CorrelationBias;        // Enhances the contribution of stable elements to the final image
+        float FloorDetailPreservation = 0.35f;
         uint32_t Flags;
+        uint32_t RecoveryMask = 1;
+        float FloorHandoverAnchorClamp = 4.0f;
+        float FloorHandoverCorrelationMix = 1.0f;
+        float SpecularAlbedoDemodulation = 1.0f;
+        float DiffuseAlbedoModulation = 1.0f;
+        uint32_t SpatialTemporalMask = 0;
+        float LumaRecovery = 1.0f;
+        float ChromaRecovery = 1.0f;
+        // Nonzero only when RR also denoised the unmodulated specular signal this frame
+        // (GetDirectSpecularSignal) and, with CompFlags::DiffuseAlternate, the unmodulated
+        // diffuse one (GetIndirectDiffuseSignal). Runs the albedo-trust passes before composition.
+        float UnsupportedAlbedoRecovery = 0.0f;
+        float DemodDivisorFloor = 8e-3f;
+    };
 
-        // Handover refinements, each inert at zero. See Composition::Constants.
-        float FloorHandoverAnchorClamp = 0.0f;
-        float FloorHandoverCorrelationMix = 0.0f;
+    // Encoded-depth generation for the SR dispatch. The values must be the FINAL
+    // effective upscaler descriptor terms (after user INI/OptiKeys overrides were
+    // resolved), never the raw RR projection: encoding and decoding with different
+    // terms produces a distorted depth field.
+    struct UpscalerDepthEncode
+    {
+        float nearPlane = 0.0f; // > 0, physical view-space units
+        float farPlane = 0.0f;  // physical, or FLT_MAX with infiniteFar; never 0
+        bool infiniteFar = false;
+        bool invertedOutput = false; // SR context created depth-inverted (reversed Z)
+    };
 
-        ID3D12Resource* InRawColor;
+    // Final effective SR depth terms reported back for diagnostics/captures.
+    struct SRDepthDiagnostic
+    {
+        float nearPlane = 0.0f;
+        float farPlane = 0.0f;
+        bool farInfinite = false;
+        bool invertedOutput = false;
+        bool encodedDepthBound = false; // the encoded texture was bound to SR this frame
     };
 
   public:
+
     FSRDPreprocessor_Dx12(std::string_view name, ID3D12Device* pDev);
 
     ~FSRDPreprocessor_Dx12();
@@ -328,6 +348,12 @@ class FSRDPreprocessor_Dx12
      */
     bool DispatchConversion(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc);
 
+
+    // Encode only a successful current conversion, using final effective SR camera terms.
+    ID3D12Resource* PrepareUpscalerDepthInput(ID3D12GraphicsCommandList* cmdList,
+                                             const UpscalerDepthEncode& encode);
+    ID3D12Resource* GetUpscalerDepthInput() const;
+
     /**
      * @brief Configures the RR 1.2 diffuse and specular signal resources.
      * The caller may retag the ABI-compatible descriptors as direct or indirect
@@ -336,11 +362,21 @@ class FSRDPreprocessor_Dx12
      * Resources remain valid until the next conversion or composition dispatch.
      * Must be re-acquired after each dispatch (lifetime managed internally).
      */
-    void GetSignals(ffxDispatchDescDenoiser& dispatchDesc, ffxDispatchDescDenoiserDirectDiffuse& directDiffuse,
+    void GetSignals(ffxDispatchDescDenoiser& dispatchDesc,
+                    ffxDispatchDescDenoiserDirectDiffuse& directDiffuse,
                     ffxDispatchDescDenoiserIndirectSpecular& indirectSpecular) const;
 
     /**
-     * @brief Composes the denoised radiance from FSR-RR with the skip signal previously generated
+     * @brief Configures RR's direct-specular signal with the unmodulated specular share
+     * the conversion publishes for unsupported-albedo recovery. Only valid when the
+     * context was created with FFX_DENOISER_SIGNAL_DIRECT_SPECULAR and the main specular
+     * signal is indirect. Input is shader-readable; output is in UAV state.
+     */
+    void GetDirectSpecularSignal(ffxDispatchDescDenoiserDirectSpecular& directSpecular, bool unmodulated) const;
+    void GetIndirectDiffuseSignal(ffxDispatchDescDenoiserIndirectDiffuse& indirectDiffuse, bool unmodulated) const;
+
+    /**
+     * @brief Composes the denoised radiance from FSR-RR with the skip signal previously generated 
      * by the converter, and writes the result to the given destination texture.
      */
     bool DispatchComposition(ID3D12GraphicsCommandList* cmdList, const CompositionDesc& desc);
@@ -351,6 +387,10 @@ class FSRDPreprocessor_Dx12
      * lifetime after a bypassed or failed RR dispatch where composition did not run.
      */
     void TransitionDenoiserOutputsToRead(ID3D12GraphicsCommandList* cmdList) noexcept;
+
+    // Commit helper history only after a successful normal frame, including upscale.
+    void FinishCompositionHistory(bool successfulNormalFrame) noexcept;
+    void InvalidateCompositionHistory() noexcept;
 
     void TransitionDenoiserOutputsToUav(ID3D12GraphicsCommandList* cmdList) noexcept;
 
@@ -365,7 +405,8 @@ class FSRDPreprocessor_Dx12
      * both resources to their caller-visible states.
      */
     bool CopyAmbientOcclusionOutput(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* dstTex,
-                                    D3D12_RESOURCE_STATES dstState, uint32_t logicalWidth, uint32_t logicalHeight);
+                                    D3D12_RESOURCE_STATES dstState,
+                                    uint32_t logicalWidth, uint32_t logicalHeight);
 
     ID3D12Resource* GetAmbientOcclusionOutput() const;
     ID3D12Resource* GetSpecularOcclusionOutput() const;
@@ -374,7 +415,8 @@ class FSRDPreprocessor_Dx12
      * @brief Creates or reuses the dedicated RGBA16_FLOAT UAV used by AMD's internal RR debug views.
      * The returned resource is in unordered-access state and sized exactly as requested.
      */
-    ID3D12Resource* PrepareDebugViewOutput(ID3D12GraphicsCommandList* cmdList, uint32_t width, uint32_t height);
+    ID3D12Resource* PrepareDebugViewOutput(ID3D12GraphicsCommandList* cmdList, uint32_t width,
+                                           uint32_t height);
 
     /**
      * @brief Transitions the AMD debug-view target to shader-readable state for presentation.
@@ -408,8 +450,18 @@ class FSRDPreprocessor_Dx12
      * @brief Copies the contents of the given source texture. Does not automatically set resource barriers.
      */
     bool Blit(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* srcTex, ID3D12Resource* dstTex,
-              DirectX::XMFLOAT2 dstDim = {}, DirectX::XMFLOAT2 logicalSrcDim = {},
+              DirectX::XMFLOAT2 dstDim = {},
+              DirectX::XMFLOAT2 logicalSrcDim = {},
               DirectX::XMFLOAT2 logicalSrcBase = {}) const;
+
+    static bool RequestAdditiveCapture(uint32_t x, uint32_t y, uint32_t size);
+    static std::string GetAdditiveCaptureStatus();
+
+    // Pair the pending input journal with this same evaluation's composed pre-SR
+    // output. Called only after successful normal RR and composition dispatches.
+    void CompleteAdditiveCapture(ID3D12GraphicsCommandList* cmdList,
+        const ffxDispatchDescDenoiser& dispatch, const CompositionDesc& composition,
+        float preExposure, bool preExposureProvided, const SRDepthDiagnostic& srDepth) noexcept;
 
   private:
     struct Impl;

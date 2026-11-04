@@ -1179,6 +1179,13 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
         return NVSDK_NGX_Result_FAIL_FeatureNotFound;
     }
 
+    if (!feature->IsInited() && feature->GetUpscalerType() == Upscaler::FSR_RR)
+    {
+        LOG_ERROR("FSR-RR is not initialized; refusing an undenoised SR fallback");
+        D3D12Hooks::SetRootSignatureTracking(true);
+        return NVSDK_NGX_Result_Fail;
+    }
+
     // Fallback to FSR 2.1.2 if feature failed to initialize and user didn't explicitly request it
     if (!feature->IsInited() && cfg.Dx12Upscaler.value_or_default() != Upscaler::FSR21)
     {
@@ -1207,7 +1214,11 @@ static NVSDK_NGX_Result TryEvaluateOptiFeature(ID3D12GraphicsCommandList* InCmdL
         UpscalerInputsDx12::UpscaleEnd(InCmdList, InParameters, feature);
 
         ScopedSkipHeapCapture skip {};
+        feature->OnEvaluationStarting(InParameters);
         evalSuccess = feature->Evaluate(InCmdList, InParameters);
+        if (!evalSuccess)
+            evalSuccess = feature->EvaluateFallback(InCmdList, InParameters);
+        feature->OnEvaluationFinished(evalSuccess);
         if (evalSuccess)
             nrOutputExtent = {feature->DisplayWidth(), feature->DisplayHeight()};
     }

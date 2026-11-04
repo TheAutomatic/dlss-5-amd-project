@@ -214,6 +214,7 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
             parameters->Get("OptiScaler.DynamicResolution", &dynamicResolution);
             contextData->createParams->Set("OptiScaler.DynamicResolution", dynamicResolution);
             ApplyCreateSize(contextData);
+            dc->CopyRecreationParameters(contextData->createParams);
 
             dc = nullptr;
 

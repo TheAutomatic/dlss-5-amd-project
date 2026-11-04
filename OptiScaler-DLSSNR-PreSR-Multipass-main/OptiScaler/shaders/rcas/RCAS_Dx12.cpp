@@ -10,7 +10,7 @@
 
 bool RCAS_Dx12::DispatchRCAS(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InResource,
                              ID3D12Resource* InMotionVectors, RcasConstants InConstants, ID3D12Resource* OutResource,
-                             FrameDescriptorHeap& currentHeap)
+                             FrameDescriptorHeap& currentHeap, ID3D12Resource* constantBuffer)
 {
     if (InMotionVectors == nullptr || _device == nullptr)
         return false;
@@ -31,7 +31,7 @@ bool RCAS_Dx12::DispatchRCAS(ID3D12GraphicsCommandList* InCmdList, ID3D12Resourc
 
     FillMotionConstants(constants, InConstants);
 
-    if (!CreateConstantsBuffer(_device, _constantBuffer, constants, currentHeap.GetCbvCPU(0)))
+    if (!CreateConstantsBuffer(_device, constantBuffer, constants, currentHeap.GetCbvCPU(0)))
     {
         LOG_ERROR("[{0}] Failed to create a constants buffer", _name);
         return false;
@@ -54,7 +54,7 @@ bool RCAS_Dx12::DispatchRCAS(ID3D12GraphicsCommandList* InCmdList, ID3D12Resourc
 bool RCAS_Dx12::DispatchDepthAdaptive(ID3D12PipelineState* pipelineState, ID3D12GraphicsCommandList* InCmdList,
                                       ID3D12Resource* InResource, ID3D12Resource* InMotionVectors,
                                       ID3D12Resource* InDepth, RcasConstants InConstants, ID3D12Resource* OutResource,
-                                      FrameDescriptorHeap& currentHeap)
+                                      FrameDescriptorHeap& currentHeap, ID3D12Resource* constantBuffer)
 {
     if (InDepth == nullptr || pipelineState == nullptr || _device == nullptr)
         return false;
@@ -79,7 +79,7 @@ bool RCAS_Dx12::DispatchDepthAdaptive(ID3D12PipelineState* pipelineState, ID3D12
 
     FillMotionConstants(constants, InConstants);
 
-    if (!CreateConstantsBuffer(_device, _constantBuffer, constants, currentHeap.GetCbvCPU(0)))
+    if (!CreateConstantsBuffer(_device, constantBuffer, constants, currentHeap.GetCbvCPU(0)))
     {
         LOG_ERROR("[{0}] Failed to create a constants buffer", _name);
         return false;
@@ -98,17 +98,19 @@ bool RCAS_Dx12::DispatchDepthAdaptive(ID3D12PipelineState* pipelineState, ID3D12
     return true;
 }
 
-bool RCAS_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InSource, D3D12_RESOURCE_STATES InState)
+bool RCAS_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InSource, D3D12_RESOURCE_STATES InState,
+                                    ID3D12GraphicsCommandList* InCommandList)
 {
     auto resourceFlags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS |
                          D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
 
-    auto result = Shader_Dx12::CreateBufferResource(InDevice, InSource, InState, &_buffer, resourceFlags);
+    auto result = Shader_Dx12::CreateBufferResource(InDevice, InSource, InState, &_buffer, resourceFlags,
+                                                   0, 0, DXGI_FORMAT_UNKNOWN, InCommandList);
 
     if (result)
     {
         _buffer->SetName(L"RCAS_DA_Buffer");
-        _bufferState = InState;
+        _bufferState = _recordedLifetime ? D3D12_RESOURCE_STATE_COMMON : InState;
     }
 
     return result;
@@ -129,27 +131,35 @@ bool RCAS_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* I
 
     LOG_DEBUG("[{0}] Start!", _name);
 
-    ScopedGpuTime_Dx12 scopedGpuTime(GpuTime.get(), InCmdList);
-
-    _counter++;
-    _counter = _counter % RCAS_NUM_OF_HEAPS;
-    FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
-
-    auto sharpnessShader = Config::Instance()->SharpnessShader.value_or_default();
+    const auto sharpnessShader = Config::Instance()->SharpnessShader.value_or_default();
+    auto* selectedPSO = sharpnessShader == SharpenShader::LocalContrastDepthAware ? _pipelineStateDASDA
+                        : sharpnessShader == SharpenShader::DepthAware ? _pipelineStateDA
+                        : sharpnessShader == SharpenShader::RCAS ? _pipelineState : nullptr;
+    if (!selectedPSO || (sharpnessShader != SharpenShader::RCAS && !InDepth)) return false;
+    std::unique_lock<std::recursive_mutex> recordingLock(DlssNr::Submission::RecordingMutex(), std::defer_lock);
+    if (_recordedLifetime) recordingLock.lock();
+    auto lease = AcquireDispatchLease(InCmdList, selectedPSO, {InResource, InMotionVectors, InDepth, OutResource});
+    if (_recordedLifetime && !lease) return false;
+    _activeTiming = lease ? lease->timing.get() : GpuTime.get();
+    ScopedGpuTime_Dx12 scopedGpuTime(_activeTiming, InCmdList);
+    _counter = (_counter + 1) % RCAS_NUM_OF_HEAPS;
+    FrameDescriptorHeap& currentHeap = lease ? lease->heap : _frameHeaps[_counter];
+    auto* constantBuffer = lease ? lease->constants.Get() : _constantBuffer;
 
     if (sharpnessShader == SharpenShader::LocalContrastDepthAware)
     {
         return DispatchDepthAdaptive(_pipelineStateDASDA, InCmdList, InResource, InMotionVectors, InDepth, InConstants,
-                                     OutResource, currentHeap);
+                                     OutResource, currentHeap, constantBuffer);
     }
     else if (sharpnessShader == SharpenShader::DepthAware)
     {
         return DispatchDepthAdaptive(_pipelineStateDA, InCmdList, InResource, InMotionVectors, InDepth, InConstants,
-                                     OutResource, currentHeap);
+                                     OutResource, currentHeap, constantBuffer);
     }
     else if (sharpnessShader == SharpenShader::RCAS)
     {
-        return DispatchRCAS(InCmdList, InResource, InMotionVectors, InConstants, OutResource, currentHeap);
+        return DispatchRCAS(InCmdList, InResource, InMotionVectors, InConstants, OutResource, currentHeap,
+                            constantBuffer);
     }
     else
     {
