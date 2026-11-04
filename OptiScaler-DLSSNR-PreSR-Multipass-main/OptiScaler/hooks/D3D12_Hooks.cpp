@@ -3038,6 +3038,8 @@ static void HookToDevice(ID3D12Device* InDevice)
                 LOG_ERROR("lmxxf SubmissionHooks::ArmCreate failed: {:X}", static_cast<unsigned>(armHr));
             else
             {
+                if (wrapOpen)
+                    DlssNr::Backend::MarkRecordingHooksPrepared();
                 LOG_INFO("lmxxf ArmCreate ok; CreateCommandList ProxyWrap deferred until swapchain (graphics tracker skipped)");
                 // Game rules: Unreal/Forza/ACMirage/007FirstLight EXE calls, Aniimo's UnityPlayer calls,
                 // and Dying Light's any-module boot lists (renderer rd3d12_x64_rwdi.dll).

@@ -52,6 +52,35 @@ class Tracker
         Retired,     // batch completed, or recording provably discarded
         Unknown,     // ticket never issued (or already reaped and forgotten)
     };
+    struct CompletionReceipt
+    {
+        enum class Outcome : uint8_t { Outstanding, Completed, Discarded };
+        // A replay re-arms Outstanding until its latest batch completes. Capture
+        // owners retain this receipt after the tracker reaps the recording entry.
+        std::atomic<Outcome> outcome { Outcome::Outstanding };
+    };
+    using CompletionReceiptPtr = std::shared_ptr<CompletionReceipt>;
+
+    // Attach immediately after Record and before submission/invalidation. Diagnostic
+    // consumers alone allocate receipts; ordinary dispatch tickets allocate nothing.
+    CompletionReceiptPtr ObserveCompletion(Ticket ticket)
+    {
+        std::lock_guard lock(mutex_);
+        for (auto& entry : entries_)
+        {
+            if (entry.ticket != ticket)
+                continue;
+            if (!entry.receipt)
+                entry.receipt = std::make_shared<CompletionReceipt>();
+            if (entry.state == Entry::State::Completed)
+                entry.receipt->outcome.store(CompletionReceipt::Outcome::Completed, std::memory_order_release);
+            else if (entry.state == Entry::State::Discarded)
+                entry.receipt->outcome.store(CompletionReceipt::Outcome::Discarded, std::memory_order_release);
+            return entry.receipt;
+        }
+        return nullptr;
+    }
+
 
     static Tracker& Instance()
     {
@@ -144,7 +173,12 @@ class Tracker
                     // not cancel in-flight work — but is now invalidated: it can never be
                     // replayed, so Reap() reclaims it once its fence completes.
                     if (entry.state == Entry::State::Recorded)
+                    {
                         entry.state = Entry::State::Discarded;
+                        if (entry.receipt)
+                            entry.receipt->outcome.store(CompletionReceipt::Outcome::Discarded,
+                                                         std::memory_order_release);
+                    }
                     else
                         entry.invalidated = true;
                     continue;
@@ -185,6 +219,8 @@ class Tracker
                 entry.state = Entry::State::Submitted;
                 entry.fence = fence;
                 entry.fenceValue = value;
+                if (entry.receipt)
+                    entry.receipt->outcome.store(CompletionReceipt::Outcome::Outstanding, std::memory_order_release);
             }
         }
         Reap();
@@ -221,7 +257,11 @@ class Tracker
             // again — mark invalidated so Reap() reclaims it once the fence completes.
             // Completed entries are marked so the same rule reclaims them.
             if (entry.state == Entry::State::Recorded)
+            {
                 entry.state = Entry::State::Discarded;
+                if (entry.receipt)
+                    entry.receipt->outcome.store(CompletionReceipt::Outcome::Discarded, std::memory_order_release);
+            }
             else
                 entry.invalidated = true;
         }
@@ -248,6 +288,8 @@ class Tracker
                 if (completed != UINT64_MAX && completed >= entry.fenceValue)
                 {
                     entry.state = Entry::State::Completed;
+                    if (entry.receipt)
+                        entry.receipt->outcome.store(CompletionReceipt::Outcome::Completed, std::memory_order_release);
                     return Status::Retired;
                 }
             }
@@ -320,6 +362,7 @@ class Tracker
         // it outlives every entry that references it.
         ID3D12Fence* fence = nullptr;
         uint64_t fenceValue = 0;
+        CompletionReceiptPtr receipt;
     };
 
     static ListIdentity IdentityOf(ID3D12GraphicsCommandList* list)
@@ -394,7 +437,11 @@ class Tracker
             {
                 const uint64_t completed = entry.fence->GetCompletedValue();
                 if (completed != UINT64_MAX && completed >= entry.fenceValue)
+                {
                     entry.state = Entry::State::Completed;
+                    if (entry.receipt)
+                        entry.receipt->outcome.store(CompletionReceipt::Outcome::Completed, std::memory_order_release);
+                }
             }
         }
         // Discarded entries are provably dead. A Completed entry is reclaimable once

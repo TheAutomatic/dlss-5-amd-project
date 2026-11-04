@@ -173,6 +173,165 @@
     <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDOutputComp_Shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="shaders\RecordedShader_Dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="gpu_time\FSRDStageTimings_Dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRDProfiles.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRDSignalPolicy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRDTaggedResourceExtent.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRDRetryPolicy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRDResultClassification.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRDCameraMatrices.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRInputAlignment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSRUpscaleSettings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upscalers\fsr31\FSROutputScaling.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\FSRDCompositionVariant.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\RRTraceAdditiveIO.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\RetiredSlotReservations.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\RRTraceAdditive.inl">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDInputConvAdditive_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompLight_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompNoRecovery_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompTileLight_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompTileAnchor_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDAlbedoTrustEvidence_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDAlbedoTrustPropagate_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\RRTraceAdditive_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\precompile\FSRDUpscalerDepth_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDFloor.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDFloor_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDFloorSeed.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDFloorSeed_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDInputConv.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDInputConv_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDInputConvAdditive.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDInputConvAdditive_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputComp.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputComp_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompLight.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompLight_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompNoRecovery.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompNoRecovery_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompTileLight.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompTileLight_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompTileAnchor.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDOutputCompTileAnchor_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDAlbedoTrustEvidence.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDAlbedoTrustEvidence_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDAlbedoTrustPropagate.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDAlbedoTrustPropagate_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\RRTraceAdditive.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\RRTraceAdditive_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDUpscalerDepth.hlsl">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDUpscalerDepth_Shader.cso">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDPreprocessCommon.hlsli">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDFloorCommon.hlsli">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="shaders\fsrd_preprocess\precompile\FSRDAdditiveSplit.hlsli">
+      <Filter>Source Files</Filter>
+    </None>
     <ClInclude Include="include\fsr-rr\ffx_denoiser.h">
       <Filter>Header Files</Filter>
     </ClInclude>

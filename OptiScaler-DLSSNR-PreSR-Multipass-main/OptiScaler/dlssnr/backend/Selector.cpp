@@ -26,6 +26,7 @@ struct InstallProbe
     bool issueValid[3]{};
 };
 InstallProbe g_probe;
+std::atomic<bool> g_recordingHooksPrepared { false };
 
 void RefreshProbeLocked(InstallProbe& p)
 {
@@ -123,6 +124,9 @@ Kind ActiveKindFromConfig()
     return ResolveInstalled(request, hasDaniel, hasLmxxf, LmxxfWired(), hasMochizuki);
 }
 
+void MarkRecordingHooksPrepared() { g_recordingHooksPrepared.store(true, std::memory_order_release); }
+bool RecordingHooksPrepared() { return g_recordingHooksPrepared.load(std::memory_order_acquire); }
+
 bool SubmissionHooksWanted()
 {
     // Must NOT depend on DlssNrEnabled: device hooks are installed once at
@@ -141,6 +145,11 @@ bool DanielGraphicsHooksWanted()
 
 bool ProxyWrapWanted()
 {
+    // RR owns recorded depth/debug targets and postprocessing even with NR off,
+    // Daniel pure mode, or no NR runtime installed. It needs the same observable
+    // command-list lifetime independently of the selected neural backend.
+    if (Config::Instance()->FsrRrEnabled.value_or_default())
+        return true;
     // Common effects need recording lifetime callbacks even with a single backend.
     // This requests only the proxy; it never instantiates the inactive backend.
     if (!Config::Instance()->DlssNrRunBeforeSr.value_or_default() ||

@@ -6,11 +6,13 @@ namespace DlssNr::Backend
 {
 Kind RequestedKind();
 Kind ActiveKindFromConfig();
-// Startup hook policy: lmxxf, or convenience with lmxxf installed.
+// Startup recording-hook policy for FSR-RR, NR effects and neural backends.
 bool SubmissionHooksWanted();
-// ProxyWrap is required for lmxxf same-frame QI. NrConvenience pre-opens it so a
-// daniel-started session can later switch to lmxxf without a restart. Pure mode
-// (NrConvenience=0) only wraps when lmxxf is actually selected.
+// Latched only after device-initialization proxy hooks were successfully armed.
+void MarkRecordingHooksPrepared();
+bool RecordingHooksPrepared();
+// FSR-RR and recorded NR effects require lifetime callbacks regardless of runtime
+// installation. NR convenience additionally prepares live neural-backend switches.
 bool ProxyWrapWanted();
 // Latched startup policy: later menu changes require restart, including late hooks.
 bool DanielGraphicsHooksWanted();

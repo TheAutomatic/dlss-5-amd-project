@@ -46,6 +46,10 @@ class IFeature_Dx12 : public virtual IFeature
   public:
     bool Init(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters);
     bool Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters);
+    virtual bool EvaluateFallback(ID3D12GraphicsCommandList*, NVSDK_NGX_Parameter*) { return false; }
+    virtual void OnEvaluationStarting(NVSDK_NGX_Parameter*) {}
+    virtual void OnEvaluationFinished(bool) {}
+    virtual void CopyRecreationParameters(NVSDK_NGX_Parameter*) const {}
 
     API Api() const override { return API::DX12; }
     std::optional<double> ReadUpscalerTime(void* commandQueue) override;

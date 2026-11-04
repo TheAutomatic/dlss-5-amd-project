@@ -1,5 +1,6 @@
 #pragma once
 #include "FSR31Feature.h"
+#include "FSRUpscaleSettings.h"
 #include <upscalers/IFeature_Dx12.h>
 
 #include "dx12/ffx_api_dx12.h"
@@ -37,6 +38,7 @@ class FSR31FeatureDx12 : public FSR31Feature, public IFeature_Dx12
     feature_version Version() override { return FSR31Feature::Version(); }
 
     Upscaler GetUpscalerType() const override { return Upscaler::FFX; }
+    void CopyRecreationParameters(NVSDK_NGX_Parameter* parameters) const override;
 
     /**
      * @brief Initializes the FFX context, selects an FSR version based on configuration and
@@ -91,13 +93,38 @@ class FSR31FeatureDx12 : public FSR31Feature, public IFeature_Dx12
     virtual void ConfigureUpscalerContext(const NVSDK_NGX_Parameter& ngxParams);
 
     // Evaluate utils
+    enum class UpscalerInputMode
+    {
+        OriginalColor,
+        RRComposition,
+        Bypassed
+    };
+    struct DerivedRRCamera
+    {
+        float nearPlane = 0.0f;
+        float farPlane = 0.0f;
+        float verticalFov = 0.0f;
+        bool rightHanded = false;
+        bool hardwareDepth = false;
+        bool farInfinite = false;
+        bool valid = false;
+    };
+
+    virtual void ApplyRayRegenerationCamera(ffxDispatchDescUpscale& upscalerDesc, const DerivedRRCamera& camera);
+    bool UpscalerInfiniteDepth() const
+    {
+        return (_upscaleCtxDesc.flags & FFX_UPSCALE_ENABLE_DEPTH_INFINITE) != 0;
+    }
+    bool RayRegenerationSrRefused() const { return _rrSrRefused; }
+
 
     /**
      * @brief Prepares upscaler inputs and configuration from a generic NGX param table, converting input buffers
      * if needed, into a native ffx descriptor struct.
      */
     bool PrepareUpscalerInput(ID3D12GraphicsCommandList* InCommandList, const NVSDK_NGX_Parameter& inParams,
-                              ffxDispatchDescUpscale& upscalerDesc);
+                              ffxDispatchDescUpscale& upscalerDesc,
+                              UpscalerInputMode inputMode = UpscalerInputMode::OriginalColor);
 
     /**
      * @brief Attempts to populate reactive and transparency masks for FSR input, converting/repurposing DLSS bias mask
@@ -123,6 +150,13 @@ class FSR31FeatureDx12 : public FSR31Feature, public IFeature_Dx12
   private:
     InputResources _inputBuffers;
     ID3D12Resource* _upscalerOutput;
+    FSR31::UpscaleSettings _upscaleSettings;
+    std::optional<bool> _rrRequestedInfiniteDepth;
+    bool _rrSrRefused = false;
+    bool _rrNearExplicit = false;
+    bool _rrFarExplicit = false;
+    bool _rrFovExplicit = false;
+    std::function<void()> _biasRecordingCleanup;
 
     bool CreateUpscalerContext(const NVSDK_NGX_Parameter& ngxParams);
 

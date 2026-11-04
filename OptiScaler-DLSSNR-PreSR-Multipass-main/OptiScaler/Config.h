@@ -1163,30 +1163,28 @@ class Config
     // FSR-RR (FSR Ray Regeneration). Master gate, default off until device/game acceptance.
     CustomOptional<bool> FsrRrEnabled { false };
 
+    CustomOptional<int> FfxDenoiserProfile { 1 }; // 0 Fast, 1 Balanced, 2 Quality; -1 custom
     CustomOptional<int> FfxDenoiserIndex { 0 };
     CustomOptional<uint64_t> FfxDenoiserDebugMode { 0 };
     // -1: overview, 0..FFX_API_DENOISER_DEBUG_VIEW_MAX_VIEWPORTS-1: fullscreen viewport
     CustomOptional<int> FfxDenoiserDebugViewport { -1 };
     // Enables AMD's internal RR debug descriptors. Requires context recreation.
     CustomOptional<bool> FfxDenoiserInternalDebugViews { false };
-    CustomOptional<int> FfxDenoiserDiffuseSignalType { 0 };  // 0: Direct, 1: Indirect
-    CustomOptional<int> FfxDenoiserSpecularSignalType { 1 }; // 0: Direct, 1: Indirect
+    // Per-lobe RR path, FSRDSignals::Route: 0 Auto, 1 Direct, 2 Indirect, 3 Split. The RR
+    // signal layout is derived from these, the albedo fix and the title's guides.
+    CustomOptional<int> FfxDenoiserDiffuseRoute { 0 };
+    CustomOptional<int> FfxDenoiserSpecularRoute { 0 };
+    // Primary view depth stands in for a missing or invalid hit distance.
+    CustomOptional<bool> FfxDenoiserEstimateHitDistances { false };
     // Single-signal denoising: dispatch only the enabled signals. A title whose raw
     // signal content only makes sense for one of the two can denoise the surviving
     // signal alone; the disabled signal's output stays zero and composition falls
     // back to the floor/raw-correlation path for it. Requires context recreation.
     CustomOptional<bool> FfxDenoiserDenoiseDiffuse { true };
     CustomOptional<bool> FfxDenoiserDenoiseSpecular { true };
+    CustomOptional<bool> FfxDenoiserGpuTimings{true};
     // Uses only semantic Streamline AO noisy/denoised tags. Resource-inspector
     // candidates are deliberately never promoted to signal inputs.
-    // A Streamline title tags NormalRoughness where its normals and roughness actually live. That
-    // is more authoritative than the NGX normals binding, which some titles leave as a normals-only
-    // texture whose alpha carries nothing -- a 2-bit alpha reads as roughness 0 everywhere and the
-    // denoiser then has no material guidance at all. Preferred only when the NGX path published no
-    // separate roughness, so a title that supplies one properly is untouched.
-    // Off by default: written for a title whose NGX normals looked like they carried no roughness,
-    // which turned out to be an external mod zeroing the buffers rather than the binding. It has
-    // never been seen to fire, so it stays available rather than assumed.
     CustomOptional<bool> FfxDenoiserTaggedNormalRoughness { false };
     CustomOptional<bool> FfxDenoiserTaggedAmbientOcclusion { false };
     // Disabled preserves the existing contract that RR input normals are world-space.
@@ -1202,36 +1200,38 @@ class Config
     // title's mask is a title property.
     CustomOptional<bool> FfxDenoiserResponsivityInvert { false };
 
-    // Routes pixels flagged by the DLSS bias-current-colour mask (particles, alpha layers,
+    // Routes pixels flagged by the DLSS bias-current-color mask (particles, alpha layers,
     // animated and video textures) around the denoiser via the floor and skip signal.
     // 0 restores the behaviour where the mask was bound but unused.
     CustomOptional<float> FfxDenoiserBiasMaskStrength { 1.0f };
 
-    // Fraction of the floor filter's high-frequency luminance residual pushed back into the
-    // floor on the final pass, so texture microcontrast bypasses the denoiser.
-    CustomOptional<float> FfxDenoiserFloorDetailBoost { 0.0f };
+    // Spatial Floor and independently selected, master-scaled recovery paths.
+    CustomOptional<float> FfxDenoiserSpecularAlbedoDemodulation{1.0f};
+    CustomOptional<float> FfxDenoiserDiffuseAlbedoModulation{1.0f};
+    // Experimental local color/albedo fit; zero preserves the existing signal split.
+    CustomOptional<float> FfxDenoiserAdditiveLightSplit{0.0f};
+    // Albedo bleed fix (INI AlbedoBleedFix): denoises unmodulated copies of the specular and
+    // diffuse shares as RR Direct Specular / Indirect Diffuse and blends toward them where the
+    // title's albedo shows a surface the light does not (water over a sea floor). Independent
+    // of the profile; needs a specular hit distance and runs only at 1/1 modulation.
+    CustomOptional<bool> FfxDenoiserUnsupportedAlbedoRecovery{false};
+    // INI AlbedoBleedFixDiffuse: false keeps only the specular copy, one RR signal fewer.
+    CustomOptional<bool> FfxDenoiserAlbedoBleedFixDiffuse{true};
+    CustomOptional<bool> FfxDenoiserFloorFlatRecovery{true};
+    CustomOptional<bool> FfxDenoiserFloorSpecularRecovery{true};
+    CustomOptional<bool> FfxDenoiserFloorDiffuseRecovery{false};
+    CustomOptional<int> FfxDenoiserFloorFlatNoiseMethod{0};
+    CustomOptional<int> FfxDenoiserFloorSpecularNoiseMethod{1};
+    CustomOptional<int> FfxDenoiserFloorDiffuseNoiseMethod{1};
+    CustomOptional<float> FfxDenoiserFloorLumaRecovery{1.0f};
+    CustomOptional<float> FfxDenoiserFloorChromaRecovery{1.0f};
 
-    // Exponent on the floor filter's normal edge-stopping weight. Higher stops harder at
-    // creases and silhouettes; 0 disables the term.
-    CustomOptional<float> FfxDenoiserFloorNormalSharpness { 16.0f };
-
-    // Fraction of the floor's luminance edge stop released where diffuse albedo says two taps
-    // share a material, so shadows and reflections reach the denoiser instead of the floor.
-    CustomOptional<float> FfxDenoiserFloorAlbedoGuide { 1.0f };
-
-    // Blends the floor's luminance normaliser from centre-only (0) to max(centre, tap) (1).
-    CustomOptional<float> FfxDenoiserFloorLumSymmetry { 1.0f };
-
-    // Additional normal edge-stop exponent in proportion to screen-space surface slope.
-    CustomOptional<float> FfxDenoiserFloorGrazingSharpness { 0.0f };
-    // How far each a-trous pass returns a downward-biased estimate instead of the bilateral
-    // mean, bounding the floor below the raw colour. Off by default; the crossing it removes
-    // measures ~0.1% of a typical frame, so it is a bound rather than a fix. The knob that
-    // fixed this title's floor softness is FloorDetailBoost.
-    CustomOptional<float> FfxDenoiserFloorEnvelopeBias { 0.0f };
-
-    // Soft knee on the opt-in floor/raw ceiling clamp. 0 is the exact min().
-    CustomOptional<float> FfxDenoiserFloorSoftMin { 0.0f };
+    CustomOptional<bool> FfxDenoiserFloorEnabled { true };
+    // Reduced Floor pass policy is the Balanced default; Quality uses five passes.
+    CustomOptional<bool> FfxDenoiserFloorFastMode { true };
+    CustomOptional<float> FfxDenoiserFloorRecovery { 1.0f };
+    CustomOptional<float> FfxDenoiserFloorHandoverCorrelationMix { 1.0f };
+    CustomOptional<float> FfxDenoiserFloorHandoverAnchorClamp { 4.0f };
 
     // Overrides the DLSS.Use.HW.Depth interpretation. Unset follows NGX, which
     // defaults to linear when the title publishes nothing - and reading a hardware
@@ -1256,60 +1256,9 @@ class Config
     // are for diagnosis, and an always-on probe wrote a gigabyte of log in a session.
     CustomOptional<bool> FfxDenoiserDiagnostics { false };
 
-    CustomOptional<float> FfxDenoiserCorrelationBias { 1.0f };
-    // Binds the title's diffuse ray length into the diffuse signal's alpha. Without
-    // it that alpha is a constant FP16-max "ray miss", which is what RR's non-PSR
-    // reflection handling reads. No effect when the title provides no such resource.
     CustomOptional<bool> FfxDenoiserDiffuseHitDistance { true };
-    CustomOptional<float> FfxDenoiserFloorIsolation { 1.0f };
-    CustomOptional<float> FfxDenoiserRoughnessFloor { 0.1f };
-    // Hands exact-zero-roughness (type-1) pixels to the spatial floor instead of RR.
-    // Which pixels take the floor handover - the graft that recombines RR's low frequencies
-    // with the floor's high frequencies in composition. Because that combination happens
-    // after denoising it never removes anything from the denoiser's input, which is what
-    // makes it safe to widen beyond the zero-roughness pixels it was written for.
-    // 0 = off, 1 = exact-zero-roughness (type-1) pixels only, 2 = every pixel.
-    CustomOptional<int> FfxDenoiserFloorHandover { 1 };
-    // Scales the graft weight so the handover can be applied partially. 1.0 is the full
-    // handover and 0.0 is inert.
-    CustomOptional<float> FfxDenoiserFloorHandoverStrength { 1.0f };
-
-    // Scales the raw-preserving blend inside the floor. 1.0 keeps the floor's microcontrast
-    // where the guide allows it; 0.0 leaves a pure spatial floor, which is also how the
-    // blend's contribution to the image can be removed outright for comparison.
-    CustomOptional<float> FfxDenoiserFloorRawBlend { 1.0f };
-
-    // Floor on the albedo used as the demodulation divisor. The floor caps the gain on
-    // dark surfaces, but everything it cannot represent is handed to the skip signal, which
-    // reaches the screen without passing the denoiser - so a high floor trades amplified
-    // noise inside the denoiser for unfiltered noise beside it. Lowering it keeps the
-    // demodulate/remodulate round trip faithful.
+    // Only the demodulation divisor is floored; unrepresentable energy is routed once.
     CustomOptional<float> FfxDenoiserDemodDivisorFloor { 8e-3f };
-
-    // Opt-in energy guard on the floor/raw clamp: the floor may not exceed the raw, so the
-    // share that does is replaced with a low pass of the raw. The replacement is the raw's own
-    // noise and the skip signal publishes it unfiltered, so enabling this republishes the raw's
-    // grain on exactly the pixels it clamps; averaging the ceiling attenuates that but cannot
-    // remove it. 0 - the default - leaves the floor unclamped and closes the residual instead.
-    CustomOptional<float> FfxDenoiserFloorClampSmoothing { 0.0f };
-
-    // How far the diffuse albedo's local structure suppresses that blend. The blend's test is
-    // whether the raw sample resembles the floor, which on a noisy input the noise itself
-    // answers, so flat surfaces pass raw grain through while the floor stays smooth. Where
-    // albedo shows structure the raw sample carries real detail and is kept; where it does not,
-    // the variation is not material and is refused. 0.0 reproduces the ungated behaviour.
-    CustomOptional<float> FfxDenoiserFloorStructureGate { 1.0f };
-    // Blends that handover between FloorSeed's isotropic floor (0), which erases thin
-    // structure, and a directional hybrid median that preserves panel text (1).
-    CustomOptional<float> FfxDenoiserFloorHandoverDetail { 1.0f };
-    // Band-split only. Replaces the single mid band with the floor chain's own five
-    // a-trous detail levels, each shrunk against its own threshold. The chain is
-    // already this decomposition, so the mid band is a one-boundary approximation of
-    // a five-boundary split that exists either way.
-    // Handover refinements, each inert at zero and composing with the blend mode
-    // rather than replacing it.
-    CustomOptional<float> FfxDenoiserFloorHandoverAnchorClamp { 2.0f };
-    CustomOptional<float> FfxDenoiserFloorHandoverCorrelationMix { 1.0f };
 
     // FSR4
     CustomOptional<FSR4Support> Fsr4GpuSupport { FSR4Support::None };
@@ -1581,6 +1530,8 @@ class Config
     static Config* Instance();
 
     bool ResetFfxDenoiserSettings();
+    void ApplyFfxDenoiserProfile(int profile);
+    int GetFfxDenoiserProfile() const;
 
   private:
     inline static Config* _config;

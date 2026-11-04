@@ -32,7 +32,7 @@ class OS_Dx12 : public Shader_Dx12
 
   public:
     bool CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InSource, uint32_t InWidth, uint32_t InHeight,
-                              D3D12_RESOURCE_STATES InState);
+                              D3D12_RESOURCE_STATES InState, ID3D12GraphicsCommandList* InCommandList = nullptr);
     void SetBufferState(ID3D12GraphicsCommandList* InCommandList, D3D12_RESOURCE_STATES InState);
     bool Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InResource, ID3D12Resource* OutResource);
 

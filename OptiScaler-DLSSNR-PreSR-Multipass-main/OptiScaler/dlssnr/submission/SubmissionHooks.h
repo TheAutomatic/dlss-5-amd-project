@@ -157,6 +157,14 @@ inline HRESULT WrapNewList(ID3D12Device *device, ID3D12CommandAllocator *alloc, 
     if (FAILED(hr))
         return hr;
     const HRESULT qi = proxy->QueryInterface(riid, out);
+    if (GetModuleHandleW(L"WinPixGpuCapturer.dll"))
+    {
+        static std::atomic<unsigned> capturedCreates {0};
+        if (capturedCreates.fetch_add(1,std::memory_order_relaxed) < 64)
+            LOG_WARN("[RR_PIX_CREATE] native={:p} returned={:p} device={:p} allocator={:p} status={:#x}",
+                     static_cast<void*>(real),out ? *out : nullptr,static_cast<void*>(device),
+                     static_cast<void*>(alloc),UINT(qi));
+    }
     proxy->Release();
     return qi;
 }
@@ -280,6 +288,7 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
         std::vector<ILogicalCommandList*> prepared;
         if (!run.empty())
         {
+            RecordingAdmissionScope admissionScope;
             for (auto* logical : runLogical) {
                 const auto hr = logical->PrepareUnsplitBatch(queue);
                 if (FAILED(hr)) { admitted = hr; break; }

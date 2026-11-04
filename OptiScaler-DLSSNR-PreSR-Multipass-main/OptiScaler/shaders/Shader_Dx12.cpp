@@ -119,7 +119,7 @@ bool Shader_Dx12::CreateComputePipeline(ID3D12Device* device, ID3D12PipelineStat
 bool Shader_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InResource,
                                        D3D12_RESOURCE_STATES InState, ID3D12Resource** OutResource,
                                        D3D12_RESOURCE_FLAGS ResourceFlags, uint64_t InWidth, uint32_t InHeight,
-                                       DXGI_FORMAT InFormat)
+                                       DXGI_FORMAT InFormat, ID3D12GraphicsCommandList* InCommandList)
 {
     if (InDevice == nullptr || InResource == nullptr)
         return false;
@@ -135,6 +135,57 @@ bool Shader_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* I
     if (InFormat != DXGI_FORMAT_UNKNOWN)
         inDesc.Format = InFormat;
 
+    if (_recordedLifetime)
+    {
+        std::lock_guard lock(DlssNr::Submission::RecordingMutex());
+        _admissionFailedList = nullptr;
+        if (!RecordedLifetimeSupported(InCommandList) ||
+            !(ResourceFlags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)) return false;
+        try
+        {
+            // Drop references from retired dispatches before selecting an intermediate.
+            for (auto& slot : _dispatchSlots)
+                if (slot->Available()) { slot->resources.clear(); slot->intermediates.clear(); }
+            std::shared_ptr<RecordedShader::Intermediate> owner;
+            for (auto& candidate : _recordedIntermediates)
+                if (candidate.use_count() == 1 && candidate->Available())
+                {
+                    const auto desc = candidate->resource->GetDesc();
+                    if (desc.Width == inDesc.Width && desc.Height == inDesc.Height &&
+                        desc.Format == inDesc.Format) { owner = candidate; break; }
+                }
+            if (!owner)
+            {
+                owner = std::make_shared<RecordedShader::Intermediate>();
+                owner->device = InDevice;
+                inDesc.Flags = ResourceFlags;
+                inDesc.MipLevels = 1;
+                inDesc.Alignment = 0;
+                inDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+                const auto props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+                if (FAILED(InDevice->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &inDesc,
+                    D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&owner->resource)))) return false;
+                ComPtr<RecordedShader::IntermediateLink> link;
+                link.Attach(new RecordedShader::IntermediateLink(owner));
+                if (FAILED(owner->resource->SetPrivateDataInterface(RecordedShader::IntermediateKey, link.Get())))
+                    return false;
+                _recordedIntermediates.push_back(owner);
+            }
+            if (!owner->Attach(InCommandList)) return false;
+            owner->state = D3D12_RESOURCE_STATE_COMMON;
+            _recordedBuffer = owner;
+            owner->resource->AddRef(); // Existing raw Buffer()/destructor ownership.
+            if (*OutResource) (*OutResource)->Release();
+            *OutResource = owner->resource.Get();
+            // Resizes do not keep dead allocations in the reusable pool.
+            _recordedIntermediates.erase(std::remove_if(_recordedIntermediates.begin(),
+                _recordedIntermediates.end(), [&](const auto& item) {
+                    return item != owner && item.use_count() == 1 && item->Available();
+                }), _recordedIntermediates.end());
+            return true;
+        }
+        catch (...) { return false; }
+    }
     if (*OutResource != nullptr)
     {
         auto bufDesc = (*OutResource)->GetDesc();
@@ -181,6 +232,22 @@ bool Shader_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* I
 void Shader_Dx12::SetBufferState(ID3D12GraphicsCommandList* InCommandList, D3D12_RESOURCE_STATES InState,
                                  ID3D12Resource* Buffer, D3D12_RESOURCE_STATES* BufferState)
 {
+    std::unique_lock<std::recursive_mutex> lock(DlssNr::Submission::RecordingMutex(), std::defer_lock);
+    if (_recordedLifetime)
+    {
+        lock.lock();
+        auto owner = _recordedBuffer.lock();
+        Microsoft::WRL::ComPtr<DlssNr::Submission::ILogicalCommandList> logical;
+        if (!owner || owner->resource.Get() != Buffer || !RecordedLifetimeSupported(InCommandList) ||
+            FAILED(InCommandList->QueryInterface(IID_PPV_ARGS(&logical))) || owner->invalidated ||
+            !(owner->identity == logical->Identity()))
+        {
+            _admissionFailedList = InCommandList;
+            return; // No barrier on an unowned recording; Dispatch fails closed too.
+        }
+        if (_admissionFailedList == InCommandList) _admissionFailedList = nullptr;
+        BufferState = &owner->state;
+    }
     if (BufferState == nullptr || *BufferState == InState)
         return;
 
@@ -193,6 +260,73 @@ void Shader_Dx12::SetBufferState(ID3D12GraphicsCommandList* InCommandList, D3D12
     InCommandList->ResourceBarrier(1, &barrier);
 
     *BufferState = InState;
+}
+
+std::function<void()> Shader_Dx12::RecordedBufferCleanup(ID3D12GraphicsCommandList* list)
+{
+    if (!_recordedLifetime) return {};
+    std::lock_guard lock(DlssNr::Submission::RecordingMutex());
+    auto owner = _recordedBuffer.lock();
+    if (!owner) return {};
+    return [owner = std::move(owner), list]()
+    {
+        std::lock_guard lock(DlssNr::Submission::RecordingMutex());
+        ComPtr<DlssNr::Submission::ILogicalCommandList> logical;
+        if (!list || owner->invalidated || FAILED(list->QueryInterface(IID_PPV_ARGS(&logical))) ||
+            !(owner->identity == logical->Identity()) || owner->state == D3D12_RESOURCE_STATE_COMMON) return;
+        const auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(owner->resource.Get(), owner->state,
+                                                                 D3D12_RESOURCE_STATE_COMMON);
+        list->ResourceBarrier(1, &barrier);
+        owner->state = D3D12_RESOURCE_STATE_COMMON;
+    };
+}
+
+std::shared_ptr<RecordedShader::Dispatch> Shader_Dx12::AcquireDispatchLease(
+    ID3D12GraphicsCommandList* list, ID3D12PipelineState* selectedPSO,
+    std::initializer_list<ID3D12Resource*> resources)
+{
+    if (!_recordedLifetime || !RecordedLifetimeSupported(list) ||
+        !_device || !_rootSignature || !selectedPSO || !_constantBuffer) return {};
+    if (_admissionFailedList == list) { _admissionFailedList = nullptr; return {}; }
+    _admissionFailedList = nullptr;
+    try
+    {
+        std::shared_ptr<RecordedShader::Dispatch> slot;
+        for (auto& candidate : _dispatchSlots)
+            if (candidate.use_count() == 1 && candidate->Available()) { slot = candidate; break; }
+        if (!slot)
+        {
+            slot = std::make_shared<RecordedShader::Dispatch>();
+            slot->device = _device;
+            ScopedSkipHeapCapture skipHeapCapture {};
+            if (!slot->heap.Initialize(_device, _srcCount, _uavCount, _cbvCount, _rtvCount)) return {};
+            auto desc = _constantBuffer->GetDesc();
+            desc.Width = (desc.Width + 255) & ~UINT64(255);
+            const auto props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+            if (FAILED(_device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&slot->constants)))) return {};
+            slot->timing = std::make_unique<GpuTime_Dx12>(_device, false);
+            _dispatchSlots.push_back(slot);
+        }
+        else
+        {
+            slot->timing = std::make_unique<GpuTime_Dx12>(_device, false);
+        }
+        slot->root = _rootSignature;
+        slot->pipeline = selectedPSO;
+        slot->resources.clear();
+        slot->intermediates.clear();
+        for (auto* resource : resources)
+            if (resource)
+            {
+                slot->resources.emplace_back(resource);
+                if (auto owner = RecordedShader::IntermediateOf(resource))
+                    slot->intermediates.push_back(std::move(owner));
+            }
+        if (!slot->Attach(list)) return {};
+        return slot;
+    }
+    catch (...) { return {}; }
 }
 
 // From DirectXHelpers.cpp licensed under MIT

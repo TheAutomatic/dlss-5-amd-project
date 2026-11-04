@@ -26,6 +26,7 @@
 // COM proxy for ID3D12GraphicsCommandList1..10 (inherits List10).
 // QI accepts List1..List10 + base. Newer methods QI the live producer; if unsupported, fail-closed (no-op / E_UNEXPECTED).
 // Create/Execute wrap helpers live in SubmissionHooks.h (armed only by harness / future P3).
+#include "DepthProvenance.h"
 namespace DlssNr::Submission
 {
 MIDL_INTERFACE("b3c0e9a1-4d2f-4c77-9a18-6f2d8e1b4c01")
@@ -851,11 +852,17 @@ public:
     void STDMETHODCALLTYPE CopyTextureRegion(const D3D12_TEXTURE_COPY_LOCATION *d, UINT x, UINT y, UINT z,
                                              const D3D12_TEXTURE_COPY_LOCATION *s, const D3D12_BOX *b) override
     {
+        if (d) DepthProvenance::Event("copy_texture_destination", Identity(), d->pResource,
+            d->Type, d->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX ? d->SubresourceIndex : 0);
+        if (s) DepthProvenance::Event("copy_texture_source", Identity(), s->pResource,
+            s->Type, s->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX ? s->SubresourceIndex : 0);
         if (auto *c = Cur())
             c->CopyTextureRegion(d, x, y, z, s, b);
     }
     void STDMETHODCALLTYPE CopyResource(ID3D12Resource *d, ID3D12Resource *s) override
     {
+        DepthProvenance::Event("copy_resource_destination", Identity(), d);
+        DepthProvenance::Event("copy_resource_source", Identity(), s);
         if (auto *c = Cur())
             c->CopyResource(d, s);
     }
@@ -920,6 +927,19 @@ public:
     }
     void STDMETHODCALLTYPE ResourceBarrier(UINT n, const D3D12_RESOURCE_BARRIER *b) override
     {
+        for (UINT i=0; b && i<n; ++i)
+        {
+            if (b[i].Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION)
+                DepthProvenance::Event("transition",Identity(),b[i].Transition.pResource,
+                    b[i].Transition.StateBefore,b[i].Transition.StateAfter);
+            else if (b[i].Type == D3D12_RESOURCE_BARRIER_TYPE_UAV)
+                DepthProvenance::Event("uav_barrier",Identity(),b[i].UAV.pResource);
+            else if (b[i].Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING)
+            {
+                DepthProvenance::Event("alias_before",Identity(),b[i].Aliasing.pResourceBefore);
+                DepthProvenance::Event("alias_after",Identity(),b[i].Aliasing.pResourceAfter);
+            }
+        }
         if (enhancedBarriersSeen)
             for (UINT i = 0; b && i < n; ++i) enhancedBook.OnLegacyBarrier(b[i]);
         const char *why = nullptr;
@@ -1077,6 +1097,7 @@ public:
                                                         ID3D12Resource *res, const UINT v[4], UINT n,
                                                         const D3D12_RECT *r) override
     {
+        DepthProvenance::Event("clear_uint",Identity(),res,v ? v[0] : 0,n);
         if (auto *c = Cur())
             c->ClearUnorderedAccessViewUint(g, cpu, res, v, n, r);
     }
@@ -1084,11 +1105,14 @@ public:
                                                          ID3D12Resource *res, const FLOAT v[4], UINT n,
                                                          const D3D12_RECT *r) override
     {
+        UINT bits=0; if (v) std::memcpy(&bits,v,sizeof(bits));
+        DepthProvenance::Event("clear_float",Identity(),res,bits,n);
         if (auto *c = Cur())
             c->ClearUnorderedAccessViewFloat(g, cpu, res, v, n, r);
     }
     void STDMETHODCALLTYPE DiscardResource(ID3D12Resource *r, const D3D12_DISCARD_REGION *region) override
     {
+        DepthProvenance::Event("discard",Identity(),r);
         if (auto *c = Cur())
             c->DiscardResource(r, region);
     }

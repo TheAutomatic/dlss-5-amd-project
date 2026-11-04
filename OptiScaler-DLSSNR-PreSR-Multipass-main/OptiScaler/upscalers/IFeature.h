@@ -7,6 +7,8 @@
 #include <unordered_set>
 #include <Util.h>
 
+struct FSRDRuntimeSnapshot;
+
 #define DLSS_MOD_ID_OFFSET 1000000
 
 inline static unsigned int handleCounter = DLSS_MOD_ID_OFFSET;
@@ -121,6 +123,7 @@ class IFeature
     std::string ShortName() const { return UpscalerShortName(GetUpscalerType()); }; // Without the version
     virtual std::optional<double> ReadUpscalerTime(void* commandQueue) { return std::nullopt; }
     virtual void ReadDetailedGpuTimes(void* commandQueue, std::vector<DetailedGpuTime>& detailedGpuTimes) {};
+    virtual bool ReadRayRegenerationDiagnostics(FSRDRuntimeSnapshot&) const { return false; }
 
     virtual size_t JitterCount() { return _jitterInfo.size(); }
 

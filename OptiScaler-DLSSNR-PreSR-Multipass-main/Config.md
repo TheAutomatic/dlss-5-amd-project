@@ -221,36 +221,69 @@ It can be changed from the in-game menu with real-time results.
 
 ### FSR Ray Regeneration (FSR-RR)
 
-Experimental: on supported AMD DX12 devices (RX 9000 series, Windows 11) this takes over NGX Ray
-Reconstruction requests, denoising with the FidelityFX RR 1.2 provider and upscaling with FFX
-before the existing NR/output-effect seam. Ordinary Super Resolution requests never route here.
-The denoiser DLL (`amd_fidelityfx_denoiser_dx12.dll`) must ship in the same package; a provider
-whose ABI is not RR 1.2 is reported and the feature stays unavailable.
+Opt-in AMD DX12 Ray Regeneration (RR 1.2 provider) denoises NGX Ray Reconstruction
+requests, then FFX SR upscales the composed result before the existing output effects.
+Ordinary SR requests do not route here. `amd_fidelityfx_denoiser_dx12.dll` must be present
+and ABI-compatible. Failure is explicit: this backend does **not** substitute undenoised
+SR, NVIDIA RR, or request the game's native denoiser. Temporary validated-input/configure
+failures retain the context and retry; provider/device/context failures require the stated
+recovery or recreation. Disable in-game NV RR to return denoising to the game.
 
-```ini
-[FSR-RR]
-; Master gate. Default (auto) is false
-Enabled=auto
+All keys below belong to `[FSR-RR]`; `auto` leaves a key unspecified. There are no blanket
+environment aliases. The shipped INI lists the complete canonical key surface.
 
-; Zero-based index into the denoiser provider query result. 0 selects the first
-; provider and is NOT "off"; the feature is disabled with Enabled above.
-ProviderIndex=0
+| Controls | Behavior / default |
+|---|---|
+| `Enabled`, `ProviderIndex` | Master gate false; zero-based provider index 0 is not Off. |
+| `Profile` | 0 Fast: Floor/recovery off. 1 Balanced (default): three-pass Fast Floor, flat + specular recovery. 2 Quality: five-pass Floor, flat + specular + diffuse recovery. -1 Custom. |
+| `DiffuseSignal`, `SpecularSignal` | `auto`, `direct`, `indirect`, `split`. Auto selects Indirect only with a validated lobe hit distance; otherwise Direct. Guide arrivals/dropouts update the effective plan. Split halves a lobe across both RR paths; it does not recover separate direct/indirect game lighting. |
+| `DenoiseDiffuse`, `DenoiseSpecular` | true. Disable one for comparison; both false resolves to both enabled. |
+| `EstimateHitDistances` | false. Experimental primary-view-depth substitute, never a claim of true secondary-ray geometry. |
+| `FloorEnabled`, `FloorFastMode` | true/true for Balanced; full mode uses five filter passes. |
+| `FloorRecovery` | Master recovery strength 1; zero skips recovery neighbourhood/history work. |
+| `FloorFlatRecovery`, `FloorSpecularRecovery`, `FloorDiffuseRecovery` | true/true/false. Flat/zero-roughness selection takes precedence; lobe recoveries do not stack on top. |
+| `FloorFlatNoiseMethod`, `FloorSpecularNoiseMethod`, `FloorDiffuseNoiseMethod` | 0/1/1: 0 Full Anchor, 1 Light Anchor Mix. |
+| `FloorHandoverAnchorClamp`, `FloorHandoverCorrelationMix` | 4 / 1, shared recovery anchor/correlation controls. |
+| `FloorLumaRecovery`, `FloorChromaRecovery` | 1 / 1, independently scaled by FloorRecovery. |
+| `SpecularAlbedoDemodulation`, `DiffuseAlbedoModulation` | 1 / 1. Matching before/after modulation pair; zero uses unity, original albedo guides remain. Changes reset history. |
+| `DemodDivisorFloor`, `BiasMaskStrength` | 0.008 / 1. Bound albedo division; preserve game-marked current-frame content. |
+| `AdditiveLightSplit` | 0 (off). Experimental local color/albedo fit; moves estimated additive light toward specular, adds conversion work, resets history on change. |
+| `AlbedoBleedFix`, `AlbedoBleedFixDiffuse` | Master false; diffuse true. Menu Off/Specular-only/Full. Uses extra unmodulated RR copies; needs both lobes, specular distance, modulation 1/1 and additive 0. Full adds diffuse-copy recovery; no missing-guide invention. |
+| `HardwareDepth` | Auto selects validated resource/NGX interpretation; true hardware, false linear. Camera INI overrides remain authoritative. |
+| `NormalsInViewSpace`, `UseTitleLinearDepth`, `TaggedNormalRoughness`, `TaggedAmbientOcclusion` | false. Explicit title compatibility controls, never inspector candidates promoted into guides. |
+| `DiffuseHitDistance` | true, uses the title's supplied diffuse distance. |
+| `ResponsivityTrustThreshold`, `ResponsivityInvert` | 0 / false. Optional title-mask threshold/polarity, zero disables. |
+| `UseAmdDefaults` | false; A/B queried AMD tuning without erasing stored sliders. |
+| `DisocclusionThreshold`, `CrossBilateralNormalStrength`, `TemporalStabilityBias` | 0.1 / 0.5 / 0.5. |
+| `MaxRadiance`, `RadianceClipDeviation`, `GaussianKernelRelaxation` | 40000 / 40 / 0.5. |
+| `GpuTimings`, `Diagnostics` | true / false. Timestamp samples require retired GPU submissions; probes add readback/log overhead. |
+| `DebugMode`, `DebugViewViewport`, `DebugViewLinearDepthMax`, `InternalDebugViews` | 0 (Off), -1 (overview), 1024, false; internal views require context recreation. |
 
-; Depth interpretation override: auto follows the NGX declaration.
-HardwareDepth=auto
+On load, a profile **fills only unspecified** policy/modulation/anchor/additive keys.
+Explicit false, zero, and manual values win even if the resulting policy displays Custom.
+Save preserves explicit defaults and writes the detected profile. Choosing a profile in the
+menu intentionally replaces that profile-owned policy; routing and Albedo Bleed Fix remain
+independent. Reset All resets denoiser controls, not the separate master routing gate.
 
-; Prefer the Streamline-tagged NormalRoughness buffer when the title publishes no
-; separate NGX roughness. Default (auto) is false
-TaggedNormalRoughness=auto
+Only explicitly set retired `DiffuseSignalType` / `SpecularSignalType` (0 Direct, 1 Indirect)
+migrate independently when their canonical route is absent. The other lobe remains Auto.
+Retired floor/detail/roughness controls leave the active section on Save with no fake
+equivalence aliases. Their original strings are retained under `[FSR-RR.Retired]` solely
+as inert manual-comparison provenance; the loader never reads that archive section.
+`SignalCount` / `Signal1`–`Signal4` were never shipped and are not interpreted.
 
-; High-overhead input/output readback probes and inventory logs. Default (auto) is false
-Diagnostics=auto
-```
+The menu shows requested/effective routes, validated inputs, per-stage recording status,
+retry/failure reason and completed timestamp samples. Green pipeline status means successful
+validation/command recording, **not** GPU completion. Composition automatically selects the
+Generic/Light/NoRecovery/TileLight/TileAnchor graph appropriate to the active policy.
 
-Post-upscale NR over an FSR-RR frame follows the existing `[DlssNr] ApplyAfterRR` choice: off
-keeps the RR+SR chain untouched, on runs the NR pass once per rendered frame on the frame's
-final output.
+“Capture additive channels” requests one render-space ROI (64 or 128 pixels; origin aligned
+down to 8). It records fit/transfer channels at strength 0/1 plus that frame's pre-upscale
+color, camera/depth/reset/exposure metadata; capture status reports pending/completed/failure.
+This adds GPU/readback work; disable probes and capture for timing comparisons. No capture
+request is persisted across launches.
 
+Post-upscale NR follows `[DlssNr] ApplyAfterRR` and executes at most once per rendered frame.
 
 ### Sharpness
 DLSS used to have a sharpening option, but later it was removed. So some games have sharpness slider and some do not. With this option you can disable or enable the sharpness of the final image. FSR has built in sharpness but for XeSS CAS option must be enabled.
