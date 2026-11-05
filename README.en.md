@@ -1,6 +1,6 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptScaler(NR) 1.14.1
+# OptScaler(NR) 1.15.0-alpha
 
 > **Note**: This README body has not been updated in a while and some details may lag behind the current build; please refer to the repository source code and [Release announcements](https://github.com/TheAutomatic/dlss-5-amd-project/releases) as authoritative.
 

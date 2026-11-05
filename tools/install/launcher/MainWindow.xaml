@@ -554,6 +554,20 @@
                     </Grid>
                   </Border>
                 </UniformGrid>
+                <Border x:Name="OpenRrCard" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="11,9" Margin="0,9,0,0">
+                  <StackPanel>
+                    <DockPanel>
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                        <Border x:Name="OpenRrBadge" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Center">
+                          <TextBlock x:Name="OpenRrStatusText" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/>
+                        </Border>
+                        <Button x:Name="OpenRrImportButton" Style="{DynamicResource GhostButton}" Height="24" FontSize="10.5" Padding="9,0" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                      </StackPanel>
+                      <CheckBox x:Name="OpenRrToggle" IsChecked="True" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <TextBlock x:Name="OpenRrDescription" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </Border>
                 <Border x:Name="ModelImportBar" Background="#26E3122B" BorderBrush="#E3122B" BorderThickness="1" CornerRadius="10" Padding="12,9" Margin="0,10,0,0" Visibility="Collapsed">
                   <DockPanel>
                     <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Background="#E3122B" Foreground="White" BorderBrush="#E3122B" Height="30" FontSize="11.5" FontWeight="SemiBold" Padding="14,0" Margin="12,0,0,0" VerticalAlignment="Center"/>
@@ -611,8 +625,7 @@
                 <Border Height="1" Background="{DynamicResource ThemeBorder}" Margin="0,0,0,12"/>
                 <TextBlock x:Name="InstallOptionsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11" Margin="0,0,0,6"/>
                 <CheckBox x:Name="ReplaceIni" IsChecked="True" FontSize="11" Margin="0,0,0,8"/>
-                <CheckBox x:Name="OptiPatcherToggle" FontSize="11" Margin="0,0,0,8"/>
-                <CheckBox x:Name="OpenRrToggle" IsChecked="True" FontSize="11" Margin="0,0,0,12"/>
+                <CheckBox x:Name="OptiPatcherToggle" FontSize="11" Margin="0,0,0,12"/>
                 <DockPanel Margin="0,0,0,12"><WrapPanel VerticalAlignment="Center"><TextBlock x:Name="PluginHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11" VerticalAlignment="Center"/><Button x:Name="UnlockerImportButton" Style="{DynamicResource GhostButton}" Height="27" Padding="8,0" FontSize="11" Margin="12,0,8,0" Visibility="Collapsed"/><Button x:Name="OpenPluginsFolderButton" Style="{DynamicResource GhostButton}" Height="27" Padding="8,0" FontSize="11" Margin="4,0,8,0" Visibility="Collapsed" IsEnabled="False"/></WrapPanel></DockPanel>
                 <Border Height="1" Background="{DynamicResource ThemeBorder}" Margin="0,0,0,12"/>
                 <Border Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="10">

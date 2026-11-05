@@ -13,13 +13,20 @@ namespace OptScalerNR.Launcher
         Border _modelImportBar;
         TextBlock _modelImportText;
         Button _modelImportButton;
+        Border _openRrBadge;
+        TextBlock _openRrStatusText;
+        Button _openRrImportButton;
 
         void InitModelImport()
         {
             _modelImportBar = _window.FindName("ModelImportBar") as Border;
             _modelImportText = _window.FindName("ModelImportText") as TextBlock;
             _modelImportButton = _window.FindName("ModelImportButton") as Button;
+            _openRrBadge = _window.FindName("OpenRrBadge") as Border;
+            _openRrStatusText = _window.FindName("OpenRrStatusText") as TextBlock;
+            _openRrImportButton = _window.FindName("OpenRrImportButton") as Button;
             if (_modelImportButton != null) _modelImportButton.Click += delegate { PickModelSourceFile(); };
+            if (_openRrImportButton != null) _openRrImportButton.Click += delegate { PickOpenRrDlssdFile(); };
             RefreshModelImportLanguage();
         }
 
@@ -27,6 +34,8 @@ namespace OptScalerNR.Launcher
         {
             if (_modelImportButton != null)
                 _modelImportButton.Content = L("导入模型源文件…", "Import model source file…");
+            if (_openRrImportButton != null)
+                _openRrImportButton.Content = L("导入 nvngx_dlssd.dll…", "Import nvngx_dlssd.dll…");
             RefreshModelImportBar();
         }
 
@@ -104,8 +113,39 @@ namespace OptScalerNR.Launcher
             return null;
         }
 
+        void RefreshOpenRrCard()
+        {
+            if (_openRrStatusText == null || _openRrBadge == null) return;
+            var enabled = _openRrToggle == null || _openRrToggle.IsChecked == true;
+            var hasDlssd = HasValidOpenRrDlssd();
+            if (!enabled)
+            {
+                _openRrStatusText.Text = L("已关闭 · 使用内置 FSR-RR", "Off · Uses built-in FSR-RR");
+                _openRrStatusText.Foreground = MissingBrush;
+                _openRrBadge.Background = MissingBg;
+                _openRrBadge.BorderBrush = MissingBorder;
+            }
+            else if (hasDlssd)
+            {
+                _openRrStatusText.Text = L("已就绪 · nvngx_dlssd.dll 310.9.1", "Ready · nvngx_dlssd.dll 310.9.1");
+                _openRrStatusText.Foreground = ReadyBrush;
+                _openRrBadge.Background = ReadyBg;
+                _openRrBadge.BorderBrush = ReadyBorder;
+            }
+            else
+            {
+                _openRrStatusText.Text = L("待导入 nvngx_dlssd.dll (310.9.1.0)", "Needs nvngx_dlssd.dll (310.9.1.0)");
+                _openRrStatusText.Foreground = WarningBrush;
+                _openRrBadge.Background = MissingBg;
+                _openRrBadge.BorderBrush = WarningBrush;
+            }
+            if (_openRrImportButton != null)
+                _openRrImportButton.IsEnabled = PresentationIdle;
+        }
+
         void RefreshModelImportBar()
         {
+            RefreshOpenRrCard();
             if (_modelImportBar == null) return;
             string message = null;
             var needs = _selectedGame != null && _selectedGame.HasExecutable && SelectedBackendNeedsImport(out message);
@@ -113,6 +153,36 @@ namespace OptScalerNR.Launcher
             _modelImportBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             if (_modelImportText != null) _modelImportText.Text = message ?? "";
             if (_modelImportButton != null) _modelImportButton.IsEnabled = visible && PresentationIdle;
+        }
+
+        void PickOpenRrDlssdFile()
+        {
+            if (IniBusyLike()) return;
+            var directory = _selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe) ? Path.GetDirectoryName(_selectedGame.Exe) : null;
+            var picker = new OpenFileDialog {
+                Title = L("选择 nvngx_dlssd.dll (310.9.1.0) — 复制到启动器目录供所有游戏使用", "Choose nvngx_dlssd.dll (310.9.1.0) — copied into launcher folder for all games"),
+                Filter = "nvngx_dlssd.dll (310.9.1.0)|nvngx_dlssd.dll|DLL (*.dll)|*.dll",
+                CheckFileExists = true, RestoreDirectory = true
+            };
+            if (!string.IsNullOrEmpty(directory)) picker.InitialDirectory = directory;
+            if (picker.ShowDialog(_window) != true) return;
+            try {
+                var source = picker.FileName;
+                if (!string.Equals(Path.GetFileName(source), "nvngx_dlssd.dll", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException(L("请选择名为 nvngx_dlssd.dll 的文件。", "Please choose a file named nvngx_dlssd.dll."));
+                ValidateModelSourcePe(source);
+                var root = ResolveImportRoot();
+                var destination = Path.Combine(root, "nvngx_dlssd.dll");
+                if (!string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase)) {
+                    Directory.CreateDirectory(root);
+                    File.Copy(source, destination, true);
+                }
+                if (_statusText != null) _statusText.Text = L("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
+                RefreshModelImportBar();
+                if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
+            } catch (Exception ex) {
+                DialogTheme.Show(_window, L("导入失败：", "Import failed: ") + ex.Message, _window.Title);
+            }
         }
 
         void PickModelSourceFile()

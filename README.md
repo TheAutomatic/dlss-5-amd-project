@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md) | [Español](README.es.md)
 
-# OptScaler(NR) 1.14.1
+# OptScaler(NR) 1.15.0-alpha
 
 > **提示**：本 README 正文已较久未更新，部分说明可能滞后于当前版本；最新功能、架构与使用说明建议以仓库代码及 [Release 发布公告](https://github.com/TheAutomatic/dlss-5-amd-project/releases)为准。
 

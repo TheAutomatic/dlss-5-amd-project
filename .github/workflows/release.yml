@@ -89,71 +89,67 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
-          ### v1.14.1 (对比 v1.14.0)
+          ### v1.15.0-alpha (对比 v1.14.1)
 
-          重点更新：FSR 光线再生（FSR-RR）转换/合成管线与录制生命周期全面重构，完成整套 FSR-RR 菜单中文本地化，并优化 Mochizuki 官方 ASI 接管性能与交互提示。
+          重点更新：新增 **OpenRR（DLSS 光线重建）** 实验性接入（支持在 AMD RX 9000 / RDNA4 显卡上原生运行 NVIDIA `nvngx_dlssd.dll 310.9.1.0` 光线重建网络，覆盖 D3D12 直录与 Vulkan 宿主后端），修复《红色沙漠》等使用 D3D12 Enhanced Barriers 游戏的 FSR-RR 崩溃回归，并更新 Mochizuki 0.0.8.2 direct-ELF ASI 载荷。
 
-          ## FSR 光线再生（FSR-RR）管线与稳定性重构
+          ## 新增 OpenRR（DLSS 光线重建 · RX 9000 实验性支持）
 
-          - **底光滤波（Floor）与细节恢复系统**：上线新版输入转换与输出合成管线，提供 `快速 / 平衡 / 质量` 三档预设、漫反射/高光独立路径路由（`自动 / 直通 / 间接 / 拆分`），以及针对水面、玻璃等材质的**反照率渗色修复（Albedo Bleed Fix）**。
-          - **录制生命周期与时域历史保护**：合成历史（Composition History）、SR 深度编码及后处理着色器（OutputScaler / RCAS / Bias / Magnifier）全面接入录制生命周期与首次提交定型机制，防止未提交录制丢弃、跨命令列表执行或游戏释放特征时破坏在途 GPU 资源。
-          - **相机与调试视图修复**：完善透视相机近/远平面与无限远平面（Infinite Far）解析及子矩形偏移打包；修复调试视图（如 `UpscalerBypass`、`DenoiserOutput`、`DebugOverview`）下的时域历史保留与重建逻辑，默认关闭重度诊断探针与周期日志输出。
+          - **原生运行 DLSS-D 310.9.1.0 光线重建网络**：在 AMD Radeon RX 9000 系列（RDNA4 / `gfx12`）显卡上直接提取并运行 NVIDIA `nvngx_dlssd.dll`（`310.9.1.0`）的 Transformer 光线重建模型（`rr2`）。
+          - **D3D12 命令列表直录与 Vulkan 宿主双后端**：
+            - **D3D12 直录后端（默认自动优先）**：通过驱动 ELF 管线接口将计算内核直接录制进游戏的 D3D12 命令列表，支持游戏纹理直读与输出 UAV 直写，无需跨队列共享缓冲或命令列表切分；
+            - **Vulkan 宿主后端**：在 Vulkan 光追游戏（如《夺宝奇兵：古老之圈》）中复用游戏自身 `VkDevice` 并直接录制进游戏 `VkCommandBuffer`。
+          - **动态分辨率（DRS）预分配与 GPU 退休证明**：按 `max_render` 预分配中间缓冲，消除动态分辨率切换时的显存堆积与帧间同步卡顿；D3D12 与 Vulkan 均采用单调录制槽位与队列 Fence / `hostQueryReset` 时间戳完成证明安全回收资源。
+          - **启动器与游戏内 Insert 菜单重排**：启动器主界面新增独立醒目的 **OpenRR 光线重建** 卡片（实时显示 `nvngx_dlssd.dll 310.9.1.0` 就绪状态并提供一键导入按钮）；游戏内 `Insert` 菜单新增实时状态与平均 GPU 耗时展示，并在 OpenRR 生效时自动隐藏容易引起误解的 FSR-RR 未生效提示。
 
-          ## Mochizuki ASI 接管优化与全菜单汉化
+          ## FSR 光线再生（FSR-RR）与 Mochizuki ASI 修复
 
-          - **消除双层命令列表包装与帧生成冲突（#19）**：当 `dlssnr-amd.asi` 接管神经降噪且未开启 FSR-RR 时，宿主自动跳过内置 `CommandListProxy` 与提交 Hook，修复 v1.14.0 中宿主与 ASI 重复钩取导致的帧生成掉帧与帧节奏异常（修复 #19）。
-          - **接管提示横幅重构与动态按键识别**：重绘宿主菜单中的 ASI 接管提示卡，自动读取 `dlssnr-amd.ini` 中的自定义菜单热键（默认 `[End]`）并醒目展示。
-          - **FSR 光线再生全套中文汉化**：完成整个 `FSR-RR` 主面板、实时管线状态、实时输入表、高级调参及悬停说明的简体中文本地化，并同步扩充内嵌中文字体字库。
-
-          ## 帧生成兼容性修复
-
-          - **移除 FSR-FG 误报检查**：移除会导致部分游戏内置 FSR-FG 与 XeFG 发生误判的调用栈检查（同步上游 `e57377fc`）。
+          - **修复 D3D12 Enhanced Barriers 游戏的 FSR-RR 回归**：为 `CommandListProxy` 新增窄口 `CanRecordOwnedCompute()` 准入检查，允许《红色沙漠》等使用 Enhanced Barriers 的游戏正常录制 FSR-RR 后处理通道，同时继续拦截 predication 与生命周期已终止的命令列表。
+          - **更新 Mochizuki 0.0.8.2 ASI 载荷**：同步更新 `dlssnr-amd.asi` direct-ELF 构建版本，并在 ASI 接管且用户开启 OpenRR 时智能保留所需的录制观察器。
 
           ### 已知问题
 
-          - 光线再生（FSR-RR）为实验功能，默认关闭；切换普通超分与光线再生仍依赖游戏重建 NGX 特征。
-          - 在 16GB 显存显卡上以 4K 分辨率运行重度光追游戏时，不建议同时叠开 `FSR-RR`、`dlssnr-amd.asi` 与多倍帧生成，以免超出显存预算引发换页降速。
-          - 多数游戏需开启 DXGI 伪装才会显示 DLSS/RR 选项；部分游戏开伪装后可能报“不支持的 GPU”。
-          - Experimental 与 INT4 模型需特定显卡指令集与权重支持（建议 RX 9000 系列优先体验）；RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
+          - OpenRR 目前仅支持 **AMD RX 9000 系列（RDNA4）** 显卡，且必须搭配 **`310.9.1.0` 版本**的 `nvngx_dlssd.dll`；非 RX 9000 显卡或未导入该 DLL 时将自动回退至内置 FSR 光线再生（FSR-RR）。
+          - 在 16GB 显存显卡上以 4K 分辨率运行重度光追游戏时，不建议同时叠开光线重建、`dlssnr-amd.asi` 与多倍帧生成，以免超出显存预算引发换页降速。
+          - 多数游戏需开启 DXGI 伪装才会显示 DLSS / 光线重建选项；Experimental 与 INT4 模型需特定显卡指令集支持；Linux/Proton 支持为实验性。
 
           ### 安装与模型提取
 
           - 完整解压并运行新包 `Setup.bat` 覆盖安装。
-          - Mochizuki 0.0.8.2 与 lmxxf：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取基础模型并生成派生网络；Daniel 需额外获取运行文件。
+          - **OpenRR**：在启动器主界面点击 `导入 nvngx_dlssd.dll…` 选择 `310.9.1.0` 版 `nvngx_dlssd.dll`（导入一次即对所有游戏生效）。
+          - **Mochizuki 0.0.8.2 与 lmxxf**：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取基础模型并生成派生网络；Daniel 需额外获取运行文件。
 
           ---
 
-          ### v1.14.1 (vs v1.14.0)
+          ### v1.15.0-alpha (vs v1.14.1)
 
-          Key updates: comprehensive FSR Ray Regeneration (FSR-RR) conversion/composition and recording-lifetime overhaul, full Simplified Chinese localization for the FSR-RR menu, and Mochizuki ASI takeover hook & UI refinements.
+          Key updates: experimental **OpenRR (DLSS Ray Reconstruction)** integration for AMD RX 9000 (RDNA4) GPUs across D3D12 direct-recording and Vulkan host backends, fix for the `v1.14.1` FSR-RR regression on D3D12 Enhanced Barrier games (e.g. Crimson Desert), and updated Mochizuki 0.0.8.2 direct-ELF ASI payload.
 
-          ## FSR Ray Regeneration (FSR-RR) Pipeline & Stability Overhaul
+          ## OpenRR (DLSS Ray Reconstruction on AMD RX 9000 · Experimental)
 
-          - **Floor Filtering & Detail Recovery**: Integrated the new conversion and composition pipeline featuring `Fast / Balanced / Quality` profiles, per-lobe `Auto / Direct / Indirect / Split` signal routing, and **Albedo Bleed Fix** for water and glass surfaces.
-          - **Recording Lifetime & History Finalization**: Composition history, SR depth encoding, and post-processing passes (`OutputScaler`, `RCAS`, `Bias`, `Magnifier`) now enforce observable command-list lifetime and first-submit descriptor finalization, preventing unsubmitted recording discards or feature releases from corrupting GPU-live resources.
-          - **Camera & Debug View Fixes**: Hardened perspective near/far and infinite-far camera resolution and subrect origin packing; preserved temporal history across denoiser/composition debug views and gated heavy diagnostic probes/logs behind explicit diagnostic settings.
+          - **Native DLSS-D 310.9.1.0 Ray Reconstruction on RDNA4**: Extracts weights from NVIDIA's `nvngx_dlssd.dll` (`310.9.1.0`) and executes the `rr2` Transformer Ray Reconstruction network natively on AMD Radeon RX 9000 series GPUs.
+          - **D3D12 Direct-Recording & Vulkan Host Backends**:
+            - **D3D12 Direct Backend (Auto default)**: Compiles and patches pipeline ELFs onto the game's own `ID3D12Device` and records directly into the game's command list with direct SRV/UAV texture views and zero cross-queue splits;
+            - **Vulkan Host Backend**: Adopts the game's `VkDevice` in Vulkan ray-tracing titles (e.g. Indiana Jones and the Great Circle) and records directly into the game's `VkCommandBuffer`.
+          - **DRS Preallocation & True GPU Retirement Proofs**: Preallocates intermediate buffers up to `max_render` to eliminate VRAM bloat and CPU sync stalls during Dynamic Resolution Scaling (DRS), backed by 64-slot fence and `hostQueryReset` completion tracking.
+          - **Streamlined Launcher & In-Game Insert Menu UI**: Added a prominent **OpenRR Ray Reconstruction** card in the Launcher with live `nvngx_dlssd.dll 310.9.1.0` detection and one-click import, and reorganized the in-game `Insert` menu so active OpenRR status is immediately clear without conflicting FSR-RR inactive prompts.
 
-          ## Mochizuki ASI Takeover & Localization Refinements
+          ## FSR Ray Regeneration (FSR-RR) & Mochizuki ASI Updates
 
-          - **Skip Redundant Host Proxy Wrapping (#19)**: When `dlssnr-amd.asi` owns Neural Rendering and FSR-RR is off, the host skips its own `CommandListProxy` and submission hooks, fixing the v1.14.0 frame pacing and performance regression with FSR-FG / XeFG caused by duplicate command-list hooking (fixes #19).
-          - **Redesigned Takeover Banner & Dynamic Keybind Detection**: Redesigned the in-game ASI takeover notice with prominent key hints that automatically reflect custom `[NRControl] MenuKey` bindings from `dlssnr-amd.ini` (default `[End]`).
-          - **Full zh-CN Localization for FSR-RR**: Localized the entire `FSR-RR` panel, live pipeline status, input binding table, advanced settings, and tooltips into Simplified Chinese with updated embedded font glyph coverage.
-
-          ## Frame Generation Compatibility
-
-          - **Removed False-Positive FSR-FG Stack Check**: Removed the game FSR-FG stack check that caused false positives alongside XeFG (upstream `e57377fc`).
+          - **Fixed D3D12 Enhanced Barrier Regression in FSR-RR**: Added `IRecordingResources::CanRecordOwnedCompute()` so games using D3D12 Enhanced Barriers (such as Crimson Desert) can record FSR-RR post-processing passes while still rejecting predicated or invalidated command lists.
+          - **Updated Mochizuki 0.0.8.2 ASI Payload**: Updated `dlssnr-amd.asi` to the latest 0.0.8.2 direct-ELF build and refined host proxy coordination when OpenRR is enabled alongside ASI takeover.
 
           ### Known Issues
 
-          - FSR Ray Regeneration is experimental and off by default; switching between SR and RR relies on the game recreating the NGX feature.
-          - On 16 GB GPUs at 4K with heavy path tracing, avoid stacking `FSR-RR`, `dlssnr-amd.asi`, and high-multiplier frame generation simultaneously to prevent VRAM over-budget paging.
-          - Most games need DXGI spoofing to expose DLSS/RR options; some titles may report unsupported GPUs with spoofing active.
-          - Experimental and INT4 models require specific hardware instruction sets (RX 9000 series recommended); RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
+          - OpenRR requires an **AMD RX 9000 series (RDNA4)** GPU and **`nvngx_dlssd.dll` version `310.9.1.0`**; non-RDNA4 GPUs or setups without `nvngx_dlssd.dll 310.9.1.0` automatically fall back to built-in FSR Ray Regeneration (FSR-RR).
+          - On 16 GB GPUs at 4K with heavy path tracing, avoid stacking Ray Reconstruction, `dlssnr-amd.asi`, and high-multiplier frame generation simultaneously to prevent VRAM over-budget paging.
+          - Most games need DXGI spoofing to expose DLSS/RR options; Linux/Proton support is experimental.
 
           ### Installation & Model Extraction
 
           - Extract the full package and run `Setup.bat` as an overwrite install.
-          - Mochizuki 0.0.8.2 & lmxxf: launcher extracts base models from your official `nvngx_dlssnr.dll` and derives secondary models; Daniel additionally requires runtime files.
+          - **OpenRR**: Click `Import nvngx_dlssd.dll…` on the OpenRR card in the Launcher to import `nvngx_dlssd.dll` (`310.9.1.0`) once for all games.
+          - **Mochizuki 0.0.8.2 & lmxxf**: Launcher extracts base models from your official `nvngx_dlssnr.dll` and derives secondary models; Daniel additionally requires runtime files.
           '@
           if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
           $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
