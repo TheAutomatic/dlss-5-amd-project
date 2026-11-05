@@ -6,8 +6,12 @@
 #include <Util.h>
 
 #include <atomic>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <string_view>
 #include <tlhelp32.h>
+#include <vector>
 
 namespace DlssNr::AsiTakeover
 {
@@ -24,7 +28,70 @@ std::mutex g_mutex;
 std::atomic<bool> g_active {false};
 std::wstring g_path;
 std::string g_version;
+std::string g_menuKey {"End"};
 std::atomic<unsigned long long> g_checkedAt {0};
+
+std::string ReadConfiguredMenuKey(const std::wstring& asiPath)
+{
+    std::vector<std::filesystem::path> candidates;
+    if (!asiPath.empty())
+    {
+        std::filesystem::path dir = std::filesystem::path(asiPath).parent_path();
+        for (int i = 0; i < 3 && !dir.empty(); ++i, dir = dir.parent_path())
+            candidates.push_back(dir / L"dlssnr-amd.ini");
+    }
+    candidates.push_back(Util::DllPath().parent_path() / L"dlssnr-amd.ini");
+    candidates.push_back(Util::ExePath().parent_path() / L"dlssnr-amd.ini");
+
+    auto trim = [](std::string_view sv) {
+        while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t' || sv.front() == '\r'))
+            sv.remove_prefix(1);
+        while (!sv.empty() && (sv.back() == ' ' || sv.back() == '\t' || sv.back() == '\r'))
+            sv.remove_suffix(1);
+        return sv;
+    };
+
+    for (const auto& iniPath : candidates)
+    {
+        std::ifstream in(iniPath, std::ios::binary);
+        if (!in)
+            continue;
+        bool inNrControl = false;
+        bool firstLine = true;
+        std::string line;
+        while (std::getline(in, line))
+        {
+            if (firstLine && line.compare(0, 3, "\xef\xbb\xbf") == 0)
+                line.erase(0, 3);
+            firstLine = false;
+            auto sv = trim(line);
+            if (sv.empty() || sv.front() == ';' || sv.front() == '#')
+                continue;
+            if (sv.front() == '[' && sv.back() == ']')
+            {
+                auto sec = trim(sv.substr(1, sv.size() - 2));
+                inNrControl = sec.size() == 9 && _strnicmp(sec.data(), "NRControl", 9) == 0;
+                continue;
+            }
+            if (!inNrControl)
+                continue;
+            const auto eq = sv.find('=');
+            if (eq == std::string_view::npos)
+                continue;
+            auto key = trim(sv.substr(0, eq));
+            if (key.size() == 7 && _strnicmp(key.data(), "MenuKey", 7) == 0)
+            {
+                auto val = trim(sv.substr(eq + 1));
+                const auto semi = val.find(';');
+                if (semi != std::string_view::npos)
+                    val = trim(val.substr(0, semi));
+                if (!val.empty())
+                    return std::string(val);
+            }
+        }
+    }
+    return "End";
+}
 
 void ScanLocked()
 {
@@ -71,14 +138,16 @@ void ScanLocked()
         if (version.empty())
             version = g_version;
     }
+    if (active)
+        g_menuKey = ReadConfiguredMenuKey(path);
     g_active = active;
     g_path = std::move(path);
     g_version = std::move(version);
 
     if (firstDetection)
         LOG_INFO("NR ownership: {} is loaded ({}); OptiScaler NR engine disabled for this session. "
-                 "Open NR Control with End. Restart without the plugin to use the built-in engine.",
-                 wstring_to_string(g_path), g_version.empty() ? "version unknown" : g_version);
+                 "Open NR Control with {}. Restart without the plugin to use the built-in engine.",
+                 wstring_to_string(g_path), g_version.empty() ? "version unknown" : g_version, g_menuKey);
 }
 } // namespace
 
@@ -115,6 +184,13 @@ std::string ModuleVersion()
     Active();
     std::lock_guard lock(g_mutex);
     return g_version;
+}
+
+std::string MenuKey()
+{
+    Active();
+    std::lock_guard lock(g_mutex);
+    return g_menuKey.empty() ? std::string("End") : g_menuKey;
 }
 
 bool NrRuntimeEnabled()

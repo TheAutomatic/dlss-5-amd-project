@@ -852,14 +852,77 @@ static void RenderAsiTakeoverNotice()
 {
     const auto path = DlssNr::AsiTakeover::ModulePath();
     const auto version = DlssNr::AsiTakeover::ModuleVersion();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.70f, 0.20f, 1.0f));
-    MenuUi::TextWrapped("NR is provided by the Mochizuki ASI plugin. Open NR Control with End.");
+    const auto menuKey = DlssNr::AsiTakeover::MenuKey();
+
+    auto* window = ImGui::GetCurrentWindow();
+    auto* draw = window->DrawList;
+    const auto& style = ImGui::GetStyle();
+    const float baseFont = ImGui::GetFontSize();
+    const float padX = style.WindowPadding.x;
+    const float padY = style.WindowPadding.y * 0.85f;
+    const float accentWidth = std::max(4.0f, std::round(baseFont * 0.28f));
+
+    const ImVec2 boxMin = window->DC.CursorPos;
+    const float boxWidth = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+
+    window->DC.CursorPos.y += padY;
+    const float indentX = accentWidth + padX;
+    ImGui::Indent(indentX);
+    const float oldWorkMaxX = window->WorkRect.Max.x;
+    const float oldContentMaxX = window->ContentRegionRect.Max.x;
+    window->WorkRect.Max.x -= padX;
+    window->ContentRegionRect.Max.x -= padX;
+
+    // 1. Headline (1.22x font, bright emerald green — clearly communicates "working normally", not an error)
+    ImGui::PushFontSize(std::round(baseFont * 1.22f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.28f, 0.92f, 0.56f, 1.0f));
+    MenuUi::TextWrapped("DLSS 5 (NR) is active via the Mochizuki ASI plugin (working normally)");
     ImGui::PopStyleColor();
+    ImGui::PopFontSize();
+
+    ImGui::Spacing();
+
+    // 2. Main key instruction (1.35x font, bright gold highlight — impossible to miss)
+    ImGui::PushFontSize(std::round(baseFont * 1.35f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.88f, 0.32f, 1.0f));
+    MenuUi::TextWrapped("Press the [ %s ] key on your keyboard to open the independent NR Control menu",
+                        menuKey.c_str());
+    ImGui::PopStyleColor();
+    ImGui::PopFontSize();
+
+    // 3. Key location hint (1.05x font, high-contrast light text)
+    ImGui::PushFontSize(std::round(baseFont * 1.05f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.95f, 1.0f, 1.0f));
+    MenuUi::TextWrapped("(The End key is usually above the arrow keys next to Delete / PageDown; if you changed MenuKey in the launcher or dlssnr-amd.ini, press your configured key.)");
+    ImGui::PopStyleColor();
+    ImGui::PopFontSize();
+
+    ImGui::Spacing();
+
+    // 4. Explanation why controls below are disabled
+    MenuUi::TextWrapped("All NR model switching, quality parameters, and hotkeys are configured in that independent window. "
+                        "The legacy built-in OptiScaler NR controls below are automatically disabled (not an error).");
+
     if (!path.empty())
         MenuUi::TextDisabled("Module: %s", wstring_to_string(path).c_str());
     MenuUi::TextDisabled("Version: %s", version.empty() ? "unknown" : version.c_str());
-    MenuUi::TextWrapped("Built-in NR controls are unavailable while the plugin is loaded. "
-                        "Enabled and backend preferences are kept. Restart without the plugin to use the built-in engine.");
+
+    ImGui::Unindent(indentX);
+    window->WorkRect.Max.x = oldWorkMaxX;
+    window->ContentRegionRect.Max.x = oldContentMaxX;
+
+    const float boxMaxY = window->DC.CursorPos.y - style.ItemSpacing.y + padY;
+    const ImVec2 boxMax(boxMin.x + boxWidth, boxMaxY);
+
+    draw->AddRectFilled(boxMin, ImVec2(boxMin.x + accentWidth, boxMaxY),
+                        ImGui::GetColorU32(ImVec4(0.24f, 0.84f, 0.50f, 0.95f)),
+                        style.FrameRounding, ImDrawFlags_RoundCornersLeft);
+    draw->AddRect(boxMin, boxMax,
+                  ImGui::GetColorU32(ImVec4(0.24f, 0.84f, 0.50f, 0.70f)),
+                  style.FrameRounding, 0, 1.5f);
+
+    window->DC.CursorPos.y = boxMaxY;
+    ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y * 0.5f));
 }
 
 void RenderMenu(Config* config, float menuResScale)
