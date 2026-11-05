@@ -2,6 +2,8 @@
 
 # OptScaler(NR) 1.14.1
 
+> **提示**：本 README 正文已较久未更新，部分说明可能滞后于当前版本；最新功能、架构与使用说明建议以仓库代码及 [Release 发布公告](https://github.com/TheAutomatic/dlss-5-amd-project/releases)为准。
+
 **特别感谢**：各位用户的测试与反馈意见。
 
 在 **OptiScaler** 上接入 **AMD 神经网络渲染**（DLSS5 on AMD），让 **纯 DLSS / XeSS 游戏** 在 AMD 显卡上跑神经网络降噪；超分辨率仍然由 **FFX/FSR** 完成。

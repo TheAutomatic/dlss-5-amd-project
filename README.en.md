@@ -2,6 +2,8 @@
 
 # OptScaler(NR) 1.14.1
 
+> **Note**: This README body has not been updated in a while and some details may lag behind the current build; please refer to the repository source code and [Release announcements](https://github.com/TheAutomatic/dlss-5-amd-project/releases) as authoritative.
+
 **Special Thanks**: Thank you to all users for your testing and feedback.
 
 Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
