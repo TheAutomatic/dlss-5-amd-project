@@ -594,15 +594,44 @@ static bool ValidateReprojectionGuideSource(
     if (!resource)
         return false;
 
-    const DXGI_FORMAT viewFormat = FSRD::GetViewFormat(resource->GetDesc().Format);
+    const D3D12_RESOURCE_DESC desc = resource->GetDesc();
+    const DXGI_FORMAT viewFormat = FSRD::GetViewFormat(desc.Format);
     if (!validateFormat(viewFormat))
     {
-        LOG_ERROR("[RR_INPUT] {} has incompatible format {}; expected {}",
-                  name, magic_enum::enum_name(viewFormat), expectedFormat);
+        static const char* lastRejectedName = nullptr;
+        static DXGI_FORMAT lastRejectedFormat = DXGI_FORMAT_UNKNOWN;
+        if (lastRejectedName != name || lastRejectedFormat != viewFormat)
+        {
+            lastRejectedName = name;
+            lastRejectedFormat = viewFormat;
+            LOG_ERROR("[RR_INPUT] {} has incompatible format {}; expected {}",
+                      name, magic_enum::enum_name(viewFormat), expectedFormat);
+        }
         return false;
     }
 
-    return ValidateSourceExtent(name, resource, base, width, height);
+    const bool valid = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        desc.SampleDesc.Count == 1 && desc.DepthOrArraySize == 1 &&
+        uint64_t(base.x) + uint64_t(width) <= desc.Width &&
+        uint64_t(base.y) + uint64_t(height) <= desc.Height;
+    if (!valid)
+    {
+        static const char* lastExtentName = nullptr;
+        static uint64_t lastExtentW = 0;
+        static uint32_t lastExtentH = 0;
+        if (lastExtentName != name || lastExtentW != desc.Width || lastExtentH != desc.Height)
+        {
+            lastExtentName = name;
+            lastExtentW = desc.Width;
+            lastExtentH = desc.Height;
+            LOG_ERROR(
+                "[RR_INPUT] {} does not cover requested Texture2D subrect: resource={}x{}, base=({}, {}), extent={}x{}, dimension={}, arrays={}, samples={}",
+                name, desc.Width, desc.Height, base.x, base.y, width, height,
+                static_cast<uint32_t>(desc.Dimension), desc.DepthOrArraySize,
+                desc.SampleDesc.Count);
+        }
+    }
+    return valid;
 }
 
 static bool IsEmissiveProbeCompatible(ID3D12Resource* resource)
@@ -1120,17 +1149,26 @@ bool FSRDFeatureDx12::AcquireSLTaggedResource(
         }
     }
 
+    static std::array<uint32_t, kRRTaggedSignalCount> loggedTagRejection {};
     if (!entry.resource || entry.resource.Get() != diagnostic.resourceAddress)
     {
-        LOG_WARN(
-            "[RR_INPUT] {} atomic tag snapshot has no matching retained D3D12 resource (generation={})",
-            sourceName, snapshot.generation);
+        if (loggedTagRejection[index] != 1u)
+        {
+            loggedTagRejection[index] = 1u;
+            LOG_WARN(
+                "[RR_INPUT] {} atomic tag snapshot has no matching retained D3D12 resource (generation={})",
+                sourceName, snapshot.generation);
+        }
         return false;
     }
 
     if (diagnostic.state == UINT32_MAX)
     {
-        LOG_WARN("[RR_INPUT] {} has no declared D3D12 resource state", sourceName);
+        if (loggedTagRejection[index] != 2u)
+        {
+            loggedTagRejection[index] = 2u;
+            LOG_WARN("[RR_INPUT] {} has no declared D3D12 resource state", sourceName);
+        }
         return false;
     }
 
@@ -1143,9 +1181,13 @@ bool FSRDFeatureDx12::AcquireSLTaggedResource(
         (statePolicy == TagStatePolicy::AllowCommonTransition && diagnostic.state == 0u);
     if (!declaredStateAcceptable)
     {
-        LOG_WARN(
-            "[RR_INPUT] {} is not declared NON_PIXEL_SHADER_RESOURCE (state={:#x}); refusing an untracked external-state transition",
-            sourceName, diagnostic.state);
+        if (loggedTagRejection[index] != 3u)
+        {
+            loggedTagRejection[index] = 3u;
+            LOG_WARN(
+                "[RR_INPUT] {} is not declared NON_PIXEL_SHADER_RESOURCE (state={:#x}); refusing an untracked external-state transition",
+                sourceName, diagnostic.state);
+        }
         return false;
     }
 
@@ -1158,21 +1200,30 @@ bool FSRDFeatureDx12::AcquireSLTaggedResource(
         desc.MipLevels != diagnostic.mipLevels ||
         desc.SampleDesc.Count != diagnostic.sampleCount)
     {
-        LOG_WARN(
-            "[RR_INPUT] {} resource description no longer matches its atomic tag metadata",
-            sourceName);
+        if (loggedTagRejection[index] != 4u)
+        {
+            loggedTagRejection[index] = 4u;
+            LOG_WARN(
+                "[RR_INPUT] {} resource description no longer matches its atomic tag metadata",
+                sourceName);
+        }
         return false;
     }
 
     if (!FSRD::HasValidTaggedResourceExtent(diagnostic))
     {
-        LOG_WARN(
-            "[RR_INPUT] {} has an invalid Streamline tag region: native={}x{}, effective={}x{}, base=({}, {}), usesExtent={}",
-            sourceName, diagnostic.nativeWidth, diagnostic.nativeHeight,
-            diagnostic.effectiveWidth, diagnostic.effectiveHeight,
-            diagnostic.extentLeft, diagnostic.extentTop, diagnostic.usesExtent);
+        if (loggedTagRejection[index] != 5u)
+        {
+            loggedTagRejection[index] = 5u;
+            LOG_WARN(
+                "[RR_INPUT] {} has an invalid Streamline tag region: native={}x{}, effective={}x{}, base=({}, {}), usesExtent={}",
+                sourceName, diagnostic.nativeWidth, diagnostic.nativeHeight,
+                diagnostic.effectiveWidth, diagnostic.effectiveHeight,
+                diagnostic.extentLeft, diagnostic.extentTop, diagnostic.usesExtent);
+        }
         return false;
     }
+    loggedTagRejection[index] = 0u;
 
     // Record legacy-tag consumption only after the tag has cleared every check.
     // Recording it earlier marks a tag consumed that we then reject, and the
@@ -2734,15 +2785,23 @@ void FSRDFeatureDx12::ResolveSpecularHitDistance(
         const XMUINT2 base = diagnostic.usesExtent
             ? XMUINT2 { diagnostic.extentLeft, diagnostic.extentTop }
             : XMUINT2 {};
+        static std::array<uint64_t, kRRTaggedSignalCount> loggedSpecExtent {};
+        const size_t signalIdx = static_cast<size_t>(signal);
         if (diagnostic.effectiveWidth != renderWidth ||
             diagnostic.effectiveHeight != renderHeight)
         {
-            LOG_ERROR(
-                "[RR_INPUT] {} tag extent {}x{} does not exactly match the one-to-one render extent {}x{}",
-                sourceName, diagnostic.effectiveWidth, diagnostic.effectiveHeight,
-                renderWidth, renderHeight);
+            const uint64_t key = (uint64_t(diagnostic.effectiveWidth) << 32) | diagnostic.effectiveHeight;
+            if (loggedSpecExtent[signalIdx] != key)
+            {
+                loggedSpecExtent[signalIdx] = key;
+                LOG_ERROR(
+                    "[RR_INPUT] {} tag extent {}x{} does not exactly match the one-to-one render extent {}x{}",
+                    sourceName, diagnostic.effectiveWidth, diagnostic.effectiveHeight,
+                    renderWidth, renderHeight);
+            }
             return false;
         }
+        loggedSpecExtent[signalIdx] = 0;
 
         const SourceFormatValidator formatValidator = combinedAlpha
             ? IsDiffuseRayDirectionHitDistanceFormat
@@ -3501,14 +3560,24 @@ RRResult FSRDFeatureDx12::PrepareDenoiseConvInput(const NVSDK_NGX_Parameter& inP
         const auto motionRegion = FSRInputAlignment::ResolveMotionRegion(
             { declaredMotionBase.x, declaredMotionBase.y }, { renderWidth, renderHeight },
             { DisplayWidth(), DisplayHeight() }, LowResMV(), motionDesc.Width, motionDesc.Height);
+        static FSRInputAlignment::MotionCorrection loggedMotionCorrection =
+            FSRInputAlignment::MotionCorrection::None;
         if (motionRegion.correction != FSRInputAlignment::MotionCorrection::None)
         {
-            LOG_WARN(
-                "[RR_INPUT] NGX motion resource is {}x{} and cannot contain the declared "
-                "subrect {}x{}+({},{}); using zero-based {}-resolution motion {}x{}",
-                motionDesc.Width, motionDesc.Height, motionWidth, motionHeight,
-                motionBase.x, motionBase.y, motionRegion.displayResolution ? "display" : "render",
-                motionRegion.extent.width, motionRegion.extent.height);
+            if (loggedMotionCorrection != motionRegion.correction)
+            {
+                loggedMotionCorrection = motionRegion.correction;
+                LOG_WARN(
+                    "[RR_INPUT] NGX motion resource is {}x{} and cannot contain the declared "
+                    "subrect {}x{}+({},{}); using zero-based {}-resolution motion {}x{}",
+                    motionDesc.Width, motionDesc.Height, motionWidth, motionHeight,
+                    motionBase.x, motionBase.y, motionRegion.displayResolution ? "display" : "render",
+                    motionRegion.extent.width, motionRegion.extent.height);
+            }
+        }
+        else
+        {
+            loggedMotionCorrection = FSRInputAlignment::MotionCorrection::None;
         }
         motionWidth = motionRegion.extent.width;
         motionHeight = motionRegion.extent.height;
@@ -3536,15 +3605,26 @@ RRResult FSRDFeatureDx12::PrepareDenoiseConvInput(const NVSDK_NGX_Parameter& inP
             motionScaleX = 1.0f;
         if (!validMotionScaleY)
             motionScaleY = 1.0f;
-        if (!validMotionScaleX || !validMotionScaleY)
+        static uint32_t loggedInvalidMvScaleMask = 0u;
+        const uint32_t invalidMvScaleMask =
+            (!validMotionScaleX ? 1u : 0u) | (!validMotionScaleY ? 2u : 0u);
+        if (invalidMvScaleMask != 0u)
         {
             // NGX helper APIs normalize a missing, non-finite, or zero component
             // to one. Preserve a valid negative component because it can encode
             // the title's axis convention.
-            LOG_WARN(
-                "[RR_INPUT] MV scale component missing/invalid/zero (x={}, y={}); "
-                "using NGX's unit fallback per component",
-                validMotionScaleX, validMotionScaleY);
+            if (loggedInvalidMvScaleMask != invalidMvScaleMask)
+            {
+                loggedInvalidMvScaleMask = invalidMvScaleMask;
+                LOG_WARN(
+                    "[RR_INPUT] MV scale component missing/invalid/zero (x={}, y={}); "
+                    "using NGX's unit fallback per component",
+                    validMotionScaleX, validMotionScaleY);
+            }
+        }
+        else
+        {
+            loggedInvalidMvScaleMask = 0u;
         }
 
         _convDesc.MotionInputSize = {
@@ -3973,10 +4053,16 @@ bool FSRDFeatureDx12::ConvertDenoiserBuffers(ID3D12GraphicsCommandList* InComman
     {
         static float loggedNear = -1.0f;
         static float loggedFar = -1.0f;
-        if (planes.nearPlane != loggedNear || planes.farPlane != loggedFar)
+        static uint32_t loggedPlaneFlags = UINT32_MAX;
+        const uint32_t planeFlags = (planes.farInfinite ? 1u : 0u) | (_isRightHanded ? 2u : 0u) |
+                                    (DepthInverted() ? 4u : 0u) | (_isHWDepth ? 8u : 0u) |
+                                    (_projectionFromStreamline ? 16u : 0u);
+        if (loggedPlaneFlags != planeFlags ||
+            (_convDesc.DiagnosticsEnabled && (planes.nearPlane != loggedNear || planes.farPlane != loggedFar)))
         {
             loggedNear = planes.nearPlane;
             loggedFar = planes.farPlane;
+            loggedPlaneFlags = planeFlags;
             LOG_INFO(
                 "[RR_DIAG] view planes: near={}, physicalFar={}, rrHorizon={}, infinite={}, rightHanded={}, "
                 "depthInverted={}, hardwareDepth={}, projectionFromStreamline={}, "
@@ -4371,7 +4457,7 @@ RRResult FSRDFeatureDx12::DispatchDenoiser(ID3D12GraphicsCommandList* InCommandL
     // aligned against. Both are read here rather than inferred, because a reset or a
     // bypassed frame forces the depth delta in the motion vectors to zero and would
     // otherwise read as "the camera never moved".
-    if ((_denoiserDispatchSuccesses % 60u) == 0u)
+    if (_convDesc.DiagnosticsEnabled && (_denoiserDispatchSuccesses % 60u) == 0u)
     {
         const XMFLOAT3 cameraPosition = GetFloat3Column(_invViewMatrix, 3);
         LOG_INFO(

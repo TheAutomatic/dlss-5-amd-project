@@ -642,15 +642,21 @@ void FSR31FeatureDx12::ConfigureUpscaler(const NVSDK_NGX_Parameter& inParams, ff
     float MVScaleX = 1.0f;
     float MVScaleY = 1.0f;
 
+    static bool loggedMissingMvScale = false;
     if (inParams.Get(NVSDK_NGX_Parameter_MV_Scale_X, &MVScaleX) == NVSDK_NGX_Result_Success &&
         inParams.Get(NVSDK_NGX_Parameter_MV_Scale_Y, &MVScaleY) == NVSDK_NGX_Result_Success)
     {
+        loggedMissingMvScale = false;
         upscalerDesc.motionVectorScale.x = MVScaleX;
         upscalerDesc.motionVectorScale.y = MVScaleY;
     }
     else
     {
-        LOG_WARN("Can't get motion vector scales!");
+        if (!loggedMissingMvScale)
+        {
+            loggedMissingMvScale = true;
+            LOG_WARN("Can't get motion vector scales!");
+        }
         upscalerDesc.motionVectorScale.x = MVScaleX;
         upscalerDesc.motionVectorScale.y = MVScaleY;
     }
