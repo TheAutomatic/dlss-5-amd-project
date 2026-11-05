@@ -29,6 +29,7 @@ std::atomic<bool> g_active {false};
 std::wstring g_path;
 std::string g_version;
 std::string g_menuKey {"End"};
+unsigned long long g_menuKeyCheckedAt = 0;
 std::atomic<unsigned long long> g_checkedAt {0};
 
 std::string ReadConfiguredMenuKey(const std::wstring& asiPath)
@@ -85,10 +86,18 @@ std::string ReadConfiguredMenuKey(const std::wstring& asiPath)
                 const auto semi = val.find(';');
                 if (semi != std::string_view::npos)
                     val = trim(val.substr(0, semi));
-                if (!val.empty())
-                    return std::string(val);
+                const auto hash = val.find('#');
+                if (hash != std::string_view::npos)
+                    val = trim(val.substr(0, hash));
+                if (val.empty() ||
+                    (val.size() == 4 && _strnicmp(val.data(), "None", 4) == 0) ||
+                    (val.size() == 3 && _strnicmp(val.data(), "Off", 3) == 0) ||
+                    val == "0")
+                    return {};
+                return std::string(val);
             }
         }
+        return "End";
     }
     return "End";
 }
@@ -176,15 +185,21 @@ void ScanLocked()
             version = g_version;
     }
     if (active)
+    {
         g_menuKey = ReadConfiguredMenuKey(path);
+        g_menuKeyCheckedAt = GetTickCount64();
+    }
     g_active = active;
     g_path = std::move(path);
     g_version = std::move(version);
 
     if (firstDetection)
         LOG_INFO("NR ownership: {} is loaded ({}); OptiScaler NR engine disabled for this session. "
-                 "Open NR Control with {}. Restart without the plugin to use the built-in engine.",
-                 wstring_to_string(g_path), g_version.empty() ? "version information not provided" : g_version, g_menuKey);
+                 "{}. Restart without the plugin to use the built-in engine.",
+                 wstring_to_string(g_path),
+                 g_version.empty() ? "version information not provided" : g_version,
+                 g_menuKey.empty() ? "NR Control hotkey is disabled in dlssnr-amd.ini"
+                                   : std::format("Open NR Control with {}", g_menuKey));
 }
 } // namespace
 
@@ -225,9 +240,16 @@ std::string ModuleVersion()
 
 std::string MenuKey()
 {
-    Active();
+    if (!Active())
+        return "End";
+    const auto now = GetTickCount64();
     std::lock_guard lock(g_mutex);
-    return g_menuKey.empty() ? std::string("End") : g_menuKey;
+    if (now - g_menuKeyCheckedAt >= kRefreshIntervalMs)
+    {
+        g_menuKey = ReadConfiguredMenuKey(g_path);
+        g_menuKeyCheckedAt = now;
+    }
+    return g_menuKey;
 }
 
 bool NrRuntimeEnabled()

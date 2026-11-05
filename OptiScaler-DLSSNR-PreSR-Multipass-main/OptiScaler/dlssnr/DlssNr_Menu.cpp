@@ -873,29 +873,45 @@ static void RenderAsiTakeoverNotice()
     window->WorkRect.Max.x -= padX;
     window->ContentRegionRect.Max.x -= padX;
 
-    // 1. Headline (1.22x font, bright emerald green — clearly communicates "working normally", not an error)
+    // 1. Headline (1.22x font — states ASI ownership honestly without claiming live NR health)
     ImGui::PushFontSize(std::round(baseFont * 1.22f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.28f, 0.92f, 0.56f, 1.0f));
-    MenuUi::TextWrapped("DLSS 5 (NR) is active via the Mochizuki ASI plugin (working normally)");
+    MenuUi::TextWrapped("Mochizuki ASI plugin detected; NR is managed by the plugin (check NR Control for live status)");
     ImGui::PopStyleColor();
     ImGui::PopFontSize();
 
     ImGui::Spacing();
 
-    // 2. Main key instruction (1.35x font, bright gold highlight — impossible to miss)
-    ImGui::PushFontSize(std::round(baseFont * 1.35f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.88f, 0.32f, 1.0f));
-    MenuUi::TextWrapped("Press the [ %s ] key on your keyboard to open the independent NR Control menu",
-                        menuKey.c_str());
-    ImGui::PopStyleColor();
-    ImGui::PopFontSize();
+    // 2 & 3. Key instruction or explicit disabled-hotkey notice
+    if (!menuKey.empty())
+    {
+        ImGui::PushFontSize(std::round(baseFont * 1.35f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.88f, 0.32f, 1.0f));
+        MenuUi::TextWrapped("Press the [ %s ] key on your keyboard to open the independent NR Control menu",
+                            menuKey.c_str());
+        ImGui::PopStyleColor();
+        ImGui::PopFontSize();
 
-    // 3. Key location hint (1.05x font, high-contrast light text)
-    ImGui::PushFontSize(std::round(baseFont * 1.05f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.95f, 1.0f, 1.0f));
-    MenuUi::TextWrapped("(The End key is usually above the arrow keys next to Delete / PageDown; if you changed MenuKey in the launcher or dlssnr-amd.ini, press your configured key.)");
-    ImGui::PopStyleColor();
-    ImGui::PopFontSize();
+        ImGui::PushFontSize(std::round(baseFont * 1.05f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.95f, 1.0f, 1.0f));
+        MenuUi::TextWrapped("(The End key is usually above the arrow keys next to Delete / PageDown; if you changed MenuKey in the launcher or dlssnr-amd.ini, press your configured key.)");
+        ImGui::PopStyleColor();
+        ImGui::PopFontSize();
+    }
+    else
+    {
+        ImGui::PushFontSize(std::round(baseFont * 1.20f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.88f, 0.32f, 1.0f));
+        MenuUi::TextWrapped("NR Control menu hotkey is disabled in dlssnr-amd.ini ([NRControl] MenuKey is empty)");
+        ImGui::PopStyleColor();
+        ImGui::PopFontSize();
+
+        ImGui::PushFontSize(std::round(baseFont * 1.05f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.95f, 1.0f, 1.0f));
+        MenuUi::TextWrapped("(Set [NRControl] MenuKey = End in dlssnr-amd.ini or the launcher to re-enable the NR Control menu hotkey.)");
+        ImGui::PopStyleColor();
+        ImGui::PopFontSize();
+    }
 
     ImGui::Spacing();
 

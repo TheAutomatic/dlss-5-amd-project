@@ -1314,7 +1314,9 @@
 {"Also limits FPS to the target and uses the lowest multiplier that reaches it.\nNo rounding band and no 1X: any sustained shortfall steps up, and a step\ndown is undone if the target can't be held. Needs a Frame Gen setting above 2X.", "同时把帧率限制到目标，并使用能达到目标的最低倍率。\n无取整区间、无 1X：持续不达标立即升档；降档后若无法维持目标则回退。\n需要帧生成设置高于 2X。"},
 
 // Mochizuki ASI takeover notice and status strings.
-{"DLSS 5 (NR) is active via the Mochizuki ASI plugin (working normally)", "DLSS 5 (NR) 正在由 Mochizuki ASI 插件运行（工作正常）"},
+{"Mochizuki ASI plugin detected; NR is managed by the plugin (check NR Control for live status)", "已检测到 Mochizuki ASI 插件，NR 由插件接管（实际状态请查看 NR Control）"},
+{"NR Control menu hotkey is disabled in dlssnr-amd.ini ([NRControl] MenuKey is empty)", "NR Control 菜单热键已在 dlssnr-amd.ini 中禁用（[NRControl] MenuKey 为空）"},
+{"(Set [NRControl] MenuKey = End in dlssnr-amd.ini or the launcher to re-enable the NR Control menu hotkey.)", "（如需呼出 NR Control 菜单，请在启动器或 dlssnr-amd.ini 中设置 [NRControl] MenuKey = End）"},
 {"Press the [ %s ] key on your keyboard to open the independent NR Control menu", "请直接按下 [ %s ] 按键打开独立的 NR Control 调节菜单"},
 {"(The End key is usually above the arrow keys next to Delete / PageDown; if you changed MenuKey in the launcher or dlssnr-amd.ini, press your configured key.)", "（End 按键通常位于方向键上方、Delete / PageDown 旁边；若在启动器或配置中修改过菜单热键，请按已设定的按键）"},
 {"All NR model switching, quality parameters, and hotkeys are configured in that independent window. The legacy built-in OptiScaler NR controls below are automatically disabled (not an error).", "所有 NR 模型切换、画质参数与热键均在该独立窗口中设置；下方 OptiScaler 旧版内置选项已自动停用（非错误）。"},

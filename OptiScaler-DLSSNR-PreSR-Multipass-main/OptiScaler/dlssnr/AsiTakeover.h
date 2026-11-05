@@ -23,7 +23,7 @@ bool Active();
 std::wstring ModulePath();
 // File version as "a.b.c.d", empty when unknown.
 std::string ModuleVersion();
-// Configured [NRControl] MenuKey from dlssnr-amd.ini ("End" by default).
+// Configured [NRControl] MenuKey from dlssnr-amd.ini ("End" by default; empty when explicitly disabled).
 std::string MenuKey();
 // Unthrottled re-read. Called after ASI loading and at startup.
 bool Refresh();
