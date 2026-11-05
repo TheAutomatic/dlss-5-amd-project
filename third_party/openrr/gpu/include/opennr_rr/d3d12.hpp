@@ -162,7 +162,6 @@ private:
     ID3D12Resource* cur_ring_ = nullptr;
     uint8_t* cur_ring_map_ = nullptr;
     uint64_t ring_off_ = 0, ring_end_ = 0;
-    ID3D12Resource* done_rb_ = nullptr;
     volatile uint64_t* done_map_ = nullptr;
     SlotState slots_[kSlots] = {};
     std::vector<OverflowUpload> overflow_;

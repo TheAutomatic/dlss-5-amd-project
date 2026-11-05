@@ -177,9 +177,9 @@ void root_constants(const void* push, uint32_t size, uint32_t* rc) {
 D3dDevice::~D3dDevice() {
     if (q_ && fence_) wait_own();
     reap(true);
-    if (done_rb_ && done_map_) done_rb_->Unmap(0, nullptr);
+    if (qrb_ && done_map_) qrb_->Unmap(0, nullptr);
     if (ring_ && ring_map_) ring_->Unmap(0, nullptr);
-    release(done_rb_), release(heap_), release(qrb_), release(qh_), release(ring_), release(fence_), release(own_), release(ca_), release(q_);
+    release(heap_), release(qrb_), release(qh_), release(ring_), release(fence_), release(own_), release(ca_), release(q_);
     release(dispatch_sig_), release(rs_);
     if (ext_) static_cast<IUnknown*>(ext_)->Release();
     release(dev_);
@@ -243,11 +243,6 @@ bool D3dDevice::init(ID3D12Device* dev, Device* compiler, const std::wstring& ca
         D3D12_QUERY_HEAP_DESC qhd{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, kSlots * kSlotQueries};
         check(dev_->CreateQueryHeap(&qhd, IID_PPV_ARGS(&qh_)), "CreateQueryHeap");
         qrb_ = buffer(dev_, uint64_t(kSlots) * kSlotQueries * 8, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST, false);
-        done_rb_ = buffer(dev_, kSlots * 8, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST, false);
-        void* dm = nullptr;
-        check(done_rb_->Map(0, nullptr, &dm), "Map");
-        memset(dm, 0, kSlots * 8);
-        done_map_ = static_cast<volatile uint64_t*>(dm);
         // The ELFs read set 0 at the low 32 bits in its user data entry with the high bits of their own code address,
         // 32 bytes a view: the convention the driver's own descriptor tables follow, so a shader-visible heap fits.
         // Each recording slot owns kSlotViews (18) + kTableViews (12) descriptors so its sampled-image table is
@@ -262,7 +257,7 @@ bool D3dDevice::init(ID3D12Device* dev, Device* compiler, const std::wstring& ca
         void* m = nullptr;
         check(qrb_->Map(0, nullptr, &m), "Map");
         memset(m, 0, size_t(kSlots) * kSlotQueries * 8);
-        qrb_->Unmap(0, nullptr);
+        done_map_ = static_cast<volatile uint64_t*>(m);
         return true;
     } catch (const std::exception& e) {
         err = e.what();
@@ -314,7 +309,7 @@ bool D3dDevice::slot_retired(SlotState& s, uint32_t idx) {
     });
     if (s.own) return s.own_fv != 0 && fence_ && fence_->GetCompletedValue() >= s.own_fv;
     if (s.host_tracked) return s.invalidated && s.proofs.empty();
-    return done_map_ && done_map_[idx] >= s.serial;
+    return done_map_ && done_map_[idx * kSlotQueries] != 0;
 }
 
 bool D3dDevice::overflow_retired(OverflowUpload& o) {
@@ -474,9 +469,10 @@ uint64_t D3dDevice::bind(ID3D12GraphicsCommandList* cl, uint32_t slot) {
         s.serial = current_serial_;
         s.own = (cl == own_);
         s.invalidated = false;
+        if (done_map_) done_map_[slot_ * kSlotQueries] = 0;
         cur_ring_ = ring_;
         cur_ring_map_ = ring_map_;
-        ring_off_ = uint64_t(slot_) << 16, ring_end_ = ring_off_ + (1u << 16) - 256;
+        ring_off_ = uint64_t(slot_) << 16, ring_end_ = ring_off_ + (1u << 16);
     } else {
         using_overflow_ = true;
         OverflowUpload o;
@@ -504,13 +500,8 @@ uint64_t D3dDevice::bind(ID3D12GraphicsCommandList* cl, uint32_t slot) {
 }
 
 void D3dDevice::unbind() {
+    if (cl_ && cl_ != own_ && nquery_ == 0) stamp();
     if (cl_ && nquery_) cl_->ResolveQueryData(qh_, D3D12_QUERY_TYPE_TIMESTAMP, slot_ * kSlotQueries, nquery_, qrb_, uint64_t(slot_) * kSlotQueries * 8);
-    if (cl_ && cl_ != own_ && !using_overflow_ && done_rb_ && cur_ring_ && cur_ring_map_) {
-        if (dirty_) barrier();
-        const uint64_t marker_off = (uint64_t(slot_) << 16) + (1u << 16) - 256;
-        memcpy(cur_ring_map_ + marker_off, &current_serial_, sizeof(current_serial_));
-        cl_->CopyBufferRegion(done_rb_, uint64_t(slot_) * 8, cur_ring_, marker_off, 8);
-    }
     current_serial_ = 0;
     using_overflow_ = false;
     cur_ring_ = nullptr;
@@ -521,16 +512,11 @@ void D3dDevice::unbind() {
 
 bool D3dDevice::read_stamps(uint32_t slot, std::vector<uint64_t>& ts) {
     const size_t n = ts.size();
-    if (!n || n > kSlotQueries) return false;
+    if (!n || n > kSlotQueries || !done_map_) return false;
     slot %= kSlots;
-    D3D12_RANGE r{size_t(slot) * kSlotQueries * 8, size_t(slot) * kSlotQueries * 8 + n * 8};
-    uint8_t* m = nullptr;
-    if (FAILED(qrb_->Map(0, &r, reinterpret_cast<void**>(&m)))) return false;
-    memcpy(ts.data(), m + r.Begin, n * 8);
-    bool ok = ts.front() && ts.back() && ts.back() >= ts.front();
-    memset(m + r.Begin, 0, n * 8);   // stale until the slot's next list writes it again
-    qrb_->Unmap(0, &r);
-    return ok;
+    const auto* m = reinterpret_cast<const uint64_t*>(const_cast<const uint64_t*>(done_map_)) + size_t(slot) * kSlotQueries;
+    memcpy(ts.data(), m, n * 8);
+    return ts.front() && ts.back() && ts.back() >= ts.front();
 }
 
 Buffer D3dDevice::create(VkDeviceSize size) {
@@ -727,7 +713,12 @@ Kernel D3dDevice::load(const std::string& spv_path, uint32_t subgroup) {
     k.name = spv_path;
     k.views = std::filesystem::path(spv_path).stem().string().rfind("d3d_", 0) == 0;
     ID3D12PipelineState* pso = nullptr;
-    check(static_cast<AmdDevice5*>(ext_)->CreateComputePipelineFromElf(&info, IID_PPV_ARGS(&pso)), "CreateComputePipelineFromElf");
+    HRESULT hr = static_cast<AmdDevice5*>(ext_)->CreateComputePipelineFromElf(&info, IID_PPV_ARGS(&pso));
+    if ((FAILED(hr) || !pso) && patched.size() > 48 && (patched[48] == 0x4e || patched[48] == 0x48)) {
+        patched[48] ^= (0x4e ^ 0x48);
+        hr = static_cast<AmdDevice5*>(ext_)->CreateComputePipelineFromElf(&info, IID_PPV_ARGS(&pso));
+    }
+    check(hr, "CreateComputePipelineFromElf");
     k.pso = pso;
     return k;
 }
@@ -812,18 +803,22 @@ bool D3dDevice::init_sampler(std::string& why) {
     if (!VirtualQuery(reinterpret_cast<void*>(heap_cpu_), &mi, sizeof mi) || mi.State != MEM_COMMIT ||
         !(mi.Protect & (PAGE_READWRITE | PAGE_WRITECOMBINE | PAGE_NOCACHE)))
         return why = "the descriptor heap is not CPU-writable memory", false;
-    srd_ = std::make_unique<Device>();
-    LUID luid = dev_->GetAdapterLuid();
-    DeviceOptions o;
-    o.luid = reinterpret_cast<const uint8_t*>(&luid);
-    o.descriptors = true;
-    std::string err;
-    if (!srd_->init(err, o)) return srd_.reset(), why = "Vulkan descriptor device: " + err, false;
+    Device* desc_dev = compiler_;
+    if (!desc_dev) {
+        srd_ = std::make_unique<Device>();
+        LUID luid = dev_->GetAdapterLuid();
+        DeviceOptions o;
+        o.luid = reinterpret_cast<const uint8_t*>(&luid);
+        o.descriptors = true;
+        std::string err;
+        if (!srd_->init(err, o)) return srd_.reset(), why = "Vulkan descriptor device: " + err, false;
+        desc_dev = srd_.get();
+    }
     // two images at two addresses: only the base address may differ, at the bits it is expected at
     uint8_t d[2][48];
     uint64_t a[2];
     for (int i = 0; i < 2; ++i)
-        if (!linear_descriptor(*srd_, 64, 8, VK_FORMAT_R16G16B16A16_SFLOAT, 8, d[i], a[i]))
+        if (!linear_descriptor(*desc_dev, 64, 8, VK_FORMAT_R16G16B16A16_SFLOAT, 8, d[i], a[i]))
             return srd_.reset(), why = "no linear image descriptor from Vulkan", false;
     for (int i = 0; i < 2; ++i) {
         uint8_t t[48];
@@ -841,7 +836,8 @@ Image D3dDevice::alias_image(const Buffer& b, uint32_t w, uint32_t h, VkFormat f
     if (!srd_ok_) return {};
     std::array<uint8_t, 48> t;
     uint64_t a = 0;
-    if (!linear_descriptor(*srd_, w, h, fmt, bpp, t.data(), a)) return {};
+    Device* desc_dev = compiler_ ? compiler_ : srd_.get();
+    if (!desc_dev || !linear_descriptor(*desc_dev, w, h, fmt, bpp, t.data(), a)) return {};
     put_address(t.data(), b.addr);
     Image im;
     im.img = reinterpret_cast<VkImage>(uintptr_t(next_image_));

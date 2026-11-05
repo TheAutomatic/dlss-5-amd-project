@@ -669,12 +669,16 @@ void record_post(Ctx* c, Rec& r, Job& j, Tf edited) {
         in = DfnImport{r.image, (j.f.render_width * tf_bytes(edited) + 255) & ~255u, uint32_t(edited)};
         edit = j.edit == ONR_RR_EDIT_DISPLAY ? DfnEdit::display : DfnEdit::loop;
     }
+    const bool img = r.out_fmt && c->engine.output_image_ok();
+    c->engine.set_output_image(img);
+    if (!img && !c->out16.addr) c->out16 = r.d.create(size_t(c->out_size.x) * c->out_size.y * 8 + 64);
     r.qnet[0] = r.d.queries();
     r.d.stamp();
-    c->engine.record_post(engine_frame(c, j), c->out16.addr, edit, in);
+    c->engine.record_post(engine_frame(c, j), img ? uint64_t(r.out_pitch) : c->out16.addr, edit, in);
+    c->engine.set_output_image(false);
     r.d.stamp();
     r.qnet[1] = r.d.queries();
-    record_pack(c, r, j);
+    if (!img) record_pack(c, r, j);
 }
 
 // ONR_RR_DIRECT_GUIDES=0 (measurements): the ingest writes the guides even where the network can read them itself
@@ -1268,6 +1272,7 @@ int32_t Create(const OnrRrCreateInfo* in, void** out) {
         DeviceOptions o;
         o.luid = reinterpret_cast<const uint8_t*>(&luid);
         o.interop = true;
+        o.descriptors = true;
         std::string err;
         if (!c->dev.init(err, o)) throw std::runtime_error("Vulkan: " + err);
         // timestamps only at the submit's boundaries: one around every dispatch serialises the ones without a barrier
@@ -2088,20 +2093,34 @@ void d3d_ensure(Ctx* c, Buffer& b, UINT64 n) {
 // The typed view d3d_ingest reads a guide through, or UNKNOWN when its texel fetch might not give the bits tf_read
 // gives: float formats convert exactly; 8-bit unorm only into the albedos, which pack it back to the same bytes.
 DXGI_FORMAT direct_view(DXGI_FORMAT f, int slot) {
+    (void)slot;
     switch (f) {
     case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
     case DXGI_FORMAT_R11G11B10_FLOAT: return DXGI_FORMAT_R11G11B10_FLOAT;
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: return DXGI_FORMAT_R10G10B10A2_UNORM;
     case DXGI_FORMAT_R16G16_TYPELESS: case DXGI_FORMAT_R16G16_FLOAT: return DXGI_FORMAT_R16G16_FLOAT;
     case DXGI_FORMAT_R32G32_TYPELESS: case DXGI_FORMAT_R32G32_FLOAT: return DXGI_FORMAT_R32G32_FLOAT;
     case DXGI_FORMAT_R16_TYPELESS: case DXGI_FORMAT_R16_FLOAT: return DXGI_FORMAT_R16_FLOAT;
-    case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: case DXGI_FORMAT_D32_FLOAT: return DXGI_FORMAT_R32_FLOAT;
-    case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+    case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: return DXGI_FORMAT_R32_FLOAT;
+    case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
         return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
-    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM:
-        return slot == G_ALBEDO || slot == G_SPEC ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_UNKNOWN;
-    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM:
-        return slot == G_ALBEDO || slot == G_SPEC ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_UNKNOWN;
+    case DXGI_FORMAT_R24G8_TYPELESS: case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+        return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    case DXGI_FORMAT_R8_TYPELESS: case DXGI_FORMAT_R8_UNORM: return DXGI_FORMAT_R8_UNORM;
+    case DXGI_FORMAT_R16_UNORM: return DXGI_FORMAT_R16_UNORM;
+    case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R8G8_UNORM: return DXGI_FORMAT_R8G8_UNORM;
+    case DXGI_FORMAT_R16G16_UNORM: return DXGI_FORMAT_R16G16_UNORM;
+    case DXGI_FORMAT_R16G16_SNORM: return DXGI_FORMAT_R16G16_SNORM;
+    case DXGI_FORMAT_R16G16B16A16_UNORM: return DXGI_FORMAT_R16G16B16A16_UNORM;
+    case DXGI_FORMAT_R16G16B16A16_SNORM: return DXGI_FORMAT_R16G16B16A16_SNORM;
+    case DXGI_FORMAT_R8G8B8A8_SNORM: return DXGI_FORMAT_R8G8B8A8_SNORM;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM: return DXGI_FORMAT_B8G8R8X8_UNORM;
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    case DXGI_FORMAT_R9G9B9E5_SHAREDEXP: return DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
     default: return DXGI_FORMAT_UNKNOWN;
     }
 }
@@ -2164,14 +2183,34 @@ void d3d_copy_inputs(Ctx* c, const Job& j) {
 
 // d3d_pack straight into the output: an rgba16f texture that takes a UAV (the store keeps the bits); r set up, the
 // texture moved into UNORDERED_ACCESS (back: the move to undo). False: the rows go through doutput and a copy.
+DXGI_FORMAT direct_uav_format(DXGI_FORMAT f) {
+    switch (f) {
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case DXGI_FORMAT_R11G11B10_FLOAT: return DXGI_FORMAT_R11G11B10_FLOAT;
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: return DXGI_FORMAT_R10G10B10A2_UNORM;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM: return DXGI_FORMAT_B8G8R8X8_UNORM;
+    case DXGI_FORMAT_R16G16B16A16_UNORM: return DXGI_FORMAT_R16G16B16A16_UNORM;
+    default: return DXGI_FORMAT_UNKNOWN;
+    }
+}
+
 bool d3d_direct_output(Ctx* c, const Job& j, Rec& r, std::vector<D3D12_RESOURCE_BARRIER>& back) {
     auto* out = static_cast<ID3D12Resource*>(j.f.output.resource);
     D3D12_RESOURCE_DESC od = out->GetDesc();
-    if (!c->direct_ok || j.out_tf != TF_RGBA16F || !(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) || od.SampleDesc.Count != 1 ||
-        j.f.output.x > 65535 || j.f.output.y > 65535)
+    const DXGI_FORMAT uav_fmt = direct_uav_format(od.Format);
+    if (!c->direct_ok || uav_fmt == DXGI_FORMAT_UNKNOWN || !(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) ||
+        od.SampleDesc.Count != 1 || j.f.output.x > 65535 || j.f.output.y > 65535)
         return false;
-    c->dx->uav(out, 16, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    r.out_fmt = TF_RGBA16F | 256u, r.out_pitch = j.f.output.x | j.f.output.y << 16;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT fs{uav_fmt};
+    if (FAILED(c->d3d->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs)) ||
+        !(fs.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) ||
+        !(fs.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
+        return false;
+    c->dx->uav(out, 16, uav_fmt);
+    r.out_fmt = uint32_t(j.out_tf) | 256u, r.out_pitch = j.f.output.x | j.f.output.y << 16;
     const auto st = D3D12_RESOURCE_STATES(j.f.output.state);
     if (st != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
         D3D12_RESOURCE_BARRIER b{D3D12_RESOURCE_BARRIER_TYPE_TRANSITION};
