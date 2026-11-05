@@ -11,6 +11,7 @@
 |构建离线运行器|下面的 build-only 命令|自动执行真实 C++ RGB 指标自检，不运行 GPU|
 |原生 AMD 输入与转换路径|`--mode native-diffuse`|有限静态 Lambertian 合成场景，不是游戏原生 RR 或真实低采样 RT 验收|
 |实际产品宿主|`fsrd_feature_smoke.cmd` 构建后单独执行|真实 DLL 经 NGX 的功能路径，不是画质认证|
+|OpenRR 离线性能/显存与 A/B 对照|`tests\fsr-rr\run.cmd openrr <out-dir> --dlssd <nvngx_dlssd.dll>`|手动显式触发（不进 CI）：测 OpenRR 稳态/DRS 帧耗时、显存占用及新旧 runtime 输出一致性|
 
 只选与改动有关的检查，不因文档存在就全部运行。使用唯一输出目录，保留旧结果。
 

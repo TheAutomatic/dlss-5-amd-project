@@ -33,6 +33,7 @@ set "FEATURE_CASE="
 set "ZERO_REFERENCE="
 set "SET_VALUES="
 if /i "%TIER%"=="native" goto Native
+if /i "%TIER%"=="openrr" goto OpenRr
 
 rem ---- argument parsing (tier and out-dir are positional, rest are flags) ----
 set "ALL_ARGS=%*"
@@ -78,6 +79,18 @@ exit /b 2
 
 :Native
 call "%REPO%\tests\fsr-rr\fsrd_feature_smoke.cmd" %2 %3 %4 %5
+exit /b %errorlevel%
+
+:OpenRr
+if not defined OUT set "OUT=exports\test-run\openrr-bench"
+for %%I in ("%OUT%") do set "OUT=%%~fI"
+if not exist "%OUT%" mkdir "%OUT%"
+call "%REPO%\tests\_lib\msvc-env.cmd" 2>nul || exit /b 1
+cl /nologo /std:c++20 /EHsc /W4 /utf-8 /O2 /I"%REPO%\OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler" tests\fsr-rr\openrr_bench.cpp /Fe"%OUT%\openrr_bench.exe" /Fo"%OUT%/" /link d3d12.lib dxgi.lib || exit /b 1
+shift
+shift
+if /i "%~1"=="--build-only" exit /b 0
+"%OUT%\openrr_bench.exe" --out "%OUT%" %1 %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %errorlevel%
 
 :Cpu
