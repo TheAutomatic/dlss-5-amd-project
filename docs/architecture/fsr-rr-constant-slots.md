@@ -10,11 +10,11 @@
 
 分配策略：
 
-1. 查询全部现有槽，复用无票据或票据已退休的槽，不再局限于环的当前位置。
+1. 查询全部现有槽，只复用无票据，或票据已退休且旧录制所有权已释放的槽。一次执行完成不能释放仍可重放的 closed command list 的 CB／描述符；wrapped 录制保持独立 Owner，直到 Reset／最终 Release 且所有执行完成。
 2. 空闲槽不足时按原初始容量增加页面；旧常量地址和描述符堆保持不变，不等待 GPU 或强制退休。
-3. 每个 shader 槽池最多 256 槽。达到上限或分配失败时返回带阶段名称的错误，避免提交追踪失效时无限占用内存；这不是保证任何在途帧数都能成功的承诺。
-4. 转换录制前预留 FloorSeed、五级滤波、InputConv，以及最多两次合成/调试 blit 所需槽。容量不足在转换命令和 ping-pong 状态变化之前报告，避免因后段缺槽而留下部分转换命令。
-5. 预留本身不创建 GPU 票据；实际 dispatch 才提交对应槽的票据。未使用的预留在下轮可重新选择，已使用槽仍须等待真实退休。独立 blit 也通过同一槽池取得资源。
+3. 每个 shader 槽池最多 256 槽。长时间保留大量可重放录制也会占满容量；达到上限或分配失败报告阶段错误，不靠覆盖旧槽继续执行。
+4. 转换在任何 barrier、计时命令或 ping-pong swap 前预留 FloorSeed、启用时的 3／5 次 FloorFilter 和 InputConv；合成独立预留 1／2 次 composition 及启用时的 evidence／6 次 propagate。独立 blit 仍按一次 dispatch 预留。
+5. 预留本身不创建 GPU 票据；实际 dispatch 才提交对应槽的票据。未使用的预留在下轮可重新选择，已使用槽必须遵守真实录制／执行退休。预留解决容量失败的半录制，不声称所有分配、observer 注册或设备失败都可回滚已录制命令。
 
 `RetiredSlotReservations.h` 是产品实际调用的 CPU 选择策略；payload 位于稳定的独立分配中。它不更改 `GpuBatchTracker` 的提交/完成判断，也不修复可能存在的录制放弃、重放或通知遗漏问题。若仍触及上限，应调查票据状态，不移除保护。
 
@@ -44,3 +44,17 @@ Godot 独立环境已完成最终宿主八帧 Vulkan 光栅输入→CPU 桥→DX
 比较结果不是全通过：逐帧噪声残差与能量存在回退，细节与图像空间时间残差在既定界限内。多数场景的 pre-SR 平均噪声 RMSE 改善，奇数尺寸 RH 无限远例外；SR 后 HDR 能量及部分运动/线性深度场景仍有边界失败。未放宽门槛、未隐藏帧，不能声称新版所有画质优于旧版。纯光栅 Godot 也不能消除此验证边界。
 
 实际宿主 guide 生命周期 smoke 已执行 absent→arrival→dropout→return，信号 mask 为 `0x3→0xc→0x3→0xc`，稳态均读回新输出；现有延迟重建边界仍出现一次 NGX failure 与两次 success-but-no-output，随后恢复。它证明不再永久卡在缺失 guide 的旧布局，不证明切换无损或零丢帧。
+
+## 2026-11-05：丢弃录制的历史准入
+
+录制阶段保留合法的 pending 跨列表历史候选，不因 writer 尚未提交而提前牺牲历史。完整的 composition（包含两个 tile pass）录制完成后才附加 reader／writer 历史观察者、设置 writer identity；提交钩子在 `RecordingMutex` 下以原始连续 native batch 顺序准入，非零 admission epoch 仅授权同批已准入的前序 writer。没有全局拆批，也不改变原有 barrier promotion／decay 边界或 queue Wait 的位置。
+
+reader 第一次 `BeforeExecute` 在 writer 已提交、同录制前序 writer、或同一 ordered batch 已准入前序 writer 时保留历史。否则只对从未提交、由录制 Owner 固定持有的 composition 私有槽将 `HistoryValid` 及两个 typed SRV 一次性改为无历史。无私有槽不能假装成功；真正的 Wait／observer HRESULT 仍传播失败。无历史选择不可恢复；历史选择若所在整批未提交，可在重试准入时降为无历史；实际提交后所有 CB／descriptor 永不重写，若其历史来源之后变得不确定则拒绝重放，而不是修改 GPU-live 内存。
+
+Root Signature 1.1 的静态 descriptor 不能在录制绑定后修改，即使 GPU 尚未提交。composition SRV 表因此保持索引布局，但仅把历史 t9／t10 的 range 标为 `DESCRIPTORS_VOLATILE | DATA_STATIC_WHILE_SET_AT_EXECUTE`；其它 SRV 与 UAV range 不放宽。前者允许提交前最终确定 descriptor，后者仍要求所指资源内容在执行期间稳定，不等同 `DATA_VOLATILE`，也不允许修改 GPU-live heap。CBV 的数据只在未提交私有槽中修改；提交后 CB／descriptor 全部固定。
+
+部分 composition 录制始终先绑定无历史；所有 pass 和观察者成功建立后，仍在录制锁内才启用候选。任何中途失败留下的命令均不会读取未生产历史，writer identity 保持空；每个已录制 dispatch 的 Owner 保留 CB、heap、PSO、root signature、输入输出 COM 对象及输出 generation，不让未发布的部分 generation 被池复用。
+
+`uncertain` 表示退休证明丢失，`contentUncertain` 表示 writer 内容不可信。reader Signal 失败只隔离退休，不抹掉已知 writer 内容；writer 每次实际提交（包括 replay）先撤销 `produced` 和内容信任，只有成功 completion Signal 才恢复，失败不会留下旧 `produced=true`。所有已知跨队列访问使用 GPU Wait；无 completion 证明的资源保留到设备移除，不超时回收。
+
+代价／边界：reader 先于 writer 提交、writer 被丢弃或无法证明有序时，这次录制永久使用无历史；后续 writer 提交不回写它。仍保留可合法复用的预录制多列表。batch 准入中的真实失败仍可拒绝该原始 batch；可选历史缺失本身不会再制造这种失败。本节描述源码不变量，不是新增 GPU／游戏画质验收；本轮执行检查由集成方统一运行。

@@ -1,9 +1,15 @@
 #include "FSRDPreprocessCommon.hlsli"
 #include "FSRDFloorCommon.hlsli"
 
+// Only history descriptors are finalized after command recording, before the
+// first Execute. Root Signature 1.1 static descriptors prohibit even that edit.
+// Descriptor volatility does not authorize GPU-live mutation or resource-data
+// changes during execution; retained dispatch slots freeze at first submission.
 #define MainRS                                                                                                         \
     "RootFlags(0), CBV(b0), "                                                                                          \
-    "DescriptorTable(SRV(t0, numDescriptors = 17)), "                                                                  \
+    "DescriptorTable(SRV(t0, numDescriptors = 9), "                                                                 \
+    "SRV(t9, numDescriptors = 2, flags = DESCRIPTORS_VOLATILE | DATA_STATIC_WHILE_SET_AT_EXECUTE), "                 \
+    "SRV(t11, numDescriptors = 6)), "                                                                              \
     "DescriptorTable(UAV(u0, numDescriptors = 3)), "                                                                   \
     "StaticSampler(s0, filter = FILTER_MIN_MAG_MIP_LINEAR, "                                                           \
     "addressU = TEXTURE_ADDRESS_CLAMP, addressV = TEXTURE_ADDRESS_CLAMP, addressW = TEXTURE_ADDRESS_CLAMP)"

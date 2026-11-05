@@ -27,6 +27,9 @@
 //            readback only on the final frame (content sanity only).
 //   native-diffuse : paired finite flat/detail Lambertian DirectDiffuse diagnostics;
 //     static camera, warmup_frames then measured_frames, independent RR/SR histories.
+// SR inputs: motion subrects are GPU-copied to their exact zero-origin render/display
+// extent. Frozen linear-depth scenes retain signed view-Z for RR and independently
+// project the same jittered renderer world samples to hardware depth for SR.
 // Build: tests\fsr-rr\run.cmd gpu <build-dir> --build-only
 // Run: <build-dir>\offline_chain.exe --mode native-diffuse --manifest <manifest> --out <out>
 //
@@ -235,7 +238,7 @@ static ID3D12Resource* PrepareUpscalerDepthIfPresent(C& converter, ID3D12Graphic
     }
     else
     {
-        return nullptr; // frozen closure: fixture hardware depth by design
+        return nullptr; // frozen closure: authored hardware depth or independent renderer projection
     }
 }
 
@@ -1090,6 +1093,9 @@ struct FixtureFrame
 {
     std::vector<uint8_t> color, depth, motion, normals, roughness, diffAlbedo, specAlbedo, hitDistance, exposure;
     std::vector<uint8_t> diffuseHitDistance;
+    // Independent renderer projection for SR when RR consumes signed linear Z.
+    // Tight, zero-origin render extent; never derived from converter output.
+    std::vector<uint8_t> srHardwareDepth;
     // Native RR guides are authored here, before any product conversion.
     std::vector<uint8_t> nativeDiffuse, nativeDepth, nativeNormals, nativeMotion;
     std::vector<float> truthRender, truthTarget, truthJittered;
@@ -1104,6 +1110,8 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
     FixtureFrame out;
     out.color.resize(size_t(texW) * 8 * texH);
     out.depth.resize(size_t(texW) * 4 * texH);
+    if (cfg.linearDepth && !HasUpscalerDepth_v<FSRDPreprocessor_Dx12>)
+        out.srHardwareDepth.resize(size_t(rw) * rh * 4);
     const uint32_t motionW = cfg.displayResMV ? cfg.TargetW() : rw;
     const uint32_t motionH = cfg.displayResMV ? cfg.TargetH() : rh;
     const uint32_t motionTexW = motionW + texW - rw;
@@ -1345,16 +1353,20 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
         return r;
     };
 
+    auto HardwareDepth = [&](const Shaded& s) {
+        if (cfg.infiniteFar)
+            return cfg.nearPlane / std::max(1e-4f, s.viewDist);
+        const XMVECTOR clip = XMVector4Transform(s.world, cam.viewProj);
+        return XMVectorGetZ(clip) / std::max(1e-12f, XMVectorGetW(clip));
+    };
+
     auto DeviceDepth = [&](const Shaded& s) {
         if (cfg.linearDepth)
         {
             const XMVECTOR v = XMVector3Transform(s.world, cam.view);
             return XMVectorGetZ(v); // signed view-space distance (RH: negative forward)
         }
-        if (cfg.infiniteFar)
-            return cfg.nearPlane / std::max(1e-4f, s.viewDist); // stable reversed infinite
-        const XMVECTOR clip = XMVector4Transform(s.world, cam.viewProj);
-        return XMVectorGetZ(clip) / std::max(1e-12f, XMVectorGetW(clip));
+        return HardwareDepth(s);
     };
 
     for (uint32_t y = 0; y < rh; ++y)
@@ -1416,6 +1428,8 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
             colorPx[2] = FloatToHalf(noisyRgb[2]);
             colorPx[3] = FloatToHalf(1.0f);
             reinterpret_cast<float*>(out.depth.data())[si] = DeviceDepth(s);
+            if (!out.srHardwareDepth.empty())
+                reinterpret_cast<float*>(out.srHardwareDepth.data())[size_t(y) * rw + x] = HardwareDepth(s);
             if (!cfg.displayResMV)
             {
                 uint16_t* mvPx = reinterpret_cast<uint16_t*>(out.motion.data()) + si * 2;
@@ -1764,6 +1778,8 @@ struct FixtureTextures
 {
     GpuTexture color, depth, motion, normals, roughness, diffAlb, specAlb, hitDist, exposure, srOut;
     GpuTexture diffuseHitDist;
+    // Scene-owned SR inputs survive every submitted list and its fence wait.
+    GpuTexture srMotion, srDepth;
 };
 
 struct InputBases
@@ -1853,19 +1869,82 @@ static void FillDenoiserDesc(ffxDispatchDescDenoiser& dd, ID3D12GraphicsCommandL
     dd.jitterOffsets = {cam.jitterX, cam.jitterY};
 }
 
+struct UpscaleInputs
+{
+    ID3D12Resource* depth = nullptr;
+    ID3D12Resource* motion = nullptr;
+};
+
+// SR has no per-input origin fields. Copy the exact logical rectangle, preserving
+// motion values/units and restoring the RR input's advertised shader-read state.
+static ID3D12Resource* LocalizeUpscaleInput(ID3D12Device* device, ID3D12GraphicsCommandList* cl,
+                                          GpuTexture& source, GpuTexture& local, uint32_t w, uint32_t h,
+                                          uint32_t baseX, uint32_t baseY, const wchar_t* name)
+{
+    if (uint64_t(baseX) + w > source.width || uint64_t(baseY) + h > source.height)
+        Die("SR input rectangle exceeds the authored resource extent");
+    if (baseX == 0 && baseY == 0 && source.width == w && source.height == h)
+        return source.tex.Get();
+    if (!local.tex)
+        local.Init(device, source.format, w, h, false, false, name);
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Transition = {source.tex.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                             source.state, D3D12_RESOURCE_STATE_COPY_SOURCE};
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[1].Transition = {local.tex.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                             local.state, D3D12_RESOURCE_STATE_COPY_DEST};
+    cl->ResourceBarrier(local.state == D3D12_RESOURCE_STATE_COPY_DEST ? 1 : 2, barriers);
+    D3D12_TEXTURE_COPY_LOCATION src{}, dst{};
+    src.pResource = source.tex.Get();
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.pResource = local.tex.Get();
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    const D3D12_BOX region{baseX, baseY, 0, baseX + w, baseY + h, 1};
+    cl->CopyTextureRegion(&dst, 0, 0, 0, &src, &region);
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barriers[0].Transition.StateAfter = source.state;
+    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barriers[1].Transition.StateAfter = kRead;
+    cl->ResourceBarrier(2, barriers);
+    local.state = kRead;
+    return local.tex.Get();
+}
+
+static UpscaleInputs PrepareUpscaleInputs(ID3D12Device* device, ID3D12GraphicsCommandList* cl,
+                                          const SceneConfig& s, FixtureTextures& t, const InputBases& b,
+                                          ID3D12Resource* encodedDepth)
+{
+    UpscaleInputs inputs;
+    const uint32_t mw = s.displayResMV ? s.TargetW() : s.renderW;
+    const uint32_t mh = s.displayResMV ? s.TargetH() : s.renderH;
+    inputs.motion = LocalizeUpscaleInput(device, cl, t.motion, t.srMotion, mw, mh,
+                                        b.mvBaseX, b.mvBaseY, L"sr_local_motion");
+    if (encodedDepth)
+        inputs.depth = encodedDepth;
+    else if (s.linearDepth)
+    {
+        // Only analytic fixtures can author this independent hardware plane.
+        if (!t.srDepth.tex)
+            Die("SR requires hardware depth; no renderer hardware-depth plane is available");
+        inputs.depth = t.srDepth.tex.Get();
+    }
+    else
+        inputs.depth = LocalizeUpscaleInput(device, cl, t.depth, t.srDepth, s.renderW, s.renderH,
+                                           b.depthBaseX, b.depthBaseY, L"sr_local_hardware_depth");
+    return inputs;
+}
+
 static void FillUpscaleDesc(ffxDispatchDescUpscale& sr, ID3D12GraphicsCommandList* cl, const SceneConfig& s,
                             const FrameCamera& cam, const FixtureTextures& t, ID3D12Resource* composed,
-                            bool useExposureTexture, bool reset, ID3D12Resource* depthOverride = nullptr)
+                            bool useExposureTexture, bool reset, const UpscaleInputs& inputs)
 {
     sr = {};
     sr.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
     sr.commandList = cl;
     sr.color = ffxApiGetResourceDX12(composed, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-    // Converter-encoded canonical SR depth when the closure provides it; otherwise
-    // the fixture/capture hardware depth for the identical camera.
-    sr.depth = ffxApiGetResourceDX12(depthOverride ? depthOverride : t.depth.tex.Get(),
-                                      FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-    sr.motionVectors = ffxApiGetResourceDX12(t.motion.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    sr.depth = ffxApiGetResourceDX12(inputs.depth, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    sr.motionVectors = ffxApiGetResourceDX12(inputs.motion, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
     if (useExposureTexture)
         sr.exposure = ffxApiGetResourceDX12(t.exposure.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
     sr.output = ffxApiGetResourceDX12(t.srOut.tex.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -2523,9 +2602,10 @@ static int GuardedMain(int argc, char** argv)
         features.FfxDenoiserDiffuseRoute = FSRDSignals::RouteFromCode(mf.diffuseSignal);
         features.FfxDenoiserSpecularRoute = FSRDSignals::RouteFromCode(mf.specularSignal);
     }
-    OfflineEvidenceHash inputEvidence, inputControlEvidence, derivedControlEvidence;
+    OfflineEvidenceHash inputEvidence, inputControlEvidence, derivedControlEvidence, srRendererDepthEvidence;
     nlohmann::json featureControls = nlohmann::json::array();
     nlohmann::json captureEvidence = nlohmann::json::array();
+    nlohmann::json srInputProvenance = nlohmann::json::array();
     const uint32_t perSceneFrames = mode == "perf" ? mf.warmupFrames + mf.measuredFrames : mf.frames;
 
     // ---- environment ----
@@ -2842,6 +2922,9 @@ static int GuardedMain(int argc, char** argv)
         t.color.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, texW, texH, false, true, L"fx_color");
         t.depth.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_depth");
         t.motion.Init(gpu.device.Get(), DXGI_FORMAT_R16G16_FLOAT, mvTexW, mvTexH, false, true, L"fx_motion");
+        if (!capturedScene && sceneCfg.linearDepth && !HasUpscalerDepth_v<FSRDPreprocessor_Dx12>)
+            t.srDepth.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, sceneCfg.renderW, sceneCfg.renderH,
+                           false, true, L"sr_renderer_hardware_depth");
         t.normals.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, texW, texH, false, true, L"fx_normals");
         if (sceneCfg.separateRoughness)
             t.roughness.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_roughness");
@@ -2857,6 +2940,23 @@ static int GuardedMain(int argc, char** argv)
                      true, mode == "serial", L"fx_sr_out");
         NativeDiffuseRoute nativeRoute;
         if (nativeComparison) nativeRoute.Init(gpu.device.Get(), sceneCfg, t.diffAlb.tex.Get());
+        const uint32_t motionW = sceneCfg.displayResMV ? sceneCfg.TargetW() : sceneCfg.renderW;
+        const uint32_t motionH = sceneCfg.displayResMV ? sceneCfg.TargetH() : sceneCfg.renderH;
+        srInputProvenance.push_back({{"scene", sceneCfg.name},
+            {"motion_source_origin", {baseX, baseY}}, {"motion_extent", {motionW, motionH}},
+            {"motion_route", pad || padY ? "GPU CopyTextureRegion exact rectangle to zero-origin texture" : "authored zero-origin texture"},
+            {"motion_units", "authored unjittered render-pixel deltas; no rescaling during localization"},
+            {"depth_source", nativeComparison ? "shared-renderer-hardware-depth" :
+                (HasUpscalerDepth_v<FSRDPreprocessor_Dx12> ? "production-encoded-hardware-depth" :
+                    (sceneCfg.linearDepth ? "independent-renderer-world-position-projection" :
+                        (capturedScene ? "capture-authored-hardware-depth" : "fixture-authored-hardware-depth")))},
+            {"depth_extent", {sceneCfg.renderW, sceneCfg.renderH}},
+            {"depth_origin", {0, 0}},
+            {"renderer_depth_sampling", !capturedScene && sceneCfg.linearDepth && !HasUpscalerDepth_v<FSRDPreprocessor_Dx12>
+                ? "same jittered world sample as RR; clip Z/W from renderer camera projection (near/view-distance for reversed infinite); no converter-derived reconstruction"
+                : "no separate renderer hardware-depth plane"},
+            {"rr_depth_input", sceneCfg.linearDepth ? "authored signed view-Z unchanged" : "authored hardware depth unchanged"},
+            {"lifetime", "scene-owned SR localization textures; reused in queue order; released after scene fence completion"}});
 
         auto CopyIn = [&](ID3D12GraphicsCommandList* cl, GpuTexture& tex, const std::vector<uint8_t>& data) {
             tex.Upload(data);
@@ -2948,6 +3048,7 @@ static int GuardedMain(int argc, char** argv)
                     inputEvidence.Plane(fx.normals); inputEvidence.Plane(fx.roughness); inputEvidence.Plane(fx.diffAlbedo);
                     inputEvidence.Plane(fx.specAlbedo); inputEvidence.Plane(fx.hitDistance); inputEvidence.Plane(fx.exposure);
                     inputEvidence.Plane(fx.diffuseHitDistance);
+                    if (!fx.srHardwareDepth.empty()) srRendererDepthEvidence.Plane(fx.srHardwareDepth);
                     if (nativeComparison)
                     {
                         inputEvidence.Plane(fx.nativeDiffuse); inputEvidence.Plane(fx.nativeDepth);
@@ -2975,6 +3076,7 @@ static int GuardedMain(int argc, char** argv)
                     CopyIn(cl, t.color, fx.color);
                     CopyIn(cl, t.depth, fx.depth);
                     CopyIn(cl, t.motion, fx.motion);
+                    if (!fx.srHardwareDepth.empty()) CopyIn(cl, t.srDepth, fx.srHardwareDepth);
                     CopyIn(cl, t.normals, fx.normals);
                     CopyIn(cl, t.diffAlb, fx.diffAlbedo);
                     CopyIn(cl, t.specAlb, fx.specAlbedo);
@@ -3127,9 +3229,11 @@ static int GuardedMain(int argc, char** argv)
 
                     // -- upscaler (real FSR upscaler over the composed color) --
                     timer.Begin(cl, frame, StageUpscale);
+                    const UpscaleInputs srInputs = PrepareUpscaleInputs(gpu.device.Get(), cl, dispatchScene, t,
+                        input.bases, nativeComparison ? nullptr : encodedSrDepth);
                     ffxDispatchDescUpscale sr;
                     FillUpscaleDesc(sr, cl, dispatchScene, cam, t, converter.GetCompositionOutput(),
-                                    useExposureTexture, reset, nativeComparison ? nullptr : encodedSrDepth);
+                                    useExposureTexture, reset, srInputs);
                     if (capturedScene)
                     {
                         sr.frameTimeDelta = float(input.deltaSeconds * 1000.0);
@@ -3141,7 +3245,8 @@ static int GuardedMain(int argc, char** argv)
                     {
                         nativeTimer.Begin(cl, frame, StageUpscale);
                         ffxDispatchDescUpscale nativeSr{};
-                        FillUpscaleDesc(nativeSr, cl, dispatchScene, cam, t, nativeRoute.composed.tex.Get(), useExposureTexture, reset);
+                        FillUpscaleDesc(nativeSr, cl, dispatchScene, cam, t, nativeRoute.composed.tex.Get(),
+                                        useExposureTexture, reset, srInputs);
                         nativeSr.output = ffxApiGetResourceDX12(nativeRoute.srOutput.tex.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
                         CHECK_FFX(upscaler.api.Dispatch(&nativeSrCtx, &nativeSr.header), "native SR dispatch");
                         nativeTimer.End(cl, frame, StageUpscale);
@@ -3646,6 +3751,11 @@ static int GuardedMain(int argc, char** argv)
                 CopyIn(cl, t.color, fx.color);
                 CopyIn(cl, t.depth, fx.depth);
                 CopyIn(cl, t.motion, fx.motion);
+                if (!fx.srHardwareDepth.empty())
+                {
+                    CopyIn(cl, t.srDepth, fx.srHardwareDepth);
+                    srRendererDepthEvidence.Plane(fx.srHardwareDepth);
+                }
                 CopyIn(cl, t.normals, fx.normals);
                 CopyIn(cl, t.diffAlb, fx.diffAlbedo);
                 CopyIn(cl, t.specAlb, fx.specAlbedo);
@@ -3702,9 +3812,11 @@ static int GuardedMain(int argc, char** argv)
                 timer.End(cl, frame, StageComposition);
 
                 timer.Begin(cl, frame, StageUpscale);
+                const UpscaleInputs srInputs = PrepareUpscaleInputs(gpu.device.Get(), cl, sceneCfg, t,
+                    input.bases, encodedSrDepth);
                 ffxDispatchDescUpscale sr;
                 FillUpscaleDesc(sr, cl, sceneCfg, cam, t, converter.GetCompositionOutput(), useExposureTexture,
-                                reset, encodedSrDepth);
+                                reset, srInputs);
                 CHECK_FFX(upscaler.api.Dispatch(&srCtx, &sr.header), "perf SR dispatch");
                 timer.End(cl, frame, StageUpscale);
 
@@ -3885,7 +3997,10 @@ static int GuardedMain(int argc, char** argv)
             {"failure_recovery", features.failureRecovery}}).dump() << ",\n";
         js << "  \"derived_controls\": " << nlohmann::json({
             {"sr_depth_source", nativeComparison ? "shared-renderer-hardware-depth" :
-                (HasUpscalerDepth_v<FSRDPreprocessor_Dx12> ? "production-encoded-hardware-depth" : "fixture-hardware-depth")},
+                (HasUpscalerDepth_v<FSRDPreprocessor_Dx12> ? "production-encoded-hardware-depth" :
+                    "per-scene independent renderer projection for linear RR inputs; authored hardware depth otherwise")},
+            {"sr_inputs", srInputProvenance},
+            {"sr_renderer_hardware_depth_sha256", srRendererDepthEvidence.Finish()},
             {"sr_near_far_sha256", derivedControlEvidence.Finish()}}).dump() << ",\n";
         js << "  \"converter_generation\": \"" << (HasOfflineFeatures<FSRDPreprocessor_Dx12> ? "current" : "frozen-2c2f619b") << "\",\n";
         js << "  \"feature_case\": " << nlohmann::json(features.name).dump() << ",\n";

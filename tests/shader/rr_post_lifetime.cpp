@@ -4,11 +4,14 @@
 #include "../lmxxf/queue_faults.h"
 #include <shaders/bias/Bias_Dx12.h>
 #include <shaders/output_scaling/OS_Dx12.h>
+#include <shaders/fsrd_preprocess/FSRDCompositionHistory.h>
+#include <dlssnr/submission/SubmissionHooks.h>
 #include <d3d12sdklayers.h>
 #include <array>
 #include <vector>
 #include <memory>
 #include <cmath>
+#include <cstring>
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/Shader_Common.cpp"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/Shader_Dx12.cpp"
 #include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/gpu_time/GpuTime_Dx12.cpp"
@@ -36,6 +39,37 @@ struct BiasProbe : Bias_Dx12
     std::weak_ptr<RecordedShader::Dispatch> LastDispatch() { return _dispatchSlots.back(); }
     std::weak_ptr<RecordedShader::Intermediate> LastBuffer() { return _recordedBuffer; }
     size_t SlotCount() const { return _dispatchSlots.size(); }
+    void EnableHistoryFinalization()
+    {
+        Require(_dispatchSlots.empty(), "history root signature selected before recording any dispatch");
+        // Match composition's finalizable history SRVs: descriptor identity may
+        // change before first submission, but resource data retains the explicit
+        // DATA_STATIC_WHILE_SET_AT_EXECUTE promise. Other ranges stay static.
+        auto ranges = _descriptorRanges;
+        for (auto& range : ranges)
+            if (range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV)
+                range.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE |
+                              D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE;
+        CD3DX12_ROOT_PARAMETER1 parameter {};
+        parameter.InitAsDescriptorTable(static_cast<UINT>(ranges.size()), ranges.data());
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC desc {};
+        desc.Init_1_1(1, &parameter);
+        Ptr<ID3DBlob> serialized, errors;
+        Check(D3D12SerializeVersionedRootSignature(&desc, &serialized, &errors), "history volatile SRV signature");
+        Ptr<ID3D12RootSignature> root;
+        Check(_device->CreateRootSignature(0, serialized->GetBufferPointer(), serialized->GetBufferSize(),
+                                          IID_PPV_ARGS(&root)), "history volatile SRV root");
+        ID3D12PipelineState* pipeline = nullptr;
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pipelineDesc {};
+        pipelineDesc.pRootSignature = root.Get();
+        pipelineDesc.CS = {bias_cso, sizeof(bias_cso)};
+        Check(_device->CreateComputePipelineState(&pipelineDesc, IID_PPV_ARGS(&pipeline)),
+              "history Bias pipeline with finalizable root");
+        _pipelineState->Release();
+        _rootSignature->Release();
+        _pipelineState = pipeline;
+        _rootSignature = root.Detach();
+    }
 };
 struct Recording
 {
@@ -45,6 +79,7 @@ struct Recording
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint {};
     UINT width = 0, height = 0;
     std::weak_ptr<RecordedShader::Dispatch> dispatch;
+    std::shared_ptr<FSRD::CompositionHistory::Use> history;
     std::weak_ptr<RecordedShader::Intermediate> intermediate;
 };
 static Recording NewRecording(ID3D12Device* device)
@@ -69,7 +104,8 @@ static Ptr<ID3D12Resource> Source(ID3D12Device* device, ID3D12CommandQueue* queu
     UploadColorPattern(device, queue, resource.Get());
     return resource;
 }
-static void Capture(ID3D12Device* device, Recording& r, ID3D12Resource* resource)
+static void Capture(ID3D12Device* device, Recording& r, ID3D12Resource* resource,
+                    ID3D12GraphicsCommandList* commands = nullptr)
 {
     auto desc = resource->GetDesc();
     r.width = UINT(desc.Width); r.height = desc.Height;
@@ -83,11 +119,11 @@ static void Capture(ID3D12Device* device, Recording& r, ID3D12Resource* resource
     source.pResource = resource; source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     dest.pResource = r.readback.Get(); dest.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dest.PlacedFootprint = r.footprint;
-    r.list->CopyTextureRegion(&dest, 0, 0, 0, &source, nullptr);
+    (commands ? commands : r.list.Get())->CopyTextureRegion(&dest, 0, 0, 0, &source, nullptr);
 }
-static Recording RecordBias(ID3D12Device* device, BiasProbe& shader, ID3D12Resource* source, float bias)
+static void RecordBiasCommands(ID3D12Device* device, Recording& r, BiasProbe& shader,
+                                ID3D12Resource* source, float bias)
 {
-    auto r = NewRecording(device);
     Require(shader.CreateBufferResource(device, source, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, r.list.Get()), "owned bias intermediate");
     auto cleanup = shader.RecordedBufferCleanup(r.list.Get());
     Require(bool(cleanup), "exact intermediate cleanup");
@@ -97,6 +133,11 @@ static Recording RecordBias(ID3D12Device* device, BiasProbe& shader, ID3D12Resou
     shader.SetBufferState(r.list.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
     Capture(device, r, shader.Buffer());
     cleanup();
+}
+static Recording RecordBias(ID3D12Device* device, BiasProbe& shader, ID3D12Resource* source, float bias)
+{
+    auto r = NewRecording(device);
+    RecordBiasCommands(device, r, shader, source, bias);
     Check(r.list->Close(), "close bias");
     return r;
 }
@@ -168,6 +209,286 @@ static Recording UncertainSubmission(ID3D12Device* device, ID3D12CommandQueue* q
     }
     return r;
 }
+
+namespace History = FSRD::CompositionHistory;
+struct HistoryReaderUse final : History::Use
+{
+    std::shared_ptr<RecordedShader::Dispatch> slot;
+    Ptr<ID3D12Resource> fallback;
+    void* mapped = nullptr;
+    UINT fallbackWrites = 0;
+
+    ~HistoryReaderUse() override
+    {
+        if (mapped) { const D3D12_RANGE written {0, sizeof(float)}; slot->constants->Unmap(0, &written); }
+    }
+    bool CanFinalizeNoHistory() const noexcept override
+    { return slot && mapped && !slot->submitted && !slot->invalidated && slot->identity == identity; }
+    void FinalizeNoHistory() noexcept override
+    {
+        ++fallbackWrites;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv {};
+        srv.Format = fallback->GetDesc().Format;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(fallback.Get(), &srv, slot->heap.GetSrvCPU(0));
+        *static_cast<float*>(mapped) = .6f;
+    }
+};
+static void ObserveHistory(Recording& r, ID3D12Device* device,
+                           const std::shared_ptr<History::Generation>& generation, bool write)
+{
+    auto use = std::make_shared<History::Use>();
+    use->device = device; use->generation = generation; use->write = write;
+    Require(use->Attach(r.list.Get()), "production history observer attached");
+    if (write) generation->writer = use->identity;
+    r.history = use;
+}
+static Recording HistoryWriter(ID3D12Device* device, BiasProbe& shader, ID3D12Resource* source,
+                                const std::shared_ptr<History::Generation>& generation, bool close = true)
+{
+    auto r = NewRecording(device);
+    Require(shader.CreateBufferResource(device, source, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, r.list.Get()),
+            "history writer allocation");
+    shader.SetBufferState(r.list.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    Require(shader.Dispatch(r.list.Get(), source, .5f, shader.Buffer()), "history writer dispatch");
+    auto cleanup = shader.RecordedBufferCleanup(r.list.Get());
+    Require(bool(cleanup), "history writer exact buffer cleanup");
+    cleanup();
+    generation->decisions = shader.Buffer();
+    ObserveHistory(r, device, generation, true);
+    if (close) Check(r.list->Close(), "close history writer");
+    return r;
+}
+static Recording HistoryReader(ID3D12Device* device, BiasProbe& shader, ID3D12Resource* source,
+                                const std::shared_ptr<History::Generation>& generation, bool candidate = true)
+{
+    std::lock_guard lock(Submission::RecordingMutex());
+    auto r = NewRecording(device);
+    Require(generation->CanRead(r.list.Get()) == candidate, "history candidate recording policy");
+    if (candidate) shader.EnableHistoryFinalization();
+    RecordBiasCommands(device, r, shader, candidate ? generation->decisions.Get() : source,
+                       candidate ? .4f : .6f);
+    if (candidate) {
+        auto use = std::make_shared<HistoryReaderUse>();
+        use->device = device; use->generation = generation;
+        use->slot = r.dispatch.lock(); use->fallback = source;
+        Require(bool(use->slot), "history reader owns exact dispatch slot");
+        use->slot->resources.emplace_back(source);
+        const D3D12_RANGE read {0, 0};
+        Check(use->slot->constants->Map(0, &read, &use->mapped), "map private history constants");
+        Require(use->Attach(r.list.Get()), "production history finalizer attached");
+        r.history = use;
+    }
+    Check(r.list->Close(), "close history reader");
+    return r;
+}
+static UINT historyBatchCalls = 0, historyBatchLists = 0;
+static void ExecuteHistoryBatch(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists)
+{
+    ++historyBatchCalls; historyBatchLists += count;
+    queue->ExecuteCommandLists(count, lists);
+}
+static void HistoryDiscard(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Resource* source,
+                           bool reset, bool readerBeforeDiscard)
+{
+    BiasProbe writerShader("History discard writer", device), readerShader("History discard reader", device),
+              unrelatedShader("Unrelated batch work", device);
+    writerShader.SetRecordedLifetimeEnabled(true); readerShader.SetRecordedLifetimeEnabled(true);
+    unrelatedShader.SetRecordedLifetimeEnabled(true);
+    auto generation = std::make_shared<History::Generation>();
+    auto writer = HistoryWriter(device, writerShader, source, generation);
+    Recording reader;
+    if (readerBeforeDiscard) reader = HistoryReader(device, readerShader, source, generation);
+    if (reset) {
+        Check(writer.list->Reset(writer.allocator.Get(), nullptr), "discard history writer by Reset");
+        Check(writer.list->Close(), "close reset history writer");
+    } else writer.list.Reset();
+    Require(generation->discarded && !generation->produced, "discard invalidates unproduced history immediately");
+    if (!readerBeforeDiscard) reader = HistoryReader(device, readerShader, source, generation, false);
+    auto unrelated = RecordBias(device, unrelatedShader, source, .7f);
+    Ptr<ID3D12CommandAllocator> allocator;
+    Ptr<ID3D12GraphicsCommandList> native;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)), "batch native allocator");
+    Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                   IID_PPV_ARGS(&native)), "batch native list");
+    Recording nativePixels;
+    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+    native->ResourceBarrier(1, &barrier);
+    Capture(device, nativePixels, source, native.Get());
+    auto& transition = static_cast<D3D12_RESOURCE_BARRIER&>(barrier).Transition;
+    std::swap(transition.StateBefore, transition.StateAfter);
+    native->ResourceBarrier(1, &barrier);
+    Check(native->Close(), "close batch native list");
+    const auto calls = historyBatchCalls, lists = historyBatchLists;
+    const auto failures = Submission::g_submissionFailures.load();
+    ID3D12CommandList* batch[] { unrelated.list.Get(), native.Get(), reader.list.Get() };
+    Submission::Hooks::ExecuteExpanded(queue, 3, batch, nullptr, nullptr, ExecuteHistoryBatch);
+    Require(historyBatchCalls == calls + 1 && historyBatchLists == lists + 3,
+            "discarded history preserves one complete mixed native batch");
+    Require(Submission::g_submissionFailures.load() == failures, "history discard does not reject batch admission");
+    WaitQueue(device, queue);
+    Pixels(reader, .6f); Pixels(unrelated, .7f); Pixels(nativePixels, 1.f);
+    if (readerBeforeDiscard) {
+        const auto use = std::static_pointer_cast<HistoryReaderUse>(reader.history);
+        Require(use->selection == History::Use::Selection::NoHistory && use->fallbackWrites == 1,
+                "discarded candidate finalizes its private descriptors and constants exactly once");
+    }
+}
+static void HistorySubmitted(ID3D12Device* device, ID3D12CommandQueue* queue,
+                             ID3D12CommandQueue* other, ID3D12Resource* source)
+{
+    BiasProbe writerShader("Submitted history writer", device), readerShader("Submitted history reader", device);
+    writerShader.SetRecordedLifetimeEnabled(true); readerShader.SetRecordedLifetimeEnabled(true);
+    auto generation = std::make_shared<History::Generation>();
+    auto writer = HistoryWriter(device, writerShader, source, generation);
+    Require(generation->CanRead(writer.list.Get()), "earlier write in the same recording is readable");
+    Ptr<ID3D12Fence> gate, readerDone;
+    Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)), "history gate");
+    Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&readerDone)), "history reader fence");
+    Check(queue->Wait(gate.Get(), 1), "hold submitted history writer");
+    Check(writer.list->ExecuteOn(queue), "submit history writer");
+    Require(generation->produced && !generation->accesses.empty() &&
+            generation->accesses.front().fence->GetCompletedValue() < generation->accesses.front().value,
+            "submitted history is published before GPU completion");
+    auto reader = HistoryReader(device, readerShader, source, generation, true);
+    Ptr<ID3D12CommandAllocator> replacement;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&replacement)),
+          "submitted history replacement allocator");
+    Check(writer.list->Reset(replacement.Get(), nullptr), "invalidate submitted writer recording");
+    Check(writer.list->Close(), "close submitted replacement");
+    Require(!generation->discarded, "submitted writer Reset preserves fence-backed history");
+    Check(reader.list->ExecuteOn(other), "cross-queue history reader waits for writer proof");
+    const auto use = std::static_pointer_cast<HistoryReaderUse>(reader.history);
+    Require(use->selection == History::Use::Selection::History && use->fallbackWrites == 0,
+            "submitted-pending cross-queue dependency retains history rather than falling back");
+    Check(other->Signal(readerDone.Get(), 1), "reader completion sentinel");
+    Require(readerDone->GetCompletedValue() == 0, "reader cannot complete before blocked writer");
+    Check(gate->Signal(1), "release history writer");
+    WaitQueue(device, other);
+    Pixels(reader, .2f);
+    reader.list.Reset(); writer.list.Reset();
+}
+static void HistorySameRecording(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Resource* source)
+{
+    BiasProbe writerShader("Same-recording history writer", device), readerShader("Same-recording history reader", device);
+    writerShader.SetRecordedLifetimeEnabled(true); readerShader.SetRecordedLifetimeEnabled(true);
+    auto generation = std::make_shared<History::Generation>();
+    auto r = HistoryWriter(device, writerShader, source, generation, false);
+    Require(generation->CanRead(r.list.Get()), "earlier same-recording write is eligible before submission");
+    ObserveHistory(r, device, generation, false);
+    RecordBiasCommands(device, r, readerShader, generation->decisions.Get(), .4f);
+    Check(r.list->Close(), "close same-recording history");
+    Check(r.list->ExecuteOn(queue), "same-recording writer is ordered before reader");
+    WaitQueue(device, queue);
+    Pixels(r, .2f);
+}
+static void HistoryOrdered(ID3D12Device* device, ID3D12CommandQueue* queue,
+                           ID3D12Resource* source, bool batched)
+{
+    BiasProbe writerShader("Ordered history writer", device), readerShader("Ordered history reader", device);
+    writerShader.SetRecordedLifetimeEnabled(true); readerShader.SetRecordedLifetimeEnabled(true);
+    auto generation = std::make_shared<History::Generation>();
+    auto writer = HistoryWriter(device, writerShader, source, generation);
+    auto reader = HistoryReader(device, readerShader, source, generation);
+    const auto use = std::static_pointer_cast<HistoryReaderUse>(reader.history);
+    Require(!generation->produced && use->selection == History::Use::Selection::Pending,
+            "different-list reader recorded before writer submission retains pending candidate");
+    const auto failures = Submission::g_submissionFailures.load();
+    if (batched) {
+        const auto calls = historyBatchCalls, lists = historyBatchLists;
+        ID3D12CommandList* batch[] {writer.list.Get(), reader.list.Get()};
+        Submission::Hooks::ExecuteExpanded(queue, 2, batch, nullptr, nullptr, ExecuteHistoryBatch);
+        Require(historyBatchCalls == calls + 1 && historyBatchLists == lists + 2,
+                "ordered history preserves original two-list Execute batch");
+    } else {
+        Check(writer.list->ExecuteOn(queue), "submit writer after both lists recorded");
+        Check(reader.list->ExecuteOn(queue), "separate ordered submit consumes recorded candidate");
+    }
+    Require(Submission::g_submissionFailures.load() == failures,
+            "valid pre-recorded history never rejects admission");
+    Require(use->selection == History::Use::Selection::History && use->fallbackWrites == 0,
+            "ordered pre-recorded history retains original CB and SRV");
+    WaitQueue(device, queue);
+    Pixels(reader, .2f);
+}
+static std::array<unsigned char, 256> HistoryConstants(const HistoryReaderUse& use)
+{
+    std::array<unsigned char, 256> bytes {};
+    std::memcpy(bytes.data(), use.mapped, bytes.size());
+    return bytes;
+}
+static void HistoryReplay(ID3D12Device* device, ID3D12CommandQueue* queue,
+                          ID3D12CommandQueue* other, ID3D12Resource* source, bool readerFirst)
+{
+    BiasProbe writerShader("Replay history writer", device), readerShader("Replay history reader", device);
+    writerShader.SetRecordedLifetimeEnabled(true); readerShader.SetRecordedLifetimeEnabled(true);
+    auto generation = std::make_shared<History::Generation>();
+    auto writer = HistoryWriter(device, writerShader, source, generation);
+    auto reader = HistoryReader(device, readerShader, source, generation);
+    const auto use = std::static_pointer_cast<HistoryReaderUse>(reader.history);
+    const auto slot = use->slot;
+    const auto* heap = slot->heap.GetHeapCSU();
+    const auto* constants = slot->constants.Get();
+    Ptr<ID3D12Fence> gate, replayDone;
+    Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)), "replay gate");
+    Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&replayDone)), "replay completion fence");
+    Check(queue->Wait(gate.Get(), 1), "hold first history execution GPU-live");
+    if (!readerFirst) Check(writer.list->ExecuteOn(queue), "ordered GPU-live history writer");
+    Check(reader.list->ExecuteOn(queue), "first history reader submission");
+    const auto selection = readerFirst ? History::Use::Selection::NoHistory : History::Use::Selection::History;
+    Require(use->selection == selection && use->fallbackWrites == (readerFirst ? 1u : 0u),
+            "first submission latches history choice and private fallback writes");
+    const auto bytes = HistoryConstants(*use);
+    if (readerFirst) Check(writer.list->ExecuteOn(queue), "late writer does not upgrade no-history reader");
+    Check(reader.list->ExecuteOn(other), "GPU-live history reader replay uses immutable slot");
+    Check(other->Signal(replayDone.Get(), 1), "GPU-live replay completion sentinel");
+    Require(replayDone->GetCompletedValue() == 0, "replay waits for previous GPU-live reader");
+    Require(use->selection == selection && use->fallbackWrites == (readerFirst ? 1u : 0u) &&
+            HistoryConstants(*use) == bytes && slot->heap.GetHeapCSU() == heap && slot->constants.Get() == constants,
+            "GPU-live replay neither rewrites constants/descriptors nor swaps the private slot");
+    Check(gate->Signal(1), "release history replay gate");
+    WaitQueue(device, queue); WaitQueue(device, other);
+    Pixels(reader, readerFirst ? .6f : .2f);
+    Check(reader.list->ExecuteOn(other), "completed replay retains first-submission choice");
+    WaitQueue(device, other);
+    Pixels(reader, readerFirst ? .6f : .2f);
+    Require(use->selection == selection && use->fallbackWrites == (readerFirst ? 1u : 0u) &&
+            HistoryConstants(*use) == bytes, "completed replay leaves finalized history slot unchanged");
+}
+static void HistoryPartialRecording(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Resource* source)
+{
+    BiasProbe firstShader("Partial history first pass", device), failedShader("Partial history rejected pass", device),
+              readerShader("Partial history reader", device);
+    firstShader.SetRecordedLifetimeEnabled(true); failedShader.SetRecordedLifetimeEnabled(true);
+    readerShader.SetRecordedLifetimeEnabled(true);
+    auto generation = std::make_shared<History::Generation>();
+    auto partial = RecordBias(device, firstShader, source, .5f);
+    generation->decisions = firstShader.Buffer();
+    Ptr<ID3D12CommandAllocator> allocator;
+    Ptr<ID3D12GraphicsCommandList> native;
+    Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)),
+          "partial history rejected allocator");
+    Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                   IID_PPV_ARGS(&native)), "partial history rejected list");
+    Require(!failedShader.Dispatch(native.Get(), source, .4f, generation->decisions.Get()),
+            "later composition-like pass really fails recorded-lifetime admission");
+    Check(native->Close(), "close rejected partial pass");
+    // Production attaches the writer only after every composition dispatch was
+    // admitted. Exercise that public contract, without claiming to fault-inject
+    // the private multi-pass DispatchComposition implementation in this target.
+    Require(!generation->writer.list && !generation->CanRead(partial.list.Get()),
+            "allocated/partially written resources are not a published history candidate");
+    auto reader = HistoryReader(device, readerShader, source, generation, false);
+    ID3D12CommandList* batch[] {partial.list.Get(), reader.list.Get()};
+    Submission::Hooks::ExecuteExpanded(queue, 2, batch, nullptr, nullptr, ExecuteHistoryBatch);
+    WaitQueue(device, queue);
+    Require(!generation->produced && !generation->writer.list,
+            "executing partial work cannot publish history without a committed writer observer");
+    Pixels(partial, .5f); Pixels(reader, .6f);
+}
 int main()
 {
     spdlog::set_level(spdlog::level::off);
@@ -234,6 +555,19 @@ int main()
     Require(shader->SlotCount() == 1, "discarded generations reuse stable slot");
     shader.reset();
 
+    // Published-but-unsubmitted history must not make any unrelated game list
+    // disappear. Cover Reset/final Release on both sides of reader recording.
+    for (const bool reset : {false, true})
+        for (const bool readerBeforeDiscard : {false, true})
+            HistoryDiscard(device.Get(), queue.Get(), source.Get(), reset, readerBeforeDiscard);
+    HistorySubmitted(device.Get(), queue.Get(), other.Get(), source.Get());
+    HistorySameRecording(device.Get(), queue.Get(), source.Get());
+    for (const bool batched : {false, true})
+        HistoryOrdered(device.Get(), queue.Get(), source.Get(), batched);
+    for (const bool readerFirst : {false, true})
+        HistoryReplay(device.Get(), queue.Get(), other.Get(), source.Get(), readerFirst);
+    HistoryPartialRecording(device.Get(), queue.Get(), source.Get());
+
     // Chained dispatches: Bias writes intermediate, OutputScaler consumes it.
     // Cross-helper intermediate link pins the first helper's buffer until both dispatches complete.
     {
@@ -299,5 +633,5 @@ int main()
     Collected(failedBatchSignal);
     failedSignal.list.Reset();
     failedBatchSignal.list.Reset();
-    std::puts("RR post lifetime: PASS (native admission, delayed execution, resize, helper destruction, replay, pending Reset, discard reuse, pixels, Signal failure without polling, device-removal retirement)");
+    std::puts("RR post lifetime: PASS (native admission, delayed execution, resize, helper destruction, replay, pending Reset, discard reuse, history writer Reset/Release before/after reader, native/unrelated batch pixels, ordered cross-list history separate/batched, cross-queue pending history, immutable GPU-live history/no-history replay, partial recording publication contract, Signal failure without polling, device-removal retirement)");
 }

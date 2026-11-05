@@ -25,6 +25,8 @@ struct RecordingIdentity
     }
 };
 // Nonzero only while admitting one ordered native ExecuteCommandLists batch.
+// A history writer publishes this only after successful admission; a later
+// reader may depend on that predecessor without requiring an earlier Execute.
 // RecordingMutex serializes admission and completion; an epoch is never reused.
 inline thread_local uint64_t g_recordingAdmissionEpoch = 0;
 inline uint64_t g_nextRecordingAdmissionEpoch = 0;

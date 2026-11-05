@@ -572,6 +572,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="upscalers\fsr31\FSRUpscaleSettings.h" />
     <ClInclude Include="upscalers\fsr31\FSROutputScaling.h" />
     <ClInclude Include="shaders\fsrd_preprocess\FSRDCompositionVariant.h" />
+    <ClInclude Include="shaders\fsrd_preprocess\FSRDCompositionHistory.h" />
     <ClInclude Include="shaders\fsrd_preprocess\RRTraceAdditiveIO.h" />
     <ClInclude Include="shaders\fsrd_preprocess\RetiredSlotReservations.h" />
     <ClInclude Include="shaders\fsrd_preprocess\RRTraceAdditive.inl" />

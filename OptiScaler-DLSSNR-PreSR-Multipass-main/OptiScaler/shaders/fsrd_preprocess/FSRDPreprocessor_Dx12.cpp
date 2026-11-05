@@ -15,6 +15,7 @@
 #include "FSRDShaderUtils.h"
 #include "FSRDShaderData.h"
 #include "FSRDCompositionVariant.h"
+#include "FSRDCompositionHistory.h"
 #include "precompile/FSRDInputConv_Shader.h" 
 #include "precompile/FSRDInputConvAdditive_Shader.h"
 #include "precompile/FSRDFloorSeed_Shader.h" 
@@ -35,6 +36,7 @@
 #include <d3d12.h>
 #include <stdexcept>
 #include <limits>
+#include <cstddef>
 #include <vector>
 #include <string>
 #include <array>
@@ -124,13 +126,28 @@ struct ComputeState
         std::shared_ptr<UploadPage> page;
         UINT offset = 0;
         FrameDescriptorHeap heap;
+        std::weak_ptr<RecordedShader::Owner> recording;
     };
     // Growth never moves or replaces allocations already referenced by GPU work.
-    std::vector<std::unique_ptr<Slot>> m_slots;
+    std::vector<std::shared_ptr<Slot>> m_slots;
     // Dispatch slots whose constant memory and descriptors may still be read by an
     // outstanding queue batch are only reused once that batch's GpuBatch ticket
     // retires (completed, or provably discarded before reaching the GPU).
-    RetiredSlotReservations<DlssNr::Submission::GpuBatch::Tracker::Ticket> m_reservations;
+    struct SlotTicket
+    {
+        DlssNr::Submission::GpuBatch::Tracker::Ticket gpu = {};
+        Slot* slot = nullptr;
+        bool operator==(const SlotTicket& other) const { return gpu == other.gpu && slot == other.slot; }
+    };
+    RetiredSlotReservations<SlotTicket> m_reservations;
+    struct SlotOwner final : RecordedShader::Owner
+    {
+        std::shared_ptr<Slot> slot;
+        std::shared_ptr<void> retention;
+        std::vector<ComPtr<ID3D12Resource>> resources;
+        ComPtr<ID3D12RootSignature> root;
+        ComPtr<ID3D12PipelineState> pipeline;
+    };
     UINT m_cbSlotSize = 0;
     UINT m_pageSlots = 0;
     UINT m_numSrvs = 0;
@@ -166,11 +183,11 @@ struct ComputeState
                       "Failed to map FSRD constant page");
 
         // Finish all fallible allocations before publishing any part of this page.
-        std::vector<std::unique_ptr<Slot>> slots;
+        std::vector<std::shared_ptr<Slot>> slots;
         slots.reserve(count);
         for (UINT i = 0; i < count; ++i)
         {
-            auto slot = std::make_unique<Slot>();
+            auto slot = std::make_shared<Slot>();
             slot->page = page;
             slot->offset = i * m_cbSlotSize;
             if (!slot->heap.Initialize(m_pDev, m_numSrvs, m_numUavs, 0, 0))
@@ -185,7 +202,9 @@ struct ComputeState
     void Reserve(UINT count)
     {
         auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
-        m_reservations.Reserve(count, [&tracker](auto ticket) { return tracker.Retired(ticket); },
+        m_reservations.Reserve(count, [&tracker](const SlotTicket& ticket) {
+                return ticket.slot->recording.expired() && tracker.Retired(ticket.gpu);
+            },
             [this](size_t target) {
                 if (target > kMaxSlots)
                     throw std::runtime_error("FSRD slot reservation exceeds safe pool capacity: " +
@@ -219,13 +238,14 @@ struct ComputeState
         AddPage();
     }
 
-    void Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
+    std::shared_ptr<Slot> Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
                   std::span<ID3D12Resource* const> inputs, std::span<const MipChainDesc> inputMips,
                   std::span<ID3D12Resource*> output, std::span<const UINT> outputMips, XMFLOAT2 outDim,
-                  bool autoBarrierOutput = true, ID3D12PipelineState* pipelineState = nullptr)
+                  bool autoBarrierOutput = true, ID3D12PipelineState* pipelineState = nullptr,
+                  std::shared_ptr<void> retention = {})
     {
         if (!cmdList)
-            return;
+            return {};
 
         ScopedSkipHeapCapture skipHeapCapture {};
 
@@ -236,8 +256,26 @@ struct ComputeState
         if (cbData.size() > m_cbSlotSize)
             throw std::runtime_error("FSRD constants exceed slot size");
         auto& tracker = DlssNr::Submission::GpuBatch::Tracker::Instance();
-        const auto slotIndex = m_reservations.Commit(tracker.Record(cmdList));
-        auto& slot = *m_slots[slotIndex];
+        const auto slotIndex = m_reservations.NextReserved();
+        const auto retainedSlot = m_slots[slotIndex];
+        auto& slot = *retainedSlot;
+        // Completed is not reusable while the closed recording can replay.
+        // The recording and submitted Owner closure pin the exact CB/heap pair.
+        if (RecordedShader::Supported(cmdList))
+        {
+            auto owner = std::make_shared<SlotOwner>();
+            owner->device = m_pDev;
+            owner->slot = retainedSlot;
+            owner->retention = std::move(retention);
+            owner->root = m_rootSig;
+            owner->pipeline = pipelineState ? pipelineState : m_pso.Get();
+            owner->resources.reserve(inputs.size() + output.size());
+            for (auto* resource : inputs) owner->resources.emplace_back(resource);
+            for (auto* resource : output) owner->resources.emplace_back(resource);
+            if (!owner->Attach(cmdList)) throw std::runtime_error("FSRD slot recording observer unavailable");
+            slot.recording = owner;
+        }
+        m_reservations.Commit({ tracker.Record(cmdList), &slot });
         memcpy(slot.page->mapped + slot.offset, cbData.data(), cbData.size());
         const D3D12_GPU_VIRTUAL_ADDRESS cbAddress = slot.page->buffer->GetGPUVirtualAddress() + slot.offset;
         // Transitions SRV -> UAV
@@ -275,13 +313,16 @@ struct ComputeState
         // Transition the UAVs back to SRV
         if (autoBarrierOutput)
             AddBarriers(cmdList, output, outputMips, kUavState, kSrvState);
+        return retainedSlot;
     }
 
-    void Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
+    std::shared_ptr<Slot> Dispatch(ID3D12GraphicsCommandList* cmdList, std::span<const byte> cbData,
                   std::span<ID3D12Resource* const> inputs, std::span<ID3D12Resource*> output, XMFLOAT2 outDim,
-                  bool autoBarrierOutput = true, ID3D12PipelineState* pipelineState = nullptr)
+                  bool autoBarrierOutput = true, ID3D12PipelineState* pipelineState = nullptr,
+                  std::shared_ptr<void> retention = {})
     {
-        Dispatch(cmdList, cbData, inputs, {}, output, {}, outDim, autoBarrierOutput, pipelineState);
+        return Dispatch(cmdList, cbData, inputs, {}, output, {}, outDim, autoBarrierOutput, pipelineState,
+                        std::move(retention));
     }
 };
 
@@ -352,50 +393,50 @@ struct FSRDPreprocessor_Dx12::Impl
     ComPtr<ID3D12Resource> m_canonicalDepth;
     ComPtr<ID3D12Resource> m_floorReference;
     ComPtr<ID3D12Resource> m_compositionOutput;
-    struct HistoryGeneration
+    using HistoryGeneration = FSRD::CompositionHistory::Generation;
+    using HistoryUse = FSRD::CompositionHistory::Use;
+    struct CompositionRead final : HistoryUse
     {
-        ComPtr<ID3D12Resource> decisions, metadata;
-        std::vector<RecordedShader::Owner::Proof> accesses;
-        DlssNr::Submission::RecordingIdentity writer {};
-        uint64_t admittedEpoch = 0;
-        bool produced = false, uncertain = false;
-    };
-    struct HistoryUse final : RecordedShader::Owner
-    {
-        std::shared_ptr<HistoryGeneration> generation;
-        bool write = false;
-        HRESULT BeforeExecute(const DlssNr::Submission::RecordingExecution& e) noexcept override
+        std::array<std::shared_ptr<ComputeState::Slot>, 2> slots;
+        UINT count = 0;
+        void EnableHistory() noexcept
         {
-            const HRESULT admitted = Owner::BeforeExecute(e);
-            if (FAILED(admitted)) return admitted;
-            auto& g = *generation;
-            const auto epoch = DlssNr::Submission::g_recordingAdmissionEpoch;
-            if (g.uncertain || (!write && !g.produced && !(g.writer == e.identity) &&
-                (!epoch || g.admittedEpoch != epoch))) return E_UNEXPECTED;
-            try { g.accesses.reserve(g.accesses.size() + 1); }
-            catch (...) { return E_OUTOFMEMORY; }
-            for (const auto& proof : g.accesses)
+            for (UINT i = 0; i < count; ++i)
             {
-                if (proof.fence->GetCompletedValue() >= proof.value &&
-                    proof.fence->GetCompletedValue() != UINT64_MAX) continue;
-                const HRESULT hr = e.queue->Wait(proof.fence.Get(), proof.value);
-                if (FAILED(hr)) return hr;
+                auto& slot = *slots[i];
+                const UINT enabled = 1;
+                memcpy(slot.page->mapped + slot.offset + offsetof(Composition::Constants, HistoryValid),
+                       &enabled, sizeof(enabled));
+                CreateSRV(device.Get(), slot.heap.GetSrvCPU(9), generation->decisions.Get());
+                CreateSRV(device.Get(), slot.heap.GetSrvCPU(10), generation->metadata.Get());
             }
-            if (write && epoch) g.admittedEpoch = epoch;
-            return S_OK;
+            selection = Selection::Pending;
         }
-        void Executed(const DlssNr::Submission::RecordingExecution& e) noexcept override
+        bool CanFinalizeNoHistory() const noexcept override
         {
-            Owner::Executed(e);
-            if (!e.producerSubmitted && !e.continuationSubmitted) return;
-            auto& g = *generation;
-            if (FAILED(e.status) || !e.fence || !e.fenceValue || e.fenceValue == UINT64_MAX)
-            { g.uncertain = true; return; }
-            const auto found = std::find_if(g.accesses.begin(), g.accesses.end(),
-                [&](const auto& p) { return p.fence.Get() == e.fence; });
-            if (found == g.accesses.end()) g.accesses.push_back({ e.fence, e.fenceValue });
-            else found->value = (std::max)(found->value, e.fenceValue);
-            if (write) g.produced = true;
+            if (!count || count > slots.size() || submittedOnce) return false;
+            for (UINT i = 0; i < count; ++i)
+                if (!slots[i] || slots[i]->recording.expired()) return false;
+            return true;
+        }
+        void FinalizeNoHistory() noexcept override
+        {
+            for (UINT i = 0; i < count; ++i)
+            {
+                auto& slot = *slots[i];
+                const UINT disabled = 0;
+                memcpy(slot.page->mapped + slot.offset + offsetof(Composition::Constants, HistoryValid),
+                       &disabled, sizeof(disabled));
+                // Match the shader's typed SRVs; metadata is uint4, not UNORM.
+                D3D12_SHADER_RESOURCE_VIEW_DESC view {};
+                view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                view.Texture2D.MipLevels = 1;
+                view.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                device->CreateShaderResourceView(nullptr, &view, slot.heap.GetSrvCPU(9));
+                view.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+                device->CreateShaderResourceView(nullptr, &view, slot.heap.GetSrvCPU(10));
+            }
         }
     };
     std::vector<std::shared_ptr<HistoryGeneration>> m_historyGenerations;
@@ -474,24 +515,24 @@ struct FSRDPreprocessor_Dx12::Impl
             throw std::runtime_error("FSRD target lifetime receipt unavailable");
         return *selected;
     }
-    void ObserveHistory(ID3D12GraphicsCommandList* list,
-                        const std::shared_ptr<HistoryGeneration>& generation, bool write)
+    void ObserveHistoryWriter(ID3D12GraphicsCommandList* list,
+                              const std::shared_ptr<HistoryGeneration>& generation)
     {
         auto use = std::make_shared<HistoryUse>();
         use->device = m_pDev;
         use->generation = generation;
-        use->write = write;
+        use->write = true;
         if (!use->Attach(list)) throw std::runtime_error("FSRD history recording observer unavailable");
-        if (write) generation->writer = use->identity;
+        generation->writer = use->identity;
     }
 
-    std::shared_ptr<HistoryGeneration> AcquireHistory(ID3D12GraphicsCommandList* list)
+    std::shared_ptr<HistoryGeneration> AcquireHistory()
     {
         std::lock_guard lock(DlssNr::Submission::RecordingMutex());
         std::shared_ptr<HistoryGeneration> selected;
         for (auto& generation : m_historyGenerations)
         {
-            if (generation.use_count() != 1 || generation->uncertain) continue;
+            if (generation.use_count() != 1 || generation->uncertain || generation->contentUncertain) continue;
             const bool complete = std::all_of(generation->accesses.begin(), generation->accesses.end(),
                 [](const auto& p) { const auto done = p.fence->GetCompletedValue();
                     return done != UINT64_MAX && done >= p.value; });
@@ -512,8 +553,11 @@ struct FSRDPreprocessor_Dx12::Impl
             selected->metadata = CreateTexture2D(m_pDev, m_maxWidth, m_maxHeight,
                 DXGI_FORMAT_R32G32B32A32_UINT, L"FSR_Handover_Metadata", kSrvState);
         }
-        selected->accesses.clear(); selected->produced = false;
-        ObserveHistory(list, selected, true);
+        selected->accesses.clear();
+        selected->writer = {};
+        selected->admittedEpoch = 0;
+        selected->reservedAccesses = 0;
+        selected->produced = selected->discarded = selected->contentUncertain = false;
         return selected;
     }
 
@@ -1730,6 +1774,7 @@ struct FSRDPreprocessor_Dx12::Impl
 
     bool DispatchConversion(ID3D12GraphicsCommandList* cmdList, const ConversionDesc& desc)
     {
+        std::lock_guard recordingLock(DlssNr::Submission::RecordingMutex());
         m_canonicalDepthValid = m_upscalerDepthValid = false;
         m_conversionList = nullptr;
         if (m_runtime) m_runtime->Begin(FSRDRuntimeSnapshot::Floor);
@@ -1737,6 +1782,7 @@ struct FSRDPreprocessor_Dx12::Impl
             !std::isfinite(desc.RenderSize.y) || desc.RenderSize.x <= 0 || desc.RenderSize.y <= 0 ||
             desc.RenderSize.x > m_maxWidth || desc.RenderSize.y > m_maxHeight)
             return false;
+        if (!RecordedShader::Supported(cmdList)) return false;
         m_upscalerDepthRenderSize = desc.RenderSize;
 
         const bool useAdditivePipeline = std::isfinite(desc.AdditiveLightSplit) && desc.AdditiveLightSplit > 0.0f;
@@ -1745,6 +1791,10 @@ struct FSRDPreprocessor_Dx12::Impl
             return false;
         ID3D12PipelineState* conversionPipeline = useAdditivePipeline
             ? m_additiveConvPso.Get() : m_convShader.m_pso.Get();
+        // Reserve before any barriers, timing commands, or ping-pong swaps.
+        m_floorSeedShader.Reserve(1);
+        m_floorFilterShader.Reserve(desc.FloorEnabled ? (desc.FloorFastMode ? 3u : FloorFilter::kPasses) : 0u);
+        m_convShader.Reserve(1);
 
         const std::array<XMUINT4,6> sourceBases { desc.FloorSourceBase,desc.InputBase0,
             desc.InputBase1,desc.InputBase2,desc.InputBase3,desc.InputBase4 };
@@ -1901,9 +1951,10 @@ struct FSRDPreprocessor_Dx12::Impl
 
     void DispatchComposition(ID3D12GraphicsCommandList* cmdList, const CompositionDesc& desc)
     {
+        std::lock_guard recordingLock(DlssNr::Submission::RecordingMutex());
         if (m_runtime) m_runtime->Begin(FSRDRuntimeSnapshot::Composition);
-        if (!cmdList || !m_maxWidth)
-            throw std::runtime_error("Composition requires a command list and allocated resources");
+        if (!RecordedShader::Supported(cmdList) || !m_maxWidth)
+            throw std::runtime_error("Composition requires a resource-owning compute recording and allocated resources");
 
         m_historyPending=false;
         const bool writeHistory=desc.FloorDetailPreservation>0 && desc.RecoveryMask != 0 &&
@@ -1911,11 +1962,24 @@ struct FSRDPreprocessor_Dx12::Impl
         // Every retained recording freezes its predecessor. Reuse requires all
         // producer/reader recordings invalidated and all queue fences completed.
         m_historyNext.reset();
-        if (writeHistory)
+        const bool readHistory = writeHistory && m_historyValid && m_motionHistoryValid &&
+            m_historyPrevious && m_historyPrevious->CanRead(cmdList);
+        std::shared_ptr<CompositionRead> reader;
+        if (writeHistory) m_historyNext = AcquireHistory();
+        if (readHistory)
         {
-            m_historyNext = AcquireHistory(cmdList);
-            if (m_historyValid && m_historyPrevious)
-                ObserveHistory(cmdList, m_historyPrevious, false);
+            reader = std::make_shared<CompositionRead>();
+            reader->device = m_pDev;
+            reader->generation = m_historyPrevious;
+        }
+        const bool split = Composition::CanSplitTiles(desc.Flags, desc.FloorDetailPreservation,
+            desc.RecoveryMask, desc.SpatialTemporalMask) && EnsureSplitCompositionPipelines();
+        ID3D12PipelineState* const compositionPipeline = split ? nullptr : CompositionPipeline(desc);
+        m_compShader.Reserve(split ? 2u : 1u);
+        if (desc.UnsupportedAlbedoRecovery > 0.0f)
+        {
+            m_trustEvidenceShader.Reserve(1);
+            m_trustPropagateShader.Reserve(TrustPropagate::kPasses);
         }
         auto& outResources = m_out.Resources;
         Composition::Input inputs = {};
@@ -1929,7 +1993,8 @@ struct FSRDPreprocessor_Dx12::Impl
             .SourceUvScale = {1.0f, 1.0f},
             .SourceUvOffset = {},
             .FloorHandoverCorrelationMix = desc.FloorHandoverCorrelationMix,
-            .HistoryValid = writeHistory && m_historyValid && m_motionHistoryValid ? 1u : 0u,
+            // Do not arm a speculative read until every pass and hook exists.
+            .HistoryValid = 0,
             .HistoryJitterDelta = m_historyJitterDelta,
             .WriteHistory = writeHistory ? 1u : 0u,
             .SpecularAlbedoDemodulation = desc.SpecularAlbedoDemodulation,
@@ -1980,8 +2045,8 @@ struct FSRDPreprocessor_Dx12::Impl
             .InDetailReference = outResources.DetailReference.Get(),
             .InLinearDepth = m_LinearDepth.Get(),
             .InMotion = outResources.Motion.Get(),
-            .InDecisionHistory = m_historyPrevious ? m_historyPrevious->decisions.Get() : nullptr,
-            .InHistoryMetadata = m_historyPrevious ? m_historyPrevious->metadata.Get() : nullptr,
+            .InDecisionHistory = nullptr,
+            .InHistoryMetadata = nullptr,
             // Always bound; read only while UnsupportedAlbedoRecovery is nonzero.
             .InDirectSpecularDenoised = m_directSpecularOutput.Get(),
             .InDirectSpecularSignal = outResources.DirectSpecular.Get(),
@@ -2000,23 +2065,32 @@ struct FSRDPreprocessor_Dx12::Impl
 
         {
             FSRDStageTimings::Scope timing(m_stageTimings, FSRDStageTimings::Composition);
-            if (Composition::CanSplitTiles(desc.Flags, desc.FloorDetailPreservation,
-                                           desc.RecoveryMask, desc.SpatialTemporalMask) &&
-                EnsureSplitCompositionPipelines())
+            if (split)
             {
                 // Each call creates its own retained dispatch lease/CBV/descriptors.
                 // Both use unchanged SRVs and the same non-aliased history WRITE UAVs.
                 // autoBarrierOutput restores SRV state after the first pass before the
                 // second transitions it back to UAV; it also orders the disjoint writes.
-                m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
-                                      m_tileLightCompPso.Get());
-                m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
-                                      m_tileAnchorCompPso.Get());
+                auto light = m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
+                                                   m_tileLightCompPso.Get(), m_historyNext);
+                auto anchor = m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
+                                                    m_tileAnchorCompPso.Get(), m_historyNext);
+                if (reader) { reader->slots = { std::move(light), std::move(anchor) }; reader->count = 2; }
             }
             else
-                m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
-                                      CompositionPipeline(desc));
+            {
+                auto slot = m_compShader.Dispatch(cmdList, cbData, inputs.AsArray, outputs.AsArray, dstDim, true,
+                                                  compositionPipeline, m_historyNext);
+                if (reader) { reader->slots[0] = std::move(slot); reader->count = 1; }
+            }
         }
+        // A partial multipass recording never acquires a writer identity. Slot
+        // owners already retain its referenced allocations on every failure path.
+        if (reader) reader->selection = HistoryUse::Selection::NoHistory;
+        if (reader && !reader->Attach(cmdList))
+            throw std::runtime_error("FSRD history reader finalizer unavailable");
+        if (writeHistory) ObserveHistoryWriter(cmdList, m_historyNext);
+        if (reader) reader->EnableHistory();
         m_historyPending=writeHistory;
         if (m_runtime) m_runtime->Complete(FSRDRuntimeSnapshot::Composition);
     }
@@ -2455,6 +2529,7 @@ bool FSRDPreprocessor_Dx12::DispatchComposition(ID3D12GraphicsCommandList* cmdLi
 
 void FSRDPreprocessor_Dx12::InvalidateCompositionHistory() noexcept
 {
+    std::lock_guard recordingLock(DlssNr::Submission::RecordingMutex());
     m_impl->m_historyValid = m_impl->m_historyPending = false;
     m_impl->m_canonicalDepthValid = m_impl->m_upscalerDepthValid = false;
     m_impl->m_conversionList = nullptr;
@@ -2462,10 +2537,12 @@ void FSRDPreprocessor_Dx12::InvalidateCompositionHistory() noexcept
 
 void FSRDPreprocessor_Dx12::FinishCompositionHistory(bool successfulNormalFrame) noexcept
 {
+    std::lock_guard recordingLock(DlssNr::Submission::RecordingMutex());
     if (successfulNormalFrame && m_impl->m_historyPending)
     {
         m_impl->m_historyPrevious = std::move(m_impl->m_historyNext);
-        m_impl->m_historyValid=true;
+        m_impl->m_historyValid = !m_impl->m_historyPrevious->discarded &&
+                               !m_impl->m_historyPrevious->contentUncertain;
     }
     else m_impl->m_historyValid=false;
     m_impl->m_historyPending=false;

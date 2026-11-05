@@ -38,7 +38,7 @@ IDENTITY_KEYS = (
     "upscaler_sha256", "upscaler_size",
     "diffuse_signal", "specular_signal", "seed", "frames_per_scene", "scenes",
     "readback_every", "input_sha256", "denoiser_defaults", "metric_truth",
-    "metric_channels_contract", "noise_model", "mode",
+    "metric_channels_contract", "noise_model", "mode", "fixture_controls",
 )
 CONFIG_KEYS = ("rr_context", "effective_settings", "derived_controls",
                "converter_generation", "feature_case", "comparison_scope")
@@ -148,6 +148,32 @@ def validate_policy(policy):
     return entries
 
 
+def guide_bindings(data):
+    """Project actual input bindings, not derived plans or output readback hashes."""
+    records = required(data, "feature_controls")
+    if not isinstance(records, list):
+        raise EvidenceError("feature_controls must be an array")
+    passes = ("clean",) if data.get("capture_input_class") else ("clean", "noisy")
+    frames = integer(data["frames_per_scene"], "frames_per_scene", 2)
+    expected = [(scene, pss, frame) for scene in data["scenes"] for pss in passes
+                for frame in range(frames)]
+    if len(records) != len(expected):
+        raise EvidenceError("guide binding sequence does not cover all scene/pass/frames")
+    bindings = []
+    for record, key in zip(records, expected):
+        if not isinstance(record, dict):
+            raise EvidenceError("feature_controls records must be objects")
+        frame = record.get("frame")
+        if type(frame) is not int or (record.get("scene"), record.get("pass"), frame) != key:
+            raise EvidenceError("guide binding scene/pass/frame sequence is incomplete")
+        for name in ("specular_guide", "diffuse_guide"):
+            if type(record.get(name)) is not bool:
+                raise EvidenceError(f"missing/invalid per-frame guide binding: {name}")
+        bindings.append({name: record[name] for name in
+                         ("scene", "pass", "frame", "specular_guide", "diffuse_guide")})
+    return bindings
+
+
 def validate_identity(run):
     data = run["json"]
     if data.get("execution_result") != "PASS":
@@ -185,6 +211,14 @@ def validate_identity(run):
     scenes = data["scenes"]
     if not isinstance(scenes, list) or any(not isinstance(s, str) or not s for s in scenes) or len(set(scenes)) != len(scenes):
         raise EvidenceError("invalid/duplicate scene names")
+    fixture = data["fixture_controls"]
+    if not isinstance(fixture, dict) or fixture.get("guides") not in (
+            "existing", "both", "none", "specular", "dropout", "arrival"):
+        raise EvidenceError("missing/invalid fixture_controls.guides")
+    for name in ("capture", "failure_recovery"):
+        if type(fixture.get(name)) is not bool:
+            raise EvidenceError(f"missing/invalid fixture_controls.{name}")
+    guide_bindings(data)
     passes = 1 if data.get("capture_input_class") else 2
     if len(run["controls"]) != len(scenes) * passes * frames * CONTROL_BYTES:
         raise EvidenceError("dispatch control count does not cover all scene/pass/frames")
@@ -208,6 +242,8 @@ def compare_identity(base, cand, policy):
             drift.append(f"{key} differs")
     if base["input_controls_sha256"] != cand["input_controls_sha256"]:
         drift.append("raw applied dispatch controls differ")
+    if not same_value(guide_bindings(bjson), guide_bindings(cjson)):
+        drift.append("actual per-frame guide bindings differ")
     used = set()
     for root in CONFIG_KEYS:
         bl, cl = leaves(bjson[root], root), leaves(cjson[root], root)
@@ -357,6 +393,7 @@ def analyze(base, cand, policy=None, bounds=None):
                 "configuration": {key: run["json"][key] for key in CONFIG_KEYS},
                 "dispatch_controls_sha256": run["controls_sha256"],
                 "input_controls_sha256": run["input_controls_sha256"],
+                "guide_bindings": guide_bindings(run["json"]),
                 "metric_rows": len(run["metrics"]), "temporal_rows": len(run["temporal"])}
         for label, run in (("baseline", base), ("candidate", cand))
     }

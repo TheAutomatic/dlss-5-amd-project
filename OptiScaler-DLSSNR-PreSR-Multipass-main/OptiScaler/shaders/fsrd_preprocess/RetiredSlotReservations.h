@@ -16,6 +16,11 @@ template <class Ticket> class RetiredSlotReservations
 
   public:
     bool HasReserved() const { return next_ < reserved_.size(); }
+    size_t NextReserved() const
+    {
+        if (!HasReserved()) throw std::runtime_error("FSRD dispatch has no reserved slot");
+        return reserved_[next_];
+    }
 
     template <class Retired, class Grow>
     void Reserve(size_t count, Retired retired, Grow grow)

@@ -10,8 +10,10 @@ import csv
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 
@@ -37,6 +39,11 @@ def evidence():
         "effective_settings": {"Floor": False, "Strength": 1.0},
         "derived_controls": {"sr_depth_source": "hardware",
                              "sr_near_far_sha256": hashlib.sha256(bytes(8 * 6)).hexdigest()},
+        "fixture_controls": {"guides": "both", "capture": False, "failure_recovery": False},
+        "feature_controls": [{"scene": "detail", "pass": pss, "frame": frame,
+                              "specular_guide": True, "diffuse_guide": True,
+                              "signal_mask": 3}
+                             for pss in ("clean", "noisy") for frame in range(3)],
         "converter_generation": "frozen", "feature_case": "default",
         "comparison_scope": "baseline-compatible", "noise_model": "positive-unbiased",
         "metric_truth": dict(compare.TRUTH), "mode": "serial",
@@ -121,6 +128,74 @@ class ComparisonTests(unittest.TestCase):
         with self.assertRaises(compare.EvidenceError):
             self.result(policy=[{"path": "input_sha256", "baseline": "c" * 64,
                                  "candidate": "d" * 64, "reason": "not allowed"}])
+
+    def test_same_authored_input_and_forced_direct_plan_do_not_hide_binding_drift(self):
+        for guide in ("specular_guide", "diffuse_guide"):
+            for change_fixture in (False, True):
+                with self.subTest(guide=guide, change_fixture=change_fixture):
+                    base, cand = evidence(), evidence()
+                    for run in (base, cand):
+                        run["json"]["effective_settings"].update(
+                            FfxDenoiserDiffuseRoute=1, FfxDenoiserSpecularRoute=1)
+                    cand["json"]["feature_controls"][1][guide] = False
+                    if change_fixture:
+                        cand["json"]["fixture_controls"]["guides"] = "dropout"
+                    cand["json"]["effective_settings"]["Floor"] = True
+                    policy = [{"path": "effective_settings.Floor", "baseline": False,
+                               "candidate": True, "reason": "authorized setting only"}]
+                    self.assertEqual(base["json"]["input_sha256"], cand["json"]["input_sha256"])
+                    self.assertEqual(base["controls"], cand["controls"])
+                    self.assertEqual(base["json"]["rr_context"], cand["json"]["rr_context"])
+                    self.assertEqual([r["signal_mask"] for r in base["json"]["feature_controls"]],
+                                     [r["signal_mask"] for r in cand["json"]["feature_controls"]])
+                    report = compare.analyze(base, cand, policy=policy)
+                    self.assertEqual(report["exit_code"], 2)
+                    self.assertFalse(report["quality_accepted"])
+                    self.assertIn("actual per-frame guide bindings differ", report["drift"])
+                    self.assertTrue(all(v == "NOT-COMPARABLE" for v in report["results"].values()))
+
+    def test_fixture_controls_are_required_nonwaivable_input_identity(self):
+        self.cand["json"]["fixture_controls"]["guides"] = "none"
+        self.assertEqual(self.result()["exit_code"], 2)
+        for path in ("fixture_controls.guides", "feature_controls"):
+            with self.subTest(path=path), self.assertRaises(compare.EvidenceError):
+                self.result(policy=[{"path": path, "baseline": "both", "candidate": "none",
+                                     "reason": "must not waive inputs"}])
+        for field in ("fixture_controls", "feature_controls"):
+            with self.subTest(field=field):
+                base, cand = evidence(), evidence()
+                del base["json"][field]
+                del cand["json"][field]
+                with self.assertRaises(compare.EvidenceError):
+                    compare.analyze(base, cand)
+
+    def test_binding_evidence_requires_complete_ordered_boolean_frame_records(self):
+        mutations = (
+            lambda rows: rows.clear(),
+            lambda rows: rows.pop(),
+            lambda rows: rows.append(dict(rows[0])),
+            lambda rows: rows.reverse(),
+            lambda rows: rows[1].update(rows[0]),
+            lambda rows: rows[0].update(scene="other"),
+            lambda rows: rows[0].update({"pass": "noisy"}),
+            lambda rows: rows[0].update(frame=9),
+            lambda rows: rows[0].update(frame=False),
+            lambda rows: rows[0].pop("diffuse_guide"),
+            lambda rows: rows[0].update(specular_guide=1),
+            lambda rows: rows.__setitem__(0, None),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                base, cand = evidence(), evidence()
+                for run in (base, cand):
+                    mutate(run["json"]["feature_controls"])
+                with self.assertRaises(compare.EvidenceError):
+                    compare.analyze(base, cand)
+
+    def test_derived_feature_plan_fields_are_not_input_bindings(self):
+        self.cand["json"]["feature_controls"][0].update(
+            signal_mask=1, plan_notes="different derived plan", presr_readback_sha256="d" * 64)
+        self.assertEqual(self.result()["exit_code"], 0)
 
     def test_empty_missing_duplicate_and_wrong_frame_rows_are_invalid(self):
         mutations = [lambda r: r.clear(), lambda r: r.pop(),
@@ -304,7 +379,7 @@ class ComparisonTests(unittest.TestCase):
     def test_ghost_errors_are_separate_from_potentially_misleading_ratio(self):
         for run in (self.base, self.cand):
             run["json"]["scenes"] = ["occlusion_reveal"]
-            for row in run["metrics"] + run["temporal"]:
+            for row in run["metrics"] + run["temporal"] + run["json"]["feature_controls"]:
                 row["scene"] = "occlusion_reveal"
             for pss in ("clean", "noisy"):
                 for metric in compare.GHOST_TEMPORAL:
@@ -338,7 +413,7 @@ class ComparisonTests(unittest.TestCase):
     def test_missing_ghost_measurements_cannot_claim_occlusion_quality(self):
         for run in (self.base, self.cand):
             run["json"]["scenes"] = ["occlusion_reveal"]
-            for row in run["metrics"] + run["temporal"]:
+            for row in run["metrics"] + run["temporal"] + run["json"]["feature_controls"]:
                 row["scene"] = "occlusion_reveal"
         self.assertFalse(self.result()["quality_accepted"])
 
@@ -384,6 +459,25 @@ class ComparisonTests(unittest.TestCase):
                        {"temporal_tolerance": 0.5}, {"energy_band": float("inf")}):
             with self.subTest(bounds=bounds), self.assertRaises(compare.EvidenceError):
                 self.result(bounds=bounds)
+
+
+class RunnerArgumentTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "run.cmd requires Windows cmd.exe")
+    def test_baseline_only_without_source_fails_before_build_or_pass(self):
+        runner = Path(__file__).with_name("run.cmd").resolve()
+        with tempfile.TemporaryDirectory() as temp:
+            for extra in ([], ["--build-only"]):
+                with self.subTest(extra=extra):
+                    out = Path(temp) / "must-not-be-created"
+                    result = subprocess.run(
+                        [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", str(runner),
+                         "gpu", str(out), "--baseline-only", *extra],
+                        capture_output=True, text=True, check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    output = result.stdout + result.stderr
+                    self.assertIn("--baseline-only requires --baseline-source", output)
+                    self.assertNotIn("PASS", output)
+                    self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":

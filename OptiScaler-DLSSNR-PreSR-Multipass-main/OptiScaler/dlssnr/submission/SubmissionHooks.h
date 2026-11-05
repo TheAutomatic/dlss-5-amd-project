@@ -288,6 +288,9 @@ inline void ExecuteExpanded(ID3D12CommandQueue *queue, UINT num, ID3D12CommandLi
         std::vector<ILogicalCommandList*> prepared;
         if (!run.empty())
         {
+            // The scope covers this original contiguous batch only. Preparing
+            // in list order authorizes history predecessors without splitting
+            // Execute calls or changing their promotion/decay boundaries.
             RecordingAdmissionScope admissionScope;
             for (auto* logical : runLogical) {
                 const auto hr = logical->PrepareUnsplitBatch(queue);

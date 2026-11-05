@@ -564,10 +564,35 @@ def check_resources():
         for kind, union in (("t", "Input"), ("u", "Output")):
             actual = shader_resource_order(shader, kind, namespace)
             root_kind = "SRV" if kind == "t" else "UAV"
-            root = re.search(r'DescriptorTable\(' + root_kind + r'\(' + kind +
-                             r'0,\s*numDescriptors\s*=\s*(\d+)\)', shader)
-            if not root or int(root.group(1)) != len(actual):
-                fail("%s %s root table differs from shader resources" % (namespace, root_kind))
+            if namespace == "Composition" and kind == "t":
+                # Join only the MainRS string literals, not shader comments or
+                # declarations. Preserve the 17-entry table and require that
+                # only t9/t10 permit pre-execute descriptor finalization.
+                signature_lines = []
+                collecting = False
+                for line in shader.splitlines():
+                    if line.startswith("#define MainRS"):
+                        collecting = True
+                    if collecting:
+                        signature_lines.extend(re.findall(r'"([^"\\]*)"', line))
+                        if not line.rstrip().endswith("\\"):
+                            break
+                signature = "".join(signature_lines)
+                history_table = (
+                    r'DescriptorTable\(\s*SRV\(t0,\s*numDescriptors\s*=\s*9\),\s*'
+                    r'SRV\(t9,\s*numDescriptors\s*=\s*2,\s*flags\s*=\s*'
+                    r'DESCRIPTORS_VOLATILE\s*\|\s*DATA_STATIC_WHILE_SET_AT_EXECUTE\),\s*'
+                    r'SRV\(t11,\s*numDescriptors\s*=\s*6\)\s*\)'
+                )
+                if (not re.search(history_table, signature) or
+                        len(re.findall(r'\bSRV\(', signature)) != 3 or len(actual) != 17):
+                    fail("Composition SRV root table must be contiguous static t0..8, "
+                         "descriptor-volatile/data-static-while-set t9..10, static t11..16 (17 total)")
+            else:
+                root = re.search(r'DescriptorTable\(' + root_kind + r'\(' + kind +
+                                 r'0,\s*numDescriptors\s*=\s*(\d+)\)', shader)
+                if not root or int(root.group(1)) != len(actual):
+                    fail("%s %s root table differs from shader resources" % (namespace, root_kind))
             if namespace == "Composition" and kind == "u":
                 expected = cpp_resource_order(body, "union Output")
                 assertion = "Composition::kOutputCount"

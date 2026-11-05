@@ -70,6 +70,12 @@ static thread_local const FSR31FeatureDx12* amdReplacementFeature = nullptr;
 
 using InputResources = FSR31FeatureDx12::InputResources;
 
+static bool UsesDlssBiasMask(const Config& cfg, const InputResources& inputs)
+{
+    return !cfg.DisableReactiveMask.value_or(inputs.ReactiveMask == nullptr && inputs.DlssBiasMaskFallback == nullptr) &&
+           inputs.ReactiveMask == nullptr && inputs.DlssBiasMaskFallback != nullptr;
+}
+
 template <typename T>
 static bool TryGetLoggedResource(const NVSDK_NGX_Parameter& ngxParams, const char* key, T*& outValue)
 {
@@ -454,7 +460,8 @@ bool FSR31FeatureDx12::PrepareUpscalerInput(ID3D12GraphicsCommandList* InCommand
     TryGetNGXVoidPointer(inParams, NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask,
                          _inputBuffers.DlssBiasMaskFallback);
     TryGetNGXVoidPointer(inParams, NVSDK_NGX_Parameter_ExposureTexture, _inputBuffers.ExposureMap);
-    if (inputMode != UpscalerInputMode::Bypassed && _inputBuffers.DlssBiasMaskFallback)
+    const bool usesBiasMask = inputMode != UpscalerInputMode::Bypassed && UsesDlssBiasMask(cfg, _inputBuffers);
+    if (usesBiasMask)
     {
         unsigned int maskX = 0, maskY = 0;
         inParams.Get(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_SubrectBase_X, &maskX);
@@ -478,9 +485,8 @@ bool FSR31FeatureDx12::PrepareUpscalerInput(ID3D12GraphicsCommandList* InCommand
         return false;
     }
 
-    const bool needsBiasDispatch = _inputBuffers.DlssBiasMaskFallback && !_inputBuffers.ReactiveMask && Bias &&
-        cfg.DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() && Bias->CanRender() &&
-        !cfg.DisableReactiveMask.value_or(false);
+    const bool needsBiasDispatch = usesBiasMask && Bias &&
+        cfg.DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() && Bias->CanRender();
     if (GetUpscalerType() == Upscaler::FSR_RR && needsBiasDispatch &&
         !Shader_Dx12::RecordedLifetimeSupported(InCommandList))
     {
@@ -488,8 +494,17 @@ bool FSR31FeatureDx12::PrepareUpscalerInput(ID3D12GraphicsCommandList* InCommand
         return false;
     }
     _biasRecordingCleanup = {};
-    // Resolve Reactive & Transparency Masks
-    GetReactiveAndTransparencyMasks(InCommandList, _inputBuffers);
+    // RR reads the raw DLSS mask independently of SR selection, including SR-bypassed debug paths.
+    TryResourceBarrier(InCommandList, _inputBuffers.DlssBiasMaskFallback, cfg.MaskResourceBarrier,
+                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    // SR-only mask processing must not sample an offset mask in an RR-only dispatch.
+    if (inputMode != UpscalerInputMode::Bypassed)
+        GetReactiveAndTransparencyMasks(InCommandList, _inputBuffers);
+    else
+    {
+        _inputBuffers.ReactiveMask = nullptr;
+        _inputBuffers.TransparencyMask = nullptr;
+    }
 
     // Map inputs to descriptor
     upscalerDesc.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
@@ -815,13 +830,6 @@ void FSR31FeatureDx12::GetReactiveAndTransparencyMasks(ID3D12GraphicsCommandList
     ID3D12Resource* activeReactiveMask = nullptr;
     ID3D12Resource* activeTransparencyMask = nullptr;
 
-    // FSRD's conversion path reads the title's DLSS bias mask independently of
-    // whether FSR later selects it as the active reactive mask. Transition it as
-    // soon as it is acquired so native FSR masks and DisableReactiveMask cannot
-    // leave the conversion sampling a UAV or render-target state.
-    TryResourceBarrier(InCommandList, inputs.DlssBiasMaskFallback, cfg.MaskResourceBarrier,
-                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-
     if (!cfg.DisableReactiveMask.value_or(inputs.ReactiveMask == nullptr && inputs.DlssBiasMaskFallback == nullptr))
     {
         // Prefer explicit FSR masks
@@ -831,7 +839,7 @@ void FSR31FeatureDx12::GetReactiveAndTransparencyMasks(ID3D12GraphicsCommandList
             activeReactiveMask = inputs.ReactiveMask;
 
         // Fallback to DLSS Bias mask if FSR reactive is missing
-        if (!activeReactiveMask && inputs.DlssBiasMaskFallback)
+        if (UsesDlssBiasMask(cfg, inputs))
         {
             LOG_DEBUG("Using DLSS Input Bias mask as fallback...");
             cfg.DisableReactiveMask.set_volatile_value(false);
@@ -924,7 +932,7 @@ void FSR31FeatureDx12::ResetConfigurableBarriers(ID3D12GraphicsCommandList* InCo
         TryResourceBarrier(InCommandList, _inputBuffers.ExposureMap, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                            cfg.ExposureResourceBarrier);
 
-    // GetReactiveAndTransparencyMasks transitions only the title-owned DLSS bias
+    // PrepareUpscalerInput transitions only the title-owned DLSS bias
     // fallback. ReactiveMask may alias that same resource (or an internal Bias output),
     // so restoring ReactiveMask as well would either emit the same barrier twice or
     // invent a reverse transition that had no matching forward transition.

@@ -206,6 +206,9 @@
     <ClInclude Include="upscalers\fsr31\FSROutputScaling.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="shaders\fsrd_preprocess\FSRDCompositionHistory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="shaders\fsrd_preprocess\FSRDCompositionVariant.h">
       <Filter>Header Files</Filter>
     </ClInclude>

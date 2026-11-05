@@ -48,13 +48,15 @@ exports\rr-check\runner\offline_chain.exe --mode native-diffuse --manifest expor
 tests\fsr-rr\run.cmd gpu exports\rr-pair\runner --build-only --baseline-source <冻结源码zip或目录>
 ```
 
+`--baseline-only` 必须同时提供 `--baseline-source`（包括 `--build-only`）；缺失时在构建或运行前非零退出，不报告 PASS。
+
 分别用生成的 offline_chain_baseline.exe 与 offline_chain.exe，以相同 manifest、场景顺序和 seed 执行 `--mode serial --out <各自目录>`。随后：
 
 ```cmd
 python -B tests\fsr-rr\compare_runs.py <baseline目录> <candidate目录> --policy <审核过的精确差异policy.json> --out exports\rr-pair\compare
 ```
 
-policy 只许可明确的代际配置差异，不豁免质量或输入/provider漂移。不要直接依赖 run.cmd 自动比较接受有意的代际设置变化。原生对照新增阶段不是普通 compare_runs 的输入。
+policy 只许可明确的代际配置差异，不豁免质量或输入/provider漂移。`fixture_controls` 和 `feature_controls` 中完整、有序的逐帧 scene/pass/frame、specular_guide/diffuse_guide 绑定属于不可豁免的输入身份；即使 authored input 哈希及 forced-Direct 信号计划相同，实际 guide 绑定不同也不可比较。缺少逐帧绑定证据的旧结果必须重新生成。不要直接依赖 run.cmd 自动比较接受有意的代际设置变化。原生对照新增阶段不是普通 compare_runs 的输入。
 
 指标必须声明 `rgb-radiance-v1;nonfinite=rgba`：颜色统计仅RGB，非有限检查仍RGBA。旧RGBA CSV必须重新生成，不得补标签冒充。noise_std 是真值残差，不是纯随机噪声；temporal MAD不是运动补偿闪烁。PSNR用参考亮度RMS归一化，不套固定峰值PSNR门槛。exit4表示质量门限未过，不等于某个产品shader根因已确定。
 

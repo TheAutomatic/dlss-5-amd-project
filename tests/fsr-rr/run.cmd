@@ -35,6 +35,10 @@ rem ---- argument parsing (tier and out-dir are positional, rest are flags) ----
 set "ALL_ARGS=%*"
 call :ParseFlags %ALL_ARGS%
 if errorlevel 1 exit /b 2
+if defined BASELINE_ONLY if not defined BASELINE_SOURCE (
+  echo FAIL: --baseline-only requires --baseline-source.
+  exit /b 2
+)
 if not defined OUT set "OUT=exports\test-run\fsr-rr"
 for %%I in ("%OUT%") do set "OUT=%%~fI"
 if not exist "%OUT%" mkdir "%OUT%"

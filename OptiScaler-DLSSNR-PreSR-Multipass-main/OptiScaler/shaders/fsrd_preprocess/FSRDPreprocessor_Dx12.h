@@ -389,6 +389,11 @@ class FSRDPreprocessor_Dx12
     void TransitionDenoiserOutputsToRead(ID3D12GraphicsCommandList* cmdList) noexcept;
 
     // Commit helper history only after a successful normal frame, including upscale.
+    // Publication retains a candidate, not GPU-production proof. The first actual
+    // submission chooses history after writer submission or ordered same-batch
+    // admission; otherwise only never-submitted private slots become no-history.
+    // Submitted constants/descriptors are immutable on replay. Reset/final Release
+    // before writer submission discards the candidate without rejecting readers.
     void FinishCompositionHistory(bool successfulNormalFrame) noexcept;
     void InvalidateCompositionHistory() noexcept;
 
