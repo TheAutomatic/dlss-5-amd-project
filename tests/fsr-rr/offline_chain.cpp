@@ -772,6 +772,7 @@ struct GpuTexture
 {
     ComPtr<ID3D12Resource> tex;
     ComPtr<ID3D12Resource> staging;
+    std::vector<ComPtr<ID3D12Resource>> uploadRing;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
     uint64_t stagingSize = 0;
     uint32_t width = 0, height = 0, bytesPerPixel = 0;
@@ -792,7 +793,7 @@ struct GpuTexture
     }
 
     void Init(ID3D12Device* dev, DXGI_FORMAT fmt, uint32_t w, uint32_t h, bool uav, bool needStaging,
-              const wchar_t* name)
+              const wchar_t* name, uint32_t stagingSlots = 1)
     {
         format = fmt;
         width = w;
@@ -829,29 +830,46 @@ struct GpuTexture
                                                       : D3D12_RESOURCE_STATE_GENERIC_READ,
                                                   nullptr, IID_PPV_ARGS(&staging)),
                      "CreateCommittedResource(staging)");
+            if (!uav && stagingSlots > 1)
+            {
+                uploadRing.resize(stagingSlots);
+                uploadRing[0] = staging;
+                for (uint32_t i = 1; i < stagingSlots; ++i)
+                    CHECK_HR(dev->CreateCommittedResource(&shp, D3D12_HEAP_FLAG_NONE, &sd,
+                                                          D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                          IID_PPV_ARGS(&uploadRing[i])),
+                             "CreateCommittedResource(uploadRing)");
+            }
         }
     }
 
     size_t RowBytes() const { return size_t(width) * bytesPerPixel; }
 
-    void Upload(const std::vector<uint8_t>& packed)
+    ID3D12Resource* Staging(uint32_t slot = 0) const
+    {
+        return slot < uploadRing.size() ? uploadRing[slot].Get() : staging.Get();
+    }
+
+    void Upload(const std::vector<uint8_t>& packed, uint32_t slot = 0)
     {
         if (packed.size() != RowBytes() * height)
             Die("fixture upload size mismatch");
         uint8_t* mapped = nullptr;
         D3D12_RANGE none{0, 0};
-        CHECK_HR(staging->Map(0, &none, reinterpret_cast<void**>(&mapped)), "upload map");
+        ID3D12Resource* targetStaging = Staging(slot);
+        CHECK_HR(targetStaging->Map(0, &none, reinterpret_cast<void**>(&mapped)), "upload map");
         for (uint32_t y = 0; y < height; ++y)
             memcpy(mapped + footprint.Offset + size_t(y) * footprint.Footprint.RowPitch,
                    packed.data() + y * RowBytes(), RowBytes());
-        staging->Unmap(0, nullptr);
+        targetStaging->Unmap(0, nullptr);
     }
 
     std::vector<float> DownloadAsFloat(uint32_t outChannels)
     {
         std::vector<float> out(size_t(width) * height * outChannels, 0.0f);
         uint8_t* mapped = nullptr;
-        CHECK_HR(staging->Map(0, nullptr, reinterpret_cast<void**>(&mapped)), "readback map");
+        ID3D12Resource* targetStaging = staging.Get();
+        CHECK_HR(targetStaging->Map(0, nullptr, reinterpret_cast<void**>(&mapped)), "readback map");
         const uint8_t* base = mapped + footprint.Offset;
         for (uint32_t y = 0; y < height; ++y)
         {
@@ -889,7 +907,7 @@ struct GpuTexture
                     out[si * outChannels + c] = c < 4 ? v[c] : 0.0f;
             }
         }
-        staging->Unmap(0, nullptr);
+        targetStaging->Unmap(0, nullptr);
         return out;
     }
 };
@@ -2919,25 +2937,25 @@ static int GuardedMain(int argc, char** argv)
         const uint32_t frameCount = capturedScene ? capture.scene.frames : mf.frames;
 
         FixtureTextures t;
-        t.color.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, texW, texH, false, true, L"fx_color");
-        t.depth.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_depth");
-        t.motion.Init(gpu.device.Get(), DXGI_FORMAT_R16G16_FLOAT, mvTexW, mvTexH, false, true, L"fx_motion");
+        t.color.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, texW, texH, false, true, L"fx_color", ringSize);
+        t.depth.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_depth", ringSize);
+        t.motion.Init(gpu.device.Get(), DXGI_FORMAT_R16G16_FLOAT, mvTexW, mvTexH, false, true, L"fx_motion", ringSize);
         if (!capturedScene && sceneCfg.linearDepth && !HasUpscalerDepth_v<FSRDPreprocessor_Dx12>)
             t.srDepth.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, sceneCfg.renderW, sceneCfg.renderH,
-                           false, true, L"sr_renderer_hardware_depth");
-        t.normals.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, texW, texH, false, true, L"fx_normals");
+                           false, true, L"sr_renderer_hardware_depth", ringSize);
+        t.normals.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, texW, texH, false, true, L"fx_normals", ringSize);
         if (sceneCfg.separateRoughness)
-            t.roughness.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_roughness");
-        t.diffAlb.Init(gpu.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, texW, texH, false, true, L"fx_diff_alb");
-        t.specAlb.Init(gpu.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, texW, texH, false, true, L"fx_spec_alb");
+            t.roughness.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_roughness", ringSize);
+        t.diffAlb.Init(gpu.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, texW, texH, false, true, L"fx_diff_alb", ringSize);
+        t.specAlb.Init(gpu.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, texW, texH, false, true, L"fx_spec_alb", ringSize);
         if (sceneCfg.hitDistance)
-            t.hitDist.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_hitdist");
+            t.hitDist.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_hitdist", ringSize);
         if (features.CandidateOnly() && !nativeComparison)
-            t.diffuseHitDist.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_diffuse_hitdist");
+            t.diffuseHitDist.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, texW, texH, false, true, L"fx_diffuse_hitdist", ringSize);
         if (useExposureTexture)
-            t.exposure.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, 1, 1, false, true, L"fx_exposure");
+            t.exposure.Init(gpu.device.Get(), DXGI_FORMAT_R32_FLOAT, 1, 1, false, true, L"fx_exposure", ringSize);
         t.srOut.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, sceneCfg.TargetW(), sceneCfg.TargetH(),
-                     true, mode == "serial", L"fx_sr_out");
+                     true, true, L"fx_sr_out");
         NativeDiffuseRoute nativeRoute;
         if (nativeComparison) nativeRoute.Init(gpu.device.Get(), sceneCfg, t.diffAlb.tex.Get());
         const uint32_t motionW = sceneCfg.displayResMV ? sceneCfg.TargetW() : sceneCfg.renderW;
@@ -2958,10 +2976,11 @@ static int GuardedMain(int argc, char** argv)
             {"rr_depth_input", sceneCfg.linearDepth ? "authored signed view-Z unchanged" : "authored hardware depth unchanged"},
             {"lifetime", "scene-owned SR localization textures; reused in queue order; released after scene fence completion"}});
 
+        uint32_t activeUploadSlot = 0;
         auto CopyIn = [&](ID3D12GraphicsCommandList* cl, GpuTexture& tex, const std::vector<uint8_t>& data) {
-            tex.Upload(data);
+            tex.Upload(data, activeUploadSlot);
             D3D12_TEXTURE_COPY_LOCATION src{}, dst{};
-            src.pResource = tex.staging.Get();
+            src.pResource = tex.Staging(activeUploadSlot);
             src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             src.PlacedFootprint = tex.footprint;
             dst.pResource = tex.tex.Get();
@@ -3712,6 +3731,7 @@ static int GuardedMain(int argc, char** argv)
         {
             StageTimer timer;
             timer.Init(gpu.device.Get(), gpu.queue.Get(), perSceneFrames);
+            std::vector<uint64_t> slotTicket(ringSize, 0);
             bool hasHistory = false;
             for (uint32_t frame = 0; frame < perSceneFrames; ++frame)
             {
@@ -3739,8 +3759,14 @@ static int GuardedMain(int argc, char** argv)
                 const FrameCamera& cam = input.cam;
                 const FixtureFrame& fx = input.fx;
                 const uint32_t slot = frame % ringSize;
+                activeUploadSlot = slot;
                 if (frame >= ringSize)
+                {
                     WaitFence(slotFence[slot]);
+                    if (!tracker.Wait(slotTicket[slot], mf.timeoutMs))
+                        Die("perf: GpuBatch ticket did not retire");
+                    ++trackerRetired;
+                }
                 CHECK_HR(allocators[slot]->Reset(), "allocator Reset");
                 ID3D12GraphicsCommandList* cl = lists[slot].Get();
                 CHECK_HR(cl->Reset(allocators[slot].Get(), nullptr), "list Reset");
@@ -3844,15 +3870,21 @@ static int GuardedMain(int argc, char** argv)
 
                 CHECK_HR(cl->Close(), "close");
                 Execute(slot, cl);
-                if (!tracker.Wait(ticket, mf.timeoutMs))
-                    Die("perf: GpuBatch ticket did not retire");
-                ++trackerRetired;
+                slotTicket[slot] = ticket;
                 FinishCompositionHistoryIfPresent(converter, true);
                 hasHistory = true;
 
                 if (frame + 1 == perSceneFrames)
                 {
-                    WaitFence(slotFence[slot]);
+                    const uint32_t activeSlots = (std::min)(perSceneFrames, ringSize);
+                    for (uint32_t i = 0; i < activeSlots; ++i)
+                    {
+                        const uint32_t s = (perSceneFrames - activeSlots + i) % ringSize;
+                        WaitFence(slotFence[s]);
+                        if (!tracker.Wait(slotTicket[s], mf.timeoutMs))
+                            Die("perf: GpuBatch ticket did not retire");
+                        ++trackerRetired;
+                    }
                     const std::vector<float> srOut = t.srOut.DownloadAsFloat(4);
                     uint64_t nonFinite = 0;
                     for (float v : srOut)

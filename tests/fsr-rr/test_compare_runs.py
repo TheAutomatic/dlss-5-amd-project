@@ -479,6 +479,12 @@ class RunnerArgumentTests(unittest.TestCase):
                     self.assertNotIn("PASS", output)
                     self.assertFalse(out.exists())
 
+    def test_runner_clears_inherited_feature_environment_variables(self):
+        runner = Path(__file__).with_name("run.cmd").read_text(encoding="utf-8")
+        head = runner.split(":ParseFlags", 1)[0]
+        for variable in ("FEATURE_CASE", "ZERO_REFERENCE", "SET_VALUES"):
+            self.assertIn(f'set "{variable}="', head)
+
 
 if __name__ == "__main__":
     unittest.main()

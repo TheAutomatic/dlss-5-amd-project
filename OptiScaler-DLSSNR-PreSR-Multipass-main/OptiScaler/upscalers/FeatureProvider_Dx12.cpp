@@ -275,6 +275,12 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
             // already destroyed at counter 1, so abort the switch here and leave the counter
             // armed: falling through to counter 3 would dereference the null feature.
             LOG_ERROR("Upscaler can't be created; backend switch aborted for handle {}", handleId);
+            if (contextData->createParamsOwned && contextData->createParams != nullptr)
+            {
+                TryDestroyNGXParameters(contextData->createParams, NVNGXProxy::D3D12_DestroyParameters());
+                contextData->createParams = nullptr;
+                contextData->createParamsOwned = false;
+            }
             contextData->changeBackendCounter = 0;
             state.changeBackend[handleId] = false;
             return false;
@@ -288,6 +294,12 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
     if (contextData->changeBackendCounter == 3)
     {
         auto initResult = contextData->feature->Init(device, cmdList, contextData->createParams);
+        if (contextData->createParamsOwned && contextData->createParams != nullptr)
+        {
+            TryDestroyNGXParameters(contextData->createParams, NVNGXProxy::D3D12_DestroyParameters());
+            contextData->createParams = nullptr;
+            contextData->createParamsOwned = false;
+        }
 
         contextData->changeBackendCounter = 0;
 
@@ -295,6 +307,13 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
         {
             LOG_ERROR("init failed with {0} feature", UpscalerDisplayName(state.newBackend));
 
+            if (contextData->featureID == NVSDK_NGX_Feature_RayReconstruction ||
+                state.newBackend == Upscaler::FSR_RR)
+            {
+                state.newBackend = Upscaler::Reset;
+                state.changeBackend[handleId] = false;
+                return false;
+            }
             if (state.newBackend != Upscaler::DLSSD)
             {
                 if (cfg.Dx12Upscaler == Upscaler::DLSS)

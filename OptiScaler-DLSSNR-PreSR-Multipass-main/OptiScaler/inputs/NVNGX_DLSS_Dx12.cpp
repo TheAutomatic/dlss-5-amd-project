@@ -389,6 +389,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Shutdown(void)
     // Disabled for now to check if it cause any issues
     // UnhookAll();
     DLSSFeatureDx12::Shutdown(D3D12Device);
+    FSRDFeatureDx12::ReapDeferredFeatures();
 
     // Added `&& !State::Instance().isShuttingDown` hack for crash on exit
     if (Config::Instance()->DLSSEnabled.value_or_default() && NVNGXProxy::IsDx12Inited() &&
@@ -951,6 +952,19 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
             if (deviceContext == State::Instance().currentFeature)
                 State::Instance().currentFeature = nullptr;
 
+            if (entry.createParamsOwned && entry.createParams != nullptr)
+            {
+                TryDestroyNGXParameters(entry.createParams, NVNGXProxy::D3D12_DestroyParameters());
+                entry.createParams = nullptr;
+                entry.createParamsOwned = false;
+            }
+            if (!shutdown)
+            {
+                FSRDFeatureDx12::ReapDeferredFeatures();
+                if (deviceContext->GetUpscalerType() == Upscaler::FSR_RR)
+                    FSRDFeatureDx12::DestroyWhenRetired(
+                        std::unique_ptr<FSRDFeatureDx12>(static_cast<FSRDFeatureDx12*>(entry.feature.release())));
+            }
             // Erase from map (smart pointer reset is implicit on erase)
             Dx12Contexts.erase(it);
             if (!shutdown)

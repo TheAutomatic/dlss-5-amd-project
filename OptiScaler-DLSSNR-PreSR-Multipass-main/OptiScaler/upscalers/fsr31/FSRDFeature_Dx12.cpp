@@ -1463,7 +1463,7 @@ void FSRDFeatureDx12::OnEvaluationFinished(bool success)
         _runtime.steps[R::Inputs] == R::Passed && _runtime.steps[R::Conversion] == R::Passed &&
         _runtime.steps[R::RayRegeneration] == R::Passed && _runtime.steps[R::Composition] == R::Passed &&
         _runtime.steps[R::SuperResolution] == R::Passed && _runtime.steps[R::Output] == R::Passed;
-    if (_runtime.rrValidated)
+    if (success)
     {
         _rrRetryPolicy.Record(RRResult::Success);
         _rrFailure.clear();
@@ -1472,12 +1472,14 @@ void FSRDFeatureDx12::OnEvaluationFinished(bool success)
     _runtime.recoveryResult = _rrRetryPolicy.Result();
     _runtime.retryFramesRemaining = _rrRetryPolicy.SkippedFramesRemaining();
     // Shared output processing is part of the frame transaction, not just RR/SR recording.
-    if (FSRDConvShader) FSRDConvShader->FinishCompositionHistory(_runtime.rrValidated);
+    if (FSRDConvShader) FSRDConvShader->FinishCompositionHistory(success && _runtime.steps[R::Composition] == R::Passed);
     _stageTimings.FinishFrame(success);
-    if (!_runtime.rrValidated)
+    if (!success || _runtime.steps[R::SuperResolution] != R::Passed)
+        _upscalerResetPending = true;
+    if (!success || _runtime.steps[R::RayRegeneration] != R::Passed)
     {
         InvalidateDenoiserHistory();
-        _upscalerResetPending = true;
+        // SR continuity is tracked independently above.
     }
     _runtime.updated = std::chrono::steady_clock::now();
     std::lock_guard lock(_runtimeMutex);
@@ -1696,7 +1698,8 @@ RRResult FSRDFeatureDx12::CreateDenoiserContext()
         .flags = 0
     };
 
-    if (cfg.FfxDenoiserInternalDebugViews.value_or_default())
+    if (cfg.FfxDenoiserInternalDebugViews.value_or_default() ||
+        static_cast<DebugModes>(cfg.FfxDenoiserDebugMode.value_or_default()) == DebugModes::FfxDebug)
     {
         _denoiserCtxDesc.flags |= FFX_DENOISER_ENABLE_DEBUGGING;
         LOG_INFO("[RR_DIAG] AMD internal debug views enabled for this denoiser context");
@@ -2113,7 +2116,8 @@ RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InC
         {
             if (!(_denoiserCtxDesc.flags & FFX_DENOISER_ENABLE_DEBUGGING))
             {
-                LOG_ERROR("RR debug view requested, but this denoiser context was not created with debugging enabled");
+                LOG_INFO("RR debug view requested; recreating denoiser context with debugging enabled");
+                state.changeBackend[Handle()->Id] = true;
                 InvalidateDenoiserHistory();
                 return ClassifyRayRegenerationFailure(FFX_API_RETURN_ERROR_RUNTIME_ERROR, false);
             }
@@ -2146,6 +2150,7 @@ RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InC
                     static_cast<uint32_t>(debugOutputDesc.Dimension),
                     debugOutputDesc.DepthOrArraySize, debugOutputDesc.MipLevels,
                     debugOutputDesc.SampleDesc.Count, static_cast<uint32_t>(debugOutputDesc.Flags));
+                FSRDConvShader->TransitionDebugViewOutputToRead(InCommandList);
                 InvalidateDenoiserHistory();
                 return ClassifyRayRegenerationFailure(FFX_API_RETURN_ERROR_RUNTIME_ERROR, false);
             }
@@ -2172,6 +2177,7 @@ RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InC
             if (!chainTail)
             {
                 LOG_ERROR("RR 1.2 debug view could not find the typed-signal chain tail");
+                FSRDConvShader->TransitionDebugViewOutputToRead(InCommandList);
                 InvalidateDenoiserHistory();
                 return ClassifyRayRegenerationFailure(FFX_API_RETURN_ERROR_RUNTIME_ERROR, false);
             }

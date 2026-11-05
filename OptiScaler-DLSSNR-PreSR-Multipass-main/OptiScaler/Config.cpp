@@ -71,7 +71,7 @@ bool Config::ResetFfxDenoiserSettings()
         FfxDenoiserSpecularRoute.value_or_default() != FSRDSignals::Auto ||
         !FfxDenoiserDenoiseDiffuse.value_or_default() || !FfxDenoiserDenoiseSpecular.value_or_default() ||
         FfxDenoiserUnsupportedAlbedoRecovery.value_or_default() ||
-        FfxDenoiserInternalDebugViews.value_or_default() || FfxDenoiserIndex.value_or_default() != 0 ||
+        FfxDenoiserInternalDebugViews.value_or_default() || FfxDenoiserDebugMode.value_or_default() == 8 || FfxDenoiserIndex.value_or_default() != 0 ||
         FfxDenoiserTaggedAmbientOcclusion.value_or_default() || FfxDenoiserNormalsInViewSpace.value_or_default();
     FfxDenoiserProfile.reset();
     FfxDenoiserIndex.reset();

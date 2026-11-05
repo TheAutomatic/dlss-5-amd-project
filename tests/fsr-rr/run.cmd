@@ -29,6 +29,9 @@ set "BUILD_ONLY="
 set "BASELINE_ONLY="
 set "EXTRA_SCENES="
 set "FIXTURE_DIR="
+set "FEATURE_CASE="
+set "ZERO_REFERENCE="
+set "SET_VALUES="
 if /i "%TIER%"=="native" goto Native
 
 rem ---- argument parsing (tier and out-dir are positional, rest are flags) ----

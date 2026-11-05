@@ -486,7 +486,7 @@ bool FSR31FeatureDx12::PrepareUpscalerInput(ID3D12GraphicsCommandList* InCommand
     }
 
     const bool needsBiasDispatch = usesBiasMask && Bias &&
-        cfg.DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() && Bias->CanRender();
+        cfg.DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit();
     if (GetUpscalerType() == Upscaler::FSR_RR && needsBiasDispatch &&
         !Shader_Dx12::RecordedLifetimeSupported(InCommandList))
     {
@@ -846,10 +846,11 @@ void FSR31FeatureDx12::GetReactiveAndTransparencyMasks(ID3D12GraphicsCommandList
             activeReactiveMask = inputs.DlssBiasMaskFallback;
 
             // Handle Bias generation (Compute Shader)
-            if (cfg.DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() && Bias->CanRender())
+            if (cfg.DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit())
             {
                 if (Bias->CreateBufferResource(Device, inputs.DlssBiasMaskFallback,
-                                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS, InCommandList))
+                                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS, InCommandList) &&
+                    Bias->CanRender())
                 {
                     if (GetUpscalerType() == Upscaler::FSR_RR)
                         _biasRecordingCleanup = Bias->RecordedBufferCleanup(InCommandList);

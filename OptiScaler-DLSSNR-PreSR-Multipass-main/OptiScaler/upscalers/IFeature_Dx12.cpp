@@ -31,8 +31,16 @@ bool IFeature_Dx12::Init(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCo
 
     if (result)
     {
-        if (!Config::Instance()->OverlayMenu.value_or_default() && (Imgui == nullptr || Imgui.get() == nullptr))
-            Imgui = std::make_unique<Menu_Dx12>(Util::GetProcessWindow(), InDevice);
+        if (!Config::Instance()->OverlayMenu.value_or_default())
+        {
+            if (Imgui == nullptr || Imgui.get() == nullptr || ImguiDevice != InDevice)
+            {
+                Imgui.reset();
+                Imgui = std::make_unique<Menu_Dx12>(Util::GetProcessWindow(), InDevice);
+                ImguiDevice = InDevice;
+            }
+            ImguiOwner = this;
+        }
 
         OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", InDevice, (TargetWidth() < DisplayWidth()));
         RCAS = std::make_unique<RCAS_Dx12>("RCAS", InDevice);
@@ -93,7 +101,9 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         useRcas = false;
 
     bool useOutputScaling =
-        Config::Instance()->OutputScalingEnabled.value_or_default() && (LowResMV() || RenderWidth() == DisplayWidth());
+        Config::Instance()->OutputScalingEnabled.value_or_default() &&
+        (LowResMV() || RenderWidth() == DisplayWidth()) &&
+        (TargetWidth() != DisplayWidth() || TargetHeight() != DisplayHeight());
 
     if (!OutputScaler->IsInit())
         useOutputScaling = false;
@@ -319,17 +329,26 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
     {
         if (Imgui != nullptr && Imgui.get() != nullptr)
         {
-            if (Imgui->IsHandleDifferent())
+            if (Imgui->IsHandleDifferent() || ImguiDevice != Device)
             {
                 Imgui.reset();
+                ImguiDevice = nullptr;
+                ImguiOwner = nullptr;
             }
             else
+            {
+                ImguiOwner = this;
                 Imgui->Render(InCommandList, paramOutput);
+            }
         }
         else
         {
             if (Imgui == nullptr || Imgui.get() == nullptr)
+            {
                 Imgui = std::make_unique<Menu_Dx12>(GetForegroundWindow(), Device);
+                ImguiDevice = Device;
+                ImguiOwner = this;
+            }
         }
     }
 
@@ -377,7 +396,12 @@ IFeature_Dx12::~IFeature_Dx12()
     if (State::Instance().isShuttingDown)
         return;
 
-    Imgui.reset();
+    if (ImguiOwner == this)
+    {
+        Imgui.reset();
+        ImguiDevice = nullptr;
+        ImguiOwner = nullptr;
+    }
     OutputScaler.reset();
     RCAS.reset();
     Bias.reset();

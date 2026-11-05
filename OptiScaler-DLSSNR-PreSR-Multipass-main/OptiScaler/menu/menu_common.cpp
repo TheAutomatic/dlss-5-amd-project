@@ -3956,7 +3956,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                 {
                     for (const auto mode : state.ffxDenoiserDebugModes)
                         if (ImGui::Selectable(state.ffxDenoiserDebugModeNames[mode], debugMode == mode))
-                            config->FfxDenoiserDebugMode = mode;
+                        { config->FfxDenoiserDebugMode = mode; if (!config->FfxDenoiserInternalDebugViews.value_or_default() && ((mode == 8) != (debugMode == 8))) rebuild = true; }
                     ImGui::EndCombo();
                 }
                 if (int v = config->FfxDenoiserDebugViewport.value_or_default(); ImGui::InputInt("Debug Viewport (-1 overview)", &v))
@@ -4391,7 +4391,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                     const char* name = state.ffxDenoiserDebugModeNames[mode];
                                     if (name && std::string_view(name) == "ResourceInspector")
                                     {
-                                        config->FfxDenoiserDebugMode = mode;
+                                    { config->FfxDenoiserDebugMode = mode; if (!config->FfxDenoiserInternalDebugViews.value_or_default() && ((mode == 8) != (debugMode == 8))) rebuild = true; }
                                         break;
                                     }
                                 }

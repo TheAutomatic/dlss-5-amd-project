@@ -27,7 +27,8 @@ public:
     void Poll()
     {
         std::lock_guard lock(DlssNr::Submission::RecordingMutex());
-        if (!pending || !pending->observedSubmission || pending->uncertain || !pending->Complete()) return;
+        if (!pending || (pending->invalidated && !pending->observedSubmission && !pending->uncertain)) { pending.reset(); return; }
+        if (!pending->observedSubmission || pending->uncertain || !pending->Complete()) return;
         auto c = std::move(pending);
         if (FAILED(c->device->GetDeviceRemovedReason())) return;
         void* mapped = nullptr;

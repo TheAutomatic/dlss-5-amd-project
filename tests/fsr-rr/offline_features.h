@@ -184,7 +184,7 @@ template<class D> void ApplyOfflineConversion(D& d, const OfflineFeatures& f, co
         d.SpecularAlbedoDemodulation = f.FfxDenoiserSpecularAlbedoDemodulation.value_or_default();
         d.DiffuseAlbedoModulation = f.FfxDenoiserDiffuseAlbedoModulation.value_or_default(); d.AdditiveLightSplit = f.FfxDenoiserAdditiveLightSplit.value_or_default();
         d.Resources.InDiffuseHitDistance = diffuseGuide ? distance : nullptr; d.DiffuseHitDistanceMode = diffuseGuide ? 1 : 0;
-        d.SpecularHitDistanceBase = {x, y}; d.DiffuseHitDistanceBase = {x, y};
+        d.SpecularHitDistanceBase = {x, y}; d.DiffuseHitDistanceBase = {x, y}; d.InputBase4.z = x; d.InputBase4.w = y;
         const bool fix = plan.albedoFix && FSRDSignals::AlbedoFixAllowed(f);
         if (fix) d.Flags |= 1u << 28;
         if ((plan.mask & 5u) == 5u && !(fix && plan.diffuseCopy)) d.Flags |= 1u << 24;
