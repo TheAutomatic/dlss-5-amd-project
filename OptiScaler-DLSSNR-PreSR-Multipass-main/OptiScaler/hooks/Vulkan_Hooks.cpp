@@ -30,6 +30,7 @@
 #include <dlssnr/AsiTakeover.h>
 #include <dlssnr/backend/mochizuki_runtime/MochizukiVulkanRegistry.h>
 #include <misc/VulkanCallScope.h>
+#include <upscalers/opennr_rr/OpenNrRrFeature_Vk.h>
 
 #include <detours/detours.h>
 #include <misc/IdentifyGpu.h>
@@ -912,7 +913,28 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
             }
         }
 
-        result = o_vkCreateDevice(physicalDevice, &localCreateInfo, pAllocator, pDevice);
+        VkDeviceCreateInfo openRrInfo {};
+        void* openRrSetup = nullptr;
+        if (Config::Instance()->OpenNrRrEnabled.value_or_default() && !ScopedSkipVulkanHooks::Active() &&
+            !ScopedCreatingD3DDevice::Active() && !IsDxgiBackedCaller(_ReturnAddress()) &&
+            IdentifyGpu::getPrimaryGpu().vendorId == VendorId::AMD &&
+            OpenNrRr::PrepareVkDevice(physicalDevice, &localCreateInfo, &openRrInfo, &openRrSetup))
+        {
+            result = o_vkCreateDevice(physicalDevice, &openRrInfo, pAllocator, pDevice);
+            OpenNrRr::FinishVkDevice(openRrSetup, physicalDevice, result == VK_SUCCESS ? *pDevice : VK_NULL_HANDLE,
+                                     requestedApiVersion);
+
+            if (result != VK_SUCCESS)
+            {
+                LOG_WARN("OpenRR Vulkan: vkCreateDevice with the runtime's additions returned {}, again without them",
+                         (int) result);
+                result = o_vkCreateDevice(physicalDevice, &localCreateInfo, pAllocator, pDevice);
+            }
+        }
+        else
+        {
+            result = o_vkCreateDevice(physicalDevice, &localCreateInfo, pAllocator, pDevice);
+        }
         if (result != VK_SUCCESS && protonFeatures)
         {
             LOG_WARN("Mochizuki Proton augmented vkCreateDevice failed ({}); retrying original game request", int(result));

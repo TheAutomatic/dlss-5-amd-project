@@ -340,11 +340,27 @@ inline constexpr const char *RrDiffuseSignal = "DiffuseSignal";
 inline constexpr const char *RrSpecularSignal = "SpecularSignal";
 inline constexpr const char *RrDebugMode = "DebugMode";
 
+inline constexpr const char *kOpenNrRrSection = "OpenNR-RR";
+inline constexpr const char *OnrRrEnabled = "Enabled";
+inline constexpr const char *OnrRrBackend = "Backend";
+inline constexpr const char *OnrRrVkInputLayout = "VkInputLayout";
+inline constexpr const char *OnrRrUseDisocclusionMask = "UseDisocclusionMask";
+inline constexpr const char *OnrRrUseSssGuide = "UseSssGuide";
+inline constexpr const char *OnrRrInvertDisocclusionMask = "InvertDisocclusionMask";
+inline constexpr const char *OnrRrClampDisocclusionMask = "ClampDisocclusionMask";
+inline constexpr const char *OnrRrDisocclusionMaskScale = "DisocclusionMaskScale";
+inline constexpr const char *OnrRrUseResponsivityMask = "UseResponsivityMask";
+inline constexpr const char *OnrRrUseColorBeforeTransparency = "UseColorBeforeTransparency";
+inline constexpr const char *OnrRrUseDepthOfFieldGuide = "UseDepthOfFieldGuide";
+inline constexpr const char *OnrRrUseReflectionMotionVectors = "UseReflectionMotionVectors";
+inline constexpr const char *OnrRrUseLayerOpacityAndMotion = "UseLayerOpacityAndMotion";
+
 // Known product ini keys; [Menu] keys are explicitly identified below. Adding a control
 // requires registering its key here first; display labels remain UI-only.
 inline constexpr const char *const kKnown[] = {
     RrEnabled, RrProfile, RrUseAmdDefaults, RrDisocclusionThreshold, RrCrossBilateralNormalStrength, RrTemporalStabilityBias, RrMaxRadiance, RrRadianceClipDeviation, RrGaussianKernelRelaxation, RrHardwareDepth, RrProviderIndex, RrDebugViewLinearDepthMax, RrDebugViewViewport, RrInternalDebugViews, RrDiagnostics, RrDiffuseHitDistance, RrFloorEnabled, RrFloorFastMode, RrFloorRecovery, RrSpecularAlbedoDemodulation, RrDiffuseAlbedoModulation, RrAdditiveLightSplit, RrAlbedoBleedFix, RrAlbedoBleedFixDiffuse, RrFloorFlatRecovery, RrFloorSpecularRecovery, RrFloorDiffuseRecovery, RrFloorFlatNoiseMethod, RrFloorSpecularNoiseMethod, RrFloorDiffuseNoiseMethod, RrFloorLumaRecovery, RrFloorChromaRecovery, RrFloorHandoverCorrelationMix, RrFloorHandoverAnchorClamp, RrDemodDivisorFloor, RrDenoiseDiffuse, RrDenoiseSpecular, RrEstimateHitDistances, RrGpuTimings, RrTaggedNormalRoughness, RrTaggedAmbientOcclusion, RrNormalsInViewSpace, RrUseTitleLinearDepth, RrResponsivityTrustThreshold, RrResponsivityInvert, RrBiasMaskStrength, RrDiffuseSignal, RrSpecularSignal, RrDebugMode,
     Fsr4GpuSupport,
+    OnrRrEnabled, OnrRrBackend, OnrRrVkInputLayout, OnrRrUseDisocclusionMask, OnrRrUseSssGuide, OnrRrInvertDisocclusionMask, OnrRrClampDisocclusionMask, OnrRrDisocclusionMaskScale, OnrRrUseResponsivityMask, OnrRrUseColorBeforeTransparency, OnrRrUseDepthOfFieldGuide, OnrRrUseReflectionMotionVectors, OnrRrUseLayerOpacityAndMotion,
     Fsr4Model,
     Fsr4DisableDriverHooks,
     DynamicResolution,

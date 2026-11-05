@@ -20,7 +20,7 @@ inline bool Supported(ID3D12GraphicsCommandList* list) noexcept
     ComPtr<Submission::ILogicalCommandList> logical;
     ComPtr<Submission::IRecordingResources> resources;
     return SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&logical))) && logical &&
-           SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&resources))) && resources && resources->CanAppendCompute();
+           SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&resources))) && resources && resources->CanRecordOwnedCompute();
 }
 
 struct Owner : Submission::RecordingObserver, std::enable_shared_from_this<Owner>

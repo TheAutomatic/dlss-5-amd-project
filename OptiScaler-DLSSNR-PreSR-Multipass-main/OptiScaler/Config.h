@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "ConfigKeys.h"
 #include "SysUtils.h"
@@ -1259,6 +1259,21 @@ class Config
     CustomOptional<bool> FfxDenoiserDiffuseHitDistance { true };
     // Only the demodulation divisor is floored; unrepresentable energy is routed once.
     CustomOptional<float> FfxDenoiserDemodDivisorFloor { 8e-3f };
+
+    // OpenRR: Ray Reconstruction on the DLSS-RR network (OpenNrRrRuntime.dll), D3D12 & Vulkan, RDNA4.
+    CustomOptional<bool> OpenNrRrEnabled { true };
+    CustomOptional<std::string> OpenNrRrBackend { "auto" };
+    CustomOptional<std::string> OpenNrRrVkInputLayout { "read_only" };
+    CustomOptional<bool> OpenNrRrUseDisocclusionMask { true };
+    CustomOptional<bool> OpenNrRrUseSssGuide { false };
+    CustomOptional<bool> OpenNrRrInvertDisocclusionMask { false };
+    CustomOptional<bool> OpenNrRrClampDisocclusionMask { false };
+    CustomOptional<float> OpenNrRrDisocclusionMaskScale { 1.0f };
+    CustomOptional<bool> OpenNrRrUseResponsivityMask { true };
+    CustomOptional<bool> OpenNrRrUseColorBeforeTransparency { true };
+    CustomOptional<bool> OpenNrRrUseDepthOfFieldGuide { true };
+    CustomOptional<bool> OpenNrRrUseReflectionMotionVectors { true };
+    CustomOptional<bool> OpenNrRrUseLayerOpacityAndMotion { true };
 
     // FSR4
     CustomOptional<FSR4Support> Fsr4GpuSupport { FSR4Support::None };

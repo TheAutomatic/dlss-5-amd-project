@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MIT
+// Experiment: the block's first products (Q = x in_a^T, V = x in_b^T) on FP8 WMMA. Both operands are E4M3:
+// the weights exactly (they are fp16(e4m3(w))), the arena activations after mapping the sm_86 codes with
+// exponent field 0 ((1 + m/8) 2^-7, normals there) onto OCP E4M3 subnormals: exact for even m, nearest-even
+// for odd m. Output Q|V as fp16 per window, to compare with the FP16 WMMA path.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_EXT_float_e4m3 : require
+layout(local_size_x = 128) in;
+
+#ifndef ENC_C
+#define ENC_C 128
+#endif
+#ifndef ENC_X
+#define ENC_X 128
+#endif
+
+layout(buffer_reference, scalar, buffer_reference_align = 1) buffer E4Buf { floate4m3_t v[]; };
+
+layout(push_constant, scalar) uniform P {
+    U8Buf x;             // input planes [C/32][H][W][32], sm_86 e4m3 codes
+    F16Buf qv;           // per window [64][2X] fp16: Q then V
+    E4Buf in_a, in_b;    // [X][C] OCP e4m3
+    ivec2 size;
+    ivec2 shift;
+    int nwx;
+} pc;
+
+shared floate4m3_t x8[64 * ENC_C];
+
+int reflect_i(int i, int n) { i = abs(i); return min(i, 2 * n - 2 - i); }
+
+uint ocp_code(uint b) {
+    if ((b & 0x78u) != 0u) return b;
+    uint m = b & 7u;
+    uint k = (8u + m) >> 1;                       // (8 + m) / 2 in units of 2^-9
+    if ((m & 1u) == 1u && (k & 1u) == 1u) ++k;    // odd m: tie, to even
+    return (b & 0x80u) | k;                       // k == 8 is the smallest normal, 0x08
+}
+
+void main() {
+    ivec2 win = ivec2(int(gl_WorkGroupID.x) % pc.nwx, int(gl_WorkGroupID.x) / pc.nwx);
+    uint lid = gl_LocalInvocationIndex;
+    for (uint i = lid; i < 64u * ENC_C; i += 128u) {
+        int t = int(i / ENC_C), c = int(i % ENC_C);
+        ivec2 g = 8 * win + ivec2(t & 7, t >> 3) - pc.shift;
+        ivec2 p = ivec2(reflect_i(g.x, pc.size.x), reflect_i(g.y, pc.size.y));
+        uint idx = uint(c >> 5) * uint(pc.size.x * pc.size.y * 32) + uint((p.y * pc.size.x + p.x) * 32 + (c & 31));
+        x8[i] = uintBitsToFloate4m3EXT(uint8_t(ocp_code(uint(pc.x.v[idx]))));
+    }
+    barrier();
+    uint base = gl_WorkGroupID.x * 64u * 2u * ENC_X;
+    for (uint tile = gl_SubgroupID; tile < 2u * 4u * (ENC_X / 16); tile += gl_NumSubgroups) {
+        uint which = tile / (4u * (ENC_X / 16)), r = tile % (4u * (ENC_X / 16));
+        uint mt = r / (ENC_X / 16), nt = r % (ENC_X / 16);
+        coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc =
+            coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
+        for (uint k = 0u; k < ENC_C; k += 16u) {
+            coopmat<floate4m3_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> a;
+            coopmat<floate4m3_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
+            coopMatLoad(a, x8, mt * 16u * ENC_C + k, ENC_C, gl_CooperativeMatrixLayoutRowMajor);
+            if (which == 0u) coopMatLoad(b, pc.in_a.v, nt * 16u * ENC_C + k, ENC_C, gl_CooperativeMatrixLayoutColumnMajor);
+            else coopMatLoad(b, pc.in_b.v, nt * 16u * ENC_C + k, ENC_C, gl_CooperativeMatrixLayoutColumnMajor);
+            acc = coopMatMulAdd(a, b, acc);
+        }
+        coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> h =
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(acc);
+        coopMatStore(h, pc.qv.v, base + mt * 16u * 2u * ENC_X + which * ENC_X + nt * 16u, 2u * ENC_X,
+                     gl_CooperativeMatrixLayoutRowMajor);
+    }
+}

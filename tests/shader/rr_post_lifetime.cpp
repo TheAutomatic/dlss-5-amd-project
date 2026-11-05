@@ -518,6 +518,29 @@ int main()
             "native dispatch rejected before allocation or protected writes");
     Check(native->Close(), "native close");
 
+    // Enhanced barriers recorded by the title or FFX denoiser/upscaler on the
+    // same CommandListProxy must not reject RR conversion/composition/postprocessing.
+    {
+        auto enhanced = NewRecording(device.Get());
+        D3D12_GLOBAL_BARRIER global {
+            D3D12_BARRIER_SYNC_ALL, D3D12_BARRIER_SYNC_ALL,
+            D3D12_BARRIER_ACCESS_COMMON, D3D12_BARRIER_ACCESS_COMMON
+        };
+        D3D12_BARRIER_GROUP group {};
+        group.Type = D3D12_BARRIER_TYPE_GLOBAL;
+        group.NumBarriers = 1;
+        group.pGlobalBarriers = &global;
+        enhanced.list->Barrier(1, &group);
+        Require(!enhanced.list->CanAppendCompute(), "enhanced barriers still block legacy shared output effects");
+        Require(enhanced.list->CanRecordOwnedCompute() && Shader_Dx12::RecordedLifetimeSupported(enhanced.list.Get()),
+                "enhanced barriers do not reject RR recorded-lifetime compute helpers");
+        RecordBiasCommands(device.Get(), enhanced, *shader, source.Get(), .5f);
+        Check(enhanced.list->Close(), "close enhanced-barrier recording");
+        Check(enhanced.list->ExecuteOn(queue.Get()), "execute enhanced-barrier recording");
+        WaitQueue(device.Get(), queue.Get());
+        Pixels(enhanced, .5f);
+    }
+
     // More than the legacy cyclic heap count; record without executing, resize,
     // destroy the helper, then submit old recordings in reverse order.
     std::vector<Recording> delayed;

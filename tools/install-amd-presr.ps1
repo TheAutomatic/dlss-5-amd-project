@@ -573,7 +573,7 @@ foreach ($legacyRoot in @($game, (Join-Path $game '_storage_'))) {
 }
 
 $locked = @()
-foreach ($name in ($proxies + @('LmxxfNrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
+foreach ($name in ($proxies + @('LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
     $p = Join-Path $game $name
     if (Test-FileLocked $p) { $locked += $name }
 }
@@ -2739,6 +2739,52 @@ try {
     }
 } catch {
     Write-Host "NOTE: could not initialize plugins folder: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# OpenRR (Ray Reconstruction on RX 9000): install OpenNrRrRuntime.dll and opennr-rr/shaders/*.spv when enabled,
+# and place a user-supplied/imported nvngx_dlssd.dll (310.9.1) into opennr-rr/nvngx_dlssd.dll if present.
+$wantOpenRr = (-not $launcherDecisions) -or (-not $launcherDecisions.PSObject.Properties['openRr']) -or ([string]$launcherDecisions.openRr -ne 'skip')
+if ($wantOpenRr) {
+    $openRrRuntimeSrc = $null
+    foreach ($cand in @((Join-Path $release 'OpenNrRrRuntime.dll'), (Join-Path $Root 'OpenNrRrRuntime.dll'), (Join-Path $Root 'exports\openrr-runtime\OpenNrRrRuntime.dll'))) {
+        if (Test-Path -LiteralPath $cand -PathType Leaf) { $openRrRuntimeSrc = $cand; break }
+    }
+    $openRrShadersSrc = $null
+    foreach ($cand in @((Join-Path $release 'opennr-rr\shaders'), (Join-Path $Root 'opennr-rr\shaders'), (Join-Path $Root 'exports\openrr-runtime\opennr-rr\shaders'))) {
+        if (Test-Path -LiteralPath $cand -PathType Container) { $openRrShadersSrc = $cand; break }
+    }
+    if ($openRrRuntimeSrc -and $openRrShadersSrc) {
+        Install-One $openRrRuntimeSrc 'OpenNrRrRuntime.dll'
+        Get-ChildItem -LiteralPath $openRrShadersSrc -Filter '*.spv' -File | ForEach-Object {
+            Install-One $_.FullName ("opennr-rr\shaders\" + $_.Name)
+        }
+        $userDlssd = $null
+        foreach ($cand in @((Join-Path $Root 'nvngx_dlssd.dll'), (Join-Path $release 'nvngx_dlssd.dll'), (Join-Path $Root 'opennr-rr\nvngx_dlssd.dll'))) {
+            if (Test-Path -LiteralPath $cand -PathType Leaf) {
+                try {
+                    $v = (Get-Item -LiteralPath $cand).VersionInfo
+                    if ($v.FileMajorPart -eq 310 -and $v.FileMinorPart -eq 9 -and $v.FileBuildPart -eq 1) {
+                        $userDlssd = $cand
+                        break
+                    }
+                } catch { }
+            }
+        }
+        if ($userDlssd) {
+            Install-One $userDlssd 'opennr-rr\nvngx_dlssd.dll'
+            Write-Host "Installed user-supplied nvngx_dlssd.dll (310.9.1) into opennr-rr\nvngx_dlssd.dll." -ForegroundColor Green
+        }
+        if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+            Set-IniSettings $gameIni 'OpenNR-RR' ([ordered]@{ 'Enabled' = 'auto' }) -OnlyMissing:(-not $iniFromTemplate)
+        }
+        Write-Host 'Installed OpenRR runtime (OpenNrRrRuntime.dll + opennr-rr\shaders).' -ForegroundColor Green
+    }
+} else {
+    if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+        Set-IniSettings $gameIni 'OpenNR-RR' ([ordered]@{ 'Enabled' = 'false' })
+        Set-IniSettings $gameIni 'FSR-RR' ([ordered]@{ 'Enabled' = 'true' })
+        Write-Host 'Disabled OpenRR in OptiScaler.ini ([OpenNR-RR] Enabled=false; Ray Reconstruction uses FSR-RR).' -ForegroundColor Cyan
+    }
 }
 
 # Uninstaller is copied into the game folder. Double-click it there; it

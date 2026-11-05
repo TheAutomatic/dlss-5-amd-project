@@ -43,6 +43,37 @@ namespace OptScalerNR.Launcher
             return false;
         }
 
+        static bool IsDlssd310_9_1(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+            try
+            {
+                var v = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                return v != null && v.FileMajorPart == 310 && v.FileMinorPart == 9 && v.FileBuildPart == 1;
+            }
+            catch { return false; }
+        }
+
+        bool HasValidOpenRrDlssd()
+        {
+            var root = ResolveImportRoot();
+            if (!string.IsNullOrEmpty(root))
+            {
+                if (IsDlssd310_9_1(Path.Combine(root, "nvngx_dlssd.dll"))) return true;
+                if (IsDlssd310_9_1(Path.Combine(root, "opennr-rr", "nvngx_dlssd.dll"))) return true;
+            }
+            if (_selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe))
+            {
+                var gameDir = Path.GetDirectoryName(_selectedGame.Exe);
+                if (!string.IsNullOrEmpty(gameDir))
+                {
+                    if (IsDlssd310_9_1(Path.Combine(gameDir, "opennr-rr", "nvngx_dlssd.dll"))) return true;
+                    if (IsDlssd310_9_1(Path.Combine(gameDir, "nvngx_dlssd.dll"))) return true;
+                }
+            }
+            return false;
+        }
+
         bool SelectedBackendNeedsImport(out string message)
         {
             message = "";
@@ -57,6 +88,8 @@ namespace OptScalerNR.Launcher
                 wanted += (wanted.Length == 0 ? "" : " / ") + "nvngx_dlssnr.dll 或 dlssnr_on_amd_weights.bin（Daniel 权重源）";
             else if (_danielCheck != null && _danielCheck.IsChecked == true && BackendHintsContain(daniel, "daniel-runtime"))
                 wanted += (wanted.Length == 0 ? "" : " / ") + "dlssnr_on_amd_setup.exe 或 version.dll（Daniel 运行库）";
+            if (_openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
+                wanted += (wanted.Length == 0 ? "" : " / ") + L("nvngx_dlssd.dll（OpenRR 光线重建模型源，310.9.1.0）", "nvngx_dlssd.dll (OpenRR model source, 310.9.1.0)");
             if (wanted.Length == 0) return false;
             message = L("所选后端缺少：", "Selected backends are missing: ") + wanted +
                       L("。点击右侧按钮导入，文件会复制到启动器目录，对所有游戏生效。", ". Import it with the button on the right; the file is copied into the launcher folder and applies to every game.");
@@ -88,7 +121,7 @@ namespace OptScalerNR.Launcher
             var directory = Path.GetDirectoryName(_selectedGame.Exe);
             var picker = new OpenFileDialog {
                 Title = L("选择模型源文件（复制到启动器目录）", "Choose a model source file (copied into the launcher folder)"),
-                Filter = L("模型源文件|nvngx_dlssnr.dll;dlssnr_on_amd_setup.exe;dlssnr_on_amd_weights.bin|DLL (*.dll)|*.dll|EXE (*.exe)|*.exe|BIN (*.bin)|*.bin", "Model sources|nvngx_dlssnr.dll;dlssnr_on_amd_setup.exe;dlssnr_on_amd_weights.bin|DLL (*.dll)|*.dll|EXE (*.exe)|*.exe|BIN (*.bin)|*.bin"),
+                Filter = L("模型源文件|nvngx_dlssnr.dll;nvngx_dlssd.dll;dlssnr_on_amd_setup.exe;dlssnr_on_amd_weights.bin|DLL (*.dll)|*.dll|EXE (*.exe)|*.exe|BIN (*.bin)|*.bin", "Model sources|nvngx_dlssnr.dll;nvngx_dlssd.dll;dlssnr_on_amd_setup.exe;dlssnr_on_amd_weights.bin|DLL (*.dll)|*.dll|EXE (*.exe)|*.exe|BIN (*.bin)|*.bin"),
                 CheckFileExists = true, RestoreDirectory = true
             };
             if (!string.IsNullOrEmpty(directory)) picker.InitialDirectory = directory;
@@ -142,6 +175,8 @@ namespace OptScalerNR.Launcher
                 var machine = reader.ReadUInt16();
                 if (machine != 0x8664) throw new IOException(L("不是 x64 文件。", "Not an AMD64 image."));
             }
+            if (string.Equals(Path.GetFileName(path), "nvngx_dlssd.dll", StringComparison.OrdinalIgnoreCase) && !IsDlssd310_9_1(path))
+                throw new IOException(L("OpenRR 需要 nvngx_dlssd.dll 310.9.1.0 版本。", "OpenRR requires nvngx_dlssd.dll version 310.9.1.0."));
         }
 
         static bool SameFileContent(string a, string b)

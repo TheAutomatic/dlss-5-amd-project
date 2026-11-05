@@ -39,5 +39,6 @@ if not exist "exports\release-local\OptiScaler.dll" (
   exit /b 1
 )
 call tools\build\build-person-worker.cmd exports\release-local\person-model || exit /b 1
+call tools\build\build-openrr-runtime.cmd || exit /b 1
 echo BUILD_OK exports\release-local\OptiScaler.dll
 exit /b 0

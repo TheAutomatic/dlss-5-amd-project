@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: MIT
+// rr2_clear_range: zero `count` bytes from `ptr` (ptr 4-byte aligned; a ragged tail is masked).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+layout(local_size_x = 256) in;
+
+layout(push_constant, scalar) uniform P {
+    U32Buf ptr;
+    uint count;
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint full = pc.count >> 2;
+    if (i < full) {
+        pc.ptr.v[i] = 0u;
+    } else if (i == full && (pc.count & 3u) != 0u) {
+        uint keep = ~0u << ((pc.count & 3u) * 8u);
+        atomicAnd(pc.ptr.v[i], keep);
+    }
+}

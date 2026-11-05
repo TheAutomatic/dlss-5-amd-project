@@ -67,6 +67,8 @@ enum class Upscaler
     DLSSD, // "dlssd", used for the DLSS-D/Ray Reconstruction upscaler+denoiser backend
 
     FSR_RR, // "fsr-rr", used for the FSR Ray Regeneration denoiser backend
+
+    OpenNrRr, // "opennr-rr", OpenRR, the DLSS-RR network on AMD (OpenNrRrRuntime.dll)
     Reset
 };
 

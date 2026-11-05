@@ -363,6 +363,7 @@ class State
     bool fsrHooks = false;
 
     IFeature* currentFeature = nullptr;
+    bool vkFeatureIsRr = false;
     IFGFeature_Dx12* currentFG = nullptr;
     IFGFeature_Vk* currentVkFG = nullptr;
     IDXGISwapChain* currentSwapchain = nullptr;

@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MIT
+// rr2_encN kernel: block (k8 path) + DFN head + pooling + merge to 160 channels (see include/onr_block.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 128
+#define ENC_X 128
+#define ENC_K8 1
+#define ENC_STAGE 1
+#define ENC_CO 160
+#include "onr_block.glsl"

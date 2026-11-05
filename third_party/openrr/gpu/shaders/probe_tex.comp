@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: MIT
+// Probe: AMD bilinear sampler vs the reference filtering rule (8-bit rounded fraction, exact blend,
+// fp16 RN) done by hand. tex[0]: normalized coords, tex[1]: unnormalized, both linear + clamp.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#include "onr_common.glsl"
+#include "onr_filter.glsl"
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0) uniform sampler2D tex[8];
+layout(push_constant, scalar) uniform P {
+    F32Buf uv;           // n x (u, v)
+    F16x4Buf img;        // texels, w x h
+    F16x4Buf manual;     // n results each
+    F16x4Buf natural;    // sampler, normalized u, v
+    F16x4Buf quant;      // sampler, unnormalized, coordinate pre-rounded to the 8-bit grid
+    F32Buf raw;          // sampler fp32 output (quant path), 4 floats
+    ivec2 size;
+    uint n;
+    uint mode;           // 1: raw = sampler output at the normalized u, v
+} pc;
+
+vec3 texel(int x, int y) { return vec3(pc.img.v[y * pc.size.x + x].xyz); }
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.n) return;
+    float u = pc.uv.v[2u * i], v = pc.uv.v[2u * i + 1u];
+    int xq = fixed8_coord(u, pc.size.x), yq = fixed8_coord(v, pc.size.y);
+    ivec3 ax = axis_setup(u, pc.size.x), ay = axis_setup(v, pc.size.y);
+    ivec4 w = ivec4((256 - ax.z) * (256 - ay.z), ax.z * (256 - ay.z), (256 - ax.z) * ay.z, ax.z * ay.z);
+    vec3 t0 = texel(ax.x, ay.x), t1 = texel(ax.y, ay.x), t2 = texel(ax.x, ay.y), t3 = texel(ax.y, ay.y);
+    vec3 m = blend3(ax, ay, t0, t1, t2, t3);
+    pc.manual.v[i] = f16vec4(f16vec3(m), 0.0hf);
+    vec4 a = textureLod(tex[0], vec2(u, v), 0.0);
+    pc.natural.v[i] = f16vec4(a);
+    if (pc.mode == 1u) { for (int c = 0; c < 4; ++c) pc.raw.v[4u * i + uint(c)] = a[c]; return; }
+    vec2 p = vec2(xq, yq) * (1.0 / 256.0) + 0.5;
+    vec4 b = textureLod(tex[1], p, 0.0);
+    pc.quant.v[i] = f16vec4(b);
+    for (int c = 0; c < 4; ++c) pc.raw.v[4u * i + uint(c)] = b[c];
+}

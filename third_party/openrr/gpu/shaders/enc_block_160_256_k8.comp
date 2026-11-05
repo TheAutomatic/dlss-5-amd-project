@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: MIT
+// rr2 transformer block, C = 160, X = 256, HMMA-like fp16 accumulation (see include/onr_block.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 160
+#define ENC_X 256
+#define ENC_K8 1
+#include "onr_block.glsl"

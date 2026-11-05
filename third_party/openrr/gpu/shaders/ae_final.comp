@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: MIT
+// rr2 auto exposure, pass 2 (one workgroup): mean luma -> exposure (fp16, toward zero), exposure block
+// {exp, exp_prev, 1/exp, clamp(log2(exp/exp_prev), -6, 6)/6}; clears next frame's accumulator.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform P {
+    U64Buf acc;
+    U32Buf next_acc;
+    F16Buf exposure;     // this frame's 1x1 exposure (written)
+    F16Buf prev;         // previous frame's exposure (read)
+    F32Buf block;        // 4 floats
+    float inv_count;     // 1 / (2^32/1e4 * pixels)
+    uint reset;
+    uint next_words;
+} pc;
+
+void main() {
+    for (uint i = gl_LocalInvocationIndex; i < pc.next_words; i += 64u) pc.next_acc.v[i] = 0u;
+    if (gl_LocalInvocationIndex != 0u) return;
+    float tot = float(double(pc.acc.v[0]));
+    precise float avg = tot * pc.inv_count;
+    avg = max(avg, fbits(0x3ba3d70au));                             // 0.005
+    precise float e = rcp_rn(avg) * fbits(0x3e711f48u);             // 0.2354709
+    float16_t eh = half_rz(e);
+    pc.exposure.v[0] = eh;
+    float f1 = float(eh) == 0.0 ? 1.0 : float(eh);
+    float pv = float(pc.prev.v[0]);
+    float f2 = pv != 0.0 ? pv : 1.0;
+    float f46 = 0.0;
+    if (pc.reset == 0u) {
+        precise float r = max(f1, fbits(0x322bcc77u)) * rcp_rn(max(f2, fbits(0x322bcc77u)));
+        precise float lr = clamp(log2(r), -6.0, 6.0) * fbits(0x3e2aaaabu);
+        f46 = lr;
+    }
+    pc.block.v[0] = f1;
+    pc.block.v[1] = f2;
+    pc.block.v[2] = rcp_rn(f1);
+    pc.block.v[3] = f46;
+}

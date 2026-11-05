@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: MIT
+// The game's guides, as copied from their textures into placed footprints of one buffer, into the tight formats the
+// rr2 kernels read (render size), all eight in one pass. Depth from the hardware becomes linear view depth (positive
+// ahead) with the projection; normals stored as n * 0.5 + 0.5 are expanded. A guide the game did not give is zero.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+#include "onr_common.glsl"
+#include "onr_texel.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+
+#ifdef D3D_TEX
+#extension GL_EXT_samplerless_texture_functions : require
+// d3d_ingest (D3D12 path): a guide with flags 8 is read straight from the game's texture, descriptor g.x of set 0;
+// only formats whose texel fetch gives the bits tf_read would (FASE10-D3D12-RUNTIME.md)
+layout(set = 0, binding = 0) uniform texture2D tex[16];
+#endif
+
+#define K_RGBA16F 0u
+#define K_RGBA8 1u
+#define K_NORMALS 2u
+#define K_R16F 3u
+#define K_DEPTH 4u
+#define K_RG16F 5u
+
+// the first three dwords are padding: the D3D12 path cannot hand them to a kernel through the spill table
+// (FASE10-D3D12-RUNTIME.md), and this block is large enough to spill from its start
+layout(push_constant, scalar) uniform P {
+    uint pad0, pad1, pad2;
+    float depth_sign;               // view z * depth_sign is positive ahead
+    uint64_t src;
+    uint64_t dst[8];
+    // per guide: offset in src, row pitch, format | kind << 8 | flags << 16 | channel << 24, subrect origin x | y << 16
+    // flags: 1 = expand normals, 2 = hardware depth, 4 = absent (zeros), 8 = texture (d3d_ingest), 16 = 1 - x,
+    // 32 = x clamped to 0..1 (after 16), 64 = x * proj.x first (the optional guides' dispatch has no depth to convert)
+    uvec4 g[8];
+    ivec2 size;                     // render size
+    vec4 proj;                      // P22, P23, P32, P33 of the view -> clip matrix (row vectors)
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.size.x || p.y >= pc.size.y) return;
+    uint i = uint(p.y * pc.size.x + p.x);
+    // every guide's read issued before the first conversion and store
+    vec4 cs[8];
+    [[unroll]] for (uint s = 0u; s < 8u; ++s) {
+        uvec4 g = pc.g[s];
+        uint flags = (g.z >> 16) & 255u;
+        cs[s] = vec4(0.0);
+        if (pc.dst[s] != 0ul && (flags & 4u) == 0u) {
+#ifdef D3D_TEX
+            if ((flags & 8u) != 0u) cs[s] = texelFetch(tex[g.x], ivec2(g.w & 65535u, g.w >> 16) + p, 0);
+            else
+#endif
+            cs[s] = tf_read(U32Buf(pc.src + g.x), g.y, g.z & 255u, ivec2(g.w & 65535u, g.w >> 16) + p);
+        }
+    }
+    [[unroll]] for (uint s = 0u; s < 8u; ++s) {
+        uint64_t dst = pc.dst[s];
+        if (dst == 0ul) continue;   // a slot without a destination
+        uvec4 g = pc.g[s];
+        uint kind = (g.z >> 8) & 255u, flags = (g.z >> 16) & 255u, channel = g.z >> 24;
+        vec4 c = cs[s];
+        if ((flags & 64u) != 0u) c.x *= pc.proj.x;
+        if ((flags & 16u) != 0u) c.x = 1.0 - c.x;
+        if ((flags & 32u) != 0u) c.x = clamp(c.x, 0.0, 1.0);
+        switch (kind) {
+        case K_RGBA16F: F16x4Buf(dst).v[i] = f16vec4(clamp(c, -65504.0, 65504.0)); break;
+        case K_RGBA8: U32Buf(dst).v[i] = packUnorm4x8(c); break;
+        case K_NORMALS:
+            if ((flags & 1u) != 0u) c.xyz = c.xyz * 2.0 - 1.0;
+            F16x4Buf(dst).v[i] = f16vec4(clamp(c, -65504.0, 65504.0));
+            break;
+        case K_R16F: F16Buf(dst).v[i] = float16_t(clamp(c[channel], -65504.0, 65504.0)); break;
+        case K_DEPTH: {
+            float d = c.x;
+            if ((flags & 2u) != 0u) {
+                float den = d * pc.proj.y - pc.proj.x;
+                d = abs(den) > 1e-20 ? (pc.proj.z - d * pc.proj.w) / den * pc.depth_sign : 1e30;
+            }
+            F32Buf(dst).v[i] = d;
+            break;
+        }
+        case K_RG16F: F16x2Buf(dst).v[i] = f16vec2(clamp(c.xy, -65504.0, 65504.0)); break;
+        }
+    }
+}

@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: MIT
+// rr2_post, exact recomputation of the listed 2x2 blocks, POST_DELTA build (see include/onr_post_main.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define POST_FIXUP 1
+#define POST_DELTA 1
+#include "onr_post_main.glsl"

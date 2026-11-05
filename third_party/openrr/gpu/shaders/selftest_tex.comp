@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: MIT
+// The D3D12 path's check of the sampled-image table (FASE10-D3D12-RUNTIME.md): tex[slot] sampled at every texel
+// centre (unnormalized coordinates, as the fast post's history taps) must give the texels back.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) uniform sampler2D tex[8];
+
+layout(push_constant, scalar) uniform P {
+    F16x4Buf dst;
+    ivec2 size;
+    uint slot;
+} pc;
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= pc.size.x * pc.size.y) return;
+    ivec2 p = ivec2(i % pc.size.x, i / pc.size.x);
+    pc.dst.v[i] = f16vec4(textureLod(tex[pc.slot], vec2(p) + 0.5, 0.0));
+}

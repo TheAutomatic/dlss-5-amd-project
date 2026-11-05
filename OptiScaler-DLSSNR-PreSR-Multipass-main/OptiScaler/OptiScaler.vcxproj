@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -553,6 +553,9 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="upscalers\fsr31\FSR31Feature.h" />
     <ClInclude Include="upscalers\fsr31\FSR31Feature_Dx12.h" />
     <ClInclude Include="upscalers\fsr31\FSRDFeature_Dx12.h" />
+    <ClInclude Include="upscalers\opennr_rr\OpenNrRrFeature_Dx12.h" />
+    <ClInclude Include="upscalers\opennr_rr\OpenNrRrFeature_Vk.h" />
+    <ClInclude Include="upscalers\opennr_rr\opennr_rr_api.h" />
     <ClInclude Include="shaders\fsrd_preprocess\FSRDPreprocessor_Dx12.h" />
     <ClInclude Include="shaders\fsrd_preprocess\FSRDShaderData.h" />
     <ClInclude Include="shaders\fsrd_preprocess\FSRDShaderUtils.h" />
@@ -989,6 +992,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="upscalers\fsr31\FSR31Feature_Dx11.cpp" />
     <ClCompile Include="upscalers\fsr31\FSR31Feature_Dx12.cpp" />
     <ClCompile Include="upscalers\fsr31\FSRDFeature_Dx12.cpp" />
+    <ClCompile Include="upscalers\opennr_rr\OpenNrRrFeature_Dx12.cpp" />
+    <ClCompile Include="upscalers\opennr_rr\OpenNrRrFeature_Vk.cpp" />
     <ClCompile Include="shaders\fsrd_preprocess\FSRDPreprocessor_Dx12.cpp" />
     <ClCompile Include="upscalers\ffx\FFXFeature_Dx11On12.cpp" />
     <ClCompile Include="upscalers\ffx\FFXFeature_Dx12.cpp" />

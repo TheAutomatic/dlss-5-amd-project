@@ -47,6 +47,7 @@ foreach ($license in @(
     'NOTICE',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/LICENSE',
     'third_party/lmxxf/LICENSE',
+    'third_party/openrr/LICENSE',
     'third_party/mochizuki/LICENSE',
     'third_party/onnxruntime/LICENSE',
     'third_party/onnxruntime/YOLO11_AGPL-3.0.txt',
@@ -618,6 +619,15 @@ Radius=1
 
 if ($ini -notmatch '(?m)^\[AmdLook\]') { $ini += $amdLookBlock }
 if ($ini -notmatch '(?m)^\[AmdRtgi\]') { $ini += $amdRtgiBlock }
+$openNrRrBlock = @"
+
+[OpenNR-RR]
+; OpenRR: Ray Reconstruction (DLSS-RR) on AMD through OpenNrRrRuntime.dll (RX 9000, nvngx_dlssd.dll 310.9.1).
+; When enabled and usable, Ray Reconstruction uses OpenRR; otherwise falls back to FSR-RR.
+Enabled=auto
+Backend=auto
+"@
+if ($ini -notmatch '(?m)^\[OpenNR-RR\]') { $ini += $openNrRrBlock }
 [IO.File]::WriteAllText((Join-Path $stage 'OptiScaler.ini'), $ini, [Text.UTF8Encoding]::new($false))
 
 # Compiled RTGI shaders only. Lighting.hlsl sits beside them as their source and is not shipped
@@ -746,6 +756,19 @@ echo Base models only: Setup generates Experimental from Small and INT4 Mixed fr
 pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
+
+# Bundled open-source OpenRR runtime and SPIR-V compute shaders (MIT)
+$openRrDllSrc = Join-Path $root 'exports/openrr-runtime/OpenNrRrRuntime.dll'
+$openRrShaderSrc = Join-Path $root 'exports/openrr-runtime/opennr-rr/shaders'
+if (!(Test-Path -LiteralPath $openRrDllSrc -PathType Leaf) -or !(Test-Path -LiteralPath $openRrShaderSrc -PathType Container)) {
+    & cmd /d /c (Join-Path $root 'tools\build\build-openrr-runtime.cmd')
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to build OpenNrRrRuntime.dll for packaging.' }
+}
+Copy-Item -LiteralPath $openRrDllSrc -Destination (Join-Path $stage 'OpenNrRrRuntime.dll') -Force
+$openRrShaderDst = Join-Path $stage 'opennr-rr/shaders'
+New-Item -ItemType Directory -Path $openRrShaderDst -Force | Out-Null
+Get-ChildItem -LiteralPath $openRrShaderSrc -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderDst -Force
+Copy-Item -LiteralPath (Join-Path $root 'third_party/openrr/LICENSE') -Destination (Join-Path $stage 'Licenses/OpenRR_MIT.txt') -Force
 
 # Bundled open-source lmxxf runtime binaries, modules, and shaders
 if (!(Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf)) {

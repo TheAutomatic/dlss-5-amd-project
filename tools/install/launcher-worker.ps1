@@ -1,4 +1,4 @@
-﻿# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
+# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$RequestJson,
@@ -477,7 +477,7 @@ if ($req.action -eq 'uninstall') {
         language = if ($req.language -eq 'zh') { 'zh' } else { 'en' }
     }
     if ($dec) {
-        foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','lmxxfModels','shortFileContinue','optiPatcher','foreignProxy','modelSourceDll')) {
+        foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','lmxxfModels','shortFileContinue','optiPatcher','openRr','foreignProxy','modelSourceDll')) {
             if ($dec.PSObject.Properties[$name] -and $null -ne $dec.$name) {
                 if ($name -eq 'foreignProxy') { $payload[$name] = ConvertTo-ForeignProxyMap $dec.$name }
                 else { $payload[$name] = $dec.$name }

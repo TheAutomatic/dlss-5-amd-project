@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: MIT
+// rr2_dec0_kernel_1: block C = 32 (k8 path) and the output head (DFN, AjabGateOgate, Aniso, MvecFactors, HiddenHistory) (see include/onr_block.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 32
+#define ENC_X 64
+#define ENC_K8 1
+#define DEC_HEAD 1
+#include "onr_block.glsl"

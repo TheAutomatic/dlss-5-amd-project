@@ -102,7 +102,21 @@ $projectLeafNames = @(
     'dlssnr_core.dll', # Legacy standalone NR core; integrated runtimes do not use it.
     'OptiScaler.ini','amd-presr-install.txt',
     'dlssnr_on_amd.ini', 'dlssnr-amd-crash.dmp', 'dlssnr-amd-install.txt',
-    'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'lmxxf-module-package.ps1',
+    'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'lmxxf-module-package.ps1',
+    'opennr-rr/nvngx_dlssd.dll',
+    'opennr-rr/shaders/ae.spv', 'opennr-rr/shaders/d3d_ae.spv', 'opennr-rr/shaders/d3d_downsample.spv', 'opennr-rr/shaders/d3d_downsample_tl.spv',
+    'opennr-rr/shaders/d3d_enc0_attr_f.spv', 'opennr-rr/shaders/d3d_enc0_attr_f_w.spv', 'opennr-rr/shaders/d3d_ingest.spv', 'opennr-rr/shaders/d3d_pack.spv',
+    'opennr-rr/shaders/dec_dfn_128_128_f.spv', 'opennr-rr/shaders/dec_dfn_128_128_fl.spv', 'opennr-rr/shaders/dec_dfn_160_256_f.spv', 'opennr-rr/shaders/dec_dfn_160_256_fl.spv',
+    'opennr-rr/shaders/dec_dfn_64_64_f.spv', 'opennr-rr/shaders/dec_dfn_96_128_f.spv', 'opennr-rr/shaders/dec_dfn_96_128_fl.spv', 'opennr-rr/shaders/dec_head_32_64_f.spv',
+    'opennr-rr/shaders/dec_up_128_128_160_f.spv', 'opennr-rr/shaders/dec_up_128_128_160_fl.spv', 'opennr-rr/shaders/dec_up_160_256_160_f.spv', 'opennr-rr/shaders/dec_up_160_256_160_fl.spv',
+    'opennr-rr/shaders/dec_up_32_64_64_f.spv', 'opennr-rr/shaders/dec_up_64_64_96_f.spv', 'opennr-rr/shaders/dec_up_96_128_128_f.spv', 'opennr-rr/shaders/dec_up_96_128_128_fl.spv',
+    'opennr-rr/shaders/dfn_export.spv', 'opennr-rr/shaders/dfn_import.spv', 'opennr-rr/shaders/downsample.spv', 'opennr-rr/shaders/downsample_tl.spv',
+    'opennr-rr/shaders/enc0_attr_f.spv', 'opennr-rr/shaders/enc0_attr_f_w.spv', 'opennr-rr/shaders/enc0_stage_32_64_f.spv', 'opennr-rr/shaders/enc0_stage_32_64_f_w.spv',
+    'opennr-rr/shaders/enc_stage_128_128_160_f.spv', 'opennr-rr/shaders/enc_stage_128_128_160_fl.spv', 'opennr-rr/shaders/enc_stage_160_256_0_f.spv', 'opennr-rr/shaders/enc_stage_160_256_0_fl.spv',
+    'opennr-rr/shaders/enc_stage_160_256_160_f.spv', 'opennr-rr/shaders/enc_stage_160_256_160_fl.spv', 'opennr-rr/shaders/enc_stage_64_64_96_f.spv',
+    'opennr-rr/shaders/enc_stage_96_128_128_f.spv', 'opennr-rr/shaders/enc_stage_96_128_128_fl.spv', 'opennr-rr/shaders/ingest.spv', 'opennr-rr/shaders/pack.spv',
+    'opennr-rr/shaders/pooled_history2.spv', 'opennr-rr/shaders/post_dlt_f.spv', 'opennr-rr/shaders/post_f.spv', 'opennr-rr/shaders/post_tile.spv',
+    'opennr-rr/shaders/selftest.spv', 'opennr-rr/shaders/selftest_tex.spv',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'OptiScaler/dlssnr/README.md',
     'OptiScaler/dlssnr/design/frame-hold.md',
@@ -776,7 +790,7 @@ foreach ($root in $roots) {
     foreach ($relative in @('dlssnr-amd/shaders/runtime', 'dlssnr-amd/shaders/temporal',
             'dlssnr-amd/aco/shaders/runtime', 'dlssnr-amd/aco/shaders/temporal',
             'dlssnr-amd/aco/shaders', 'dlssnr-amd/aco/records', 'dlssnr-amd/aco',
-            'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd', 'person-model')) {
+            'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd', 'opennr-rr/shaders', 'opennr-rr', 'person-model')) {
         Remove-EmptyDirectory (Join-Path $root $relative)
     }
 

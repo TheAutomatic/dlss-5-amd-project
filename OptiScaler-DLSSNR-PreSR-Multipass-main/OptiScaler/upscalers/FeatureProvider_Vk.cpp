@@ -16,6 +16,8 @@
 #include "upscalers/ffx/FFXFeature_VkOn12.h"
 #include "upscalers/dlss/DLSSFeature_VkOn12.h"
 #include <misc/IdentifyGpu.h>
+#include "upscalers/opennr_rr/OpenNrRrFeature_Dx12.h"
+#include "upscalers/opennr_rr/OpenNrRrFeature_Vk.h"
 
 bool FeatureProvider_Vk::GetFeature(Upscaler upscaler, UINT handleId, NVSDK_NGX_Parameter* parameters,
                                     std::unique_ptr<IFeature_Vk>* feature)
@@ -67,6 +69,15 @@ bool FeatureProvider_Vk::GetFeature(Upscaler upscaler, UINT handleId, NVSDK_NGX_
             break;
         }
 
+    case Upscaler::OpenNrRr:
+        *feature = std::make_unique<OpenNrRrFeatureVk>(handleId, parameters);
+
+        if ((*feature)->ModuleLoaded())
+            break;
+
+        *feature = nullptr;
+        return false;
+
     case Upscaler::DLSSD:
         if (primaryGpu.dlssCapable && state.NVNGX_DLSSD_Path.has_value())
         {
@@ -101,7 +112,8 @@ bool FeatureProvider_Vk::GetFeature(Upscaler upscaler, UINT handleId, NVSDK_NGX_
     if (upscaler == Upscaler::DLSSD)
         upscaler = Upscaler::DLSS;
 
-    cfg.VulkanUpscaler = upscaler;
+    if (upscaler != Upscaler::OpenNrRr)
+        cfg.VulkanUpscaler = upscaler;
 
     return loaded;
 }
@@ -115,8 +127,24 @@ bool FeatureProvider_Vk::ChangeFeature(Upscaler upscaler, VkInstance instance, V
     Config& cfg = *Config::Instance();
 
     const bool dlssOnNonCapable = !IdentifyGpu::getPrimaryGpu().dlssCapable && state.newBackend == Upscaler::DLSS;
+
+    const bool rrFeature = contextData->featureID == NVSDK_NGX_Feature_RayReconstruction;
+    if (state.newBackend == Upscaler::Reset && rrFeature && contextData->feature != nullptr &&
+        contextData->feature->GetUpscalerType() == Upscaler::OpenNrRr)
+        state.newBackend = Upscaler::OpenNrRr;
     if (state.newBackend == Upscaler::Reset || dlssOnNonCapable)
         state.newBackend = cfg.VulkanUpscaler.value_or_default();
+    if (state.newBackend == Upscaler::OpenNrRr && contextData->changeBackendCounter == 0)
+    {
+        std::string why;
+        if (!rrFeature || !OpenNrRr::VkUsable(device, pd, &why))
+        {
+            LOG_WARN("OpenRR not taken: {}", rrFeature ? why : "not a Ray Reconstruction feature");
+            state.newBackend = Upscaler::Reset;
+            state.changeBackend[handleId] = false;
+            return true;
+        }
+    }
 
     contextData->changeBackendCounter++;
 
@@ -143,6 +171,8 @@ bool FeatureProvider_Vk::ChangeFeature(Upscaler upscaler, VkInstance instance, V
             contextData->createParams->Set(NVSDK_NGX_Parameter_OutWidth, dc->DisplayWidth());
             contextData->createParams->Set(NVSDK_NGX_Parameter_OutHeight, dc->DisplayHeight());
             contextData->createParams->Set(NVSDK_NGX_Parameter_PerfQualityValue, dc->PerfQualityValue());
+            if (rrFeature)
+                DLSSDFeature::SyncCreateParams(contextData->createParams);
 
             dc = nullptr;
 
@@ -210,7 +240,15 @@ bool FeatureProvider_Vk::ChangeFeature(Upscaler upscaler, VkInstance instance, V
         {
             LOG_ERROR("init failed with {0} feature", UpscalerDisplayName(state.newBackend));
 
-            if (state.newBackend != Upscaler::DLSSD)
+            if (state.newBackend == Upscaler::OpenNrRr)
+            {
+                OpenNrRr::Block("it did not initialise");
+                ImGui::InsertNotification({ ImGuiToastType::Warning, 10000, "OpenRR did not start, see the log" });
+                contextData->feature.reset();
+                state.changeBackend[handleId] = false;
+                return false;
+            }
+            else if (state.newBackend != Upscaler::DLSSD)
             {
                 if (cfg.VulkanUpscaler == Upscaler::DLSS)
                 {

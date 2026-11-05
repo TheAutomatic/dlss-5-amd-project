@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: MIT
+// rr2_post, main pass (see include/onr_post_main.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_post_main.glsl"

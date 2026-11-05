@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+// rr2_enc1 kernel: input merge from the enc0 TensorOutput, block (k8 path), DFN head, pooling, merge to 96 channels (see include/onr_block.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 64
+#define ENC_X 64
+#define ENC_K8 1
+#define ENC_STAGE 1
+#define ENC_CO 96
+#define ENC_MERGE_IN 1
+#define ENC_CIN 32
+#include "onr_block.glsl"

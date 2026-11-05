@@ -1,0 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Probe: WMMA throughput, fp16 operands, fp32 accumulators (include/onr_probe_rate.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define RATE_F32 1
+#include "onr_probe_rate.glsl"

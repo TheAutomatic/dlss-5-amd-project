@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: MIT
+// rr2 auto exposure in one dispatch: ae_sum's blocks, then the last block to finish does ae_final and clears the
+// accumulator for the next frame (no fill and no barrier before the next frame's blocks)
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#extension GL_EXT_shader_atomic_int64 : require
+#extension GL_KHR_memory_scope_semantics : require
+layout(local_size_x = 16, local_size_y = 16) in;
+
+#ifdef D3D_GUIDES
+#include "onr_guides.glsl"
+#endif
+
+layout(push_constant, scalar) uniform P {
+#ifdef D3D_GUIDES
+    GuideTab gt;         // the colour as the game gave it (onr_guides.glsl)
+#else
+    F16Buf color;        // rgba16f, size.x * size.y
+#endif
+    U64Buf acc;          // [0] = fixed-point sum, [1] = finished blocks; +0 on entry, left +0
+    ivec2 size;
+    ivec2 origin;
+    ivec2 maxv;          // inclusive limits of the block-local coordinate
+    F16Buf exposure;     // this frame's 1x1 exposure (written)
+    F16Buf prev;         // previous frame's exposure (read)
+    F32Buf block;        // 4 floats
+    float inv_count;     // 1 / (2^32/1e4 * pixels)
+    uint reset;
+    uint blocks;         // workgroups of the dispatch (gl_NumWorkGroups is not set on the D3D12 path)
+} pc;
+
+shared float s[256];
+
+void main() {
+    uint t = gl_LocalInvocationIndex;
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    float l = 0.0;
+    if (xy.x <= pc.maxv.x && xy.y <= pc.maxv.y) {
+        ivec2 p = min(pc.origin + xy, pc.size - 1);
+#ifdef D3D_GUIDES
+        vec3 c = vec3(g_rgba16f(pc.gt, GS_COLOR, p, pc.size.x).xyz);
+#else
+        uint i = uint(p.y * pc.size.x + p.x) * 4u;
+        vec3 c = vec3(float(pc.color.v[i]), float(pc.color.v[i + 1u]), float(pc.color.v[i + 2u]));
+#endif
+        precise float g = c.y * 0.5;
+        precise float a = fma(c.x, 0.25, g);
+        precise float b = fma(c.z, 0.25, a);
+        l = min(max(b, 0.0), 10000.0);
+    }
+    s[t] = l;
+    barrier();
+    for (uint n = 128u; n > 0u; n >>= 1) {
+        if (t < n) {
+            precise float v = s[t] + s[t + n];
+            s[t] = v;
+        }
+        barrier();
+    }
+    if (t != 0u) return;
+    precise float v = s[0] * fbits(0x48d1b717u);     // 2^32 / 1e4
+    atomicAdd(pc.acc.v[0], uint64_t(roundEven(v)), gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+    uint64_t done = atomicAdd(pc.acc.v[1], uint64_t(1), gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsAcquireRelease);
+    if (done + 1ul != uint64_t(pc.blocks)) return;
+    // ae_final
+    uint64_t sum = atomicExchange(pc.acc.v[0], uint64_t(0), gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+    pc.acc.v[1] = 0ul;
+    float tot = float(double(sum));
+    precise float avg = tot * pc.inv_count;
+    avg = max(avg, fbits(0x3ba3d70au));                             // 0.005
+    precise float e = rcp_rn(avg) * fbits(0x3e711f48u);             // 0.2354709
+    float16_t eh = half_rz(e);
+    pc.exposure.v[0] = eh;
+    float f1 = float(eh) == 0.0 ? 1.0 : float(eh);
+    float pv = float(pc.prev.v[0]);
+    float f2 = pv != 0.0 ? pv : 1.0;
+    float f46 = 0.0;
+    if (pc.reset == 0u) {
+        precise float r = max(f1, fbits(0x322bcc77u)) * rcp_rn(max(f2, fbits(0x322bcc77u)));
+        precise float lr = clamp(log2(r), -6.0, 6.0) * fbits(0x3e2aaaabu);
+        f46 = lr;
+    }
+    pc.block.v[0] = f1;
+    pc.block.v[1] = f2;
+    pc.block.v[2] = rcp_rn(f1);
+    pc.block.v[3] = f46;
+}

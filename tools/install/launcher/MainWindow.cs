@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -97,7 +97,7 @@ namespace OptScalerNR.Launcher
         MenuItem _removeGameMenuItem;
         TextBlock _compatSummary;
         TextBlock _lmxxfActiveLabel, _danielActiveLabel, _mochiActiveLabel;
-        CheckBox _lmxxfCheck, _danielCheck, _mochiCheck, _replaceIni, _optiPatcherToggle, _scanOnStartup;
+        CheckBox _lmxxfCheck, _danielCheck, _mochiCheck, _replaceIni, _optiPatcherToggle, _openRrToggle, _scanOnStartup;
         ProgressBar _progress;
         Image _heroPosterImage, _heroBgImage;
         Ellipse _statusLed;
@@ -239,6 +239,12 @@ namespace OptScalerNR.Launcher
             _activeCombo = (ComboBox)window.FindName("ActiveCombo");
             _replaceIni = (CheckBox)window.FindName("ReplaceIni");
             _optiPatcherToggle = (CheckBox)window.FindName("OptiPatcherToggle");
+            _openRrToggle = (CheckBox)window.FindName("OpenRrToggle");
+            if (_openRrToggle != null)
+            {
+                _openRrToggle.Checked += (s, e) => { RememberOpenRrChoice(); RefreshModelImportBar(); };
+                _openRrToggle.Unchecked += (s, e) => { RememberOpenRrChoice(); RefreshModelImportBar(); };
+            }
             if (_optiPatcherToggle != null)
             {
                 _optiPatcherToggle.Checked += (s, e) => { RememberOptiPatcherChoice(); };
@@ -745,6 +751,8 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有 OptiScaler.ini 配置文件 (推荐)" : "Replace existing OptiScaler.ini (recommended)";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
                 if (_optiPatcherToggle != null) _optiPatcherToggle.ToolTip = L("优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。", "Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.");
+                SetLabel("OpenRrToggle", "启用 OpenRR 光线重建（RX 9000 原生运行 NV DLSS-RR，需自备或导入 nvngx_dlssd.dll 310.9.1）", "Enable OpenRR Ray Reconstruction (runs NV DLSS-RR on RX 9000; requires or imports nvngx_dlssd.dll 310.9.1)");
+                if (_openRrToggle != null) _openRrToggle.ToolTip = L("勾选时部署 OpenNrRrRuntime.dll 与 opennr-rr/shaders/，并在检测到您自备或导入的 nvngx_dlssd.dll (310.9.1.0) 时放入 opennr-rr/。取消勾选时在 OptiScaler.ini 中将 [OpenNR-RR] Enabled 设为 false（使用 FSR-RR）。", "Installs OpenNrRrRuntime.dll and opennr-rr/shaders/, and places your supplied/imported nvngx_dlssd.dll (310.9.1.0) into opennr-rr/. When unchecked, sets [OpenNR-RR] Enabled=false in OptiScaler.ini (uses FSR-RR).");
                 if (_scanOnStartup != null) _scanOnStartup.Content = isZh ? "启动时自动扫描游戏库" : "Scan game library on startup";
 
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
@@ -1044,6 +1052,8 @@ namespace OptScalerNR.Launcher
                     foreach (var pair in rec.ProxyChoices) if (ProxyRecommendations.Supports(pair.Value)) _proxyChoices[pair.Key] = pair.Value;
                 if (rec.OptiPatcherByGame != null)
                     foreach (var pair in rec.OptiPatcherByGame) _optiPatcherByGame[pair.Key] = pair.Value;
+                if (rec.OpenRrByGame != null)
+                    foreach (var pair in rec.OpenRrByGame) _openRrByGame[pair.Key] = pair.Value;
                 if (rec.HiddenGames != null)
                     foreach (var pair in rec.HiddenGames) _hiddenGames[pair.Key] = pair.Value;
                 if (rec.BackendChoices != null)
@@ -1076,7 +1086,8 @@ namespace OptScalerNR.Launcher
                     BackendChoices = _backendChoices,
                     HiddenGames = _hiddenGames,
                     ProxyChoices = _proxyChoices,
-                    OptiPatcherByGame = _optiPatcherByGame
+                    OptiPatcherByGame = _optiPatcherByGame,
+                    OpenRrByGame = _openRrByGame
                 };
                 JsonUtil.WriteFile(_settingsPath, set);
             }
@@ -1131,6 +1142,7 @@ namespace OptScalerNR.Launcher
         {
             [System.Runtime.Serialization.DataMember] public Dictionary<string, string> ProxyChoices;
             [System.Runtime.Serialization.DataMember(Name = "optiPatcherByGame")] public Dictionary<string, bool> OptiPatcherByGame;
+            [System.Runtime.Serialization.DataMember(Name = "openRrByGame")] public Dictionary<string, bool> OpenRrByGame;
             [System.Runtime.Serialization.DataMember] public Dictionary<string, string> HiddenGames;
             [System.Runtime.Serialization.DataMember] public string Language;
             [System.Runtime.Serialization.DataMember] public string Theme;
@@ -1839,6 +1851,7 @@ namespace OptScalerNR.Launcher
             if (_progress != null) _progress.IsIndeterminate = true;
             UpdatePrimaryButtonState();
             _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (_openRrToggle == null || _openRrToggle.IsChecked == true) ? "install" : "skip";
 
             var req = new LauncherRequest
             {
@@ -2373,6 +2386,37 @@ namespace OptScalerNR.Launcher
             InspectGame(_selectedGame);
         }
 
+        bool ChooseOpenRrDlssd()
+        {
+            var directory = _selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe) ? Path.GetDirectoryName(_selectedGame.Exe) : null;
+            var picker = new OpenFileDialog {
+                Title = L("缺少 OpenRR 模型源：选择 nvngx_dlssd.dll（需 310.9.1.0）", "OpenRR model source missing: select nvngx_dlssd.dll (310.9.1.0)"),
+                Filter = "nvngx_dlssd.dll (310.9.1.0)|nvngx_dlssd.dll|DLL (*.dll)|*.dll", CheckFileExists = true,
+                FileName = "nvngx_dlssd.dll", RestoreDirectory = true
+            };
+            if (!string.IsNullOrEmpty(directory)) picker.InitialDirectory = directory;
+            if (picker.ShowDialog(_window) != true) return false;
+            try
+            {
+                var source = picker.FileName;
+                ValidateModelSourcePe(source);
+                if (!IsDlssd310_9_1(source))
+                    throw new IOException(L("所选文件不是 310.9.1.0 版本的 nvngx_dlssd.dll。OpenRR 仅支持 310.9.1.0。", "The selected file is not nvngx_dlssd.dll version 310.9.1.0. OpenRR requires 310.9.1.0."));
+                var root = ResolveImportRoot();
+                Directory.CreateDirectory(root);
+                var destination = Path.Combine(root, "nvngx_dlssd.dll");
+                if (!string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+                    File.Copy(source, destination, true);
+                RefreshModelImportBar();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DialogTheme.Show(_window, L("导入 nvngx_dlssd.dll 失败：", "Failed to import nvngx_dlssd.dll: ") + ex.Message, _window.Title);
+                return false;
+            }
+        }
+
         void ExecuteAction(string action, bool keepModelChoice = false, string compatibilityFingerprint = null)
         {
             var installing = action == "install" || action == "update";
@@ -2439,6 +2483,7 @@ namespace OptScalerNR.Launcher
 
             _decisions.ExistingIni = (_replaceIni != null && _replaceIni.IsChecked == true) ? "overwrite" : "keep";
             _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (_openRrToggle == null || _openRrToggle.IsChecked == true) ? "install" : "skip";
 
             var req = new LauncherRequest
             {

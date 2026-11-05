@@ -37,6 +37,7 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "lmxxfModels")] public string LmxxfModels;
         [DataMember(Name = "shortFileContinue")] public string ShortFileContinue;
         [DataMember(Name = "optiPatcher")] public string OptiPatcher;
+        [DataMember(Name = "openRr")] public string OpenRr;
         [DataMember(Name = "foreignProxy")] public Dictionary<string, string> ForeignProxy;
         [DataMember(Name = "xessGroups")] public string[] XessGroups;
         [DataMember(Name = "modelSourceDll")] public string ModelSourceDll;

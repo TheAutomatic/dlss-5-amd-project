@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: MIT
+// The host's edit of the denoised image back into the post's input, times the exposure and stored as DFNOutput is
+// (NaN -> 0, finite fp16): into the DFN itself, or with to_tile as a delta into the three free halves of the post
+// tile (6, 10, 11), for post_dlt (FASE5-NR.md): the edit's log encoding minus the DFN's, both clamped to what
+// post_decode reads, so a pixel the host did not change has a delta of exactly 0.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#include "onr_texel.glsl"
+#include "onr_post.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant, scalar) uniform P {
+    U32Buf src;
+    F32Buf exposure;     // [0] = exposure
+    F16Buf dfn;          // rgba16f, row pitch dfn_stride
+    F16Buf tile;         // 12 halves per pixel
+    ivec2 size;
+    int dfn_stride;
+    uint pitch, fmt, to_tile;
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.size.x || p.y >= pc.size.y) return;
+    vec3 c = tf_read(pc.src, pc.pitch, pc.fmt, p).rgb;
+    float e = pc.exposure.v[0];
+    f16vec3 h;
+    for (int i = 0; i < 3; ++i) {
+        float v = e > 0.0 ? e * c[i] : c[i];
+        h[i] = float16_t(isnan(v) ? 0.0 : clamp(v, -65504.0, 65504.0));
+    }
+    if (pc.to_tile == 0u) {
+        uint di = uint(p.y * pc.dfn_stride + p.x) * 4u;
+        for (uint i = 0u; i < 3u; ++i) pc.dfn.v[di + i] = h[i];
+        return;
+    }
+    uint di = uint(p.y * pc.dfn_stride + p.x) * 4u;
+    vec3 n = vec3(pc.dfn.v[di], pc.dfn.v[di + 1u], pc.dfn.v[di + 2u]);
+    const float lo = uintBitsToFloat(0x38d1b717u);
+    vec3 d = clamp(post_encode(vec3(h)), lo, 3.0) - clamp(post_encode(n), lo, 3.0);
+    uint ti = uint(p.y * pc.size.x + p.x) * 12u;
+    pc.tile.v[ti + 6u] = float16_t(d.x);
+    pc.tile.v[ti + 10u] = float16_t(d.y);
+    pc.tile.v[ti + 11u] = float16_t(d.z);
+}

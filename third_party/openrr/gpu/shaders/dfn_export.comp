@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: MIT
+// The denoised image of rr2_dec0_1 (DFNOutput, exposed colour) over the exposure, back in the game's colour space,
+// as rgba32f rows for the host to edit (FASE5-NR.md), or rgba16f (saturated at 65504) with half_out.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#include "onr_texel.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant, scalar) uniform P {
+    F16Buf dfn;          // rgba16f, row pitch dfn_stride
+    F32Buf exposure;     // [0] = exposure
+    U32Buf dst;
+    ivec2 size;
+    int dfn_stride;
+    uint pitch;
+    uint half_out;
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.size.x || p.y >= pc.size.y) return;
+    uint di = uint(p.y * pc.dfn_stride + p.x) * 4u;
+    vec3 c = vec3(pc.dfn.v[di], pc.dfn.v[di + 1u], pc.dfn.v[di + 2u]);
+    float e = pc.exposure.v[0];
+    vec3 v = e > 0.0 ? c / e : c;
+    if (pc.half_out != 0u) tf_write(pc.dst, pc.pitch, TF_RGBA16F, p, vec4(clamp(v, -65504.0, 65504.0), 1.0));
+    else tf_write(pc.dst, pc.pitch, TF_RGBA32F, p, vec4(v, 1.0));
+}

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,7 +11,9 @@ namespace OptScalerNR.Launcher
         ProxyRecommendations _recommendations;
         readonly Dictionary<string,string> _proxyChoices=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string,bool> _optiPatcherByGame=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string,bool> _openRrByGame=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
         bool _selectingOptiPatcher;
+        bool _selectingOpenRr;
         bool _selectingProxy;
         Button _refreshProfilesButton,_useRecommendationButton;
         TextBlock _profileStatus;
@@ -31,6 +33,13 @@ namespace OptScalerNR.Launcher
             _decisions.OptiPatcher=_optiPatcherToggle!=null&&_optiPatcherToggle.IsChecked==true?"install":"skip";
             if(_selectingOptiPatcher||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
             _optiPatcherByGame[_selectedGame.Id]=_optiPatcherToggle.IsChecked==true;
+            SaveSettings();
+        }
+        void RememberOpenRrChoice()
+        {
+            _decisions.OpenRr=_openRrToggle==null||_openRrToggle.IsChecked==true?"install":"skip";
+            if(_selectingOpenRr||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
+            _openRrByGame[_selectedGame.Id]=_openRrToggle.IsChecked==true;
             SaveSettings();
         }
         void RememberProxyChoice()
@@ -56,6 +65,12 @@ namespace OptScalerNR.Launcher
             try{if(_optiPatcherToggle!=null)_optiPatcherToggle.IsChecked=optiPatcher;}
             finally{_selectingOptiPatcher=false;}
             _decisions.OptiPatcher=optiPatcher?"install":"skip";
+            bool openRr=true,savedOpenRr;
+            if(_selectedGame!=null&&_openRrByGame.TryGetValue(_selectedGame.Id,out savedOpenRr))openRr=savedOpenRr;
+            _selectingOpenRr=true;
+            try{if(_openRrToggle!=null)_openRrToggle.IsChecked=openRr;}
+            finally{_selectingOpenRr=false;}
+            _decisions.OpenRr=openRr?"install":"skip";
             if(_selectedGame==null){AppendMochizukiNote();return;}
             string manual;
             var hasManual=_proxyChoices.TryGetValue(_selectedGame.Id,out manual)&&ProxyRecommendations.Supports(manual);

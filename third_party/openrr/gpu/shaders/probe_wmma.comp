@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+// Probe: per-lane element layout of the 16x16 fp16 cooperative matrices (accumulator, A, B). An accumulator
+// loaded from M (M[r][c] = 16 r + c) is copied element by element into an A and a B matrix, which are stored
+// row-major; each lane also writes the values of its elements, so the host sees (lane, element) -> (row, col).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#include "onr_common.glsl"
+layout(local_size_x = 32) in;
+layout(push_constant, scalar) uniform P { F16Buf m; F16Buf b; F16Buf a; F16Buf lh; F16Buf la; F16Buf lb; } pc;
+
+#define MA coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define MB coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+#define MC coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define MH coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define ROW gl_CooperativeMatrixLayoutRowMajor
+
+void main() {
+    MH h;
+    coopMatLoad(h, pc.m.v, 0u, 16u, ROW);
+    MC f = MC(h);
+    MH h2 = MH(f);
+    MA a;
+    MB b;
+    for (int i = 0; i < h.length(); ++i) a[i] = h2[i], b[i] = h2[i];
+    coopMatStore(b, pc.b.v, 0u, 16u, ROW);
+    coopMatStore(a, pc.a.v, 0u, 16u, ROW);
+    MA la;
+    MB lb;
+    coopMatLoad(la, pc.m.v, 0u, 16u, ROW);
+    coopMatLoad(lb, pc.m.v, 0u, 16u, ROW);
+    uint l = gl_SubgroupInvocationID;
+    for (int i = 0; i < h.length(); ++i) {
+        pc.lh.v[l * 16u + uint(i)] = h[i];
+        pc.la.v[l * 16u + uint(i)] = la[i];
+        pc.lb.v[l * 16u + uint(i)] = lb[i];
+    }
+}

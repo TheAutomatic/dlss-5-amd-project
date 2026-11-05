@@ -1,0 +1,210 @@
+// SPDX-License-Identifier: MIT
+// rr2_downsample_kernel_static_hdr (3:2, static, HDR, with the transparency layer): downsample.comp, then before the
+// divide by the exposure the layer is composited over the exposed image. The layer (render size, premultiplied RGBA)
+// is sampled bilinearly at the output pixel, accumulated in a history of its own at the output size (reprojected
+// with PrevMvec2, clamped to the 3x3 of the layer's texels around the pixel) and laid over: y * (1 - a) + rgb.
+// Read from the reference PTX. With DLSS.TransparencyLayerMvecs the history moves by those instead (read at the output
+// pixel, (m + offset) * MV.Scale in output pixels); with DLSS.TransparencyLayerOpacity (rgb) that opacity gets a history
+// of its own (same weight and motion, clamped to its 3x3, not re-exposed) and replaces 1 - a per channel.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+#ifdef D3D_UAV
+// d3d_downsample (D3D12 path): the rgba16f output texture itself (descriptor 16 of set 0), dst = origin x | y << 16;
+// the store keeps the bits
+layout(set = 0, binding = 1) uniform writeonly image2D outs[2];
+#endif
+
+layout(push_constant, scalar) uniform P {
+    F16Buf rg;           // slice, 2 halves per pixel, row pitch = slice.x
+    F16Buf b;            // slice, 1 half per pixel
+    F16Buf dst;          // rgba16f, out_size.x per row
+    F32Buf exposure;     // [0] = exposure, [1] = previous exposure
+    ivec2 in_size;       // internal resolution
+    ivec2 out_size;
+    ivec2 out_origin;    // first output pixel of this slice
+    ivec2 out_end;       // exclusive
+    ivec2 slice;         // row pitch, rows
+    ivec2 slice_x;       // slice columns [x0, x1) in internal coordinates
+    F16x4Buf tl;         // transparency layer, rgba16f, render size
+    F16x4Buf pmv;        // PrevMvec2 of this frame, rgba16f, render size (.xy in internal pixels)
+    F16x4Buf hist_in;    // the layer's history, rgba16f, output size
+    F16x4Buf hist_out;
+    ivec2 lr_size;       // render size
+    vec2 scale;          // render / output
+    vec2 offset;         // jitter, render pixels
+    vec2 offset_out;     // jitter, output pixels
+    vec2 mv_scale;       // output / internal
+    float weight;        // current-frame weight of the layer's accumulation (0.25)
+    uint reset;          // the layer's history is not used
+    F16x2Buf tlmv;       // the layer's motion vectors, raw, rows of tlmv_size.x from the texture's subrect; 0 = none
+    ivec2 tlmv_size;
+    vec2 tlmv_scale;     // MV.Scale (the offset is 0)
+    F16x4Buf op;         // the layer's opacity (rgb), render size; 0 = none
+    F16x4Buf op_hist_in; // its history, rgba16f, output size
+    F16x4Buf op_hist_out;
+    uint op_reset;       // the opacity's history is not used
+} pc;
+
+const uint W_ODD[5] = uint[5](0xa8e7u, 0x35f4u, 0x38f6u, 0x2d96u, 0xa94bu);
+
+f16vec3 texel(int x, int y, int lo, int hi) {
+    if (x < lo || x >= hi) return f16vec3(0.0hf);
+    uint i = uint(y * pc.slice.x + (x - lo));
+    return f16vec3(pc.rg.v[2u * i], pc.rg.v[2u * i + 1u], pc.b.v[i]);
+}
+
+float16_t wt(int k, int parity) { return hbits(W_ODD[parity == 1 ? k : 4 - k]); }
+
+f16vec3 hpass(int row, int cx, int px, int lo, int hi) {
+    precise f16vec3 acc = f16vec3(0.0hf);
+    f16vec3 mn, mx;
+    for (int k = 0; k < 5; ++k) {
+        f16vec3 x = texel(clamp(cx + k - 2, 0, pc.in_size.x - 1), row, lo, hi);
+        acc = fma(f16vec3(wt(k, px)), x, acc);
+        mn = k == 0 ? x : min(mn, x);
+        mx = k == 0 ? x : max(mx, x);
+    }
+    return min(max(acc, mn), mx);
+}
+
+// round half away from zero (the kernel's copysign(0.5) add toward zero, then truncate)
+float round_away(float x) { return trunc(x + sign(x) * 0.5); }
+
+vec4 fetch(F16x4Buf t, ivec2 size, ivec2 p) { return vec4(t.v[uint(clamp(p.y, 0, size.y - 1) * size.x + clamp(p.x, 0, size.x - 1))]); }
+
+// linear filtering at normalized uv, clamp to edge, 8-bit weights
+vec4 bilinear(F16x4Buf t, ivec2 size, vec2 uv) {
+    vec2 x = uv * vec2(size) - 0.5;
+    vec2 f0 = floor(x);
+    vec2 f = round((x - f0) * 256.0) / 256.0;
+    ivec2 i = ivec2(f0);
+    vec4 a = mix(fetch(t, size, i), fetch(t, size, i + ivec2(1, 0)), f.x);
+    vec4 c = mix(fetch(t, size, i + ivec2(0, 1)), fetch(t, size, i + ivec2(1, 1)), f.x);
+    return mix(a, c, f.y);
+}
+
+// the history's motion: the layer's own vectors at the output pixel when given, else PrevMvec2 at the render texel n
+vec2 hist_mv(ivec2 n, vec2 al) {
+    if (uint64_t(pc.tlmv) != 0ul) {
+        ivec2 t = clamp(ivec2(round_away(al.x), round_away(al.y)), ivec2(0), pc.tlmv_size - 1);
+        return vec2(pc.tlmv.v[uint(t.y * pc.tlmv_size.x + t.x)]) * pc.tlmv_scale;
+    }
+    return fetch(pc.pmv, pc.lr_size, n).xy * pc.mv_scale;
+}
+
+shared f16vec4 hrow[29][16];
+
+void main() {
+    ivec2 o = pc.out_origin + ivec2(gl_GlobalInvocationID.xy);
+    int lo = pc.slice_x.x;
+    int hi = min(min(pc.slice_x.y, lo + pc.slice.x), pc.in_size.x);
+    int cx = int(floor((float(o.x) + 0.5) * 1.5));
+    int cy = int(floor((float(o.y) + 0.5) * 1.5));
+    int oy0 = pc.out_origin.y + int(gl_WorkGroupID.y) * 16;
+    int r0 = clamp(int(floor((float(oy0) + 0.5) * 1.5)) - 2, 0, pc.in_size.y - 1);
+    int r1 = clamp(int(floor((float(oy0 + 15) + 0.5) * 1.5)) + 2, 0, pc.in_size.y - 1);
+    uint lx = gl_LocalInvocationID.x;
+    for (int i = int(gl_LocalInvocationID.y); i <= r1 - r0; i += 16) hrow[i][lx] = f16vec4(hpass(r0 + i, cx, o.x & 1, lo, hi), 0.0hf);
+    barrier();
+    if (o.x >= pc.out_end.x || o.y >= pc.out_end.y || o.x >= pc.out_size.x || o.y >= pc.out_size.y) return;
+    precise f16vec3 acc = f16vec3(0.0hf);
+    f16vec3 mn, mx;
+    for (int k = 0; k < 5; ++k) {
+        f16vec3 h = hrow[clamp(cy + k - 2, 0, pc.in_size.y - 1) - r0][lx].xyz;
+        acc = fma(f16vec3(wt(k, o.y & 1)), h, acc);
+        mn = k == 0 ? h : min(mn, h);
+        mx = k == 0 ? h : max(mx, h);
+    }
+    vec3 v = vec3(min(max(acc, mn), mx));
+    float E = pc.exposure.v[0];
+    vec3 y;
+    for (int c = 0; c < 3; ++c) {
+        float x = v[c] > fbits(0x38d1b717u) ? min(v[c], 3.0) : fbits(0x38d1b717u);
+        precise float t = (x * fbits(0x4031c71cu)) * fbits(0x40549a78u);
+        precise float e = exp2(t);
+        y[c] = (e - 1.0) * fbits(0x3c23d70au);   // exposed: the layer goes over it before the divide
+    }
+
+    vec2 fo = vec2(o) + 0.5;
+    ivec2 n = ivec2(round_away(fo.x * pc.scale.x - 0.5 + pc.offset.x), round_away(fo.y * pc.scale.y - 0.5 + pc.offset.y));
+    vec2 al = pc.offset_out + vec2(o);
+    bool aligned = abs(round_away(al.x) - al.x) < 0.5 && abs(round_away(al.y) - al.y) < 0.5;
+    float w = aligned ? pc.weight : pc.weight * pc.weight;
+    vec4 lo4 = vec4(fbits(0x7f7fffffu)), hi4 = vec4(fbits(0x00800000u));
+    uint nz = 1u;
+    if (pc.reset == 0u) {
+        nz = 0u;
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                ivec2 p = n + ivec2(dx, dy);
+                f16vec4 s16 = pc.tl.v[uint(clamp(p.y, 0, pc.lr_size.y - 1) * pc.lr_size.x + clamp(p.x, 0, pc.lr_size.x - 1))];
+                u16vec4 b = float16BitsToUint16(s16);
+                nz |= uint(b.x | b.y | b.z | b.w);
+                vec4 s = vec4(s16);
+                s.rgb *= E;
+                lo4 = min(lo4, s), hi4 = max(hi4, s);
+            }
+    }
+    const bool has_op = uint64_t(pc.op) != 0ul;
+    precise vec4 res = vec4(0.0);
+    precise vec3 ores = vec3(0.0);
+    if (has_op) {
+        // with the opacity every pixel blends (its 3x3 can be non-zero where the layer's is +0)
+        vec2 uv = (fo + pc.offset_out) / vec2(pc.out_size), huv = (vec2(o) + hist_mv(n, al) + 0.5) / vec2(pc.out_size);
+        vec4 cur = bilinear(pc.tl, pc.lr_size, uv);
+        cur.rgb *= E;
+        vec3 ocur = bilinear(pc.op, pc.lr_size, uv).rgb;
+        vec4 h = cur;
+        vec3 oh = ocur;
+        if (pc.reset == 0u) {
+            h = bilinear(pc.hist_in, pc.out_size, huv);
+            h.rgb *= E / max(pc.exposure.v[1], fbits(0x3ba3d70au));
+            for (int c = 0; c < 4; ++c) h[c] = h[c] <= lo4[c] ? lo4[c] : (h[c] >= hi4[c] ? hi4[c] : h[c]);
+        }
+        if (pc.op_reset == 0u) {
+            vec3 olo = vec3(fbits(0x7f7fffffu)), ohi = vec3(fbits(0x00800000u));
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx) {
+                    ivec2 p = n + ivec2(dx, dy);
+                    vec3 s = vec3(pc.op.v[uint(clamp(p.y, 0, pc.lr_size.y - 1) * pc.lr_size.x + clamp(p.x, 0, pc.lr_size.x - 1))].rgb);
+                    olo = min(olo, s), ohi = max(ohi, s);
+                }
+            oh = bilinear(pc.op_hist_in, pc.out_size, huv).rgb;
+            for (int c = 0; c < 3; ++c) oh[c] = oh[c] <= olo[c] ? olo[c] : (oh[c] >= ohi[c] ? ohi[c] : oh[c]);
+        }
+        res = fma(vec4(w), cur, (1.0 - w) * h);
+        ores = fma(vec3(w), ocur, (1.0 - w) * oh);
+        pc.op_hist_out.v[uint(o.y * pc.out_size.x + o.x)] = f16vec4(clamp(vec4(ores, 1.0), -65504.0, 65504.0));
+    } else if (nz != 0u) {
+        // a 3x3 of +0 holds the bilinear's 2x2 too: cur = +0, the history clamps to [+0, FLT_MIN] and (1 - w) * h is
+        // denormal, so the history written is +0 and the output is y either way; hist_in and pmv are not read
+        vec4 cur = bilinear(pc.tl, pc.lr_size, (fo + pc.offset_out) / vec2(pc.out_size));
+        cur.rgb *= E;
+        vec4 h = cur;
+        if (pc.reset == 0u) {
+            vec2 mv = hist_mv(n, al);
+            h = bilinear(pc.hist_in, pc.out_size, (vec2(o) + mv + 0.5) / vec2(pc.out_size));
+            h.rgb *= E / max(pc.exposure.v[1], fbits(0x3ba3d70au));
+            for (int c = 0; c < 4; ++c) h[c] = h[c] <= lo4[c] ? lo4[c] : (h[c] >= hi4[c] ? hi4[c] : h[c]);
+        }
+        res = fma(vec4(w), cur, (1.0 - w) * h);
+    }
+    pc.hist_out.v[uint(o.y * pc.out_size.x + o.x)] = f16vec4(clamp(res, -65504.0, 65504.0));
+
+    float inv_e = rcp_rn(E);
+    uint base = uint(o.y * pc.out_size.x + o.x) * 4u;
+    f16vec4 q = f16vec4(1.0hf);
+    for (int c = 0; c < 3; ++c) {
+        // the opacity in place of the layer's alpha, per channel
+        precise float r = fma(y[c], has_op ? 1.0 - ores[c] : 1.0 - res.a, res[c]) * inv_e;
+        q[c] = half_rz(r);
+    }
+#ifdef D3D_UAV
+    uint org = uint(uint64_t(pc.dst));
+    imageStore(outs[0], o + ivec2(org & 65535u, org >> 16), vec4(q));
+#else
+    pc.dst.v[base] = q.x, pc.dst.v[base + 1u] = q.y, pc.dst.v[base + 2u] = q.z, pc.dst.v[base + 3u] = q.w;
+#endif
+}

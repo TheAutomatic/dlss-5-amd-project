@@ -1,0 +1,508 @@
+// SPDX-License-Identifier: MIT
+// rr2_enc0, first half: the 43 per-pixel input attributes of the network (fp16, before the dither), the DFN image of
+// the level and the motion vector surfaces of the frame (PrevMvec2, PrevMvecEroded, PrevMvecNondilated).
+// FP32 scalar math with fused FMAs as in the reference kernel; filtered reads are bilinear with clamp, 8-bit
+// fractions and an fp64 blend (exact for the formats read here). Constants come from the raw parameter block of
+// the launch, addressed by the reference constant-bank offset (struct offset = cb - 0x160).
+// One thread per pixel of the padded grid (pad): pixels past the image only write the DFN image (mirrored).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#extension GL_EXT_control_flow_attributes : require
+layout(local_size_x = 64) in;
+
+#ifdef D3D_GUIDES
+#include "onr_guides.glsl"
+#endif
+
+layout(push_constant, scalar) uniform P {
+#ifdef D3D_GUIDES
+    uint pd0, pd1, pd2, pd3;   // (dwords 0..2 do not reach a D3D12 kernel through the spill table)
+    GuideTab gt;               // the guides as the game gave them (onr_guides.glsl)
+    uint64_t gpd[5];
+#else
+    F16Buf color;      // rgba16f
+    U8Buf albedo;      // rgba8 unorm
+    U8Buf spec;        // rgba8 unorm
+    F16Buf normals;    // rgba16f
+    F16Buf rough;      // r16f
+    F32Buf depth;      // r32f
+    F16Buf mv;         // rg16f
+    F16Buf hit;        // r16f, specular hit distance
+#endif
+    F16Buf pm1;        // PrevMvec1 rgba16f (PrevMvec2 of the previous frame)
+    U8Buf hidden;      // HiddenHistory snorm8x4
+    U32Buf ds, ds2;    // DownsampledHistory and /2, R10G10B10A2
+    F32Buf expo;       // exposure block {exposure, previous, 1 / exposure, log}
+    F32Buf prm;        // raw rr2_enc0 parameter block
+    F32Buf tab;        // [0, 1024) unorm10, [1024, 1280) snorm8 by byte, [1280, 1536) unorm8 values (f32 as the reference)
+    F16Buf attr;       // out [size.y][size.x][48] fp16 attributes (43 used); fast: 48-byte records [pad.y][pad.x] (ATTR64)
+    F16Buf pmv2;       // out PrevMvec2 rgba16f
+    F16Buf ero, nond;  // out rg16f
+    F16Buf dfn;        // out DFN image rgba16f [pad.y][pad.x]
+    ivec2 size;        // image (render) size
+    ivec2 ds_size, ds2_size;
+    uint hist_off;     // bit 0: history disabled for this frame (first frame after a reset); bit 1: the optional guide
+                       // table follows the parameter block in prm (OPT_* below)
+    ivec2 pad;         // network grid, size rounded up to 32
+    ivec2 hist_size;   // InternalHistory size (reprojections outside it are invalid)
+    F32Buf disocc;     // DLSS.DisocclusionMask r32f (slot 336, its flag byte 571), 0 = none
+    F32Buf sss;        // SSS guide or ColorBeforeFog r32f (slot 288), 0 = none
+    U16Buf lut;        // blue-noise LUT of the dither (fast variant)
+    uint frame8;
+} pc;
+
+float C(uint cb) { return pc.prm.v[(cb - 0x160u) >> 2]; }
+int CI(uint cb) { return floatBitsToInt(C(cb)); }
+
+// the optional guide table after the 1088-byte block (Engine::record_net): addresses of DLSSD.ResponsivityMask (r32f),
+// DLSSD.ColorBeforeTransparency (rgba16f), DLSSD.DepthOfFieldGuide (r32f), GBuffer.SpecularMvec (rg16f), 0 = none,
+// then flags (OPTF_*)
+#define OPT_RESP 0u
+#define OPT_CBT 1u
+#define OPT_DOF 2u
+#define OPT_SMV 3u
+#define OPTF_NO_HIT 1u   // no specular hit distance: the reflection takes the pixel's own motion vector (slot 272 null)
+uint64_t opt_addr(uint k) {
+    if ((pc.hist_off & 2u) == 0u) return 0ul;
+    return uint64_t(floatBitsToUint(pc.prm.v[272u + 2u * k])) | uint64_t(floatBitsToUint(pc.prm.v[273u + 2u * k])) << 32;
+}
+uint opt_flags() { return (pc.hist_off & 2u) != 0u ? floatBitsToUint(pc.prm.v[280u]) : 0u; }
+bool hist_disabled() { return (pc.hist_off & 1u) != 0u; }
+// the signed log of the optional scalar guides (attributes 30..32): NaN 0, clamped to +-8
+float signed_log(float v) {
+    precise float s = (log2(fma(abs(v), 100.0, 1.0)) * 0.30103000998497009277) * (v >= 0.0 ? 0.36000001430511474609 : -0.36000001430511474609);
+    return isnan(s) ? 0.0 : clamp(s, -8.0, 8.0);
+}
+
+float min_nan(float x, float c) { return isnan(x) ? x : min(x, c); }
+float clamp_nan(float x, float c) { float m = min_nan(x, c); return (x > -c || isnan(x)) ? m : -c; }
+float no_nan(float x) { return isnan(x) ? 0.0 : x; }
+float rcp_c(float x) { float r = 1.0 / x; return (isinf(r) || r == 0.0 || isnan(r)) ? r : rcp_rn(x); }
+// correctly rounded sqrt: hardware estimate, then one integer test against the two rounding midpoints
+// (x vs ((2 m_y +- 1) 2^(e_y - 24))^2, exact in u64); subnormal x keeps the fp64 path
+float sqrt_c(float x) {
+    if (!(x >= 1.17549435e-38) || isinf(x)) return x > 0.0 && !isinf(x) ? float(sqrt(double(x))) : sqrt(x);
+    float y = sqrt(x);
+    uint xb = floatBitsToUint(x);
+    uint64_t mx = uint64_t((xb & 0x7fffffu) | 0x800000u);
+    // one test corrects the +-1 ulp of v_sqrt_f32 (its documented bound)
+    for (int it = 0; it < 1; ++it) {
+        uint yb = floatBitsToUint(y);
+        uint64_t my2 = uint64_t(((yb & 0x7fffffu) | 0x800000u) * 2u);
+        int k = int(xb >> 23) - 2 * int(yb >> 23) + 127 + 25;
+        uint64_t X = mx << uint(k);
+        if (X > (my2 + 1ul) * (my2 + 1ul)) y = uintBitsToFloat(yb + 1u);
+        else if (X < (my2 - 1ul) * (my2 - 1ul)) y = uintBitsToFloat(yb - 1u);
+    }
+    return y;
+}
+
+ivec2 clampi(ivec2 p, ivec2 sz) { return clamp(p, ivec2(0), sz - 1); }
+uint pix(ivec2 p) { return uint(p.y * pc.size.x + p.x); }
+
+#ifdef D3D_GUIDES
+vec3 col_at(ivec2 p) { return vec3(g_rgba16f(pc.gt, GS_COLOR, clampi(p, pc.size), pc.size.x).xyz); }
+vec3 nrm_at(ivec2 p) { return vec3(g_normals(pc.gt, clampi(p, pc.size), pc.size.x).xyz); }
+float rough_at(ivec2 p) { return float(g_r16f(pc.gt, GS_ROUGH, clampi(p, pc.size), pc.size.x)); }
+float hit_at(ivec2 p) { return float(g_r16f(pc.gt, GS_HIT, clampi(p, pc.size), pc.size.x)); }
+float depth_at(ivec2 p) { return g_depth(pc.gt, clampi(p, pc.size), pc.size.x); }
+uvec3 alb_at(ivec2 p) { uint w = g_rgba8(pc.gt, GS_ALBEDO, p, pc.size.x); return uvec3(w & 255u, (w >> 8) & 255u, (w >> 16) & 255u); }
+uvec3 spec_at(ivec2 p) { uint w = g_rgba8(pc.gt, GS_SPEC, p, pc.size.x); return uvec3(w & 255u, (w >> 8) & 255u, (w >> 16) & 255u); }
+vec2 mv_raw(ivec2 p) { return vec2(g_rg16f(pc.gt, GS_MV, p, pc.size.x)); }
+#else
+float f16at(F16Buf b, ivec2 p, uint ch, uint i) { p = clampi(p, pc.size); return float(AT32(F16Buf, b, pix(p) * ch + i, 2u).v[0]); }
+vec3 col_at(ivec2 p) { return vec3(f16at(pc.color, p, 4u, 0u), f16at(pc.color, p, 4u, 1u), f16at(pc.color, p, 4u, 2u)); }
+vec3 nrm_at(ivec2 p) { return vec3(f16at(pc.normals, p, 4u, 0u), f16at(pc.normals, p, 4u, 1u), f16at(pc.normals, p, 4u, 2u)); }
+float rough_at(ivec2 p) { return f16at(pc.rough, p, 1u, 0u); }
+float hit_at(ivec2 p) { return float(AT32(F16Buf, pc.hit, pix(clampi(p, pc.size)), 2u).v[0]); }
+float depth_at(ivec2 p) { p = clampi(p, pc.size); return AT32(F32Buf, pc.depth, pix(p), 4u).v[0]; }
+uvec3 alb_at(ivec2 p) { uint ai = pix(p) * 4u; return uvec3(pc.albedo.v[ai], pc.albedo.v[ai + 1u], pc.albedo.v[ai + 2u]); }
+uvec3 spec_at(ivec2 p) { uint ai = pix(p) * 4u; return uvec3(pc.spec.v[ai], pc.spec.v[ai + 1u], pc.spec.v[ai + 2u]); }
+vec2 mv_raw(ivec2 p) { return vec2(AT32(F16x2Buf, pc.mv, pix(p), 4u).v[0]); }
+#endif
+vec2 mv_at(ivec2 p) {
+    p = clampi(p, pc.size);
+    vec2 m = mv_raw(p);
+    precise float x = (m.x + C(0x328)) * C(0x320), y = (m.y + C(0x32c)) * C(0x324);
+    return vec2(x, y);
+}
+
+// texel fetches of the filtered textures (clamped), f32 (widened to f64 in the reference blend's fallback)
+vec4 tex_pm1(ivec2 p) { p = clampi(p, pc.size); F16Buf b = AT32(F16Buf, pc.pm1, pix(p), 8u); return vec4(b.v[0], b.v[1], b.v[2], b.v[3]); }
+vec4 tex_hid(ivec2 p) {
+    p = clampi(p, pc.size);
+    uint i = pix(p) * 4u;
+    return vec4(AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i], 4u).v[0], AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i + 1u], 4u).v[0], AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i + 2u], 4u).v[0], AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i + 3u], 4u).v[0]);
+}
+vec4 tex_10(U32Buf b, ivec2 sz, ivec2 p) {
+    p = clampi(p, sz);
+    uint w = AT32(U32Buf, b, uint(p.y * sz.x + p.x), 4u).v[0];
+    return vec4(AT32(F32Buf, pc.tab, w & 1023u, 4u).v[0], AT32(F32Buf, pc.tab, (w >> 10) & 1023u, 4u).v[0], AT32(F32Buf, pc.tab, (w >> 20) & 1023u, 4u).v[0], 0.0);
+}
+
+// bilinear setup: texel origin and 8-bit fractions of the normalized coordinate (u, v) on a w x h texture
+// coordinate - 0.5 is exact in fp32 for |u w| < 2^23; beyond that both taps clamp to the same texel and the
+// fraction no longer matters
+void bl_setup(float u, float v, ivec2 sz, out ivec2 p0, out uvec2 k) {
+    precise float uw = u * float(sz.x), vh = v * float(sz.y);
+    precise float x = uw - 0.5, y = vh - 0.5;
+    if (isnan(uw) || isinf(uw) || isnan(vh) || isinf(vh)) x = y = 0.0;
+    float x0 = floor(x), y0 = floor(y);
+    precise float fx = (x - x0) * 256.0, fy = (y - y0) * 256.0;
+    k = uvec2(roundEven(fx), roundEven(fy));
+    p0 = ivec2(int(x0), int(y0));
+}
+
+// fp32 of the fp64 blend ((a wx0 + b wx1) wy0 + (c wx0 + d wx1) wy1) / 2^16 of the reference model, computed in
+// integers: when the taps are within 10 binades every fp64 step there is exact (at most 53 bits), so the result is
+// the exact value rounded once (signed zeros as fp64 makes them); otherwise ok = false and the caller blends in fp64
+float blend1(vec4 t, uvec2 k, inout bool ok) {
+    int emin = 1000, emax = -1000;
+    for (int i = 0; i < 4; ++i) {
+        uint b = floatBitsToUint(t[i]) & 0x7fffffffu;
+        if (b == 0u) continue;
+        int e = int(b >> 23);
+        if (e == 0 || e == 255) ok = false;
+        emin = min(emin, e), emax = max(emax, e);
+    }
+    if (emax - emin > 10) ok = false;
+    int64_t v[4];
+    for (int i = 0; i < 4; ++i) {
+        uint b = floatBitsToUint(t[i]);
+        int64_t m = (b & 0x7fffffffu) == 0u ? 0l : int64_t((b & 0x7fffffu) | 0x800000u) << uint(clamp(int((b >> 23) & 255u) - emin, 0, 10));
+        v[i] = (b >> 31) != 0u ? -m : m;
+    }
+    int64_t wx0 = int64_t(256u - k.x), wx1 = int64_t(k.x), wy0 = int64_t(256u - k.y), wy1 = int64_t(k.y);
+    int64_t A = v[0] * wx0 + v[1] * wx1, B = v[2] * wx0 + v[3] * wx1, R = A * wy0 + B * wy1;
+    if (R != 0l) return ldexp(float(R), emin - 150 - 16);
+    // zero: a product is -0 when its tap is negative or -0 and the product vanishes; a sum is -0 only from two -0
+    bvec4 n = notEqual(floatBitsToUint(t) >> 31, uvec4(0u));
+    bool sa = A < 0l || (A == 0l && (v[0] == 0l || wx0 == 0l) && (v[1] == 0l || wx1 == 0l) && n[0] && n[1]);
+    bool sb = B < 0l || (B == 0l && (v[2] == 0l || wx0 == 0l) && (v[3] == 0l || wx1 == 0l) && n[2] && n[3]);
+    bool neg = (A == 0l || wy0 == 0l) && (B == 0l || wy1 == 0l) && sa && sb;
+    return neg ? -0.0 : 0.0;
+}
+
+#ifndef ENC_F32
+#define ENC_F32 0
+#endif
+#if ENC_F32
+// fast variant (_f): the same blend in fp32, not the exact value rounded once
+#define BLEND4(T, n) {         vec4 ta = T(p), tb = T(p + ivec2(1, 0)), tc = T(p + ivec2(0, 1)), td = T(p + ivec2(1, 1));         vec2 f = vec2(k) * (1.0 / 256.0);         r = (ta * (1.0 - f.x) + tb * f.x) * (1.0 - f.y) + (tc * (1.0 - f.x) + td * f.x) * f.y; }
+#else
+#define BLEND4(T, n) {         vec4 ta = T(p), tb = T(p + ivec2(1, 0)), tc = T(p + ivec2(0, 1)), td = T(p + ivec2(1, 1));         bool ok = true;         for (int i = 0; i < n; ++i) r[i] = blend1(vec4(ta[i], tb[i], tc[i], td[i]), k, ok);         if (!ok) {             dvec2 f = dvec2(k) / 256.0lf;             precise dvec4 e = (dvec4(ta) * (1.0lf - f.x) + dvec4(tb) * f.x) * (1.0lf - f.y) + (dvec4(tc) * (1.0lf - f.x) + dvec4(td) * f.x) * f.y;             r = vec4(e);         } }
+#endif
+vec4 bl_pm1(float u, float v) {
+    ivec2 p; uvec2 k; vec4 r = vec4(0.0);
+    bl_setup(u, v, pc.size, p, k);
+    BLEND4(tex_pm1, 4)
+    return r;
+}
+vec4 bl_hid(float u, float v) {
+    ivec2 p; uvec2 k; vec4 r = vec4(0.0);
+    bl_setup(u, v, pc.size, p, k);
+    BLEND4(tex_hid, 4)
+    return r;
+}
+vec4 bl_10(U32Buf b, ivec2 sz, float u, float v) {
+    ivec2 p; uvec2 k; vec4 r = vec4(0.0);
+    bl_setup(u, v, sz, p, k);
+#define T10(q) tex_10(b, sz, q)
+    BLEND4(T10, 3)
+    return r;
+}
+
+float decode_hist(float v, float rexp) {
+    precise float t = v * 2.45;
+    t = min_nan(t, 3.0);
+    t = (t > 9.99999974737875163555e-05 || isnan(t)) ? t : 9.99999974737875163555e-05;
+    precise float a = t * 2.7777776718139648438;
+    precise float b = a * 3.3219280242919921875;
+    precise float e = exp2(b);
+    precise float r = ((e - 1.0) * 0.0099999997764825820923) * rexp;
+    return r;
+}
+
+float enc_log(float x) {
+    precise float a = max(fma(x, 100.0, 1.0), 9.9999997473787516356e-05);
+    precise float r = (log2(a) * 0.30103000998497009277) * 0.36000001430511474609;
+    return r;
+}
+
+bool inside(float px, float py) { return px >= 0.0 && py >= 0.0 && !(px > float(pc.hist_size.x)) && !(py > float(pc.hist_size.y)); }
+
+// virtual motion vector of the specular reflection (pixels, before the 2.25 scale)
+vec2 reflection_mv(ivec2 X, vec3 n) {
+    precise float fx = float(X.x) + 0.5, fy = float(X.y) + 0.5;
+    float d = depth_at(X);
+    precise float w = fma(fx, C(0x4f0), fy * C(0x500));
+    precise float z = fma(d, C(0x44c), C(0x45c));
+    if (!(C(0x460) >= 1.0)) { precise float dz = d * C(0x450); z = rcp_c(dz) * z; }
+    w = fma(z, C(0x510), w) + C(0x520);
+    precise float py = fma(z, C(0x508), fma(fx, C(0x4e8), fy * C(0x4f8))) + C(0x518);
+    precise float px = fma(z, C(0x504), fma(fx, C(0x4e4), fy * C(0x4f4))) + C(0x514);
+    precise float pz = fma(z, C(0x50c), fma(fx, C(0x4ec), fy * C(0x4fc))) + C(0x51c);
+    w = rcp_c(w);
+    py = py * w; px = px * w; pz = pz * w;
+    precise float nl = sqrt_c(fma(n.z, n.z, fma(n.x, n.x, n.y * n.y)));
+    precise float vy = py - C(0x3dc), vx = px - C(0x3d8), vz = pz - C(0x3e0);
+    precise float vl = sqrt_c(fma(vz, vz, fma(vx, vx, vy * vy)));
+    precise float inn = rcp_c(nl + 1e-10), inv = rcp_c(vl + 1e-10);
+    precise float Ny = n.y * inn, Nz = n.z * inn, Nx = n.x * inn;
+    precise float Vy = vy * inv, Vx = vx * inv, Vz = vz * inv;
+    float h = hit_at(X);
+    float hm = isnan(h) ? 1e7 : min(h, 1e7);
+    float hd = hm > 0.0 ? hm : 1e7;
+    precise float t = fma(Nz, Vz, fma(Nx, Vx, Ny * Vy));
+    t = t + t;
+    precise float Ry = fma(-Ny, t, Vy), Rx = fma(-Nx, t, Vx), Rz = fma(-Nz, t, Vz);
+    precise float Hy = hd * Ry, Hx = hd * Rx, Hz = hd * Rz;
+    precise float dn = fma(Nz, Hz, fma(Nx, Hx, Ny * Hy));
+    if (dn < 0.0) { Nx = -Nx; Ny = -Ny; Nz = -Nz; dn = -dn; }
+    precise float k = fma(Nz, Ny, fma(Nz, Nx, -(Ny * Nx)));
+    precise float idn = rcp_c(isnan(dn) ? 1e-5 : max(dn, 1e-5));
+    precise float ta = fma(k, -Ny, -Nx), tb = fma(k, -Nx, Nz), tc = fma(k, -Nz, Ny);
+    precise float r40 = rcp_c(-idn);
+    precise float tl = rcp_c(sqrt_c(fma(tc, tc, fma(tb, tb, ta * ta))) + 1e-10);
+    tc = tc * tl; tb = tb * tl; ta = ta * tl;
+    precise float u = fma(Hz, tc, fma(Hx, tb, Hy * ta));
+    precise float s = idn * r40;
+    precise float v = fma(Hz, fma(ta, Nx, -(tb * Ny)), fma(Hx, fma(tc, Ny, -(ta * Nz)), Hy * fma(tb, Nz, -(tc * Nx))));
+    u = u * s; v = v * s;
+    precise float dist = sqrt_c(fma(r40, r40, fma(u, u, v * v)));
+    precise float qy = fma(Vy, dist, py), qx = fma(Vx, dist, px), qz = fma(Vz, dist, pz);
+    precise float cw = fma(qz, C(0x550), fma(qx, C(0x530), qy * C(0x540))) + C(0x560);
+    precise float cy = fma(qz, C(0x544), fma(qx, C(0x524), qy * C(0x534))) + C(0x554);
+    precise float cz = fma(qz, C(0x548), fma(qx, C(0x528), qy * C(0x538))) + C(0x558);
+    bool ok = abs(cw) > 1e-5;
+    precise float iw = rcp_c(ok ? cw : 1.0);
+    precise float sx = (ok ? cy * iw : 0.0) - fx, sy = (ok ? cz * iw : 0.0) - fy;
+    precise float ox = clamp_nan(sx, 256.0) * C(0x300), oy = clamp_nan(sy, 256.0) * C(0x304);
+    return vec2(ox, oy);
+}
+
+layout(buffer_reference, scalar, buffer_reference_align = 16) buffer U32x4View { uvec4 v[]; };
+// the 48 attributes of the pixel are built in registers and written as 6 x 16 bytes at the end
+float16_t A[48];
+#define put(base, k, v) A[k] = float16_t(v)
+
+#if defined(ENC_F32) && ENC_F32
+// fast variant: the record is the dithered attributes enc0 reads (onr_block_w1.glsl, ENC_EMBED), one per pixel of
+// the padded grid (pixels past the image: the mirrored pixel's attributes with their own noise). After the dither an
+// attribute keeps its top 9 bits: per lane half h (attributes 8 h + 16 j + i, j < 3, i < 8) 24 high bytes in dwords
+// 2 j, 2 j + 1, and bit 7 of the pair (2 k, 2 k + 1) of block j at bits 4 j + k and 16 + 4 j + k of a plane dword
+#define ATTR64 1
+#endif
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    int W = pc.pad.x;
+    if (gid >= uint(W * pc.pad.y)) return;
+    ivec2 X = ivec2(int(gid) % W, int(gid) / W);
+    float expo = pc.expo.v[0];
+    // DFN image: exposed colour, NaN -> 0, at most 65504; padded rows mirror at the image height
+    ivec2 S = ivec2(X.x < pc.size.x ? X.x : 2 * pc.size.x - 2 - X.x, X.y < pc.size.y ? X.y : 2 * pc.size.y - 2 - X.y);
+    {
+        uint o = gid * 4u;
+        vec3 cs = col_at(S);
+        [[unroll]] for (uint c = 0u; c < 3u; ++c) {
+            precise float e = expo * cs[c];
+            AT32(F16Buf, pc.dfn, o, 2u).v[c] = float16_t(clamp(min(no_nan(e), 65504.0), -65504.0, 65504.0));
+        }
+        AT32(F16Buf, pc.dfn, o, 2u).v[3] = 0.0hf;
+    }
+#ifdef ATTR64
+    const bool side = X == S;   // the motion surfaces are written by the image's own pixels
+    const uint noise = uint(pc.lut.v[pc.frame8 * 256u + uint((X.y & 15) * 16 + (X.x & 15))]) >> 9;
+    X = S;
+#else
+    const bool side = true;
+    if (X.x >= pc.size.x || X.y >= pc.size.y) return;
+#endif
+
+    precise float rexp = rcp_c(pc.expo.v[1]);
+    float explog = pc.expo.v[3];
+    // 3x3 depth extremes: centre first, then row by row, strict comparisons
+    float a0 = abs(depth_at(X)), mx = a0, mn = a0;
+    ivec2 pmx = X, pmn = X;
+    for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            ivec2 q = clampi(X + ivec2(dx, dy), pc.size);
+            float s = abs(depth_at(q));
+            bool lo = !(s >= mn);
+            bool hi = !lo && s > mx;
+            if (lo) { mn = s; pmn = q; }
+            if (hi) { mx = s; pmx = q; }
+        }
+    vec2 mv_c = mv_at(X), mv_far = mv_at(pmx), mv_near = mv_at(pmn);
+    vec3 nrm = nrm_at(X);
+    float rough = rough_at(X);
+    // the reflection's motion: GBuffer.SpecularMvec when given (scaled as the motion vectors), otherwise derived from the
+    // hit distance, or the pixel's own vector without one (rr2_enc0 slots 208 / 272)
+    vec2 refl;
+    const uint64_t smv = opt_addr(OPT_SMV);
+    if (smv != 0ul) {
+        vec2 m = vec2(AT32(F16x2Buf, smv, pix(X), 4u).v[0]);
+        precise float x = (m.x + C(0x328)) * C(0x320), y = (m.y + C(0x32c)) * C(0x324);
+        refl = vec2(x, y);
+    } else if ((opt_flags() & OPTF_NO_HIT) != 0u) {
+        refl = mv_c;
+    } else {
+        refl = reflection_mv(X, nrm);
+    }
+    uint pi = pix(X);
+    if (side) {
+        AT32(F16Buf, pc.pmv2, pi, 8u).v[0] = float16_t(mv_near.x); AT32(F16Buf, pc.pmv2, pi, 8u).v[1] = float16_t(mv_near.y);
+        AT32(F16Buf, pc.pmv2, pi, 8u).v[2] = float16_t(refl.x); AT32(F16Buf, pc.pmv2, pi, 8u).v[3] = float16_t(refl.y);
+        AT32(F16Buf, pc.ero, pi, 4u).v[0] = float16_t(mv_far.x); AT32(F16Buf, pc.ero, pi, 4u).v[1] = float16_t(mv_far.y);
+        AT32(F16Buf, pc.nond, pi, 4u).v[0] = float16_t(mv_c.x); AT32(F16Buf, pc.nond, pi, 4u).v[1] = float16_t(mv_c.y);
+    }
+
+    // motion consistency against the previous frame's vectors
+    precise float fx = float(X.x) + 0.5, fy = float(X.y) + 0.5;
+    float jx = C(0x2f0), jy = C(0x2f4);
+    precise float bx = (fx - jx) + C(0x2e8), by = (fy - jy) + C(0x2ec);
+    float s8 = C(0x2f8), s9 = C(0x2fc);
+    precise float ea0 = mv_near.x * s8, ea1 = mv_near.y * s9, r0 = refl.x * s8, r1 = refl.y * s9;
+    precise float ua = (ea0 + bx) * C(0x308), va = (ea1 + by) * C(0x30c);
+    precise float ur = (bx + r0) * C(0x308), vr0 = (by + r1) * C(0x30c);
+    vec4 pma = bl_pm1(ua, va), pmr = bl_pm1(ur, vr0);
+    float sc = C(0x39c), g = C(0x590);
+    precise float d0 = clamp_nan(fma(-pma.x, s8, ea0) * g, 1000.0) * sc;
+    precise float d1 = clamp_nan(fma(-pma.y, s9, ea1) * g, 1000.0) * sc;
+    precise float d2 = clamp_nan(fma(-pmr.z, s8, r0) * g, 1000.0) * sc;
+    precise float d3 = clamp_nan(fma(-pmr.w, s9, r1) * g, 1000.0) * sc;
+    precise float m1 = fma(d0, d0, d1 * d1), m2 = fma(d2, d2, d3 * d3);
+    precise float l1 = m1 > 0.0 ? sqrt_c(m1) + 1.0 : 1.0, l2 = m2 > 0.0 ? sqrt_c(m2) + 1.0 : 1.0;
+    // the disocclusion mask's red channel goes into both logs (0 without one: l + 0 is l)
+    float dm = uint64_t(pc.disocc) != 0ul ? AT32(F32Buf, pc.disocc, pix(X), 4u).v[0] : 0.0;
+    precise float lm1 = dm + l1, lm2 = dm + l2;
+    precise float mvlog = (log2(lm1) * 0.69314718246459960938) * C(0x3a0);
+    precise float rflog = (log2(lm2) * 0.69314718246459960938) * C(0x3a0);
+
+    vec3 col = col_at(X);
+    uint base = pi * 48u;
+    [[unroll]] for (uint c = 0u; c < 3u; ++c) { precise float e = expo * col[c]; put(base, c, enc_log(min(no_nan(e), 65504.0))); }
+
+    // reprojected history: dilated (3), non-dilated (6), the same on DownsampledHistory2 (9), eroded (12), reflection (35)
+    precise float ox = fx - jx, oy = fy - jy;
+    float hs0 = C(0x300), hs1 = C(0x304);
+    vec2 mvs[4] = vec2[4](mv_near, mv_c, mv_far, refl);
+    uint dst[4] = uint[4](3u, 6u, 12u, 35u);
+    float hxd = 0.0, hyd = 0.0, hxr = 0.0, hyr = 0.0;
+    bool vd = false, vr = false;
+    [[unroll]] for (int k = 0; k < 4; ++k) {
+        precise float hxp = fma(ox, hs0, mvs[k].x), hyp = fma(oy, hs1, mvs[k].y);
+        bool valid = inside(hxp, hyp) && !hist_disabled();
+        precise float u = hxp * C(0x358), v = hyp * C(0x35c);
+        vec4 h = bl_10(pc.ds, pc.ds_size, u, v);
+        [[unroll]] for (uint c = 0u; c < 3u; ++c) {
+            float y = valid ? decode_hist(h[c], rexp) : col[c];
+            precise float e = enc_log(expo * y) * C(0x3a4);
+            put(base, dst[k] + c, min(no_nan(e), 1024.0));
+        }
+        if (k == 1) {
+            precise float u2 = (u * float(CI(0x350))) * C(0x360), v2 = (v * float(CI(0x354))) * C(0x364);
+            vec4 h2 = bl_10(pc.ds2, pc.ds2_size, u2, v2);
+            [[unroll]] for (uint c = 0u; c < 3u; ++c) {
+                float y = valid ? decode_hist(h2[c], rexp) : col[c];
+                precise float e = enc_log(expo * y) * C(0x3a4);
+                put(base, 9u + c, min(no_nan(e), 1024.0));
+            }
+        }
+        if (k == 0) { hxd = hxp; hyd = hyp; vd = valid; }
+        if (k == 3) { hxr = hxp; hyr = hyp; vr = valid; }
+    }
+    // recurrent hidden state at the dilated (26) and reflection (39) reprojections
+    [[unroll]] for (int k = 0; k < 2; ++k) {
+        float hx = k == 0 ? hxd : hxr, hy = k == 0 ? hyd : hyr;
+        precise float uh = fma(hx, C(0x310), C(0x318)), vh = fma(hy, C(0x314), C(0x31c));
+        vec4 hs = bl_hid(uh, vh);
+        bool valid = k == 0 ? vd : vr;
+        [[unroll]] for (uint c = 0u; c < 4u; ++c) {
+            precise float a = (valid ? hs[c] : 0.0) * C(0x3a8);
+            put(base, (k == 0 ? 26u : 39u) + c, a);
+        }
+    }
+    // albedo, normals, roughness (zeroed where both albedos are 0), motion logs, exposure, unused guides
+    uvec3 ab = alb_at(X), sb = spec_at(X);
+    vec3 ad = vec3(AT32(F32Buf, pc.tab, 1280u + ab.x, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + ab.y, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + ab.z, 4u).v[0]);
+    vec3 as = vec3(AT32(F32Buf, pc.tab, 1280u + sb.x, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + sb.y, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + sb.z, 4u).v[0]);
+    precise float zs = ((ad.y + as.y) + (ad.x + as.x)) + (ad.z + as.z);
+    bool zero = zs == 0.0;
+    [[unroll]] for (uint c = 0u; c < 3u; ++c) { put(base, 15u + c, min(ad[c], 2.0)); put(base, 18u + c, min(as[c], 2.0)); }
+    put(base, 21u, min(zero ? 0.0 : nrm.x, 2.0));
+    put(base, 22u, min(zero ? 0.0 : nrm.y, 2.0));
+    put(base, 23u, min(zero ? 0.0 : nrm.z, 2.0));
+    put(base, 24u, min(zero ? 0.0 : rough, 2.0));
+    put(base, 25u, hist_disabled() ? 0.0 : min(mvlog, 1000.0));
+    put(base, 38u, hist_disabled() ? 0.0 : min(rflog, 1000.0));
+    [[unroll]] for (uint k = 30u; k < 34u; ++k) put(base, k, 0.0);
+    // 31: the SSS guide, exposed, as a signed log clamped to +-8 (NaN 0)
+    if (uint64_t(pc.sss) != 0ul) {
+        precise float v = expo * AT32(F32Buf, pc.sss, pix(X), 4u).v[0];
+        precise float s = (log2(fma(abs(v), 100.0, 1.0)) * 0.30103000998497009277) * (v >= 0.0 ? 0.36000001430511474609 : -0.36000001430511474609);
+        put(base, 31u, isnan(s) ? 0.0 : clamp(s, -8.0, 8.0));
+    }
+    // 30: the luma of the exposed colour (as attributes 0..2 take it) less the exposed ColorBeforeTransparency
+    const uint64_t cbt = opt_addr(OPT_CBT), dof = opt_addr(OPT_DOF), resp = opt_addr(OPT_RESP);
+    if (cbt != 0ul) {
+        F16Buf t = AT32(F16Buf, cbt, pix(X), 8u);
+        vec3 d;
+        [[unroll]] for (uint c = 0u; c < 3u; ++c) {
+            precise float e = expo * col[c], v = expo * float(t.v[c]);
+            d[c] = min(no_nan(e), 65504.0) - v;
+        }
+        precise float l = fma(d.z, 0.25, fma(d.x, 0.25, d.y * 0.5));
+        put(base, 30u, signed_log(l));
+    }
+    // 32: DLSSD.DepthOfFieldGuide, exposed, as the SSS guide
+    if (dof != 0ul) {
+        precise float v = expo * AT32(F32Buf, dof, pix(X), 4u).v[0];
+        put(base, 32u, signed_log(v));
+    }
+    // 33: DLSSD.ResponsivityMask, x * p588 + p592, NaN 0, clamped to +-8 (without the mask p592, 0)
+    if (resp != 0ul) {
+        float r = fma(AT32(F32Buf, resp, pix(X), 4u).v[0], C(0x3ac), C(0x3b0));
+        put(base, 33u, isnan(r) ? 0.0 : clamp(r, -8.0, 8.0));
+    }
+    put(base, 34u, explog);
+    [[unroll]] for (uint k = 43u; k < 48u; ++k) put(base, k, 0.0);
+    U32x4View o = U32x4View(uint64_t(pc.attr));
+#ifdef ATTR64
+    // the dither of enc0 (DITH in onr_block_w1.glsl), two attributes per word
+    uint nn = noise | noise << 16, hb[12], pl[2] = uint[2](0u, 0u), dprev = 0u;
+    [[unroll]] for (uint q = 0u; q < 24u; ++q) {
+        uint w = packFloat2x16(f16vec2(A[2u * q], A[2u * q + 1u])), m = w & 0xfc00fc00u;
+        precise f16vec2 tt = unpackFloat2x16(w) + unpackFloat2x16(m | nn);
+        precise f16vec2 r = tt - unpackFloat2x16(m);
+        uint d = packFloat2x16(r);
+        // attributes 2 q, 2 q + 1: half h = (q >> 2) & 1, block j = q >> 3, pair k = q & 3
+        uint h = (q >> 2) & 1u, j = q >> 3, k = q & 3u;
+        uint di = 6u * h + 2u * j + (k >> 1);
+        // the high bytes of a pair of words (bytes 1, 3 of each): one v_perm_b32
+        if ((k & 1u) == 0u) dprev = d;
+        else { u8vec4 a_ = unpack8(dprev), b_ = unpack8(d); hb[di] = pack32(u8vec4(a_.y, a_.w, b_.y, b_.w)); }
+        pl[h] |= (((d >> 7) & 1u) << (4u * j + k)) | (((d >> 23) & 1u) << (16u + 4u * j + k));
+    }
+#ifdef ATTR_WIDE
+    // 64 bytes (a depth of field guide or a responsivity mask: attributes 32 and 33 not zero), the lane half's 32 bytes
+    o.v[gid * 4u] = uvec4(hb[0], hb[1], hb[2], hb[3]);
+    o.v[gid * 4u + 1u] = uvec4(hb[4], hb[5], pl[0], 0u);
+    o.v[gid * 4u + 2u] = uvec4(hb[6], hb[7], hb[8], hb[9]);
+    o.v[gid * 4u + 3u] = uvec4(hb[10], hb[11], pl[1], 0u);
+#else
+    // 48 bytes: attributes 32, 33, 43..47 are zero (so is a zero after the dither), hb[11] is dropped and the plane
+    // dword of half 1 (bits 0..11, 16..24 used) goes into the zero bits of hb[4] and hb[10]
+    o.v[gid * 3u] = uvec4(hb[0], hb[1], hb[2], hb[3]);
+    o.v[gid * 3u + 1u] = uvec4(hb[6], hb[7], hb[8], hb[9]);
+    o.v[gid * 3u + 2u] = uvec4(hb[4] | (pl[1] & 0xfffu) | (((pl[1] >> 24) & 1u) << 12), hb[5], pl[0], hb[10] | (((pl[1] >> 16) & 0xffu) << 24));
+#endif
+#else
+    [[unroll]] for (uint q = 0u; q < 6u; ++q)
+        o.v[pi * 6u + q] = uvec4(packFloat2x16(f16vec2(A[8u * q], A[8u * q + 1u])), packFloat2x16(f16vec2(A[8u * q + 2u], A[8u * q + 3u])),
+                                 packFloat2x16(f16vec2(A[8u * q + 4u], A[8u * q + 5u])), packFloat2x16(f16vec2(A[8u * q + 6u], A[8u * q + 7u])));
+#endif
+}

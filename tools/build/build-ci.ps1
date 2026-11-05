@@ -1,4 +1,4 @@
-# Run independent host compilation and CI suites concurrently on one runner.
+﻿# Run independent host compilation and CI suites concurrently on one runner.
 # The parent returns success only after both workers have completed successfully.
 [CmdletBinding()]
 param([ValidateSet('all', 'host', 'tests')][string]$Worker = 'all', [switch]$FullRegression)
@@ -19,6 +19,8 @@ if ($Worker -eq 'host') {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if (!(Test-Path -LiteralPath "$out/OptiScaler.dll")) { throw 'Host DLL was not produced' }
     cmd /d /c tools\build\build-person-worker.cmd "$out/person-model"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    cmd /d /c tools\build\build-openrr-runtime.cmd
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     exit 0
 }

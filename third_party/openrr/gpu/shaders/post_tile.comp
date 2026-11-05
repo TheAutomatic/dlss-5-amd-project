@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: MIT
+// rr2_post, prologue: per network pixel the fp16 values the splat reads (the reference kernel builds the
+// same thing per CTA in shared memory). 12 halves per pixel:
+//   0..3  enc(DFN.rgb), ajab.x     4..7  ajab.y, ajab.z, 0, aniso.x * -1/(2 ln 2)
+//   8..9  aniso.y * -1/(2 ln 2), aniso.z * -1/ln 2
+// The runtime writes the tile from the dec0_1 head instead (onr_block_fast.glsl); this kernel stays for the
+// harness cases that start from captured head outputs.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#include "onr_post.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant, scalar) uniform P {
+    F16Buf dfn;          // rgba16f, row pitch dfn_stride
+    U8Buf ajab;          // unorm8x4
+    F16Buf aniso;        // rgba16f
+    F16Buf tile;         // 12 halves per pixel
+    ivec2 lr_size;
+    int dfn_stride;
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.lr_size.x || p.y >= pc.lr_size.y) return;
+    uint di = uint(p.y * pc.dfn_stride + p.x) * 4u;
+    uint li = uint(p.y * pc.lr_size.x + p.x);
+    vec3 enc = post_encode(vec3(pc.dfn.v[di], pc.dfn.v[di + 1u], pc.dfn.v[di + 2u]));
+    float16_t t[12];
+    t[0] = float16_t(enc.x); t[1] = float16_t(enc.y); t[2] = float16_t(enc.z);
+    t[3] = unorm8_half(uint(pc.ajab.v[li * 4u]));
+    t[4] = unorm8_half(uint(pc.ajab.v[li * 4u + 1u]));
+    t[5] = unorm8_half(uint(pc.ajab.v[li * 4u + 2u]));
+    t[6] = 0.0hf;
+    precise float a0 = float(pc.aniso.v[li * 4u]) * fbits(0xbf38a8c1u);
+    precise float a1 = float(pc.aniso.v[li * 4u + 1u]) * fbits(0xbf38a8c1u);
+    precise float a2 = float(pc.aniso.v[li * 4u + 2u]) * fbits(0xbfb8a8c1u);
+    t[7] = float16_t(a0); t[8] = float16_t(a1); t[9] = float16_t(a2);
+    t[10] = 0.0hf; t[11] = 0.0hf;
+    for (uint i = 0u; i < 12u; ++i) pc.tile.v[li * 12u + i] = t[i];
+}

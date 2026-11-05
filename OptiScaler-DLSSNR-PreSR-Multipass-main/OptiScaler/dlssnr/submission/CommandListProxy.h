@@ -61,6 +61,7 @@ IRecordingResources : public IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE ObserveResources(std::shared_ptr<RecordingObserver> observer) = 0;
     virtual bool STDMETHODCALLTYPE InContinuation() = 0;
+    virtual bool STDMETHODCALLTYPE CanRecordOwnedCompute() = 0;
     virtual bool STDMETHODCALLTYPE CanAppendCompute() = 0;
     // Which of CanAppendCompute's conditions failed; only meaningful after it returned false.
     virtual const char* STDMETHODCALLTYPE AppendComputeRejection() = 0;
@@ -222,9 +223,13 @@ class CommandListProxy final : public ID3D12GraphicsCommandList10, public ILogic
             return S_OK;
         } catch (...) { return E_OUTOFMEMORY; }
     }
+    bool STDMETHODCALLTYPE CanRecordOwnedCompute() override
+    {
+        return !rawInterfaceEscaped && !presentCommandsUsed && !renderPassActive;
+    }
     bool STDMETHODCALLTYPE CanAppendCompute() override
     {
-        return !rawInterfaceEscaped && !presentCommandsUsed && !renderPassActive && !enhancedBarriersSeen;
+        return CanRecordOwnedCompute() && !enhancedBarriersSeen;
     }
     const char* STDMETHODCALLTYPE AppendComputeRejection() override
     {

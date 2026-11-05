@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MIT
+// rr2_decN_kernel_0: up from 96 channels + scaled skip, block C = 64, X = 64 (k8 path) (see include/onr_block.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 64
+#define ENC_X 64
+#define ENC_K8 1
+#define DEC_UP 1
+#define ENC_CP 96
+#include "onr_block.glsl"

@@ -21,6 +21,7 @@ struct InstallProbe
     bool hasLmxxf = false;
     bool hasMochizukiRuntime = false;
     bool hasAsiPlugin = false;
+    bool hasOpenRr = false;
     bool valid = false;
     unsigned long long tick = 0;
     std::string issues[3];
@@ -46,6 +47,9 @@ void RefreshProbeLocked(InstallProbe& p)
     p.hasLmxxf = std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
     p.hasMochizukiRuntime = std::filesystem::exists(dir / L"MochizukiNrRuntime.dll", ec);
     p.hasAsiPlugin = HasAsiPlugin(dir);
+    p.hasOpenRr = std::filesystem::exists(dir / L"OpenNrRrRuntime.dll", ec) &&
+                  (std::filesystem::exists(dir / L"opennr-rr" / L"nvngx_dlssd.dll", ec) ||
+                   std::filesystem::exists(dir / L"nvngx_dlssd.dll", ec));
     p.valid = true;
     p.tick = GetTickCount64();
 }
@@ -159,6 +163,13 @@ bool DanielGraphicsHooksWanted()
     return wanted;
 }
 
+bool HasOpenRrInstalled()
+{
+    std::lock_guard lock(g_probe.mu);
+    EnsureProbe(g_probe);
+    return g_probe.hasOpenRr;
+}
+
 bool ProxyWrapWanted()
 {
     // RR owns recorded depth/debug targets and postprocessing even with NR off,
@@ -166,10 +177,17 @@ bool ProxyWrapWanted()
     // command-list lifetime independently of the selected neural backend.
     if (Config::Instance()->FsrRrEnabled.value_or_default())
         return true;
+    const bool openRrVulkanWanted =
+        Config::Instance()->OpenNrRrEnabled.value_or_default() && HasOpenRrInstalled() &&
+        _stricmp(Config::Instance()->OpenNrRrBackend.value_or_default().c_str(), "vulkan") == 0;
+    if (openRrVulkanWanted)
+        return true;
     // When dlssnr-amd.asi owns NR for this session, the built-in NR engine is
     // disabled and the ASI hooks D3D12 command lists, queues and swapchains itself.
     if (DlssNr::AsiTakeover::Active())
         return false;
+    if (Config::Instance()->OpenNrRrEnabled.value_or_default() && HasOpenRrInstalled())
+        return true;
     // Common effects need recording lifetime callbacks even with a single backend.
     // This requests only the proxy; it never instantiates the inactive backend.
     if (!Config::Instance()->DlssNrRunBeforeSr.value_or_default() ||

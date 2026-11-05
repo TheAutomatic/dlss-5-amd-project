@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+// rr2_enc0 kernel, second half: dithered attribute tokens, embed MLP, block C = 32 (k8 path), DFN head and the enc0
+// DFN pooling; no PooledOutput (see include/onr_block.glsl and enc0_attr.comp).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 32
+#define ENC_X 64
+#define ENC_K8 1
+#define ENC_STAGE 1
+#define ENC_CO 0
+#define ENC_EMBED 1
+#include "onr_block.glsl"

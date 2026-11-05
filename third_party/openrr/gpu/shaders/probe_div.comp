@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT
+// Probe: s / 255 for every s < 2^24, by the fp32 routine and by an fp64 division.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#include "onr_filter.glsl"
+layout(local_size_x = 256) in;
+layout(push_constant, scalar) uniform P { U32Buf a; U32Buf b; } pc;
+
+void main() {
+    int s = int(gl_GlobalInvocationID.x);
+    pc.a.v[s] = floatBitsToUint(div255_rn(s));
+    pc.b.v[s] = floatBitsToUint(float(double(s) / 255.0lf));
+}

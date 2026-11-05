@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: MIT
+// rr2 auto exposure, pass 1: per 16x16 block an fp32 tree sum of clamp(0.25R+0.5G+0.25B, 0, 1e4),
+// scaled to fixed point and added to a u64 (order independent, so deterministic).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#extension GL_EXT_shader_atomic_int64 : require
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant, scalar) uniform P {
+    F16Buf color;        // rgba16f, size.x * size.y
+    U64Buf acc;          // [0] = fixed-point sum, low word of [1] = finished blocks
+    ivec2 size;
+    ivec2 origin;
+    ivec2 maxv;          // inclusive limits of the block-local coordinate
+} pc;
+
+shared float s[256];
+
+void main() {
+    uint t = gl_LocalInvocationIndex;
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    float l = 0.0;
+    if (xy.x <= pc.maxv.x && xy.y <= pc.maxv.y) {
+        ivec2 p = min(pc.origin + xy, pc.size - 1);
+        uint i = uint(p.y * pc.size.x + p.x) * 4u;
+        precise float g = float(pc.color.v[i + 1u]) * 0.5;
+        precise float a = fma(float(pc.color.v[i]), 0.25, g);
+        precise float b = fma(float(pc.color.v[i + 2u]), 0.25, a);
+        l = min(max(b, 0.0), 10000.0);
+    }
+    s[t] = l;
+    barrier();
+    for (uint n = 128u; n > 0u; n >>= 1) {
+        if (t < n) {
+            precise float v = s[t] + s[t + n];
+            s[t] = v;
+        }
+        barrier();
+    }
+    if (t == 0u) {
+        precise float v = s[0] * fbits(0x48d1b717u);     // 2^32 / 1e4
+        atomicAdd(pc.acc.v[0], uint64_t(roundEven(v)));
+        atomicAdd(pc.acc.v[1], uint64_t(1));
+    }
+}

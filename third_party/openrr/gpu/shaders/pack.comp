@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: MIT
+// rgba16f image (tight) into the placed footprint the game's output texture is copied from, in that texture's
+// format. A source of another size is scaled bilinearly (the colour while the network is not ready).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#include "onr_texel.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+
+#ifdef D3D_UAV
+// d3d_pack (D3D12 path): fmt with bit 8 writes the game's output texture itself (descriptor 16 of set 0), at the
+// origin pitch & 65535, pitch >> 16; only for an rgba16f output, whose store keeps the bits
+layout(set = 0, binding = 1) uniform writeonly image2D outs[2];
+#endif
+
+layout(push_constant, scalar) uniform P {
+    F16x4Buf src;
+    U32Buf dst;
+    ivec2 src_size, dst_size;
+    uint pitch, fmt;
+} pc;
+
+vec4 at(ivec2 q) { q = clamp(q, ivec2(0), pc.src_size - 1); return vec4(pc.src.v[uint(q.y * pc.src_size.x + q.x)]); }
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.dst_size.x || p.y >= pc.dst_size.y) return;
+    vec4 c;
+    if (pc.src_size == pc.dst_size) c = at(p);
+    else {
+        vec2 s = (vec2(p) + 0.5) * vec2(pc.src_size) / vec2(pc.dst_size) - 0.5;
+        ivec2 q = ivec2(floor(s));
+        vec2 f = s - vec2(q);
+        c = mix(mix(at(q), at(q + ivec2(1, 0)), f.x), mix(at(q + ivec2(0, 1)), at(q + ivec2(1, 1)), f.x), f.y);
+    }
+#ifdef D3D_UAV
+    if ((pc.fmt & 256u) != 0u) {
+        imageStore(outs[0], p + ivec2(pc.pitch & 65535u, pc.pitch >> 16), c);
+        return;
+    }
+#endif
+    tf_write(pc.dst, pc.pitch, pc.fmt, p, c);
+}

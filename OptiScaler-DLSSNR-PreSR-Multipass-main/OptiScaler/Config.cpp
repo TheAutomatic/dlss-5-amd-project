@@ -459,6 +459,20 @@ bool Config::Reload(std::filesystem::path iniPath)
 
         // XeSS
         {
+            OpenNrRrEnabled.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrEnabled));
+            OpenNrRrBackend.set_from_config(readString(CfgKey::kOpenNrRrSection, CfgKey::OnrRrBackend, true));
+            OpenNrRrVkInputLayout.set_from_config(readString(CfgKey::kOpenNrRrSection, CfgKey::OnrRrVkInputLayout, true));
+            OpenNrRrUseDisocclusionMask.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseDisocclusionMask));
+            OpenNrRrUseSssGuide.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseSssGuide));
+            OpenNrRrInvertDisocclusionMask.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrInvertDisocclusionMask));
+            OpenNrRrClampDisocclusionMask.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrClampDisocclusionMask));
+            OpenNrRrDisocclusionMaskScale.set_from_config(readFloat(CfgKey::kOpenNrRrSection, CfgKey::OnrRrDisocclusionMaskScale));
+            OpenNrRrUseResponsivityMask.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseResponsivityMask));
+            OpenNrRrUseColorBeforeTransparency.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseColorBeforeTransparency));
+            OpenNrRrUseDepthOfFieldGuide.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseDepthOfFieldGuide));
+            OpenNrRrUseReflectionMotionVectors.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseReflectionMotionVectors));
+            OpenNrRrUseLayerOpacityAndMotion.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseLayerOpacityAndMotion));
+
             BuildPipelines.set_from_config(readBool("XeSS", "BuildPipelines"));
             NetworkModel.set_from_config(readInt("XeSS", "NetworkModel"));
             CreateHeaps.set_from_config(readBool("XeSS", "CreateHeaps"));
@@ -2065,6 +2079,32 @@ bool Config::SaveIni()
         retire("FloorGrazingSharpness");
         retire("FloorEnvelopeBias");
         retire("FloorSoftMin");
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrEnabled,
+                     GetBoolValue(Instance()->OpenNrRrEnabled.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrBackend,
+                     Instance()->OpenNrRrBackend.value_for_config_or("auto").c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrVkInputLayout,
+                     Instance()->OpenNrRrVkInputLayout.value_for_config_or("auto").c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseDisocclusionMask,
+                     GetBoolValue(Instance()->OpenNrRrUseDisocclusionMask.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseSssGuide,
+                     GetBoolValue(Instance()->OpenNrRrUseSssGuide.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrInvertDisocclusionMask,
+                     GetBoolValue(Instance()->OpenNrRrInvertDisocclusionMask.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrClampDisocclusionMask,
+                     GetBoolValue(Instance()->OpenNrRrClampDisocclusionMask.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrDisocclusionMaskScale,
+                     GetFloatValue(Instance()->OpenNrRrDisocclusionMaskScale.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseResponsivityMask,
+                     GetBoolValue(Instance()->OpenNrRrUseResponsivityMask.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseColorBeforeTransparency,
+                     GetBoolValue(Instance()->OpenNrRrUseColorBeforeTransparency.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseDepthOfFieldGuide,
+                     GetBoolValue(Instance()->OpenNrRrUseDepthOfFieldGuide.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseReflectionMotionVectors,
+                     GetBoolValue(Instance()->OpenNrRrUseReflectionMotionVectors.value_for_config()).c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseLayerOpacityAndMotion,
+                     GetBoolValue(Instance()->OpenNrRrUseLayerOpacityAndMotion.value_for_config()).c_str());
     }
 
     // XeSS

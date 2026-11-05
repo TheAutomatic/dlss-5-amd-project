@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: MIT
+// rr2_decN_kernel_1: block C = 64, X = 64 (k8 path) and the decoder DFN head (see include/onr_block.glsl).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+#define ENC_C 64
+#define ENC_X 64
+#define ENC_K8 1
+#define DEC_DFN 1
+#include "onr_block.glsl"

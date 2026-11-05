@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: MIT
+// rr2_pooled_history2: 2x2 mean of the log-encoded history (R10G10B10A2) in linear space.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant, scalar) uniform P {
+    U32Buf src;          // DownsampledHistory words, row pitch = in_size.x
+    U32Buf dst;          // DownsampledHistory2 words, row pitch = out_size.x
+    ivec2 in_size;
+    ivec2 out_size;
+} pc;
+
+vec3 decode(uvec3 c) {
+    vec3 r;
+    for (int i = 0; i < 3; ++i) {
+        precise float x = unorm10_value(c[i]) * fbits(0x401ccccdu);      // * 2.45
+        x = x >= 3.0 ? 3.0 : x;
+        x = x <= fbits(0x38d1b717u) ? fbits(0x38d1b717u) : x;            // 1e-4
+        precise float t = x * fbits(0x4031c71cu);                         // * 1/0.36
+        precise float e = exp2(t * fbits(0x40549a78u));                   // lg2(10)
+        precise float y = (e - 1.0) * fbits(0x3c23d70au);                 // * 1/100
+        r[i] = y;
+    }
+    return r;
+}
+
+vec3 encode(vec3 y) {
+    vec3 r;
+    for (int i = 0; i < 3; ++i) {
+        precise float a = y[i] * 100.0;
+        precise float t = max(a + 1.0, fbits(0x38d1b717u));
+        precise float l = log2(t);
+        precise float v = ((l * fbits(0x3e9a209au)) * fbits(0x3eb851ecu)) * fbits(0x3ed0fac7u);
+        r[i] = v;
+    }
+    return r;
+}
+
+void main() {
+    ivec2 o = ivec2(gl_GlobalInvocationID.xy);
+    if (o.x >= pc.out_size.x || o.y >= pc.out_size.y) return;
+    precise vec3 acc = vec3(0.0);
+    float n = 0.0;
+    for (int dy = 0; dy < 2; ++dy)
+        for (int dx = 0; dx < 2; ++dx) {
+            ivec2 s = 2 * o + ivec2(dx, dy);
+            if (s.x >= pc.in_size.x || s.y >= pc.in_size.y) continue;
+            uint w = pc.src.v[s.y * pc.in_size.x + s.x];
+            acc += decode(uvec3(w & 1023u, (w >> 10) & 1023u, (w >> 20) & 1023u));
+            n += 1.0;
+        }
+    precise vec3 m = acc * rcp_rn(n);
+    pc.dst.v[o.y * pc.out_size.x + o.x] = pack1010102(encode(m));
+}

@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: MIT
+// rr2_downsample (3:2, static, HDR, no transparency): one OutputHistRes slice (log-encoded half RGB at
+// internal resolution) -> linear rgba16f output. Separable 5-tap fp16 filter with per-pass clamp to the
+// taps' min/max, log decode, divide by exposure, store rounded toward zero.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "onr_common.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+#ifdef D3D_UAV
+// d3d_downsample (D3D12 path): the rgba16f output texture itself (descriptor 16 of set 0), dst = origin x | y << 16;
+// the store keeps the bits
+layout(set = 0, binding = 1) uniform writeonly image2D outs[2];
+#endif
+
+layout(push_constant, scalar) uniform P {
+    F16Buf rg;           // slice, 2 halves per pixel, row pitch = slice.x
+    F16Buf b;            // slice, 1 half per pixel
+    F16Buf dst;          // rgba16f, out_size.x per row
+    F32Buf exposure;     // [0] = exposure
+    ivec2 in_size;       // internal resolution
+    ivec2 out_size;
+    ivec2 out_origin;    // first output pixel of this slice
+    ivec2 out_end;       // exclusive
+    ivec2 slice;         // row pitch, rows
+    ivec2 slice_x;       // slice columns [x0, x1) in internal coordinates
+} pc;
+
+const uint W_ODD[5] = uint[5](0xa8e7u, 0x35f4u, 0x38f6u, 0x2d96u, 0xa94bu);
+
+f16vec3 texel(int x, int y, int lo, int hi) {
+    if (x < lo || x >= hi) return f16vec3(0.0hf);
+    uint i = uint(y * pc.slice.x + (x - lo));
+    return f16vec3(pc.rg.v[2u * i], pc.rg.v[2u * i + 1u], pc.b.v[i]);
+}
+
+float16_t wt(int k, int parity) { return hbits(W_ODD[parity == 1 ? k : 4 - k]); }
+
+f16vec3 hpass(int row, int cx, int px, int lo, int hi) {
+    precise f16vec3 acc = f16vec3(0.0hf);
+    f16vec3 mn, mx;
+    for (int k = 0; k < 5; ++k) {
+        f16vec3 x = texel(clamp(cx + k - 2, 0, pc.in_size.x - 1), row, lo, hi);
+        acc = fma(f16vec3(wt(k, px)), x, acc);
+        mn = k == 0 ? x : min(mn, x);
+        mx = k == 0 ? x : max(mx, x);
+    }
+    return min(max(acc, mn), mx);
+}
+
+// horizontal passes of the workgroup's rows, shared by the 16 output rows (each was computed 5 times before)
+shared f16vec4 hrow[29][16];
+
+void main() {
+    ivec2 o = pc.out_origin + ivec2(gl_GlobalInvocationID.xy);
+    int lo = pc.slice_x.x;
+    int hi = min(min(pc.slice_x.y, lo + pc.slice.x), pc.in_size.x);
+    int cx = int(floor((float(o.x) + 0.5) * 1.5));
+    int cy = int(floor((float(o.y) + 0.5) * 1.5));
+    int oy0 = pc.out_origin.y + int(gl_WorkGroupID.y) * 16;
+    int r0 = clamp(int(floor((float(oy0) + 0.5) * 1.5)) - 2, 0, pc.in_size.y - 1);
+    int r1 = clamp(int(floor((float(oy0 + 15) + 0.5) * 1.5)) + 2, 0, pc.in_size.y - 1);
+    uint lx = gl_LocalInvocationID.x;
+    for (int i = int(gl_LocalInvocationID.y); i <= r1 - r0; i += 16) hrow[i][lx] = f16vec4(hpass(r0 + i, cx, o.x & 1, lo, hi), 0.0hf);
+    barrier();
+    if (o.x >= pc.out_end.x || o.y >= pc.out_end.y || o.x >= pc.out_size.x || o.y >= pc.out_size.y) return;
+    precise f16vec3 acc = f16vec3(0.0hf);
+    f16vec3 mn, mx;
+    for (int k = 0; k < 5; ++k) {
+        f16vec3 h = hrow[clamp(cy + k - 2, 0, pc.in_size.y - 1) - r0][lx].xyz;
+        acc = fma(f16vec3(wt(k, o.y & 1)), h, acc);
+        mn = k == 0 ? h : min(mn, h);
+        mx = k == 0 ? h : max(mx, h);
+    }
+    vec3 v = vec3(min(max(acc, mn), mx));
+    float inv_e = rcp_rn(pc.exposure.v[0]);
+    uint base = uint(o.y * pc.out_size.x + o.x) * 4u;
+    f16vec4 q = f16vec4(1.0hf);
+    for (int c = 0; c < 3; ++c) {
+        float x = v[c] > fbits(0x38d1b717u) ? min(v[c], 3.0) : fbits(0x38d1b717u);
+        precise float t = (x * fbits(0x4031c71cu)) * fbits(0x40549a78u);
+        precise float e = exp2(t);
+        precise float y = ((e - 1.0) * fbits(0x3c23d70au)) * inv_e;
+        q[c] = half_rz(y);
+    }
+#ifdef D3D_UAV
+    uint org = uint(uint64_t(pc.dst));
+    imageStore(outs[0], o + ivec2(org & 65535u, org >> 16), vec4(q));
+#else
+    pc.dst.v[base] = q.x, pc.dst.v[base + 1u] = q.y, pc.dst.v[base + 2u] = q.z, pc.dst.v[base + 3u] = q.w;
+#endif
+}
