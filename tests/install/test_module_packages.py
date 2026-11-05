@@ -1,4 +1,4 @@
-﻿"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
+"""Real packaging/staging gates with synthetic modules and a tiny signable PE."""
 import os
 import configparser
 import hashlib
@@ -71,7 +71,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         shutil.copytree(REPO / 'assets/compatibility', self.root / 'assets/compatibility')
         shutil.copy2(REPO / 'tools/install/xess-compat.ps1', self.root / 'tools/install/xess-compat.ps1')
         for name in ('LICENSE', 'NOTICE', 'OptiScaler-DLSSNR-PreSR-Multipass-main/LICENSE',
-                     'third_party/lmxxf/LICENSE', 'third_party/onnxruntime/LICENSE',
+                     'third_party/lmxxf/LICENSE', 'third_party/openrr/LICENSE', 'third_party/onnxruntime/LICENSE',
                      'third_party/onnxruntime/YOLO11_AGPL-3.0.txt',
                      'third_party/onnxruntime/PPHumanSeg_Apache-2.0.txt', 'third_party/onnxruntime/YuNet_MIT.txt',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/LICENSE.txt',
@@ -106,6 +106,11 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         runtime.parent.mkdir(parents=True)
         runtime.write_bytes(self.pe_bytes)
         (runtime.parent / 'runtime-ci.sha256').write_text(hashlib.sha256(runtime.read_bytes()).hexdigest())
+        openrr_dll = self.root / 'exports/openrr-runtime/OpenNrRrRuntime.dll'
+        openrr_shaders = self.root / 'exports/openrr-runtime/opennr-rr/shaders'
+        openrr_shaders.mkdir(parents=True)
+        openrr_dll.write_bytes(self.pe_bytes)
+        (openrr_shaders / 'ingest.spv').write_bytes(b'fixture openrr spv')
         self.modules = make_modules(self.root / 'third_party/lmxxf/modules')
         shaders = self.root / 'third_party/lmxxf/shaders'
         shaders.mkdir()
