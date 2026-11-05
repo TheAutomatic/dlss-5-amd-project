@@ -138,9 +138,10 @@ public:
     void set_texture(uint32_t slot, const Image& i, VkSampler s) override;   // call outside begin()/submit()
     // hosted: set 0 of the d3d_ kernels (16 sampled images, then 2 storage images) for the bound recording, one set
     // per ring slot (a slot's set is written again kViewSlots recordings later); set_view fills index 0..17 of it
-    static constexpr uint32_t kViewSlots = 8;
+    static constexpr uint32_t kViewSlots = 64;
     void use_views(uint32_t slot);
     void set_view(uint32_t index, VkImageView view, VkImageLayout layout);
+    bool pool_retired(VkQueryPool q);
     bool all_retired();
 
     // SPIR-V file -> compute pipeline. All kernels share one layout: 256 bytes of push constants.
@@ -182,6 +183,8 @@ private:
         VkPipeline pipe = VK_NULL_HANDLE;
         VkShaderModule module = VK_NULL_HANDLE;
         VkDescriptorSet set = VK_NULL_HANDLE;
+        VkDescriptorSet vset = VK_NULL_HANDLE;
+        VkQueryPool qpool = VK_NULL_HANDLE;
     };
     void bury(const Grave& g);
     void sweep(bool all);
@@ -220,6 +223,7 @@ private:
     PFN_vkGetCalibratedTimestampsEXT calibrated_ = nullptr;
     PFN_vkGetDescriptorEXT get_descriptor_ = nullptr;
     bool hosted_ = false;
+    bool host_query_reset_ = false;
     std::vector<uint32_t> families_;          // hosted: the buffers' and images' concurrent queue families
     std::vector<QueryProof> active_queries_;
     std::vector<Grave> grave_;

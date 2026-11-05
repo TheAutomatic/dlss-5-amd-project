@@ -5,6 +5,8 @@
 #include "../NrEffectsSettings.h"
 #include <Config.h>
 #include <Util.h>
+#include <misc/IdentifyGpu.h>
+#include <upscalers/opennr_rr/OpenNrRrFeature_Dx12.h>
 #include <filesystem>
 #include <mutex>
 
@@ -47,9 +49,13 @@ void RefreshProbeLocked(InstallProbe& p)
     p.hasLmxxf = std::filesystem::exists(dir / L"LmxxfNrRuntime.dll", ec);
     p.hasMochizukiRuntime = std::filesystem::exists(dir / L"MochizukiNrRuntime.dll", ec);
     p.hasAsiPlugin = HasAsiPlugin(dir);
-    p.hasOpenRr = std::filesystem::exists(dir / L"OpenNrRrRuntime.dll", ec) &&
-                  (std::filesystem::exists(dir / L"opennr-rr" / L"nvngx_dlssd.dll", ec) ||
-                   std::filesystem::exists(dir / L"nvngx_dlssd.dll", ec));
+    const auto& gpu = IdentifyGpu::getPrimaryGpu();
+    const bool gpuSupportsOpenRr = gpu.vendorId == VendorId::AMD && gpu.asicFamily == 152;
+    const bool notBlocked = !OpenNrRr::Checked() || OpenNrRr::Reason().empty();
+    p.hasOpenRr = gpuSupportsOpenRr && notBlocked &&
+                  std::filesystem::exists(dir / L"OpenNrRrRuntime.dll", ec) &&
+                  std::filesystem::exists(dir / L"opennr-rr" / L"shaders", ec) &&
+                  OpenNrRr::DlssdFound();
     p.valid = true;
     p.tick = GetTickCount64();
 }

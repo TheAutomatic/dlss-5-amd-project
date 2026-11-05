@@ -147,6 +147,7 @@ bool Device::init(std::string& err, const DeviceOptions& opt) {
         info_.fp8_coopmat = has_f8 && f8.shaderFloat8 && f8.shaderFloat8CooperativeMatrix;
         info_.fp64 = f2.features.shaderFloat64;
         info_.int64_atomics = v12.shaderBufferInt64Atomics;
+        host_query_reset_ = v12.hostQueryReset != VK_FALSE;
         if (!v12.bufferDeviceAddress || !v12.shaderFloat16 || !v11.storageBuffer16BitAccess || !f2.features.shaderInt64)
             throw std::runtime_error("device lacks bufferDeviceAddress / float16 / 16-bit storage / int64");
         if (opt.interop && !v12.timelineSemaphore) throw std::runtime_error("device lacks timeline semaphores");
@@ -272,11 +273,15 @@ bool Device::adopt(const HostDevice& h, std::string& err) {
         // the host enabled these through PrepareVkDevice, which asked the GPU the same
         VkPhysicalDeviceShaderFloat8FeaturesEXT f8{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT};
         VkPhysicalDeviceCooperativeMatrixFeaturesKHR cm{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR, &f8};
-        VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &cm};
+        VkPhysicalDeviceVulkan12Features v12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &cm};
+        VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &v12};
         vkGetPhysicalDeviceFeatures2(phys_, &f2);
         info_.coopmat = cm.cooperativeMatrix;
         info_.fp8_coopmat = f8.shaderFloat8 && f8.shaderFloat8CooperativeMatrix;
         info_.fp64 = f2.features.shaderFloat64;
+        host_query_reset_ = v12.hostQueryReset != VK_FALSE;
+        if (!host_query_reset_)
+            throw std::runtime_error("the host's device lacks hostQueryReset");
         uint32_t nq = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(phys_, &nq, nullptr);
         for (uint32_t i = 0; i < nq; ++i) families_.push_back(i);
@@ -323,6 +328,8 @@ void Device::sweep(bool all) {
             }
         }
         if (g.set) vkFreeDescriptorSets(dev_, dpool_, 1, &g.set);
+        if (g.vset) vkFreeDescriptorSets(dev_, vpool_, 1, &g.vset);
+        if (g.qpool) vkDestroyQueryPool(dev_, g.qpool, nullptr);
         if (g.view) vkDestroyImageView(dev_, g.view, nullptr);
         if (g.img) vkDestroyImage(dev_, g.img, nullptr);
         if (g.buf) vkDestroyBuffer(dev_, g.buf, nullptr);
@@ -331,6 +338,12 @@ void Device::sweep(bool all) {
         if (g.module) vkDestroyShaderModule(dev_, g.module, nullptr);
     }
     grave_.resize(keep);
+}
+
+bool Device::pool_retired(VkQueryPool q) {
+    if (!q) return true;
+    sweep(false);
+    return std::none_of(active_queries_.begin(), active_queries_.end(), [&](const QueryProof& p) { return p.pool == q; });
 }
 
 bool Device::all_retired() {
@@ -759,14 +772,28 @@ void Device::set_texture(uint32_t slot, const Image& i, VkSampler s) {
 }
 
 void Device::use_views(uint32_t slot) {
-    slot %= kViewSlots;
     if (!vpool_) {
-        VkDescriptorPoolSize ps[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 16 * kViewSlots}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * kViewSlots}};
+        VkDescriptorPoolSize ps[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 16 * kViewSlots * 2},
+                                      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * kViewSlots * 2}};
         VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        dpi.maxSets = kViewSlots;
+        dpi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        dpi.maxSets = kViewSlots * 2;
         dpi.poolSizeCount = 2;
         dpi.pPoolSizes = ps;
         check(vkCreateDescriptorPool(dev_, &dpi, nullptr, &vpool_), "vkCreateDescriptorPool");
+    }
+    if (slot >= kViewSlots) {
+        VkDescriptorSet fresh = VK_NULL_HANDLE;
+        VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dai.descriptorPool = vpool_;
+        dai.descriptorSetCount = 1;
+        dai.pSetLayouts = &d3d_set_layout_;
+        check(vkAllocateDescriptorSets(dev_, &dai, &fresh), "vkAllocateDescriptorSets");
+        Grave g;
+        g.vset = fresh;
+        bury(g);
+        views_ = fresh;
+        return;
     }
     if (!vsets_[slot]) {
         VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -852,8 +879,22 @@ void Device::bind(VkCommandBuffer c, VkQueryPool q) {
     current_serial_ = ++binds_;
     if (hosted_) sweep(false);
     own_cmd_ = cmd_, own_qpool_ = qpool_;
+    if (hosted_ && (!q || !pool_retired(q))) {
+        VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+        qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        qi.queryCount = kMaxQueries;
+        VkQueryPool fresh = VK_NULL_HANDLE;
+        check(vkCreateQueryPool(dev_, &qi, nullptr, &fresh), "vkCreateQueryPool");
+        Grave g;
+        g.qpool = fresh;
+        bury(g);
+        q = fresh;
+    }
     cmd_ = c, qpool_ = q;
-    vkCmdResetQueryPool(cmd_, qpool_, 0, kMaxQueries);
+    if (hosted_ && host_query_reset_)
+        vkResetQueryPool(dev_, qpool_, 0, kMaxQueries);
+    else
+        vkCmdResetQueryPool(cmd_, qpool_, 0, kMaxQueries);
     nquery_ = 0;
 }
 
@@ -864,7 +905,6 @@ void Device::stamp() {
 void Device::unbind() {
     if (hosted_ && qpool_ && qpool_ != own_qpool_) {
         if (nquery_ == 0) stamp();
-        std::erase_if(active_queries_, [&](const QueryProof& q) { return q.pool == qpool_; });
         active_queries_.push_back({qpool_, nquery_ - 1, current_serial_});
     }
     current_serial_ = 0;

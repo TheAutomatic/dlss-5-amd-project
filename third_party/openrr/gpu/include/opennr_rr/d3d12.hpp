@@ -39,7 +39,10 @@ void root_constants(const void* push, uint32_t size, uint32_t* rc);
 
 class D3dDevice : public Gpu {
 public:
-    static constexpr uint32_t kSlots = 8;          // recordings in flight (upload ring, timestamps)
+    static constexpr uint32_t kSlots = 64;         // recordings in flight (0..kGameSlots-1 game lists, kOwnSlot own_)
+    static constexpr uint32_t kGameSlots = kSlots - 1;
+    static constexpr uint32_t kOwnSlot = kSlots - 1;
+    static constexpr uint32_t kOverflowDescSlots = 64;
     static constexpr uint32_t kSlotQueries = 192;  // timestamps per recording
     static constexpr uint32_t kSlotViews = 18;     // set 0 of the d3d_ kernels per recording: 16 SRVs, then 2 UAVs
     static constexpr uint32_t kTableViews = 12;    // set 0 of the others: 8 combined image samplers of 48 bytes
@@ -60,6 +63,8 @@ public:
     // Recording into cl until unbind(): ring slot `slot` (upload memory, timestamps). unbind resolves the timestamps.
     uint64_t bind(ID3D12GraphicsCommandList* cl, uint32_t slot);
     void unbind();
+    uint32_t bound_slot() const { return slot_; }
+    bool using_overflow() const { return using_overflow_; }
     void note_fence(uint64_t serial, ID3D12Fence* fence, uint64_t value);
     void note_invalidated(uint64_t serial);
     bool all_retired();
@@ -142,7 +147,9 @@ private:
         bool own = false;
         uint64_t own_fv = 0;
         bool host_tracked = false;
+        bool has_fence = false;
         bool invalidated = true;
+        uint32_t query_count = 0;
         std::vector<FenceProof> proofs;
     };
     struct OverflowUpload {
@@ -150,6 +157,7 @@ private:
         ID3D12Resource* ring = nullptr;
         uint8_t* map = nullptr;
         bool host_tracked = false;
+        bool has_fence = false;
         bool invalidated = true;
         std::vector<FenceProof> proofs;
     };
@@ -171,7 +179,7 @@ private:
     ID3D12Resource* qrb_ = nullptr;    // readback of the timestamps
     uint64_t ts_freq_ = 1;
     ID3D12GraphicsCommandList* cl_ = nullptr;
-    uint32_t slot_ = 0, nquery_ = 0;
+    uint32_t slot_ = 0, desc_slot_ = 0, overflow_cursor_ = 0, nquery_ = 0;
     ID3D12DescriptorHeap* heap_ = nullptr;
     uint64_t heap_cpu_ = 0, heap_gpu_ = 0;
     uint32_t desc_lo_ = 0;             // root constant 61 of the bound recording (d3d_ kernels)

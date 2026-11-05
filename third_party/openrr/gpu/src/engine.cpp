@@ -385,6 +385,7 @@ void Engine::record_net(const EngineFrame& f, const Guides& g, uint64_t dfn_out,
     Enc0BlockInput bi{f.render, internal_, ds_, {f.jitter[0], f.jitter[1]}, {prev_jitter_[0], prev_jitter_[1]},
                       {f.mv_scale[0], f.mv_scale[1]}, w2v, v2c, pw2v, pv2c, W.enc0_scalars, f.depth_sign};
     auto blk = enc0_block(bi);
+    if (fresh_) d.fill(expo_[old], 0, 4, 0);
     d.update(prm_, 0, kBlockBytes, blk.data());
     const bool dg = g.direct && direct_guides_ok();
     if (dg) d.update(gtab_, 0, sizeof(GuideTable), g.direct);

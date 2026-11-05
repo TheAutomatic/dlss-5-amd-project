@@ -926,8 +926,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_CreateFeature1(VkDevice InDevice
         if (!inited && deviceContext->GetUpscalerType() == Upscaler::OpenNrRr)
         {
             LOG_ERROR("OpenRR did not initialise on Vulkan");
-            OpenNrRr::Block("it did not initialise");
-            ImGui::InsertNotification({ ImGuiToastType::Warning, 10000, "OpenRR did not start, see the log" });
+            if (deviceContext->DisplayWidth() >= 960)
+            {
+                OpenNrRr::Block("it did not initialise");
+                ImGui::InsertNotification({ ImGuiToastType::Warning, 10000, "OpenRR did not start, see the log" });
+            }
             if (IdentifyGpu::getPrimaryGpu().dlssCapable && State::Instance().NVNGX_DLSSD_Path.has_value() &&
                 FeatureProvider_Vk::GetFeature(Upscaler::DLSSD, handleId, InParameters, &VkContexts[handleId].feature))
             {

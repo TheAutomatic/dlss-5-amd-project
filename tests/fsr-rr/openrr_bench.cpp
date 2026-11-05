@@ -50,6 +50,41 @@ void Check(HRESULT hr, const char* what)
     }
 }
 
+void WaitForFence(ID3D12Device* dev, ID3D12Fence* fence, UINT64 fv, const char* where)
+{
+    if (fence->GetCompletedValue() < fv)
+    {
+        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        Require(ev != nullptr, std::string(where) + ": CreateEventW failed");
+        HRESULT hr = fence->SetEventOnCompletion(fv, ev);
+        if (FAILED(hr))
+        {
+            CloseHandle(ev);
+            Check(hr, where);
+        }
+        DWORD w = WaitForSingleObject(ev, 60000);
+        CloseHandle(ev);
+        Require(w == WAIT_OBJECT_0, std::string(where) + ": WaitForSingleObject timed out or failed");
+    }
+    Require(fence->GetCompletedValue() != UINT64_MAX && fence->GetCompletedValue() >= fv,
+            std::string(where) + ": fence did not complete or device was removed");
+    Check(dev->GetDeviceRemovedReason(), where);
+}
+
+void ValidateOutputPixels(const std::vector<uint16_t>& px, const std::string& phase)
+{
+    Require(!px.empty(), phase + ": output pixel buffer is empty");
+    size_t nonZero = 0;
+    for (size_t i = 0; i < px.size(); ++i)
+    {
+        const uint16_t h = px[i];
+        Require((h & 0x7c00u) != 0x7c00u, phase + ": output contains NaN/Inf half-float");
+        if ((i % 4) != 3 && (h & 0x7fffu) != 0)
+            ++nonZero;
+    }
+    Require(nonZero > px.size() / 4, phase + ": output image is unexpectedly blank/zero");
+}
+
 bool IsGameRunning()
 {
     // Safety check per repository rules: abort benchmark if a known game process is active.
@@ -165,13 +200,7 @@ std::vector<uint16_t> ReadbackTextureHalf(ID3D12Device* dev, ID3D12CommandQueue*
     ID3D12CommandList* lists[] = { cl };
     q->ExecuteCommandLists(1, lists);
     Check(q->Signal(fence, ++fv), "Signal");
-    if (fence->GetCompletedValue() < fv)
-    {
-        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        fence->SetEventOnCompletion(fv, ev);
-        WaitForSingleObject(ev, 30000);
-        CloseHandle(ev);
-    }
+    WaitForFence(dev, fence, fv, "ReadbackTextureHalf");
 
     uint8_t* mapped = nullptr;
     Check(rb->Map(0, nullptr, reinterpret_cast<void**>(&mapped)), "Map readback");
@@ -277,13 +306,7 @@ void UploadPattern(ID3D12Device* dev, ID3D12CommandQueue* q, ID3D12CommandAlloca
         ID3D12CommandList* lists[] = { cl };
         q->ExecuteCommandLists(1, lists);
         Check(q->Signal(fence, ++fv), "Signal");
-        if (fence->GetCompletedValue() < fv)
-        {
-            HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            fence->SetEventOnCompletion(fv, ev);
-            WaitForSingleObject(ev, 30000);
-            CloseHandle(ev);
-        }
+        WaitForFence(dev, fence, fv, "UploadPattern");
     };
 
     uploadOne(color, cData.data(), 8);
@@ -326,6 +349,7 @@ struct BenchResult
     double processVramDeltaMbSteady = 0.0;
     double processVramDeltaMbDrs = 0.0;
     std::vector<uint16_t> steadyPixels;
+    std::vector<uint16_t> drsPixels;
 };
 
 BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, const fs::path& dataDir, const fs::path& dlssdPath,
@@ -452,13 +476,7 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
         ID3D12CommandList* lists[] = { cl.Get() };
         q->ExecuteCommandLists(1, lists);
         Check(q->Signal(fence.Get(), ++fv), "Signal");
-        if (fence->GetCompletedValue() < fv)
-        {
-            HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            fence->SetEventOnCompletion(fv, ev);
-            WaitForSingleObject(ev, 60000);
-            CloseHandle(ev);
-        }
+        WaitForFence(dev.Get(), fence.Get(), fv, "runOneFrame");
         uint64_t ts[2] {};
         void* m = nullptr;
         Check(qrb->Map(0, nullptr, &m), "Map timestamps");
@@ -504,6 +522,7 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
     BenchResult res;
     res.label = label;
     res.steadyPixels = ReadbackTextureHalf(dev.Get(), q.Get(), ca.Get(), cl.Get(), fence.Get(), fv, output);
+    ValidateOutputPixels(res.steadyPixels, label + " steady");
 
     // DRS measurement: alternate between 85% render scale and 100% render scale every 4 frames
     const uint32_t drsW = (maxRenderW * 85 / 100) & ~1u;
@@ -519,6 +538,8 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
 
     const uint64_t vramDrs = QueryProcessVramBytes(ad3.Get());
     const double selfMbDrs = ParseFeatureSelfMbFromLog(logPath);
+    res.drsPixels = ReadbackTextureHalf(dev.Get(), q.Get(), ca.Get(), cl.Get(), fence.Get(), fv, output);
+    ValidateOutputPixels(res.drsPixels, label + " drs");
 
     OnrRrInfo finalInfo {};
     finalInfo.size = sizeof(finalInfo);
@@ -533,7 +554,10 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
     res.processVramDeltaMbDrs = vramDrs > vramBeforeCreate ? double(vramDrs - vramBeforeCreate) / (1024.0 * 1024.0) : 0.0;
 
     api4.v3.v2.v1.Destroy(ctx);
-    FreeLibrary(mod);
+    // Keep module loaded until process exit so any detached delayed-release thread in a baseline DLL
+    // never executes unloaded code; wait past baseline's 2s timer before sampling candidate VRAM.
+    if (label == "baseline")
+        Sleep(2200);
     return res;
 }
 } // namespace
@@ -589,22 +613,28 @@ try
                 candRes.drsGpuMs.mean, candRes.drsGpuMs.median, candRes.drsGpuMs.p95, candRes.drsGpuMs.max,
                 candRes.featureSelfMbSteady, candRes.featureSelfMbDrs, candRes.processVramDeltaMbSteady);
 
-    if (hasBase && baseRes.steadyPixels.size() == candRes.steadyPixels.size())
+    if (hasBase)
     {
-        uint32_t maxUlpDiff = 0;
-        size_t diffCount = 0;
-        for (size_t i = 0; i < candRes.steadyPixels.size(); ++i)
-        {
-            uint16_t a = baseRes.steadyPixels[i], b = candRes.steadyPixels[i];
-            if (a != b)
+        auto checkParity = [](const std::vector<uint16_t>& aVec, const std::vector<uint16_t>& bVec, const char* phase) {
+            Require(aVec.size() == bVec.size() && !aVec.empty(), std::string(phase) + " output size mismatch");
+            uint32_t maxUlpDiff = 0;
+            size_t diffCount = 0;
+            for (size_t i = 0; i < bVec.size(); ++i)
             {
-                ++diffCount;
-                uint32_t d = a > b ? a - b : b - a;
-                maxUlpDiff = std::max(maxUlpDiff, d);
+                uint16_t a = aVec[i], b = bVec[i];
+                if (a != b)
+                {
+                    ++diffCount;
+                    uint32_t d = a > b ? a - b : b - a;
+                    maxUlpDiff = std::max(maxUlpDiff, d);
+                }
             }
-        }
-        std::printf("[parity] steady output pixels (%zu half-floats): differing=%zu, max_ulp_diff=%u\n",
-                    candRes.steadyPixels.size(), diffCount, maxUlpDiff);
+            std::printf("[parity] %s output pixels (%zu half-floats): differing=%zu, max_ulp_diff=%u\n",
+                        phase, bVec.size(), diffCount, maxUlpDiff);
+            Require(maxUlpDiff == 0, std::string(phase) + " output parity failed (max_ulp_diff > 0)");
+        };
+        checkParity(baseRes.steadyPixels, candRes.steadyPixels, "steady");
+        checkParity(baseRes.drsPixels, candRes.drsPixels, "drs");
     }
 
     std::ofstream summary(outDir / "summary.json");

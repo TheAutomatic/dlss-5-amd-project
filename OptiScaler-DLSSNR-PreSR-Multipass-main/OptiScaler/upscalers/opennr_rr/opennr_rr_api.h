@@ -16,6 +16,7 @@ extern "C" {
 #define ONR_RR_ABI_VERSION_3 3
 #define ONR_RR_ABI_VERSION_4 4
 #define ONR_RR_ABI_VERSION_5 5
+#define ONR_RR_ABI_VERSION_6 6
 
 #define ONR_RR_RUNTIME_VERSION "0.1.0"
 #define ONR_RR_RUNTIME_VERSION_RC 0, 1, 0, 0
@@ -218,9 +219,13 @@ typedef struct OnrRrApi5 {
     int32_t (*PrepareVkDevice)(void* physical_device, const void* create_info, void* out, void** setup);
     int32_t (*FinishVkDevice)(void* setup, void* device, uint32_t* queue_family, uint32_t* queue_index);
     int32_t (*RecordVk)(void* context, const OnrRrFrame* frame, void* command_buffer);
+} OnrRrApi5;
+
+typedef struct OnrRrApi6 {
+    OnrRrApi5 v5;                  // v5.v4.v3.v2.v1.abi_version = 6
     int32_t (*NoteD3d12Fence)(void* context, uint64_t serial, void* fence, uint64_t value);
     int32_t (*NoteD3d12Invalidated)(void* context, uint64_t serial);
-} OnrRrApi5;
+} OnrRrApi6;
 
 typedef int32_t (*PFN_OnrRrGetApi)(uint32_t abi_version, OnrRrApi* api);
 #ifdef ONR_RR_BUILDING

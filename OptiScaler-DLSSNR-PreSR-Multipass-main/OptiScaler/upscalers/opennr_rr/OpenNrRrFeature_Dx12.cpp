@@ -39,6 +39,9 @@ decltype(&OnrRrSetDeltaRate) s_setDeltaRate = nullptr;
 decltype(OnrRrApi4::RecordPost) s_recordPost = nullptr;
 // ABI 5: the Vulkan host backend (PrepareVkDevice / FinishVkDevice / RecordVk); null with an older runtime
 OnrRrApi5 s_api5 {};
+// ABI 6: D3D12 recording fence & invalidation tracking; null with an older runtime
+decltype(OnrRrApi6::NoteD3d12Fence) s_noteD3d12Fence = nullptr;
+decltype(OnrRrApi6::NoteD3d12Invalidated) s_noteD3d12Invalidated = nullptr;
 bool s_loadTried = false;
 bool s_checked = false;
 bool s_usable = false;
@@ -93,39 +96,48 @@ bool Load()
     }
 
     auto getApi = reinterpret_cast<PFN_OnrRrGetApi>(GetProcAddress(module, "OnrRrGetApi"));
-    OnrRrApi5 api5 {};
+    OnrRrApi6 api6 {};
+    OnrRrApi5& api5 = api6.v5;
     OnrRrApi4& api4 = api5.v4;
     OnrRrApi3& api3 = api4.v3;
     OnrRrApi2& api2 = api3.v2;
     OnrRrApi& api = api2.v1;
-    // ABI 5, 4, 3 or 2 when the runtime has it, otherwise 1
-    int32_t rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_5, &api) : ONR_RR_FAILED;
-    const bool has5 = rc == ONR_RR_OK && api.abi_version == ONR_RR_ABI_VERSION_5 && api5.PrepareVkDevice && api5.FinishVkDevice &&
-                      api5.RecordVk && api4.GetBackend && api4.Record && api4.RecordPost;
+    // ABI 6, 5, 4, 3 or 2 when the runtime has it, otherwise 1
+    int32_t rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_6, &api) : ONR_RR_FAILED;
+    const bool has6 = rc == ONR_RR_OK && api.abi_version == ONR_RR_ABI_VERSION_6 && api6.NoteD3d12Fence &&
+                      api6.NoteD3d12Invalidated && api5.PrepareVkDevice && api5.FinishVkDevice && api5.RecordVk &&
+                      api4.GetBackend && api4.Record && api4.RecordPost;
+    if (!has6)
+    {
+        api6 = {};
+        rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_5, &api) : ONR_RR_FAILED;
+    }
+    const bool has5 = has6 || (rc == ONR_RR_OK && api.abi_version == ONR_RR_ABI_VERSION_5 && api5.PrepareVkDevice &&
+                               api5.FinishVkDevice && api5.RecordVk && api4.GetBackend && api4.Record && api4.RecordPost);
     if (!has5)
     {
-        api5 = {};
+        api6 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_4, &api) : ONR_RR_FAILED;
     }
     if (!has5 && (rc != ONR_RR_OK || api.abi_version != ONR_RR_ABI_VERSION_4 || !api4.GetBackend || !api4.Record || !api4.RecordPost))
     {
-        api5 = {};
+        api6 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_3, &api) : ONR_RR_FAILED;
     }
     if (rc != ONR_RR_OK || api.abi_version < ONR_RR_ABI_VERSION_3 || !api3.GetHopTiming)
     {
-        api5 = {};
+        api6 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_2, &api) : ONR_RR_FAILED;
     }
     if (rc != ONR_RR_OK || api.abi_version < ONR_RR_ABI_VERSION_2 || !api2.PrepareDenoised || !api2.EnqueueNetwork ||
         !api2.EnqueuePost)
     {
-        api5 = {};
+        api6 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION, &api) : ONR_RR_FAILED;
     }
 
     if (rc != ONR_RR_OK ||
-        api.abi_version < ONR_RR_ABI_VERSION || api.abi_version > ONR_RR_ABI_VERSION_5 ||
+        api.abi_version < ONR_RR_ABI_VERSION || api.abi_version > ONR_RR_ABI_VERSION_6 ||
         !api.Check || !api.Create || !api.Destroy ||
         !api.SetMode || !api.RecordInputs || !api.Enqueue || !api.RecordOutput || !api.Cancel || !api.GetInfo ||
         !api.GetLastError)
@@ -147,41 +159,63 @@ bool Load()
     s_recordPost = api4.RecordPost;
     if (has5)
         s_api5 = api5;
+    if (has6)
+    {
+        s_noteD3d12Fence = api6.NoteD3d12Fence;
+        s_noteD3d12Invalidated = api6.NoteD3d12Invalidated;
+    }
     LOG_INFO("OpenRR: runtime loaded from {} (ABI {})", wstring_to_string(path.wstring()), api.abi_version);
     return true;
 }
 
+bool IsSupportedDlssdVersion(const std::wstring& path)
+{
+    if (path.empty())
+        return false;
+    version_t ver {};
+    return Util::GetFileVersion(path, &ver) && ver.major == 310 && ver.minor == 9 && ver.patch == 1;
+}
+
 // The nvngx_dlssd.dll the weights are built from: opennr-rr folder first, then OptiScaler's own lookup, then the one
-// the game loaded, then one beside the game's exe.
+// the game loaded, then one beside the game's exe. Prefer a supported 310.9.1.x build when multiple files exist.
 std::wstring FindDlssd(const char** source)
 {
+    struct Candidate
+    {
+        std::wstring path;
+        const char* label = nullptr;
+    };
+    std::vector<Candidate> candidates;
     std::error_code ec;
     if (const auto own = Util::DllPath().parent_path() / L"opennr-rr" / L"nvngx_dlssd.dll"; std::filesystem::exists(own, ec))
-    {
-        *source = "opennr-rr folder";
-        return own.wstring();
-    }
+        candidates.push_back({ own.wstring(), "opennr-rr folder" });
 
-    if (const auto& known = State::Instance().NVNGX_DLSSD_Path; known.has_value())
-    {
-        *source = "OptiScaler's nvngx_dlssd.dll path";
-        return known.value();
-    }
+    if (const auto& known = State::Instance().NVNGX_DLSSD_Path; known.has_value() && std::filesystem::exists(known.value(), ec))
+        candidates.push_back({ known.value(), "OptiScaler's nvngx_dlssd.dll path" });
 
     if (HMODULE loaded = GetModuleHandleW(L"nvngx_dlssd.dll"); loaded != nullptr)
     {
         wchar_t path[MAX_PATH] {};
         if (GetModuleFileNameW(loaded, path, MAX_PATH) != 0)
-        {
-            *source = "loaded by the game";
-            return path;
-        }
+            candidates.push_back({ path, "loaded by the game" });
     }
 
     if (auto found = Util::FindFilePath(Util::ExePath().remove_filename(), "nvngx_dlssd.dll"); found.has_value())
+        candidates.push_back({ found->wstring(), "beside the game's exe" });
+
+    for (const auto& c : candidates)
     {
-        *source = "beside the game's exe";
-        return found->wstring();
+        if (IsSupportedDlssdVersion(c.path))
+        {
+            *source = c.label;
+            return c.path;
+        }
+    }
+
+    if (!candidates.empty())
+    {
+        *source = candidates.front().label;
+        return candidates.front().path;
     }
 
     *source = "not found";
@@ -398,10 +432,13 @@ std::string Reason()
 
 void Block(const std::string& why)
 {
-    std::lock_guard lock(s_mutex);
-    if (s_blocked.empty())
-        s_blocked = "stopped this session: " + why;
-    s_usable = false;
+    {
+        std::lock_guard lock(s_mutex);
+        if (s_blocked.empty())
+            s_blocked = "stopped this session: " + why;
+        s_usable = false;
+    }
+    DlssNr::Backend::InvalidateInstallProbe();
 }
 
 bool Info(OnrRrInfo& info)
@@ -452,7 +489,7 @@ std::string LastError()
 bool DlssdFound()
 {
     const char* source = nullptr;
-    return !FindDlssd(&source).empty();
+    return IsSupportedDlssdVersion(FindDlssd(&source));
 }
 
 void SetInfoContext(void* context)
@@ -1056,7 +1093,7 @@ bool OpenNrRrFeatureDx12::EvaluateD3d12(ID3D12GraphicsCommandList* InCommandList
     }
 
     const uint64_t serial = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(job));
-    if (serial != 0 && s_api5.NoteD3d12Fence != nullptr && s_api5.NoteD3d12Invalidated != nullptr)
+    if (serial != 0 && s_noteD3d12Fence != nullptr && s_noteD3d12Invalidated != nullptr)
     {
         Microsoft::WRL::ComPtr<DlssNr::Submission::ILogicalCommandList> logical;
         Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> resources;
@@ -1071,14 +1108,15 @@ bool OpenNrRrFeatureDx12::EvaluateD3d12(ID3D12GraphicsCommandList* InCommandList
                 void Executed(const DlssNr::Submission::RecordingExecution& e) noexcept override
                 {
                     if ((e.producerSubmitted || e.continuationSubmitted) && SUCCEEDED(e.status) && e.fence && e.fenceValue)
-                        s_api5.NoteD3d12Fence(ctx, ser, e.fence, e.fenceValue);
+                        s_noteD3d12Fence(ctx, ser, e.fence, e.fenceValue);
                 }
                 void Invalidated(DlssNr::Submission::RecordingIdentity inv) noexcept override
                 {
                     if (id == inv)
-                        s_api5.NoteD3d12Invalidated(ctx, ser);
+                        s_noteD3d12Invalidated(ctx, ser);
                 }
             };
+            s_noteD3d12Fence(_context, serial, nullptr, 0);
             auto obs = std::make_shared<D3dObserver>();
             obs->ctx = _context;
             obs->ser = serial;

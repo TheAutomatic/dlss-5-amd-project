@@ -286,6 +286,7 @@ bool OpenNrRrFeatureVk::InitInternal(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Para
     if (!OpenNrRr::VkUsable(Device, PhysicalDevice, &why))
     {
         LOG_ERROR("OpenRR Vulkan: not usable: {}", why);
+        OpenNrRr::Block(why);
         return false;
     }
 

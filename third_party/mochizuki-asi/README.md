@@ -1,9 +1,9 @@
 # Official Mochizuki NR ASI payload (0.0.8.2)
 
-Vendored, unmodified payload from the vendor package:
+Vendored payload from the vendor package:
 
-- Source: `DLSSNR-AMD-Vulkan-Windows-0.0.8.2-pre1-preview-x86_64`
-- Plugin: `optiscaler/asi/dlssnr-amd.asi`
+- Base package: `DLSSNR-AMD-Vulkan-Windows-0.0.8.2-pre1-preview-x86_64`
+- Plugin: `payload/OptiScaler/plugins/dlssnr-amd.asi` (updated `0.0.8.2` direct-ELF build, `9,295,289` bytes)
 - Probe: `optiscaler/asi/nr_present_probe.exe`
 - Resources: `dlssnr-amd/` (shaders, ACO records/shaders, INT4 data, language files)
 - Extraction tools: `model-tools/dlssnr_extract_model.exe`, `model-tools/dlssnr-int4-weights.exe`

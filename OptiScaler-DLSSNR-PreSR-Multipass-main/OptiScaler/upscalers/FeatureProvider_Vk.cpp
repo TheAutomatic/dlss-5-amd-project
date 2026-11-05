@@ -242,8 +242,11 @@ bool FeatureProvider_Vk::ChangeFeature(Upscaler upscaler, VkInstance instance, V
 
             if (state.newBackend == Upscaler::OpenNrRr)
             {
-                OpenNrRr::Block("it did not initialise");
-                ImGui::InsertNotification({ ImGuiToastType::Warning, 10000, "OpenRR did not start, see the log" });
+                if (contextData->feature && contextData->feature->DisplayWidth() >= 960)
+                {
+                    OpenNrRr::Block("it did not initialise");
+                    ImGui::InsertNotification({ ImGuiToastType::Warning, 10000, "OpenRR did not start, see the log" });
+                }
                 contextData->feature.reset();
                 state.changeBackend[handleId] = false;
                 return false;

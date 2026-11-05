@@ -441,7 +441,7 @@ struct Ctx {
     // Vulkan host backend (ABI 5): dev is the game's device, the frames recorded into its command buffers
     bool vk_host = false;
     bool small_view = false;           // Vulkan host: a secondary view's feature, the colour scaled without the network
-    static constexpr uint32_t kHostSlots = 8;
+    static constexpr uint32_t kHostSlots = 64;
     VkQueryPool hqp[kHostSlots] = {};
     uint32_t hq[kHostSlots] = {}, hqnet[kHostSlots][2] = {};
     uint64_t hrecords = 0;
@@ -1220,11 +1220,11 @@ void create_vk_host(Ctx* c, const OnrRrVkDevice& v) {
     } catch (const std::exception& e) {
         g_log("Vulkan host backend: guides and output copied (%s)", e.what());
     }
-    for (auto& q : c->hqp) {
+    for (uint32_t s = 0; s < 8; ++s) {
         VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
         qi.queryCount = kMaxQueries;
-        if (vkCreateQueryPool(c->dev.vk(), &qi, nullptr, &q) != VK_SUCCESS) throw std::runtime_error("vkCreateQueryPool");
+        if (vkCreateQueryPool(c->dev.vk(), &qi, nullptr, &c->hqp[s]) != VK_SUCCESS) throw std::runtime_error("vkCreateQueryPool");
     }
     g_log("backend: Vulkan host (the game's device), kernels recorded into the game's command buffer");
     c->state = ONR_RR_STATE_BUILDING;
@@ -2062,25 +2062,27 @@ void d3d_setup(Ctx* c) {
     c->dx = std::move(dx);
 }
 
-// a D3D12 recording's times, kSlots recordings later: the network's span and the parts around it
-void d3d_harvest(Ctx* c, uint32_t slot) {
-    const uint32_t n = c->dq[slot];
-    c->dq[slot] = 0;
-    if (n < 2) return;
-    std::vector<uint64_t> ts(n);
-    if (!c->dx->read_stamps(slot, ts)) return;
+// a D3D12 recording's times once its slot retired: the network's span and the parts around it
+void d3d_harvest(Ctx* c) {
     const double ms = 1000.0 / double(c->dx->timestamp_frequency());
-    add_gaps(c, ts, ms);
-    const uint32_t a = c->dqnet[slot][0], b = c->dqnet[slot][1];
-    if (b > a && b <= n) {
-        c->split[0] += float(double(ts[a] - ts.front()) * ms);
-        c->split[1] += float(double(ts[b - 1] - ts[a]) * ms);
-        c->split[2] += float(double(ts.back() - ts[b - 1]) * ms);
-        ++c->split_n;
+    for (uint32_t slot = 0; slot < D3dDevice::kSlots; ++slot) {
+        const uint32_t n = c->dq[slot];
+        if (n < 2) continue;
+        std::vector<uint64_t> ts(n);
+        if (!c->dx->read_stamps(slot, ts)) continue;
+        c->dq[slot] = 0;
+        add_gaps(c, ts, ms);
+        const uint32_t a = c->dqnet[slot][0], b = c->dqnet[slot][1];
+        if (b > a && b <= n) {
+            c->split[0] += float(double(ts[a] - ts.front()) * ms);
+            c->split[1] += float(double(ts[b - 1] - ts[a]) * ms);
+            c->split[2] += float(double(ts.back() - ts[b - 1]) * ms);
+            ++c->split_n;
+        }
+        c->gpu_last = float(double(ts.back() - ts.front()) * ms);
+        c->gpu_hist.push_back(c->gpu_last);
+        if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
     }
-    c->gpu_last = float(double(ts.back() - ts.front()) * ms);
-    c->gpu_hist.push_back(c->gpu_last);
-    if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
 }
 
 // a D3D12 buffer of at least n bytes, kept for larger frames
@@ -2273,10 +2275,13 @@ int32_t Record(void* ctx, const OnrRrFrame* f, void* list, uint32_t edit, OnrRrD
             g_log("denoised image hop: %s", c->logged_edit == ONR_RR_EDIT_LOOP ? "loop" : c->logged_edit == ONR_RR_EDIT_DISPLAY ? "display" : "off");
         }
 
-        const uint32_t slot = uint32_t(c->drecords++ % D3dDevice::kSlots);
-        d3d_harvest(c, slot);
-        const uint64_t serial = d.bind(cl, slot);
-        Rec r{d, c->dkern, c->dinput.addr, c->doutput.addr, c->dimage.addr, c->dqnet[slot]};
+        const uint32_t hint = uint32_t(c->drecords++ % D3dDevice::kGameSlots);
+        d3d_harvest(c);
+        const uint64_t serial = d.bind(cl, hint);
+        const uint32_t slot = d.bound_slot();
+        const bool overflow = d.using_overflow();
+        uint32_t dummy_qnet[2] = {};
+        Rec r{d, c->dkern, c->dinput.addr, c->doutput.addr, c->dimage.addr, overflow ? dummy_qnet : c->dqnet[slot]};
         std::vector<D3D12_RESOURCE_BARRIER> back;
         try {
             d.stamp();
@@ -2299,13 +2304,13 @@ int32_t Record(void* ctx, const OnrRrFrame* f, void* list, uint32_t edit, OnrRrD
             }
             if (!back.empty()) cl->ResourceBarrier(UINT(back.size()), back.data());
         } catch (...) {
-            c->dq[slot] = 0;
+            if (!overflow) c->dq[slot] = 0;
             d.unbind();
             throw;
         }
         // a hop's times come with its RecordPost
-        c->dq[slot] = hop ? 0 : d.queries();
-        if (g_stamps && !hop && network) c->stamp_names = d.stamp_names;
+        if (!overflow) c->dq[slot] = hop ? 0 : d.queries();
+        if (g_stamps && !hop && !overflow && network) c->stamp_names = d.stamp_names;
         d.unbind();
         if (network) log_frame(c, render);
         if (!hop) {
@@ -2348,10 +2353,13 @@ int32_t RecordPost(void* ctx, void* job, void* list, uint32_t format) {
             if (!std::exchange(said, true)) g_log("RecordPost: edit format %u is not read; the network's image is used", format);
             tf = TF_NONE;
         }
-        const uint32_t slot = uint32_t(c->drecords++ % D3dDevice::kSlots);
-        d3d_harvest(c, slot);
-        d.bind(static_cast<ID3D12GraphicsCommandList*>(list), slot);
-        Rec r{d, c->dkern, c->dinput.addr, c->doutput.addr, c->dimage.addr, c->dqnet[slot]};
+        const uint32_t hint = uint32_t(c->drecords++ % D3dDevice::kGameSlots);
+        d3d_harvest(c);
+        d.bind(static_cast<ID3D12GraphicsCommandList*>(list), hint);
+        const uint32_t slot = d.bound_slot();
+        const bool overflow = d.using_overflow();
+        uint32_t dummy_qnet[2] = {};
+        Rec r{d, c->dkern, c->dinput.addr, c->doutput.addr, c->dimage.addr, overflow ? dummy_qnet : c->dqnet[slot]};
         std::vector<D3D12_RESOURCE_BARRIER> back;
         try {
             d.stamp();
@@ -2363,10 +2371,11 @@ int32_t RecordPost(void* ctx, void* job, void* list, uint32_t format) {
             d.stamp();
             if (!back.empty()) d.list()->ResourceBarrier(UINT(back.size()), back.data());
         } catch (...) {
+            if (!overflow) c->dq[slot] = 0;
             d.unbind();
             throw;
         }
-        c->dq[slot] = d.queries();
+        if (!overflow) c->dq[slot] = d.queries();
         d.unbind();
     } catch (const std::exception& e) {
         if (c->state != ONR_RR_STATE_FAILED) {
@@ -2507,25 +2516,27 @@ int32_t RecordOutput(void* ctx, void* job, void* list) {
 
 // ------------------------------------------------------------------------------------------------ Vulkan host backend
 
-// a slot's timestamps once its command buffer ran (8 recordings later); nothing while they are not written
-void vk_harvest(Ctx* c, uint32_t slot) {
-    const uint32_t n = c->hq[slot];
-    c->hq[slot] = 0;
-    if (n < 2) return;
-    std::vector<uint64_t> ts(n);
-    if (vkGetQueryPoolResults(c->dev.vk(), c->hqp[slot], 0, n, ts.size() * 8, ts.data(), 8, VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) return;
+// a slot's timestamps once its command buffer ran; nothing while they are not written
+void vk_harvest(Ctx* c) {
     const double ms = c->dev.timestamp_period_ns() * 1e-6;
-    add_gaps(c, ts, ms);
-    const uint32_t a = c->hqnet[slot][0], b = c->hqnet[slot][1];
-    if (b > a && b <= n) {
-        c->split[0] += float(double(ts[a] - ts.front()) * ms);
-        c->split[1] += float(double(ts[b - 1] - ts[a]) * ms);
-        c->split[2] += float(double(ts.back() - ts[b - 1]) * ms);
-        ++c->split_n;
+    for (uint32_t slot = 0; slot < Ctx::kHostSlots; ++slot) {
+        const uint32_t n = c->hq[slot];
+        if (n < 2 || !c->hqp[slot] || !c->dev.pool_retired(c->hqp[slot])) continue;
+        c->hq[slot] = 0;
+        std::vector<uint64_t> ts(n);
+        if (vkGetQueryPoolResults(c->dev.vk(), c->hqp[slot], 0, n, ts.size() * 8, ts.data(), 8, VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) continue;
+        add_gaps(c, ts, ms);
+        const uint32_t a = c->hqnet[slot][0], b = c->hqnet[slot][1];
+        if (b > a && b <= n) {
+            c->split[0] += float(double(ts[a] - ts.front()) * ms);
+            c->split[1] += float(double(ts[b - 1] - ts[a]) * ms);
+            c->split[2] += float(double(ts.back() - ts[b - 1]) * ms);
+            ++c->split_n;
+        }
+        c->gpu_last = float(double(ts.back() - ts.front()) * ms);
+        c->gpu_hist.push_back(c->gpu_last);
+        if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
     }
-    c->gpu_last = float(double(ts.back() - ts.front()) * ms);
-    c->gpu_hist.push_back(c->gpu_last);
-    if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
 }
 
 void vk_ensure(Ctx* c, Buffer& b, UINT64 n) {
@@ -2733,11 +2744,26 @@ int32_t RecordVk(void* ctx, const OnrRrFrame* f, void* cmd) {
         const bool network = prepare_network(c, d, render, [] {});
         vk_ensure(c, c->vinput, in_bytes);
         vk_ensure(c, c->voutput, out_bytes);
-        const uint32_t slot = uint32_t(c->hrecords++ % Ctx::kHostSlots);
-        vk_harvest(c, slot);
-        d.bind(cb, c->hqp[slot]);
+        vk_harvest(c);
+        const uint32_t hint = uint32_t(c->hrecords++ % Ctx::kHostSlots);
+        uint32_t slot = UINT32_MAX;
+        for (uint32_t i = 0; i < Ctx::kHostSlots; ++i) {
+            const uint32_t cand = (hint + i) % Ctx::kHostSlots;
+            if (!c->hqp[cand] || d.pool_retired(c->hqp[cand])) {
+                slot = cand;
+                break;
+            }
+        }
+        if (slot < Ctx::kHostSlots && !c->hqp[slot]) {
+            VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            qi.queryCount = kMaxQueries;
+            if (vkCreateQueryPool(d.vk(), &qi, nullptr, &c->hqp[slot]) != VK_SUCCESS) throw std::runtime_error("vkCreateQueryPool");
+        }
+        d.bind(cb, slot < Ctx::kHostSlots ? c->hqp[slot] : VK_NULL_HANDLE);
         d.use_views(slot);
-        Rec r{d, c->kern, c->vinput.addr, c->voutput.addr, 0, c->hqnet[slot]};
+        uint32_t dummy_qnet[2] = {};
+        Rec r{d, c->kern, c->vinput.addr, c->voutput.addr, 0, slot < Ctx::kHostSlots ? c->hqnet[slot] : dummy_qnet};
         try {
             d.stamp();
             if (c->direct_ok) {
@@ -2751,11 +2777,11 @@ int32_t RecordVk(void* ctx, const OnrRrFrame* f, void* cmd) {
             else vk_copy_output(c, *j, cb);
             d.stamp();
         } catch (...) {
-            c->hq[slot] = 0;
+            if (slot < Ctx::kHostSlots) c->hq[slot] = 0;
             d.unbind();
             throw;
         }
-        c->hq[slot] = d.queries();
+        if (slot < Ctx::kHostSlots) c->hq[slot] = d.queries();
         d.unbind();
         if (network) log_frame(c, render);
         return ONR_RR_OK;
@@ -2844,7 +2870,7 @@ int32_t GetHopTiming(void* ctx, uint64_t hop, OnrRrHopTiming* t) {
 }
 
 int32_t NoteD3d12Fence(void* ctx, uint64_t serial, void* fence, uint64_t value) {
-    if (!ctx || !serial || !fence) return ONR_RR_INVALID_ARGUMENT;
+    if (!ctx || !serial) return ONR_RR_INVALID_ARGUMENT;
     auto* c = static_cast<Ctx*>(ctx);
     std::lock_guard l(c->m);
     if (c->dx) c->dx->note_fence(serial, static_cast<ID3D12Fence*>(fence), value);
@@ -2873,14 +2899,17 @@ extern "C" int32_t OnrRrSetDeltaRate(void* context, float rate) {
 }
 
 extern "C" int32_t OnrRrGetApi(uint32_t abi, OnrRrApi* api) {
-    if (abi < ONR_RR_ABI_VERSION || abi > ONR_RR_ABI_VERSION_5 || !api) return ONR_RR_INVALID_ARGUMENT;
+    if (abi < ONR_RR_ABI_VERSION || abi > ONR_RR_ABI_VERSION_6 || !api) return ONR_RR_INVALID_ARGUMENT;
+    if (abi >= ONR_RR_ABI_VERSION_6) {
+        auto* a6 = reinterpret_cast<OnrRrApi6*>(api);
+        a6->NoteD3d12Fence = NoteD3d12Fence;
+        a6->NoteD3d12Invalidated = NoteD3d12Invalidated;
+    }
     if (abi >= ONR_RR_ABI_VERSION_5) {
         auto* a5 = reinterpret_cast<OnrRrApi5*>(api);
         a5->PrepareVkDevice = PrepareVkDevice;
         a5->FinishVkDevice = FinishVkDevice;
         a5->RecordVk = RecordVk;
-        a5->NoteD3d12Fence = NoteD3d12Fence;
-        a5->NoteD3d12Invalidated = NoteD3d12Invalidated;
     }
     if (abi >= ONR_RR_ABI_VERSION_4) {
         auto* a4 = reinterpret_cast<OnrRrApi4*>(api);
