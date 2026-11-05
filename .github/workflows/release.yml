@@ -91,8 +91,6 @@ jobs:
           $body = @'
           ### v1.14.1 (对比 v1.14.0)
 
-          > **提示**：仓库与压缩包内的 README 正文已较久未更新，最新功能、变更与说明请以当前代码及本 Release 发布公告为准。
-
           重点更新：FSR 光线再生（FSR-RR）转换/合成管线与录制生命周期全面重构，完成整套 FSR-RR 菜单中文本地化，并优化 Mochizuki 官方 ASI 接管性能与交互提示。
 
           ## FSR 光线再生（FSR-RR）管线与稳定性重构
@@ -126,8 +124,6 @@ jobs:
           ---
 
           ### v1.14.1 (vs v1.14.0)
-
-          > **Note**: The README body in the repository and package has not been updated in a while; please refer to the current source code and this Release announcement as authoritative.
 
           Key updates: comprehensive FSR Ray Regeneration (FSR-RR) conversion/composition and recording-lifetime overhaul, full Simplified Chinese localization for the FSR-RR menu, and Mochizuki ASI takeover hook & UI refinements.
 
