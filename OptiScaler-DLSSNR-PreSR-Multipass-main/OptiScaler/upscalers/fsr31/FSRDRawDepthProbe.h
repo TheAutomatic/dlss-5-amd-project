@@ -24,12 +24,19 @@ class FSRDRawDepthProbe
     unsigned attempts = 0;
     ULONGLONG nextAttempt = 0;
 public:
-    void Poll()
+    ~FSRDRawDepthProbe() { Disarm(); }
+    void Disarm() { DlssNr::Submission::DepthProvenance::Disarm(this); }
+    void Poll(bool diagnosticsEnabled)
     {
+        if (!diagnosticsEnabled) Disarm();
+        if (!pending) return;
         std::lock_guard lock(DlssNr::Submission::RecordingMutex());
         if (!pending || (pending->invalidated && !pending->observedSubmission && !pending->uncertain)) { pending.reset(); return; }
         if (!pending->observedSubmission || pending->uncertain || !pending->Complete()) return;
         auto c = std::move(pending);
+        // Disabling skips CPU readback analysis, never drops an uncompleted capture.
+        // The recording/self-owned observer still protects replay and GPU lifetime.
+        if (!diagnosticsEnabled) return;
         if (FAILED(c->device->GetDeviceRemovedReason())) return;
         void* mapped = nullptr;
         D3D12_RANGE range {0, SIZE_T(c->pitch) * c->height};
@@ -77,7 +84,7 @@ public:
         const ULONGLONG delays[] {500, 1500, 3000, 0};
         nextAttempt = GetTickCount64() + delays[attempts-1];
         const auto desc = source->GetDesc();
-        DlssNr::Submission::DepthProvenance::Arm(source);
+        DlssNr::Submission::DepthProvenance::Arm(source, this);
         Microsoft::WRL::ComPtr<DlssNr::Submission::ILogicalCommandList> logical;
         if (SUCCEEDED(list->QueryInterface(IID_PPV_ARGS(&logical))))
             DlssNr::Submission::DepthProvenance::Event("evaluate_copy",logical->Identity(),source,attempts);

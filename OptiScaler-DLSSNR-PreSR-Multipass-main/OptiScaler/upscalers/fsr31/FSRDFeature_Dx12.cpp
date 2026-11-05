@@ -1026,6 +1026,7 @@ FSRDFeatureDx12::FSRDFeatureDx12(uint32_t InHandleId, NVSDK_NGX_Parameter* InPar
 
 FSRDFeatureDx12::~FSRDFeatureDx12()
 {
+    _rawDepthProbe.Disarm();
     if (State::Instance().isShuttingDown)
         return;
 
@@ -1049,6 +1050,7 @@ void FSRDFeatureDx12::DestroyWhenRetired(std::unique_ptr<FSRDFeatureDx12> featur
 {
     if (!feature)
         return;
+    feature->_rawDepthProbe.Disarm();
     if (feature->RecordingsRetired())
         return; // unique_ptr destroys the retired feature here
 
@@ -1149,7 +1151,7 @@ bool FSRDFeatureDx12::AcquireSLTaggedResource(
         }
     }
 
-    static std::array<uint32_t, kRRTaggedSignalCount> loggedTagRejection {};
+    static std::array<uint32_t, static_cast<size_t>(RRTaggedSignal::Count)> loggedTagRejection {};
     if (!entry.resource || entry.resource.Get() != diagnostic.resourceAddress)
     {
         if (loggedTagRejection[index] != 1u)
@@ -1998,6 +2000,8 @@ RRResult FSRDFeatureDx12::UpdateSize()
 RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters)
 {
     LOG_FUNC();
+    // Poll every evaluation, including successful input and diagnostics-off frames.
+    _rawDepthProbe.Poll(Config::Instance()->FfxDenoiserDiagnostics.value_or_default());
 
     struct UpscalerContinuityGuard
     {
@@ -2555,8 +2559,7 @@ RRResult FSRDFeatureDx12::PrepareDenoiserInput(ID3D12GraphicsCommandList* InComm
     const RRResult inputResult = PrepareDenoiseConvInput(inParams);
     if (inputResult != RRResult::Success)
     {
-        _rawDepthProbe.Poll();
-        if (!_cameraPlanes.valid && _convDesc.Resources.InDepth)
+        if (cfg.FfxDenoiserDiagnostics.value_or_default() && !_cameraPlanes.valid && _convDesc.Resources.InDepth)
         {
             ApplyDepthInterpretation();
             const bool tagged = _convDesc.Resources.InTitleLinearDepth != nullptr;
@@ -2785,7 +2788,7 @@ void FSRDFeatureDx12::ResolveSpecularHitDistance(
         const XMUINT2 base = diagnostic.usesExtent
             ? XMUINT2 { diagnostic.extentLeft, diagnostic.extentTop }
             : XMUINT2 {};
-        static std::array<uint64_t, kRRTaggedSignalCount> loggedSpecExtent {};
+        static std::array<uint64_t, static_cast<size_t>(RRTaggedSignal::Count)> loggedSpecExtent {};
         const size_t signalIdx = static_cast<size_t>(signal);
         if (diagnostic.effectiveWidth != renderWidth ||
             diagnostic.effectiveHeight != renderHeight)
@@ -4226,6 +4229,14 @@ RRResult FSRDFeatureDx12::DispatchDenoiser(ID3D12GraphicsCommandList* InCommandL
     const bool logDispatchSnapshot = _logNextDenoiserDispatch || resetTransition;
 
     if (logDispatchSnapshot)
+    {
+        LOG_INFO("[RR] dispatch: frame={}, reset={}, render={}x{}, radianceMask={:#x}, AO={}",
+                 dispatchDesc.frameIndex, resetRequested,
+                 dispatchDesc.renderSize.width, dispatchDesc.renderSize.height,
+                 _signalMask, _ambientOcclusionEnabled);
+    }
+
+    if (logDispatchSnapshot && cfg.FfxDenoiserDiagnostics.value_or_default())
     {
         // Single-signal mode: LogRRDispatchSnapshot's resource inventory and the
         // per-signal probe battery both assume the two-signal chain; something in

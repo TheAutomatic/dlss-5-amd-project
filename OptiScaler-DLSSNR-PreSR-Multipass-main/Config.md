@@ -256,7 +256,7 @@ environment aliases. The shipped INI lists the complete canonical key surface.
 | `UseAmdDefaults` | false; A/B queried AMD tuning without erasing stored sliders. |
 | `DisocclusionThreshold`, `CrossBilateralNormalStrength`, `TemporalStabilityBias` | 0.1 / 0.5 / 0.5. |
 | `MaxRadiance`, `RadianceClipDeviation`, `GaussianKernelRelaxation` | 40000 / 40 / 0.5. |
-| `GpuTimings`, `Diagnostics` | true / false. Timestamp samples require retired GPU submissions; probes add readback/log overhead. |
+| `GpuTimings`, `Diagnostics` | true / false. Timestamp samples require retired GPU submissions; diagnostics opt into raw-depth readbacks, provenance tracing, and detailed dispatch/resource inventories. Disabling stops new diagnostic captures and tracing while pending GPU captures retire safely; concise first/reset dispatch summaries and essential errors remain enabled. |
 | `DebugMode`, `DebugViewViewport`, `DebugViewLinearDepthMax`, `InternalDebugViews` | 0 (Off), -1 (overview), 1024, false; internal views require context recreation. |
 
 On load, a profile **fills only unspecified** policy/modulation/anchor/additive keys.
