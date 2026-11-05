@@ -89,32 +89,32 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $body = @'
-          ### v1.14.0 (对比 v1.13.4.3)
+          ### v1.14.1 (对比 v1.14.0)
 
-          大版本更新：Mochizuki 0.0.8.2 官方 ASI 全面接管神经降噪，新增四网络模型生命周期支持、启动器 MZ4 风格码分享/导入系统，并完成全套 UI 本地化与安装可靠性修复。
+          重点更新：FSR 光线再生（FSR-RR）转换/合成管线与录制生命周期全面重构，完成整套 FSR-RR 菜单中文本地化，并优化 Mochizuki 官方 ASI 接管性能与交互提示。
 
-          ## Mochizuki 0.0.8.2 官方 ASI 接管与四网络支持
+          ## FSR 光线再生（FSR-RR）管线与稳定性重构
 
-          - **官方 ASI 接管**：引入官方 `dlssnr-amd.asi` 接管神经降噪处理。宿主 Ins 菜单自动让位并重定向至按 `End` 键呼出原生 NR Control 菜单；FSR 超分辨率、光线重建（RR）与平滑帧生成持原生协同。
-          - **四网络模型架构**：完整支持 `small`、`experimental`、`original` 与 `int4` 四种网络。启动器根据显卡与提取工具自动生成派生模型；勾选派生模型时自动锁定基础模型。
+          - **底光滤波（Floor）与细节恢复系统**：上线新版输入转换与输出合成管线，提供 `快速 / 平衡 / 质量` 三档预设、漫反射/高光独立路径路由（`自动 / 直通 / 间接 / 拆分`），以及针对水面、玻璃等材质的**反照率渗色修复（Albedo Bleed Fix）**。
+          - **录制生命周期与时域历史保护**：合成历史（Composition History）、SR 深度编码及后处理着色器（OutputScaler / RCAS / Bias / Magnifier）全面接入录制生命周期与首次提交定型机制，防止未提交录制丢弃、跨命令列表执行或游戏释放特征时破坏在途 GPU 资源。
+          - **相机与调试视图修复**：完善透视相机近/远平面与无限远平面（Infinite Far）解析及子矩形偏移打包；修复调试视图（如 `UpscalerBypass`、`DenoiserOutput`、`DebugOverview`）下的时域历史保留与重建逻辑，默认关闭重度诊断探针与周期日志输出。
 
-          ## 启动器与 MZ4 风格码系统
+          ## Mochizuki ASI 接管优化与全菜单汉化
 
-          - **单行 MZ4 风格码**：支持 Base64 单行风格码导出与导入；智能解析多图层（Layer）、RenoDX / wilsjo2 处理管线与调优参数。
-          - **改动预览与重置标识**：导入风格码时提供清晰的改动摘要与最多 30 项重点参数差异对照；自动标识未携带参数的默认重置行为。
-          - **独立 ASI INI 操作**：启动器新增一键导入/导出游戏内 `dlssnr-amd.ini` 文件的功能，方便玩家快速备份与迁移预设。
+          - **消除双层命令列表包装**：当 `dlssnr-amd.asi` 接管神经降噪且未开启 FSR-RR 时，宿主自动跳过内置 `CommandListProxy` 与提交 Hook，减少 CPU 包装开销与潜在钩子冲突。
+          - **接管提示横幅重构与动态按键识别**：重绘宿主菜单中的 ASI 接管提示卡，自动读取 `dlssnr-amd.ini` 中的自定义菜单热键（默认 `[End]`）并醒目展示。
+          - **FSR 光线再生全套中文汉化**：完成整个 `FSR-RR` 主面板、实时管线状态、实时输入表、高级调参及悬停说明的简体中文本地化，并同步扩充内嵌中文字体字库。
 
-          ## 语言与汉化精修
+          ## 帧生成兼容性修复
 
-          - **安装语言跟随与配置保留**：覆盖安装时自动根据启动器语言配置游戏内语言（`zh-CN` / `English`）；保留现有配置时完整尊重用户原有设定（包含显式留空的英文设置）。
-          - **术语规范与提示优化**。
+          - **移除 FSR-FG 误报检查**：移除会导致部分游戏内置 FSR-FG 与 XeFG 发生误判的调用栈检查（同步上游 `e57377fc`）。
 
           ### 已知问题
 
-          - 光线再生（RR）为实验功能，默认关闭；切换普通超分与光线再生仍依赖游戏重建 NGX feature。
+          - 光线再生（FSR-RR）为实验功能，默认关闭；切换普通超分与光线再生仍依赖游戏重建 NGX 特征。
+          - 在 16GB 显存显卡上以 4K 分辨率运行重度光追游戏时，不建议同时叠开 `FSR-RR`、`dlssnr-amd.asi` 与多倍帧生成，以免超出显存预算引发换页降速。
           - 多数游戏需开启 DXGI 伪装才会显示 DLSS/RR 选项；部分游戏开伪装后可能报“不支持的 GPU”。
-          - Experimental 与 INT4 模型需特定显卡指令集与权重支持（建议 RX 9000 系列优先体验）。
-          - RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
+          - Experimental 与 INT4 模型需特定显卡指令集与权重支持（建议 RX 9000 系列优先体验）；RenoDX 无法与人物保护功能同时生效；Linux/Proton 支持为实验性。
 
           ### 安装与模型提取
 
@@ -123,32 +123,32 @@ jobs:
 
           ---
 
-          ### v1.14.0 (vs v1.13.4.3)
+          ### v1.14.1 (vs v1.14.0)
 
-          Major release: Mochizuki 0.0.8.2 official ASI takeover for Neural Rendering, 4-network model lifecycle support, launcher MZ4 share/import code system, and comprehensive UI localization and installer fixes.
+          Key updates: comprehensive FSR Ray Regeneration (FSR-RR) conversion/composition and recording-lifetime overhaul, full Simplified Chinese localization for the FSR-RR menu, and Mochizuki ASI takeover hook & UI refinements.
 
-          ## Mochizuki 0.0.8.2 Official ASI Takeover & 4 Networks
+          ## FSR Ray Regeneration (FSR-RR) Pipeline & Stability Overhaul
 
-          - **Official ASI Takeover**: Integrated official `dlssnr-amd.asi` for NR processing. The host Ins menu gracefully redirects to the native NR Control menu toggled via `End`; FSR Super Resolution, Ray Reconstruction (RR), and Frame Generation (FG) operate seamlessly.
-          - **Four-Network Architecture**: Full support for `small`, `experimental`, `original`, and `int4` models. The launcher automatically derives secondary models with dependency locks ensuring required base models remain selected.
+          - **Floor Filtering & Detail Recovery**: Integrated the new conversion and composition pipeline featuring `Fast / Balanced / Quality` profiles, per-lobe `Auto / Direct / Indirect / Split` signal routing, and **Albedo Bleed Fix** for water and glass surfaces.
+          - **Recording Lifetime & History Finalization**: Composition history, SR depth encoding, and post-processing passes (`OutputScaler`, `RCAS`, `Bias`, `Magnifier`) now enforce observable command-list lifetime and first-submit descriptor finalization, preventing unsubmitted recording discards or feature releases from corrupting GPU-live resources.
+          - **Camera & Debug View Fixes**: Hardened perspective near/far and infinite-far camera resolution and subrect origin packing; preserved temporal history across denoiser/composition debug views and gated heavy diagnostic probes/logs behind explicit diagnostic settings.
 
-          ## Launcher & MZ4 Style Code System
+          ## Mochizuki ASI Takeover & Localization Refinements
 
-          - **Single-Line MZ4 Share Code**: Export and import settings via compact Base64 codes with schema coverage across multi-layer pipelines, RenoDX / wilsjo2 parameters, and presets.
-          - **Diff Preview & Reset Tracking**: Import dialog features compact summaries, capped 30-entry side-by-side diff previews, and explicit warnings for default reset values.
-          - **Standalone ASI INI Tools**: Direct file export and import buttons in the launcher for `dlssnr-amd.ini` to streamline configuration backups and sharing.
+          - **Skip Redundant Host Proxy Wrapping**: When `dlssnr-amd.asi` owns Neural Rendering and FSR-RR is off, the host skips its own `CommandListProxy` and submission hooks to avoid double command-list wrapping overhead.
+          - **Redesigned Takeover Banner & Dynamic Keybind Detection**: Redesigned the in-game ASI takeover notice with prominent key hints that automatically reflect custom `[NRControl] MenuKey` bindings from `dlssnr-amd.ini` (default `[End]`).
+          - **Full zh-CN Localization for FSR-RR**: Localized the entire `FSR-RR` panel, live pipeline status, input binding table, advanced settings, and tooltips into Simplified Chinese with updated embedded font glyph coverage.
 
-          ## Localization & Setup Refinements
+          ## Frame Generation Compatibility
 
-          - **Language Sync & Preference Retention**: Overwrite installs follow the launcher language (`zh-CN` / `English`); kept installs strictly preserve existing user preferences (including explicit empty English defaults).
-          - **Terminology Polish & Prompts**: Standardized upscaler terminology; placement options labeled as `Before the upscaler (higher FPS)`, `After the upscaler`, and `Present`; adopted industry-standard `Pass / Passes`; missing model prompts direct to launcher extraction.
+          - **Removed False-Positive FSR-FG Stack Check**: Removed the game FSR-FG stack check that caused false positives alongside XeFG (upstream `e57377fc`).
 
           ### Known Issues
 
-          - Ray Regeneration is experimental and off by default; switching RR/SR modes relies on NGX feature recreation.
+          - FSR Ray Regeneration is experimental and off by default; switching between SR and RR relies on the game recreating the NGX feature.
+          - On 16 GB GPUs at 4K with heavy path tracing, avoid stacking `FSR-RR`, `dlssnr-amd.asi`, and high-multiplier frame generation simultaneously to prevent VRAM over-budget paging.
           - Most games need DXGI spoofing to expose DLSS/RR options; some titles may report unsupported GPUs with spoofing active.
-          - Experimental and INT4 models require specific hardware instruction sets (RX 9000 series recommended).
-          - RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
+          - Experimental and INT4 models require specific hardware instruction sets (RX 9000 series recommended); RenoDX cannot be combined with person protection; Linux/Proton support is experimental.
 
           ### Installation & Model Extraction
 
