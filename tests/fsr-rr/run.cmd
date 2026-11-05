@@ -111,7 +111,8 @@ set "M=%MANIFEST%"
 if not defined M set "M=%OUT%\manifest.ini"
 if not exist "%M%" (
   echo === fsr-rr %TIER%: manifest missing; probing a template for review ===
-  "%OUT%\offline_chain.exe" --probe --manifest-out "%M%" || goto fail
+  "%OUT%\offline_chain.exe" --probe --manifest-out "%M%"
+  if not exist "%M%" goto fail
   echo FAIL: manifest template written to %M%. Review adapter_luid and the absolute
   echo provider DLL paths, then rerun with --manifest "%M%".
   exit /b 1
@@ -220,7 +221,8 @@ if not defined M set "M=%MANIFEST%"
 if not defined M set "M=%OUT%\manifest.ini"
 if not exist "%M%" (
   echo === fsr-rr %TIER%: manifest missing; probing a template for review ===
-  "%OUT%\offline_chain_baseline.exe" --probe --manifest-out "%M%" || goto fail
+  "%OUT%\offline_chain_baseline.exe" --probe --manifest-out "%M%"
+  if not exist "%M%" goto fail
   echo FAIL: manifest template written to %M%. Review adapter_luid and the absolute
   echo provider DLL paths, then rerun with --manifest "%M%".
   exit /b 1

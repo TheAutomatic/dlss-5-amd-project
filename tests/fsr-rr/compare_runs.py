@@ -67,6 +67,8 @@ def required(obj, key):
 
 
 def finite(value, name):
+    if isinstance(value, bool):
+        raise EvidenceError(f"invalid number: {name}")
     try:
         number = float(value)
     except (ValueError, TypeError, OverflowError) as exc:

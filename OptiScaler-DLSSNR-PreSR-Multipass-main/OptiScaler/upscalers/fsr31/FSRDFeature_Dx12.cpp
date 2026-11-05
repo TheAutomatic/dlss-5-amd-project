@@ -2061,7 +2061,7 @@ RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InC
     // Pull configuration and input buffers for DLSS-RR from the param table, convert and 
     // repack input buffers into intermediate FSR-RR input buffers, and configure descriptors.
     const RRResult inputResult = PrepareDenoiserInput(InCommandList, *InParameters, denoiserDesc,
-        ambientOcclusion, directDiffuse, indirectSpecular);
+        ambientOcclusion, directDiffuse, indirectSpecular, upscalerDesc, isUpscaleBypassed);
     if (inputResult != RRResult::Success)
     {
         InvalidateDenoiserHistory();
@@ -2072,22 +2072,6 @@ RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InC
     std::optional<FSRDCompDesc> captureComposition;
     if (!isUpscaleBypassed)
     {
-        const float verticalFov = 2.0f * std::atan(1.0f / std::abs(_projMatrix.r[1].m128_f32[1]));
-        const DerivedRRCamera camera {
-            .nearPlane = _cameraPlanes.nearPlane,
-            .farPlane = _cameraPlanes.farPlane,
-            .verticalFov = verticalFov,
-            .rightHanded = _isRightHanded,
-            .hardwareDepth = _isHWDepth,
-            .farInfinite = _cameraPlanes.farInfinite,
-            .valid = true
-        };
-        ApplyRayRegenerationCamera(upscalerDesc, camera);
-        if (RayRegenerationSrRefused())
-        {
-            InvalidateDenoiserHistory();
-            return state.changeBackend[Handle()->Id] ? RRResult::NeedsRecreation : RRResult::RetryableInputFailure;
-        }
         // Encode the same frame's RR linear depth with the final SR near/far convention.
         // Motion preparation has already read its original title depth; never alias that source.
         const FSRDPreprocessor_Dx12::UpscalerDepthEncode encode {
@@ -2505,7 +2489,8 @@ void FSRDFeatureDx12::RetainFrameInputs(ID3D12Resource* inspector)
 RRResult FSRDFeatureDx12::PrepareDenoiserInput(ID3D12GraphicsCommandList* InCommandList, const NVSDK_NGX_Parameter& inParams,
     ffxDispatchDescDenoiser& dispatchDesc, ffxDispatchDescDenoiserAmbientOcclusion& ambientOcclusion,
     ffxDispatchDescDenoiserDirectDiffuse& directDiffuse,
-    ffxDispatchDescDenoiserIndirectSpecular& indirectSpecular)
+    ffxDispatchDescDenoiserIndirectSpecular& indirectSpecular,
+    ffxDispatchDescUpscale& upscalerDesc, bool isUpscaleBypassed)
 {
     const auto& cfg = *Config::Instance(); 
 
@@ -2533,6 +2518,23 @@ RRResult FSRDFeatureDx12::PrepareDenoiserInput(ID3D12GraphicsCommandList* InComm
     }
 
     _runtime.Complete(FSRDRuntimeSnapshot::Inputs);
+    if (!isUpscaleBypassed)
+    {
+        const float verticalFov = 2.0f * std::atan(1.0f / std::abs(_projMatrix.r[1].m128_f32[1]));
+        const DerivedRRCamera camera {
+            .nearPlane = _cameraPlanes.nearPlane,
+            .farPlane = _cameraPlanes.farPlane,
+            .verticalFov = verticalFov,
+            .rightHanded = _isRightHanded,
+            .hardwareDepth = _isHWDepth,
+            .farInfinite = _cameraPlanes.farInfinite,
+            .valid = true
+        };
+        ApplyRayRegenerationCamera(upscalerDesc, camera);
+        if (RayRegenerationSrRefused())
+            return State::Instance().changeBackend[Handle()->Id] ? RRResult::NeedsRecreation
+                                                                 : RRResult::RetryableInputFailure;
+    }
     RetainFrameInputs(nullptr);
 
     // Even a rejected recorder may leave a prefix referencing converter textures.
@@ -3175,8 +3177,8 @@ bool FSRDFeatureDx12::ResolveCameraMatrices(const NVSDK_NGX_Parameter& inParams,
             const float A = _projMatrix.r[2].m128_f32[2];
             const float B = _projMatrix.r[2].m128_f32[3];
             const float W = _projMatrix.r[3].m128_f32[2];
-            const float nearDenominator = DepthInverted() ? W - A : -A;
-            const float farDenominator = DepthInverted() ? -A : W - A;
+            const float nearDenominator = B > 0.0f ? W - A : -A;
+            const float farDenominator = B > 0.0f ? -A : W - A;
             const char* reason =
                 !FSRDCamera::MatrixIsInitialized(_projMatrix) ? "uninitialized_projection" :
                 W == 0.0f ? "zero_perspective_w" :

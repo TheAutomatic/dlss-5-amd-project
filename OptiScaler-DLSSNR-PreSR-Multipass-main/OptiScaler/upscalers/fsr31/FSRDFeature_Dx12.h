@@ -310,7 +310,8 @@ class FSRDFeatureDx12 : public FSR31FeatureDx12
                               ffxDispatchDescDenoiser& dispatchDesc,
                               ffxDispatchDescDenoiserAmbientOcclusion& ambientOcclusion,
                               ffxDispatchDescDenoiserDirectDiffuse& directDiffuse,
-                              ffxDispatchDescDenoiserIndirectSpecular& indirectSpecular);
+                              ffxDispatchDescDenoiserIndirectSpecular& indirectSpecular,
+                              ffxDispatchDescUpscale& upscalerDesc, bool isUpscaleBypassed);
 
     bool AcquireTaggedAmbientOcclusionResources(bool logFailure);
     bool PublishAmbientOcclusionOutput(ID3D12GraphicsCommandList* commandList);

@@ -658,7 +658,6 @@ struct FSRDPreprocessor_Dx12::Impl
     DlssNr::Submission::GpuBatch::Tracker::Ticket m_inputProbeTicket =
         DlssNr::Submission::GpuBatch::kInvalidTicket;
     DlssNr::Submission::GpuBatch::Tracker::CompletionReceiptPtr m_inputProbeReceipt;
-    bool m_inputProbeInvalidated = false;
     struct ProbeRecording final : DlssNr::Submission::RecordingObserver
     {
         std::array<ComPtr<ID3D12Resource>, kInputProbeTargetCount> readbacks;
@@ -669,7 +668,6 @@ struct FSRDPreprocessor_Dx12::Impl
     {
         m_inputProbeTicket = DlssNr::Submission::GpuBatch::kInvalidTicket;
         m_inputProbeReceipt.reset();
-        m_inputProbeInvalidated = false;
         // A discarded recording never wrote these buffers. The next capture gets a
         // fresh allocation rather than trusting stale content.
         for (auto& buffer : m_inputProbeReadback) buffer.Reset();
@@ -685,7 +683,7 @@ struct FSRDPreprocessor_Dx12::Impl
             // receipt even when no further queue work would observe it.
             DlssNr::Submission::GpuBatch::Tracker::Instance().StatusOf(m_inputProbeTicket);
             const auto outcome = m_inputProbeReceipt->outcome.load(std::memory_order_acquire);
-            if ((m_inputProbeInvalidated && outcome != Outcome::Outstanding) || outcome == Outcome::Discarded)
+            if (outcome == Outcome::Discarded)
                 ReleaseInputProbe();
             else if (outcome == Outcome::Completed && (!desc.DiagnosticsEnabled || LogInputProbe()))
             {
@@ -816,7 +814,6 @@ struct FSRDPreprocessor_Dx12::Impl
             m_inputProbeTicket == DlssNr::Submission::GpuBatch::kInvalidTicket
                 ? nullptr
                 : tracker.ObserveCompletion(m_inputProbeTicket);
-        m_inputProbeInvalidated = false;
         if (!m_inputProbeReceipt)
         {
             ReleaseInputProbe();

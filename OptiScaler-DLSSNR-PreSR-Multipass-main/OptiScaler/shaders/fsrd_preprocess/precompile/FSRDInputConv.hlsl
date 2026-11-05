@@ -1598,7 +1598,7 @@ void CSMain(uint3 groupID : SV_GroupID, uint3 gtID : SV_GroupThreadID)
     ADD_RECORD(42, InNormals[px + int2(InputBase1.xy)].rgb);
     ADD_RECORD(43, IsSet(FLAGS_PACKED_ROUGHNESS) ? InNormals[px + int2(InputBase1.xy)].aaa : InRoughness[px + int2(InputBase1.zw)].xxx);
     ADD_RECORD(44, InDepth[px].xxx);
-    ADD_RECORD(45, InMotionVectors[px + int2(InputBase0.zw)].xyz);
+    ADD_RECORD(45, InMotionVectors[GetMotionSourcePx(px)].xyz);
     ADD_RECORD(46, journalSpec);
     ADD_RECORD(47, journalDiff);
     const uint page = InspectorChannel * 8;
