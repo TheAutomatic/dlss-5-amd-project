@@ -107,7 +107,7 @@ jobs:
 
           ## 帧生成兼容性修复
 
-          - **移除 FSR-FG 误报检查**：移除会导致部分游戏内置 FSR-FG 与 XeFG 发生误判的调用栈检查（同步上游 `e57377fc`）。
+          - **移除 FSR-FG 误报检查（#19）**：移除会导致部分游戏内置 FSR-FG 与 XeFG 发生误判的调用栈检查（同步上游 `e57377fc`，修复 #19）。
 
           ### 已知问题
 
@@ -141,7 +141,7 @@ jobs:
 
           ## Frame Generation Compatibility
 
-          - **Removed False-Positive FSR-FG Stack Check**: Removed the game FSR-FG stack check that caused false positives alongside XeFG (upstream `e57377fc`).
+          - **Removed False-Positive FSR-FG Stack Check (#19)**: Removed the game FSR-FG stack check that caused false positives alongside XeFG (upstream `e57377fc`, fixes #19).
 
           ### Known Issues
 
