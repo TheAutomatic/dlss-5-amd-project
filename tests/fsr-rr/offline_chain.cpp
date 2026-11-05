@@ -89,6 +89,7 @@
 
 // Product ABI for RR 1.2 (local RR additions on top of the shared API types).
 #include <fsr-rr/ffx_denoiser.h>
+#include "upscalers/opennr_rr/opennr_rr_api.h"
 
 // Production converter (run.cmd compiles FSRDPreprocessor_Dx12.cpp from this closure,
 // or from the frozen baseline archive first on the include path).
@@ -952,6 +953,8 @@ struct SceneConfig
     bool subrect = false;
     bool hitDistance = false;
     bool nativeDiffuse = false;
+    bool panStop = false;
+    bool nativeSpecular = false;
     float nativeSignalAlpha = 0.0f; // diagnostic only; legal active DirectDiffuse alpha
     bool resetEveryFrame = false;
     std::vector<uint32_t> resetFrames{};
@@ -1034,7 +1037,7 @@ struct AnalyticScene
 
 struct FrameCamera
 {
-    XMMATRIX view{}, invView{}, proj{}, viewProj{}, prevViewProj{};
+    XMMATRIX view{}, invView{}, proj{}, viewProj{}, prevViewProj{}, baseView{}, prevView{};
     XMFLOAT3 camPos{}, prevCamPos{}, camDelta{};
     float jitterX = 0, jitterY = 0, prevJitterX = 0, prevJitterY = 0;
     bool cut = false;
@@ -1057,19 +1060,28 @@ static FrameCamera BuildCamera(const SceneConfig& cfg, uint32_t frame)
     FrameCamera cam;
     const bool reset =
         frame == 0 || cfg.resetEveryFrame || std::find(cfg.resetFrames.begin(), cfg.resetFrames.end(), frame) != cfg.resetFrames.end();
+    auto PanOffset = [&](uint32_t f) {
+        if (!cfg.panStop || f < 8) return 0.0f;
+        if (f < 20) return float(f - 7) * 0.08f;
+        return 12.0f * 0.08f;
+    };
     auto Pose = [&](uint32_t f) {
         const float a = cfg.orbit ? (float(f) * 0.031f) : 0.35f;
-        return XMFLOAT3{4.5f * cosf(a), 2.3f + (cfg.orbit ? 0.1f * sinf(a * 2.0f) : 0.0f), 4.5f * sinf(a)};
+        return XMFLOAT3{4.5f * cosf(a) + PanOffset(f), 2.3f + (cfg.orbit ? 0.1f * sinf(a * 2.0f) : 0.0f), 4.5f * sinf(a)};
     };
+    const XMFLOAT3 basePos = Pose(0);
     cam.camPos = Pose(frame);
     cam.prevCamPos = (frame == 0 || reset) ? cam.camPos : Pose(frame - 1);
     cam.cut = frame == 0 || reset;
     cam.camDelta = {cam.prevCamPos.x - cam.camPos.x, cam.prevCamPos.y - cam.camPos.y,
                     cam.prevCamPos.z - cam.camPos.z};
 
+    const XMVECTOR baseEye = XMLoadFloat3(&basePos);
+    const XMVECTOR baseAt = XMVectorSet(0.15f, 1.0f, -0.2f, 1.0f);
     const XMVECTOR eye = XMLoadFloat3(&cam.camPos);
-    const XMVECTOR at = XMVectorSet(0.15f, 1.0f, -0.2f, 1.0f);
+    const XMVECTOR at = XMVectorSet(0.15f + PanOffset(frame), 1.0f, -0.2f, 1.0f);
     const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    cam.baseView = cfg.handed == Handed::RH ? XMMatrixLookAtRH(baseEye, baseAt, up) : XMMatrixLookAtLH(baseEye, baseAt, up);
     cam.view = cfg.handed == Handed::RH ? XMMatrixLookAtRH(eye, at, up) : XMMatrixLookAtLH(eye, at, up);
     cam.invView = XMMatrixInverse(nullptr, cam.view);
 
@@ -1093,9 +1105,12 @@ static FrameCamera BuildCamera(const SceneConfig& cfg, uint32_t frame)
     cam.proj = rowProj; // CPU DirectXMath always uses row vectors.
     cam.viewProj = XMMatrixMultiply(cam.view, cam.proj);
 
+    const uint32_t prevF = (frame == 0 || reset) ? frame : frame - 1;
+    const XMVECTOR prevAt = XMVectorSet(0.15f + PanOffset(prevF), 1.0f, -0.2f, 1.0f);
     const XMVECTOR prevEye = XMLoadFloat3(&cam.prevCamPos);
-    const XMMATRIX prevView = cfg.handed == Handed::RH ? XMMatrixLookAtRH(prevEye, at, up)
-                                                       : XMMatrixLookAtLH(prevEye, at, up);
+    const XMMATRIX prevView = cfg.handed == Handed::RH ? XMMatrixLookAtRH(prevEye, prevAt, up)
+                                                       : XMMatrixLookAtLH(prevEye, prevAt, up);
+    cam.prevView = prevView;
     cam.prevViewProj = XMMatrixMultiply(prevView, cam.proj);
 
     // Jittered raster: pixel centers shifted by the Halton jitter; the pair is reported
@@ -1115,7 +1130,7 @@ struct FixtureFrame
     // Tight, zero-origin render extent; never derived from converter output.
     std::vector<uint8_t> srHardwareDepth;
     // Native RR guides are authored here, before any product conversion.
-    std::vector<uint8_t> nativeDiffuse, nativeDepth, nativeNormals, nativeMotion;
+    std::vector<uint8_t> nativeDiffuse, nativeSpecular, nativeDepth, nativeNormals, nativeMotion;
     std::vector<float> truthRender, truthTarget, truthJittered;
 };
 
@@ -1153,6 +1168,7 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
     if (cfg.nativeDiffuse)
     {
         out.nativeDiffuse.resize(size_t(rw) * rh * 8);
+        if (cfg.nativeSpecular) out.nativeSpecular.resize(size_t(rw) * rh * 8);
         out.nativeDepth.resize(size_t(rw) * rh * 4);
         out.nativeNormals.resize(size_t(rw) * rh * 4);
         out.nativeMotion.resize(size_t(rw) * rh * 8);
@@ -1171,6 +1187,7 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
         XMFLOAT3 radiance{0.004f, 0.006f, 0.012f}; // sky floor: positive everywhere
         XMFLOAT3 normal{0, 1, 0};
         float directDiffuse = 0.0f; // albedo-free Lambertian lighting, not divided final RGB
+        float directSpecular = 0.0f; // albedo-free specular lighting
         float rough = 1.0f;
         XMFLOAT3 albD{0, 0, 0}, albS{0, 0, 0};
         float viewDist = 1000.0f, hitDist = 0.0f, diffuseHitDist = 0.0f;
@@ -1213,14 +1230,17 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
         const Sphere* best = nullptr;
         if (cfg.nativeDiffuse)
         {
-            // Finite camera-facing rectangle, view Z=12, half extent 14x9.
-            // It covers the entire 60-degree, 1.6-aspect viewport including jitter,
-            // while remaining comfortably inside near/far and converter bypass bounds.
-            XMFLOAT3 viewDir;
-            XMStoreFloat3(&viewDir, XMVector3TransformNormal(XMLoadFloat3(&dir), cam.view));
+            // Finite camera-facing rectangle, view Z=12, half extent 14x9 (18x12 during panStop).
+            // Anchored in baseView so world-space points remain rigid during camera pan.
+            const XMMATRIX planeView = cfg.panStop ? cam.baseView : cam.view;
+            XMFLOAT3 viewOrigin, viewDir;
+            XMStoreFloat3(&viewOrigin, XMVector3Transform(XMLoadFloat3(&origin), planeView));
+            XMStoreFloat3(&viewDir, XMVector3TransformNormal(XMLoadFloat3(&dir), planeView));
             const float forward = cfg.handed == Handed::RH ? -1.0f : 1.0f;
-            const float t = forward * 12.0f / viewDir.z;
-            if (t > 0.0f && std::abs(t * viewDir.x) <= 14.0f && std::abs(t * viewDir.y) <= 9.0f)
+            const float t = (forward * 12.0f - viewOrigin.z) / viewDir.z;
+            const float halfX = cfg.panStop ? 18.0f : 14.0f;
+            const float halfY = cfg.panStop ? 12.0f : 9.0f;
+            if (t > 0.0f && std::abs(viewOrigin.x + t * viewDir.x) <= halfX && std::abs(viewOrigin.y + t * viewDir.y) <= halfY)
                 bestT = t;
         }
         else if (fabsf(dir.y) > 1e-6f)
@@ -1285,15 +1305,17 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
         {
             if (cfg.nativeDiffuse)
             {
+                const XMMATRIX planeView = cfg.panStop ? cam.baseView : cam.view;
+                const XMMATRIX invPlaneView = XMMatrixInverse(nullptr, planeView);
                 const float facing = cfg.handed == Handed::RH ? 1.0f : -1.0f;
-                XMStoreFloat3(&r.normal, XMVector3TransformNormal(XMVectorSet(0, 0, facing, 0), cam.invView));
-                const XMVECTOR viewPos = XMVector3Transform(r.world, cam.view);
+                XMStoreFloat3(&r.normal, XMVector3TransformNormal(XMVectorSet(0, 0, facing, 0), invPlaneView));
+                const XMVECTOR viewPos = XMVector3Transform(r.world, planeView);
                 const int checker = (int(floorf(XMVectorGetX(viewPos) * 4.0f)) +
                                      int(floorf(XMVectorGetY(viewPos) * 4.0f))) & 1;
                 const float a = cfg.detailPattern && checker ? 0.45f : 1.0f;
                 r.albD = {a * 0.8f, a * 0.75f, a * 0.6f};
-                r.albS = {0, 0, 0};
-                r.rough = 1.0f;
+                r.albS = cfg.nativeSpecular ? XMFLOAT3{0.06f, 0.06f, 0.07f} : XMFLOAT3{0, 0, 0};
+                r.rough = cfg.nativeSpecular ? 0.35f : 1.0f;
             }
             else
             {
@@ -1308,7 +1330,7 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
         }
         const float dx = cam.camPos.x - pos.x, dy = cam.camPos.y - pos.y, dz = cam.camPos.z - pos.z;
         r.viewDist = std::abs(XMVectorGetZ(XMVector3Transform(r.world, cam.view)));
-        if (cfg.nativeDiffuse)
+        if (cfg.nativeDiffuse && !cfg.nativeSpecular)
         {
             r.albS = {0, 0, 0};
             r.rough = 1.0f;
@@ -1328,7 +1350,20 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
             const XMVECTOR start = XMVectorAdd(r.world, XMVectorScale(XMLoadFloat3(&r.normal), 1e-3f));
             XMFLOAT3 so, sd; XMStoreFloat3(&so, start); XMStoreFloat3(&sd, direction);
             float distance = 1e30f;
-            if (std::abs(sd.y) > 1e-6f)
+            if (cfg.nativeDiffuse)
+            {
+                const XMMATRIX planeView = cfg.panStop ? cam.baseView : cam.view;
+                XMFLOAT3 vSo, vSd;
+                XMStoreFloat3(&vSo, XMVector3Transform(start, planeView));
+                XMStoreFloat3(&vSd, XMVector3TransformNormal(direction, planeView));
+                const float forward = cfg.handed == Handed::RH ? -1.0f : 1.0f;
+                if (std::abs(vSd.z) > 1e-6f)
+                {
+                    const float t = (forward * 12.0f - vSo.z) / vSd.z;
+                    if (t > 1e-3f) distance = std::min(distance, t);
+                }
+            }
+            else if (std::abs(sd.y) > 1e-6f)
             {
                 const float t = -so.y / sd.y; if (t > 1e-3f) distance = t;
             }
@@ -1365,6 +1400,23 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
         hz /= hl;
         const float ndh = std::max(0.0f, r.normal.x * hx + r.normal.y * hy + r.normal.z * hz);
         const float specPow = powf(ndh, gloss) * (r.rough <= 0.0f ? scene.sun * 1.5f : scene.sun * 0.25f);
+        if (cfg.nativeDiffuse && cfg.nativeSpecular)
+        {
+            XMStoreFloat3(&r.normal, XMVector3Normalize(XMLoadFloat3(&r.normal)));
+            for (int c = 0; c < 3; ++c)
+            {
+                (&r.albS.x)[c] = std::round(std::clamp((&r.albS.x)[c], 0.0f, 0.9f) * 255.0f) / 255.0f;
+                (&r.albD.x)[c] = std::round(std::clamp((&r.albD.x)[c], 0.0f, 1.0f - (&r.albS.x)[c]) * 255.0f) / 255.0f;
+            }
+            const XMVECTOR light = XMVector3Normalize(XMLoadFloat3(&scene.lightDir));
+            r.directDiffuse = scene.sun * std::max(0.0f, XMVectorGetX(XMVector3Dot(XMLoadFloat3(&r.normal), light))) / XM_PI;
+            r.directSpecular = specPow + 0.15f * std::max(0.0f, 1.0f - r.hitDist / 16.0f);
+            if (r.hitDist <= 0.0f) r.hitDist = 12.0f;
+            r.radiance = {r.albD.x * r.directDiffuse + r.albS.x * r.directSpecular,
+                          r.albD.y * r.directDiffuse + r.albS.y * r.directSpecular,
+                          r.albD.z * r.directDiffuse + r.albS.z * r.directSpecular};
+            return r;
+        }
         r.radiance = {r.albD.x * (ndl * scene.sun + scene.ambient) + r.albS.x * specPow + 0.004f,
                       r.albD.y * (ndl * scene.sun + scene.ambient) + r.albS.y * specPow + 0.006f,
                       r.albD.z * (ndl * scene.sun + scene.ambient) + r.albS.z * specPow + 0.012f};
@@ -1412,16 +1464,20 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
             // and every sample is strictly positive with no clamp. sigma is the
             // scene-specific RELATIVE amplitude; std(m) = sqrt(exp(sigma^2)-1).
             const float noiseMult = noisy ? expf(sigma * rng.Normal() - 0.5f * sigma * sigma) : 1.0f;
+            const float specNoiseMult = (noisy && cfg.nativeSpecular) ? expf(sigma * rng.Normal() - 0.5f * sigma * sigma) : noiseMult;
             const float sampledDirectDiffuse = cfg.nativeDiffuse ? s.directDiffuse * noiseMult : 0.0f;
+            const float sampledDirectSpecular = (cfg.nativeDiffuse && cfg.nativeSpecular) ? s.directSpecular * specNoiseMult : 0.0f;
             float noisyRgb[3];
             for (int c = 0; c < 3; ++c)
             {
                 const float clean = (&s.radiance.x)[c];
-                noisyRgb[c] = cfg.nativeDiffuse ? (&s.albD.x)[c] * sampledDirectDiffuse : clean * noiseMult;
+                noisyRgb[c] = cfg.nativeDiffuse
+                    ? ((&s.albD.x)[c] * sampledDirectDiffuse + (cfg.nativeSpecular ? (&s.albS.x)[c] * sampledDirectSpecular : 0.0f))
+                    : clean * noiseMult;
             }
 
-            float mvx = 0.0f, mvy = 0.0f;
-            if (s.hit && !cam.cut && !cfg.nativeDiffuse)
+            float mvx = 0.0f, mvy = 0.0f, mvUvX = 0.0f, mvUvY = 0.0f, mvDepthDelta = 0.0f;
+            if (s.hit && !cam.cut && (!cfg.nativeDiffuse || cfg.panStop))
             {
                 XMVECTOR previousWorld = s.world;
                 if (s.movingOccluder && frame > 0)
@@ -1434,9 +1490,16 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
                 const float pw = std::max(1e-12f, XMVectorGetW(prevClip));
                 const float pux = (XMVectorGetX(prevClip) / pw + 1.0f) * 0.5f;
                 const float puy = (1.0f - XMVectorGetY(prevClip) / pw) * 0.5f;
+                const float cux = (x + 0.5f - cam.jitterX) / float(rw);
+                const float cuy = (y + 0.5f - cam.jitterY) / float(rh);
+                mvUvX = pux - cux;
+                mvUvY = puy - cuy;
                 // Both endpoints are the same world sample; input MV excludes jitter.
-                mvx = (pux - (x + 0.5f - cam.jitterX) / float(rw)) * float(rw);
-                mvy = (puy - (y + 0.5f - cam.jitterY) / float(rh)) * float(rh);
+                mvx = mvUvX * float(rw);
+                mvy = mvUvY * float(rh);
+                const float curZ = XMVectorGetZ(XMVector3Transform(s.world, cam.view));
+                const float prvZ = XMVectorGetZ(XMVector3Transform(previousWorld, cam.prevView));
+                mvDepthDelta = prvZ - curZ;
             }
 
             const size_t si = size_t(y + baseY) * texW + (x + baseX);
@@ -1460,12 +1523,20 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
                 auto* signal = reinterpret_cast<uint16_t*>(out.nativeDiffuse.data()) + ni * 4;
                 signal[0] = signal[1] = signal[2] = FloatToHalf(sampledDirectDiffuse);
                 signal[3] = FloatToHalf(s.hit ? cfg.nativeSignalAlpha : -1.0f);
+                if (cfg.nativeSpecular)
+                {
+                    auto* specSig = reinterpret_cast<uint16_t*>(out.nativeSpecular.data()) + ni * 4;
+                    specSig[0] = specSig[1] = specSig[2] = FloatToHalf(sampledDirectSpecular);
+                    specSig[3] = FloatToHalf(s.hit ? s.hitDist : -1.0f);
+                }
                 const float currentZ = s.hit ? XMVectorGetZ(XMVector3Transform(s.world, cam.view))
                     : (cfg.handed == Handed::RH ? -1.0f : 1.0f) * (cfg.farPlane + 1.0f);
                 reinterpret_cast<float*>(out.nativeDepth.data())[ni] = currentZ;
                 auto* motion = reinterpret_cast<uint16_t*>(out.nativeMotion.data()) + ni * 4;
-                motion[0] = motion[1] = motion[2] = FloatToHalf(0.0f); // exact static first-scene motion
-                motion[3] = FloatToHalf(0.0f);
+                motion[0] = FloatToHalf(mvUvX);
+                motion[1] = FloatToHalf(mvUvY);
+                motion[2] = FloatToHalf(mvDepthDelta);
+                motion[3] = FloatToHalf(cfg.panStop ? 1.0f : 0.0f);
                 // SDK octahedral world normal, linear roughness, material ID 0.
                 const float invL1 = 1.0f / (std::abs(s.normal.x) + std::abs(s.normal.y) + std::abs(s.normal.z));
                 float nx = s.normal.x * invL1, ny = s.normal.y * invL1;
@@ -1475,8 +1546,9 @@ static FixtureFrame RenderFixture(const AnalyticScene& scene, const FrameCamera&
                     nx = (1.0f - std::abs(ny)) * (oldX < 0.0f ? -1.0f : 1.0f);
                     ny = (1.0f - std::abs(oldX)) * (ny < 0.0f ? -1.0f : 1.0f);
                 }
+                const uint32_t roughBits = uint32_t(std::round(std::clamp(s.rough, 0.0f, 1.0f) * 1023.0f));
                 const uint32_t packedNormal = uint32_t(std::round((nx * 0.5f + 0.5f) * 1023.0f)) |
-                    (uint32_t(std::round((ny * 0.5f + 0.5f) * 1023.0f)) << 10) | (1023u << 20);
+                    (uint32_t(std::round((ny * 0.5f + 0.5f) * 1023.0f)) << 10) | (roughBits << 20);
                 memcpy(out.nativeNormals.data() + ni * 4, &packedNormal, sizeof packedNormal);
                 if (!s.hit)
                 {
@@ -2370,7 +2442,8 @@ static std::vector<float> DownloadTexture(GpuContext& gpu, ID3D12Resource* res, 
 // sample denoiser_compose.hlsl:155-159 remodulates DirectDiffuse with linear albedo.
 struct NativeDiffuseRoute
 {
-    GpuTexture signal, depth, normals, motion, output, composed, srOutput;
+    GpuTexture signal, specSignal, depth, normals, motion, output, specOutput, composed, srOutput;
+    bool hasSpecular = false;
     ComPtr<ID3D12RootSignature> root;
     ComPtr<ID3D12PipelineState> pipeline;
     ComPtr<ID3D12DescriptorHeap> heap;
@@ -2382,17 +2455,23 @@ struct NativeDiffuseRoute
         barrier.Transition = {texture.tex.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, texture.state, after};
         cl->ResourceBarrier(1, &barrier); texture.state = after;
     }
-    void Init(ID3D12Device* device, const SceneConfig& scene, ID3D12Resource* albedo)
+    void Init(ID3D12Device* device, const SceneConfig& scene, ID3D12Resource* albedo, ID3D12Resource* specAlbedo = nullptr)
     {
         const auto w = scene.renderW, h = scene.renderH;
+        hasSpecular = scene.nativeSpecular && specAlbedo != nullptr;
         signal.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, false, true, L"native_direct_diffuse");
+        if (hasSpecular)
+        {
+            specSignal.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, false, true, L"native_indirect_specular");
+            specOutput.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, true, false, L"native_rr_spec_output");
+        }
         depth.Init(device, DXGI_FORMAT_R32_FLOAT, w, h, false, true, L"native_signed_depth");
         normals.Init(device, DXGI_FORMAT_R10G10B10A2_UNORM, w, h, false, true, L"native_oct_normal_roughness");
         motion.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, false, true, L"native_uv_depth_motion");
         output.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, true, false, L"native_rr_output");
         composed.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, true, false, L"native_remodulated");
         srOutput.Init(device, DXGI_FORMAT_R16G16B16A16_FLOAT, scene.TargetW(), scene.TargetH(), true, false, L"native_sr_output");
-        const char* source = R"(
+        const char* sourceDiff = R"(
 Texture2D<float4> lighting : register(t0);
 Texture2D<float4> albedo : register(t1);
 RWTexture2D<float4> radiance : register(u0);
@@ -2401,12 +2480,25 @@ RWTexture2D<float4> radiance : register(u0);
     uint w, h; radiance.GetDimensions(w, h);
     if (p.x < w && p.y < h) radiance[p.xy] = float4(lighting[p.xy].rgb * albedo[p.xy].rgb, 1);
 })";
+        const char* sourceSpec = R"(
+Texture2D<float4> lighting : register(t0);
+Texture2D<float4> albedo : register(t1);
+Texture2D<float4> specLighting : register(t2);
+Texture2D<float4> specAlbedo : register(t3);
+RWTexture2D<float4> radiance : register(u0);
+[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID)
+{
+    uint w, h; radiance.GetDimensions(w, h);
+    if (p.x < w && p.y < h) radiance[p.xy] = float4(lighting[p.xy].rgb * albedo[p.xy].rgb + specLighting[p.xy].rgb * specAlbedo[p.xy].rgb, 1);
+})";
+        const char* source = hasSpecular ? sourceSpec : sourceDiff;
+        const uint32_t srvCount = hasSpecular ? 4u : 2u;
         ComPtr<ID3DBlob> shader, errors, signature;
         CHECK_HR(D3DCompile(source, std::strlen(source), "native_diffuse_remodulate", nullptr, nullptr,
             "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader, &errors), "compile native remodulation");
         D3D12_DESCRIPTOR_RANGE ranges[2]{};
-        ranges[0] = {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, 0};
-        ranges[1] = {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 2};
+        ranges[0] = {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, srvCount, 0, 0, 0};
+        ranges[1] = {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, srvCount};
         D3D12_ROOT_PARAMETER parameter{};
         parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         parameter.DescriptorTable = {2, ranges};
@@ -2418,7 +2510,7 @@ RWTexture2D<float4> radiance : register(u0);
         pso.pRootSignature = root.Get(); pso.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
         CHECK_HR(device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&pipeline)), "native remodulation pipeline");
         D3D12_DESCRIPTOR_HEAP_DESC hd{};
-        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; hd.NumDescriptors = 3; hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; hd.NumDescriptors = srvCount + 1; hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         CHECK_HR(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap)), "native remodulation heap");
         auto handle = heap->GetCPUDescriptorHandleForHeapStart();
         const auto step = device->GetDescriptorHandleIncrementSize(hd.Type);
@@ -2428,11 +2520,18 @@ RWTexture2D<float4> radiance : register(u0);
         device->CreateShaderResourceView(output.tex.Get(), &srv, handle); handle.ptr += step;
         srv.Format = albedo->GetDesc().Format;
         device->CreateShaderResourceView(albedo, &srv, handle); handle.ptr += step;
+        if (hasSpecular)
+        {
+            srv.Format = specOutput.format;
+            device->CreateShaderResourceView(specOutput.tex.Get(), &srv, handle); handle.ptr += step;
+            srv.Format = specAlbedo->GetDesc().Format;
+            device->CreateShaderResourceView(specAlbedo, &srv, handle); handle.ptr += step;
+        }
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D; uav.Format = composed.format;
         device->CreateUnorderedAccessView(composed.tex.Get(), nullptr, &uav, handle);
     }
-    void Fill(ffxDispatchDescDenoiser& dispatch, ffxDispatchDescDenoiserDirectDiffuse& diffuse)
+    void Fill(ffxDispatchDescDenoiser& dispatch, ffxDispatchDescDenoiserDirectDiffuse& diffuse, ffxDispatchDescDenoiserIndirectSpecular* spec = nullptr)
     {
         dispatch.header.type = FFX_API_DISPATCH_DESC_TYPE_DENOISER;
         dispatch.header.pNext = &diffuse.header;
@@ -2440,17 +2539,92 @@ RWTexture2D<float4> radiance : register(u0);
         dispatch.motionVectors = ffxApiGetResourceDX12(motion.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
         dispatch.normals = ffxApiGetResourceDX12(normals.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
         diffuse.header.type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_DIRECT_DIFFUSE;
+        diffuse.header.pNext = (hasSpecular && spec) ? &spec->header : nullptr;
         diffuse.signal.input = ffxApiGetResourceDX12(signal.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
         diffuse.signal.output = ffxApiGetResourceDX12(output.tex.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+        if (hasSpecular && spec)
+        {
+            spec->header.type = FFX_API_DISPATCH_DESC_TYPE_DENOISER_INDIRECT_SPECULAR;
+            spec->header.pNext = nullptr;
+            spec->signal.input = ffxApiGetResourceDX12(specSignal.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+            spec->signal.output = ffxApiGetResourceDX12(specOutput.tex.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
     }
     void Compose(ID3D12GraphicsCommandList* cl)
     {
-        Transition(cl, output, kRead); Transition(cl, composed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Transition(cl, output, kRead);
+        if (hasSpecular) Transition(cl, specOutput, kRead);
+        Transition(cl, composed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ID3D12DescriptorHeap* heaps[] = {heap.Get()};
         cl->SetDescriptorHeaps(1, heaps); cl->SetComputeRootSignature(root.Get()); cl->SetPipelineState(pipeline.Get());
         cl->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
         cl->Dispatch((composed.width + 7) / 8, (composed.height + 7) / 8, 1);
         Transition(cl, composed, kRead);
+    }
+};
+
+struct OpenRrRoute
+{
+    HMODULE module = nullptr;
+    OnrRrApi6 api6{};
+    void* ctx = nullptr;
+    GpuTexture output;
+    uint64_t lastSerial = 0;
+    uint32_t activeBackend = ONR_RR_BACKEND_D3D12;
+    std::string runtimeSha256, runtimeVersion, dlssdSha256, dlssdVersion;
+
+    void Load(const fs::path& runtimePath, const fs::path& dlssdPath)
+    {
+        if (!fs::exists(runtimePath)) Die("OpenRR runtime missing: " + runtimePath.string());
+        if (!fs::exists(dlssdPath)) Die("OpenRR dlssd missing: " + dlssdPath.string());
+        runtimeSha256 = Sha256File(runtimePath); runtimeVersion = FileVersionOf(runtimePath);
+        dlssdSha256 = Sha256File(dlssdPath); dlssdVersion = FileVersionOf(dlssdPath);
+        module = LoadLibraryExW(runtimePath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        if (!module) Die("LoadLibraryExW failed for OpenNrRrRuntime.dll");
+        auto getApi = reinterpret_cast<PFN_OnrRrGetApi>(GetProcAddress(module, "OnrRrGetApi"));
+        if (!getApi || getApi(ONR_RR_ABI_VERSION_6, &api6.v5.v4.v3.v2.v1) != ONR_RR_OK)
+            Die("OpenNrRrRuntime.dll does not offer ABI 6");
+    }
+    uint32_t curRenderW = 0, curRenderH = 0, curOutW = 0, curOutH = 0;
+    bool isReady = false;
+    void CreateContext(ID3D12Device* dev, const SceneConfig& scene, const fs::path& runtimePath, const fs::path& dlssdPath, const std::string& backendStr)
+    {
+        output.Init(dev, DXGI_FORMAT_R16G16B16A16_FLOAT, scene.TargetW(), scene.TargetH(), true, false, L"openrr_sr_output");
+        if (ctx && curRenderW == scene.renderW && curRenderH == scene.renderH && curOutW == scene.TargetW() && curOutH == scene.TargetH())
+            return;
+        DestroyContext();
+        curRenderW = scene.renderW; curRenderH = scene.renderH;
+        curOutW = scene.TargetW(); curOutH = scene.TargetH();
+        isReady = false;
+        const std::wstring dlssdW = dlssdPath.wstring();
+        const std::wstring dataDirW = (runtimePath.parent_path() / L"opennr-rr").wstring();
+        OnrRrCreateInfo ci{};
+        ci.size = sizeof(ci);
+        ci.mode = ONR_RR_MODE_FAST;
+        ci.d3d12_device = dev;
+        ci.max_render_width = scene.renderW;
+        ci.max_render_height = scene.renderH;
+        ci.output_width = scene.TargetW();
+        ci.output_height = scene.TargetH();
+        ci.dlssd_path = dlssdW.c_str();
+        ci.data_dir = dataDirW.c_str();
+        ci.backend = backendStr == "vulkan" ? ONR_RR_BACKEND_CHOICE_VULKAN : ONR_RR_BACKEND_CHOICE_D3D12;
+        if (api6.v5.v4.v3.v2.v1.Create(&ci, &ctx) != ONR_RR_OK || !ctx)
+            Die("OpenRR Create failed");
+        if (api6.v5.v4.GetBackend) api6.v5.v4.GetBackend(ctx, &activeBackend);
+    }
+    void DestroyContext()
+    {
+        if (ctx && api6.v5.v4.v3.v2.v1.Destroy)
+        {
+            api6.v5.v4.v3.v2.v1.Destroy(ctx);
+            ctx = nullptr;
+        }
+    }
+    ~OpenRrRoute()
+    {
+        DestroyContext();
+        if (module) FreeLibrary(module);
     }
 };
 
@@ -2464,6 +2638,8 @@ static int GuardedMain(int argc, char** argv)
     OfflineFeatures features;
     std::string sceneOverride;
     std::string nativeScene = "both", nativeAlpha = "0", nativeHistory = "normal";
+    fs::path openrrRuntimePath, openrrDlssdPath;
+    std::string openrrBackend = "d3d12";
     bool nativeControlsSpecified = false;
     std::vector<std::pair<std::string, std::string>> featureOverrides;
     const fs::path exeDir = fs::path(argv[0]).parent_path();
@@ -2487,6 +2663,9 @@ static int GuardedMain(int argc, char** argv)
         else if (arg == "--native-scene") { nativeScene = next(); nativeControlsSpecified = true; }
         else if (arg == "--native-signal-alpha") { nativeAlpha = next(); nativeControlsSpecified = true; }
         else if (arg == "--native-history") { nativeHistory = next(); nativeControlsSpecified = true; }
+        else if (arg == "--openrr-runtime") openrrRuntimePath = next();
+        else if (arg == "--openrr-dlssd") openrrDlssdPath = next();
+        else if (arg == "--openrr-backend") openrrBackend = next();
         else if (arg == "--zero-reference") zeroReference = next();
         else if (arg == "--feature-case") features.Select(next());
         else if (arg == "--set")
@@ -2504,8 +2683,10 @@ static int GuardedMain(int argc, char** argv)
     }
     const bool nativeComparison = mode == "native-diffuse";
     if (nativeControlsSpecified && !nativeComparison) Die("--native-* controls require --mode native-diffuse");
-    if (nativeScene != "flat" && nativeScene != "detail" && nativeScene != "both")
-        Die("--native-scene must be flat|detail|both");
+    if (nativeScene != "flat" && nativeScene != "detail" && nativeScene != "both" &&
+        nativeScene != "motion_stop" && nativeScene != "specular" && nativeScene != "all")
+        Die("--native-scene must be flat|detail|both|motion_stop|specular|all");
+    const bool openrrEnabled = !openrrRuntimePath.empty() && !openrrDlssdPath.empty();
     if (nativeAlpha != "0" && nativeAlpha != "65504") Die("--native-signal-alpha must be 0|65504");
     if (nativeHistory != "normal" && nativeHistory != "reset-every-frame")
         Die("--native-history must be normal|reset-every-frame");
@@ -2608,7 +2789,8 @@ static int GuardedMain(int argc, char** argv)
         mf.readbackEvery = 1; mf.dumpAllFrames = true;
         features.name = "native-diffuse";
         features.FfxDenoiserDiffuseRoute = FSRDSignals::Direct;
-        features.FfxDenoiserDenoiseSpecular = false;
+        features.FfxDenoiserSpecularRoute = FSRDSignals::Indirect;
+        features.FfxDenoiserDenoiseSpecular = (nativeScene == "specular");
         features.FfxDenoiserFloorEnabled = false;
         features.FfxDenoiserUnsupportedAlbedoRecovery = false;
     }
@@ -2636,6 +2818,8 @@ static int GuardedMain(int argc, char** argv)
     EffectDll denoiser, upscaler;
     denoiser.Load(mf.denoiserDll, mf.denoiserSha256);
     upscaler.Load(mf.upscalerDll, mf.upscalerSha256);
+    OpenRrRoute openrrRoute;
+    if (openrrEnabled) openrrRoute.Load(openrrRuntimePath, openrrDlssdPath);
 
     // Verbose SDK surface (upstream runner pattern); any SDK error fails the run.
     ffxConfigureDescGlobalDebug globalDebug = {};
@@ -2664,13 +2848,28 @@ static int GuardedMain(int argc, char** argv)
         scenes.clear();
         SceneConfig diffuse;
         diffuse.name = "native_diffuse_flat";
+        if (openrrEnabled) { diffuse.renderW = 512; diffuse.renderH = 256; }
         diffuse.nativeDiffuse = true; diffuse.orbit = false; diffuse.frames = mf.frames;
         diffuse.nearPlane = 0.1f; diffuse.farPlane = 32.0f;
         diffuse.nativeSignalAlpha = nativeAlpha == "65504" ? 65504.0f : 0.0f;
         diffuse.resetEveryFrame = nativeHistory == "reset-every-frame";
-        if (nativeScene != "detail") scenes.push_back(diffuse);
+        if (nativeScene == "flat" || nativeScene == "both" || nativeScene == "all") scenes.push_back(diffuse);
         diffuse.name = "native_diffuse_detail"; diffuse.detailPattern = true;
-        if (nativeScene != "flat") scenes.push_back(diffuse);
+        if (nativeScene == "detail" || nativeScene == "both" || nativeScene == "all") scenes.push_back(diffuse);
+        if (nativeScene == "motion_stop" || nativeScene == "all")
+        {
+            SceneConfig ms = diffuse;
+            ms.name = "native_diffuse_motion_stop";
+            ms.detailPattern = true; ms.panStop = true;
+            scenes.push_back(ms);
+        }
+        if (nativeScene == "specular" || nativeScene == "all")
+        {
+            SceneConfig sp = diffuse;
+            sp.name = "native_specular_roughness";
+            sp.detailPattern = true; sp.nativeSpecular = true; sp.hitDistance = true;
+            scenes.push_back(sp);
+        }
     }
     if (!mf.scenes.empty() && fixtureDir.empty())
     {
@@ -2984,7 +3183,30 @@ static int GuardedMain(int argc, char** argv)
         t.srOut.Init(gpu.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, sceneCfg.TargetW(), sceneCfg.TargetH(),
                      true, true, L"fx_sr_out");
         NativeDiffuseRoute nativeRoute;
-        if (nativeComparison) nativeRoute.Init(gpu.device.Get(), sceneCfg, t.diffAlb.tex.Get());
+        if (nativeComparison) nativeRoute.Init(gpu.device.Get(), sceneCfg, t.diffAlb.tex.Get(), sceneCfg.nativeSpecular ? t.specAlb.tex.Get() : nullptr);
+        if (nativeComparison)
+        {
+            features.FfxDenoiserDenoiseSpecular = sceneCfg.nativeSpecular;
+            const uint32_t wantedMask = sceneCfg.nativeSpecular ? 9u : 1u;
+            if (currentPlan.mask != wantedMask)
+            {
+                currentPlan = FSRDSignals::Plan{wantedMask};
+                CHECK_FFX(denoiser.api.DestroyContext(&rrCtx, nullptr), "RR DestroyContext");
+                CHECK_FFX(denoiser.api.DestroyContext(&nativeRrCtx, nullptr), "native RR DestroyContext");
+                rrCreate.signalFlags = signalFlagsFor(currentPlan.mask);
+                CHECK_FFX(denoiser.api.CreateContext(&rrCtx, &rrCreate.header, nullptr), "RR CreateContext");
+                CHECK_FFX(denoiser.api.CreateContext(&nativeRrCtx, &rrCreate.header, nullptr), "native RR CreateContext");
+                for (auto& d : defaults)
+                {
+                    ffxConfigureDescDenoiserKeyValue setting{};
+                    setting.header.type = FFX_API_CONFIGURE_DESC_TYPE_DENOISER_KEYVALUE;
+                    setting.key = d.key; setting.count = 1; setting.data = &d.value;
+                    CHECK_FFX(denoiser.api.Configure(&rrCtx, &setting.header), "translated RR pin setting");
+                    CHECK_FFX(denoiser.api.Configure(&nativeRrCtx, &setting.header), "native RR pin setting");
+                }
+            }
+        }
+        if (openrrEnabled) openrrRoute.CreateContext(gpu.device.Get(), sceneCfg, openrrRuntimePath, openrrDlssdPath, openrrBackend);
         const uint32_t motionW = sceneCfg.displayResMV ? sceneCfg.TargetW() : sceneCfg.renderW;
         const uint32_t motionH = sceneCfg.displayResMV ? sceneCfg.TargetH() : sceneCfg.renderH;
         srInputProvenance.push_back({{"scene", sceneCfg.name},
@@ -3037,6 +3259,8 @@ static int GuardedMain(int argc, char** argv)
             timer.Init(gpu.device.Get(), gpu.queue.Get(), frameCount);
             StageTimer nativeTimer;
             if (nativeComparison) nativeTimer.Init(gpu.device.Get(), gpu.queue.Get(), frameCount);
+            StageTimer openrrTimer;
+            if (openrrEnabled) openrrTimer.Init(gpu.device.Get(), gpu.queue.Get(), frameCount);
             const int passCount = capturedScene ? 1 : 2; // captures are their own input class
             for (int pass = 0; pass < passCount; ++pass)
             {
@@ -3047,7 +3271,7 @@ static int GuardedMain(int argc, char** argv)
                 struct ReadFrame
                 {
                     uint32_t frameId = 0;
-                    std::vector<float> presr, sr;
+                    std::vector<float> presr, sr, nativeSr, openrrSr;
                     std::vector<float> truthR, truthT;
                     bool hasTruth = true;
                 };
@@ -3135,8 +3359,9 @@ static int GuardedMain(int argc, char** argv)
                     const bool featureGuideBound = features.guides == "both" || features.guides == "specular" ||
                         (features.guides == "dropout" && frame < frameCount / 2) ||
                         (features.guides == "arrival" && frame >= frameCount / 2);
-                    const bool hitDistBound = features.CandidateOnly() ? featureGuideBound :
-                        (capturedScene ? !fx.hitDistance.empty() : (sceneCfg.hitDistance && frame < 8));
+                    const bool hitDistBound = (nativeComparison && sceneCfg.nativeSpecular) ? true :
+                        (features.CandidateOnly() ? featureGuideBound :
+                        (capturedScene ? !fx.hitDistance.empty() : (sceneCfg.hitDistance && frame < 8)));
                     const bool diffuseGuideBound = features.CandidateOnly() && featureGuideBound && features.guides != "specular";
                     if (selectFramePlan(hitDistBound, diffuseGuideBound)) reset = true;
                     const uint32_t feedableMask = FSRDSignals::Feedable(currentPlan,
@@ -3152,7 +3377,9 @@ static int GuardedMain(int argc, char** argv)
                     if (nativeComparison)
                     {
                         nativeTimer.Begin(cl, frame, StageUpload);
-                        CopyIn(cl, nativeRoute.signal, fx.nativeDiffuse); CopyIn(cl, nativeRoute.depth, fx.nativeDepth);
+                        CopyIn(cl, nativeRoute.signal, fx.nativeDiffuse);
+                        if (sceneCfg.nativeSpecular) CopyIn(cl, nativeRoute.specSignal, fx.nativeSpecular);
+                        CopyIn(cl, nativeRoute.depth, fx.nativeDepth);
                         CopyIn(cl, nativeRoute.normals, fx.nativeNormals); CopyIn(cl, nativeRoute.motion, fx.nativeMotion);
                         nativeTimer.End(cl, frame, StageUpload);
                         nativeTimer.Begin(cl, frame, StageConversion); nativeTimer.End(cl, frame, StageConversion);
@@ -3218,10 +3445,15 @@ static int GuardedMain(int argc, char** argv)
                     {
                         nativeTimer.Begin(cl, frame, StageDenoiser);
                         NativeDiffuseRoute::Transition(cl, nativeRoute.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        if (sceneCfg.nativeSpecular)
+                            NativeDiffuseRoute::Transition(cl, nativeRoute.specOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                         ffxDispatchDescDenoiser nativeDispatch{};
                         ffxDispatchDescDenoiserDirectDiffuse nativeDiffuse{};
-                        nativeRoute.Fill(nativeDispatch, nativeDiffuse);
+                        ffxDispatchDescDenoiserIndirectSpecular nativeSpec{};
+                        nativeRoute.Fill(nativeDispatch, nativeDiffuse, sceneCfg.nativeSpecular ? &nativeSpec : nullptr);
                         nativeDispatch.diffuseAlbedo = ffxApiGetResourceDX12(t.diffAlb.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+                        if (sceneCfg.nativeSpecular)
+                            nativeDispatch.specularAlbedo = ffxApiGetResourceDX12(t.specAlb.tex.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
                         FillDenoiserDesc(nativeDispatch, cl, dispatchScene, cam, conv, reset, frame);
                         CHECK_FFX(denoiser.api.Dispatch(&nativeRrCtx, &nativeDispatch.header), "native RR dispatch");
                         nativeTimer.End(cl, frame, StageDenoiser);
@@ -3298,7 +3530,6 @@ static int GuardedMain(int argc, char** argv)
                         nativeTimer.End(cl, frame, StageUpscale);
                         nativeTimer.Begin(cl, frame, StageReadback); nativeTimer.End(cl, frame, StageReadback);
                     }
-
                     // Final frame's SR copy rides this list; other readbacks below use
                     // dedicated one-shot lists (stage 5 timing covers only what is
                     // recorded on the GPU).
@@ -3324,11 +3555,103 @@ static int GuardedMain(int argc, char** argv)
                     timer.End(cl, frame, StageReadback);
 
                     CHECK_HR(cl->Close(), "close");
-                    WaitFence(Execute(0, cl));
+                    const uint64_t execFv = Execute(0, cl);
+                    WaitFence(execFv);
                     if (!tracker.Wait(ticket, mf.timeoutMs))
                         Die("GpuBatch ticket " + std::to_string(ticket) +
                             " did not retire; production lifetime contract broken");
                     ++trackerRetired;
+
+                    if (openrrEnabled)
+                    {
+                        ComPtr<ID3D12CommandAllocator> orAlloc;
+                        ComPtr<ID3D12GraphicsCommandList> orCl;
+                        CHECK_HR(gpu.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&orAlloc)), "orAlloc");
+                        CHECK_HR(gpu.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, orAlloc.Get(), nullptr, IID_PPV_ARGS(&orCl)), "orCl");
+                        CHECK_HR(orCl->Close(), "orCl initial close");
+                        OnrRrFrame of{};
+                        of.size = sizeof(of);
+                        of.flags = (reset ? ONR_RR_FRAME_RESET : 0u) |
+                                   (!dispatchScene.linearDepth ? ONR_RR_FRAME_HW_DEPTH : 0u) |
+                                   (dispatchScene.reversedZ ? ONR_RR_FRAME_DEPTH_INVERTED : 0u) |
+                                   (!dispatchScene.separateRoughness ? ONR_RR_FRAME_ROUGHNESS_PACKED : 0u);
+                        of.render_width = dispatchScene.renderW;
+                        of.render_height = dispatchScene.renderH;
+                        of.color = {t.color.tex.Get(), uint32_t(kRead), input.bases.colorBaseX, input.bases.colorBaseY};
+                        of.depth = {t.depth.tex.Get(), uint32_t(kRead), input.bases.depthBaseX, input.bases.depthBaseY};
+                        of.motion = {t.motion.tex.Get(), uint32_t(kRead), input.bases.mvBaseX, input.bases.mvBaseY};
+                        of.normals = {t.normals.tex.Get(), uint32_t(kRead), input.bases.normalsBaseX, input.bases.normalsBaseY};
+                        if (dispatchScene.separateRoughness)
+                            of.roughness = {t.roughness.tex.Get(), uint32_t(kRead), input.bases.roughBaseX, input.bases.roughBaseY};
+                        of.diffuse_albedo = {t.diffAlb.tex.Get(), uint32_t(kRead), input.bases.albedoBaseX, input.bases.albedoBaseY};
+                        of.specular_albedo = {t.specAlb.tex.Get(), uint32_t(kRead), input.bases.albedoBaseX, input.bases.albedoBaseY};
+                        if (hitDistBound)
+                            of.specular_hit_distance = {t.hitDist.tex.Get(), uint32_t(kRead), input.bases.hitBaseX, input.bases.hitBaseY};
+                        of.output = {openrrRoute.output.tex.Get(), uint32_t(D3D12_RESOURCE_STATE_UNORDERED_ACCESS), 0, 0};
+                        of.jitter_x = cam.jitterX; of.jitter_y = cam.jitterY;
+                        of.mv_scale_x = 1.0f; of.mv_scale_y = 1.0f;
+                        memcpy(of.world_to_view, &rawView, sizeof(rawView));
+                        memcpy(of.view_to_clip, &rawProjection, sizeof(rawProjection));
+                        if (!openrrRoute.isReady)
+                        {
+                            for (int attempt = 0; attempt < 600; ++attempt)
+                            {
+                                CHECK_HR(orAlloc->Reset(), "orAlloc Reset");
+                                CHECK_HR(orCl->Reset(orAlloc.Get(), nullptr), "orCl Reset");
+                                void* warmJob = nullptr;
+                                if (openrrRoute.activeBackend == ONR_RR_BACKEND_D3D12)
+                                {
+                                    if (openrrRoute.api6.v5.v4.Record(openrrRoute.ctx, &of, orCl.Get(), ONR_RR_EDIT_OFF, nullptr, &warmJob) != ONR_RR_OK)
+                                        Die("OpenRR warmup Record failed");
+                                    CHECK_HR(orCl->Close(), "close OpenRR warmup");
+                                    ID3D12CommandList* wLists[] = {orCl.Get()};
+                                    gpu.queue->ExecuteCommandLists(1, wLists);
+                                    fenceValue += 1;
+                                    const uint64_t wfv = fenceValue;
+                                    CHECK_HR(gpu.queue->Signal(frameFence.Get(), wfv), "warm Signal");
+                                    const uint64_t wser = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(warmJob));
+                                    if (wser != 0 && openrrRoute.api6.NoteD3d12Fence)
+                                        openrrRoute.api6.NoteD3d12Fence(openrrRoute.ctx, wser, frameFence.Get(), wfv);
+                                    WaitFence(wfv);
+                                    if (gpu.info) gpu.info->ClearStoredMessages();
+                                }
+                                OnrRrInfo info{}; info.size = sizeof(info);
+                                if (openrrRoute.api6.v5.v4.v3.v2.v1.GetInfo(openrrRoute.ctx, &info) != ONR_RR_OK)
+                                    Die("OpenRR GetInfo failed");
+                                if (info.state == ONR_RR_STATE_READY) { openrrRoute.isReady = true; break; }
+                                if (info.state == ONR_RR_STATE_FAILED) Die(std::string("OpenRR build failed: ") + info.message);
+                                Sleep(20);
+                            }
+                            if (!openrrRoute.isReady) Die("OpenRR did not reach ONR_RR_STATE_READY");
+                            of.flags |= ONR_RR_FRAME_RESET;
+                        }
+                        CHECK_HR(orAlloc->Reset(), "orAlloc Reset timed");
+                        CHECK_HR(orCl->Reset(orAlloc.Get(), nullptr), "orCl Reset timed");
+                        openrrTimer.Begin(orCl.Get(), frame, StageUpload); openrrTimer.End(orCl.Get(), frame, StageUpload);
+                        openrrTimer.Begin(orCl.Get(), frame, StageConversion); openrrTimer.End(orCl.Get(), frame, StageConversion);
+                        openrrTimer.Begin(orCl.Get(), frame, StageDenoiser);
+                        void* job = nullptr;
+                        if (openrrRoute.activeBackend == ONR_RR_BACKEND_D3D12)
+                        {
+                            if (openrrRoute.api6.v5.v4.Record(openrrRoute.ctx, &of, orCl.Get(), ONR_RR_EDIT_OFF, nullptr, &job) != ONR_RR_OK)
+                                Die("OpenRR D3D12 Record failed");
+                            openrrRoute.lastSerial = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(job));
+                        }
+                        openrrTimer.End(orCl.Get(), frame, StageDenoiser);
+                        openrrTimer.Begin(orCl.Get(), frame, StageComposition); openrrTimer.End(orCl.Get(), frame, StageComposition);
+                        openrrTimer.Begin(orCl.Get(), frame, StageUpscale); openrrTimer.End(orCl.Get(), frame, StageUpscale);
+                        openrrTimer.Begin(orCl.Get(), frame, StageReadback); openrrTimer.End(orCl.Get(), frame, StageReadback);
+                        CHECK_HR(orCl->Close(), "orCl Close timed");
+                        ID3D12CommandList* oLists[] = {orCl.Get()};
+                        gpu.queue->ExecuteCommandLists(1, oLists);
+                        fenceValue += 1;
+                        const uint64_t ofv = fenceValue;
+                        CHECK_HR(gpu.queue->Signal(frameFence.Get(), ofv), "orCl Signal");
+                        if (openrrRoute.lastSerial != 0 && openrrRoute.api6.NoteD3d12Fence)
+                            openrrRoute.api6.NoteD3d12Fence(openrrRoute.ctx, openrrRoute.lastSerial, frameFence.Get(), ofv);
+                        WaitFence(ofv);
+                        if (gpu.info) gpu.info->ClearStoredMessages();
+                    }
 
                     // New-closure temporal parity: flip the history read slot after each
                     // fully successful frame (required, per converter owner).
@@ -3662,6 +3985,19 @@ static int GuardedMain(int argc, char** argv)
                         rf.frameId = frame;
                         rf.presr = std::move(preSR);
                         rf.sr = std::move(srOut);
+                        if (nativeComparison)
+                            rf.nativeSr = DownloadTexture(gpu, nativeRoute.srOutput.tex.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                nativeRoute.srOutput.format, sceneCfg.TargetW(), sceneCfg.TargetH());
+                        if (openrrEnabled)
+                        {
+                            rf.openrrSr = DownloadTexture(gpu, openrrRoute.output.tex.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                openrrRoute.output.format, sceneCfg.TargetW(), sceneCfg.TargetH());
+                            const auto st = ComparePlanes(rf.openrrSr, fx.truthTarget, sceneCfg.TargetW(), sceneCfg.TargetH());
+                            anyFailure |= st.nonFinite != 0;
+                            art.metrics << sceneCfg.name << ',' << passName << ',' << frame << ",openrr_sr," << st.rmse << ','
+                                << st.bias << ',' << st.energyRatio << ',' << st.detailRatio << ',' << st.psnr << ','
+                                << st.nonFinite << ',' << st.noiseStd << "\n";
+                        }
                         rf.truthR = capturedScene ? fx.truthRender : fx.truthJittered;
                         rf.truthT = fx.truthTarget;
                         rf.hasTruth = !capturedScene || input.hasTruthTarget;
@@ -3704,6 +4040,7 @@ static int GuardedMain(int argc, char** argv)
                 CHECK_HR(cl->Reset(allocators[0].Get(), nullptr), "list Reset");
                 timer.Resolve(cl);
                 if (nativeComparison) nativeTimer.Resolve(cl);
+                if (openrrEnabled) openrrTimer.Resolve(cl);
                 CHECK_HR(cl->Close(), "close");
                 Execute(0, cl);
                 WaitFence(slotFence[0]);
@@ -3716,6 +4053,13 @@ static int GuardedMain(int argc, char** argv)
                             art.segments << sceneCfg.name << ',' << passName << "_native," << f << ',' << StageName(stage)
                                 << ',' << times[f * StageCount + stage] << "\n";
                 }
+                if (openrrEnabled)
+                {
+                    const auto times = openrrTimer.Read(frameCount);
+                    for (uint32_t f = 0; f < frameCount; ++f)
+                        art.segments << sceneCfg.name << ',' << passName << "_openrr," << f << ",denoiser,"
+                            << times[f * StageCount + StageDenoiser] << "\n";
+                }
 
                 // Image-space truth-residual change, not motion-compensated surface flicker.
                 if (reads.size() >= 2 && !capturedScene)
@@ -3727,16 +4071,26 @@ static int GuardedMain(int argc, char** argv)
                                              (Luma4(&b[p * 4]) - Luma4(&bt[p * 4])));
                         return sum / double(pixels);
                     };
-                    double presrFlicker = 0, srFlicker = 0;
+                    double presrFlicker = 0, srFlicker = 0, nativeSrFlicker = 0, openrrSrFlicker = 0;
                     for (size_t i = 1; i < reads.size(); ++i)
                     {
                         presrFlicker += residualMad(reads[i - 1].presr, reads[i - 1].truthR, reads[i].presr, reads[i].truthR);
                         srFlicker += residualMad(reads[i - 1].sr, reads[i - 1].truthT, reads[i].sr, reads[i].truthT);
+                        if (nativeComparison)
+                            nativeSrFlicker += residualMad(reads[i - 1].nativeSr, reads[i - 1].truthT, reads[i].nativeSr, reads[i].truthT);
+                        if (openrrEnabled)
+                            openrrSrFlicker += residualMad(reads[i - 1].openrrSr, reads[i - 1].truthT, reads[i].openrrSr, reads[i].truthT);
                     }
                     art.temporal << sceneCfg.name << ',' << passName << ",presr_residual_temporal_mad_per_readback,"
                                  << presrFlicker / double(reads.size() - 1) << "\n";
                     art.temporal << sceneCfg.name << ',' << passName << ",sr_residual_temporal_mad_per_readback,"
                                  << srFlicker / double(reads.size() - 1) << "\n";
+                    if (nativeComparison)
+                        art.temporal << sceneCfg.name << ',' << passName << ",native_sr_residual_temporal_mad_per_readback,"
+                                     << nativeSrFlicker / double(reads.size() - 1) << "\n";
+                    if (openrrEnabled)
+                        art.temporal << sceneCfg.name << ',' << passName << ",openrr_sr_residual_temporal_mad_per_readback,"
+                                     << openrrSrFlicker / double(reads.size() - 1) << "\n";
                     const auto early = std::find_if(reads.begin(), reads.end(), [&](const auto& r) { return r.frameId >= sceneCfg.revealFrame; });
                     if (sceneCfg.occlusionReveal && early != reads.end() && early->frameId < reads.back().frameId)
                     {

@@ -354,7 +354,7 @@ struct BenchResult
 
 BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, const fs::path& dataDir, const fs::path& dlssdPath,
                             const fs::path& outDir, uint32_t maxRenderW, uint32_t maxRenderH, uint32_t outW, uint32_t outH,
-                            uint32_t warmupFrames, uint32_t steadyFrames, uint32_t drsFrames)
+                            uint32_t warmupFrames, uint32_t steadyFrames, uint32_t drsFrames, const std::wstring& backendStr = L"d3d12")
 {
     Require(!IsGameRunning(), "Game process detected; aborting benchmark.");
     HMODULE mod = LoadLibraryExW(dllPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
@@ -436,10 +436,17 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
     ci.dlssd_path = dlssdPath.c_str();
     ci.data_dir = dataDir.c_str();
     ci.log_path = logPath.c_str();
-    ci.backend = ONR_RR_BACKEND_CHOICE_D3D12;
+    const bool wantVulkan = backendStr == L"vulkan";
+    ci.backend = wantVulkan ? ONR_RR_BACKEND_CHOICE_VULKAN : ONR_RR_BACKEND_CHOICE_D3D12;
 
     void* ctx = nullptr;
     Require(api4.v3.v2.v1.Create(&ci, &ctx) == ONR_RR_OK && ctx != nullptr, "OpenRR Create failed");
+
+    ComPtr<ID3D12CommandAllocator> ca2;
+    Check(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&ca2)), "CreateCommandAllocator2");
+    ComPtr<ID3D12GraphicsCommandList> cl2;
+    Check(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, ca2.Get(), nullptr, IID_PPV_ARGS(&cl2)), "CreateCommandList2");
+    Check(cl2->Close(), "Close initial 2");
 
     auto runOneFrame = [&](uint32_t rw, uint32_t rh, bool reset) -> double {
         OnrRrFrame f {};
@@ -469,14 +476,35 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
         Check(cl->Reset(ca.Get(), nullptr), "Reset list");
         cl->EndQuery(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
         void* job = nullptr;
-        Require(api4.Record(ctx, &f, cl.Get(), ONR_RR_EDIT_OFF, nullptr, &job) == ONR_RR_OK, "Record failed");
-        cl->EndQuery(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
-        cl->ResolveQueryData(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, qrb.Get(), 0);
-        Check(cl->Close(), "Close");
-        ID3D12CommandList* lists[] = { cl.Get() };
-        q->ExecuteCommandLists(1, lists);
-        Check(q->Signal(fence.Get(), ++fv), "Signal");
-        WaitForFence(dev.Get(), fence.Get(), fv, "runOneFrame");
+        if (!wantVulkan)
+        {
+            Require(api4.Record(ctx, &f, cl.Get(), ONR_RR_EDIT_OFF, nullptr, &job) == ONR_RR_OK, "Record failed");
+            cl->EndQuery(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+            cl->ResolveQueryData(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, qrb.Get(), 0);
+            Check(cl->Close(), "Close");
+            ID3D12CommandList* lists[] = { cl.Get() };
+            q->ExecuteCommandLists(1, lists);
+            Check(q->Signal(fence.Get(), ++fv), "Signal");
+            WaitForFence(dev.Get(), fence.Get(), fv, "runOneFrame");
+        }
+        else
+        {
+            Require(api4.v3.v2.v1.RecordInputs(ctx, &f, cl.Get(), &job) == ONR_RR_OK, "RecordInputs failed");
+            Check(cl->Close(), "Close RecordInputs");
+            ID3D12CommandList* lists1[] = { cl.Get() };
+            q->ExecuteCommandLists(1, lists1);
+            Require(api4.v3.v2.v1.Enqueue(ctx, job, q.Get()) == ONR_RR_OK, "Enqueue failed");
+            Check(ca2->Reset(), "Reset allocator 2");
+            Check(cl2->Reset(ca2.Get(), nullptr), "Reset list 2");
+            Require(api4.v3.v2.v1.RecordOutput(ctx, job, cl2.Get()) == ONR_RR_OK, "RecordOutput failed");
+            cl2->EndQuery(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+            cl2->ResolveQueryData(qh.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, qrb.Get(), 0);
+            Check(cl2->Close(), "Close RecordOutput");
+            ID3D12CommandList* lists2[] = { cl2.Get() };
+            q->ExecuteCommandLists(1, lists2);
+            Check(q->Signal(fence.Get(), ++fv), "Signal");
+            WaitForFence(dev.Get(), fence.Get(), fv, "runOneFrame(Vulkan)");
+        }
         uint64_t ts[2] {};
         void* m = nullptr;
         Check(qrb->Map(0, nullptr, &m), "Map timestamps");
@@ -503,7 +531,7 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
     readyInfo.size = sizeof(readyInfo);
     Require(api4.v3.v2.v1.GetInfo(ctx, &readyInfo) == ONR_RR_OK && readyInfo.state == ONR_RR_STATE_READY,
             "OpenRR did not reach ONR_RR_STATE_READY");
-    Require(readyInfo.backend == ONR_RR_BACKEND_D3D12, "Expected D3D12 backend");
+    Require(readyInfo.backend == (wantVulkan ? ONR_RR_BACKEND_VULKAN : ONR_RR_BACKEND_D3D12), "Unexpected OpenRR backend");
 
     // Warmup
     for (uint32_t i = 0; i < warmupFrames; ++i)
@@ -572,6 +600,7 @@ try
     fs::path outDir = L"exports/test-run/openrr-bench";
     uint32_t rw = 1706, rh = 960, ow = 2560, oh = 1440;
     uint32_t warmup = 32, steady = 120, drs = 64;
+    std::wstring backendStr = L"d3d12";
 
     for (int i = 1; i < argc; ++i)
     {
@@ -585,6 +614,7 @@ try
         else if (arg == L"--warmup") warmup = std::stoul(argv[++i]);
         else if (arg == L"--frames") steady = std::stoul(argv[++i]);
         else if (arg == L"--drs-frames") drs = std::stoul(argv[++i]);
+        else if (arg == L"--backend") backendStr = argv[++i];
         else throw std::runtime_error("Unknown option");
     }
 
@@ -600,14 +630,14 @@ try
     if (hasBase)
     {
         Require(fs::exists(baselinePath), "Baseline runtime DLL not found: " + baselinePath.string());
-        baseRes = RunRuntimeBench("baseline", baselinePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs);
+        baseRes = RunRuntimeBench("baseline", baselinePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs, backendStr);
         std::printf("[baseline] steady: mean=%.3f ms, median=%.3f ms, p95=%.3f ms | DRS: mean=%.3f ms, median=%.3f ms, p95=%.3f ms, max=%.3f ms | VRAM: feature=%.1f MB (DRS %.1f MB), proc_delta=%.1f MB\n",
                     baseRes.steadyGpuMs.mean, baseRes.steadyGpuMs.median, baseRes.steadyGpuMs.p95,
                     baseRes.drsGpuMs.mean, baseRes.drsGpuMs.median, baseRes.drsGpuMs.p95, baseRes.drsGpuMs.max,
                     baseRes.featureSelfMbSteady, baseRes.featureSelfMbDrs, baseRes.processVramDeltaMbSteady);
     }
 
-    BenchResult candRes = RunRuntimeBench("candidate", runtimePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs);
+    BenchResult candRes = RunRuntimeBench("candidate", runtimePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs, backendStr);
     std::printf("[candidate] steady: mean=%.3f ms, median=%.3f ms, p95=%.3f ms | DRS: mean=%.3f ms, median=%.3f ms, p95=%.3f ms, max=%.3f ms | VRAM: feature=%.1f MB (DRS %.1f MB), proc_delta=%.1f MB\n",
                 candRes.steadyGpuMs.mean, candRes.steadyGpuMs.median, candRes.steadyGpuMs.p95,
                 candRes.drsGpuMs.mean, candRes.drsGpuMs.median, candRes.drsGpuMs.p95, candRes.drsGpuMs.max,

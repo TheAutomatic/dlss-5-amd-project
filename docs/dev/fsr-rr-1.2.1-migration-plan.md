@@ -142,13 +142,13 @@
 
 ## 执行清单
 
-- [ ] A：固定官方1.2.1来源与实际公开范围，完成闭包差分清单。
-- [ ] B：更新ABI/头文件/flag/provider门禁及必要打包依赖。
-- [ ] C：完成最小迁移验收，记录异常与存量边界。
-- [ ] D：固定可复用1.2.1基线，迁移独立提交。
-- [ ] 固化测试专用纯转接策略与 OpenRR 同源对照约束（`ONR_RR_STATE_READY` 预热、公共 guide 对齐、最终输出分辨率对齐），不依赖 Fast 预设，不改变产品默认。
-- [ ] E1：新版运动／停止收敛三路对照（FSR-RR 原生 vs FSR-RR 纯转接 vs OpenRR）。
-- [ ] E2：新版反射／粗糙度三路对照（FSR-RR 原生 vs FSR-RR 纯转接 vs OpenRR）。
+- [x] A：固定官方1.2.1来源与实际公开范围，完成闭包差分清单（见 `third_party/fsr-rr-1.2.1/README.md` 及 `work/notes/2026-11-06-fsr-rr-1.2.1-migration-and-3way-comparison.md`）。
+- [x] B：更新ABI/头文件/flag/provider门禁及必要打包依赖。
+- [x] C：完成最小迁移验收，记录异常与存量边界。
+- [x] D：固定可复用1.2.1基线，迁移独立提交（`747a3598a`）。
+- [x] 固化测试专用纯转接策略与 OpenRR 同源对照约束（`ONR_RR_STATE_READY` 预热、公共 guide 对齐、最终输出分辨率对齐），不依赖 Fast 预设，不改变产品默认。
+- [x] E1：新版运动／停止收敛三路对照（FSR-RR 原生 vs FSR-RR 纯转接 vs OpenRR）。
+- [x] E2：新版反射／粗糙度三路对照（FSR-RR 原生 vs FSR-RR 纯转接 vs OpenRR）。
 - [ ] E3：短游戏端到端对照（DLSS-D 同源下 FSR-RR 转接 vs OpenRR + 可选游戏原生 FSR-RR）及真实输入来源记录。
-- [ ] E4：同场景受控性能归因（FSR-RR 全链 vs OpenRR `D3D12`／`Vulkan` 后端）。
+- [x] E4：同场景受控性能归因（FSR-RR 全链 vs OpenRR `D3D12`／`Vulkan` 后端）。
 - [ ] 后续独立任务：在纯转接基线稳定后统一评估Balanced／Quality与Fork调参，不混入基础对照。
